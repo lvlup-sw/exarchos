@@ -25,12 +25,20 @@ import {
   MINIMUM_LIVE_ATTEMPTS,
   decideRollout,
   evaluateCutoverGate,
+  isComparableShadowClass,
+  readDurableShadowAttempts,
   toEnforcementEnabledData,
   toRolloutDecisionData,
   type CutoverGateEvidence,
+  type DurableShadowAttemptFact,
   type LiveShadowAttempt,
   type CutoverPolicyRef,
 } from './cutover-gate.js';
+import {
+  ZERO_LIVE_SHADOW_HEALTH,
+  liveShadowEvidenceStreamId,
+  type LiveShadowHealth,
+} from './live-shadow-observer.js';
 
 // ─── Shared fixtures ───────────────────────────────────────────────────────────
 
@@ -106,18 +114,49 @@ function unexplainedDisagreement(): ShadowDecisionRecord {
 }
 
 // ── Live-attempt builder: every phase kind, both outcomes, >= 20 total. ──
+//
+// T-32: every attempt also carries the DISAGREEMENT CLASS the shadow runner
+// assigned it. A comparable class is what makes an attempt spendable as
+// coverage; `shadow-error` / `admission-indeterminate` are not comparisons.
 
 function fullLiveCoverage(): LiveShadowAttempt[] {
   const attempts: LiveShadowAttempt[] = [];
   for (const phaseKind of ALL_PHASE_KINDS) {
-    attempts.push({ phaseKind, outcome: 'allow' });
-    attempts.push({ phaseKind, outcome: 'deny' });
+    attempts.push({ phaseKind, outcome: 'allow', disagreementClass: 'agree' });
+    attempts.push({
+      phaseKind,
+      outcome: 'deny',
+      disagreementClass: 'legacy-deny-admission-allow',
+    });
   }
   // Pad to the threshold while preserving coverage.
   while (attempts.length < MINIMUM_LIVE_ATTEMPTS) {
-    attempts.push({ phaseKind: 'IMPLEMENT', outcome: 'allow' });
+    attempts.push({
+      phaseKind: 'IMPLEMENT',
+      outcome: 'allow',
+      disagreementClass: 'agree',
+    });
   }
   return attempts;
+}
+
+/** Durable sidecar facts mirroring {@link fullLiveCoverage}. */
+function fullDurableCoverage(): DurableShadowAttemptFact[] {
+  return fullLiveCoverage().map((a) => ({
+    legacyOutcome: a.outcome,
+    disagreementClass: a.disagreementClass,
+  }));
+}
+
+/** A health reading from an observer that watched and landed its evidence. */
+function healthyObserver(): LiveShadowHealth {
+  const attempts = fullLiveCoverage().length;
+  return {
+    ...ZERO_LIVE_SHADOW_HEALTH,
+    attemptsObserved: attempts,
+    appendsScheduled: attempts,
+    appendsSucceeded: attempts,
+  };
 }
 
 /** A fully green evidence set — every condition met. */
@@ -129,6 +168,8 @@ function satisfiedEvidence(): CutoverGateEvidence {
       explainedDisagreement(),
     ],
     liveAttempts: fullLiveCoverage(),
+    durableAttempts: fullDurableCoverage(),
+    observerHealth: healthyObserver(),
   };
 }
 
@@ -197,7 +238,11 @@ describe('CutoverGate_Blocking (P07-01 exit-proofs b–e)', () => {
     );
     // Keep the count at/over threshold so ONLY coverage is at fault.
     while (withoutMerge.length < MINIMUM_LIVE_ATTEMPTS) {
-      withoutMerge.push({ phaseKind: 'IMPLEMENT', outcome: 'allow' });
+      withoutMerge.push({
+        phaseKind: 'IMPLEMENT',
+        outcome: 'allow',
+        disagreementClass: 'agree',
+      });
     }
     const report = evaluateCutoverGate({
       ...satisfiedEvidence(),
@@ -210,7 +255,11 @@ describe('CutoverGate_Blocking (P07-01 exit-proofs b–e)', () => {
 
   it('(e) all-allow coverage blocks (deny path unproven)', () => {
     const allAllow: LiveShadowAttempt[] = ALL_PHASE_KINDS.flatMap((phaseKind) =>
-      Array.from({ length: 4 }, () => ({ phaseKind, outcome: 'allow' as const })),
+      Array.from({ length: 4 }, () => ({
+        phaseKind,
+        outcome: 'allow' as const,
+        disagreementClass: 'agree' as const,
+      })),
     );
     const report = evaluateCutoverGate({
       ...satisfiedEvidence(),
@@ -224,7 +273,11 @@ describe('CutoverGate_Blocking (P07-01 exit-proofs b–e)', () => {
 
   it('(e) all-deny coverage blocks (allow path unproven)', () => {
     const allDeny: LiveShadowAttempt[] = ALL_PHASE_KINDS.flatMap((phaseKind) =>
-      Array.from({ length: 4 }, () => ({ phaseKind, outcome: 'deny' as const })),
+      Array.from({ length: 4 }, () => ({
+        phaseKind,
+        outcome: 'deny' as const,
+        disagreementClass: 'agree' as const,
+      })),
     );
     const report = evaluateCutoverGate({
       ...satisfiedEvidence(),
@@ -239,7 +292,11 @@ describe('CutoverGate_Blocking (P07-01 exit-proofs b–e)', () => {
   it('reports MULTIPLE unmet conditions at once', () => {
     const report = evaluateCutoverGate({
       corpusRecords: [unexplainedDisagreement()],
-      liveAttempts: [{ phaseKind: 'PLAN', outcome: 'allow' }],
+      liveAttempts: [
+        { phaseKind: 'PLAN', outcome: 'allow', disagreementClass: 'agree' },
+      ],
+      durableAttempts: [],
+      observerHealth: ZERO_LIVE_SHADOW_HEALTH,
     });
     expect(report.satisfied).toBe(false);
     expect(new Set(report.unmet)).toEqual(
@@ -248,6 +305,9 @@ describe('CutoverGate_Blocking (P07-01 exit-proofs b–e)', () => {
         'live-attempt-threshold',
         'phase-kind-coverage',
         'outcome-coverage',
+        // T-32: no durable evidence at all, and an observer nobody can vouch for.
+        'live-disagreement-class',
+        'live-observer-health',
       ]),
     );
   });
@@ -290,6 +350,8 @@ describe('CutoverGate_EnforcementEnablement (P07-01 exit-proof f)', () => {
     const report = evaluateCutoverGate({
       corpusRecords: [unexplainedDisagreement()],
       liveAttempts: fullLiveCoverage(),
+      durableAttempts: fullDurableCoverage(),
+      observerHealth: healthyObserver(),
     });
     expect(report.satisfied).toBe(false);
     expect(decideRollout(report)).toBe('continue-shadow');
@@ -311,6 +373,8 @@ describe('CutoverGate_EnforcementEnablement (P07-01 exit-proof f)', () => {
     const report = evaluateCutoverGate({
       corpusRecords: [unexplainedDisagreement()],
       liveAttempts: [],
+      durableAttempts: [],
+      observerHealth: ZERO_LIVE_SHADOW_HEALTH,
     });
     expect(() =>
       toEnforcementEnabledData({
@@ -333,5 +397,228 @@ describe('CutoverGate_PhaseKinds', () => {
     expect([...ALL_PHASE_KINDS].sort()).toEqual(
       ['GATHER', 'IMPLEMENT', 'MERGE', 'PLAN', 'REVIEW', 'SYNTHESIZE'].sort(),
     );
+  });
+});
+
+// ─── DR-23 / T-32 — the two new conditions, driven independently ───────────────
+//
+// The end-to-end proof (twenty attempts whose adjudication really threw) lives
+// in `live-shadow-observer.test.ts`, where the errored attempts can be PRODUCED
+// rather than written down. These tests pin the conditions' independent
+// behaviour: each drives exactly one of them red.
+
+describe('CutoverGate_DisagreementClass (DR-23 bullet 2)', () => {
+  it('classifies which classes may be spent as coverage', () => {
+    expect(isComparableShadowClass('agree')).toBe(true);
+    expect(isComparableShadowClass('legacy-allow-admission-deny')).toBe(true);
+    expect(isComparableShadowClass('legacy-deny-admission-allow')).toBe(true);
+    // Neither of these is a comparison: one has no verdict, one has no answer.
+    expect(isComparableShadowClass('shadow-error')).toBe(false);
+    expect(isComparableShadowClass('admission-indeterminate')).toBe(false);
+  });
+
+  it('a single non-comparable live attempt blocks — and ONLY that condition', () => {
+    const attempts = fullLiveCoverage();
+    // One extra attempt whose adjudication threw. Coverage and the threshold are
+    // still met by the other twenty, so the class condition is alone at fault.
+    attempts.push({
+      phaseKind: 'IMPLEMENT',
+      outcome: 'allow',
+      disagreementClass: 'shadow-error',
+    });
+    const report = evaluateCutoverGate({
+      ...satisfiedEvidence(),
+      liveAttempts: attempts,
+    });
+    expect(report.unmet).toEqual(['live-disagreement-class']);
+    expect(report.nonComparableLiveAttemptCount).toBe(1);
+    expect(report.liveDisagreementClasses['shadow-error']).toBe(1);
+  });
+
+  it('non-comparable attempts are not counted towards the threshold or coverage', () => {
+    const errored: LiveShadowAttempt[] = fullLiveCoverage().map((a) => ({
+      ...a,
+      disagreementClass: 'shadow-error' as const,
+    }));
+    const report = evaluateCutoverGate({
+      ...satisfiedEvidence(),
+      liveAttempts: errored,
+      durableAttempts: errored.map((a) => ({
+        legacyOutcome: a.outcome,
+        disagreementClass: 'admission-indeterminate' as const,
+      })),
+    });
+    expect(report.liveAttemptCount).toBeGreaterThanOrEqual(MINIMUM_LIVE_ATTEMPTS);
+    expect(report.comparableLiveAttemptCount).toBe(0);
+    expect(report.missingPhaseKinds).toEqual([...ALL_PHASE_KINDS]);
+    expect(report.hasAllowOutcome).toBe(false);
+    expect(report.hasDenyOutcome).toBe(false);
+    expect(new Set(report.unmet)).toEqual(
+      new Set([
+        'live-attempt-threshold',
+        'phase-kind-coverage',
+        'outcome-coverage',
+        'live-disagreement-class',
+      ]),
+    );
+  });
+
+  it('an EMPTY durable substrate blocks even when memory looks perfect', () => {
+    const report = evaluateCutoverGate({
+      ...satisfiedEvidence(),
+      durableAttempts: [],
+    });
+    expect(report.unmet).toEqual(['live-disagreement-class']);
+    expect(
+      report.conditions.find((c) => c.id === 'live-disagreement-class')?.detail,
+    ).toContain('never ran');
+  });
+
+  it('a non-comparable DURABLE fact blocks even when the in-memory attempts are clean', () => {
+    const durable = fullDurableCoverage();
+    durable.push({
+      legacyOutcome: 'allow',
+      disagreementClass: 'admission-indeterminate',
+    });
+    const report = evaluateCutoverGate({
+      ...satisfiedEvidence(),
+      durableAttempts: durable,
+    });
+    expect(report.unmet).toEqual(['live-disagreement-class']);
+    expect(report.nonComparableDurableAttemptCount).toBe(1);
+  });
+});
+
+describe('CutoverGate_ObserverHealth (DR-23 bullet 3)', () => {
+  it('a DEAD observer blocks — observed attempts, nothing durable landed', () => {
+    const report = evaluateCutoverGate({
+      ...satisfiedEvidence(),
+      observerHealth: {
+        ...ZERO_LIVE_SHADOW_HEALTH,
+        attemptsObserved: 20,
+        appendsScheduled: 20,
+        appendsFailed: 20,
+      },
+    });
+    expect(report.observerStatus).toBe('dead');
+    expect(report.unmet).toEqual(['live-observer-health']);
+  });
+
+  it('a LOSSY observer blocks — some evidence landed, some was dropped', () => {
+    const report = evaluateCutoverGate({
+      ...satisfiedEvidence(),
+      observerHealth: {
+        ...healthyObserver(),
+        appendsFailed: 3,
+      },
+    });
+    expect(report.observerStatus).toBe('degraded');
+    expect(report.unmet).toEqual(['live-observer-health']);
+  });
+
+  it('an observer that never watched is UNOBSERVED, not healthy', () => {
+    const report = evaluateCutoverGate({
+      ...satisfiedEvidence(),
+      observerHealth: ZERO_LIVE_SHADOW_HEALTH,
+    });
+    expect(report.observerStatus).toBe('unobserved');
+    expect(report.unmet).toEqual(['live-observer-health']);
+  });
+});
+
+// ─── The durable reader: the gate's substrate is the SIDECAR stream ───────────
+
+describe('CutoverGate_DurableReader (DR-23 — INV-1 substrate)', () => {
+  function shadowEvent(
+    legacyOutcome: 'allow' | 'deny',
+    outcome: 'allow' | 'deny' | 'indeterminate',
+  ): { type: string; data: unknown } {
+    const base = {
+      eventVersion: '1.0',
+      shadowAttemptId: 'shadow-attempt:1',
+      operationId: 'op-1',
+      phaseAttemptId: 'pa-1',
+      legacyOutcome,
+      subject: { kind: 'phase-attempt', phaseAttemptId: 'pa-1', digest: digest() },
+      evidenceSetDigest: digest(),
+      decision: {
+        contractVersion: '1.0',
+        decisionId: 'shadow-decision:1',
+        operationId: 'op-1',
+        phaseAttemptId: 'pa-1',
+        policyId: 'policy.legacy-state-translation',
+        policyVersion: '1.0',
+        policyDigest: digest(),
+        requirementSetDigest: digest(),
+        inputDigest: digest(),
+        evidenceIds: [],
+        waiverIds: [],
+        decidedAt: AT,
+        ...(outcome === 'allow'
+          ? { outcome, satisfiedRequirementIds: [], waivedRequirementIds: [] }
+          : outcome === 'deny'
+            ? {
+                outcome,
+                satisfiedRequirementIds: [],
+                unsatisfiedRequirements: [
+                  { requirementId: 'route:x', reason: 'failed' },
+                ],
+                remediation: [
+                  { action: 'retry_transition', phaseAttemptId: 'pa-1' },
+                ],
+              }
+            : {
+                outcome,
+                unresolvedRequirementIds: ['route:x'],
+                errors: [{ code: 'EVALUATOR_FAILED', message: 'threw' }],
+                remediation: [
+                  { action: 'retry_transition', phaseAttemptId: 'pa-1' },
+                ],
+              }),
+      },
+      attemptedAt: AT,
+      caller,
+      authorization,
+    };
+    return { type: 'admission.shadow-attempt', data: base };
+  }
+
+  it('reads the SIDECAR stream and derives the class from the persisted pair', async () => {
+    const seen: string[] = [];
+    const reader = {
+      async query(streamId: string) {
+        seen.push(streamId);
+        return [
+          shadowEvent('allow', 'allow'), // agree
+          shadowEvent('allow', 'deny'), // legacy-allow-admission-deny
+          shadowEvent('deny', 'indeterminate'), // admission-indeterminate
+        ];
+      },
+    };
+    const facts = await readDurableShadowAttempts(reader, ['feat-1']);
+
+    // The stream it read is the sidecar, not the authoritative feature stream.
+    expect(seen).toEqual([liveShadowEvidenceStreamId('feat-1')]);
+    expect(seen[0]).not.toBe('feat-1');
+    expect(facts.map((f) => f.disagreementClass)).toEqual([
+      'agree',
+      'legacy-allow-admission-deny',
+      'admission-indeterminate',
+    ]);
+  });
+
+  it('DROPS an unreadable event rather than defaulting it to `agree`', async () => {
+    const reader = {
+      async query() {
+        return [
+          shadowEvent('allow', 'allow'),
+          { type: 'admission.shadow-attempt', data: { nonsense: true } },
+        ];
+      },
+    };
+    const facts: readonly DurableShadowAttemptFact[] =
+      await readDurableShadowAttempts(reader, ['feat-1']);
+    expect(facts.length).toBe(1);
+    expect(facts[0]?.disagreementClass).toBe('agree');
   });
 });

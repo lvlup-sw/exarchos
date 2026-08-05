@@ -26,18 +26,37 @@ import { dispatch } from '../../core/dispatch.js';
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 import {
   InMemoryLiveShadowSink,
+  LIVE_SHADOW_EVIDENCE_STREAM_SEGMENT,
+  LiveShadowHealthCounter,
+  ZERO_LIVE_SHADOW_HEALTH,
   flushLiveShadowEvidence,
   liveShadowEvidenceStreamId,
+  liveShadowHealth,
+  liveShadowObserverStatus,
   observeLiveTransition,
   recordLiveTransition,
   liveShadowSink,
   type LiveShadowObservationRecord,
 } from './live-shadow-observer.js';
+import {
+  ALL_PHASE_KINDS,
+  MINIMUM_LIVE_ATTEMPTS,
+  evaluateCutoverGate,
+  readDurableShadowAttempts,
+} from './cutover-gate.js';
+import type { PolicyAuthority } from './policy-authority.js';
+import type {
+  LegacyTransitionObservation,
+  ShadowDecisionRecord,
+} from './shadow-decision.js';
 
 const CTX = defaultTranslationContext('2025-01-01T00:00:00.000Z');
 
-function deps(sink: InMemoryLiveShadowSink) {
-  return { sink, context: CTX };
+function deps(
+  sink: InMemoryLiveShadowSink,
+  health = new LiveShadowHealthCounter(),
+) {
+  return { sink, context: CTX, health };
 }
 
 describe('observeLiveTransition — records the cutover-gate substrate', () => {
@@ -55,7 +74,11 @@ describe('observeLiveTransition — records the cutover-gate substrate', () => {
       deps(sink),
     );
     expect(sink.size).toBe(1);
-    expect(sink.liveAttempts()[0]).toEqual({ phaseKind: 'PLAN', outcome: 'allow' });
+    expect(sink.liveAttempts()[0]).toEqual({
+      phaseKind: 'PLAN',
+      outcome: 'allow',
+      disagreementClass: 'agree',
+    });
     // legacy allow + admission allow (plan present) → agreement
     expect(sink.decisionRecords()[0]?.disagreementClass).toBe('agree');
   });
@@ -77,7 +100,11 @@ describe('observeLiveTransition — records the cutover-gate substrate', () => {
     expect(record?.disagreementClass).toBe('legacy-allow-admission-deny');
     expect(record?.disposition).toBe('unexplained');
     expect(record?.explained).toBe(false);
-    expect(sink.liveAttempts()[0]).toEqual({ phaseKind: 'REVIEW', outcome: 'allow' });
+    expect(sink.liveAttempts()[0]).toEqual({
+      phaseKind: 'REVIEW',
+      outcome: 'allow',
+      disagreementClass: 'legacy-allow-admission-deny',
+    });
   });
 
   it('skips an unmodelled edge (no shared-IR entry) without recording', () => {
@@ -112,7 +139,7 @@ describe('observeLiveTransition — records the cutover-gate substrate', () => {
           idempotent: false,
         },
         { artifacts: { plan: 'x' } },
-        { sink: throwingSink, context: CTX },
+        { sink: throwingSink, context: CTX, health: new LiveShadowHealthCounter() },
       ),
     ).not.toThrow();
   });
@@ -122,7 +149,7 @@ describe('InMemoryLiveShadowSink — bounded accumulation', () => {
   it('drops the oldest record beyond capacity', () => {
     const sink = new InMemoryLiveShadowSink(2);
     const mk = (i: number): LiveShadowObservationRecord => ({
-      attempt: { phaseKind: 'PLAN', outcome: 'allow' },
+      attempt: { phaseKind: 'PLAN', outcome: 'allow', disagreementClass: 'agree' },
       decision: {
         attempt: {
           workflowType: 'feature',
@@ -188,6 +215,7 @@ describe('exit-proof (c) — production wiring is behaviour-preserving', () => {
     expect(liveShadowSink.liveAttempts()[0]).toEqual({
       phaseKind: 'PLAN',
       outcome: 'allow',
+      disagreementClass: 'agree',
     });
   });
 });
@@ -559,5 +587,490 @@ describe('DR-23 / T-31 — durable shadow evidence from the production path', ()
     const authoritative = await eventStore.query(featureId);
     expect(authoritative.length).toBeGreaterThan(0);
     expect(authoritative.filter((e) => e.type.startsWith('admission.'))).toEqual([]);
+  });
+});
+
+// ─── DR-23 / T-32 — a DEAD observer is detectable, and the gate is sound ──────
+//
+// DR-23's remaining two bullets. The audit found (a) every shadow failure was
+// swallowed into an indistinguishable silence — "zero shadow evidence because
+// nothing happened" read exactly like "zero shadow evidence because every
+// append rejected"; and (b) the cutover gate's live conditions read only the
+// LEGACY verdict, so "20 attempts that all threw would satisfy three of four
+// conditions".
+//
+// ANTI-VACUITY, stated up front: not one assertion below increments a counter
+// itself. Every health reading is taken AFTER driving a real transition (through
+// `dispatch()` where possible, otherwise through the production
+// `observeLiveTransition`) against a store or an admission authority that is
+// rigged to FAIL — so the counters can only move if production moves them. The
+// errored-attempt fixtures are likewise PRODUCED: the classes are assigned by
+// the production classifier from a real adjudication that really threw, never
+// written into a literal.
+
+/** A trust directory that is unavailable — the admission engine throws. */
+const UNAVAILABLE_AUTHORITY: PolicyAuthority = {
+  authorizesGateEvidence(): boolean {
+    throw new Error('trust directory unavailable');
+  },
+  authorizesApproval(): boolean {
+    throw new Error('trust directory unavailable');
+  },
+  authorizesWaiver(): boolean {
+    throw new Error('trust directory unavailable');
+  },
+};
+
+const ERRORING_CTX = { ...CTX, authority: UNAVAILABLE_AUTHORITY };
+
+/**
+ * Six REAL shared-IR edges — one per {@link PhaseKind} — each carrying a gate or
+ * approval obligation on an unconditionally legal route, so the admission engine
+ * genuinely consults the trust directory on every one of them.
+ */
+const COVERING_EDGES: ReadonlyArray<{
+  readonly edge: Omit<LegacyTransitionObservation, 'legacyOutcome' | 'idempotent'>;
+  readonly state: Record<string, unknown>;
+}> = [
+  {
+    edge: { workflowType: 'feature', fromPhase: 'plan', toPhase: 'plan-review' },
+    state: { artifacts: { plan: 'docs/specs/x.md' } },
+  },
+  {
+    edge: { workflowType: 'feature', fromPhase: 'plan-review', toPhase: 'delegate' },
+    state: { planReview: { approved: true } },
+  },
+  {
+    edge: { workflowType: 'feature', fromPhase: 'delegate', toPhase: 'review' },
+    // `tasks.count` / `tasks.allComplete` are PROJECTED from the real task
+    // array, and `team.disbandedOk` is vacuously true when no team was spawned,
+    // so this state genuinely satisfies the edge's obligation.
+    state: { tasks: [{ status: 'complete' }, { status: 'complete' }] },
+  },
+  {
+    edge: { workflowType: 'feature', fromPhase: 'delegate', toPhase: 'merge-pending' },
+    // `mergePending.entryReady` is projected from the last `task.completed`
+    // event carrying a worktree — not from a state flag.
+    state: { _events: [{ type: 'task.completed', data: { worktree: 'wt-1' } }] },
+  },
+  {
+    edge: { workflowType: 'feature', fromPhase: 'synthesize', toPhase: 'completed' },
+    state: { synthesis: { prUrl: 'https://example.invalid/pr/1' } },
+  },
+  {
+    edge: { workflowType: 'debug', fromPhase: 'triage', toPhase: 'investigate' },
+    state: { triage: { symptom: 'requests fail' } },
+  },
+];
+
+/** {@link MINIMUM_LIVE_ATTEMPTS} observations: every phase kind, both outcomes. */
+function coveringObservations(featureId: string): ReadonlyArray<{
+  readonly observation: LegacyTransitionObservation;
+  readonly state: Record<string, unknown>;
+}> {
+  return Array.from({ length: MINIMUM_LIVE_ATTEMPTS }, (_unused, i) => {
+    const fixture = COVERING_EDGES[i % COVERING_EDGES.length]!;
+    return {
+      observation: {
+        ...fixture.edge,
+        // The LEGACY verdict is an INPUT to an observation (the legacy guard has
+        // already decided); alternating it is what a mixed live corpus looks
+        // like, and it is what gave the pre-T-32 gate its outcome coverage.
+        legacyOutcome: i % 2 === 0 ? ('allow' as const) : ('deny' as const),
+        idempotent: false,
+      },
+      state: { ...fixture.state, featureId, phaseAttemptId: `pa-${i}` },
+    };
+  });
+}
+
+describe('DR-23 / T-32 — observer health + gate soundness', () => {
+  let stateDir: string;
+  let eventStore: EventStore;
+
+  function ctx() {
+    return { stateDir, eventStore, enableTelemetry: false };
+  }
+
+  beforeEach(async () => {
+    stateDir = await mkdtemp(join(tmpdir(), 'live-shadow-health-'));
+    eventStore = new EventStore(stateDir);
+    await eventStore.initialize();
+    liveShadowSink.clear();
+    liveShadowHealth.reset();
+  });
+
+  afterEach(async () => {
+    await flushLiveShadowEvidence();
+    liveShadowSink.clear();
+    liveShadowHealth.reset();
+    eventStore.close();
+    await rmrfAsync(stateDir);
+  });
+
+  /**
+   * Rig the SIDECAR evidence appends to reject, leaving every authoritative
+   * append untouched. This is a store outage as production would meet one.
+   */
+  function failSidecarAppends(store: EventStore): () => void {
+    const original = store.append.bind(store);
+    const patched: EventStore['append'] = async (streamId, event, options) => {
+      if (streamId.includes(LIVE_SHADOW_EVIDENCE_STREAM_SEGMENT)) {
+        throw new Error('shadow evidence store outage');
+      }
+      return original(streamId, event, options);
+    };
+    Object.defineProperty(store, 'append', {
+      value: patched,
+      configurable: true,
+      writable: true,
+    });
+    return () => {
+      Reflect.deleteProperty(store, 'append');
+    };
+  }
+
+  it('ShadowObserver_SinkThrows_IncrementsHealthCounter', async () => {
+    // The named acceptance test. NOTHING here touches the counter: the whole
+    // drive is `dispatch()` — the shipped MCP entry point — over a store whose
+    // shadow-evidence appends reject. The health reading afterwards is whatever
+    // PRODUCTION recorded.
+    const featureId = 'shadow-health-sink-throws';
+    const restore = failSidecarAppends(eventStore);
+    try {
+      const init = await dispatch(
+        'exarchos_workflow',
+        { action: 'init', featureId, workflowType: 'feature' },
+        ctx(),
+      );
+      expect(init.isError ?? false).toBe(false);
+      const updated = await dispatch(
+        'exarchos_workflow',
+        {
+          action: 'update',
+          featureId,
+          updates: { 'artifacts.plan': 'docs/specs/x.md' },
+        },
+        ctx(),
+      );
+      expect(updated.isError ?? false).toBe(false);
+
+      const transition = await dispatch(
+        'exarchos_workflow',
+        { action: 'transition', featureId, target: 'plan-review' },
+        ctx(),
+      );
+      // NON-AUTHORITATIVE: the evidence outage must not fail the transition.
+      expect(transition.isError ?? false).toBe(false);
+
+      await flushLiveShadowEvidence();
+    } finally {
+      restore();
+    }
+
+    const health = liveShadowHealth.snapshot();
+    expect(health.attemptsObserved).toBeGreaterThan(0);
+    expect(health.appendsScheduled).toBeGreaterThan(0);
+    // The evidence really was LOST — and the counter says so.
+    expect(health.appendsFailed).toBeGreaterThan(0);
+    expect(health.appendsSucceeded).toBe(0);
+    expect(liveShadowObserverStatus(health)).toBe('dead');
+
+    // Corroboration from the substrate itself: the sidecar stream is empty. A
+    // reader that only looked here would see "no disagreements"; the counter is
+    // what makes that reading attributable to a dead observer.
+    expect(
+      await eventStore.query(liveShadowEvidenceStreamId(featureId), {
+        type: 'admission.shadow-attempt',
+      }),
+    ).toEqual([]);
+  });
+
+  it('ShadowObserver_HealthyStore_CountsLandedAppendsAndStaysHealthy', async () => {
+    // The positive twin of the test above, byte-for-byte the same drive with a
+    // WORKING store. Without it, "appendsFailed > 0" could be satisfied by a
+    // counter that increments unconditionally.
+    const featureId = 'shadow-health-healthy';
+    const init = await dispatch(
+      'exarchos_workflow',
+      { action: 'init', featureId, workflowType: 'feature' },
+      ctx(),
+    );
+    expect(init.isError ?? false).toBe(false);
+    await dispatch(
+      'exarchos_workflow',
+      {
+        action: 'update',
+        featureId,
+        updates: { 'artifacts.plan': 'docs/specs/x.md' },
+      },
+      ctx(),
+    );
+    await dispatch(
+      'exarchos_workflow',
+      { action: 'transition', featureId, target: 'plan-review' },
+      ctx(),
+    );
+    await flushLiveShadowEvidence();
+
+    const health = liveShadowHealth.snapshot();
+    expect(health.attemptsObserved).toBeGreaterThan(0);
+    expect(health.appendsSucceeded).toBeGreaterThan(0);
+    expect(health.appendsFailed).toBe(0);
+    expect(health.observationsThrew).toBe(0);
+    expect(health.streamUnresolved).toBe(0);
+    expect(liveShadowObserverStatus(health)).toBe('healthy');
+  });
+
+  it('ShadowObserver_ObservationThrows_IncrementsThrewCounterAlone', async () => {
+    // Independence (i): kill the in-memory record path and ONLY the
+    // observation-threw field moves. `appendsFailed` must not ride on it.
+    const health = new LiveShadowHealthCounter();
+    const throwingSink = {
+      record(): void {
+        throw new Error('sink boom');
+      },
+    };
+    observeLiveTransition(
+      {
+        workflowType: 'feature',
+        fromPhase: 'plan',
+        toPhase: 'plan-review',
+        legacyOutcome: 'allow',
+        idempotent: false,
+      },
+      { featureId: 'shadow-health-threw', artifacts: { plan: 'docs/x.md' } },
+      { sink: throwingSink, context: CTX, health },
+    );
+
+    const snapshot = health.snapshot();
+    expect(snapshot.observationsThrew).toBe(1);
+    expect(snapshot.attemptsObserved).toBe(1);
+    expect(snapshot.appendsFailed).toBe(0);
+    expect(snapshot.appendsScheduled).toBe(0);
+    expect(snapshot.streamUnresolved).toBe(0);
+    expect(liveShadowObserverStatus(snapshot)).toBe('dead');
+  });
+
+  it('ShadowObserver_UnresolvableStream_IncrementsUnresolvedCounterAlone', async () => {
+    // Independence (ii): a state with no `featureId` has nowhere to put its
+    // evidence. That is a dead observer, not an absence of activity — and it
+    // must move ONLY the unresolved-stream field.
+    const health = new LiveShadowHealthCounter();
+    const sink = new InMemoryLiveShadowSink();
+    observeLiveTransition(
+      {
+        workflowType: 'feature',
+        fromPhase: 'plan',
+        toPhase: 'plan-review',
+        legacyOutcome: 'allow',
+        idempotent: false,
+      },
+      { artifacts: { plan: 'docs/x.md' } }, // no featureId → unresolvable stream
+      { sink, context: CTX, health, evidence: { appender: eventStore } },
+    );
+    await flushLiveShadowEvidence();
+
+    const snapshot = health.snapshot();
+    expect(snapshot.streamUnresolved).toBe(1);
+    expect(snapshot.attemptsObserved).toBe(1);
+    expect(snapshot.appendsScheduled).toBe(0);
+    expect(snapshot.appendsFailed).toBe(0);
+    expect(snapshot.observationsThrew).toBe(0);
+    // The in-memory cache still saw it — which is exactly the ambiguity DR-23
+    // names: memory says "observed", the durable stream says "nothing".
+    expect(sink.size).toBe(1);
+  });
+
+  it('ShadowObserver_DeadAndQuietObservers_AreDifferentReadings', () => {
+    // The bullet, stated directly: a dead observer must not read as a quiet one.
+    expect(liveShadowObserverStatus(ZERO_LIVE_SHADOW_HEALTH)).toBe('unobserved');
+    expect(
+      liveShadowObserverStatus({
+        ...ZERO_LIVE_SHADOW_HEALTH,
+        attemptsObserved: 20,
+        appendsScheduled: 20,
+        appendsFailed: 20,
+      }),
+    ).toBe('dead');
+    expect(
+      liveShadowObserverStatus({
+        ...ZERO_LIVE_SHADOW_HEALTH,
+        attemptsObserved: 20,
+        appendsScheduled: 20,
+        appendsSucceeded: 19,
+        appendsFailed: 1,
+      }),
+    ).toBe('degraded');
+  });
+
+  // ─── The gate ──────────────────────────────────────────────────────────────
+
+  /** A deterministic corpus with nothing unexplained, so ONLY live conditions bite. */
+  function cleanCorpus(): ShadowDecisionRecord[] {
+    return [
+      {
+        attempt: {
+          workflowType: 'feature',
+          fromPhase: 'a',
+          toPhase: 'b',
+          phaseKind: 'IMPLEMENT',
+        },
+        legacyOutcome: 'allow',
+        admission: { status: 'evaluated', verdict: 'allow' },
+        disagreementClass: 'agree',
+        disposition: 'agree',
+        explained: true,
+        reason: 'agree',
+      },
+    ];
+  }
+
+  /** Drive 20 real observations through the production observer. */
+  async function driveCoveringAttempts(
+    featureId: string,
+    context: typeof CTX,
+  ): Promise<{ sink: InMemoryLiveShadowSink; health: LiveShadowHealthCounter }> {
+    const sink = new InMemoryLiveShadowSink();
+    const health = new LiveShadowHealthCounter();
+    for (const { observation, state } of coveringObservations(featureId)) {
+      observeLiveTransition(observation, state, {
+        sink,
+        context,
+        health,
+        evidence: { appender: eventStore },
+      });
+    }
+    await flushLiveShadowEvidence();
+    return { sink, health };
+  }
+
+  it('CutoverGate_AllAttemptsErrored_DoesNotSatisfyLiveConditions', async () => {
+    const featureId = 'cutover-all-errored';
+    // Every adjudication genuinely THROWS: the trust directory the admission
+    // engine consults is unavailable. Nothing below writes a `shadow-error`
+    // class — the production classifier assigns it.
+    const { sink, health } = await driveCoveringAttempts(featureId, ERRORING_CTX);
+
+    expect(sink.size).toBe(MINIMUM_LIVE_ATTEMPTS);
+    expect(
+      sink.decisionRecords().every((r) => r.admission.status === 'error'),
+    ).toBe(true);
+
+    // The gate reads the DURABLE sidecar stream, not the process-scoped buffer.
+    const durableAttempts = await readDurableShadowAttempts(eventStore, [featureId]);
+    expect(durableAttempts.length).toBe(MINIMUM_LIVE_ATTEMPTS);
+
+    const report = evaluateCutoverGate({
+      corpusRecords: cleanCorpus(),
+      liveAttempts: sink.liveAttempts(),
+      durableAttempts,
+      observerHealth: health.snapshot(),
+    });
+
+    // The audited premise HOLDS: 20 attempts accrued, every phase kind was
+    // exercised and both legacy outcomes are present…
+    expect(report.liveAttemptCount).toBe(MINIMUM_LIVE_ATTEMPTS);
+    expect(
+      new Set(sink.liveAttempts().map((a) => a.phaseKind)),
+    ).toEqual(new Set(ALL_PHASE_KINDS));
+    expect(new Set(sink.liveAttempts().map((a) => a.outcome))).toEqual(
+      new Set(['allow', 'deny']),
+    );
+    // …and the observer was HEALTHY, so nothing below is attributable to a dead
+    // observer. The gate blocks purely on the disagreement class.
+    expect(report.observerStatus).toBe('healthy');
+
+    expect(report.satisfied).toBe(false);
+    expect(report.comparableLiveAttemptCount).toBe(0);
+    expect(report.liveDisagreementClasses['shadow-error']).toBe(
+      MINIMUM_LIVE_ATTEMPTS,
+    );
+    expect(report.durableDisagreementClasses['admission-indeterminate']).toBe(
+      MINIMUM_LIVE_ATTEMPTS,
+    );
+    expect(new Set(report.unmet)).toEqual(
+      new Set([
+        'live-attempt-threshold',
+        'phase-kind-coverage',
+        'outcome-coverage',
+        'live-disagreement-class',
+      ]),
+    );
+  });
+
+  it('CutoverGate_ComparableAttempts_SatisfyLiveConditions', async () => {
+    // The positive twin: the SAME twenty edges, the SAME driver, the only
+    // difference being that the admission engine actually works. If the gate
+    // were un-satisfiable by construction the test above would prove nothing.
+    const featureId = 'cutover-all-comparable';
+    const { sink, health } = await driveCoveringAttempts(featureId, CTX);
+
+    expect(
+      sink.decisionRecords().every((r) => r.admission.status === 'evaluated'),
+    ).toBe(true);
+
+    const durableAttempts = await readDurableShadowAttempts(eventStore, [featureId]);
+    const report = evaluateCutoverGate({
+      corpusRecords: cleanCorpus(),
+      liveAttempts: sink.liveAttempts(),
+      durableAttempts,
+      observerHealth: health.snapshot(),
+    });
+
+    expect(report.comparableLiveAttemptCount).toBe(MINIMUM_LIVE_ATTEMPTS);
+    expect(report.nonComparableDurableAttemptCount).toBe(0);
+    expect(report.observerStatus).toBe('healthy');
+    expect(report.unmet).toEqual([]);
+    expect(report.satisfied).toBe(true);
+  });
+
+  it('CutoverGate_DeadObserver_CannotPresentAsCleanEvidence', async () => {
+    // The health counter is LOAD-BEARING on the gate, not merely observable:
+    // twenty perfectly comparable in-memory attempts whose durable evidence
+    // never landed must not satisfy it.
+    const featureId = 'cutover-dead-observer';
+    const restore = failSidecarAppends(eventStore);
+    let sink: InMemoryLiveShadowSink;
+    let health: LiveShadowHealthCounter;
+    try {
+      ({ sink, health } = await driveCoveringAttempts(featureId, CTX));
+    } finally {
+      restore();
+    }
+
+    const durableAttempts = await readDurableShadowAttempts(eventStore, [featureId]);
+    expect(durableAttempts).toEqual([]);
+
+    const report = evaluateCutoverGate({
+      corpusRecords: cleanCorpus(),
+      liveAttempts: sink.liveAttempts(),
+      durableAttempts,
+      observerHealth: health.snapshot(),
+    });
+
+    // In memory everything looks perfect — that is precisely the trap.
+    expect(report.comparableLiveAttemptCount).toBe(MINIMUM_LIVE_ATTEMPTS);
+    expect(report.observerStatus).toBe('dead');
+    expect(report.satisfied).toBe(false);
+    expect(new Set(report.unmet)).toEqual(
+      new Set(['live-disagreement-class', 'live-observer-health']),
+    );
+  });
+
+  it('CutoverGate_ReadsTheSidecarStream_NotTheAuthoritativeOne', async () => {
+    // Pins WHERE the durable evidence is read from. The authoritative feature
+    // stream carries no `admission.*` events (T-31 sidecar purity), so a reader
+    // pointed at it returns nothing at all.
+    const featureId = 'cutover-sidecar-read';
+    await driveCoveringAttempts(featureId, CTX);
+
+    const fromSidecar = await readDurableShadowAttempts(eventStore, [featureId]);
+    expect(fromSidecar.length).toBe(MINIMUM_LIVE_ATTEMPTS);
+
+    const authoritative = await eventStore.query(featureId);
+    expect(authoritative.filter((e) => e.type.startsWith('admission.'))).toEqual(
+      [],
+    );
   });
 });

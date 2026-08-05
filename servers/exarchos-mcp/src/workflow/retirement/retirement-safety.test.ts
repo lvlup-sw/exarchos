@@ -28,6 +28,7 @@ import type {
   ShadowDecisionRecord,
   ShadowProvenance,
 } from '../admission/shadow-decision.js';
+import { ZERO_LIVE_SHADOW_HEALTH } from '../admission/live-shadow-observer.js';
 import type {
   AttributedPrincipalV1,
   AuthorizationSnapshotV1,
@@ -125,6 +126,10 @@ function currentProductionGateEvidence(): CutoverGateEvidence {
       ...Array.from({ length: 6 }, () => explainedDisagreement()),
     ],
     liveAttempts: [], // P07-02 wired the observer; no production evidence has accrued yet
+    // DR-23 / T-32: no durable shadow evidence has accrued either, and no
+    // observer health has been reported — both of which the gate now weighs.
+    durableAttempts: [],
+    observerHealth: ZERO_LIVE_SHADOW_HEALTH,
   };
 }
 
@@ -295,15 +300,25 @@ describe('RetirementSafety_CutoverGateRefusesEnablement (P07-05 exit-proof c)', 
     inputDigest: digest,
   };
 
-  it('the current-production gate is NOT satisfied and names exactly the three unmet conditions', () => {
+  it('the current-production gate is NOT satisfied and names exactly the unmet conditions', () => {
     const report = evaluateCutoverGate(currentProductionGateEvidence());
     expect(report.satisfied).toBe(false);
     expect(report.unexplainedDisagreements).toBe(0);
     expect(report.liveAttemptCount).toBe(0);
-    // deterministic-corpus-clean is met (all disagreements explained); the other three are not.
+    // deterministic-corpus-clean is met (all disagreements explained); the other
+    // five are not. `live-disagreement-class` and `live-observer-health` are the
+    // DR-23 / T-32 additions: with no durable evidence and no observer to vouch
+    // for it, "zero disagreements" is not a clean reading, it is an unknown one.
     expect(new Set(report.unmet)).toEqual(
-      new Set(['live-attempt-threshold', 'phase-kind-coverage', 'outcome-coverage']),
+      new Set([
+        'live-attempt-threshold',
+        'phase-kind-coverage',
+        'outcome-coverage',
+        'live-disagreement-class',
+        'live-observer-health',
+      ]),
     );
+    expect(report.observerStatus).toBe('unobserved');
   });
 
   it('enforcement enablement CANNOT be event-sourced past the unsatisfied gate', () => {
@@ -342,7 +357,14 @@ describe('RetirementSafety_LiveDisposition (P07-05 exit-proof d)', () => {
     expect(d).toBeDefined();
     expect(d?.disposition).toBe('blocked-by-cutover-gate');
     expect(new Set(d?.unmetGateConditions ?? [])).toEqual(
-      new Set(['live-attempt-threshold', 'phase-kind-coverage', 'outcome-coverage']),
+      new Set([
+        'live-attempt-threshold',
+        'phase-kind-coverage',
+        'outcome-coverage',
+        // DR-23 / T-32 — see `currentProductionGateEvidence` above.
+        'live-disagreement-class',
+        'live-observer-health',
+      ]),
     );
     // It is also demonstrably live: real production modules still import it.
     expect((d?.productionReferences.length ?? 0)).toBeGreaterThan(0);

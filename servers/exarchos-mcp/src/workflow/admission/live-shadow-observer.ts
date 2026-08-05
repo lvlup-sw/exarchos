@@ -137,6 +137,142 @@ export class InMemoryLiveShadowSink implements LiveShadowSink {
   }
 }
 
+// ─── Observer health (DR-23 / T-32) ──────────────────────────────────────────
+//
+// DR-23 bullet 3: "a dead observer is DETECTED (health counter), not silently
+// zero". Before T-32 every shadow failure was swallowed by one of three arms —
+// the durable-append promise rejection, an unresolvable evidence stream, and the
+// outer `catch` in {@link observeLiveTransition} — so an observer that produced
+// NOTHING was indistinguishable from a system that simply never transitioned.
+// Both read as "zero shadow evidence".
+//
+// The counter below is what makes those two states distinguishable. It is
+// deliberately NOT a single scalar: "20 attempts observed, 0 appends succeeded,
+// 20 appends failed" (a dead observer) and "0 attempts observed" (a quiet one)
+// must be different readings, and {@link liveShadowObserverStatus} folds the
+// fields into exactly that judgement. The cutover gate consumes the fold, so a
+// dead observer cannot present itself as clean evidence (see `cutover-gate.ts`,
+// condition `live-observer-health`).
+
+/** An immutable reading of the observer's health. */
+export interface LiveShadowHealth {
+  /** Guarded-edge transitions the observer actually compared. */
+  readonly attemptsObserved: number;
+  /** Durable evidence appends scheduled (one per observed attempt with a store). */
+  readonly appendsScheduled: number;
+  /** Durable appends that LANDED. */
+  readonly appendsSucceeded: number;
+  /** Durable appends that REJECTED (store outage, validation, disk). */
+  readonly appendsFailed: number;
+  /** Observations whose evidence stream could not be resolved (no `featureId`). */
+  readonly streamUnresolved: number;
+  /** Observations that threw anywhere in the observer body. */
+  readonly observationsThrew: number;
+}
+
+/** The reading of an observer that has done nothing at all. */
+export const ZERO_LIVE_SHADOW_HEALTH: LiveShadowHealth = Object.freeze({
+  attemptsObserved: 0,
+  appendsScheduled: 0,
+  appendsSucceeded: 0,
+  appendsFailed: 0,
+  streamUnresolved: 0,
+  observationsThrew: 0,
+});
+
+/**
+ * The four distinguishable observer states.
+ *
+ * `dead` is the one DR-23 exists to surface: transitions WERE observed and not a
+ * single durable fact landed. That covers a store outage, an unresolvable
+ * stream, a throwing observer body AND the memory-only degradation — all of
+ * which produce an empty evidence stream that must never be read as "clean".
+ */
+export type LiveShadowObserverStatus =
+  | 'unobserved'
+  | 'dead'
+  | 'degraded'
+  | 'healthy';
+
+/** Fold a health reading into the judgement the cutover gate consumes. */
+export function liveShadowObserverStatus(
+  health: LiveShadowHealth,
+): LiveShadowObserverStatus {
+  if (health.attemptsObserved === 0) return 'unobserved';
+  if (health.appendsSucceeded === 0) return 'dead';
+  const lossy =
+    health.appendsFailed > 0 ||
+    health.streamUnresolved > 0 ||
+    health.observationsThrew > 0;
+  return lossy ? 'degraded' : 'healthy';
+}
+
+/**
+ * The mutable counter production increments.
+ *
+ * A class instance rather than module-level mutable state so it is INJECTABLE
+ * ({@link LiveShadowDeps.health} is required — a caller cannot forget to thread
+ * one) and RESETTABLE ({@link reset}); the single process-level instance
+ * ({@link liveShadowHealth}) exists only because the production observer
+ * callback is itself process-level, mirroring {@link liveShadowSink}.
+ */
+export class LiveShadowHealthCounter {
+  private attemptsObserved = 0;
+  private appendsScheduled = 0;
+  private appendsSucceeded = 0;
+  private appendsFailed = 0;
+  private streamUnresolvedCount = 0;
+  private observationsThrew = 0;
+
+  observedAttempt(): void {
+    this.attemptsObserved += 1;
+  }
+
+  scheduledAppend(): void {
+    this.appendsScheduled += 1;
+  }
+
+  appendSucceeded(): void {
+    this.appendsSucceeded += 1;
+  }
+
+  appendFailed(): void {
+    this.appendsFailed += 1;
+  }
+
+  unresolvedStream(): void {
+    this.streamUnresolvedCount += 1;
+  }
+
+  observationThrew(): void {
+    this.observationsThrew += 1;
+  }
+
+  snapshot(): LiveShadowHealth {
+    return Object.freeze({
+      attemptsObserved: this.attemptsObserved,
+      appendsScheduled: this.appendsScheduled,
+      appendsSucceeded: this.appendsSucceeded,
+      appendsFailed: this.appendsFailed,
+      streamUnresolved: this.streamUnresolvedCount,
+      observationsThrew: this.observationsThrew,
+    });
+  }
+
+  status(): LiveShadowObserverStatus {
+    return liveShadowObserverStatus(this.snapshot());
+  }
+
+  reset(): void {
+    this.attemptsObserved = 0;
+    this.appendsScheduled = 0;
+    this.appendsSucceeded = 0;
+    this.appendsFailed = 0;
+    this.streamUnresolvedCount = 0;
+    this.observationsThrew = 0;
+  }
+}
+
 // ─── Durable evidence (DR-23 / T-31) ─────────────────────────────────────────
 
 /**
@@ -444,20 +580,28 @@ function projectDecisionRecord(args: {
 const pendingEvidenceAppends = new Set<Promise<void>>();
 
 /**
- * T-32 hook point (DR-23 bullet 3 — "a dead observer is DETECTED").
+ * T-32 — the observer-failure health counter (DR-23 bullet 3, "a dead observer
+ * is DETECTED").
  *
  * This is the ONE place a durable shadow append can fail silently: the promise
  * rejection is swallowed here so a store outage cannot propagate into the
- * authoritative transition path. T-32's health counter increments in the
- * rejection arm below (and in the two `return` guards inside
- * {@link emitShadowEvidence}: an unresolvable stream id, and the outer
- * `catch` in {@link observeLiveTransition}), so "zero shadow evidence" becomes
- * distinguishable from "zero transitions".
+ * authoritative transition path. Swallowing is still correct — but it is no
+ * longer INVISIBLE: both arms increment {@link LiveShadowHealthCounter}, so
+ * "zero shadow evidence because nothing happened" and "zero shadow evidence
+ * because every append rejected" are different readings.
  */
-function trackEvidenceAppend(work: Promise<unknown>): void {
+function trackEvidenceAppend(
+  work: Promise<unknown>,
+  health: LiveShadowHealthCounter,
+): void {
+  health.scheduledAppend();
   const settled = work.then(
-    () => undefined,
-    () => undefined, // ← T-32: increment the observer-failure health counter here.
+    () => {
+      health.appendSucceeded();
+    },
+    () => {
+      health.appendFailed();
+    },
   );
   pendingEvidenceAppends.add(settled);
   void settled.finally(() => {
@@ -494,12 +638,17 @@ function emitShadowEvidence(args: {
   readonly state: Record<string, unknown>;
   readonly context: TranslationContext;
   readonly record: ShadowDecisionRecord;
+  readonly health: LiveShadowHealthCounter;
 }): void {
-  const { target, edge, key, state, context, record } = args;
+  const { target, edge, key, state, context, record, health } = args;
 
   const streamId = (target.streamIdFor ?? defaultStreamIdFor)(state);
   // T-32: an unresolvable stream is a DEAD observer, not an absence of activity.
-  if (streamId === undefined) return;
+  // Counted, so the evidence stream being empty is attributable.
+  if (streamId === undefined) {
+    health.unresolvedStream();
+    return;
+  }
 
   const recordedAt = context.evaluatedAt;
   const inputDigest = factsDigest(projectStateToFacts(state));
@@ -615,6 +764,7 @@ function emitShadowEvidence(args: {
         );
       }
     })(),
+    health,
   );
 }
 
@@ -637,6 +787,13 @@ export interface LiveShadowDeps {
    * forgets to thread the store cannot silently degrade to memory-only.
    */
   readonly evidence?: LiveShadowEvidenceTarget;
+  /**
+   * DR-23 / T-32 — the health counter this observation increments. REQUIRED for
+   * the same reason `evidence` has no default: an observation that reports its
+   * failures nowhere is exactly the dead observer this task exists to surface,
+   * and a defaulted counter would let a call site acquire one silently.
+   */
+  readonly health: LiveShadowHealthCounter;
 }
 
 /**
@@ -682,7 +839,14 @@ export function observeLiveTransition(
     const liveAttempt: LiveShadowAttempt = {
       phaseKind: edge.toPhaseKind satisfies PhaseKind,
       outcome: observation.legacyOutcome,
+      // DR-23 / T-32: the class the cutover gate's live conditions read. Without
+      // it the gate can only see the LEGACY verdict, so attempts whose shadow
+      // adjudication threw look exactly like clean comparisons.
+      disagreementClass: record.disagreementClass,
     };
+    // T-32: an attempt was genuinely compared — count it BEFORE any of the three
+    // swallowing arms, so "observed but nothing landed" is a readable state.
+    deps.health.observedAttempt();
     // DR-23: the DURABLE fact first. It is deliberately not conditioned on the
     // in-memory sink write succeeding — the store is the substrate now, and the
     // ring buffer is a same-process cache in front of it.
@@ -694,11 +858,15 @@ export function observeLiveTransition(
         state,
         context: deps.context,
         record,
+        health: deps.health,
       });
     }
     deps.sink.record({ attempt: liveAttempt, decision: record, edgeKey: key });
   } catch {
-    // Shadow observation is never authoritative — a failure is swallowed.
+    // Shadow observation is never authoritative — a failure is swallowed. T-32:
+    // swallowed, but COUNTED, so a total observation failure is not read as an
+    // absence of transitions.
+    deps.health.observationThrew();
   }
 }
 
@@ -706,6 +874,19 @@ export function observeLiveTransition(
 
 /** The process-level live shadow sink the cutover gate reads (RESERVED gate). */
 export const liveShadowSink = new InMemoryLiveShadowSink();
+
+/**
+ * The process-level observer health counter (DR-23 / T-32).
+ *
+ * Process-level for the same reason {@link liveShadowSink} is: the production
+ * observer callback {@link recordLiveTransition} is itself a process-level
+ * binding invoked from the guard seam, which has nowhere to hang per-request
+ * state. It is NOT hidden global state in the sense T-31 removed (a defaulted
+ * dependency a call site could acquire without asking): the counter is a
+ * required, injectable {@link LiveShadowDeps.health} everywhere else, and this
+ * instance is `reset()`-able so no test leaks into the next.
+ */
+export const liveShadowHealth = new LiveShadowHealthCounter();
 
 // The trust directory is out-of-band and stable; build it once.
 const SHARED_TRANSLATION_AUTHORITY = createTranslationAuthority();
@@ -730,6 +911,7 @@ export function recordLiveTransition(
 ): void {
   observeLiveTransition(observation, state, {
     sink: liveShadowSink,
+    health: liveShadowHealth,
     context: {
       authority: SHARED_TRANSLATION_AUTHORITY,
       evaluatedAt: new Date().toISOString(),
