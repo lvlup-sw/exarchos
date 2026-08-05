@@ -121,7 +121,7 @@
   @media(max-width:680px){.wave{grid-template-columns:96px 1fr}.wave .h{grid-column:2}.wave .d{grid-column:1/3}}
 
   .chip{display:inline-block;font-family:var(--mono);font-size:11px;padding:1px 9px;border-radius:20px;border:1px solid currentColor;vertical-align:middle}
-  .chip.built{color:var(--green)} .chip.des{color:var(--amber)} .chip.plan{color:var(--ink-faint)}
+  .chip.built{color:var(--green)} .chip.des{color:var(--amber)} .chip.plan{color:var(--ink-faint)} .chip.unreached{color:var(--rose)}
 
   .note{font-size:14px;color:var(--ink-faint);margin-top:14px;font-family:var(--mono);line-height:1.55}
   .refhead{margin-top:64px;padding-top:34px;border-top:1px solid var(--line)}
@@ -288,7 +288,7 @@
       <div class="lay spine"><span class="num">L5</span><span class="what"><b>Dispatch core</b><span>A single function over a context that carries storage, the event store, the resolver, and telemetry.</span></span><span class="scope">core/dispatch.ts</span></div>
       <div class="lay"><span class="num">L6</span><span class="what"><b>Composite tools</b><span>Four visible tools, each with an action discriminator, a registered output schema, and per-action annotations.</span></span><span class="scope">orchestrate/ · views/</span></div>
       <div class="lay fut"><span class="num">L7</span><span class="what"><b>Lifecycle verbs</b><span>ps, describe, wait, export: generic windows over the log, shipping with v2.12. No per-feature lifecycle code.</span></span><span class="scope">cli-commands/</span></div>
-      <div class="lay"><span class="num">L8</span><span class="what"><b>Adapters</b><span>CLI and MCP over one dispatch core. The MCP contract is the invocation surface and the CLI a client over it: asserted equal by a parity harness today, generated from the tool schemas next (§05).</span></span><span class="scope">adapters/</span></div>
+      <div class="lay"><span class="num">L8</span><span class="what"><b>Adapters</b><span>CLI and MCP over one dispatch core. The MCP contract is the invocation surface and the CLI a client over it, equal by construction — the shipped hand-written dispatch path is one owned, self-retiring deviation; parity harnesses witness the equivalence, generation from the compiled contract retires the deviation next (§05).</span></span><span class="scope">adapters/</span></div>
       <div class="lay"><span class="num">L9</span><span class="what"><b>Cooperative agents</b><span>Claude Code, Codex, Cursor, OpenCode and others. Each declares a posture and reads next_actions instead of polling; the runtime meets them through converged standards plus thin on-ramps, not a bespoke render per harness (§05).</span></span><span class="scope">runtime</span></div>
     </div>
     <p class="note">Two rows are highlighted (L2 event store, L5 dispatch core): the load-bearing spine the rest of the stack leans on. One row is dashed (L7 lifecycle verbs): in flight for v2.12, not yet landed.</p>
@@ -332,13 +332,13 @@
   <section id="concurrency">
     <div class="eyebrow">03 · under concurrency</div>
     <h2>Staying correct when agents run in parallel</h2>
-    <p class="lede">Several agents writing the same repository is the normal case, not the exception. The target architecture serializes writes to a stream in two tiers, with no process lock and no advisory file: a per-stream promise chain inside one process, then SQLite WAL + an atomic per-stream version gate across processes. <b>This guarantee is not yet treated as closed.</b> The structural baseline records unresolved sequence/version divergence and requires EFF-001 to prove multi-instance append linearization plus startup repair. Until those tests pass, plain-append race freedom and next-sequence assignment are target invariants rather than categorical runtime claims. Genuine expected-version mismatches must remain distinguishable from storage corruption or repair.</p>
+    <p class="lede">Several agents writing the same repository is the normal case, not the exception. Writes to a stream serialize in two tiers, with no process lock and no advisory file: a per-stream promise chain inside one process, then SQLite WAL + an atomic per-stream version gate across processes. <b>This is a closed guarantee, not a target</b> (EFF-001, closed 2026-08-04). Three genuine OS child processes drive the production <span class="mono">SqliteBackend</span> through the production driver against one SQLite file, held in the write-lock queue simultaneously and asserting an interleaving witness — a run that didn't actually contend fails the fixture. Weakening <span class="mono">BEGIN IMMEDIATE</span> to a deferred <span class="mono">BEGIN</span>, disabling the startup repair, or swapping in a no-op driver turns that fixture red; it cannot pass vacuously. A genuine expected-version mismatch still surfaces as a conflict, distinguishable from storage corruption or repair.</p>
     <figure class="panel">
       <div class="legend">
         <span><i class="sw-t"></i>tier 1 · in-process promise chain</span>
-        <span><i class="sw-v"></i>tier 2 target · WAL + atomic version gate + repair</span>
+        <span><i class="sw-v"></i>tier 2 closed · WAL + atomic version gate + repair</span>
       </div>
-      <svg viewBox="0 0 960 232" font-size="13" role="img" aria-label="Target concurrency design: two writers contend for one stream; an in-process chain serializes same-process writes, and SQLite WAL plus an atomic stream-version gate should serialize cross-process writes. Multi-instance append and startup-repair proof remains required.">
+      <svg viewBox="0 0 960 232" font-size="13" role="img" aria-label="Closed concurrency design: two writers contend for one stream; an in-process chain serializes same-process writes, and SQLite WAL plus an atomic stream-version gate serialize cross-process writes, proven by a genuine three-process fixture (EFF-001, closed).">
         <defs><marker id="c-v" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="var(--violet)"/></marker></defs>
         <rect x="30" y="40" width="180" height="56" rx="11" fill="oklch(0.80 0.11 196 / .07)" stroke="oklch(0.80 0.11 196 / .5)"/>
         <text x="120" y="64" text-anchor="middle" font-size="13.5" font-family="var(--disp)" fill="var(--teal)">agent A</text>
@@ -357,12 +357,12 @@
         <text x="685" y="121" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--ink-dim)">version gate: assign + check</text>
         <text x="685" y="139" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--ink-faint)">PK = integrity backstop</text>
         <path d="M685,158 C685,196 760,196 802,150" fill="none" class="flow" stroke="var(--violet)" stroke-width="1.4" marker-end="url(#c-v)"/>
-        <text x="828" y="186" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--violet)">target: plain append serializes</text>
+        <text x="828" y="186" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--violet)">closed: plain append serializes</text>
         <text x="828" y="201" text-anchor="middle" font-size="11.5" font-family="var(--mono)" fill="var(--ink-faint)">OCC mismatch: conflict</text>
       </svg>
       <figcaption>
         <ul>
-          <li><b>No PID lock, no mutex file.</b> The intended serialization primitives are the write-ahead log plus an in-transaction version gate, with the composite key as an integrity backstop. EFF-001 must still prove the cross-process linearization and startup-repair behavior.</li>
+          <li><b>No PID lock, no mutex file.</b> The serialization primitives are the write-ahead log plus an in-transaction version gate, with the composite key as an integrity backstop. EFF-001 proves the cross-process linearization and startup-repair behavior (closed 2026-08-04, <span class="mono">multi-process-append.test.ts</span>).</li>
           <li><b>Idempotency at the boundary.</b> Append keys and unique indexes collapse known storage duplicates. Cross-instance replay claims and non-transactional external effects still require durable claim/recovery proof before any at-most-once claim is accepted.</li>
           <li><b>Two events for one effect.</b> A non-idempotent action records its intent before it acts and its result after. A crash between the two is recovered by an idempotent precheck, not by guesswork.</li>
         </ul>
@@ -372,7 +372,7 @@
       <div class="dh">Decision: a single-machine frame, held on purpose <span class="enf">enforces INV-15</span></div>
       <dl>
         <dt>Forces</dt><dd>Concurrent agents look like a distributed-systems problem, and the textbook answers (saga, two-phase commit, leader election, vector clocks) are right there to reach for.</dd>
-        <dt>Choice</dt><dd>Treat it as what it is: one machine, one event store, cooperative agents. Target serialization through the write-ahead log, an atomic version gate, and explicit repair; keep the guarantee marked unverified until EFF-001 passes. Compensation is a <b>local rewind over the log</b>, never a command sent to a remote participant.</dd>
+        <dt>Choice</dt><dd>Treat it as what it is: one machine, one event store, cooperative agents. Serialization is closed through the write-ahead log, an atomic version gate, and explicit repair — proven, not merely targeted, by EFF-001's three-process fixture. Compensation is a <b>local rewind over the log</b>, never a command sent to a remote participant.</dd>
         <dt>Rejected</dt><dd class="rej">Saga orchestration, distributed locks, a supervisor process. They solve partition and multi-owner problems that do not exist here, and they import scaffolding that misleads every future reader.</dd>
         <dt>Cost</dt><dd>The frame is a boundary, and a candidate design that needs one of those primitives is a signal the boundary is being crossed, not that the primitive is due.</dd>
       </dl>
@@ -516,12 +516,12 @@
     </figure>
 
     <div class="decision">
-      <div class="dh">Decision: conform where a standard converged, enforce where none did <span class="enf">reframes INV-2 · INV-4 · INV-11 · #1601</span></div>
+      <div class="dh">Decision: conform where a standard converged, enforce where none did <span class="enf">governs INV-2 · INV-4 · INV-11 · #1601</span></div>
       <dl>
         <dt>Forces</dt><dd>Six runtimes, several concerns apiece: skills, instructions, hooks, subagents, worktree isolation. Rendering each concern per harness and then guarding the renders against drift is a tax that grows with every new runtime, and the guards see only the bytes. They prove the artifacts match, not that the guarantee holds: worktree isolation is enforced <b>by construction</b> on one runtime and merely advised on the others.</dd>
         <dt>Choice</dt><dd>Split by whether a standard exists. Where one converged — Agent Skills, AGENTS.md, MCP — emit one standard artifact and let the harness read it; a bare logical tool name carries the only per-harness variance. Where none did, enforce only at a resource-owning chokepoint: <b>state</b> in the dispatch and MCP handler; <b>lifecycle and placement</b> in the spawn-bounded launcher. <b>Spatial write confinement</b> stays an explicit per-harness capability and moves to the space-moat fork (upstream blocking hook standard or kernel sandbox).</dd>
         <dt>Rejected</dt><dd class="rej">A bespoke render per harness per concern, kept honest by ever more structural guards. It scales the tax with every runtime and never closes the enforcement gap the guards cannot see.</dd>
-        <dt>Cost</dt><dd>The launcher owns process spawn, top-level worktree placement, chdir, teardown, and <span class="mono">launch.*</span> lifecycle events within the single-machine frame. It does not own the kernel write path or harness-created nested worktrees, so it cannot make spatial confinement true everywhere. The CLI becomes a client of the MCP contract rather than a peer facade; spatial prevention remains capability-declared until the space-moat fork provides a real write-path chokepoint.</dd>
+        <dt>Cost</dt><dd>The launcher owns process spawn, top-level worktree placement, chdir, teardown, and <span class="mono">launch.*</span> lifecycle events within the single-machine frame. It does not own the kernel write path or harness-created nested worktrees, so it cannot make spatial confinement true everywhere. The CLI is a client of the MCP contract by construction, not a peer facade — the shipped hand-written dispatch path is carried as one owned, expiring deviation (<span class="mono">cli-direct-dispatch</span>, DR-25) rather than a permanent exception; spatial prevention remains capability-declared until the space-moat fork provides a real write-path chokepoint.</dd>
       </dl>
     </div>
   </section>
@@ -543,7 +543,7 @@
       <div class="wave"><span class="vv">v3.1.0</span><span class="h">later</span><span class="d"><b>Ontology</b>: the two-tier eval redesign and the notification pipeline.</span></div>
       <div class="wave"><span class="vv">v3.2.0</span><span class="h">later</span><span class="d"><b>Workflow / Remote Agent Layer</b>: the remote MCP deployment axis and the proactive-awareness surface, both held against the single-machine frame.</span></div>
     </div>
-    <p class="note">The harness-agnosticism program (#1601) threads both live zones — the launcher and the hooks-into-dispatch move in Z2, the facade-as-MCP-contract codegen in Z3 atop the 2026-07-28 MCP migration (#1604). Milestones are themed to the convergence zones, not feature buckets. The full index, the coordination rules, and the open questions live in <a href="https://github.com/lvlup-sw/exarchos/issues/1599" style="color:var(--violet);text-decoration:none">issue #1599</a>.</p>
+    <p class="note">The harness-agnosticism program (#1601) threads both live zones — the launcher and the hooks-into-dispatch move in Z2, the CLI-as-contract-client codegen in Z3 atop the 2026-07-28 MCP migration (#1604). Milestones are themed to the convergence zones, not feature buckets. The full index, the coordination rules, and the open questions live in <a href="https://github.com/lvlup-sw/exarchos/issues/1599" style="color:var(--violet);text-decoration:none">issue #1599</a>.</p>
   </section>
 
   <!-- ===== REFERENCE TAIL ===== -->
@@ -553,26 +553,26 @@
     <p class="lede">Everything above is the narrative. What follows is the reference, built to be scanned while you work. These are the architectural invariants the runtime holds, audited at review and enforced where they can be machine-checked. Full prose lives in <span class="mono">.exarchos/invariants.md</span>.</p>
     <div class="invs">
       <div class="inv"><b>INV-1</b><span>The append-only log is the source of truth; every read model is a pure fold over events.</span></div>
-      <div class="inv"><b>INV-2</b><span>The MCP contract is the invocation surface; the CLI is a generated presentation client over it, equivalent by construction.</span></div>
+      <div class="inv"><b>INV-2</b><span>The MCP contract is the invocation surface; the CLI is a client of it, equal by construction — its shipped hand-written dispatch path is one owned, self-retiring deviation.</span></div>
       <div class="inv"><b>INV-3</b><span>No decision presumes the transport is local; capability resolution stays handshake-authoritative.</span></div>
-      <div class="inv"><b>INV-4</b><span>Emit standard-conformant SKILL.md, AGENTS.md and MCP artifacts once; retain thin shims only where no standard exists.</span></div>
+      <div class="inv"><b>INV-4</b><span>Emit standard-conformant SKILL.md, AGENTS.md and MCP artifacts once; per-runtime shims are owned technical debt, retained only where no standard exists.</span></div>
       <div class="inv"><b>INV-5a</b><span>Tool inputs are constrained at the schema level; every tool says when not to use it.</span></div>
       <div class="inv"><b>INV-5b</b><span>Every result carries a fixed shape; errors carry the fields an agent needs to self-correct.</span></div>
       <div class="inv"><b>INV-5c</b><span>Verbs are queryable and dry-run-capable, borrowed from Aspire: agents query, they don't drive scripts.</span></div>
       <div class="inv"><b>INV-5d</b><span>Four visible composite tools, each with an action discriminator and per-action annotations.</span></div>
       <div class="inv"><b>INV-6</b><span>The runtime makes no assumption about which workflow type is running; specifics live in topology.</span></div>
-      <div class="inv"><b>INV-7</b><span>Target: concurrency serializes through an in-process chain plus WAL/atomic version gate; cross-process linearization and startup repair remain unverified until EFF-001 passes.</span></div>
+      <div class="inv"><b>INV-7</b><span>Closed, not a target: concurrency serializes through an in-process chain plus a WAL/atomic version gate; cross-process linearization and startup repair are proven by a three-process fixture (EFF-001, closed).</span></div>
       <div class="inv"><b>INV-8</b><span>Every append carries an idempotency key; a unique index collapses duplicates at storage.</span></div>
       <div class="inv"><b>INV-9</b><span>Every workflow type ships a state machine; only one action mutates a phase.</span></div>
       <div class="inv"><b>INV-10</b><span>Long-running work emits a start event and a terminal event; lifecycle verbs query them generically.</span></div>
-      <div class="inv"><b>INV-11</b><span>The launcher enforces process lifecycle and top-level placement; spatial write confinement is declared and proven per harness until a hook standard or kernel sandbox owns the write path.</span></div>
+      <div class="inv"><b>INV-11</b><span>The launcher enforces process lifecycle and top-level placement; spatial write confinement is EXCLUDED from that by-construction claim and declared per harness (prevention | detection | advisory | unavailable) until a hook standard or kernel sandbox owns the write path.</span></div>
       <div class="inv"><b>INV-12</b><span>next_actions publishes the affordances an agent perceives; agents dispatch them, they don't poll.</span></div>
       <div class="inv"><b>INV-13</b><span>A non-idempotent effect emits intent before and result after, so a crash is recoverable.</span></div>
       <div class="inv"><b>INV-14</b><span>Recovery prefers a native undo, then a refuse-to-discard reset, and never a destructive overwrite.</span></div>
       <div class="inv"><b>INV-15</b><span>One machine, cooperative agents. No saga, no distributed locks, no leader election.</span></div>
     </div>
 
-    <p class="note">INV-2, INV-4 and INV-11 are being reframed by the harness-agnosticism program (#1601): the CLI becomes a client of the MCP contract (equivalence by construction), runtimes are served by standards-conformance plus a thin shim, and the launcher owns lifecycle/placement rather than filesystem confinement. Spatial isolation is a separate capability/space-moat workstream. The catalog edit is tracked in #1608; the decision is §05.</p>
+    <p class="note">INV-2, INV-4, INV-7 and INV-11 carry the harness-agnosticism reframe (#1601) in their governing form, re-approved and frozen in <span class="mono">.exarchos/invariants.md</span> (#1608, DR-26): the CLI is a client of the MCP contract, equal by construction, with its one hand-written dispatch path carried as an owned, self-retiring deviation (DR-25); runtimes are served by standards-conformance plus an owned thin shim — technical debt, not an unqualified platform-agnosticity claim; cross-process serialization is closed (EFF-001); and spatial write confinement is excluded from INV-11's by-construction claim, declared per harness until the #1601 space-moat fork lands. The decision is §05.</p>
 
     <table style="margin-top:34px">
       <caption>What's real today, and what's planned</caption>
@@ -581,16 +581,19 @@
         <tr><td><b>SQLite event store + WAL serialization</b></td><td><span class="chip built">built</span></td><td>the JSONL substrate flip and the PID-lock removal have shipped</td></tr>
         <tr><td><b>Projections, snapshots, reconcile</b></td><td><span class="chip built">built</span></td><td>pure folds with degrade-to-rebuild fallbacks</td></tr>
         <tr><td><b>Two-event handler pattern + idempotency</b></td><td><span class="chip built">built</span></td><td>merge-orchestrate, create-pr, branch and worktree cleanup</td></tr>
-        <tr><td><b>CLI = MCP facade parity, 4 composite tools</b></td><td><span class="chip built">built</span></td><td>byte-equal results, schema-checked</td></tr>
+        <tr><td><b>CLI ≡ MCP contract-client parity, 4 composite tools</b></td><td><span class="chip built">built</span></td><td>byte-equal + schema-checked; the hand-written dispatch path is one owned, expiring deviation (<span class="mono">cli-direct-dispatch</span>, DR-25)</td></tr>
+        <tr><td><b>Evidence-backed admission · route + policy + waiver evaluation</b></td><td><span class="chip built">built</span></td><td>runs on every live phase transition via the shadow observer, but is not yet authoritative — route selection, policy and waiver evaluation are activated on the live path (DR-34, DR-35) and durable disagreement evidence accumulates in production; the legacy HSM guard still decides</td></tr>
+        <tr><td><b>Admission cutover gate · flips enforcement to the evidence-backed engine</b></td><td><span class="chip unreached">built · unreached</span></td><td>deliberately RESERVED with zero production callers: the legacy HSM guard stays authoritative until ≥20 comparable live attempts cover every phase kind with both allow and deny outcomes (module-intent gate, #1713)</td></tr>
         <tr><td><b>Risk-proportional verification ladder</b></td><td><span class="chip built">built</span></td><td>ladder + bounded plan-review loop + high-tier mutation backstop wired; test-first excision shipped (#1515)</td></tr>
         <tr><td><b>Lifecycle verbs · worktree manager</b></td><td><span class="chip des">in flight</span></td><td>the v2.12 zone (#1090, #1574)</td></tr>
         <tr><td><b>Workflow Builder SDK + authored IR</b></td><td><span class="chip plan">planned</span></td><td>the v3.0 consolidation endpoint (#1258)</td></tr>
         <tr><td><b>Standards conformance · one SKILL.md, AGENTS.md, MCP</b></td><td><span class="chip built">built</span></td><td>procedural skills render once to <span class="mono">skills/standard/</span> with bare logical tool names + one canonical verb vocabulary; <span class="mono">.agents/skills/</span> install layout (copy-mode on win32) + provenance manifest; AGENTS.md managed block + <span class="mono">CLAUDE.md</span> <span class="mono">@AGENTS.md</span> shim (v2.12.0-preview.1, #1601, #1602, #1605)</td></tr>
         <tr><td><b>Launcher · lifecycle/placement chokepoint</b></td><td><span class="chip built">built</span></td><td>owns process spawn, top-level worktree placement, chdir/teardown, orientation injection, and <span class="mono">launch.*</span> liveness; spatial write confinement remains per-harness capability / space-moat work (v2.12.0-preview.1, #1601, #1603, #1607)</td></tr>
-        <tr><td><b>Facade as MCP-contract client · presentation codegen</b></td><td><span class="chip plan">planned</span></td><td>rides the 2026-07-28 MCP migration (#1601, #1604, #1606)</td></tr>
+        <tr><td><b>CLI surface generated from the compiled contract</b></td><td><span class="chip plan">planned</span></td><td><span class="mono">deriveCliSurface</span> becomes generative, not descriptive; retires the <span class="mono">cli-direct-dispatch</span> deviation (rides #1601, #1604, #1606)</td></tr>
         <tr><td><b>Remote agent layer</b></td><td><span class="chip plan">planned</span></td><td>held against the single-machine frame (#1081, #1137)</td></tr>
       </tbody>
     </table>
+    <p class="note">A <span class="chip built">built</span> chip is load-bearing on a live path today. A <span class="chip unreached">built · unreached</span> chip means the code shipped but no production caller invokes it yet — deliberately, and tracked with an owner and an expiry rather than left as unverified prose (the module-intent gate, #1713): it is either wired or deleted by that date, never silently forgotten.</p>
   </section>
 
   <!-- ===== COLOPHON ===== -->
