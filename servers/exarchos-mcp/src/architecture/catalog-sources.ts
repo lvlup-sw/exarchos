@@ -31,8 +31,11 @@
  *
  * The audience scoping the boolean carried is now carried by `tier: 'dev'` on
  * an ordinary registration, so a repo opts its own catalog in exactly the way a
- * consumer does. `devCatalog` may still legally APPEAR in a config (the schema
- * still accepts it until DR-31's schema task); it simply has no effect here.
+ * consumer does. `devCatalog` never reaches this function at all: the config
+ * schema (`config/exarchos-config-schema.ts`) desugars the retired alias into
+ * an ordinary `catalogs:` entry at the `.exarchos.yml` parse boundary and
+ * strips the key from the parsed shape, so discovery has exactly ONE
+ * authority — the `catalogs:` list.
  *
  * The returned paths are NOT resolved against a repo root here — that is the
  * resolver's job (it may be absolute or relative).

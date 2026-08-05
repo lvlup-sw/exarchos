@@ -58,9 +58,9 @@ describe('invariantsCatalog', () => {
   });
 
   it('InvariantsCatalog_NoCatalogConfigured_ReturnsSkipped', async () => {
-    // configured:false with no warnings means the dev catalog is disabled and
-    // no user catalogs are configured — nothing to validate (DIM-2: no silent
-    // skip; reason is populated).
+    // configured:false with no warnings means nothing is registered in
+    // `invariants.catalogs` — nothing to validate (DIM-2: no silent skip;
+    // reason is populated).
     const probes = makeStubProbes({
       invariants: { resolve: async () => ({ configured: false, warnings: [] }) },
     });
@@ -70,6 +70,29 @@ describe('invariantsCatalog', () => {
     expect(result.status).toBe('Skipped');
     expect(result.reason).toBeDefined();
     expect(result.reason!.length).toBeGreaterThan(0);
+  });
+
+  it('InvariantsCatalog_SkipReason_NamesRegistrationNotRetiredFlag', async () => {
+    // DR-31 / T-43 — THE USER-FACING OUTPUT GUARD. `reason` is text an
+    // operator READS and acts on. It used to say "invariants.devCatalog is
+    // disabled ... Enable the dev catalog", naming a mechanism that no longer
+    // exists — advice that cannot be followed.
+    //
+    // The pre-existing coverage above only asserted `reason` is non-empty, so
+    // the stale mechanism name was completely unobserved. This pins the
+    // contract in both directions: it must name the remedy that WORKS
+    // (registration in `invariants.catalogs`) and must NOT name the retired
+    // one.
+    const probes = makeStubProbes({
+      invariants: { resolve: async () => ({ configured: false, warnings: [] }) },
+    });
+
+    const result = await invariantsCatalog(probes, controller());
+
+    expect(result.status).toBe('Skipped');
+    expect(result.reason).toContain('invariants.catalogs');
+    expect(result.reason!.toLowerCase()).not.toContain('devcatalog');
+    expect(result.message.toLowerCase()).not.toContain('devcatalog');
   });
 
   it('InvariantsCatalog_ConfiguredButNoPhaseMatchingEntries_StillPasses', async () => {

@@ -3,8 +3,9 @@
  *
  * The default-on baseline Exarchos ships *to consumers* — engineers using
  * Exarchos as a plugin to govern their own SDLC. Distinct from the dev catalog
- * (`.exarchos/invariants.md`, `INV-*`, devCatalog-gated, never surfaced
- * to consumers) and from a consumer's own `user`-layer catalog (`U-*`).
+ * (`.exarchos/invariants.md`, `INV-*`, loaded only where a `tier: dev`
+ * registration names it, so never surfaced to consumers) and from a consumer's
+ * own `user`-layer catalog (`U-*`).
  *
  * ## Why inline (not a .md file)
  *
@@ -185,9 +186,9 @@ const RAW_SDLC_ENTRIES: ReadonlyArray<Record<string, unknown>> = [
 const SDLC_CATALOG: InvariantEntry[] = parseInvariantEntries(RAW_SDLC_ENTRIES);
 
 /**
- * Return the shipped, default-on SDLC-* consumer catalog. No `devCatalog`-style
- * gate — sdlc ships enabled; the override mechanism is the consumer's escape
- * hatch, not a master switch.
+ * Return the shipped, default-on SDLC-* consumer catalog. It needs no
+ * registration at all — sdlc ships enabled; the override mechanism is the
+ * consumer's escape hatch, not a master switch.
  *
  * Returns a fresh deep copy per call (matching `loadInvariants`'s re-parse
  * semantics) so a downstream consumer cannot mutate the shared module-level

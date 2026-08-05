@@ -220,14 +220,41 @@ describe('seedExarchosConfig', () => {
 
     const body = writes[0].contents;
     // The stanza is emitted COMMENTED so it documents the opt-in without
-    // changing behaviour (devCatalog stays effectively disabled until the
-    // operator uncomments it). The block carries a one-line explanation, a
-    // `devCatalog: disabled` line, and a stubbed `catalogs:` example.
+    // changing behaviour (nothing loads until the operator uncomments it and
+    // registers a path). The block carries a one-line explanation and a
+    // stubbed `catalogs:` registration example.
     expect(body).toContain('# invariants:');
-    expect(body).toMatch(/#\s*devCatalog:\s*disabled/);
     expect(body).toMatch(/#\s*catalogs:/);
-    // The explanatory comment must mention what enabling the dev catalog does.
+    // The explanatory comment must mention what registering a catalog does.
     expect(body).toMatch(/dev[- ]catalog|architectural invariant/i);
+  });
+
+  it('seed_NeverEmitsRetiredDevCatalogFlag', () => {
+    // DR-31 / T-43 — THE SEED-PATH GUARD. `devCatalog` is retired; a freshly
+    // onboarded repo must never be handed the key, not even commented out,
+    // because a commented line is a template an operator uncomments. Emitting
+    // it would seed a deprecated key that `exarchos doctor` then flags on the
+    // very first run.
+    //
+    // Asserted on the WHOLE seeded body (not just the active YAML) precisely
+    // so the commented stanza is in scope — a `# devCatalog: disabled` line
+    // reddens this.
+    const writes: Array<{ p: string; contents: string }> = [];
+    seedExarchosConfig('/repo', {
+      exists: () => false,
+      write: (p, contents) => writes.push({ p, contents }),
+      resolve: () => npmResolve(),
+    });
+    const body = writes[0].contents;
+
+    // POSITIVE CONTROL: a "does not contain" assertion over an empty or
+    // unwritten body would pass vacuously. Pin that the seed really ran and
+    // really emitted the invariants stanza this assertion is scoped to.
+    expect(writes).toHaveLength(1);
+    expect(body).toContain('# invariants:');
+    expect(body).toMatch(/#\s*catalogs:/);
+
+    expect(body.toLowerCase()).not.toContain('devcatalog');
   });
 
   it('seed_InvariantsStanza_IsCommentedNotActive', () => {

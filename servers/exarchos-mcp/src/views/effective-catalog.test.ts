@@ -7,7 +7,8 @@ import { resolveEffectiveCatalog } from '../architecture/resolve-effective-catal
 import { loadExarchosConfig } from '../config/load-exarchos-config.js';
 
 /**
- * Build a repo fixture with a committed `.exarchos.yml` (devCatalog enabled +
+ * Build a repo fixture with a committed `.exarchos.yml` (a registered user
+ * catalog +
  * a user catalog + an override), a dev invariants catalog, and a user
  * catalog. The view facade reads the config from disk exactly as production
  * would, so the test drives both facades from the same on-disk state.
@@ -72,7 +73,6 @@ function makeRepoFixture(): { repoRoot: string; cleanup: () => void } {
     path.join(repoRoot, '.exarchos.yml'),
     [
       'invariants:',
-      '  devCatalog: enabled',
       '  catalogs:',
       '    - team-invariants.md',
       '  overrides:',

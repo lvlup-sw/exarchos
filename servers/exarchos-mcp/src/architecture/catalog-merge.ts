@@ -9,9 +9,9 @@
  * severity ladder:
  *
  *   - `substrate`  → immutable. Not user-tunable at all. (Exarchos's own
- *                    substrate invariants are devCatalog-gated and never
- *                    reach a consumer, so this is self-protection within a
- *                    catalog's own audience.)
+ *                    substrate invariants live in a `tier: dev` catalog that
+ *                    only this repo registers, so they never reach a consumer;
+ *                    this is self-protection within a catalog's own audience.)
  *   - `sdlc` /
  *     `authoring`  → tunable down to `advisory` but never fully removable.
  *                    Floor = `advisory`.
@@ -217,7 +217,7 @@ export function applyOverrides(
     if (!byId.has(id)) {
       warnings.push(
         `Override for '${id}' is a no-op: no such invariant is present ` +
-          `(it may be devCatalog-gated or simply unknown).`,
+          `(no catalog registering it is loaded, or the id is unknown).`,
       );
     }
   }

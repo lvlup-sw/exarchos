@@ -35,23 +35,29 @@ const HEADER = `# .exarchos.yml — Exarchos project configuration.
 
 // Commented onboarding stanza for the architectural-invariants surface
 // (#1479). Emitted as comments so seeding documents the opt-in WITHOUT
-// changing behaviour: the dev catalog stays effectively disabled until the
-// operator uncomments the block. Authoring guide:
+// changing behaviour: no catalog loads until the operator uncomments the
+// block and registers a real path. Authoring guide:
 // docs/guides/authoring-invariants.md; inspect the resolved catalog with
 // `exarchos view invariants_effective`.
+//
+// DR-31 / T-43 — the stanza MUST NOT mention `devCatalog`, even commented
+// out. That boolean is retired; a freshly-onboarded repo that copies a
+// commented `devCatalog:` line into an active config would be writing a
+// deprecated key that `doctor` then flags. Registration in `catalogs:` is the
+// one and only opt-in, so that is the only thing onboarding teaches.
 const INVARIANTS_STANZA = `
 # Architectural invariants (opt-in). Authoring guide:
 # docs/guides/authoring-invariants.md. After uncommenting, validate with
 # \`exarchos doctor\` (invariants-catalog check) and inspect the resolved
 # catalog with the \`invariants_effective\` view.
 # invariants:
-#   # Surface the built-in architectural-invariants dev catalog (INV-*) to
-#   # /ideate and the check_invariant_conformance gate. Default: disabled.
-#   devCatalog: disabled
-#   # Layer your own catalog files on top of the built-ins (paths relative to
-#   # this file). User ids must NOT reuse the reserved INV-* / SDLC-* prefixes.
+#   # Register catalog files to load (paths relative to this file). A catalog
+#   # surfaces at /ideate and the check_invariant_conformance gate ONLY when it
+#   # is registered here. \`tier: dev\` marks a maintainer-authored catalog;
+#   # \`tier: user\` (the default) marks a consumer one. User ids must NOT reuse
+#   # the reserved INV-* / SDLC-* prefixes.
 #   catalogs:
-#     - .exarchos/invariants.md
+#     - { path: .exarchos/invariants.md, tier: user }
 `;
 
 export interface SeedResult {
