@@ -441,7 +441,7 @@ async function runSweep(binaryPath: string): Promise<SweepResult> {
 // ─── Build the binary + run the sweep once ───────────────────────────────────
 
 beforeAll(async () => {
-  const { binaryPath } = ensureBinaryBuilt(REPO_ROOT);
+  const { binaryPath } = await ensureBinaryBuilt(REPO_ROOT);
   BINARY_PATH = binaryPath;
   SWEEP = await runSweep(binaryPath);
 

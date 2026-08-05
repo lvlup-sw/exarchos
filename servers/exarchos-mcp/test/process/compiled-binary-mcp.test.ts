@@ -45,8 +45,8 @@ const REPO_ROOT = findRepoRoot(__dirname);
 
 let BINARY_PATH: string;
 
-beforeAll(() => {
-  const { binaryPath } = ensureBinaryBuilt(REPO_ROOT);
+beforeAll(async () => {
+  const { binaryPath } = await ensureBinaryBuilt(REPO_ROOT);
   BINARY_PATH = binaryPath;
 }, 120_000);
 
