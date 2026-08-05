@@ -49,6 +49,15 @@
  * single interruption the destination is either the complete old tree or the
  * complete new tree — never a mix.
  *
+ * ## Refusing an orphan backup (DR-17)
+ *
+ * Recovery is driven by the journal, so a journal that is missing or corrupt
+ * leaves the `backup` directory with no owner. When `target` is ALSO absent that
+ * orphan is the only surviving copy of the old tree, and both ways of continuing
+ * — discarding it as stale scaffolding, or staging a new tree over it — destroy
+ * it irrecoverably. {@link assertNoOrphanBackup} refuses that state with a typed
+ * `ORPHAN_BACKUP` error naming the orphan, rather than proceeding destructively.
+ *
  * ## Idempotent retry across runtimes (EFF-012)
  *
  * {@link promoteTreeSync} first recovers any journal left by a previous
@@ -106,7 +115,14 @@ import {
 export type PromotionErrorCode =
   | 'STAGE_INCOMPLETE'
   | 'PROMOTE_FAILED'
-  | 'RECOVERY_FAILED';
+  | 'RECOVERY_FAILED'
+  /**
+   * DR-17: `target` is absent and the backup directory holds the only surviving
+   * copy of the previous tree, but no consumable journal says how to finish. The
+   * promotion REFUSES rather than discarding or overwriting it — see
+   * {@link assertNoOrphanBackup}.
+   */
+  | 'ORPHAN_BACKUP';
 
 /** Typed, structured failure from the promotion engine. */
 export class PromotionError extends Error {
@@ -347,15 +363,52 @@ function writeJournal(plan: StagePlan, io: PromotionIo): DurabilityBarrier {
   });
 }
 
-function readJournal(plan: StagePlan, io: PromotionIo): PromotionJournal | undefined {
-  if (!io.exists(plan.journalPath)) return undefined;
+/**
+ * The three DISTINGUISHABLE dispositions of the on-disk journal (DR-17).
+ *
+ * `readJournal` used to collapse all of them into `undefined`, which is what let
+ * the orphan-backup bug hide: "no journal was ever written" (a clean first
+ * install) and "the journal is garbage / truncated / the wrong shape" (a torn
+ * crash whose backup may be the last copy of the old tree) looked identical to
+ * every caller, so the only safe branch — refuse — had nothing to branch on.
+ * Recovery still consumes ONLY `present`; the split exists so a refusal can name
+ * which of the two unrecoverable states it actually found.
+ */
+type JournalRead =
+  | { readonly status: 'absent' }
+  | { readonly status: 'unreadable'; readonly reason: string }
+  | { readonly status: 'present'; readonly journal: PromotionJournal };
+
+function readJournal(plan: StagePlan, io: PromotionIo): JournalRead {
+  if (!io.exists(plan.journalPath)) return { status: 'absent' };
   let parsed: unknown;
   try {
     parsed = JSON.parse(io.readFile(plan.journalPath).toString('utf8'));
-  } catch {
-    return undefined;
+  } catch (err) {
+    // Unreadable, not absent: the bytes exist and we could not turn them into a
+    // recovery plan. A read that fails (EACCES, a directory where a file should
+    // be) lands here too — same conclusion, different cause.
+    return { status: 'unreadable', reason: err instanceof Error ? err.message : String(err) };
   }
-  return isPromotionJournal(parsed) ? parsed : undefined;
+  if (!isPromotionJournal(parsed)) {
+    return {
+      status: 'unreadable',
+      reason: 'parsed JSON is not a promotion journal (target/stagingDir/backupDir/journalPath)',
+    };
+  }
+  return { status: 'present', journal: parsed };
+}
+
+/** One-line diagnosis of why a journal could not drive recovery. */
+function describeJournal(read: JournalRead, journalPath: string): string {
+  switch (read.status) {
+    case 'absent':
+      return `its promotion journal ${journalPath} is ABSENT`;
+    case 'unreadable':
+      return `its promotion journal ${journalPath} is UNREADABLE (${read.reason})`;
+    case 'present':
+      return `its promotion journal ${journalPath} survived recovery UNCONSUMED`;
+  }
 }
 
 // ─── Recovery ─────────────────────────────────────────────────────────────────
@@ -411,10 +464,66 @@ function safeRemove(target: string, io: PromotionIo): void {
  */
 export function recoverInterruptedPromotion(target: string, io: PromotionIo = defaultPromotionIo()): boolean {
   const plan = stagePlanFor(target);
-  const journal = readJournal(plan, io);
-  if (journal === undefined) return false;
-  recoverFromJournal(journal, io);
+  const read = readJournal(plan, io);
+  if (read.status !== 'present') return false;
+  recoverFromJournal(read.journal, io);
   return true;
+}
+
+/**
+ * DR-17 — REFUSE to proceed when the backup directory is the only surviving copy
+ * of the previous tree.
+ *
+ * Called at the start of every {@link promoteTreeSync}, AFTER
+ * {@link recoverInterruptedPromotion} has had its chance to consume a journal.
+ * At that point exactly one state is unrecoverable:
+ *
+ *   `target` ABSENT + `backup` PRESENT
+ *
+ * There is no live tree, so the backup holds the only bytes of the old tree that
+ * still exist, and recovery did not (or could not) restore it. Both of the ways
+ * a promotion could continue from here are destructive and unrecoverable
+ * (INV-14): removing the backup as "stale scaffolding" deletes the last copy,
+ * and staging + committing a new tree over it leaves `rename(target → backup)`
+ * colliding with — or the post-commit cleanup discarding — that same last copy.
+ * So this refuses instead, naming the orphan and what an operator can do with it.
+ *
+ * The decision is driven by DISK STATE, not by whether recovery reported a
+ * journal: a journal read is used only to diagnose *why* the state is stuck. The
+ * two admitted states pass straight through, and they are the only ones a healthy
+ * install ever reaches —
+ *
+ *   - `target` PRESENT: the destination is a complete tree, so any surviving
+ *     backup is a redundant second copy (a post-commit cleanup that was
+ *     interrupted) and is genuinely discardable.
+ *   - `backup` ABSENT: a first install, or a converged one. Nothing to lose.
+ *
+ * EXPORTED so the refusal can be pinned directly, and so a caller that wants to
+ * check before building a promotion request can ask the same question this does.
+ *
+ * Note on reachability: through {@link promoteTreeSync} the diagnosis is always
+ * `absent` or `unreadable`, because a journal that IS consumable was consumed by
+ * the recovery one line earlier (which either restores `target` or throws). The
+ * third diagnosis — a valid journal that outlived recovery — is reported anyway,
+ * for the same reason {@link afterDurable} checks an invariant its only caller
+ * cannot violate: it is a property of the call site, not of this function's
+ * contract, and a future caller that reaches this state deserves an accurate
+ * message rather than a confident lie about a missing journal.
+ */
+export function assertNoOrphanBackup(target: string, io: PromotionIo = defaultPromotionIo()): void {
+  const plan = stagePlanFor(target);
+  if (io.exists(plan.target)) return;
+  if (!io.exists(plan.backupDir)) return;
+
+  const diagnosis = describeJournal(readJournal(plan, io), plan.journalPath);
+  throw new PromotionError(
+    'ORPHAN_BACKUP',
+    `refusing to promote into ${plan.target}: the target is absent and the orphan backup ` +
+      `${plan.backupDir} holds the only surviving copy of the previous tree, but ${diagnosis}, ` +
+      `so recovery cannot consume it. Discarding it — or promoting over it — would destroy that ` +
+      `tree irrecoverably. Inspect ${plan.backupDir}, then either restore it (rename it to ` +
+      `${plan.target}) or delete it deliberately, and re-run.`,
+  );
 }
 
 // ─── The engine ───────────────────────────────────────────────────────────────
@@ -488,7 +597,8 @@ function commitPromotion(plan: StagePlan, io: PromotionIo): DirectorySyncOutcome
     committed = promoteStagedTree(plan, io, backupBarrier);
   } catch (err) {
     try {
-      recoverFromJournal(readJournal(plan, io) ?? journalFromPlan(plan), io);
+      const read = readJournal(plan, io);
+      recoverFromJournal(read.status === 'present' ? read.journal : journalFromPlan(plan), io);
     } catch {
       /* recovery itself failed — leave the journal so a retry recovers */
     }
@@ -550,7 +660,9 @@ function journalFromPlan(plan: StagePlan): PromotionJournal {
  * Synchronous and throwing (the throwing core the carrier wraps).
  *
  * The sequence, and what each failure leaves behind:
- *   0. RECOVER any journal from a prior interrupted attempt (idempotent retry).
+ *   0. RECOVER any journal from a prior interrupted attempt (idempotent retry),
+ *      then REFUSE (`ORPHAN_BACKUP`) if that left an unowned backup holding the
+ *      only surviving copy of the old tree — see {@link assertNoOrphanBackup}.
  *   1. STAGE every entry into a fresh sibling staging dir — a failure here leaves
  *      the target fully OLD and drops the partial stage.
  *   2. VERIFY the staged tree digests to the requested tree — a mismatch throws
@@ -564,18 +676,28 @@ export function promoteTreeSync(
 ): PromotionReport {
   const plan = stagePlanFor(request.target);
   const recoveredPriorAttempt = recoverInterruptedPromotion(request.target, io);
+  // DR-17. Recovery has had its chance; if the destination is still absent while
+  // a backup survives, that backup is the last copy of the old tree and NOTHING
+  // below may run — staging and the removal beneath it would both destroy it.
+  assertNoOrphanBackup(request.target, io);
 
   const expected = digestTree(request.entries);
 
   // 1–2. Stage + verify. A failure here must leave the target untouched.
   try {
-    // Clear any orphan scaffolding a prior run left behind. `recoverInterrupted-
-    // Promotion` above already consumed any journal-tracked backup (restoring or
-    // finalizing the target), so a backup dir remaining HERE is stale garbage
-    // from a promotion whose best-effort cleanup was interrupted after commit.
-    // It must go before `commitPromotion` renames `target → backup`, or that
-    // rename collides with the pre-existing directory (a persistent EPERM on
-    // Windows, ENOTEMPTY/EEXIST elsewhere).
+    // Clear any orphan scaffolding a prior run left behind. Reaching this line
+    // means `assertNoOrphanBackup` above admitted the state, i.e. either the
+    // `target` is PRESENT — so a surviving backup is a redundant second copy,
+    // stale garbage from a promotion whose best-effort cleanup was interrupted
+    // after commit — or there is no backup at all. That is the ONLY reason the
+    // removal below is safe. It is emphatically NOT safe because
+    // `recoverInterruptedPromotion` ran: recovery consumes a journal only when
+    // one is readable, and with an absent or corrupt journal it consumes
+    // nothing and reports `false` (DR-17 — this removal used to fire anyway and
+    // delete the last surviving OLD tree).
+    // The removal must still happen before `commitPromotion` renames
+    // `target → backup`, or that rename collides with the pre-existing
+    // directory (a persistent EPERM on Windows, ENOTEMPTY/EEXIST elsewhere).
     safeRemove(plan.stagingDir, io);
     safeRemove(plan.backupDir, io);
     stageEntries(plan, request.entries, io);
