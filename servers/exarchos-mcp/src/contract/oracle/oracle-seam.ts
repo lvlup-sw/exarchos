@@ -42,6 +42,28 @@
 // No generation/drift check can tell them apart; the oracle tells them apart by
 // observing behavior. See `oracle-seam.test.ts` exit proof (g).
 //
+// ## `not-observed` is NOT `pass` (DR-24)
+//
+// An axis has THREE outcomes, and the third one is load-bearing: `pass` means
+// "we looked and it was fine", `fail` means "we looked and it was broken", and
+// `not-observed` means "we did not look". Reporting `pass` for an axis that was
+// never exercised is how an oracle silently goes vacuous — it reads green on a
+// system it never inspected. So every axis here refuses to emit `pass` without
+// positive evidence:
+//
+//   • authorization is DIFFERENTIAL — the handler must SERVE an authorized
+//     caller and REFUSE an unauthorized one, through a real
+//     {@link AuthorizationSurface}. An empty / open-marker role set, a subject
+//     with no probeable surface, or a handler that refuses everyone all yield
+//     `not-observed`.
+//   • the effect axis requires effect EVIDENCE (a runtime record or a static
+//     scan). An empty recorder cannot distinguish "performed nothing" from
+//     "was never instrumented", so it yields `not-observed`.
+//   • idempotency is not compared when the authorized probe was declined.
+//
+// {@link axisCoverage} then makes the residual vacuity legible: an axis whose
+// `observed` count is zero across a suite reported nothing at all.
+//
 // This module is a TEST-INVOKED source-lint gate (the `-seam.ts` convention):
 // its co-located test runs `runOracleSuite()` against the real registry and
 // against the seeded-break fixtures. It exports pure analysis functions; it is
@@ -171,12 +193,22 @@ export class UnauthorizedError extends Error {
   }
 }
 
+/**
+ * The registry's OPEN-role marker (`roles: new Set(['any'])`): every
+ * authenticated caller holds it, so it expresses NO restrictive requirement.
+ * An action declaring only this marker has nothing for the authorization axis
+ * to observe — see {@link checkMissingAuthorization} (DR-24).
+ */
+export const OPEN_ROLE_MARKER = 'any';
+
 /** Throw {@link UnauthorizedError} unless the caller holds every required role. */
 export function guardRoles(ctx: ObservationContext, requiredRoles: readonly string[]): void {
   if (requiredRoles.length === 0) return;
   const held = new Set(ctx.caller.roles);
   // `any` is the registry's open-role marker: any authenticated caller holds it.
-  const authorized = requiredRoles.some((role) => role === 'any' || held.has(role));
+  const authorized = requiredRoles.some(
+    (role) => role === OPEN_ROLE_MARKER || held.has(role),
+  );
   if (!authorized) {
     throw new UnauthorizedError(
       `caller '${ctx.caller.subjectId}' holds {${ctx.caller.roles.join(', ')}}, ` +
@@ -191,6 +223,45 @@ export interface CompatBaseline {
   readonly previousOutput: Readonly<Record<string, unknown>>;
 }
 
+/**
+ * How the oracle's synthetic {@link Caller} reaches the handler's REAL
+ * authorization surface (DR-24).
+ *
+ *  • `observation-context` — the handler reads `ctx.caller` directly, so the
+ *    {@link ObservationContext} IS the principal (the seeded subjects, whose
+ *    correct arm calls {@link guardRoles}).
+ *  • `dispatch-authority` — a real adapter projects the caller onto the REAL
+ *    runtime authorization substrate (the trusted caller-authorization
+ *    snapshot carried on the dispatch async scope) before invoking the real
+ *    handler, so withholding the principal is a genuine runtime condition.
+ *
+ * A subject that OMITS this field has no probeable authorization surface, and
+ * the authorization axis then reports `not-observed` — **never** `pass`. That
+ * asymmetry is deliberate: because "we did not look" is not a passing outcome,
+ * omitting the surface buys a subject nothing.
+ */
+export type AuthorizationSurface = 'observation-context' | 'dispatch-authority';
+
+/**
+ * The two shapes a runtime-owned per-call carrier can take. The kind is what
+ * makes {@link VolatileCarrier} auditable: the oracle checks the OBSERVED
+ * values against it before honoring the mask.
+ *
+ *  • `measurement-block` — an object whose every value is a number, i.e. a
+ *    measurement of THAT call (the `_perf` block a real composite handler
+ *    stamps with elapsed ms / bytes / tokens).
+ *  • `generation-timestamp` — an ISO-8601 instant recording WHEN the answer
+ *    was computed, not WHAT the answer is.
+ */
+export type VolatileCarrierKind = 'measurement-block' | 'generation-timestamp';
+
+/** A dot-path into the output that carries per-call runtime bookkeeping. */
+export interface VolatileCarrier {
+  /** Dot-path, e.g. `_perf` or `data.session.start`. */
+  readonly path: string;
+  readonly kind: VolatileCarrierKind;
+}
+
 /** A subject the oracle can observe: a declared contract plus real behavior. */
 export interface OracleSubject {
   readonly declaration: ContractDeclaration;
@@ -199,6 +270,25 @@ export interface OracleSubject {
   readonly probeInput: unknown;
   /** Enables the compatibility axis: the recorded prior-version observation. */
   readonly compatBaseline?: CompatBaseline;
+  /**
+   * Enables the authorization axis. Absent ⇒ the oracle cannot withhold a
+   * principal from this handler, so the axis is `not-observed`.
+   */
+  readonly authorizationSurface?: AuthorizationSurface;
+  /**
+   * Runtime-owned, per-call carriers to exclude from the IDEMPOTENCY
+   * comparison only — never from schema validation and never from the
+   * compatibility shape comparison.
+   *
+   * A mask is a hole in an oracle, so this one is not taken on trust: each
+   * carrier declares its {@link VolatileCarrierKind} and the oracle HONORS it
+   * only when both observed values actually match that kind (see
+   * {@link honorsCarrier}). A path that is present but holds something other
+   * than the declared carrier shape has its mask REFUSED, stays in the
+   * comparison, and is named in the axis diagnostic — so a mask can never be
+   * widened to swallow a real behavioral divergence.
+   */
+  readonly volatileCarriers?: readonly VolatileCarrier[];
   /**
    * Optional handler source for the COMPLEMENTARY static effect scan (P04-01).
    * Runtime effect recording is the primary signal; this cross-checks it.
@@ -211,8 +301,39 @@ export interface OracleSubject {
 export interface Observation {
   readonly output: unknown;
   readonly outputRepeat: unknown;
+  /**
+   * {@link output} / {@link outputRepeat} with every HONORED
+   * {@link VolatileCarrier} stripped — the basis for the idempotency
+   * comparison.
+   */
+  readonly comparableOutput: unknown;
+  readonly comparableOutputRepeat: unknown;
+  /** Carrier paths actually masked out of the idempotency comparison. */
+  readonly maskedCarriers: readonly string[];
+  /**
+   * Carrier paths that were PRESENT in both observed outputs but did not hold
+   * the declared carrier shape. Their masks were refused: the values stayed in
+   * the idempotency comparison and are named in the axis diagnostic.
+   */
+  readonly refusedCarriers: readonly string[];
   readonly performedEffects: readonly EffectEvent[];
   readonly staticEffects: readonly EffectClass[];
+  /**
+   * Whether ANY effect evidence was collected at all (a runtime record or a
+   * static scan). False ⇒ the handler's effects were NOT observed, which the
+   * effect axis must report as `not-observed` rather than a vacuous `pass`.
+   */
+  readonly effectsObserved: boolean;
+  /** Whether the subject exposed an authorization surface the oracle could probe. */
+  readonly authorizationProbed: boolean;
+  /** The authorization surface actually used, when one was available. */
+  readonly authorizationSurface?: AuthorizationSurface;
+  /**
+   * Whether the AUTHORIZED probe was itself declined. A handler that refuses
+   * EVERYONE tells us nothing about authorization: its refusal of the intruder
+   * is not evidence that a requirement is enforced.
+   */
+  readonly authorizedRefused: boolean;
   readonly unauthorizedRefused: boolean;
   readonly unauthorizedDetail: string;
   /** Set when the AUTHORIZED probe threw unexpectedly (a handler contradiction). */
@@ -243,6 +364,98 @@ function isRefusal(value: unknown, error: unknown): boolean {
 }
 
 /**
+ * Read a dot-path out of a plain-object tree. `found:false` means the path is
+ * absent (or crosses a non-object), which is NOT a refusal — there is simply
+ * nothing to mask.
+ */
+function readPath(value: unknown, segments: readonly string[]): { found: boolean; value: unknown } {
+  let cursor: unknown = value;
+  for (const segment of segments) {
+    if (typeof cursor !== 'object' || cursor === null || Array.isArray(cursor)) {
+      return { found: false, value: undefined };
+    }
+    const record = cursor as Record<string, unknown>;
+    if (!Object.hasOwn(record, segment)) return { found: false, value: undefined };
+    cursor = record[segment];
+  }
+  return { found: true, value: cursor };
+}
+
+/** Structurally-shared copy of `value` with `segments` removed. */
+function deletePath(value: unknown, segments: readonly string[]): unknown {
+  if (segments.length === 0) return undefined;
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return value;
+  const record = value as Record<string, unknown>;
+  const [head, ...rest] = segments as [string, ...string[]];
+  if (!Object.hasOwn(record, head)) return value;
+  const out: Record<string, unknown> = { ...record };
+  if (rest.length === 0) delete out[head];
+  else out[head] = deletePath(record[head], rest);
+  return out;
+}
+
+/** An ISO-8601 instant — the shape a `generation-timestamp` carrier must hold. */
+const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
+
+/**
+ * Does the OBSERVED pair actually match the declared carrier kind? This is the
+ * check that keeps {@link VolatileCarrier} from becoming a hole in the oracle:
+ * a mask is honored only against the shape it claims to be masking, so
+ * declaring `{ path: 'data', kind: 'generation-timestamp' }` over a real
+ * payload masks nothing.
+ */
+function honorsCarrier(kind: VolatileCarrierKind, first: unknown, second: unknown): boolean {
+  if (kind === 'generation-timestamp') {
+    return [first, second].every((v) => typeof v === 'string' && ISO_INSTANT.test(v));
+  }
+  return [first, second].every(
+    (v) =>
+      typeof v === 'object' &&
+      v !== null &&
+      !Array.isArray(v) &&
+      Object.values(v as Record<string, unknown>).length > 0 &&
+      Object.values(v as Record<string, unknown>).every((n) => typeof n === 'number'),
+  );
+}
+
+interface MaskResult {
+  readonly first: unknown;
+  readonly second: unknown;
+  readonly masked: readonly string[];
+  readonly refused: readonly string[];
+}
+
+/**
+ * Build the idempotency comparison basis by stripping the carriers the oracle
+ * is willing to honor. Present-but-wrong-shaped carriers are refused and
+ * reported; absent carriers are silently skipped.
+ */
+function maskVolatileCarriers(
+  first: unknown,
+  second: unknown,
+  carriers: readonly VolatileCarrier[],
+): MaskResult {
+  let maskedFirst = first;
+  let maskedSecond = second;
+  const masked: string[] = [];
+  const refused: string[] = [];
+  for (const carrier of carriers) {
+    const segments = carrier.path.split('.');
+    const a = readPath(first, segments);
+    const b = readPath(second, segments);
+    if (!a.found || !b.found) continue; // nothing to mask on this output
+    if (!honorsCarrier(carrier.kind, a.value, b.value)) {
+      refused.push(carrier.path);
+      continue;
+    }
+    maskedFirst = deletePath(maskedFirst, segments);
+    maskedSecond = deletePath(maskedSecond, segments);
+    masked.push(carrier.path);
+  }
+  return { first: maskedFirst, second: maskedSecond, masked, refused };
+}
+
+/**
  * Observe the subject's actual behavior: invoke the handler against the probe
  * (twice, for idempotency), watch the effects it performs, and probe it with an
  * unauthorized caller. Pure observation — no comparison to the contract yet.
@@ -251,7 +464,7 @@ export async function observeBehavior(subject: OracleSubject): Promise<Observati
   const { handler, probeInput, declaration } = subject;
   const authorizedRoles = declaration.requiredRoles.length > 0
     ? [...declaration.requiredRoles]
-    : ['any'];
+    : [OPEN_ROLE_MARKER];
 
   // Authorized invocation #1 — the observed output + performed effects.
   const rec1 = createEffectRecorder();
@@ -304,11 +517,25 @@ export async function observeBehavior(subject: OracleSubject): Promise<Observati
     ? detectModuleEffects(declaration.actionId, subject.handlerSource).map((e) => e.effectClass)
     : [];
 
+  const mask = maskVolatileCarriers(output, outputRepeat, subject.volatileCarriers ?? []);
+
   return {
     output,
     outputRepeat,
+    comparableOutput: mask.first,
+    comparableOutputRepeat: mask.second,
+    maskedCarriers: mask.masked,
+    refusedCarriers: mask.refused,
     performedEffects: rec1.performed,
     staticEffects,
+    effectsObserved: rec1.performed.length > 0 || staticEffects.length > 0,
+    authorizationProbed: subject.authorizationSurface !== undefined,
+    ...(subject.authorizationSurface !== undefined
+      ? { authorizationSurface: subject.authorizationSurface }
+      : {}),
+    // A thrown authorized probe is a contradiction, not a refusal — the
+    // incorrect-handler axis owns it; here it only means "not served".
+    authorizedRefused: invocationError !== undefined || isRefusal(output, undefined),
     unauthorizedRefused,
     unauthorizedDetail,
     ...(invocationError !== undefined ? { invocationError } : {}),
@@ -357,15 +584,36 @@ export function checkIncorrectHandler(
       diagnostic: 'contract does not declare idempotency — no behavioral property to observe',
     };
   }
-  const a = canonicalJson(obs.output);
-  const b = canonicalJson(obs.outputRepeat);
+  if (obs.authorizedRefused) {
+    return {
+      axis,
+      actionId: decl.actionId,
+      status: 'not-observed',
+      diagnostic:
+        'the authorized probe was DECLINED, so the handler exhibited a refusal rather than ' +
+        'the action\'s behavior — idempotency was NOT observed',
+    };
+  }
+  const a = canonicalJson(obs.comparableOutput);
+  const b = canonicalJson(obs.comparableOutputRepeat);
+  const notes: string[] = [];
+  if (obs.maskedCarriers.length > 0) {
+    notes.push(`runtime-owned carriers masked: [${[...obs.maskedCarriers].sort(byString).join(', ')}]`);
+  }
+  if (obs.refusedCarriers.length > 0) {
+    notes.push(
+      `mask REFUSED (declared shape not observed, value left in the comparison): ` +
+      `[${[...obs.refusedCarriers].sort(byString).join(', ')}]`,
+    );
+  }
+  const maskNote = notes.length > 0 ? ` (${notes.join('; ')})` : '';
   if (a !== b) {
     return {
       axis,
       actionId: decl.actionId,
       status: 'fail',
       diagnostic:
-        `handler is declared idempotent but two identical-input invocations diverged: ` +
+        `handler is declared idempotent but two identical-input invocations diverged${maskNote}: ` +
         `${a} vs ${b}`,
     };
   }
@@ -373,14 +621,21 @@ export function checkIncorrectHandler(
     axis,
     actionId: decl.actionId,
     status: 'pass',
-    diagnostic: 'idempotent as declared; identical-input invocations agree',
+    diagnostic: `idempotent as declared; identical-input invocations agree${maskNote}`,
   };
 }
 
 /**
  * Axis 2 — MISSING AUTHORIZATION. A declared authorization requirement that is
- * not actually enforced at runtime. Observed by probing with an unauthorized
- * caller and checking the handler refuses.
+ * not actually enforced at runtime. Observed DIFFERENTIALLY: the handler must
+ * SERVE an authorized caller and REFUSE an unauthorized one. Anything less is
+ * `not-observed` (DR-24) — never `pass`, because:
+ *
+ *  • an empty / open-marker role set declares no restrictive requirement;
+ *  • a subject with no {@link AuthorizationSurface} never had a principal
+ *    withheld from it, so nothing about enforcement was observed; and
+ *  • a handler that refuses EVERYONE (its authorized probe was declined too)
+ *    proves nothing — a blanket failure is not evidence of enforcement.
  */
 export function checkMissingAuthorization(
   decl: ContractDeclaration,
@@ -395,14 +650,45 @@ export function checkMissingAuthorization(
       diagnostic: 'contract declares no role requirement — nothing to enforce',
     };
   }
+  if (decl.requiredRoles.every((role) => role === OPEN_ROLE_MARKER)) {
+    return {
+      axis,
+      actionId: decl.actionId,
+      status: 'not-observed',
+      diagnostic:
+        `contract declares only the open-role marker {${OPEN_ROLE_MARKER}} — every ` +
+        `authenticated caller holds it, so there is no restrictive requirement to enforce`,
+    };
+  }
+  if (!obs.authorizationProbed) {
+    return {
+      axis,
+      actionId: decl.actionId,
+      status: 'not-observed',
+      diagnostic:
+        `declared requirement {${decl.requiredRoles.join(', ')}} was NOT probed: this subject ` +
+        `exposes no authorization surface, so no principal could be withheld from the handler`,
+    };
+  }
+  if (obs.authorizedRefused) {
+    return {
+      axis,
+      actionId: decl.actionId,
+      status: 'not-observed',
+      diagnostic:
+        `the AUTHORIZED probe was declined too, so refusing the unauthorized caller is not ` +
+        `evidence that {${decl.requiredRoles.join(', ')}} is enforced — enforcement NOT observed`,
+    };
+  }
   if (obs.unauthorizedRefused) {
     return {
       axis,
       actionId: decl.actionId,
       status: 'pass',
       diagnostic:
-        `declared requirement {${decl.requiredRoles.join(', ')}} is enforced ` +
-        `(unauthorized caller ${obs.unauthorizedDetail})`,
+        `declared requirement {${decl.requiredRoles.join(', ')}} is enforced via ` +
+        `'${obs.authorizationSurface ?? 'unknown'}' (authorized caller served; ` +
+        `unauthorized caller ${obs.unauthorizedDetail})`,
     };
   }
   return {
@@ -419,6 +705,11 @@ export function checkMissingAuthorization(
  * Axis 3 — UNDECLARED EFFECT. A handler performing an effect its contract does
  * not declare. Primary signal is RUNTIME (the effect recorder); the static
  * import scan (P04-01) is a complementary cross-check.
+ *
+ * DR-24: with NO evidence at all — no runtime record, no static scan — the
+ * handler's effects were never observed. That is reported `not-observed`, never
+ * `pass`: an empty recorder cannot distinguish "performed nothing" from
+ * "was never instrumented", and the latter must not read as a clean bill.
  */
 export function checkUndeclaredEffect(
   decl: ContractDeclaration,
@@ -426,6 +717,19 @@ export function checkUndeclaredEffect(
 ): AxisVerdict {
   const axis: OracleAxis = 'undeclared-effect';
   const declared = new Set<EffectClass>(decl.declaredEffects);
+
+  if (!obs.effectsObserved) {
+    return {
+      axis,
+      actionId: decl.actionId,
+      status: 'not-observed',
+      diagnostic:
+        `no effect evidence was collected — the handler recorded no runtime effect and no ` +
+        `handler source was supplied for the static cross-check, so its effects were NOT ` +
+        `observed against the declared set ` +
+        `{${[...declared].sort(byString).join(', ') || 'none'}}`,
+    };
+  }
 
   const runtimeUndeclared = [
     ...new Set(
@@ -621,6 +925,44 @@ export interface OracleSuiteReport {
   readonly reports: readonly OracleReport[];
   /** Every failing verdict across the suite, for a single-glance diagnostic. */
   readonly failures: readonly AxisVerdict[];
+  /**
+   * Per-axis observation census (DR-24). Makes VACUITY visible: an axis whose
+   * `observed` count is 0 across the whole suite reported nothing at all, which
+   * `ok: true` alone would happily conceal.
+   */
+  readonly coverage: readonly AxisCoverage[];
+}
+
+/** How often one axis actually reached a verdict across a set of reports. */
+export interface AxisCoverage {
+  readonly axis: OracleAxis;
+  readonly pass: number;
+  readonly fail: number;
+  readonly notObserved: number;
+  /** `pass + fail` — the number of subjects on which the axis genuinely looked. */
+  readonly observed: number;
+}
+
+/**
+ * Census each axis across `reports`. `not-observed` is counted separately from
+ * `pass` precisely so "we did not look" can never be mistaken for "we looked
+ * and it was fine" when reading a green suite.
+ */
+export function axisCoverage(reports: readonly OracleReport[]): readonly AxisCoverage[] {
+  return ORACLE_AXES.map((axis) => {
+    let pass = 0;
+    let fail = 0;
+    let notObserved = 0;
+    for (const report of reports) {
+      for (const verdict of report.verdicts) {
+        if (verdict.axis !== axis) continue;
+        if (verdict.status === 'pass') pass += 1;
+        else if (verdict.status === 'fail') fail += 1;
+        else notObserved += 1;
+      }
+    }
+    return { axis, pass, fail, notObserved, observed: pass + fail };
+  });
 }
 
 /** Run the oracle over many subjects. `ok` iff every subject is `ok`. */
@@ -630,12 +972,22 @@ export async function runOracleSuite(
 ): Promise<OracleSuiteReport> {
   const reports = await Promise.all(subjects.map((s) => runOracle(s, opts)));
   const failures = reports.flatMap((r) => r.verdicts.filter((v) => v.status === 'fail'));
-  return { ok: failures.length === 0, reports, failures };
+  return {
+    ok: failures.length === 0,
+    reports,
+    failures,
+    coverage: axisCoverage(reports),
+  };
 }
 
 /** The single failing verdict for `axis` in a report, or undefined. */
 export function failureFor(report: OracleReport, axis: OracleAxis): AxisVerdict | undefined {
   return report.verdicts.find((v) => v.axis === axis && v.status === 'fail');
+}
+
+/** The verdict for `axis` in a report, whatever its status. */
+export function verdictFor(report: OracleReport, axis: OracleAxis): AxisVerdict | undefined {
+  return report.verdicts.find((v) => v.axis === axis);
 }
 
 /** A deterministic one-line-per-axis summary of a report. */

@@ -192,11 +192,21 @@ describe('P03-09 oracle — per-axis check discrimination', () => {
     expect(checkMalformedOutput(correct.declaration, correctObs).status).toBe('pass');
   });
 
-  it('missing-authorization axis is not-observed when the contract declares no roles', async () => {
+  // Renamed under DR-24. The old name ("…when the contract declares no roles")
+  // described the VACUITY this change removed: live subjects used to carry a
+  // hard-coded `requiredRoles: []`. They now carry the REAL registry roles, so
+  // the axis is `not-observed` for an honest reason — either the registry
+  // declares the open-role marker (no restrictive requirement to enforce) or
+  // the subject exposes no authorization surface to withhold a principal at.
+  it('missing-authorization axis is not-observed for a live subject that carries real registry roles', async () => {
     const subject = liveOutputSubjects()[0];
     expect(subject).toBeDefined();
     if (subject === undefined) return;
+    // The declaration is no longer vacuous: it names the registry's roles.
+    expect(subject.declaration.requiredRoles).not.toEqual([]);
     const obs = await observeBehavior(subject);
-    expect(checkMissingAuthorization(subject.declaration, obs).status).toBe('not-observed');
+    const verdict = checkMissingAuthorization(subject.declaration, obs);
+    expect(verdict.status).toBe('not-observed');
+    expect(verdict.diagnostic).toMatch(/open-role marker|no authorization surface/);
   });
 });
