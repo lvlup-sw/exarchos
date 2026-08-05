@@ -39,6 +39,20 @@
  * renderers' own committed outputs ({@link PROJECTION_ROOT_SPECS}) so it cannot
  * silently drift from what is authored.
  *
+ * ## Two authorities, not one (DR-21)
+ *
+ * A containment proof is only worth its name when the two sides are independent
+ * READS. Building the required inventory and the "packaged" layer from a single
+ * `contents` map compares a map with itself: deleting a real agent, alias or
+ * hook shrinks both sides together and the check still passes. That is why
+ * {@link packagedLayerFromContents} carries an explicit single-authority
+ * warning and is confined to seeded unit fixtures, while the real proof —
+ * {@link verifyPackedContainment} — takes the required inventory from the
+ * authored SOURCE TREE and the packaged layer from the BYTES of an unpacked
+ * `npm pack` tarball ({@link readPackedProjectionLayer}). Only the two-read form
+ * can report `missing` for a projection dropped from the artifact or
+ * `content-mismatch` for one whose shipped bytes were rewritten.
+ *
  * ## Selection model
  *
  * A shipped runtime resolves a projection by searching an ordered list of roots
@@ -529,15 +543,224 @@ export function enumerateProjections(
 }
 
 /**
- * Build the authoritative `packaged` {@link ProjectionLayer} from enumerated
- * contents — a faithful mirror of what the shipped artifact carries. The seeded
- * exit-proof tests mutate a copy of this map to model removal/replacement.
+ * Build a `packaged` {@link ProjectionLayer} by MIRRORING the enumerated source
+ * contents.
+ *
+ * ⚠ SINGLE-AUTHORITY WARNING (DR-21). A layer built this way is derived from the
+ * very same read that produced the required inventory, so
+ * `verifyContainment({ required: projections, layers: [packagedLayerFromContents(contents)] })`
+ * compares a map with itself and CANNOT disagree — deleting a real agent, alias
+ * or hook shrinks both sides together and the proof still passes. It is useful
+ * only as a *base* for seeded mutation in the pure unit tier (mutate the copy,
+ * keep the inventory) — never as evidence that the shipped artifact contains
+ * anything. For a real containment proof, build the packaged layer from the
+ * bytes an actual `npm pack` produced: {@link readPackedProjectionLayer} /
+ * {@link verifyPackedContainment}.
  */
 export function packagedLayerFromContents(
   contents: ReadonlyMap<string, string>,
   name = 'packaged',
 ): ProjectionLayer {
   return { name, packaged: true, files: new Map(contents) };
+}
+
+// ─── Packed-bytes containment (DR-21) ────────────────────────────────────────
+
+/**
+ * The subset of `specs` whose projections must literally appear as FILES inside
+ * the npm tarball.
+ *
+ * `embedded-binary` kinds (the runtime capability maps) are compiled INTO the
+ * single-file binary rather than shipped loose, so looking for them among the
+ * tarball entries would be a category error — they would report `missing` for a
+ * reason that is not a defect. Excluding them here keeps the packed proof
+ * honest about exactly which delivery mode it can observe; `checkShippedCoverage`
+ * remains the proof for the embedded carrier.
+ */
+export function npmFilesSpecs(
+  specs: readonly ProjectionRootSpec[] = PROJECTION_ROOT_SPECS,
+): readonly ProjectionRootSpec[] {
+  return specs.filter((s) => s.shipped.via === 'npm-files');
+}
+
+/**
+ * Classify a POSIX repo-relative path as a projection of some kind, or
+ * `undefined` when it is not a projection at all. This is the SAME
+ * classification `enumerateProjections` applies to the source tree, so the two
+ * sides of the packed proof disagree only about BYTES and PRESENCE — never
+ * about what counts as a projection.
+ */
+export function classifyProjectionPath(
+  rel: string,
+  specs: readonly ProjectionRootSpec[] = PROJECTION_ROOT_SPECS,
+): ProjectionKind | undefined {
+  for (const spec of specs) {
+    if (spec.rootKind === 'file') {
+      if (rel === spec.root) return spec.kind;
+      continue;
+    }
+    if (rel !== spec.root && !rel.startsWith(`${spec.root}/`)) continue;
+    if (spec.include !== undefined && !spec.include(rel)) continue;
+    return spec.kind;
+  }
+  return undefined;
+}
+
+/** A packaged layer read out of the bytes of an UNPACKED npm tarball. */
+export interface PackedProjectionLayer {
+  /** The packaged layer — its `files` map holds the tarball's own bytes. */
+  readonly layer: ProjectionLayer;
+  /** Sorted POSIX repo-relative projection paths the packed bytes carry. */
+  readonly paths: readonly string[];
+  /** Every file scanned in the packed tree, projection or not (the denominator). */
+  readonly totalFiles: number;
+}
+
+/**
+ * Read the packaged {@link ProjectionLayer} from `packageDir` — the `package/`
+ * directory of an unpacked `npm pack` tarball.
+ *
+ * NOTHING here consults the source tree: the paths and the bytes both come from
+ * the archive. That is the whole point of DR-21 — the packaged side of the
+ * comparison must be able to disagree with the source-tree inventory.
+ *
+ * @throws when the directory is absent (nothing was unpacked) or carries zero
+ *   projection files — either would make the containment proof vacuous, so it
+ *   fails loudly instead of quietly proving nothing.
+ */
+export function readPackedProjectionLayer(
+  packageDir: string,
+  specs: readonly ProjectionRootSpec[] = npmFilesSpecs(),
+  fs: RepoReadFs = DEFAULT_REPO_FS,
+  name = 'packed',
+): PackedProjectionLayer {
+  if (!fs.exists(packageDir) || !fs.isDirectory(packageDir)) {
+    throw new Error(
+      `readPackedProjectionLayer: unpacked package root '${packageDir}' is missing or not a ` +
+        `directory — there are no packaged bytes to prove containment against`,
+    );
+  }
+
+  const files = new Map<string, string>();
+  let totalFiles = 0;
+  for (const abs of fs.listFilesRecursive(packageDir)) {
+    totalFiles += 1;
+    const rel = toPosix(relative(packageDir, abs));
+    if (classifyProjectionPath(rel, specs) === undefined) continue;
+    files.set(rel, fs.readFile(abs));
+  }
+
+  if (files.size === 0) {
+    throw new Error(
+      `readPackedProjectionLayer: the packed tree at '${packageDir}' carries ZERO projection ` +
+        `files (${totalFiles} file(s) scanned) — an empty packaged layer would make the ` +
+        `containment proof vacuous`,
+    );
+  }
+
+  return {
+    layer: { name, packaged: true, files },
+    paths: [...files.keys()].sort(),
+    totalFiles,
+  };
+}
+
+/** Inputs to {@link verifyPackedContainment}. */
+export interface PackedContainmentInputs {
+  /**
+   * Repository root — the INDEPENDENT authority for the required inventory. The
+   * authored/committed projection tree says what MUST ship.
+   */
+  readonly repoRoot: string;
+  /**
+   * The `package/` directory of an unpacked `npm pack` tarball — the bytes that
+   * actually shipped. Never derived from `repoRoot` by this function.
+   */
+  readonly packageDir: string;
+  /** Defaults to the `npm-files` subset of {@link PROJECTION_ROOT_SPECS}. */
+  readonly specs?: readonly ProjectionRootSpec[];
+  readonly fs?: RepoReadFs;
+}
+
+/** Outcome of {@link verifyPackedContainment} — discriminated on `ok`. */
+export interface PackedContainmentResult {
+  readonly ok: boolean;
+  /** How many source-authority projections were required of the tarball. */
+  readonly checked: number;
+  /** How many projection files the tarball actually carried. */
+  readonly packedCount: number;
+  readonly violations: readonly ContainmentViolation[];
+  /**
+   * Projection paths the tarball carries that the source authority does NOT
+   * require — a projection smuggled into the artifact from outside the
+   * authored tree. Containment fails in this direction too.
+   */
+  readonly unexpected: readonly string[];
+}
+
+/**
+ * The DR-21 containment proof: the required inventory is read from the SOURCE
+ * TREE at `repoRoot`, the packaged layer is read from the BYTES at
+ * `packageDir`, and the two are compared by content digest.
+ *
+ * Because the sides come from two independent reads, deleting a projection file
+ * from the tarball reports `missing`, and rewriting its bytes reports
+ * `content-mismatch` — neither of which the old single-map proof could observe.
+ */
+export function verifyPackedContainment(
+  inputs: PackedContainmentInputs,
+): PackedContainmentResult {
+  const specs = npmFilesSpecs(inputs.specs ?? PROJECTION_ROOT_SPECS);
+  const fs = inputs.fs ?? DEFAULT_REPO_FS;
+
+  // Authority A — what MUST ship, read from the authored source tree.
+  const { projections } = enumerateProjections(inputs.repoRoot, specs, fs);
+  // Authority B — what DID ship, read from the packed tarball bytes.
+  const packed = readPackedProjectionLayer(inputs.packageDir, specs, fs);
+
+  const base = verifyContainment({ required: projections, layers: [packed.layer] });
+
+  const requiredPaths = new Set(projections.map((p) => p.path));
+  const unexpected = packed.paths.filter((p) => !requiredPaths.has(p));
+
+  return {
+    ok: base.ok && unexpected.length === 0,
+    checked: base.checked,
+    packedCount: packed.paths.length,
+    violations: base.violations,
+    unexpected,
+  };
+}
+
+/** Thrown by {@link assertPackedContainment} when the packed bytes fail containment. */
+export class PackedContainmentError extends Error {
+  override readonly name = 'PackedContainmentError';
+  readonly code = 'PACKED_CONTAINMENT_VIOLATION';
+  constructor(public readonly result: PackedContainmentResult) {
+    super(
+      `Packed-artifact projection containment failed — ${result.violations.length} violation(s) ` +
+        `and ${result.unexpected.length} unexpected packed projection(s) over ${result.checked} ` +
+        `required projection(s):\n` +
+        [
+          ...result.violations.map((v) => `  • [${v.kind}] ${v.projection} ${v.id}\n      ${v.detail}`),
+          ...result.unexpected.map(
+            (p) => `  • [unexpected] '${p}' is in the tarball but not required by the source tree`,
+          ),
+        ].join('\n'),
+    );
+  }
+}
+
+/**
+ * Verify packed containment and THROW {@link PackedContainmentError} on any
+ * violation. Returns the passing result so callers can log what was proven.
+ */
+export function assertPackedContainment(
+  inputs: PackedContainmentInputs,
+): PackedContainmentResult {
+  const result = verifyPackedContainment(inputs);
+  if (!result.ok) throw new PackedContainmentError(result);
+  return result;
 }
 
 // ─── Shipped-`files` coverage (the packaging-declaration proof) ───────────────
