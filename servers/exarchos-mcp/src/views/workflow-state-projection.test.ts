@@ -788,6 +788,7 @@ describe('WorkflowStateProjection mutation-adequacy dimension (DR-2a)', () => {
     mutationScore?: number;
     skipped?: boolean;
     degraded?: boolean;
+    noCoverage?: number;
   };
   const dimOf = (s: ReturnType<typeof workflowStateProjection.init>): Dim | undefined =>
     (s.reviews as Record<string, Dim>)['mutation-adequacy'];
@@ -876,6 +877,50 @@ describe('WorkflowStateProjection mutation-adequacy dimension (DR-2a)', () => {
       makeEvent('gate.executed', { gateName: 'static-analysis', layer: 'delegate', passed: true }),
     );
     expect(next).toEqual(state);
+  });
+
+  // ── DR-6: the fold ADDITIVELY carries `noCoverage` so the block-mode guard's
+  // orthogonal axis can read it off the folded dimension. Legacy events WITHOUT
+  // the field must fold byte-identical to before (INV-1).
+
+  it('Fold_MutationEventWithNoCoverage_CarriesField', () => {
+    const state = workflowStateProjection.init();
+    const next = workflowStateProjection.apply(
+      state,
+      makeEvent('gate.executed', {
+        gateName: 'mutation-adequacy',
+        layer: 'review',
+        passed: false,
+        details: { mutationScore: 1.0, noCoverage: 3, threshold: 0.4 },
+      }),
+    );
+    const dim = dimOf(next)!;
+    expect(dim.status).toBe('pass');
+    // mutationScore unchanged (INV-5b) AND noCoverage now carried (DR-6).
+    expect(dim.mutationScore).toBe(1.0);
+    expect(dim.noCoverage).toBe(3);
+  });
+
+  it('Fold_LegacyMutationEventWithoutNoCoverage_FoldsIdentically', () => {
+    // A legacy mutation gate.executed predates DR-6 and carries NO `noCoverage`
+    // in its details. The extended fold must produce a dimension with NO
+    // `noCoverage` key — byte-identical to the pre-DR-6 replay (INV-1: pure
+    // left-fold, identical legacy replay).
+    const legacyEvent = makeEvent('gate.executed', {
+      gateName: 'mutation-adequacy',
+      layer: 'review',
+      passed: true,
+      details: { mutationScore: 0.82, threshold: 0.4 },
+    });
+    const dim = dimOf(workflowStateProjection.apply(workflowStateProjection.init(), legacyEvent))!;
+    // The dimension folds to EXACTLY the pre-DR-6 shape — no `noCoverage` key.
+    expect(dim).toEqual({
+      status: 'pass',
+      gateName: 'mutation-adequacy',
+      passed: true,
+      mutationScore: 0.82,
+    });
+    expect('noCoverage' in dim).toBe(false);
   });
 });
 

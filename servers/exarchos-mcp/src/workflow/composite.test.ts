@@ -40,6 +40,7 @@ vi.mock('./rehydrate.js', () => ({
 import { handleWorkflow } from './composite.js';
 import { handleInit, handleGet, handleTransition, handleReconcileState } from './tools.js';
 import { handleCancel } from './cancel.js';
+import { resolveConfig } from '../config/resolve.js';
 import {
   ANTHROPIC_NATIVE_CACHING,
   createInMemoryResolver,
@@ -116,6 +117,44 @@ describe('handleWorkflow', () => {
       expect(result.success).toBe(true);
       expect(result.data).toEqual({ phase: 'transition-result' });
       expect((result as Record<string, unknown>).next_actions).toEqual([]);
+    });
+
+    it('Injection_MaxNoCoverageConfigured_ReachesTransitionOptions_DR6', async () => {
+      // DR-6 config-read seam: the composite resolves
+      // `review.gates['mutation-adequacy'].params.maxNoCoverage` (and the
+      // enforcement mode) out of projectConfig and threads `maxNoCoverage` into
+      // the handleTransition options — the same plumbing as `_mutationThreshold`,
+      // never a facade fork (INV-2). tools.ts injects it into `_maxNoCoverage`.
+      const projectConfig = resolveConfig({
+        review: {
+          'mutation-enforcement': 'block',
+          gates: { 'mutation-adequacy': { params: { maxNoCoverage: 2 } } },
+        },
+      } as unknown as import('../config/yaml-schema.js').ProjectConfig);
+      const cfgCtx = { ...makeCtx(stateDir), projectConfig };
+      await handleWorkflow(
+        { action: 'transition', featureId: 'test', target: 'synthesize' },
+        cfgCtx,
+      );
+      const opts = (handleTransition as unknown as { mock: { calls: unknown[][] } }).mock
+        .calls[0][3] as Record<string, unknown>;
+      expect(opts.mutationEnforcement).toBe('block');
+      expect(opts.maxNoCoverage).toBe(2);
+    });
+
+    it('Injection_NoConfig_MaxNoCoverageAbsent_DR6', async () => {
+      // No projectConfig → no review config resolved → no maxNoCoverage plumbed;
+      // the options bag stays `undefined` (preserves the no-config contract).
+      await handleWorkflow(
+        { action: 'transition', featureId: 'test', target: 'synthesize' },
+        ctx,
+      );
+      expect(handleTransition).toHaveBeenCalledWith(
+        { featureId: 'test', target: 'synthesize' },
+        stateDir,
+        ctx.eventStore,
+        undefined,
+      );
     });
   });
 

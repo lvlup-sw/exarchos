@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config';
+import { defineConfig, configDefaults } from 'vitest/config';
 import { fileURLToPath } from 'node:url';
 
 export default defineConfig({
@@ -48,6 +48,20 @@ export default defineConfig({
       'tests/**/*.test.ts',
       'src/bench/**/*.bench.ts',
     ],
+    // The composed-path Stryker smoke test (DR-7, task 012) is heavy — it
+    // spawns the real pinned Stryker binary over an isolated fixture repo
+    // (seconds of wall-time) — so it is excluded from the DEFAULT/coverage run.
+    // That keeps it from inflating the coverage-measured lane (DR-5) and from
+    // being conscripted onto the Windows leg's known spawn-flake class. It runs
+    // instead in its own dedicated Linux-only test-mcp step, which sets
+    // EXARCHOS_SMOKE_ONLY=1 to lift the exclusion for that one invocation
+    // (vitest's CLI `--exclude` is additive and cannot un-exclude, so the
+    // toggle has to live here). `configDefaults.exclude` is always preserved so
+    // the node_modules/dist defaults are never dropped.
+    exclude:
+      process.env.EXARCHOS_SMOKE_ONLY === '1'
+        ? [...configDefaults.exclude]
+        : [...configDefaults.exclude, 'src/orchestrate/stryker-adapter.smoke.test.ts'],
     // Cold-start bench (src/bench/cli-startup.bench.ts) isolation strategy
     // (F-021-2):
     //   - `describe.sequential(...)` in the bench file forces its two
@@ -59,7 +73,21 @@ export default defineConfig({
     // No pool-level config change is needed; keeping default `forks` pool.
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'json', 'html'],
+      // `json-summary` emits `coverage/coverage-summary.json` (per-file +
+      // `total` aggregate metrics). Without it the non-regression ratchet
+      // (`scripts/check-coverage-ratchet.mjs`, DR-5) has no artifact to read —
+      // the reporter set is the load-bearing prerequisite the ratchet's
+      // fail-closed missing-summary path exists to catch.
+      reporter: ['text', 'json', 'json-summary', 'html'],
+      // vitest's own default is `reportOnFailure: false` — the coverage report
+      // (including `coverage-summary.json`) is SKIPPED whenever any test
+      // fails. This repo carries a known set of local-only red tests
+      // (`project_local_only_red_baseline`), so leaving the default would
+      // mean the summary artifact silently never materializes locally, and
+      // would starve the ratchet of its input on any red CI run too. Force
+      // the report to always be written so a missing summary is a genuine
+      // reporter/tooling failure, never an artifact of unrelated red tests.
+      reportOnFailure: true,
       include: ['src/**/*.ts'],
       exclude: ['src/**/*.test.ts', 'src/bench/**/*.bench.ts', 'src/index.ts', 'src/__tests__/**', 'src/types.ts']
     }

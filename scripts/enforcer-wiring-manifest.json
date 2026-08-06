@@ -33,6 +33,13 @@
       "rationale": "Runs in benchmark-gate.yml under `continue-on-error: true` by design — perf variance is noisy, so a regression is reported but does not block the merge. Reachable-but-non-failable is intentional, not a defect."
     },
     {
+      "script": "scripts/check-coverage-ratchet.mjs",
+      "disposition": "gating",
+      "workflow": ".github/workflows/ci.yml",
+      "diffDependent": false,
+      "rationale": "test-mcp step (DR-5), BLOCKING (task 009): `node scripts/check-coverage-ratchet.mjs` (no `--observe`) now fails the job on a coverage regression beyond its floored epsilon. The live coverage baseline (servers/exarchos-mcp/coverage-baseline.json — totals + run-ids + measured spread from 3 green CI runs on this feature branch: 29622454248, 29623082084, 29624088763) was captured and the observe flag dropped in the same change. Its scripts/ self-test (check-coverage-ratchet.test.sh) re-asserts unfiltered in grep-gates (DR-10)."
+    },
+    {
       "script": "scripts/check-design-completeness.sh",
       "disposition": "retired",
       "rationale": "Debloat wave-1 (task 011): design/plan collapsed into a single docs/specs doc (#1581); the standalone design-completeness enforcer no longer maps to a live phase artifact and was never wired into any workflow. Retired and file deleted."
@@ -64,6 +71,12 @@
       "workflow": ".github/workflows/ci.yml",
       "diffDependent": false,
       "rationale": "grep-gates step (task 013): every dead-in-prod module must declare intent — a RESERVED(issue, owner, expires) header with a future expiry, or a declared allowlist class (DR-7). Fails closed on a reachability-scan crash (DR-8). Scans the whole tree (not a PR diff), so not diffDependent."
+    },
+    {
+      "script": "scripts/check-mutation-gate.mjs",
+      "disposition": "advisory",
+      "workflow": ".github/workflows/ci.yml",
+      "rationale": "test-mcp step (DR-7), OBSERVE MODE, pull_request events only: `node scripts/check-mutation-gate.mjs --observe` logs the diff-scoped mutation-adequacy verdict and always exits 0 during the CI soak window. DEFERRED (task 009 scope change, #1720): the flip to `gating` does NOT land alongside the coverage ratchet's flip — the diff-scoped mutation gate degrades in CI because StrykerJS dry-run fails on the full server suite. Stays advisory/observe until #1720 resolves; that issue is this entry's exit condition. Advisory disposition MATCHES the actual non-blocking state per the manifest honesty contract; its scripts/ self-test (check-mutation-gate.test.sh) re-asserts unfiltered in grep-gates (DR-10)."
     },
     {
       "script": "scripts/check-no-state-json.mjs",
@@ -104,6 +117,13 @@
       "workflow": ".github/workflows/ci.yml",
       "diffDependent": false,
       "rationale": "grep-gates step: one canonical workflow-state reducer (#1554)."
+    },
+    {
+      "script": "scripts/check-type-debt.mjs",
+      "disposition": "gating",
+      "workflow": ".github/workflows/ci.yml",
+      "diffDependent": false,
+      "rationale": "grep-gates zero-dep-prefix step (DR-9): per-file `as unknown as` count-budget register, BLOCKING from merge day one. Scans the whole src tree (not a PR diff), so not diffDependent. Its scripts/ self-test (check-type-debt.test.sh) also re-asserts unfiltered in grep-gates (DR-10)."
     },
     {
       "script": "scripts/check-windows-portability.mjs",

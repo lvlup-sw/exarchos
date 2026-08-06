@@ -1,0 +1,44 @@
+# Synthetic fixture (DR-2 self-test, direction a): a top-level job
+# ("orphan-job") that is absent from BOTH `ci-gate.needs` and the in-test
+# non-blocking allowlist. Trips the COMPLETENESS assertion only — every
+# other job here is either in `needs` (with a matching evaluate clause) or
+# is not path-filtered, so evaluate-coverage and skip-guard-coverage stay
+# green for this fixture.
+name: CI Fixture - Unlisted Job
+on: push
+
+jobs:
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      root: ${{ steps.filter.outputs.root }}
+    steps:
+      - run: echo noop
+
+  blocking-job:
+    name: Blocking Job
+    needs: changes
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo noop
+
+  orphan-job:
+    name: Orphan Job (unlisted)
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo noop
+
+  ci-gate:
+    name: CI Gate
+    runs-on: ubuntu-latest
+    needs: [changes, blocking-job]
+    steps:
+      - name: Evaluate results
+        run: |
+          if [[ "${{ needs.changes.result }}" =~ ^(failure|cancelled)$ ]]; then
+            exit 1
+          fi
+          if [[ "${{ needs.blocking-job.result }}" =~ ^(failure|cancelled)$ ]]; then
+            exit 1
+          fi
