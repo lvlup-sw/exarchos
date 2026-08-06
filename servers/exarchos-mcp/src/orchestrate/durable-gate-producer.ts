@@ -7,6 +7,7 @@ import type { EventStore } from '../event-store/store.js';
 import type { ToolResult } from '../format.js';
 import { createEvidenceSubject } from '../workflow/admission/evidence-subject.js';
 import type { EvidenceSubjectV1 } from '../workflow/admission/types.js';
+import { allocatePhaseAttemptId } from '../workflow/phase-attempt-id.js';
 import { resolveWorkflowState } from './resolve-state.js';
 import { defaultGitExec } from './gate-utils.js';
 import { runGateWithEvidence } from './gate-runner.js';
@@ -38,12 +39,32 @@ async function activePhaseAttemptId(
   const resolved = await resolveWorkflowState({ featureId, eventStore });
   if ('error' in resolved) return resolved.error;
   const phaseAttemptId = resolved.state.phaseAttemptId;
-  return typeof phaseAttemptId === 'string' && phaseAttemptId.length > 0
-    ? phaseAttemptId
-    : scopeError(
-        'ACTIVE_PHASE_ATTEMPT_REQUIRED',
-        `No active phaseAttemptId is recorded for ${featureId}.`,
-      );
+  if (typeof phaseAttemptId === 'string' && phaseAttemptId.length > 0) {
+    return phaseAttemptId;
+  }
+
+  // Pre-v2.12 backfill: the attempt stamp is minted only at workflow init /
+  // phase transition, so every workflow already in flight BEFORE the stamp
+  // shipped projects NO `phaseAttemptId` — and a hard
+  // `ACTIVE_PHASE_ATTEMPT_REQUIRED` here would wedge such a workflow out of
+  // EVERY migrated ladder gate (task_complete becomes unreachable; the
+  // upgrade-wedge finding). Derive the attempt exactly the way
+  // `allocatePhaseAttemptId` does for pre-v2.12 states: the
+  // `legacy-version:<version>` predecessor form over the projection's CAS
+  // version (`state._version ?? 1`, mirroring workflow/cancel.ts and
+  // cleanup.ts). No transition edge exists at gate time, so the current phase
+  // stands in for both `from` and `to` — a (phase, phase) edge is never
+  // minted by real transitions (`fromPhase !== input.phase` guards the mint),
+  // so the derived id cannot collide with a genuine attempt, and it is
+  // DETERMINISTIC for the same (featureId, version): re-running a gate on the
+  // same legacy state binds evidence to the same attempt.
+  const phase =
+    typeof resolved.state.phase === 'string' && resolved.state.phase.length > 0
+      ? resolved.state.phase
+      : 'unknown';
+  const legacyVersion =
+    typeof resolved.state._version === 'number' ? resolved.state._version : 1;
+  return allocatePhaseAttemptId(featureId, phase, phase, undefined, legacyVersion);
 }
 
 function fallbackArtifactId(scope: DurableGateScope, phaseAttemptId: string): string {

@@ -57,9 +57,14 @@ import { join, relative } from 'node:path';
  *      non-evadable rule is one that fails closed on names nobody has vetted;
  *   4. remote-URL imports (`https://…`, `wss://…`), which fetch over the wire
  *      by construction;
- *   5. ambient network globals reached without an import — `fetch(…)`,
- *      `globalThis.fetch`, `const f = fetch`, `const { fetch } = globalThis`,
- *      `new WebSocket(…)` — see {@link AMBIENT_NETWORK_RULES}.
+ *   5. ambient globals reached without an import — `fetch(…)`,
+ *      `<globalRoot>.fetch` (where `<globalRoot>` is any spelling of the global
+ *      object: `globalThis`/`global`/`self`/`window`), `const f = fetch`,
+ *      `const { fetch } = <globalRoot>`, `new WebSocket(…)` — see
+ *      {@link AMBIENT_NETWORK_RULES} — plus the Bun ambient runtime object,
+ *      whose I/O needs no import at all: `Bun.serve`/`Bun.connect` (network),
+ *      `Bun.spawn` (process), `Bun.write`/`Bun.file` (filesystem) — see
+ *      {@link AMBIENT_BUN_RULES}.
  *
  * Rule 3 deliberately inverts the list: an allowlist of *inert* dependencies
  * grows only when a human consciously asserts "this package performs no I/O",
@@ -696,14 +701,20 @@ export function maskNonCode(source: string): string {
  *                              not match (the negative lookahead requires a
  *                              non-identifier after `fetch`, and the lookbehind
  *                              rejects a `.fetch` member call).
- *   - `globalThis.<global>`  — the reflective escape hatch. The live tree
- *                              contains no `globalThis` at all.
+ *   - `<globalRoot>.<global>` — the reflective escape hatch, for EVERY spelling
+ *                              of the global object: `globalThis`, `global`
+ *                              (Node), `self` (workers), `window`. A
+ *                              literal-`globalThis` rule was an open evasion —
+ *                              `global.fetch(url)` scanned clean because rule 1
+ *                              rejects `.fetch` member calls and nothing else
+ *                              matched. The live tree contains none of these.
  *   - `= fetch`              — the alias binding DR-13 names (`const f = fetch`,
  *                              `const f = fetch.bind(globalThis)`). Requires
  *                              `fetch` immediately after `=`, so
  *                              `= client.fetch` and `= fetchPrData(…)` do not
  *                              match.
- *   - `{ … fetch … } = globalThis` — the destructured form.
+ *   - `{ … fetch … } = <globalRoot>` — the destructured form, over the same
+ *                              global-object spellings as the member-access rule.
  *   - `new WebSocket(`       — an ambient socket client, the import-free
  *                              equivalent of the `ws` package.
  *
@@ -714,17 +725,52 @@ export function maskNonCode(source: string): string {
 const AMBIENT_NETWORK_RULES: readonly { readonly re: RegExp; readonly evidence: string }[] = [
   { re: /(?<![\w$.])fetch\s*\(/, evidence: 'fetch' },
   {
-    re: /(?<![\w$.])globalThis\s*\.\s*(?:fetch|WebSocket|EventSource|XMLHttpRequest)(?![\w$])/,
+    re: /(?<![\w$.])(?:globalThis|global|self|window)\s*\.\s*(?:fetch|WebSocket|EventSource|XMLHttpRequest)(?![\w$])/,
     evidence: 'globalThis.fetch',
   },
   { re: /=\s*fetch(?![\w$])/, evidence: 'fetch (aliased binding)' },
   {
-    re: /\{[^{}]*(?<![\w$.])fetch(?![\w$])[^{}]*\}\s*=\s*globalThis(?![\w$])/,
+    re: /\{[^{}]*(?<![\w$.])fetch(?![\w$])[^{}]*\}\s*=\s*(?:globalThis|global|self|window)(?![\w$])/,
     evidence: 'fetch (destructured from globalThis)',
   },
   {
     re: /(?<![\w$.])new\s+(?:WebSocket|EventSource|XMLHttpRequest)\s*\(/,
     evidence: 'new WebSocket',
+  },
+];
+
+/**
+ * Bun's ambient runtime object performs I/O with NO import at all, so the
+ * import-surface rules (1–4) never see it and the fetch-shaped ambient rules
+ * above cover only the network class. Each rule is a member-CALL shape rooted
+ * at the `Bun` identifier (optionally reached through a global-object root),
+ * judged on {@link maskNonCode} output — `myBun.serve(` and a `Bun.spawn`
+ * inside a string/comment never match:
+ *
+ *   - `Bun.serve(` / `Bun.connect(` / `Bun.listen(` / `Bun.udpSocket(`
+ *     — sockets (server and client) → network.
+ *   - `Bun.spawn(` / `Bun.spawnSync(` — child processes → process.
+ *   - `Bun.write(` / `Bun.file(` — filesystem I/O → filesystem.
+ */
+const AMBIENT_BUN_RULES: readonly {
+  readonly re: RegExp;
+  readonly evidence: string;
+  readonly effectClass: EffectClass;
+}[] = [
+  {
+    re: /(?<![\w$.])(?:(?:globalThis|global|self|window)\s*\.\s*)?Bun\s*\.\s*(?:serve|connect|listen|udpSocket)\s*\(/,
+    evidence: 'Bun.serve',
+    effectClass: 'network',
+  },
+  {
+    re: /(?<![\w$.])(?:(?:globalThis|global|self|window)\s*\.\s*)?Bun\s*\.\s*spawn(?:Sync)?\s*\(/,
+    evidence: 'Bun.spawn',
+    effectClass: 'process',
+  },
+  {
+    re: /(?<![\w$.])(?:(?:globalThis|global|self|window)\s*\.\s*)?Bun\s*\.\s*(?:write|file)\s*\(/,
+    evidence: 'Bun.write',
+    effectClass: 'filesystem',
   },
 ];
 
@@ -746,12 +792,25 @@ export function detectModuleEffects(module: string, source: string): EffectOccur
     }
   }
 
-  // Ambient network globals (no import) are a network effect too — judged on
-  // fully masked source so a token in a string/comment/regex is not counted.
-  if (!found.has('network')) {
+  // Ambient globals (no import) are effects too — judged on fully masked
+  // source so a token in a string/comment/regex is not counted. The fetch
+  // shaped rules cover only the network class; the Bun ambient rules span all
+  // three classes, so they are checked per-class.
+  if (
+    !found.has('network') ||
+    !found.has('process') ||
+    !found.has('filesystem')
+  ) {
     const masked = maskNonCode(source);
-    const ambient = AMBIENT_NETWORK_RULES.find((r) => r.re.test(masked));
-    if (ambient !== undefined) found.set('network', ambient.evidence);
+    if (!found.has('network')) {
+      const ambient = AMBIENT_NETWORK_RULES.find((r) => r.re.test(masked));
+      if (ambient !== undefined) found.set('network', ambient.evidence);
+    }
+    for (const rule of AMBIENT_BUN_RULES) {
+      if (!found.has(rule.effectClass) && rule.re.test(masked)) {
+        found.set(rule.effectClass, rule.evidence);
+      }
+    }
   }
 
   return [...found.entries()]

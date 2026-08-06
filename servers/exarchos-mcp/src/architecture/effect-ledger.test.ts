@@ -539,6 +539,51 @@ describe('DR-13 kill — the widened detector sees evaded network clients', () =
     ).toEqual([]);
   });
 
+  it('EffectLedger_AmbientGlobalAliases_GlobalSelfWindow_AreNetworkEffects', () => {
+    // DR-13 rule-2 widening: `globalThis` is not the only spelling of the
+    // global object. `global` (Node), `self` (workers), and `window` reach the
+    // IDENTICAL ambient network surface, so a literal-`globalThis` rule was an
+    // open evasion (`global.fetch(url)` scanned clean).
+    for (const root of ['globalThis', 'global', 'self', 'window']) {
+      const occ = detectModuleEffects(
+        'x/alias.ts',
+        `export const go = (u: string) => ${root}.fetch(u);`,
+      );
+      expect(occ.map((o) => o.effectClass), `${root}.fetch must be a network effect`).toEqual([
+        'network',
+      ]);
+    }
+    // Anchored on the LEFT: a member access or longer identifier ending in one
+    // of the alias names must NOT match (`app.window.fetch` is `.window`-rooted
+    // member access on an app object; `notglobal.fetch` is a plain object).
+    expect(detectModuleEffects('x/n1.ts', `export const x = notglobal.fetch('u');`)).toEqual([]);
+  });
+
+  it('EffectLedger_BunAmbientAPIs_AreDetected_PerEffectClass', () => {
+    // Bun's ambient runtime object performs I/O with NO import at all —
+    // `Bun.serve`/`Bun.connect` open sockets, `Bun.spawn` forks a process,
+    // `Bun.write`/`Bun.file` touch the filesystem. Pre-widening none of these
+    // were detected (and the trust boundary never documented the gap).
+    const cases: readonly [source: string, effectClass: string, evidence: string][] = [
+      [`export const s = Bun.serve({ port: 3000, fetch: () => new Response('x') });`, 'network', 'Bun.serve'],
+      [`export const c = await Bun.connect({ hostname: 'x', port: 1 });`, 'network', 'Bun.serve'],
+      [`export const p = Bun.spawn(['ls']);`, 'process', 'Bun.spawn'],
+      [`export const ok = await Bun.write('/tmp/x', 'data');`, 'filesystem', 'Bun.write'],
+      [`export const f = Bun.file('/tmp/x');`, 'filesystem', 'Bun.write'],
+    ];
+    for (const [source, effectClass, evidence] of cases) {
+      const occ = detectModuleEffects('x/bun.ts', source);
+      expect(occ, `${source} must be detected`).toEqual([
+        { module: 'x/bun.ts', effectClass, evidence },
+      ]);
+    }
+    // Shape-anchored: an object that merely LOOKS like Bun stays inert, and the
+    // names inside strings/comments never count (maskNonCode).
+    expect(detectModuleEffects('x/nb1.ts', `export const x = myBun.serve(1);`)).toEqual([]);
+    expect(detectModuleEffects('x/nb2.ts', `// docs: Bun.serve is the ambient server`)).toEqual([]);
+    expect(detectModuleEffects('x/nb3.ts', `export const s = 'Bun.spawn(cmd)';`)).toEqual([]);
+  });
+
   it('EffectLedger_ClosedWorldAllowlist_IsPerPackageNotPerSubpath', () => {
     // `@modelcontextprotocol/sdk/server/mcp.js` must be covered by the ONE
     // `@modelcontextprotocol/sdk` allowlist entry, or every SDK subpath would be

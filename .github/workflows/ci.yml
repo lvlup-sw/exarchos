@@ -69,10 +69,21 @@ jobs:
               - 'binding/**'
               - 'binding-src/**'
               - '.claude-plugin/**'
+              # The agent-generator sources under the MCP workspace feed the
+              # rendered `agents/**` projection above; a change there must
+              # trigger the root suite's `skills:guard` drift check on the
+              # CAUSING PR, not only on a later PR that happens to touch the
+              # rendered output.
+              - 'servers/exarchos-mcp/src/agents/**'
               - 'AGENTS.md'
               - 'package.json'
               - 'tsconfig.json'
               - '.github/workflows/ci.yml'
+              # `scripts/release-workflow.test.ts` (root suite) parses
+              # release.yml — a release.yml-only PR must run the root suite
+              # or the workflow's own contract test never fires on the PR
+              # that changes it.
+              - '.github/workflows/release.yml'
             mcp:
               - 'servers/exarchos-mcp/**'
               - '.github/workflows/ci.yml'
