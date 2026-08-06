@@ -1,0 +1,1009 @@
+{
+  "schemaVersion": 1,
+  "snapshot": "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
+  "generatedAt": "2026-07-24T06:17:20.891Z",
+  "repository": {
+    "files": 2826,
+    "bytes": 34541551,
+    "codeFiles": 1647,
+    "typescript": {
+      "totalFiles": 1532,
+      "productionFiles": 627,
+      "testFiles": 905,
+      "productionLines": 155766,
+      "testLines": 270066
+    }
+  },
+  "domains": [
+    {
+      "domain": "servers/exarchos-mcp/src",
+      "files": 1250,
+      "textLines": 375418
+    },
+    {
+      "domain": "src",
+      "files": 85,
+      "textLines": 21399
+    },
+    {
+      "domain": "scripts",
+      "files": 135,
+      "textLines": 26479
+    },
+    {
+      "domain": "skills-src",
+      "files": 108,
+      "textLines": 15501
+    },
+    {
+      "domain": "commands",
+      "files": 18,
+      "textLines": 188
+    },
+    {
+      "domain": "rules",
+      "files": 1,
+      "textLines": 10
+    },
+    {
+      "domain": "test",
+      "files": 63,
+      "textLines": 9395
+    },
+    {
+      "domain": "docs",
+      "files": 615,
+      "textLines": 127235
+    }
+  ],
+  "largeProductionFiles": [
+    {
+      "path": "servers/exarchos-mcp/src/registry.ts",
+      "lines": 4205
+    },
+    {
+      "path": "servers/exarchos-mcp/src/event-store/schemas.ts",
+      "lines": 4124
+    },
+    {
+      "path": "servers/exarchos-mcp/src/storage/sqlite-backend.ts",
+      "lines": 2700
+    },
+    {
+      "path": "src/build-skills.ts",
+      "lines": 2239
+    },
+    {
+      "path": "servers/exarchos-mcp/src/views/tools.ts",
+      "lines": 2224
+    },
+    {
+      "path": "servers/exarchos-mcp/src/workflow/tools.ts",
+      "lines": 2033
+    },
+    {
+      "path": "servers/exarchos-mcp/src/orchestrate/worktree/manager.ts",
+      "lines": 1892
+    },
+    {
+      "path": "servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts",
+      "lines": 1674
+    },
+    {
+      "path": "servers/exarchos-mcp/src/adapters/cli.ts",
+      "lines": 1576
+    },
+    {
+      "path": "src/install-skills.ts",
+      "lines": 1555
+    },
+    {
+      "path": "servers/exarchos-mcp/src/workflow/playbooks.ts",
+      "lines": 1546
+    },
+    {
+      "path": "servers/exarchos-mcp/src/event-store/atomic-appender.ts",
+      "lines": 1419
+    },
+    {
+      "path": "servers/exarchos-mcp/src/workflow/compensation.ts",
+      "lines": 1334
+    },
+    {
+      "path": "servers/exarchos-mcp/src/task-store/event-sourced-task-store.ts",
+      "lines": 1316
+    },
+    {
+      "path": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "lines": 1097
+    },
+    {
+      "path": "servers/exarchos-mcp/src/core/onboarding/reconcile.ts",
+      "lines": 1069
+    },
+    {
+      "path": "servers/exarchos-mcp/src/orchestrate/prune-stale-workflows.ts",
+      "lines": 1061
+    },
+    {
+      "path": "servers/exarchos-mcp/src/workflow/guards.ts",
+      "lines": 1060
+    },
+    {
+      "path": "servers/exarchos-mcp/src/workflow/state-machine.ts",
+      "lines": 1044
+    },
+    {
+      "path": "servers/exarchos-mcp/src/views/workflow-state-projection.ts",
+      "lines": 1019
+    },
+    {
+      "path": "servers/exarchos-mcp/src/orchestrate/mutation-adequacy.ts",
+      "lines": 1016
+    },
+    {
+      "path": "servers/exarchos-mcp/src/projections/rehydration/reducer.ts",
+      "lines": 988
+    },
+    {
+      "path": "servers/exarchos-mcp/src/orchestrate/task-decomposition.ts",
+      "lines": 973
+    },
+    {
+      "path": "servers/exarchos-mcp/src/orchestrate/merge-orchestrate.ts",
+      "lines": 951
+    },
+    {
+      "path": "servers/exarchos-mcp/src/event-store/store.ts",
+      "lines": 943
+    },
+    {
+      "path": "servers/exarchos-mcp/src/orchestrate/onboard/install.ts",
+      "lines": 857
+    },
+    {
+      "path": "servers/exarchos-mcp/src/orchestrate/pure/static-analysis.ts",
+      "lines": 856
+    },
+    {
+      "path": "servers/exarchos-mcp/src/orchestrate/execute-merge.ts",
+      "lines": 818
+    },
+    {
+      "path": "servers/exarchos-mcp/src/orchestrate/plan-coverage.ts",
+      "lines": 812
+    },
+    {
+      "path": "servers/exarchos-mcp/src/workflow/state-store.ts",
+      "lines": 810
+    },
+    {
+      "path": "servers/exarchos-mcp/src/orchestrate/assess-stack.ts",
+      "lines": 780
+    },
+    {
+      "path": "servers/exarchos-mcp/src/launcher/lifecycle-core.ts",
+      "lines": 774
+    },
+    {
+      "path": "servers/exarchos-mcp/src/orchestrate/worktree/handlers.ts",
+      "lines": 771
+    },
+    {
+      "path": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "lines": 750
+    },
+    {
+      "path": "docs/evals/native-baseline/harness.ts",
+      "lines": 743
+    },
+    {
+      "path": "servers/exarchos-mcp/src/config/test-runtime-resolver.ts",
+      "lines": 741
+    },
+    {
+      "path": "servers/exarchos-mcp/src/workflow/rehydrate.ts",
+      "lines": 728
+    },
+    {
+      "path": "servers/exarchos-mcp/src/event-store/tools.ts",
+      "lines": 725
+    },
+    {
+      "path": "servers/exarchos-mcp/src/workflow/hsm-transition-guard.ts",
+      "lines": 721
+    },
+    {
+      "path": "servers/exarchos-mcp/src/runbooks/definitions.ts",
+      "lines": 716
+    },
+    {
+      "path": "servers/exarchos-mcp/src/orchestrate/worktree/pure/probe.ts",
+      "lines": 697
+    },
+    {
+      "path": "servers/exarchos-mcp/src/views/lifecycle/wait.ts",
+      "lines": 669
+    },
+    {
+      "path": "servers/exarchos-mcp/src/workflow/schemas.ts",
+      "lines": 668
+    },
+    {
+      "path": "servers/exarchos-mcp/src/capabilities/resolver.ts",
+      "lines": 656
+    },
+    {
+      "path": "servers/exarchos-mcp/src/orchestrate/worktree/merge-serializer.ts",
+      "lines": 651
+    },
+    {
+      "path": "servers/exarchos-mcp/src/format.ts",
+      "lines": 632
+    },
+    {
+      "path": "servers/exarchos-mcp/src/vcs/github.ts",
+      "lines": 621
+    },
+    {
+      "path": "servers/exarchos-mcp/src/config/toolchains.ts",
+      "lines": 612
+    },
+    {
+      "path": "servers/exarchos-mcp/src/agents/definitions.ts",
+      "lines": 609
+    },
+    {
+      "path": "servers/exarchos-mcp/src/orchestrate/setup-worktree.ts",
+      "lines": 608
+    },
+    {
+      "path": "servers/exarchos-mcp/src/workflow/admission/types.ts",
+      "lines": 598
+    },
+    {
+      "path": "servers/exarchos-mcp/src/orchestrate/worktree/projections/worktrees.ts",
+      "lines": 590
+    },
+    {
+      "path": "servers/exarchos-mcp/src/workflow/hsm-definitions.ts",
+      "lines": 590
+    },
+    {
+      "path": "docs/evals/quality-ab/run-underspec.ts",
+      "lines": 575
+    },
+    {
+      "path": "servers/exarchos-mcp/src/adapters/mcp.ts",
+      "lines": 574
+    },
+    {
+      "path": "servers/exarchos-mcp/src/orchestrate/doctor/probes.ts",
+      "lines": 564
+    },
+    {
+      "path": "servers/exarchos-mcp/src/orchestrate/pre-synthesis-check.ts",
+      "lines": 564
+    },
+    {
+      "path": "servers/exarchos-mcp/src/architecture/invariants-loader.ts",
+      "lines": 549
+    },
+    {
+      "path": "servers/exarchos-mcp/src/orchestrate/pure/design-completeness.ts",
+      "lines": 548
+    },
+    {
+      "path": "servers/exarchos-mcp/src/config/resolve.ts",
+      "lines": 537
+    },
+    {
+      "path": "servers/exarchos-mcp/src/orchestrate/gate-utils.ts",
+      "lines": 534
+    },
+    {
+      "path": "servers/exarchos-mcp/src/orchestrate/worktree/git-retry.ts",
+      "lines": 527
+    },
+    {
+      "path": "servers/exarchos-mcp/src/storage/memory-backend.ts",
+      "lines": 525
+    },
+    {
+      "path": "servers/exarchos-mcp/src/views/code-quality-view.ts",
+      "lines": 521
+    },
+    {
+      "path": "servers/exarchos-mcp/src/event-store/subscriptions.ts",
+      "lines": 520
+    },
+    {
+      "path": "servers/exarchos-mcp/src/launcher/create-worktree.ts",
+      "lines": 517
+    },
+    {
+      "path": "servers/exarchos-mcp/src/views/lifecycle/export.ts",
+      "lines": 516
+    },
+    {
+      "path": "servers/exarchos-mcp/src/index.ts",
+      "lines": 515
+    },
+    {
+      "path": "servers/exarchos-mcp/src/views/composite.ts",
+      "lines": 515
+    },
+    {
+      "path": "src/placeholder-lint.ts",
+      "lines": 515
+    },
+    {
+      "path": "servers/exarchos-mcp/src/workflow/cancel.ts",
+      "lines": 501
+    }
+  ],
+  "enforcement": {
+    "primaries": 22,
+    "gating": 17,
+    "advisory": 3,
+    "retired": 2,
+    "advisoryItems": [
+      "scripts/check-benchmark-regression.sh",
+      "scripts/check-mutation-gate.mjs",
+      "scripts/lint-inv6.mjs"
+    ]
+  },
+  "structuralChecks": [
+    {
+      "id": "gate-runner-ownership",
+      "status": "pass",
+      "result": "check-gate-runner-ownership: clean — 84 production finding(s) have exact typed owners.",
+      "provenance": {
+        "command": "node scripts/check-gate-runner-ownership.mjs",
+        "cwd": "C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline",
+        "snapshot": "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
+        "host": "Windows_NT",
+        "node": "v24.18.0",
+        "dependencyState": "git archive without node_modules",
+        "startedAt": "2026-07-24T05:12:29.5883622+00:00",
+        "endedAt": "2026-07-24T05:12:39.1979999+00:00",
+        "exitCode": 0,
+        "summary": "check-gate-runner-ownership: clean — 84 production finding(s) have exact typed owners.",
+        "status": "pass"
+      }
+    },
+    {
+      "id": "enforcer-wiring",
+      "status": "pass",
+      "result": "check-enforcer-wiring: clean — 22 primaries dispositioned.",
+      "provenance": {
+        "command": "node scripts/check-enforcer-wiring.mjs",
+        "cwd": "C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline",
+        "snapshot": "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
+        "host": "Windows_NT",
+        "node": "v24.18.0",
+        "dependencyState": "git archive without node_modules",
+        "startedAt": "2026-07-24T05:12:39.2540115+00:00",
+        "endedAt": "2026-07-24T05:12:39.5804189+00:00",
+        "exitCode": 0,
+        "summary": "check-enforcer-wiring: clean — 22 primaries dispositioned.",
+        "status": "pass"
+      }
+    },
+    {
+      "id": "event-store-composition-root",
+      "status": "pass",
+      "result": "--",
+      "provenance": {
+        "command": "node scripts/check-event-store-composition-root.mjs",
+        "cwd": "C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline",
+        "snapshot": "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
+        "host": "Windows_NT",
+        "node": "v24.18.0",
+        "dependencyState": "git archive without node_modules",
+        "startedAt": "2026-07-24T05:12:39.6226062+00:00",
+        "endedAt": "2026-07-24T05:12:39.9844074+00:00",
+        "exitCode": 0,
+        "summary": "",
+        "status": "pass"
+      }
+    },
+    {
+      "id": "query-upcast-choke-point",
+      "status": "pass",
+      "result": "--",
+      "provenance": {
+        "command": "node scripts/check-query-upcast-choke-point.mjs",
+        "cwd": "C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline",
+        "snapshot": "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
+        "host": "Windows_NT",
+        "node": "v24.18.0",
+        "dependencyState": "git archive without node_modules",
+        "startedAt": "2026-07-24T05:12:40.0303331+00:00",
+        "endedAt": "2026-07-24T05:12:40.3569872+00:00",
+        "exitCode": 0,
+        "summary": "",
+        "status": "pass"
+      }
+    },
+    {
+      "id": "no-state-json",
+      "status": "pass",
+      "result": "--",
+      "provenance": {
+        "command": "node scripts/check-no-state-json.mjs",
+        "cwd": "C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline",
+        "snapshot": "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
+        "host": "Windows_NT",
+        "node": "v24.18.0",
+        "dependencyState": "git archive without node_modules",
+        "startedAt": "2026-07-24T05:12:40.3990511+00:00",
+        "endedAt": "2026-07-24T05:12:40.7376513+00:00",
+        "exitCode": 0,
+        "summary": "",
+        "status": "pass"
+      }
+    },
+    {
+      "id": "single-workflow-fold",
+      "status": "pass",
+      "result": "--",
+      "provenance": {
+        "command": "node scripts/check-single-workflow-fold.mjs",
+        "cwd": "C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline",
+        "snapshot": "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
+        "host": "Windows_NT",
+        "node": "v24.18.0",
+        "dependencyState": "git archive without node_modules",
+        "startedAt": "2026-07-24T05:12:40.7799163+00:00",
+        "endedAt": "2026-07-24T05:12:41.1094436+00:00",
+        "exitCode": 0,
+        "summary": "",
+        "status": "pass"
+      }
+    },
+    {
+      "id": "module-intent",
+      "status": "fail",
+      "result": "check-module-intent: 1 dead-in-prod module(s) lack valid intent (DR-7). | System.Management.Automation.RemoteException |   views/gate-reliability-view.ts |       dead-in-prod (0 production importers) with no RESERVED(issue, owner, expires) header and no allowlist class | System.Management.Automation.RemoteException | Every production module with zero production importers must either carry a | RESERVED(issue, owner, expires) header with a future expiry, belong to a declared | allowlist class (test-infra / build-shim / type-test entrypoint), or be deleted.",
+      "provenance": {
+        "command": "node scripts/check-module-intent.mjs",
+        "cwd": "C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline",
+        "snapshot": "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
+        "host": "Windows_NT",
+        "node": "v24.18.0",
+        "dependencyState": "git archive without node_modules",
+        "startedAt": "2026-07-24T05:12:41.1513002+00:00",
+        "endedAt": "2026-07-24T05:12:56.6726721+00:00",
+        "exitCode": 1,
+        "summary": "check-module-intent: 1 dead-in-prod module(s) lack valid intent (DR-7). | System.Management.Automation.RemoteException |   views/gate-reliability-view.ts |       dead-in-prod (0 production importers) with no RESERVED(issue, owner, expires) header and no allowlist class | System.Management.Automation.RemoteException | Every production module with zero production importers must either carry a | RESERVED(issue, owner, expires) header with a future expiry, belong to a declared | allowlist class (test-infra / build-shim / type-test entrypoint), or be deleted.",
+        "status": "fail"
+      }
+    },
+    {
+      "id": "type-debt",
+      "status": "fail",
+      "result": "check-type-debt: FAIL (over-budget): 3 file(s) exceed their baselined `as unknown as` budget: |     servers/exarchos-mcp/src/storage/sqlite-backend.ts  budget=2 actual=3 |     servers/exarchos-mcp/src/workflow/cleanup.ts  budget=1 actual=2 |     servers/exarchos-mcp/src/workflow/tools.ts  budget=7 actual=9 | check-type-debt: FAIL (unbaselined-debt): 1 file(s) have `as unknown as` casts with no entry in type-debt-baseline.json: |     servers/exarchos-mcp/src/workflow/cancel.ts  actual=1 | System.Management.Automation.RemoteException | Fix the casts (preferred) or run `node scripts/check-type-debt.mjs --update` to record a deliberate, reviewed increase.",
+      "provenance": {
+        "command": "node scripts/check-type-debt.mjs",
+        "cwd": "C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline",
+        "snapshot": "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
+        "host": "Windows_NT",
+        "node": "v24.18.0",
+        "dependencyState": "git archive without node_modules",
+        "startedAt": "2026-07-24T05:12:56.7152281+00:00",
+        "endedAt": "2026-07-24T05:12:57.5878778+00:00",
+        "exitCode": 1,
+        "summary": "check-type-debt: FAIL (over-budget): 3 file(s) exceed their baselined `as unknown as` budget: |     servers/exarchos-mcp/src/storage/sqlite-backend.ts  budget=2 actual=3 |     servers/exarchos-mcp/src/workflow/cleanup.ts  budget=1 actual=2 |     servers/exarchos-mcp/src/workflow/tools.ts  budget=7 actual=9 | check-type-debt: FAIL (unbaselined-debt): 1 file(s) have `as unknown as` casts with no entry in type-debt-baseline.json: |     servers/exarchos-mcp/src/workflow/cancel.ts  actual=1 | System.Management.Automation.RemoteException | Fix the casts (preferred) or run `node scripts/check-type-debt.mjs --update` to record a deliberate, reviewed increase.",
+        "status": "fail"
+      }
+    },
+    {
+      "id": "wlm-wiring",
+      "status": "pass",
+      "result": "WLM wiring gate: clean.",
+      "provenance": {
+        "command": "node scripts/check-wlm-wiring.mjs",
+        "cwd": "C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline",
+        "snapshot": "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
+        "host": "Windows_NT",
+        "node": "v24.18.0",
+        "dependencyState": "git archive without node_modules",
+        "startedAt": "2026-07-24T05:12:57.6291133+00:00",
+        "endedAt": "2026-07-24T05:12:59.4682040+00:00",
+        "exitCode": 0,
+        "summary": "WLM wiring gate: clean.",
+        "status": "pass"
+      }
+    },
+    {
+      "id": "windows-portability",
+      "status": "pass",
+      "result": "Windows-portability gate: clean.",
+      "provenance": {
+        "command": "node scripts/check-windows-portability.mjs",
+        "cwd": "C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline",
+        "snapshot": "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
+        "host": "Windows_NT",
+        "node": "v24.18.0",
+        "dependencyState": "git archive without node_modules",
+        "startedAt": "2026-07-24T05:12:59.5101410+00:00",
+        "endedAt": "2026-07-24T05:13:00.4731165+00:00",
+        "exitCode": 0,
+        "summary": "Windows-portability gate: clean.",
+        "status": "pass"
+      }
+    },
+    {
+      "id": "check-begin-immediate-substrate",
+      "status": "pass",
+      "result": "OK: no immediate-transaction substrate leaks found in /c/Users/salusreed/.copilot/session-state/8cbb8868-4652-461a-8629-4703a12d83c9/files/candidate-baseline",
+      "provenance": {
+        "cwd": "C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline",
+        "snapshot": "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
+        "host": "Windows_NT",
+        "node": "v24.18.0",
+        "dependencyState": "git archive without node_modules",
+        "id": "check-begin-immediate-substrate",
+        "command": "bash scripts/check-begin-immediate-substrate.sh",
+        "startedAt": "2026-07-24T05:47:52.6400517+00:00",
+        "endedAt": "2026-07-24T05:48:28.7016856+00:00",
+        "exitCode": 0,
+        "summary": "OK: no immediate-transaction substrate leaks found in /c/Users/salusreed/.copilot/session-state/8cbb8868-4652-461a-8629-4703a12d83c9/files/candidate-baseline",
+        "status": "pass"
+      }
+    },
+    {
+      "id": "check-coverage-ratchet",
+      "status": "blocked",
+      "result": "check-coverage-ratchet: FAIL CLOSED — coverage-summary.json not found at C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline\\servers\\exarchos-mcp\\coverage\\coverage-summary.json",
+      "provenance": {
+        "cwd": "C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline",
+        "snapshot": "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
+        "host": "Windows_NT",
+        "node": "v24.18.0",
+        "dependencyState": "git archive without node_modules",
+        "id": "check-coverage-ratchet",
+        "command": "node scripts/check-coverage-ratchet.mjs",
+        "startedAt": "2026-07-24T05:48:28.7146750+00:00",
+        "endedAt": "2026-07-24T05:48:28.8315006+00:00",
+        "exitCode": 2,
+        "summary": "check-coverage-ratchet: FAIL CLOSED — coverage-summary.json not found at C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline\\servers\\exarchos-mcp\\coverage\\coverage-summary.json",
+        "status": "blocked"
+      }
+    },
+    {
+      "id": "check-withsession-idempotency",
+      "status": "pass",
+      "result": "check-withsession-idempotency: OK (all .withSession( call sites are compliant)",
+      "provenance": {
+        "cwd": "C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline",
+        "snapshot": "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
+        "host": "Windows_NT",
+        "node": "v24.18.0",
+        "dependencyState": "git archive without node_modules",
+        "id": "check-withsession-idempotency",
+        "command": "bash scripts/check-withsession-idempotency.sh",
+        "startedAt": "2026-07-24T05:48:28.8329604+00:00",
+        "endedAt": "2026-07-24T05:48:30.6356295+00:00",
+        "exitCode": 0,
+        "summary": "check-withsession-idempotency: OK (all .withSession( call sites are compliant)",
+        "status": "pass"
+      }
+    },
+    {
+      "id": "lint-test-first-drift",
+      "status": "pass",
+      "result": "{ |   \"findings\": [], |   \"advisory\": false | }",
+      "provenance": {
+        "cwd": "C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline",
+        "snapshot": "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
+        "host": "Windows_NT",
+        "node": "v24.18.0",
+        "dependencyState": "git archive without node_modules",
+        "id": "lint-test-first-drift",
+        "command": "node scripts/lint-test-first-drift.mjs",
+        "startedAt": "2026-07-24T05:48:30.6365703+00:00",
+        "endedAt": "2026-07-24T05:48:33.3443687+00:00",
+        "exitCode": 0,
+        "summary": "{ |   \"findings\": [], |   \"advisory\": false | }",
+        "status": "pass"
+      }
+    },
+    {
+      "id": "check-prefix-fingerprint",
+      "status": "blocked",
+      "result": "ERR_MODULE_NOT_FOUND while resolving the candidate fingerprint CLI dependency graph through the linked authoring node_modules; missing=yazl; retry=Install candidate snapshot dependencies from its package-lock in an isolated environment, then rerun the wrapper without a cross-checkout node_modules junction.",
+      "provenance": {
+        "cwd": "C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline",
+        "snapshot": "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
+        "host": "Windows_NT",
+        "node": "v24.18.0",
+        "id": "check-prefix-fingerprint",
+        "command": "node scripts/check-prefix-fingerprint.mjs",
+        "dependencyState": "candidate archive with junction to authoring node_modules; package-lock unchanged across audited range",
+        "startedAt": "2026-07-24T06:14:53.7648417+00:00",
+        "endedAt": "2026-07-24T06:14:57.9367767+00:00",
+        "exitCode": 2,
+        "status": "blocked",
+        "blocker": "ERR_MODULE_NOT_FOUND while resolving the candidate fingerprint CLI dependency graph through the linked authoring node_modules",
+        "missingSpecifier": "yazl",
+        "affectedEvidence": [
+          "PREFIX_FINGERPRINT live recomputation",
+          "DR-12 prompt-cache fingerprint validation"
+        ],
+        "retryPrerequisite": "Install candidate snapshot dependencies from its package-lock in an isolated environment, then rerun the wrapper without a cross-checkout node_modules junction.",
+        "log": "C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-prefix-fingerprint.log",
+        "stderr": "check-prefix-fingerprint: fingerprint computation failed\n  tsx:    C:\\Users\\salusreed\\AppData\\Local\\Microsoft\\WinGet\\Packages\\OpenJS.NodeJS.LTS_Microsoft.Winget.Source_8wekyb3d8bbwe\\node-v24.18.0-win-x64\\node.exe C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline\\node_modules\\tsx\\dist\\cli.mjs\n  entry:  C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline\\servers\\exarchos-mcp\\src\\projections\\rehydration\\fingerprint-cli.ts\n  status: 1\n  stderr: \nnode:internal/modules/run_main:107\n    triggerUncaughtException(\n    ^\nError [ERR_MODULE_NOT_FOUND]: Cannot find package 'yazl' imported from C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline\\servers\\exarchos-mcp\\src\\views\\lifecycle\\export.ts\n    at Object.getPackageJSONURL (node:internal/modules/package_json_reader:301:9)\n    at packageResolve (node:internal/modules/esm/resolve:768:81)\n    at moduleResolve (node:internal/modules/esm/resolve:859:18)\n    at defaultResolve (node:internal/modules/esm/resolve:992:11)\n    at nextResolve (node:internal/modules/esm/hooks:785:28)\n    at resolveBase (file:///C:/Work/exarchos/node_modules/tsx/dist/esm/index.mjs?1784873694941:2:3744)\n    at resolveDirectory (file:///C:/Work/exarchos/node_modules/tsx/dist/esm/index.mjs?1784873694941:2:4243)\n    at resolveTsPaths (file:///C:/Work/exarchos/node_modules/tsx/dist/esm/index.mjs?1784873694941:2:4984)\n    at resolve (file:///C:/Work/exarchos/node_modules/tsx/dist/esm/index.mjs?1784873694941:2:5361)\n    at nextResolve (node:internal/modules/esm/hooks:785:28) {\n  code: 'ERR_MODULE_NOT_FOUND'\n}\nSystem.Management.Automation.RemoteException\nNode.js v24.18.0\nSystem.Management.Automation.RemoteException",
+        "summary": "ERR_MODULE_NOT_FOUND while resolving the candidate fingerprint CLI dependency graph through the linked authoring node_modules; missing=yazl; retry=Install candidate snapshot dependencies from its package-lock in an isolated environment, then rerun the wrapper without a cross-checkout node_modules junction."
+      }
+    },
+    {
+      "id": "check-prose-lint",
+      "status": "pass",
+      "result": "check-prose-lint: OK (no violations)",
+      "provenance": {
+        "cwd": "C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline",
+        "snapshot": "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
+        "host": "Windows_NT",
+        "node": "v24.18.0",
+        "id": "check-prose-lint",
+        "command": "node scripts/check-prose-lint.mjs",
+        "startedAt": "2026-07-24T05:48:59.2701189+00:00",
+        "endedAt": "2026-07-24T05:48:59.8003262+00:00",
+        "exitCode": 0,
+        "dependencyState": "candidate archive with junction to authoring node_modules; package-lock unchanged across audited range",
+        "summary": "check-prose-lint: OK (no violations)",
+        "status": "pass"
+      }
+    },
+    {
+      "id": "golden-fixture-note",
+      "status": "not-run",
+      "result": "Diff-dependent PR-body gate; candidate snapshot has no pull-request diff/body context.",
+      "provenance": {
+        "cwd": "C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline",
+        "snapshot": "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
+        "host": "Windows_NT",
+        "node": "v24.18.0",
+        "id": "golden-fixture-note",
+        "command": "node scripts/check-golden-fixture-note.mjs",
+        "dependencyState": "git archive without PR event/diff context",
+        "startedAt": "2026-07-24T05:49:00.0000000+00:00",
+        "endedAt": "2026-07-24T05:49:00.0000000+00:00",
+        "exitCode": null,
+        "status": "not-run",
+        "summary": "Diff-dependent PR-body gate; candidate snapshot has no pull-request diff/body context."
+      }
+    }
+  ],
+  "validationHealth": {
+    "typecheck": {
+      "status": "pass",
+      "provenance": {
+        "command": "npm run typecheck --silent",
+        "cwd": "C:\\Work\\exarchos",
+        "head": "6985fea1140d04191205b4e0b5d8bcd8b16c47eb",
+        "branch": "discover/phase-gate-v212-remediation",
+        "host": "Windows_NT",
+        "node": "v24.18.0",
+        "dependencyState": "existing node_modules",
+        "startedAt": "2026-07-24T04:52:26.6544050+00:00",
+        "endedAt": "2026-07-24T04:52:37.4761824+00:00",
+        "exitCode": 0
+      }
+    },
+    "fullTestSuite": {
+      "status": "blocked",
+      "testFiles": {
+        "passed": 113,
+        "failed": 4,
+        "skipped": 3,
+        "total": 120
+      },
+      "tests": {
+        "passed": 1037,
+        "failed": 2,
+        "skipped": 36,
+        "total": 1075
+      },
+      "provenance": {
+        "command": "npm run test:run --silent",
+        "cwd": "C:\\Work\\exarchos",
+        "head": "6985fea1140d04191205b4e0b5d8bcd8b16c47eb",
+        "branch": "discover/phase-gate-v212-remediation",
+        "host": "Windows_NT",
+        "node": "v24.18.0",
+        "dependencyState": "existing node_modules",
+        "startedAt": "2026-07-24T04:53:36.6203760+00:00",
+        "endedAt": "2026-07-24T04:53:59.9679675+00:00",
+        "exitCode": 1
+      },
+      "runVariability": {
+        "earlierSameHeadRun": {
+          "testFiles": {
+            "passed": 106,
+            "failed": 11,
+            "skipped": 3,
+            "total": 120
+          },
+          "tests": {
+            "passed": 1030,
+            "failed": 9,
+            "skipped": 36,
+            "total": 1075
+          }
+        },
+        "observation": "Two runs on the same HEAD produced different timeout-driven failure counts."
+      },
+      "environmentBlockers": [
+        "Bun missing from PATH for build-binary and event-replay suites",
+        "Live-tree checks intermittently exceed the existing 5-second test timeout under the full parallel suite"
+      ]
+    }
+  },
+  "validationProvenance": {
+    "candidateSnapshotChecks": {
+      "snapshot": "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
+      "cwd": "C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline",
+      "dependencyState": "git archive without node_modules",
+      "host": "Windows_NT",
+      "generatedAt": "2026-07-24T05:13:00.5160854+00:00",
+      "results": [
+        {
+          "command": "node scripts/check-gate-runner-ownership.mjs",
+          "cwd": "C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline",
+          "snapshot": "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
+          "host": "Windows_NT",
+          "node": "v24.18.0",
+          "dependencyState": "git archive without node_modules",
+          "startedAt": "2026-07-24T05:12:29.5883622+00:00",
+          "endedAt": "2026-07-24T05:12:39.1979999+00:00",
+          "exitCode": 0,
+          "summary": "check-gate-runner-ownership: clean — 84 production finding(s) have exact typed owners.",
+          "status": "pass"
+        },
+        {
+          "command": "node scripts/check-enforcer-wiring.mjs",
+          "cwd": "C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline",
+          "snapshot": "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
+          "host": "Windows_NT",
+          "node": "v24.18.0",
+          "dependencyState": "git archive without node_modules",
+          "startedAt": "2026-07-24T05:12:39.2540115+00:00",
+          "endedAt": "2026-07-24T05:12:39.5804189+00:00",
+          "exitCode": 0,
+          "summary": "check-enforcer-wiring: clean — 22 primaries dispositioned.",
+          "status": "pass"
+        },
+        {
+          "command": "node scripts/check-event-store-composition-root.mjs",
+          "cwd": "C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline",
+          "snapshot": "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
+          "host": "Windows_NT",
+          "node": "v24.18.0",
+          "dependencyState": "git archive without node_modules",
+          "startedAt": "2026-07-24T05:12:39.6226062+00:00",
+          "endedAt": "2026-07-24T05:12:39.9844074+00:00",
+          "exitCode": 0,
+          "summary": "",
+          "status": "pass"
+        },
+        {
+          "command": "node scripts/check-query-upcast-choke-point.mjs",
+          "cwd": "C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline",
+          "snapshot": "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
+          "host": "Windows_NT",
+          "node": "v24.18.0",
+          "dependencyState": "git archive without node_modules",
+          "startedAt": "2026-07-24T05:12:40.0303331+00:00",
+          "endedAt": "2026-07-24T05:12:40.3569872+00:00",
+          "exitCode": 0,
+          "summary": "",
+          "status": "pass"
+        },
+        {
+          "command": "node scripts/check-no-state-json.mjs",
+          "cwd": "C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline",
+          "snapshot": "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
+          "host": "Windows_NT",
+          "node": "v24.18.0",
+          "dependencyState": "git archive without node_modules",
+          "startedAt": "2026-07-24T05:12:40.3990511+00:00",
+          "endedAt": "2026-07-24T05:12:40.7376513+00:00",
+          "exitCode": 0,
+          "summary": "",
+          "status": "pass"
+        },
+        {
+          "command": "node scripts/check-single-workflow-fold.mjs",
+          "cwd": "C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline",
+          "snapshot": "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
+          "host": "Windows_NT",
+          "node": "v24.18.0",
+          "dependencyState": "git archive without node_modules",
+          "startedAt": "2026-07-24T05:12:40.7799163+00:00",
+          "endedAt": "2026-07-24T05:12:41.1094436+00:00",
+          "exitCode": 0,
+          "summary": "",
+          "status": "pass"
+        },
+        {
+          "command": "node scripts/check-module-intent.mjs",
+          "cwd": "C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline",
+          "snapshot": "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
+          "host": "Windows_NT",
+          "node": "v24.18.0",
+          "dependencyState": "git archive without node_modules",
+          "startedAt": "2026-07-24T05:12:41.1513002+00:00",
+          "endedAt": "2026-07-24T05:12:56.6726721+00:00",
+          "exitCode": 1,
+          "summary": "check-module-intent: 1 dead-in-prod module(s) lack valid intent (DR-7). | System.Management.Automation.RemoteException |   views/gate-reliability-view.ts |       dead-in-prod (0 production importers) with no RESERVED(issue, owner, expires) header and no allowlist class | System.Management.Automation.RemoteException | Every production module with zero production importers must either carry a | RESERVED(issue, owner, expires) header with a future expiry, belong to a declared | allowlist class (test-infra / build-shim / type-test entrypoint), or be deleted.",
+          "status": "fail"
+        },
+        {
+          "command": "node scripts/check-type-debt.mjs",
+          "cwd": "C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline",
+          "snapshot": "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
+          "host": "Windows_NT",
+          "node": "v24.18.0",
+          "dependencyState": "git archive without node_modules",
+          "startedAt": "2026-07-24T05:12:56.7152281+00:00",
+          "endedAt": "2026-07-24T05:12:57.5878778+00:00",
+          "exitCode": 1,
+          "summary": "check-type-debt: FAIL (over-budget): 3 file(s) exceed their baselined `as unknown as` budget: |     servers/exarchos-mcp/src/storage/sqlite-backend.ts  budget=2 actual=3 |     servers/exarchos-mcp/src/workflow/cleanup.ts  budget=1 actual=2 |     servers/exarchos-mcp/src/workflow/tools.ts  budget=7 actual=9 | check-type-debt: FAIL (unbaselined-debt): 1 file(s) have `as unknown as` casts with no entry in type-debt-baseline.json: |     servers/exarchos-mcp/src/workflow/cancel.ts  actual=1 | System.Management.Automation.RemoteException | Fix the casts (preferred) or run `node scripts/check-type-debt.mjs --update` to record a deliberate, reviewed increase.",
+          "status": "fail"
+        },
+        {
+          "command": "node scripts/check-wlm-wiring.mjs",
+          "cwd": "C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline",
+          "snapshot": "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
+          "host": "Windows_NT",
+          "node": "v24.18.0",
+          "dependencyState": "git archive without node_modules",
+          "startedAt": "2026-07-24T05:12:57.6291133+00:00",
+          "endedAt": "2026-07-24T05:12:59.4682040+00:00",
+          "exitCode": 0,
+          "summary": "WLM wiring gate: clean.",
+          "status": "pass"
+        },
+        {
+          "command": "node scripts/check-windows-portability.mjs",
+          "cwd": "C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline",
+          "snapshot": "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
+          "host": "Windows_NT",
+          "node": "v24.18.0",
+          "dependencyState": "git archive without node_modules",
+          "startedAt": "2026-07-24T05:12:59.5101410+00:00",
+          "endedAt": "2026-07-24T05:13:00.4731165+00:00",
+          "exitCode": 0,
+          "summary": "Windows-portability gate: clean.",
+          "status": "pass"
+        },
+        {
+          "cwd": "C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline",
+          "snapshot": "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
+          "host": "Windows_NT",
+          "node": "v24.18.0",
+          "dependencyState": "git archive without node_modules",
+          "id": "check-begin-immediate-substrate",
+          "command": "bash scripts/check-begin-immediate-substrate.sh",
+          "startedAt": "2026-07-24T05:47:52.6400517+00:00",
+          "endedAt": "2026-07-24T05:48:28.7016856+00:00",
+          "exitCode": 0,
+          "summary": "OK: no immediate-transaction substrate leaks found in /c/Users/salusreed/.copilot/session-state/8cbb8868-4652-461a-8629-4703a12d83c9/files/candidate-baseline",
+          "status": "pass"
+        },
+        {
+          "cwd": "C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline",
+          "snapshot": "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
+          "host": "Windows_NT",
+          "node": "v24.18.0",
+          "dependencyState": "git archive without node_modules",
+          "id": "check-coverage-ratchet",
+          "command": "node scripts/check-coverage-ratchet.mjs",
+          "startedAt": "2026-07-24T05:48:28.7146750+00:00",
+          "endedAt": "2026-07-24T05:48:28.8315006+00:00",
+          "exitCode": 2,
+          "summary": "check-coverage-ratchet: FAIL CLOSED — coverage-summary.json not found at C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline\\servers\\exarchos-mcp\\coverage\\coverage-summary.json",
+          "status": "blocked"
+        },
+        {
+          "cwd": "C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline",
+          "snapshot": "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
+          "host": "Windows_NT",
+          "node": "v24.18.0",
+          "dependencyState": "git archive without node_modules",
+          "id": "check-withsession-idempotency",
+          "command": "bash scripts/check-withsession-idempotency.sh",
+          "startedAt": "2026-07-24T05:48:28.8329604+00:00",
+          "endedAt": "2026-07-24T05:48:30.6356295+00:00",
+          "exitCode": 0,
+          "summary": "check-withsession-idempotency: OK (all .withSession( call sites are compliant)",
+          "status": "pass"
+        },
+        {
+          "cwd": "C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline",
+          "snapshot": "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
+          "host": "Windows_NT",
+          "node": "v24.18.0",
+          "dependencyState": "git archive without node_modules",
+          "id": "lint-test-first-drift",
+          "command": "node scripts/lint-test-first-drift.mjs",
+          "startedAt": "2026-07-24T05:48:30.6365703+00:00",
+          "endedAt": "2026-07-24T05:48:33.3443687+00:00",
+          "exitCode": 0,
+          "summary": "{ |   \"findings\": [], |   \"advisory\": false | }",
+          "status": "pass"
+        },
+        {
+          "cwd": "C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline",
+          "snapshot": "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
+          "host": "Windows_NT",
+          "node": "v24.18.0",
+          "id": "check-prefix-fingerprint",
+          "command": "node scripts/check-prefix-fingerprint.mjs",
+          "dependencyState": "candidate archive with junction to authoring node_modules; package-lock unchanged across audited range",
+          "startedAt": "2026-07-24T06:14:53.7648417+00:00",
+          "endedAt": "2026-07-24T06:14:57.9367767+00:00",
+          "exitCode": 2,
+          "status": "blocked",
+          "blocker": "ERR_MODULE_NOT_FOUND while resolving the candidate fingerprint CLI dependency graph through the linked authoring node_modules",
+          "missingSpecifier": "yazl",
+          "affectedEvidence": [
+            "PREFIX_FINGERPRINT live recomputation",
+            "DR-12 prompt-cache fingerprint validation"
+          ],
+          "retryPrerequisite": "Install candidate snapshot dependencies from its package-lock in an isolated environment, then rerun the wrapper without a cross-checkout node_modules junction.",
+          "log": "C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-prefix-fingerprint.log",
+          "stderr": "check-prefix-fingerprint: fingerprint computation failed\n  tsx:    C:\\Users\\salusreed\\AppData\\Local\\Microsoft\\WinGet\\Packages\\OpenJS.NodeJS.LTS_Microsoft.Winget.Source_8wekyb3d8bbwe\\node-v24.18.0-win-x64\\node.exe C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline\\node_modules\\tsx\\dist\\cli.mjs\n  entry:  C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline\\servers\\exarchos-mcp\\src\\projections\\rehydration\\fingerprint-cli.ts\n  status: 1\n  stderr: \nnode:internal/modules/run_main:107\n    triggerUncaughtException(\n    ^\nError [ERR_MODULE_NOT_FOUND]: Cannot find package 'yazl' imported from C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline\\servers\\exarchos-mcp\\src\\views\\lifecycle\\export.ts\n    at Object.getPackageJSONURL (node:internal/modules/package_json_reader:301:9)\n    at packageResolve (node:internal/modules/esm/resolve:768:81)\n    at moduleResolve (node:internal/modules/esm/resolve:859:18)\n    at defaultResolve (node:internal/modules/esm/resolve:992:11)\n    at nextResolve (node:internal/modules/esm/hooks:785:28)\n    at resolveBase (file:///C:/Work/exarchos/node_modules/tsx/dist/esm/index.mjs?1784873694941:2:3744)\n    at resolveDirectory (file:///C:/Work/exarchos/node_modules/tsx/dist/esm/index.mjs?1784873694941:2:4243)\n    at resolveTsPaths (file:///C:/Work/exarchos/node_modules/tsx/dist/esm/index.mjs?1784873694941:2:4984)\n    at resolve (file:///C:/Work/exarchos/node_modules/tsx/dist/esm/index.mjs?1784873694941:2:5361)\n    at nextResolve (node:internal/modules/esm/hooks:785:28) {\n  code: 'ERR_MODULE_NOT_FOUND'\n}\nSystem.Management.Automation.RemoteException\nNode.js v24.18.0\nSystem.Management.Automation.RemoteException",
+          "summary": "ERR_MODULE_NOT_FOUND while resolving the candidate fingerprint CLI dependency graph through the linked authoring node_modules; missing=yazl; retry=Install candidate snapshot dependencies from its package-lock in an isolated environment, then rerun the wrapper without a cross-checkout node_modules junction."
+        },
+        {
+          "cwd": "C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline",
+          "snapshot": "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
+          "host": "Windows_NT",
+          "node": "v24.18.0",
+          "id": "check-prose-lint",
+          "command": "node scripts/check-prose-lint.mjs",
+          "startedAt": "2026-07-24T05:48:59.2701189+00:00",
+          "endedAt": "2026-07-24T05:48:59.8003262+00:00",
+          "exitCode": 0,
+          "dependencyState": "candidate archive with junction to authoring node_modules; package-lock unchanged across audited range",
+          "summary": "check-prose-lint: OK (no violations)",
+          "status": "pass"
+        },
+        {
+          "cwd": "C:\\Users\\salusreed\\.copilot\\session-state\\8cbb8868-4652-461a-8629-4703a12d83c9\\files\\candidate-baseline",
+          "snapshot": "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
+          "host": "Windows_NT",
+          "node": "v24.18.0",
+          "id": "golden-fixture-note",
+          "command": "node scripts/check-golden-fixture-note.mjs",
+          "dependencyState": "git archive without PR event/diff context",
+          "startedAt": "2026-07-24T05:49:00.0000000+00:00",
+          "endedAt": "2026-07-24T05:49:00.0000000+00:00",
+          "exitCode": null,
+          "status": "not-run",
+          "summary": "Diff-dependent PR-body gate; candidate snapshot has no pull-request diff/body context."
+        }
+      ],
+      "declaredBlockingEnforcers": 17,
+      "accountedBlockingEnforcers": 17
+    },
+    "authoringCheckoutChecks": {
+      "head": "6985fea1140d04191205b4e0b5d8bcd8b16c47eb",
+      "cwd": "C:\\Work\\exarchos",
+      "dependencyState": "existing node_modules",
+      "host": "Windows_NT",
+      "note": "Typecheck/full-suite results validate the authoring checkout and harness environment, not the candidate archive."
+    }
+  },
+  "limitations": [
+    "Metrics describe the pinned candidate snapshot, not untracked authoring artifacts.",
+    "Line counts are physical text lines, not semantic complexity.",
+    "Full test failures include host/tooling constraints and are not attributed to the audit document changes.",
+    "Dependency-backed wrapper checks were not executed inside the isolated archive because node_modules is not versioned.",
+    "The external scan canonical deterministic-checks catalog was unavailable; repository-native gates were used instead."
+  ]
+}

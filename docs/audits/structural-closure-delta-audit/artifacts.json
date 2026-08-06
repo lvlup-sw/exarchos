@@ -1,0 +1,815 @@
+{
+  "schemaVersion": 1,
+  "inventoryId": "artifacts",
+  "generatedAt": "2026-07-24T01:08:01.099Z",
+  "status": "reconciled",
+  "sourceRange": {
+    "baseline": "30831d05f67c44b80e45391b67ed29f11dda4276",
+    "candidate": "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5"
+  },
+  "declaredScope": {
+    "artifactClasses": [
+      "bootstrap-installer",
+      "bundle",
+      "command-alias",
+      "generated-agent",
+      "generated-hook",
+      "generated-resource",
+      "generated-skill",
+      "package-lock",
+      "package-manifest",
+      "package-metadata",
+      "plugin-manifest",
+      "release-workflow",
+      "runtime-output",
+      "standalone-binary",
+      "user-cache",
+      "user-install"
+    ],
+    "searchRoots": [
+      "package.json",
+      "package-lock.json",
+      "manifest.json",
+      ".claude-plugin/plugin.json",
+      "scripts/build-binary.ts",
+      "scripts/build-binary-targets.ts",
+      ".github/workflows/release.yml",
+      "scripts/get-exarchos.sh",
+      "scripts/get-exarchos.ps1",
+      "skills-src/",
+      "skills/",
+      "command-aliases/",
+      "agents/",
+      "hooks/hooks.json",
+      "hooks/",
+      "runtimes/",
+      "src/runtimes/embedded.ts",
+      "scripts/enforcer-wiring-manifest.json",
+      "scripts/check-gate-runner-ownership.mjs"
+    ],
+    "excluded": [
+      "mutating build/package/install/cache probes"
+    ]
+  },
+  "commands": [
+    "git ls-tree counts and blob comparisons for both pinned trees",
+    "git diff --name-status baseline candidate across artifact authority surfaces",
+    "package/plugin/manifest JSON version inspection",
+    "safe installed executable metadata and version probe",
+    "git blob hash comparison of installed and candidate Copilot skill entries"
+  ],
+  "verifiedFileCounts": {
+    "baseline": {
+      "skills": 224,
+      "skillsSrc": 108,
+      "commandAliases": 16,
+      "agents": 5,
+      "hooks": 8,
+      "runtimes": 6,
+      "dist": 0
+    },
+    "candidate": {
+      "skills": 224,
+      "skillsSrc": 108,
+      "commandAliases": 16,
+      "agents": 5,
+      "hooks": 8,
+      "runtimes": 6,
+      "dist": 0
+    }
+  },
+  "artifactAuthorityDelta": [
+    "package.json modified",
+    "scripts/check-gate-runner-ownership.mjs added",
+    "scripts/enforcer-wiring-manifest.json modified (+1 gating primary)"
+  ],
+  "rowCount": 19,
+  "rows": [
+    {
+      "id": "artifact.package-version",
+      "artifactClass": "package-metadata",
+      "baseline": {
+        "state": "present",
+        "evidence": [
+          "30831d05f67c44b80e45391b67ed29f11dda4276:package.json version 2.12.0-preview.3"
+        ]
+      },
+      "candidate": {
+        "state": "unchanged",
+        "evidence": [
+          "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:package.json version 2.12.0-preview.3"
+        ]
+      },
+      "sourceIdentity": "package.json version",
+      "derivativeIdentity": "manifest.json, .claude-plugin/plugin.json, servers/exarchos-mcp/package.json, compiled version define",
+      "comparisonMechanism": "scripts/sync-versions.sh --check via npm run version:check",
+      "enforcementPosture": "enforced",
+      "mismatchBehavior": "version:check exits non-zero",
+      "packagedProof": [
+        "installed binary version command returns 2.12.0-preview.3"
+      ],
+      "disposition": "closed",
+      "finding": "The pinned package version is stable and the installed binary reports the same semantic version.",
+      "ownerControl": {
+        "owner": "root package metadata",
+        "ciPosture": "version:check",
+        "exitCondition": "Every declared version sink equals package.json and compiled version output matches.",
+        "reevaluateAt": "release version change",
+        "retirementProof": "Retire a sink only after it is removed from package/install discovery."
+      }
+    },
+    {
+      "id": "artifact.package-lock",
+      "artifactClass": "package-lock",
+      "baseline": {
+        "state": "present",
+        "evidence": [
+          "30831d05f67c44b80e45391b67ed29f11dda4276:package-lock.json"
+        ]
+      },
+      "candidate": {
+        "state": "unchanged",
+        "evidence": [
+          "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:package-lock.json"
+        ]
+      },
+      "sourceIdentity": "package.json dependency graph",
+      "derivativeIdentity": "package-lock.json integrity graph",
+      "comparisonMechanism": "git blob identity and npm lockfile semantics",
+      "enforcementPosture": "enforced",
+      "mismatchBehavior": "dependency install/build differs or lockfile guard fails",
+      "packagedProof": [],
+      "disposition": "closed",
+      "finding": "No dependency or lockfile change occurs in the pinned range.",
+      "ownerControl": {
+        "owner": "package manager metadata",
+        "ciPosture": "CI npm install/build",
+        "exitCondition": "Lockfile remains synchronized with package.json.",
+        "reevaluateAt": "dependency change",
+        "retirementProof": "Remove lockfile only with an approved package-manager migration."
+      }
+    },
+    {
+      "id": "artifact.plugin-manifest",
+      "artifactClass": "plugin-manifest",
+      "baseline": {
+        "state": "present",
+        "evidence": [
+          "30831d05f67c44b80e45391b67ed29f11dda4276:.claude-plugin/plugin.json version 2.12.0-preview.3"
+        ]
+      },
+      "candidate": {
+        "state": "unchanged",
+        "evidence": [
+          "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:.claude-plugin/plugin.json version 2.12.0-preview.3"
+        ]
+      },
+      "sourceIdentity": ".claude-plugin/plugin.json",
+      "derivativeIdentity": "Claude plugin registration and packaged MCP server/skills/rules/agents references",
+      "comparisonMechanism": "version:check and plugin manifest tests",
+      "enforcementPosture": "enforced",
+      "mismatchBehavior": "validation/CI failure",
+      "packagedProof": [],
+      "disposition": "partial",
+      "finding": "Manifest source is checked, but no accessible installed plugin cache was found at the probed path.",
+      "ownerControl": {
+        "owner": "plugin packaging",
+        "ciPosture": "manifest tests and version:check",
+        "exitCondition": "An install fixture proves the shipped plugin manifest is loaded and matches the candidate source.",
+        "reevaluateAt": "plugin manifest or install layout change",
+        "retirementProof": "Remove plugin registration and installed cache together."
+      }
+    },
+    {
+      "id": "artifact.project-manifest",
+      "artifactClass": "package-manifest",
+      "baseline": {
+        "state": "present",
+        "evidence": [
+          "30831d05f67c44b80e45391b67ed29f11dda4276:manifest.json version 2.12.0-preview.3"
+        ]
+      },
+      "candidate": {
+        "state": "unchanged",
+        "evidence": [
+          "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:manifest.json version 2.12.0-preview.3"
+        ]
+      },
+      "sourceIdentity": "manifest.json",
+      "derivativeIdentity": "installer/package component catalog",
+      "comparisonMechanism": "version:check and plugin validation",
+      "enforcementPosture": "enforced",
+      "mismatchBehavior": "validation/CI failure",
+      "packagedProof": [],
+      "disposition": "closed",
+      "finding": "Project manifest identity is stable across the pinned range.",
+      "ownerControl": {
+        "owner": "package manifest owner",
+        "ciPosture": "plugin validation and version:check",
+        "exitCondition": "Manifest continues to enumerate all shipped components and matches package version.",
+        "reevaluateAt": "packaging surface change",
+        "retirementProof": "Delete only after all installers/loaders stop consuming it."
+      }
+    },
+    {
+      "id": "artifact.bundle-spec",
+      "artifactClass": "bundle",
+      "baseline": {
+        "state": "specified-not-tracked",
+        "evidence": [
+          "30831d05f67c44b80e45391b67ed29f11dda4276:package.json build script",
+          "30831d05f67c44b80e45391b67ed29f11dda4276:tsconfig.json",
+          "tracked dist files: 0"
+        ]
+      },
+      "candidate": {
+        "state": "specified-not-tracked",
+        "evidence": [
+          "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:package.json build script",
+          "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:tsconfig.json",
+          "tracked dist files: 0"
+        ]
+      },
+      "sourceIdentity": "TypeScript sources plus package build scripts",
+      "derivativeIdentity": "dist/exarchos-mcp.js and CLI bundles",
+      "comparisonMechanism": "npm run build and packaging tests",
+      "enforcementPosture": "preflight",
+      "mismatchBehavior": "build/test failure; no committed digest comparison",
+      "packagedProof": [
+        "process tests expect built artifacts, but no pinned build was executed by this audit"
+      ],
+      "disposition": "indeterminate",
+      "finding": "Both pinned trees contain zero tracked dist files; source/build specification exists but built bundle identity was not produced or compared.",
+      "ownerControl": {
+        "owner": "build pipeline",
+        "ciPosture": "build and process tests",
+        "exitCondition": "A reproducible build emits digests tied to the source SHA and packaged tests consume those exact outputs.",
+        "reevaluateAt": "build tool or entrypoint change",
+        "retirementProof": "Retire old bundle only after installer/package references move to the replacement."
+      }
+    },
+    {
+      "id": "artifact.binary-release-spec",
+      "artifactClass": "standalone-binary",
+      "baseline": {
+        "state": "specified-not-tracked",
+        "evidence": [
+          "30831d05f67c44b80e45391b67ed29f11dda4276:scripts/build-binary-targets.ts",
+          "30831d05f67c44b80e45391b67ed29f11dda4276:.github/workflows/release.yml",
+          "tracked dist files: 0"
+        ]
+      },
+      "candidate": {
+        "state": "unchanged-specified-not-tracked",
+        "evidence": [
+          "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:scripts/build-binary-targets.ts",
+          "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:.github/workflows/release.yml",
+          "tracked dist files: 0"
+        ]
+      },
+      "sourceIdentity": "scripts/build-binary-targets.ts and servers/exarchos-mcp/src/index.ts",
+      "derivativeIdentity": "five release binaries: linux-x64, linux-arm64, darwin-x64, darwin-arm64, windows-x64",
+      "comparisonMechanism": "release workflow target/asset tests and SHA-512 sidecars",
+      "enforcementPosture": "preflight",
+      "mismatchBehavior": "release job fails if target/asset count or checksum generation drifts",
+      "packagedProof": [
+        "compiled-binary MCP test specification",
+        "no candidate binary built by this audit"
+      ],
+      "disposition": "indeterminate",
+      "finding": "Release shape and checksum contract are explicit, but no candidate binary digest or release asset was inspected.",
+      "ownerControl": {
+        "owner": "binary build and release pipeline",
+        "ciPosture": "binary matrix and release workflow tests",
+        "exitCondition": "Candidate binaries are reproducibly built, hashed, and process-tested with digests recorded in the manifest.",
+        "reevaluateAt": "binary target or build tool change",
+        "retirementProof": "Remove a target only after installer/release matrix and support policy are updated."
+      }
+    },
+    {
+      "id": "artifact.release-workflow",
+      "artifactClass": "release-workflow",
+      "baseline": {
+        "state": "present",
+        "evidence": [
+          "30831d05f67c44b80e45391b67ed29f11dda4276:.github/workflows/release.yml"
+        ]
+      },
+      "candidate": {
+        "state": "unchanged",
+        "evidence": [
+          "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:.github/workflows/release.yml"
+        ]
+      },
+      "sourceIdentity": ".github/workflows/release.yml",
+      "derivativeIdentity": "npm publication and ten GitHub release assets (five binaries plus sidecars)",
+      "comparisonMechanism": "release workflow shape tests",
+      "enforcementPosture": "enforced",
+      "mismatchBehavior": "workflow/test failure prevents publication",
+      "packagedProof": [],
+      "disposition": "closed",
+      "finding": "The release specification is byte-unchanged and declares OIDC npm publication, five binary targets, checksum generation, and a ten-asset count guard.",
+      "ownerControl": {
+        "owner": "release pipeline",
+        "ciPosture": "release workflow and matrix tests",
+        "exitCondition": "Workflow tests retain target/asset/checksum parity.",
+        "reevaluateAt": "release pipeline change",
+        "retirementProof": "Retire only after replacement publication path is proven."
+      }
+    },
+    {
+      "id": "artifact.bootstrap-installers",
+      "artifactClass": "bootstrap-installer",
+      "baseline": {
+        "state": "present",
+        "evidence": [
+          "30831d05f67c44b80e45391b67ed29f11dda4276:scripts/get-exarchos.sh",
+          "30831d05f67c44b80e45391b67ed29f11dda4276:scripts/get-exarchos.ps1"
+        ]
+      },
+      "candidate": {
+        "state": "unchanged",
+        "evidence": [
+          "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:scripts/get-exarchos.sh",
+          "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:scripts/get-exarchos.ps1"
+        ]
+      },
+      "sourceIdentity": "bootstrap scripts",
+      "derivativeIdentity": "installed binary and PATH/shell configuration",
+      "comparisonMechanism": "release checksum sidecars and installer tests",
+      "enforcementPosture": "enforced",
+      "mismatchBehavior": "checksum/download failure aborts installation",
+      "packagedProof": [
+        "installed binary metadata observed, but release checksum provenance not available"
+      ],
+      "disposition": "partial",
+      "finding": "Install-time checksum validation is enforced, but the installed file hash cannot be tied to the candidate or a release sidecar from repository evidence.",
+      "ownerControl": {
+        "owner": "bootstrap installer owners",
+        "ciPosture": "installer and release checksum tests",
+        "exitCondition": "Installed binary exposes build/source identity and can be compared to a signed release manifest.",
+        "reevaluateAt": "installer or release identity change",
+        "retirementProof": "Remove old bootstrap endpoint after signed replacement adoption."
+      }
+    },
+    {
+      "id": "artifact.generated-skills",
+      "artifactClass": "generated-skill",
+      "baseline": {
+        "state": "present",
+        "evidence": [
+          "30831d05f67c44b80e45391b67ed29f11dda4276:skills-src/ 108 files",
+          "30831d05f67c44b80e45391b67ed29f11dda4276:skills/ 224 files"
+        ]
+      },
+      "candidate": {
+        "state": "unchanged",
+        "evidence": [
+          "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:skills-src/ 108 files",
+          "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:skills/ 224 files"
+        ]
+      },
+      "sourceIdentity": "skills-src/ (19 SKILL.md entry points plus references)",
+      "derivativeIdentity": "skills/ standard/runtime variants (34 generated SKILL.md entry points; 224 total files; test fixtures excluded)",
+      "comparisonMechanism": "npm run skills:guard",
+      "enforcementPosture": "enforced",
+      "mismatchBehavior": "generated drift fails CI",
+      "packagedProof": [
+        "installed .agents skills cache: 55 entries",
+        "three candidate Copilot overlaps compared; zero byte matches"
+      ],
+      "disposition": "open",
+      "finding": "Repository generation is guarded, but the accessible installed cache disagrees byte-for-byte with all three overlapping candidate Copilot skill entries.",
+      "ownerControl": {
+        "owner": "skills renderer and installer",
+        "ciPosture": "skills:guard; no installed-cache guard",
+        "exitCondition": "Installed cache carries source/version metadata or a verifier proves every installed entry matches the selected release/candidate.",
+        "reevaluateAt": "skills generator, installer, or cache layout change",
+        "retirementProof": "Remove stale cache entries and prove loader selection of the replacement."
+      }
+    },
+    {
+      "id": "artifact.command-aliases",
+      "artifactClass": "command-alias",
+      "baseline": {
+        "state": "present",
+        "evidence": [
+          "30831d05f67c44b80e45391b67ed29f11dda4276:command-aliases/ 16 files"
+        ]
+      },
+      "candidate": {
+        "state": "unchanged",
+        "evidence": [
+          "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:command-aliases/ 16 files"
+        ]
+      },
+      "sourceIdentity": "skills-src entries plus runtime YAML alias declarations",
+      "derivativeIdentity": "command-aliases/ generated markdown",
+      "comparisonMechanism": "npm run skills:guard",
+      "enforcementPosture": "enforced",
+      "mismatchBehavior": "generated drift fails CI",
+      "packagedProof": [],
+      "disposition": "partial",
+      "finding": "Repository aliases are byte-stable and guarded; installed alias selection was not located.",
+      "ownerControl": {
+        "owner": "skills renderer",
+        "ciPosture": "skills:guard",
+        "exitCondition": "Install/package fixture proves runtime aliases are delivered and loaded from the guarded output.",
+        "reevaluateAt": "alias or runtime generation change",
+        "retirementProof": "Delete source declaration and all generated aliases together."
+      }
+    },
+    {
+      "id": "artifact.generated-agents",
+      "artifactClass": "generated-agent",
+      "baseline": {
+        "state": "present",
+        "evidence": [
+          "30831d05f67c44b80e45391b67ed29f11dda4276:agents/ 5 files (4 markdown definitions plus .gitkeep)"
+        ]
+      },
+      "candidate": {
+        "state": "unchanged",
+        "evidence": [
+          "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:agents/ 5 files (4 markdown definitions plus .gitkeep)"
+        ]
+      },
+      "sourceIdentity": "servers/exarchos-mcp/src/agents/definitions.ts",
+      "derivativeIdentity": "agents/*.md and plugin agents manifest",
+      "comparisonMechanism": "generate-agents and generated drift tests",
+      "enforcementPosture": "enforced",
+      "mismatchBehavior": "generation/drift test failure",
+      "packagedProof": [],
+      "disposition": "partial",
+      "finding": "Generated agent definitions are stable and checked, but packaged/runtime loading was not proven.",
+      "ownerControl": {
+        "owner": "agent definitions and generator",
+        "ciPosture": "agent generation/drift tests",
+        "exitCondition": "Packaged plugin/runtime fixture loads each generated agent from the candidate output.",
+        "reevaluateAt": "agent spec or runtime adapter change",
+        "retirementProof": "Remove the spec and every generated/runtime manifest reference together."
+      }
+    },
+    {
+      "id": "artifact.generated-hooks",
+      "artifactClass": "generated-hook",
+      "baseline": {
+        "state": "present",
+        "evidence": [
+          "30831d05f67c44b80e45391b67ed29f11dda4276:hooks/ 8 files",
+          "30831d05f67c44b80e45391b67ed29f11dda4276:hooks/hooks.json"
+        ]
+      },
+      "candidate": {
+        "state": "unchanged",
+        "evidence": [
+          "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:hooks/ 8 files",
+          "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:hooks/hooks.json"
+        ]
+      },
+      "sourceIdentity": "hooks/hooks.json",
+      "derivativeIdentity": "runtime hook projections under hooks/",
+      "comparisonMechanism": "npm run hooks:guard",
+      "enforcementPosture": "enforced",
+      "mismatchBehavior": "generated drift fails CI",
+      "packagedProof": [],
+      "disposition": "partial",
+      "finding": "Hook projections are repository-guarded but installed hook freshness/selection was not proven.",
+      "ownerControl": {
+        "owner": "hook generator",
+        "ciPosture": "hooks:guard",
+        "exitCondition": "Install fixture proves each supported runtime receives and loads the guarded hook projection.",
+        "reevaluateAt": "hook schema or runtime adapter change",
+        "retirementProof": "Remove source hook and every generated projection together."
+      }
+    },
+    {
+      "id": "artifact.runtime-matrix",
+      "artifactClass": "runtime-output",
+      "baseline": {
+        "state": "present",
+        "evidence": [
+          "30831d05f67c44b80e45391b67ed29f11dda4276:runtimes/ 6 YAML files",
+          "30831d05f67c44b80e45391b67ed29f11dda4276:src/runtimes/embedded.ts"
+        ]
+      },
+      "candidate": {
+        "state": "unchanged",
+        "evidence": [
+          "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:runtimes/ 6 YAML files",
+          "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:src/runtimes/embedded.ts"
+        ]
+      },
+      "sourceIdentity": "runtimes/*.yaml",
+      "derivativeIdentity": "src/runtimes/embedded.ts and runtime-specific generated outputs",
+      "comparisonMechanism": "npm run runtimes:guard",
+      "enforcementPosture": "enforced",
+      "mismatchBehavior": "embedded runtime drift fails CI",
+      "packagedProof": [],
+      "disposition": "partial",
+      "finding": "Runtime source and embedded derivative are guarded; packaged binary use of the candidate derivative was not rebuilt by this audit.",
+      "ownerControl": {
+        "owner": "runtime codegen",
+        "ciPosture": "runtimes:guard",
+        "exitCondition": "Candidate binary/process proof reports the same six embedded runtime definitions.",
+        "reevaluateAt": "runtime YAML or codegen change",
+        "retirementProof": "Remove runtime source, embedded entry, installer support, and aliases together."
+      }
+    },
+    {
+      "id": "artifact.enforcer-wiring-manifest",
+      "artifactClass": "generated-resource",
+      "baseline": {
+        "state": "present",
+        "evidence": [
+          "30831d05f67c44b80e45391b67ed29f11dda4276:scripts/enforcer-wiring-manifest.json 21 primaries (16 gating, 3 advisory, 2 retired)"
+        ]
+      },
+      "candidate": {
+        "state": "extended",
+        "evidence": [
+          "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:scripts/enforcer-wiring-manifest.json 22 primaries (17 gating, 3 advisory, 2 retired)"
+        ]
+      },
+      "sourceIdentity": "repository check/lint script universe",
+      "derivativeIdentity": "scripts/enforcer-wiring-manifest.json",
+      "comparisonMechanism": "scripts/check-enforcer-wiring.mjs",
+      "enforcementPosture": "enforced",
+      "mismatchBehavior": "wiring manifest drift fails CI",
+      "packagedProof": [],
+      "disposition": "partial",
+      "finding": "Candidate adds the gate-runner ownership census as a gating primary; three advisory controls still require explicit exits.",
+      "ownerControl": {
+        "owner": "enforcer wiring manifest",
+        "ciPosture": "check-enforcer-wiring.mjs",
+        "exitCondition": "Every advisory primary records and satisfies a measurable promotion/retirement condition.",
+        "reevaluateAt": "enforcer or workflow wiring change",
+        "retirementProof": "Retired entry is unreachable and its file is removed or intentionally retained with proof."
+      }
+    },
+    {
+      "id": "artifact.gate-ownership-control",
+      "artifactClass": "generated-resource",
+      "baseline": {
+        "state": "absent",
+        "evidence": [
+          "30831d05f67c44b80e45391b67ed29f11dda4276:scripts/check-gate-runner-ownership.mjs absent"
+        ]
+      },
+      "candidate": {
+        "state": "present",
+        "evidence": [
+          "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:scripts/check-gate-runner-ownership.mjs",
+          "candidate archive execution reports 84 exact typed owners"
+        ]
+      },
+      "sourceIdentity": "production gate emitter/provider/guard source universe",
+      "derivativeIdentity": "typed disposition census",
+      "comparisonMechanism": "node scripts/check-gate-runner-ownership.mjs",
+      "enforcementPosture": "enforced",
+      "mismatchBehavior": "new/moved/count-drifted occurrence fails validation",
+      "packagedProof": [],
+      "disposition": "closed",
+      "finding": "The new ownership control executes successfully against the pinned candidate and reconciles 84 occurrences.",
+      "ownerControl": {
+        "owner": "gate ownership census",
+        "ciPosture": "npm validate and CI grep-gates",
+        "exitCondition": "Every candidate occurrence has one exact typed owner/disposition.",
+        "reevaluateAt": "gate production root or detector change",
+        "retirementProof": "Replace only with a stricter generated ownership manifest."
+      }
+    },
+    {
+      "id": "artifact.installed-binary",
+      "artifactClass": "user-install",
+      "baseline": {
+        "state": "not-observed",
+        "evidence": [
+          "audit did not snapshot the user install at the baseline commit"
+        ]
+      },
+      "candidate": {
+        "state": "accessible-disagreement-unresolved",
+        "evidence": [
+          "installed path C:\\Users\\salusreed\\.exarchos\\bin\\exarchos.exe",
+          "version 2.12.0-preview.3",
+          "bytes 122616832",
+          "sha256 9CFB9D24C73F4EAD5015A628A46A7676E0F30C58C796C9E0DFC93027484ECD66",
+          "modified 2026-07-21T02:37:35.3625978Z"
+        ]
+      },
+      "sourceIdentity": "unknown release/source SHA; semantic version only",
+      "derivativeIdentity": "installed exarchos.exe",
+      "comparisonMechanism": "version command and local SHA-256 metadata",
+      "enforcementPosture": "diagnostic",
+      "mismatchBehavior": "No repository-local command maps installed SHA-256 to the pinned candidate.",
+      "packagedProof": [
+        "installed executable returns 2.12.0-preview.3"
+      ],
+      "disposition": "indeterminate",
+      "finding": "The installed binary semantic version matches, but its file digest cannot be tied to candidate 13cf9642 or a release checksum.",
+      "ownerControl": {
+        "owner": "installer/release identity",
+        "ciPosture": "install-time checksum only",
+        "exitCondition": "Installed version output or metadata includes source/build SHA and matches a signed release manifest.",
+        "reevaluateAt": "next binary release or installer change",
+        "retirementProof": "Old binary removed after verified replacement."
+      }
+    },
+    {
+      "id": "artifact.installed-skill-cache",
+      "artifactClass": "user-cache",
+      "baseline": {
+        "state": "not-observed",
+        "evidence": [
+          "audit did not snapshot the user cache at the baseline commit"
+        ]
+      },
+      "candidate": {
+        "state": "mismatch",
+        "evidence": [
+          "installed .agents/skills entries: 55",
+          "candidate Copilot SKILL.md entries: 3",
+          "overlap: delegate, ideate, refactor",
+          "byte matches: 0; mismatches: 3"
+        ]
+      },
+      "sourceIdentity": "candidate skills/copilot/*/SKILL.md blobs",
+      "derivativeIdentity": "C:\\Users\\salusreed\\.agents\\skills\\*/SKILL.md",
+      "comparisonMechanism": "git blob hash comparison for overlapping entries",
+      "enforcementPosture": "none",
+      "mismatchBehavior": "No automatic error; loader may consume a different installed version.",
+      "packagedProof": [],
+      "disposition": "open",
+      "finding": "The accessible installed skill cache disagrees with every overlapping candidate Copilot skill entry, and no installed metadata explains whether it is newer, older, or locally modified.",
+      "ownerControl": {
+        "owner": "skills installer/cache",
+        "ciPosture": "no post-install freshness gate",
+        "exitCondition": "Installed cache carries release/source identity and a verifier reports exact match or intentional local override.",
+        "reevaluateAt": "next install or skill generation change",
+        "retirementProof": "Stale entries removed and loader selection verified."
+      }
+    },
+    {
+      "id": "artifact.plugin-cache",
+      "artifactClass": "user-cache",
+      "baseline": {
+        "state": "not-observed",
+        "evidence": [
+          "audit did not snapshot a baseline plugin cache"
+        ]
+      },
+      "candidate": {
+        "state": "not-found-at-probed-path",
+        "evidence": [
+          "C:\\Users\\salusreed\\.claude\\plugins\\cache\\lvlup-sw\\exarchos not present"
+        ]
+      },
+      "sourceIdentity": ".claude-plugin/plugin.json",
+      "derivativeIdentity": "user plugin cache",
+      "comparisonMechanism": "safe path existence/metadata probe",
+      "enforcementPosture": "indeterminate",
+      "mismatchBehavior": "Absence may mean plugin is not installed through that cache path.",
+      "packagedProof": [],
+      "disposition": "indeterminate",
+      "finding": "No plugin cache was found at the known probed path; plugin freshness remains indeterminate rather than fresh.",
+      "ownerControl": {
+        "owner": "plugin installer/cache",
+        "ciPosture": "no confirmed local cache verifier",
+        "exitCondition": "Installer records cache location and source/version identity or reports not installed.",
+        "reevaluateAt": "plugin install layout change",
+        "retirementProof": "Old cache removed after verified migration."
+      }
+    },
+    {
+      "id": "artifact.event-store-schema-identity",
+      "artifactClass": "user-cache",
+      "baseline": {
+        "state": "present-unversioned",
+        "evidence": [
+          "30831d05f67c44b80e45391b67ed29f11dda4276:servers/exarchos-mcp/src/event-store/schemas.ts"
+        ]
+      },
+      "candidate": {
+        "state": "extended-identity-unresolved",
+        "evidence": [
+          "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:servers/exarchos-mcp/src/event-store/schemas.ts",
+          "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:servers/exarchos-mcp/src/storage/sqlite-backend.ts"
+        ]
+      },
+      "sourceIdentity": "event schema registry and storage backend",
+      "derivativeIdentity": "local SQLite event store and projections",
+      "comparisonMechanism": "schema/upcast logic; no single package/build identity marker located",
+      "enforcementPosture": "diagnostic",
+      "mismatchBehavior": "Readers rely on schema/upcast behavior; cache/source package disagreement is not directly reported.",
+      "packagedProof": [],
+      "disposition": "open",
+      "finding": "Event schemas are versioned per event, but no located store/package identity proves a local cache was produced by the pinned candidate.",
+      "ownerControl": {
+        "owner": "event-store schema and migration owners",
+        "ciPosture": "schema/upcast tests",
+        "exitCondition": "Store metadata records schema/build identity and startup reports incompatible or stale stores explicitly.",
+        "reevaluateAt": "event schema or storage backend change",
+        "retirementProof": "Migration/replay proof covers the replacement identity scheme."
+      }
+    }
+  ],
+  "findings": [
+    {
+      "id": "ARTIFACT-F001",
+      "disposition": "closed",
+      "message": "Package, plugin, and project manifest semantic versions remain synchronized at 2.12.0-preview.3.",
+      "evidence": [
+        "artifact.package-version",
+        "artifact.plugin-manifest",
+        "artifact.project-manifest"
+      ]
+    },
+    {
+      "id": "ARTIFACT-F002",
+      "disposition": "indeterminate",
+      "message": "Both pinned trees contain zero tracked dist files; build/release specifications do not prove the candidate output digest.",
+      "evidence": [
+        "artifact.bundle-spec",
+        "artifact.binary-release-spec"
+      ]
+    },
+    {
+      "id": "ARTIFACT-F003",
+      "disposition": "open",
+      "message": "The accessible installed skill cache disagrees with all three overlapping candidate Copilot skill entries.",
+      "evidence": [
+        "artifact.installed-skill-cache"
+      ]
+    },
+    {
+      "id": "ARTIFACT-F004",
+      "disposition": "indeterminate",
+      "message": "The installed binary version matches but lacks source/build identity that can be tied to the pinned candidate.",
+      "evidence": [
+        "artifact.installed-binary"
+      ]
+    },
+    {
+      "id": "ARTIFACT-F005",
+      "disposition": "partial",
+      "message": "Candidate adds one gating enforcer to the existing wiring manifest and a passing 84-occurrence ownership census.",
+      "evidence": [
+        "artifact.enforcer-wiring-manifest",
+        "artifact.gate-ownership-control"
+      ]
+    }
+  ],
+  "limitations": [
+    "No candidate build or package installation was executed.",
+    "No GitHub release asset/checksum was downloaded.",
+    "Safe user-level inspection was limited to known local executable, skill-cache, and plugin-cache paths; contents and secrets were not read."
+  ],
+  "failedProbes": [
+    {
+      "command": "PowerShell binary-target regex with mixed quote escaping",
+      "error": "ParserError from malformed quoted alternatives",
+      "affectedRows": [
+        "artifact.binary-release-spec"
+      ],
+      "retry": "Read scripts/build-binary-targets.ts directly; verified five targets.",
+      "status": "resolved"
+    },
+    {
+      "command": "Initial artifact lane claim that skills/ and binary LFS pointers were absent/present inconsistently",
+      "error": "The claim contradicted pinned git ls-tree results.",
+      "affectedRows": [
+        "artifact.generated-skills",
+        "artifact.binary-release-spec"
+      ],
+      "retry": "Recounted both full trees: skills=224 and dist=0 at both SHAs; no LFS binary pointer claim retained.",
+      "status": "resolved"
+    }
+  ],
+  "reconciliation": {
+    "duplicateIds": [],
+    "missingSourceIdentity": [],
+    "missingComparisonMechanism": [],
+    "indeterminateFreshness": [
+      "artifact.bundle-spec",
+      "artifact.binary-release-spec",
+      "artifact.installed-binary",
+      "artifact.plugin-cache"
+    ],
+    "danglingReferences": [],
+    "dispositionCounts": {
+      "closed": 5,
+      "partial": 7,
+      "indeterminate": 4,
+      "open": 3
+    },
+    "enforcementPostureCounts": {
+      "enforced": 13,
+      "preflight": 2,
+      "diagnostic": 2,
+      "none": 1,
+      "indeterminate": 1
+    },
+    "aggregateDisposition": "open"
+  }
+}
