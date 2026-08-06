@@ -1400,9 +1400,27 @@ describe('DR-25: generated client addresses only compiled contract actions', () 
   });
 
   it('GeneratedClient_UnknownActionId_FailsLoud_WithoutDispatching', async () => {
-    await expect(
-      invokeContractAction('exarchos_workflow.no_such_action', {}, createTestContext()),
-    ).rejects.toThrow(UnknownContractActionError);
+    // Fail LOUD = a TYPED contract error envelope with a stable code, never an
+    // uncaught throw (an escaped exception crashes the compiled binary with
+    // exit 3 — the P05-02 packaged proof pins that class out). The code is
+    // UNKNOWN_ACTION — the same stable answer the dispatch core gives an
+    // unroutable action — so `resolveExitCode`/`exitCodeForError` maps it to
+    // the stable HANDLER_ERROR exit.
+    const result = await invokeContractAction(
+      'exarchos_workflow.no_such_action',
+      {},
+      createTestContext(),
+    );
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('UNKNOWN_ACTION');
+    // The message carries the build-drift diagnostic (this is a drift bug, not
+    // a user-input condition), naming the offending id.
+    expect(result.error?.message).toContain('exarchos_workflow.no_such_action');
+    expect(result.error?.message).toContain('compiled contract surface');
+    expect(new UnknownContractActionError('exarchos_workflow.no_such_action').message).toBe(
+      result.error?.message,
+    );
+    expect(exitCodeForError(result.error?.code)).toBe(CONTRACT_EXIT_CODES.HANDLER_ERROR);
     // Fail LOUD means fail BEFORE the shared handler: nothing was dispatched.
     expect(dispatch).not.toHaveBeenCalled();
   });
@@ -1605,7 +1623,9 @@ describe('DR-25: generated CLI client agrees with MCP through a real handler', (
       // ── The production generated client IS the addressing seam on that CLI
       //    path. Probe it directly against the same real context: the verified
       //    ActionId reaches the same real handler, and an id the contract does
-      //    not compile cannot be addressed at all (fail loud, no dispatch).
+      //    not compile cannot be addressed at all (fail loud = a TYPED
+      //    UNKNOWN_ACTION envelope with a stable exit code, never an uncaught
+      //    throw — an escaped exception crashes the compiled binary).
       const generatedClient = await import('../contract/cli/generated-client.js');
       const direct = await generatedClient.invokeContractAction(
         command.actionId,
@@ -1614,9 +1634,14 @@ describe('DR-25: generated CLI client agrees with MCP through a real handler', (
       );
       expect(direct.success).toBe(true);
       expect((direct.data as Record<string, unknown>).featureId).toBe(featureId);
-      await expect(
-        generatedClient.invokeContractAction('exarchos_workflow.not_a_compiled_action', {}, realCtx),
-      ).rejects.toThrow(/not part of the compiled contract surface/);
+      const unaddressable = await generatedClient.invokeContractAction(
+        'exarchos_workflow.not_a_compiled_action',
+        {},
+        realCtx,
+      );
+      expect(unaddressable.success).toBe(false);
+      expect(unaddressable.error?.code).toBe('UNKNOWN_ACTION');
+      expect(unaddressable.error?.message).toMatch(/not part of the compiled contract surface/);
     } finally {
       process.exitCode = savedExitCode;
       if (client) await client.close();

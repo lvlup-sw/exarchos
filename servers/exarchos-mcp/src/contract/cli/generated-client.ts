@@ -36,10 +36,15 @@ import type { DispatchContext } from '../../core/dispatch.js';
 import type { ToolResult } from '../../format.js';
 
 /**
- * Thrown when an ActionId is not part of the compiled contract surface. This
- * is the seam failing LOUD: nothing is dispatched, no envelope is fabricated —
- * an unaddressable action is a build-time drift bug (a renamed/removed action,
- * or a caller inventing an id), never a user-input condition.
+ * The diagnostic for an ActionId that is not part of the compiled contract
+ * surface. This is the seam failing LOUD — nothing is dispatched — but loud
+ * means a TYPED, enveloped failure with a stable exit code, never an uncaught
+ * crash: {@link invokeContractAction} returns this as a standard contract
+ * error envelope (`UNKNOWN_ACTION`, the same code the dispatch core answers
+ * for an unroutable action, mapped through `exitCodeForError`). An
+ * unaddressable action is a build-time drift bug (a renamed/removed action,
+ * or a caller inventing an id), never a user-input condition — the message
+ * says so explicitly.
  */
 export class UnknownContractActionError extends Error {
   override readonly name = 'UnknownContractActionError';
@@ -48,7 +53,7 @@ export class UnknownContractActionError extends Error {
     super(
       `ActionId "${actionId}" is not part of the compiled contract surface — ` +
         `the generated CLI client can only address actions the contract compiles ` +
-        `(deriveCliSurface(compileForCli())). If the action was renamed or removed, ` +
+        `(deriveCliSurface(compileForCliAddressing())). If the action was renamed or removed, ` +
         `update the caller; if it is new, it must compile before it can be addressed.`,
     );
   }
@@ -68,11 +73,20 @@ let actionIdsPromise: Promise<ReadonlySet<string>> | undefined;
  * import targets `cli-surface.ts` — the generation half — NOT the census seam,
  * which dynamically imports `adapters/cli.js` and would close a runtime import
  * cycle adapter → generated client → seam → adapter.
+ *
+ * The compile is the RUNTIME-ADDRESSING variant (`compileForCliAddressing`):
+ * the pure meta-model → shape/surface pipeline, WITHOUT the generation-time
+ * authority freeze gate. The freeze gate reads the source tree (package.json,
+ * the invariant catalog, `.ts` sources), which does not exist inside a
+ * compiled single-file binary — routing dispatch through it crashed every CLI
+ * invocation of the shipped artifact (P05-02 packaged proof). Authority
+ * verification stays a generation/CI gate; the addressing surface it would
+ * have gated is byte-identical (the verdict never alters compiler output).
  */
 export function contractActionIds(): Promise<ReadonlySet<string>> {
   actionIdsPromise ??= (async () => {
-    const { deriveCliSurface, compileForCli } = await import('./cli-surface.js');
-    const surface = deriveCliSurface(compileForCli());
+    const { deriveCliSurface, compileForCliAddressing } = await import('./cli-surface.js');
+    const surface = deriveCliSurface(compileForCliAddressing());
     return new Set(surface.commands.map((command) => command.actionId));
   })();
   return actionIdsPromise;
@@ -82,8 +96,12 @@ export function contractActionIds(): Promise<ReadonlySet<string>> {
  * Invoke ONE contract action through the shared dispatch core.
  *
  * The single contract-derived dispatch site for the CLI:
- *   1. VERIFY  — `actionId` must exist in the derived contract surface
- *      (fail loud otherwise; that is the "generated" property).
+ *   1. VERIFY  — `actionId` must exist in the derived contract surface. A miss
+ *      fails LOUD as a TYPED failure: a standard contract error envelope with
+ *      the stable `UNKNOWN_ACTION` code (the same answer the dispatch core
+ *      gives an unroutable action), which the adapter maps to its stable exit
+ *      code via `exitCodeForError` — never an uncaught crash. Nothing is
+ *      dispatched on a miss; that is the "generated" property.
  *   2. SPLIT   — `(tool, action)` come from the verified id, never from the
  *      caller, so tool and action cannot be hand-mismatched.
  *   3. DISPATCH — `{ action, ...args }` to the shared handler, the same
@@ -96,7 +114,20 @@ export async function invokeContractAction(
   ctx: DispatchContext,
 ): Promise<ToolResult> {
   const known = await contractActionIds();
-  if (!known.has(actionId)) throw new UnknownContractActionError(actionId);
+  if (!known.has(actionId)) {
+    const diagnostic = new UnknownContractActionError(actionId);
+    const separator = actionId.indexOf('.');
+    return {
+      success: false,
+      error: {
+        code: 'UNKNOWN_ACTION',
+        message: diagnostic.message,
+        ...(separator > 0
+          ? { tool: actionId.slice(0, separator), action: actionId.slice(separator + 1) }
+          : {}),
+      },
+    };
+  }
   // ActionIds are `<tool>.<action>`; tools never contain `.`, so the first
   // separator is the split point (actions are snake_case and dot-free too,
   // but slicing at the first `.` matches the id grammar rather than assuming).

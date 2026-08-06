@@ -197,6 +197,50 @@ export function compileForCli(): CompiledContract {
   return outcome.output;
 }
 
+/**
+ * Compile the live contract for RUNTIME ADDRESSING — the generated client's
+ * verify step (`generated-client.ts`) — with the generation-time AUTHORITY
+ * freeze gate stubbed `ok`.
+ *
+ * WHY THE STUB IS LOAD-BEARING, NOT A SHORTCUT: `verifyContractAuthority()`
+ * collects its inputs by READING THE SOURCE TREE — `package.json`, the
+ * `.exarchos/invariants.md` catalog, and `.ts` source files, all resolved
+ * relative to `import.meta.url`. Inside a compiled single-file binary those
+ * paths resolve into the bundle's virtual root (`/package.json`) and throw
+ * ENOENT, so a runtime dispatch path gated on the freeze check crashes EVERY
+ * CLI invocation of the shipped artifact (the P05-02 packaged proof caught
+ * exactly this). The freeze gate is a GENERATION/CI-time control — it blocks
+ * emitting artifacts from an unapproved tree via {@link compileForCli}, the
+ * golden drift guard, and the authority tests — never a per-dispatch check.
+ *
+ * The PURE gates (meta-model SHAPE validation and SURFACE compatibility) still
+ * run, and the authority verdict never alters compiler OUTPUT (it only gates),
+ * so the descriptors — and therefore the ActionId surface — are byte-identical
+ * to {@link compileForCli}'s whenever the tree's authority is approved. The
+ * regression guard in `generated-client.test.ts` pins that this path performs
+ * NO filesystem reads.
+ */
+export function compileForCliAddressing(): CompiledContract {
+  const outcome = compile(deriveMetaModel(), {
+    verifyAuthority: () => ({
+      ok: true,
+      violations: [],
+      report:
+        'runtime addressing: authority freeze is a generation-time gate ' +
+        '(enforced by compileForCli + the golden drift guard), not a dispatch-time check',
+    }),
+  });
+  if (!outcome.ok) {
+    const summary = outcome.diagnostics
+      .map((d) => `  [${d.code}] ${d.actionId} ${d.path}: ${d.message}`)
+      .join('\n');
+    throw new Error(
+      `CLI runtime addressing BLOCKED — ${outcome.diagnostics.length} diagnostic(s):\n${summary}`,
+    );
+  }
+  return outcome.output;
+}
+
 /** The canonical, byte-stable serialization written to disk (trailing newline). */
 export function serializedCliSurfaceBaseline(): string {
   return serializeCliSurface(deriveCliSurface(compileForCli())) + '\n';
