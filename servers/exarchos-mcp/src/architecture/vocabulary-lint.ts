@@ -9,6 +9,12 @@
  *
  * Designed to be a thin library that the `npm run lint:invariants` CLI
  * wrapper can call.
+ *
+ * `scanRegistryActions` (DR-4/DR-5, issue #1706 task 004) extends the
+ * corpus beyond markdown: MCP action `name`/`description` strings in
+ * `registry.ts` are agent-facing normative text too. It shares the same
+ * `scanText` token-scan core as the file-path scanners above, fed by a
+ * structured (not raw-text) extraction of the registry's action metadata.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -81,11 +87,22 @@ export function scanFile(
   return scanFileWithKnown(file, knownIds);
 }
 
-function scanFileWithKnown(
-  file: string,
+/**
+ * Core token-scan loop (DR-5): scan `text` line-by-line for `INV-*`/`DIM-*`
+ * tokens not present in `knownIds`, tagging each finding with `locator`.
+ *
+ * Factored out of the original file-IO-bound `scanFileWithKnown` so the
+ * same matching/dedup logic can run over file contents (via
+ * {@link scanFileWithKnown}, `locator` = the file path — unchanged
+ * behavior) OR over an in-memory string that never touched disk (via
+ * {@link scanRegistryActions}, `locator` = an action reference). `scanText`
+ * itself has no file-IO dependency, so it is directly unit-testable.
+ */
+export function scanText(
+  text: string,
+  locator: string,
   knownIds: Set<string>,
 ): VocabularyFinding[] {
-  const text = fs.readFileSync(file, 'utf8');
   const findings: VocabularyFinding[] = [];
   const lines = text.split(/\r?\n/);
   for (let i = 0; i < lines.length; i++) {
@@ -102,7 +119,7 @@ function scanFileWithKnown(
       if (seen.has(key)) continue;
       seen.add(key);
       findings.push({
-        file,
+        file: locator,
         line: i + 1,
         token,
         kind: 'unknown-invariant',
@@ -110,6 +127,14 @@ function scanFileWithKnown(
     }
   }
   return findings;
+}
+
+function scanFileWithKnown(
+  file: string,
+  knownIds: Set<string>,
+): VocabularyFinding[] {
+  const text = fs.readFileSync(file, 'utf8');
+  return scanText(text, file, knownIds);
 }
 
 /**
@@ -220,3 +245,146 @@ export function scanRepoDefaults(
 // above still recognizes the `DIM-\d+` shape so a stale DIM-N reference in
 // `docs/`, `skills-src/`, or `commands/` surfaces as an unknown-invariant
 // finding.
+
+// ─── Registry action corpus (DR-4/DR-5, issue #1706 task 004) ─────────────
+//
+// MCP action `name`/`description` strings (`registry.ts`) are agent-facing
+// normative text on par with the four `.md` surfaces above, but they are
+// TypeScript source, not markdown — relaxing the `.md` file walk to read
+// `registry.ts` raw would fire TOKEN_RE on code and comments (rejected in
+// the spec's alternatives). Instead we pull ONLY the action metadata
+// strings out via a structured extractor and feed them through the same
+// `scanText` core the file scanners use.
+
+/**
+ * The minimal structural shape `scanRegistryActions` needs from a composite
+ * tool. Deliberately NOT `import`ed (type or value) from `registry.ts` — a
+ * static import edge would parse the ~4k-line registry module at
+ * `vocabulary-lint` module-load (paid by every importer, including callers
+ * that never scan the registry) and would defeat the lazy-load contract
+ * DR-5 requires. `registry.ts`'s real `CompositeTool`/`ToolAction` shapes
+ * are structurally compatible with this interface, so no cast is needed at
+ * the loader boundary beyond narrowing `unknown`.
+ */
+export interface RegistryActionLike {
+  readonly name: string;
+  readonly description: string;
+}
+
+/** The minimal structural shape of a composite tool, mirroring the above. */
+export interface RegistryToolLike {
+  readonly name: string;
+  readonly actions: readonly RegistryActionLike[];
+}
+
+/**
+ * Injectable loader seam (DR-5): resolves the full set of exported
+ * composite tools. May be sync or async — `scanRegistryActions` awaits
+ * either. Tests inject a throwing or malformed loader to exercise the
+ * fail-closed path without touching the real registry.
+ */
+export type RegistryLoader = () =>
+  | Promise<readonly RegistryToolLike[]>
+  | readonly RegistryToolLike[];
+
+/**
+ * Default loader: a lazy `import()` of `../registry.js`, evaluated only
+ * when `scanRegistryActions` actually runs (lint-time), never at this
+ * module's own load time. This is a dynamic `import()` call inside a
+ * function body — not a static top-level `import` declaration — so it adds
+ * no static registry import edge to `vocabulary-lint.ts`.
+ */
+async function defaultRegistryLoader(): Promise<
+  readonly RegistryToolLike[]
+> {
+  // No cast: `CompositeTool`/`ToolAction` are structurally assignable to the
+  // local `RegistryToolLike`/`RegistryActionLike` shapes, so the real export
+  // type flows straight through. Widening it through `unknown` first would
+  // only discard the compiler's ability to catch a registry shape change here.
+  const { TOOL_REGISTRY } = await import('../registry.js');
+  return TOOL_REGISTRY;
+}
+
+/**
+ * Runtime shape checks for the loader's payload (DR-5 fail-closed path).
+ *
+ * These are type-guard predicates over `unknown`, not assertion probes:
+ * `in`-narrowing lets the compiler carry the narrowed type out of the check,
+ * so each call site destructures a genuinely narrowed value instead of
+ * re-asserting one. An injected malformed loader is therefore rejected by the
+ * same code path that types the happy path.
+ */
+function isRegistryToolLike(value: unknown): value is RegistryToolLike {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'name' in value &&
+    typeof value.name === 'string' &&
+    'actions' in value &&
+    Array.isArray(value.actions)
+  );
+}
+
+function isRegistryActionLike(value: unknown): value is RegistryActionLike {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'name' in value &&
+    typeof value.name === 'string' &&
+    'description' in value &&
+    typeof value.description === 'string'
+  );
+}
+
+/**
+ * Scan the `name` + `description` of every action across every exported
+ * composite tool (`exarchos_workflow` / `exarchos_event` /
+ * `exarchos_orchestrate` / `exarchos_view`, DR-4) for `INV-*`/`DIM-*`
+ * tokens absent from the invariants catalog.
+ *
+ * Fails closed (DR-5): if `loader` throws/rejects, or resolves to a shape
+ * that is not an array of `{name, actions: [{name, description}, ...]}`
+ * entries, this function throws rather than silently reporting zero
+ * findings — a lint that goes quiet on a broken registry is worse than no
+ * lint.
+ *
+ * Each finding's `file` carries a stable locator: `registry.ts#<tool
+ * name>.<action name>` (registry.ts where resolvable, plus the action
+ * name — DR-5).
+ */
+export async function scanRegistryActions(
+  loader: RegistryLoader = defaultRegistryLoader,
+  options: ScanOptions = {},
+): Promise<VocabularyFinding[]> {
+  const docPath = options.invariantsDoc ?? defaultInvariantsDoc();
+  const knownIds = loadInvariantIds(docPath, options.config);
+
+  const tools = await loader();
+  if (!Array.isArray(tools)) {
+    throw new Error(
+      'scanRegistryActions: malformed registry — loader did not resolve an array of composite tools',
+    );
+  }
+
+  const findings: VocabularyFinding[] = [];
+  for (const tool of tools) {
+    if (!isRegistryToolLike(tool)) {
+      throw new Error(
+        `scanRegistryActions: malformed composite tool entry — expected {name: string, actions: [...]}, got ${JSON.stringify(tool)}`,
+      );
+    }
+    const { name: toolName, actions } = tool;
+    for (const action of actions) {
+      if (!isRegistryActionLike(action)) {
+        throw new Error(
+          `scanRegistryActions: malformed action entry in tool "${toolName}" — expected {name: string, description: string}, got ${JSON.stringify(action)}`,
+        );
+      }
+      const { name: actionName, description } = action;
+      const locator = `registry.ts#${toolName}.${actionName}`;
+      findings.push(...scanText(actionName, locator, knownIds));
+      findings.push(...scanText(description, locator, knownIds));
+    }
+  }
+  return findings;
+}

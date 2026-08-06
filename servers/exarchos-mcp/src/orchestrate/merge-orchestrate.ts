@@ -703,7 +703,18 @@ export async function handleMergeOrchestrate(
         },
       };
     }
-    throw err;
+    // Not a sequence race — return a coded envelope rather than letting this
+    // escape (#1706 DR-1): dispatch.ts's safety net would otherwise flatten
+    // it to a generic INTERNAL_ERROR, discarding the event-append failure
+    // classification (`ErrorCode.EVENT_APPEND_FAILED`) this module already
+    // imports for structured state errors.
+    return {
+      success: false,
+      error: {
+        code: ErrorCode.EVENT_APPEND_FAILED,
+        message: `merge.preflight append failed: ${err instanceof Error ? err.message : String(err)}`,
+      },
+    };
   }
 
   // ─── 3. Dry-run short-circuit (T13) ──────────────────────────────────────
@@ -788,7 +799,23 @@ export async function handleMergeOrchestrate(
           },
         };
       }
-      throw err;
+      // Neither a version conflict nor a StateStoreError — return a coded
+      // envelope rather than letting this escape (#1706 DR-1): dispatch.ts's
+      // safety net would otherwise flatten it to a generic INTERNAL_ERROR,
+      // discarding the state-write failure classification. `merge.preflight`
+      // was already appended, so projection rebuild can still reconstruct
+      // the aborted phase from events alone.
+      return {
+        success: false,
+        error: {
+          code: 'STATE_WRITE_FAILED',
+          message: err instanceof Error ? err.message : String(err),
+        },
+        data: {
+          phase: 'aborted',
+          preflight,
+        },
+      };
     }
     return {
       success: false,
@@ -905,7 +932,18 @@ export async function handleMergeOrchestrate(
         },
       };
     }
-    throw err;
+    // Neither known retry-class error — return a coded envelope rather than
+    // letting this escape (#1706 DR-1): dispatch.ts's safety net would
+    // otherwise flatten it to a generic INTERNAL_ERROR, discarding the
+    // event-append failure classification (`ErrorCode.EVENT_APPEND_FAILED`)
+    // this module already imports for structured state errors.
+    return {
+      success: false,
+      error: {
+        code: ErrorCode.EVENT_APPEND_FAILED,
+        message: `merge.requested decide failed: ${err instanceof Error ? err.message : String(err)}`,
+      },
+    };
   }
 
   // ─── 5. Delegate to executor ─────────────────────────────────────────────

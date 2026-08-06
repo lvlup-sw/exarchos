@@ -747,7 +747,17 @@ export async function handleMutationAdequacy(
       exitCode: 1,
       instanceId,
     });
-    throw err;
+    // The injected `runMutation` seam rejected unexpectedly (defaultRunMutation
+    // handles its own sync failures, so a throw here is the seam's own
+    // failure, not a mutation-report result). Return a coded envelope rather
+    // than letting this escape — the dispatch.ts safety net would otherwise
+    // flatten it to a generic INTERNAL_ERROR, discarding the SCRIPT_ERROR
+    // classification the handler's own runner failures use elsewhere
+    // (#1706 DR-1).
+    return {
+      success: false,
+      error: { code: 'SCRIPT_ERROR', message: err instanceof Error ? err.message : String(err) },
+    };
   }
   await emitLiveness(eventStore, args.featureId, 'mutation.executed', {
     command: scoped.command,

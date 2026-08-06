@@ -900,6 +900,28 @@ jobs:
       - name: Vocabulary-lint (DR-8)
         run: npm run lint:invariants
 
+      # Error-envelope lint (#1706 DR-2, task 002): scans the registration-set
+      # surface (servers/exarchos-mcp/src/orchestrate/**) via a DEDICATED
+      # type-aware flat config (eslint.envelopes.config.js — never the shared
+      # eslint.config.js the filtered test-root lint:windows step loads),
+      # hosted as a scripts/lint-*.mjs PRIMARY (not a bare eslint invocation)
+      # so check-enforcer-wiring.mjs's manifest walker can see and reconcile
+      # it. Rides this UNFILTERED deps-tail — not the filtered test-root — so
+      # a registered MCP handler that lets a throw abnormally complete it
+      # fails CI on every PR; needs the root eslint/typescript-eslint
+      # devDependencies already installed above. DR-1 host class: deps tail,
+      # unfiltered.
+      - name: Error-envelope lint (#1706 DR-2)
+        run: npm run lint:envelopes
+
+      # DR-10 .test.sh re-assert (task-015 pattern — every check/lint script's
+      # self-test runs on every PR, unfiltered): the wrapper's own
+      # fixture-driven both-direction + fail-closed assertions, so a
+      # scripts-only PR that skips the filtered test-root suite still proves
+      # the gate is provably failable.
+      - name: Error-envelope lint self-test (#1706 DR-2)
+        run: bash scripts/lint-envelopes.test.sh
+
       # DR-2 CI-topology conformance test on the UNFILTERED host: a root-suite
       # vitest that parses ci.yml and asserts the ci-gate aggregator's
       # completeness / evaluate-coverage / skip-guard coverage. Running it here

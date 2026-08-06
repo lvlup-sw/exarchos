@@ -604,6 +604,163 @@ describe('handleMergeOrchestrate (T13 — dry-run path)', () => {
   });
 });
 
+// ─── #1706 DR-1 — unknown-error paths return coded envelopes, never throw ──
+//
+// Three sites in this handler convert KNOWN retryable/typed errors
+// (SequenceConflictError/VersionConflictError/StateStoreError/
+// ConcurrencyError/StorageBusyError) but previously RE-THREW anything else.
+// dispatch.ts's outer safety net would catch that throw and flatten it to a
+// generic INTERNAL_ERROR, discarding the structured classification. Each
+// site must instead return a coded ToolResult.error directly. `withStateRetry`
+// only retries the recognized typed errors (state-retry.ts's `isRetryable`),
+// so a plain `Error` propagates on the FIRST attempt — these tests assert
+// single-call, not retried.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('handleMergeOrchestrate (#1706 DR-1 — unknown-error coded envelopes)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // Section 0a (#1356) shells out to REAL git (via the default `gitExec`)
+  // to detect whether `targetBranch` is checked out in a sibling worktree —
+  // a real concern when these tests run from inside an actual git worktree
+  // checkout (e.g. this repo's own `.worktrees/` dev layout), where 'main'
+  // genuinely IS checked out in a sibling directory. A non-zero exit code
+  // short-circuits that whole probe (merge-orchestrate.ts:509), so this
+  // fixture — mirroring the DR-2 lease-guard describe block's `NO_GIT`
+  // below — makes these tests deterministic regardless of the host repo's
+  // real worktree topology.
+  const bypassSection0a: GitExec = () => ({ exitCode: 1, stdout: '', stderr: '' });
+
+  it('MergeOrchestrate_PreflightAppendUnknownError_ReturnsCodedEnvelopeNotThrow', async () => {
+    // The `merge.preflight` append (section 2) runs before the dry-run /
+    // abort branches, for both a passing and failing preflight. A plain
+    // Error (not SequenceConflictError) must return EVENT_APPEND_FAILED.
+    const decide = vi.fn();
+    const aggregateStream = vi.fn().mockResolvedValue({
+      aggregate: { projectionSequence: 0, worktrees: {}, inFlightMerges: {} },
+      version: 0,
+    });
+    const ctx: DispatchContext = {
+      stateDir: '/tmp/test-state',
+      eventStore: {
+        append: vi.fn().mockImplementation(
+          async (_streamId: string, event: { type: string }) => {
+            if (event.type === 'merge.preflight') {
+              throw new Error('disk full');
+            }
+            return { sequence: 1, type: event.type, timestamp: new Date().toISOString() };
+          },
+        ),
+        query: vi.fn().mockResolvedValue([]),
+        getAppender: vi.fn().mockReturnValue({ decide, aggregateStream }),
+      } as unknown as EventStore,
+      enableTelemetry: false,
+    };
+    const preflight = vi.fn().mockResolvedValue(PASSING_PREFLIGHT);
+    const executeMerge = vi.fn();
+
+    const result = await handleMergeOrchestrate(
+      {
+        featureId: 'feat-x',
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+        taskId: 'T-append',
+        strategy: 'squash',
+        preflight,
+        executeMerge,
+        gitExec: bypassSection0a,
+      },
+      ctx,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('EVENT_APPEND_FAILED');
+    expect(result.error?.message).toContain('disk full');
+    expect(executeMerge).not.toHaveBeenCalled();
+  });
+
+  it('MergeOrchestrate_PersistAbortStateUnknownError_ReturnsCodedEnvelopeNotThrow', async () => {
+    // The abort-branch persistState (section 4, T12) converts
+    // VersionConflictError and StateStoreError; a plain Error must return
+    // STATE_WRITE_FAILED instead of escaping.
+    const ctx = makeMockCtx();
+    const preflight = vi.fn().mockResolvedValue(FAILING_PREFLIGHT);
+    const executeMerge = vi.fn();
+    const persistState = vi.fn().mockRejectedValue(new Error('disk full'));
+
+    const result = await handleMergeOrchestrate(
+      {
+        featureId: 'feat-x',
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+        taskId: 'T-persist',
+        strategy: 'squash',
+        preflight,
+        executeMerge,
+        persistState,
+        gitExec: bypassSection0a,
+      },
+      ctx,
+    );
+
+    // Not a recognized retryable class — persistState invoked exactly once.
+    expect(persistState).toHaveBeenCalledTimes(1);
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('STATE_WRITE_FAILED');
+    expect(result.error?.message).toContain('disk full');
+    expect(executeMerge).not.toHaveBeenCalled();
+  });
+
+  it('MergeOrchestrate_MergeRequestedDecideUnknownError_ReturnsCodedEnvelopeNotThrow', async () => {
+    // Phase A's `appender.decide` (section 4b) converts ConcurrencyError and
+    // StorageBusyError; a plain Error must return EVENT_APPEND_FAILED
+    // instead of escaping.
+    const decide = vi.fn().mockRejectedValue(new Error('disk full'));
+    const aggregateStream = vi.fn().mockResolvedValue({
+      aggregate: { projectionSequence: 0, worktrees: {}, inFlightMerges: {} },
+      version: 0,
+    });
+    const ctx: DispatchContext = {
+      stateDir: '/tmp/test-state',
+      eventStore: {
+        append: vi.fn().mockResolvedValue({
+          sequence: 1,
+          type: 'merge.preflight',
+          timestamp: new Date().toISOString(),
+        }),
+        query: vi.fn().mockResolvedValue([]),
+        getAppender: vi.fn().mockReturnValue({ decide, aggregateStream }),
+      } as unknown as EventStore,
+      enableTelemetry: false,
+    };
+    const preflight = vi.fn().mockResolvedValue(PASSING_PREFLIGHT);
+    const executeMerge = vi.fn();
+
+    const result = await handleMergeOrchestrate(
+      {
+        featureId: 'feat-x',
+        sourceBranch: 'feat/x',
+        targetBranch: 'main',
+        taskId: 'T-decide',
+        strategy: 'squash',
+        preflight,
+        executeMerge,
+        gitExec: bypassSection0a,
+      },
+      ctx,
+    );
+
+    // Not a recognized retryable class — decide invoked exactly once.
+    expect(decide).toHaveBeenCalledTimes(1);
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('EVENT_APPEND_FAILED');
+    expect(result.error?.message).toContain('disk full');
+    expect(executeMerge).not.toHaveBeenCalled();
+  });
+});
+
 describe('handleMergeOrchestrate (T14 — resume path)', () => {
   beforeEach(() => {
     vi.clearAllMocks();

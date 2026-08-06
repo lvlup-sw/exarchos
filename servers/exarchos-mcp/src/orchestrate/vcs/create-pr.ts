@@ -204,7 +204,18 @@ export async function handleCreatePr(
         },
       };
     }
-    throw err;
+    // Neither known retry-class error — return a coded envelope rather than
+    // letting this escape (#1706 DR-1): dispatch.ts's safety net would
+    // otherwise flatten it to a generic INTERNAL_ERROR, discarding the
+    // append-failure classification this handler's own vocabulary uses
+    // elsewhere (request-synthesize.ts's APPEND_FAILED precedent).
+    return {
+      success: false,
+      error: {
+        code: 'APPEND_FAILED',
+        message: `pr.create.requested append failed: ${err instanceof Error ? err.message : String(err)}`,
+      },
+    };
   }
 
   // ─── Idempotent side-effect check (INV-1 MEDIUM) ─────────────────────────
