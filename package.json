@@ -31,6 +31,7 @@
     "lint:inv6": "node scripts/lint-inv6.mjs skills-src/",
     "lint:test-first-drift": "node scripts/lint-test-first-drift.mjs commands agents skills-src",
     "lint:invariants": "tsx servers/exarchos-mcp/src/architecture/vocabulary-lint-cli.ts",
+    "lint:envelopes": "node scripts/lint-envelopes.mjs",
     "desc:budget-guard": "tsx servers/exarchos-mcp/src/architecture/description-budget-cli.ts",
     "skills:guard": "node dist/skills-guard.js && (npm run lint:inv6 || true) && npm run lint:test-first-drift",
     "hooks:guard": "node dist/hooks-guard.js",

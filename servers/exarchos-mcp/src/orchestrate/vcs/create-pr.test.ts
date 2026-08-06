@@ -285,6 +285,52 @@ describe('CreatePr_PhaseARetry_DoesNotRefireGhPrCreate (B1.2 RED)', () => {
   });
 });
 
+// ─── #1706 DR-1: Phase-A append unknown-error must return a coded envelope ──
+//
+// The Phase A append catch converts ConcurrencyError → CONCURRENCY_CONFLICT
+// and StorageBusyError → STORAGE_BUSY, but previously RE-THREW any other
+// error. dispatch.ts's outer safety net would catch that throw and flatten
+// it to a generic INTERNAL_ERROR, discarding the append-failure
+// classification. The handler must instead return APPEND_FAILED directly.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('CreatePr_PhaseAAppendUnknownError_ReturnsCodedEnvelopeNotThrow', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('CreatePr_PhaseAAppendUnknownError_ReturnsCodedEnvelopeNotThrow', async () => {
+    // Arrange: Phase A append rejects with a plain Error — neither
+    // ConcurrencyError nor StorageBusyError.
+    const append = vi.fn().mockRejectedValue(new Error('disk full'));
+
+    const ctx: DispatchContext = {
+      stateDir: '/tmp/test-state',
+      eventStore: {
+        append,
+        query: vi.fn().mockResolvedValue([]),
+      } as unknown as EventStore,
+      enableTelemetry: false,
+    };
+
+    const mockProvider = makeMockProvider();
+    vi.mocked(createVcsProvider).mockResolvedValue(mockProvider);
+
+    // Act
+    const result = await handleCreatePr(
+      { title: 'feat: unknown-append-error', body: 'Body', base: 'main', head: 'feature/unknown' },
+      ctx,
+    );
+
+    // Assert: a coded ToolResult.error, not a thrown/rejected promise.
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('APPEND_FAILED');
+    expect(result.error?.message).toContain('disk full');
+    // The non-idempotent side effect must NOT have fired.
+    expect(mockProvider.createPr).not.toHaveBeenCalled();
+  });
+});
+
 // ─── B1.3: Idempotent check — requested-but-not-executed recovery ────────────
 //
 // When `pr.create.requested` is already committed to the stream (prior interrupted

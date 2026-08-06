@@ -829,19 +829,25 @@ describe('mutation-adequacy liveness + gate emission', () => {
     const { stateDir, eventStore } = await newStore();
     const ctx = makeCtx(stateDir, eventStore);
 
-    await expect(
-      handleOrchestrate(
-        {
-          action: 'mutation-adequacy',
-          featureId: 'feat-mutadq',
-          base: 'main',
-          resolve: () => runtimeWith('npx stryker run'),
-          detectToolchainId: () => 'node',
-          runMutation: () => Promise.reject(new Error('runner exploded')),
-        },
-        ctx,
-      ),
-    ).rejects.toThrow('runner exploded');
+    const result = (await handleOrchestrate(
+      {
+        action: 'mutation-adequacy',
+        featureId: 'feat-mutadq',
+        base: 'main',
+        resolve: () => runtimeWith('npx stryker run'),
+        detectToolchainId: () => 'node',
+        runMutation: () => Promise.reject(new Error('runner exploded')),
+      },
+      ctx,
+    )) as { success: boolean; error?: { code?: string; message?: string } };
+
+    // #1706 DR-1: a rejecting injected seam must return a coded
+    // ToolResult.error, not let the throw abnormally complete the handler
+    // (which dispatch.ts's safety net would otherwise flatten to a generic
+    // INTERNAL_ERROR, discarding this classification).
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('SCRIPT_ERROR');
+    expect(result.error?.message).toContain('runner exploded');
 
     const events = await eventStore.query('feat-mutadq');
     const started = events.find((e) => e.type === 'mutation.executing_started');
