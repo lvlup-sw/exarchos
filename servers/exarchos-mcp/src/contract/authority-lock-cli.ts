@@ -29,11 +29,14 @@ const LOCK_NOTE =
   'PROGRAM-03 contract authority freeze (P03-01, extended by P03-02 with the ' +
   'closed `contract-surface` authority; re-approved by T-35 / DR-26 after the ' +
   'invariant catalog was re-pointed to the GOVERNING framing of INV-2 ' +
-  '(contract-client equivalence by construction, with the DR-25 CLI deviation ' +
-  'recorded), INV-4 (standards-conformance plus thin shims), INV-7 (closed ' +
-  'cross-process serialization claim, EFF-001) and INV-11 (lifecycle/placement ' +
-  'by construction; spatial write confinement excluded and declared ' +
-  'per-harness)). Regenerate with ' +
+  '(contract-client equivalence by construction), INV-4 ' +
+  '(standards-conformance plus thin shims), INV-7 (closed cross-process ' +
+  'serialization claim, EFF-001) and INV-11 (lifecycle/placement by ' +
+  'construction; spatial write confinement excluded and declared per-harness); ' +
+  're-approved again after the DR-25 PRIMARY resolution landed — the CLI now ' +
+  'addresses actions through the generated client ' +
+  '`contract/cli/generated-client.ts`, the `cli-direct-dispatch` deviation is ' +
+  'retired, and the catalog records the retirement). Regenerate with ' +
   '`npx tsx src/contract/authority-lock-cli.ts` after reviewing and approving ' +
   'the new authority digests, then commit this file.';
 
@@ -42,7 +45,7 @@ const LOCK_NOTE =
  * this when a new work package performs the review-and-approve gesture, so the
  * lockfile carries the provenance of the approval rather than of the tool.
  */
-export const CURRENT_APPROVER = 'T-35 (DR-26)';
+export const CURRENT_APPROVER = 'wiring-closure (DR-25 primary resolution)';
 
 export function regenerateAuthorityLock(approvedBy = CURRENT_APPROVER): string {
   const paths = defaultSourcePaths();

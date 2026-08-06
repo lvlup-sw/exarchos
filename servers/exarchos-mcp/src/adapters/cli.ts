@@ -4,11 +4,15 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getFullRegistry } from '../registry.js';
 import type { CompositeTool, ToolAction } from '../registry.js';
-// DR-25 / INV-2 — this is the DEVIATING import. See CLI_DIRECT_DISPATCH_DEVIATION
-// below: under the governing INV-2 framing the CLI is a GENERATED client of the
-// compiled contract, so reaching the runtime `dispatch` value directly is a
-// recorded, owned, expiring deviation rather than compliance.
-import { dispatch } from '../core/dispatch.js';
+// DR-25 / governing INV-2 — this adapter does NOT import the runtime `dispatch`
+// value. Every api-action call site addresses its action by contract ActionId
+// through the generated client (`invokeContractAction`), the ONE
+// contract-derived dispatch site on the CLI side: an id the compiled contract
+// does not contain cannot be addressed, so CLI/MCP agreement on WHICH action
+// runs is constructed, not hand-coordinated. The Commander tree below remains
+// hand-authored PRESENTATION (groups, command names, flags); addressing and
+// behavior live behind the seam.
+import { invokeContractAction } from '../contract/cli/generated-client.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { deriveLocalOperatorIdentity } from '../dispatch/caller-identity.js';
 import type { ToolResult } from '../format.js';
@@ -44,39 +48,26 @@ import { prettyPrint, printError, toCliResult } from './cli-format.js';
 // (e.g. `exarchos wf status`) does not pay the cost of loading the full MCP
 // SDK + tool-registration graph. See DR-5 / task 021 cold-start benchmark.
 
-// ─── DR-25: recorded deviation from the governing INV-2 ─────────────────────
+// ─── DR-25: contract-derived action addressing ──────────────────────────────
 
 /**
- * MACHINE-READABLE acknowledgement that this module deviates from the governing
- * INV-2 framing — not a prose comment, and not a silent authorization.
+ * The four hard-wired top-level promotions' contract ActionIds. Each is the
+ * literal id its `program.command(...)` action callback below hands to
+ * `invokeContractAction`; every OTHER api-action command derives its id from
+ * the registry inside `registerActionCommand` (`<tool>.<action>`).
  *
- * The governing framing makes the CLI a GENERATED client of the compiled
- * contract, equal to the MCP surface BY CONSTRUCTION. This adapter is instead a
- * hand-written Commander tree that imports the runtime `dispatch` value (line 7)
- * and assembles `(tool, args)` itself at each api-action call site, so
- * `contract/cli/generated/cli-surface.json` only DESCRIBES the surface it is
- * supposed to generate.
- *
- * Generating the adapter is a substantial subprogram, so DR-25's explicitly
- * acceptable fallback applies: the direct path is RECORDED as an accepted
- * deviation with an owner and an expiry. The full governance record (rationale,
- * retirement condition, tracking ref) lives in `CLI_CONTRACT_DEVIATIONS`
- * (`contract/cli/cli-contract-seam.ts`); this export is the acknowledgement AT
- * the deviation site, and `runDeviationLedgerCensus` fails closed if the two
- * disagree, if the expiry passes, or if this export disappears while the
- * `dispatch` import remains.
- *
- * Deleting this export does NOT remove the deviation — it turns the census RED.
- * The deviation is retired by making the CLI genuinely generated, at which
- * point the `dispatch` import goes away and the ledger row self-retires as
- * STALE_DEVIATION.
+ * Exported as a machine-readable list so the DR-25 conformance test
+ * (`Cli_EveryAddressedActionId_ExistsInDerivedSurface`) can assert each id
+ * exists in `deriveCliSurface(compileForCli())` — a renamed or removed action
+ * reddens the build here instead of surfacing as a runtime
+ * `UnknownContractActionError`.
  */
-export const CLI_DIRECT_DISPATCH_DEVIATION = {
-  invariant: 'INV-2',
-  module: 'adapters/cli.ts',
-  owner: 'exarchos',
-  expires: '2027-02-28',
-} as const;
+export const CLI_PROMOTED_ACTION_IDS = Object.freeze({
+  doctor: 'exarchos_orchestrate.doctor',
+  feedback: 'exarchos_workflow.feedback',
+  onboard: 'exarchos_orchestrate.onboard',
+  mergeOrchestrate: 'exarchos_orchestrate.merge_orchestrate',
+} as const);
 
 // ─── Exit-Code Contract (DR-3: CLI/MCP Parity) ──────────────────────────────
 
@@ -430,11 +421,7 @@ export function buildCli(ctx: DispatchContext, options?: BuildCliOptions): Comma
 
       let result: ToolResult;
       try {
-        result = await dispatch(
-          'exarchos_orchestrate',
-          { action: 'doctor', ...parsed.data },
-          ctx,
-        );
+        result = await invokeContractAction(CLI_PROMOTED_ACTION_IDS.doctor, parsed.data, ctx);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         const errResult: ToolResult = {
@@ -542,7 +529,7 @@ export function buildCli(ctx: DispatchContext, options?: BuildCliOptions): Comma
 
         let result: ToolResult;
         try {
-          result = await dispatch('exarchos_workflow', { action: 'feedback', ...parsed.data }, ctx);
+          result = await invokeContractAction(CLI_PROMOTED_ACTION_IDS.feedback, parsed.data, ctx);
         } catch (err) {
           const messageStr = err instanceof Error ? err.message : String(err);
           emitResult(
@@ -697,11 +684,11 @@ export function buildCli(ctx: DispatchContext, options?: BuildCliOptions): Comma
 
       let result: ToolResult;
       try {
-        result = await dispatch(
-          'exarchos_orchestrate',
+        result = await invokeContractAction(
+          CLI_PROMOTED_ACTION_IDS.onboard,
           // `surface` is adapter-injected: the CLI runs the full install step,
           // so it dispatches as the `'cli'` surface.
-          { action: 'onboard', surface: 'cli', ...parsed.data },
+          { surface: 'cli', ...parsed.data },
           ctx,
         );
       } catch (err) {
@@ -806,9 +793,9 @@ export function buildCli(ctx: DispatchContext, options?: BuildCliOptions): Comma
     // ─── Dispatch ────────────────────────────────────────────────────────
     let result: ToolResult;
     try {
-      result = await dispatch(
-        'exarchos_orchestrate',
-        { action: 'merge_orchestrate', ...parsed.data },
+      result = await invokeContractAction(
+        CLI_PROMOTED_ACTION_IDS.mergeOrchestrate,
+        parsed.data,
         ctx,
       );
     } catch (err) {
@@ -1006,6 +993,12 @@ function registerActionCommand(
   const actionCmd = parent
     .command(commandName)
     .description(action.description);
+
+  // The contract ActionId this command addresses (DR-25). Both dispatch
+  // branches below hand it to `invokeContractAction`, which verifies it
+  // against the compiled contract surface before anything runs — the
+  // registry-derived id and the compiled contract cannot silently disagree.
+  const actionId = `${tool.name}.${action.name}`;
 
   addFlagsFromSchema(actionCmd, action.schema, action.cli?.flags);
 
@@ -1224,13 +1217,9 @@ function registerActionCommand(
         // `isTaskAugmented` predicate (presence of a plain object is
         // sufficient; no `ttl` here means an unbounded task lifetime,
         // appropriate for an interactive CLI follow session).
-        const createResult = await dispatch(
-          tool.name,
-          {
-            action: action.name,
-            ...followParse.data,
-            task: {},
-          },
+        const createResult = await invokeContractAction(
+          actionId,
+          { ...followParse.data, task: {} },
           ctx,
         );
 
@@ -1443,11 +1432,7 @@ function registerActionCommand(
     let result: ToolResult;
     try {
       try {
-        result = await dispatch(
-          tool.name,
-          { action: action.name, ...parseResult.data },
-          ctx,
-        );
+        result = await invokeContractAction(actionId, parseResult.data, ctx);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         // F-024 dead-code: inlined single-use ToolResult shape — was

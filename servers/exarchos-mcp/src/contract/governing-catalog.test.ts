@@ -106,26 +106,35 @@ describe('DR-26 — INV-2 is contract-client equivalence, not peer-facade parity
     expect(inv2.dimension).not.toBe('facade-equivalence');
   });
 
-  it('GoverningCatalog_Inv2_RecordsTheDr25Deviation_MatchingTheMachineReadableLedger', () => {
-    // Second authority: the DR-25 ledger `adapters/cli.ts` is admitted by. The
-    // catalog must record the SAME deviation the census enforces — if T-34's
-    // row is re-dated, re-owned or retired, the catalog goes stale and must be
-    // re-approved rather than silently disagreeing with the code.
-    const row = CLI_CONTRACT_DEVIATIONS.find((d) => d.invariant === 'INV-2');
-    expect(row, 'the DR-25 INV-2 deviation row must exist').toBeDefined();
+  it('GoverningCatalog_Inv2_RecordsTheDr25Retirement_MatchingTheEmptyLedger', () => {
+    // Second authority: the machine-readable DR-25 ledger the census enforces.
+    // The primary resolution retired the `cli-direct-dispatch` row (the CLI
+    // now addresses actions through the generated client), so the ledger is
+    // EMPTY — and the catalog must record the RETIREMENT rather than keep
+    // advertising an open deviation. If a future row is recorded, this pin
+    // goes red and the catalog must be re-approved with the new record, never
+    // silently disagreeing with the code.
+    expect(CLI_CONTRACT_DEVIATIONS).toEqual([]);
 
     const summary = catalogEntry('INV-2').summary;
-    expect(summary).toContain(row!.id);
-    expect(summary).toContain(row!.expires);
-    expect(summary).toContain(row!.owner);
-    // The deviation is debt AGAINST the invariant, not a weakening OF it.
+    expect(summary).toMatch(/generated.client/i);
+    expect(summary).toMatch(/retired/i);
+    expect(summary).toContain('cli-direct-dispatch');
+    // No open-deviation claim survives — the retired row's expiry is gone.
+    expect(summary).not.toContain('2027-02-28');
+    // The machinery framing stays: a future exception is debt AGAINST the
+    // invariant, not a weakening OF it.
     expect(summary).toMatch(/deviation/i);
     expect(summary).toMatch(/expir/i);
   });
 
-  it('GoverningCatalog_Inv2_ReferencesTheDeviationLedger', () => {
-    expect(catalogEntry('INV-2').references).toContain(
+  it('GoverningCatalog_Inv2_ReferencesTheDeviationLedgerAndGeneratedClient', () => {
+    const references = catalogEntry('INV-2').references;
+    expect(references).toContain(
       'servers/exarchos-mcp/src/contract/cli/cli-contract-seam.ts',
+    );
+    expect(references).toContain(
+      'servers/exarchos-mcp/src/contract/cli/generated-client.ts',
     );
   });
 });
