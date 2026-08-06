@@ -305,6 +305,37 @@ async function defaultRegistryLoader(): Promise<
 }
 
 /**
+ * Runtime shape checks for the loader's payload (DR-5 fail-closed path).
+ *
+ * These are type-guard predicates over `unknown`, not assertion probes:
+ * `in`-narrowing lets the compiler carry the narrowed type out of the check,
+ * so each call site destructures a genuinely narrowed value instead of
+ * re-asserting one. An injected malformed loader is therefore rejected by the
+ * same code path that types the happy path.
+ */
+function isRegistryToolLike(value: unknown): value is RegistryToolLike {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'name' in value &&
+    typeof value.name === 'string' &&
+    'actions' in value &&
+    Array.isArray(value.actions)
+  );
+}
+
+function isRegistryActionLike(value: unknown): value is RegistryActionLike {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'name' in value &&
+    typeof value.name === 'string' &&
+    'description' in value &&
+    typeof value.description === 'string'
+  );
+}
+
+/**
  * Scan the `name` + `description` of every action across every exported
  * composite tool (`exarchos_workflow` / `exarchos_event` /
  * `exarchos_orchestrate` / `exarchos_view`, DR-4) for `INV-*`/`DIM-*`
@@ -336,29 +367,19 @@ export async function scanRegistryActions(
 
   const findings: VocabularyFinding[] = [];
   for (const tool of tools) {
-    if (
-      tool === null ||
-      typeof tool !== 'object' ||
-      typeof (tool as RegistryToolLike).name !== 'string' ||
-      !Array.isArray((tool as RegistryToolLike).actions)
-    ) {
+    if (!isRegistryToolLike(tool)) {
       throw new Error(
         `scanRegistryActions: malformed composite tool entry — expected {name: string, actions: [...]}, got ${JSON.stringify(tool)}`,
       );
     }
-    const { name: toolName, actions } = tool as RegistryToolLike;
+    const { name: toolName, actions } = tool;
     for (const action of actions) {
-      if (
-        action === null ||
-        typeof action !== 'object' ||
-        typeof (action as RegistryActionLike).name !== 'string' ||
-        typeof (action as RegistryActionLike).description !== 'string'
-      ) {
+      if (!isRegistryActionLike(action)) {
         throw new Error(
           `scanRegistryActions: malformed action entry in tool "${toolName}" — expected {name: string, description: string}, got ${JSON.stringify(action)}`,
         );
       }
-      const { name: actionName, description } = action as RegistryActionLike;
+      const { name: actionName, description } = action;
       const locator = `registry.ts#${toolName}.${actionName}`;
       findings.push(...scanText(actionName, locator, knownIds));
       findings.push(...scanText(description, locator, knownIds));

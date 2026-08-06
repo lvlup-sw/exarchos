@@ -812,7 +812,7 @@ export async function handleMergeOrchestrate(
           message: err instanceof Error ? err.message : String(err),
         },
         data: {
-          phase: 'aborted' as const,
+          phase: 'aborted',
           preflight,
         },
       };
