@@ -34,6 +34,7 @@
 import { dispatch } from '../../core/dispatch.js';
 import type { DispatchContext } from '../../core/dispatch.js';
 import type { ToolResult } from '../../format.js';
+import { CLI_ACTION_IDS } from './generated/cli-action-ids.js';
 
 /**
  * The diagnostic for an ActionId that is not part of the compiled contract
@@ -52,44 +53,35 @@ export class UnknownContractActionError extends Error {
   constructor(readonly actionId: string) {
     super(
       `ActionId "${actionId}" is not part of the compiled contract surface — ` +
-        `the generated CLI client can only address actions the contract compiles ` +
-        `(deriveCliSurface(compileForCliAddressing())). If the action was renamed or removed, ` +
-        `update the caller; if it is new, it must compile before it can be addressed.`,
+        `the generated CLI client can only address actions in the generated ` +
+        `contract surface (generated/cli-action-ids.ts, regenerated with the golden). ` +
+        `If the action was renamed or removed, update the caller; if it is new, ` +
+        `regenerate the surface before it can be addressed.`,
     );
   }
 }
 
-/**
- * The memoized compiled surface. One compile per process, on first use — see
- * the cold-start note in the module header. Memoizing the PROMISE (not the
- * value) makes concurrent first invocations share a single compile.
- */
-let actionIdsPromise: Promise<ReadonlySet<string>> | undefined;
+/** The memoized addressing set, built once from the generated module. */
+let actionIds: ReadonlySet<string> | undefined;
 
 /**
- * The ActionId set of the compiled contract surface. Lazy dynamic import keeps
- * the compiler graph out of this module's static dependencies (mirroring the
- * census's own `collectLiveCliCommands` idiom in the other direction). The
- * import targets `cli-surface.ts` — the generation half — NOT the census seam,
- * which dynamically imports `adapters/cli.js` and would close a runtime import
- * cycle adapter → generated client → seam → adapter.
+ * The ActionId set of the compiled contract surface, from the GENERATED
+ * addressing module (`generated/cli-action-ids.ts`) — a static import the
+ * bundler inlines at build time. No meta-model compile and no filesystem read
+ * happens on the dispatch path: the earlier lazy addressing COMPILE re-ran the
+ * whole meta-model → surface pipeline in every fresh process, which held on
+ * linux but pushed the win32 packaged-proof per-action probes over budget
+ * (each probe spawns a new binary). The module regenerates with the golden in
+ * one gesture and the seam baseline test pins module == golden == fresh
+ * derivation, so addressing-by-artifact and addressing-by-compile cannot
+ * drift apart. Authority verification stays a generation/CI gate (it reads
+ * the source tree, which does not exist inside the single-file binary).
  *
- * The compile is the RUNTIME-ADDRESSING variant (`compileForCliAddressing`):
- * the pure meta-model → shape/surface pipeline, WITHOUT the generation-time
- * authority freeze gate. The freeze gate reads the source tree (package.json,
- * the invariant catalog, `.ts` sources), which does not exist inside a
- * compiled single-file binary — routing dispatch through it crashed every CLI
- * invocation of the shipped artifact (P05-02 packaged proof). Authority
- * verification stays a generation/CI gate; the addressing surface it would
- * have gated is byte-identical (the verdict never alters compiler output).
+ * Kept Promise-shaped so call sites are agnostic to how the set is sourced.
  */
 export function contractActionIds(): Promise<ReadonlySet<string>> {
-  actionIdsPromise ??= (async () => {
-    const { deriveCliSurface, compileForCliAddressing } = await import('./cli-surface.js');
-    const surface = deriveCliSurface(compileForCliAddressing());
-    return new Set(surface.commands.map((command) => command.actionId));
-  })();
-  return actionIdsPromise;
+  actionIds ??= new Set(CLI_ACTION_IDS);
+  return Promise.resolve(actionIds);
 }
 
 /**

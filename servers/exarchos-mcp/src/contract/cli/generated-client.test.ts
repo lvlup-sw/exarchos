@@ -34,6 +34,7 @@ import {
   serializeCliSurface,
 } from './cli-surface.js';
 import { contractActionIds } from './generated-client.js';
+import { CLI_ACTION_IDS } from './generated/cli-action-ids.js';
 
 function enoent(path: unknown): Error {
   const err = new Error(`ENOENT: no such file or directory, open '${String(path)}'`);
@@ -89,6 +90,20 @@ describe('Runtime addressing compile (packaged-binary environment)', () => {
     expect(serializeCliSurface(deriveCliSurface(compileForCliAddressing()))).toBe(
       serializeCliSurface(deriveCliSurface(compileForCli())),
     );
+  });
+
+  it('DispatchPathAddressing_UsesTheGeneratedModule_NeverACompile', async () => {
+    // The win32 cold-start property: the addressing set the dispatch path
+    // reads is the STATIC generated module — resolving it must not run the
+    // meta-model pipeline (each packaged probe spawns a fresh process, so a
+    // per-process compile is paid on every single CLI invocation of the
+    // shipped binary; win32 spawn+compile blew the packaged-proof budget).
+    // Static agreement is pinned by the seam baseline test; here we pin the
+    // MECHANISM: the runtime set equals the generated module verbatim, and it
+    // resolves synchronously (no lazy compile behind the Promise).
+    const known = await contractActionIds();
+    expect([...known].sort()).toEqual([...CLI_ACTION_IDS].sort());
+    expect(known.size).toBe(CLI_ACTION_IDS.length);
   });
 });
 

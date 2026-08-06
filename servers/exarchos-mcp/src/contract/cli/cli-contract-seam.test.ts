@@ -7,6 +7,8 @@ import {
   serializedCliSurfaceBaseline,
   compileForCli,
   CLI_SURFACE_FILE,
+  CLI_ACTION_IDS_FILE,
+  renderCliActionIdsModule,
   scanDispatchSites,
   importsRuntimeDispatchValue,
   stripComments,
@@ -32,6 +34,16 @@ describe('CLI-surface generation', () => {
     // byte, or the golden has drifted from the compiled contract.
     const onDisk = readFileSync(CLI_SURFACE_FILE, 'utf8');
     expect(onDisk).toBe(serializedCliSurfaceBaseline());
+  });
+
+  it('CheckedInAddressingModule_MatchesFreshDerivation_ByteForByte', () => {
+    // The generated addressing module (the static id set the generated client
+    // dispatches from) regenerates in the SAME gesture as the golden. If it
+    // drifts from a fresh derivation, the shipped binary would address a
+    // different surface than the contract compiles — fail here, not at a
+    // customer's cold start.
+    const onDisk = readFileSync(CLI_ACTION_IDS_FILE, 'utf8');
+    expect(onDisk).toBe(renderCliActionIdsModule(deriveCliSurface(compileForCli())));
   });
 
   it('Derivation_IsDeterministic_AcrossRepeatedCompiles', () => {
