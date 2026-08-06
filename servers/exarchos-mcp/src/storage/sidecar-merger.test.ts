@@ -5,9 +5,31 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { EventStore } from '../event-store/store.js';
-import { writeHookEvent } from '../event-store/hook-event-writer.js';
 import { mergeSidecarEvents, type MergeResult } from './sidecar-merger.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+/**
+ * Append a raw sidecar JSONL line ({streamId}.hook-events.jsonl) directly.
+ * Mirrors the sidecar wire format the merger consumes (same local-helper
+ * pattern as sidecar-scheduler.test.ts) — the former
+ * `event-store/hook-event-writer.ts` producer was deleted as dead code (#1713).
+ */
+async function writeSidecarLine(
+  stateDir: string,
+  streamId: string,
+  event: { type: string; data: Record<string, unknown>; idempotencyKey?: string; timestamp?: string },
+): Promise<void> {
+  const line: Record<string, unknown> = {
+    type: event.type,
+    data: event.data,
+    timestamp: event.timestamp ?? new Date().toISOString(),
+  };
+  if (event.idempotencyKey) line.idempotencyKey = event.idempotencyKey;
+  const filePath = path.join(stateDir, `${streamId}.hook-events.jsonl`);
+  await fs.appendFile(filePath, JSON.stringify(line) + '\n', 'utf-8');
+}
 
 describe('mergeSidecarEvents', () => {
   let tempDir: string;
@@ -25,7 +47,7 @@ describe('mergeSidecarEvents', () => {
 
   it('mergeSidecarEvents_SingleEvent_AppendsToMainStream', async () => {
     // Arrange — write one sidecar event
-    await writeHookEvent(tempDir, 'my-feature', {
+    await writeSidecarLine(tempDir, 'my-feature', {
       type: 'team.task.completed',
       data: { taskId: 'task-001', teammateName: 'worker-1' },
       idempotencyKey: 'my-feature:team.task.completed:task-001',
@@ -50,11 +72,11 @@ describe('mergeSidecarEvents', () => {
       idempotencyKey: 'my-feature:team.task.completed:task-dup',
     };
 
-    await writeHookEvent(tempDir, 'my-feature', event);
+    await writeSidecarLine(tempDir, 'my-feature', event);
     await mergeSidecarEvents(tempDir, eventStore);
 
     // Write the same event again to a new sidecar
-    await writeHookEvent(tempDir, 'my-feature', event);
+    await writeSidecarLine(tempDir, 'my-feature', event);
 
     // Act — merge again
     const result = await mergeSidecarEvents(tempDir, eventStore);
@@ -68,7 +90,7 @@ describe('mergeSidecarEvents', () => {
 
   it('mergeSidecarEvents_DeletesSidecarAfterMerge', async () => {
     // Arrange
-    await writeHookEvent(tempDir, 'my-feature', {
+    await writeSidecarLine(tempDir, 'my-feature', {
       type: 'team.task.completed',
       data: { taskId: 'task-del' },
       idempotencyKey: 'my-feature:team.task.completed:task-del',
@@ -166,7 +188,7 @@ describe('mergeSidecarEvents', () => {
       try {
         // Write N events with unique idempotency keys
         for (const input of eventInputs) {
-          await writeHookEvent(propDir, 'prop-stream', {
+          await writeSidecarLine(propDir, 'prop-stream', {
             type: 'team.task.completed',
             data: { taskId: input.taskId, teammateName: input.teammateName },
             idempotencyKey: `prop-stream:team.task.completed:${input.taskId}`,
@@ -179,7 +201,7 @@ describe('mergeSidecarEvents', () => {
 
         // Write the same sidecar again
         for (const input of eventInputs) {
-          await writeHookEvent(propDir, 'prop-stream', {
+          await writeSidecarLine(propDir, 'prop-stream', {
             type: 'team.task.completed',
             data: { taskId: input.taskId, teammateName: input.teammateName },
             idempotencyKey: `prop-stream:team.task.completed:${input.taskId}`,
