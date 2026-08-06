@@ -1,4 +1,4 @@
-// RESERVED(issue: #1713, owner: exarchos, expires: 2026-10-31) — cascade orphan; dormant-benchmark Zod schema; delete-or-wire tracked in #1713 (DR-7 module-intent gate)
+// RESERVED(issue: #1677, owner: exarchos, expires: 2026-10-31) — dormant benchmark-contract Zod schema (BaselineEntry/BaselinesFile); kept as the baseline contract surface for the benchmark-validation epic #1677. Deliberately NOT in the benchmark-harness allowlist class — that class excludes `*-schema.ts` contract surfaces by design (DR-7 module-intent gate)
 
 import { z } from 'zod';
 
