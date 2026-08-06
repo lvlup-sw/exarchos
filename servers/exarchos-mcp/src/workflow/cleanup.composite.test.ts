@@ -2,13 +2,13 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { handleCleanup } from '../../workflow/cleanup.js';
-import { handleInit } from '../../workflow/tools.js';
-import { handleWorkflow } from '../../workflow/composite.js';
-import { EventStore } from '../../event-store/store.js';
-import type { EventStore as EventStoreType } from '../../event-store/store.js';
-import type { DispatchContext } from '../../core/dispatch.js';
-import { rmrfAsync } from '../../test-helpers/temp-dir.js';
+import { handleCleanup } from './cleanup.js';
+import { handleInit } from './tools.js';
+import { handleWorkflow } from './composite.js';
+import { EventStore } from '../event-store/store.js';
+import type { EventStore as EventStoreType } from '../event-store/store.js';
+import type { DispatchContext } from '../core/dispatch.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 function makeCtx(stateDir: string): DispatchContext {
   return { stateDir, eventStore: new EventStore(stateDir), enableTelemetry: false };

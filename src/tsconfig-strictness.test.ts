@@ -68,12 +68,19 @@ describe('DR-14: noUncheckedIndexedAccess ratchet (root)', () => {
   // see count-casts.ts). Both waves prefer real narrowing (guards, `?.`, `??`,
   // destructuring defaults) and field widening (`?: T | undefined`) over `!`/`as`,
   // so the combined introduced delta stays tiny and `as any` is barred outright.
-  const BASELINE: CastCounts = { nonNull: 84, asCast: 2674, asAny: 3 };
-  // Declared budget = MAX escape-hatch sites BOTH ratchet waves (and near-term
-  // follow-ups before a re-baseline) may introduce over the baseline. Justified
-  // in the PR body; `as any` may never grow. Measured combined delta at landing:
-  // nonNull +14 (024), asCast +1 (025), asAny +0.
-  const DELTA_BUDGET: CastCounts = { nonNull: 20, asCast: 5, asAny: 0 };
+  // RE-BASELINE (wiring-closure wave, PR #1733, 2026-08-06): the structural-
+  // closure remediation added ~480 production files (~116k lines) whose casts
+  // rode that PR's adversarial review (6-scope reviewer fan-out + kill probes),
+  // not this ratchet. Measured on the post-fix-cycle integration tip:
+  // nonNull 99 (prior baseline 84 + 15 after the fix wave removed 9 assertion
+  // sites), asCast 3290, asAny 3 (zero growth — the outright bar held).
+  const BASELINE: CastCounts = { nonNull: 99, asCast: 3290, asAny: 3 };
+  // Declared budget = MAX escape-hatch sites maintenance work may introduce
+  // before the NEXT documented re-baseline. Deliberately tighter than the
+  // pre-wave nonNull budget: large additions must re-baseline in the open
+  // (with review provenance recorded above), never ride a slack budget.
+  // `as any` may never grow.
+  const DELTA_BUDGET: CastCounts = { nonNull: 5, asCast: 5, asAny: 0 };
 
   it('FixWave_CastBudget_MeasuredAndWithinDeclaredLimit', () => {
     const counts = countCasts([
