@@ -9,7 +9,7 @@
 // to the unobserved path while the sink still accumulates an attempt.
 
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -305,6 +305,16 @@ describe('DR-23 / T-31 — durable shadow evidence from the production path', ()
     expect(data.shadowAttemptId).toMatch(/^shadow-attempt:[0-9a-f]{64}$/);
     expect(data.caller.principalKind).toBe('service');
 
+    // T-31: the durable fact names the CURRENT attempt — the one this very
+    // transition allocated (stamped `_pendingPhaseAttemptId` pre-attempt and
+    // persisted as `phaseAttemptId` post-success) — never the predecessor
+    // attempt that was sitting in `phaseAttemptId` when the observer ran.
+    const persistedState = JSON.parse(
+      await readFile(join(stateDir, `${featureId}.state.json`), 'utf-8'),
+    ) as Record<string, unknown>;
+    expect(persistedState.phaseAttemptId).toBeDefined();
+    expect(data.phaseAttemptId).toBe(persistedState.phaseAttemptId);
+
     // An AGREEMENT has nothing to dispose of: the disposition enum has no
     // `agree` member, so no disposition fact may be written for this attempt.
     expect(
@@ -387,6 +397,96 @@ describe('DR-23 / T-31 — durable shadow evidence from the production path', ()
     expect(denied.length).toBe(1);
     expect(denied[0]!.legacyOutcome).toBe('allow');
     expect(disposition.shadowAttemptId).toBe(denied[0]!.shadowAttemptId);
+  });
+
+  it('ShadowObserver_RealClockRetry_CollapsesOntoOneDurableRowPerFact', async () => {
+    // T-49 — the production binding `recordLiveTransition` mints a FRESH
+    // `evaluatedAt: new Date().toISOString()` on every call. The attempt
+    // identity therefore must NOT hash the evaluation instant: a genuine retry
+    // of one logical observation would otherwise derive a fresh key and
+    // DUPLICATE both durable facts. Deliberately NO pinned clock here — the
+    // whole point is that two real-clock invocations, wall-clock apart, still
+    // collapse. (The P06-01 obsolete-predicate edge is used so BOTH facts —
+    // attempt AND disagreement disposition — are exercised.)
+    const featureId = 'durable-shadow-retry-realclock';
+    const observation: LegacyTransitionObservation = {
+      workflowType: 'debug',
+      fromPhase: 'debug-implement',
+      toPhase: 'debug-validate',
+      legacyOutcome: 'allow',
+      idempotent: false,
+    };
+    const state = {
+      featureId,
+      implementation: { complete: false },
+      _pendingPhaseAttemptId: 'pa-retry-current',
+    };
+
+    recordLiveTransition(observation, { ...state }, eventStore);
+    await flushLiveShadowEvidence();
+    // Force the wall clock forward so the retry's `evaluatedAt` is provably
+    // different — a hash that still included it would mint a second key.
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    recordLiveTransition(observation, { ...state }, eventStore);
+    await flushLiveShadowEvidence();
+
+    const attempts = await eventStore.query(liveShadowEvidenceStreamId(featureId), {
+      type: 'admission.shadow-attempt',
+    });
+    expect(attempts.length).toBe(1);
+    expect(attempts[0]!.idempotencyKey).toMatch(/^shadow-attempt:[0-9a-f]{64}$/);
+
+    const dispositions = await eventStore.query(liveShadowEvidenceStreamId(featureId), {
+      type: 'admission.disagreement-disposition',
+    });
+    expect(dispositions.length).toBe(1);
+    expect(dispositions[0]!.idempotencyKey).toMatch(
+      /^disagreement-disposition:[0-9a-f]{64}$/,
+    );
+  });
+
+  it('ShadowObserver_PendingAttemptStamped_DurableFactNamesTheCurrentAttempt', async () => {
+    // T-31 — every production caller (tools.ts / cleanup.ts / cancel.ts)
+    // stamps the attempt allocated for the OBSERVED transition as
+    // `_pendingPhaseAttemptId` before `attempt()` and only persists
+    // `phaseAttemptId` after success. Reading the persisted field first would
+    // label every durable shadow fact with the PREDECESSOR attempt.
+    const featureId = 'durable-shadow-current-attempt';
+    observeLiveTransition(
+      {
+        workflowType: 'feature',
+        fromPhase: 'plan',
+        toPhase: 'plan-review',
+        legacyOutcome: 'allow',
+        idempotent: false,
+      },
+      {
+        featureId,
+        artifacts: { plan: 'docs/x.md' },
+        phaseAttemptId: 'pa-predecessor',
+        _pendingPhaseAttemptId: 'pa-current',
+      },
+      {
+        sink: new InMemoryLiveShadowSink(),
+        context: CTX,
+        health: new LiveShadowHealthCounter(),
+        evidence: { appender: eventStore },
+      },
+    );
+    await flushLiveShadowEvidence();
+
+    const persisted = await eventStore.query(liveShadowEvidenceStreamId(featureId), {
+      type: 'admission.shadow-attempt',
+    });
+    expect(persisted.length).toBe(1);
+    const data = AdmissionShadowAttemptData.parse(persisted[0]!.data);
+    expect(data.phaseAttemptId).toBe('pa-current');
+    expect(data.phaseAttemptId).not.toBe('pa-predecessor');
+    // The evidence subject names the same attempt.
+    expect(data.subject.kind).toBe('phase-attempt');
+    if (data.subject.kind === 'phase-attempt') {
+      expect(data.subject.phaseAttemptId).toBe('pa-current');
+    }
   });
 
   it('ShadowObserver_ShippedDispatchPath_EmitsDurableShadowAttempt', async () => {
