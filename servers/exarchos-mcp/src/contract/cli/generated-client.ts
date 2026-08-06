@@ -64,11 +64,14 @@ let actionIdsPromise: Promise<ReadonlySet<string>> | undefined;
 /**
  * The ActionId set of the compiled contract surface. Lazy dynamic import keeps
  * the compiler graph out of this module's static dependencies (mirroring the
- * seam's own `collectLiveCliCommands` idiom in the other direction).
+ * census's own `collectLiveCliCommands` idiom in the other direction). The
+ * import targets `cli-surface.ts` — the generation half — NOT the census seam,
+ * which dynamically imports `adapters/cli.js` and would close a runtime import
+ * cycle adapter → generated client → seam → adapter.
  */
 export function contractActionIds(): Promise<ReadonlySet<string>> {
   actionIdsPromise ??= (async () => {
-    const { deriveCliSurface, compileForCli } = await import('./cli-contract-seam.js');
+    const { deriveCliSurface, compileForCli } = await import('./cli-surface.js');
     const surface = deriveCliSurface(compileForCli());
     return new Set(surface.commands.map((command) => command.actionId));
   })();

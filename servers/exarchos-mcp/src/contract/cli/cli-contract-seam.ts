@@ -47,7 +47,9 @@
 //      proof-fixture pattern: running the generator IS the regeneration gesture.
 //      Since the DR-25 primary resolution this derivation is GENERATIVE, not
 //      only descriptive: `contract/cli/generated-client.ts` verifies every
-//      CLI-addressed ActionId against it at dispatch time.
+//      CLI-addressed ActionId against it at dispatch time. The derivation
+//      itself lives in `cli-surface.ts` (re-exported here) so that production
+//      edge never touches the census half below.
 //
 //   2. CENSUS      — a THREE-collector, two-way-ratchet structural conformance
 //      gate (same shape as `orchestrate/gate-ownership-census.ts`,
@@ -78,10 +80,12 @@
 //
 // Named `*-seam.ts` — the established `source-lint-seam` class (sibling of
 // `architecture/contract-seam.ts`): a test-invoked gate that runs against
-// production SOURCE. Its census half is never a production import target; the
-// generation half (`deriveCliSurface` / `compileForCli`) is additionally
-// consumed by `generated-client.ts` through a LAZY dynamic import, so the CLI's
-// static cold-start graph still excludes the compiler (DR-5).
+// production SOURCE, never a production import target. The generation half
+// (`deriveCliSurface` / `compileForCli`) moved to `cli-surface.ts` (re-exported
+// here) precisely so `generated-client.ts` can consume it through a LAZY
+// dynamic import without touching this census module — keeping the runtime
+// import graph acyclic and the CLI's static cold-start graph free of the
+// compiler (DR-5).
 //
 // Usage (regenerate the golden, from servers/exarchos-mcp):
 //   npx tsx src/contract/cli/cli-contract-seam.ts
@@ -93,17 +97,9 @@ import { fileURLToPath } from 'node:url';
 import { readdir, readFile } from 'node:fs/promises';
 import { relative } from 'node:path';
 
-import { canonicalJson } from '../request-context.js';
-import { exitCodeForError, CONTRACT_EXIT_CODES } from '../error-families.js';
-import {
-  compile,
-  deriveMetaModel,
-  type CompiledContract,
-  type ActionDescriptor,
-  type JsonSchema,
-} from '../compiler/index.js';
 import { getFullRegistry, type CompositeTool } from '../../registry.js';
 import { TIER1_HARNESSES } from '../../launcher/harness-registry.js';
+import { generateCliArtifacts } from './cli-surface.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -111,181 +107,37 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_SRC_ROOT = path.resolve(HERE, '..', '..');
 
 // ════════════════════════════════════════════════════════════════════════════
-//  SECTION 1 — Generated CLI client surface (derived from the compiled contract)
+//  SECTION 1 + 2 — Generated CLI client surface + golden generator
 // ════════════════════════════════════════════════════════════════════════════
+//
+// EXTRACTED to `cli-surface.ts` when the DR-25 primary resolution made the
+// generation half a production import target of `generated-client.ts`: the
+// census half below dynamically imports `adapters/cli.js` (the live Commander
+// walk), so keeping both halves in one module would close a runtime import
+// cycle adapter → generated client → seam → adapter (the `import-cycles` gate
+// counts dynamic imports as runtime edges). Re-exported here so census callers
+// and tests keep one import surface.
+
+export {
+  deriveFlags,
+  deriveCliSurface,
+  serializeCliSurface,
+  compileForCli,
+  serializedCliSurfaceBaseline,
+  generateCliArtifacts,
+  GENERATED_DIR,
+  CLI_SURFACE_FILE,
+  type CliFlag,
+  type CliExitMapping,
+  type CliCommand,
+  type CliSurface,
+  type GenerateCliResult,
+} from './cli-surface.js';
 
 const byString = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
-/** One CLI flag, projected from an action's input JSON Schema. */
-export interface CliFlag {
-  /** Kebab-cased flag name (`featureId` → `feature-id`), matching the adapter. */
-  readonly name: string;
-  readonly required: boolean;
-  readonly type: string;
-}
-
-/** A stable error code an action can surface, and the CLI exit code it maps to. */
-export interface CliExitMapping {
-  readonly code: string;
-  readonly exitCode: number;
-}
-
-/** The generated CLI client's view of ONE API action. */
-export interface CliCommand {
-  readonly actionId: string;
-  /** Registry tool group, `exarchos_`-stripped (the top-level command group). */
-  readonly group: string;
-  readonly action: string;
-  /** Action alias used at the CLI (`get` → `status`), or the action name. */
-  readonly commandName: string;
-  readonly description: string;
-  /** The render format the CLI defaults to for this action, or null. */
-  readonly format: string | null;
-  /** Top-level promotion name (presentation alias), or null. */
-  readonly topLevel: string | null;
-  readonly flags: readonly CliFlag[];
-  /** The success exit code (always SUCCESS). */
-  readonly successExitCode: number;
-  /** Every stable error code → CLI exit code, from the frozen contract. */
-  readonly errorExits: readonly CliExitMapping[];
-}
-
-/** The whole generated CLI client surface — a byte-stable contract projection. */
-export interface CliSurface {
-  readonly surfaceVersion: string;
-  readonly generator: 'P03-05';
-  readonly commands: readonly CliCommand[];
-}
-
-/** Kebab-case an input-schema property, matching `adapters/schema-to-flags.toKebab`. */
-function toKebab(camel: string): string {
-  return camel.replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase();
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
-/** Coarse JSON-Schema type of one property (for the flag's value hint). */
-function coarseType(propSchema: unknown): string {
-  if (!isRecord(propSchema)) return 'unknown';
-  if (Array.isArray(propSchema.enum)) return 'enum';
-  const t = propSchema.type;
-  if (typeof t === 'string') return t;
-  if (Array.isArray(t)) return t.filter((x): x is string => typeof x === 'string').sort(byString).join('|') || 'unknown';
-  if ('anyOf' in propSchema || 'oneOf' in propSchema || 'allOf' in propSchema) return 'union';
-  return 'unknown';
-}
-
-/**
- * Project an action's input JSON Schema into the CLI flag list. Mirrors the
- * adapter's flag derivation: skip the `action` discriminator, kebab-case the
- * name, mark required from the schema `required` array. Deterministic (sorted).
- */
-export function deriveFlags(inputSchema: JsonSchema | undefined): CliFlag[] {
-  if (inputSchema === undefined) return [];
-  const properties = inputSchema.properties;
-  if (!isRecord(properties)) return [];
-  const requiredRaw = inputSchema.required;
-  const required = new Set<string>(
-    Array.isArray(requiredRaw) ? requiredRaw.filter((r): r is string => typeof r === 'string') : [],
-  );
-  const flags: CliFlag[] = [];
-  for (const key of Object.keys(properties)) {
-    if (key === 'action') continue;
-    flags.push({
-      name: toKebab(key),
-      required: required.has(key),
-      type: coarseType(properties[key]),
-    });
-  }
-  return flags.sort((a, b) => byString(a.name, b.name));
-}
-
-function deriveCommand(descriptor: ActionDescriptor, input: JsonSchema | undefined): CliCommand {
-  const presentation = descriptor.policy.presentation;
-  const errorExits: CliExitMapping[] = [...descriptor.errorCodes]
-    .sort(byString)
-    .map((code) => ({ code, exitCode: exitCodeForError(code) }));
-  return {
-    actionId: descriptor.actionId,
-    group: descriptor.tool.replace(/^exarchos_/, ''),
-    action: descriptor.action,
-    commandName: presentation.cliAlias ?? descriptor.action,
-    description: descriptor.description,
-    format: presentation.cliFormat,
-    topLevel: presentation.topLevel,
-    flags: deriveFlags(input),
-    successExitCode: CONTRACT_EXIT_CODES.SUCCESS,
-    errorExits,
-  };
-}
-
-/**
- * Derive the generated CLI client surface from a compiled contract. Total and
- * deterministic: commands are sorted by ActionId, flags + exit mappings are
- * sorted, and every field comes from the frozen contract (descriptors, schemas,
- * the P03-02 exit-code authority) — no clock, path, or locale leaks in.
- */
-export function deriveCliSurface(contract: CompiledContract): CliSurface {
-  const commands = [...contract.descriptors]
-    .sort((a, b) => byString(a.actionId, b.actionId))
-    .map((descriptor) => deriveCommand(descriptor, contract.schemas.actions[descriptor.actionId]?.input));
-  return { surfaceVersion: contract.surfaceVersion, generator: 'P03-05', commands };
-}
-
-/** The canonical, byte-stable serialization of a CLI surface. */
-export function serializeCliSurface(surface: CliSurface): string {
-  return canonicalJson(surface);
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-//  SECTION 2 — Golden generator (checked-in drift baseline)
-// ════════════════════════════════════════════════════════════════════════════
-
-/** The checked-in generated-artifact directory. */
-export const GENERATED_DIR = path.resolve(HERE, 'generated');
-
-/** The checked-in generated CLI-surface baseline. */
-export const CLI_SURFACE_FILE = path.resolve(GENERATED_DIR, 'cli-surface.json');
-
-/**
- * Compile the live contract or throw a readable aggregated diagnostic. The throw
- * is intentional: the generator must fail loudly (blocked authority, a missing
- * policy field) rather than emit a partial or stale baseline (mirrors P03-03).
- */
-export function compileForCli(): CompiledContract {
-  const outcome = compile(deriveMetaModel());
-  if (!outcome.ok) {
-    const summary = outcome.diagnostics
-      .map((d) => `  [${d.code}] ${d.actionId} ${d.path}: ${d.message}`)
-      .join('\n');
-    throw new Error(`CLI generation BLOCKED — ${outcome.diagnostics.length} diagnostic(s):\n${summary}`);
-  }
-  return outcome.output;
-}
-
-/** The canonical, byte-stable serialization written to disk (trailing newline). */
-export function serializedCliSurfaceBaseline(): string {
-  return serializeCliSurface(deriveCliSurface(compileForCli())) + '\n';
-}
-
-export interface GenerateCliResult {
-  readonly surfaceFile: string;
-  readonly surfaceVersion: string;
-  readonly commandCount: number;
-}
-
-/** Regenerate + write the checked-in CLI-surface baseline. */
-export function generateCliArtifacts(): GenerateCliResult {
-  const surface = deriveCliSurface(compileForCli());
-  fs.mkdirSync(GENERATED_DIR, { recursive: true });
-  fs.writeFileSync(CLI_SURFACE_FILE, serializeCliSurface(surface) + '\n', 'utf8');
-  return {
-    surfaceFile: CLI_SURFACE_FILE,
-    surfaceVersion: surface.surfaceVersion,
-    commandCount: surface.commands.length,
-  };
 }
 
 // ════════════════════════════════════════════════════════════════════════════
