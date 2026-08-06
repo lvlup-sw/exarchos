@@ -19,6 +19,7 @@ import {
 // avoids the ~10ms module-graph cost. See DR-5 / task 021 cold-start budget.
 
 // EventStore is now threaded via DispatchContext — no module-level injection needed
+import { configureCutoverAutoExport } from '../workflow/admission/cutover-auto-export.js';
 import { configureCleanupSnapshotStore } from '../workflow/cleanup.js';
 import { configureStateStoreBackend } from '../workflow/state-store.js';
 import { loadTopology } from '../topology/loader.js';
@@ -105,6 +106,12 @@ export async function initializeContext(
 
   // SnapshotStore is still module-level (out of scope for EventStore threading)
   configureCleanupSnapshotStore(new SnapshotStore(stateDir));
+
+  // #1739 — cutover readiness auto-export. Registers the observer's
+  // durable-append success hook against THIS store + stateDir. The hook is
+  // pre-filtered (in-memory attempt count) and error-isolated: a failed
+  // export is counted, never thrown into any transition path.
+  configureCutoverAutoExport({ store: eventStore, stateDir });
 
   const enableTelemetry = process.env.EXARCHOS_TELEMETRY !== 'false';
   const capabilityResolver = buildDefaultCapabilityResolver();

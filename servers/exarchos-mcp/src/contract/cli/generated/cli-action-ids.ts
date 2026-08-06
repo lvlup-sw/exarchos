@@ -41,6 +41,8 @@ export const CLI_ACTION_IDS: readonly string[] = [
   'exarchos_orchestrate.classify_review_items',
   'exarchos_orchestrate.create_issue',
   'exarchos_orchestrate.create_pr',
+  'exarchos_orchestrate.cutover_decide',
+  'exarchos_orchestrate.cutover_readiness',
   'exarchos_orchestrate.debug_review_gate',
   'exarchos_orchestrate.describe',
   'exarchos_orchestrate.discover_bridge',

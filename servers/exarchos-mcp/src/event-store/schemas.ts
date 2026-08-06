@@ -36,6 +36,11 @@ export const INTERNAL_ADMISSION_EVENT_TYPES = [
   'admission.disagreement-disposition',
   'admission.rollout-decision',
   'admission.enforcement-enabled',
+  // Cutover promotion path (#1739) — the FIRST-time readiness export record.
+  // Appended (auto, idempotency-keyed on store identity, never clock-derived)
+  // by the observer's durable-append success hook when all six cutover-gate
+  // conditions are first satisfied. See workflow/admission/cutover-auto-export.ts.
+  'admission.cutover-ready',
 ] as const;
 
 /** Server-owned cancellation process-manager facts (v2.12, DR-7). */
@@ -917,8 +922,15 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   // never model-emit shadow evidence.
   'admission.shadow-attempt': 'auto',
   'admission.disagreement-disposition': 'auto',
-  'admission.rollout-decision': 'planned',
-  'admission.enforcement-enabled': 'planned',
+  // Cutover promotion path (#1739): the `cutover_decide` typed handler
+  // (`orchestrate/cutover-readiness.ts`) owns both appends deterministically —
+  // the rollout decision is always recorded; the enablement fact is appended
+  // ONLY behind a satisfied gate (the module refuses to build it otherwise).
+  'admission.rollout-decision': 'auto',
+  'admission.enforcement-enabled': 'auto',
+  // #1739: the observer's durable-append success hook owns this append
+  // deterministically (first-time readiness export); never model-emitted.
+  'admission.cutover-ready': 'auto',
 };
 
 // ─── Base Event Schema ──────────────────────────────────────────────────────
@@ -3656,6 +3668,32 @@ export const AdmissionEnforcementEnabledData = z
   .strict()
   .readonly();
 
+/**
+ * Cutover promotion path (#1739) — the first-time readiness export record.
+ *
+ * Appended by the observer's durable-append success hook when all six cutover
+ * conditions are FIRST satisfied. Carries a REFERENCE to the exported report
+ * (path + content digest) plus the load-bearing summary counts, not a copy of
+ * the full report — the artifact on disk is the detail, the event is the fact.
+ * The idempotency key is a pure function of store identity (never clock- or
+ * random-derived, the T-49 lesson), so a repeat evaluation after readiness
+ * collapses onto the stored row instead of duplicating it.
+ */
+export const AdmissionCutoverReadyData = z
+  .object({
+    eventVersion: AdmissionProofEventVersionSchema,
+    readinessId: AdmissionFactIdSchema,
+    reportPath: z.string().min(1).max(1_024),
+    reportDigest: ContentDigestV1Schema,
+    comparableLiveAttemptCount: z.number().int().nonnegative(),
+    durableAttemptCount: z.number().int().nonnegative(),
+    observerStatus: z.enum(['unobserved', 'dead', 'degraded', 'healthy']),
+    recordedAt: AdmissionRecordedAtSchema,
+    ...TrustedAdmissionProvenanceFields,
+  })
+  .strict()
+  .readonly();
+
 export type AdmissionRequirementResolved = z.infer<
   typeof AdmissionRequirementResolvedData
 >;
@@ -3685,6 +3723,10 @@ export type AdmissionRolloutDecision = z.infer<
 export type AdmissionEnforcementEnabled = z.infer<
   typeof AdmissionEnforcementEnabledData
 >;
+// NOTE: deliberately no `AdmissionCutoverReady` z.infer alias — the sole
+// producer (`cutover-auto-export.ts`) builds the payload through
+// `AdmissionCutoverReadyData.parse` directly, so an exported alias would be
+// dead code (knip fails closed on unconsumed exports).
 
 // ─── Event Data Schemas Map ─────────────────────────────────────────────────
 
@@ -3944,6 +3986,7 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'admission.disagreement-disposition': AdmissionDisagreementDispositionData,
   'admission.rollout-decision': AdmissionRolloutDecisionData,
   'admission.enforcement-enabled': AdmissionEnforcementEnabledData,
+  'admission.cutover-ready': AdmissionCutoverReadyData,
 };
 
 // ─── TypeScript Types ───────────────────────────────────────────────────────

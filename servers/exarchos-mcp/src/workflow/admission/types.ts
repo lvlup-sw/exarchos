@@ -717,6 +717,7 @@ export const ADMISSION_EVENT_TYPES = {
   DISAGREEMENT_DISPOSITION: 'admission.disagreement-disposition',
   ROLLOUT_DECISION: 'admission.rollout-decision',
   ENFORCEMENT_ENABLED: 'admission.enforcement-enabled',
+  CUTOVER_READY: 'admission.cutover-ready',
 } as const;
 
 export type AdmissionEventType =

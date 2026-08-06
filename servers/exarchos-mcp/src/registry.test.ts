@@ -723,7 +723,11 @@ describe('TOOL_REGISTRY', () => {
       // integration-branch merge lease) onto exarchos_orchestrate: 75 → 76.
       // DR-4 (Gap B, #1630) added `check_exploration_depth` (deep-only
       // Exploration-citation planning gate): 76 → 77.
-      expect(composite!.actions).toHaveLength(77);
+      // #1739 (cutover promotion path) added `cutover_readiness` (read-only
+      // six-condition gate report) and `cutover_decide` (operator-gated
+      // event-sourced rollout decision) onto exarchos_orchestrate — INV-5d,
+      // no new visible tool: 77 → 79.
+      expect(composite!.actions).toHaveLength(79);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -2968,6 +2972,8 @@ const EXPECTED_EFFECTIVE_BUDGETS: Readonly<Record<string, number>> = {
   'exarchos_orchestrate.release_worktree': 2000,
   'exarchos_orchestrate.prune_worktrees': 2000,
   'exarchos_orchestrate.serialize_merge': 2000,
+  'exarchos_orchestrate.cutover_readiness': 2000,
+  'exarchos_orchestrate.cutover_decide': 2000,
   'exarchos_orchestrate.describe': 8000,
   'exarchos_view.pipeline': 2000,
   'exarchos_view.tasks': 2000,

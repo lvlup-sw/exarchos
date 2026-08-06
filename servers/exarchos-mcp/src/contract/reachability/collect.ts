@@ -75,12 +75,15 @@ import type {
 } from './graph.js';
 
 /**
- * The governed closure-exception list. EMPTY: the live tree achieves complete
- * closure for every public action, so nothing is excepted. An entry is added
- * only with a conscious, reviewed reason for a genuinely-unclosed action — and a
- * stale entry (an action that is actually closed) is itself flagged by
- * `evaluateClosure` (the two-way ratchet). Kept here, beside the collector, so
- * the governed exceptions travel with the live wiring.
+ * The governed closure-exception list. An entry is added only with a conscious,
+ * reviewed reason for a genuinely-unclosed action — and a stale entry (an
+ * action that is actually closed) is itself flagged by `evaluateClosure` (the
+ * two-way ratchet). Kept here, beside the collector, so the governed
+ * exceptions travel with the live wiring.
+ *
+ * CURRENTLY EMPTY: the #1739 cutover-verb entries were removed when the
+ * regenerated CLI-surface golden picked the two actions up (122-action
+ * surface) — exactly the removal the two-way ratchet forces on a stale entry.
  */
 export const LIVE_CLOSURE_EXCEPTIONS: readonly ClosureException[] = Object.freeze([]);
 

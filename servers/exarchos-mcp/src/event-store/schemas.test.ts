@@ -641,7 +641,10 @@ describe('EventTypes', () => {
     //   `meta/projection-health` off a real cursor/tail comparison, so a stale
     //   fold is a persisted, restart-surviving state rather than an ephemeral
     //   `_meta.projectionDegraded` annotation on one response).
-    expect(EventTypes).toHaveLength(169);
+    // Bumped 169 → 170: #1739 (cutover promotion path) — admission.cutover-ready
+    //   (the observer auto-export hook's first-time readiness fact, `auto`,
+    //   store-identity idempotency key).
+    expect(EventTypes).toHaveLength(170);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');
@@ -4205,8 +4208,10 @@ describe('WLM operational-core merge lease schemas', () => {
     // saga triad — cancel.ownership-acquired, cancel.compensation-retry-scheduled,
     // cancel.manual-intervention-required (164 → 167), plus the DR-4
     // (wiring-closure T-06) durable projection-health pair projection.degraded /
-    // projection.recovered (167 → 169).
-    expect(EventTypes).toHaveLength(169);
+    // projection.recovered (167 → 169), plus the #1739 cutover promotion path's
+    // admission.cutover-ready first-readiness fact (169 → 170 — the 12th
+    // admission replay contract).
+    expect(EventTypes).toHaveLength(170);
     // No duplicate slipped in while bumping the count.
     expect(new Set(EventTypes).size).toBe(EventTypes.length);
   });

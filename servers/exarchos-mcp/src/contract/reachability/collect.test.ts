@@ -59,9 +59,16 @@ describe('(a) live reachability — every public action is fully closed', () => 
     expect(report.closedActions).toBe(report.totalActions);
     expect(report.diagnostics).toEqual([]);
     expect(report.ok).toBe(true);
-    // The honesty invariant: the live tree needs NO closure exceptions.
-    expect(LIVE_CLOSURE_EXCEPTIONS).toEqual([]);
-    expect(report.honouredExceptions).toEqual([]);
+    // The honesty invariant: every closure exception is INDIVIDUALLY governed
+    // and actually FIRING (a stale entry is a diagnostic — asserted empty
+    // above). The register is EMPTY: the #1739 cutover-verb entries were
+    // removed when the regenerated CLI-surface golden picked both actions up,
+    // exactly the removal the two-way ratchet forces on a stale entry. Any
+    // future entry must re-justify itself here, pinned by hop.
+    expect(
+      LIVE_CLOSURE_EXCEPTIONS.map((e) => `${e.actionId}#${e.hop}`).sort(),
+    ).toEqual([]);
+    expect(report.honouredExceptions).toEqual(LIVE_CLOSURE_EXCEPTIONS);
   });
 
   it('the built graph reports fullyClosed with every action carrying one complete path', () => {

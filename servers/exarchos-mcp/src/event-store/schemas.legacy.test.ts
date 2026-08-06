@@ -549,7 +549,11 @@ describe('EventTypes', () => {
     // `projection.degraded` and `projection.recovered` — which publish the
     // cursor/tail verdict to `meta/projection-health` so a degraded projection
     // is a queryable state rather than an ephemeral per-response annotation.
-    expect(EventTypes).toHaveLength(169);
+    //
+    // #1739 (cutover promotion path): bumped 169 → 170 for
+    // `admission.cutover-ready` — the observer auto-export hook's first-time
+    // readiness fact (store-identity idempotency key, `auto`).
+    expect(EventTypes).toHaveLength(170);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');

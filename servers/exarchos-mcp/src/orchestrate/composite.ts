@@ -100,6 +100,10 @@ import {
   handlePruneWorktrees,
   handleSerializeMerge,
 } from './worktree/handlers.js';
+import {
+  handleCutoverDecide,
+  handleCutoverReadiness,
+} from './cutover-readiness.js';
 import { handleScaffold } from './invariants/scaffold.js';
 import type { HandleScaffoldArgs } from './invariants/scaffold.js';
 import { handleAdd } from './invariants/add.js';
@@ -523,6 +527,11 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   // `(args, ctx) => ToolResult` shape matches `adaptCtx`, with the third (deps)
   // parameter left at its production default here.
   serialize_merge: adaptCtx(handleSerializeMerge),
+  // Cutover promotion path (#1739) — the read leg and the operator-gated
+  // decide leg. Both take the canonical `(args, stateDir, eventStore)` shape;
+  // the 4th (deps) parameter is a test-only seam left at its default here.
+  cutover_readiness: adaptWithEventStore(handleCutoverReadiness),
+  cutover_decide: adaptWithEventStore(handleCutoverDecide),
 };
 
 /** Exported for sync test — ensures registry.ts stays in sync with handler keys. */

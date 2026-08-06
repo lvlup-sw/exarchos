@@ -602,6 +602,28 @@ function projectDecisionRecord(args: {
 
 const pendingEvidenceAppends = new Set<Promise<void>>();
 
+// ─── Durable-append success hook (#1739 — cutover auto-export) ────────────────
+//
+// The cutover promotion path wants to notice, from INSIDE the observer's
+// durable-append success path, when enough evidence may have accumulated to
+// satisfy the gate. The observer itself must not evaluate the gate (importing
+// `cutover-gate.ts` here would be a runtime import cycle — that module already
+// imports this one), so the seam is a registered listener: the auto-export
+// module (`cutover-auto-export.ts`) installs its hook at lifecycle wiring time
+// (`core/context.ts`). The listener call is error-isolated — a throwing hook
+// is swallowed, so nothing it does can reach the transition path.
+
+export type DurableAppendSuccessListener = () => void;
+
+let durableAppendSuccessListener: DurableAppendSuccessListener | undefined;
+
+/** Install (or clear, with `undefined`) the durable-append success listener. */
+export function setDurableAppendSuccessListener(
+  listener: DurableAppendSuccessListener | undefined,
+): void {
+  durableAppendSuccessListener = listener;
+}
+
 /**
  * T-32 — the observer-failure health counter (DR-23 bullet 3, "a dead observer
  * is DETECTED").
@@ -621,6 +643,16 @@ function trackEvidenceAppend(
   const settled = work.then(
     () => {
       health.appendSucceeded();
+      // #1739: notify the cutover auto-export hook that one more durable fact
+      // landed. Error-isolated — the hook MUST NOT throw into this settlement
+      // chain (which the transition path's flush may be awaiting).
+      try {
+        durableAppendSuccessListener?.();
+      } catch {
+        // A hook failure is the hook's problem (it counts its own failures);
+        // the observer's contract is that persistence side-channels never
+        // affect the transition.
+      }
     },
     () => {
       health.appendFailed();
