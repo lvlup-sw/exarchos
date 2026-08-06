@@ -40,7 +40,7 @@ import { CLI_ACTION_IDS } from './generated/cli-action-ids.js';
  * The diagnostic for an ActionId that is not part of the compiled contract
  * surface. This is the seam failing LOUD — nothing is dispatched — but loud
  * means a TYPED, enveloped failure with a stable exit code, never an uncaught
- * crash: {@link invokeContractAction} returns this as a standard contract
+ * crash: {@link invokeContractAction} returns this in the standard contract
  * error envelope (`UNKNOWN_ACTION`, the same code the dispatch core answers
  * for an unroutable action, mapped through `exitCodeForError`). An
  * unaddressable action is a build-time drift bug (a renamed/removed action,
@@ -89,7 +89,7 @@ export function contractActionIds(): Promise<ReadonlySet<string>> {
  *
  * The single contract-derived dispatch site for the CLI:
  *   1. VERIFY  — `actionId` must exist in the derived contract surface. A miss
- *      fails LOUD as a TYPED failure: a standard contract error envelope with
+ *      fails LOUD in TYPED form: a standard contract error envelope with
  *      the stable `UNKNOWN_ACTION` code (the same answer the dispatch core
  *      gives an unroutable action), which the adapter maps to its stable exit
  *      code via `exitCodeForError` — never an uncaught crash. Nothing is
