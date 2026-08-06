@@ -796,6 +796,15 @@ export class SqliteBackend implements StorageBackend {
   }
 
   private applyConnectionPragmas(): void {
+    // C-layer BUSY safety net (audit §F2.2) — MUST be applied FIRST. The
+    // `journal_mode = WAL` conversion below takes a lock that loses instantly
+    // to a concurrent opener when no busy handler is installed yet: two
+    // processes opening the same store together (the EFF-001 shape) then die
+    // with SQLITE_BUSY at connection time — observed deterministically on
+    // win32, where file locking is slower and less forgiving than POSIX.
+    // With the timeout in effect every subsequent pragma waits its turn.
+    // See JSDoc above for the two-tier model this pragma anchors.
+    this.db.exec('PRAGMA busy_timeout = 5000');
     this.db.exec('PRAGMA journal_mode = WAL');
     // Durability posture (DR-4). NORMAL (default): the WAL is fsync'd at
     // checkpoint, not at every commit — durable across a PROCESS crash, but
@@ -808,9 +817,6 @@ export class SqliteBackend implements StorageBackend {
       `PRAGMA synchronous = ${this.synchronous === 'full' ? 'FULL' : 'NORMAL'}`,
     );
     this.db.exec('PRAGMA mmap_size = 268435456');
-    // C-layer BUSY safety net (audit §F2.2). See JSDoc above for the
-    // two-tier model that this pragma anchors.
-    this.db.exec('PRAGMA busy_timeout = 5000');
   }
 
   /**

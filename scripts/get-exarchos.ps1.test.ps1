@@ -185,11 +185,17 @@ Describe 'get-exarchos.ps1' {
 
     Context 'GetExarchos_ReleaseManifestVerification' {
 
-        function New-TestAsset {
-            param([byte[]]$Bytes)
-            $p = Join-Path ([System.IO.Path]::GetTempPath()) ("exarchos-asset-" + [Guid]::NewGuid())
-            [System.IO.File]::WriteAllBytes($p, $Bytes)
-            return $p
+        # Pester v5: code directly in a Context body runs at DISCOVERY time,
+        # so a function defined there is out of scope when `It` blocks RUN.
+        # BeforeAll executes in the run phase and its definitions are visible
+        # to every It in this block.
+        BeforeAll {
+            function New-TestAsset {
+                param([byte[]]$Bytes)
+                $p = Join-Path ([System.IO.Path]::GetTempPath()) ("exarchos-asset-" + [Guid]::NewGuid())
+                [System.IO.File]::WriteAllBytes($p, $Bytes)
+                return $p
+            }
         }
 
         It 'Get-AssetSha256 matches Get-FileHash and is sha256:-prefixed' {

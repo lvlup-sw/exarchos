@@ -259,6 +259,16 @@ export interface VcsMutationRequest {
   readonly compensation?: string;
   /** Explicit mode override; defaults to capability-resolved live/dry-run. */
   readonly mode?: EffectMode;
+  /**
+   * Reality probe for an `executed`-terminal replay. When present and it
+   * returns `false`, the recorded terminal no longer describes the world
+   * (e.g. a created worktree was since removed and the same deterministic
+   * path is being legitimately re-requested), so the replay is SKIPPED and
+   * the effect re-runs — safe because every effect is probe-before-mutate.
+   * Absent ⇒ replay unconditionally (prior behaviour). Never invoked for
+   * `compensated` terminals: those stay sticky by design.
+   */
+  readonly verifyReplay?: () => boolean;
 }
 
 /** Outcome of a branch create. `created` is `false` when the branch already existed (idempotent). */
@@ -472,18 +482,26 @@ export class VcsMutationOwner {
       });
     }
 
-    // 3. Idempotency: a recorded terminal replays with NO second effect.
+    // 3. Idempotency: a recorded terminal replays with NO second effect —
+    //    UNLESS the caller supplied a reality probe and it reports the
+    //    recorded outcome no longer holds (remove-then-recreate lifecycle at
+    //    a deterministic path). In that case fall through and re-run the
+    //    probe-before-mutate effect; the fresh terminal supersedes the stale
+    //    one in the ledger fold.
     const recorded = fold.terminals.get(request.idempotencyKey);
     if (recorded !== undefined) {
       if (recorded.kind === 'executed') {
-        return succeeded<T>((recorded.result ?? {}) as T);
+        if (request.verifyReplay === undefined || request.verifyReplay()) {
+          return succeeded<T>((recorded.result ?? {}) as T);
+        }
+      } else {
+        return failed<T>({
+          code: 'VCS_ALREADY_COMPENSATED',
+          message:
+            `request "${request.idempotencyKey}" already terminated as compensated` +
+            (recorded.error !== undefined ? `: ${recorded.error}` : ''),
+        });
       }
-      return failed<T>({
-        code: 'VCS_ALREADY_COMPENSATED',
-        message:
-          `request "${request.idempotencyKey}" already terminated as compensated` +
-          (recorded.error !== undefined ? `: ${recorded.error}` : ''),
-      });
     }
 
     // 4. Durable intent BEFORE the effect. If this append fails no effect ran, so
@@ -571,6 +589,9 @@ export class VcsMutationOwner {
       epoch: input.epoch,
       description: `create branch ${input.branch} from ${input.base}`,
       compensation: 'delete the branch (git branch -D)',
+      // Same lifecycle probe as `createWorktree`: replay a recorded create
+      // only while the branch still exists.
+      verifyReplay: () => this.branchExists(input.repoRoot, input.branch),
       ...(input.mode !== undefined ? { mode: input.mode } : {}),
     };
     return this.mutate<BranchCreateResult>(request, async () => {
@@ -598,6 +619,9 @@ export class VcsMutationOwner {
       idempotencyKey: input.idempotencyKey,
       epoch: input.epoch,
       description: `delete branch ${input.branch}`,
+      // Inverse probe: replay a recorded delete only while the branch is
+      // actually absent.
+      verifyReplay: () => !this.branchExists(input.repoRoot, input.branch),
       ...(input.mode !== undefined ? { mode: input.mode } : {}),
     };
     return this.mutate<BranchDeleteResult>(request, async () => {
@@ -634,6 +658,12 @@ export class VcsMutationOwner {
       description: `create worktree ${input.worktreePath} on branch ${input.branch}`,
       compensation:
         'remove the worktree (git worktree remove) and delete a branch minted for it',
+      // Reality probe: worktrees are removed after waves and legitimately
+      // re-requested at the same deterministic path. A recorded create
+      // terminal must only replay while the worktree actually exists —
+      // otherwise setup_worktree would report success for a path that is
+      // gone, on every retry, forever.
+      verifyReplay: () => this.worktreeExists(input.worktreePath),
       ...(input.mode !== undefined ? { mode: input.mode } : {}),
     };
     return this.mutate<WorktreeCreateResult>(request, async () => {
@@ -686,6 +716,11 @@ export class VcsMutationOwner {
       idempotencyKey: input.idempotencyKey,
       epoch: input.epoch,
       description: `remove worktree ${input.worktreePath}`,
+      // Inverse reality probe of `createWorktree`'s: a recorded remove
+      // terminal only replays while the worktree is actually absent, so a
+      // remove→recreate→remove sequence re-runs the (idempotent) effect
+      // instead of claiming `removed` for a live worktree.
+      verifyReplay: () => !this.worktreeExists(input.worktreePath),
       ...(input.mode !== undefined ? { mode: input.mode } : {}),
     };
     return this.mutate<WorktreeRemoveResult>(request, async () => {
