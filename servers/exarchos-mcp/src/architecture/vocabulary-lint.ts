@@ -296,10 +296,12 @@ export type RegistryLoader = () =>
 async function defaultRegistryLoader(): Promise<
   readonly RegistryToolLike[]
 > {
-  const mod = (await import('../registry.js')) as unknown as {
-    TOOL_REGISTRY?: unknown;
-  };
-  return mod.TOOL_REGISTRY as readonly RegistryToolLike[];
+  // No cast: `CompositeTool`/`ToolAction` are structurally assignable to the
+  // local `RegistryToolLike`/`RegistryActionLike` shapes, so the real export
+  // type flows straight through. Widening it through `unknown` first would
+  // only discard the compiler's ability to catch a registry shape change here.
+  const { TOOL_REGISTRY } = await import('../registry.js');
+  return TOOL_REGISTRY;
 }
 
 /**
