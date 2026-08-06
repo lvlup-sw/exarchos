@@ -29,13 +29,18 @@ import { SqliteBackend } from '../storage/sqlite-backend.js';
  * Retry budget for the removal itself, applied AFTER every SQLite handle under
  * the tree is closed — so it rides out a lock we do not own (antivirus or the
  * search indexer re-opening a just-closed `-wal`/`-shm`), not one we forgot to
- * release. Node retries with LINEAR backoff (`retryDelay × attempt`), so these
- * values allow roughly 12s in total. The previous 10 × 50ms allowed only 2.75s,
- * which a loaded Windows runner outran (an EBUSY on `exarchos.db-shm` reds the
- * lane from `afterEach`, attributed to whichever test happened to be last).
+ * release. Node retries with LINEAR backoff (`retryDelay × attempt`).
+ *
+ * Deliberately SMALL, and not to be raised to chase a Windows EBUSY. Raising it
+ * to 15 × 100ms was tried and reverted: when the lock is held by a handle we
+ * failed to release, no budget ever succeeds, so a larger one only converts a
+ * fast, legible `EBUSY … exarchos.db-shm` into `Hook timed out in 60000ms` from
+ * `afterEach` — the same red lane, later, with the cause erased. The retries are
+ * here for a transient scanner lock; a persistent one is a handle-ownership bug
+ * and must be fixed at the handle.
  */
-const RM_MAX_RETRIES = 15;
-const RM_RETRY_DELAY_MS = 100;
+const RM_MAX_RETRIES = 10;
+const RM_RETRY_DELAY_MS = 50;
 
 export function rmrf(dir: string): void {
   SqliteBackend.closeOpenUnder(dir);
