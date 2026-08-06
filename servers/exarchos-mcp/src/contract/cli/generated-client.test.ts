@@ -21,6 +21,8 @@
 //      `registerActionCommand` derives, plus the hard-wired top-level
 //      promotions) is addressable through the runtime set, and the addressing
 //      surface is byte-identical to the authority-gated generation surface.
+//
+// @oracle-sources: ./generated/cli-action-ids.ts, ../../registry.ts, shipped-src-corpus
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
