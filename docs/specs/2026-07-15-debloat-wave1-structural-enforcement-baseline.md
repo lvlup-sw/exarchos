@@ -135,3 +135,13 @@ in the hook-event sidecar write-path. Needs judgment before any removal. Not cau
 - Server typecheck (`cd servers/exarchos-mcp && npm run typecheck`) — clean.
 - Server suite (`cd servers/exarchos-mcp && npm run test:run`) — 699 files passed / 5 skipped, 8958 tests passed / 25 skipped, 0 failing. This task makes **no code/test change** (doc-only + zero deletions), so baseline == post by construction.
 - Re-run refgraph: unchanged (0 deletions). AFTER dead-in-prod (21) = RESERVED (6) ∪ CLASS-ALLOWLIST (10) ∪ Escalations (5); no module is CASCADE-ORPHAN-DELETED.
+
+## 6. Escalation outcomes (2026-07-17, #1713 disposition)
+
+The five §4 escalations were disposed under issue #1713:
+
+- **E1 `review/findings.ts` — DELETED** (with `findings.test.ts`). The `review.finding` / `review.escalated` schema registrations and projection consumers stay (schema is contract, not emitter); the events are now emitter-less pending the wiring the two archived design docs describe.
+- **E2 `benchmarks/baselines-schema.ts` — KEPT**, RESERVED re-pointed to the benchmark-validation epic #1677 (same 2026-10-31 expiry). Not moved into the `benchmark-harness` allowlist class — that class excludes `*-schema.ts` contract surfaces by design.
+- **E3 `adapters/remote-mcp.ts` — KEPT**, RESERVED header now cites #1081 (DR-6 remote-MCP design) only; the interim #1713 tracking tail was removed. Same 2026-10-31 expiry.
+- **E4 `runbooks/compute.ts` — DELETED**; its two callers in `runbooks/drift.test.ts` (the compute-vs-declared autoEmits cross-checks) were removed with it. The registry-side drift check `RunbookDrift_AutoEmitsMatchEventEmissionRegistry` remains.
+- **E5 `event-store/hook-event-writer.ts` — DELETED** (with its test). `storage/sidecar-merger.test.ts` now writes raw sidecar JSONL via a local helper (same pattern `sidecar-scheduler.test.ts` already used), so the merger's coverage of the sidecar wire format is unchanged.
