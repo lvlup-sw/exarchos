@@ -154,7 +154,14 @@ describe('SqliteBackend durability + immediate (DR-3 / DR-4)', () => {
             );
 
             expect(retry).toEqual(first);
-            expect(retry).toEqual(canonicalResult);
+            // The claim's canonical wire shape is JSON (`atomicDecideOnce`
+            // stores `JSON.parse(JSON.stringify(result))` and returns that
+            // same shape to fresh AND retried callers). JSON cannot represent
+            // a negative zero (`JSON.stringify(-0)` is `"0"`), so the correct
+            // expectation is the round-tripped form — comparing against the
+            // raw closure value made the property flake whenever fast-check
+            // generated `-0`.
+            expect(retry).toEqual(JSON.parse(JSON.stringify(canonicalResult)));
             expect(closureCalls).toBe(1);
           } finally {
             backend.close();
@@ -1594,5 +1601,77 @@ describe('SqliteBackend correlationFilteredQueries counter (#1448 Task 2)', () =
     });
 
     expect(backend.getStats().correlationFilteredQueries).toBe(1);
+  });
+});
+
+// ─── EFF-001 repair gate-lowering TOCTOU (regression) ───────────────────────
+//
+// `repairSequenceHighWaterMarks` used to run its divergence SELECT on the bare
+// connection and apply the upserts in a SEPARATE transaction, with a blind
+// `SET sequence = excluded.sequence` overwrite. A sibling process that repaired
+// AND appended between the two steps got its freshly-advanced gate LOWERED back
+// to the stale tail — gate-below-tail, so the next append re-issues a persisted
+// sequence and PK-violates. The fix is two independent guards: the SELECT and
+// the upserts now share one BEGIN IMMEDIATE transaction, and the repair upsert
+// is monotonic (`MAX(sequence, excluded.sequence)`). This regression pins the
+// monotonic floor by replaying the exact interleaving.
+
+describe('SqliteBackend EFF-001 repair TOCTOU (gate-lowering)', () => {
+  it('Sqlite_StaleRepairAfterConcurrentAdvance_NeverLowersTheGate', async () => {
+    const stateDir = await mkdtemp(path.join(tmpdir(), 'repair-toctou-'));
+    const dbPath = path.join(stateDir, 'repair-toctou.db');
+    const streamId = 'repair-toctou-stream';
+
+    // Seed events 1..5, then force the gate back to 3 — the crash shape the
+    // startup repair exists for (gate trails the durable tail).
+    const seeder = new SqliteBackend(dbPath);
+    seeder.initialize();
+    for (let seq = 1; seq <= 5; seq++) {
+      seeder.appendEvent(streamId, makeEvent({ streamId, sequence: seq }));
+    }
+    const seederDb = (
+      seeder as unknown as {
+        db: { prepare: (sql: string) => { run: (...args: unknown[]) => unknown } };
+      }
+    ).db;
+    seederDb.prepare('UPDATE sequences SET sequence = ? WHERE streamId = ?').run(3, streamId);
+    seeder.close();
+
+    // Process A's repair computes divergence { tail: 5, gate: 3 }: its
+    // corrective value is 5.
+    const staleTail = 5;
+
+    // Before A applies it, process B starts up (its own repair raises the
+    // gate 3 → 5 through the real repair path) and then appends: the gate
+    // advances PAST A's snapshot.
+    const backendB = new SqliteBackend(dbPath);
+    backendB.initialize();
+    expect(
+      backendB.readSequenceHighWaterMark(streamId),
+      'startup repair must raise the diverged gate to the durable tail',
+    ).toBe(5);
+    for (let seq = 6; seq <= 8; seq++) {
+      backendB.appendEvent(streamId, makeEvent({ streamId, sequence: seq }));
+    }
+    expect(backendB.readSequenceHighWaterMark(streamId)).toBe(8);
+
+    // Process A now applies its STALE repair through the same statement the
+    // repair path uses. The monotonic upsert must leave the advanced gate
+    // untouched — lowering it to 5 would hand out sequence 6 next, which is
+    // already persisted (PK violation).
+    const stmts = (
+      backendB as unknown as {
+        stmts: { upsertSequenceMonotonic: { run: (...args: unknown[]) => unknown } };
+      }
+    ).stmts;
+    stmts.upsertSequenceMonotonic.run(streamId, staleTail);
+
+    expect(
+      backendB.readSequenceHighWaterMark(streamId),
+      'a stale repair must never lower the gate below the durable tail',
+    ).toBe(8);
+
+    backendB.close();
+    await rmrfAsync(stateDir);
   });
 });

@@ -27,6 +27,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { SCHEMA_VERSION } from '../storage/sqlite-backend.js';
+import { atomicWriteFile } from '../utils/atomic-write.js';
 import { resolveCacheDir } from '../utils/paths.js';
 import {
   buildInstallIdentity,
@@ -111,9 +112,17 @@ function defaultReadTree(dir: string): DigestEntry[] {
   return entries;
 }
 
+/**
+ * TOFU-lock writes go through the atomic tmp+fsync+rename publish, NOT a plain
+ * `fs.writeFileSync`. The read side ({@link readRecordedIdentity}) deliberately
+ * treats a corrupt lock as "no lock" so a re-record can heal it — which means a
+ * crash mid-plain-write would silently convert a would-be BLOCKED freshness
+ * verdict into `bootstrapped`. An atomic publish makes a torn lock unobservable:
+ * a reader sees the prior lock or the new lock, never a partial write.
+ */
 function defaultWriteFileText(filePath: string, content: string): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, content, 'utf-8');
+  atomicWriteFile(filePath, content);
 }
 
 function defaultMkdirp(dir: string): void {
