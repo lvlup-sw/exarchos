@@ -66,6 +66,22 @@ import {
   type CoverageReport,
   type CoverageBaseline,
 } from '../../src/parity/__tests__/packaged-proof.js';
+import { EXEC_TIMEOUT_MS } from '../../src/vcs/shell.js';
+
+/**
+ * Harness budget for one `spawn` of the compiled binary.
+ *
+ * MUST stay strictly greater than {@link EXEC_TIMEOUT_MS}, the budget the
+ * binary imposes on its OWN child CLIs (`gh`, `git`). Those budgets nest: this
+ * timer starts at spawn, the inner one only after the binary boots, so equal
+ * values make this one win every race — a `gh` that is merely slow (Windows
+ * runners routinely exceed 30s on `gh pr list`) would be SIGKILLed before the
+ * action could turn the inner timeout into a VCS_ERROR envelope, and the sweep
+ * would score a bounded failure as a hang. Doubling leaves the inner budget
+ * room to fire and the envelope room to reach stdout, while still failing a
+ * genuine hang.
+ */
+const CLI_TIMEOUT_MS = EXEC_TIMEOUT_MS * 2;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = findRepoRoot(__dirname);
@@ -123,7 +139,7 @@ function runCli(
     const timer = setTimeout(() => {
       timedOut = true;
       child.kill('SIGKILL');
-    }, opts.timeoutMs ?? 30_000);
+    }, opts.timeoutMs ?? CLI_TIMEOUT_MS);
 
     child.on('close', (code) => {
       clearTimeout(timer);
@@ -268,7 +284,7 @@ async function driveEveryAction(binaryPath: string): Promise<ActionObservation[]
       const run = await runCli(binaryPath, [entry.toolCliName, entry.actionCliName], {
         cwd: sharedCwd,
         stateDir,
-        timeoutMs: 30_000,
+        timeoutMs: CLI_TIMEOUT_MS,
       });
       const env = extractEnvelope(run.stdout);
       const code = env?.error?.code;
@@ -302,7 +318,7 @@ async function runSweep(binaryPath: string): Promise<SweepResult> {
     const stateDir = await mkTmp('exq-proof-top-');
     const cwd = await mkTmp('exq-proof-topcwd-');
     try {
-      const run = await runCli(binaryPath, [verb], { cwd, stateDir, timeoutMs: 30_000 });
+      const run = await runCli(binaryPath, [verb], { cwd, stateDir, timeoutMs: CLI_TIMEOUT_MS });
       const env = extractEnvelope(run.stdout);
       if (env !== undefined) {
         topLevelDriven.push(verb);
@@ -322,7 +338,7 @@ async function runSweep(binaryPath: string): Promise<SweepResult> {
     const run = await runCli(
       binaryPath,
       ['wf', 'init', '--feature-id', 'p0502-fs-probe', '--workflow-type', 'oneshot'],
-      { cwd: fsCwd, stateDir: fsState, timeoutMs: 30_000 },
+      { cwd: fsCwd, stateDir: fsState, timeoutMs: CLI_TIMEOUT_MS },
     );
     const env = extractEnvelope(run.stdout);
     const wroteFiles = fs.existsSync(fsState) && fs.readdirSync(fsState).length > 0;
@@ -343,7 +359,7 @@ async function runSweep(binaryPath: string): Promise<SweepResult> {
     const run = await runCli(binaryPath, ['orch', 'list_prs'], {
       cwd: procCwd,
       stateDir: procState,
-      timeoutMs: 30_000,
+      timeoutMs: CLI_TIMEOUT_MS,
     });
     const env = extractEnvelope(run.stdout);
     // The error message proves a child process was spawned (`gh pr list` / git).
@@ -369,12 +385,12 @@ async function runSweep(binaryPath: string): Promise<SweepResult> {
     await runCli(
       binaryPath,
       ['wf', 'init', '--feature-id', 'p0502-cancel-probe', '--workflow-type', 'oneshot'],
-      { cwd: cxCwd, stateDir: cxState, timeoutMs: 30_000 },
+      { cwd: cxCwd, stateDir: cxState, timeoutMs: CLI_TIMEOUT_MS },
     );
     const run = await runCli(binaryPath, ['wf', 'cancel', '--feature-id', 'p0502-cancel-probe'], {
       cwd: cxCwd,
       stateDir: cxState,
-      timeoutMs: 30_000,
+      timeoutMs: CLI_TIMEOUT_MS,
     });
     const env = extractEnvelope(run.stdout);
     cancelEnvelope = env !== undefined;

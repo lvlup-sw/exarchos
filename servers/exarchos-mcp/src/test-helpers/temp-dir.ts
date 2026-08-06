@@ -25,9 +25,26 @@ import { SqliteBackend } from '../storage/sqlite-backend.js';
  * `force: true` already swallows ENOENT, so removing a missing directory is a
  * no-op — safe to call unconditionally in `afterEach`.
  */
+/**
+ * Retry budget for the removal itself, applied AFTER every SQLite handle under
+ * the tree is closed — so it rides out a lock we do not own (antivirus or the
+ * search indexer re-opening a just-closed `-wal`/`-shm`), not one we forgot to
+ * release. Node retries with LINEAR backoff (`retryDelay × attempt`), so these
+ * values allow roughly 12s in total. The previous 10 × 50ms allowed only 2.75s,
+ * which a loaded Windows runner outran (an EBUSY on `exarchos.db-shm` reds the
+ * lane from `afterEach`, attributed to whichever test happened to be last).
+ */
+const RM_MAX_RETRIES = 15;
+const RM_RETRY_DELAY_MS = 100;
+
 export function rmrf(dir: string): void {
   SqliteBackend.closeOpenUnder(dir);
-  fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  fs.rmSync(dir, {
+    recursive: true,
+    force: true,
+    maxRetries: RM_MAX_RETRIES,
+    retryDelay: RM_RETRY_DELAY_MS,
+  });
 }
 
 /**
@@ -37,7 +54,12 @@ export function rmrf(dir: string): void {
  */
 export async function rmrfAsync(dir: string): Promise<void> {
   SqliteBackend.closeOpenUnder(dir);
-  await fs.promises.rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  await fs.promises.rm(dir, {
+    recursive: true,
+    force: true,
+    maxRetries: RM_MAX_RETRIES,
+    retryDelay: RM_RETRY_DELAY_MS,
+  });
 }
 
 /**
