@@ -127,14 +127,19 @@ async function writeRawState(
 
 describe('DR-8 — cleanup satisfies its guard by evidence', () => {
   it('Cleanup_UnapprovedReviews_DoesNotForceApprove', async () => {
-    // Arrange — the EXACT characterized fixture, plus a real merge artifact so
-    // the ONLY missing evidence is the review approvals.
+    // Arrange — the EXACT characterized fixture, plus a real merge artifact
+    // ALREADY IN STATE (T-12: caller-supplied prUrl is post-guard metadata, not
+    // evidence) so the ONLY missing evidence is the review approvals.
     await handleInit({ featureId: 'ps-unapproved', workflowType: 'feature' }, tmpDir, null);
     const raw = await readRawState('ps-unapproved');
     raw.phase = 'review';
     raw.reviews = {
       't1': { status: 'needs_fixes' },
       't2': { specReview: { status: 'fail' }, qualityReview: { status: 'approved' } },
+    };
+    raw.synthesis = {
+      ...(raw.synthesis as Record<string, unknown>),
+      prUrl: 'https://github.com/test/pr/7',
     };
     await writeRawState('ps-unapproved', raw);
 
@@ -191,6 +196,45 @@ describe('DR-8 — cleanup satisfies its guard by evidence', () => {
 
     const after = await readRawState('ps-nomerge');
     expect(after.phase).toBe('review');
+  });
+
+  it('Cleanup_CallerMintedPrUrlOnly_FailsGuardByEvidence', async () => {
+    // T-12 / DR-8 — the complement of Cleanup_MergeUnverified_FailsGuardByEvidence:
+    // reviews are genuinely approved and the CALLER supplies a prUrl, but NO
+    // merge record pre-exists anywhere in state. Before this fix, cleanup
+    // backfilled `synthesis.prUrl` / `artifacts.pr` from the input and then
+    // read exactly those fields back as the merge-artifact evidence — a
+    // caller-minted `cleanup({ mergeVerified: true, prUrl: 'anything' })`
+    // satisfied the merge arm with an unverified same-call assertion. The
+    // evidence must now be collected from the PRE-backfill state, so this call
+    // fails the guard.
+    await handleInit({ featureId: 'ps-caller-minted', workflowType: 'feature' }, tmpDir, null);
+    const raw = await readRawState('ps-caller-minted');
+    raw.phase = 'review';
+    raw.reviews = { 't1': { status: 'approved' } };
+    await writeRawState('ps-caller-minted', raw);
+
+    const result = await handleCleanup(
+      {
+        featureId: 'ps-caller-minted',
+        mergeVerified: true,
+        prUrl: 'https://github.com/attacker/pr/999',
+        mergedBranches: ['feature/anything'],
+      },
+      tmpDir,
+      null,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('GUARD_FAILED');
+    expect(result.error?.message).toContain('no merge artifact reference recorded');
+
+    // Nothing was persisted: not the phase, and not the caller-minted metadata
+    // (init leaves both references null; they must NOT hold the input values).
+    const after = await readRawState('ps-caller-minted');
+    expect(after.phase).toBe('review');
+    expect((after.synthesis as Record<string, unknown> | undefined)?.prUrl ?? null).toBeNull();
+    expect((after.artifacts as Record<string, unknown> | undefined)?.pr ?? null).toBeNull();
   });
 
   it('Cleanup_RealEvidence_SatisfiesGuardWithoutRewritingAnything', async () => {
