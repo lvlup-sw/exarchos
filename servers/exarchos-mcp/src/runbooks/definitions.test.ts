@@ -335,10 +335,18 @@ describe('Runbook definitions', () => {
 
     const params = integrationStep.params as { repoRoot?: unknown } | undefined;
     expect(params, 'check_integration_suite step must pre-fill params').toBeDefined();
-    // Worktree-aware resolution against the integration tip (#1330 resolver).
-    // No `worktreePath`: the wave-boundary run is post-merge, against the tip
-    // itself rather than any one agent's worktree.
-    expect(params?.repoRoot).toBe('auto');
+    // WFQ-004 executability: the wave-boundary run is post-merge, against the
+    // INTEGRATION worktree — a location neither `worktreePath` (per-agent) nor
+    // `taskId` (per-task `worktree.created` lookup) can derive, so
+    // `repoRoot: 'auto'` could NEVER resolve here (resolveRepoRoot fails
+    // closed → INVALID_INPUT → saga halt). The step instead binds the
+    // `<repoRoot>` template var (declared in AGENT_TEAMS_SAGA.templateVars)
+    // that the orchestrator fills with the integration worktree path.
+    expect(params?.repoRoot).toBe('<repoRoot>');
+    expect(
+      AGENT_TEAMS_SAGA.templateVars,
+      'the <repoRoot> placeholder must have a matching declared templateVar',
+    ).toContain('repoRoot');
   });
 });
 

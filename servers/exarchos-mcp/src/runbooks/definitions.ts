@@ -143,9 +143,16 @@ export const AGENT_TEAMS_SAGA: RunbookDefinition = {
     // failing at import is "0 failed tests / 1 failed suite"). Running it once
     // per wave also removes the duplicate-ownership loop where the agent, the
     // lead, and the per-task runbook each re-verified the same claim.
+    // WFQ-004 executability fix: `repoRoot: 'auto'` with NO worktreePath and
+    // NO taskId can never resolve (gate-utils.resolveRepoRoot falls through
+    // every branch → ok:false → INVALID_INPUT), so the saga always halted at
+    // the wave boundary. The cumulative suite runs against the INTEGRATION
+    // worktree — a wave-level location the per-task resolver cannot derive —
+    // so the orchestrator must fill the `<repoRoot>` template var (declared in
+    // templateVars below) with the integration worktree's absolute path.
     { tool: 'exarchos_orchestrate', action: 'check_integration_suite', onFail: 'stop',
-      params: { repoRoot: 'auto' },
-      note: 'WFQ-004: cumulative post-merge backstop — exactly once per wave, folds file-LOAD failures into failCount' },
+      params: { repoRoot: '<repoRoot>' },
+      note: 'WFQ-004: cumulative post-merge backstop — exactly once per wave, folds file-LOAD failures into failCount. Fill <repoRoot> with the INTEGRATION worktree path (not a per-task worktree).' },
     { tool: 'exarchos_orchestrate', action: 'post_delegation_check', onFail: 'stop',
       note: 'Verify all tasks complete, tests pass, branches exist' },
     { tool: 'exarchos_workflow', action: 'transition', onFail: 'stop',

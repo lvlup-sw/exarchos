@@ -75,4 +75,39 @@ describe('Runbook ordering invariant (DR-1 / WFQ-004)', () => {
       ).toBe('task_complete');
     }
   });
+
+  // ─── WFQ-004: repoRoot:'auto' must be RESOLVABLE where it is pinned ───────
+  //
+  // `gate-utils.resolveRepoRoot` resolves `'auto'` from exactly two sources:
+  // an explicit `worktreePath`, or the latest `worktree.created` event for a
+  // `taskId`. A step that pins `repoRoot: 'auto'` while binding NEITHER can
+  // never resolve — it returns ok:false → INVALID_INPUT and halts the runbook
+  // unconditionally (the AGENT_TEAMS_SAGA cumulative-suite defect). A step
+  // that needs a wave-level root must bind a template var (`'<repoRoot>'`)
+  // the orchestrator fills instead. Asserted over EVERY runbook definition so
+  // a future step cannot reintroduce the un-executable shape.
+  it('RunbookParams_RepoRootAuto_AlwaysBindsWorktreePathOrTaskId', () => {
+    const violations: string[] = [];
+
+    for (const runbook of ALL_RUNBOOKS) {
+      for (const step of runbook.steps) {
+        const params = step.params as Readonly<Record<string, unknown>> | undefined;
+        if (params?.['repoRoot'] !== 'auto') continue;
+        const hasWorktreePath = typeof params['worktreePath'] === 'string';
+        const hasTaskId = typeof params['taskId'] === 'string';
+        if (!hasWorktreePath && !hasTaskId) {
+          violations.push(
+            `Runbook '${runbook.id}' step '${step.tool}.${step.action}': ` +
+              `repoRoot:'auto' with neither worktreePath nor taskId can never resolve ` +
+              `(resolveRepoRoot fails closed) — bind one of them, or use a '<repoRoot>' template var`,
+          );
+        }
+      }
+    }
+
+    expect(
+      violations,
+      `Un-resolvable repoRoot:'auto' step(s):\n${violations.join('\n')}`,
+    ).toEqual([]);
+  });
 });

@@ -451,6 +451,26 @@ describe('DelegationReadinessView', () => {
       expect(next.plan.artifactPresent).toBe(false);
       expect(next.blockers).toContain('Plan artifact is missing');
     });
+
+    it('Apply_StatePatched_WhitespaceOnlyPlan_ReportsArtifactAbsent', () => {
+      // Regression (DR-5 predicate divergence): the readiness fold used to
+      // judge presence with an UN-trimmed `length > 0`, while the guard
+      // (`workflow/guards.ts` isTypedArtifactReference) and the admission
+      // algebra both require a TRIMMED non-empty string. A whitespace-only
+      // plan therefore read "present" in readiness but was denied at
+      // admission. All three surfaces must agree: whitespace-only = absent.
+      const state = delegationReadinessProjection.init();
+      const event = makeEvent('state.patched', {
+        featureId: 'feat-1',
+        fields: ['artifacts.plan'],
+        patch: { 'artifacts.plan': '   \n\t  ' },
+      });
+
+      const next = delegationReadinessProjection.apply(state, event);
+
+      expect(next.plan.artifactPresent).toBe(false);
+      expect(next.blockers).toContain('Plan artifact is missing');
+    });
   });
 
   // ─── T8: All conditions met → ready ───────────────────────────────────────

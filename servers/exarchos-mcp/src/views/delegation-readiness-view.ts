@@ -1,6 +1,7 @@
 import type { ViewProjection } from './materializer.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import { canonicaliseTaskId } from '../utils/task-id.js';
+import { isTypedArtifactReference } from '../workflow/guards.js';
 
 // ─── View Name Constant ────────────────────────────────────────────────────
 
@@ -264,7 +265,11 @@ function handleStatePatched(
       : undefined;
 
   // DR-T-1 (#1205): Resolve artifacts.plan presence from nested or dot-path form.
-  // Truthy non-empty string = present; empty string = absent.
+  // Presence is judged by the ONE typed-artifact-reference predicate (DR-5,
+  // `workflow/guards.ts`): a TRIMMED non-empty string. A whitespace-only plan
+  // must read as ABSENT here, or readiness reports the artifact present while
+  // the guard/admission layers deny it (the readiness/admission divergence
+  // this shared import closes).
   const artifacts = data.patch.artifacts as { plan?: unknown } | undefined;
   const artifactsPlanDotPath = data.patch['artifacts.plan'];
   const artifactsPlanRaw = artifactsPlanDotPath !== undefined
@@ -272,7 +277,7 @@ function handleStatePatched(
     : artifacts?.plan;
   const artifactPresent = artifactsPlanRaw === undefined
     ? undefined
-    : typeof artifactsPlanRaw === 'string' && artifactsPlanRaw.length > 0;
+    : isTypedArtifactReference(artifactsPlanRaw);
 
   const planChanged =
     (approved !== undefined && approved !== state.plan.approved) ||
