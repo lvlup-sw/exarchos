@@ -12,7 +12,7 @@ Exarchos is a runtime for software-development workflows where multiple cooperat
 
 It is a **concurrent system, not a distributed one**: no network between participants, no untrusted actors, no clock skew, no replication. The right reference frame is therefore database-flavored — write-ahead logging, optimistic concurrency, projections-as-cache — not distributed-systems-flavored (saga, BFT consensus, scheduler-agent-supervisor).
 
-The runtime exposes a small set of typed verbs through the MCP contract and a CLI client of it. Behind that contract is a single dispatch core that reads from and writes to an append-only event log. Everything observable about the system is reconstructable from that log alone.
+The runtime exposes a small set of typed verbs through two equivalent facades (CLI, MCP). Behind those facades is a single dispatch core that reads from and writes to an append-only event log. Everything observable about the system is reconstructable from that log alone.
 
 Multi-process serialization is provided entirely by the SQLite WAL substrate: `BEGIN IMMEDIATE` acquires write ownership, and the `(streamId, sequence)` PRIMARY KEY enforces per-stream append ordering. There is no process-level mutex, PID lock, or advisory lock file — any number of OS processes may attach to the same event store simultaneously. See §4 for the full concurrency model. (PID locking was removed in #1343 / Wave A.)
 
@@ -111,7 +111,7 @@ Four pure modules consumed by the dispatch core:
 
 ### L5 — Dispatch core
 
-Single function: `dispatch(verb, args, ctx) → ToolResult`. `DispatchContext` carries storage, event store, resolver, telemetry, project config. The MCP adapter and the CLI both call this — zero behavior belongs in either adapter. Parity harnesses witness byte- and schema-equivalence across both carriers; they are the witness of contract-client equivalence (INV-2), not the invariant itself (the shipped hand-written CLI dispatch path is one owned, self-retiring deviation — see [`INV-2-facade-equivalence.md`](invariants/references/INV-2-facade-equivalence.md)).
+Single function: `dispatch(verb, args, ctx) → ToolResult`. `DispatchContext` carries storage, event store, resolver, telemetry, project config. CLI and MCP both call this — zero behavior in adapters. Parity tests assert byte-equal `ToolResult` across both surfaces.
 
 ### L6 — Composite tools
 
@@ -153,7 +153,7 @@ Known follow-up: spawn-time injection *degradation* is recorded on the launcher 
 
 ### L8 — Adapters
 
-`cli.ts` parses argv, maps exit codes, renders for humans — a client of the compiled contract, equal to the wire by construction (INV-2), though its shipped dispatch path is currently hand-written rather than generated (one owned, self-retiring deviation). `mcp.ts` translates MCP tool calls and uses `structuredContent` (post-#1287) as the spec-native carrier; it is the reference wire projection. Both call the dispatch core. Neither is meant to carry behavior — the parity harness is the witness, not the proof.
+`cli.ts` parses argv, maps exit codes, renders for humans. `mcp.ts` translates MCP tool calls and uses `structuredContent` (post-#1287) as the spec-native carrier. Both call dispatch core. Neither carries behavior — verified by parity harness.
 
 ### L9 — Cooperative agents
 
@@ -296,9 +296,9 @@ Each invariant maps to one or more layers:
 | Invariant | Primary layer | Enforcement |
 |---|---|---|
 | INV-1 event-sourcing integrity | L2 + L3 | Storage rejects duplicate sequences; projections are pure folds; reconcile rebuilds; events as authority |
-| INV-2 contract-client equivalence | L8 | CLI is a client of the compiled contract, equal by construction; adapters carry presentation only; parity harness + registered `outputSchema` witness byte/schema equivalence; the shipped hand-written CLI dispatch path is one owned, self-retiring deviation (`cli-direct-dispatch`, DR-25) |
+| INV-2 facade equivalence | L8 | Adapters are zero-behavior; parity harness asserts byte-equal results |
 | INV-3 basileus-forward | L4 (resolver) | Handshake-authoritative capabilities; storage backend is transport-agnostic; cross-stream queries are primitives a remote backend can implement |
-| INV-4 platform-agnosticity | L4 (resolver) + L9 | Posture-derived capabilities; runtime YAMLs not read at runtime; standard-conformant skill content emitted once, with per-runtime shims as owned, retirement-tracked debt where no standard exists |
+| INV-4 platform-agnosticity | L4 (resolver) + L9 | Posture-derived capabilities; runtime YAMLs not read at runtime; skill content rendered per-runtime |
 | INV-5a input ergonomics | L6 | Tool descriptions include "do NOT use for" guidance; describe actions return schemas |
 | INV-5b output contract | L5 + L6 | `ToolResult` envelope with `next_actions` from L4 HSM/projection state; registered `outputSchema` per action |
 | INV-5c Aspire verbs | L6 | Verbs are noun-shaped (workflow, event, orchestrate, view); composite tools group, actions verb |
@@ -322,7 +322,7 @@ The Workflow Builder SDK (#1258, v3.0) is the **authoring** tier — the API by 
 
 ## 11. The minimal description
 
-If you had to compress the architecture to one paragraph: Exarchos is a single SQLite database with a typed dispatch core in front of it. Events are the authority; projections are caches over events; workflow state is one such projection. MCP is the invocation surface and the CLI a client of it, equal by construction. Concurrency is closed by SQLite's WAL plus an atomic version gate on event sequence and state version, proven by a genuine multi-process fixture (EFF-001). Recovery is "replay the log." Agents declare a posture and receive next-action affordances from response envelopes. Long-running operations emit liveness events that v2.12 lifecycle verbs query. Cooperation is by construction — postures make unsafe actions unrepresentable; handshake-declared capabilities prevent privilege escalation; namespaced streams keep sub-agents from interfering; spatial write confinement is the one posture dimension that stays a declared per-harness capability rather than a by-construction guarantee. The system has the shape of a small, opinionated database — and that's the right shape for what it actually does.
+If you had to compress the architecture to one paragraph: Exarchos is a single SQLite database with a typed dispatch core in front of it. Events are the authority; projections are caches over events; workflow state is one such projection. CLI and MCP are interchangeable facades. Concurrency is handled by SQLite's WAL plus optimistic concurrency on event sequence and state version. Recovery is "replay the log." Agents declare a posture and receive next-action affordances from response envelopes. Long-running operations emit liveness events that v2.12 lifecycle verbs query. Cooperation is by construction — postures make unsafe actions unrepresentable; handshake-declared capabilities prevent privilege escalation; namespaced streams keep sub-agents from interfering. The system has the shape of a small, opinionated database — and that's the right shape for what it actually does.
 
 ---
 

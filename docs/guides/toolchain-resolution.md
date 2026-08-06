@@ -43,23 +43,6 @@ table vendored from
 [`package-manager-detector`](https://github.com/antfu-collective/package-manager-detector)
 (see `src/config/vendor/package-manager-detector/README.md`).
 
-Per package manager, the resolved `test` command is:
-
-| PM    | gating script | resolved `test`          | fallback when script absent |
-|-------|---------------|--------------------------|-----------------------------|
-| npm   | `test:run`    | `npm run test:run`       | unresolved (add `test:run`) |
-| pnpm  | `test`        | `pnpm test`              | unresolved (add `test`)     |
-| yarn  | `test`        | `yarn test`              | unresolved (add `test`)     |
-| bun   | `test:run`    | `bun run test:run`       | `bun test` (native runner)  |
-
-Bun is the one runner that never resolves *unresolved-test*: it ships a
-built-in `bun test`. But when a bun repo commits an explicit `test:run` script
-(e.g. a vitest-on-bun project), the resolver honors it via `bun run test:run`
-rather than shelling into Bun's native runner over vitest files — so a repo like
-`servers/exarchos-mcp` (bun lockfile + `test:run: vitest run`) resolves the
-**same** intended command family as the npm-managed repo root, keeping the two
-supported workspaces on one runner and one timeout policy.
-
 ## Task-runner tier (tier 4) — language-agnostic
 
 If your repo commits a standard task runner with a conventional `test` (or
@@ -97,17 +80,11 @@ A user toolchain is matched **before** the built-ins, so it also overrides a
 built-in for the same marker. Commands are validated against the same
 shell-metacharacter allowlist as `test:` / `typecheck:` / `install:`.
 
-## Scaffolding (removed)
+## Scaffolding
 
-Earlier revisions exposed a `new_project` orchestrate action that scaffolded a
-project's commands from a per-toolchain `scaffold` map. That greenfield surface
-and the registry's `scaffold` field were **removed** (DR-3/DR-5, tasks
-017/018): the resolver is detection- and resolution-only.
-
-The retired `new-project` verb was removed in favour of `exarchos onboard --new` and is now unregistered, as asserted by `new-project-removed.test.ts`.
-
-The registry above carries `test` / `typecheck` / `install` commands only — no
-scaffold tokens and no canonical toolchain.
+`new_project` scaffolds a project's commands from the same registry (each
+toolchain's `scaffold` map), so no toolchain is treated as canonical. Adding a
+scaffoldable language is a registry entry, not a special case.
 
 ## See also
 

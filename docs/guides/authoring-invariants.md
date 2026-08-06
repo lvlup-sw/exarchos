@@ -72,7 +72,7 @@ you can **tune any of them down to advisory but never silently disable** one
 They bite at **review** on code-bearing workflows (`feature`, `debug`,
 `refactor`, `oneshot`); a `discovery` (docs-only) workflow is exempt. The three
 audiences are distinct: **dev** (`INV-*`, Exarchos's own runtime substrate,
-internal and not surfaced to consumers) → **sdlc** (`SDLC-*`, this baseline) →
+`devCatalog`-gated, you never see it) → **sdlc** (`SDLC-*`, this baseline) →
 **user** (your own `U-*` entries, §2).
 
 > **As a consumer, you always author into the `user` tier (`U-*`).** The `dev`
@@ -104,15 +104,16 @@ invariants:
     review: blocking                # invariant findings gate the review verdict
 ```
 
-Listing is explicit by design (no auto-detection). Multiple files may be listed; they merge in order.
+Listing is explicit by design (no auto-detection, matching the `devCatalog`
+precedent). Multiple files may be listed; they merge in order.
 
 `exarchos onboard` seeds a `.exarchos.yml` with this `invariants:` block already
-present **as comments** (a stubbed `catalogs:` example), so the opt-in is
-discoverable without changing behavior — uncomment the keys you want. After
-editing, validate your catalog wiring with `exarchos doctor` (the
-`invariants-catalog` check parses every configured catalog and flags malformed
-files or reserved-namespace ids) and inspect the resolved result with
-`invariants_effective` ([§5](#5-inspect-the-effective-catalog)).
+present **as comments** (a `devCatalog: disabled` line plus a stubbed
+`catalogs:` example), so the opt-in is discoverable without changing behavior —
+uncomment the keys you want. After editing, validate your catalog wiring with
+`exarchos doctor` (the `invariants-catalog` check parses every configured
+catalog and flags malformed files or reserved-namespace ids) and inspect the
+resolved result with `invariants_effective` ([§5](#5-inspect-the-effective-catalog)).
 
 ## 2. Author an entry
 
