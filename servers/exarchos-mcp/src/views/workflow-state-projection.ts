@@ -1107,6 +1107,10 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       case 'admission.disagreement-disposition':
       case 'admission.rollout-decision':
       case 'admission.enforcement-enabled':
+      // #1739 — lands on the reserved `exarchos-admission` infrastructure
+      // stream (store-wide cutover posture), never a feature stream, so it has
+      // no effect on any workflow's projected state.
+      case 'admission.cutover-ready':
       // Cancellation process-manager facts are audit/recovery inputs. The
       // existing workflow.cancel event remains the v2.12 phase transition.
       case 'cancel.requested':

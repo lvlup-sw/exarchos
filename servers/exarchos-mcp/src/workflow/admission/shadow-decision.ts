@@ -292,9 +292,23 @@ export interface ShadowDisagreementSummary {
   readonly byClass: Readonly<Record<DisagreementClass, number>>;
 }
 
+/**
+ * The structural minimum {@link summarizeShadowDecisions} folds: the class and
+ * its disposition. A full {@link ShadowDecisionRecord} satisfies it, and so
+ * does a record reconstructed from the DURABLE substrate (#1739 — the sidecar
+ * `admission.shadow-attempt` / `admission.disagreement-disposition` rows carry
+ * no edge/phase identity, so the durable fold cannot produce a full record;
+ * widening the summarizer input to what it actually reads lets the cutover
+ * gate weigh durable dispositions without fabricating attempt metadata).
+ */
+export interface ShadowDispositionView {
+  readonly disagreementClass: DisagreementClass;
+  readonly disposition: DisagreementDisposition;
+}
+
 /** Fold a batch of shadow records into counts the cutover gate consumes. */
 export function summarizeShadowDecisions(
-  records: readonly ShadowDecisionRecord[],
+  records: readonly ShadowDispositionView[],
 ): ShadowDisagreementSummary {
   const byClass: Record<DisagreementClass, number> = {
     'agree': 0,

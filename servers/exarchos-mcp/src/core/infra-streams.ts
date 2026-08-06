@@ -20,11 +20,20 @@ export const TELEMETRY_STREAM = 'telemetry';
 // feature streams — and from `init`/`doctor` diagnostics.
 export const ONBOARD_STREAM_ID = 'exarchos-onboard';
 
+// #1739 (cutover promotion path) — store-scoped admission governance facts:
+// `admission.rollout-decision` / `admission.enforcement-enabled` (the
+// `cutover_decide` verb) and `admission.cutover-ready` (the observer's
+// auto-export hook). These facts describe the WHOLE store's cutover posture,
+// not one feature workflow, so they land on a reserved infrastructure stream
+// rather than any feature stream or `<featureId>/admission-shadow` sidecar.
+export const ADMISSION_STREAM_ID = 'exarchos-admission';
+
 export const INFRA_STREAM_IDS: ReadonlySet<string> = new Set([
   INIT_STREAM_ID,
   DOCTOR_STREAM_ID,
   TELEMETRY_STREAM,
   ONBOARD_STREAM_ID,
+  ADMISSION_STREAM_ID,
 ]);
 
 export function isFeatureStream(streamId: string): boolean {

@@ -82,7 +82,7 @@ import {
   classifyShadowOutcome,
   summarizeShadowDecisions,
   type DisagreementClass,
-  type ShadowDecisionRecord,
+  type ShadowDispositionView,
   type ShadowProvenance,
 } from './shadow-decision.js';
 import {
@@ -216,8 +216,14 @@ export async function readDurableShadowAttempts(
 
 /** Everything the gate weighs. */
 export interface CutoverGateEvidence {
-  /** Shadow records from the deterministic P06-01 corpus run. */
-  readonly corpusRecords: readonly ShadowDecisionRecord[];
+  /**
+   * Disposition-bearing shadow records. In tests this is the deterministic
+   * P06-01 corpus run; in the production assembly (#1739,
+   * `evidence-reader.ts`) it is the DURABLE attempt+disposition fold, so an
+   * undisposed live disagreement blocks `deterministic-corpus-clean` until a
+   * human records an explained `admission.disagreement-disposition`.
+   */
+  readonly corpusRecords: readonly ShadowDispositionView[];
   /** Live shadow attempts observed against real workflows. */
   readonly liveAttempts: readonly LiveShadowAttempt[];
   /**
@@ -448,16 +454,17 @@ function formatTally(counts: DisagreementClassTally): string {
  * shadow streams through the ordinary `EventStore` contract, folds in the
  * observer's health reading, and evaluates the six conditions.
  *
- * RESERVED — see the module header. This function has NO production caller
- * today; the shipped surface still routes every transition through the legacy
- * HSM guard, and adding a rollout/status action is a contract-surface change
- * outside this module. What T-32 closes is that the gate can no longer be
- * satisfied by evidence that proves nothing.
+ * #1739 (cutover promotion path) supersedes the former RESERVED note: the
+ * production callers are `orchestrate/cutover-readiness.ts` (the
+ * `cutover_readiness` / `cutover_decide` verbs) and the observer's
+ * durable-append auto-export hook (`cutover-auto-export.ts`), both assembling
+ * evidence through `evidence-reader.ts`. What T-32 closed remains: the gate
+ * cannot be satisfied by evidence that proves nothing.
  */
 export async function assessCutoverReadiness(input: {
   readonly reader: DurableShadowEvidenceReader;
   readonly featureIds: readonly string[];
-  readonly corpusRecords: readonly ShadowDecisionRecord[];
+  readonly corpusRecords: readonly ShadowDispositionView[];
   readonly liveAttempts: readonly LiveShadowAttempt[];
   readonly observerHealth: LiveShadowHealth;
 }): Promise<CutoverGateReport> {

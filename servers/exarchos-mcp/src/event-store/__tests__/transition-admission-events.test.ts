@@ -205,6 +205,17 @@ const validEvents = {
     enabledAt: AT,
     ...provenance,
   },
+  'admission.cutover-ready': {
+    eventVersion: '1.0',
+    readinessId: `cutover-ready:${SHA_A}`,
+    reportPath: '/tmp/state/admission/cutover-readiness.json',
+    reportDigest: digest(),
+    comparableLiveAttemptCount: 24,
+    durableAttemptCount: 24,
+    observerStatus: 'healthy',
+    recordedAt: AT,
+    ...provenance,
+  },
 } as const;
 
 describe('internal transition admission event schemas', () => {
@@ -218,10 +229,17 @@ describe('internal transition admission event schemas', () => {
       //   - admission.evidence-recorded: canonical gate runner (v2.12).
       //   - admission.shadow-attempt / admission.disagreement-disposition:
       //     the live shadow observer, on every guarded transition (DR-23/T-31).
+      //   - admission.rollout-decision / admission.enforcement-enabled: the
+      //     `cutover_decide` typed handler (#1739 — orchestrate/cutover-readiness.ts).
+      //   - admission.cutover-ready: the observer's durable-append auto-export
+      //     hook (#1739 — workflow/admission/cutover-auto-export.ts).
       const autoEmitted = new Set([
         'admission.evidence-recorded',
         'admission.shadow-attempt',
         'admission.disagreement-disposition',
+        'admission.rollout-decision',
+        'admission.enforcement-enabled',
+        'admission.cutover-ready',
       ]);
       const expectedSource = autoEmitted.has(type) ? 'auto' : 'planned';
       expect(EVENT_EMISSION_REGISTRY[type as keyof typeof EVENT_EMISSION_REGISTRY])

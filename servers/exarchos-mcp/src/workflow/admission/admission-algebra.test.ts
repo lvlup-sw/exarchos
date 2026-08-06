@@ -668,6 +668,8 @@ describe('admission event vocabulary', () => {
       'DISAGREEMENT_DISPOSITION',
       'ROLLOUT_DECISION',
       'ENFORCEMENT_ENABLED',
+      // #1739 — the cutover promotion path's first-readiness export fact.
+      'CUTOVER_READY',
     ] as const;
 
     expect(Object.keys(ADMISSION_EVENT_TYPES).sort()).toEqual(
