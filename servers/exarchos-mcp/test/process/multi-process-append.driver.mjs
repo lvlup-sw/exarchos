@@ -86,11 +86,37 @@ function finalizeOne(base, index) {
 
 const backend = new SqliteBackend(dbPath);
 
-// `initialize()` is where the EFF-001 startup reconciliation
-// (`repairSequenceHighWaterMarks`) runs. Everything the startup-repair mode
-// observes below is therefore strictly AFTER repair and strictly BEFORE this
-// process has accepted a single write.
-backend.initialize();
+/**
+ * `initialize()` is where the EFF-001 startup reconciliation
+ * (`repairSequenceHighWaterMarks`) runs. Everything the startup-repair mode
+ * observes below is therefore strictly AFTER repair and strictly BEFORE this
+ * process has accepted a single write.
+ *
+ * Retried on SQLITE_BUSY. Init does schema + repair WRITES, and the writer
+ * barrier (`--start-at`) is bust AFTER this point — so every sibling runs its
+ * init concurrently, unsynchronised, and a loser of that race used to throw
+ * out of an unguarded call. The process then died before writing its RESULT
+ * line and the parent reported the opaque `driver produced no result (exit 1)`
+ * rather than anything about locking. Contention here is setup noise, not the
+ * cross-connection `BEGIN IMMEDIATE` path this fixture exists to observe; the
+ * append loop below still reports a genuinely exhausted writer instead of
+ * swallowing it.
+ *
+ * Backoff is JITTERED, not exponential: N processes that back off by the same
+ * schedule re-collide as a convoy, which is the failure mode this is meant to
+ * break up.
+ */
+const INIT_ATTEMPTS = 10;
+for (let attempt = 1; ; attempt++) {
+  try {
+    backend.initialize();
+    break;
+  } catch (err) {
+    const busy = /SQLITE_BUSY|database is locked/i.test(String(err?.message ?? err));
+    if (!busy || attempt >= INIT_ATTEMPTS) throw err;
+    await Bun.sleep(25 + Math.floor(Math.random() * 75));
+  }
+}
 
 if (mode === 'startup-repair') {
   // Read the gate through production code the instant init returns, with zero
