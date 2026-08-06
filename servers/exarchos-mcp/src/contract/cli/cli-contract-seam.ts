@@ -5,50 +5,37 @@
 // execution through ONE shared contract-handler seam (`dispatch` from
 // `core/dispatch.ts`).
 //
-// ─── DR-25 CORRECTION (T-34): what this seam used to over-claim ─────────────
+// ─── DR-25 RESOLUTION: the CLI addresses actions through a generated client ──
 //
 // The GOVERNING framing of INV-2 is stronger than "both call the same handler":
-// the CLI is supposed to be a GENERATED CLIENT of the contract, equal to the MCP
-// surface BY CONSTRUCTION. This module previously asserted that framing was
-// already met, and encoded it by listing `adapters/cli.ts` in
-// `AUTHORIZED_DISPATCH_PROJECTIONS` — i.e. it DEFINED AWAY its own stated exit
-// criterion ("API actions have no direct CLI-to-dispatch path") by *authorizing*
-// the very path that criterion forbids. Three facts contradicted the claim:
+// the CLI is a GENERATED CLIENT of the contract, equal to the MCP surface BY
+// CONSTRUCTION. DR-25 (T-34) first recorded the gap as a governed, expiring
+// deviation — `adapters/cli.ts` imported the runtime `dispatch` value and
+// hand-assembled `(tool, args)` at six call sites, admitted only by a ledger
+// row. That deviation is now RETIRED via DR-25's PRIMARY resolution:
 //
-//   1. `adapters/cli.ts` imports the runtime `dispatch` VALUE directly and
-//      hand-assembles `(tool, args)` at six call sites. Nothing in the execution
-//      path consults the compiled contract, so agreement is hand-coordinated,
-//      not constructed.
-//   2. `generated/cli-surface.json` is read only by the drift guard below — it
-//      DESCRIBES the CLI, it does not GENERATE it.
-//   3. CLI/MCP agreement was asserted only by harnesses over a MOCKED `dispatch`
-//      (`differential-fixtures.test.ts`), which cannot witness handler-level
-//      agreement at all.
+//   • `contract/cli/generated-client.ts` is the ONE contract-derived dispatch
+//     site on the CLI side. Every api-action call site in `adapters/cli.ts`
+//     addresses its action by contract ActionId through
+//     `invokeContractAction`, which verifies the id against
+//     `deriveCliSurface(compileForCli())` before dispatching — an action the
+//     contract does not compile CANNOT be addressed, so the "no direct
+//     CLI-to-dispatch path" exit criterion holds by construction rather than
+//     by ledger cover.
+//   • `adapters/cli.ts` no longer imports the runtime `dispatch` value at all
+//     (the Commander tree remains hand-authored PRESENTATION — groups, command
+//     names, flags — which the classification collector governs).
+//   • The deviation MACHINERY below (`ContractDeviation`,
+//     `CLI_CONTRACT_DEVIATIONS`, `runDeviationLedgerCensus` and its kill arms)
+//     is retained with an EMPTY live ledger: any future direct route to the
+//     dispatch core must either become a contract projection or record a new
+//     governed, owned, expiring row — silence is not an option.
 //
-// DR-25 offers two resolutions: generate the CLI from the contract, or RECORD
-// the direct path as an explicitly accepted deviation with an owner and an
-// expiry. Generating the CLI is a substantial subprogram (spec §Risks: "decide
-// at W5 with measured effort; the fallback (recorded, expiring deviation) is
-// explicitly acceptable"), so this seam takes the RECORDED-DEVIATION route and
-// makes it load-bearing rather than prose:
-//
-//   • `CONTRACT_PROJECTIONS` — the projections that meet the governing framing
-//     with no deviation (the MCP wire).
-//   • `CLI_CONTRACT_DEVIATIONS` — the machine-readable ledger of ACCEPTED
-//     deviations, each carrying an OWNER, a RATIONALE, a RETIREMENT condition,
-//     a TRACKING ref and an EXPIRY. `AUTHORIZED_DISPATCH_PROJECTIONS` is now
-//     DERIVED from those two sets, so `adapters/cli.ts` is admitted only
-//     because a live, owned, unexpired deviation covers it.
-//   • `runDeviationLedgerCensus` — the third collector, a two-way ratchet that
-//     fails on an unacknowledged bypass, an ungoverned/expired ledger row, a
-//     stale row covering nothing, and on disagreement between the ledger and
-//     the acknowledgement the deviating module itself exports
-//     (`adapters/cli.ts` → `CLI_DIRECT_DISPATCH_DEVIATION`).
-//
-// Net effect: the direct dispatch path still exists, but it can no longer be an
-// UNACKNOWLEDGED violation — it is owned, dated, and self-retiring (the ledger
-// row turns RED the moment the CLI stops importing `dispatch`, and turns RED
-// again when the expiry passes).
+// The census arms that made the old record self-retiring are unchanged: a new
+// unacknowledged bypass fails as UNACKNOWLEDGED_INV2_DEVIATION, and a ledger
+// row covering nothing fails as STALE_DEVIATION (which is exactly how the
+// retired `cli-direct-dispatch` row was forced out when the generated client
+// landed).
 //
 // This module is the seam between the COMPILED contract (P03-03) and the CLI:
 //
@@ -58,6 +45,9 @@
 //      exit codes each action can produce). The checked-in golden
 //      (`generated/cli-surface.json`) + its drift guard mirror the P03-03
 //      proof-fixture pattern: running the generator IS the regeneration gesture.
+//      Since the DR-25 primary resolution this derivation is GENERATIVE, not
+//      only descriptive: `contract/cli/generated-client.ts` verifies every
+//      CLI-addressed ActionId against it at dispatch time.
 //
 //   2. CENSUS      — a THREE-collector, two-way-ratchet structural conformance
 //      gate (same shape as `orchestrate/gate-ownership-census.ts`,
@@ -88,7 +78,10 @@
 //
 // Named `*-seam.ts` — the established `source-lint-seam` class (sibling of
 // `architecture/contract-seam.ts`): a test-invoked gate that runs against
-// production SOURCE, not a production import target.
+// production SOURCE. Its census half is never a production import target; the
+// generation half (`deriveCliSurface` / `compileForCli`) is additionally
+// consumed by `generated-client.ts` through a LAZY dynamic import, so the CLI's
+// static cold-start graph still excludes the compiler (DR-5).
 //
 // Usage (regenerate the golden, from servers/exarchos-mcp):
 //   npx tsx src/contract/cli/cli-contract-seam.ts
@@ -306,17 +299,26 @@ export function generateCliArtifacts(): GenerateCliResult {
 export const DISPATCH_SEAM_MODULE = 'core/dispatch.ts';
 
 /**
- * The projections that meet the GOVERNING INV-2 framing with no deviation. MCP
- * is the standards-compliant wire rendering of the contract handler: it is the
- * reference surface the CLI is supposed to be equal to, so its direct route to
- * the shared handler is the projection itself, not a bypass of one.
+ * The projections that meet the GOVERNING INV-2 framing with no deviation:
+ *
+ *   • `adapters/mcp.ts` — the standards-compliant wire rendering of the
+ *     contract handler: the reference surface the CLI is equal to, so its
+ *     direct route to the shared handler is the projection itself, not a
+ *     bypass of one.
+ *   • `contract/cli/generated-client.ts` — the CLI's contract-derived dispatch
+ *     seam (DR-25 primary resolution): it verifies every ActionId against
+ *     `deriveCliSurface(compileForCli())` before dispatching, so an action the
+ *     contract does not compile cannot be addressed from the CLI at all.
  *
  * A module here claims FULL compliance. A module that needs the shared handler
  * but does NOT meet the framing belongs in {@link CLI_CONTRACT_DEVIATIONS}
  * instead — it may not be quietly parked here (`runDeviationLedgerCensus`
  * rejects a module claimed by both).
  */
-export const CONTRACT_PROJECTIONS: readonly string[] = Object.freeze(['adapters/mcp.ts']);
+export const CONTRACT_PROJECTIONS: readonly string[] = Object.freeze([
+  'adapters/mcp.ts',
+  'contract/cli/generated-client.ts',
+]);
 
 // ─── DR-25 (T-34): the governed deviation ledger ────────────────────────────
 
@@ -353,43 +355,22 @@ export interface ContractDeviation {
 }
 
 /**
- * The accepted-deviation ledger for the governing INV-2 (DR-25).
+ * The accepted-deviation ledger for the governing INV-2 (DR-25). EMPTY since
+ * the DR-25 primary resolution landed: the one recorded row
+ * (`cli-direct-dispatch`, covering `adapters/cli.ts`, expiry 2027-02-28)
+ * self-retired as STALE_DEVIATION when the adapter stopped importing the
+ * runtime `dispatch` value and began addressing actions through
+ * `contract/cli/generated-client.ts`.
  *
- * `adapters/cli.ts` imports the runtime `dispatch` value and hand-assembles
- * `(tool, args)` at each api-action call site. Under the governing framing —
- * the CLI as a GENERATED client of the contract — that is a deviation, not
- * compliance. It is recorded here so it is machine-readable, owned, dated and
- * self-retiring rather than silently blessed.
- *
- * `owner` uses the same vocabulary as `ADVISORY_REGISTRY` (`'exarchos'`), which
- * resolves through `.github/CODEOWNERS` (`servers/exarchos-mcp/ @reedsalus`).
+ * The ledger MACHINERY stays live with all census arms armed: any future
+ * direct route to the dispatch core must either be a true contract projection
+ * ({@link CONTRACT_PROJECTIONS}) or record a new row here carrying an OWNER, a
+ * RATIONALE, a RETIREMENT condition, a TRACKING ref and an EXPIRY — an
+ * unacknowledged path fails the census closed. `owner` uses the same
+ * vocabulary as `ADVISORY_REGISTRY` (`'exarchos'`), which resolves through
+ * `.github/CODEOWNERS` (`servers/exarchos-mcp/ @reedsalus`).
  */
-export const CLI_CONTRACT_DEVIATIONS: readonly ContractDeviation[] = Object.freeze([
-  Object.freeze({
-    id: 'cli-direct-dispatch',
-    module: 'adapters/cli.ts',
-    invariant: 'INV-2',
-    kind: 'direct-dispatch-path',
-    owner: 'exarchos',
-    rationale:
-      'The governing INV-2 framing makes the CLI a GENERATED client of the compiled ' +
-      'contract, equal to the MCP wire by construction. The shipped CLI is instead a ' +
-      'hand-written Commander tree that imports the runtime `dispatch` value and ' +
-      'assembles (tool, args) itself, so `generated/cli-surface.json` only DESCRIBES ' +
-      'the surface. Generating the adapter is a substantial subprogram (spec §Risks: ' +
-      '"decide at W5 with measured effort; the fallback (recorded, expiring deviation) ' +
-      'is explicitly acceptable"), so the direct path is accepted for one window ' +
-      'rather than rushed into a cosmetic indirection that would prove nothing.',
-    retirement:
-      'The api-action command tree is EMITTED from the compiled contract (the ' +
-      '`deriveCliSurface` projection becomes generative, not descriptive) and ' +
-      '`adapters/cli.ts` no longer imports the runtime `dispatch` value. At that ' +
-      'point this row turns RED as STALE_DEVIATION and must be deleted — the ' +
-      'ledger retires itself.',
-    tracking: 'DR-25 · docs/specs/2026-08-04-wiring-closure-and-unified-integration-suite.md',
-    expires: '2027-02-28',
-  }),
-]);
+export const CLI_CONTRACT_DEVIATIONS: readonly ContractDeviation[] = Object.freeze([]);
 
 /** Modules admitted to the dispatch seam only by a recorded deviation. */
 export const DEVIATING_DISPATCH_MODULES: readonly string[] = Object.freeze(
@@ -681,10 +662,11 @@ export function runDispatchSeamCensus(
 
 /**
  * The machine-readable acknowledgement a DEVIATING module exports at the
- * deviation site (e.g. `adapters/cli.ts` → `CLI_DIRECT_DISPATCH_DEVIATION`).
+ * deviation site (the retired `adapters/cli.ts` row exported one as
+ * `CLI_DIRECT_DISPATCH_DEVIATION`; a future row must do the same).
  *
- * The acknowledgement lives in BOTH places on purpose: a reader of
- * `adapters/cli.ts` sees, at the import that causes the deviation, that it is
+ * The acknowledgement lives in BOTH places on purpose: a reader of the
+ * deviating module sees, at the import that causes the deviation, that it is
  * governed; a reader of the ledger sees the full governance record. The census
  * cross-checks them so neither can rot into decoration.
  */
@@ -707,17 +689,15 @@ export interface DeviationAnnotationSite {
  * computed `import(variable)`) so the bundler/test transform can resolve them —
  * same idiom as `core/dispatch.COMPOSITE_HANDLER_LOADERS`. A ledger row whose
  * module has no loader here fails the census, so the map cannot silently lag
- * behind the ledger.
+ * behind the ledger. EMPTY while the ledger is empty (the retired
+ * `adapters/cli.ts` → `CLI_DIRECT_DISPATCH_DEVIATION` pair was the only
+ * entry); a future deviation must add its loader alongside its row.
  */
 const DEVIATION_ANNOTATION_LOADERS: Readonly<Record<string, () => Promise<Record<string, unknown>>>> =
-  Object.freeze({
-    'adapters/cli.ts': () => import('../../adapters/cli.js') as Promise<Record<string, unknown>>,
-  });
+  Object.freeze({});
 
 /** The export name each deviating module publishes its acknowledgement under. */
-const DEVIATION_ANNOTATION_EXPORTS: Readonly<Record<string, string>> = Object.freeze({
-  'adapters/cli.ts': 'CLI_DIRECT_DISPATCH_DEVIATION',
-});
+const DEVIATION_ANNOTATION_EXPORTS: Readonly<Record<string, string>> = Object.freeze({});
 
 /** Narrow an unknown module export to a {@link DeviationAnnotation}. */
 function asAnnotation(value: unknown): DeviationAnnotation | undefined {
@@ -766,21 +746,24 @@ function isExpired(expires: string, now: Date): boolean {
 }
 
 /**
- * Pure verdict over the deviation ledger. This is the collector that turns
- * "the CLI has a direct dispatch path" from an UNACKNOWLEDGED violation of the
- * governing INV-2 into a governed, expiring, self-retiring exception.
+ * Pure verdict over the deviation ledger. This is the collector that makes an
+ * UNACKNOWLEDGED direct dispatch path impossible to introduce silently under
+ * the governing INV-2: any non-projection route must carry a governed,
+ * expiring, self-retiring exception. The live ledger is EMPTY today (the DR-25
+ * `cli-direct-dispatch` row retired when the CLI's generated client landed);
+ * every arm stays armed against the next candidate.
  *
- * Five independent arms — every one of them a way the acknowledgement could rot:
+ * Six independent arms — every one of them a way the acknowledgement could rot:
  *   - UNACKNOWLEDGED_INV2_DEVIATION — a live dispatch site claimed by neither a
- *     contract projection nor a ledger row (the bypass this task exists to make
- *     impossible to introduce silently);
+ *     contract projection nor a ledger row (the bypass this collector exists to
+ *     make impossible to introduce silently);
  *   - CONFLICTING_DEVIATION — a module claimed as BOTH compliant and deviating,
  *     so "compliance" cannot be used to launder a known deviation;
  *   - UNGOVERNED_DEVIATION — a row missing an owner / rationale / retirement /
  *     tracking ref, or carrying a malformed expiry;
  *   - EXPIRED_DEVIATION — the window closed; re-accept explicitly or fix it;
  *   - STALE_DEVIATION — a row covering no live dispatch site, i.e. cover for
- *     nothing. This is what makes the ledger retire ITSELF once the CLI is
+ *     nothing. This is what retired the DR-25 row once the CLI became
  *     genuinely generated;
  *   - DEVIATION_ANNOTATION_MISMATCH — the deviating module's own exported
  *     acknowledgement is absent or disagrees with the ledger.
