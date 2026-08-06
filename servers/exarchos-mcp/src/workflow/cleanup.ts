@@ -405,23 +405,6 @@ export async function handleCleanup(
   const currentPhase = state.phase;
   const dryRun = input.dryRun ?? false;
 
-  // Backfill synthesis metadata
-  const synthesis = (mutableState.synthesis ?? {}) as Record<string, unknown>;
-  if (input.prUrl !== undefined) {
-    synthesis.prUrl = input.prUrl;
-  }
-  if (input.mergedBranches !== undefined) {
-    synthesis.mergedBranches = input.mergedBranches;
-  }
-  mutableState.synthesis = synthesis;
-
-  // Also set artifacts.pr for guards that check there
-  const artifacts = (mutableState.artifacts ?? {}) as Record<string, unknown>;
-  if (input.prUrl !== undefined && artifacts.pr == null) {
-    artifacts.pr = input.prUrl;
-  }
-  mutableState.artifacts = artifacts;
-
   // ─── DR-8: the guard's inputs are EVIDENCE, never force-written ───────
   //
   // Characterized behaviour this replaces (the `pass-state-fix` class named in
@@ -438,6 +421,15 @@ export async function handleCleanup(
   // evidence supports. Reviews are never rewritten, and when the evidence is
   // absent `mergeVerified` is FALSE, so the guarded primitive rejects the
   // transition instead of rubber-stamping it.
+  //
+  // T-12: the evidence is collected from the state AS THIS CALL FOUND IT —
+  // strictly BEFORE `input.prUrl` / `input.mergedBranches` are backfilled onto
+  // it. The prior order wrote the caller's own `prUrl` into `synthesis.prUrl` /
+  // `artifacts.pr` and then read exactly those fields back as the merge
+  // artifact, so `cleanup({ mergeVerified: true, prUrl: 'anything' })`
+  // satisfied the merge arm with an unverified same-call assertion — the
+  // pass-state fix reborn one level up. The input fields are now strictly
+  // POST-GUARD metadata backfill (applied in the mutations section below).
   const evidence = collectCleanupEvidence(mutableState);
   mutableState._cleanup = { mergeVerified: evidence.verified };
 
@@ -537,6 +529,26 @@ export async function handleCleanup(
   }
 
   // ─── Apply state mutations ────────────────────────────────────────────
+
+  // Backfill synthesis metadata — POST-GUARD on purpose (T-12). The guard's
+  // verdict above was derived from pre-existing evidence only; these input
+  // fields are recorded as metadata on the admitted transition and can no
+  // longer feed the evidence collection that admitted it.
+  const synthesis = (mutableState.synthesis ?? {}) as Record<string, unknown>;
+  if (input.prUrl !== undefined) {
+    synthesis.prUrl = input.prUrl;
+  }
+  if (input.mergedBranches !== undefined) {
+    synthesis.mergedBranches = input.mergedBranches;
+  }
+  mutableState.synthesis = synthesis;
+
+  // Also mirror onto artifacts.pr for consumers that read there
+  const artifacts = (mutableState.artifacts ?? {}) as Record<string, unknown>;
+  if (input.prUrl !== undefined && artifacts.pr == null) {
+    artifacts.pr = input.prUrl;
+  }
+  mutableState.artifacts = artifacts;
 
   mutableState.phase = 'completed';
   mutableState.phaseAttemptId = phaseAttemptId;

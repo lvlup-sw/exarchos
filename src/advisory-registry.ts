@@ -524,7 +524,8 @@ function listFilesReal(absRoot: string, extensions: readonly string[]): string[]
   if (!existsSync(absRoot)) return results;
   const stack: string[] = [absRoot];
   while (stack.length > 0) {
-    const current = stack.pop()!;
+    const current = stack.pop();
+    if (current === undefined) break; // len>0 makes this unreachable; satisfies noUncheckedIndexedAccess without an assertion
     let entries: string[];
     try {
       entries = readdirSync(current);

@@ -287,6 +287,16 @@ function filterGlobs(filters: Record<string, unknown>, filterName: string): stri
  * Without these, a PR that only deletes/mutates one of these paths never
  * flips `needs.changes.outputs.root` to `'true'`, so `test-root` (and the
  * `skills:guard` / `hooks:guard` drift guards it hosts) never runs.
+ *
+ * Two coverage-closing additions ride the same contract:
+ *   - `servers/exarchos-mcp/src/agents/**` — the agent-GENERATOR sources
+ *     that feed the rendered `agents/**` projection; without it a
+ *     generator-only PR ships drift unobserved and `skills:guard` only
+ *     fires on some LATER PR that touches the rendered output.
+ *   - `.github/workflows/release.yml` — `scripts/release-workflow.test.ts`
+ *     (hosted in the root suite) parses release.yml, so a release.yml-only
+ *     PR must flip `root` or the workflow's own contract test never runs
+ *     on the PR that changes it.
  */
 const REQUIRED_ROOT_PROJECTION_GLOBS = [
   'agents/**',
@@ -294,6 +304,8 @@ const REQUIRED_ROOT_PROJECTION_GLOBS = [
   'hooks/**',
   '.claude-plugin/**',
   'AGENTS.md',
+  'servers/exarchos-mcp/src/agents/**',
+  '.github/workflows/release.yml',
 ] as const;
 
 /** True iff some step in `job` runs the given `npm run <script>` invocation. */

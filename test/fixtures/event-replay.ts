@@ -29,6 +29,15 @@ export type NormalizedEvent = Record<string, unknown>;
 export interface EventSnapshot {
   readonly featureId: string;
   readonly events: ReadonlyArray<NormalizedEvent>;
+  /**
+   * The same rows, ascending, WITHOUT normalization. Replay MUST use these:
+   * `normalize()` rewrites payload values (e.g. a `data.phaseAttemptId` UUID
+   * becomes the literal `<UUID>`), and re-appending a normalized row feeds
+   * placeholder strings into schema-validated event data — the server rightly
+   * rejects them (stable-ID grammar). Normalized `events` exist ONLY for
+   * structural comparison across runs.
+   */
+  readonly raw: ReadonlyArray<Record<string, unknown>>;
 }
 
 interface MaybeContent {
@@ -174,15 +183,16 @@ export async function snapshotEventStream(
 
   // Reverse newest-first → ascending (chronological) so replay applies events
   // in the order they were originally written and prefix comparisons hold.
-  const ascending = descending.reverse() as NormalizedEvent[];
+  const ascending = descending.reverse() as Record<string, unknown>[];
 
   // Normalize at the boundary so callers can assert structural equality
   // without snapshotting transient values (timestamps, sequences, UUIDs).
+  // The raw rows ride alongside — replay needs the REAL payload values.
   const normalizedEvents = ascending.map(
     (e) => normalize(e) as NormalizedEvent,
   );
 
-  return { featureId, events: normalizedEvents };
+  return { featureId, events: normalizedEvents, raw: ascending };
 }
 
 /**
@@ -235,8 +245,20 @@ export async function replayInto(
     return; // nothing to do — target is already a full prefix
   }
 
-  for (let i = skip; i < snapshot.events.length; i++) {
-    const ev = snapshot.events[i] as Record<string, unknown>;
+  // Replay from the RAW rows — never the normalized view. A snapshot built
+  // before `raw` existed (or hand-built without it) must fail loud here:
+  // silently falling back to `snapshot.events` would re-append placeholder
+  // strings (`<UUID>`, `<SEQ>`) into schema-validated event data.
+  if (!Array.isArray(snapshot.raw) || snapshot.raw.length !== snapshot.events.length) {
+    throw new Error(
+      `replayInto: snapshot for '${snapshot.featureId}' carries no raw rows ` +
+        `(raw=${snapshot.raw?.length ?? 'absent'}, events=${snapshot.events.length}); ` +
+        `rebuild it with snapshotEventStream — normalized rows are not replayable.`,
+    );
+  }
+
+  for (let i = skip; i < snapshot.raw.length; i++) {
+    const ev = snapshot.raw[i] as Record<string, unknown>;
     const type = ev.type;
     if (typeof type !== 'string' || type.length === 0) {
       throw new Error(

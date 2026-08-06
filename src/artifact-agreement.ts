@@ -167,10 +167,19 @@ export function checkArtifactAgreement(artifact: Artifact): ArtifactAgreement {
     };
   }
 
-  const referenceDigest = digestByDimension[first.dimension]!;
+  // Every copy's digest was stamped into the record in the loop above, so an
+  // absent entry is an internal invariant break — fail loud, don't assert.
+  const readDigest = (dimension: string): string => {
+    const digest = digestByDimension[dimension];
+    if (digest === undefined) {
+      throw new Error(`artifact-agreement: no digest recorded for dimension '${dimension}'`);
+    }
+    return digest;
+  };
+  const referenceDigest = readDigest(first.dimension);
   const disagreements: Disagreement[] = [];
   for (const copy of artifact.copies.slice(1)) {
-    const digest = digestByDimension[copy.dimension]!;
+    const digest = readDigest(copy.dimension);
     if (digest !== referenceDigest) {
       disagreements.push({ dimension: copy.dimension, digest });
     }

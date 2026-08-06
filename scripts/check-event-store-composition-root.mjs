@@ -62,6 +62,16 @@ const ALLOWLIST = new Set([
   // injection for tests.
   path.join('cli-commands', 'subagent-stop.ts'),
   path.join('evals', 'run-evals-cli.ts'),
+  // Wiring-closure review disposition — these two construct stores that are
+  // NOT the app state store, so the #1182 rogue-instance hazard (PID-lock
+  // bypass / corrupted app sequences) does not apply:
+  //   - gate-ownership-census: a sacrificial mkdtemp store the durability
+  //     witness probes and discards; never the serving store.
+  path.join('orchestrate', 'gate-ownership-census.ts'),
+  //   - worktree-provisioner: the dedicated repo-local VCS-mutation ledger at
+  //     `<repoRoot>/.git/exarchos/vcs-mutations` — a different database file
+  //     from the app store, opened/closed per provision call.
+  path.join('vcs', 'worktree-provisioner.ts'),
 ]);
 
 // Word-boundary `new EventStore(` — won't match `new EventStoreSomething(`.

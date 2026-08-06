@@ -273,13 +273,25 @@ export interface ProjectionHealthJournal {
  * the row already written instead of appending one row per read. A genuinely
  * new disagreement (the tail moved, or the fold slipped further) mints a new
  * key and a new row, which is exactly the history worth keeping.
+ *
+ * `recoveredGeneration` salts the key with the fold generation: the
+ * health-stream sequence of the stream's most recent `projection.recovered`
+ * event (`0` when it has never recovered). Without it, degrade → recover →
+ * degrade AGAIN at the identical `(eventTail, projectionCursor)` pair — the
+ * module's own cursor-regression scenario (snapshot restore / rebuild) — would
+ * dedupe the second `projection.degraded` onto the ORIGINAL row, whose sequence
+ * precedes the recovered event, so the fold would end `recovered` and a
+ * degraded stream would be served as healthy. A post-recovery re-detection now
+ * carries a new generation, mints a new key, and lands PAST the recovered
+ * event; within one generation the per-read collapse is unchanged.
  */
 export function projectionDegradedIdempotencyKey(
   streamId: string,
   eventTail: number,
   projectionCursor: number,
+  recoveredGeneration: number,
 ): string {
-  return `${streamId}:projection-degraded:${eventTail}:${projectionCursor}`;
+  return `${streamId}:projection-degraded:${eventTail}:${projectionCursor}:${recoveredGeneration}`;
 }
 
 /**
@@ -293,6 +305,30 @@ export function projectionRecoveredIdempotencyKey(
   resolvesSequence: number,
 ): string {
   return `${streamId}:projection-recovered:${resolvesSequence}`;
+}
+
+/**
+ * The current fold generation for a stream's degraded key: the health-stream
+ * sequence of its most recent `projection.recovered` event, `0` when the stream
+ * has never recovered. See {@link projectionDegradedIdempotencyKey} for why the
+ * degraded key must be salted with this.
+ */
+async function lastRecoveredSequence(
+  journal: ProjectionHealthJournal,
+  streamId: string,
+): Promise<number> {
+  const events = await journal.query(PROJECTION_HEALTH_STREAM_ID, {
+    type: PROJECTION_RECOVERED_EVENT_TYPE,
+  });
+  let last = 0;
+  for (const event of events) {
+    const parsed = ProjectionRecoveredData.safeParse(event.data);
+    if (!parsed.success) continue;
+    if (parsed.data.streamId === streamId && event.sequence > last) {
+      last = event.sequence;
+    }
+  }
+  return last;
 }
 
 function toDurableState(
@@ -405,6 +441,7 @@ export async function publishProjectionFreshness(
         streamId,
         freshness.eventTail,
         freshness.projectionCursor,
+        await lastRecoveredSequence(journal, streamId),
       ),
     },
   );

@@ -108,6 +108,21 @@ async function seedWorkflow(
   await fs.writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
 }
 
+/**
+ * A schema-complete `synthesis` block carrying a pre-existing merge record.
+ * T-12: caller-supplied `input.prUrl` is post-guard metadata — the evidence
+ * `collectCleanupEvidence` reads must already be IN STATE.
+ */
+function mergeEvidenceSynthesis(prUrl: string): Record<string, unknown> {
+  return {
+    integrationBranch: null,
+    mergeOrder: [],
+    mergedBranches: [],
+    prUrl,
+    prFeedback: [],
+  };
+}
+
 async function readPhase(featureId: string): Promise<unknown> {
   const stateFile = path.join(tmpDir, `${featureId}.state.json`);
   return (JSON.parse(await fs.readFile(stateFile, 'utf-8')) as Record<string, unknown>).phase;
@@ -130,12 +145,15 @@ function mockCompensationSuccess(): Promise<void> {
 describe('DR-7 — cleanup and cancel route through the guarded primitive', () => {
   it('Cleanup_CompletedTransition_RoutesThroughGuardedPrimitive', async () => {
     const attemptSpy = vi.spyOn(hsmTransitionGuard, 'attempt');
-    await seedWorkflow('cleanup-routes', 'review');
+    // DR-8 / T-12: real merge evidence lives IN STATE — a caller-supplied
+    // `prUrl` is post-guard metadata and no longer satisfies the guard.
+    await seedWorkflow('cleanup-routes', 'review', {
+      synthesis: mergeEvidenceSynthesis('https://github.com/test/pr/1'),
+    });
     const store = new EventStore(tmpDir);
 
     const result = await handleCleanup(
-      // DR-8: real merge evidence — cleanup no longer manufactures it.
-      { featureId: 'cleanup-routes', mergeVerified: true, prUrl: 'https://github.com/test/pr/1' },
+      { featureId: 'cleanup-routes', mergeVerified: true },
       tmpDir,
       store,
     );
@@ -159,7 +177,11 @@ describe('DR-7 — cleanup and cancel route through the guarded primitive', () =
     // must not mutate the phase and must not write any event. A bypass that
     // merely *also* called the primitive would still pass the routing test
     // above; it cannot pass this one.
-    await seedWorkflow('cleanup-denied', 'review');
+    // T-12: seed real merge evidence so the failure reported is the injected
+    // guard denial, not an evidence insufficiency.
+    await seedWorkflow('cleanup-denied', 'review', {
+      synthesis: mergeEvidenceSynthesis('https://github.com/test/pr/1'),
+    });
     const store = new EventStore(tmpDir);
     const before = (await store.query('cleanup-denied')).length;
 
@@ -173,7 +195,7 @@ describe('DR-7 — cleanup and cancel route through the guarded primitive', () =
     });
 
     const result = await handleCleanup(
-      { featureId: 'cleanup-denied', mergeVerified: true, prUrl: 'https://github.com/test/pr/1' },
+      { featureId: 'cleanup-denied', mergeVerified: true },
       tmpDir,
       store,
     );
@@ -226,11 +248,13 @@ describe('DR-7 — every phase mutation is shadow-observed', () => {
   });
 
   it('Cleanup_CompletedTransition_IsShadowObserved', async () => {
-    await seedWorkflow('cleanup-observed', 'review');
+    await seedWorkflow('cleanup-observed', 'review', {
+      synthesis: mergeEvidenceSynthesis('https://github.com/test/pr/1'),
+    });
     const store = new EventStore(tmpDir);
 
     const result = await handleCleanup(
-      { featureId: 'cleanup-observed', mergeVerified: true, prUrl: 'https://github.com/test/pr/1' },
+      { featureId: 'cleanup-observed', mergeVerified: true },
       tmpDir,
       store,
     );
@@ -283,6 +307,9 @@ describe('DR-7 — no partial event trail survives a mid-transition failure', ()
   it('Cleanup_MidTransitionFailure_LeavesCompleteTrailOrNothing', async () => {
     await seedWorkflow('cleanup-atomic', 'review', {
       reviews: { 'task-1': { status: 'approved' } },
+      // T-12: the merge evidence must pre-exist in state for the guard to
+      // admit the transition and reach the event-emission window under test.
+      synthesis: mergeEvidenceSynthesis('https://github.com/test/pr/7'),
     });
     const store = new EventStore(tmpDir);
     const before = await store.query('cleanup-atomic');
@@ -319,7 +346,9 @@ describe('DR-7 — no partial event trail survives a mid-transition failure', ()
   it('Cleanup_MidTransitionFailure_PhaseNeverAdvancesPastAnUnwrittenTrail', async () => {
     // The complement of the trail invariant: if the trail did NOT commit, the
     // phase must not have advanced either.
-    await seedWorkflow('cleanup-atomic-state', 'review');
+    await seedWorkflow('cleanup-atomic-state', 'review', {
+      synthesis: mergeEvidenceSynthesis('https://github.com/test/pr/1'),
+    });
     const store = new EventStore(tmpDir);
     const before = (await store.query('cleanup-atomic-state')).length;
 
@@ -328,7 +357,7 @@ describe('DR-7 — no partial event trail survives a mid-transition failure', ()
     );
 
     const result = await handleCleanup(
-      { featureId: 'cleanup-atomic-state', mergeVerified: true, prUrl: 'https://github.com/test/pr/1' },
+      { featureId: 'cleanup-atomic-state', mergeVerified: true },
       tmpDir,
       store,
     );

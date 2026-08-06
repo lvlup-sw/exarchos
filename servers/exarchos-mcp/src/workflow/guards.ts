@@ -53,8 +53,15 @@ export function composeGuards(id: string, description: string, ...innerGuards: G
  * `delegationReadinessProjection`'s `artifactPresent`, and the admission
  * algebra's `artifacts.planNonEmpty` fact already apply. Keeping one predicate
  * is what stops the three surfaces from drifting back apart.
+ *
+ * Exported so consumers that CAN import this module (e.g. the
+ * delegation-readiness view) share the one predicate instead of re-deriving
+ * it. The admission algebra (`admission/legacy-state-translation.ts`) is the
+ * deliberate exception: it must stay import-free of this module
+ * (`built-in-workflow-ir.structure.test.ts`), so it carries an intentional
+ * duplicate held in lockstep by `legacy-guard-parity.test.ts`.
  */
-function isTypedArtifactReference(value: unknown): value is string {
+export function isTypedArtifactReference(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
 

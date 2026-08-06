@@ -4,21 +4,21 @@
     "file": "servers/exarchos-mcp/src/capabilities/resolver.ts",
     "owner": "@reedsalus",
     "expires": "2026-10-31",
-    "rationale": "Compile-time PoLA (Principle of Least Authority) invariant assertion; consumed only by tsc type-checking, not by a runtime import. Deleting it drops a static guard — review to re-home as an explicit type-level test."
+    "rationale": "Compile-time PoLA (Principle of Least Authority) invariant assertion; consumed only by tsc type-checking, not by a runtime import. Deleting it drops a static guard \u2014 review to re-home as an explicit type-level test."
   },
   {
     "symbol": "_PolaPlanBundleNotMutating",
     "file": "servers/exarchos-mcp/src/capabilities/resolver.ts",
     "owner": "@reedsalus",
     "expires": "2026-10-31",
-    "rationale": "Compile-time PoLA (Principle of Least Authority) invariant assertion; consumed only by tsc type-checking, not by a runtime import. Deleting it drops a static guard — review to re-home as an explicit type-level test."
+    "rationale": "Compile-time PoLA (Principle of Least Authority) invariant assertion; consumed only by tsc type-checking, not by a runtime import. Deleting it drops a static guard \u2014 review to re-home as an explicit type-level test."
   },
   {
     "symbol": "_PolaReviewBundleNotMutating",
     "file": "servers/exarchos-mcp/src/capabilities/resolver.ts",
     "owner": "@reedsalus",
     "expires": "2026-10-31",
-    "rationale": "Compile-time PoLA (Principle of Least Authority) invariant assertion; consumed only by tsc type-checking, not by a runtime import. Deleting it drops a static guard — review to re-home as an explicit type-level test."
+    "rationale": "Compile-time PoLA (Principle of Least Authority) invariant assertion; consumed only by tsc type-checking, not by a runtime import. Deleting it drops a static guard \u2014 review to re-home as an explicit type-level test."
   },
   {
     "symbol": "CatalogRegistration",
@@ -74,42 +74,42 @@
     "file": "servers/exarchos-mcp/src/event-store/schemas.ts",
     "owner": "@reedsalus",
     "expires": "2026-10-31",
-    "rationale": "Event-store schema inferred type; public event-contract surface (token / gate / phase events). Review before removal — event schemas are append-only."
+    "rationale": "Event-store schema inferred type; public event-contract surface (token / gate / phase events). Review before removal \u2014 event schemas are append-only."
   },
   {
     "symbol": "GateExecutedDetails",
     "file": "servers/exarchos-mcp/src/event-store/schemas.ts",
     "owner": "@reedsalus",
     "expires": "2026-10-31",
-    "rationale": "Event-store schema inferred type; public event-contract surface (token / gate / phase events). Review before removal — event schemas are append-only."
+    "rationale": "Event-store schema inferred type; public event-contract surface (token / gate / phase events). Review before removal \u2014 event schemas are append-only."
   },
   {
     "symbol": "PhaseEntered",
     "file": "servers/exarchos-mcp/src/event-store/schemas.ts",
     "owner": "@reedsalus",
     "expires": "2026-10-31",
-    "rationale": "Event-store schema inferred type; public event-contract surface (token / gate / phase events). Review before removal — event schemas are append-only."
+    "rationale": "Event-store schema inferred type; public event-contract surface (token / gate / phase events). Review before removal \u2014 event schemas are append-only."
   },
   {
     "symbol": "PhaseExited",
     "file": "servers/exarchos-mcp/src/event-store/schemas.ts",
     "owner": "@reedsalus",
     "expires": "2026-10-31",
-    "rationale": "Event-store schema inferred type; public event-contract surface (token / gate / phase events). Review before removal — event schemas are append-only."
+    "rationale": "Event-store schema inferred type; public event-contract surface (token / gate / phase events). Review before removal \u2014 event schemas are append-only."
   },
   {
     "symbol": "SubagentTokensUsedData",
     "file": "servers/exarchos-mcp/src/event-store/schemas.ts",
     "owner": "@reedsalus",
     "expires": "2026-10-31",
-    "rationale": "Event-store schema inferred type; public event-contract surface (token / gate / phase events). Review before removal — event schemas are append-only."
+    "rationale": "Event-store schema inferred type; public event-contract surface (token / gate / phase events). Review before removal \u2014 event schemas are append-only."
   },
   {
     "symbol": "TurnCompletedData",
     "file": "servers/exarchos-mcp/src/event-store/schemas.ts",
     "owner": "@reedsalus",
     "expires": "2026-10-31",
-    "rationale": "Event-store schema inferred type; public event-contract surface (token / gate / phase events). Review before removal — event schemas are append-only."
+    "rationale": "Event-store schema inferred type; public event-contract surface (token / gate / phase events). Review before removal \u2014 event schemas are append-only."
   },
   {
     "symbol": "InjectionChannel",
@@ -383,5 +383,334 @@
     "owner": "@reedsalus",
     "permanent": true,
     "rationale": "Codegen-emitted by scripts/codegen-runtimes.ts (getEmbeddedRuntime is written into the generated runtimes module) and pinned by its codegen test. The symbol is regenerated on every build; removing it needs generator + pin changes (out of scope for the ratchet). Permanent by construction."
+  },
+  {
+    "symbol": "servers/exarchos-mcp/src/contract/authority-lock-cli.ts",
+    "file": "servers/exarchos-mcp/src/contract/authority-lock-cli.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Script-invoked CLI entry point (contract authority lock) - reached via node/bun invocation, never via import; knip cannot see script invocation. Re-home under knip entry config at expiry."
+  },
+  {
+    "symbol": "servers/exarchos-mcp/src/extensions/index.ts",
+    "file": "servers/exarchos-mcp/src/extensions/index.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "P03-08 extension-trust barrel - subsystem shipped capability-only this wave; wiring-or-staging decision tracked in #1736. Delete or wire at expiry."
+  },
+  {
+    "symbol": "servers/exarchos-mcp/src/architecture/__fixtures__/swallows.fixture.ts",
+    "file": "servers/exarchos-mcp/src/architecture/__fixtures__/swallows.fixture.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "delivery-safety corpus fixture read via fs at test runtime (not imported) - the live-tree scan in delivery-safety.test.ts consumes it by path."
+  },
+  {
+    "symbol": "servers/exarchos-mcp/src/contract/bindings/index.ts",
+    "file": "servers/exarchos-mcp/src/contract/bindings/index.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Wiring-closure contract barrel with no importer yet - public IR/reachability surface for the P06 cutover wave. Wire, re-export, or delete at expiry."
+  },
+  {
+    "symbol": "servers/exarchos-mcp/src/contract/ir/admission-ir-schema-cli.ts",
+    "file": "servers/exarchos-mcp/src/contract/ir/admission-ir-schema-cli.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Script-invoked CLI entry point (IR schema emitter) - reached via node/bun invocation, never via import. Re-home under knip entry config at expiry."
+  },
+  {
+    "symbol": "servers/exarchos-mcp/src/contract/ir/index.ts",
+    "file": "servers/exarchos-mcp/src/contract/ir/index.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Wiring-closure contract barrel with no importer yet - public IR/reachability surface for the P06 cutover wave. Wire, re-export, or delete at expiry."
+  },
+  {
+    "symbol": "servers/exarchos-mcp/src/contract/reachability/index.ts",
+    "file": "servers/exarchos-mcp/src/contract/reachability/index.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Wiring-closure contract barrel with no importer yet - public IR/reachability surface for the P06 cutover wave. Wire, re-export, or delete at expiry."
+  },
+  {
+    "symbol": "runAllKillProbes",
+    "file": "src/advisory-kill-probes.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Wiring-closure capability export consumed by the P06 cutover wave (observability/cutover/audit seams built this wave, reached next wave). Wire or delete at expiry."
+  },
+  {
+    "symbol": "EMPTY_RECORDED_LEDGER",
+    "file": "servers/exarchos-mcp/src/workflow/admission/legacy-state-translation.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Wiring-closure capability export consumed by the P06 cutover wave (observability/cutover/audit seams built this wave, reached next wave). Wire or delete at expiry."
+  },
+  {
+    "symbol": "pendingLiveShadowEvidenceCount",
+    "file": "servers/exarchos-mcp/src/workflow/admission/live-shadow-observer.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Wiring-closure capability export consumed by the P06 cutover wave (observability/cutover/audit seams built this wave, reached next wave). Wire or delete at expiry."
+  },
+  {
+    "symbol": "SURFACE_SUCCESS_SCHEMA_REF",
+    "file": "servers/exarchos-mcp/src/contract/compiler/descriptors.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Wiring-closure capability export consumed by the P06 cutover wave (observability/cutover/audit seams built this wave, reached next wave). Wire or delete at expiry."
+  },
+  {
+    "symbol": "auditMetaModelAgainstRuntime",
+    "file": "servers/exarchos-mcp/src/contract/compiler/runtime-authority.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Wiring-closure capability export consumed by the P06 cutover wave (observability/cutover/audit seams built this wave, reached next wave). Wire or delete at expiry."
+  },
+  {
+    "symbol": "assessCutoverReadiness",
+    "file": "servers/exarchos-mcp/src/workflow/admission/cutover-gate.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Wiring-closure capability export consumed by the P06 cutover wave (observability/cutover/audit seams built this wave, reached next wave). Wire or delete at expiry."
+  },
+  {
+    "symbol": "AdmissionTransitionDecided",
+    "file": "servers/exarchos-mcp/src/event-store/schemas.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Wiring-closure admission/contract vocabulary type - declared contract surface for the P06 cutover wave; not yet import-reached. Wire or delete at expiry."
+  },
+  {
+    "symbol": "AdmissionWaiverRecorded",
+    "file": "servers/exarchos-mcp/src/event-store/schemas.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Wiring-closure admission/contract vocabulary type - declared contract surface for the P06 cutover wave; not yet import-reached. Wire or delete at expiry."
+  },
+  {
+    "symbol": "AdmissionReassessmentRequested",
+    "file": "servers/exarchos-mcp/src/event-store/schemas.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Wiring-closure admission/contract vocabulary type - declared contract surface for the P06 cutover wave; not yet import-reached. Wire or delete at expiry."
+  },
+  {
+    "symbol": "AdmissionReassessmentCompleted",
+    "file": "servers/exarchos-mcp/src/event-store/schemas.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Wiring-closure admission/contract vocabulary type - declared contract surface for the P06 cutover wave; not yet import-reached. Wire or delete at expiry."
+  },
+  {
+    "symbol": "CappedData",
+    "file": "servers/exarchos-mcp/src/contract/envelope.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Wiring-closure admission/contract vocabulary type - declared contract surface for the P06 cutover wave; not yet import-reached. Wire or delete at expiry."
+  },
+  {
+    "symbol": "ProtectedContextField",
+    "file": "servers/exarchos-mcp/src/contract/request-context.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Wiring-closure admission/contract vocabulary type - declared contract surface for the P06 cutover wave; not yet import-reached. Wire or delete at expiry."
+  },
+  {
+    "symbol": "TrustKeyId",
+    "file": "servers/exarchos-mcp/src/extensions/manifest.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "P03-08 extension-trust contract type - capability-only this wave, tracked in #1736."
+  },
+  {
+    "symbol": "ExtensionSignatureV1",
+    "file": "servers/exarchos-mcp/src/extensions/manifest.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "P03-08 extension-trust contract type - capability-only this wave, tracked in #1736."
+  },
+  {
+    "symbol": "RevocationEntryV1",
+    "file": "servers/exarchos-mcp/src/extensions/revocation.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "P03-08 extension-trust contract type - capability-only this wave, tracked in #1736."
+  },
+  {
+    "symbol": "WorkflowId",
+    "file": "servers/exarchos-mcp/src/workflow/admission/types.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Wiring-closure admission/contract vocabulary type - declared contract surface for the P06 cutover wave; not yet import-reached. Wire or delete at expiry."
+  },
+  {
+    "symbol": "WaveId",
+    "file": "servers/exarchos-mcp/src/workflow/admission/types.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Wiring-closure admission/contract vocabulary type - declared contract surface for the P06 cutover wave; not yet import-reached. Wire or delete at expiry."
+  },
+  {
+    "symbol": "TaskId",
+    "file": "servers/exarchos-mcp/src/workflow/admission/types.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Wiring-closure admission/contract vocabulary type - declared contract surface for the P06 cutover wave; not yet import-reached. Wire or delete at expiry."
+  },
+  {
+    "symbol": "CommitId",
+    "file": "servers/exarchos-mcp/src/workflow/admission/types.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Wiring-closure admission/contract vocabulary type - declared contract surface for the P06 cutover wave; not yet import-reached. Wire or delete at expiry."
+  },
+  {
+    "symbol": "DiffId",
+    "file": "servers/exarchos-mcp/src/workflow/admission/types.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Wiring-closure admission/contract vocabulary type - declared contract surface for the P06 cutover wave; not yet import-reached. Wire or delete at expiry."
+  },
+  {
+    "symbol": "GateId",
+    "file": "servers/exarchos-mcp/src/workflow/admission/types.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Wiring-closure admission/contract vocabulary type - declared contract surface for the P06 cutover wave; not yet import-reached. Wire or delete at expiry."
+  },
+  {
+    "symbol": "InvocationId",
+    "file": "servers/exarchos-mcp/src/workflow/admission/types.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Wiring-closure admission/contract vocabulary type - declared contract surface for the P06 cutover wave; not yet import-reached. Wire or delete at expiry."
+  },
+  {
+    "symbol": "PrincipalId",
+    "file": "servers/exarchos-mcp/src/workflow/admission/types.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Wiring-closure admission/contract vocabulary type - declared contract surface for the P06 cutover wave; not yet import-reached. Wire or delete at expiry."
+  },
+  {
+    "symbol": "AuthorizationId",
+    "file": "servers/exarchos-mcp/src/workflow/admission/types.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Wiring-closure admission/contract vocabulary type - declared contract surface for the P06 cutover wave; not yet import-reached. Wire or delete at expiry."
+  },
+  {
+    "symbol": "UnsatisfiedRequirementReason",
+    "file": "servers/exarchos-mcp/src/workflow/admission/types.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Wiring-closure admission/contract vocabulary type - declared contract surface for the P06 cutover wave; not yet import-reached. Wire or delete at expiry."
+  },
+  {
+    "symbol": "ContradictionStatement",
+    "file": "servers/exarchos-mcp/src/workflow/admission/types.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Wiring-closure admission/contract vocabulary type - declared contract surface for the P06 cutover wave; not yet import-reached. Wire or delete at expiry."
+  },
+  {
+    "symbol": "ReassessmentRequestV1",
+    "file": "servers/exarchos-mcp/src/workflow/admission/types.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Wiring-closure admission/contract vocabulary type - declared contract surface for the P06 cutover wave; not yet import-reached. Wire or delete at expiry."
+  },
+  {
+    "symbol": "ReassessmentOutcomeV1",
+    "file": "servers/exarchos-mcp/src/workflow/admission/types.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Wiring-closure admission/contract vocabulary type - declared contract surface for the P06 cutover wave; not yet import-reached. Wire or delete at expiry."
+  },
+  {
+    "symbol": "PolicyCapabilityName",
+    "file": "servers/exarchos-mcp/src/workflow/admission/policy-authority.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Wiring-closure admission/contract vocabulary type - declared contract surface for the P06 cutover wave; not yet import-reached. Wire or delete at expiry."
+  },
+  {
+    "symbol": "ActionSafety",
+    "file": "servers/exarchos-mcp/src/contract/compiler/meta-model.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Wiring-closure admission/contract vocabulary type - declared contract surface for the P06 cutover wave; not yet import-reached. Wire or delete at expiry."
+  },
+  {
+    "symbol": "PolicyDimension",
+    "file": "servers/exarchos-mcp/src/contract/compiler/meta-model.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Wiring-closure admission/contract vocabulary type - declared contract surface for the P06 cutover wave; not yet import-reached. Wire or delete at expiry."
+  },
+  {
+    "symbol": "GateSpec",
+    "file": "servers/exarchos-mcp/src/contract/compiler/meta-model.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Wiring-closure admission/contract vocabulary type - declared contract surface for the P06 cutover wave; not yet import-reached. Wire or delete at expiry."
+  },
+  {
+    "symbol": "AutoEmitSpec",
+    "file": "servers/exarchos-mcp/src/contract/compiler/meta-model.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Wiring-closure admission/contract vocabulary type - declared contract surface for the P06 cutover wave; not yet import-reached. Wire or delete at expiry."
+  },
+  {
+    "symbol": "SharedStableId",
+    "file": "servers/exarchos-mcp/src/contract/ir/admission-ir.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Wiring-closure admission/contract vocabulary type - declared contract surface for the P06 cutover wave; not yet import-reached. Wire or delete at expiry."
+  },
+  {
+    "symbol": "IrSubjectKind",
+    "file": "servers/exarchos-mcp/src/contract/ir/admission-ir.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Wiring-closure admission/contract vocabulary type - declared contract surface for the P06 cutover wave; not yet import-reached. Wire or delete at expiry."
+  },
+  {
+    "symbol": "IrEdgeConditionKind",
+    "file": "servers/exarchos-mcp/src/contract/ir/admission-ir.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Wiring-closure admission/contract vocabulary type - declared contract surface for the P06 cutover wave; not yet import-reached. Wire or delete at expiry."
+  },
+  {
+    "symbol": "EdgeConditionDeclaration",
+    "file": "servers/exarchos-mcp/src/contract/ir/admission-ir.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Wiring-closure admission/contract vocabulary type - declared contract surface for the P06 cutover wave; not yet import-reached. Wire or delete at expiry."
+  },
+  {
+    "symbol": "IrRequirementKind",
+    "file": "servers/exarchos-mcp/src/contract/ir/admission-ir.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Wiring-closure admission/contract vocabulary type - declared contract surface for the P06 cutover wave; not yet import-reached. Wire or delete at expiry."
+  },
+  {
+    "symbol": "IrWaiverScopeKind",
+    "file": "servers/exarchos-mcp/src/contract/ir/admission-ir.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Wiring-closure admission/contract vocabulary type - declared contract surface for the P06 cutover wave; not yet import-reached. Wire or delete at expiry."
+  },
+  {
+    "symbol": "WaiverScope",
+    "file": "servers/exarchos-mcp/src/contract/ir/admission-ir.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Wiring-closure admission/contract vocabulary type - declared contract surface for the P06 cutover wave; not yet import-reached. Wire or delete at expiry."
   }
 ]

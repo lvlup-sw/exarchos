@@ -2,13 +2,13 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { handleCleanup } from '../../workflow/cleanup.js';
-import { handleInit } from '../../workflow/tools.js';
-import { handleWorkflow } from '../../workflow/composite.js';
-import { EventStore } from '../../event-store/store.js';
-import type { EventStore as EventStoreType } from '../../event-store/store.js';
-import type { DispatchContext } from '../../core/dispatch.js';
-import { rmrfAsync } from '../../test-helpers/temp-dir.js';
+import { handleCleanup } from './cleanup.js';
+import { handleInit } from './tools.js';
+import { handleWorkflow } from './composite.js';
+import { EventStore } from '../event-store/store.js';
+import type { EventStore as EventStoreType } from '../event-store/store.js';
+import type { DispatchContext } from '../core/dispatch.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 function makeCtx(stateDir: string): DispatchContext {
   return { stateDir, eventStore: new EventStore(stateDir), enableTelemetry: false };
@@ -82,6 +82,9 @@ describe('handleCleanup', () => {
       await handleInit({ featureId: 'cleanup-review', workflowType: 'feature' }, tmpDir, null);
       const raw = await readRawState('cleanup-review');
       raw.phase = 'review';
+      // T-12: the merge evidence must PRE-EXIST in state — input.prUrl is
+      // post-guard metadata backfill and no longer satisfies the guard.
+      raw.synthesis = { ...(raw.synthesis as Record<string, unknown>), prUrl: 'https://github.com/test/pr/1' };
       await writeRawState('cleanup-review', raw);
 
       const result = await handleCleanup({
@@ -99,6 +102,10 @@ describe('handleCleanup', () => {
       await handleInit({ featureId: 'cleanup-synth', workflowType: 'feature' }, tmpDir, null);
       const raw = await readRawState('cleanup-synth');
       raw.phase = 'review';
+      // T-12: pre-existing merge record under artifacts.pr, so the guard is
+      // satisfied by state evidence and the SYNTHESIS backfill from input is
+      // what this test exercises.
+      raw.artifacts = { ...(raw.artifacts as Record<string, unknown>), pr: 'https://github.com/test/pr/0' };
       await writeRawState('cleanup-synth', raw);
 
       await handleCleanup({
@@ -152,6 +159,7 @@ describe('handleCleanup', () => {
         'task-1': { status: 'approved' },
         'task-2': { specReview: { status: 'approved' }, qualityReview: { status: 'approved' } },
       };
+      raw.synthesis = { ...(raw.synthesis as Record<string, unknown>), prUrl: 'https://github.com/test/pr/1' };
       await writeRawState('cleanup-reviews-ok', raw);
 
       const result = await handleCleanup({
@@ -168,6 +176,7 @@ describe('handleCleanup', () => {
       await handleInit({ featureId: 'cleanup-dry', workflowType: 'feature' }, tmpDir, null);
       const raw = await readRawState('cleanup-dry');
       raw.phase = 'review';
+      raw.synthesis = { ...(raw.synthesis as Record<string, unknown>), prUrl: 'https://github.com/test/pr/1' };
       await writeRawState('cleanup-dry', raw);
 
       const result = await handleCleanup({
@@ -189,6 +198,7 @@ describe('handleCleanup', () => {
       await handleInit({ featureId: 'cleanup-delegate', workflowType: 'feature' }, tmpDir, null);
       const raw = await readRawState('cleanup-delegate');
       raw.phase = 'delegate';
+      raw.synthesis = { ...(raw.synthesis as Record<string, unknown>), prUrl: 'https://github.com/test/pr/1' };
       await writeRawState('cleanup-delegate', raw);
 
       const result = await handleCleanup({
@@ -206,6 +216,7 @@ describe('handleCleanup', () => {
       await handleInit({ featureId: 'cleanup-debug', workflowType: 'debug' }, tmpDir, null);
       const raw = await readRawState('cleanup-debug');
       raw.phase = 'investigate';
+      raw.synthesis = { ...(raw.synthesis as Record<string, unknown>), prUrl: 'https://github.com/test/pr/1' };
       await writeRawState('cleanup-debug', raw);
 
       const result = await handleCleanup({
@@ -222,6 +233,7 @@ describe('handleCleanup', () => {
       await handleInit({ featureId: 'cleanup-refactor', workflowType: 'refactor' }, tmpDir, null);
       const raw = await readRawState('cleanup-refactor');
       raw.phase = 'overhaul-review';
+      raw.synthesis = { ...(raw.synthesis as Record<string, unknown>), prUrl: 'https://github.com/test/pr/1' };
       await writeRawState('cleanup-refactor', raw);
 
       const result = await handleCleanup({
@@ -258,6 +270,7 @@ describe('handleCleanup', () => {
       await handleInit({ featureId: 'cleanup-event-test', workflowType: 'feature' }, tmpDir, null);
       const raw = await readRawState('cleanup-event-test');
       raw.phase = 'review';
+      raw.synthesis = { ...(raw.synthesis as Record<string, unknown>), prUrl: 'https://github.com/test/pr/1' };
       await writeRawState('cleanup-event-test', raw);
 
       const result = await handleCleanup({
@@ -290,6 +303,7 @@ describe('handleCleanup', () => {
       await handleInit({ featureId: 'cleanup-store-fail', workflowType: 'feature' }, tmpDir, null);
       const raw = await readRawState('cleanup-store-fail');
       raw.phase = 'review';
+      raw.synthesis = { ...(raw.synthesis as Record<string, unknown>), prUrl: 'https://github.com/test/pr/1' };
       await writeRawState('cleanup-store-fail', raw);
 
       const result = await handleCleanup({
@@ -341,6 +355,7 @@ describe('handleCleanup', () => {
       await handleInit({ featureId: 'v2-event-order', workflowType: 'feature' }, tmpDir, null);
       const raw = await readRawState('v2-event-order');
       raw.phase = 'synthesize';
+      raw.synthesis = { ...(raw.synthesis as Record<string, unknown>), prUrl: 'https://github.com/test/pr/42' };
       await writeRawState('v2-event-order', raw);
 
       // Act
@@ -385,6 +400,7 @@ describe('handleCleanup', () => {
       await handleInit({ featureId: 'v2-idemp', workflowType: 'feature' }, tmpDir, null);
       const raw = await readRawState('v2-idemp');
       raw.phase = 'synthesize';
+      raw.synthesis = { ...(raw.synthesis as Record<string, unknown>), prUrl: 'https://github.com/test/pr/1' };
       await writeRawState('v2-idemp', raw);
 
       // Act — call cleanup
@@ -429,6 +445,7 @@ describe('handleCleanup', () => {
       await handleInit({ featureId: 'v2-evt-fail', workflowType: 'feature' }, tmpDir, null);
       const raw = await readRawState('v2-evt-fail');
       raw.phase = 'synthesize';
+      raw.synthesis = { ...(raw.synthesis as Record<string, unknown>), prUrl: 'https://github.com/test/pr/1' };
       await writeRawState('v2-evt-fail', raw);
 
       // Mock the atomic trail append to fail AFTER init
@@ -465,6 +482,9 @@ describe('handleCleanup', () => {
       raw.reviews = {
         'task-1': { status: 'approved' },
       };
+      // T-12: merge evidence must pre-exist; the input prUrl below is the
+      // metadata backfill this test asserts on, not the evidence.
+      raw.artifacts = { ...(raw.artifacts as Record<string, unknown>), pr: 'https://github.com/test/pr/0' };
       await writeRawState('v2-patch', raw);
 
       // Act
@@ -511,6 +531,7 @@ describe('handleCleanup', () => {
       // Ensure no _esVersion (v1)
       delete raw._esVersion;
       raw.phase = 'review';
+      raw.synthesis = { ...(raw.synthesis as Record<string, unknown>), prUrl: 'https://github.com/test/pr/1' };
       await writeRawState('v1-legacy', raw);
 
       // Mock event store to fail

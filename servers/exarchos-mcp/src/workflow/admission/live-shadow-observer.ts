@@ -323,10 +323,13 @@ const SHADOW_POLICY_VERSION = TRANSLATION_PROVIDER_VERSION;
  * for the attempt, `dispositionId` for the disposition). Both are a pure
  * function of the observed attempt (see `attemptIdentity` in
  * {@link emitShadowEvidence}): stream, edge key, phase-attempt id, legacy
- * outcome, input digest and evaluation instant, hashed. NOTHING random and
- * nothing wall-clock-only participates, so the SAME logical observation
- * recomputes the SAME key and its append collapses onto the stored row
- * instead of duplicating it.
+ * outcome and input digest, hashed. NOTHING random and NOTHING wall-clock
+ * participates — the evaluation instant is recorded on the payload but is
+ * deliberately EXCLUDED from the hash, because the production binding
+ * ({@link recordLiveTransition}) mints a fresh `evaluatedAt` per call and a
+ * genuine retry would otherwise derive a fresh key and duplicate the fact.
+ * So the SAME logical observation recomputes the SAME key and its append
+ * collapses onto the stored row instead of duplicating it.
  *
  * INV-13 (intent-before / result-after) is satisfied vacuously here: both
  * facts are pure OBSERVATION records of an already-completed, side-effect-free
@@ -690,14 +693,23 @@ function emitShadowEvidence(args: {
     ),
   ].sort();
 
+  // T-31: the CURRENT attempt. Every production caller stamps the attempt
+  // allocated for the observed transition as `_pendingPhaseAttemptId` before
+  // `attempt()` and only persists it as `phaseAttemptId` after success — so
+  // reading the persisted field first would name the PREDECESSOR attempt on
+  // every durable shadow fact. Pending first, persisted as the fallback.
   const phaseAttemptId = stableToken(
-    readString(state, 'phaseAttemptId') ??
+    readString(state, '_pendingPhaseAttemptId') ??
+      readString(state, 'phaseAttemptId') ??
       `${readString(state, 'featureId') ?? edge.workflowType}:${edge.to}`,
     'live-shadow:phase-attempt',
   );
 
   // NATURAL identity (INV-8): a pure function of the observed attempt. Two
-  // replays of the same attempt derive the same id; nothing here is random.
+  // replays of the same attempt derive the same id; nothing here is random
+  // and nothing is wall-clock (T-49: `recordedAt` is payload, NOT identity —
+  // a retry mints a fresh evaluation instant, and hashing it would mint a
+  // fresh key and duplicate the fact for one logical attempt).
   const attemptIdentity = sha256Hex(
     JSON.stringify([
       streamId,
@@ -705,7 +717,6 @@ function emitShadowEvidence(args: {
       phaseAttemptId,
       record.legacyOutcome,
       inputDigest.value,
-      recordedAt,
     ]),
   );
   const shadowAttemptId = `shadow-attempt:${attemptIdentity}`;
