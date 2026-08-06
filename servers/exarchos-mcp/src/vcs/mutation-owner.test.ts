@@ -220,12 +220,18 @@ describe('VCS mutation owner (P04-05)', () => {
     if (isSuccess(first)) expect(first.value.created).toBe(true);
     expect(branchExists(repo, 'feature/dup')).toBe(true);
 
-    // Second request, SAME key: must replay WITHOUT touching git at all.
+    // Second request, SAME key: must replay WITHOUT any MUTATING git call.
+    // The replay path is allowed exactly one READ-ONLY reality probe
+    // (`show-ref`) — see `VcsMutationRequest.verifyReplay` — so filter to
+    // effectful subcommands rather than demanding zero traffic.
     calls.length = 0;
     const second = await o.createBranch(req);
     expect(isSuccess(second)).toBe(true);
     if (isSuccess(second)) expect(second.value.branch).toBe('feature/dup');
-    expect(calls).toEqual([]); // idempotency replay short-circuits before any git
+    const mutating = calls.filter(
+      (argv) => !['show-ref', 'rev-parse'].includes(argv[0] ?? ''),
+    );
+    expect(mutating).toEqual([]); // replay short-circuits before any git EFFECT
 
     // Exactly one branch, exactly one terminal.
     const terminals = (await ledgerEvents()).filter((e) => e.type === VCS_EXECUTED);
@@ -262,6 +268,74 @@ describe('VCS mutation owner (P04-05)', () => {
     const second = await o.createWorktree(req);
     expect(isSuccess(second)).toBe(true);
     expect(extraWorktreeCount(repo)).toBe(1); // still exactly one
+  });
+
+  // ── (c2) remove-then-recreate at the SAME path re-runs the effect ──────────
+
+  it('(c2) createWorktree after a real remove RE-CREATES instead of replaying the stale terminal', async () => {
+    const o = owner();
+    const wtPath = path.join(repo, 'wt', 'lifecycle');
+    const req = {
+      repoRoot: repo,
+      worktreePath: wtPath,
+      branch: 'feature/wt-lifecycle',
+      base: 'main',
+      idempotencyKey: `worktree-setup:${wtPath}`,
+      epoch: 1,
+    };
+
+    const first = await o.createWorktree(req);
+    expect(isSuccess(first)).toBe(true);
+    expect(existsSync(wtPath)).toBe(true);
+
+    // Routine wave lifecycle: the worktree is removed (different key — the
+    // remove terminal does NOT clear the create terminal in the ledger).
+    const removed = await o.removeWorktree({
+      repoRoot: repo,
+      worktreePath: wtPath,
+      idempotencyKey: `worktree-remove:${wtPath}`,
+      epoch: 1,
+    });
+    expect(isSuccess(removed)).toBe(true);
+    expect(existsSync(wtPath)).toBe(false);
+
+    // Re-request at the SAME deterministic path with the SAME key. Before the
+    // verifyReplay probe this replayed the stale `executed` terminal: success
+    // reported, no worktree on disk, forever. It must now actually create.
+    const recreate = await o.createWorktree(req);
+    expect(isSuccess(recreate)).toBe(true);
+    expect(existsSync(wtPath)).toBe(true);
+    expect(extraWorktreeCount(repo)).toBe(1);
+  });
+
+  it('(c3) removeWorktree after a recreate re-runs the remove instead of replaying', async () => {
+    const o = owner();
+    const wtPath = path.join(repo, 'wt', 'lifecycle3');
+    const create = {
+      repoRoot: repo,
+      worktreePath: wtPath,
+      branch: 'feature/wt-lifecycle3',
+      base: 'main',
+      idempotencyKey: `worktree-setup:${wtPath}`,
+      epoch: 1,
+    };
+    const remove = {
+      repoRoot: repo,
+      worktreePath: wtPath,
+      idempotencyKey: `worktree-remove:${wtPath}`,
+      epoch: 1,
+    };
+
+    expect(isSuccess(await o.createWorktree(create))).toBe(true);
+    expect(isSuccess(await o.removeWorktree(remove))).toBe(true);
+    expect(existsSync(wtPath)).toBe(false);
+    // Recreate (via c2's probe), then remove AGAIN with the original key:
+    // the recorded remove terminal no longer matches reality and must re-run.
+    expect(isSuccess(await o.createWorktree(create))).toBe(true);
+    expect(existsSync(wtPath)).toBe(true);
+    const removedAgain = await o.removeWorktree(remove);
+    expect(isSuccess(removedAgain)).toBe(true);
+    expect(existsSync(wtPath)).toBe(false);
   });
 
   // ── (d) duplicate provider PR/merge → ONE effect ───────────────────────────

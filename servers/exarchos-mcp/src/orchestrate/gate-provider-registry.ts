@@ -140,22 +140,30 @@ function levenshtein(a: string, b: string): number {
 
   // Dense DP rows kept as typed arrays for compact, fast indexing. Under
   // `noUncheckedIndexedAccess` even a provably in-bounds typed-array read types
-  // as `number | undefined`, so the always-valid reads below are asserted; the
-  // `0..b.length` DP bounds make those assertions total by construction.
+  // as `number | undefined`; the `0..b.length` DP bounds make an undefined
+  // read impossible, so one surfaces as a hard invariant failure rather than
+  // being asserted away.
+  const cell = (row: Int32Array, index: number): number => {
+    const value = row[index];
+    if (value === undefined) {
+      throw new Error(`levenshtein: DP cell ${index} out of bounds`);
+    }
+    return value;
+  };
   let previous = Int32Array.from({ length: b.length + 1 }, (_, index) => index);
   let current = new Int32Array(b.length + 1);
   for (let i = 1; i <= a.length; i += 1) {
     current[0] = i;
     for (let j = 1; j <= b.length; j += 1) {
       current[j] = Math.min(
-        current[j - 1]! + 1,
-        previous[j]! + 1,
-        previous[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1),
+        cell(current, j - 1) + 1,
+        cell(previous, j) + 1,
+        cell(previous, j - 1) + (a[i - 1] === b[j - 1] ? 0 : 1),
       );
     }
     [previous, current] = [current, previous];
   }
-  return previous[b.length]!;
+  return cell(previous, b.length);
 }
 
 function unknownGateClassDiagnostic(gateClass: string): UnknownGateClassDiagnostic {

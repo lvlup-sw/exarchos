@@ -34,6 +34,14 @@ const mergedRationale =
 const DISPOSITIONS = Object.freeze([
   // Canonical evidence-production seams.
   { file: 'servers/exarchos-mcp/src/orchestrate/gate-runner.ts', kind: 'durable-runner', count: 3, owner: 'orchestrate/gate-runner', rationale: 'The canonical v2.12 runner owns normalized evidence execution and the awaited durable append.', category: 'canonical-runner' },
+  // The canonical runner's own `gate.executed` append literal also matches the
+  // manual-gate-event detector; it is the ONE producer that literal names.
+  { file: 'servers/exarchos-mcp/src/orchestrate/gate-runner.ts', kind: 'manual-gate-event', count: 1, owner: 'orchestrate/gate-runner', rationale: 'appendGateExecutedSignal inside the canonical runner is THE single gate.executed producer; the literal is its own append, not a bypass.', category: 'canonical-runner' },
+  // The ownership census proves the seam live by invoking the real runner
+  // twice (success + fail-closed witness) against throwaway in-memory stores.
+  // Those invocations are observations of the canonical producer, not a
+  // second production seam.
+  { file: 'servers/exarchos-mcp/src/orchestrate/gate-ownership-census.ts', kind: 'durable-runner', count: 2, owner: 'orchestrate/gate-ownership-census', rationale: 'Live-witness probes drive the canonical runGate against sacrificial stores to prove success-carries-evidence and fail-closed behavior; no enforceable evidence is produced outside the runner.', category: 'diagnostic-observation' },
   { file: 'servers/exarchos-mcp/src/orchestrate/durable-gate-producer.ts', kind: 'durable-runner', count: 2, owner: 'orchestrate/durable-gate-producer', rationale: mergedRationale, category: 'merged-durable-producer' },
   ...[
     'check-integration-suite.ts',

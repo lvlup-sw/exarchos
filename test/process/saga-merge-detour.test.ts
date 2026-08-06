@@ -73,6 +73,29 @@ describe('#1208 — task.completed{worktreePath} auto-detours to merge-pending',
             },
           },
           {
+            // T-03/DR-1 closed the caller-evidence bypass for BLOCKING gates:
+            // `task_complete` now requires a durable `gate.executed` row for
+            // `static-analysis` and caller-supplied evidence can no longer
+            // stand in for it. Satisfy the gate via the documented
+            // operator-emitted shape (top-level `taskId`) that the
+            // task_complete tolerant reader accepts — this saga guards the
+            // #1208 detour contract, not the gate machinery.
+            tool: 'exarchos_event',
+            arguments: {
+              action: 'append',
+              stream: 'p2-detour',
+              event: {
+                type: 'gate.executed',
+                data: {
+                  gateName: 'static-analysis',
+                  layer: 'validation',
+                  passed: true,
+                  taskId: '001',
+                },
+              },
+            },
+          },
+          {
             tool: 'exarchos_orchestrate',
             arguments: {
               action: 'task_complete',
