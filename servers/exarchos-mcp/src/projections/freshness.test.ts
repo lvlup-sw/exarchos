@@ -375,8 +375,51 @@ describe('durable projection-degraded state (DR-4)', () => {
     expect(second?.sequence).toBe(first?.sequence);
     expect(third?.sequence).toBe(first?.sequence);
     expect(persisted[0]?.idempotencyKey).toBe(
-      projectionDegradedIdempotencyKey(STREAM, 4, 1),
+      projectionDegradedIdempotencyKey(STREAM, 4, 1, 0),
     );
+  });
+
+  it('ProjectionDegraded_RedetectionAfterRecovery_FoldEndsDegraded', async () => {
+    // Regression: the degraded key used to be keyed on (streamId, eventTail,
+    // cursor) alone. Degrade → recover → degrade AGAIN at the IDENTICAL pair
+    // (cursor regression via snapshot restore/rebuild — this module's own
+    // documented scenario) deduped the second `projection.degraded` onto the
+    // ORIGINAL row, whose sequence precedes the recovered event — so the fold
+    // ended 'recovered' and the degraded stream was served as healthy.
+    await seedEvents(4);
+    await warmFoldAndSetCursor(1);
+    expect(await publishProjectionFreshness(store, STREAM, await assessLive())).toBeDefined();
+
+    // The fold catches the tail: recovered.
+    await warmFoldAndSetCursor(4);
+    await publishProjectionFreshness(store, STREAM, await assessLive());
+    expect(await readProjectionDegradedState(store, STREAM)).toBeUndefined();
+
+    // The cursor regresses to the IDENTICAL (eventTail, cursor) pair.
+    await warmFoldAndSetCursor(1);
+    const freshness = await assessLive();
+    expect(freshness).toMatchObject({ degraded: true, eventTail: 4, projectionCursor: 1 });
+
+    const republished = await publishProjectionFreshness(store, STREAM, freshness);
+    expect(republished, 'the re-detection must produce a durable state').toBeDefined();
+
+    // The fold must end 'degraded': the re-detection minted a NEW row PAST the
+    // recovered event instead of collapsing onto the pre-recovery one.
+    const durable = await readProjectionDegradedState(store, STREAM);
+    expect(durable, 'a re-degraded stream must not be served as healthy').toMatchObject({
+      streamId: STREAM,
+      reason: 'projection-behind',
+      eventTail: 4,
+      projectionCursor: 1,
+    });
+
+    // Two degraded rows persisted (one per generation) — history, not spam:
+    // repeated re-detections WITHIN the new generation still collapse.
+    await publishProjectionFreshness(store, STREAM, await assessLive());
+    const persisted = await store.query(PROJECTION_HEALTH_STREAM_ID, {
+      type: PROJECTION_DEGRADED_EVENT_TYPE,
+    });
+    expect(persisted).toHaveLength(2);
   });
 
   it('ProjectionDegraded_PublishedOnMetaStream_LeavesAssessedStreamTailUntouched', async () => {

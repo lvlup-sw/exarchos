@@ -1,4 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 import {
@@ -8,11 +10,17 @@ import {
   writeRecordedIdentity,
   installIdentityLockPath,
   CACHE_DESCRIPTOR_FILENAME,
+  INSTALL_IDENTITY_LOCK_FILENAME,
   type IdentityDeps,
 } from './collect-identity.js';
+import * as atomicWrite from '../utils/atomic-write.js';
 import { resolveCacheDir } from '../utils/paths.js';
 import { InstallIdentitySchema } from './install-identity.js';
 import { SCHEMA_VERSION } from '../storage/sqlite-backend.js';
+
+// Spy-wrap (real implementations retained) so the torn-write regression below
+// can assert the DEFAULT lock write routes through the atomic publish.
+vi.mock('../utils/atomic-write.js', { spy: true });
 
 // ─── In-memory filesystem seams ──────────────────────────────────────────────
 
@@ -208,5 +216,32 @@ describe('recorded install-identity lock', () => {
     writeRecordedIdentity('/state', id, deps);
     expect(store.has(installIdentityLockPath('/state'))).toBe(true);
     expect(readRecordedIdentity('/state', deps)).toEqual(id);
+  });
+
+  it('default lock write publishes atomically (tmp+fsync+rename), never a torn plain write', () => {
+    // Regression: the lock used to be written with a plain `fs.writeFileSync`.
+    // `readRecordedIdentity` treats a corrupt/torn lock as "no lock" (so a
+    // re-record can heal it), so a crash mid-write silently converted a
+    // would-be BLOCKED freshness verdict into 'bootstrapped'. The DEFAULT
+    // write seam must therefore route through `atomicWriteFile`.
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'identity-lock-'));
+    try {
+      const id = collectFrom(coherentFiles());
+      writeRecordedIdentity(stateDir, id); // no injected seams — the default path
+      const lockPath = installIdentityLockPath(stateDir);
+
+      // The write went through the atomic publish, targeting the lock path.
+      const atomicSpy = vi.mocked(atomicWrite.atomicWriteFile);
+      expect(atomicSpy).toHaveBeenCalledTimes(1);
+      expect(atomicSpy.mock.calls[0]?.[0]).toBe(lockPath);
+
+      // Read-side semantics unchanged: the lock round-trips off the real fs…
+      expect(readRecordedIdentity(stateDir)).toEqual(id);
+      // …and the publish left no staged `*.tmp` beside the lock.
+      expect(fs.readdirSync(stateDir)).toEqual([INSTALL_IDENTITY_LOCK_FILENAME]);
+    } finally {
+      vi.clearAllMocks();
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    }
   });
 });

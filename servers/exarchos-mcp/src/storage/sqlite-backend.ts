@@ -211,6 +211,7 @@ CREATE TABLE IF NOT EXISTS idempotency_claims (
 interface Statements {
   insertEvent: Statement;
   upsertSequence: Statement;
+  upsertSequenceMonotonic: Statement;
   selectSequence: Statement;
   selectEvents: Statement;
   getState: Statement;
@@ -1545,6 +1546,15 @@ export class SqliteBackend implements StorageBackend {
       upsertSequence: this.db.prepare(
         'INSERT INTO sequences (streamId, sequence) VALUES (?, ?) ON CONFLICT(streamId) DO UPDATE SET sequence = excluded.sequence',
       ),
+      // EFF-001 repair path ONLY: monotonic gate upsert. `MAX(sequence,
+      // excluded.sequence)` lets a repair RAISE the gate to the durable tail
+      // but never lower it — a stale repair value (computed before a sibling
+      // process advanced the stream) degrades to a no-op instead of dragging
+      // the gate back below the tail (gate-below-tail → PRIMARY KEY violation
+      // on the next append).
+      upsertSequenceMonotonic: this.db.prepare(
+        'INSERT INTO sequences (streamId, sequence) VALUES (?, ?) ON CONFLICT(streamId) DO UPDATE SET sequence = MAX(sequence, excluded.sequence)',
+      ),
       selectSequence: this.db.prepare(
         'SELECT sequence FROM sequences WHERE streamId = ?',
       ),
@@ -1997,42 +2007,59 @@ export class SqliteBackend implements StorageBackend {
    *   left alone; lowering it would re-issue numbers a reader may already have
    *   observed. Reported, not "repaired".
    *
-   * Runs inside one transaction so a repair is all-or-nothing, and logs loudly:
-   * a silently corrected divergence is indistinguishable from a healthy store.
+   * The divergence SELECT and the corrective upserts run inside ONE
+   * `BEGIN IMMEDIATE` transaction so a repair is all-or-nothing AND cannot be
+   * computed against a tail a concurrent process has since advanced (the
+   * gate-lowering TOCTOU). The applied upsert is additionally monotonic
+   * (`MAX(sequence, excluded.sequence)`) so even a stale repair value can only
+   * raise the gate, never lower it. Logs loudly: a silently corrected
+   * divergence is indistinguishable from a healthy store.
    */
   private repairSequenceHighWaterMarks(): SequenceRepairReport {
-    const rows = this.db
-      .prepare(
-        `SELECT e.streamId AS streamId,
-                MAX(e.sequence) AS tail,
-                COALESCE(s.sequence, 0) AS gate
-           FROM events e
-           LEFT JOIN sequences s ON s.streamId = e.streamId
-          GROUP BY e.streamId
-         HAVING MAX(e.sequence) <> COALESCE(s.sequence, 0)`,
-      )
-      .all() as { streamId: string; tail: number; gate: number }[];
+    const divergenceQuery = this.db.prepare(
+      `SELECT e.streamId AS streamId,
+              MAX(e.sequence) AS tail,
+              COALESCE(s.sequence, 0) AS gate
+         FROM events e
+         LEFT JOIN sequences s ON s.streamId = e.streamId
+        GROUP BY e.streamId
+       HAVING MAX(e.sequence) <> COALESCE(s.sequence, 0)`,
+    );
 
+    // The divergence SELECT and the corrective upserts share ONE
+    // `BEGIN IMMEDIATE` transaction. Running the SELECT on the bare
+    // connection and applying the fixes in a separate transaction left a
+    // TOCTOU window: a sibling process could repair AND append between the
+    // two steps, and this process's apply — computed against the pre-append
+    // tail — would drag the freshly-advanced gate back below the durable
+    // tail. Holding the write lock across read + write closes the window;
+    // the monotonic upsert (`upsertSequenceMonotonic`) is the second,
+    // independent floor should a stale tail ever reach the statement anyway.
     const repaired: SequenceRepair[] = [];
     const gaps: SequenceRepair[] = [];
-    for (const row of rows) {
-      (row.gate < row.tail ? repaired : gaps).push({
-        streamId: row.streamId,
-        gate: row.gate,
-        tail: row.tail,
-      });
+    const repair = this.db.transaction(() => {
+      const rows = divergenceQuery.all() as {
+        streamId: string;
+        tail: number;
+        gate: number;
+      }[];
+      for (const row of rows) {
+        (row.gate < row.tail ? repaired : gaps).push({
+          streamId: row.streamId,
+          gate: row.gate,
+          tail: row.tail,
+        });
+      }
+      for (const entry of repaired) {
+        this.stmts.upsertSequenceMonotonic.run(entry.streamId, entry.tail);
+      }
+    });
+    if (!hasImmediateTransaction(repair)) {
+      throw new SqliteImmediateUnsupportedError();
     }
+    repair.immediate();
 
     if (repaired.length > 0) {
-      const apply = this.db.transaction(() => {
-        for (const entry of repaired) {
-          this.stmts.upsertSequence.run(entry.streamId, entry.tail);
-        }
-      });
-      if (!hasImmediateTransaction(apply)) {
-        throw new SqliteImmediateUnsupportedError();
-      }
-      apply.immediate();
       storeLogger.warn(
         {
           repaired: repaired.length,

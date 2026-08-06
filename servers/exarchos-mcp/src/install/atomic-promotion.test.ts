@@ -271,6 +271,65 @@ describe('promoteTreeSync — fault injection leaves no torn state', () => {
   });
 });
 
+// ─── Staging containment: DigestEntry.path may not escape the staging dir ─────
+//
+// Regression: `stageEntries` used to join `entry.path` under the staging dir
+// with no containment validation, so a `..` segment wrote OUTSIDE the staging
+// dir (`../escape.txt` landed beside the target's parent). Entry paths are
+// caller-supplied data; every component is now validated through the same
+// guard the artifact store uses, and a violation fails with the module's
+// typed error before any byte is written.
+
+describe('promoteTreeSync — staging containment', () => {
+  it('a `..` entry path is rejected typed and writes NOTHING outside the staging dir', () => {
+    writeTree(target, OLD_TREE);
+    const escapeLanding = path.join(root, 'escape.txt'); // where `../escape.txt` would land
+
+    const err = (() => {
+      try {
+        promoteTreeSync({
+          target,
+          entries: [...NEW_TREE, { path: '../escape.txt', content: 'ESCAPED\n' }],
+        });
+        return undefined;
+      } catch (e) {
+        return e;
+      }
+    })();
+
+    expect(err).toBeInstanceOf(PromotionError);
+    expect((err as PromotionError).code).toBe('STAGE_INCOMPLETE');
+    expect(
+      fs.existsSync(escapeLanding),
+      'a traversal entry must not write outside the staging dir',
+    ).toBe(false);
+    // A containment violation is a stage failure: target fully OLD, stage dropped.
+    expect(diskDigest(target)).toBe(OLD_DIGEST);
+    expect(fs.existsSync(stageDir())).toBe(false);
+  });
+
+  it('an absolute entry path is rejected typed before any byte is staged', () => {
+    writeTree(target, OLD_TREE);
+
+    const err = (() => {
+      try {
+        promoteTreeSync({
+          target,
+          entries: [{ path: '/abs/escape.txt', content: 'ESCAPED\n' }],
+        });
+        return undefined;
+      } catch (e) {
+        return e;
+      }
+    })();
+
+    expect(err).toBeInstanceOf(PromotionError);
+    expect((err as PromotionError).code).toBe('STAGE_INCOMPLETE');
+    expect(diskDigest(target)).toBe(OLD_DIGEST);
+    expect(fs.existsSync(stageDir())).toBe(false);
+  });
+});
+
 // ─── Hard crash (double fault) + journal recovery ────────────────────────────
 
 describe('promoteTreeSync — hard crash + idempotent recovery (EFF-012)', () => {

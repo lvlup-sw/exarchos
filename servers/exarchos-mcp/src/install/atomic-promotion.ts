@@ -98,6 +98,7 @@ import {
   type DirectorySyncOutcome,
   type DurabilityBarrier,
 } from '../utils/atomic-write.js';
+import { resolveContainedArtifactPath } from '../artifacts/artifact-path.js';
 import {
   digestTree,
   type DigestEntry,
@@ -563,7 +564,23 @@ function stageEntries(plan: StagePlan, entries: readonly DigestEntry[], io: Prom
   io.mkdirp(plan.stagingDir);
   for (const entry of entries) {
     const rel = entry.path.replace(/\\/g, '/');
-    const full = path.join(plan.stagingDir, ...rel.split('/'));
+    // Containment: a DigestEntry path is caller-supplied data, and a `..`
+    // segment (or an absolute / drive-qualified path) in a bare
+    // `path.join(stagingDir, ...)` would write OUTSIDE the staging dir.
+    // `resolveContainedArtifactPath` validates every component structurally
+    // AND re-proves the joined result stays under the staging root; a
+    // violation fails typed BEFORE any byte is written.
+    let full: string;
+    try {
+      full = resolveContainedArtifactPath(plan.stagingDir, rel.split('/'));
+    } catch (err) {
+      throw new PromotionError(
+        'STAGE_INCOMPLETE',
+        `refusing to stage entry ${JSON.stringify(entry.path)} for ${plan.target}: ` +
+          `its path escapes the staging directory ${plan.stagingDir}`,
+        { cause: err },
+      );
+    }
     io.mkdirp(path.dirname(full));
     io.writeFile(full, Buffer.from(entry.content, 'utf8'));
   }
