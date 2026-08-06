@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 420" width="860">
+  <title>Functional core with explicit effects</title>
+  <desc>Validated input and immutable state enter a pure decision core. The core returns a typed decision and requested effects. Adapters execute time, persistence, network, and filesystem effects.</desc>
+
+  <defs>
+    <marker id="core-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b"/>
+    </marker>
+  </defs>
+
+  <style>
+    text { font-family: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', 'Menlo', 'Consolas', monospace }
+    .title { fill: #f8fafc; font-size: 17px; font-weight: 700 }
+    .head { fill: #e2e8f0; font-size: 12px; font-weight: 700 }
+    .label { fill: #cbd5e1; font-size: 11px }
+    .small { fill: #94a3b8; font-size: 10px }
+    .input { fill: #111827; stroke: #475569; stroke-width: 1.5 }
+    .core { fill: #172554; stroke: #60a5fa; stroke-width: 2 }
+    .effect { fill: #3f1d2e; stroke: #f472b6; stroke-width: 1.5 }
+    .result { fill: #052e2b; stroke: #2dd4bf; stroke-width: 1.5 }
+    .edge { fill: none; stroke: #64748b; stroke-width: 1.5; marker-end: url(#core-arrow) }
+  </style>
+
+  <rect width="860" height="420" rx="10" fill="#0a0a14"/>
+  <text class="title" x="430" y="34" text-anchor="middle">Deterministic decisions, explicit effects</text>
+
+  <rect class="input" x="38" y="112" width="180" height="72" rx="7"/>
+  <text class="head" x="128" y="140" text-anchor="middle">VALIDATED INPUT</text>
+  <text class="small" x="128" y="161" text-anchor="middle">command + immutable state</text>
+
+  <path class="edge" d="M 218 148 L 302 148"/>
+
+  <rect class="core" x="302" y="82" width="256" height="132" rx="9"/>
+  <text class="head" x="430" y="116" text-anchor="middle">PURE DECISION CORE</text>
+  <text class="label" x="430" y="143" text-anchor="middle">same input, same result</text>
+  <text class="small" x="430" y="169" text-anchor="middle">no clock, network, filesystem,</text>
+  <text class="small" x="430" y="186" text-anchor="middle">global state, or hidden mutation</text>
+
+  <path class="edge" d="M 558 122 L 642 122"/>
+  <path class="edge" d="M 558 177 L 642 177"/>
+
+  <rect class="result" x="642" y="80" width="180" height="68" rx="7"/>
+  <text class="head" x="732" y="107" text-anchor="middle">TYPED DECISION</text>
+  <text class="small" x="732" y="128" text-anchor="middle">state + result</text>
+
+  <rect class="effect" x="642" y="164" width="180" height="68" rx="7"/>
+  <text class="head" x="732" y="191" text-anchor="middle">REQUESTED EFFECTS</text>
+  <text class="small" x="732" y="212" text-anchor="middle">explicit effect values</text>
+
+  <path class="edge" d="M 732 232 L 732 284"/>
+
+  <rect class="input" x="102" y="284" width="656" height="88" rx="8"/>
+  <text class="head" x="430" y="311" text-anchor="middle">EFFECT ADAPTERS</text>
+  <text class="label" x="190" y="342" text-anchor="middle">persistence</text>
+  <text class="label" x="350" y="342" text-anchor="middle">network</text>
+  <text class="label" x="510" y="342" text-anchor="middle">filesystem</text>
+  <text class="label" x="670" y="342" text-anchor="middle">clock / randomness</text>
+</svg>

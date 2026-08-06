@@ -1,6 +1,6 @@
-# INV-4: Platform-Agnosticity (Multi-Runtime, No Claude-Only Coupling)
+# INV-4: Platform-Agnosticity (Conform-and-Shrink, Not an Unqualified Multi-Runtime Claim)
 
-Skills, rules, and workflows must not couple to any single harness. The skills renderer + runtime YAML system is the implementation; the invariant is the design discipline. Six runtimes are first-class: Claude Code, Codex, Copilot, Cursor, OpenCode, generic.
+Authored content is emitted **ONCE** as a standard-conformant artifact wherever an open standard converged — Agent Skills (`SKILL.md`), AGENTS.md, and MCP — and each of the six first-class runtimes (Claude Code, Codex, Copilot, Cursor, OpenCode, generic) reads it natively. Per-runtime fan-out is **TECHNICAL DEBT, not the target architecture**: a thin shim survives only where NO standard exists, and every residual shim carries an owner, the capability reason it exists, and a retirement condition. The skills renderer + runtime YAML system is the implementation; conformance plus shim minimization — not render-parity across N runtime variants — is the design discipline this invariant enforces, because a byte-perfect per-harness render proves the artifacts match, not that the guarantee holds.
 
 ## Acceptance questions
 

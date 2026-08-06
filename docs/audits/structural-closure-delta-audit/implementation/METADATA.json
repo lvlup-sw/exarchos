@@ -1,0 +1,8 @@
+{
+  "repository": "lvlup-sw/exarchos",
+  "branch": "feature/phase-gate-v212-proof-substrate",
+  "base": "30831d05f67c44b80e45391b67ed29f11dda4276",
+  "head": "d139a765dd251d0e745a22dd08e7828a74fdad98",
+  "createdAt": "2026-07-21T16:41:45.8053805-07:00",
+  "bundleImport": "git fetch phase-gate-v212-proof-substrate.bundle feature/phase-gate-v212-proof-substrate:refs/heads/feature/phase-gate-v212-proof-substrate"
+}
