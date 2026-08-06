@@ -12,7 +12,7 @@
 import { runCommandSync } from '../utils/process.js';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
-import { emitGateEvent } from './gate-utils.js';
+import { runDurableGateProducer } from './durable-gate-producer.js';
 import { runGatePreflight } from './pure/gate-preflight.js';
 import { runIntegrationSuite } from './pure/integration-suite.js';
 import type { RunCommandFn, CommandResult } from './pure/static-analysis.js';
@@ -36,6 +36,8 @@ interface CheckIntegrationSuiteArgs {
    */
   readonly worktreePath?: string;
   readonly taskId?: string;
+  readonly branch?: string;
+  readonly baseBranch?: string;
   /** npm script that emits vitest JSON. Defaults to `test:run`. */
   readonly testScript?: string;
 }
@@ -101,8 +103,11 @@ export function isSpawnFailure(err: { status?: number; code?: string }): boolean
  * Wraps execFileSync to match the RunCommandFn signature. A non-zero exit
  * (the suite failed) is returned as a CommandResult, not thrown — vitest's
  * JSON summary is still on stdout in that case.
+ *
+ * @internal Exported so WFQ-003 can prove the real spawn → parse chain without
+ * executing the repository's own suite.
  */
-const execCommandRunner: RunCommandFn = (
+export const execCommandRunner: RunCommandFn = (
   cmd: string,
   args: readonly string[],
   options?: { cwd?: string },
@@ -142,7 +147,7 @@ const execCommandRunner: RunCommandFn = (
  */
 export async function handleCheckIntegrationSuite(
   args: CheckIntegrationSuiteArgs,
-  _stateDir: string,
+  stateDir: string,
   eventStore: EventStore,
   runCommand: RunCommandFn = execCommandRunner,
 ): Promise<ToolResult> {
@@ -163,41 +168,37 @@ export async function handleCheckIntegrationSuite(
   if (!pre.ok) return pre.result;
   const repoRoot = pre.repoRoot;
 
-  // Run the full suite and fold load-failures into the failure count.
-  const suite = runIntegrationSuite({
-    repoRoot,
-    runCommand,
-    testScript: args.testScript,
-  });
-
-  const passed = suite.passed;
-
-  // Emit gate.executed (fire-and-forget: emission failure must not break the gate).
-  try {
-    await emitGateEvent(eventStore, args.featureId, 'integration-suite', 'post-merge', passed, {
-      phase: 'synthesize',
-      failCount: suite.failCount,
-      loadFailures: suite.loadFailures,
-      failedTests: suite.failedTests,
-      failedSuites: suite.failedSuites,
-      totalTests: suite.totalTests,
-      ...(suite.parseError ? { parseError: true } : {}),
-      ...(suite.parseFailureKind ? { parseFailureKind: suite.parseFailureKind } : {}),
+  return runDurableGateProducer(
+    {
+      gateClass: 'integration-suite',
+      featureId: args.featureId,
       ...(args.taskId ? { taskId: args.taskId } : {}),
-    });
-  } catch { /* fire-and-forget */ }
+      ...(args.branch ? { branch: args.branch } : {}),
+      baseRef: args.baseBranch ?? 'main',
+      repoRoot,
+      stateDir,
+      eventStore,
+    },
+    async () => {
+      // Run the full suite and fold load-failures into the failure count.
+      const suite = runIntegrationSuite({
+        repoRoot,
+        runCommand,
+        testScript: args.testScript,
+      });
 
-  const result: CheckIntegrationSuiteResult = {
-    passed,
-    failCount: suite.failCount,
-    loadFailures: suite.loadFailures,
-    failedTests: suite.failedTests,
-    failedSuites: suite.failedSuites,
-    totalTests: suite.totalTests,
-    report: suite.report,
-    parseError: suite.parseError,
-    ...(suite.parseFailureKind ? { parseFailureKind: suite.parseFailureKind } : {}),
-  };
-
-  return { success: true, data: result };
+      const result: CheckIntegrationSuiteResult = {
+        passed: suite.passed,
+        failCount: suite.failCount,
+        loadFailures: suite.loadFailures,
+        failedTests: suite.failedTests,
+        failedSuites: suite.failedSuites,
+        totalTests: suite.totalTests,
+        report: suite.report,
+        parseError: suite.parseError,
+        ...(suite.parseFailureKind ? { parseFailureKind: suite.parseFailureKind } : {}),
+      };
+      return { success: true, data: result };
+    },
+  );
 }

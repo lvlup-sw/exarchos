@@ -26,6 +26,8 @@ import {
   handleViewShepherdStatus,
   handleViewProvenance,
   handleViewConvergence,
+  handleViewGateReliability,
+  getOrCreateMaterializer,
 } from './tools.js';
 import { handleViewInvariantsEffective } from './effective-catalog.js';
 import { handleViewInspect } from './lifecycle/inspect.js';
@@ -37,6 +39,17 @@ import { handleStackStatus, handleStackPlace } from '../stack/tools.js';
 import { handleViewTelemetry } from '../telemetry/tools.js';
 import type { QualityHintsConfig } from '../capabilities/resolver.js';
 import { deriveRepoKey } from '../utils/paths.js';
+import { viewLogger } from '../logger.js';
+import {
+  assessStreamFreshness,
+  publishProjectionFreshness,
+  toProjectionDegradedMeta,
+  PROJECTION_DEGRADED_META,
+} from '../projections/freshness.js';
+import {
+  guardProjectionDegraded,
+  toProjectionDegradedResult,
+} from '../projections/degraded-result.js';
 
 const viewActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_view')!.actions;
 
@@ -104,6 +117,134 @@ export async function handleView(
   // ctx)` with no third argument, so the real OS-backed defaults are wired; only
   // the named lifecycle tests thread it. Other action arms ignore it. An extra
   // optional parameter keeps `handleView` assignable to `CompositeHandler`.
+  deps?: WaitDeps,
+): Promise<ToolResult> {
+  const result = await dispatchViewAction(args, ctx, deps);
+  return stampProjectionFreshness(result, args, ctx);
+}
+
+/**
+ * EFF-002 read-surface chokepoint / DR-4 detector, publisher AND consumer.
+ *
+ * Every view answer routes through here. `exarchos_view` is the only surface
+ * that holds BOTH halves of the comparison — the durable tail and the live
+ * materializer cursors — so it is the surface that detects a disagreement,
+ * makes it durable, and clears it again. `exarchos_workflow` and
+ * `exarchos_orchestrate` are pure consumers of what this publishes.
+ *
+ * Order is load-bearing:
+ *
+ *   1. The action has already run, so the folds have been brought as current as
+ *      a re-fold can bring them. Assessing BEFORE the dispatch would report a
+ *      staleness the read itself was about to fix, and — because this is also
+ *      the recovery surface — would wedge: the one action able to clear the
+ *      state would be the one refused by it.
+ *   2. Publish the live verdict. Degraded mints (idempotently) a
+ *      `projection.degraded` row; freshly-caught-up mints the paired
+ *      `projection.recovered`, releasing every consumer blocked on it. This is
+ *      the production write path for T-06's durable state.
+ *   3. Refuse. A disagreement that survived step 1 is one a re-fold cannot fix
+ *      — a fold ahead of a pruned log, or a sibling projection of the same
+ *      stream still trailing — so the payload is dropped and the shared typed
+ *      degraded result returned in its place (DR-4).
+ *
+ * `_meta.projectionDegraded` is KEPT alongside the typed result rather than
+ * subsumed: it is the pre-existing per-response courtesy, it is forwarded
+ * verbatim by `envelopeWrap`, and `workflow/rehydrate.ts` stamps the same key
+ * for the case where a contradictory cache was discarded and the answer IS
+ * authoritative — a state that must stay expressible as an annotated success.
+ * What changed is that `_meta` is no longer the ONLY signal, and no longer
+ * rides on a `success: true` carrying the stale payload.
+ *
+ * Deliberately conservative:
+ * - A failed result is returned untouched; the error is the signal.
+ * - A stream with no cached folds is fresh — a cold read folds from scratch.
+ * - Any fault computing or publishing freshness leaves the response unchanged.
+ *   The freshness probe must never be the reason a healthy read fails.
+ */
+async function stampProjectionFreshness(
+  result: ToolResult,
+  args: Record<string, unknown>,
+  ctx: DispatchContext,
+): Promise<ToolResult> {
+  if (!result.success) return result;
+  const streamId = typeof args['workflowId'] === 'string' ? args['workflowId'] : undefined;
+  if (streamId === undefined || streamId.length === 0) return result;
+
+  try {
+    const materializer = getOrCreateMaterializer(ctx.stateDir);
+    const cursors = materializer?.getStreamCursors?.(streamId) ?? [];
+    if (cursors.length === 0) {
+      // No fold of our own to judge — but another process may have recorded
+      // this stream degraded, and serving it as a clean success would be the
+      // exact cross-process blind spot DR-4 exists to close.
+      return (
+        (await guardProjectionDegraded(ctx.eventStore, streamId, {
+          tool: 'exarchos_view',
+          action: typeof args['action'] === 'string' ? args['action'] : undefined,
+          onError: (err) =>
+            viewLogger.warn({ streamId, err }, 'durable projection-health read failed'),
+        })) ?? result
+      );
+    }
+
+    const eventTail = await ctx.eventStore.tailSequence(streamId);
+    const freshness = assessStreamFreshness(eventTail, cursors);
+
+    // (2) Publish — the production write path for the durable state. Degraded
+    // records; recovered releases. Never allowed to fail the read.
+    let durable: Awaited<ReturnType<typeof publishProjectionFreshness>>;
+    try {
+      durable = await publishProjectionFreshness(ctx.eventStore, streamId, freshness);
+    } catch (err) {
+      viewLogger.warn({ streamId, err }, 'publishing projection-health state failed');
+    }
+
+    const meta = toProjectionDegradedMeta(freshness);
+    if (meta === undefined) return result;
+
+    viewLogger.warn(
+      { streamId, ...meta },
+      'projection cursors disagree with the durable event tail; response refused as degraded (EFF-002/DR-4)',
+    );
+
+    // (3) Refuse. The stale payload is dropped, not annotated — a caller that
+    // branches on `success` must not be able to act on it.
+    const degraded =
+      durable ??
+      // The publish leg failed; the verdict is still true and still ours to
+      // report, so synthesize the same shape from the live comparison rather
+      // than silently downgrading to a success.
+      {
+        streamId,
+        reason: meta.reason,
+        eventTail: meta.eventTail,
+        projectionCursor: meta.projectionCursor,
+        lag: meta.lag,
+        staleViews: meta.staleViews,
+        sequence: 0,
+        observedAt: new Date().toISOString(),
+      };
+    const refusal = toProjectionDegradedResult(degraded, {
+      tool: 'exarchos_view',
+      action: typeof args['action'] === 'string' ? args['action'] : undefined,
+    });
+    return {
+      ...refusal,
+      _meta: { ...(result._meta ?? {}), [PROJECTION_DEGRADED_META]: meta },
+    };
+  } catch {
+    return result;
+  }
+}
+
+/**
+ * Composite handler that dispatches to existing view/stack handlers
+ * based on the `action` field in args.
+ */
+async function dispatchViewAction(
+  args: Record<string, unknown>,
+  ctx: DispatchContext,
   deps?: WaitDeps,
 ): Promise<ToolResult> {
   const startedAt = Date.now();
@@ -253,7 +394,7 @@ export async function handleView(
     case 'delegation_readiness':
       return wrapView(
         await handleViewDelegationReadiness(
-          rest as { workflowId?: string },
+          rest as { workflowId?: string; tasks?: readonly string[]; detail?: boolean },
           stateDir,
           eventStore,
         ),
@@ -397,6 +538,18 @@ export async function handleView(
         startedAt,
       );
 
+    // BASE-002 — the gate-reliability read model reaches production through
+    // this action. It is diagnostic-only: no admission or transition authority.
+    case 'gate_reliability':
+      return wrapView(
+        await handleViewGateReliability(
+          rest as { workflowId?: string; detail?: boolean },
+          stateDir,
+          eventStore,
+        ),
+        startedAt,
+      );
+
     case 'invariants_effective':
       // DR-7 (T-20) — the facade delegates to `resolveEffectiveCatalog`; the
       // `repoRoot` falls back to `ctx.cwd` (then `process.cwd()` inside the
@@ -500,6 +653,7 @@ export async function handleView(
             'shepherd_status',
             'provenance',
             'convergence',
+            'gate_reliability',
             'invariants_effective',
             'worktrees',
             'ps',

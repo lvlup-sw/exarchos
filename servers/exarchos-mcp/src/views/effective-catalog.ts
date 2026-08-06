@@ -39,7 +39,7 @@ export interface ViewInvariantsEffectiveArgs {
 /**
  * Resolve + return the effective invariant catalog for the given context.
  *
- * Loads `.exarchos.yml` (devCatalog gate, user catalogs, overrides) from the
+ * Loads `.exarchos.yml` (catalog registrations, overrides) from the
  * repo root, then delegates the merge/override/project pipeline to
  * `resolveEffectiveCatalog`. The returned `data` is exactly the core fn's
  * `{ entries, warnings }` result — the facade adds no fields, so every

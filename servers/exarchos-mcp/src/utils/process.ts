@@ -58,7 +58,19 @@ export function isPidAlive(pid: number): boolean {
  * `shell: true` is set. Native binaries (`git`, `cargo`, …) are real `.exe`s and
  * spawn fine without a shell.
  */
-const WINDOWS_CMD_SHIMS = new Set(['npm', 'npx', 'pnpm', 'yarn', 'corepack']);
+const WINDOWS_CMD_SHIMS = new Set([
+  'npm',
+  'npx',
+  'pnpm',
+  'yarn',
+  'corepack',
+  // `bun`/`bunx` ship as `.cmd` shims on Windows exactly like the others. Their
+  // absence was a live bug, not an oversight of scope: `resolveIntegrationCommand`
+  // classifies `bun` as a script runner, so a bun-based project's
+  // `check_integration_suite` spawned a bare `bun` and failed to launch on win32.
+  'bun',
+  'bunx',
+]);
 
 /**
  * Whether `command` is a package-manager shim that needs a shell to launch on

@@ -7,6 +7,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { readJsonConfig, writeJsonConfigAtomic } from './atomic-json.js';
 
 /**
  * User selections from the installation wizard.
@@ -54,35 +55,19 @@ export interface ExarchosConfig {
  * @throws If the file exists but contains invalid JSON.
  */
 export function readConfig(filePath: string): ExarchosConfig | null {
-  let raw: string;
-  try {
-    raw = fs.readFileSync(filePath, 'utf-8');
-  } catch (err: unknown) {
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code === 'ENOENT') {
-      return null;
-    }
-    throw err;
-  }
-
-  try {
-    return JSON.parse(raw) as ExarchosConfig;
-  } catch {
-    throw new Error(`Failed to parse config JSON at ${filePath}`);
-  }
+  return readJsonConfig<ExarchosConfig>(filePath);
 }
 
 /**
  * Write the Exarchos config file to disk.
  *
- * Creates parent directories if they do not exist.
- * Output is pretty-printed with 2-space indentation.
+ * Creates parent directories if they do not exist. The replacement is atomic
+ * (EFF-008): a failed write leaves the previous configuration intact rather
+ * than a truncated file the next read cannot parse.
  *
  * @param filePath - Absolute path to the config JSON file.
  * @param config - The config to persist.
  */
 export function writeConfig(filePath: string, config: ExarchosConfig): void {
-  const dir = path.dirname(filePath);
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(filePath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
+  writeJsonConfigAtomic(filePath, config);
 }

@@ -24,6 +24,7 @@ import {
   type Enforcement,
   type InvariantEntryV3,
 } from './invariant-schema.js';
+import { resolveCatalogSources } from './catalog-sources.js';
 
 /**
  * Schema versions the loader accepts (DR-1). The catalog frontmatter may
@@ -352,8 +353,8 @@ export function parseInvariantEntries(rawEntries: unknown): InvariantEntry[] {
 /**
  * Read the `invariants:` block from the closest `.exarchos.yml` walking up
  * from the catalog file. Returns `{}` when no file is found or when the
- * YAML lacks the `invariants` key — both cases collapse to default-disabled
- * at `loadInvariants` (see §4.0 of the v2 spec).
+ * YAML lacks the `invariants` key — both cases collapse to "nothing is
+ * registered", hence an empty load at `loadInvariants` (DR-31).
  *
  * Implementation note: we intentionally do NOT route through
  * `loadExarchosConfig` because that function validates the *entire*
@@ -366,19 +367,93 @@ export function parseInvariantEntries(rawEntries: unknown): InvariantEntry[] {
  * The walk-up is bounded by the filesystem root; we stop at the first hit.
  */
 export function readInvariantsConfig(catalogFilePath: string): ExarchosConfigInput {
+  return discoverInvariantsConfig(catalogFilePath).config;
+}
+
+/**
+ * The `.exarchos.yml` a catalog file resolves against: the parsed config plus
+ * the DIRECTORY that file lives in.
+ *
+ * The directory matters for DR-31 gating: `invariants.catalogs` registrations
+ * are written relative to the config file, so "is this file registered?" can
+ * only be answered by resolving those registrations against that directory.
+ * `root` is `undefined` when no config file was found (nothing is registered,
+ * so nothing loads).
+ */
+interface DiscoveredInvariantsConfig {
+  config: ExarchosConfigInput;
+  root: string | undefined;
+}
+
+function discoverInvariantsConfig(
+  catalogFilePath: string,
+): DiscoveredInvariantsConfig {
   let dir = path.dirname(path.resolve(catalogFilePath));
   // Bounded walk-up: stop at filesystem root.
   while (true) {
     for (const filename of ['.exarchos.yml', '.exarchos.yaml']) {
       const candidate = path.join(dir, filename);
       if (fs.existsSync(candidate)) {
-        return parseInvariantsBlock(candidate);
+        return { config: parseInvariantsBlock(candidate), root: dir };
       }
     }
     const parent = path.dirname(dir);
-    if (parent === dir) return {};
+    if (parent === dir) return { config: {}, root: undefined };
     dir = parent;
   }
+}
+
+/**
+ * Canonical form for path comparison: absolute-ized, `.`/`..` collapsed, and
+ * `/`-separated with no trailing slash.
+ *
+ * The separator normalization is deliberate and is NOT a platform branch: the
+ * same expression runs on POSIX and Windows, so the comparison below has
+ * exactly one behavior on both. (A `process.platform` branch here would make
+ * the gate live on one OS and dead on the other.)
+ */
+function canonicalPath(p: string): string {
+  return path.normalize(p).replace(/\\/g, '/').replace(/(.)\/+$/, '$1');
+}
+
+/**
+ * DR-31 gate: **is a catalog registered for this file?**
+ *
+ * This replaces the retired `invariants.devCatalog !== 'enabled'` boolean
+ * gate. The question the loader asks is no longer "did someone flip a
+ * repo-only flag?" but "does this config register this catalog?" — the same
+ * question a consumer's `.exarchos.yml` answers for its own files. Discovery
+ * is delegated to `resolveCatalogSources`, so there is exactly ONE place that
+ * knows what a registration is.
+ *
+ * Registrations resolve against `configRoot` (the directory of the
+ * `.exarchos.yml` they came from, or the root the caller resolved them
+ * against). When the config was injected without a root, the loader cannot
+ * know which root the caller used, so a RELATIVE registration matches on a
+ * segment-aligned path suffix — `.exarchos/invariants.md` matches
+ * `<anyRoot>/.exarchos/invariants.md` but never `<anyRoot>/other.md` and never
+ * a partial segment such as `<anyRoot>/my.exarchos/invariants.md`.
+ *
+ * @param filePath Catalog file the caller is asking to load.
+ * @param config Effective config (already-injected or disk-read).
+ * @param configRoot Directory registrations are relative to, when known.
+ */
+export function isCatalogRegistered(
+  filePath: string,
+  config: ExarchosConfigInput | undefined,
+  configRoot?: string | undefined,
+): boolean {
+  const target = canonicalPath(path.resolve(filePath));
+  return resolveCatalogSources(config).some((source) => {
+    if (path.isAbsolute(source.path)) {
+      return canonicalPath(path.resolve(source.path)) === target;
+    }
+    if (configRoot !== undefined) {
+      return canonicalPath(path.resolve(configRoot, source.path)) === target;
+    }
+    const relative = canonicalPath(source.path);
+    return target === relative || target.endsWith(`/${relative}`);
+  });
 }
 
 /**
@@ -426,12 +501,18 @@ function parseInvariantsBlock(configPath: string): ExarchosConfigInput {
 /**
  * Load and parse the invariants catalog from the given Markdown file.
  *
- * **Gating (Wave B2 / spec §4.0):** the loader consults
- * `config.invariants?.devCatalog`. When the flag is anything other than
- * `'enabled'` (including `undefined`, `'disabled'`, or an unset block),
- * the loader returns `[]` regardless of `opts.scope`. The default reader
- * walks up from the catalog file looking for `.exarchos.yml`; tests pass
- * an explicit `config` to bypass disk-IO. See `readInvariantsConfig`.
+ * **Gating (DR-31): registration, not a boolean.** The loader returns `[]`
+ * unless the effective config REGISTERS this file in `invariants.catalogs`
+ * (see `isCatalogRegistered`). Gating applies BEFORE any scope filter, so a
+ * scope value cannot bypass it. The default reader walks up from the catalog
+ * file looking for `.exarchos.yml`; tests and in-process callers may inject an
+ * explicit `config` to bypass disk-IO. See `readInvariantsConfig`.
+ *
+ * This replaces the retired `invariants.devCatalog: 'enabled'` gate, which was
+ * a repo-only loading mode no consumer could reproduce. **Behavior change:**
+ * `devCatalog: 'disabled'` no longer suppresses a registered catalog — the
+ * boolean is inert in either direction; only registration decides. A repo that
+ * wants the old "disabled" outcome removes the registration.
  *
  * @param filePath Absolute path to `.exarchos/invariants.md`.
  * @param opts Optional filter (schema-v2; spec §4.1, §4.2):
@@ -444,20 +525,37 @@ function parseInvariantsBlock(configPath: string): ExarchosConfigInput {
  *   - `scope: 'all'`       — every entry (default; v1 backwards-compat).
  *   Unknown scope values throw — silent fallback is forbidden per
  *   design §5 DIM-2.
+ *   - `configRoot`         — directory the injected config's relative
+ *                            `catalogs:` registrations resolve against. Supply
+ *                            it whenever you resolved those registrations
+ *                            yourself (as `resolveEffectiveCatalog` does);
+ *                            omit it and a relative registration is matched by
+ *                            segment-aligned suffix instead.
  * @param config Optional explicit config (dependency injection for tests).
  *   Defaults to reading `.exarchos.yml` via `readInvariantsConfig`.
  */
 export function loadInvariants(
   filePath: string,
-  opts?: { scope?: InvariantsScope },
+  opts?: { scope?: InvariantsScope; configRoot?: string },
   config?: ExarchosConfigInput,
 ): InvariantEntry[] {
-  const effectiveConfig = config ?? readInvariantsConfig(filePath);
-  // Catalog gating — applied BEFORE any scope filter.
-  // Default-disabled even inside the Exarchos repo: contributors get
-  // the catalog because the repo's own committed `.exarchos.yml` sets
-  // the flag, not because the loader detected anything.
-  if (effectiveConfig.invariants?.devCatalog !== 'enabled') {
+  // Discover the config ONLY when one was not injected, so the disk walk-up
+  // also yields the root its relative registrations are written against.
+  const discovered =
+    config === undefined ? discoverInvariantsConfig(filePath) : undefined;
+  const effectiveConfig = config ?? discovered?.config ?? {};
+  // Catalog gating — applied BEFORE any scope filter (DR-31).
+  // Default-empty even inside the Exarchos repo: contributors get the catalog
+  // because the repo's own committed `.exarchos.yml` REGISTERS it under
+  // `invariants.catalogs`, not because the loader detected anything and not
+  // because a repo-only flag was flipped.
+  if (
+    !isCatalogRegistered(
+      filePath,
+      effectiveConfig,
+      opts?.configRoot ?? discovered?.root,
+    )
+  ) {
     return [];
   }
   const scope: InvariantsScope = opts?.scope ?? 'all';
@@ -522,7 +620,7 @@ export function loadInvariants(
  * Convenience: return only the `cost-of-load: always-load` entries — the
  * `/ideate` Phase 0 working set. Equivalent to `loadInvariants(filePath,
  * { scope: 'core' })`; named so import sites express intent without the
- * option-object indirection. Honours the Wave B2 `devCatalog` gate via
+ * option-object indirection. Honours the DR-31 registration gate via
  * the same default config reader as `loadInvariants`.
  */
 export function loadCoreInvariants(
@@ -534,11 +632,12 @@ export function loadCoreInvariants(
 
 /**
  * Convenience: return the set of valid invariant IDs (for vocabulary-lint
- * cross-check). Honours the Wave B2 `devCatalog` gate — when the flag is
- * not `'enabled'`, returns an empty set, so vocabulary-lint will treat
- * every `INV-*` token as unknown. Consumers using Exarchos as a
- * plugin outside the Exarchos repo therefore opt into invariant checking
- * by declaring the same flag in their own `.exarchos.yml`.
+ * cross-check). Honours the DR-31 registration gate — when the effective
+ * config does not register this catalog, returns an empty set, so
+ * vocabulary-lint will treat every `INV-*` token as unknown. Consumers using
+ * Exarchos as a plugin outside the Exarchos repo therefore opt into invariant
+ * checking exactly the way this repo does: by registering the catalog under
+ * `invariants.catalogs` in their own `.exarchos.yml`.
  */
 export function loadInvariantIds(
   filePath: string,

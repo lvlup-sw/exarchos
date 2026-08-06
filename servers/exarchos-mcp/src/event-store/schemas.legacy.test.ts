@@ -529,7 +529,27 @@ describe('EventTypes', () => {
     // `export.executed` (result + content hash), the INV-13 two-event split for
     // the non-idempotent zip-bundle write, emitted `auto` by the `export`
     // composite handler (task 013), idempotency-keyed per INV-8.
-    expect(EventTypes).toHaveLength(148);
+    // Phase-gate v2.12 adds 11 planned, internal proof replay contracts:
+    // the `admission.*` family (evidence, requirement resolution, transition
+    // decisions, waivers, contradictions, reassessment, and the shadow/rollout
+    // cutover records).
+    // Cancellation process manager (EFF-005 / P04-02): bumped 159 → 164 to
+    // include the replayable cancellation contract — `cancel.requested`,
+    // `cancel.ready`, and the compensation triple
+    // (`cancel.compensation-requested` / `-completed` / `-failed`) — so restart
+    // and takeover never repeat completed compensation.
+    // Cancellation process-manager saga (EFF-005 / P04-02): bumped 164 → 167 to
+    // add the fencing + retry + escalation facts — `cancel.ownership-acquired`
+    // (monotonic fencing epoch), `cancel.compensation-retry-scheduled` (bounded
+    // retry ladder), and `cancel.manual-intervention-required` (terminal-but-
+    // unresolved escalation) — so a takeover fences out its predecessor and
+    // retry exhaustion lands in a real, queryable state.
+    //
+    // DR-4 (T-06): bumped 167 → 169 for the durable projection-health pair —
+    // `projection.degraded` and `projection.recovered` — which publish the
+    // cursor/tail verdict to `meta/projection-health` so a degraded projection
+    // is a queryable state rather than an ephemeral per-response annotation.
+    expect(EventTypes).toHaveLength(169);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');
@@ -538,6 +558,18 @@ describe('EventTypes', () => {
     // for another would keep the length stable but silently lose the
     // migration progress type. The membership assert catches that.
     expect(EventTypes).toContain('migration.correlation_backfill_progress');
+    expect(EventTypes).toContain('admission.evidence-recorded');
+    expect(EventTypes).toContain('admission.requirement-resolved');
+    expect(EventTypes).toContain('admission.transition-decided');
+    expect(EventTypes).toContain('admission.contradiction-recorded');
+    expect(EventTypes).toContain('cancel.requested');
+    expect(EventTypes).toContain('cancel.ready');
+    expect(EventTypes).toContain('cancel.ownership-acquired');
+    expect(EventTypes).toContain('cancel.compensation-requested');
+    expect(EventTypes).toContain('cancel.compensation-completed');
+    expect(EventTypes).toContain('cancel.compensation-failed');
+    expect(EventTypes).toContain('cancel.compensation-retry-scheduled');
+    expect(EventTypes).toContain('cancel.manual-intervention-required');
     expect(EventTypes).toContain('invariant.authored');
     expect(EventTypes).toContain('catalog.registered');
     expect(EventTypes).toContain('merge.completed');

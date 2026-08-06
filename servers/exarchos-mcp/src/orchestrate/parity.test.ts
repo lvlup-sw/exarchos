@@ -40,11 +40,12 @@ async function createArm(prefix: string): Promise<ArmContext> {
   const stateDir = await mkdtemp(path.join(tmpdir(), prefix));
   const eventStore = new EventStore(stateDir);
   await eventStore.initialize();
-  const ctx: DispatchContext = {
+  await seedActivePhaseAttempt(eventStore, 'parity-feat');
+  const ctx: DispatchContext = withTrustedCaller({
     stateDir,
     eventStore,
     enableTelemetry: false,
-  };
+  });
   return { stateDir, ctx };
 }
 
@@ -75,6 +76,7 @@ async function callMcp(
 
 import { UUID_ANY_RE } from '../__tests__/parity-harness.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
+import { seedActivePhaseAttempt, withTrustedCaller } from '../test-helpers/trusted-context.js';
 
 /**
  * Orchestrate suite normalizer. Historical placeholders:
@@ -105,7 +107,13 @@ function normalize(value: unknown): unknown {
     uuidRegex: UUID_ANY_RE,
     timestampKeys: TIMESTAMP_KEYS,
     uuidKeys: UUID_KEYS,
-    dropKeys: new Set(['_perf', '_meta']),
+    // videnceReferences carries the durable evidence identity the canonical
+    // gate runner minted for THIS arm. Each arm owns a separate state dir and
+    // event store, so the content-addressed evidenceId necessarily differs —
+    // it is arm-local provenance, not part of the CLI/MCP payload contract
+    // under comparison. Evidence PERSISTENCE is proven by the gate integration
+    // suites, which assert the reference and its digest directly.
+    dropKeys: new Set(['_perf', '_meta', 'evidenceReferences']),
   });
 }
 
@@ -306,8 +314,14 @@ describe('exarchos_orchestrate CLI-vs-MCP parity', () => {
 
   it('OrchestrateParity_TaskComplete_CliAndMcp_ReturnEqualPayload', async () => {
     // Arrange — seed each arm with task.assigned + task.claimed so `task_complete`
-    // is legal. We supply `evidence.type: 'manual'` + `passed: true` so the gate
-    // bypass triggers and we don't need to seed tdd/static-analysis gate events.
+    // is legal, plus a real passing `static-analysis` gate.executed row.
+    //
+    // DR-2 (T-03): this fixture previously supplied `evidence.type: 'manual'` +
+    // `passed: true` to trip the gate bypass. Caller-supplied evidence can no
+    // longer satisfy a BLOCKING gate — the governed cannot mint its own proof
+    // of compliance — so the fixture now seeds the gate signal a producer
+    // actually emits. `evidence` is retained because its provenance-recording
+    // role is unchanged; it simply no longer carries the completion.
     const streamId = 'parity-complete-wf';
 
     // Reuse the arm's already-initialized EventStore. Pre-v2.11 a fresh
@@ -324,6 +338,15 @@ describe('exarchos_orchestrate CLI-vs-MCP parity', () => {
         type: 'task.claimed',
         data: { taskId: 't-parity-2', agentId: 'agent-parity', claimedAt: new Date().toISOString() },
         agentId: 'agent-parity',
+      });
+      await store.append(streamId, {
+        type: 'gate.executed',
+        data: {
+          gateName: 'static-analysis',
+          layer: 'quality',
+          passed: true,
+          details: { taskId: 't-parity-2' },
+        },
       });
     };
 
@@ -360,7 +383,8 @@ describe('exarchos_orchestrate CLI-vs-MCP parity', () => {
   });
 
   it('OrchestrateParity_CheckEventEmissions_ReviewRoutedAuto_CliAndMcp_ReturnEqualPayload', async () => {
-    // RC2 (#1395), INV-2 parity guard. After migrating `review.routed`
+    // RC2 (#1395) — a WITNESS for the governing INV-2 (equivalence by
+    // construction), not the invariant itself. After migrating `review.routed`
     // model → auto, both carriers must compute identical `_eventHints` for a
     // `review`-phase workflow: review.routed must NOT appear among the missing
     // hints on either arm. Driving the stream into `review` phase via two seed

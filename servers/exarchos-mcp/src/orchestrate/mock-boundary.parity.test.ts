@@ -38,6 +38,7 @@ import {
 
 import { handleMockBoundary } from './mock-boundary-handler.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
+import { seedActivePhaseAttempt, withTrustedCaller } from '../test-helpers/trusted-context.js';
 
 const PARITY_REPO_ROOT = '/fake/agent/worktree';
 
@@ -68,7 +69,8 @@ async function createArm(prefix: string): Promise<ArmContext> {
   const stateDir = await mkdtemp(path.join(tmpdir(), prefix));
   const eventStore = new EventStore(stateDir);
   await eventStore.initialize();
-  const ctx: DispatchContext = { stateDir, eventStore, enableTelemetry: false };
+  await seedActivePhaseAttempt(eventStore, 'feat-mock-boundary-parity');
+  const ctx: DispatchContext = withTrustedCaller({ stateDir, eventStore, enableTelemetry: false });
   return { stateDir, ctx };
 }
 
@@ -97,7 +99,13 @@ function normalize(value: unknown): unknown {
     timestampPlaceholder: '<TS>',
     uuidPlaceholder: '<UUID>',
     keyPlaceholders: { ms: '<MS>' },
-    dropKeys: new Set(['_perf', '_meta']),
+    // videnceReferences carries the durable evidence identity the canonical
+    // gate runner minted for THIS arm. Each arm owns a separate state dir and
+    // event store, so the content-addressed evidenceId necessarily differs —
+    // it is arm-local provenance, not part of the CLI/MCP payload contract
+    // under comparison. Evidence PERSISTENCE is proven by the gate integration
+    // suites, which assert the reference and its digest directly.
+    dropKeys: new Set(['_perf', '_meta', 'evidenceReferences']),
   });
 }
 

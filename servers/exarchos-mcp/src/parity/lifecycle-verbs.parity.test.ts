@@ -124,13 +124,25 @@ async function createContext(prefix: string): Promise<{ stateDir: string; ctx: D
   return { stateDir, ctx: { stateDir, eventStore, enableTelemetry: false } };
 }
 
-/** Strip wall-clock / telemetry / tmp-path fields so two carriers are byte-equal. */
+/**
+ * Strip wall-clock / telemetry / tmp-path fields so two carriers are byte-equal.
+ *
+ * `_meta` is deliberately KEPT in the comparison: it carries the handler-stamped
+ * `_meta.workflowExists` (the CB-2 cold-probe guarantee) and any economy stamps,
+ * which are exactly the kind of carrier-visible payload this parity suite must
+ * prove identical across the three paths. Only the genuinely nondeterministic
+ * dispatch-correlation members (`operationId` / `correlationId` / `causationId`
+ * — freshly minted UUIDs per dispatch) are neutralized via `uuidKeys`, and only
+ * the telemetry-derived `_perf` block is dropped (mirrors the finer-grained
+ * sibling `readonly-cap-parity.test.ts`).
+ */
 function normalize(value: unknown): unknown {
   return harnessNormalize(value, {
     timestampPlaceholder: '<TS>',
     uuidPlaceholder: '<UUID>',
     tmpPathPlaceholder: '<TMP>',
-    dropKeys: new Set(['_perf', '_meta']),
+    uuidKeys: new Set(['operationId', 'correlationId', 'causationId']),
+    dropKeys: new Set(['_perf']),
   });
 }
 

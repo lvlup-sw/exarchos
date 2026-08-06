@@ -22,6 +22,13 @@ vi.mock('./test-adequacy.js', async (importOriginal) => {
   return { ...actual, runProbe: (...args: unknown[]) => mockRunProbe(...args) };
 });
 
+vi.mock('./durable-gate-producer.js', () => ({
+  runDurableGateProducer: (
+    _scope: unknown,
+    executeProvider: () => Promise<unknown>,
+  ) => executeProvider(),
+}));
+
 import { EventStore } from '../event-store/store.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { handleOrchestrate } from './composite.js';
@@ -176,7 +183,7 @@ describe('check_test_adequacy routing + idempotency (task 014)', () => {
     );
   });
 
-  it('GateEvent_SameOperationId_IdempotencyCollapses', async () => {
+  it('GateEvent_MigratedPath_DoesNotEmitLegacyGateEvent', async () => {
     const ctx = await makeCtx();
 
     const args = {
@@ -191,13 +198,14 @@ describe('check_test_adequacy routing + idempotency (task 014)', () => {
     await handleOrchestrate({ ...args }, ctx);
     await handleOrchestrate({ ...args }, ctx);
 
-    // INV-8: two runs with the SAME operationId collapse to one gate.executed.
+    // Idempotency is owned by the durable runner; the provider path no longer
+    // emits a parallel gate.executed row.
     const events = await ctx.eventStore.query('feat-idem');
     const gateEvents = events.filter(
       (e) =>
         e.type === 'gate.executed' &&
         (e.data as { gateName?: string }).gateName === 'test-adequacy',
     );
-    expect(gateEvents).toHaveLength(1);
+    expect(gateEvents).toHaveLength(0);
   });
 });

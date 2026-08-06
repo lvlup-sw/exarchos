@@ -4,10 +4,20 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getFullRegistry } from '../registry.js';
 import type { CompositeTool, ToolAction } from '../registry.js';
-import { dispatch } from '../core/dispatch.js';
+// DR-25 / governing INV-2 — this adapter does NOT import the runtime `dispatch`
+// value. Every api-action call site addresses its action by contract ActionId
+// through the generated client (`invokeContractAction`), the ONE
+// contract-derived dispatch site on the CLI side: an id the compiled contract
+// does not contain cannot be addressed, so CLI/MCP agreement on WHICH action
+// runs is constructed, not hand-coordinated. The Commander tree below remains
+// hand-authored PRESENTATION (groups, command names, flags); addressing and
+// behavior live behind the seam.
+import { invokeContractAction } from '../contract/cli/generated-client.js';
 import type { DispatchContext } from '../core/dispatch.js';
+import { deriveLocalOperatorIdentity } from '../dispatch/caller-identity.js';
 import type { ToolResult } from '../format.js';
 import { toEnvelope } from '../format.js';
+import { exitCodeForError } from '../contract/error-families.js';
 import {
   addFlagsFromSchema,
   coerceFlags,
@@ -38,6 +48,27 @@ import { prettyPrint, printError, toCliResult } from './cli-format.js';
 // (e.g. `exarchos wf status`) does not pay the cost of loading the full MCP
 // SDK + tool-registration graph. See DR-5 / task 021 cold-start benchmark.
 
+// ─── DR-25: contract-derived action addressing ──────────────────────────────
+
+/**
+ * The four hard-wired top-level promotions' contract ActionIds. Each is the
+ * literal id its `program.command(...)` action callback below hands to
+ * `invokeContractAction`; every OTHER api-action command derives its id from
+ * the registry inside `registerActionCommand` (`<tool>.<action>`).
+ *
+ * Exported as a machine-readable list so the DR-25 conformance test
+ * (`Cli_EveryAddressedActionId_ExistsInDerivedSurface`) can assert each id
+ * exists in `deriveCliSurface(compileForCli())` — a renamed or removed action
+ * reddens the build here instead of surfacing as a runtime
+ * `UnknownContractActionError`.
+ */
+export const CLI_PROMOTED_ACTION_IDS = Object.freeze({
+  doctor: 'exarchos_orchestrate.doctor',
+  feedback: 'exarchos_workflow.feedback',
+  onboard: 'exarchos_orchestrate.onboard',
+  mergeOrchestrate: 'exarchos_orchestrate.merge_orchestrate',
+} as const);
+
 // ─── Exit-Code Contract (DR-3: CLI/MCP Parity) ──────────────────────────────
 
 /**
@@ -60,6 +91,14 @@ export const CLI_EXIT_CODES = {
 } as const;
 
 export type CliExitCode = (typeof CLI_EXIT_CODES)[keyof typeof CLI_EXIT_CODES];
+
+/** Build the trusted CLI context from the configured local installation. */
+export function createCliDispatchContext(ctx: DispatchContext): DispatchContext {
+  return {
+    ...ctx,
+    callerIdentity: deriveLocalOperatorIdentity(ctx.stateDir),
+  };
+}
 
 // ─── DR-7: generic errorCode → exit-code map (presentation only) ─────────────
 
@@ -85,25 +124,35 @@ export const ERROR_CODE_EXIT_CODES: Readonly<Record<string, number>> = {
 };
 
 /**
- * Map a dispatched {@link ToolResult} to its process exit code (DR-7).
+ * Map a dispatched {@link ToolResult} to its process exit code.
  *
- * Resolution order (presentation only — never consulted for control flow):
- *   1. success            → SUCCESS (0)
- *   2. code in the DR-7 map → its mapped value (WAIT_TIMEOUT 17 / WAIT_FAILED 18)
- *   3. code === INVALID_INPUT (VALIDATION_ERROR_CODE) → INVALID_INPUT (1)
- *   4. any other handler error → HANDLER_ERROR (2)
+ * P03-05: the CLI is a GENERATED in-process client over the same contract, so
+ * its exit codes are no longer a bespoke adapter table — they are DERIVED from
+ * the frozen P03-02 exit-code authority via {@link exitCodeForError}. Both the
+ * CLI and the MCP wire resolve a failure's exit code from that single registry,
+ * so the two surfaces agree by construction (differential-fixtures proof).
  *
- * Steps 1/3/4 reproduce the pre-DR-7 mapping exactly, so this is a superset:
- * only the two `wait` codes gain a distinct exit code.
+ * Resolution:
+ *   1. success              → SUCCESS (0)
+ *   2. otherwise            → exitCodeForError(result.error.code)
+ *
+ * `exitCodeForError` is a strict superset of the pre-P03-05 mapping for every
+ * handler-reachable code (success 0, INVALID_INPUT 1, the wait codes 17/18, and
+ * the generic HANDLER_ERROR 2 fallback for any unregistered code — matching the
+ * old ERROR_CODE_EXIT_CODES/INVALID_INPUT/HANDLER_ERROR ladder). It ADDS the
+ * codes the adapter previously flattened to 2: the protocol family
+ * (PROTOCOL_ERROR / UNSUPPORTED_PROTOCOL_VERSION / VERSION_INCOMPATIBLE) → 1 and
+ * PRESENTER_ERROR → 3. Those refinements are not reachable from the dispatch
+ * failure branch in CLI mode today, so this is behaviour-preserving for live
+ * flows while making the exit contract complete against the registry.
+ *
+ * {@link ERROR_CODE_EXIT_CODES} is retained as the DR-7 presentation table that
+ * `error-families.test.ts` and `lifecycle-verbs.parity.test.ts` pin against; its
+ * two entries are now subsumed by (and cross-checked against) the registry.
  */
 export function resolveExitCode(result: ToolResult): number {
   if (result.success) return CLI_EXIT_CODES.SUCCESS;
-  const code = result.error?.code;
-  if (code !== undefined && Object.prototype.hasOwnProperty.call(ERROR_CODE_EXIT_CODES, code)) {
-    return ERROR_CODE_EXIT_CODES[code] ?? CLI_EXIT_CODES.HANDLER_ERROR;
-  }
-  if (code === VALIDATION_ERROR_CODE) return CLI_EXIT_CODES.INVALID_INPUT;
-  return CLI_EXIT_CODES.HANDLER_ERROR;
+  return exitCodeForError(result.error?.code);
 }
 
 // ─── Error-Shape Helpers ────────────────────────────────────────────────────
@@ -294,6 +343,7 @@ export interface BuildCliOptions {
  * Also registers the `schema` introspection command and `mcp` server mode.
  */
 export function buildCli(ctx: DispatchContext, options?: BuildCliOptions): Command {
+  ctx = createCliDispatchContext(ctx);
   const packageVersion = resolvePackageVersion();
   const program = new Command('exarchos')
     .description('Agent governance for AI coding — event-sourced SDLC workflows')
@@ -371,11 +421,7 @@ export function buildCli(ctx: DispatchContext, options?: BuildCliOptions): Comma
 
       let result: ToolResult;
       try {
-        result = await dispatch(
-          'exarchos_orchestrate',
-          { action: 'doctor', ...parsed.data },
-          ctx,
-        );
+        result = await invokeContractAction(CLI_PROMOTED_ACTION_IDS.doctor, parsed.data, ctx);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         const errResult: ToolResult = {
@@ -466,7 +512,10 @@ export function buildCli(ctx: DispatchContext, options?: BuildCliOptions): Comma
 
         // Coerce through the canonical action schema (same path the auto
         // `wf feedback` subcommand uses) so `--session-context '{...}'` is
-        // JSON-parsed identically to the MCP arm (INV-2 parity).
+        // JSON-parsed identically to the MCP wire (governing INV-2 — the
+        // registered contract schema is the single authority both clients
+        // coerce against; agreement is constructed, not witnessed by a
+        // parity fixture).
         const flagOpts: Record<string, unknown> = { message };
         if (opts.sessionContext !== undefined) flagOpts.sessionContext = opts.sessionContext;
         const coerced = coerceFlags(flagOpts, feedbackAction.schema);
@@ -480,7 +529,7 @@ export function buildCli(ctx: DispatchContext, options?: BuildCliOptions): Comma
 
         let result: ToolResult;
         try {
-          result = await dispatch('exarchos_workflow', { action: 'feedback', ...parsed.data }, ctx);
+          result = await invokeContractAction(CLI_PROMOTED_ACTION_IDS.feedback, parsed.data, ctx);
         } catch (err) {
           const messageStr = err instanceof Error ? err.message : String(err);
           emitResult(
@@ -592,7 +641,8 @@ export function buildCli(ctx: DispatchContext, options?: BuildCliOptions): Comma
   // init) so an operator types `exarchos onboard` instead of
   // `exarchos orch onboard`. Under the hood it dispatches through
   // exarchos_orchestrate so the CLI and MCP paths share one handler
-  // (`handleOnboard`) and one validation gate (INV-2 parity).
+  // (`handleOnboard`) and one validation gate (governing INV-2 — behavior
+  // lives in the contract handler; this client carries presentation only).
   //
   // Flags auto-emit from the registered Zod schema via addFlagsFromSchema —
   // no hand-written flag table to drift. `surface` is NOT a flag here: the
@@ -634,11 +684,11 @@ export function buildCli(ctx: DispatchContext, options?: BuildCliOptions): Comma
 
       let result: ToolResult;
       try {
-        result = await dispatch(
-          'exarchos_orchestrate',
+        result = await invokeContractAction(
+          CLI_PROMOTED_ACTION_IDS.onboard,
           // `surface` is adapter-injected: the CLI runs the full install step,
           // so it dispatches as the `'cli'` surface.
-          { action: 'onboard', surface: 'cli', ...parsed.data },
+          { surface: 'cli', ...parsed.data },
           ctx,
         );
       } catch (err) {
@@ -743,9 +793,9 @@ export function buildCli(ctx: DispatchContext, options?: BuildCliOptions): Comma
     // ─── Dispatch ────────────────────────────────────────────────────────
     let result: ToolResult;
     try {
-      result = await dispatch(
-        'exarchos_orchestrate',
-        { action: 'merge_orchestrate', ...parsed.data },
+      result = await invokeContractAction(
+        CLI_PROMOTED_ACTION_IDS.mergeOrchestrate,
+        parsed.data,
         ctx,
       );
     } catch (err) {
@@ -943,6 +993,12 @@ function registerActionCommand(
   const actionCmd = parent
     .command(commandName)
     .description(action.description);
+
+  // The contract ActionId this command addresses (DR-25). Both dispatch
+  // branches below hand it to `invokeContractAction`, which verifies it
+  // against the compiled contract surface before anything runs — the
+  // registry-derived id and the compiled contract cannot silently disagree.
+  const actionId = `${tool.name}.${action.name}`;
 
   addFlagsFromSchema(actionCmd, action.schema, action.cli?.flags);
 
@@ -1161,13 +1217,9 @@ function registerActionCommand(
         // `isTaskAugmented` predicate (presence of a plain object is
         // sufficient; no `ttl` here means an unbounded task lifetime,
         // appropriate for an interactive CLI follow session).
-        const createResult = await dispatch(
-          tool.name,
-          {
-            action: action.name,
-            ...followParse.data,
-            task: {},
-          },
+        const createResult = await invokeContractAction(
+          actionId,
+          { ...followParse.data, task: {} },
           ctx,
         );
 
@@ -1380,11 +1432,7 @@ function registerActionCommand(
     let result: ToolResult;
     try {
       try {
-        result = await dispatch(
-          tool.name,
-          { action: action.name, ...parseResult.data },
-          ctx,
-        );
+        result = await invokeContractAction(actionId, parseResult.data, ctx);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         // F-024 dead-code: inlined single-use ToolResult shape — was
@@ -1406,15 +1454,15 @@ function registerActionCommand(
     }
 
     // ─── Emit + map to exit code ──────────────────────────────────────
-    // DR-7: `resolveExitCode` funnels the handler result through the generic
-    // errorCode→exitCode table (WAIT_TIMEOUT→17 / WAIT_FAILED→18) BEFORE the
-    // generic fallback. It preserves the prior mapping exactly — INVALID_INPUT
-    // stays exit 1 when the handler reports a validation failure (collapsing
-    // every non-success into HANDLER_ERROR would lose parity with the
-    // pre-dispatch INVALID_INPUT path), any other handler error stays exit 2 —
-    // so only the two structured `wait` codes gain a distinct exit code. The
-    // SAME site serves both the `vw <verb>` subcommand and the DR-7 top-level
-    // promotion (both route through this one registerActionCommand handler).
+    // P03-05: `resolveExitCode` now delegates to the frozen P03-02 exit-code
+    // authority (`exitCodeForError`), the SAME registry the MCP wire resolves
+    // against — so the CLI client and the MCP surface assign identical exit
+    // codes to a given result by construction (differential-fixtures proof).
+    // The registry is a superset of the pre-P03-05 ladder for every
+    // handler-reachable code: success 0, INVALID_INPUT 1, WAIT_TIMEOUT 17 /
+    // WAIT_FAILED 18, and HANDLER_ERROR 2 for any other handler error. The SAME
+    // site serves both the `vw <verb>` subcommand and the top-level promotion
+    // (both route through this one registerActionCommand handler).
     emitResult(result, isJson, format);
     process.exitCode = resolveExitCode(result);
   });

@@ -25,7 +25,9 @@ const DESIGN_INVARIANTS_SKILL = path.join(
 
 // Decouple the loader from the repo's actual `.exarchos.yml`; the catalog
 // gates behind `invariants.devCatalog: enabled`.
-const ENABLED_CONFIG = { invariants: { devCatalog: 'enabled' as const } };
+const ENABLED_CONFIG = {
+  invariants: { catalogs: [{ path: INVARIANTS_DOC, tier: 'dev' as const }] },
+};
 
 describe('design-invariants skill retirement', () => {
   it('DesignInvariantsSkill_Removed_NoVocabularyInSkillBodies', () => {

@@ -1,4 +1,9 @@
 import { describe, it, expect } from 'vitest';
+import { classifyTasksFailClosed } from '../orchestrate/prepare-delegation.js';
+import type { TaskInput, TaskClassification } from '../orchestrate/prepare-delegation.js';
+import { resolvePolicySkip } from '../orchestrate/gate-utils.js';
+import { runProbe, interpretProbeVerdict } from '../orchestrate/test-adequacy.js';
+import type { RunbookDefinition, RunbookStep } from './types.js';
 import {
   TASK_COMPLETION,
   QUALITY_EVALUATION,
@@ -42,7 +47,7 @@ describe('Runbook definitions', () => {
     }
   });
 
-  it('TaskCompletion_HasSixSteps_InCorrectOrder', () => {
+  it('TaskCompletion_HasFiveSteps_TaskCompleteTerminal', () => {
     // #1329 / T-07 appended a post-merge `check_integration_suite` gate after
     // `task_complete`, taking the runbook from 3 to 4 steps. Verification-ladder
     // slice 1 prepended the `check_test_adequacy` kill-probe gate as the new
@@ -54,13 +59,15 @@ describe('Runbook definitions', () => {
     // RETIRED the advisory `check_tdd_compliance` step (test-FIRST ordering
     // gate), taking the runbook from 7 back to 6 steps; `check_test_adequacy`
     // is the sole per-task verification gate.
-    expect(TASK_COMPLETION.steps).toHaveLength(6);
+    // WFQ-004 moved the cumulative `check_integration_suite` gate OUT of the
+    // per-task loop to the wave boundary (AGENT_TEAMS_SAGA), taking the runbook
+    // from 6 back to 5 steps and making `task_complete` terminal.
+    expect(TASK_COMPLETION.steps).toHaveLength(5);
     expect(TASK_COMPLETION.steps[0].action).toBe('check_test_adequacy');
     expect(TASK_COMPLETION.steps[1].action).toBe('check_contract_drift');
     expect(TASK_COMPLETION.steps[2].action).toBe('check_mock_boundary');
     expect(TASK_COMPLETION.steps[3].action).toBe('check_static_analysis');
     expect(TASK_COMPLETION.steps[4].action).toBe('task_complete');
-    expect(TASK_COMPLETION.steps[5].action).toBe('check_integration_suite');
     expect(TASK_COMPLETION.phase).toBe('delegate');
   });
 
@@ -75,8 +82,10 @@ describe('Runbook definitions', () => {
     expect(QUALITY_EVALUATION.phase).toBe('review');
   });
 
-  it('AgentTeamsSaga_HasTwelveSteps', () => {
-    expect(AGENT_TEAMS_SAGA.steps).toHaveLength(12);
+  it('AgentTeamsSaga_HasThirteenSteps', () => {
+    // WFQ-004: the cumulative `check_integration_suite` gate moved here from
+    // the per-task runbook, taking the saga from 12 to 13 steps.
+    expect(AGENT_TEAMS_SAGA.steps).toHaveLength(13);
     expect(AGENT_TEAMS_SAGA.phase).toBe('delegate');
     // First step should be event-first: team.spawned
     expect(AGENT_TEAMS_SAGA.steps[0].tool).toBe('exarchos_event');
@@ -85,8 +94,8 @@ describe('Runbook definitions', () => {
     // T5a.1/DR-4 (#1259, v2.11): the prior `set({phase: 'review'})` step
     // is replaced with `transition({target: 'review'})` after the `set`
     // action's hard-cut.
-    expect(AGENT_TEAMS_SAGA.steps[11].tool).toBe('exarchos_workflow');
-    expect(AGENT_TEAMS_SAGA.steps[11].action).toBe('transition');
+    expect(AGENT_TEAMS_SAGA.steps[12].tool).toBe('exarchos_workflow');
+    expect(AGENT_TEAMS_SAGA.steps[12].action).toBe('transition');
   });
 
   it('SynthesisFlow_HasFiveSteps', () => {
@@ -265,43 +274,330 @@ describe('Runbook definitions', () => {
     expect(params?.worktreePath).toBe('<worktreePath>');
   });
 
-  // ─── #1329 / T-07: post-merge integration-suite gate ───────────────────────
-  it('DelegateRunbook_AfterTaskMerge_RunsIntegrationSuiteGate', () => {
-    // #1329: per-task TDD/static gates can be green while the *integration tip*
-    // cascades (a file failing at import counts as "0 failed tests / 1 failed
-    // suite" — invisible to per-task gates). The `check_integration_suite` gate
-    // (T-06) runs the FULL suite against the integration tip and folds those
-    // load-failures into the failure count.
-    //
-    // It must be wired into the delegate-phase task-completion runbook AFTER
-    // `task_complete` (i.e. after the task lands on the integration tip), with
-    // `onFail: 'stop'` so a broken integration tip halts the loop before the
-    // next dispatch. It threads the same worktree-aware resolution the static
-    // gate uses (#1330): `repoRoot: 'auto'` + `worktreePath` template var.
+  // ─── WFQ-004: wave-boundary integration gate + terminal task_complete ─────
+  it('DelegateRunbook_TaskComplete_FollowsEveryBlockingPerTaskGate', () => {
+    // The defect: `task_complete` sat at step 5 with a blocking
+    // `check_integration_suite` at step 6, so a task could be recorded complete
+    // and only THEN fail its last blocking gate. `task_complete` must be the
+    // terminal step — no blocking gate may follow it.
     const actions = TASK_COMPLETION.steps.map((s) => s.action);
     const completeIndex = actions.indexOf('task_complete');
-    const integrationIndex = actions.indexOf('check_integration_suite');
 
     expect(completeIndex, 'task-completion must retain a task_complete step').toBeGreaterThan(-1);
-    expect(
-      integrationIndex,
-      'task-completion must include a check_integration_suite step',
-    ).toBeGreaterThan(-1);
-    // The integration-suite gate runs AFTER the task merges (task_complete), so
-    // a cascaded integration tip blocks the next dispatch.
-    expect(integrationIndex).toBeGreaterThan(completeIndex);
+    expect(completeIndex).toBe(TASK_COMPLETION.steps.length - 1);
 
-    const integrationStep = TASK_COMPLETION.steps[integrationIndex];
+    const blockingAfterComplete = TASK_COMPLETION.steps
+      .slice(completeIndex + 1)
+      .filter((step) => step.onFail === 'stop');
+    expect(
+      blockingAfterComplete.map((step) => step.action),
+      'no blocking per-task gate may run after task_complete',
+    ).toEqual([]);
+  });
+
+  it('DelegateRunbook_CumulativeIntegrationSuite_RunsOnceAtWaveBoundary', () => {
+    // #1329: per-task gates can be green while the *integration tip* cascades
+    // (a file failing at import counts as "0 failed tests / 1 failed suite").
+    // The cumulative gate still exists — but as a wave-boundary backstop,
+    // matching its own action description, not a per-task gate. Running it per
+    // task also created duplicate verification ownership (agent, lead, and
+    // runbook each re-verifying the same claim).
+    const perTaskActions = TASK_COMPLETION.steps.map((s) => s.action);
+    expect(
+      perTaskActions,
+      'the cumulative suite must not run inside the per-task loop',
+    ).not.toContain('check_integration_suite');
+
+    const waveActions = AGENT_TEAMS_SAGA.steps.map((s) => s.action);
+    const integrationIndices = waveActions
+      .map((action, index) => (action === 'check_integration_suite' ? index : -1))
+      .filter((index) => index >= 0);
+    expect(
+      integrationIndices,
+      'the cumulative suite runs exactly once per wave',
+    ).toHaveLength(1);
+
+    const [integrationIndex, ...extraIndices] = integrationIndices;
+    expect(extraIndices).toEqual([]);
+    expect(integrationIndex).toBeDefined();
+    if (integrationIndex === undefined) return;
+    // It must land after the wave's task work and before the phase transition.
+    const transitionIndex = waveActions.lastIndexOf('transition');
+    expect(integrationIndex).toBeLessThan(transitionIndex);
+    expect(waveActions.indexOf('post_delegation_check')).toBeGreaterThan(integrationIndex);
+
+    const integrationStep = AGENT_TEAMS_SAGA.steps[integrationIndex];
+    expect(integrationStep).toBeDefined();
+    if (integrationStep === undefined) return;
     expect(integrationStep.tool).toBe('exarchos_orchestrate');
     // onFail must be 'stop' — a broken integration tip is a hard halt.
     expect(integrationStep.onFail).toBe('stop');
 
-    const params = integrationStep.params as
-      | { repoRoot?: unknown; worktreePath?: unknown }
-      | undefined;
+    const params = integrationStep.params as { repoRoot?: unknown } | undefined;
     expect(params, 'check_integration_suite step must pre-fill params').toBeDefined();
-    // Worktree-aware resolution against the integration tip (#1330 resolver).
-    expect(params?.repoRoot).toBe('auto');
-    expect(params?.worktreePath).toBe('<worktreePath>');
+    // WFQ-004 executability: the wave-boundary run is post-merge, against the
+    // INTEGRATION worktree — a location neither `worktreePath` (per-agent) nor
+    // `taskId` (per-task `worktree.created` lookup) can derive, so
+    // `repoRoot: 'auto'` could NEVER resolve here (resolveRepoRoot fails
+    // closed → INVALID_INPUT → saga halt). The step instead binds the
+    // `<repoRoot>` template var (declared in AGENT_TEAMS_SAGA.templateVars)
+    // that the orchestrator fills with the integration worktree path.
+    expect(params?.repoRoot).toBe('<repoRoot>');
+    expect(
+      AGENT_TEAMS_SAGA.templateVars,
+      'the <repoRoot> placeholder must have a matching declared templateVar',
+    ).toContain('repoRoot');
   });
 });
+
+// ─── DR-3: the frozen delegation stamp reaches the gate that consumes it ─────
+//
+// `riskTier` / `boundaryTouching` are resolved and FROZEN at prepare_delegation
+// (`classifyTasksFailClosed` → `classifyTask` → `deriveRiskTier` /
+// `deriveBoundaryTouching`). The defect: neither was a param nor a templateVar
+// on TASK_COMPLETION / TASK_FIX, so every dispatch reached
+// `interpretProbeVerdict` / `resolvePolicySkip` with an UNDEFINED tier and the
+// frozen stamp never arrived at the gate.
+//
+// These tests exercise the real seam end to end — the production classifier
+// produces the stamp, the runbook's declared templateVars + step params carry
+// it, and the real gate code reads it. Nothing about the tier is a literal
+// authored by the test: every asserted value is compared against the stamp the
+// classifier froze.
+
+/** Task fixtures. Their tiers are DERIVED by the production heuristic below,
+ *  never asserted from a hand-written tier on the input. */
+const HIGH_BOUNDARY_TASK: TaskInput = {
+  id: 'T-high',
+  title: 'Rework the published API contract',
+  files: ['src/api/openapi.yaml'],
+  testLayer: 'integration',
+};
+
+const LOW_TASK: TaskInput = {
+  id: 'T-low',
+  title: 'Refresh the onboarding docs',
+  files: ['docs/onboarding.md'],
+};
+
+/**
+ * Run the wave through the SAME classification boundary
+ * `handlePrepareDelegation` calls, and return the frozen stamp for one task.
+ */
+function freezeDelegationStamp(task: TaskInput): TaskClassification {
+  const classified = classifyTasksFailClosed([task]);
+  if (!classified.ok) throw new Error(classified.blocked.reason);
+  const stamp = classified.classifications[0];
+  if (!stamp) throw new Error('prepare_delegation produced no classification');
+  return stamp;
+}
+
+/**
+ * The dispatch variables the orchestrator resolves for a task — the runbook's
+ * `templateVars` filled from the frozen stamp plus the usual task coordinates.
+ */
+function dispatchVarsFrom(stamp: TaskClassification): Readonly<Record<string, unknown>> {
+  return {
+    taskId: stamp.taskId,
+    featureId: 'wc-t04',
+    streamId: 'wc-t04',
+    branch: `task/${stamp.taskId}`,
+    agentId: `agent-${stamp.taskId}`,
+    failureContext: 'previous attempt failed',
+    worktreePath: `/tmp/worktrees/${stamp.taskId}`,
+    // The FROZEN stamp — read off the classification, never authored here.
+    riskTier: stamp.riskTier,
+    boundaryTouching: stamp.boundaryTouching,
+  };
+}
+
+/**
+ * The orchestrator's fill-in step: resolve a step's `<var>` placeholders from
+ * the dispatch variables. A placeholder that is not a DECLARED templateVar is
+ * exactly the DR-3 defect — the orchestrator has no contract obliging it to
+ * supply that value — so the harness refuses to fill it.
+ */
+function fillStepParams(
+  runbook: RunbookDefinition,
+  step: RunbookStep,
+  vars: Readonly<Record<string, unknown>>,
+): Readonly<Record<string, unknown>> {
+  const filled: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(step.params ?? {})) {
+    const placeholder =
+      typeof value === 'string' && value.startsWith('<') && value.endsWith('>')
+        ? value.slice(1, -1)
+        : null;
+    if (placeholder === null) {
+      filled[key] = value;
+      continue;
+    }
+    if (!runbook.templateVars.includes(placeholder)) {
+      throw new Error(
+        `runbook '${runbook.id}' step '${step.action}' references <${placeholder}>, ` +
+          `which is not a declared templateVar — the orchestrator cannot supply it`,
+      );
+    }
+    filled[key] = vars[placeholder];
+  }
+  return filled;
+}
+
+function adequacyStepOf(runbook: RunbookDefinition): RunbookStep {
+  const step = runbook.steps.find((s) => s.action === 'check_test_adequacy');
+  if (!step) throw new Error(`runbook '${runbook.id}' has no check_test_adequacy step`);
+  return step;
+}
+
+/** Dispatch a runbook's adequacy step and return the params the gate receives. */
+function dispatchAdequacyParams(
+  runbook: RunbookDefinition,
+  stamp: TaskClassification,
+): Readonly<Record<string, unknown>> {
+  return fillStepParams(runbook, adequacyStepOf(runbook), dispatchVarsFrom(stamp));
+}
+
+// The probe short-circuits on `no-new-tests` BEFORE it touches the tree, so
+// these seams must never be reached. They throw rather than returning a stub
+// value, so a change that made the probe mutate a real tree fails loudly.
+const unreachableGitExec = (): never => {
+  throw new Error('git must not run — the probe short-circuits before any tree mutation');
+};
+const unreachableRunTests = (): never => {
+  throw new Error('the test command must not run — there are no probe-able tests');
+};
+
+/** A task diff that changes source but adds NO probe-able tests. */
+const SOURCE_ONLY_DIFF = ['src/api/openapi.yaml'];
+
+async function runGateWithParams(params: Readonly<Record<string, unknown>>) {
+  return runProbe({
+    gitExec: unreachableGitExec,
+    runTests: unreachableRunTests,
+    repoRoot: '/tmp/worktrees/unused',
+    baseRef: 'main',
+    changedFiles: SOURCE_ONLY_DIFF,
+    // The gate reads the tier off the DISPATCHED params — the same object the
+    // runbook filled from the frozen stamp.
+    ...(params['riskTier'] === undefined ? {} : { riskTier: params['riskTier'] as string }),
+  });
+}
+
+describe('DR-3 — delegation stamp threading (prepare_delegation → runbook → gate)', () => {
+  it('DelegationStamp_UndefinedTier_CharacterizesTheVacuousAdvisoryPass', async () => {
+    // CHARACTERIZATION of the pre-DR-3 behavior. The stamp said HIGH, but the
+    // runbook carried no tier, so `interpretProbeVerdict` was called with
+    // `undefined` — and a high-tier task that added NO probe-able tests came
+    // back as a PASS. This is the exact hole DR-3 closes; it is pinned here so
+    // the "undefined tier launders an unverified task into a pass" mechanism
+    // stays visible and cannot be quietly re-introduced as acceptable.
+    const stamp = freezeDelegationStamp(HIGH_BOUNDARY_TASK);
+    expect(stamp.riskTier).toBe('high');
+
+    const unstamped = await runGateWithParams({});
+    expect(unstamped.passed).toBe(true);
+    expect(unstamped.skipped).toBe(true);
+    expect(unstamped.disposition).toBe('advisory-skip');
+
+    // The SAME verdict, read at the stamp's tier, blocks. Only the tier the
+    // gate received differed — which is why the tier must reach the gate.
+    const atStampedTier = interpretProbeVerdict(unstamped.verdict, stamp.riskTier);
+    expect(atStampedTier.passed).toBe(false);
+
+    // And `boundaryTouching` never arrived either, so the policy router saw a
+    // half-resolved profile and declined to route at all.
+    expect(
+      resolvePolicySkip({ gateName: 'check_test_adequacy', riskTier: stamp.riskTier }),
+    ).toBeNull();
+  });
+
+  it('TaskCompletion_DelegationStamp_DeliversRiskTierToGate', async () => {
+    // ── HIGH tier: the stamp must arrive, and the gate must BLOCK ──────────
+    const highStamp = freezeDelegationStamp(HIGH_BOUNDARY_TASK);
+    const highParams = dispatchAdequacyParams(TASK_COMPLETION, highStamp);
+
+    // The value the gate receives IS the frozen stamp — not a literal the test
+    // injected. If the runbook drops the param, this is `undefined`.
+    expect(highParams['riskTier']).toBe(highStamp.riskTier);
+    expect(highParams['boundaryTouching']).toBe(highStamp.boundaryTouching);
+
+    // Acceptance: a HIGH-tier task adding no probe-able tests returns passed:false.
+    const highResult = await runGateWithParams(highParams);
+    expect(highResult.passed).toBe(false);
+    expect(highResult.skipped).toBeUndefined();
+    expect(highResult.disposition).toBe('blocked');
+    expect(highResult.report).toContain(highStamp.riskTier);
+
+    // ── LOW tier: the same runbook, the same fill-in, a different stamp ────
+    const lowStamp = freezeDelegationStamp(LOW_TASK);
+    const lowParams = dispatchAdequacyParams(TASK_COMPLETION, lowStamp);
+    expect(lowParams['riskTier']).toBe(lowStamp.riskTier);
+    expect(lowStamp.riskTier).not.toBe(highStamp.riskTier);
+
+    // Acceptance: a LOW-tier task returns passed:true, skipped:true.
+    const lowResult = await runGateWithParams(lowParams);
+    expect(lowResult.passed).toBe(true);
+    expect(lowResult.skipped).toBe(true);
+    expect(lowResult.disposition).toBe('advisory-skip');
+
+    // Both dispatches came from the SAME runbook step through the SAME fill-in
+    // and reached the gate with the same non-stamp params; only the frozen
+    // stamp differed, so the tier is what drove the divergent verdicts.
+    expect(Object.keys(highParams).sort()).toEqual(Object.keys(lowParams).sort());
+    expect(highParams['repoRoot']).toBe(lowParams['repoRoot']);
+    expect(highParams['riskTier']).not.toBe(lowParams['riskTier']);
+  });
+
+  it('TaskFix_DelegationStamp_DeliversBoundaryTouchingToGate', async () => {
+    // The fix chain must meet the same adequacy bar as a first-time completion,
+    // so TASK_FIX threads the same frozen stamp. `boundaryTouching` is consumed
+    // by the ladder router (`resolvePolicySkip`), which requires BOTH stamps —
+    // a half-resolved profile is treated as no profile and never routes.
+    const lowStamp = freezeDelegationStamp(LOW_TASK);
+    const lowParams = dispatchAdequacyParams(TASK_FIX, lowStamp);
+
+    // The boolean arriving at the gate IS the frozen stamp's, not a literal.
+    expect(typeof lowStamp.boundaryTouching).toBe('boolean');
+    expect(lowParams['boundaryTouching']).toBe(lowStamp.boundaryTouching);
+    expect(lowParams['riskTier']).toBe(lowStamp.riskTier);
+
+    // With BOTH stamps delivered the router can act: check_test_adequacy is not
+    // in the low-tier sequence, so the gate self-skips by policy.
+    const routed = resolvePolicySkip({
+      gateName: 'check_test_adequacy',
+      riskTier: lowParams['riskTier'] as 'low' | 'medium' | 'high',
+      boundaryTouching: lowParams['boundaryTouching'] as boolean,
+    });
+    expect(routed).not.toBeNull();
+    expect(routed?.reason).toContain(`boundaryTouching=${lowStamp.boundaryTouching}`);
+    expect(routed?.reason).toContain(`riskTier='${lowStamp.riskTier}'`);
+
+    // Drop ONLY boundaryTouching (the pre-DR-3 dispatch) and the router goes
+    // blind again — which is why the flag, not just the tier, must be threaded.
+    expect(
+      resolvePolicySkip({
+        gateName: 'check_test_adequacy',
+        riskTier: lowParams['riskTier'] as 'low' | 'medium' | 'high',
+      }),
+    ).toBeNull();
+
+    // A HIGH boundary-touching stamp keeps the gate IN the sequence — the same
+    // threading, the opposite routing decision.
+    const highStamp = freezeDelegationStamp(HIGH_BOUNDARY_TASK);
+    const highParams = dispatchAdequacyParams(TASK_FIX, highStamp);
+    expect(highParams['boundaryTouching']).toBe(highStamp.boundaryTouching);
+    expect(highStamp.boundaryTouching).toBe(true);
+    expect(
+      resolvePolicySkip({
+        gateName: 'check_test_adequacy',
+        riskTier: highParams['riskTier'] as 'low' | 'medium' | 'high',
+        boundaryTouching: highParams['boundaryTouching'] as boolean,
+      }),
+    ).toBeNull();
+
+    // …and the gate that does run blocks the un-probed high-tier fix.
+    const highResult = await runGateWithParams(highParams);
+    expect(highResult.passed).toBe(false);
+  });
+});
+

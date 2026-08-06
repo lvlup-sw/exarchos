@@ -48,6 +48,8 @@ const AGGREGATOR_JOB = 'ci-gate';
 interface WorkflowStep {
   readonly name?: string;
   readonly run?: string;
+  readonly uses?: string;
+  readonly with?: Record<string, unknown>;
 }
 
 interface WorkflowJob {
@@ -230,6 +232,146 @@ function checkSkipGuardCoverage(workflow: Workflow): CheckResult {
   }
   return { pass: violations.length === 0, violations };
 }
+
+// ─── DR-22: projection roots cannot change unobserved in CI ─────────────────
+//
+// The `changes` job's `dorny/paths-filter@v3` step configures its filters via
+// a single YAML *block-scalar string* (`with.filters: |`), not nested YAML
+// nodes — `js-yaml` parses that string as opaque text on the first pass. The
+// helper below re-parses that string as YAML on a SECOND pass to recover the
+// actual `root`/`mcp`/`prompts` glob arrays, so the assertions below check
+// the filter's REAL structure rather than regex-matching the workflow's raw
+// text (per the boundary note: parse the real file, don't loosely pattern
+// match it).
+
+const PATHS_FILTER_JOB = 'changes';
+const PATHS_FILTER_STEP_ID = 'filter';
+
+/** Parses the `dorny/paths-filter` step's `with.filters` block scalar as YAML. */
+function getPathsFilters(workflow: Workflow): Record<string, unknown> {
+  const job = workflow.jobs[PATHS_FILTER_JOB];
+  if (!job) {
+    throw new Error(`"${PATHS_FILTER_JOB}" job not found in workflow`);
+  }
+  const steps = job.steps ?? [];
+  const filterStep = steps.find(
+    (s) => typeof s.uses === 'string' && s.uses.startsWith('dorny/paths-filter'),
+  );
+  if (!filterStep) {
+    throw new Error(`"${PATHS_FILTER_JOB}" job has no "dorny/paths-filter" step`);
+  }
+  const filtersRaw = filterStep.with?.filters;
+  if (typeof filtersRaw !== 'string') {
+    throw new Error(
+      `"${PATHS_FILTER_JOB}" job's paths-filter step has no string "with.filters"`,
+    );
+  }
+  const parsed = yaml.load(filtersRaw);
+  if (!parsed || typeof parsed !== 'object') {
+    throw new Error(`"${PATHS_FILTER_JOB}" job's "with.filters" did not parse to an object`);
+  }
+  return parsed as Record<string, unknown>;
+}
+
+/** Returns the glob list for a single named filter (e.g. `root`), or `[]` if absent/malformed. */
+function filterGlobs(filters: Record<string, unknown>, filterName: string): string[] {
+  const value = filters[filterName];
+  if (!Array.isArray(value)) return [];
+  return value.filter((v): v is string => typeof v === 'string');
+}
+
+/**
+ * Projection-root globs the `root` path filter MUST contain (DR-22
+ * acceptance criteria, verbatim): the shipped agent, command-alias, hook,
+ * and Claude-plugin-manifest surfaces, plus the top-level `AGENTS.md`.
+ * Without these, a PR that only deletes/mutates one of these paths never
+ * flips `needs.changes.outputs.root` to `'true'`, so `test-root` (and the
+ * `skills:guard` / `hooks:guard` drift guards it hosts) never runs.
+ *
+ * Two coverage-closing additions ride the same contract:
+ *   - `servers/exarchos-mcp/src/agents/**` — the agent-GENERATOR sources
+ *     that feed the rendered `agents/**` projection; without it a
+ *     generator-only PR ships drift unobserved and `skills:guard` only
+ *     fires on some LATER PR that touches the rendered output.
+ *   - `.github/workflows/release.yml` — `scripts/release-workflow.test.ts`
+ *     (hosted in the root suite) parses release.yml, so a release.yml-only
+ *     PR must flip `root` or the workflow's own contract test never runs
+ *     on the PR that changes it.
+ */
+const REQUIRED_ROOT_PROJECTION_GLOBS = [
+  'agents/**',
+  'command-aliases/**',
+  'hooks/**',
+  '.claude-plugin/**',
+  'AGENTS.md',
+  'servers/exarchos-mcp/src/agents/**',
+  '.github/workflows/release.yml',
+] as const;
+
+/** True iff some step in `job` runs the given `npm run <script>` invocation. */
+function jobRunsNpmScript(job: WorkflowJob | undefined, scriptName: string): boolean {
+  const steps = job?.steps ?? [];
+  const re = new RegExp(`npm run ${scriptName}\\b`);
+  return steps.some((s) => typeof s.run === 'string' && re.test(s.run));
+}
+
+describe('CI path-filter & guard coverage (DR-22)', () => {
+  it('Filters_RootFilter_IncludesProjectionRootGlobs', () => {
+    const workflow = loadWorkflow(CI_WORKFLOW_PATH);
+    const filters = getPathsFilters(workflow);
+    const rootGlobs = filterGlobs(filters, 'root');
+
+    const missing = REQUIRED_ROOT_PROJECTION_GLOBS.filter((glob) => !rootGlobs.includes(glob));
+    expect(missing, `changes.root filter missing required glob(s): ${missing.join(', ')}`).toEqual(
+      [],
+    );
+  });
+
+  it('Guards_HooksGuardRunsInCI_AndIsRootFiltered', () => {
+    const workflow = loadWorkflow(CI_WORKFLOW_PATH);
+    // `hooks:guard` must actually execute in some job (a real CI step, not
+    // just an npm script that exists but is never wired in).
+    const jobNamesWithHooksGuard = Object.entries(workflow.jobs)
+      .filter(([, job]) => jobRunsNpmScript(job, 'hooks:guard'))
+      .map(([name]) => name);
+    expect(jobNamesWithHooksGuard.length, 'no CI job runs "npm run hooks:guard"').toBeGreaterThan(
+      0,
+    );
+
+    // The job(s) running it must be gated on the `root` change-filter key —
+    // otherwise the guard exists in CI but never fires on the PRs that need
+    // it (the exact DR-22 failure mode).
+    for (const jobName of jobNamesWithHooksGuard) {
+      const keys = pathFilterKeys(workflow.jobs[jobName]);
+      expect(keys, `job "${jobName}" running hooks:guard is not gated on any changes.outputs key`).toContain(
+        'root',
+      );
+    }
+  });
+
+  it('Guards_SkillsGuardCoversCommandAliasesAndAgents_RunsInCI_AndIsRootFiltered', () => {
+    const workflow = loadWorkflow(CI_WORKFLOW_PATH);
+    // `skills:guard` (src/skills-guard.ts) is the drift guard for BOTH
+    // `command-aliases/` and `agents/` (it regenerates and diffs both trees
+    // — see the runSkillsGuard implementation). Assert it actually runs in
+    // CI and is gated on `root`, same as hooks:guard above.
+    const jobNamesWithSkillsGuard = Object.entries(workflow.jobs)
+      .filter(([, job]) => jobRunsNpmScript(job, 'skills:guard'))
+      .map(([name]) => name);
+    expect(
+      jobNamesWithSkillsGuard.length,
+      'no CI job runs "npm run skills:guard"',
+    ).toBeGreaterThan(0);
+
+    for (const jobName of jobNamesWithSkillsGuard) {
+      const keys = pathFilterKeys(workflow.jobs[jobName]);
+      expect(
+        keys,
+        `job "${jobName}" running skills:guard is not gated on any changes.outputs key`,
+      ).toContain('root');
+    }
+  });
+});
 
 describe('CI-topology conformance (DR-2)', () => {
   it('Topology_CurrentWorkflow_Passes', () => {

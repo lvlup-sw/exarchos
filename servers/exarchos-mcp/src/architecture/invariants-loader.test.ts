@@ -6,9 +6,13 @@ import path from 'node:path';
 import {
   loadCoreInvariants,
   loadInvariants,
+  loadInvariantIds,
   parseInvariantEntries,
   type InvariantEntry,
 } from './invariants-loader.js';
+import { resolveCatalogSources } from './catalog-sources.js';
+import { scanFile } from './vocabulary-lint.js';
+import type { ExarchosConfigInput } from '../config/exarchos-config-schema.js';
 import { rmrf } from '../test-helpers/temp-dir.js';
 
 /**
@@ -60,16 +64,31 @@ const REQUIRED_INVARIANT_IDS = [
 const EXPECTED_CATALOG_SIZE = 21;
 
 /**
- * Most tests in this file exercise catalog *contents*, not the Wave B2
- * gating mechanism. They pass this explicit `enabled` config as the
- * third argument so the test fixture is decoupled from the state of the
- * repo's actual `.exarchos.yml` (which Wave B3 declares the flag in).
+ * Most tests in this file exercise catalog *contents*, not the DR-31
+ * gating mechanism. They pass this explicit config as the third argument
+ * so the test fixture is decoupled from the state of the repo's actual
+ * `.exarchos.yml`.
  *
- * Tests that exercise the gating itself (`LoadInvariants_WhenDevCatalog*`
- * suite) pass their own config inline. The dependency-injection pattern
+ * DR-31 re-baseline: the gate is no longer `invariants.devCatalog:
+ * 'enabled'` — it is *"is this catalog REGISTERED for a tier?"*. So the
+ * decoupling config is now a registration of the very file under load,
+ * which is exactly what a consumer writes in their own `.exarchos.yml`.
+ *
+ * Tests that exercise the gating itself (`LoadInvariants_*Registration*`
+ * suite) build their own configs inline. The dependency-injection pattern
  * keeps the gating contract explicit at every call site.
  */
-const ENABLED_CONFIG = { invariants: { devCatalog: 'enabled' as const } };
+function registeredConfig(
+  ...catalogPaths: string[]
+): ExarchosConfigInput {
+  return {
+    invariants: {
+      catalogs: catalogPaths.map((p) => ({ path: p, tier: 'dev' as const })),
+    },
+  };
+}
+
+const ENABLED_CONFIG = registeredConfig(INVARIANTS_DOC);
 
 describe('invariants-loader', () => {
   it('Invariants_StructuredFrontmatter_ParsesAllRequiredFields', () => {
@@ -272,78 +291,212 @@ describe('invariants-loader', () => {
     expect(coreEntries.map((e) => e.id)).toEqual(explicit.map((e) => e.id));
   });
 
-  // ─── Wave B2: .exarchos.yml gating ─────────────────────────────────────
+  // ─── DR-31: registration gating (replaces the Wave B2 boolean gate) ────
   //
-  // The loader honours `invariants.devCatalog` from the supplied config.
-  // When the flag is anything other than `'enabled'` (including absent /
-  // empty / `'disabled'`), the loader returns `[]` regardless of the
-  // `scope` filter — gating applies BEFORE scope. See:
+  // RE-BASELINE NOTICE (T-42). This block previously asserted the retired
+  // contract: `loadInvariants` returned `[]` unless the supplied config said
+  // `invariants.devCatalog: 'enabled'`. Three tests
+  // (`LoadInvariants_WhenDevCatalogDisabled_ReturnsEmpty`,
+  // `LoadInvariants_WhenConfigOmitsInvariants_ReturnsEmptyDefaultDisabled`,
+  // `LoadInvariants_WhenInvariantsBlockEmpty_ReturnsEmptyDefaultDisabled`)
+  // were the ONLY witnesses of that gate, so deleting the gate and rewriting
+  // them is self-witnessed by construction. The tests below therefore do NOT
+  // just drop the old assertions — they re-express the SAME question against
+  // the new authority, and each direction is pinned separately:
   //
-  //   docs/proposals/2026-05-20-invariants-catalog-v2-spec.md §4.0
+  //   not registered ⇒ empty   (the old `disabled` outcome, preserved by
+  //                             REGISTRATION rather than by a boolean)
+  //   registered     ⇒ loads   (regardless of the boolean's presence/value)
+  //
+  // A loader that lost its gate entirely would pass the second and FAIL the
+  // first; a loader that loaded nothing would pass the first and FAIL the
+  // second. Neither degenerate implementation is green here.
+  //
+  // BEHAVIOR CHANGE, deliberate and user-visible: `devCatalog: 'disabled'`
+  // used to SUPPRESS a load. It no longer does anything at all. A repo that
+  // wants the old suppression removes the `catalogs:` registration.
   //
   // The third positional argument is dependency-injectable for tests so
   // they don't need to author a temp `.exarchos.yml` fixture; production
   // call sites get the default `readInvariantsConfig()` reader.
 
-  it('LoadInvariants_WhenDevCatalogDisabled_ReturnsEmpty', () => {
-    // Explicit `'disabled'` — the canonical opt-out case.
-    const entries = loadInvariants(
-      INVARIANTS_DOC,
-      { scope: 'all' },
-      { invariants: { devCatalog: 'disabled' } },
-    );
-    expect(entries).toEqual([]);
+  it('InvariantsLoader_NoDevCatalogFlag_ResolvesViaCatalogSources', () => {
+    // THE DR-31 ACCEPTANCE TEST. A config carrying NO `devCatalog` key at
+    // all — only the canonical registration a consumer would write — loads
+    // the catalog, and the loader's verdict tracks `resolveCatalogSources`
+    // (the discovery surface) rather than any boolean.
+    const registered: ExarchosConfigInput = {
+      invariants: {
+        catalogs: [{ path: INVARIANTS_DOC, tier: 'dev' }],
+      },
+    };
+    expect(
+      JSON.stringify(registered),
+      'this test is about the ABSENCE of the flag; a devCatalog key here ' +
+        'would make it silently re-test the retired gate',
+    ).not.toContain('devCatalog');
 
-    // Scope must not bypass the gate: even `'core'` returns `[]` when
-    // the flag is disabled.
-    const coreEntries = loadInvariants(
+    const entries = loadInvariants(INVARIANTS_DOC, { scope: 'all' }, registered);
+    expect(entries.length).toBeGreaterThan(0);
+    expect(entries.map((e) => e.id)).toContain('INV-1');
+
+    // Independent authority: discovery says this file is a source, and the
+    // loader loaded it. Discovery is where the opt-in now lives.
+    const discovered = resolveCatalogSources(registered);
+    expect(discovered).toEqual([{ path: INVARIANTS_DOC, tier: 'dev' }]);
+
+    // ...and the loader is NOT simply "load whatever path you are handed":
+    // register a DIFFERENT file and this same catalog is not loaded.
+    const elsewhere: ExarchosConfigInput = {
+      invariants: {
+        catalogs: [
+          { path: path.join(REPO_ROOT, '.exarchos/some-other-catalog.md'), tier: 'dev' },
+        ],
+      },
+    };
+    expect(resolveCatalogSources(elsewhere).map((s) => s.path)).not.toContain(
       INVARIANTS_DOC,
-      { scope: 'core' },
-      { invariants: { devCatalog: 'disabled' } },
     );
-    expect(coreEntries).toEqual([]);
+    expect(loadInvariants(INVARIANTS_DOC, { scope: 'all' }, elsewhere)).toEqual([]);
   });
 
-  it('LoadInvariants_WhenConfigOmitsInvariants_ReturnsEmptyDefaultDisabled', () => {
-    // Empty config — represents a consumer using Exarchos as a plugin in
-    // a non-Exarchos project who never declared the block at all.
-    const entries = loadInvariants(INVARIANTS_DOC, { scope: 'all' }, {});
-    expect(entries).toEqual([]);
+  it('LoadInvariants_WhenCatalogNotRegistered_ReturnsEmpty', () => {
+    // DIRECTION 1: not registered ⇒ empty. This is the assertion that keeps
+    // the old `disabled` / default-off outcome alive — now expressed as
+    // "nothing registers this file" instead of "a boolean is off". Deleting
+    // the loader's gate reddens exactly this test.
+    //
+    // Empty config — a consumer who never declared the block at all.
+    expect(loadInvariants(INVARIANTS_DOC, { scope: 'all' }, {})).toEqual([]);
+    // Declared block, no registrations.
+    expect(
+      loadInvariants(INVARIANTS_DOC, { scope: 'all' }, { invariants: {} }),
+    ).toEqual([]);
+    // Registrations present, but for a DIFFERENT file.
+    expect(
+      loadInvariants(INVARIANTS_DOC, { scope: 'all' }, {
+        invariants: { catalogs: [{ path: 'somewhere/else.md', tier: 'dev' }] },
+      }),
+    ).toEqual([]);
+    // THE RETIRED SUGAR IS INERT: the boolean alone no longer opts anything
+    // in. Before T-42 this config loaded the whole catalog.
+    expect(
+      loadInvariants(INVARIANTS_DOC, { scope: 'all' }, {
+        invariants: { devCatalog: 'enabled' },
+      }),
+    ).toEqual([]);
+
+    // Scope must not bypass the gate — gating runs BEFORE the scope filter.
+    expect(loadInvariants(INVARIANTS_DOC, { scope: 'core' }, {})).toEqual([]);
   });
 
-  it('LoadInvariants_WhenInvariantsBlockEmpty_ReturnsEmptyDefaultDisabled', () => {
-    // The `invariants:` key is declared but `devCatalog` is unset.
-    // Equivalent to the empty-config case — default-disabled wins.
-    const entries = loadInvariants(
-      INVARIANTS_DOC,
-      { scope: 'all' },
-      { invariants: {} },
+  it('LoadInvariants_WhenRegistered_DevCatalogBooleanIsInert', () => {
+    // DIRECTION 2: registered ⇒ loads, whatever the boolean says. The
+    // `'disabled'` case is the sharp one: it USED to suppress the load and
+    // must not any more. All three variants must agree entry-for-entry, and
+    // the shared result must be non-empty (an "everything is empty" loader
+    // would satisfy the equalities but not the floor).
+    const base = [{ path: INVARIANTS_DOC, tier: 'dev' as const }];
+    const absent: ExarchosConfigInput = { invariants: { catalogs: base } };
+    const enabled: ExarchosConfigInput = {
+      invariants: { devCatalog: 'enabled', catalogs: base },
+    };
+    const disabled: ExarchosConfigInput = {
+      invariants: { devCatalog: 'disabled', catalogs: base },
+    };
+    // The variants must genuinely differ, or the equalities are tautological.
+    expect(absent).not.toEqual(enabled);
+    expect(enabled).not.toEqual(disabled);
+
+    const ids = (config: ExarchosConfigInput): string[] =>
+      loadInvariants(INVARIANTS_DOC, { scope: 'all' }, config).map((e) => e.id);
+
+    expect(ids(absent).length).toBeGreaterThanOrEqual(18);
+    expect(ids(enabled)).toEqual(ids(absent));
+    expect(ids(disabled)).toEqual(ids(absent));
+
+    // Same at a narrower scope, so the gate/scope ordering holds both ways.
+    const coreIds = loadInvariants(INVARIANTS_DOC, { scope: 'core' }, disabled).map(
+      (e) => e.id,
     );
-    expect(entries).toEqual([]);
+    expect(coreIds).toContain('INV-1');
   });
 
-  it('LoadInvariants_WhenDevCatalogEnabled_ReturnsEntriesPerScope', () => {
-    // `'enabled'` re-engages the existing scope filter. v2 catalog
-    // membership grows across C4..C11; this test pins the contract that
-    // `'core'` is non-empty when enabled, while v1-era always-load IDs
-    // (INV-1, INV-2, INV-5a, INV-5b) remain present.
-    const allEntries = loadInvariants(
-      INVARIANTS_DOC,
-      { scope: 'all' },
-      { invariants: { devCatalog: 'enabled' } },
-    );
-    expect(allEntries.length).toBeGreaterThanOrEqual(18);
+  it('LoadInvariants_RelativeRegistration_MatchesOnWholeSegmentsOnly', () => {
+    // The gate resolves a RELATIVE registration against the root it was
+    // written against. Two roots are exercised: an explicit `configRoot`
+    // (what `resolveEffectiveCatalog` passes) and the root-agnostic suffix
+    // fallback used when a config is injected without one.
+    //
+    // The negative cases are the point: a suffix match must be
+    // SEGMENT-ALIGNED, so a registration must never match a path that merely
+    // ends with its characters. This logic is separator-normalized rather
+    // than platform-branched, so both assertions below are live on POSIX and
+    // on Windows alike.
+    const relative: ExarchosConfigInput = {
+      invariants: { catalogs: [{ path: '.exarchos/invariants.md', tier: 'dev' }] },
+    };
+    // (a) explicit configRoot
+    expect(
+      loadInvariants(INVARIANTS_DOC, { scope: 'all', configRoot: REPO_ROOT }, relative)
+        .length,
+    ).toBeGreaterThan(0);
+    // (b) root-agnostic suffix fallback
+    expect(
+      loadInvariants(INVARIANTS_DOC, { scope: 'all' }, relative).length,
+    ).toBeGreaterThan(0);
+    // (c) wrong explicit root ⇒ no match
+    expect(
+      loadInvariants(
+        INVARIANTS_DOC,
+        { scope: 'all', configRoot: path.join(REPO_ROOT, 'servers') },
+        relative,
+      ),
+    ).toEqual([]);
+    // (d) partial-segment near miss ⇒ no match, under both matching modes
+    const nearMiss: ExarchosConfigInput = {
+      invariants: { catalogs: [{ path: 'exarchos/invariants.md', tier: 'dev' }] },
+    };
+    expect(loadInvariants(INVARIANTS_DOC, { scope: 'all' }, nearMiss)).toEqual([]);
+    expect(
+      loadInvariants(INVARIANTS_DOC, { scope: 'all', configRoot: REPO_ROOT }, nearMiss),
+    ).toEqual([]);
+  });
 
-    const coreEntries = loadInvariants(
-      INVARIANTS_DOC,
-      { scope: 'core' },
-      { invariants: { devCatalog: 'enabled' } },
+  it('VocabularyLint_UnchangedFile_ResolvesSameIdSetThroughLoadInvariants', () => {
+    // DR-31 site 4 — PROVEN, NOT ASSUMED. `vocabulary-lint.ts` reads no
+    // boolean; it delegates to `loadInvariantIds`. So it needs no edit iff
+    // the delegated call still resolves the repo's catalog through the REAL
+    // `.exarchos.yml` on disk (the path `npm run lint:invariants` takes).
+    //
+    // Authority 1: the id set vocabulary-lint gets via the DISK-discovered
+    // registration (no injected config — exactly the CLI's call shape).
+    const viaDisk = loadInvariantIds(INVARIANTS_DOC);
+    // Authority 2: the id set from the injected registration used elsewhere
+    // in this file.
+    const viaInjected = new Set(
+      loadInvariants(INVARIANTS_DOC, { scope: 'all' }, ENABLED_CONFIG).map(
+        (e) => e.id,
+      ),
     );
-    const coreIds = new Set(coreEntries.map((e) => e.id));
-    expect(coreIds.has('INV-1')).toBe(true);
-    expect(coreIds.has('INV-2')).toBe(true);
-    expect(coreIds.has('INV-5a')).toBe(true);
-    expect(coreIds.has('INV-5b')).toBe(true);
+    expect(viaDisk.size).toBeGreaterThan(0);
+    expect([...viaDisk].sort()).toEqual([...viaInjected].sort());
+
+    // End-to-end through vocabulary-lint's own entry point, with NO config
+    // injected: a known id must be accepted and an unknown one flagged. If
+    // the loader stopped resolving the repo's registration, `INV-1` would
+    // surface as a finding here and this test would fail.
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vocab-lint-dr31-'));
+    try {
+      const doc = path.join(tmpDir, 'note.md');
+      fs.writeFileSync(doc, 'Refers to INV-1 and to INV-999.\n', 'utf8');
+      const findings = scanFile(doc);
+      const tokens = findings.map((f) => f.token);
+      expect(tokens).toContain('INV-999');
+      expect(tokens).not.toContain('INV-1');
+    } finally {
+      rmrf(tmpDir);
+    }
   });
 
   // ─── Wave C1: schema-version v2 + axis field ──────────────────────────
@@ -444,10 +597,10 @@ invariants:
     const tmpFile = path.join(tmpDir, 'invariants.md');
     fs.writeFileSync(tmpFile, fixture, 'utf8');
     try {
-      expect(() => loadInvariants(tmpFile, undefined, ENABLED_CONFIG)).toThrow(
+      expect(() => loadInvariants(tmpFile, undefined, registeredConfig(tmpFile))).toThrow(
         /INV-MISSING-AXIS/,
       );
-      expect(() => loadInvariants(tmpFile, undefined, ENABLED_CONFIG)).toThrow(/axis/);
+      expect(() => loadInvariants(tmpFile, undefined, registeredConfig(tmpFile))).toThrow(/axis/);
     } finally {
       rmrf(tmpDir);
     }
@@ -512,7 +665,7 @@ invariants:
     const tmpFile = path.join(tmpDir, 'invariants.md');
     fs.writeFileSync(tmpFile, fixture, 'utf8');
     try {
-      const entries = loadInvariants(tmpFile, undefined, ENABLED_CONFIG);
+      const entries = loadInvariants(tmpFile, undefined, registeredConfig(tmpFile));
       expect(entries.length).toBe(1);
       const entry = entries[0]!;
       expect(entry.citations).toBeDefined();
@@ -574,7 +727,7 @@ invariants:
     const tmpFile = path.join(tmpDir, 'invariants.md');
     fs.writeFileSync(tmpFile, fixture, 'utf8');
     try {
-      const entries = loadInvariants(tmpFile, undefined, ENABLED_CONFIG);
+      const entries = loadInvariants(tmpFile, undefined, registeredConfig(tmpFile));
       expect(entries.length).toBe(1);
       const entry = entries[0]!;
       expect((entry as Record<string, unknown>).axiomOverlap).toBeUndefined();
@@ -941,17 +1094,17 @@ invariants:
     fs.writeFileSync(tmpFile, fixture, 'utf8');
     try {
       // Error message must name the offending entry id.
-      expect(() => loadInvariants(tmpFile, undefined, ENABLED_CONFIG)).toThrow(
+      expect(() => loadInvariants(tmpFile, undefined, registeredConfig(tmpFile))).toThrow(
         /INV-V1-SHAPE/,
       );
       // Error message must reference the `axis` field by name.
-      expect(() => loadInvariants(tmpFile, undefined, ENABLED_CONFIG)).toThrow(/axis/);
+      expect(() => loadInvariants(tmpFile, undefined, registeredConfig(tmpFile))).toThrow(/axis/);
       // Error message must cite schema-version: 2 + the allowed values to
       // tell catalog editors how to fix the omission.
-      expect(() => loadInvariants(tmpFile, undefined, ENABLED_CONFIG)).toThrow(
+      expect(() => loadInvariants(tmpFile, undefined, registeredConfig(tmpFile))).toThrow(
         /schema-version: 2/,
       );
-      expect(() => loadInvariants(tmpFile, undefined, ENABLED_CONFIG)).toThrow(
+      expect(() => loadInvariants(tmpFile, undefined, registeredConfig(tmpFile))).toThrow(
         /substrate.*authoring|authoring.*substrate/,
       );
     } finally {
@@ -1011,7 +1164,7 @@ invariants:
     const tmpFile = path.join(tmpDir, 'invariants.md');
     fs.writeFileSync(tmpFile, fixture, 'utf8');
     try {
-      const entries = loadInvariants(tmpFile, undefined, ENABLED_CONFIG);
+      const entries = loadInvariants(tmpFile, undefined, registeredConfig(tmpFile));
       expect(entries.length).toBe(1);
       const entry = entries[0]!;
       // v2 fields intact.
@@ -1056,7 +1209,7 @@ invariants:
     const tmpFile = path.join(tmpDir, 'invariants.md');
     fs.writeFileSync(tmpFile, fixture, 'utf8');
     try {
-      const entries = loadInvariants(tmpFile, undefined, ENABLED_CONFIG);
+      const entries = loadInvariants(tmpFile, undefined, registeredConfig(tmpFile));
       expect(entries.length).toBe(1);
       const entry = entries[0]!;
       expect(entry.id).toBe('INV-V2-PLAIN');
@@ -1096,10 +1249,10 @@ invariants:
     const tmpFile = path.join(tmpDir, 'invariants.md');
     fs.writeFileSync(tmpFile, fixture, 'utf8');
     try {
-      expect(() => loadInvariants(tmpFile, undefined, ENABLED_CONFIG)).toThrow(
+      expect(() => loadInvariants(tmpFile, undefined, registeredConfig(tmpFile))).toThrow(
         /schema-version/,
       );
-      expect(() => loadInvariants(tmpFile, undefined, ENABLED_CONFIG)).toThrow(/99/);
+      expect(() => loadInvariants(tmpFile, undefined, registeredConfig(tmpFile))).toThrow(/99/);
     } finally {
       rmrf(tmpDir);
     }
@@ -1143,7 +1296,7 @@ invariants:
     const tmpFile = path.join(tmpDir, 'invariants.md');
     fs.writeFileSync(tmpFile, v2Fixture, 'utf8');
     try {
-      const entries = loadInvariants(tmpFile, undefined, ENABLED_CONFIG);
+      const entries = loadInvariants(tmpFile, undefined, registeredConfig(tmpFile));
       expect(entries.length).toBeGreaterThan(0);
       for (const entry of entries) {
         // v2 required fields are well-formed.
@@ -1204,8 +1357,8 @@ invariants:
     // otherwise return `{}` and gating would mask the duplicate-ID
     // rejection we're asserting here.
     try {
-      expect(() => loadInvariants(tmpFile, undefined, ENABLED_CONFIG)).toThrow(/INV-1/);
-      expect(() => loadInvariants(tmpFile, undefined, ENABLED_CONFIG)).toThrow(
+      expect(() => loadInvariants(tmpFile, undefined, registeredConfig(tmpFile))).toThrow(/INV-1/);
+      expect(() => loadInvariants(tmpFile, undefined, registeredConfig(tmpFile))).toThrow(
         /Duplicate invariant ID/,
       );
     } finally {

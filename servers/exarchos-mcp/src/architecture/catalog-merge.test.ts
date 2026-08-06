@@ -175,8 +175,10 @@ describe('applyOverrides', () => {
     expect(resolved?.severity?.['by-workflow']).toBeUndefined();
   });
 
-  it('ApplyOverrides_DevSubstrate_NotPresentWhenDevCatalogDisabled', () => {
-    // devCatalog disabled ⇒ empty dev layer ⇒ no substrate-class entries.
+  it('ApplyOverrides_DevSubstrate_NotPresentWhenNoDevCatalogRegistered', () => {
+    // No `tier: dev` catalog registered ⇒ empty dev layer ⇒ no
+    // substrate-class entries. (T-43: the dev layer is empty because nothing
+    // registered it, not because a boolean was flipped off.)
     const merged = mergeCatalogs({ dev: [], sdlc: [entry('SDLC-1')], user: [] });
     expect(merged.some((e) => e.integrityClass === 'substrate')).toBe(false);
 
@@ -185,6 +187,16 @@ describe('applyOverrides', () => {
       'INV-1': { severity: 'advisory' },
     });
     expect(entries.some((e) => e.id === 'INV-1')).toBe(false);
-    expect(warnings.some((w) => w.includes('INV-1'))).toBe(true);
+    const warning = warnings.find((w) => w.includes('INV-1'));
+    expect(warning).toBeDefined();
+
+    // USER-FACING OUTPUT GUARD (T-43). This warning is read by an operator
+    // deciding why their override did nothing. It used to blame the retired
+    // `devCatalog` gate — a mechanism that no longer exists, so an operator
+    // following it would look for a switch there is no switch for. Coverage
+    // above only checked the id appeared, so the stale explanation was
+    // unobserved; pin that it explains the real cause (nothing registered).
+    expect(warning!.toLowerCase()).not.toContain('devcatalog');
+    expect(warning).toContain('registering');
   });
 });

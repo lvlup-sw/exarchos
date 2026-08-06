@@ -1,6 +1,6 @@
 // ─── check_contract_drift registration + dispatch + steer (task 023) ──────────
 
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mkdtempSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -16,6 +16,13 @@ import {
 } from './contract-drift-handler.js';
 import type { GitExec } from './pure/execute-merge.js';
 import type { CommandRunFn } from './contract-drift.js';
+
+vi.mock('./durable-gate-producer.js', () => ({
+  runDurableGateProducer: (
+    _scope: unknown,
+    executeProvider: () => Promise<unknown>,
+  ) => executeProvider(),
+}));
 
 // ─── seams ──────────────────────────────────────────────────────────────────
 

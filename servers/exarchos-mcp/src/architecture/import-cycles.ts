@@ -254,3 +254,143 @@ export function phantomBaselineEntries(
     (entry) => !live.has(edgeKey({ from: toPosix(entry.from), to: toPosix(entry.to) })),
   );
 }
+
+// ─── Forbidden Runtime Back-Edge Registry (P07-06) ───────────────────────────
+//
+// The baseline machinery above ACCEPTS existing cycles; this registry PREVENTS
+// specific cycle-closing back-edges from ever forming. The debloat gate already
+// pins one such seam by hand in the co-located test (the projection MUST NOT
+// runtime-import the store, or the mutual cycle re-forms). P07-06 generalizes
+// that ad-hoc pin into a declared, ratcheted set so new forbidden seams are a
+// one-line entry rather than a bespoke test — extending the detector's
+// *enforcement*, not just its detection. Like every gate on this ladder it is a
+// two-way ratchet: a present forbidden edge fails, AND a rule whose endpoints are
+// not both real modules in the graph fails as stale cover (a phantom guard could
+// silently pass while the module it names was renamed away).
+
+/** A declared runtime edge that must never exist (a cycle-closing back-edge). */
+export interface ForbiddenEdgeRule {
+  /** Source module (scan-root-relative, forward-slashed, matching `srcPrefix`). */
+  readonly from: string;
+  /** Target module the source must not runtime-import. */
+  readonly to: string;
+  /** Why this seam must stay one-way (usually: it would re-form a cycle). */
+  readonly reason: string;
+}
+
+export type ForbiddenEdgeDiagnostic =
+  | {
+      readonly code: 'FORBIDDEN_RUNTIME_EDGE';
+      readonly from: string;
+      readonly to: string;
+      readonly reason: string;
+      readonly message: string;
+    }
+  | {
+      readonly code: 'STALE_FORBIDDEN_EDGE';
+      readonly from: string;
+      readonly to: string;
+      readonly missing: 'from' | 'to' | 'both';
+      readonly message: string;
+    };
+
+export interface ForbiddenEdgeResult {
+  readonly ok: boolean;
+  readonly diagnostics: readonly ForbiddenEdgeDiagnostic[];
+}
+
+/** Collect the first-party module nodes present in an already-parsed graph. */
+function nodesFromOutput(output: DepcruiseOutput, srcPrefix: string): Set<string> {
+  const prefix = toPosix(srcPrefix);
+  const isLocal = (s: string): boolean => toPosix(s).startsWith(prefix);
+  const nodes = new Set<string>();
+  for (const mod of output.modules ?? []) {
+    const from = toPosix(mod.source);
+    if (isLocal(from)) nodes.add(from);
+    for (const dep of mod.dependencies ?? []) {
+      const to = toPosix(dep.resolved);
+      if (isLocal(to)) nodes.add(to);
+    }
+  }
+  return nodes;
+}
+
+/**
+ * The set of first-party module paths present in the graph — as an import source
+ * OR a resolved local target. Used to validate that a forbidden-edge rule names
+ * real modules; a rule whose endpoints are absent is phantom cover.
+ */
+export function firstPartyModules(
+  depcruiseJson: string,
+  srcPrefix = 'servers/exarchos-mcp/src',
+): Set<string> {
+  return nodesFromOutput(JSON.parse(depcruiseJson) as DepcruiseOutput, srcPrefix);
+}
+
+/**
+ * The two-way forbidden-edge verdict over a depcruise graph:
+ *   - FORBIDDEN_RUNTIME_EDGE — a declared forbidden edge that actually exists;
+ *   - STALE_FORBIDDEN_EDGE   — a rule whose `from`/`to` is not a real graph node
+ *                              (phantom guard), so the pin protects nothing.
+ */
+export function runForbiddenEdgeCensus(
+  depcruiseJson: string,
+  rules: readonly ForbiddenEdgeRule[] = FORBIDDEN_RUNTIME_EDGES,
+  srcPrefix = 'servers/exarchos-mcp/src',
+): ForbiddenEdgeResult {
+  const output = JSON.parse(depcruiseJson) as DepcruiseOutput;
+  const adj = buildAdjacency(output, srcPrefix);
+  const nodes = nodesFromOutput(output, srcPrefix);
+  const diagnostics: ForbiddenEdgeDiagnostic[] = [];
+
+  for (const rule of rules) {
+    const from = toPosix(rule.from);
+    const to = toPosix(rule.to);
+    const fromPresent = nodes.has(from);
+    const toPresent = nodes.has(to);
+    if (!fromPresent || !toPresent) {
+      const missing: 'from' | 'to' | 'both' =
+        !fromPresent && !toPresent ? 'both' : !fromPresent ? 'from' : 'to';
+      diagnostics.push({
+        code: 'STALE_FORBIDDEN_EDGE',
+        from: rule.from,
+        to: rule.to,
+        missing,
+        message:
+          `Forbidden-edge rule ${rule.from} -> ${rule.to} names a module absent from the ` +
+          `graph (${missing}) — stale cover. Update FORBIDDEN_RUNTIME_EDGES to the module's ` +
+          `new path or remove the rule.`,
+      });
+      continue;
+    }
+    if (adj.get(from)?.has(to) ?? false) {
+      diagnostics.push({
+        code: 'FORBIDDEN_RUNTIME_EDGE',
+        from: rule.from,
+        to: rule.to,
+        reason: rule.reason,
+        message:
+          `Forbidden runtime import ${rule.from} -> ${rule.to}: ${rule.reason} Break the edge ` +
+          `(extract the shared leaf both sides can import) rather than re-forming the cycle.`,
+      });
+    }
+  }
+
+  return { ok: diagnostics.length === 0, diagnostics };
+}
+
+/**
+ * The declared cycle-closing back-edges. Each `from` must NOT runtime-import its
+ * `to`. Paths use the package-root-relative `src/…` convention the co-located
+ * gate runs depcruise under (so callers pass `srcPrefix = 'src'`).
+ */
+export const FORBIDDEN_RUNTIME_EDGES: readonly ForbiddenEdgeRule[] = Object.freeze([
+  {
+    from: 'src/views/workflow-state-projection.ts',
+    to: 'src/workflow/state-store.ts',
+    reason:
+      'The store value-imports the projection (folds events through its apply), so a ' +
+      'projection→store runtime edge re-forms the mutual cycle; import the shared helpers ' +
+      'from workflow/state-mutation.ts instead (DR-4).',
+  },
+]);

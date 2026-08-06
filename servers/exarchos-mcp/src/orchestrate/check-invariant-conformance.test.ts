@@ -373,9 +373,14 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
     const arm = await createArm('inv-conformance-override-');
     const fixture = await makeRepoFixture({ devCatalog: DEV_CATALOG_SDLC3_BLOCKING });
     try {
-      // Baseline: devCatalog enabled, no override → SDLC-3 fires → NEEDS_FIXES.
+      // Baseline: dev catalog REGISTERED, no override → SDLC-3 fires →
+      // NEEDS_FIXES. (T-42: registration replaces the retired `devCatalog`
+      // boolean as the opt-in; the fixture writes the catalog to
+      // `<repoRoot>/.exarchos/invariants.md`.)
       const baseConfig: ExarchosConfig = {
-        invariants: { devCatalog: 'enabled' },
+        invariants: {
+          catalogs: [{ path: '.exarchos/invariants.md', tier: 'dev' }],
+        },
       };
       const baseline = await handleCheckInvariantConformance(
         {
@@ -396,7 +401,7 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
       // With the disable override the invariant is dropped → APPROVED, 0 HIGH.
       const overrideConfig: ExarchosConfig = {
         invariants: {
-          devCatalog: 'enabled',
+          catalogs: [{ path: '.exarchos/invariants.md', tier: 'dev' }],
           overrides: { 'SDLC-3': { enabled: false } },
         },
       };
@@ -466,8 +471,10 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
     try {
       const config: ExarchosConfig = {
         invariants: {
-          devCatalog: 'enabled',
-          catalogs: [fixture.userCatalogPath as string],
+          catalogs: [
+            fixture.userCatalogPath as string,
+            { path: '.exarchos/invariants.md', tier: 'dev' },
+          ],
         },
       };
       const result = await handleCheckInvariantConformance(
@@ -521,10 +528,16 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
     const arm = await createArm('inv-conformance-disk-cfg-');
     const fixture = await makeRepoFixture({ devCatalog: DEV_CATALOG_SDLC3_BLOCKING });
     try {
-      // Baseline (.exarchos.yml: devCatalog enabled, no override) → NEEDS_FIXES.
+      // Baseline (.exarchos.yml registers the dev catalog, no override) →
+      // NEEDS_FIXES.
       await writeFile(
         path.join(fixture.repoRoot, '.exarchos.yml'),
-        ['invariants:', '  devCatalog: enabled', ''].join('\n'),
+        [
+          'invariants:',
+          '  catalogs:',
+          '    - { path: .exarchos/invariants.md, tier: dev }',
+          '',
+        ].join('\n'),
         'utf8',
       );
       const baseline = await handleCheckInvariantConformance(
@@ -546,7 +559,8 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
         path.join(fixture.repoRoot, '.exarchos.yml'),
         [
           'invariants:',
-          '  devCatalog: enabled',
+          '  catalogs:',
+          '    - { path: .exarchos/invariants.md, tier: dev }',
           '  overrides:',
           '    SDLC-3:',
           '      enabled: false',
@@ -585,7 +599,7 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
     try {
       const config: ExarchosConfig = {
         invariants: {
-          devCatalog: 'enabled',
+          catalogs: [{ path: '.exarchos/invariants.md', tier: 'dev' }],
           enforcement: { review: 'advisory' },
         },
       };

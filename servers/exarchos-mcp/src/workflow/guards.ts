@@ -44,20 +44,53 @@ export function composeGuards(id: string, description: string, ...innerGuards: G
 
 // ─── Guard Helpers ──────────────────────────────────────────────────────────
 
+/**
+ * A TYPED ARTIFACT REFERENCE (DR-5). An artifact field carries either a path
+ * (`docs/specs/…md`, a URL) or the artifact contents — both of which are
+ * strings. Anything else is not a reference to anything.
+ *
+ * This is the SAME narrowing `oneshotPlanSet` (F23 / #1213), the
+ * `delegationReadinessProjection`'s `artifactPresent`, and the admission
+ * algebra's `artifacts.planNonEmpty` fact already apply. Keeping one predicate
+ * is what stops the three surfaces from drifting back apart.
+ *
+ * Exported so consumers that CAN import this module (e.g. the
+ * delegation-readiness view) share the one predicate instead of re-deriving
+ * it. The admission algebra (`admission/legacy-state-translation.ts`) is the
+ * deliberate exception: it must stay import-free of this module
+ * (`built-in-workflow-ir.structure.test.ts`), so it carries an intentional
+ * duplicate held in lockstep by `legacy-guard-parity.test.ts`.
+ */
+export function isTypedArtifactReference(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
 function makeArtifactGuard(field: string, description: string, customId?: string): Guard {
   const id = customId ?? `${field}-artifact-exists`;
   return {
     id,
     description,
     evaluate: (state: Record<string, unknown>): GuardResult => {
+      // DR-5 (#T-08): this used to be a bare `!= null` presence probe, so
+      // `artifacts.plan = true` — or `false`, `0`, `''`, `'   '`, `{}` —
+      // satisfied a phase gate whose whole purpose is to require a real
+      // artifact. A bare boolean is not a plan. The admission algebra already
+      // rejected these at the schema level, but that rejection lived only in
+      // the shadow layer; the shipped transition path (tools.ts →
+      // hsmTransitionGuard.attempt → executeTransition → guard.evaluate) read
+      // this loose check, so the rejection never reached production. Both the
+      // canonical `artifacts[field]` read AND the legacy top-level fallback are
+      // narrowed — tightening only one leaves the other as an open bypass.
       const artifacts = state.artifacts as Record<string, unknown> | undefined;
-      if (artifacts != null && artifacts[field] != null) return true;
+      if (artifacts != null && isTypedArtifactReference(artifacts[field])) return true;
       // Fallback: check top-level field
-      if (state[field] != null) return true;
+      if (isTypedArtifactReference(state[field])) return true;
       const featureId = (typeof state.featureId === 'string' ? state.featureId : '<featureId>');
       return {
         passed: false,
-        reason: `${id} not satisfied`,
+        reason:
+          `${id} not satisfied: artifacts.${field} must be a non-empty string ` +
+          `(a path or the artifact contents), not a bare boolean/object/whitespace`,
         expectedShape: { artifacts: { [field]: '<path-or-content>' } },
         suggestedFix: {
           tool: 'exarchos_workflow',
@@ -867,7 +900,7 @@ export const guards = {
       // satisfy `.length > 0` but carry no content, which would let a
       // oneshot transition `plan → implementing` with a blank document.
       // Require at least one non-whitespace character.
-      if (typeof plan === 'string' && plan.trim().length > 0) return true;
+      if (isTypedArtifactReference(plan)) return true;
       const featureId = typeof state.featureId === 'string' ? state.featureId : '<featureId>';
       return {
         passed: false,

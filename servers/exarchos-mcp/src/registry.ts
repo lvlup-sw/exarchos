@@ -1,3 +1,38 @@
+// ─── The Exarchos tool registry — the DECLARATION AUTHORITY (DR-11) ──────────
+//
+// AUTHORITY DIRECTION (resolved, T-16). This file is the single place an
+// Exarchos action is DECLARED. Every other description of the action surface is
+// a PROJECTION of these declarations, never a second declaration:
+//
+//   registry.ts  ──▶  adapters/mcp.ts        (tools/list: buildRegistrationSchema
+//                │                            + buildToolDescription + annotations)
+//                ├──▶  core/dispatch.ts       (routing + per-action .safeParse)
+//                ├──▶  describe/handler.ts    (the `describe` action clients read)
+//                ├──▶  adapters/cli.ts        (the CLI verb tree)
+//                └──▶  contract/compiler/meta-model.ts
+//                            └──▶ compile() ──▶ descriptors / schemas / proof fixtures
+//
+// The running server consumes the LEFT-hand projections. It does NOT consume a
+// `compile()` descriptor — the compiled contract is an artifact about the
+// server, not the thing the server runs on. Inverting that (so the descriptor
+// IS the runtime surface) is DR-11's first acceptance criterion and is NOT done;
+// it stays open. Until it lands, do not describe the compiler as "the authority":
+// adding an action here and nowhere else is correct and sufficient; adding one
+// to the meta-model alone ships nothing.
+//
+// WHAT GUARDS THE PROJECTION. Because meta-model.ts derives from this file, a
+// guard that compares the two is a tautology and is blind to a wrong meta-model
+// (the Class B defect DR-11 names). The drift guard that is NOT blind lives in
+// `contract/compiler/runtime-authority.ts`: it audits the meta-model against
+// the runtime projections listed above — a differential between two independent
+// projections of these declarations. Its limits are stated in that file's
+// header and are real: it catches a wrong PROJECTION (a `derive*Policy` reading
+// the wrong field, an entry bound to the wrong action, a field the strict wire
+// would reject), and it CANNOT catch a wrong DECLARATION here — an action
+// annotated `readOnly: true` whose handler mutates the tree is invisible to it,
+// because every projection reads the same (wrong) declaration.
+// ────────────────────────────────────────────────────────────────────────────
+
 import { z } from 'zod';
 import { AsOfSchema, CheckpointHandoffSchema, WorkflowTypeSchema } from './workflow/schemas.js';
 import { agentSpecSchema as agentSpecSchemaForRegistry } from './agents/handler.js';
@@ -38,6 +73,11 @@ import {
   removedPruneKnobMessage,
   unrecognizedPruneKeyMessage,
 } from './config/prune-removed-knobs.js';
+import type { SupportedGateClass } from './orchestrate/gate-provider-registry.js';
+import {
+  INTERNAL_ADMISSION_EVENT_TYPES,
+  INTERNAL_CANCELLATION_EVENT_TYPES,
+} from './event-store/schemas.js';
 
 // ─── Tool Registry Types ────────────────────────────────────────────────────
 
@@ -194,12 +234,52 @@ export function resolveEconomyBudget(action: Pick<ToolAction, 'economy'>): numbe
 export interface GateMetadata {
   readonly blocking: boolean;
   readonly dimension?: string;
+  /**
+   * Shared mechanical gate identity owned by the provider registry. Most
+   * quality gates intentionally have no GateClass and remain unchanged.
+   */
+  readonly gateClass?: SupportedGateClass;
 }
 
 export interface AutoEmission {
   readonly event: string;
   readonly condition: 'always' | 'conditional';
   readonly description?: string;
+}
+
+export interface ReservedEventAppendRegistration {
+  readonly eventType: string;
+  readonly typedHandler?: string;
+}
+
+/**
+ * Server-owned admission event reservation catalog (DR-3).
+ *
+ * This is intentionally separate from EVENT_EMISSION_REGISTRY: that registry
+ * describes replay/emission classification, while this one controls which
+ * untrusted write surfaces may mint a fact. A typed handler name is present
+ * only when v2.12 actually ships that handler; planned v3 actions remain
+ * reserved without pretending that callers can invoke them.
+ */
+export const RESERVED_EVENT_APPEND_REGISTRY: ReadonlyMap<
+  string,
+  ReservedEventAppendRegistration
+> = new Map(
+  [...INTERNAL_ADMISSION_EVENT_TYPES, ...INTERNAL_CANCELLATION_EVENT_TYPES].map((eventType) => [
+    eventType,
+    {
+      eventType,
+      ...(eventType === 'admission.disagreement-disposition'
+        ? { typedHandler: 'handleAdmissionDisagreementDisposition' }
+        : {}),
+    },
+  ]),
+);
+
+export function getReservedEventAppendRegistration(
+  eventType: string,
+): ReservedEventAppendRegistration | undefined {
+  return RESERVED_EVENT_APPEND_REGISTRY.get(eventType);
 }
 
 // ─── Action Annotations (#1289, design §2.4) ─────────────────────────
@@ -1494,7 +1574,9 @@ const workflowActions: readonly ToolAction[] = [
       message: z.string().min(1).describe('The friction report (required, non-empty).'),
       // ZodObject (not a union) so the CLI flag classifies as `object` and
       // `coerceFlags` JSON-parses `--sessionContext '{...}'` into the same
-      // shape the MCP arm receives (INV-2 parity; #1127 object-classification).
+      // shape the MCP wire receives (governing INV-2 — one registered schema
+      // is the contract every client derives from; #1127
+      // object-classification).
       sessionContext: z
         .object({
           workflow: z.string().optional(),
@@ -1709,6 +1791,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: SYNTHESIS_REVIEW_PHASES,
     roles: ROLE_LEAD,
+    gate: { blocking: true, gateClass: 'prepare-synthesis' },
     // DR-5: invokes `npm run test:run` + typecheck under the hood; seconds
     // to minutes on non-trivial repos.  CLI adapter emits heartbeats.
     longRunning: true,
@@ -1754,9 +1837,12 @@ const orchestrateActions: readonly ToolAction[] = [
   },
   {
     name: 'check_static_analysis',
-    description: 'Run static analysis gate (lint + typecheck). Emits gate.executed event with dimension D2.',
+    description: 'Run static analysis gate (lint + typecheck) and persist canonical subject-bound evidence.',
     schema: z.object({
       featureId: z.string().min(1),
+      taskId: z.string().optional(),
+      branch: z.string().optional(),
+      baseBranch: z.string().optional(),
       repoRoot: z.string().optional(),
       // #1330: the handler threads worktreePath into resolveRepoRoot so
       // `repoRoot: 'auto'` resolves the agent's worktree. The field must be
@@ -1768,11 +1854,17 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
-    gate: { blocking: true, dimension: 'D2' },
+    gate: { blocking: true, dimension: 'D2', gateClass: 'static-analysis' },
     // DR-5: shells out to `npm run lint` and `npm run typecheck`; on
     // non-trivial repos both exceed the 2s heartbeat threshold.
     longRunning: true,
+    // T-01/T-02: routed through `runDurableGateProducer` → `runGate`, the
+    // single authoritative producer of `gate.executed` (minted from the SAME
+    // persisted `admission.evidence-recorded` record). Both rows are genuinely
+    // emitted on every call — declaring only the evidence row here understated
+    // the contract `task_complete`'s `hasPassingGate('static-analysis')` reads.
     autoEmits: [
+      { event: 'admission.evidence-recorded', condition: 'always' },
       { event: 'gate.executed', condition: 'always' },
     ],
     outputSchema: EnvelopeSchema(z.unknown()),
@@ -1786,8 +1878,7 @@ const orchestrateActions: readonly ToolAction[] = [
       'at import as "1 failed suite / 0 failed tests" — invisible to per-task ' +
       'gates; this gate makes a load cascade a hard FAIL. Set repoRoot to the ' +
       'integration worktree (or "auto" to resolve the calling delegation\'s ' +
-      'worktree). Emits a gate.executed event (gate "integration-suite", layer ' +
-      '"post-merge"). Do NOT use for a single task\'s scoped tests — use ' +
+      'worktree). Persists canonical subject-bound evidence. Do NOT use for a single task\'s scoped tests — use ' +
       'check_static_analysis / check_test_adequacy for per-task verification; ' +
       'this gate is the cumulative-regression backstop between merges.',
     schema: z.object({
@@ -1795,15 +1886,21 @@ const orchestrateActions: readonly ToolAction[] = [
       repoRoot: z.string().optional(),
       worktreePath: z.string().optional(),
       taskId: z.string().optional(),
+      branch: z.string().optional(),
+      baseBranch: z.string().optional(),
       testScript: z.string().optional(),
     }),
     phases: STACK_PHASES,
     roles: ROLE_LEAD,
-    gate: { blocking: true, dimension: 'D2' },
+    gate: { blocking: true, dimension: 'D2', gateClass: 'integration-suite' },
     // Shells out to `npm run test:run -- --reporter=json` over the entire
     // suite; on a real repo this far exceeds the 2s heartbeat threshold.
     longRunning: true,
+    // T-01/T-02: routed through `runDurableGateProducer` → `runGate`, which
+    // mints `gate.executed` from the same persisted evidence record it just
+    // wrote — both rows are genuinely emitted on every call.
     autoEmits: [
+      { event: 'admission.evidence-recorded', condition: 'always' },
       { event: 'gate.executed', condition: 'always' },
     ],
     outputSchema: EnvelopeSchema(z.unknown()),
@@ -1907,7 +2004,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
-    gate: { blocking: true },
+    gate: { blocking: true, gateClass: 'review-verdict' },
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
@@ -1946,7 +2043,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: PLAN_PHASES,
     roles: ROLE_LEAD,
-    gate: { blocking: true, dimension: 'D1' },
+    gate: { blocking: true, dimension: 'D1', gateClass: 'provenance-chain' },
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
@@ -1990,7 +2087,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: PLAN_PHASES,
     roles: ROLE_LEAD,
-    gate: { blocking: true, dimension: 'D1' },
+    gate: { blocking: true, dimension: 'D1', gateClass: 'plan-coverage' },
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
@@ -2039,10 +2136,9 @@ const orchestrateActions: readonly ToolAction[] = [
       'Per-task test-adequacy kill probe (mutation-testing-at-N=1): reverts the ' +
       "task's source hunks (keeping tests), re-runs the new/changed tests, and " +
       'asserts at least one goes red — proving the tests are not vacuous. ' +
-      'Restores the working tree unconditionally (INV-14). Emits a gate.executed ' +
-      'event (gate "test-adequacy", dimension D1). Pass repoRoot ("auto" to ' +
-      "resolve the calling delegation's worktree); operationId makes the gate " +
-      'emission idempotent (INV-8). Stamp riskTier + boundaryTouching (from ' +
+      'Restores the working tree unconditionally (INV-14) and persists canonical ' +
+      'subject-bound evidence. Pass repoRoot ("auto" to resolve the calling ' +
+      "delegation's worktree). Stamp riskTier + boundaryTouching (from " +
       'prepare_delegation) to let the gate self-skip when the verification ' +
       'policy excludes it for that tier (skipped-by-policy). This is the sole ' +
       'per-task verification gate: it subsumes the regression-coverage intent of ' +
@@ -2056,9 +2152,8 @@ const orchestrateActions: readonly ToolAction[] = [
       repoRoot: z.string().optional(),
       worktreePath: z.string().optional(),
       operationId: z.string().optional(),
-      // Phase to attribute the gate.executed event to (default 'delegate');
-      // back-of-pipeline review passes 'review' for correct convergence
-      // attribution of the combined-diff kill-probe (#1618 C2).
+      // Legacy phase carrier retained for compatibility. Durable evidence uses
+      // the active persisted phaseAttemptId, never caller-supplied provenance.
       phase: z.string().optional(),
       riskTier: z.enum(['low', 'medium', 'high']).optional(),
       boundaryTouching: z.boolean().optional(),
@@ -2070,11 +2165,15 @@ const orchestrateActions: readonly ToolAction[] = [
     }).strict(),
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
-    gate: { blocking: true, dimension: 'D1' },
+    gate: { blocking: true, dimension: 'D1', gateClass: 'test-adequacy' },
     // Reverts source + shells out to the resolved test command; on a real repo
     // this exceeds the 2s heartbeat threshold.
     longRunning: true,
+    // T-01/T-02: routed through `runDurableGateProducer` → `runGate`, which
+    // mints `gate.executed` from the same persisted evidence record it just
+    // wrote — both rows are genuinely emitted on every call.
     autoEmits: [
+      { event: 'admission.evidence-recorded', condition: 'always' },
       { event: 'gate.executed', condition: 'always' },
     ],
     outputSchema: EnvelopeSchema(z.unknown()),
@@ -2087,10 +2186,10 @@ const orchestrateActions: readonly ToolAction[] = [
       'schema bindings (codegen), typechecks the regen, then runs a ' +
       'breaking-change diff against the MERGE-BASE (git merge-base baseBranch ' +
       'HEAD). A drift gate, NOT a write-lock — reports findings, never mutates ' +
-      'the tree. Emits a gate.executed event (gate "contract-drift", dimension ' +
-      'D1). Degrades to a skipped/advisory pass when no contract tool resolves ' +
+      'the tree. Persists canonical subject-bound evidence. Degrades to a ' +
+      'skipped/advisory pass when no contract tool resolves ' +
       '(INV-4). Pass repoRoot ("auto" to resolve the calling delegation\'s ' +
-      'worktree); operationId makes the gate emission idempotent (INV-8). On a ' +
+      'worktree). On a ' +
       'clean pass, surfaces a one-semantic-test steer in next_actions.',
     // Field names + base types match check_test_adequacy exactly so the shared
     // registration schema (buildRegistrationSchema) never sees a same-name
@@ -2108,11 +2207,15 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
-    gate: { blocking: true, dimension: 'D1' },
+    gate: { blocking: true, dimension: 'D1', gateClass: 'contract-drift' },
     // Shells out to codegen/typecheck/breaking-diff against a real repo; on a
     // real project this exceeds the 2s heartbeat threshold.
     longRunning: true,
+    // T-01/T-02: routed through `runDurableGateProducer` → `runGate`, which
+    // mints `gate.executed` from the same persisted evidence record it just
+    // wrote — both rows are genuinely emitted on every call.
     autoEmits: [
+      { event: 'admission.evidence-recorded', condition: 'always' },
       { event: 'gate.executed', condition: 'always' },
     ],
     outputSchema: EnvelopeSchema(z.unknown()),
@@ -2132,10 +2235,8 @@ const orchestrateActions: readonly ToolAction[] = [
       'finding, surfaces a per-finding steer in next_actions (replace with a ' +
       'hermetic fixture / contract-verified stub / a fake). An explicit `reason` ' +
       'is an escape hatch that passes the gate advisory AND records the ' +
-      'acknowledgement in the gate.executed payload. Emits a gate.executed event ' +
-      '(gate "mock-boundary", dimension D1). Pass repoRoot ("auto" to resolve ' +
-      "the calling delegation's worktree); operationId makes the gate emission " +
-      'idempotent (INV-8).',
+      'acknowledgement in durable evidence. Pass repoRoot ("auto" to resolve ' +
+      "the calling delegation's worktree).",
     // Field names + base types match check_test_adequacy / check_contract_drift
     // exactly so the shared registration schema (buildRegistrationSchema) never
     // sees a same-name field with a divergent base type. `reason` reuses the
@@ -2158,8 +2259,12 @@ const orchestrateActions: readonly ToolAction[] = [
     // DEFAULTS.review.gates['mock-boundary'] (resolved per-call via
     // resolveGateSeverity). The registry flag mirrors that default so the
     // RunbookDrift blocking-gate coverage check treats it as advisory.
-    gate: { blocking: false, dimension: 'D1' },
+    gate: { blocking: false, dimension: 'D1', gateClass: 'mock-boundary' },
+    // T-01/T-02: routed through `runDurableGateProducer` → `runGate`, which
+    // mints `gate.executed` from the same persisted evidence record it just
+    // wrote — both rows are genuinely emitted on every call.
     autoEmits: [
+      { event: 'admission.evidence-recorded', condition: 'always' },
       { event: 'gate.executed', condition: 'always' },
     ],
     outputSchema: EnvelopeSchema(z.unknown()),
@@ -3590,9 +3695,13 @@ const viewActions: readonly ToolAction[] = [
   },
   {
     name: 'delegation_readiness',
-    description: 'Check delegation readiness: plan approval, quality gates, and worktree status',
+    description: 'Check delegation readiness: plan approval, quality gates, and worktree status. Pass `tasks` to scope readiness to the active wave instead of every historical assignment (WFQ-002).',
     schema: z.object({
       workflowId: z.string().optional(),
+      tasks: coercedStringArray()
+        .optional()
+        .describe("Active wave's task IDs; scopes expected/ready/blockers to exactly this set"),
+      detail: z.boolean().optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
@@ -3671,6 +3780,19 @@ const viewActions: readonly ToolAction[] = [
       // handler rides Task 024.
       limit: coercedPositiveInt().optional(),
       offset: coercedNonnegativeInt().optional(),
+      detail: z.boolean().optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+    outputSchema: EnvelopeSchema(z.unknown()),
+    annotations: READ_ONLY_LOCAL,
+  },
+  {
+    name: 'gate_reliability',
+    description:
+      'Diagnostic gate reliability: per-gate false-positive rate and verdict provenance from admission evidence/contradiction events (no admission authority)',
+    schema: z.object({
+      workflowId: z.string().optional(),
       detail: z.boolean().optional(),
     }),
     phases: ALL_PHASES,

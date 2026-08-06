@@ -9,7 +9,7 @@
  * handshake-based implementation later.
  */
 
-import type { Capability } from '../agents/capabilities.js';
+import { Capability as CapabilitySchema, type Capability } from '../agents/capabilities.js';
 import type { AgentPosture } from '../agents/spec.js';
 import type { ToolResult } from '../format.js';
 import { capabilitiesForPosture } from './posture-mapping.js';
@@ -123,6 +123,70 @@ export interface CapabilityResolver {
    * returns `undefined` and forces a refetch.
    */
   invalidateRootsCache(): void;
+}
+
+export const CAPABILITY_RESOLVER_ID = 'exarchos-capability-resolver' as const;
+export const CAPABILITY_RESOLVER_VERSION = '1' as const;
+
+export interface CapabilityAuthorization {
+  readonly posture: AgentPosture;
+  readonly capabilities: readonly Capability[];
+}
+
+/**
+ * Read an immutable authorization snapshot from the resolver's effective
+ * capability set. Unknown feature-hint capabilities are excluded from the
+ * authorization record. Incomplete or absent authority resolves fail-closed
+ * to read-only; this function never widens or re-merges the resolver result.
+ */
+export function resolveCapabilityAuthorization(
+  resolver: CapabilityResolver | undefined,
+): CapabilityAuthorization {
+  const capabilities = (resolver?.list() ?? [])
+    .filter((value): value is Capability => CapabilitySchema.safeParse(value).success)
+    .sort();
+  const frozenCapabilities = Object.freeze([...capabilities]);
+
+  const includesPosture = (candidate: AgentPosture): boolean =>
+    [...capabilitiesForPosture(candidate)].every((capability) =>
+      frozenCapabilities.includes(capability));
+
+  let posture: AgentPosture = 'read-only';
+  if (includesPosture('task-isolated')) {
+    posture = 'task-isolated';
+  } else if (
+    !frozenCapabilities.includes('isolation:worktree')
+    && includesPosture('shared-mutating')
+  ) {
+    posture = 'shared-mutating';
+  }
+
+  return Object.freeze({ posture, capabilities: frozenCapabilities });
+}
+
+/**
+ * Trust tier granted to a machine-owner local-operator caller (the CLI
+ * trusted-caller path) when the wiring supplies no runtime capability
+ * resolver.
+ *
+ * The `local-operator` identity is derived exclusively from the adapter-owned
+ * state directory (see `deriveLocalOperatorIdentity`) — never from
+ * caller-supplied input — so it cannot be forged by a remote/untrusted caller.
+ * Minting its baseline capabilities here is therefore an identity-layer GRANT,
+ * not a caller self-assertion (P01-07): the operator never names its own
+ * capabilities. `shared-mutating` is the correct tier — a local operator
+ * mutates shared state (the event log, the repository) with no worktree
+ * isolation — and it is the minimal set that lets privileged lifecycle
+ * handlers (notably cancellation) record a non-empty, schema-valid
+ * authorization snapshot (`AuthorizationSnapshotV1Schema.capabilityIds.min(1)`).
+ */
+export const LOCAL_OPERATOR_POSTURE: AgentPosture = 'shared-mutating';
+
+export function localOperatorAuthorization(): CapabilityAuthorization {
+  const capabilities = Object.freeze(
+    [...capabilitiesForPosture(LOCAL_OPERATOR_POSTURE)].sort(),
+  );
+  return Object.freeze({ posture: LOCAL_OPERATOR_POSTURE, capabilities });
 }
 
 export function createInMemoryResolver(

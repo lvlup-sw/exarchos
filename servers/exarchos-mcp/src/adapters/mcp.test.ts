@@ -49,6 +49,101 @@ describe('createMcpServer', () => {
     expect(typeof server.connect).toBe('function');
   });
 
+  it('CreateMcpServer_TrustedContext_ReplacesPreexistingCallerIdentity', async () => {
+    const { createMcpDispatchContext } = await import('./mcp.js');
+    const trusted = createMcpDispatchContext(
+      {
+        ...ctx,
+        callerIdentity: {
+          subjectId: 'forged',
+          kind: 'local-operator',
+          role: 'operator',
+        },
+      },
+      {
+        sessionId: 'runtime-session',
+        clientInfo: { name: 'test-client', version: '1.0' },
+      },
+    );
+
+    expect(trusted.callerIdentity).toMatchObject({
+      kind: 'mcp-session',
+      role: 'agent',
+    });
+    expect(trusted.callerIdentity?.subjectId).toMatch(/^mcp:[0-9a-f]{32}$/);
+    expect(trusted.callerIdentity?.subjectId).not.toBe('forged');
+  });
+
+  it('MCPHandler_ThreadsResolverAuthoritativeCallerSnapshot', async () => {
+    const { McpServer } = await import('@modelcontextprotocol/sdk/server/mcp.js');
+    const {
+      clearCustomTools,
+      registerCustomTool,
+      setCustomToolActionHandler,
+    } = await import('../registry.js');
+    const { getDispatchContext } = await import('../dispatch/dispatch-context.js');
+    const spy = vi.spyOn(McpServer.prototype, 'registerTool');
+    let observed = getDispatchContext()?.authorization;
+
+    try {
+      registerCustomTool({
+        name: 'custom_identity_probe',
+        description: 'Test-only MCP caller context probe',
+        actions: [{
+          name: 'probe',
+          description: 'Read the active dispatch context',
+          schema: z.object({}).passthrough(),
+          phases: new Set<string>(),
+          roles: new Set<string>(['any']),
+          outputSchema: EnvelopeSchema(z.unknown()),
+          annotations: {
+            safety: 'read-only',
+            readOnly: true,
+            destructive: false,
+            idempotent: true,
+            openWorld: false,
+          },
+        }],
+      });
+      setCustomToolActionHandler('custom_identity_probe', 'probe', async () => {
+        observed = getDispatchContext()?.authorization;
+        return { captured: observed !== undefined };
+      });
+
+      const { createMcpServer } = await import('./mcp.js');
+      createMcpServer({
+        ...ctx,
+        capabilityResolver: createInMemoryResolver(['mcp:exarchos:readonly']),
+      });
+      const registration = spy.mock.calls.find(
+        (call) => call[0] === 'custom_identity_probe',
+      );
+      expect(registration).toBeDefined();
+      const handler = registration![2] as (
+        args: Record<string, unknown>,
+      ) => Promise<unknown>;
+
+      await handler({
+        action: 'probe',
+        role: 'administrator',
+        posture: 'shared-mutating',
+        capabilities: ['fs:write'],
+        resolvedAt: '1900-01-01T00:00:00.000Z',
+      });
+
+      expect(observed).toMatchObject({
+        identity: { kind: 'mcp-session', role: 'agent' },
+        posture: 'read-only',
+        capabilities: ['mcp:exarchos:readonly'],
+      });
+      expect(JSON.stringify(observed)).not.toContain('administrator');
+      expect(JSON.stringify(observed)).not.toContain('1900-01-01');
+    } finally {
+      clearCustomTools();
+      spy.mockRestore();
+    }
+  });
+
   it('CreateMcpServer_HandlerReturns_McpToolResult', async () => {
     // Arrange — We can't easily call registered handlers directly via McpServer API,
     // so we test via dispatch → toEnvelope → toMcpResult by verifying the adapter creates a valid server

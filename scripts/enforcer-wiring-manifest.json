@@ -66,6 +66,13 @@
       "rationale": "Wired into pr-body-check.yml (task 011): asserts a GOLDEN-FIXTURE-UPDATE marker when a load-bearing fixture changes (DR-15). It reads the PR diff, so its host workflow MUST re-run on `synchronize` or a fixture pushed after open leaves a stale green."
     },
     {
+      "script": "scripts/check-gate-runner-ownership.mjs",
+      "disposition": "gating",
+      "workflow": ".github/workflows/ci.yml",
+      "diffDependent": false,
+      "rationale": "Unfiltered zero-dependency census: exact typed owners cover every production gate emitter, provider registration, playbook observation, and v3.0-reserved custom-shell transition guard."
+    },
+    {
       "script": "scripts/check-module-intent.mjs",
       "disposition": "gating",
       "workflow": ".github/workflows/ci.yml",

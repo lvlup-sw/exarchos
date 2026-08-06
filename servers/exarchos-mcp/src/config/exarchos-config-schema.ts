@@ -49,25 +49,6 @@ const CliConfigSchema = z
   })
   .strict();
 
-// invariants-catalog-v2 (#1441 / spec 2026-05-20) — dev-invariants gating.
-//
-// `invariants.devCatalog` toggles whether the architecture-invariants
-// loader (`servers/exarchos-mcp/src/architecture/invariants-loader.ts`)
-// surfaces dev-internal entries. Default-disabled: when the block is
-// omitted, `loadInvariants` returns `[]` regardless of scope.
-//
-// Two-state enum (`enabled | disabled`) rather than a `boolean` so the
-// committed `.exarchos.yml` reads as a declarative statement of intent
-// — "surface dev-internal invariants to me" — rather than a magic flag.
-// Default-disabled even inside the Exarchos repo: contributors get the
-// catalog because the repo's own committed `.exarchos.yml` sets the
-// flag to `enabled`, not because the loader detected anything.
-//
-// Spec: docs/proposals/2026-05-20-invariants-catalog-v2-spec.md §1.1 + §4.0
-//
-// Exported so `ProjectConfigSchema` (yaml-schema.ts) can compose the
-// identical block under its own `invariants:` key without duplicating
-// the shape (PR #1459 CodeRabbit finding 2 — single source of truth).
 // invariants-projection-extensibility (T-18 / DR-6) — additive keys.
 //
 // Beyond the dev-catalog toggle, operators can extend the invariants
@@ -101,8 +82,8 @@ const InvariantOverrideSchema = z
 //   - a bare string path — the legacy form; its `tier` defaults to `user`
 //     when normalized by `resolveCatalogSources` (catalog-sources.ts); or
 //   - a `{ path, tier? }` object — the explicit form that carries the source
-//     `tier` (`dev | user`). `tier: dev` is what the `devCatalog: 'enabled'`
-//     sugar desugars to.
+//     `tier` (`dev | user`). `tier: dev` is what the retired
+//     `devCatalog: 'enabled'` alias desugars to (see below).
 //
 // `.strict()` so a typo'd key (or a tier outside `dev | user`) surfaces as a
 // validation error rather than a silently-ignored field.
@@ -126,8 +107,96 @@ const CatalogRegistrationSchema = z.union([
  */
 export type CatalogRegistration = z.infer<typeof CatalogRegistrationSchema>;
 
-export const InvariantsConfigSchema = z
+/**
+ * The repo-root-relative path the retired `invariants.devCatalog: 'enabled'`
+ * alias desugars to.
+ *
+ * Reintroduced here by T-43. T-42 deleted the identically-named constant from
+ * `architecture/catalog-sources.ts` because catalog DISCOVERY must no longer
+ * know about a privileged path — and it still must not. This constant lives on
+ * the CONFIG side, where its only job is to spell out the registration a
+ * legacy `.exarchos.yml` is rewritten into. Discovery reads the rewritten
+ * `catalogs:` list and nothing else.
+ */
+export const DEV_CATALOG_PATH = '.exarchos/invariants.md';
+
+/** Stable machine-readable code for the retired `invariants.devCatalog` key. */
+export const DEV_CATALOG_DEPRECATION_CODE = 'DEPRECATED_INVARIANTS_DEV_CATALOG';
+
+/**
+ * A typed `.exarchos.yml` deprecation (DR-31 / T-43).
+ *
+ * Typed — not a bare string — so a consumer surface (doctor, CLI, MCP
+ * envelope) can branch on `code` and render `replacement` as an actionable
+ * edit, rather than regex-matching prose. `collectConfigDeprecations` produces
+ * these from the RAW pre-parse document, because the parse step desugars the
+ * deprecated keys away.
+ */
+export interface ConfigDeprecation {
+  /** Stable identifier for the deprecation; safe to branch on. */
+  readonly code: typeof DEV_CATALOG_DEPRECATION_CODE;
+  /** Dotted path of the deprecated key as it appears in `.exarchos.yml`. */
+  readonly key: 'invariants.devCatalog';
+  /** The `catalogs:` registration the key was desugared into, if any. */
+  readonly replacement: { readonly path: string; readonly tier: 'dev' } | null;
+  /** Operator-facing explanation, including the concrete replacement edit. */
+  readonly message: string;
+}
+
+/**
+ * Collect typed deprecations from a RAW (pre-parse) `.exarchos.yml` document.
+ *
+ * Must run on the raw document: `InvariantsConfigSchema` strips `devCatalog`
+ * during parse, so a post-parse config can never report it. Returns `[]` for
+ * any document that does not carry a deprecated key, including malformed
+ * input — this is a diagnostic, not a validator.
+ */
+export function collectConfigDeprecations(document: unknown): ConfigDeprecation[] {
+  if (typeof document !== 'object' || document === null || Array.isArray(document)) {
+    return [];
+  }
+  const invariants = (document as { invariants?: unknown }).invariants;
+  if (typeof invariants !== 'object' || invariants === null || Array.isArray(invariants)) {
+    return [];
+  }
+  const devCatalog = (invariants as { devCatalog?: unknown }).devCatalog;
+  if (devCatalog !== 'enabled' && devCatalog !== 'disabled') return [];
+
+  const replacement =
+    devCatalog === 'enabled' ? ({ path: DEV_CATALOG_PATH, tier: 'dev' } as const) : null;
+
+  return [
+    {
+      code: DEV_CATALOG_DEPRECATION_CODE,
+      key: 'invariants.devCatalog',
+      replacement,
+      message:
+        `\`invariants.devCatalog: ${devCatalog}\` is deprecated and has no ` +
+        `independent effect (DR-31). ` +
+        (replacement === null
+          ? 'Delete the key; a catalog loads only when it is registered in ' +
+            '`invariants.catalogs`.'
+          : 'Delete the key and register the catalog explicitly instead: ' +
+            `\`invariants.catalogs: [{ path: ${replacement.path}, tier: ${replacement.tier} }]\`.`),
+    },
+  ];
+}
+
+export const InvariantsConfigBaseSchema = z
   .object({
+    /**
+     * @deprecated DR-31 / T-43. The repo-only `devCatalog` boolean is retired.
+     * Register the catalog explicitly instead:
+     * `catalogs: [{ path: .exarchos/invariants.md, tier: dev }]`.
+     *
+     * The key is RETAINED here strictly as a deprecated ALIAS so an existing
+     * `.exarchos.yml` keeps loading across the upgrade — the schema is
+     * `.strict()` and `loadExarchosConfig` THROWS on an unknown key, so
+     * deleting it outright would hard-fail config load for every consumer who
+     * ever wrote it. It is desugared away by `desugarDevCatalogAlias` below
+     * and is therefore ABSENT from the parsed output type: no production
+     * reader can gate on the boolean, by construction.
+     */
     devCatalog: z.enum(['enabled', 'disabled']).optional(),
     catalogs: z.array(CatalogRegistrationSchema).optional(),
     overrides: z.record(z.string(), InvariantOverrideSchema).optional(),
@@ -139,6 +208,70 @@ export const InvariantsConfigSchema = z
       .optional(),
   })
   .strict();
+
+/** Pre-desugar shape of the `invariants:` block (may still carry the alias). */
+type InvariantsConfigBase = z.infer<typeof InvariantsConfigBaseSchema>;
+
+/** Post-desugar shape: the alias is gone; registration is the only opt-in. */
+export type InvariantsConfig = Omit<InvariantsConfigBase, 'devCatalog'>;
+
+/**
+ * DR-31 / T-43 — desugar the retired `invariants.devCatalog` alias.
+ *
+ * `devCatalog: 'enabled'` is rewritten into the ordinary registration it was
+ * always sugar for — `{ path: '.exarchos/invariants.md', tier: 'dev' }` — and
+ * the key is dropped from the output entirely. `devCatalog: 'disabled'` is
+ * dropped with no registration (it was only ever the default restated).
+ *
+ * ## Why this is NOT the repo-only loading mode DR-31 retires
+ *
+ * The branch this restores used to live in `resolveCatalogSources`
+ * (DR-31 site 2), where it made catalog DISCOVERY read the boolean directly —
+ * one concern with two configuration authorities. Here it runs at the
+ * `.exarchos.yml` PARSE boundary, before discovery exists, and its output is
+ * an ordinary `catalogs:` entry a consumer can type by hand, verbatim. So:
+ *
+ *   - discovery (`resolveCatalogSources`) has exactly ONE authority — the
+ *     `catalogs:` list — and cannot see the alias at all;
+ *   - the alias is a legacy SPELLING normalized away at the file boundary,
+ *     not a loading mode: there is no resolution a `devCatalog` config reaches
+ *     that the desugared `catalogs:` config does not reach identically.
+ *
+ * The `(path, tier: 'dev')` dedupe is carried over from the retired branch so
+ * a config carrying BOTH the alias and the explicit registration (which is
+ * what this repo shipped before T-43) resolves ONE dev source, not two.
+ */
+function desugarDevCatalogAlias(block: InvariantsConfigBase): InvariantsConfig {
+  const { devCatalog, ...rest } = block;
+  if (devCatalog !== 'enabled') return rest;
+
+  const catalogs = rest.catalogs ?? [];
+  const alreadyRegistered = catalogs.some(
+    (registration) =>
+      typeof registration !== 'string' &&
+      registration.path === DEV_CATALOG_PATH &&
+      registration.tier === 'dev',
+  );
+  if (alreadyRegistered) return { ...rest, catalogs };
+
+  return {
+    ...rest,
+    catalogs: [...catalogs, { path: DEV_CATALOG_PATH, tier: 'dev' as const }],
+  };
+}
+
+/**
+ * The canonical `invariants:` block schema.
+ *
+ * Exported so `ProjectConfigSchema` (yaml-schema.ts) can compose the identical
+ * block under its own `invariants:` key without duplicating the shape (PR
+ * #1459 CodeRabbit finding 2 — single source of truth). Both `.exarchos.yml`
+ * readers — the strict `loadExarchosConfig` and the lenient
+ * `readInvariantsConfig` (architecture/invariants-loader.ts) — validate
+ * through this one schema, so the alias desugars identically on both paths.
+ */
+export const InvariantsConfigSchema =
+  InvariantsConfigBaseSchema.transform(desugarDevCatalogAlias);
 
 // #1244 — markdown-aware handoff lint switch.
 //

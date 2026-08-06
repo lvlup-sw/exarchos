@@ -32,6 +32,8 @@ import { EventStore } from '../event-store/store.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { handleOrchestrate } from './composite.js';
 import { rmrf } from '../test-helpers/temp-dir.js';
+import { runAsTrustedCaller, seedActivePhaseAttempt, withTrustedCaller } from '../test-helpers/trusted-context.js';
+import { gateRunnerObservationSource } from './gate-runner.js';
 
 // ─── git fixture helpers ─────────────────────────────────────────────────────
 
@@ -74,7 +76,7 @@ function writeBaseProject(repoRoot: string, exarchosYml?: string): void {
 }
 
 function makeCtx(stateDir: string, eventStore: EventStore): DispatchContext {
-  return { stateDir, eventStore, enableTelemetry: false } as DispatchContext;
+  return withTrustedCaller({ stateDir, eventStore, enableTelemetry: false } as DispatchContext);
 }
 
 interface MockBoundaryData {
@@ -112,7 +114,7 @@ describe('check_mock_boundary acceptance (through handleOrchestrate)', () => {
     await eventStore.initialize();
     const ctx = makeCtx(stateDir, eventStore);
     const featureId = 'feat-mock-boundary';
-    const result = await handleOrchestrate(
+    const result = await orchestrate(
       {
         action: 'check_mock_boundary',
         featureId,
@@ -267,19 +269,72 @@ describe('check_mock_boundary acceptance (through handleOrchestrate)', () => {
       expect(data.escapeHatch!.acknowledged).toBe(true);
       expect(data.escapeHatch!.reason).toBe(reason);
 
-      // The gate.executed event payload records the escape hatch + reason.
-      const events = await eventStore.query(featureId, { type: 'gate.executed' });
-      expect(events.length).toBeGreaterThan(0);
-      const gateEvent = events[events.length - 1];
-      const eventData = gateEvent.data as {
-        gateName: string;
-        details?: { escapeHatch?: { acknowledged: boolean; reason: string } };
+      // The acknowledgement must be bound into DURABLE evidence, not just the
+      // returned carrier — an escape hatch that leaves no audit trail is not an
+      // escape hatch. The canonical gate runner records this as
+      // `admission.evidence-recorded` stamped with the runner's observation
+      // source (`gate.executed` was the pre-migration emitter and the ladder
+      // gates no longer write it), and the returned carrier carries the
+      // reference back to that record.
+      const events = await eventStore.query(featureId, {
+        type: 'admission.evidence-recorded',
+      });
+      const gateEvidence = events.filter(
+        (e) => e.source === gateRunnerObservationSource('mock-boundary'),
+      );
+      expect(gateEvidence.length).toBeGreaterThan(0);
+      const latest = gateEvidence[gateEvidence.length - 1];
+      expect(latest).toBeDefined();
+      if (latest === undefined) return;
+      const record = latest.data as {
+        evidence: {
+          verdict: string;
+          contentDigest: { algorithm: string; value: string };
+          subject: unknown;
+        };
       };
-      expect(eventData.gateName).toBe('mock-boundary');
-      expect(eventData.details?.escapeHatch).toBeDefined();
-      expect(eventData.details!.escapeHatch!.acknowledged).toBe(true);
-      expect(eventData.details!.escapeHatch!.reason).toBe(reason);
+      // The carrier that recorded the acknowledgement is what got hashed.
+      expect(record.evidence.verdict).toBe('pass');
+      expect(record.evidence.contentDigest.value).toMatch(/^[0-9a-f]{64}$/);
+
+      // …and the result points back at that immutable record.
+      const references = (data as unknown as {
+        evidenceReferences?: readonly { contentDigest: { value: string } }[];
+      }).evidenceReferences;
+      expect(references, 'the gate carrier must reference its durable evidence').toBeDefined();
+      expect(
+        (references ?? []).some(
+          (r) => r.contentDigest.value === record.evidence.contentDigest.value,
+        ),
+      ).toBe(true);
     },
     120_000,
   );
 });
+
+/**
+ * These tests invoke the composite handler DIRECTLY, bypassing `dispatch()`.
+ *
+ * Two things `dispatch()` and a real run would have provided must be recreated,
+ * or every case exercises a fail-closed path instead of the behaviour under
+ * test: the ambient trusted dispatch scope the durable-evidence gates read
+ * their caller authorization from (`TRUSTED_CALLER_REQUIRED` without it), and a
+ * started workflow with an active phase attempt for the gate's evidence to bind
+ * to (`ACTIVE_PHASE_ATTEMPT_REQUIRED` without it).
+ */
+const seededWorkflows = new Set<string>();
+
+async function orchestrate(
+  args: Record<string, unknown>,
+  ctx: DispatchContext,
+): Promise<Awaited<ReturnType<typeof handleOrchestrate>>> {
+  const featureId = typeof args['featureId'] === 'string' ? args['featureId'] : undefined;
+  if (featureId !== undefined) {
+    const key = `${ctx.stateDir}\0${featureId}`;
+    if (!seededWorkflows.has(key)) {
+      seededWorkflows.add(key);
+      await seedActivePhaseAttempt(ctx.eventStore, featureId);
+    }
+  }
+  return runAsTrustedCaller(ctx.stateDir, () => handleOrchestrate(args, ctx));
+}

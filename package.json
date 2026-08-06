@@ -3,11 +3,16 @@
   "version": "2.12.0-preview.3",
   "description": "Structure for agentic development — durable SDLC workflows, convergence gates, agent teams, and audit trails for Claude Code",
   "type": "module",
+  "bin": {
+    "exarchos-release-verify": "dist/release-verify.js"
+  },
   "files": [
     "dist/bin",
+    "dist/release-verify.js",
     "agents",
     "commands",
     "skills",
+    "command-aliases",
     "rules",
     "scripts",
     "hooks",
@@ -21,13 +26,16 @@
     "!**/trigger-tests"
   ],
   "scripts": {
-    "build": "npm run codegen:runtimes && tsc && npm run build:binary && npm run build:skills && npm run build:hooks",
+    "build": "npm run codegen:runtimes && tsc && npm run build:binary && npm run build:release-verifier && npm run build:skills && npm run build:hooks",
     "build:binary": "bun run scripts/build-binary.ts --all",
+    "build:release-verifier": "bun build servers/exarchos-mcp/src/release/release-verify-cli.ts --target=node --format=esm --banner \"#!/usr/bin/env node\" --outfile dist/release-verify.js",
     "codegen:runtimes": "bun run scripts/codegen-runtimes.ts",
     "runtimes:guard": "npm run codegen:runtimes && git diff --exit-code -- src/runtimes/embedded.ts || (echo 'src/runtimes/embedded.ts is out of sync with runtimes/*.yaml — run npm run codegen:runtimes' && exit 1)",
     "generate:agents": "tsx servers/exarchos-mcp/src/agents/generate-agents.ts",
     "build:skills": "npm run generate:agents && node dist/build-skills.js",
     "build:hooks": "node dist/build-hooks.js",
+    "lint": "eslint \"servers/exarchos-mcp/src/**/*.ts\"",
+    "quality-check": "npm run lint:invariants && npm run lint:test-first-drift",
     "lint:inv6": "node scripts/lint-inv6.mjs skills-src/",
     "lint:test-first-drift": "node scripts/lint-test-first-drift.mjs commands agents skills-src",
     "lint:invariants": "tsx servers/exarchos-mcp/src/architecture/vocabulary-lint-cli.ts",
@@ -47,11 +55,11 @@
     "typecheck": "tsc --noEmit",
     "version:sync": "bash scripts/sync-versions.sh",
     "version:check": "bash scripts/sync-versions.sh --check",
-    "validate": "bash scripts/validate-plugin.sh && node scripts/check-prefix-fingerprint.mjs && node scripts/check-prose-lint.mjs && node scripts/check-event-store-composition-root.mjs && node scripts/check-query-upcast-choke-point.mjs && node scripts/check-no-state-json.mjs && node scripts/check-single-workflow-fold.mjs",
+    "validate": "bash scripts/validate-plugin.sh && node scripts/check-prefix-fingerprint.mjs && node scripts/check-prose-lint.mjs && node scripts/check-event-store-composition-root.mjs && node scripts/check-query-upcast-choke-point.mjs && node scripts/check-no-state-json.mjs && node scripts/check-single-workflow-fold.mjs && node scripts/check-gate-runner-ownership.mjs",
     "docs:dev": "cd documentation && npm run docs:dev",
     "docs:build": "cd documentation && npm run docs:build",
     "docs:preview": "cd documentation && npm run docs:preview",
-    "lint:windows": "eslint \"servers/exarchos-mcp/src/**/*.ts\""
+    "lint:windows": "npm run lint"
   },
   "keywords": [
     "claude-code-plugin",

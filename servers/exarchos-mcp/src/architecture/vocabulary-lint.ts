@@ -40,12 +40,13 @@ export interface ScanOptions {
   /**
    * Optional Exarchos config — dependency injection for tests so they don't
    * depend on the state of the repo's `.exarchos.yml`. When omitted, the
-   * underlying `loadInvariantIds` walks up from the catalog file to find
-   * the closest `.exarchos.yml` and honours `invariants.devCatalog`. When
-   * the gate is not `enabled`, the known-ID set is empty and every token
-   * surfaces as a finding — consumers using Exarchos as a plugin therefore
-   * opt into vocabulary-lint by declaring `invariants.devCatalog: enabled`
-   * in their own `.exarchos.yml`.
+   * underlying `loadInvariantIds` walks up from the catalog file to find the
+   * closest `.exarchos.yml` and honours its `invariants.catalogs`
+   * REGISTRATIONS (DR-31). When the catalog file is not registered there, the
+   * known-ID set is empty and every token surfaces as a finding — consumers
+   * using Exarchos as a plugin therefore opt into vocabulary-lint by
+   * registering their catalog in their own `.exarchos.yml`, e.g.
+   * `invariants: { catalogs: [{ path: .exarchos/invariants.md, tier: dev }] }`.
    */
   config?: ExarchosConfig;
 }

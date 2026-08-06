@@ -25,9 +25,31 @@ import { SqliteBackend } from '../storage/sqlite-backend.js';
  * `force: true` already swallows ENOENT, so removing a missing directory is a
  * no-op — safe to call unconditionally in `afterEach`.
  */
+/**
+ * Retry budget for the removal itself, applied AFTER every SQLite handle under
+ * the tree is closed — so it rides out a lock we do not own (antivirus or the
+ * search indexer re-opening a just-closed `-wal`/`-shm`), not one we forgot to
+ * release. Node retries with LINEAR backoff (`retryDelay × attempt`).
+ *
+ * Deliberately SMALL, and not to be raised to chase a Windows EBUSY. Raising it
+ * to 15 × 100ms was tried and reverted: when the lock is held by a handle we
+ * failed to release, no budget ever succeeds, so a larger one only converts a
+ * fast, legible `EBUSY … exarchos.db-shm` into `Hook timed out in 60000ms` from
+ * `afterEach` — the same red lane, later, with the cause erased. The retries are
+ * here for a transient scanner lock; a persistent one is a handle-ownership bug
+ * and must be fixed at the handle.
+ */
+const RM_MAX_RETRIES = 10;
+const RM_RETRY_DELAY_MS = 50;
+
 export function rmrf(dir: string): void {
   SqliteBackend.closeOpenUnder(dir);
-  fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  fs.rmSync(dir, {
+    recursive: true,
+    force: true,
+    maxRetries: RM_MAX_RETRIES,
+    retryDelay: RM_RETRY_DELAY_MS,
+  });
 }
 
 /**
@@ -37,7 +59,12 @@ export function rmrf(dir: string): void {
  */
 export async function rmrfAsync(dir: string): Promise<void> {
   SqliteBackend.closeOpenUnder(dir);
-  await fs.promises.rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  await fs.promises.rm(dir, {
+    recursive: true,
+    force: true,
+    maxRetries: RM_MAX_RETRIES,
+    retryDelay: RM_RETRY_DELAY_MS,
+  });
 }
 
 /**

@@ -53,9 +53,37 @@ jobs:
               - 'skills-src/**'
               - 'skills/**'
               - 'runtimes/**'
+              # Projection roots (DR-22): these directories/files are part of
+              # the shipped surface (see `files` in package.json) and are
+              # regenerated + drift-checked by `skills:guard` / `hooks:guard`
+              # in the `test-root` job below. Without an entry here, a PR
+              # that ONLY touches one of these paths never flips `root` to
+              # 'true' — `test-root` (and both guards) never runs, and the
+              # deletion/mutation of a shipped agent, command alias, or hook
+              # passes CI green, unobserved (the gap this filter closes).
+              - 'agents/**'
+              - 'command-aliases/**'
+              - 'commands/**'
+              - 'hooks/**'
+              - 'hooks-src/**'
+              - 'binding/**'
+              - 'binding-src/**'
+              - '.claude-plugin/**'
+              # The agent-generator sources under the MCP workspace feed the
+              # rendered `agents/**` projection above; a change there must
+              # trigger the root suite's `skills:guard` drift check on the
+              # CAUSING PR, not only on a later PR that happens to touch the
+              # rendered output.
+              - 'servers/exarchos-mcp/src/agents/**'
+              - 'AGENTS.md'
               - 'package.json'
               - 'tsconfig.json'
               - '.github/workflows/ci.yml'
+              # `scripts/release-workflow.test.ts` (root suite) parses
+              # release.yml — a release.yml-only PR must run the root suite
+              # or the workflow's own contract test never fires on the PR
+              # that changes it.
+              - '.github/workflows/release.yml'
             mcp:
               - 'servers/exarchos-mcp/**'
               - '.github/workflows/ci.yml'
@@ -119,8 +147,23 @@ jobs:
       # fail if `git diff skills/` is non-empty. Prevents drift from
       # direct edits to generated files and from forgotten rebuilds
       # after a skills-src/ change. Depends on `dist/skills-guard.js`
-      # produced by the earlier `npm ci` (`prepare` → `tsc`).
+      # produced by the earlier `npm ci` (`prepare` → `tsc`). This also
+      # closes the DR-22 drift-guard requirement for `command-aliases/`
+      # and `agents/`: `runHooksGuard`'s sibling, `runSkillsGuard`,
+      # regenerates and diffs BOTH the `command-aliases/**` tree (from
+      # `commands/`) and every per-runtime `agents/**` output tree (from
+      # `servers/exarchos-mcp/src/agents/`) — see src/skills-guard.ts.
       - run: npm run skills:guard
+
+      # hooks:guard (DR-22) — rebuild the generated `hooks/` + `binding/`
+      # trees in-place from `hooks-src/` / `binding-src/` and fail if
+      # `git diff hooks/ binding/` is non-empty. Mirrors `skills:guard`
+      # above; without this step (and without `hooks/**` / `hooks-src/**`
+      # / `binding/**` / `binding-src/**` in the `changes.root` path
+      # filter above) a PR that deletes or mutates a shipped hook passed
+      # CI green, unobserved. Depends on `dist/hooks-guard.js` produced
+      # by the earlier `npm ci` (`prepare` → `tsc`).
+      - run: npm run hooks:guard
 
       # runtimes:guard — re-run `scripts/codegen-runtimes.ts` and fail
       # if `git diff src/runtimes/embedded.ts` is non-empty. The
@@ -736,6 +779,15 @@ jobs:
 
       - name: WLM wiring gate self-test (task-004)
         run: bash scripts/check-wlm-wiring.test.sh
+
+      # v2.12 proof-substrate ownership census (DR-5). Exact typed dispositions
+      # reject new direct gate emitters, provider registrations, and custom-shell
+      # transition guards while preserving the audited v3.0 migration reserve.
+      - name: Gate-runner ownership census (v2.12 DR-5)
+        run: node scripts/check-gate-runner-ownership.mjs
+
+      - name: Gate-runner ownership census self-test (v2.12 DR-5)
+        run: bash scripts/check-gate-runner-ownership.test.sh
 
       # ── Wave-S zero-dep register + node-only re-asserts (DR-9, DR-10) ──────
       # Zero-dependency node (uses the node set up above; no install) on the

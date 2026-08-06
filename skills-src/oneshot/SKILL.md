@@ -150,18 +150,26 @@ plan should answer four questions in 5-10 lines each:
 3. **Files** — which files will be touched? (1-5 typically)
 4. **Tests** — which test cases will be added? (named, not described)
 
-Persist the plan and transition to `implementing` in a single set call.
-`phase` is a top-level argument of `set`, not a field inside `updates`:
+Persist the plan, then transition to `implementing`. Field mutation and phase
+mutation are **separate actions**: `update` writes the plan artifacts (`phase`
+is a reserved field `update` cannot touch), then `transition` advances the
+phase — guards read the most recent state, so the plan lands before the
+`oneshot-plan-set` guard evaluates:
 
 ```typescript
 exarchos:exarchos_workflow({
   action: "update",
   featureId: "fix-readme-typo",
-  phase: "implementing",
   updates: {
     "artifacts.plan": "<plan text>",
     "oneshot.planSummary": "<one-line summary>"
   }
+})
+
+exarchos:exarchos_workflow({
+  action: "transition",
+  featureId: "fix-readme-typo",
+  target: "implementing"
 })
 ```
 

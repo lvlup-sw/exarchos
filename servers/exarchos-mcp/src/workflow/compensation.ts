@@ -1,6 +1,6 @@
 import { execFile as execFileCb } from 'child_process';
 import { promisify } from 'util';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { appendEvent } from './events.js';
 import { ErrorCode } from './schemas.js';
@@ -8,6 +8,16 @@ import { withStateRetry } from './state-retry.js';
 import type { Event } from './types.js';
 import type { EventStore } from '../event-store/store.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
+import {
+  CancelCompensationCompletedData,
+  CancelCompensationFailedData,
+} from '../event-store/schemas.js';
+import {
+  appendFencedCancelEvent,
+  decideCompensationAction,
+  foldCancelSaga,
+  type CancelRetryPolicy,
+} from './cancel-process-manager.js';
 // WLM unification (DR-3): compensation-triggered worktree teardown appends to the
 // SINGLETON `worktrees` stream — the SAME stream + reducer the WorktreeManager
 // owns — so a compensation removal genuinely reaches the `worktrees@v1` view
@@ -534,6 +544,45 @@ export interface CompensationOptions {
    * dirty check against a REAL worktree while stubbing the removal.
    */
   readonly gitRunner?: GitRunner;
+  /**
+   * Enables the v2.12 event-sourced cancellation process manager. Omitted by
+   * legacy callers, which retain checkpoint-based behavior.
+   *
+   * `writerEpoch` / `instanceId` are the fencing token the process manager
+   * acquired on ownership (P04-02): every compensation event is appended under
+   * an atomic epoch check, so a fenced-out (stale) instance's writes are
+   * rejected. `maxAttempts` bounds the per-action retry ladder before it
+   * escalates to a queryable manual-intervention-required terminal.
+   */
+  readonly cancelProcess?: {
+    readonly cancelId: string;
+    readonly phaseAttemptId: string;
+    readonly writerEpoch: number;
+    readonly instanceId: string;
+    readonly maxAttempts?: number;
+  };
+}
+
+/**
+ * {@link CompensationOptions} proven to carry the process-manager triple.
+ *
+ * `executeCompensation` validates `eventStore`, `featureId`, and `cancelProcess`
+ * together before entering the process-managed path — the three are meaningless
+ * apart, since an audit trail needs a store, a stream, and a cancellation
+ * identity. Narrowing once at that boundary lets every helper below read the
+ * fields directly instead of re-asserting non-null at each use, which would
+ * silently survive a caller that stopped validating.
+ */
+export interface ProcessManagedCompensationOptions extends CompensationOptions {
+  readonly eventStore: EventStore;
+  readonly featureId: string;
+  readonly cancelProcess: {
+    readonly cancelId: string;
+    readonly phaseAttemptId: string;
+    readonly writerEpoch: number;
+    readonly instanceId: string;
+    readonly maxAttempts?: number;
+  };
 }
 
 export interface CompensationActionResult {
@@ -555,9 +604,20 @@ export interface CompensationResult {
   readonly success: boolean;
   readonly errorCode?: string;
   readonly checkpoint: CompensationCheckpoint | null;
+  readonly durableOutcomes?: {
+    readonly completedActionIds: readonly string[];
+    readonly outcomeSequences: readonly number[];
+  };
 }
 
 // ─── Phase Order (reverse compensation order) ───────────────────────────────
+
+/**
+ * Default bounded retry budget for the cancellation process manager (P04-02).
+ * A compensation action is attempted at most this many times before the saga
+ * escalates it to a queryable `manual-intervention-required` terminal.
+ */
+export const CANCEL_MAX_ATTEMPTS = 3;
 
 const PHASE_ORDER: readonly string[] = [
   'plan',
@@ -590,7 +650,36 @@ function createClosePrAction(): CompensationAction {
       }
 
       try {
-        await runCommand('gh', ['pr', 'close', prUrl, '--comment', 'Cancelled via compensation'], options);
+        const state = (
+          await runCommandCaptureStdout(
+            'gh',
+            ['pr', 'view', prUrl, '--json', 'state', '--jq', '.state'],
+            options,
+          )
+        ).trim().toUpperCase();
+        if (state === 'CLOSED' || state === 'MERGED') {
+          return {
+            actionId: 'synthesize:close-pr',
+            status: 'skipped',
+            message: `PR already closed: ${prUrl}`,
+          };
+        }
+        try {
+          await runCommand(
+            'gh',
+            ['pr', 'close', prUrl, '--comment', 'Cancelled via compensation'],
+            options,
+          );
+        } catch (error) {
+          const after = (
+            await runCommandCaptureStdout(
+              'gh',
+              ['pr', 'view', prUrl, '--json', 'state', '--jq', '.state'],
+              options,
+            )
+          ).trim().toUpperCase();
+          if (after !== 'CLOSED' && after !== 'MERGED') throw error;
+        }
         return { actionId: 'synthesize:close-pr', status: 'executed', message: `Closed PR: ${prUrl}` };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -626,22 +715,29 @@ function createDeleteIntegrationBranchAction(): CompensationAction {
       }
 
       try {
-        // Delete local branch (ignore failure if doesn't exist)
-        try {
-          await runCommand('git', ['branch', '-D', branch], options);
-        } catch {
-          // Ignore local branch delete failure
+        const existsLocally = await localBranchExists(branch, options);
+        const existsRemote = await remoteBranchExists(branch, 'origin', options);
+        if (existsLocally) {
+          try {
+            await runCommand('git', ['branch', '-D', branch], options);
+          } catch (error) {
+            if (await localBranchExists(branch, options)) throw error;
+          }
         }
-        // Delete remote branch (ignore failure if doesn't exist)
-        try {
-          await runCommand('git', ['push', 'origin', '--delete', branch], options);
-        } catch {
-          // Ignore remote delete failure
+        if (existsRemote) {
+          try {
+            await runCommand('git', ['push', 'origin', '--delete', branch], options);
+          } catch (error) {
+            if (await remoteBranchExists(branch, 'origin', options)) throw error;
+          }
         }
         return {
           actionId: 'delegate:delete-integration-branch',
-          status: 'executed',
-          message: `Deleted integration branch: ${branch}`,
+          status: existsLocally || existsRemote ? 'executed' : 'skipped',
+          message:
+            existsLocally || existsRemote
+              ? `Deleted integration branch: ${branch}`
+              : `Integration branch already absent: ${branch}`,
         };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -928,6 +1024,318 @@ function getPhasesInReverseOrder(currentPhase: string): string[] {
   return PHASE_ORDER.slice(0, idx + 1).reverse();
 }
 
+function orderedCompensationActions(currentPhase: string): CompensationAction[] {
+    const phasesInOrder = getPhasesInReverseOrder(currentPhase);
+    const allActions = getCompensationActions();
+    const orderedActions: CompensationAction[] = [];
+    for (const phase of phasesInOrder) {
+      for (const action of allActions) {
+        if (action.phase === phase) orderedActions.push(action);
+      }
+    }
+    return orderedActions;
+  }
+
+  function processEventData(
+    options: ProcessManagedCompensationOptions,
+    actionId: string,
+  ): {
+    cancelId: string;
+    featureId: string;
+    phaseAttemptId: string;
+    actionId: string;
+  } {
+    return {
+      cancelId: options.cancelProcess.cancelId,
+      featureId: options.featureId,
+      phaseAttemptId: options.cancelProcess.phaseAttemptId,
+      actionId,
+    };
+  }
+
+  async function appendCancellationProcessEvent(
+    options: ProcessManagedCompensationOptions,
+    type:
+      | 'cancel.compensation-requested'
+      | 'cancel.compensation-completed'
+      | 'cancel.compensation-failed'
+      | 'cancel.compensation-retry-scheduled'
+      | 'cancel.manual-intervention-required',
+    data: Record<string, unknown>,
+    suffix: string,
+  ): Promise<void> {
+    const featureId = options.featureId;
+    // Preserve the historical idempotency-key shape (`cancel:` + 64-hex) so the
+    // dedupe surface and the audit-trail key format are unchanged; the write is
+    // now routed through the ATOMIC fencing guard (P04-02). The `operationId`
+    // (distinct per logical write) is what carries crash-idempotency into
+    // `decideOnce`, while `writerEpoch` is checked INSIDE the same transaction
+    // that would append — so a fenced-out (stale-epoch) instance can never land
+    // a compensation event.
+    const key = `cancel:${createHash('sha256')
+      .update(`${featureId}\0${options.cancelProcess.cancelId}\0${suffix}`, 'utf8')
+      .digest('hex')}`;
+    await appendFencedCancelEvent(options.eventStore, {
+      featureId,
+      cancelId: options.cancelProcess.cancelId,
+      writerEpoch: options.cancelProcess.writerEpoch,
+      type,
+      data,
+      idempotencyKey: key,
+      operationId: `cancel-op:${options.cancelProcess.cancelId}:${suffix}`,
+    });
+  }
+
+  function validActionResult(
+    value: unknown,
+    actionId: string,
+  ): value is CompensationActionResult {
+    if (typeof value !== 'object' || value === null) return false;
+    const result = value as Partial<CompensationActionResult>;
+    return (
+      result.actionId === actionId
+      && (result.status === 'executed'
+        || result.status === 'skipped'
+        || result.status === 'failed')
+      && typeof result.message === 'string'
+      && result.message.length > 0
+    );
+  }
+
+  async function executeProcessManagedCompensation(
+    state: Record<string, unknown>,
+    currentPhase: string,
+    options: ProcessManagedCompensationOptions,
+  ): Promise<CompensationResult> {
+    const eventStore = options.eventStore;
+    const featureId = options.featureId;
+    const cancelId = options.cancelProcess.cancelId;
+    const actions = orderedCompensationActions(currentPhase);
+    const results: CompensationActionResult[] = [];
+    const policy: CancelRetryPolicy = {
+      maxAttempts: options.cancelProcess.maxAttempts ?? CANCEL_MAX_ATTEMPTS,
+    };
+
+    // Append the compensation intent, run ONE attempt, and record its durable
+    // outcome. Every write is fenced by the acquired epoch (a stale instance's
+    // write is rejected inside the append transaction). Attempt-scoped
+    // idempotency keys make a crash-resume of the SAME attempt a no-op append.
+    const runOneAttempt = async (
+      action: CompensationAction,
+      attempt: number,
+    ): Promise<void> => {
+      await appendCancellationProcessEvent(
+        options,
+        'cancel.compensation-requested',
+        {
+          eventVersion: '1.0',
+          ...processEventData(options, action.id),
+          requestedAt: new Date().toISOString(),
+        },
+        `compensation:${action.id}:attempt${attempt}:requested`,
+      );
+
+      let rawResult: unknown;
+      try {
+        rawResult = await action.execute(state, options);
+      } catch (error) {
+        rawResult = {
+          actionId: action.id,
+          status: 'failed',
+          message: error instanceof Error ? error.message : String(error),
+        };
+      }
+
+      if (!validActionResult(rawResult, action.id)) {
+        await appendCancellationProcessEvent(
+          options,
+          'cancel.compensation-failed',
+          {
+            eventVersion: '1.0',
+            ...processEventData(options, action.id),
+            reason: 'malformed-result',
+            message: `Malformed compensation result for ${action.id}`,
+            failedAt: new Date().toISOString(),
+          },
+          `compensation:${action.id}:attempt${attempt}:failed`,
+        );
+        return;
+      }
+
+      if (rawResult.status === 'failed') {
+        await appendCancellationProcessEvent(
+          options,
+          'cancel.compensation-failed',
+          {
+            eventVersion: '1.0',
+            ...processEventData(options, action.id),
+            reason: 'effect-failed',
+            message: rawResult.message,
+            failedAt: new Date().toISOString(),
+          },
+          `compensation:${action.id}:attempt${attempt}:failed`,
+        );
+      } else {
+        await appendCancellationProcessEvent(
+          options,
+          'cancel.compensation-completed',
+          {
+            eventVersion: '1.0',
+            ...processEventData(options, action.id),
+            status: rawResult.status,
+            message: rawResult.message,
+            completedAt: new Date().toISOString(),
+          },
+          `compensation:${action.id}:attempt${attempt}:completed`,
+        );
+      }
+    };
+
+    for (const action of actions) {
+      // ── Fail-closed on a malformed durable outcome ───────────────────────
+      // A completed/failed event whose payload does not parse cannot be trusted
+      // as an outcome. Record an explicit malformed-result failure and DO NOT
+      // execute — the effect stays un-run rather than acting on corrupt state.
+      const priorHistory = await eventStore.query(featureId);
+      const malformedOutcome = priorHistory.find((event) => {
+        const data = event.data as Record<string, unknown> | undefined;
+        if (data?.cancelId !== cancelId || data?.actionId !== action.id) return false;
+        return (
+          (event.type === 'cancel.compensation-completed'
+            && !CancelCompensationCompletedData.safeParse(event.data).success)
+          || (event.type === 'cancel.compensation-failed'
+            && !CancelCompensationFailedData.safeParse(event.data).success)
+        );
+      });
+      if (malformedOutcome !== undefined) {
+        const message = `Malformed durable compensation result for ${action.id}`;
+        await appendCancellationProcessEvent(
+          options,
+          'cancel.compensation-failed',
+          {
+            eventVersion: '1.0',
+            ...processEventData(options, action.id),
+            reason: 'malformed-result',
+            message,
+            failedAt: new Date().toISOString(),
+          },
+          `compensation:${action.id}:malformed:failed`,
+        );
+        results.push({ actionId: action.id, status: 'failed', message });
+        continue;
+      }
+
+      // ── Bounded retry ladder, decided purely from the folded saga ────────
+      // execute → (fail) → retry → execute → … → exhaust → manual-intervention.
+      // `decideCompensationAction` returns `satisfied` for a durably-completed
+      // compensation, so a completed action is NEVER re-issued — on restart OR
+      // takeover. The iteration cap is a defensive guard against a decision bug;
+      // it sits well above the retry budget so a correct ladder never hits it.
+      const cap = policy.maxAttempts * 2 + 4;
+      let terminal: CompensationActionResult | undefined;
+      for (let guard = 0; guard < cap && terminal === undefined; guard++) {
+        const saga = foldCancelSaga(await eventStore.query(featureId), cancelId);
+        const plan = decideCompensationAction(saga, action.id, policy);
+        switch (plan.kind) {
+          case 'satisfied':
+            terminal = {
+              actionId: action.id,
+              status: 'skipped',
+              message: 'Already completed (event replay)',
+            };
+            break;
+          case 'blocked-manual':
+            terminal = {
+              actionId: action.id,
+              status: 'failed',
+              message: `Manual intervention required for ${action.id}`,
+            };
+            break;
+          case 'escalate-manual':
+            await appendCancellationProcessEvent(
+              options,
+              'cancel.manual-intervention-required',
+              {
+                eventVersion: '1.0',
+                ...processEventData(options, action.id),
+                epoch: options.cancelProcess.writerEpoch,
+                attempts: plan.attempts,
+                reason: plan.reason,
+                message: `Compensation ${action.id} exhausted ${plan.attempts} attempt(s)`,
+                requiredAt: new Date().toISOString(),
+              },
+              `compensation:${action.id}:manual`,
+            );
+            break;
+          case 'retry':
+            await appendCancellationProcessEvent(
+              options,
+              'cancel.compensation-retry-scheduled',
+              {
+                eventVersion: '1.0',
+                ...processEventData(options, action.id),
+                epoch: options.cancelProcess.writerEpoch,
+                attempt: plan.failedAttempt,
+                maxAttempts: policy.maxAttempts,
+                reason: plan.reason,
+                message: plan.message,
+                scheduledAt: new Date().toISOString(),
+              },
+              `compensation:${action.id}:attempt${plan.failedAttempt}:retry`,
+            );
+            await runOneAttempt(action, plan.nextAttempt);
+            break;
+          case 'execute':
+            await runOneAttempt(action, plan.attempt);
+            break;
+        }
+      }
+      results.push(
+        terminal ?? {
+          actionId: action.id,
+          status: 'failed',
+          message: `Compensation did not converge for ${action.id}`,
+        },
+      );
+    }
+
+    // Re-read and validate the durable log. In-memory return values are never
+    // sufficient to claim readiness.
+    const replay = await eventStore.query(featureId);
+    const completedActionIds: string[] = [];
+    const outcomeSequences: number[] = [];
+    let incomplete = false;
+    for (const action of actions) {
+      const completed = replay.find((event) => {
+        if (event.type !== 'cancel.compensation-completed') return false;
+        const parsed = CancelCompensationCompletedData.safeParse(event.data);
+        return parsed.success
+          && parsed.data.cancelId === cancelId
+          && parsed.data.actionId === action.id;
+      });
+      if (completed !== undefined) {
+        completedActionIds.push(action.id);
+        outcomeSequences.push(completed.sequence);
+      } else {
+        // Every action already pushed a terminal result (skipped / failed /
+        // manual) in the ladder above; a missing durable completion simply
+        // marks the saga incomplete so no premature readiness can be claimed.
+        incomplete = true;
+      }
+    }
+
+    const hasFailure =
+      incomplete || results.some((result) => result.status === 'failed');
+    return {
+      actions: results,
+      events: [],
+      success: !hasFailure,
+      ...(hasFailure ? { errorCode: ErrorCode.COMPENSATION_PARTIAL } : {}),
+      checkpoint: null,
+      durableOutcomes: { completedActionIds, outcomeSequences },
+    };
+}
+
 export async function executeCompensation(
   state: Record<string, unknown>,
   currentPhase: string,
@@ -952,18 +1360,28 @@ export async function executeCompensation(
         'legacy non-event-sourced path.',
     );
   }
-  const phasesInOrder = getPhasesInReverseOrder(currentPhase);
-  const allActions = getCompensationActions();
+  if (options.cancelProcess !== undefined) {
+    // Narrow the triple ONCE, here, so every helper below reads the fields
+    // directly. Destructuring is what carries the narrowing into the spread.
+    const { eventStore, featureId, cancelProcess } = options;
+    if (eventStore === undefined || featureId === undefined) {
+      throw new Error(
+        'executeCompensation: cancelProcess requires eventStore and featureId',
+      );
+    }
+    if (options.dryRun) {
+      throw new Error('executeCompensation: cancelProcess cannot run in dry-run mode');
+    }
+    return executeProcessManagedCompensation(state, currentPhase, {
+      ...options,
+      eventStore,
+      featureId,
+      cancelProcess,
+    });
+  }
 
   // Order actions by reverse phase order
-  const orderedActions: CompensationAction[] = [];
-  for (const phase of phasesInOrder) {
-    for (const action of allActions) {
-      if (action.phase === phase) {
-        orderedActions.push(action);
-      }
-    }
-  }
+  const orderedActions = orderedCompensationActions(currentPhase);
 
   const results: CompensationActionResult[] = [];
   const compensationEvents: Event[] = [];

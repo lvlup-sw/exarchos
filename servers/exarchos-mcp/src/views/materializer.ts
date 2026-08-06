@@ -2,6 +2,7 @@ import type { WorkflowEvent } from '../event-store/schemas.js';
 import type { SnapshotStore } from './snapshot-store.js';
 import type { StorageBackend } from '../storage/backend.js';
 import { viewLogger } from '../logger.js';
+import type { ProjectionCursor } from '../projections/freshness.js';
 
 // ─── View Projection Interface ─────────────────────────────────────────────
 
@@ -306,6 +307,26 @@ export class ViewMaterializer {
       this.states.set(stateKey, state);
     }
     return state as ViewState<T> | undefined;
+  }
+
+  /**
+   * EFF-002: enumerate every cached fold's cursor for `streamId`.
+   *
+   * The freshness chokepoint compares these against the stream's durable event
+   * tail. Read-only — unlike {@link getState} it deliberately does NOT refresh
+   * LRU order, so observing freshness cannot change eviction behaviour.
+   */
+  getStreamCursors(streamId: string): ProjectionCursor[] {
+    const suffix = `:${streamId}`;
+    const cursors: ProjectionCursor[] = [];
+    for (const [key, state] of this.states) {
+      if (!key.endsWith(suffix)) continue;
+      cursors.push({
+        viewName: key.slice(0, key.length - suffix.length),
+        cursor: state.highWaterMark,
+      });
+    }
+    return cursors;
   }
 
   /**

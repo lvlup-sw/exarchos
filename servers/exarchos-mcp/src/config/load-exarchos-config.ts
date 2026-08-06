@@ -3,6 +3,10 @@ import { resolve } from 'node:path';
 import { execSync } from 'node:child_process';
 import { parse as parseYaml } from 'yaml';
 import { FullExarchosConfigSchema, type FullExarchosConfig } from './yaml-schema.js';
+import {
+  collectConfigDeprecations,
+  type ConfigDeprecation,
+} from './exarchos-config-schema.js';
 
 const CONFIG_FILENAME = '.exarchos.yml';
 
@@ -14,6 +18,16 @@ export interface LoadResult {
   config: FullExarchosConfig;
   /** Absolute path of the file the config came from. */
   source: string;
+  /**
+   * Typed deprecations found in the RAW document (DR-31 / T-43).
+   *
+   * Deprecated keys are desugared away by the schema, so `config` cannot
+   * report them; they are collected pre-parse and surfaced here so operator
+   * diagnostics (`exarchos doctor` → invariants-catalog) can tell a consumer
+   * exactly which key to delete and what to write instead. Empty for a clean
+   * config.
+   */
+  deprecations: ConfigDeprecation[];
 }
 
 export interface LoadOptions {
@@ -108,5 +122,12 @@ function readAndValidate(path: string): LoadResult {
     throw new Error(`Invalid .exarchos.yml at ${path}: ${details}`);
   }
 
-  return { config: result.data, source: path };
+  return {
+    config: result.data,
+    source: path,
+    // Collected from `candidate` (the RAW document), NOT `result.data` — the
+    // schema desugars deprecated keys away, so post-parse data cannot report
+    // them (DR-31 / T-43).
+    deprecations: collectConfigDeprecations(candidate),
+  };
 }

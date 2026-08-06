@@ -158,24 +158,104 @@ describe('handleScaffold', () => {
  * undefined` and `loadInvariants` threw — every scaffolded file was dead on
  * arrival and silently skipped by `resolveEffectiveCatalog`. This covers the
  * scaffold → loadInvariants round-trip the original tests omitted.
+ *
+ * ## T-42: this test had gone VACUOUS — read before touching it
+ *
+ * It used to opt the load in with `invariants: { devCatalog: 'enabled' }`.
+ * DR-31 retired that boolean and made it inert, so the loader's registration
+ * gate began short-circuiting to `[]` BEFORE parsing the file. The test still
+ * passed — but for the wrong reason: `expect(entries).toEqual([])` was
+ * satisfied by "the loader never opened the file", not by "the scaffold
+ * declares no entries". The #1487 regression it exists to catch (a scaffold
+ * that THROWS on parse) would no longer have been caught at all, because the
+ * parse never ran.
+ *
+ * Two changes fix that, and the second is the load-bearing one:
+ *   1. the catalog is REGISTERED, so the loader actually parses it; and
+ *   2. a positive control loads a seeded copy of the SAME body through the
+ *      SAME call and requires the seeded entry back. If the gate ever
+ *      short-circuits again, the control returns `[]` and this test fails
+ *      loudly instead of passing silently.
  */
 describe('renderStarterCatalog → loadInvariants round-trip (#1487)', () => {
+  /** Register the file under test — DR-31: registration IS the opt-in. */
+  const registering = (catalogPath: string, tier: 'user' | 'dev') => ({
+    invariants: { catalogs: [{ path: catalogPath, tier }] },
+  });
+
+  /**
+   * The commented worked example from the scaffold, un-commented. Seeding it
+   * turns the pristine body into one that declares exactly one entry, which is
+   * how we prove the loader really read the file.
+   */
+  const SEEDED_ENTRY = [
+    'invariants:',
+    '  - id: U-1',
+    '    dimension: example-dimension',
+    '    axis: authoring',
+    '    cost-of-load: reference-only',
+    '    applies-to:',
+    '      - "src/**/*.ts"',
+    '    summary: One-sentence statement of the rule this invariant enforces.',
+    '    references:',
+    '      - docs/architecture/some-design.md',
+    '    severity:',
+    '      default: advisory',
+    '    integrity-class: user',
+    '    enforcement:',
+    '      mode: audit',
+    '      audit-prompt: >-',
+    '        Does the diff violate <the rule>? Cite the offending file + line.',
+  ].join('\n');
+
   it.each(['user', 'dev'] as const)(
     'renderStarterCatalog_%s_ParsesViaLoadInvariantsWithoutThrowing',
     (tier) => {
       const body = renderStarterCatalog(tier);
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'scaffold-roundtrip-'));
       const catalogPath = path.join(dir, 'invariants.md');
+      const seededPath = path.join(dir, 'seeded.md');
       fs.writeFileSync(catalogPath, body);
 
       try {
-        // devCatalog:'enabled' so the loader gate does not short-circuit to [].
-        const entries = loadInvariants(catalogPath, undefined, {
-          invariants: { devCatalog: 'enabled' },
-        });
+        // (1) THE #1487 CLAIM: a pristine scaffold parses without throwing...
+        let entries: ReturnType<typeof loadInvariants> | undefined;
+        expect(() => {
+          entries = loadInvariants(
+            catalogPath,
+            undefined,
+            registering(catalogPath, tier),
+          );
+        }).not.toThrow();
         expect(Array.isArray(entries)).toBe(true);
-        // A pristine scaffold has only the COMMENTED worked example → empty.
+        // ...and declares NO entries, because its worked example is commented.
+        // A scaffold that shipped a LIVE entry reddens right here.
         expect(entries).toEqual([]);
+
+        // (2) POSITIVE CONTROL — the anti-vacuity guard. The same loader call
+        // against the same body WITH the worked example live must return that
+        // entry. A gate that short-circuits, or a parser that never reads the
+        // frontmatter, returns [] here and this fails. Without this assertion
+        // the `toEqual([])` above passes for a loader that does nothing.
+        //
+        // The seeded copy differs from the pristine one ONLY in that its
+        // worked example is live. If the substitution ever stops applying, the
+        // control would silently degenerate into a second copy of the pristine
+        // case — so assert the bodies actually differ before relying on it.
+        const seededBody = body.replace('invariants: []', SEEDED_ENTRY);
+        expect(
+          seededBody,
+          'seeding anchor `invariants: []` not found in the scaffold body — ' +
+            'the positive control below would be vacuous',
+        ).not.toEqual(body);
+        fs.writeFileSync(seededPath, seededBody);
+
+        const seeded = loadInvariants(
+          seededPath,
+          undefined,
+          registering(seededPath, tier),
+        );
+        expect(seeded.map((e) => e.id)).toEqual(['U-1']);
       } finally {
         rmrf(dir);
       }

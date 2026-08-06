@@ -88,9 +88,9 @@ describe('buildProbes invariants.resolve — cwd-relative root resolution (#1482
   //
   // This test pins resolution to cwd: from a temp dir with no `.exarchos.yml`
   // ancestor the resolver must report not-configured. Under the bug,
-  // module-relative resolution would find the in-repo config (devCatalog
-  // enabled) and report configured — so this fails RED on the bug, GREEN on
-  // the fix.
+  // module-relative resolution would find the in-repo config (which registers
+  // a dev catalog) and report configured — so this fails RED on the bug, GREEN
+  // on the fix.
   it('Resolve_CwdHasNoExarchosYmlAncestor_ReturnsNotConfigured', async () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-no-cfg-'));
     process.chdir(tmp);
@@ -121,7 +121,7 @@ describe('buildProbes invariants.resolve — cwd-relative root resolution (#1482
     fs.writeFileSync(path.join(tmp, 'my-catalog.md'), '---\ninvariants: []\n---\n');
     fs.writeFileSync(
       path.join(tmp, '.exarchos.yml'),
-      'invariants:\n  devCatalog: disabled\n  catalogs:\n    - ./my-catalog.md\n',
+      'invariants:\n  catalogs:\n    - ./my-catalog.md\n',
     );
     process.chdir(tmp);
     try {
@@ -165,7 +165,7 @@ describe('buildProbes invariants.resolve — cwd-relative root resolution (#1482
     );
     fs.writeFileSync(
       path.join(tmp, '.exarchos.yml'),
-      'invariants:\n  devCatalog: disabled\n  catalogs:\n    - ./team-catalog.md\n',
+      'invariants:\n  catalogs:\n    - ./team-catalog.md\n',
     );
     process.chdir(tmp);
     try {
@@ -199,7 +199,7 @@ describe('buildProbes invariants.resolve — cwd-relative root resolution (#1482
     fs.writeFileSync(path.join(tmp, 'team-catalog.md'), '---\ninvariants: []\n---\n');
     fs.writeFileSync(
       path.join(tmp, '.exarchos.yml'),
-      'invariants:\n  devCatalog: disabled\n  catalogs:\n    - ./team-catalog.md\n',
+      'invariants:\n  catalogs:\n    - ./team-catalog.md\n',
     );
     process.chdir(tmp);
     try {
@@ -215,6 +215,142 @@ describe('buildProbes invariants.resolve — cwd-relative root resolution (#1482
       // so `rmrf(tmp)` while still chdir'd into it throws EPERM (the afterEach
       // chdir-back runs too late — after this finally).
       process.chdir(originalCwd);
+      rmrf(tmp);
+    }
+  });
+});
+
+/**
+ * DR-31 / T-43 — the doctor's `configured` signal is a REGISTRATION question.
+ *
+ * ## Why this block exists
+ *
+ * `resolveInvariantsCatalog` carried the FIFTH live read of the retired
+ * boolean (`config.invariants.devCatalog === 'enabled'` + a disk-existence
+ * probe on a privileged path, OR'd with a user-catalog count). It was a
+ * production read that **no test observed**: every pre-existing fixture in
+ * this file wrote `devCatalog: disabled` alongside a user catalog, so the
+ * dev branch was dead in the suite and deleting it outright would have gone
+ * unnoticed. That is the defect pattern T-31 was rejected twice for. These
+ * tests are the missing observation.
+ *
+ * The signal is now one question asked through the single discovery authority
+ * `resolveCatalogSources`: *is a catalog registered?* A `tier: dev`
+ * registration and a `tier: user` registration count identically, and a
+ * legacy `devCatalog:` config reaches the probe only after the schema has
+ * desugared it into an ordinary registration.
+ */
+describe('resolveInvariantsCatalog — registration gating (DR-31 / T-43)', () => {
+  const originalCwd = process.cwd();
+  afterEach(() => process.chdir(originalCwd));
+
+  /** Write a repo fixture with a valid-but-empty catalog + the given config. */
+  function fixture(configYaml: string, catalogName = 'cat.md'): string {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-reg-'));
+    fs.writeFileSync(path.join(tmp, catalogName), '---\ninvariants: []\n---\n');
+    fs.writeFileSync(path.join(tmp, '.exarchos.yml'), configYaml);
+    return tmp;
+  }
+
+  async function resolveIn(tmp: string) {
+    process.chdir(tmp);
+    try {
+      return await resolveInvariantsCatalog();
+    } finally {
+      process.chdir(originalCwd);
+    }
+  }
+
+  it('DoctorInvariantsCatalog_DevTierRegistration_ReportsConfigured', async () => {
+    // THE GUARD ON THE REPLACED READ. A `tier: dev` REGISTRATION — the exact
+    // thing this repository's own `.exarchos.yml` now carries — must report
+    // configured. Under the deleted implementation this config had no
+    // `devCatalog` key at all, so `devConfigured` was false and `configured`
+    // rested entirely on the user-catalog count. Neutering the registration
+    // question in probes.ts reddens this.
+    const tmp = fixture(
+      'invariants:\n  catalogs:\n    - { path: ./cat.md, tier: dev }\n',
+    );
+    try {
+      const result = await resolveIn(tmp);
+      expect(result.configured).toBe(true);
+      expect(result.warnings).toEqual([]);
+    } finally {
+      rmrf(tmp);
+    }
+  });
+
+  it('DoctorInvariantsCatalog_NoRegistration_ReportsNotConfigured', async () => {
+    // SENSITIVITY FLOOR. `configured` must be able to be FALSE for a repo that
+    // HAS an `.exarchos.yml` — otherwise the assertion above is satisfied by a
+    // probe that returns `true` unconditionally. An empty `invariants:` block
+    // registers nothing, so the doctor Skips.
+    const tmp = fixture('invariants:\n  catalogs: []\n');
+    try {
+      const result = await resolveIn(tmp);
+      expect(result.configured).toBe(false);
+      expect(result.warnings).toEqual([]);
+    } finally {
+      rmrf(tmp);
+    }
+  });
+
+  it('DoctorInvariantsCatalog_LegacyDevCatalogAlias_ReportsConfiguredAndWarns', async () => {
+    // BACK-COMPAT + DEPRECATION EMISSION, end to end through the real
+    // `loadExarchosConfig` → schema → probe path.
+    //
+    // A consumer who never migrated writes the alias and nothing else. Two
+    // things must happen, and neither is asserted anywhere else:
+    //   (1) they keep their catalog — the schema desugars the alias into
+    //       `{ path: .exarchos/invariants.md, tier: dev }`, so the probe sees
+    //       a registration and reports configured (post-T-42, before this
+    //       task, they would have SILENTLY lost it);
+    //   (2) they are TOLD — the typed deprecation surfaces as an operator
+    //       warning naming both the key and the replacement edit.
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-alias-'));
+    fs.mkdirSync(path.join(tmp, '.exarchos'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmp, '.exarchos', 'invariants.md'),
+      '---\ninvariants: []\n---\n',
+    );
+    fs.writeFileSync(path.join(tmp, '.exarchos.yml'), 'invariants:\n  devCatalog: enabled\n');
+    try {
+      const result = await resolveIn(tmp);
+      expect(result.configured).toBe(true);
+      const deprecation = result.warnings.find((w) =>
+        w.includes('invariants.devCatalog'),
+      );
+      expect(deprecation).toBeDefined();
+      expect(deprecation).toContain('.exarchos/invariants.md');
+      // The catalog itself resolved cleanly — the deprecation is the ONLY
+      // warning, so this is not a load failure wearing a deprecation's coat.
+      expect(result.warnings).toHaveLength(1);
+    } finally {
+      rmrf(tmp);
+    }
+  });
+
+  it('DoctorInvariantsCatalog_CleanConfig_EmitsNoDeprecation', async () => {
+    // POSITIVE CONTROL for the deprecation channel. "No deprecation" must be
+    // a real verdict, not the absence of a code path: the fixture below is
+    // byte-identical to the alias fixture above except for the config key, and
+    // it must come back with zero warnings. Together the two tests show the
+    // deprecation channel is both live and discriminating.
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-clean-'));
+    fs.mkdirSync(path.join(tmp, '.exarchos'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmp, '.exarchos', 'invariants.md'),
+      '---\ninvariants: []\n---\n',
+    );
+    fs.writeFileSync(
+      path.join(tmp, '.exarchos.yml'),
+      'invariants:\n  catalogs:\n    - { path: .exarchos/invariants.md, tier: dev }\n',
+    );
+    try {
+      const result = await resolveIn(tmp);
+      expect(result.configured).toBe(true);
+      expect(result.warnings).toEqual([]);
+    } finally {
       rmrf(tmp);
     }
   });

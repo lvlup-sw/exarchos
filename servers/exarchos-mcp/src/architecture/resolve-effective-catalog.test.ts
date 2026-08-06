@@ -6,6 +6,22 @@ import { resolveEffectiveCatalog } from './resolve-effective-catalog.js';
 import type { ExarchosConfig } from '../config/exarchos-config-schema.js';
 
 /**
+ * The fixture's dev catalog, expressed the way DR-31 requires: an ORDINARY
+ * `catalogs:` registration carrying `tier: 'dev'`.
+ *
+ * T-42 re-baseline: these tests previously opted the dev layer in with
+ * `invariants.devCatalog: 'enabled'`, the repo-only boolean that
+ * `resolveCatalogSources` desugared into exactly this source. The boolean is
+ * retired and inert, so the registration it used to synthesize is now written
+ * out literally. It is appended LAST in each `catalogs:` list, mirroring where
+ * the retired desugaring appended it, so source ordering is unchanged too.
+ */
+const DEV_REGISTRATION = {
+  path: '.exarchos/invariants.md',
+  tier: 'dev' as const,
+};
+
+/**
  * Build an isolated repo fixture with a dev invariants catalog at
  * `.exarchos/invariants.md` and a user-authored catalog. Returns the
  * temp repo root; caller is responsible for cleanup.
@@ -92,8 +108,7 @@ describe('resolveEffectiveCatalog', () => {
   it('ResolveEffectiveCatalog_DevSdlcUser_ReturnsMergedProjectedPayload', () => {
     const config: ExarchosConfig = {
       invariants: {
-        devCatalog: 'enabled',
-        catalogs: [fixture.userCatalogPath],
+        catalogs: [fixture.userCatalogPath, DEV_REGISTRATION],
         // `team-no-console` is a user-layer entry (no floor) → a disable
         // override is honored and the entry is dropped from the payload.
         overrides: {
@@ -150,8 +165,7 @@ describe('resolveEffectiveCatalog', () => {
 
     const config: ExarchosConfig = {
       invariants: {
-        devCatalog: 'enabled',
-        catalogs: ['invariants.user.yml'],
+        catalogs: ['invariants.user.yml', DEV_REGISTRATION],
       },
     };
 
@@ -205,8 +219,7 @@ describe('resolveEffectiveCatalog', () => {
 
     const config: ExarchosConfig = {
       invariants: {
-        devCatalog: 'enabled',
-        catalogs: ['reserved.user.md'],
+        catalogs: ['reserved.user.md', DEV_REGISTRATION],
       },
     };
 
@@ -236,8 +249,7 @@ describe('resolveEffectiveCatalog', () => {
     // must surface a warning rather than silently disabling intended checks.
     const config: ExarchosConfig = {
       invariants: {
-        devCatalog: 'enabled',
-        catalogs: ['does/not/exist.md'],
+        catalogs: ['does/not/exist.md', DEV_REGISTRATION],
       },
     };
 
@@ -294,8 +306,7 @@ describe('resolveEffectiveCatalog', () => {
 
     const config: ExarchosConfig = {
       invariants: {
-        devCatalog: 'enabled',
-        catalogs: [fixture.userCatalogPath],
+        catalogs: [fixture.userCatalogPath, DEV_REGISTRATION],
       },
     };
 
@@ -442,24 +453,29 @@ describe('resolveEffectiveCatalog', () => {
     }
   });
 
-  // ─── P4 T16: dogfood equivalence — sugar ≡ explicit ≡ T0 golden ───────────
+  // ─── P4 T16 / P5 T19, re-baselined by T-42: explicit registration only ────
 
-  it('RepoConfig_DesugaredDevSource_MatchesGoldenSnapshot', () => {
-    // Closes the migration loop against the REAL repo catalog (no repoRoot
-    // override → module-relative default, the same path the running gate uses).
+  it('RepoConfig_ExplicitDevRegistration_ResolvesRealCatalog', () => {
+    // T-42 COLLAPSE NOTICE. This replaces two tests —
+    // `RepoConfig_DesugaredDevSource_MatchesGoldenSnapshot` and
+    // `RepoConfig_ExplicitDevRegistration_DedupesWithSugar` — whose entire
+    // subject was the equivalence "legacy `devCatalog: enabled` sugar ==
+    // explicit `{ path, tier: dev }` registration". DR-31 retired the sugar,
+    // so that equivalence is no longer a property of the system: one side of
+    // it does not exist. Keeping the comparison would assert that the retired
+    // form still resolves a catalog, which is exactly the behavior removed.
     //
-    // Three forms must resolve to the SAME dev layer (same INV-* ids):
-    //   (a) the legacy `devCatalog: 'enabled'` sugar (what `.exarchos.yml` ships),
-    //   (b) an explicit `{ path: .exarchos/invariants.md, tier: dev }`
-    //       registration (the desugared form),
-    //   (c) the T0 characterization golden snapshot of (a).
+    // What survives is the half that is still true and still load-bearing:
+    // the REAL repo catalog, resolved through the canonical registration, via
+    // the module-relative default repoRoot (the same path the running gate
+    // uses) — no `repoRoot` override.
     //
-    // If (a) ≠ (b), the P1 desugaring diverged from legacy behavior — a real
-    // bug, not a docs task. This test is the dogfood proof that keeping
-    // `devCatalog: enabled` in this repo's `.exarchos.yml` is equivalent to the
-    // explicit registered-catalog pattern (design §4.3).
-
-    const devIdSet = (config: ExarchosConfig): { ids: string[]; tags: string[] } => {
+    // The `toMatchSnapshot()` of the old test is DELETED, not re-recorded: an
+    // auto-snapshot cannot disagree with the code that produced it (T-41's
+    // finding), so it detects change without being an oracle. The hand-written
+    // id list below is kept instead — an independent, human-authored
+    // expectation that a wrong resolver cannot silently rewrite.
+    const devLayer = (config: ExarchosConfig): { ids: string[] } => {
       const { entries } = resolveEffectiveCatalog({
         config,
         phase: 'ideate',
@@ -468,93 +484,22 @@ describe('resolveEffectiveCatalog', () => {
       const dev = entries
         .filter((e) => e.id.startsWith('INV-'))
         .sort((a, b) => a.id.localeCompare(b.id));
-      return {
-        ids: dev.map((e) => e.id),
-        tags: dev.map((e) => `${e.id}:${String(e.integrityClass)}`),
-      };
+      return { ids: dev.map((e) => e.id) };
     };
 
-    const sugar = devIdSet({ invariants: { devCatalog: 'enabled' } });
-    const explicit = devIdSet({
+    const explicit = devLayer({
       invariants: {
         catalogs: [{ path: '.exarchos/invariants.md', tier: 'dev' }],
       },
     });
 
-    // (a) ≡ (b): the desugared explicit registration yields the identical
-    // dev-layer ids + integrity-class tags as the legacy boolean sugar.
-    expect(explicit.ids).toEqual(sugar.ids);
-    expect(explicit.tags).toEqual(sugar.tags);
+    // Non-empty, and each catalog entry appears exactly once (a duplicated
+    // registration or a double-load would show up here).
+    expect(explicit.ids.length).toBeGreaterThan(0);
+    expect(new Set(explicit.ids).size).toBe(explicit.ids.length);
 
-    // (a) ≡ (c): the sugar still matches the T0-pinned golden id set. The T0
-    // snapshot lives in resolve-effective-catalog.characterization.test.ts; its
-    // captured INV-* ids are the load-bearing golden the refactor preserved.
-    expect(sugar.ids).toMatchSnapshot();
-
-    // Sanity: a non-empty dev layer (the real repo catalog has INV-* entries),
-    // so an accidental empty-equals-empty pass cannot mask a regression.
-    expect(sugar.ids.length).toBeGreaterThan(0);
-  });
-
-  // ─── P5 T19: dev catalog relocated to `.exarchos/`, registered explicitly ──
-
-  it('RepoConfig_ExplicitDevRegistration_DedupesWithSugar', () => {
-    // P5, T19 — the dev catalog now lives at `.exarchos/invariants.md`, and the
-    // repo's `.exarchos.yml` carries BOTH the legacy `devCatalog: 'enabled'`
-    // sugar AND an explicit `{ path: '.exarchos/invariants.md', tier: 'dev' }`
-    // registration (the canonical "like a user catalog" form). Both desugar to
-    // the SAME path, so catalog-sources path-dedup must collapse them into a
-    // SINGLE dev source — no duplicate INV-* ids — and the resolved dev INV-*
-    // id set must still equal the T0 characterization golden (proves the
-    // relocation is behavior-preserving).
-    //
-    // Resolve against the real repo catalog via the module-relative default
-    // (no `repoRoot` override), the same path the running gate uses.
-    const devIdSet = (config: ExarchosConfig): string[] => {
-      const { entries } = resolveEffectiveCatalog({
-        config,
-        phase: 'ideate',
-        workflowType: 'feature',
-      });
-      return entries
-        .filter((e) => e.id.startsWith('INV-'))
-        .map((e) => e.id)
-        .sort((a, b) => a.localeCompare(b));
-    };
-
-    // Both forms (sugar-only, explicit-only) must resolve the SAME dev catalog
-    // at the relocated `.exarchos/invariants.md`. Before the move the explicit
-    // `.exarchos/` source is absent (empty layer) while the sugar still loads
-    // the old `docs/architecture/` location, so these diverge — the RED signal.
-    const explicit = devIdSet({
-      invariants: {
-        catalogs: [{ path: '.exarchos/invariants.md', tier: 'dev' }],
-      },
-    });
-    const sugar = devIdSet({ invariants: { devCatalog: 'enabled' } });
-
-    // Explicit `.exarchos/` registration loads a non-empty dev layer.
-    expect(explicit.length).toBeGreaterThan(0);
-    // Explicit ≡ sugar: both desugar/resolve to the same relocated catalog.
-    expect(explicit).toEqual(sugar);
-
-    // Both flags together (what `.exarchos.yml` ships) dedupe to ONE dev source:
-    // no duplicate INV-* ids, and the id set is unchanged from either alone.
-    const both = devIdSet({
-      invariants: {
-        devCatalog: 'enabled',
-        catalogs: [{ path: '.exarchos/invariants.md', tier: 'dev' }],
-      },
-    });
-    expect(new Set(both).size).toBe(both.length);
-    expect(both).toEqual(sugar);
-
-    // The resolved dev INV-* id set still matches the T0 characterization golden
-    // (the same 8-id set pinned by resolveEffectiveCatalog_DevCatalogEnabled_
-    // GoldenSnapshot in resolve-effective-catalog.characterization.test.ts).
-    // `both === sugar` above already proves equivalence transitively; this
-    // explicit pin guards against the golden silently shifting.
-    expect(both).toEqual([
+    // The hand-authored golden id set for (ideate, feature).
+    expect(explicit.ids).toEqual([
       'INV-10',
       'INV-12',
       'INV-15',
@@ -564,6 +509,32 @@ describe('resolveEffectiveCatalog', () => {
       'INV-8',
       'INV-9',
     ]);
+
+    // TIER IS WHAT GRANTS THE NAMESPACE NOW. The retired boolean used to carry
+    // the "this is a maintainer catalog" audience; `tier: 'dev'` carries it
+    // today. Register the SAME file as `tier: 'user'` and every one of these
+    // ids must vanish — user-tier sources may not claim the reserved `INV-*`
+    // namespace, so they are filtered out with a warning. This is the
+    // assertion that proves the ids above are reached via the dev tier rather
+    // than merely via the path.
+    const asUser = resolveEffectiveCatalog({
+      config: {
+        invariants: {
+          catalogs: [{ path: '.exarchos/invariants.md', tier: 'user' }],
+        },
+      },
+      phase: 'ideate',
+      workflowType: 'feature',
+    });
+    expect(asUser.entries.filter((e) => e.id.startsWith('INV-'))).toEqual([]);
+    expect(
+      asUser.warnings.some((w) => w.includes('reserved')),
+      'a user-tier registration of the dev catalog must warn, not silently drop',
+    ).toBe(true);
+
+    // SENSITIVITY FLOOR: the retired boolean, alone, resolves NOTHING. This is
+    // the DR-31 behavior change stated as an assertion rather than a comment.
+    expect(devLayer({ invariants: { devCatalog: 'enabled' } }).ids).toEqual([]);
   });
 
   it('ResolveEffectiveCatalog_Sdlc3EnabledFalse_RefusedByFloorAndWarns', () => {

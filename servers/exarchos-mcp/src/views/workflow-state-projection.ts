@@ -1,7 +1,24 @@
 import type { ViewProjection } from './materializer.js';
-import type { WorkflowEvent, EventType } from '../event-store/schemas.js';
+import type {
+  AdmissionContradictionRecorded,
+  AdmissionEvidenceRecorded,
+  WorkflowEvent,
+  EventType,
+} from '../event-store/schemas.js';
 import { isBuiltInEventType } from '../event-store/schemas.js';
 import { getInitialPhase, isBuiltInWorkflowType } from '../workflow/state-machine.js';
+import {
+  selectEvidence,
+  type EvidenceContradiction,
+  type EvidenceSelectionDiagnostic,
+  type EvidenceSupersession,
+} from '../workflow/admission/select-evidence.js';
+import {
+  foldPhaseAttemptAdmission,
+  type AdmissionFoldDiagnostic,
+  type AdmissionFoldIntegrity,
+  type PhaseAttemptAdmissionState,
+} from '../workflow/admission/phase-attempt-state.js';
 // State-mutation primitives imported from the shared LEAF module, not from
 // `state-store.ts` (DR-4, task 009). `state-store.ts` value-imports THIS
 // projection's `apply` for `reconcileFromEvents`; importing these helpers from
@@ -30,6 +47,8 @@ export interface WorkflowStateView {
   featureId: string;
   workflowType: string;
   phase: string;
+  /** Active phase-entry identity, sourced only from persisted lifecycle data. */
+  phaseAttemptId?: string;
   createdAt: string;
   updatedAt: string;
   artifacts: { design: string | null; plan: string | null; pr: string | string[] | null };
@@ -58,6 +77,11 @@ export interface WorkflowStateView {
    * `phase.entered` is folded.
    */
   phaseObligation: PhaseObligationEntry | null;
+  /**
+   * Audit/shadow-only proof visibility. Histories are append-only event data;
+   * derived arrays are a deterministic selection and never affect phase state.
+   */
+  admissionProof: AdmissionProofView;
   /**
    * The feature's frozen planning depth (DR-3, epic #1581) — the per-feature
    * analog of per-task `riskTier`. Resolve-then-frozen by the PLAN
@@ -108,6 +132,13 @@ interface PhaseObligationEntry {
   mode: string;
   /** Frozen POLA posture (trust tier) for the phase kind (DR-14). */
   posture: string;
+  /**
+   * The danger coordinate the obligation was resolved at, frozen with it
+   * (DR-10 / T-15). Read back as the authority by later resolutions; absent on
+   * pre-T-15 logs, where there is no frozen claim to read.
+   */
+  riskTier?: string;
+  boundaryTouching?: boolean;
   enteredAt: string;
   exited: boolean;
   allRequiredGatesPassed: boolean | null;
@@ -133,7 +164,106 @@ interface CheckpointEntry {
   staleAfterMinutes: number;
 }
 
+export interface AdmissionProofView {
+  evidenceHistory: readonly AdmissionEvidenceRecorded[];
+  contradictionHistory: readonly AdmissionContradictionRecorded[];
+  activeEvidence: readonly AdmissionEvidenceRecorded[];
+  supersessions: readonly EvidenceSupersession[];
+  contradictions: readonly EvidenceContradiction[];
+  diagnostics: readonly EvidenceSelectionDiagnostic[];
+  /**
+   * Append-only raw `admission.requirement-resolved` payloads (P01-04). Held
+   * as `unknown` on purpose: the attempt fold PARSES them on every rebuild, so
+   * a historical malformed fact is diagnosed rather than trusted.
+   */
+  requirementHistory: readonly unknown[];
+  /** Append-only raw `admission.transition-decided` payloads (P01-04). */
+  decisionHistory: readonly unknown[];
+  /**
+   * Per-phase-attempt frozen requirement set, bound evidence, and decision,
+   * reconstructed from the histories above with no policy handle and no I/O.
+   */
+  phaseAttempts: readonly PhaseAttemptAdmissionState[];
+  /** Persisted admission facts the attempt fold refused to trust. */
+  phaseAttemptDiagnostics: readonly AdmissionFoldDiagnostic[];
+  /** `'contested'` whenever any admission fact was quarantined. */
+  phaseAttemptIntegrity: AdmissionFoldIntegrity;
+}
+
 // ─── Helpers ───────────────────────────────────────────────────────────────
+
+function emptyAdmissionProof(): AdmissionProofView {
+  return {
+    evidenceHistory: [],
+    contradictionHistory: [],
+    activeEvidence: [],
+    supersessions: [],
+    contradictions: [],
+    diagnostics: [],
+    requirementHistory: [],
+    decisionHistory: [],
+    phaseAttempts: [],
+    phaseAttemptDiagnostics: [],
+    phaseAttemptIntegrity: 'intact',
+  };
+}
+
+/**
+ * State-file reconciliation can apply a newly appended proof event to a
+ * pre-v2.12 projected state. Treat the absent additive block as its empty seed
+ * rather than requiring mutable backfill or making replay depend on snapshot
+ * age. Per-field defaulting covers the same problem one contract version later:
+ * a state persisted before P01-04 carries the evidence slots but not the
+ * phase-attempt slots, and a fold must not read `undefined` off it.
+ */
+function admissionProofOf(view: WorkflowStateView): AdmissionProofView {
+  const seed = emptyAdmissionProof();
+  const proof: Partial<AdmissionProofView> | undefined = view.admissionProof;
+  if (proof === undefined) return seed;
+  return {
+    evidenceHistory: proof.evidenceHistory ?? seed.evidenceHistory,
+    contradictionHistory: proof.contradictionHistory ?? seed.contradictionHistory,
+    activeEvidence: proof.activeEvidence ?? seed.activeEvidence,
+    supersessions: proof.supersessions ?? seed.supersessions,
+    contradictions: proof.contradictions ?? seed.contradictions,
+    diagnostics: proof.diagnostics ?? seed.diagnostics,
+    requirementHistory: proof.requirementHistory ?? seed.requirementHistory,
+    decisionHistory: proof.decisionHistory ?? seed.decisionHistory,
+    phaseAttempts: proof.phaseAttempts ?? seed.phaseAttempts,
+    phaseAttemptDiagnostics:
+      proof.phaseAttemptDiagnostics ?? seed.phaseAttemptDiagnostics,
+    phaseAttemptIntegrity:
+      proof.phaseAttemptIntegrity ?? seed.phaseAttemptIntegrity,
+  };
+}
+
+/**
+ * Recompute the per-attempt frozen fold (P01-04) from the append-only proof
+ * histories. Every admission fold recomputes from history rather than mutating
+ * a running summary, so a partial re-fold and a from-zero replay agree.
+ */
+function foldPhaseAttempts(
+  proof: AdmissionProofView,
+  overrides: {
+    readonly requirementHistory?: readonly unknown[];
+    readonly evidenceHistory?: readonly unknown[];
+    readonly decisionHistory?: readonly unknown[];
+  },
+): Pick<
+  AdmissionProofView,
+  'phaseAttempts' | 'phaseAttemptDiagnostics' | 'phaseAttemptIntegrity'
+> {
+  const fold = foldPhaseAttemptAdmission({
+    requirementEvents: overrides.requirementHistory ?? proof.requirementHistory,
+    evidenceEvents: overrides.evidenceHistory ?? proof.evidenceHistory,
+    decisionEvents: overrides.decisionHistory ?? proof.decisionHistory,
+  });
+  return {
+    phaseAttempts: fold.attempts,
+    phaseAttemptDiagnostics: fold.diagnostics,
+    phaseAttemptIntegrity: fold.integrity,
+  };
+}
 
 /** Immutably update a task by ID. Returns the original view if taskId not found. */
 function updateTask(
@@ -186,6 +316,7 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       staleAfterMinutes: 120,
     },
     phaseObligation: null,
+    admissionProof: emptyAdmissionProof(),
   }),
 
   apply: (view: WorkflowStateView, event: WorkflowEvent): WorkflowStateView => {
@@ -206,6 +337,7 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
           featureId?: string;
           workflowType?: string;
           synthesisPolicy?: 'always' | 'never' | 'on-request';
+          phaseAttemptId?: string;
         } | undefined;
         if (!data) return view;
 
@@ -237,6 +369,9 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
           featureId: data.featureId ?? view.featureId,
           workflowType,
           phase,
+          ...(data.phaseAttemptId !== undefined
+            ? { phaseAttemptId: data.phaseAttemptId }
+            : {}),
           // `createdAt` is set once, by the FIRST fold of `workflow.started`. On
           // a full fold from the initial view (resolveWorkflowState) `view.createdAt`
           // is the empty-string sentinel from `init()`, so the event timestamp
@@ -257,6 +392,7 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
         const data = event.data as {
           to?: string;
           historyUpdates?: Record<string, string>;
+          phaseAttemptId?: string;
         } | undefined;
         if (!data?.to) return view;
 
@@ -267,6 +403,9 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
         return {
           ...view,
           phase: data.to,
+          ...(data.phaseAttemptId !== undefined
+            ? { phaseAttemptId: data.phaseAttemptId }
+            : {}),
           updatedAt: event.timestamp,
           _history: newHistory,
         };
@@ -289,6 +428,8 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
           mode?: string;
           posture?: string;
           designDepth?: DesignDepth;
+          riskTier?: string;
+          boundaryTouching?: boolean;
         } | undefined;
         if (!data?.phase || !data.kind) return view;
 
@@ -307,6 +448,14 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
             policySource: data.policySource ?? 'builtin',
             mode: data.mode ?? 'enforce',
             posture: data.posture ?? 'read-only',
+            // DR-10 (T-15): the frozen danger coordinate, folded back verbatim
+            // so later resolutions read the authority instead of re-deriving it
+            // from current state. Absent on pre-T-15 logs — omitted rather than
+            // defaulted, since a fabricated coordinate is the defect itself.
+            ...(data.riskTier !== undefined ? { riskTier: data.riskTier } : {}),
+            ...(typeof data.boundaryTouching === 'boolean'
+              ? { boundaryTouching: data.boundaryTouching }
+              : {}),
             enteredAt: event.timestamp,
             exited: false,
             allRequiredGatesPassed: null,
@@ -716,6 +865,22 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       // at the `default` below. Preserves the pre-#1554 behavior exactly (all of
       // these previously fell through `default: return view`).
 
+      case 'workflow.cancel':
+      case 'workflow.cleanup': {
+        const data = event.data as {
+          to?: string;
+          phaseAttemptId?: string;
+        } | undefined;
+        if (!data?.to) return view;
+        return {
+          ...view,
+          phase: data.to,
+          updatedAt: event.timestamp,
+          ...(data.phaseAttemptId !== undefined
+            ? { phaseAttemptId: data.phaseAttemptId }
+            : {}),
+        };
+      }
       case 'task.claimed':
       case 'task.progressed':
       case 'task.created':
@@ -729,8 +894,6 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       case 'workflow.guard-failed':
       case 'workflow.compound-entry':
       case 'workflow.compound-exit':
-      case 'workflow.cancel':
-      case 'workflow.cleanup':
       case 'workflow.compensation':
       case 'workflow.circuit-open':
       case 'workflow.cas-failed':
@@ -864,9 +1027,105 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       // workflow_state-affecting fields, so it leaves the projection unchanged.
       case 'export.requested':
       case 'export.executed':
+        return view;
+
+      // Phase-gate v2.12 proof substrate: audit/shadow visibility only. These
+      // folds do not alter phase, guards, policy evaluation, or enforcement.
+      case 'admission.evidence-recorded': {
+        const proof = admissionProofOf(view);
+        const evidenceHistory = [
+          ...proof.evidenceHistory,
+          event.data as AdmissionEvidenceRecorded,
+        ];
+        const selection = selectEvidence({
+          evidence: evidenceHistory,
+          contradictionEvents: proof.contradictionHistory,
+        });
+        return {
+          ...view,
+          admissionProof: {
+            ...proof,
+            evidenceHistory,
+            contradictionHistory: proof.contradictionHistory,
+            ...selection,
+            ...foldPhaseAttempts(proof, { evidenceHistory }),
+          },
+        };
+      }
+      case 'admission.contradiction-recorded': {
+        const proof = admissionProofOf(view);
+        const contradictionHistory = [
+          ...proof.contradictionHistory,
+          event.data as AdmissionContradictionRecorded,
+        ];
+        const selection = selectEvidence({
+          evidence: proof.evidenceHistory,
+          contradictionEvents: contradictionHistory,
+        });
+        return {
+          ...view,
+          admissionProof: {
+            ...proof,
+            evidenceHistory: proof.evidenceHistory,
+            contradictionHistory,
+            ...selection,
+          },
+        };
+      }
+      // P01-04 — frozen requirement sets and decision state. Both payloads are
+      // retained raw and re-parsed by the attempt fold, so replay reconstructs
+      // the frozen set the writer resolved rather than anything current policy
+      // would resolve today.
+      case 'admission.requirement-resolved': {
+        const proof = admissionProofOf(view);
+        const requirementHistory = [...proof.requirementHistory, event.data];
+        return {
+          ...view,
+          admissionProof: {
+            ...proof,
+            requirementHistory,
+            ...foldPhaseAttempts(proof, { requirementHistory }),
+          },
+        };
+      }
+      case 'admission.transition-decided': {
+        const proof = admissionProofOf(view);
+        const decisionHistory = [...proof.decisionHistory, event.data];
+        return {
+          ...view,
+          admissionProof: {
+            ...proof,
+            decisionHistory,
+            ...foldPhaseAttempts(proof, { decisionHistory }),
+          },
+        };
+      }
+      case 'admission.waiver-recorded':
+      case 'admission.reassessment-requested':
+      case 'admission.reassessment-completed':
+      case 'admission.shadow-attempt':
+      case 'admission.disagreement-disposition':
+      case 'admission.rollout-decision':
+      case 'admission.enforcement-enabled':
+      // Cancellation process-manager facts are audit/recovery inputs. The
+      // existing workflow.cancel event remains the v2.12 phase transition.
+      case 'cancel.requested':
+      case 'cancel.ownership-acquired':
+      case 'cancel.compensation-requested':
+      case 'cancel.compensation-completed':
+      case 'cancel.compensation-failed':
+      case 'cancel.compensation-retry-scheduled':
+      case 'cancel.manual-intervention-required':
+      case 'cancel.ready':
       // #1319 — lands on the shared `meta/feedback` stream, never a feature
       // stream, so it has no effect on any workflow's projected state.
       case 'feedback.recorded':
+      // DR-4 (wiring-closure T-06) — the durable projection-health pair lands
+      // on the shared `meta/projection-health` stream, never a feature stream.
+      // It REPORTS ON folds; folding it into one would make the fold's own
+      // health part of the state being assessed.
+      case 'projection.degraded':
+      case 'projection.recovered':
       // #1242 — folds into the rehydration projection's handoff slot only; it
       // carries no workflow_state-affecting fields.
       case 'workflow.handoff_summarized':

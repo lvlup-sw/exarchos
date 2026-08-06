@@ -3,6 +3,12 @@ import { computeNextActions } from './next-actions-computer.js';
 import { NextAction } from './next-action.js';
 import { getHSMDefinition, executeTransition, getInitialPhase } from './workflow/state-machine.js';
 import { findActionInRegistry } from './registry.js';
+import { getEdgeIR } from './workflow/admission/built-in-workflow-ir.js';
+import {
+  adjudicateEdge,
+  defaultTranslationContext,
+  edgeDependsOnEventLog,
+} from './workflow/admission/legacy-state-translation.js';
 
 describe('computeNextActions (T040, DR-8)', () => {
   it('NextActions_Given_PlanPhase_Then_IncludesDelegateTransition', () => {
@@ -483,5 +489,259 @@ describe('computeNextActions — post-synthesize prune cadence (DR-2, task 008, 
       );
       expect(verbs).not.toContain('prune_worktrees');
     }
+  });
+});
+
+// ─── DR-9 (T-13): affordances derive from the ADMISSION verdict (INV-12) ─────
+//
+// Pre-fix, `computeNextActions` enumerated `hsm.transitions.filter(t => t.from
+// === phase)` and emitted one verb per outbound edge using
+// `t.guard.description` — it never evaluated a guard nor consulted admission,
+// so the runtime advertised moves admission would deny. These tests pin both
+// halves of the fix: the denied verb is omitted, and the published set is
+// cross-checked against the admission verdict computed INDEPENDENTLY here.
+//
+// The consistency check compares two genuinely distinct authorities — the
+// published affordance list (`computeNextActions`, which walks the HSM
+// topology) against the admission verdict (`adjudicateEdge` over the shared
+// IR). It is deliberately NOT admission-vs-admission (the Class B shape DR-30
+// forbids): if the fix were reverted, the topology would keep publishing verbs
+// admission denies and the check would fail.
+
+describe('computeNextActions — admission-derived affordances (DR-9, T-13)', () => {
+  const EVALUATED_AT = '2026-01-01T00:00:00.000Z';
+
+  /**
+   * A full feature workflow state parked in `plan-review`. The three outbound
+   * shared-IR edges from that phase exercise all three obligation shapes:
+   *   - `plan-review → delegate` — an APPROVAL obligation on
+   *     `planReview.approved`;
+   *   - `plan-review → plan`     — a ROUTE condition on `planReview.gapsFound`;
+   *   - `plan-review → blocked`  — a bounded-loop ROUTE condition on
+   *     `planReview.revisionsExhausted`.
+   */
+  const planReviewState = (
+    over: Record<string, unknown> = {},
+  ): Record<string, unknown> => ({
+    featureId: 'feat-dr9',
+    phase: 'plan-review',
+    workflowType: 'feature',
+    updatedAt: EVALUATED_AT,
+    artifacts: { plan: 'docs/specs/dr9.md' },
+    tasks: [],
+    reviews: {},
+    planReview: { approved: false, gapsFound: false, revisionCount: 0 },
+    ...over,
+  });
+
+  const admissionFor = (state: Record<string, unknown>) => ({
+    state,
+    evaluatedAt: EVALUATED_AT,
+    eventLogAvailable: false,
+  });
+
+  it('NextActions_AdmissionWouldDeny_OmitsTheVerb', () => {
+    const hsm = getHSMDefinition('feature');
+
+    // The plan review has NOT been approved, so the approval obligation on
+    // `plan-review → delegate` is unsatisfied and admission denies the edge.
+    const unapproved = planReviewState();
+    expect(
+      adjudicateEdge(
+        getEdgeIR('feature', 'plan-review', 'delegate')!,
+        unapproved,
+        defaultTranslationContext(EVALUATED_AT),
+      ),
+    ).toBe('deny');
+
+    const denied = computeNextActions(
+      {
+        phase: 'plan-review',
+        workflowType: 'feature',
+        admission: admissionFor(unapproved),
+      },
+      hsm,
+    ).map((a) => a.verb);
+    expect(denied).not.toContain('delegate');
+
+    // The omission is caused by the VERDICT, not by the edge being absent from
+    // the topology: the identical call without admission facts still publishes
+    // it (that is precisely the pre-DR-9 over-advertisement).
+    expect(
+      computeNextActions(
+        { phase: 'plan-review', workflowType: 'feature' },
+        hsm,
+      ).map((a) => a.verb),
+    ).toContain('delegate');
+
+    // Non-vacuity: the SAME call publishes `delegate` once the approval exists,
+    // so the omission is driven by the verdict and not by the verb being
+    // unreachable or the affordance list being empty.
+    const approved = planReviewState({
+      planReview: { approved: true, gapsFound: false, revisionCount: 0 },
+    });
+    const allowed = computeNextActions(
+      {
+        phase: 'plan-review',
+        workflowType: 'feature',
+        admission: admissionFor(approved),
+      },
+      hsm,
+    ).map((a) => a.verb);
+    expect(allowed).toContain('delegate');
+  });
+
+  it('NextActions_TopologyDisagreesWithAdmission_FailsConsistencyCheck', () => {
+    const hsm = getHSMDefinition('feature');
+
+    /**
+     * The consistency check: every PUBLISHED verb that names a shared-IR edge
+     * must not be one admission denies. Returns the disagreeing verbs.
+     */
+    const disagreements = (
+      published: readonly string[],
+      from: string,
+      state: Record<string, unknown>,
+    ): string[] =>
+      published.filter((verb) => {
+        const edge = getEdgeIR('feature', from, verb);
+        if (edge === undefined) return false; // no admission opinion
+        if (edgeDependsOnEventLog(edge)) return false; // facts not supplied
+        return (
+          adjudicateEdge(edge, state, defaultTranslationContext(EVALUATED_AT)) ===
+          'deny'
+        );
+      });
+
+    // Across every plan-review fact combination the two authorities agree.
+    for (const planReview of [
+      { approved: false, gapsFound: false, revisionCount: 0 },
+      { approved: true, gapsFound: false, revisionCount: 0 },
+      { approved: false, gapsFound: true, revisionCount: 0 },
+      { approved: false, gapsFound: false, revisionCount: 99 },
+    ]) {
+      const state = planReviewState({ planReview });
+      const published = computeNextActions(
+        {
+          phase: 'plan-review',
+          workflowType: 'feature',
+          admission: admissionFor(state),
+        },
+        hsm,
+      ).map((a) => a.verb);
+      expect(disagreements(published, 'plan-review', state)).toEqual([]);
+    }
+
+    // KILL PROBE — the pre-DR-9 behaviour was exactly "publish every outbound
+    // edge regardless of the verdict". Feeding the check that topology-only set
+    // must make it FAIL, or the consistency assertion above proves nothing.
+    const state = planReviewState();
+    const topologyOnly = computeNextActions(
+      { phase: 'plan-review', workflowType: 'feature' },
+      hsm,
+    ).map((a) => a.verb);
+    expect(topologyOnly).toContain('delegate');
+    expect(disagreements(topologyOnly, 'plan-review', state)).toContain('delegate');
+  });
+
+  it('NextActions_NoAdmissionFacts_KeepsTopologyOnlyBehaviour', () => {
+    // A caller that supplies no facts must not have its affordances emptied —
+    // an affordance list is advisory, and under-advertising on a payload that
+    // never carried the evidence would strand the caller.
+    const hsm = getHSMDefinition('feature');
+    const verbs = computeNextActions(
+      { phase: 'plan-review', workflowType: 'feature' },
+      hsm,
+    ).map((a) => a.verb);
+    expect(verbs).toContain('delegate');
+  });
+
+  it('NextActions_EventGatedEdge_WithoutEventLog_IsAdvertisedAsUndecidable', () => {
+    // `delegate → merge-pending` is decided from the event log. A payload
+    // without `_events` cannot deny it — the verb stays published, flagged.
+    const hsm = getHSMDefinition('feature');
+    const edge = getEdgeIR('feature', 'delegate', 'merge-pending');
+    expect(edge).toBeDefined();
+    expect(edgeDependsOnEventLog(edge!)).toBe(true);
+
+    const state = {
+      featureId: 'feat-dr9',
+      phase: 'delegate',
+      workflowType: 'feature',
+      updatedAt: EVALUATED_AT,
+      artifacts: {},
+      tasks: [],
+      reviews: {},
+    };
+    const merge = computeNextActions(
+      {
+        phase: 'delegate',
+        workflowType: 'feature',
+        admission: admissionFor(state),
+      },
+      hsm,
+    ).find((a) => a.verb === 'merge-pending');
+    expect(merge).toBeDefined();
+    expect(merge?.hint).toContain('undecidable');
+  });
+
+  it('NextActions_MalformedEvaluatedAt_FailsOpenToTopology', () => {
+    // A fault inside adjudication must degrade to "advertise what the topology
+    // allows", never to a silently empty affordance list. An APPROVED review is
+    // used deliberately: it is the branch that actually mints evidence, so the
+    // malformed instant reaches `AdmissionEvidenceV1Schema.parse` and throws.
+    const hsm = getHSMDefinition('feature');
+    const approved = planReviewState({
+      planReview: { approved: true, gapsFound: false, revisionCount: 0 },
+    });
+    expect(() =>
+      adjudicateEdge(
+        getEdgeIR('feature', 'plan-review', 'delegate')!,
+        approved,
+        defaultTranslationContext('not-a-timestamp'),
+      ),
+    ).toThrow();
+
+    const verbs = computeNextActions(
+      {
+        phase: 'plan-review',
+        workflowType: 'feature',
+        admission: {
+          state: approved,
+          evaluatedAt: 'not-a-timestamp',
+          eventLogAvailable: false,
+        },
+      },
+      hsm,
+    ).map((a) => a.verb);
+    // Topology-only fallback: `plan` and `blocked` are published too, which the
+    // successful adjudication above (`_OmitsTheVerb`) denies — proving the
+    // fallback really is the un-gated list rather than a lucky subset.
+    expect(verbs).toContain('delegate');
+    expect(verbs).toContain('plan');
+  });
+
+  it('NextActions_UnknownWorkflowType_NoAdmissionOpinion_PublishesTopology', () => {
+    // A workflow type with no shared IR yields an empty verdict map. Absence of
+    // an edge means "no opinion", which must never be read as deny.
+    const hsm = getHSMDefinition('discovery');
+    const state = {
+      featureId: 'feat-dr9',
+      phase: 'gathering',
+      workflowType: 'discovery',
+      updatedAt: EVALUATED_AT,
+      artifacts: { sources: ['a', 'b'] },
+      tasks: [],
+      reviews: {},
+    };
+    const verbs = computeNextActions(
+      {
+        phase: 'gathering',
+        workflowType: 'discovery',
+        admission: admissionFor(state),
+      },
+      hsm,
+    ).map((a) => a.verb);
+    expect(verbs.length).toBeGreaterThan(0);
   });
 });

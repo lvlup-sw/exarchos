@@ -21,6 +21,13 @@
  *                             but hosted in a workflow whose `pull_request`
  *                             trigger omits `synchronize`, so a diff pushed
  *                             after the PR opens leaves a stale green standing.
+ *   5. filtered-ci-path     — an entry CLAIMING an unfiltered CI path
+ *                             (`unfilteredCiPath: true`) whose host workflow is
+ *                             actually narrowed by `on.<event>.paths` /
+ *                             `paths-ignore` / `branches`, or whose hosting
+ *                             job/step is gated by a filtering `if:` (DR-15).
+ *                             The claim used to be free text checked only for
+ *                             filename shape.
  *
  * The manifest (`scripts/enforcer-wiring-manifest.json` by default) lists every
  * primary with a disposition:
@@ -412,6 +419,449 @@ function parseTypesList(prBlock) {
   return null;
 }
 
+// ─── CI path-filter modelling (DR-15) ───────────────────────────────────────
+//
+// "Runs on an unfiltered CI path" used to be a FREE-TEXT claim checked only for
+// filename shape: `.github/workflows/<name>.yml` matched a regex and the claim
+// was accepted. A workflow triggered by `on: pull_request: paths: ['docs/**']`
+// satisfies that regex and does NOT run on an unfiltered path — a gate hosted
+// there is skipped-as-passed on most PRs (DR-8). The model below parses the
+// trigger and the job/step `if:` gates so the claim is VERIFIED, not asserted.
+//
+// A CI path is UNFILTERED for an event (default `pull_request`) iff ALL hold:
+//   1. the workflow declares that event at all;
+//   2. the event carries no `paths:` / `paths-ignore:` narrowing;
+//   3. the event carries no `branches:` / `branches-ignore:` narrowing;
+//   4. at least one step matching the caller's `stepMatch` is hosted by a job
+//      whose `if:` is non-filtering AND whose own step `if:` is non-filtering.
+//
+// Rule 4 is "reachable via ANY unfiltered host": a gate re-asserted on an
+// unfiltered job is unfiltered even if another copy rides a filtered job
+// (the DR-10 re-assert pattern).
+//
+// SHAPES DELIBERATELY NOT MODELLED (documented gaps, not silent ones):
+//   - `on.<event>.paths` inherited from a reusable/called workflow
+//     (`workflow_call` + `uses:` at job level) — a job that delegates to
+//     another workflow file is not followed.
+//   - matrix/`strategy` exclusions, `concurrency` cancellation, and
+//     `timeout-minutes` — none of these narrow the PATH surface.
+//   - shell-level early exits inside a `run:` block (`set +e`, `if ... exit 0`,
+//     a `changed-files` guard implemented in bash) — the model reads YAML
+//     structure, not step bodies.
+//   - `on: <event>: types:` — a `types:` narrowing is NOT treated as a path
+//     filter (it selects PR lifecycle events, not file paths); the pre-existing
+//     `missing-synchronize` trap class already covers the one shape that
+//     matters there.
+
+/**
+ * The fork-guard idiom this repo puts on essentially every job. It is a
+ * SECURITY guard (skip PRs from forks, which have no secrets), not a path
+ * filter, so it must not make a CI path "filtered".
+ */
+const FORK_GUARD_RE =
+  /github\.event\.pull_request\.head\.repo\.full_name\s*==\s*github\.repository\s*\|\|\s*github\.event_name\s*!=\s*'pull_request'/g;
+
+/** Status functions that do not narrow which PRs a step runs on. */
+const STATUS_FUNCTION_RE = /\b(?:always|success|cancelled|failure)\s*\(\s*\)/g;
+
+/**
+ * True when an `if:` expression does NOT narrow the set of pull requests the
+ * step/job runs on. Recognized non-filtering shapes: empty/absent, the fork
+ * guard above, and the status functions `always()/success()/cancelled()/
+ * failure()` (optionally negated), in any `&&`/`||`/paren combination.
+ *
+ * ANY other expression — notably `needs.changes.outputs.<x> == 'true'`, the
+ * `dorny/paths-filter` idiom this repo uses to path-filter a job — is treated
+ * as FILTERING. That is deliberately conservative: an unrecognized guard fails
+ * the "unfiltered" claim rather than silently passing it.
+ *
+ * @param {string | null | undefined} expr
+ * @returns {boolean}
+ */
+export function isNonFilteringIf(expr) {
+  if (expr === null || expr === undefined) return true;
+  let s = String(expr).trim();
+  if (s === '') return true;
+  s = s.replace(/\$\{\{/g, ' ').replace(/\}\}/g, ' ');
+  s = s.replace(FORK_GUARD_RE, ' ');
+  s = s.replace(STATUS_FUNCTION_RE, ' ');
+  s = s.replace(/[()!\s]/g, '');
+  s = s.replace(/&&/g, '').replace(/\|\|/g, '');
+  return s === '';
+}
+
+/** Collapse whitespace for readable violation text. @param {string} s */
+function collapse(s) {
+  return String(s).replace(/\s+/g, ' ').trim();
+}
+
+/** True for a line that carries no YAML content (blank or comment-only). */
+function isNoiseLine(line) {
+  return line.trim() === '' || /^\s*#/.test(line);
+}
+
+/**
+ * The lines strictly more indented than the key at `startIdx` (its block).
+ *
+ * @param {string[]} lines
+ * @param {number} startIdx index OF the key line
+ * @param {number} keyIndent indentation of the key line
+ * @returns {string[]}
+ */
+function indentedBlock(lines, startIdx, keyIndent) {
+  /** @type {string[]} */
+  const block = [];
+  for (let i = startIdx + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (isNoiseLine(line)) {
+      block.push(line);
+      continue;
+    }
+    if (line.search(/\S/) <= keyIndent) break;
+    block.push(line);
+  }
+  return block;
+}
+
+/**
+ * The direct child mapping keys of a block — the `key: rest` lines at the
+ * block's minimum indentation.
+ *
+ * @param {string[]} block
+ * @returns {{ key: string, rest: string, idx: number, indent: number }[]}
+ */
+function childKeys(block) {
+  let min = Infinity;
+  for (const line of block) {
+    if (isNoiseLine(line)) continue;
+    const ind = line.search(/\S/);
+    if (ind >= 0 && ind < min) min = ind;
+  }
+  if (min === Infinity) return [];
+  /** @type {{ key: string, rest: string, idx: number, indent: number }[]} */
+  const out = [];
+  for (let i = 0; i < block.length; i++) {
+    const line = block[i];
+    if (isNoiseLine(line)) continue;
+    if (line.search(/\S/) !== min) continue;
+    const m = line.match(/^\s*["']?([A-Za-z0-9_.-]+)["']?:\s?(.*)$/);
+    if (!m) continue;
+    out.push({ key: m[1], rest: m[2] ?? '', idx: i, indent: min });
+  }
+  return out;
+}
+
+/** Strip surrounding quotes from a scalar. @param {string} s */
+function unquote(s) {
+  return s.trim().replace(/^['"]/, '').replace(/['"]$/, '');
+}
+
+/**
+ * Read a `key:` list value out of a block — either the inline flow form
+ * (`paths: [a, b]`) or the block form (`paths:` then `- a`). Returns null when
+ * the key is absent (absent ≠ empty: an empty list is still a narrowing).
+ *
+ * @param {string[]} block
+ * @param {string} key
+ * @returns {string[] | null}
+ */
+function readListValue(block, key) {
+  const keyRe = new RegExp(`^(\\s*)${key.replace(/[-]/g, '\\-')}:\\s?(.*)$`);
+  for (let i = 0; i < block.length; i++) {
+    if (isNoiseLine(block[i])) continue;
+    const m = block[i].match(keyRe);
+    if (!m) continue;
+    const rest = (m[2] ?? '').trim();
+    if (rest.startsWith('[')) {
+      const close = rest.indexOf(']');
+      const inner = rest.slice(1, close === -1 ? rest.length : close);
+      return inner.split(',').map(unquote).filter((s) => s !== '');
+    }
+    if (rest !== '' && !rest.startsWith('#')) return [unquote(rest)];
+    const keyIndent = (m[1] ?? '').length;
+    /** @type {string[]} */
+    const items = [];
+    for (let j = i + 1; j < block.length; j++) {
+      if (isNoiseLine(block[j])) continue;
+      const ind = block[j].search(/\S/);
+      if (ind <= keyIndent) break;
+      const item = block[j].match(/^\s*-\s*(.*)$/);
+      if (!item) break;
+      items.push(unquote(item[1] ?? ''));
+    }
+    return items;
+  }
+  return null;
+}
+
+/**
+ * @typedef {Object} EventTrigger
+ * @property {string[] | null} paths
+ * @property {string[] | null} pathsIgnore
+ * @property {string[] | null} branches
+ * @property {string[] | null} branchesIgnore
+ * @property {string[] | null} types
+ */
+
+/** An event with no narrowing at all. @returns {EventTrigger} */
+function openTrigger() {
+  return { paths: null, pathsIgnore: null, branches: null, branchesIgnore: null, types: null };
+}
+
+/**
+ * Parse a workflow's `on:` block into per-event trigger shapes. Handles the
+ * three GitHub forms: `on: push`, `on: [push, pull_request]`, and the block
+ * mapping with per-event `paths` / `paths-ignore` / `branches` /
+ * `branches-ignore` / `types`.
+ *
+ * @param {string} text
+ * @returns {Record<string, EventTrigger>}
+ */
+export function parseWorkflowTriggers(text) {
+  const lines = text.split('\n');
+  let onIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^["']?on["']?:/.test(lines[i])) {
+      onIdx = i;
+      break;
+    }
+  }
+  if (onIdx === -1) return {};
+
+  /** @type {Record<string, EventTrigger>} */
+  const out = {};
+  const rest = lines[onIdx].replace(/^["']?on["']?:\s?/, '').trim();
+
+  if (rest.startsWith('[')) {
+    const close = rest.indexOf(']');
+    const inner = rest.slice(1, close === -1 ? rest.length : close);
+    for (const name of inner.split(',').map(unquote).filter((s) => s !== '')) {
+      out[name] = openTrigger();
+    }
+    return out;
+  }
+  if (rest !== '' && !rest.startsWith('#')) {
+    out[unquote(rest)] = openTrigger();
+    return out;
+  }
+
+  const onBlock = indentedBlock(lines, onIdx, lines[onIdx].search(/\S/));
+  for (const child of childKeys(onBlock)) {
+    const sub = indentedBlock(onBlock, child.idx, child.indent);
+    out[child.key] = {
+      paths: readListValue(sub, 'paths'),
+      pathsIgnore: readListValue(sub, 'paths-ignore'),
+      branches: readListValue(sub, 'branches'),
+      branchesIgnore: readListValue(sub, 'branches-ignore'),
+      types: readListValue(sub, 'types'),
+    };
+  }
+  return out;
+}
+
+/**
+ * @typedef {Object} WorkflowStep
+ * @property {string | null} name
+ * @property {string | null} run
+ * @property {string | null} uses
+ * @property {string | null} if
+ * @property {boolean} continueOnError
+ */
+
+/**
+ * @typedef {Object} WorkflowJob
+ * @property {string} name
+ * @property {string | null} if
+ * @property {boolean} continueOnError
+ * @property {WorkflowStep[]} steps
+ */
+
+/** Read a single-line scalar for a child key. @param {{rest: string}} child */
+function readScalar(child) {
+  const rest = child.rest.trim();
+  if (rest === '' || /^[|>][+-]?$/.test(rest)) return null;
+  // Strip quotes ONLY when the whole scalar is wrapped in a matching pair —
+  // a GitHub `if:` expression routinely ENDS in a quoted literal
+  // (`… != 'pull_request'`) and must not lose its trailing quote.
+  const wrapped = rest.match(/^(['"])([\s\S]*)\1$/);
+  return wrapped ? (wrapped[2] ?? '') : rest;
+}
+
+/**
+ * Parse a `steps:` block into structured steps.
+ *
+ * @param {string[]} stepsBlock
+ * @returns {WorkflowStep[]}
+ */
+function parseSteps(stepsBlock) {
+  /** @type {WorkflowStep[]} */
+  const steps = [];
+  for (const item of groupListItems(stepsBlock)) {
+    const field = (key) => {
+      for (const line of item) {
+        const m = line.match(new RegExp(`^\\s*(?:-\\s+)?${key}:\\s?(.*)$`));
+        if (m) return (m[1] ?? '').trim();
+      }
+      return null;
+    };
+    const coe = field('continue-on-error');
+    steps.push({
+      name: field('name') === null ? null : unquote(String(field('name'))),
+      run: extractRunCommand(item),
+      uses: field('uses'),
+      if: field('if') === null || field('if') === '' ? null : String(field('if')),
+      // Any non-`false` value softens the step; `${{ … }}` expressions are
+      // treated as softening (they can evaluate true).
+      continueOnError: coe !== null && coe !== '' && !/^false$/i.test(coe),
+    });
+  }
+  return steps;
+}
+
+/**
+ * Parse a workflow's `jobs:` mapping into structured jobs + steps.
+ *
+ * @param {string} text
+ * @returns {WorkflowJob[]}
+ */
+export function parseWorkflowJobs(text) {
+  const lines = text.split('\n');
+  let jobsIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^["']?jobs["']?:\s*$/.test(lines[i])) {
+      jobsIdx = i;
+      break;
+    }
+  }
+  if (jobsIdx === -1) return [];
+  const jobsBlock = indentedBlock(lines, jobsIdx, lines[jobsIdx].search(/\S/));
+  /** @type {WorkflowJob[]} */
+  const jobs = [];
+  for (const jobKey of childKeys(jobsBlock)) {
+    const jobBlock = indentedBlock(jobsBlock, jobKey.idx, jobKey.indent);
+    /** @type {WorkflowJob} */
+    const job = { name: jobKey.key, if: null, continueOnError: false, steps: [] };
+    for (const child of childKeys(jobBlock)) {
+      if (child.key === 'if') {
+        job.if = readScalar(child);
+      } else if (child.key === 'continue-on-error') {
+        const v = child.rest.trim();
+        job.continueOnError = v !== '' && !/^false$/i.test(v);
+      } else if (child.key === 'steps') {
+        job.steps = parseSteps(indentedBlock(jobBlock, child.idx, child.indent));
+      }
+    }
+    jobs.push(job);
+  }
+  return jobs;
+}
+
+/**
+ * @typedef {Object} CiPathFilter
+ * @property {'no-trigger'|'paths'|'paths-ignore'|'branches'|'branches-ignore'|'step-not-found'|'job-if'|'step-if'} kind
+ * @property {string} detail
+ */
+
+/**
+ * @typedef {Object} CiPathAnalysis
+ * @property {string} event
+ * @property {boolean} unfiltered
+ * @property {CiPathFilter[]} filters
+ */
+
+/** The event an "unfiltered CI path" claim is about: fires on every PR. */
+export const CI_PATH_EVENT = 'pull_request';
+
+/**
+ * Model the path filters guarding a claimed CI path. This is the replacement
+ * for the free-text/filename-shape check: the claim is decided against the
+ * PARSED trigger + the parsed job/step `if:` gates.
+ *
+ * @param {string} text  workflow file contents
+ * @param {{ stepMatch?: string | null, event?: string }} [options]
+ *   `stepMatch` — a plain SUBSTRING (not a regex) matched against each step's
+ *   `name` / `run` / `uses`. Omit it to model only the workflow-level trigger.
+ * @returns {CiPathAnalysis}
+ */
+export function analyzeCiPathFilters(text, options = {}) {
+  const event = options.event ?? CI_PATH_EVENT;
+  const stepMatch = options.stepMatch ?? null;
+  /** @type {CiPathFilter[]} */
+  const filters = [];
+
+  const trigger = parseWorkflowTriggers(text)[event];
+  if (!trigger) {
+    filters.push({
+      kind: 'no-trigger',
+      detail: `workflow declares no \`${event}\` trigger — it never runs on that event`,
+    });
+  } else {
+    if (trigger.paths) {
+      filters.push({
+        kind: 'paths',
+        detail: `on.${event}.paths narrows to [${trigger.paths.join(', ')}]`,
+      });
+    }
+    if (trigger.pathsIgnore) {
+      filters.push({
+        kind: 'paths-ignore',
+        detail: `on.${event}.paths-ignore excludes [${trigger.pathsIgnore.join(', ')}]`,
+      });
+    }
+    if (trigger.branches) {
+      filters.push({
+        kind: 'branches',
+        detail: `on.${event}.branches narrows to [${trigger.branches.join(', ')}]`,
+      });
+    }
+    if (trigger.branchesIgnore) {
+      filters.push({
+        kind: 'branches-ignore',
+        detail: `on.${event}.branches-ignore excludes [${trigger.branchesIgnore.join(', ')}]`,
+      });
+    }
+  }
+
+  if (stepMatch) {
+    /** @type {CiPathFilter[][]} */
+    const perHost = [];
+    for (const job of parseWorkflowJobs(text)) {
+      for (const step of job.steps) {
+        const haystack = `${step.name ?? ''}\n${step.run ?? ''}\n${step.uses ?? ''}`;
+        if (!haystack.includes(stepMatch)) continue;
+        /** @type {CiPathFilter[]} */
+        const gates = [];
+        if (!isNonFilteringIf(job.if)) {
+          gates.push({
+            kind: 'job-if',
+            detail: `job '${job.name}' is gated by \`if: ${collapse(String(job.if))}\``,
+          });
+        }
+        if (!isNonFilteringIf(step.if)) {
+          gates.push({
+            kind: 'step-if',
+            detail:
+              `step '${step.name ?? '(unnamed)'}' in job '${job.name}' is gated by ` +
+              `\`if: ${collapse(String(step.if))}\``,
+          });
+        }
+        perHost.push(gates);
+      }
+    }
+    if (perHost.length === 0) {
+      filters.push({
+        kind: 'step-not-found',
+        detail: `no step matches ${JSON.stringify(stepMatch)} — this workflow does not run it`,
+      });
+    } else if (!perHost.some((gates) => gates.length === 0)) {
+      // Every host is gated; report the first host's gates.
+      filters.push(...perHost[0]);
+    }
+  }
+
+  return { event, unfiltered: filters.length === 0, filters };
+}
+
 // ─── Reachability across all workflows ──────────────────────────────────────
 
 /**
@@ -466,6 +916,12 @@ function referencedByAnyNpmScript(primary, scripts) {
  * @property {'gating'|'advisory'|'retired'} disposition
  * @property {string} [workflow]
  * @property {boolean} [diffDependent]
+ * @property {boolean} [unfilteredCiPath]  claim: `workflow` runs this primary on
+ *   an UNFILTERED CI path (fires on every PR). Verified against the parsed
+ *   trigger + job/step `if:` gates by {@link analyzeCiPathFilters}. Omit the
+ *   key to make no claim.
+ * @property {string} [ciStepMatch]  substring locating the hosting step when
+ *   verifying `unfilteredCiPath` (defaults to `script`).
  * @property {string} [rationale]
  */
 
@@ -516,6 +972,34 @@ export function audit({ manifest, scripts, workflows, primaryFiles }) {
       .filter(([, v]) => v.failable)
       .map(([w]) => w);
     const reachableWorkflows = [...perWf.keys()];
+
+    // ── DR-15: an "unfiltered CI path" claim is VERIFIED, not asserted. ──
+    // Previously the only thing standing behind this claim anywhere in the
+    // repo was a filename-shaped string. Now the workflow's trigger and the
+    // hosting job/step `if:` gates decide it.
+    if (entry.unfilteredCiPath === true) {
+      if (!entry.workflow) {
+        violations.push(
+          `${p}  [unfiltered-path-unverifiable]  claims an unfiltered CI path but names no \`workflow\``,
+        );
+      } else if (!(entry.workflow in workflows)) {
+        violations.push(
+          `${p}  [unfiltered-path-unverifiable]  claims an unfiltered CI path in "${entry.workflow}", ` +
+            `which is not present in the workflow set`,
+        );
+      } else {
+        const analysis = analyzeCiPathFilters(workflows[entry.workflow], {
+          stepMatch: entry.ciStepMatch ?? p,
+        });
+        if (!analysis.unfiltered) {
+          violations.push(
+            `${p}  [filtered-ci-path]  claims an unfiltered CI path in ${entry.workflow} but the ` +
+              `${analysis.event} lane is filtered: ` +
+              analysis.filters.map((f) => `${f.kind} — ${f.detail}`).join('; '),
+          );
+        }
+      }
+    }
 
     if (entry.disposition === 'gating') {
       if (!entry.workflow) {

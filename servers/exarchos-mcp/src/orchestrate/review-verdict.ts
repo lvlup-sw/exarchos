@@ -10,6 +10,8 @@ import type { PluginFinding } from '../review/check-catalog.js';
 import type { EventStore } from '../event-store/store.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
 import { emitGateEvent } from './gate-utils.js';
+import { createEvidenceSubject } from '../workflow/admission/evidence-subject.js';
+import { runPhaseGateWithEvidence } from './gate-runner.js';
 import {
   resolveEscalationPolicy,
   decideEscalation,
@@ -236,6 +238,50 @@ export async function handleReviewVerdict(
   stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
+  if (!args.featureId) {
+    return {
+      success: false,
+      error: { code: 'INVALID_INPUT', message: 'featureId is required' },
+    };
+  }
+  if (
+    !Number.isFinite(args.high) || args.high < 0
+    || !Number.isFinite(args.medium) || args.medium < 0
+    || !Number.isFinite(args.low) || args.low < 0
+  ) {
+    return {
+      success: false,
+      error: { code: 'INVALID_INPUT', message: 'high, medium, and low must be non-negative finite numbers' },
+    };
+  }
+
+  return runPhaseGateWithEvidence({
+    streamId: args.featureId,
+    gateClass: 'review-verdict',
+    requirementId: 'requirement:review-verdict',
+    stateDir,
+    eventStore,
+    subject: (phaseAttemptId) => createEvidenceSubject(
+      { kind: 'phase-attempt', phaseAttemptId },
+      {
+        gate: 'review-verdict',
+        high: args.high,
+        medium: args.medium,
+        low: args.low,
+        blockedReason: args.blockedReason ?? null,
+        dimensionResults: args.dimensionResults ?? null,
+      },
+    ),
+    providerInput: args,
+    executeProvider: async () => executeReviewVerdict(args, stateDir, eventStore),
+  });
+}
+
+async function executeReviewVerdict(
+  args: ReviewVerdictArgs,
+  stateDir: string,
+  eventStore: EventStore,
+): Promise<ToolResult> {
   // Input validation
   if (!args.featureId) {
     return {
@@ -337,54 +383,46 @@ export async function handleReviewVerdict(
       : {}),
   };
 
-  // Emit per-dimension gate events (fire-and-forget)
+  // Preserve the existing per-dimension shadow events, but never swallow a
+  // persistence failure: the canonical runner converts it to a failure carrier.
   if (args.dimensionResults) {
     for (const [key, entry] of Object.entries(args.dimensionResults)) {
-      try {
-        const store = eventStore;
-        await emitGateEvent(store, args.featureId, `review-${key}`, 'review', entry.passed, {
-          dimension: key,
-          phase: 'review',
-          findingCount: entry.findingCount,
-        });
-      } catch { /* fire-and-forget */ }
+      await emitGateEvent(eventStore, args.featureId, `review-${key}`, 'review', entry.passed, {
+        dimension: key,
+        phase: 'review',
+        findingCount: entry.findingCount,
+      });
     }
   }
 
-  // Emit summary gate event (fire-and-forget)
+  // Emit summary gate event.
   const pluginSources = args.pluginFindings?.length
     ? [...new Set(args.pluginFindings.map(f => f.source))]
     : undefined;
 
-  try {
-    const store = eventStore;
-    await emitGateEvent(store, args.featureId, 'review-verdict', 'review', verdict === 'APPROVED', {
-      verdict,
-      phase: 'review',
-      high: mergedHigh,
-      medium: mergedMedium,
-      low: mergedLow,
-      ...(pluginSources ? { pluginSources } : {}),
-    });
-  } catch { /* fire-and-forget */ }
+  await emitGateEvent(eventStore, args.featureId, 'review-verdict', 'review', verdict === 'APPROVED', {
+    verdict,
+    phase: 'review',
+    high: mergedHigh,
+    medium: mergedMedium,
+    low: mergedLow,
+    ...(pluginSources ? { pluginSources } : {}),
+  });
 
   // Emit a structured escalation gate event (DR-3) so the ask-user escalation is
   // event-sourced and surfaceable — distinct from the `review-verdict` summary
   // above (which `countPriorFixCycles` reads). Only on an actual escalate
   // decision; a still-auto-fixable NEEDS_FIXES emits no extra row. The gate is
   // recorded as FAILED (passed:false) — escalation means the bounded loop could
-  // not converge unattended. Fire-and-forget like its siblings.
+  // not converge unattended.
   if (escalation?.action === 'escalate') {
-    try {
-      const store = eventStore;
-      await emitGateEvent(store, args.featureId, 'review-escalation', 'review', false, {
-        phase: 'review',
-        reason: escalation.reason,
-        findingClass: escalation.findingClass,
-        priorFixCount: escalation.priorFixCount,
-        maxIterations: escalation.maxIterations,
-      });
-    } catch { /* fire-and-forget */ }
+    await emitGateEvent(eventStore, args.featureId, 'review-escalation', 'review', false, {
+      phase: 'review',
+      reason: escalation.reason,
+      findingClass: escalation.findingClass,
+      priorFixCount: escalation.priorFixCount,
+      maxIterations: escalation.maxIterations,
+    });
   }
 
   return { success: true, data: result };

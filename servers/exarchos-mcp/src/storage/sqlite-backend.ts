@@ -16,6 +16,7 @@ import { deriveWorkflowStatus, matchesWorkflowSummaryFilter } from './backend.js
 import { VersionConflictError } from './memory-backend.js';
 import type { SnapshotRecord } from '../projections/snapshot-schema.js';
 import { resolveMaxRecords } from './snapshot-retention.js';
+import { storeLogger } from '../logger.js';
 
 // ─── AtomicAppender wire types (#1259, T06/T07) ─────────────────────────────
 //
@@ -74,9 +75,36 @@ export interface PublicPersistedEventLike {
   [k: string]: unknown;
 }
 
+export interface AtomicDecideOnceDecision<TResult> {
+  streamId: string;
+  n: number;
+  expectedSequence?: number;
+  result: TResult;
+  finalize: (base: number) => {
+    events: AtomicAppendEvent[];
+    eventIds: string[];
+    timestamps: string[];
+    events_json: string;
+  };
+}
+
+export interface AtomicDecideOnceOutcome<TResult> {
+  kind: 'committed' | 'cache-hit';
+  streamId: string;
+  result: TResult;
+  sequences: number[];
+  eventIds: string[];
+  timestamps: string[];
+}
+
 // ─── Schema DDL ─────────────────────────────────────────────────────────────
 
-const SCHEMA_VERSION = 6;
+// Exported (additively) for the install-freshness gate (P05-04, ART-009): the
+// install-identity record captures the schema version this binary understands
+// so a freshness check can compare it against a store's persisted identity. The
+// value remains the single source of truth for the store's own DDL/migration
+// ledger below.
+export const SCHEMA_VERSION = 6;
 
 const SCHEMA_DDL = `
 CREATE TABLE IF NOT EXISTS events (
@@ -183,6 +211,7 @@ CREATE TABLE IF NOT EXISTS idempotency_claims (
 interface Statements {
   insertEvent: Statement;
   upsertSequence: Statement;
+  upsertSequenceMonotonic: Statement;
   selectSequence: Statement;
   selectEvents: Statement;
   getState: Statement;
@@ -248,6 +277,8 @@ const SQLITE_BUSY_RETRY_POLICY = {
   maxDelayMs: 100,
 } as const;
 
+const DECIDE_ONCE_CLAIM_STREAM = '__decide_once_operations__';
+
 /**
  * Thrown by `atomicAppend` when SQLITE_BUSY persists past the retry
  * budget. Carries the most-recent driver error as `cause` so the
@@ -295,6 +326,25 @@ export class SequenceGateConflictError extends Error {
     public readonly actual: number,
   ) {
     super(`stream-version gate: expected ${expected}, actual ${actual}`);
+  }
+}
+
+/**
+ * Storage-boundary conflict raised when an operation ID already has a
+ * committed result under a different request digest.
+ */
+export class OperationDigestConflictError extends Error {
+  override readonly name = 'OperationDigestConflictError';
+  readonly code = 'OPERATION_DIGEST_MISMATCH';
+
+  constructor(
+    public readonly operationId: string,
+    public readonly expectedDigest: string,
+    public readonly actualDigest: string,
+  ) {
+    super(
+      `operation ${JSON.stringify(operationId)} was already committed with a different request digest`,
+    );
   }
 }
 
@@ -352,11 +402,88 @@ export class SqliteCorruptError extends Error {
 }
 
 /**
+ * Thrown by `initialize()` when the event store's persisted schema identity is
+ * NEWER than the schema version this binary understands (`SCHEMA_VERSION`). A
+ * store written by a newer Exarchos release must NOT be silently opened by an
+ * older one: the older binary would re-stamp its own (lower) version alongside
+ * the newer marker and operate against a schema whose invariants it does not
+ * know, risking silent data corruption (P05-04, ART-009).
+ *
+ * The directional policy is asymmetric by design and mirrors the forward-only
+ * migration machinery: an OLDER store (version < SCHEMA_VERSION) is
+ * forward-migrated on open; a NEWER store (version > SCHEMA_VERSION) is refused
+ * because downgrade is not a supported operation. Like {@link SqliteCorruptError},
+ * this terminates lifecycle startup — consumers must not catch it and continue.
+ */
+export class SchemaVersionTooNewError extends Error {
+  override readonly name = 'SchemaVersionTooNewError';
+  readonly code = 'SCHEMA_VERSION_TOO_NEW';
+  constructor(
+    public readonly dbPath: string,
+    public readonly storeVersion: number,
+    public readonly binaryVersion: number,
+  ) {
+    super(
+      `Event store at ${dbPath} was written under schema version ${storeVersion}, ` +
+        `but this binary understands schema version ${binaryVersion}. A store written by a ` +
+        `newer Exarchos release must not be opened by an older one (downgrade is unsupported). ` +
+        `Upgrade the exarchos binary to a release that understands schema version ` +
+        `${storeVersion} (or newer), or point WORKFLOW_STATE_DIR at a store written by this ` +
+        `binary.`,
+    );
+  }
+}
+
+/**
  * Detect SQLITE_BUSY in a thrown driver error. `bun:sqlite` and
  * `better-sqlite3` (the test-time shim) both expose `.code` as a
  * stringified SQLite error code on their thrown `SqliteError`
  * instances. Falls back to a defensive `false` for non-Error throws.
  */
+/**
+ * One stream whose version gate disagreed with its durable event tail.
+ * `gate` is the recorded high-water mark; `tail` is `MAX(events.sequence)`.
+ */
+export interface SequenceRepair {
+  readonly streamId: string;
+  readonly gate: number;
+  readonly tail: number;
+}
+
+/**
+ * Outcome of the EFF-001 startup reconciliation.
+ *
+ * `repaired` — gates raised to the durable tail (they trailed it, so the next
+ * allocation would have re-issued a used sequence).
+ * `gaps` — gates that LEAD the tail; left untouched to keep sequences
+ * monotonic, reported so the divergence is never silent.
+ */
+export interface SequenceRepairReport {
+  readonly repaired: readonly SequenceRepair[];
+  readonly gaps: readonly SequenceRepair[];
+}
+
+/** Counts-not-transcripts cap on the per-stream detail carried in repair logs. */
+const SEQUENCE_REPAIR_LOG_CAP = 20;
+
+/**
+ * Narrow a driver transaction wrapper to the explicit `BEGIN IMMEDIATE` form.
+ *
+ * `bun:sqlite` and the shimmed `better-sqlite3` driver both expose
+ * `transaction(fn).immediate(args)`, but neither ships a type for it. This
+ * guard is the single narrowing boundary — callers get a typed `immediate()`
+ * instead of double-widening the wrapper at each use site.
+ */
+function hasImmediateTransaction(
+  txn: unknown,
+): txn is { immediate: (...args: unknown[]) => void } {
+  if (typeof txn !== 'function' && (typeof txn !== 'object' || txn === null)) {
+    return false;
+  }
+  if (!('immediate' in txn)) return false;
+  return typeof txn.immediate === 'function';
+}
+
 function isSqliteBusy(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false;
   const code = (err as { code?: unknown }).code;
@@ -520,6 +647,13 @@ export class SqliteBackend implements StorageBackend {
       // Execute schema DDL
       this.db.exec(SCHEMA_DDL);
 
+      // Refuse to open a store written by a NEWER binary (P05-04, ART-009).
+      // Runs after SCHEMA_DDL (which guarantees the schema_version table
+      // exists) but BEFORE migrateSchema(), so no forward-migration or
+      // version re-stamp ever touches a store whose schema this binary cannot
+      // safely reason about. A fresh or equal-or-older store passes through.
+      this.assertSchemaNotNewerThanBinary();
+
       // Run migrations for existing databases
       this.migrateSchema();
 
@@ -550,6 +684,17 @@ export class SqliteBackend implements StorageBackend {
 
       // Initialize prepared statements
       this.stmts = this.prepareStatements();
+
+      // EFF-001: reconcile the stream-version gate against the durable event
+      // tail BEFORE serving any traffic. A high-water mark that trails
+      // `MAX(events.sequence)` would make the gate re-issue an already-used
+      // sequence on the next append — the exact `Expected sequence 236, actual
+      // 235` divergence reproduced in the phase-gate dogfood (CB-1). The gate
+      // itself is race-free under BEGIN IMMEDIATE, but a database that arrives
+      // already diverged (crash between writes under an older code path,
+      // partial restore, external tooling) must be repaired, never silently
+      // continued from.
+      this.repairSequenceHighWaterMarks();
     } catch (err) {
       // SQLITE_CORRUPT / SQLITE_NOTADB at startup: refuse to proceed.
       // The substrate intentionally does NOT auto-rebuild — silent rebuild
@@ -623,15 +768,44 @@ export class SqliteBackend implements StorageBackend {
    * never falls back to a deferred `BEGIN`.
    */
   private assertImmediateSupported(): void {
-    const probe = this.db.transaction(() => {}) as unknown as {
-      immediate?: (...args: unknown[]) => void;
-    };
-    if (typeof probe.immediate !== 'function') {
+    if (!hasImmediateTransaction(this.db.transaction(() => {}))) {
       throw new SqliteImmediateUnsupportedError();
     }
   }
 
+  /**
+   * Refuse to open an event store whose persisted schema identity is NEWER
+   * than this binary understands (P05-04, ART-009). Reads
+   * `MAX(schema_version.version)` — the table is guaranteed to exist because
+   * SCHEMA_DDL's `CREATE TABLE IF NOT EXISTS` ran just above. A fresh store
+   * (empty table ⇒ NULL) and any equal-or-older store pass; a strictly-newer
+   * store closes the freshly-opened handle (so the file is not left locked
+   * against operator remediation, mirroring the corrupt path) and throws
+   * {@link SchemaVersionTooNewError} BEFORE `migrateSchema()` runs. The `>`
+   * (not `!==`) comparison is the directional policy: older stores are
+   * forward-migrated, only newer ones are refused.
+   */
+  private assertSchemaNotNewerThanBinary(): void {
+    const row = this.db
+      .prepare('SELECT MAX(version) AS version FROM schema_version')
+      .get() as { version: number | null } | undefined;
+    const storeVersion = row?.version ?? null;
+    if (storeVersion !== null && storeVersion > SCHEMA_VERSION) {
+      this.close();
+      throw new SchemaVersionTooNewError(this.dbPath, storeVersion, SCHEMA_VERSION);
+    }
+  }
+
   private applyConnectionPragmas(): void {
+    // C-layer BUSY safety net (audit §F2.2) — MUST be applied FIRST. The
+    // `journal_mode = WAL` conversion below takes a lock that loses instantly
+    // to a concurrent opener when no busy handler is installed yet: two
+    // processes opening the same store together (the EFF-001 shape) then die
+    // with SQLITE_BUSY at connection time — observed deterministically on
+    // win32, where file locking is slower and less forgiving than POSIX.
+    // With the timeout in effect every subsequent pragma waits its turn.
+    // See JSDoc above for the two-tier model this pragma anchors.
+    this.db.exec('PRAGMA busy_timeout = 5000');
     this.db.exec('PRAGMA journal_mode = WAL');
     // Durability posture (DR-4). NORMAL (default): the WAL is fsync'd at
     // checkpoint, not at every commit — durable across a PROCESS crash, but
@@ -644,9 +818,6 @@ export class SqliteBackend implements StorageBackend {
       `PRAGMA synchronous = ${this.synchronous === 'full' ? 'FULL' : 'NORMAL'}`,
     );
     this.db.exec('PRAGMA mmap_size = 268435456');
-    // C-layer BUSY safety net (audit §F2.2). See JSDoc above for the
-    // two-tier model that this pragma anchors.
-    this.db.exec('PRAGMA busy_timeout = 5000');
   }
 
   /**
@@ -1375,6 +1546,15 @@ export class SqliteBackend implements StorageBackend {
       upsertSequence: this.db.prepare(
         'INSERT INTO sequences (streamId, sequence) VALUES (?, ?) ON CONFLICT(streamId) DO UPDATE SET sequence = excluded.sequence',
       ),
+      // EFF-001 repair path ONLY: monotonic gate upsert. `MAX(sequence,
+      // excluded.sequence)` lets a repair RAISE the gate to the durable tail
+      // but never lower it — a stale repair value (computed before a sibling
+      // process advanced the stream) degrades to a no-op instead of dragging
+      // the gate back below the tail (gate-below-tail → PRIMARY KEY violation
+      // on the next append).
+      upsertSequenceMonotonic: this.db.prepare(
+        'INSERT INTO sequences (streamId, sequence) VALUES (?, ?) ON CONFLICT(streamId) DO UPDATE SET sequence = MAX(sequence, excluded.sequence)',
+      ),
       selectSequence: this.db.prepare(
         'SELECT sequence FROM sequences WHERE streamId = ?',
       ),
@@ -1755,6 +1935,50 @@ export class SqliteBackend implements StorageBackend {
   }
 
   /**
+   * Read a completed decideOnce claim by its globally unique operation ID.
+   * The canonical result is deserialized at the storage boundary so callers
+   * see the same value on the committing call and every later retry.
+   */
+  lookupOperationClaim<TResult = unknown>(
+    operationId: string,
+  ):
+    | {
+        streamId: string;
+        requestDigest: string;
+        result: TResult;
+        eventIds: string[];
+        sequences: number[];
+        timestamps: string[];
+      }
+    | undefined {
+    const row = this.stmts.selectIdempotencyClaim.get(
+      DECIDE_ONCE_CLAIM_STREAM,
+      operationId,
+    ) as
+      | {
+          eventIds: string;
+          sequences: string;
+          timestamps: string;
+          events_json: string;
+        }
+      | undefined;
+    if (!row) return undefined;
+    const envelope = JSON.parse(row.events_json) as {
+      streamId: string;
+      requestDigest: string;
+      result: TResult;
+    };
+    return {
+      streamId: envelope.streamId,
+      requestDigest: envelope.requestDigest,
+      result: envelope.result,
+      eventIds: JSON.parse(row.eventIds) as string[],
+      sequences: JSON.parse(row.sequences) as number[],
+      timestamps: JSON.parse(row.timestamps) as string[],
+    };
+  }
+
+  /**
    * Read the current sequence high-water mark for a stream. AtomicAppender
    * uses this BEFORE opening the transaction to compute base+i sequences;
    * the transaction's strict-insert into `events` will raise on conflict
@@ -1764,6 +1988,100 @@ export class SqliteBackend implements StorageBackend {
   readSequenceHighWaterMark(streamId: string): number {
     const row = this.stmts.selectSequence.get(streamId) as { sequence: number } | undefined;
     return row ? row.sequence : 0;
+  }
+
+  /**
+   * EFF-001 startup repair: reconcile every stream's version gate against its
+   * durable event tail.
+   *
+   * Two divergence directions, and they are NOT symmetric:
+   *
+   * - `highWaterMark < MAX(events.sequence)` — **dangerous**. The next
+   *   `allocateSequence` would hand out a sequence that is already persisted,
+   *   producing either a PRIMARY KEY violation or (with an `expectedSequence`)
+   *   the `Expected sequence N, actual N-1` conflict from dogfood CB-1. Repaired
+   *   deterministically by raising the gate to the durable tail: the tail is the
+   *   authority, the counter is derived.
+   * - `highWaterMark > MAX(events.sequence)` — **benign**. A rolled-back append
+   *   or pruned tail leaves a gap. Sequences must stay monotonic, so the gate is
+   *   left alone; lowering it would re-issue numbers a reader may already have
+   *   observed. Reported, not "repaired".
+   *
+   * The divergence SELECT and the corrective upserts run inside ONE
+   * `BEGIN IMMEDIATE` transaction so a repair is all-or-nothing AND cannot be
+   * computed against a tail a concurrent process has since advanced (the
+   * gate-lowering TOCTOU). The applied upsert is additionally monotonic
+   * (`MAX(sequence, excluded.sequence)`) so even a stale repair value can only
+   * raise the gate, never lower it. Logs loudly: a silently corrected
+   * divergence is indistinguishable from a healthy store.
+   */
+  private repairSequenceHighWaterMarks(): SequenceRepairReport {
+    const divergenceQuery = this.db.prepare(
+      `SELECT e.streamId AS streamId,
+              MAX(e.sequence) AS tail,
+              COALESCE(s.sequence, 0) AS gate
+         FROM events e
+         LEFT JOIN sequences s ON s.streamId = e.streamId
+        GROUP BY e.streamId
+       HAVING MAX(e.sequence) <> COALESCE(s.sequence, 0)`,
+    );
+
+    // The divergence SELECT and the corrective upserts share ONE
+    // `BEGIN IMMEDIATE` transaction. Running the SELECT on the bare
+    // connection and applying the fixes in a separate transaction left a
+    // TOCTOU window: a sibling process could repair AND append between the
+    // two steps, and this process's apply — computed against the pre-append
+    // tail — would drag the freshly-advanced gate back below the durable
+    // tail. Holding the write lock across read + write closes the window;
+    // the monotonic upsert (`upsertSequenceMonotonic`) is the second,
+    // independent floor should a stale tail ever reach the statement anyway.
+    const repaired: SequenceRepair[] = [];
+    const gaps: SequenceRepair[] = [];
+    const repair = this.db.transaction(() => {
+      const rows = divergenceQuery.all() as {
+        streamId: string;
+        tail: number;
+        gate: number;
+      }[];
+      for (const row of rows) {
+        (row.gate < row.tail ? repaired : gaps).push({
+          streamId: row.streamId,
+          gate: row.gate,
+          tail: row.tail,
+        });
+      }
+      for (const entry of repaired) {
+        this.stmts.upsertSequenceMonotonic.run(entry.streamId, entry.tail);
+      }
+    });
+    if (!hasImmediateTransaction(repair)) {
+      throw new SqliteImmediateUnsupportedError();
+    }
+    repair.immediate();
+
+    if (repaired.length > 0) {
+      storeLogger.warn(
+        {
+          repaired: repaired.length,
+          streams: repaired.slice(0, SEQUENCE_REPAIR_LOG_CAP),
+          dbPath: this.dbPath,
+        },
+        'stream-version gate trailed the durable event tail; raised to the tail before serving traffic (EFF-001)',
+      );
+    }
+
+    if (gaps.length > 0) {
+      storeLogger.warn(
+        {
+          gaps: gaps.length,
+          streams: gaps.slice(0, SEQUENCE_REPAIR_LOG_CAP),
+          dbPath: this.dbPath,
+        },
+        'stream-version gate leads the durable event tail (rolled-back or pruned append); left monotonic, not lowered (EFF-001)',
+      );
+    }
+
+    return { repaired, gaps };
   }
 
   /**
@@ -1910,11 +2228,11 @@ export class SqliteBackend implements StorageBackend {
     // `.immediate` exists (DR-3), so there is NO deferred fallback here: a
     // deferred BEGIN would reopen the lock-upgrade deadlock and the TOCTOU
     // window the gate closes.
-    const txnUnknown = txn as unknown as {
-      immediate: (...args: unknown[]) => void;
-    };
+    if (!hasImmediateTransaction(txn)) {
+      throw new SqliteImmediateUnsupportedError();
+    }
     const runOnce = (): void => {
-      txnUnknown.immediate();
+      txn.immediate();
     };
 
     // Bounded retry loop over SQLITE_BUSY — DR-12 (#1259, T09).
@@ -1946,6 +2264,144 @@ export class SqliteBackend implements StorageBackend {
     }
     // Budget exhausted — surface a typed marker so the caller maps it
     // to `reason: 'storage_busy'` without inspecting SQLite reason codes.
+    throw new SqliteBusyExhaustedError(
+      SQLITE_BUSY_RETRY_POLICY.maxAttempts,
+      lastErr ?? new Error('SQLITE_BUSY (no captured cause)'),
+    );
+  }
+
+  /**
+   * Claim an operation, evaluate its synchronous decision closure, allocate
+   * stream sequences, and append every resulting event in one BEGIN IMMEDIATE
+   * transaction. The operation lookup is the first statement in the
+   * transaction, so a racing retry returns before closure evaluation.
+   */
+  async atomicDecideOnce<TResult>(args: {
+    operationId: string;
+    requestDigest: string;
+    decide: () => AtomicDecideOnceDecision<TResult>;
+  }): Promise<AtomicDecideOnceOutcome<TResult>> {
+    let outcome: AtomicDecideOnceOutcome<TResult> | undefined;
+
+    const txn = this.db.transaction((): void => {
+      const existing = this.lookupOperationClaim<TResult>(args.operationId);
+      if (existing) {
+        if (existing.requestDigest !== args.requestDigest) {
+          throw new OperationDigestConflictError(
+            args.operationId,
+            existing.requestDigest,
+            args.requestDigest,
+          );
+        }
+        outcome = {
+          kind: 'cache-hit',
+          streamId: existing.streamId,
+          result: existing.result,
+          sequences: existing.sequences,
+          eventIds: existing.eventIds,
+          timestamps: existing.timestamps,
+        };
+        return;
+      }
+
+      // This call deliberately occurs after the operation lookup and while
+      // BEGIN IMMEDIATE owns the write lock. Reads performed through the
+      // supplied appender context therefore share this transaction snapshot.
+      const decision = args.decide();
+      if (!decision.streamId) {
+        throw new Error('decideOnce decision requires streamId');
+      }
+      if (decision.n <= 0) {
+        throw new Error('decideOnce decision requires at least one event');
+      }
+
+      const base = this.allocateSequence(
+        decision.streamId,
+        decision.n,
+        decision.expectedSequence,
+      );
+      const finalized = decision.finalize(base);
+      if (finalized.events.length !== decision.n) {
+        throw new Error(
+          `decideOnce finalized ${finalized.events.length} events; expected ${decision.n}`,
+        );
+      }
+
+      const sequences = finalized.events.map((event) => event.sequence);
+      const resultJson = JSON.stringify(decision.result);
+      if (resultJson === undefined) {
+        throw new Error('decideOnce result must be JSON-serializable');
+      }
+
+      // Insert the claim before event siblings. Any later INSERT failure
+      // throws through the transaction wrapper and rolls claim, sequence,
+      // and every already-inserted event back together.
+      this.stmts.insertIdempotencyClaim.run(
+        DECIDE_ONCE_CLAIM_STREAM,
+        args.operationId,
+        JSON.stringify(finalized.eventIds),
+        JSON.stringify(sequences),
+        JSON.stringify(finalized.timestamps),
+        JSON.stringify({
+          version: 1,
+          streamId: decision.streamId,
+          requestDigest: args.requestDigest,
+          result: JSON.parse(resultJson) as TResult,
+          events: JSON.parse(finalized.events_json) as PublicPersistedEventLike[],
+        }),
+        new Date().toISOString(),
+      );
+
+      for (const event of finalized.events) {
+        const data = event.data !== undefined ? JSON.stringify(event.data) : null;
+        this.stmts.insertEventStrict.run(
+          decision.streamId,
+          event.sequence,
+          event.type,
+          event.timestamp,
+          data,
+          event.payload,
+          event.operationId ?? null,
+          event.correlationId ?? null,
+          event.causationId ?? null,
+        );
+      }
+
+      // Deserialize even on the committing call. This makes serialization
+      // transparent and guarantees fresh/retried callers receive one shape.
+      outcome = {
+        kind: 'committed',
+        streamId: decision.streamId,
+        result: JSON.parse(resultJson) as TResult,
+        sequences,
+        eventIds: finalized.eventIds,
+        timestamps: finalized.timestamps,
+      };
+    });
+
+    if (!hasImmediateTransaction(txn)) {
+      throw new SqliteImmediateUnsupportedError();
+    }
+    let lastErr: Error | undefined;
+    for (let attempt = 1; attempt <= SQLITE_BUSY_RETRY_POLICY.maxAttempts; attempt++) {
+      try {
+        txn.immediate();
+        if (!outcome) {
+          throw new Error('decideOnce transaction completed without an outcome');
+        }
+        return outcome;
+      } catch (err) {
+        if (!isSqliteBusy(err)) throw err;
+        lastErr = err instanceof Error ? err : new Error(String(err));
+        if (attempt < SQLITE_BUSY_RETRY_POLICY.maxAttempts) {
+          const delay = Math.min(
+            SQLITE_BUSY_RETRY_POLICY.baseDelayMs * Math.pow(2, attempt - 1),
+            SQLITE_BUSY_RETRY_POLICY.maxDelayMs,
+          );
+          await sleep(delay);
+        }
+      }
+    }
     throw new SqliteBusyExhaustedError(
       SQLITE_BUSY_RETRY_POLICY.maxAttempts,
       lastErr ?? new Error('SQLITE_BUSY (no captured cause)'),

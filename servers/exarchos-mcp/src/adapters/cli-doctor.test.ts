@@ -39,6 +39,7 @@ vi.mock('./cli-format.js', () => ({
 import { buildCli, CLI_EXIT_CODES } from './cli.js';
 import { dispatch } from '../core/dispatch.js';
 import type { DispatchContext } from '../core/dispatch.js';
+import { expectedTrustedContext } from '../test-helpers/trusted-context.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -110,7 +111,7 @@ describe('exarchos doctor CLI', () => {
     expect(dispatch).toHaveBeenCalledWith(
       'exarchos_orchestrate',
       expect.objectContaining({ action: 'doctor' }),
-      ctx,
+      expectedTrustedContext(ctx),
     );
   });
 

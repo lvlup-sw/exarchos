@@ -37,6 +37,7 @@ vi.mock('./cli-format.js', () => ({
 import { buildCli, CLI_EXIT_CODES } from './cli.js';
 import { dispatch } from '../core/dispatch.js';
 import type { DispatchContext } from '../core/dispatch.js';
+import { expectedTrustedContext } from '../test-helpers/trusted-context.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -107,7 +108,7 @@ describe('exarchos merge-orchestrate CLI', () => {
         sourceBranch: 'feat/x',
         targetBranch: 'main',
       }),
-      ctx,
+      expectedTrustedContext(ctx),
     );
     expect(process.exitCode ?? 0).toBe(CLI_EXIT_CODES.SUCCESS);
   });
@@ -220,7 +221,7 @@ describe('exarchos merge-orchestrate CLI', () => {
         targetBranch: 'main',
         dryRun: true,
       }),
-      ctx,
+      expectedTrustedContext(ctx),
     );
     expect(process.exitCode ?? 0).toBe(CLI_EXIT_CODES.SUCCESS);
   });

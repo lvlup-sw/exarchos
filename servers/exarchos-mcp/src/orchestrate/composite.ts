@@ -11,6 +11,11 @@ import { handleDescribe } from '../describe/handler.js';
 import { handleRunbook } from '../runbooks/handler.js';
 import { TOOL_REGISTRY } from '../registry.js';
 import { envelopeWrap } from '../envelope-wrap.js';
+import { orchestrateLogger } from '../logger.js';
+import {
+  guardProjectionDegraded,
+  resolveProjectionStreamId,
+} from '../projections/degraded-result.js';
 
 const orchestrateActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_orchestrate')!.actions;
 
@@ -622,6 +627,34 @@ function validateInvariantsAddArgs(
 // ─── Composite Handler ──────────────────────────────────────────────────────
 
 /**
+ * DR-4 — orchestrate actions whose verdict is derived from a materialized fold.
+ *
+ * Derived mechanically, not guessed: these are exactly the orchestrate handlers
+ * that reach the materializer LRU (`git grep -l materializer -- src/orchestrate`
+ * → check-convergence, check-event-emissions, prepare-delegation,
+ * prepare-synthesis). Every OTHER orchestrate action either folds the event log
+ * directly (authoritative by construction — a gate reading `eventStore.query`
+ * cannot be stale) or touches no stream at all (worktree/git/scaffold/runbook
+ * actions), so guarding them would refuse reads that are provably trustworthy.
+ *
+ * These four are precisely the readiness/reliability surfaces CB-8 burned:
+ *
+ * - `prepare_delegation` / `prepare_synthesis` decide whether to DISPATCH
+ *   agents. Answering "ready" from a fold that has not seen the events that
+ *   would say otherwise is how work gets dispatched against a cancelled
+ *   workflow.
+ * - `check_convergence` / `check_event_emissions` are reliability verdicts. A
+ *   gate that passes because the fold has not caught up yet is worse than a
+ *   gate that refuses to answer.
+ */
+const PROJECTION_DERIVED_ORCHESTRATE_ACTIONS: ReadonlySet<string> = new Set([
+  'prepare_delegation',
+  'prepare_synthesis',
+  'check_convergence',
+  'check_event_emissions',
+]);
+
+/**
  * Routes the `action` field from args to the corresponding task handler.
  *
  * The `action` field is consumed by this router and stripped from the args
@@ -634,6 +667,24 @@ export async function handleOrchestrate(
   const startedAt = Date.now();
   const { stateDir } = ctx;
   const { action, ...rest } = args;
+
+  // DR-4 consumer chokepoint — see PROJECTION_DERIVED_ORCHESTRATE_ACTIONS.
+  // Placed ahead of every dispatch branch below (including the `describe` /
+  // `doctor` / `onboard` special cases) so no arm can route around it; the set
+  // membership test, not the branch position, decides what is guarded.
+  if (typeof action === 'string' && PROJECTION_DERIVED_ORCHESTRATE_ACTIONS.has(action)) {
+    const refusal = await guardProjectionDegraded(
+      ctx.eventStore,
+      resolveProjectionStreamId(rest),
+      {
+        tool: 'exarchos_orchestrate',
+        action,
+        onError: (err) =>
+          orchestrateLogger.warn({ action, err }, 'durable projection-health read failed'),
+      },
+    );
+    if (refusal) return refusal;
+  }
 
   // Handle describe specially — it needs the action list, not stateDir
   if (action === 'describe') {

@@ -3,8 +3,61 @@ import { z } from 'zod';
 import { WorkflowTypeSchema } from '../workflow/schemas.js';
 import { DoctorOutputSchema } from '../orchestrate/doctor/schema.js';
 import { ReconcilePlanSchema, ReconcileResultSchema } from '../core/onboarding/types.js';
+import {
+  AdmissionDecisionRecordV1Schema,
+  AdmissionEvidenceV1Schema,
+  AdmissionRequirementV1Schema,
+  AttributedPrincipalV1Schema,
+  AuthorizationSnapshotV1Schema,
+  ContentDigestV1Schema,
+  DecisionIdSchema,
+  EvidenceIdSchema,
+  EvidenceSubjectV1Schema,
+  OperationIdSchema,
+  PhaseAttemptIdSchema,
+  PolicyIdSchema,
+  RequirementIdSchema,
+  WaiverIdSchema,
+  WaiverProvenanceV1Schema,
+} from '../workflow/admission/types.js';
 
 // ─── Event Type Discriminated Union ─────────────────────────────────────────
+
+/** Additive internal replay types; none are public admission actions in v2.12. */
+export const INTERNAL_ADMISSION_EVENT_TYPES = [
+  'admission.requirement-resolved',
+  'admission.evidence-recorded',
+  'admission.transition-decided',
+  'admission.waiver-recorded',
+  'admission.contradiction-recorded',
+  'admission.reassessment-requested',
+  'admission.reassessment-completed',
+  'admission.shadow-attempt',
+  'admission.disagreement-disposition',
+  'admission.rollout-decision',
+  'admission.enforcement-enabled',
+] as const;
+
+/** Server-owned cancellation process-manager facts (v2.12, DR-7). */
+export const INTERNAL_CANCELLATION_EVENT_TYPES = [
+  'cancel.requested',
+  // P04-02 (EFF-005) — fencing token. A monotonically increasing epoch is
+  // allocated on ownership acquisition; a stale-epoch instance's writes are
+  // rejected by the process manager, so a takeover cannot be undercut by the
+  // instance it displaced.
+  'cancel.ownership-acquired',
+  'cancel.compensation-requested',
+  'cancel.compensation-completed',
+  'cancel.compensation-failed',
+  // P04-02 (EFF-005) — bounded-retry record. Emitted before a re-attempt of a
+  // failed compensation effect so the attempt ladder is replayable.
+  'cancel.compensation-retry-scheduled',
+  // P04-02 (EFF-005) — terminal-but-unresolved escalation. Retry exhaustion (or
+  // a non-retryable malformed result) lands here as a real, queryable state
+  // rather than being silently swallowed.
+  'cancel.manual-intervention-required',
+  'cancel.ready',
+] as const;
 
 export const EventTypes = [
   'workflow.started',
@@ -57,6 +110,7 @@ export const EventTypes = [
   'workflow.cancel',
   'workflow.cleanup',
   'workflow.compensation',
+  ...INTERNAL_CANCELLATION_EVENT_TYPES,
   'workflow.circuit-open',
   'tool.invoked',
   'tool.completed',
@@ -354,6 +408,43 @@ export const EventTypes = [
   // deterministic plumbing: the WorktreeManager owns both appends around the pass.
   'prune.executing_started',
   'prune.executed',
+  // DR-4 (wiring-closure T-06) — durable projection-health state.
+  //
+  // `_meta.projectionDegraded` was an EPHEMERAL per-response annotation:
+  // recomputed on every read from an in-memory LRU of materialized folds,
+  // persisted nowhere and consumed by nobody, so a stale fold could still be
+  // served as `success: true` to any consumer that did not read `_meta`. This
+  // pair publishes the SAME cursor/tail verdict durably, so an independent
+  // consumer — a different process, or the same process after a restart with a
+  // cold cache — can READ the degraded state instead of re-deriving it from a
+  // cache it does not share.
+  //
+  // Both ride the dedicated singleton `meta/projection-health` stream, NEVER
+  // the observed stream: appending to the stream under assessment would move
+  // the very `MAX(sequence)` tail the verdict is computed against, and each
+  // read would then observe a fresh disagreement and append again (an
+  // unbounded self-feeding loop). Same shared-meta-stream idiom as
+  // `feedback.recorded` on `meta/feedback`.
+  //
+  // `projection.degraded` is published when a stream's worst projection cursor
+  // disagrees with its durable event tail. `projection.recovered` is the paired
+  // RESOLUTION, published only when a stream that currently holds a degraded
+  // record has caught the tail — so the folded state is a real two-state
+  // machine rather than a sticky one-way flag that can never be cleared. Both
+  // are `auto` deterministic plumbing (the freshness publisher owns the
+  // appends; the model is never asked to hand-emit them) and both are
+  // idempotency-keyed on the observed cursor/tail pair (INV-8), so repeated
+  // detection of the SAME degraded cursor collapses onto one row at the storage
+  // layer instead of spamming the stream once per read.
+  //
+  // Deliberately distinct from `workflow.projection_degraded` (DR-18) above:
+  // that event records a REHYDRATION fallback (reducer throw / corrupt
+  // snapshot / unavailable stream) on the feature stream. This pair records
+  // CURSOR/TAIL disagreement of an already-materialized fold. Different fault,
+  // different stream, different consumer — merging them would force one enum to
+  // carry two unrelated failure vocabularies.
+  'projection.degraded',
+  'projection.recovered',
   // DR-6 (lifecycle-verbs, task 012) — the two-event `export` contract (INV-13
   // two-event split, INV-8 idempotency). `export` writes a zip bundle
   // (events.jsonl + state.json + metadata.json + artifacts/) to a path OUTSIDE
@@ -370,6 +461,11 @@ export const EventTypes = [
   // while a fresh export invocation mints a distinct key and a new pair.
   'export.requested',
   'export.executed',
+  // Phase-gate v2.12 proof substrate (DR-2 / DR-3). These are additive,
+  // internal replay contracts only. They are classified `planned` below:
+  // v2.12 does not expose admission actions, authorize generic appends, or
+  // consume `admission.enforcement-enabled` to alter transition behavior.
+  ...INTERNAL_ADMISSION_EVENT_TYPES,
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -481,6 +577,14 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'workflow.cancel': 'auto',
   'workflow.cleanup': 'auto',
   'workflow.compensation': 'auto',
+  'cancel.requested': 'auto',
+  'cancel.ownership-acquired': 'auto',
+  'cancel.compensation-requested': 'auto',
+  'cancel.compensation-completed': 'auto',
+  'cancel.compensation-failed': 'auto',
+  'cancel.compensation-retry-scheduled': 'auto',
+  'cancel.manual-intervention-required': 'auto',
+  'cancel.ready': 'auto',
   'workflow.circuit-open': 'auto',
   'workflow.cas-failed': 'auto',
   'workflow.pruned': 'auto',
@@ -781,12 +885,40 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   'prune.executing_started': 'auto',
   'prune.executed': 'auto',
 
+  // DR-4 (wiring-closure T-06) — durable projection-health state. Both `auto`:
+  // `publishProjectionFreshness` (projections/freshness.ts) owns both appends
+  // deterministically off a real cursor/tail comparison, so the model is never
+  // asked to hand-emit them.
+  'projection.degraded': 'auto',
+  'projection.recovered': 'auto',
+
   // DR-6 (lifecycle-verbs, task 012) — the two-event `export` contract. Both
   // `auto`: the `export` composite handler owns both appends deterministically
   // (task 013 — `export.requested` before the zip write, `export.executed`
   // after), so the model is never nagged to hand-emit them.
   'export.requested': 'auto',
   'export.executed': 'auto',
+
+  // Phase-gate v2.12 proof substrate. Evidence is now written by the canonical
+  // audit/shadow runner; the remaining records stay reserved for later slices.
+  // Nothing in this registration makes these model-emittable or changes
+  // transition admission.
+  'admission.requirement-resolved': 'planned',
+  // Canonical gate producers append this automatically in v2.12 audit/shadow
+  // mode; callers never model-emit proof records.
+  'admission.evidence-recorded': 'auto',
+  'admission.transition-decided': 'planned',
+  'admission.waiver-recorded': 'planned',
+  'admission.contradiction-recorded': 'planned',
+  'admission.reassessment-requested': 'planned',
+  'admission.reassessment-completed': 'planned',
+  // DR-23 / T-31: the live shadow observer appends both automatically on every
+  // guarded transition (`workflow/admission/live-shadow-observer.ts`); callers
+  // never model-emit shadow evidence.
+  'admission.shadow-attempt': 'auto',
+  'admission.disagreement-disposition': 'auto',
+  'admission.rollout-decision': 'planned',
+  'admission.enforcement-enabled': 'planned',
 };
 
 // ─── Base Event Schema ──────────────────────────────────────────────────────
@@ -832,6 +964,9 @@ export const WorkflowEventBase = z.object({
 export const WorkflowStartedData = z.object({
   featureId: z.string(),
   workflowType: WorkflowTypeSchema,
+  // DR-2 / DR-4: identity of the initial actionable phase entry. Optional for
+  // replay compatibility with pre-v2.12 streams; every new writer supplies it.
+  phaseAttemptId: PhaseAttemptIdSchema.optional(),
   designPath: z.string().optional(),
   // Oneshot-only: the synthesisPolicy chosen at init time. Must be persisted
   // in the event stream so ES v2 rematerialization reconstructs the policy
@@ -945,6 +1080,9 @@ export const WorkflowTransitionData = z.object({
   to: z.string(),
   trigger: z.string(),
   featureId: z.string(),
+  // Identity allocated at the successful entry boundary. Optional solely for
+  // historical event compatibility; new transition writes always carry it.
+  phaseAttemptId: PhaseAttemptIdSchema.optional(),
 });
 
 export const WorkflowFixCycleData = z.object({
@@ -1062,6 +1200,7 @@ export const WorkflowCleanupData = z.object({
   to: z.string(),
   trigger: z.string(),
   featureId: z.string(),
+  phaseAttemptId: PhaseAttemptIdSchema.optional(),
 });
 
 export const WorkflowCancelData = z.object({
@@ -1069,6 +1208,7 @@ export const WorkflowCancelData = z.object({
   to: z.string(),
   trigger: z.string(),
   featureId: z.string(),
+  phaseAttemptId: PhaseAttemptIdSchema.optional(),
   reason: z.string().optional(),
 });
 
@@ -1078,6 +1218,160 @@ export const WorkflowCompensationData = z.object({
   status: z.enum(['executed', 'skipped', 'failed', 'dry-run']),
   message: z.string(),
 });
+
+const CancellationEventVersionSchema = z.literal('1.0');
+const CancellationIdSchema = z.string().trim().min(1).max(200);
+const CancellationActionIdSchema = z.string().trim().min(1).max(200);
+const CancellationRecordedAtSchema = z.string().datetime({ offset: true });
+const CancellationTrustedProvenance = {
+  caller: AttributedPrincipalV1Schema,
+  authorization: AuthorizationSnapshotV1Schema.optional(),
+} as const;
+
+/** Durable cancellation intent; always precedes compensation side effects. */
+export const CancelRequestedData = z
+  .object({
+    eventVersion: CancellationEventVersionSchema,
+    cancelId: CancellationIdSchema,
+    featureId: z.string().min(1),
+    from: z.string().min(1),
+    phaseAttemptId: PhaseAttemptIdSchema,
+    reason: z.string().optional(),
+    requestedAt: CancellationRecordedAtSchema,
+    ...CancellationTrustedProvenance,
+  })
+  .strict()
+  .readonly();
+
+/** Durable intent for one deterministic compensation action. */
+export const CancelCompensationRequestedData = z
+  .object({
+    eventVersion: CancellationEventVersionSchema,
+    cancelId: CancellationIdSchema,
+    featureId: z.string().min(1),
+    phaseAttemptId: PhaseAttemptIdSchema,
+    actionId: CancellationActionIdSchema,
+    requestedAt: CancellationRecordedAtSchema,
+  })
+  .strict()
+  .readonly();
+
+/** Durable successful result for one compensation action. */
+export const CancelCompensationCompletedData = z
+  .object({
+    eventVersion: CancellationEventVersionSchema,
+    cancelId: CancellationIdSchema,
+    featureId: z.string().min(1),
+    phaseAttemptId: PhaseAttemptIdSchema,
+    actionId: CancellationActionIdSchema,
+    status: z.enum(['executed', 'skipped']),
+    message: z.string().min(1),
+    completedAt: CancellationRecordedAtSchema,
+  })
+  .strict()
+  .readonly();
+
+/** Explicit terminal failure for an attempted or malformed compensation. */
+export const CancelCompensationFailedData = z
+  .object({
+    eventVersion: CancellationEventVersionSchema,
+    cancelId: CancellationIdSchema,
+    featureId: z.string().min(1),
+    phaseAttemptId: PhaseAttemptIdSchema,
+    actionId: CancellationActionIdSchema,
+    reason: z.enum(['effect-failed', 'malformed-result']),
+    message: z.string().min(1),
+    failedAt: CancellationRecordedAtSchema,
+  })
+  .strict()
+  .readonly();
+
+/** Typed proof that every required compensation result is durably present. */
+export const CancelReadyData = z
+  .object({
+    eventVersion: CancellationEventVersionSchema,
+    evidenceId: z.string().trim().min(1).max(256),
+    cancelId: CancellationIdSchema,
+    featureId: z.string().min(1),
+    phaseAttemptId: PhaseAttemptIdSchema,
+    completedActionIds: z.array(CancellationActionIdSchema).readonly(),
+    outcomeSequences: z.array(z.number().int().positive()).readonly(),
+    contentDigest: ContentDigestV1Schema,
+    readyAt: CancellationRecordedAtSchema,
+    ...CancellationTrustedProvenance,
+  })
+  .strict()
+  .readonly();
+
+// ─── P04-02 (EFF-005) — process-manager saga facts ──────────────────────────
+// A monotonic fencing epoch, a bounded-retry ladder, and an explicit
+// manual-intervention terminal, all recorded as replayable events so that
+// restart AND takeover fold to the same decisions (see cancel-process-manager.ts).
+
+const CancellationEpochSchema = z.number().int().positive();
+const CancellationInstanceIdSchema = z.string().trim().min(1).max(200);
+
+/**
+ * Fencing-token allocation. `epoch` is strictly greater than every prior
+ * ownership epoch on the stream; the process manager rejects any subsequent
+ * write carrying a lower epoch (the classic distributed-lock fencing token).
+ */
+export const CancelOwnershipAcquiredData = z
+  .object({
+    eventVersion: CancellationEventVersionSchema,
+    cancelId: CancellationIdSchema,
+    featureId: z.string().min(1),
+    phaseAttemptId: PhaseAttemptIdSchema,
+    epoch: CancellationEpochSchema,
+    instanceId: CancellationInstanceIdSchema,
+    acquiredAt: CancellationRecordedAtSchema,
+  })
+  .strict()
+  .readonly();
+
+/**
+ * Durable record that a failed compensation attempt is being retried. `attempt`
+ * is the 1-based index of the attempt that just failed; a re-attempt (attempt
+ * + 1) follows. Bounded by `maxAttempts`.
+ */
+export const CancelCompensationRetryScheduledData = z
+  .object({
+    eventVersion: CancellationEventVersionSchema,
+    cancelId: CancellationIdSchema,
+    featureId: z.string().min(1),
+    phaseAttemptId: PhaseAttemptIdSchema,
+    actionId: CancellationActionIdSchema,
+    epoch: CancellationEpochSchema,
+    attempt: z.number().int().positive(),
+    maxAttempts: z.number().int().positive(),
+    reason: z.enum(['effect-failed', 'malformed-result']),
+    message: z.string().min(1),
+    scheduledAt: CancellationRecordedAtSchema,
+  })
+  .strict()
+  .readonly();
+
+/**
+ * Terminal-but-unresolved compensation state. Reached when retries are
+ * exhausted (or a non-retryable malformed result is observed). The saga can
+ * never report `cancel.ready` while any action is in this state — it is a real,
+ * queryable escalation, not a silently swallowed failure.
+ */
+export const CancelManualInterventionRequiredData = z
+  .object({
+    eventVersion: CancellationEventVersionSchema,
+    cancelId: CancellationIdSchema,
+    featureId: z.string().min(1),
+    phaseAttemptId: PhaseAttemptIdSchema,
+    actionId: CancellationActionIdSchema,
+    epoch: CancellationEpochSchema,
+    attempts: z.number().int().positive(),
+    reason: z.enum(['retries-exhausted', 'effect-failed', 'malformed-result']),
+    message: z.string().min(1),
+    requiredAt: CancellationRecordedAtSchema,
+  })
+  .strict()
+  .readonly();
 
 export const WorkflowCircuitOpenData = z.object({
   featureId: z.string(),
@@ -2563,6 +2857,23 @@ export const PhaseEnteredData = z.object({
     .enum(['thin', 'standard', 'deep'])
     .optional()
     .describe('Feature planning depth frozen at PLAN entry (DR-3); absent ⇒ standard'),
+  // DR-10 (T-15): the danger COORDINATE the gate-set was resolved from, frozen
+  // alongside it. Without it the record is not self-describing — IMPLEMENT
+  // defers its sequence to the wave stamp and several resolvers ignore one axis
+  // — so a later attempt (or a replay) would have to RE-RESOLVE from current
+  // state, which is the DR-10 defect. `'unknown'` is a first-class member: the
+  // record states that nobody classified the task rather than fabricating the
+  // weakest tier. Optional so pre-T-15 logs keep validating.
+  riskTier: z
+    .enum(['low', 'medium', 'high', 'unknown'])
+    .optional()
+    .describe(
+      'Risk tier the obligation was resolved at; "unknown" = no trustworthy claim (DR-10)',
+    ),
+  boundaryTouching: z
+    .boolean()
+    .optional()
+    .describe('Boundary-touching flag the obligation was resolved at (DR-10)'),
 });
 
 export const PhaseExitedData = z.object({
@@ -3057,6 +3368,324 @@ export const ExportExecutedData = z.object({
     .describe('Same key as the paired export.requested intent (INV-8)'),
 });
 
+// ─── Durable projection-health state (DR-4, wiring-closure T-06) ────────────
+//
+// The cursor/tail freshness verdict, made durable. `projections/freshness.ts`
+// computes it (pure comparison, no I/O) and `publishProjectionFreshness`
+// journals it to the singleton `meta/projection-health` stream — never to the
+// stream under assessment, whose tail the append would itself move.
+//
+// `reason` mirrors the `ProjectionDegradationReason` union in
+// `projections/freshness.ts` exactly. New members MUST be added in both places:
+// the enum enforces the wire contract, the union enforces the call-site
+// contract (same coordinated-change rule as the DR-18
+// `WorkflowProjectionDegradedCause` enum above).
+
+/** Closed enum of cursor/tail disagreement directions (DR-4). */
+export const ProjectionDegradedReason = z.enum([
+  /** The fold stops short of the durable tail — the answer omits recent events. */
+  'projection-behind',
+  /** The fold claims events past the durable tail — fold and log contradict. */
+  'projection-ahead',
+]);
+export type ProjectionDegradedReason = z.infer<typeof ProjectionDegradedReason>;
+
+/**
+ * `projection.degraded` — a stream's materialized folds disagree with its
+ * durable event tail, recorded durably so a consumer that does not share the
+ * in-memory materializer cache (another process, or this one after a restart)
+ * can still tell "no tasks completed" from "the fold has not seen the events
+ * that completed them".
+ *
+ * `streamId` is the ASSESSED stream (the event itself lives on
+ * `meta/projection-health`), which is also the fold key: the latest
+ * unresolved record per `streamId` IS the durable degraded state.
+ */
+export const ProjectionDegradedData = z.object({
+  streamId: z
+    .string()
+    .min(1)
+    .describe('The assessed stream — NOT the stream this event lives on (meta/projection-health)'),
+  reason: ProjectionDegradedReason,
+  eventTail: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe('MAX(events.sequence) observed for the assessed stream at detection time'),
+  projectionCursor: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe('The trailing (worst) projection cursor observed for the assessed stream'),
+  lag: z
+    .number()
+    .int()
+    .describe('eventTail - projectionCursor; negative when a projection runs ahead of the log'),
+  staleViews: z
+    .array(z.string().min(1))
+    .describe('Projections that disagree with the tail, worst first'),
+});
+
+/**
+ * `projection.recovered` — the paired RESOLUTION. Published only when a stream
+ * that currently holds an unresolved `projection.degraded` record has caught
+ * the tail, so the folded health state can return to healthy. Without it the
+ * durable state would be a sticky one-way flag that no consumer could ever
+ * clear.
+ */
+export const ProjectionRecoveredData = z.object({
+  streamId: z
+    .string()
+    .min(1)
+    .describe('The assessed stream whose folds have caught the durable tail'),
+  eventTail: z.number().int().nonnegative(),
+  projectionCursor: z.number().int().nonnegative(),
+});
+
+// ─── Internal admission proof events (phase-gate v2.12, DR-2 / DR-3) ────────
+//
+// These schemas establish an additive replay contract. They deliberately do
+// not define public action arguments, authorize generic event append, evaluate
+// policy, or switch transition enforcement. The domain-bearing fields reuse
+// workflow/admission/types.ts so event and runtime unions cannot drift.
+
+export const AdmissionProofEventVersionSchema = z.literal('1.0');
+
+const AdmissionFactIdSchema = z
+  .string()
+  .min(1)
+  .max(256)
+  .regex(
+    /^[A-Za-z0-9][A-Za-z0-9._:-]*$/,
+    'admission fact IDs may contain only letters, digits, dot, underscore, colon, and hyphen',
+  );
+
+const AdmissionPolicyVersionSchema = z.string().trim().min(1).max(128);
+const AdmissionRecordedAtSchema = z.string().datetime({ offset: true });
+
+const TrustedAdmissionProvenanceFields = {
+  caller: AttributedPrincipalV1Schema,
+  authorization: AuthorizationSnapshotV1Schema,
+} as const;
+
+/** Frozen resolution of one runtime requirement against immutable inputs. */
+export const AdmissionRequirementResolvedData = z
+  .object({
+    eventVersion: AdmissionProofEventVersionSchema,
+    resolutionId: AdmissionFactIdSchema,
+    operationId: OperationIdSchema,
+    policyId: PolicyIdSchema,
+    policyVersion: AdmissionPolicyVersionSchema,
+    policyDigest: ContentDigestV1Schema,
+    requirementSetDigest: ContentDigestV1Schema,
+    inputDigest: ContentDigestV1Schema,
+    resolvedAt: AdmissionRecordedAtSchema,
+    requirement: AdmissionRequirementV1Schema,
+  })
+  .strict()
+  .readonly();
+
+/** Durable evidence fact; the runtime evidence union owns subject/provenance. */
+export const AdmissionEvidenceRecordedData = z
+  .object({
+    eventVersion: AdmissionProofEventVersionSchema,
+    evidence: AdmissionEvidenceV1Schema,
+    /**
+     * Explicit append-only rerun link. Attribution comes from the superseding
+     * evidence producer snapshot; replay never rewrites the predecessor.
+     */
+    supersedesEvidenceId: EvidenceIdSchema.optional(),
+  })
+  .strict()
+  .superRefine((record, ctx) => {
+    if (record.supersedesEvidenceId === record.evidence.evidenceId) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['supersedesEvidenceId'],
+        message: 'evidence cannot supersede itself',
+      });
+    }
+  })
+  .readonly();
+
+/** Internal transition decision record, never a public transition carrier. */
+export const AdmissionTransitionDecidedData = z
+  .object({
+    eventVersion: AdmissionProofEventVersionSchema,
+    subject: EvidenceSubjectV1Schema,
+    decision: AdmissionDecisionRecordV1Schema,
+    ...TrustedAdmissionProvenanceFields,
+  })
+  .strict()
+  .readonly();
+
+/** Append-only issue/revoke/supersede waiver provenance. */
+export const AdmissionWaiverRecordedData = z
+  .object({
+    eventVersion: AdmissionProofEventVersionSchema,
+    provenance: WaiverProvenanceV1Schema,
+  })
+  .strict()
+  .readonly();
+
+/** Active, non-superseding evidence disagreement. */
+export const AdmissionContradictionRecordedData = z
+  .object({
+    eventVersion: AdmissionProofEventVersionSchema,
+    contradictionId: AdmissionFactIdSchema,
+    phaseAttemptId: PhaseAttemptIdSchema,
+    policyId: PolicyIdSchema,
+    policyDigest: ContentDigestV1Schema,
+    /** Added for new writers; historical V1 facts derive it from evidenceIds. */
+    requirementId: RequirementIdSchema.optional(),
+    subject: EvidenceSubjectV1Schema,
+    evidenceIds: z.array(EvidenceIdSchema).min(2).readonly(),
+    evidenceSetDigest: ContentDigestV1Schema,
+    detectedAt: AdmissionRecordedAtSchema,
+  })
+  .strict()
+  .readonly();
+
+/** Authorized intent to reconsider a prior immutable decision under a policy. */
+export const AdmissionReassessmentRequestedData = z
+  .object({
+    eventVersion: AdmissionProofEventVersionSchema,
+    reassessmentId: AdmissionFactIdSchema,
+    operationId: OperationIdSchema,
+    phaseAttemptId: PhaseAttemptIdSchema,
+    priorDecisionId: DecisionIdSchema,
+    policyId: PolicyIdSchema,
+    policyVersion: AdmissionPolicyVersionSchema,
+    policyDigest: ContentDigestV1Schema,
+    inputDigest: ContentDigestV1Schema,
+    subject: EvidenceSubjectV1Schema,
+    evidenceIds: z.array(EvidenceIdSchema).readonly(),
+    waiverIds: z.array(WaiverIdSchema).readonly(),
+    requestedAt: AdmissionRecordedAtSchema,
+    ...TrustedAdmissionProvenanceFields,
+  })
+  .strict()
+  .readonly();
+
+/** Reassessment result preserving both the prior and replacement decisions. */
+export const AdmissionReassessmentCompletedData = z
+  .object({
+    eventVersion: AdmissionProofEventVersionSchema,
+    reassessmentId: AdmissionFactIdSchema,
+    priorDecisionId: DecisionIdSchema,
+    subject: EvidenceSubjectV1Schema,
+    decision: AdmissionDecisionRecordV1Schema,
+    completedAt: AdmissionRecordedAtSchema,
+    ...TrustedAdmissionProvenanceFields,
+  })
+  .strict()
+  .readonly();
+
+/** Audit-only comparison of current legacy behavior with an admission record. */
+export const AdmissionShadowAttemptData = z
+  .object({
+    eventVersion: AdmissionProofEventVersionSchema,
+    shadowAttemptId: AdmissionFactIdSchema,
+    operationId: OperationIdSchema,
+    phaseAttemptId: PhaseAttemptIdSchema,
+    legacyOutcome: z.enum(['allow', 'deny']),
+    subject: EvidenceSubjectV1Schema,
+    evidenceSetDigest: ContentDigestV1Schema,
+    decision: AdmissionDecisionRecordV1Schema,
+    attemptedAt: AdmissionRecordedAtSchema,
+    ...TrustedAdmissionProvenanceFields,
+  })
+  .strict()
+  .readonly();
+
+/** Attributable disposition of a legacy/admission shadow disagreement. */
+export const AdmissionDisagreementDispositionData = z
+  .object({
+    eventVersion: AdmissionProofEventVersionSchema,
+    dispositionId: AdmissionFactIdSchema,
+    shadowAttemptId: AdmissionFactIdSchema,
+    disposition: z.enum([
+      'explained-legacy',
+      'explained-admission',
+      'accepted-risk',
+      'unexplained',
+    ]),
+    rationale: z.string().trim().min(1).max(2_000),
+    recordedAt: AdmissionRecordedAtSchema,
+    ...TrustedAdmissionProvenanceFields,
+  })
+  .strict()
+  .readonly();
+
+/** Authorized, attributable rollout assessment; still inert in v2.12. */
+export const AdmissionRolloutDecisionData = z
+  .object({
+    eventVersion: AdmissionProofEventVersionSchema,
+    rolloutDecisionId: AdmissionFactIdSchema,
+    operationId: OperationIdSchema,
+    outcome: z.enum(['approve-enforcement', 'continue-shadow']),
+    policyId: PolicyIdSchema,
+    policyVersion: AdmissionPolicyVersionSchema,
+    policyDigest: ContentDigestV1Schema,
+    inputDigest: ContentDigestV1Schema,
+    evidenceIds: z.array(EvidenceIdSchema).readonly(),
+    shadowEvidenceDigest: ContentDigestV1Schema,
+    decidedAt: AdmissionRecordedAtSchema,
+    ...TrustedAdmissionProvenanceFields,
+  })
+  .strict()
+  .readonly();
+
+/**
+ * Replay shape for a future enablement fact. Merely registering this planned
+ * schema does not make any v2.12 resolver consume it or enable enforcement.
+ */
+export const AdmissionEnforcementEnabledData = z
+  .object({
+    eventVersion: AdmissionProofEventVersionSchema,
+    enablementId: AdmissionFactIdSchema,
+    operationId: OperationIdSchema,
+    rolloutDecisionId: AdmissionFactIdSchema,
+    policyId: PolicyIdSchema,
+    policyVersion: AdmissionPolicyVersionSchema,
+    policyDigest: ContentDigestV1Schema,
+    inputDigest: ContentDigestV1Schema,
+    enabledAt: AdmissionRecordedAtSchema,
+    ...TrustedAdmissionProvenanceFields,
+  })
+  .strict()
+  .readonly();
+
+export type AdmissionRequirementResolved = z.infer<
+  typeof AdmissionRequirementResolvedData
+>;
+export type AdmissionEvidenceRecorded = z.infer<
+  typeof AdmissionEvidenceRecordedData
+>;
+export type AdmissionTransitionDecided = z.infer<
+  typeof AdmissionTransitionDecidedData
+>;
+export type AdmissionWaiverRecorded = z.infer<typeof AdmissionWaiverRecordedData>;
+export type AdmissionContradictionRecorded = z.infer<
+  typeof AdmissionContradictionRecordedData
+>;
+export type AdmissionReassessmentRequested = z.infer<
+  typeof AdmissionReassessmentRequestedData
+>;
+export type AdmissionReassessmentCompleted = z.infer<
+  typeof AdmissionReassessmentCompletedData
+>;
+export type AdmissionShadowAttempt = z.infer<typeof AdmissionShadowAttemptData>;
+export type AdmissionDisagreementDisposition = z.infer<
+  typeof AdmissionDisagreementDispositionData
+>;
+export type AdmissionRolloutDecision = z.infer<
+  typeof AdmissionRolloutDecisionData
+>;
+export type AdmissionEnforcementEnabled = z.infer<
+  typeof AdmissionEnforcementEnabledData
+>;
+
 // ─── Event Data Schemas Map ─────────────────────────────────────────────────
 
 export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
@@ -3074,6 +3703,14 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'workflow.cancel': WorkflowCancelData,
   'workflow.cleanup': WorkflowCleanupData,
   'workflow.compensation': WorkflowCompensationData,
+  'cancel.requested': CancelRequestedData,
+  'cancel.ownership-acquired': CancelOwnershipAcquiredData,
+  'cancel.compensation-requested': CancelCompensationRequestedData,
+  'cancel.compensation-completed': CancelCompensationCompletedData,
+  'cancel.compensation-failed': CancelCompensationFailedData,
+  'cancel.compensation-retry-scheduled': CancelCompensationRetryScheduledData,
+  'cancel.manual-intervention-required': CancelManualInterventionRequiredData,
+  'cancel.ready': CancelReadyData,
   'workflow.circuit-open': WorkflowCircuitOpenData,
   'workflow.cas-failed': WorkflowCasFailedData,
   'workflow.pruned': WorkflowPrunedData,
@@ -3290,6 +3927,23 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   // DR-6 (lifecycle-verbs task 012) — export two-event contract (INV-13 / INV-8).
   'export.requested': ExportRequestedData,
   'export.executed': ExportExecutedData,
+
+  // DR-4 (wiring-closure T-06) — durable projection-health state.
+  'projection.degraded': ProjectionDegradedData,
+  'projection.recovered': ProjectionRecoveredData,
+
+  // Phase-gate v2.12 internal proof/admission replay contracts (DR-2 / DR-3).
+  'admission.requirement-resolved': AdmissionRequirementResolvedData,
+  'admission.evidence-recorded': AdmissionEvidenceRecordedData,
+  'admission.transition-decided': AdmissionTransitionDecidedData,
+  'admission.waiver-recorded': AdmissionWaiverRecordedData,
+  'admission.contradiction-recorded': AdmissionContradictionRecordedData,
+  'admission.reassessment-requested': AdmissionReassessmentRequestedData,
+  'admission.reassessment-completed': AdmissionReassessmentCompletedData,
+  'admission.shadow-attempt': AdmissionShadowAttemptData,
+  'admission.disagreement-disposition': AdmissionDisagreementDispositionData,
+  'admission.rollout-decision': AdmissionRolloutDecisionData,
+  'admission.enforcement-enabled': AdmissionEnforcementEnabledData,
 };
 
 // ─── TypeScript Types ───────────────────────────────────────────────────────
@@ -3449,6 +4103,10 @@ export type PruneExecuted = z.infer<typeof PruneExecutedData>;
 export type ExportRequested = z.infer<typeof ExportRequestedData>;
 export type ExportExecuted = z.infer<typeof ExportExecutedData>;
 
+// DR-4 (wiring-closure T-06) — durable projection-health state.
+export type ProjectionDegraded = z.infer<typeof ProjectionDegradedData>;
+export type ProjectionRecovered = z.infer<typeof ProjectionRecoveredData>;
+
 // ─── Event Data Map ─────────────────────────────────────────────────────────
 
 export type EventDataMap = {
@@ -3595,6 +4253,10 @@ export type EventDataMap = {
   // DR-6 (lifecycle-verbs task 012) — export two-event contract (INV-13 / INV-8).
   'export.requested': ExportRequested;
   'export.executed': ExportExecuted;
+
+  // DR-4 (wiring-closure T-06) — durable projection-health state.
+  'projection.degraded': ProjectionDegraded;
+  'projection.recovered': ProjectionRecovered;
 };
 
 // ─── Event Catalog Serialization ────────────────────────────────────────────

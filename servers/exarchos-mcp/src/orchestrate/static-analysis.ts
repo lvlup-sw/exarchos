@@ -1,14 +1,13 @@
 // ─── Static Analysis Composite Action ────────────────────────────────────────
 //
-// Orchestrates static analysis checks (lint + typecheck) by calling the
-// pure TypeScript runStaticAnalysis function and emitting gate.executed events
-// for the quality layer.
+// Orchestrates static analysis checks (lint + typecheck) through the canonical
+// durable evidence runner.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { runCommandSync } from '../utils/process.js';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
-import { emitGateEvent } from './gate-utils.js';
+import { runDurableGateProducer } from './durable-gate-producer.js';
 import { runGatePreflight } from './pure/gate-preflight.js';
 import { runStaticAnalysis } from './pure/static-analysis.js';
 import type { RunCommandFn, CommandResult } from './pure/static-analysis.js';
@@ -30,6 +29,8 @@ interface StaticAnalysisArgs {
    */
   readonly worktreePath?: string;
   readonly taskId?: string;
+  readonly branch?: string;
+  readonly baseBranch?: string;
   readonly skipLint?: boolean;
   readonly skipTypecheck?: boolean;
 }
@@ -38,16 +39,26 @@ interface StaticAnalysisResult {
   readonly passed: boolean;
   readonly passCount: number;
   readonly failCount: number;
+  readonly skipCount: number;
   readonly report: string;
   /**
-   * True when the gate could not actually run (no recognized toolchain).
-   * Distinct from `passed:false` (which means a real failure) — callers
-   * should treat skipped gates as inconclusive, not green. See DR-4 in
-   * docs/plans/archive/2026-05-04-v290-dogfood-bundle.md.
+   * True when the gate could not conclude. Two causes, both inconclusive:
+   * no recognized toolchain (DR-4), or a constituent check that never ran
+   * (DR-6 — a missing `lint`/`quality-check` script, or a `--skip-*` flag).
+   * Distinct from `passed:false` alone (which means a real failure) —
+   * callers must treat a skipped gate as inconclusive, not green. See DR-4 in
+   * docs/plans/archive/2026-05-04-v290-dogfood-bundle.md and DR-6 in
+   * docs/specs/2026-08-04-wiring-closure-and-unified-integration-suite.md.
    */
   readonly skipped?: boolean;
-  /** Reason code when `skipped` is true (e.g. 'no-toolchain'). */
+  /** Reason code when `skipped` is true ('no-toolchain' | 'constituent-skipped'). */
   readonly skipReason?: string;
+  /**
+   * True when the dimension is DEGRADED: a toolchain WAS detected and some
+   * constituent ran, but at least one did not. Renders distinctly from a
+   * whole-gate no-toolchain skip, and never as PASS.
+   */
+  readonly degraded?: boolean;
 }
 
 // ─── Command Runner Adapter ─────────────────────────────────────────────────
@@ -82,7 +93,7 @@ const execCommandRunner: RunCommandFn = (
 
 export async function handleStaticAnalysis(
   args: StaticAnalysisArgs,
-  _stateDir: string,
+  stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
   // Preflight (DR-10): fail-fast on a miswired DispatchContext (a missing
@@ -104,55 +115,60 @@ export async function handleStaticAnalysis(
   if (!pre.ok) return pre.result;
   const repoRoot = pre.repoRoot;
 
-  // Run the pure TypeScript static analysis function
-  const analysisResult = runStaticAnalysis({
-    repoRoot,
-    skipLint: args.skipLint,
-    skipTypecheck: args.skipTypecheck,
-    runCommand: execCommandRunner,
-  });
-
-  // Map 'error' status to SCRIPT_ERROR response
-  if (analysisResult.status === 'error') {
-    return {
-      success: false,
-      error: {
-        code: 'SCRIPT_ERROR',
-        message: analysisResult.error || 'Static analysis error',
-      },
-    };
-  }
-
-  // T-10 / DR-4: 'skip' status means no recognized toolchain — gate is
-  // inconclusive, not green. Map to passed=false + skipped=true so
-  // convergence-view can surface it as skipped, and emit the gate event
-  // with details.skipped + details.skipReason so projections can render
-  // SKIP distinctly from PASS / FAIL.
-  const skipped = analysisResult.status === 'skip';
-  const passed = analysisResult.status === 'pass';
-  const { passCount, failCount, output } = analysisResult;
-
-  // Emit gate.executed event (fire-and-forget: emission failure must not break the gate check)
-  try {
-    const store = eventStore;
-    await emitGateEvent(store, args.featureId, 'static-analysis', 'quality', passed, {
-      dimension: 'D2',
-      phase: 'delegate',
-      passCount,
-      failCount,
-      ...(skipped ? { skipped: true, skipReason: analysisResult.skipReason ?? 'no-toolchain' } : {}),
+  return runDurableGateProducer(
+    {
+      gateClass: 'static-analysis',
+      featureId: args.featureId,
       ...(args.taskId ? { taskId: args.taskId } : {}),
-    });
-  } catch { /* fire-and-forget */ }
+      ...(args.branch ? { branch: args.branch } : {}),
+      baseRef: args.baseBranch ?? 'main',
+      repoRoot,
+      stateDir,
+      eventStore,
+    },
+    async () => {
+      // Run the pure TypeScript static analysis function.
+      const analysisResult = runStaticAnalysis({
+        repoRoot,
+        skipLint: args.skipLint,
+        skipTypecheck: args.skipTypecheck,
+        runCommand: execCommandRunner,
+      });
 
-  // Return structured result
-  const result: StaticAnalysisResult = {
-    passed,
-    passCount,
-    failCount,
-    report: output,
-    ...(skipped ? { skipped: true, skipReason: analysisResult.skipReason ?? 'no-toolchain' } : {}),
-  };
+      // Map 'error' status to SCRIPT_ERROR response.
+      if (analysisResult.status === 'error') {
+        return {
+          success: false,
+          error: {
+            code: 'SCRIPT_ERROR',
+            message: analysisResult.error || 'Static analysis error',
+          },
+        };
+      }
 
-  return { success: true, data: result };
+      // T-10 / DR-4: 'skip' with reason 'no-toolchain' means no recognized
+      // toolchain — the gate never ran.
+      // T-09 / DR-6: 'skip' with reason 'constituent-skipped' means a
+      // toolchain WAS detected but a constituent check did not run. Both are
+      // inconclusive, neither is green. Map to passed=false + skipped=true so
+      // callers and canonical evidence render SKIP/DEGRADED distinctly from
+      // PASS / FAIL, and so `normalizeGateVerdict` yields `indeterminate`
+      // (which blocks protected promotion exactly as a fail does).
+      const skipped = analysisResult.status === 'skip';
+      const passed = analysisResult.status === 'pass';
+      const degraded = skipped && analysisResult.skipReason === 'constituent-skipped';
+      const { passCount, failCount, skipCount, output } = analysisResult;
+
+      const result: StaticAnalysisResult = {
+        passed,
+        passCount,
+        failCount,
+        skipCount,
+        report: output,
+        ...(skipped ? { skipped: true, skipReason: analysisResult.skipReason ?? 'no-toolchain' } : {}),
+        ...(degraded ? { degraded: true } : {}),
+      };
+      return { success: true, data: result };
+    },
+  );
 }

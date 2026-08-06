@@ -3,7 +3,9 @@ import { EventStore, SequenceConflictError } from './store.js';
 import { EVENT_DATA_SCHEMAS, type EventType, WorkflowEventBase } from './schemas.js';
 import { pickFields, toEventAck, type EventAck, type ToolResult } from '../format.js';
 import { buildValidatedEvent } from './event-factory.js';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
+import { getDispatchContext } from '../dispatch/dispatch-context.js';
+import { getReservedEventAppendRegistration } from '../registry.js';
 
 // `toSafeEventAck` previously translated synthetic sequence-0 acks emitted by
 // the EventStore sidecar fallback (#1082) into a `{sequence: -1,
@@ -52,6 +54,38 @@ function detectMisplacedFields(event: Record<string, unknown>): string[] {
 
 // ─── Event Append Handler ───────────────────────────────────────────────────
 
+type ReservedEventError = ToolResult & {
+  readonly error: NonNullable<ToolResult['error']> & {
+    readonly eventType: string;
+    readonly registeredHandler?: string;
+    readonly batchIndex?: number;
+  };
+};
+
+function reservedEventAppendError(
+  eventType: string,
+  batchIndex?: number,
+): ReservedEventError | undefined {
+  const registration = getReservedEventAppendRegistration(eventType);
+  if (registration === undefined) return undefined;
+
+  const handlerGuidance = registration.typedHandler === undefined
+    ? 'No typed action is registered in this release; replay it only through internal projection loading.'
+    : `Use the registered typed handler "${registration.typedHandler}" instead.`;
+  return {
+    success: false,
+    error: {
+      code: 'RESERVED_EVENT_TYPE',
+      message: `Event type "${eventType}" is a reserved admission fact and cannot be created through generic event append. ${handlerGuidance}`,
+      eventType,
+      ...(registration.typedHandler !== undefined
+        ? { registeredHandler: registration.typedHandler }
+        : {}),
+      ...(batchIndex !== undefined ? { batchIndex } : {}),
+    },
+  };
+}
+
 /** Handles the event_append tool: validates input, appends an event to the store, and returns an EventAck. */
 export async function handleEventAppend(
   args: {
@@ -77,6 +111,9 @@ export async function handleEventAppend(
       error: { code: 'INVALID_INPUT', message: 'event.type is required' },
     };
   }
+
+  const reservedError = reservedEventAppendError(eventType);
+  if (reservedError !== undefined) return reservedError;
 
   const store = eventStore;
 
@@ -302,6 +339,9 @@ export async function handleBatchAppend(
       };
     }
 
+    const reservedError = reservedEventAppendError(eventType, i);
+    if (reservedError !== undefined) return reservedError;
+
     const misplaced = detectMisplacedFields(event);
     if (misplaced.length > 0) {
       return {
@@ -460,6 +500,203 @@ export async function handleBatchAppend(
   return { success: true, data: acks };
 }
 
+// ─── Typed admission fact handler ────────────────────────────────────────────
+
+export const AdmissionDisagreementDispositionActionSchema = z
+  .object({
+    stream: z.string().min(1),
+    dispositionId: z.string().min(1).max(256),
+    shadowAttemptId: z.string().min(1).max(256),
+    disposition: z.enum([
+      'explained-legacy',
+      'explained-admission',
+      'accepted-risk',
+      'unexplained',
+    ]),
+    rationale: z.string().trim().min(1).max(2_000),
+  })
+  .strict();
+
+export type AdmissionDisagreementDispositionAction = z.infer<
+  typeof AdmissionDisagreementDispositionActionSchema
+>;
+
+/** The claim-key namespace for typed disposition appends. */
+const ADMISSION_DISPOSITION_KEY_PREFIX = 'admission.disagreement-disposition:';
+
+/**
+ * Upper bound `WorkflowEventBase.idempotencyKey` places on a claim key
+ * (`z.string().min(1).max(200)`). `dispositionId` alone may be 256 chars, so
+ * the derivation below must be able to shrink without becoming ambiguous.
+ */
+const IDEMPOTENCY_KEY_MAX_LENGTH = 200;
+
+/**
+ * DR-36 / INV-8 — the claim key for one disagreement disposition.
+ *
+ * `dispositionId` IS the natural identity of the fact: the caller minted it to
+ * name this disposition, and two attempts to record the same disposition carry
+ * the same id. The key is therefore a pure, total function of that id —
+ * NOTHING random (no `randomUUID`), nothing wall-clock-derived — so a retried
+ * append recomputes the same key and collapses onto the stored row.
+ *
+ * Ids that would overflow the 200-char schema bound fold to a sha256 of the
+ * id, which is equally deterministic and keeps distinct ids distinct.
+ *
+ * INV-13 (intent-before / result-after): a disposition is a RESULT record of a
+ * human/agent adjudication that has already happened. It triggers no
+ * non-idempotent external effect, so there is no effect needing a preceding
+ * intent event — the claim key is the whole of its retry safety.
+ */
+export function admissionDispositionIdempotencyKey(dispositionId: string): string {
+  const natural = `${ADMISSION_DISPOSITION_KEY_PREFIX}${dispositionId}`;
+  if (natural.length <= IDEMPOTENCY_KEY_MAX_LENGTH) return natural;
+  const digest = createHash('sha256').update(dispositionId, 'utf8').digest('hex');
+  return `${ADMISSION_DISPOSITION_KEY_PREFIX}sha256:${digest}`;
+}
+
+/** The identifying fields a replay must reproduce byte-for-byte. */
+const DISPOSITION_CLAIM_FIELDS = [
+  'dispositionId',
+  'shadowAttemptId',
+  'disposition',
+  'rationale',
+] as const;
+
+/**
+ * DR-36 — the typed CONFLICT arm of the replay contract.
+ *
+ * A replay carrying the SAME `dispositionId` but a DIFFERENT payload is not a
+ * retry, it is a second, silently-different write hiding behind an existing
+ * claim. The store returns the canonical stored row for it (never a duplicate),
+ * and this turns that into an explicit refusal rather than a success envelope
+ * that misreports whose rationale actually landed.
+ */
+function dispositionReplayConflict(
+  requested: Omit<AdmissionDisagreementDispositionAction, 'stream'>,
+  persisted: { readonly data?: Record<string, unknown> | undefined },
+): ToolResult | undefined {
+  const stored = (persisted.data ?? {}) as Partial<
+    Record<(typeof DISPOSITION_CLAIM_FIELDS)[number], unknown>
+  >;
+  const divergent = DISPOSITION_CLAIM_FIELDS.filter(
+    (field) => stored[field] !== requested[field],
+  );
+  if (divergent.length === 0) return undefined;
+
+  return {
+    success: false,
+    error: {
+      code: 'IDEMPOTENCY_PAYLOAD_CONFLICT',
+      message:
+        `Disposition "${requested.dispositionId}" was already recorded with a ` +
+        `different payload (${divergent.join(', ')}); a silently-different ` +
+        'second write is refused. Mint a new dispositionId to record a new fact.',
+      action: 'handleAdmissionDisagreementDisposition',
+    },
+  };
+}
+
+/**
+ * The v2.12 typed writer for disagreement dispositions.
+ *
+ * Its public input deliberately excludes issuer, role/posture, operation ID,
+ * and timestamps. The strict schema rejects attempts to supply them, while the
+ * handler derives every trusted value from the active DispatchContext.
+ */
+export async function handleAdmissionDisagreementDisposition(
+  untrustedArgs: unknown,
+  eventStore: EventStore,
+): Promise<ToolResult> {
+  const parsed = AdmissionDisagreementDispositionActionSchema.safeParse(
+    untrustedArgs,
+  );
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_INPUT',
+        message: `handleAdmissionDisagreementDisposition: ${parsed.error.issues
+          .map((issue) => `${issue.path.join('.') || 'input'}: ${issue.message}`)
+          .join('; ')}`,
+      },
+    };
+  }
+
+  const dispatchContext = getDispatchContext();
+  const authorization = dispatchContext?.authorization;
+  if (
+    dispatchContext === undefined ||
+    authorization === undefined ||
+    authorization.posture === 'read-only'
+  ) {
+    return {
+      success: false,
+      error: {
+        code: 'CAPABILITY_DENIED',
+        message:
+          'handleAdmissionDisagreementDisposition requires resolver-authorized mutating posture.',
+        action: 'handleAdmissionDisagreementDisposition',
+      },
+    };
+  }
+
+  const { stream, ...fact } = parsed.data;
+  const recordedAt = authorization.resolvedAt;
+  try {
+    const validatedEvent = buildValidatedEvent(stream, 1, {
+      type: 'admission.disagreement-disposition',
+      timestamp: recordedAt,
+      data: {
+        eventVersion: '1.0',
+        ...fact,
+        recordedAt,
+        caller: {
+          principalKind:
+            authorization.identity.role === 'operator' ? 'operator' : 'agent',
+          principalId: authorization.identity.subjectId,
+          role: authorization.identity.role,
+        },
+        authorization: {
+          authorizationId: `${authorization.policy.id}:${dispatchContext.operationId}`,
+          posture: authorization.posture,
+          capabilityIds: [...authorization.capabilities],
+          resolverVersion: authorization.resolver.version,
+          resolvedAt: authorization.resolvedAt,
+        },
+      },
+    });
+    const event = await eventStore.appendValidated(stream, validatedEvent, {
+      // DR-36 / INV-8: the natural-identity claim key. A retry of the same
+      // disposition returns the STORED row (the store's cache-hit branch)
+      // instead of appending a second, indistinguishable fact.
+      idempotencyKey: admissionDispositionIdempotencyKey(fact.dispositionId),
+    });
+    const conflict = dispositionReplayConflict(fact, event);
+    if (conflict !== undefined) return conflict;
+    return { success: true, data: toEventAck(event) };
+  } catch (error) {
+    if (error instanceof ZodError) {
+      return {
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: error.issues
+            .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
+            .join('; '),
+        },
+      };
+    }
+    return {
+      success: false,
+      error: {
+        code: 'APPEND_FAILED',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
+}
+
 // ─── Event Query Handler ────────────────────────────────────────────────────
 
 /**
@@ -568,4 +805,3 @@ export async function handleEventQuery(
     };
   }
 }
-

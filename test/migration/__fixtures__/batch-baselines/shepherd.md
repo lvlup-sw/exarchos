@@ -105,7 +105,7 @@ Review the returned `actionItems` and `recommendation`:
 
 ### Step 2 — Fix
 
-**Anchor every change to the invariant catalog (evaluation-time Constraints).** Before composing any code fix, load `.exarchos/invariants.md` (entries marked `cost-of-load: always-load`) and surface a **Constraints** section naming the invariants the fix must preserve, then probe each proposed change against them. This is the shepherd evaluation-time equivalent of `ideate`'s Phase 0 and uses the **same single shared source of truth** for the selection rules and devCatalog gating: `@skills/ideate/references/constraint-anchoring.md`. **devCatalog-gated:** when `.exarchos.yml: invariants.devCatalog: enabled` is unset or `disabled`, surface no Constraints section and fix directly. This makes "when evaluating changes, apply `.exarchos/invariants.md`" the default — there is no need to request it per invocation.
+**Anchor every change to the invariant catalog (evaluation-time Constraints).** Before composing any code fix, load `.exarchos/invariants.md` (entries marked `cost-of-load: always-load`) and surface a **Constraints** section naming the invariants the fix must preserve, then probe each proposed change against them. This is the shepherd evaluation-time equivalent of `ideate`'s Phase 0 and uses the **same single shared source of truth** for the selection rules and catalog-registration gating: `@skills/ideate/references/constraint-anchoring.md`. **Catalog-registration gated:** when no catalog is registered under `.exarchos.yml: invariants.catalogs`, surface no Constraints section and fix directly. This makes "when evaluating changes, apply `.exarchos/invariants.md`" the default — there is no need to request it per invocation.
 
 Before iterating over individual action items, classify them so the loop
 knows which to fix inline vs. delegate. Call `classify_review_items` on
@@ -190,7 +190,7 @@ When `assess_stack` returns `recommendation: 'request-approval'` (all checks gre
 
 > **Guard:** Confirm there are no remaining `comment-reply` action items before requesting approval. Per the [Default Objective](#default-objective), every inline comment — including minor/nit-level — must be addressed first. If any remain, return to Step 2 instead of requesting approval.
 
-> **Invariant-conformance pointer (devCatalog-gated, before merge):** When `.exarchos.yml: invariants.devCatalog: enabled`, run the review-phase-scoped `check_invariant_conformance` action over the PR diff before requesting approval / merge, so the merge-gate read of the architectural invariants matches the diff that is about to land. This is a **pointer/affordance, not a hard gate** — the action is non-blocking (`gate: { blocking: false }`); it surfaces conformance findings to fold into the review verdict, it does not stop the merge. It is **not** a design-time **Constraints** section (shepherd runs at synthesize/merge, not design-time) — Step 2's Constraints anchoring covers fix composition; this pointer covers the diff-vs-invariants read at the review/merge gate. When the flag is unset or `disabled`, skip this step.
+> **Invariant-conformance pointer (catalog-registration gated, before merge):** When a catalog is registered under `.exarchos.yml: invariants.catalogs`, run the review-phase-scoped `check_invariant_conformance` action over the PR diff before requesting approval / merge, so the merge-gate read of the architectural invariants matches the diff that is about to land. This is a **pointer/affordance, not a hard gate** — the action is non-blocking (`gate: { blocking: false }`); it surfaces conformance findings to fold into the review verdict, it does not stop the merge. It is **not** a design-time **Constraints** section (shepherd runs at synthesize/merge, not design-time) — Step 2's Constraints anchoring covers fix composition; this pointer covers the diff-vs-invariants read at the review/merge gate. When no catalog is registered, skip this step.
 >
 > ```typescript
 > exarchos:exarchos_orchestrate({
@@ -298,8 +298,8 @@ This runbook provides structured criteria for deciding whether to keep iterating
 | Force-merge with failing CI | Fix the failures first |
 | Ignore inline comments | Address every thread with a reply |
 | Skip minor/nit comments because `assess_stack` said `request-approval` | Address every `comment-reply` item first — the recommendation is advisory (see Default Objective) |
-| Compose fixes without checking invariants | Anchor each change to `.exarchos/invariants.md` (Step 2, devCatalog-gated) |
-| Merge without a diff-vs-invariants read when devCatalog is on | Run `check_invariant_conformance` over the PR diff before approval/merge (Step 4 pointer, devCatalog-gated, non-blocking) |
+| Compose fixes without checking invariants | Anchor each change to `.exarchos/invariants.md` (Step 2, catalog-registration gated) |
+| Merge without a diff-vs-invariants read when a catalog is registered | Run `check_invariant_conformance` over the PR diff before approval/merge (Step 4 pointer, catalog-registration gated, non-blocking) |
 | Loop indefinitely | Respect iteration limits, escalate |
 | Skip remediation events | Emit `remediation.attempted` / `remediation.succeeded` for every fix |
 | Push directly to main | All fixes go through stack branches |

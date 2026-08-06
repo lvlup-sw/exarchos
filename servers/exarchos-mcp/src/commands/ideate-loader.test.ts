@@ -44,12 +44,12 @@ describe('ideate first-turn invariant surfacing (#1260)', () => {
     // ideate skill prose names them as canonical anchors so a CLI
     // proposal is guaranteed to surface them.
     //
-    // Pass an explicit `enabled` config so the gating check (Wave B2)
-    // doesn't short-circuit on the contents assertion. Wave B3 declares
-    // the flag in the root `.exarchos.yml`; this constant keeps the test
-    // stable independent of that landing order.
+    // Pass an explicit config REGISTERING this catalog so the DR-31 gating
+    // check doesn't short-circuit the contents assertion. Registration is the
+    // opt-in, so the test stays stable independent of the root
+    // `.exarchos.yml`'s own contents.
     const entries = loadInvariants(INVARIANTS_DOC, undefined, {
-      invariants: { devCatalog: 'enabled' as const },
+      invariants: { catalogs: [{ path: INVARIANTS_DOC, tier: 'dev' as const }] },
     });
     const ids = new Set(entries.map((e) => e.id));
     expect(ids.has('INV-5a')).toBe(true);

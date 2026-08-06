@@ -127,7 +127,7 @@ The test oracle may be **ADDED to** during a refactor (new characterization test
 
 ## Design-time Constraints (Both Tracks)
 
-At the **brief phase**, *before* committing to an approach, surface a **Constraints** section anchored to the architectural invariants relevant to the refactor. This is the refactor design-time equivalent of `/ideate`'s Phase 0 and uses the **same single shared source of truth** for the selection rules: see `@skills/ideate/references/constraint-anchoring.md`. Load `.exarchos/invariants.md` (`cost-of-load: always-load` entries) and emit the Constraints section. **devCatalog-gated:** when `.exarchos.yml: invariants.devCatalog: enabled` is unset or `disabled`, surface no Constraints section and proceed directly. See `@skills/refactor/references/brief-template.md` for the brief-phase placement.
+At the **brief phase**, *before* committing to an approach, surface a **Constraints** section anchored to the architectural invariants relevant to the refactor. This is the refactor design-time equivalent of `/ideate`'s Phase 0 and uses the **same single shared source of truth** for the selection rules: see `@skills/ideate/references/constraint-anchoring.md`. Load `.exarchos/invariants.md` (`cost-of-load: always-load` entries) and emit the Constraints section. **Catalog-registration gated:** when no catalog is registered under `.exarchos.yml: invariants.catalogs`, surface no Constraints section and proceed directly. See `@skills/refactor/references/brief-template.md` for the brief-phase placement.
 
 ## Polish Track
 

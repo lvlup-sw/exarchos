@@ -1,14 +1,14 @@
 // ─── check_contract_drift handler (task 023) ─────────────────────────────────
 //
 // Orchestrate action that runs the contract-drift gate for a task's
-// schema-boundary changes and emits a `gate.executed` event. The drift
+// schema-boundary changes and persists canonical subject-bound evidence. The drift
 // composition itself lives in the pure-ish `contract-drift.ts`
 // (merge-base baseline / codegen / typecheck / breaking-diff legs); this
 // handler wires the production seams:
 //   • resolve repoRoot (supports the worktree-aware 'auto' mode, #1330)
 //   • resolve the contract + typecheck commands via resolveVerificationRuntime
 //   • shell out each leg (codegen → typecheck → breaking-diff)
-//   • emit gate.executed with operationId idempotency (INV-8)
+//   • persist evidence with trusted-operation idempotency (INV-8)
 //
 // The result is an INV-5b advisory carrier: success:true with data.passed
 // reflecting the gate verdict, never an error envelope for a drift finding
@@ -20,8 +20,9 @@
 import { runCommandSync } from '../utils/process.js';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
-import { defaultGitExec, emitGateEvent, SKIPPED_BY_POLICY } from './gate-utils.js';
-import { emitPolicySkipIfNeeded, runGatePreflight } from './pure/gate-preflight.js';
+import { defaultGitExec, resolvePolicySkip, SKIPPED_BY_POLICY } from './gate-utils.js';
+import { runGatePreflight } from './pure/gate-preflight.js';
+import { runDurableGateProducer } from './durable-gate-producer.js';
 import type { RiskTier } from '../workflow/verification-policy.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
 import { resolveVerificationRuntime } from '../config/test-runtime-resolver.js';
@@ -58,7 +59,7 @@ export interface ContractDriftHandlerArgs {
   readonly repoRoot?: string;
   /** Explicit agent worktree path — preferred resolver seam for 'auto'. */
   readonly worktreePath?: string;
-  /** Idempotency key for the gate emission (INV-8). */
+  /** Legacy field; evidence idempotency uses trusted DispatchContext only. */
   readonly operationId?: string;
 
   // ── Verification-ladder routing stamp (FIX-1a) ───────────────────────────
@@ -123,7 +124,7 @@ const defaultRunCommand: CommandRunFn = async ({ repoRoot, command }) => {
 
 export async function handleContractDrift(
   args: ContractDriftHandlerArgs,
-  _stateDir: string,
+  stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
   // Preflight (DR-10): validate the DispatchContext + inputs and resolve the
@@ -143,86 +144,61 @@ export async function handleContractDrift(
   const repoRoot = pre.repoRoot;
   const baseRef = args.baseBranch || 'main';
 
-  // ── FIX-1a: verification-ladder self-routing on the stamped profile ──────
-  const policySkip = await emitPolicySkipIfNeeded({
-    eventStore,
-    featureId: args.featureId,
-    taskId: args.taskId,
-    branch: args.branch,
-    operationId: args.operationId,
-    riskTier: args.riskTier,
-    boundaryTouching: args.boundaryTouching,
-    projectConfig: args.projectConfig,
-    policyGateName: 'check_contract_drift',
-    emitGateName: 'contract-drift',
-    layer: 'delegate',
-    phase: 'delegate',
-  });
-  if (policySkip) {
-    return {
-      success: true,
-      data: {
-        passed: true,
-        skipped: true,
-        drift: false,
-        breaking: [],
-        report: policySkip.reason,
-        discriminant: SKIPPED_BY_POLICY,
-      },
-    };
-  }
-
-  const gitExec = args.gitExec ?? defaultGitExec;
-  const runCommand = args.runCommand ?? defaultRunCommand;
-
-  // Resolve the contract + typecheck commands in the repo (toolchain-neutral).
-  const runtime = resolveVerificationRuntime(repoRoot);
-
-  const drift: ContractDriftResult = await runContractDrift({
-    repoRoot,
-    baseRef,
-    contract: runtime.contract,
-    typecheck: runtime.typecheck,
-    gitExec,
-    runCommand,
-  });
-
-  // Emit gate.executed with operationId idempotency (INV-8). Fire-and-forget.
-  try {
-    await emitGateEvent(
+  return runDurableGateProducer(
+    {
+      gateClass: 'contract-drift',
+      featureId: args.featureId,
+      taskId: args.taskId,
+      ...(args.branch ? { branch: args.branch } : {}),
+      baseRef,
+      repoRoot,
+      stateDir,
       eventStore,
-      args.featureId,
-      'contract-drift',
-      'delegate',
-      drift.passed,
-      {
-        dimension: 'D1',
-        phase: 'delegate',
-        taskId: args.taskId,
-        ...(args.branch ? { branch: args.branch } : {}),
-        drift: drift.drift,
-        breakingCount: drift.breaking.length,
-        ...(drift.skipped ? { skipped: true } : {}),
-      },
-      args.operationId,
-    );
-  } catch {
-    /* fire-and-forget */
-  }
-
-  // INV-5b advisory carrier — success:true with data.passed reflecting the
-  // verdict, NOT an error envelope. On PASS, carry the one-semantic-test steer.
-  return {
-    success: true,
-    data: {
-      passed: drift.passed,
-      drift: drift.drift,
-      breaking: drift.breaking,
-      report: drift.report,
-      ...(drift.skipped ? { skipped: true } : {}),
-      // Steer only on a clean pass — a failing gate's next action is to fix the
-      // drift, not to prune tests.
-      ...(drift.passed && !drift.skipped ? { next_actions: [ONE_SEMANTIC_TEST_STEER] } : {}),
     },
-  };
+    async () => {
+      const policySkip = resolvePolicySkip({
+        gateName: 'check_contract_drift',
+        riskTier: args.riskTier,
+        boundaryTouching: args.boundaryTouching,
+        config: args.projectConfig,
+      });
+      if (policySkip) {
+        return {
+          success: true,
+          data: {
+            passed: true,
+            skipped: true,
+            drift: false,
+            breaking: [],
+            report: policySkip.reason,
+            discriminant: SKIPPED_BY_POLICY,
+          },
+        };
+      }
+
+      const gitExec = args.gitExec ?? defaultGitExec;
+      const runCommand = args.runCommand ?? defaultRunCommand;
+      const runtime = resolveVerificationRuntime(repoRoot);
+      const drift: ContractDriftResult = await runContractDrift({
+        repoRoot,
+        baseRef,
+        contract: runtime.contract,
+        typecheck: runtime.typecheck,
+        gitExec,
+        runCommand,
+      });
+
+      return {
+        success: true,
+        data: {
+          passed: drift.passed,
+          drift: drift.drift,
+          breaking: drift.breaking,
+          report: drift.report,
+          ...(drift.skipped ? { skipped: true } : {}),
+          ...(drift.passed && !drift.skipped ? { next_actions: [ONE_SEMANTIC_TEST_STEER] } : {}),
+        },
+      };
+    },
+  );
 }

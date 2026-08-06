@@ -7,7 +7,9 @@ import { TOOL_REGISTRY, findActionInRegistry } from './registry.js';
 // composite tool (INV-5d — NOT a fifth visible tool). Its flag surface
 // (`--new`/`--runtime`/`--vcs`/`--dry-run`/`--force`/`--no-hooks`/`--format`)
 // auto-emits from the Zod schema via `addFlagsFromSchema` in the CLI adapter —
-// there is no hand-written flag table to drift (INV-5a / INV-2 parity).
+// there is no hand-written flag table to drift (INV-5a / governing INV-2 — the
+// flag surface is DERIVED from the registered contract schema rather than
+// hand-coordinated with the MCP wire).
 //
 // SWAP (design line 322: "init action → onboard action"): task 011 REMOVED the
 // legacy `init` action and registered `onboard` in its place. Removing the init

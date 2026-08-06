@@ -155,14 +155,25 @@ describe('loadExarchosConfig', () => {
       'utf-8',
     );
 
-    // Strict reader: no throw, invariants block present.
+    // Strict reader: no throw, invariants block present. T-43: the deprecated
+    // alias is desugared into the registration it was sugar for, so the block
+    // is observable as a `catalogs:` entry rather than as the retired key.
     const strict = loadExarchosConfig(worktree, { findRepoRoot: () => null });
     expect(strict).not.toBeNull();
-    expect(strict!.config.invariants?.devCatalog).toBe('enabled');
+    expect(strict!.config.invariants?.catalogs).toEqual([
+      { path: '.exarchos/invariants.md', tier: 'dev' },
+    ]);
+    // ...and the strict reader reports it as a typed deprecation.
+    expect(strict!.deprecations.map((d) => d.key)).toEqual([
+      'invariants.devCatalog',
+    ]);
 
-    // Lenient reader: same verdict — invariants block honored.
+    // Lenient reader: same verdict — invariants block honored, and desugared
+    // identically (both readers share `FullExarchosConfigSchema`).
     const lenient = readInvariantsConfig(cfgPath);
-    expect(lenient.invariants?.devCatalog).toBe('enabled');
+    expect(lenient.invariants?.catalogs).toEqual([
+      { path: '.exarchos/invariants.md', tier: 'dev' },
+    ]);
   });
 
   it('dualReaders_UnknownSiblingKey_ValidInvariants_BehaveIdentically', () => {
@@ -179,7 +190,8 @@ describe('loadExarchosConfig', () => {
       [
         'agentss: oops', // typo'd key — invalid under both schemas
         'invariants:',
-        '  devCatalog: enabled',
+        '  catalogs:',
+        '    - ./team.md',
         '',
       ].join('\n'),
       'utf-8',
@@ -189,8 +201,24 @@ describe('loadExarchosConfig', () => {
       /Invalid \.exarchos\.yml/,
     );
 
+    // T-43: assert the WHOLE block is dropped, not merely one retired key.
+    // The previous form (`invariants?.devCatalog` is undefined) became
+    // VACUOUS once the schema desugared `devCatalog` away — it would hold for
+    // any file whatsoever, including a perfectly valid one.
     const lenient = readInvariantsConfig(cfgPath);
-    expect(lenient.invariants?.devCatalog).toBeUndefined();
+    expect(lenient.invariants).toBeUndefined();
+
+    // POSITIVE CONTROL: the same invariants block in a file WITHOUT the typo
+    // is honored, so the emptiness above is caused by the invalid sibling key
+    // and not by the lenient reader simply never returning anything.
+    const okPath = join(worktree, 'ok', '.exarchos.yml');
+    mkdirSync(join(worktree, 'ok'), { recursive: true });
+    writeFileSync(
+      okPath,
+      ['invariants:', '  catalogs:', '    - ./team.md', ''].join('\n'),
+      'utf-8',
+    );
+    expect(readInvariantsConfig(okPath).invariants?.catalogs).toEqual(['./team.md']);
   });
 
   it('dualReaders_InvalidInvariantsBlock_BehaveIdentically', () => {
@@ -202,7 +230,7 @@ describe('loadExarchosConfig', () => {
     const cfgPath = join(worktree, '.exarchos.yml');
     writeFileSync(
       cfgPath,
-      ['invariants:', '  devCatalog: enabled', '  bogusKey: true', ''].join('\n'),
+      ['invariants:', '  catalogs: []', '  bogusKey: true', ''].join('\n'),
       'utf-8',
     );
 
@@ -210,8 +238,19 @@ describe('loadExarchosConfig', () => {
       /Invalid \.exarchos\.yml/,
     );
 
+    // T-43: whole-block assertion, for the same anti-vacuity reason as above.
     const lenient = readInvariantsConfig(cfgPath);
-    expect(lenient.invariants?.devCatalog).toBeUndefined();
+    expect(lenient.invariants).toBeUndefined();
+
+    // POSITIVE CONTROL: drop the bogus nested key and the block IS surfaced.
+    const okPath = join(worktree, 'ok2', '.exarchos.yml');
+    mkdirSync(join(worktree, 'ok2'), { recursive: true });
+    writeFileSync(
+      okPath,
+      ['invariants:', '  catalogs: []', ''].join('\n'),
+      'utf-8',
+    );
+    expect(readInvariantsConfig(okPath).invariants?.catalogs).toEqual([]);
   });
 
   it('loadConfig_FieldsParsedCorrectly', () => {

@@ -1,7 +1,7 @@
 // ─── check_mock_boundary handler (task 026) ──────────────────────────────────
 //
 // Orchestrate action that runs the mock-boundary gate (SIV-4 #1530) for a
-// task's diff and emits a `gate.executed` event. The detection itself lives in
+// task's diff and persists canonical subject-bound evidence. The detection itself lives in
 // the PURE core `mock-boundary.ts` (`detectMockFindings` — identifier-boundary
 // detection + ownership cross-reference); this handler wires the production
 // seams:
@@ -12,7 +12,7 @@
 //   • resolve `ownership.firstParty` globs from `.exarchos.yml`
 //   • resolve this gate's severity (advisory-by-default via DEFAULTS.review.gates,
 //     like the other advisory ladder gates; a project review-gate override still wins)
-//   • emit gate.executed with operationId idempotency (INV-8)
+//   • persist evidence with trusted-operation idempotency (INV-8)
 //
 // The result is an INV-5b advisory carrier: success:true with data.passed
 // reflecting the gate verdict, never an error envelope for a mock finding (an
@@ -20,15 +20,16 @@
 //
 // ESCAPE HATCH (enforced default, not an absolute). When the caller passes an
 // explicit `reason` acknowledging an intentional unowned mock, the gate passes
-// advisory regardless of severity AND the gate.executed payload records the
+// advisory regardless of severity AND durable evidence records the
 // acknowledgement + reason. The finding is still surfaced — the escape hatch
 // suppresses the verdict, not the evidence.
 // ────────────────────────────────────────────────────────────────────────────
 
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
-import { defaultGitExec, emitGateEvent, SKIPPED_BY_POLICY } from './gate-utils.js';
-import { emitPolicySkipIfNeeded, runGatePreflight } from './pure/gate-preflight.js';
+import { defaultGitExec, resolvePolicySkip, SKIPPED_BY_POLICY } from './gate-utils.js';
+import { runGatePreflight } from './pure/gate-preflight.js';
+import { runDurableGateProducer } from './durable-gate-producer.js';
 import type { RiskTier } from '../workflow/verification-policy.js';
 import { resolveGateSeverity } from './gate-severity.js';
 import { DEFAULTS, resolveConfig, type ResolvedProjectConfig } from '../config/resolve.js';
@@ -94,12 +95,12 @@ export interface MockBoundaryHandlerArgs {
   readonly repoRoot?: string;
   /** Explicit agent worktree path — preferred resolver seam for 'auto'. */
   readonly worktreePath?: string;
-  /** Idempotency key for the gate emission (INV-8). */
+  /** Legacy field; evidence idempotency uses trusted DispatchContext only. */
   readonly operationId?: string;
   /**
    * Escape hatch: a reason acknowledging an intentional unowned mock. When
    * present and non-empty, the gate passes advisory regardless of severity, and
-   * the acknowledgement is recorded in the gate.executed payload. An enforced
+   * the acknowledgement is recorded in durable evidence. An enforced
    * default (steer agents away from unowned mocks), NOT an absolute prohibition.
    */
   readonly reason?: string;
@@ -206,7 +207,7 @@ export function parseUnifiedDiff(diff: string): FileDiff[] {
 
 export async function handleMockBoundary(
   args: MockBoundaryHandlerArgs,
-  _stateDir: string,
+  stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
   // Preflight (DR-10): validate the DispatchContext + inputs and resolve the
@@ -226,57 +227,60 @@ export async function handleMockBoundary(
   const repoRoot = pre.repoRoot;
   const baseRef = args.baseBranch || 'main';
 
-  // ── FIX-1a: verification-ladder self-routing on the stamped profile ──────
-  const policySkip = await emitPolicySkipIfNeeded({
-    eventStore,
-    featureId: args.featureId,
-    taskId: args.taskId,
-    branch: args.branch,
-    operationId: args.operationId,
-    riskTier: args.riskTier,
-    boundaryTouching: args.boundaryTouching,
-    projectConfig: args.projectConfig,
-    policyGateName: 'check_mock_boundary',
-    emitGateName: 'mock-boundary',
-    layer: 'delegate',
-    phase: 'delegate',
-  });
-  if (policySkip) {
-    return {
-      success: true,
-      data: {
-        passed: true,
-        skipped: true,
-        findings: [],
-        report: policySkip.reason,
-        discriminant: SKIPPED_BY_POLICY,
-      },
-    };
-  }
+  return runDurableGateProducer(
+    {
+      gateClass: 'mock-boundary',
+      featureId: args.featureId,
+      taskId: args.taskId,
+      ...(args.branch ? { branch: args.branch } : {}),
+      baseRef,
+      repoRoot,
+      stateDir,
+      eventStore,
+    },
+    async () => {
+      const policySkip = resolvePolicySkip({
+        gateName: 'check_mock_boundary',
+        riskTier: args.riskTier,
+        boundaryTouching: args.boundaryTouching,
+        config: args.projectConfig,
+      });
+      if (policySkip) {
+        return {
+          success: true,
+          data: {
+            passed: true,
+            skipped: true,
+            findings: [],
+            report: policySkip.reason,
+            discriminant: SKIPPED_BY_POLICY,
+          },
+        };
+      }
 
-  const gitExec = args.gitExec ?? defaultGitExec;
-  const loadConfig = args.loadConfig ?? loadExarchosConfig;
+      const gitExec = args.gitExec ?? defaultGitExec;
+      const loadConfig = args.loadConfig ?? loadExarchosConfig;
 
   // Resolve ownership globs + review-gate severity from `.exarchos.yml`. A
   // missing/invalid config degrades to the schema defaults (firstParty globs)
   // and the built-in advisory default — never a hard failure (INV-4).
-  let firstPartyGlobs: readonly string[] = DEFAULT_FIRST_PARTY_GLOBS;
-  let resolvedConfig: ResolvedProjectConfig | undefined;
-  try {
-    const loaded = loadConfig(repoRoot);
-    if (loaded?.config.ownership?.firstParty) {
-      firstPartyGlobs = loaded.config.ownership.firstParty;
-    }
-    if (loaded?.config) {
-      resolvedConfig = resolveConfig(loaded.config);
-    }
-  } catch {
-    /* malformed config → defaults; the gate never hard-fails on config (INV-4) */
-  }
+      let firstPartyGlobs: readonly string[] = DEFAULT_FIRST_PARTY_GLOBS;
+      let resolvedConfig: ResolvedProjectConfig | undefined;
+      try {
+        const loaded = loadConfig(repoRoot);
+        if (loaded?.config.ownership?.firstParty) {
+          firstPartyGlobs = loaded.config.ownership.firstParty;
+        }
+        if (loaded?.config) {
+          resolvedConfig = resolveConfig(loaded.config);
+        }
+      } catch {
+        /* malformed config → defaults; the gate never hard-fails on config (INV-4) */
+      }
 
   // Advisory-by-default: DEFAULTS.review.gates['mock-boundary'] resolves to
   // `warning`; a project review-gate override still wins (mirrors tdd-compliance).
-  const severity = resolveGateSeverity('mock-boundary', 'D1', resolvedConfig ?? DEFAULTS);
+      const severity = resolveGateSeverity('mock-boundary', 'D1', resolvedConfig ?? DEFAULTS);
 
   // Compute the task diff (branch vs merge-base) — the same seam the sibling
   // gates use. `--no-ext-diff` is load-bearing: a user-configured
@@ -284,62 +288,40 @@ export async function handleMockBoundary(
   // otherwise replace the unified diff this parser depends on, silently yielding
   // zero findings. On git failure the diff is empty → zero findings (never a
   // spurious flag).
-  const diffResult = gitExec(repoRoot, ['diff', '--no-ext-diff', `${baseRef}...HEAD`]);
-  const fileDiffs = diffResult.exitCode === 0 ? parseUnifiedDiff(diffResult.stdout) : [];
-
-  const findings = detectMockFindings(fileDiffs, { firstPartyGlobs });
+      const diffResult = gitExec(repoRoot, ['diff', '--no-ext-diff', `${baseRef}...HEAD`]);
+      const fileDiffs = diffResult.exitCode === 0 ? parseUnifiedDiff(diffResult.stdout) : [];
+      const findings = detectMockFindings(fileDiffs, { firstPartyGlobs });
 
   // Escape hatch: an explicit, non-empty reason acknowledges an intentional
   // unowned mock and suppresses the verdict (but not the evidence).
-  const reason = typeof args.reason === 'string' ? args.reason.trim() : '';
-  const escapeHatch = reason.length > 0 ? { acknowledged: true, reason } : undefined;
+      const reason = typeof args.reason === 'string' ? args.reason.trim() : '';
+      const escapeHatch = reason.length > 0 ? { acknowledged: true, reason } : undefined;
 
   // Verdict: pass when there are no unowned findings, OR the escape hatch is
   // acknowledged, OR the gate is advisory (non-blocking). It only fails when the
   // severity is blocking AND an unowned mock is present AND no escape hatch.
-  const hasFindings = findings.length > 0;
-  const passed = !hasFindings || escapeHatch !== undefined || severity !== 'blocking';
+      const hasFindings = findings.length > 0;
+      const passed = !hasFindings || escapeHatch !== undefined || severity !== 'blocking';
 
   // Per-finding steers (INV-12) — only when an unowned mock is present and the
   // escape hatch was NOT invoked (acknowledging the mock makes the steer moot).
-  const nextActions =
-    hasFindings && escapeHatch === undefined ? findings.map(steerForFinding) : [];
-
-  // Emit gate.executed with operationId idempotency (INV-8). Fire-and-forget.
-  try {
-    await emitGateEvent(
-      eventStore,
-      args.featureId,
-      'mock-boundary',
-      'delegate',
-      passed,
-      {
-        dimension: 'D1',
-        phase: 'delegate',
-        taskId: args.taskId,
-        ...(args.branch ? { branch: args.branch } : {}),
-        severity,
-        findingCount: findings.length,
-        ...(escapeHatch ? { escapeHatch } : {}),
-      },
-      args.operationId,
-    );
-  } catch {
-    /* fire-and-forget */
-  }
+      const nextActions =
+        hasFindings && escapeHatch === undefined ? findings.map(steerForFinding) : [];
 
   // INV-5b advisory carrier — success:true with data.passed reflecting the
   // verdict, NOT an error envelope.
-  return {
-    success: true,
-    data: {
-      passed,
-      findings,
-      severity,
-      ...(escapeHatch ? { escapeHatch } : {}),
-      ...(nextActions.length > 0 ? { next_actions: nextActions } : {}),
+      return {
+        success: true,
+        data: {
+          passed,
+          findings,
+          severity,
+          ...(escapeHatch ? { escapeHatch } : {}),
+          ...(nextActions.length > 0 ? { next_actions: nextActions } : {}),
+        },
+      };
     },
-  };
+  );
 }
 
 // Re-declare the schema default here so the handler degrades to the SAME

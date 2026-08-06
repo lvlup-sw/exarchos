@@ -34,7 +34,9 @@ import {
   type DetectorFs,
 } from '../../runtime/agent-environment-detector.js';
 import { loadExarchosConfig } from '../../config/load-exarchos-config.js';
+import type { ConfigDeprecation } from '../../config/exarchos-config-schema.js';
 import { resolveEffectiveCatalog } from '../../architecture/resolve-effective-catalog.js';
+import { resolveCatalogSources } from '../../architecture/catalog-sources.js';
 import { ReservedNamespaceError } from '../../architecture/catalog-merge.js';
 import { resolveVerificationRuntime } from '../../config/test-runtime-resolver.js';
 import { resolveVerificationPolicy } from '../../workflow/verification-policy-resolver.js';
@@ -370,9 +372,11 @@ export async function resolveInvariantsCatalog(
   if (root === null) return { configured: false, warnings: [] };
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
   let config;
+  let deprecations: ConfigDeprecation[] = [];
   try {
     const loaded = loadExarchosConfig(root, { findRepoRoot: () => root });
     config = loaded?.config;
+    deprecations = loaded?.deprecations ?? [];
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     return {
@@ -380,24 +384,34 @@ export async function resolveInvariantsCatalog(
       warnings: [`Failed to load .exarchos.yml at '${root}': ${reason}`],
     };
   }
-  // `configured` is the phase-INDEPENDENT Skip signal: is any USER-validatable
-  // catalog present? The dev catalog (gated + file on disk) or any user
-  // `catalogs` path. The built-in SDLC baseline is compiled-in and
-  // build-validated, so it is never a runtime validation target and does not
-  // count. The old signal — entry count after projecting to `ideate` —
-  // misreported a configured catalog whose entries are all non-`ideate` (e.g.
-  // `phase-affinity: ['review']`) as "nothing configured", making the Pass
-  // branch unreachable for such catalogs (#1482 review).
-  let devConfigured = false;
-  if (config?.invariants?.devCatalog === 'enabled') {
-    try {
-      await nodeFs.access(join(root, '.exarchos/invariants.md'), fsConstants.F_OK);
-      devConfigured = true;
-    } catch {
-      devConfigured = false;
-    }
-  }
-  const userConfigured = (config?.invariants?.catalogs?.length ?? 0) > 0;
+  // `configured` is the phase-INDEPENDENT Skip signal: **is any catalog
+  // REGISTERED?** (DR-31 / T-43.) It used to be two disjoint questions — "is
+  // the `invariants.devCatalog` boolean enabled AND does the privileged path
+  // exist on disk?" OR'd with "is `invariants.catalogs` non-empty?" — which
+  // made this probe the fifth live reader of a boolean DR-31 retires, and gave
+  // the doctor a repo-only notion of "configured" no consumer could reproduce.
+  //
+  // Now there is ONE question, asked through the single discovery authority
+  // `resolveCatalogSources`: a `tier: dev` registration and a `tier: user`
+  // registration count identically, and the retired boolean reaches this line
+  // only after the config schema has desugared it into an ordinary
+  // registration. The dev-tier disk-existence probe is gone with the branch: a
+  // registered-but-missing file is a DR-9 degradation the resolver already
+  // folds into `warnings` below, which is a Warning the operator should SEE,
+  // not a silent Skip.
+  //
+  // The built-in SDLC baseline is compiled-in and build-validated, so it is
+  // never a runtime validation target and does not count. The older signal —
+  // entry count after projecting to `ideate` — misreported a configured
+  // catalog whose entries are all non-`ideate` (e.g. `phase-affinity:
+  // ['review']`) as "nothing configured", making the Pass branch unreachable
+  // for such catalogs (#1482 review).
+  const configured = resolveCatalogSources(config).length > 0;
+
+  // Deprecated `.exarchos.yml` keys surface as operator-facing warnings so a
+  // consumer carrying a retired key learns the replacement edit from `doctor`
+  // rather than discovering it when the alias is finally dropped.
+  const deprecationWarnings = deprecations.map((d) => `${d.key}: ${d.message}`);
 
   // Phase key is arbitrary here: DR-9 warnings are folded pre-projection, so
   // any phase surfaces every merge/load warning. We discard the projected
@@ -409,7 +423,6 @@ export async function resolveInvariantsCatalog(
   // layer that escapes the pre-filter must degrade to a named advisory rather
   // than crashing the doctor probe — `doctor` is the operator's diagnostic of
   // last resort and must never itself throw on a malformed catalog.
-  const configured = devConfigured || userConfigured;
   try {
     const { warnings } = resolve({
       repoRoot: root,
@@ -417,12 +430,13 @@ export async function resolveInvariantsCatalog(
       phase: 'plan',
       workflowType: 'feature',
     });
-    return { configured, warnings };
+    return { configured, warnings: [...deprecationWarnings, ...warnings] };
   } catch (err) {
     if (err instanceof ReservedNamespaceError) {
       return {
         configured,
         warnings: [
+          ...deprecationWarnings,
           `Invariant catalog resolution surfaced a reserved-namespace ` +
             `conflict on id '${err.id}': ${err.message}`,
         ],

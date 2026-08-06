@@ -42,6 +42,7 @@ import {
   getValidTransitions,
 } from './state-machine.js';
 import type { HSMDefinition, ValidTransitionTarget } from './state-machine.js';
+import type { TransitionObligationFloor } from './state-machine.js';
 import type { PhaseKind, ResolvedGate, ResolveGateSetCtx } from './phase-kind.js';
 import { applyPhaseSkips } from './phase-skip.js';
 import { mapInternalToExternalType } from './events.js';
@@ -49,6 +50,12 @@ import { getRegisteredGuard } from '../config/register.js';
 import { executeGuard } from '../config/guards.js';
 import { buildValidatedEvent } from '../event-store/event-factory.js';
 import type { EventType } from '../event-store/schemas.js';
+import type { LegacyTransitionObservation } from './admission/shadow-decision.js';
+import {
+  resolveDangerCoordinate,
+  type DangerCoordinate,
+} from './admission/requirement-context.js';
+import { readFrozenGateSequence } from './admission/freeze-requirements.js';
 
 // ─── HSM emission boundary — schema-checked data shaping (#1339) ───────────
 //
@@ -162,6 +169,14 @@ export function buildHsmEventData(
         policySource: metadata.policySource ?? 'builtin',
         mode: metadata.mode ?? 'enforce',
         posture: metadata.posture,
+        // DR-10 (T-15): the frozen danger coordinate travels with the gate-set
+        // it produced. Spread only when the walk supplied it, so the shaping
+        // stays byte-identical for any producer that does not (and the field
+        // is never minted as `undefined` on the durable log).
+        ...(metadata.riskTier !== undefined ? { riskTier: metadata.riskTier } : {}),
+        ...(typeof metadata.boundaryTouching === 'boolean'
+          ? { boundaryTouching: metadata.boundaryTouching }
+          : {}),
       };
     case 'phase.blocked': {
       // PhaseBlockedData (DR-7): the transition-boundary fail-closed record. The
@@ -291,6 +306,67 @@ export interface GuardContext {
     kind: PhaseKind,
     ctx: ResolveGateSetCtx,
   ) => readonly ResolvedGate[];
+  /**
+   * P07-01 — a non-invasive shadow observer (Transition tasks 027/051). When
+   * present, the primitive surfaces the AUTHORITATIVE legacy allow/deny outcome
+   * of the composite-guard HSM walk to this callback AFTER the decision is made,
+   * for side-by-side shadow comparison against the evidence-backed admission
+   * engine. It is:
+   *   - OPTIONAL and defaulted-off: no production caller sets it, so behaviour is
+   *     byte-identical when it is absent (behaviour preservation);
+   *   - ERROR-ISOLATED: any throw from the observer is swallowed — a shadow
+   *     failure can never propagate into the production transition path;
+   *   - PASSIVE: the observer receives the legacy outcome and cannot alter it.
+   *
+   * DR-23 / T-31 — the observer ALSO receives `context.eventStore`, so the live
+   * shadow evidence it records is durable rather than process-scoped. The store
+   * is handed over here, at the seam that already holds it, rather than through
+   * a module-level binding: hidden global state is not a wiring closure.
+   * Observers that only need the observation may ignore the second parameter.
+   * All shadow adjudication, classification and recording live behind this seam
+   * in `admission/shadow-decision.ts`, never in this primitive.
+   */
+  readonly shadowObserver?: (
+    observation: LegacyTransitionObservation,
+    eventStore: EventStore | null,
+  ) => void;
+  /**
+   * DR-7 (INV-9) — admit the HSM's UNIVERSAL final-state edges.
+   *
+   * `cancelled` and `completed` are reachable from EVERY non-final phase
+   * without an explicit edge in the HSM definition: `executeTransition`
+   * special-cases them (`isCancel` / `isCleanup`) BEFORE its `findTransition`
+   * lookup. This primitive's Step-1 lookup does not, which is precisely why
+   * `cleanup.ts` and `cancel.ts` historically bypassed it and called
+   * `executeTransition` directly — the bypass DR-7 closes.
+   *
+   * Opt-in rather than unconditional so the `exarchos_workflow transition`
+   * path stays byte-identical: `workflow.set({ phase: 'cancelled' })` must
+   * keep returning `no-transition-defined` instead of silently gaining the
+   * ability to cancel a workflow without going through `handleCancel`. Only
+   * the cleanup and cancel handlers set it, and they are the only two callers
+   * that mutate a phase onto a universal final state.
+   */
+  readonly allowUniversalFinalTransition?: boolean;
+  /**
+   * DR-10 (T-15) — the workflow state as it was BEFORE this call's field
+   * updates were applied.
+   *
+   * `handleSet` applies `updates` to a clone and then evaluates the transition
+   * against that POST-update copy (so phase guards see the new state). For the
+   * danger coordinate that ordering is unsound: a call shaped
+   * `{ phase: 'review', updates: { riskTier: 'low' } }` would evaluate — and
+   * FREEZE — the transition at a tier the workflow did not have when the call
+   * began, i.e. a same-call stamp could weaken the very transition it
+   * accompanies.
+   *
+   * Supplying the pre-update state lets the primitive floor the coordinate
+   * monotonically: the stamp still lands and governs every later call, it just
+   * cannot lower the bar it is currently being measured against. OPTIONAL and
+   * defaulted-off — omitting it reproduces the previous behaviour exactly (no
+   * floor is applied), so pure-evaluation callers are unaffected.
+   */
+  readonly priorState?: Record<string, unknown> | undefined;
 }
 
 export type TransitionResult =
@@ -398,6 +474,146 @@ function resolveHSM(
  *     mid-loop throw can leave a partial trail. Stronger atomicity
  *     arrives in #1259's substrate refactor.
  */
+/**
+ * P07-01/P07-02 — fire the non-invasive shadow observer, if one is present, for
+ * a single legacy transition outcome. Centralised so EVERY authoritative legacy
+ * decision site (the composite HSM walk AND the custom-guard early-return deny
+ * paths) surfaces to the observer through one error-isolated seam. Passive: it
+ * only reads the already-computed outcome, never alters it, and a throw from the
+ * observer is swallowed so a shadow failure can never propagate into the
+ * production transition path. A no-op when no observer is wired (production
+ * default), so behaviour is byte-identical.
+ *
+ * DR-23 / T-31: `context.eventStore` is forwarded so the observer can make its
+ * evidence DURABLE. This is the whole production wiring of the durable shadow
+ * substrate — if this argument stops being forwarded, the registered
+ * `admission.shadow-attempt` / `admission.disagreement-disposition` facts stop
+ * being written, and `live-shadow-observer.test.ts` fails.
+ */
+function notifyShadowObserver(
+  context: GuardContext,
+  observation: LegacyTransitionObservation,
+): void {
+  if (!context.shadowObserver) return;
+  try {
+    context.shadowObserver(observation, context.eventStore);
+  } catch {
+    // Intentionally swallowed — shadow observation is never authoritative.
+  }
+}
+
+/**
+ * DR-7 — is `targetPhase` one of the HSM's UNIVERSAL final-state edges?
+ *
+ * Mirrors `executeTransition`'s own `isCancel` / `isCleanup` predicates
+ * (state-machine.ts) exactly, so the primitive admits precisely the edge set
+ * the HSM walk can actually resolve without an explicit `findTransition` hit.
+ * Duplicating the predicate rather than exporting it keeps the walk's contract
+ * the single authority on what those edges MEAN; this only decides whether the
+ * Step-1 lookup may be skipped.
+ */
+function isUniversalFinalTarget(hsm: HSMDefinition, targetPhase: string): boolean {
+  return (
+    (targetPhase === 'cancelled' || targetPhase === 'completed') &&
+    hsm.states[targetPhase]?.type === 'final'
+  );
+}
+
+// ─── DR-10 (T-15): the monotone obligation floor ─────────────────────────────
+//
+// Two sources may hold a stronger claim about this transition than the
+// post-update state the walk is about to be evaluated against:
+//
+//   1. the PRE-update state — the claim in force when the call began, which a
+//      same-call `updates: { riskTier: … }` must not be able to lower;
+//   2. the `phase.entered` record a PRIOR attempt at this SAME phase froze —
+//      the authority a later attempt is supposed to read back rather than
+//      re-resolve from whatever state says now.
+//
+// Both are passed to `executeTransition` as a floor, never written back onto
+// the state: the floor raises the OBLIGATION for this transition only. It is
+// deliberately NOT ratcheted across phases — pinning a coordinate feature-wide
+// would make one untiered transition permanently escalate every later one.
+
+/** The `(risk, boundary)` claim a state object carries, or `null` if it makes none. */
+function statedCoordinate(
+  state: Record<string, unknown> | undefined,
+): DangerCoordinate | null {
+  if (state === undefined) return null;
+  if (state.riskTier === undefined && state.boundaryTouching === undefined) return null;
+  return resolveDangerCoordinate({
+    risk: state.riskTier,
+    boundary: state.boundaryTouching,
+  });
+}
+
+/**
+ * Read the obligation a prior `phase.entered` froze for THIS target phase.
+ *
+ * This is the literal "read the frozen record back as authority" step: both the
+ * coordinate and the gate sequence come off the durable log, never from a
+ * re-resolution of current state. The most recent matching record wins (it is
+ * itself the join of everything before it). Pre-T-15 records carry no
+ * coordinate and contribute only their gates; an unreadable gate list
+ * contributes no gates at all (fail-closed — see `readFrozenGateSequence`).
+ */
+async function readFrozenFloorForPhase(
+  eventStore: EventStore,
+  featureId: string,
+  targetPhase: string,
+): Promise<TransitionObligationFloor | null> {
+  const entered = await eventStore.query(featureId, {
+    type: 'phase.entered' as EventType,
+  });
+  let latest: Record<string, unknown> | null = null;
+  for (const event of entered) {
+    const data = event.data as Record<string, unknown> | undefined;
+    if (data === undefined) continue;
+    if (data.phase !== targetPhase) continue;
+    latest = data;
+  }
+  if (latest === null) return null;
+  const coordinate =
+    latest.riskTier === undefined && latest.boundaryTouching === undefined
+      ? null
+      : resolveDangerCoordinate({
+          risk: latest.riskTier,
+          boundary: latest.boundaryTouching,
+        });
+  const gates = Array.isArray(latest.resolvedGates)
+    ? readFrozenGateSequence(latest.resolvedGates)
+    : null;
+  if (coordinate === null && (gates === null || gates.length === 0)) return null;
+  return {
+    ...(coordinate !== null ? { coordinates: [coordinate] } : {}),
+    ...(gates !== null && gates.length > 0 ? { gates } : {}),
+  };
+}
+
+/** Merge floor contributions; both members are pure lower bounds, so union. */
+function mergeFloors(
+  parts: readonly (TransitionObligationFloor | null)[],
+): TransitionObligationFloor | undefined {
+  const coordinates: DangerCoordinate[] = [];
+  const gates: ResolvedGate[] = [];
+  const seen = new Set<string>();
+  for (const part of parts) {
+    if (part === null) continue;
+    coordinates.push(...(part.coordinates ?? []));
+    for (const gate of part.gates ?? []) {
+      const key = `${gate.family}\u0000${gate.gate}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      gates.push(gate);
+    }
+  }
+  if (coordinates.length === 0 && gates.length === 0) return undefined;
+  return {
+    ...(coordinates.length > 0 ? { coordinates } : {}),
+    ...(gates.length > 0 ? { gates } : {}),
+  };
+}
+
 export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
   async attempt(
     featureId: string,
@@ -432,7 +648,15 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
 
     // ─── Step 1: Lookup transition ────────────────────────────────────
     const transition = findTransition(hsm, currentPhase, targetPhase);
-    if (!transition) {
+    // DR-7 — the universal `cancelled` / `completed` edges carry no explicit
+    // definition; the HSM walk resolves them itself. Opt-in callers (cleanup /
+    // cancel) skip the Step-1 short-circuit so their phase mutation runs
+    // through THIS primitive instead of calling `executeTransition` directly.
+    const universalFinal =
+      transition === undefined &&
+      context.allowUniversalFinalTransition === true &&
+      isUniversalFinalTarget(hsm, targetPhase);
+    if (!transition && !universalFinal) {
       // No definition for this target. The HSM is the source of truth on
       // valid edges — surface `no-transition-defined` so the caller can
       // surface a structured error. We do NOT emit any event here: this
@@ -455,7 +679,7 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
     // are async (shell-out) and registered via the project config; if
     // present, they must pass before the HSM walk runs. A failed custom
     // guard emits `workflow.guard-failed` and returns immediately.
-    if (transition.guard) {
+    if (transition?.guard) {
       const registeredGuard = getRegisteredGuard(
         `${context.workflowType}:${transition.guard.id}`,
       );
@@ -470,6 +694,16 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
             context,
           );
           const message = `Custom guard '${transition.guard.id}' failed: ${customResult.error ?? 'command exited non-zero'}`;
+          // P07-02: extend the shadow seam to the custom-guard early-return deny
+          // path — the legacy decision here is an authoritative `deny`, so the
+          // observer must see it for coverage parity with the composite walk.
+          notifyShadowObserver(context, {
+            workflowType: context.workflowType,
+            fromPhase: currentPhase,
+            toPhase: targetPhase,
+            legacyOutcome: 'deny',
+            idempotent: false,
+          });
           return {
             ok: false,
             reason: 'guard-failed',
@@ -494,6 +728,16 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
         // configuration error, not a runtime guard failure, and
         // matches the pre-refactor `handleSet` behavior at #1225's
         // closure point.
+        // P07-02: extend the shadow seam to the unregistered-custom-guard
+        // fail-closed deny path as well (documented out-of-scope seam) — the
+        // legacy decision is an authoritative `deny`.
+        notifyShadowObserver(context, {
+          workflowType: context.workflowType,
+          fromPhase: currentPhase,
+          toPhase: targetPhase,
+          legacyOutcome: 'deny',
+          idempotent: false,
+        });
         return {
           ok: false,
           reason: 'guard-failed',
@@ -511,14 +755,59 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
     }
 
     // ─── Step 3: Synchronous HSM walk (composite guard) ───────────────
+    // DR-10 (T-15): the walk resolves AND freezes the phase obligation, so the
+    // floor must be assembled BEFORE it runs — from the pre-update claim this
+    // call may be trying to lower, and from the `phase.entered` an earlier
+    // attempt at this same phase already froze. There is still exactly one
+    // resolution per attempt; the frozen record is its lower bound rather than
+    // its competitor.
+    const priorCoordinate = statedCoordinate(context.priorState);
+    const floor = mergeFloors([
+      priorCoordinate === null ? null : { coordinates: [priorCoordinate] },
+      context.eventStore === null
+        ? null
+        : await readFrozenFloorForPhase(context.eventStore, featureId, targetPhase),
+    ]);
     const result = executeTransition(
       hsm,
       context.state,
       targetPhase,
       context.resolveGatesFn,
+      floor,
     );
 
+    // ─── P07-01: non-invasive shadow observation (Transition tasks 027/051) ──
+    // Surface the AUTHORITATIVE legacy allow/deny to an injected observer for
+    // side-by-side shadow comparison. Passive and error-isolated: it reads the
+    // already-computed `result`, cannot alter it, and can never throw into this
+    // path. Absent in every production caller, so behaviour is unchanged.
+    notifyShadowObserver(context, {
+      workflowType: context.workflowType,
+      fromPhase: currentPhase,
+      toPhase: targetPhase,
+      legacyOutcome: result.success ? 'allow' : 'deny',
+      idempotent: result.idempotent,
+    });
+
     if (!result.success) {
+      // DR-7 — on the universal-final path the walk itself owns the
+      // route-legality verdict: if `mergeVerified` does not hold there may
+      // still be no legal edge to `completed`, and `executeTransition`
+      // reports that as INVALID_TRANSITION. Surface it as
+      // `no-transition-defined` so the caller sees the same structured shape
+      // (and the same `validTargets`) the Step-1 short-circuit produces,
+      // rather than a guard failure for an edge that does not exist.
+      if (universalFinal && result.errorCode === 'INVALID_TRANSITION') {
+        return {
+          ok: false,
+          reason: 'no-transition-defined',
+          validTargets: result.validTargets ?? getValidTransitions(hsm, currentPhase),
+          errorCode: 'INVALID_TRANSITION',
+          errorMessage:
+            result.errorMessage ??
+            `No transition from '${currentPhase}' to '${targetPhase}'`,
+        };
+      }
       // Emit any diagnostic events `executeTransition` produced
       // (typically a single `guard-failed`, possibly `circuit-open`).
       // We deliberately do NOT also append a `workflow.transition` —
@@ -532,7 +821,7 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
           // `guard-failed` carries the offending guard id) so a schema-invalid
           // payload can never be laundered onto the log via the legacy path.
           const data = buildHsmEventData(evt, featureId, {
-            ...(transition.guard ? { guardId: transition.guard.id } : {}),
+            ...(transition?.guard ? { guardId: transition.guard.id } : {}),
           });
           const validatedEvent = buildValidatedEvent(featureId, 1, {
             type: mapInternalToExternalType(evt.type) as EventType,
@@ -573,7 +862,7 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
         ok: false,
         reason: 'guard-failed',
         failures: guardFailures,
-        guardId: transition.guard?.id ?? 'unknown',
+        guardId: transition?.guard?.id ?? 'unknown',
         errorCode,
         errorMessage:
           result.errorMessage ?? `Transition failed to '${targetPhase}'`,
@@ -614,7 +903,7 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
             ? await nextPlanRevisionOrdinal(context.eventStore, featureId)
             : undefined;
         const data = buildHsmEventData(evt, featureId, {
-          ...(transition.guard ? { guardId: transition.guard.id } : {}),
+          ...(transition?.guard ? { guardId: transition.guard.id } : {}),
           ...(fixCycleOrdinal !== undefined ? { fixCycleOrdinal } : {}),
           ...(planRevisionOrdinal !== undefined ? { planRevisionOrdinal } : {}),
         });

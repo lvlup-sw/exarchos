@@ -2,6 +2,11 @@ import { NextAction } from './next-action.js';
 import type { HSMDefinition } from './workflow/state-machine.js';
 import { EXCLUDED_MERGE_PHASES } from './workflow/hsm-definitions.js';
 import type { DesignDepth } from './workflow/plan-depth-policy.js';
+import {
+  adjudicateOutboundEdges,
+  defaultTranslationContext,
+  type OutboundEdgeVerdict,
+} from './workflow/admission/legacy-state-translation.js';
 
 // Wave 0 / Task D.8 — safety-semantics consumer contract.
 //
@@ -59,6 +64,87 @@ export interface NextActionsState {
      */
     taskId?: string;
   } | undefined;
+  /**
+   * DR-9 (T-13) — the admission-fact carrier.
+   *
+   * Before this field existed the seam was too narrow for the fix to be
+   * possible at all: `NextActionsState` carried only `phase`, `workflowType`,
+   * `featureId`, `designDepth` and `mergeOrchestrator`, deliberately omitting
+   * `artifacts` / `reviews` / `tasks` / `_cleanup` — i.e. exactly what every
+   * guard and every admission obligation reads. So the computer had nothing to
+   * decide with and fell back to `t.guard.description` prose.
+   *
+   * Supplying this widens the seam without breaking purity: the facts are
+   * PASSED IN, never fetched. When present, {@link computeNextActions} asks the
+   * admission projection for a per-edge verdict and omits any verb admission
+   * would deny. When absent, the computer keeps its pre-DR-9 topology-only
+   * behaviour — an affordance list is advisory, and a caller that supplies no
+   * facts must not have its affordances silently emptied.
+   */
+  admission?: AdmissionFacts | undefined;
+}
+
+/**
+ * The legacy-state slice + trusted instant the admission projection needs to
+ * decide an edge. Deliberately opaque (`Record<string, unknown>`): the closed
+ * fact vocabulary and every state-shape read live in
+ * `workflow/admission/legacy-state-translation.ts`, which is the single
+ * authority for projecting legacy state into admission facts. Re-declaring the
+ * shape here would create a second, driftable copy of that vocabulary.
+ */
+export interface AdmissionFacts {
+  /** The legacy workflow state the admission projection reads its facts from. */
+  readonly state: Readonly<Record<string, unknown>>;
+  /**
+   * Trusted RFC3339 evaluation instant — never `Date.now()`. Callers thread the
+   * state's own `updatedAt` through, which keeps the computer deterministic:
+   * the same state always yields the same affordances.
+   */
+  readonly evaluatedAt: string;
+  /**
+   * Whether `state` still carries its event log (`_events`). Defaults to
+   * `false`, the fail-safe direction — see
+   * {@link adjudicateOutboundEdges}: edges whose decision needs the log are
+   * reported undecidable and keep being advertised rather than being
+   * suppressed on facts the caller never supplied.
+   */
+  readonly eventLogAvailable?: boolean;
+}
+
+/** Hint attached to a published verb whose admission verdict was not `allow`. */
+const ADMISSION_INDETERMINATE_HINT =
+  'admission: indeterminate — the transition guard may still deny this move';
+const ADMISSION_UNDECIDABLE_HINT =
+  'admission: undecidable — this edge is decided from the workflow event log, which this payload does not carry';
+
+/**
+ * DR-9 — ask the admission projection for a verdict per outbound edge.
+ *
+ * Returns `null` when the caller supplied no admission facts (topology-only
+ * mode) or when adjudication is impossible, in which case the computer keeps
+ * its pre-DR-9 behaviour. Adjudication faults fail OPEN for affordances: a
+ * malformed `evaluatedAt` or an IR/state shape the translation rejects must
+ * degrade to "advertise everything the topology allows", never to a silently
+ * empty affordance list that would strand the caller.
+ */
+function admissionVerdicts(
+  state: NextActionsState,
+  phase: string,
+): ReadonlyMap<string, OutboundEdgeVerdict> | null {
+  const admission = state.admission;
+  const workflowType = state.workflowType;
+  if (admission === undefined || !workflowType) return null;
+  try {
+    return adjudicateOutboundEdges(
+      workflowType,
+      phase,
+      admission.state,
+      defaultTranslationContext(admission.evaluatedAt),
+      { eventLogAvailable: admission.eventLogAvailable ?? false },
+    );
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -78,6 +164,14 @@ export interface NextActionsState {
  * Unlike the HSM-derived verbs above, `merge_orchestrate` is an
  * *action* verb, not a phase name.
  *
+ * DR-9 (T-13): when `state.admission` carries the fact slice, each HSM-derived
+ * verb is checked against the ADMISSION verdict for that edge and dropped when
+ * admission would deny it — the runtime no longer advertises moves the
+ * transition guard will refuse. Topology and admission remain two distinct
+ * authorities: the topology decides which edges EXIST, admission decides which
+ * are currently TAKEABLE, and `next-actions-computer.test.ts` cross-checks the
+ * published set against the admission verdict computed independently.
+ *
  * No I/O, no side effects. Returns `[]` for unknown/missing phase.
  */
 export function computeNextActions(
@@ -91,6 +185,7 @@ export function computeNextActions(
   if (!currentState) return [];
   if (currentState.type === 'final') return [];
 
+  const verdicts = admissionVerdicts(state, phase);
   const seen = new Set<string>();
   const actions: NextAction[] = [];
 
@@ -98,6 +193,12 @@ export function computeNextActions(
     if (t.from !== phase) continue;
     if (seen.has(t.to)) continue;
     seen.add(t.to);
+
+    // DR-9: an edge admission would DENY is not an affordance. An edge with no
+    // shared-IR entry yields `undefined` — no admission opinion, so the verb is
+    // published exactly as before.
+    const verdict = verdicts?.get(t.to);
+    if (verdict?.verdict === 'deny') continue;
 
     const reason = t.guard
       ? t.guard.description
@@ -107,6 +208,13 @@ export function computeNextActions(
       verb: t.to,
       reason,
       validTargets: [t.to],
+      ...(verdict !== undefined && verdict.verdict !== 'allow'
+        ? {
+            hint: verdict.undecidable
+              ? ADMISSION_UNDECIDABLE_HINT
+              : ADMISSION_INDETERMINATE_HINT,
+          }
+        : {}),
     };
 
     // Defensive: validate every produced NextAction against the Zod schema

@@ -96,9 +96,13 @@ describe('runStaticAnalysis', () => {
     });
 
     it('output shows PASS markers for passing checks', () => {
+      // T-09 / DR-6: `quality-check` must be declared too — an undeclared
+      // constituent SKIPs, and a skipped constituent degrades the aggregate
+      // off PASS. This test is about the PASS markers, so declare all three.
       const repoRoot = createPackageJson({
         lint: 'eslint .',
         typecheck: 'tsc --noEmit',
+        'quality-check': 'echo quality',
       });
 
       const result = runStaticAnalysis({
@@ -207,6 +211,7 @@ describe('runStaticAnalysis', () => {
       const repoRoot = createPackageJson({
         lint: 'eslint .',
         typecheck: 'tsc --noEmit',
+        'quality-check': 'echo quality',
       });
 
       const runner = failingRunner({
@@ -219,8 +224,14 @@ describe('runStaticAnalysis', () => {
         runCommand: runner,
       });
 
-      expect(result.status).toBe('pass');
+      // T-09 / DR-6 (behavior change): this asserted `status === 'pass'`.
+      // A `--skip-lint` flag means the lint check DID NOT RUN, and a check
+      // that never ran is not evidence that it would have passed. The
+      // aggregate is now DEGRADED/inconclusive, never PASS.
+      expect(result.status).toBe('skip');
+      expect(result.skipReason).toBe('constituent-skipped');
       expect(result.output).toContain('SKIP');
+      expect(result.output).not.toContain('Result: PASS');
       // Lint should not have been invoked
       const calls = (runner as ReturnType<typeof vi.fn>).mock.calls;
       const lintCalled = calls.some(
@@ -251,7 +262,7 @@ describe('runStaticAnalysis', () => {
   // ============================================================
 
   describe('missing npm scripts', () => {
-    it('missing script in package.json skips that check', () => {
+    it('missing script in package.json degrades the aggregate (DR-6)', () => {
       const repoRoot = createPackageJson({
         lint: 'eslint .',
         // no typecheck, no quality-check
@@ -262,11 +273,19 @@ describe('runStaticAnalysis', () => {
         runCommand: successRunner(),
       });
 
-      expect(result.status).toBe('pass');
+      // T-09 / DR-6 (behavior change): this asserted `status === 'pass'`.
+      // The missing scripts still SKIP the individual checks (they are not
+      // failures), but the DIMENSION can no longer render as a clean pass off
+      // the one check that actually ran.
+      expect(result.status).toBe('skip');
+      expect(result.skipReason).toBe('constituent-skipped');
+      expect(result.skipCount).toBe(2);
       expect(result.output).toContain('SKIP');
+      expect(result.output).toContain('Result: DEGRADED');
+      expect(result.output).not.toContain('Result: PASS');
     });
 
-    it('package.json with only lint still passes when lint passes', () => {
+    it('package.json with only lint cannot reach PASS on its own (DR-6)', () => {
       const repoRoot = createPackageJson({
         lint: 'eslint .',
       });
@@ -276,7 +295,31 @@ describe('runStaticAnalysis', () => {
         runCommand: successRunner(),
       });
 
+      // T-09 / DR-6 (behavior change): this asserted `status === 'pass'`.
+      expect(result.status).not.toBe('pass');
+      expect(result.status).toBe('skip');
+      expect(result.passCount).toBe(1);
+      expect(result.failCount).toBe(0);
+      expect(result.skipCount).toBe(2);
+    });
+
+    it('every declared script running clean still reaches PASS', () => {
+      // Positive control for the two DR-6 assertions above: PASS is reachable
+      // — it is the SKIP, not the new tally, that degrades the aggregate.
+      const repoRoot = createPackageJson({
+        lint: 'eslint .',
+        typecheck: 'tsc --noEmit',
+        'quality-check': 'echo quality',
+      });
+
+      const result = runStaticAnalysis({
+        repoRoot,
+        runCommand: successRunner(),
+      });
+
       expect(result.status).toBe('pass');
+      expect(result.skipCount).toBe(0);
+      expect(result.output).toContain('Result: PASS');
     });
   });
 
@@ -286,9 +329,12 @@ describe('runStaticAnalysis', () => {
 
   describe('warnings only', () => {
     it('warnings with exit 0 still passes', () => {
+      // All three constituents declared so the only variable under test is the
+      // warning output (T-09 / DR-6: an undeclared script would SKIP → degrade).
       const repoRoot = createPackageJson({
         lint: 'eslint .',
         typecheck: 'tsc --noEmit',
+        'quality-check': 'echo quality',
       });
 
       const runner = vi.fn(() => ({

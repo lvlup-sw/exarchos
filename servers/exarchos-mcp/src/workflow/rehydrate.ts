@@ -51,6 +51,11 @@ import { composePhasePlaybook } from './playbooks.js';
 import { readStateFile } from './state-store.js';
 import { buildValidatedEvent } from '../event-store/event-factory.js';
 import { PROJECTION_LAG_THRESHOLD_MS } from '../projections/index.js';
+import {
+  PROJECTION_DEGRADED_META,
+  toProjectionDegradedMeta,
+} from '../projections/freshness.js';
+import { planRehydrationSource } from './rehydrate-precedence.js';
 
 /**
  * Artifact layout of a resuming workflow (DR-9, #1581 task 020).
@@ -508,7 +513,36 @@ export async function handleRehydrate(
     );
   }
 
-  const sinceSequence = snapshot?.sequence ?? 0;
+  // P04-06 (EFF-004) — deterministic fallback precedence. Read the durable
+  // event tail (a cheap MAX(sequence)) so we can decide whether the recovered
+  // snapshot may be trusted, per `REHYDRATION_SOURCE_PRECEDENCE`. A snapshot
+  // whose cursor sits PAST the tail (projection-ahead — a snapshot restored over
+  // a pruned/rebuilt store) must never be served silently: `planRehydrationSource`
+  // routes it to a full replay from the authoritative log and flags the result
+  // degraded. A snapshot that merely lags the tail is folded forward. If the
+  // backend cannot answer `tailSequence` we degrade the CHECK (not the read) to
+  // the historical warm-cache behaviour rather than fabricate a signal.
+  let eventTail: number | undefined;
+  try {
+    eventTail =
+      typeof eventStore.tailSequence === 'function'
+        ? await eventStore.tailSequence(featureId)
+        : undefined;
+  } catch {
+    eventTail = undefined;
+  }
+
+  const plan = planRehydrationSource({
+    hasSnapshot: snapshot !== undefined,
+    snapshotCursor: snapshot?.sequence ?? 0,
+    eventTail,
+    viewName: REHYDRATION_PROJECTION_ID,
+  });
+
+  // `sinceSequence` follows the plan: the snapshot cursor when the snapshot is
+  // trusted as a baseline (fresh or behind), else 0 — a cold fold or a full
+  // replay after a contradictory snapshot was discarded.
+  const sinceSequence = plan.sinceSequence;
   // T056 (DR-18) — event-stream-unavailable degradation. The catch here is
   // scoped strictly around the tail query. If the event store is offline
   // (connection refused, backing file unreadable, transient IO), we have no
@@ -543,8 +577,14 @@ export async function handleRehydrate(
   // envelope shape. Cold-start (no snapshot) seeds from the reducer's v:4
   // initial directly. Reducer.apply preserves v:4 by contract; the cast
   // below pins that for the local variable.
+  //
+  // P04-06 (EFF-004): only seed from the snapshot when the plan trusts it
+  // (`seedFromSnapshot`). When the snapshot contradicted the durable tail
+  // (projection-ahead) the plan sets `seedFromSnapshot: false` and
+  // `sinceSequence: 0`, so we discard the snapshot state and re-fold the whole
+  // stream from the authoritative log — never serving the stale projection.
   let document: RehydrationDocumentV4 =
-    snapshot !== undefined
+    plan.seedFromSnapshot && snapshot !== undefined
       ? loadRehydrationDocument(snapshot.state)
       : (rehydrationReducer.initial as RehydrationDocumentV4);
 
@@ -552,9 +592,13 @@ export async function handleRehydrate(
   // surface `projectionAsOf` on the response (#1359 / PR4 T14) and
   // `_meta.projectionLag` when stale (T15). Snapshot.timestamp is the
   // most-recent-event-baked-into-the-snapshot timestamp; tail events
-  // overwrite it on every successful fold.
+  // overwrite it on every successful fold. A discarded (projection-ahead)
+  // snapshot contributes no baseline timestamp — `projectionAsOf` is then
+  // driven purely by the re-folded events.
   let projectionAsOf: string | undefined =
-    snapshot !== undefined && typeof snapshot.timestamp === 'string'
+    plan.seedFromSnapshot &&
+    snapshot !== undefined &&
+    typeof snapshot.timestamp === 'string'
       ? snapshot.timestamp
       : undefined;
 
@@ -707,6 +751,12 @@ export async function handleRehydrate(
   const meta: Record<string, unknown> = {
     workflowExists: !streamIsEmpty,
     artifactLayout: classifyArtifactLayout(document.artifacts),
+    // P04-06 (EFF-004) — surface the source the deterministic precedence chose
+    // (`event-fold` / `summary-snapshot`) so callers can see WHICH authoritative
+    // surface answered, not just that the read succeeded. Makes the declared
+    // precedence observable at the envelope boundary, not just in the pure
+    // planner. Forwarded verbatim by envelopeWrap alongside `workflowExists`.
+    rehydrationSource: plan.source,
   };
   if (projectionAsOf !== undefined) {
     meta.projectionAsOf = projectionAsOf;
@@ -716,6 +766,21 @@ export async function handleRehydrate(
       if (lag > PROJECTION_LAG_THRESHOLD_MS) {
         meta.projectionLag = lag;
       }
+    }
+  }
+
+  // P04-06 (EFF-004) — when the cached snapshot CONTRADICTED the durable event
+  // tail (projection-ahead), the plan discarded it and re-folded from the
+  // authoritative log above. The returned `document` is therefore event-derived
+  // and trustworthy, but the CACHE was stale/contradictory, so we stamp the
+  // P01-02 freshness verdict on `_meta.projectionDegraded` — the SAME durable
+  // degradation signal the view surface uses (see `views/composite.ts`) — rather
+  // than inventing a second one. This guarantees a contradictory projection is
+  // never silently trusted: the answer is authoritative AND explicitly flagged.
+  if (plan.degraded && plan.freshness !== undefined) {
+    const degradedMeta = toProjectionDegradedMeta(plan.freshness);
+    if (degradedMeta !== undefined) {
+      meta[PROJECTION_DEGRADED_META] = degradedMeta;
     }
   }
 

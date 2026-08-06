@@ -28,8 +28,9 @@ When a task is high-tier (or you have chosen to write a test for a medium-tier b
 2. A test that still passes against the reverted source is vacuous — strengthen it
 
 ### Integration coverage (high tier)
-1. The `check_integration_suite` rung exercises real collaborators across the seam
-2. Refactor freely while the suite stays green
+1. Real-collaborator coverage across the seam belongs in the task's own scoped tests — write them at the layer the seam lives at
+2. Refactor freely while those tests stay green
+3. The cumulative `check_integration_suite` gate is **not** yours to run: it is a wave-boundary backstop owned by the lead and runs once, after the wave's merges land
 
 ## Conventions
 

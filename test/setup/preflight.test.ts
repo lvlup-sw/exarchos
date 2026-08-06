@@ -2,11 +2,24 @@ import { describe, it, expect } from 'vitest';
 import crypto from 'node:crypto';
 import { assertExarchosOnPath, assertExarchosVersion } from './preflight.js';
 
+/**
+ * Budget for the tests that really spawn `where`/`which` via `execFileSync`.
+ *
+ * Vitest's 5s default is a poor fit here: the call is SYNCHRONOUS, so vitest
+ * cannot interrupt it — it can only report the overrun once the spawn returns.
+ * On a loaded Windows runner (`where.exe` under a cold PATH scan, with an
+ * antivirus filter in the open path) a single lookup has been observed past
+ * that default, which reds the lane for a reason unrelated to what these tests
+ * assert. The budget is generous because it exists to absorb host latency, not
+ * to bound the assertion.
+ */
+const PATH_LOOKUP_TIMEOUT_MS = 30_000;
+
 describe('assertExarchosOnPath', () => {
   it('AssertExarchosOnPath_BinaryResolvable_DoesNotThrow', () => {
     // `node` is guaranteed to be on PATH since vitest itself runs on node.
     expect(() => assertExarchosOnPath('node')).not.toThrow();
-  });
+  }, PATH_LOOKUP_TIMEOUT_MS);
 
   it('AssertExarchosOnPath_BinaryMissing_ThrowsActionableError', () => {
     const sentinel = 'exarchos-definitely-not-real-' + crypto.randomUUID();
@@ -22,7 +35,7 @@ describe('assertExarchosOnPath', () => {
     expect(message).toContain('not found on PATH');
     // Must name a v2.10 install remediation verbatim.
     expect(message).toMatch(/npm link|get-exarchos\.sh/);
-  });
+  }, PATH_LOOKUP_TIMEOUT_MS);
 
   it('AssertExarchosOnPath_CustomCommand_UsesOverride', () => {
     // Passing a custom command exercises the override path. A known-good
@@ -34,7 +47,7 @@ describe('assertExarchosOnPath', () => {
     expect(() => assertExarchosOnPath(sentinel)).toThrowError(
       new RegExp(sentinel),
     );
-  });
+  }, PATH_LOOKUP_TIMEOUT_MS);
 
   it('assertExarchosOnPath_missingBinary_throwsActionableError', () => {
     // Empty PATH guarantees no binary (including `exarchos`) resolves.
@@ -54,7 +67,7 @@ describe('assertExarchosOnPath', () => {
     } finally {
       process.env.PATH = savedPath;
     }
-  });
+  }, PATH_LOOKUP_TIMEOUT_MS);
 });
 
 describe('assertExarchosVersion', () => {

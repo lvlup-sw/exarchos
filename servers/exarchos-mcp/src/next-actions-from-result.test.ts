@@ -521,3 +521,100 @@ describe('nextActionsFromResult — #1374 cross-boundary pin (reducer ⇒ reader
     expect(actions.some((a) => a.verb === 'merge_orchestrate')).toBe(false);
   });
 });
+
+// ─── DR-9 (T-13): the widened envelope actually carries the admission facts ──
+//
+// The computer-side gate is only worth anything if the SHIPPED envelope path
+// supplies the facts. These tests pin that seam end-to-end: a full-state
+// handler payload gets gated, and the three payload shapes that are NOT a full
+// state (field projection, phase receipt, rehydration document) keep their
+// pre-DR-9 topology-only behaviour rather than being silently emptied.
+describe('nextActionsFromResult — admission-fact widening (DR-9, T-13)', () => {
+  const fullState = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
+    version: '1.1',
+    featureId: 'feat-dr9',
+    phase: 'plan-review',
+    workflowType: 'feature',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    artifacts: { plan: 'docs/specs/dr9.md' },
+    tasks: [],
+    worktrees: {},
+    reviews: {},
+    integration: null,
+    synthesis: {},
+    planReview: { approved: false, gapsFound: false, revisionCount: 0 },
+    ...over,
+  });
+
+  it('NextActionsFromResult_FullStatePayload_GatesOnAdmission', () => {
+    // Unapproved plan review ⇒ admission denies `plan-review → delegate`, so
+    // the shipped envelope must not advertise it.
+    const denied = nextActionsFromResult(ok(fullState())).map((a) => a.verb);
+    expect(denied).not.toContain('delegate');
+
+    // Non-vacuity: the same payload with the approval present publishes it.
+    const allowed = nextActionsFromResult(
+      ok(fullState({ planReview: { approved: true, gapsFound: false, revisionCount: 0 } })),
+    ).map((a) => a.verb);
+    expect(allowed).toContain('delegate');
+  });
+
+  it('NextActionsFromResult_FieldProjection_IsNotTreatedAsAdmissionFacts', () => {
+    // `get` with `fields:['phase','workflowType']` is a deliberately narrowed
+    // read, not a state whose artifacts are genuinely absent. Gating on it
+    // would empty the affordance list on every projected read.
+    const verbs = nextActionsFromResult(
+      ok({ phase: 'plan-review', workflowType: 'feature' }),
+    ).map((a) => a.verb);
+    expect(verbs).toContain('delegate');
+  });
+
+  it('NextActionsFromResult_PartialStateMarkers_IsNotTreatedAsAdmissionFacts', () => {
+    // All four marker keys are required. A payload carrying only some of them
+    // (here: no `reviews`) is still a projection, not a full state.
+    const { reviews: _reviews, ...withoutReviews } = fullState();
+    const verbs = nextActionsFromResult(ok(withoutReviews)).map((a) => a.verb);
+    expect(verbs).toContain('delegate');
+  });
+
+  it('NextActionsFromResult_RehydrationDocument_StaysTopologyOnly', () => {
+    // Recorded split: the rehydration envelope does not carry `reviews` /
+    // `_cleanup` / the event log, so gating it would hide legal moves.
+    const verbs = nextActionsFromResult(
+      ok({
+        workflowState: {
+          featureId: 'feat-dr9',
+          phase: 'plan-review',
+          workflowType: 'feature',
+        },
+        artifacts: { plan: 'docs/specs/dr9.md' },
+        taskProgress: [],
+      }),
+    ).map((a) => a.verb);
+    expect(verbs).toContain('delegate');
+  });
+
+  it('NextActionsFromResult_WidenedKeys_DoNotFailTheShapeParse', () => {
+    // The widened keys are declared `unknown` so a state-schema evolution (or a
+    // null-valued segment) can never turn a usable payload into a "malformed
+    // result.data" warning + empty envelope.
+    const warn = vi.spyOn(nextActionsLogger, 'warn').mockImplementation(() => undefined);
+    try {
+      const verbs = nextActionsFromResult(
+        ok({
+          phase: 'plan-review',
+          workflowType: 'feature',
+          updatedAt: null,
+          artifacts: null,
+          tasks: 'not-an-array',
+          reviews: 42,
+        }),
+      ).map((a) => a.verb);
+      expect(verbs).toContain('delegate');
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});

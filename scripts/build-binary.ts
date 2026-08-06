@@ -26,9 +26,27 @@
  *   bun run scripts/build-binary.ts                         # host-only (default)
  *   bun run scripts/build-binary.ts --all                   # all cross-compile targets
  *   bun run scripts/build-binary.ts --target linux-x64      # single target by os-arch name
+ *   bun run scripts/build-binary.ts --outdir /tmp/x         # emit elsewhere than dist/bin
  *
  * The `--target <os-arch>` form is used by the CI binary-matrix job so
- * each runner builds exactly one artifact.
+ * each runner builds exactly one artifact. `--outdir` exists so a test can
+ * build a real artifact into a scratch directory without racing the
+ * canonical `dist/bin` output that other suites read.
+ *
+ * ── Embedded source + contract identity (DR-20) ─────────────────────────
+ * Every artifact carries, IN ITS OWN BYTES, the git commit + source-tree
+ * digest it was built from and the P03-01 frozen contract-authority digest
+ * it was built against. The record is rendered by
+ * `scripts/build-release-manifest.ts:buildIdentityBanner` and injected with
+ * `bun build --banner`, which prepends it to the bundled JS *after*
+ * minification — so the bytes survive verbatim into the compiled executable
+ * and are recoverable with `extractEmbeddedBuildIdentity(<artifact bytes>)`.
+ *
+ * The SAME collectors produce the signed release manifest, so the manifest's
+ * `source`/`contract` and the binary's embedded `source`/`contract` are
+ * identical by construction — which is exactly what lets an installer reject
+ * a validly-signed manifest that describes a different source or contract
+ * than the binary it is about to install.
  *
  * ── Integration test (task 1.6) ────────────────────────────────────────
  * The artifact produced by this script — specifically the host-target
@@ -42,10 +60,19 @@
  */
 import { $ } from 'bun';
 import { mkdirSync, readFileSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
+import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TARGETS, type Target } from './build-binary-targets.js';
 import { generateEmbeddedRuntimesModule } from './codegen-runtimes.js';
+import {
+  buildIdentityBanner,
+  collectEmbeddedBuildIdentity,
+  renderSourceStateReport,
+  repoRootFromHere,
+} from './build-release-manifest.js';
+
+/** Default output directory for compiled artifacts. */
+export const DEFAULT_OUTDIR = 'dist/bin';
 
 /**
  * Read the canonical version from root `package.json`. Inlined into the
@@ -119,35 +146,73 @@ function codegenEmbeddedRuntimes(): void {
   });
 }
 
-async function buildOne(target: Target): Promise<void> {
+/**
+ * Render the `--banner` payload that stamps source + contract identity into
+ * every compiled artifact (DR-20). Collected ONCE per process and cached: the
+ * collectors shell out to git and digest ~2k tracked source files, and a
+ * `--all` run must produce five artifacts that agree on a single identity
+ * (five separate collections could straddle a mid-build edit and emit
+ * divergent digests).
+ *
+ * The identity also carries `sourceState`, so an artifact compiled from a
+ * modified working tree cannot claim clean-HEAD provenance. That is RECORDED,
+ * never fail-closed — `codegenEmbeddedRuntimes()` above rewrites a tracked
+ * file on every single build, so aborting on a dirty tree would abort every
+ * real release. The state is echoed here so the condition is visible in the
+ * build log and not only in the artifact's bytes.
+ */
+let cachedIdentityBanner: string | undefined;
+function identityBanner(): string {
+  if (cachedIdentityBanner === undefined) {
+    const identity = collectEmbeddedBuildIdentity(repoRootFromHere());
+    for (const line of renderSourceStateReport({
+      state: identity.sourceState,
+      modifiedPaths: identity.modifiedPaths,
+      modifiedCount: identity.modifiedCount,
+    })) {
+      console.log(line);
+    }
+    cachedIdentityBanner = buildIdentityBanner(identity);
+  }
+  return cachedIdentityBanner;
+}
+
+async function buildOne(target: Target, outdir: string = DEFAULT_OUTDIR): Promise<void> {
   // Regenerate the embedded runtimes module before bundling so that
   // the produced binary cannot ship a stale embedded array. See the
   // helper's docstring for the full rationale.
   codegenEmbeddedRuntimes();
 
   const ext = target.os === 'windows' ? '.exe' : '';
-  const outfile = `dist/bin/exarchos-${target.os}-${target.arch}${ext}`;
-  mkdirSync('dist/bin', { recursive: true });
+  const outfile = join(outdir, `exarchos-${target.os}-${target.arch}${ext}`);
+  mkdirSync(outdir, { recursive: true });
 
   // `bun build --compile` produces a single executable that embeds the Bun
   // runtime + the bundled JS graph. --target selects the host-OS bun
   // runtime to embed (for cross-compilation). --define inlines the package
   // version so `--version` works inside the bundled binary (no on-disk
-  // package.json to walk up to).
+  // package.json to walk up to). --banner stamps the DR-20 source/contract
+  // identity into the artifact's bytes.
   const versionDefine = `EXARCHOS_BUILD_VERSION="${readBuildVersion()}"`;
-  await $`bun build servers/exarchos-mcp/src/index.ts --compile --target=${target.bunTarget} --define ${versionDefine} --outfile ${outfile}`;
+  const banner = identityBanner();
+  await $`bun build servers/exarchos-mcp/src/index.ts --compile --target=${target.bunTarget} --define ${versionDefine} --banner ${banner} --outfile ${outfile}`;
 
   console.log(`Built ${outfile}`);
 }
 
-function parseTargetFlag(argv: readonly string[]): string | undefined {
-  // Support both `--target linux-x64` and `--target=linux-x64`.
+function parseFlagValue(argv: readonly string[], flag: string): string | undefined {
+  // Support both `--flag value` and `--flag=value`.
+  const eq = `${flag}=`;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '--target' && i + 1 < argv.length) return argv[i + 1];
-    if (a && a.startsWith('--target=')) return a.slice('--target='.length);
+    if (a === flag && i + 1 < argv.length) return argv[i + 1];
+    if (a && a.startsWith(eq)) return a.slice(eq.length);
   }
   return undefined;
+}
+
+function parseTargetFlag(argv: readonly string[]): string | undefined {
+  return parseFlagValue(argv, '--target');
 }
 
 function findTargetByName(name: string): Target {
@@ -172,25 +237,22 @@ function findTargetByName(name: string): Target {
 // Bun sets `import.meta.main = true` for the script invoked via
 // `bun run <file>`. When this module is imported as a library, the value
 // is `false` (or `undefined` under non-Bun runners like vitest's tsx),
-// so the dispatch below is skipped.
-declare global {
-  // Augment ImportMeta so the bun-only `main` field typechecks under tsc.
-  interface ImportMeta {
-    readonly main?: boolean;
-  }
-}
-
-if (import.meta.main) {
+// so the dispatch below is skipped. The field is declared by `@types/node`
+// (`module.d.ts` → `interface ImportMeta { main: boolean }`), so the local
+// `declare global` augmentation this file used to carry is gone: keeping it
+// now collides with the upstream declaration (TS2687).
+if ((import.meta as ImportMeta & { readonly main?: boolean }).main === true) {
   const wantAll = process.argv.includes('--all');
   const wantTarget = parseTargetFlag(process.argv);
+  const outdir = parseFlagValue(process.argv, '--outdir') ?? DEFAULT_OUTDIR;
 
   if (wantAll) {
     for (const t of TARGETS) {
-      await buildOne(t);
+      await buildOne(t, outdir);
     }
   } else if (wantTarget) {
-    await buildOne(findTargetByName(wantTarget));
+    await buildOne(findTargetByName(wantTarget), outdir);
   } else {
-    await buildOne(getHostTarget());
+    await buildOne(getHostTarget(), outdir);
   }
 }

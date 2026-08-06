@@ -1,8 +1,18 @@
 import type { Guard, GuardResult } from './guards.js';
 import { guards } from './guards.js';
 import { resolveGateSetFailClosed, KIND_OBLIGATIONS } from './phase-kind.js';
-import type { PhaseKind, ResolvedGate, ResolveGateSetCtx } from './phase-kind.js';
-import type { RiskTier } from './verification-policy.js';
+import type {
+  PhaseKind,
+  PhaseObligationOutcome,
+  ResolvedGate,
+  ResolveGateSetCtx,
+} from './phase-kind.js';
+import {
+  dangerBoundaryTouching,
+  joinDangerCoordinates,
+  resolveDangerCoordinate,
+  type DangerCoordinate,
+} from './admission/requirement-context.js';
 import type { DesignDepth } from './plan-depth-policy.js';
 import {
   createFeatureHSM,
@@ -76,6 +86,20 @@ export interface ValidTransitionTarget {
   readonly phase: string;
   readonly guard?: { readonly id: string; readonly description: string };
   readonly universal?: boolean;
+}
+
+/**
+ * DR-10 (T-15): the obligation floor a transition must be resolved AT LEAST at.
+ *
+ * Both members are pure lower bounds — supplying them can only ever add gates,
+ * never remove one — so a caller that supplies nothing gets byte-identical
+ * behaviour to the historical single-coordinate resolve.
+ */
+export interface TransitionObligationFloor {
+  /** Danger coordinates to ALSO resolve at, unioning the results. */
+  readonly coordinates?: readonly DangerCoordinate[];
+  /** Gates a prior freeze for this same phase already recorded. */
+  readonly gates?: readonly ResolvedGate[];
 }
 
 export interface TransitionResult {
@@ -533,8 +557,19 @@ export function executeTransition(
   // injectable so the fail-closed branch is directly testable. The resolve runs
   // non-optionally at this single boundary — no phase can opt out of the PDP.
   resolveGatesFn?: (kind: PhaseKind, ctx: ResolveGateSetCtx) => readonly ResolvedGate[],
+  // DR-10 (T-15): the obligation floor this transition must ALSO be resolved
+  // at. `coordinates` names danger coordinates a same-call update must not be
+  // allowed to lower; `gates` is the sequence a PRIOR freeze for this same
+  // phase already recorded, read back verbatim so a re-resolution can only add
+  // to it. Absent / empty ⇒ resolution is exactly the single-coordinate
+  // resolution it has always been.
+  floor?: TransitionObligationFloor,
 ): TransitionResult {
   const currentPhase = state.phase as string;
+  const phaseAttemptId =
+    typeof state._pendingPhaseAttemptId === 'string'
+      ? state._pendingPhaseAttemptId
+      : undefined;
   const events = (state._events as readonly Record<string, unknown>[]) ?? [];
   const history = (state._history as Record<string, string>) ?? {};
 
@@ -599,6 +634,7 @@ export function executeTransition(
           from: currentPhase,
           to: 'cancelled',
           trigger: 'user-cancel',
+          ...(phaseAttemptId ? { metadata: { phaseAttemptId } } : {}),
         },
       ],
       historyUpdates:
@@ -645,6 +681,7 @@ export function executeTransition(
             from: currentPhase,
             to: 'completed',
             trigger: 'cleanup',
+            ...(phaseAttemptId ? { metadata: { phaseAttemptId } } : {}),
           },
         ],
         historyUpdates:
@@ -819,6 +856,7 @@ export function executeTransition(
       from: currentPhase,
       to: targetPhase,
       trigger: 'execute-transition',
+      ...(phaseAttemptId ? { metadata: { phaseAttemptId } } : {}),
     },
   ];
 
@@ -940,34 +978,92 @@ export function executeTransition(
     // SAME frozen value, so it is never re-resolved to a different depth.
     const resolvedDesignDepth: DesignDepth =
       (state.designDepth as DesignDepth | undefined) ?? 'standard';
-    const obligation = resolveGateSetFailClosed(
-      targetState.kind,
-      {
-        riskTier: (state.riskTier as RiskTier | undefined) ?? 'low',
-        boundaryTouching: Boolean(state.boundaryTouching),
-        workflowType: hsm.id,
-        designDepth: resolvedDesignDepth,
-      },
-      resolveGatesFn,
-    );
-    if (!obligation.ok) {
-      return {
-        success: false,
-        idempotent: false,
-        effects: [],
-        events: [
-          {
-            type: 'phase.blocked',
-            from: currentPhase,
-            to: targetPhase,
-            trigger: 'execute-transition',
-            metadata: { kind: targetState.kind, reason: obligation.reason },
-          },
-        ],
-        errorCode: 'PHASE_BLOCKED',
-        errorMessage: `Gate-set resolution failed for ${targetState.kind} phase '${targetPhase}': ${obligation.reason}`,
-      };
+    // ─── DR-10 (T-15): the THIRD weakest-coordinate collapse ────────────
+    // This boundary used to read `(state.riskTier as RiskTier|undefined) ?? 'low'`
+    // and `Boolean(state.boundaryTouching)` — the same collapse T-14 removed
+    // from the delegation path, but sitting at the FREEZE point, which makes it
+    // strictly worse: the obligation recorded on `phase.entered` (the record a
+    // replay and every later attempt read back as authority) could itself be
+    // minted at the weakest cell of the ladder, on no evidence. Routing through
+    // the canonical resolvers means an absent or malformed stamp resolves to
+    // `'unknown'` / boundary-touching and each downstream resolver applies its
+    // own fail-safe, exactly as `ResolveGateSetCtx.riskTier` was widened for.
+    //
+    // The transition is then resolved at EVERY coordinate the floor names, not
+    // just this one. A same-call `updates: { riskTier: … }` must never lower
+    // the transition it accompanies, and the floor cannot be applied by simply
+    // picking a "stronger" coordinate: the two gate resolvers project an
+    // unknown tier in OPPOSITE directions (the ladder escalates it, the review
+    // roster reads it as no tier claim and emits FEWER dimensions), so no
+    // single coordinate dominates both. The join is therefore taken where it
+    // IS unambiguous — on the resolved obligation. Resolving at each
+    // coordinate and unioning the results is at least as strong as every input
+    // by construction, is idempotent when the coordinates agree (the
+    // overwhelmingly common case, where this costs one extra pure call), and
+    // needs no arithmetic on the tier itself.
+    const stateCoordinate = resolveDangerCoordinate({
+      risk: state.riskTier,
+      boundary: state.boundaryTouching,
+    });
+    const resolutionCoordinates: readonly DangerCoordinate[] = [
+      stateCoordinate,
+      ...(floor?.coordinates ?? []),
+    ];
+    const unioned: ResolvedGate[] = [];
+    const seenGateKeys = new Set<string>();
+    let frozenCoordinate: DangerCoordinate = stateCoordinate;
+    // The gates a PRIOR freeze for this same phase recorded lead the union: the
+    // frozen record is the authority, so its sequence keeps its position and a
+    // re-resolution can only append. This is what survives a policy-table edit
+    // between attempts — re-resolving alone would silently return the NEW
+    // table's answer and call it the frozen one.
+    for (const gate of floor?.gates ?? []) {
+      const key = `${gate.family}\u0000${gate.gate}`;
+      if (seenGateKeys.has(key)) continue;
+      seenGateKeys.add(key);
+      unioned.push(gate);
     }
+    for (const coordinate of resolutionCoordinates) {
+      const resolved = resolveGateSetFailClosed(
+        targetState.kind,
+        {
+          riskTier: coordinate.risk,
+          boundaryTouching: dangerBoundaryTouching(coordinate),
+          workflowType: hsm.id,
+          designDepth: resolvedDesignDepth,
+        },
+        resolveGatesFn,
+      );
+      if (!resolved.ok) {
+        return {
+          success: false,
+          idempotent: false,
+          effects: [],
+          events: [
+            {
+              type: 'phase.blocked',
+              from: currentPhase,
+              to: targetPhase,
+              trigger: 'execute-transition',
+              metadata: { kind: targetState.kind, reason: resolved.reason },
+            },
+          ],
+          errorCode: 'PHASE_BLOCKED',
+          errorMessage: `Gate-set resolution failed for ${targetState.kind} phase '${targetPhase}': ${resolved.reason}`,
+        };
+      }
+      // Order-preserving union: the state's own resolution keeps its sequence
+      // (gate ORDER is evaluation order and must not be re-sorted); a coordinate
+      // that contributes a gate nobody else named appends it.
+      for (const gate of resolved.gates) {
+        const key = `${gate.family}\u0000${gate.gate}`;
+        if (seenGateKeys.has(key)) continue;
+        seenGateKeys.add(key);
+        unioned.push(gate);
+      }
+      frozenCoordinate = joinDangerCoordinates(frozenCoordinate, coordinate);
+    }
+    const obligation: PhaseObligationOutcome = { ok: true, gates: unioned };
     // F3 (#1546): per-phase kinds record their FULL resolved sequence; IMPLEMENT
     // defers its per-task sequences to the wave stamp (the design's two documented
     // resolution granularities), so it records NO phase-level sequence. Emptied
@@ -1000,6 +1096,23 @@ export function executeTransition(
         // kinds, [] for IMPLEMENT (per-task sequences defer to the wave stamp).
         // resolver / posture / mode stay frozen for IMPLEMENT regardless.
         resolvedGates: resolvedGates.map((g) => ({ family: g.family, gate: g.gate })),
+        // ─── DR-10 (T-15): freeze the COORDINATE the gates resolved from ──
+        // Without this the frozen record is not self-describing: IMPLEMENT
+        // defers its sequence to the wave stamp (F3 above), and every kind
+        // whose resolver ignores one axis records a gate list from which the
+        // coordinate cannot be recovered. A later attempt — or a replay — then
+        // has nothing to read back and must RE-RESOLVE from current state,
+        // which is precisely DR-10's defect. Recording the resolved tier and
+        // boundary makes the freeze the authority it claims to be: folding the
+        // log reconstructs the same requirement set the live run observed, and
+        // a later weaker stamp cannot change it. `'unknown'` is carried as a
+        // first-class value — the record says "nobody classified this", never
+        // the fabricated `'low'` the old collapse wrote. When a floor applied,
+        // this is the JOINED coordinate; the recorded `resolvedGates` remain
+        // the union across every coordinate resolved, so the gate list — not a
+        // re-resolution of this coordinate — is the authority on read-back.
+        riskTier: frozenCoordinate.risk,
+        boundaryTouching: dangerBoundaryTouching(frozenCoordinate),
         // DR-14: freeze the kind's POLA posture (trust tier). The capability
         // bundle (capabilities/resolver.ts:mintCapabilitiesForKind) is derived
         // from this — a read-only kind's bundle can never hold fs:write.

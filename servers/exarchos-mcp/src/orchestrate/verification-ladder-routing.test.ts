@@ -42,7 +42,45 @@ vi.mock('./mock-boundary.js', async (importOriginal) => {
 import { EventStore } from '../event-store/store.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { handleOrchestrate } from './composite.js';
+import { gateRunnerObservationSource } from './gate-runner.js';
 import { rmrf } from '../test-helpers/temp-dir.js';
+import {
+  runAsTrustedCaller,
+  seedActivePhaseAttempt,
+  withTrustedCaller,
+} from '../test-helpers/trusted-context.js';
+
+/**
+ * These tests invoke the composite handler DIRECTLY, bypassing `dispatch()`.
+ *
+ * Two things `dispatch()` and a real run would have provided must be recreated,
+ * or every case exercises a fail-closed path instead of the routing behaviour
+ * under test:
+ *
+ *   1. the ambient trusted dispatch scope the durable-evidence gates read their
+ *      caller authorization from (`TRUSTED_CALLER_REQUIRED` without it), and
+ *   2. a started workflow with an active phase attempt for the gate's evidence
+ *      to bind to (`ACTIVE_PHASE_ATTEMPT_REQUIRED` without it).
+ *
+ * Seeding is keyed by stateDir+featureId so each test's fresh temp store starts
+ * from exactly one `workflow.started` and no gate events.
+ */
+const seededWorkflows = new Set<string>();
+
+async function orchestrate(
+  args: Record<string, unknown>,
+  ctx: DispatchContext,
+): Promise<Awaited<ReturnType<typeof handleOrchestrate>>> {
+  const featureId = typeof args['featureId'] === 'string' ? args['featureId'] : undefined;
+  if (featureId !== undefined) {
+    const key = `${ctx.stateDir}\0${featureId}`;
+    if (!seededWorkflows.has(key)) {
+      seededWorkflows.add(key);
+      await seedActivePhaseAttempt(ctx.eventStore, featureId);
+    }
+  }
+  return runAsTrustedCaller(ctx.stateDir, () => handleOrchestrate(args, ctx));
+}
 
 function probePass() {
   return {
@@ -85,13 +123,26 @@ describe('verification-ladder self-routing (FIX-1)', () => {
     stateDirs.push(stateDir);
     const eventStore = new EventStore(stateDir);
     await eventStore.initialize();
-    return { stateDir, eventStore, enableTelemetry: false } as DispatchContext;
+    return withTrustedCaller(
+      { stateDir, eventStore, enableTelemetry: false } as DispatchContext,
+    );
   }
 
-  function gateEvents(events: Awaited<ReturnType<EventStore['query']>>, gateName: string) {
+  /**
+   * The canonical gate runner records a gate's outcome as
+   * `admission.evidence-recorded`, stamped with the runner's observation source
+   * for that gate class — `gate.executed` was the pre-migration emitter and is
+   * no longer written by the ladder gates (an alternate direct emitter is now
+   * rejected outright). Matching on the canonical source keeps this assertion
+   * tied to the one owner of durable gate evidence.
+   */
+  function gateEvents(
+    events: Awaited<ReturnType<EventStore['query']>>,
+    gateClass: string,
+  ) {
+    const source = gateRunnerObservationSource(gateClass);
     return events.filter(
-      (e) =>
-        e.type === 'gate.executed' && (e.data as { gateName?: string }).gateName === gateName,
+      (e) => e.type === 'admission.evidence-recorded' && e.source === source,
     );
   }
 
@@ -100,7 +151,7 @@ describe('verification-ladder self-routing (FIX-1)', () => {
   it('CheckTestAdequacy_LowTierStamp_SkippedByPolicy', async () => {
     // low tier → [check_static_analysis]; check_test_adequacy is NOT in it.
     const ctx = await makeCtx();
-    const result = await handleOrchestrate(
+    const result = await orchestrate(
       {
         action: 'check_test_adequacy',
         featureId: 'feat-low',
@@ -126,7 +177,7 @@ describe('verification-ladder self-routing (FIX-1)', () => {
   it('CheckContractDrift_NonBoundaryStamp_SkippedByPolicy', async () => {
     // medium tier + boundaryTouching:false → no check_contract_drift in sequence.
     const ctx = await makeCtx();
-    const result = await handleOrchestrate(
+    const result = await orchestrate(
       {
         action: 'check_contract_drift',
         featureId: 'feat-nb',
@@ -151,7 +202,7 @@ describe('verification-ladder self-routing (FIX-1)', () => {
     // low tier + boundaryTouching:true → [static, contract-drift]; mock-boundary
     // is appended for MEDIUM/HIGH only, so it must skip at low tier.
     const ctx = await makeCtx();
-    const result = await handleOrchestrate(
+    const result = await orchestrate(
       {
         action: 'check_mock_boundary',
         featureId: 'feat-lb',
@@ -177,7 +228,7 @@ describe('verification-ladder self-routing (FIX-1)', () => {
     // appended for EVERY tier when boundaryTouching). Confirms the policy table is
     // honored, not a blanket boundary→skip.
     const ctx = await makeCtx();
-    const result = await handleOrchestrate(
+    const result = await orchestrate(
       {
         action: 'check_contract_drift',
         featureId: 'feat-lb2',
@@ -198,7 +249,7 @@ describe('verification-ladder self-routing (FIX-1)', () => {
   it('CheckTestAdequacy_MediumTier_StillRuns', async () => {
     // medium tier → [static, test-adequacy]; the probe must RUN, not skip.
     const ctx = await makeCtx();
-    const result = await handleOrchestrate(
+    const result = await orchestrate(
       {
         action: 'check_test_adequacy',
         featureId: 'feat-med',
@@ -221,7 +272,7 @@ describe('verification-ladder self-routing (FIX-1)', () => {
     // Legacy caller: no riskTier/boundaryTouching → the probe runs unconditionally
     // (current behavior preserved).
     const ctx = await makeCtx();
-    const result = await handleOrchestrate(
+    const result = await orchestrate(
       {
         action: 'check_test_adequacy',
         featureId: 'feat-legacy',

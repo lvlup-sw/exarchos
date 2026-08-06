@@ -12,13 +12,19 @@
  */
 
 import { join, dirname } from 'node:path';
-import { existsSync as fsExistsSync } from 'node:fs';
+import { existsSync as fsExistsSync, promises as nodeFs } from 'node:fs';
 import { toPosix } from '../../../utils/paths.js';
 import type { WriterDeps, WriterFs } from '../probes.js';
 import type { ConfigWriteResult } from '../schema.js';
 import type { RuntimeConfigWriter, WriteOptions } from './writer.js';
 import { deployOnrampBlocks } from './onramp-block.js';
-import { publishTempFile } from '../../../utils/atomic-write.js';
+import { fsyncDir, publishTempFile } from '../../../utils/atomic-write.js';
+import type { PromotionIo } from '../../../install/atomic-promotion.js';
+import {
+  promoteConfigFile,
+  recoverInterruptedConfigPromotions,
+  type ConfigPromotionFs,
+} from './mcp-json-writer.js';
 
 /** MCP server entry shape in ~/.claude.json */
 interface McpServerEntry {
@@ -37,8 +43,14 @@ interface ClaudeConfig {
 
 /**
  * Write JSON to disk atomically: serialize → write to `${path}.tmp` →
- * rename to `${path}`. Other writers can reuse this for their own
- * config files.
+ * rename to `${path}`.
+ *
+ * SUPERSEDED by {@link promoteConfigFile} (DR-18) — a bare tmp+rename has no
+ * stage/verify, no journal, no backup and no recovery, which is the whole of the
+ * defect DR-18 exists to remove. `deployMcpConfig` no longer calls it. It is
+ * retained ONLY because `claude-code.test.ts` pins it directly, and that file is
+ * outside this change's declared scope; it should be deleted together with the
+ * two `AtomicWriteJson_*` tests.
  */
 export async function atomicWriteJson(
   deps: WriterDeps,
@@ -49,6 +61,72 @@ export async function atomicWriteJson(
   const serialized = JSON.stringify(data, null, 2);
   await deps.fs.writeFile(tmp, serialized);
   await publishTempFile(tmp, path, { rename: (from, to) => deps.fs.rename(from, to) });
+}
+
+// ─── The DR-18 promotion seam for ~/.claude.json ──────────────────────────
+
+/**
+ * The path of the Claude Code CLI config. One derivation, used by the writer,
+ * by the recovery entry point, and by tests.
+ */
+export function claudeConfigPath(home: string): string {
+  return toPosix(join(home, '.claude.json'));
+}
+
+/**
+ * Build the {@link ConfigPromotionFs} `~/.claude.json` is promoted through.
+ *
+ * The bytes go through the writer's own `deps.fs` seam, unchanged — that seam is
+ * how every existing caller (and every existing test) steers this writer, and
+ * routing the write around it would make the injected fs a lie.
+ *
+ * `WriterFs` (declared in `../probes.js`, shared by every writer and outside this
+ * change's scope) cannot express an fsync or a delete. T-23 recorded exactly this
+ * gap. The three durability capabilities are therefore supplied HERE, from
+ * `node:fs`, and only when the config's parent directory actually exists on the
+ * HOST. That condition is not a test-detection hack, it is the precondition the
+ * capabilities need to mean anything: an injected in-memory `WriterFs` writes to
+ * paths the host has never heard of, so fsyncing them would throw ENOENT and
+ * deleting them would either no-op or — worse — hit an unrelated host file.
+ * Absent capabilities degrade exactly as `utils/atomic-write.ts` documents:
+ * still atomic, durability reported as `not-applicable` rather than assumed.
+ *
+ * In production the parent is `$HOME`, so the capabilities are always present.
+ */
+function claudeConfigPromotionFs(deps: WriterDeps, configPath: string): ConfigPromotionFs {
+  const parent = dirname(configPath);
+  const hostBacked = fsExistsSync(parent);
+  return {
+    readFile: (p) => deps.fs.readFile(p),
+    writeFile: (p, data) => deps.fs.writeFile(p, data),
+    rename: (from, to) => deps.fs.rename(from, to),
+    mkdir: (p, opts) => deps.fs.mkdir(p, opts),
+    ...(hostBacked
+      ? {
+          fsyncFile: fsyncHostFile,
+          remove: (p: string) =>
+            nodeFs.rm(p, { force: true, maxRetries: 10, retryDelay: 50 }),
+          syncDirectory: (d: string) => fsyncDir(d),
+        }
+      : {}),
+  };
+}
+
+/**
+ * fsync a file the seam just wrote, publishing its BYTES.
+ *
+ * A file that is not on the host was written into an injected in-memory fs;
+ * there are no bytes for the kernel to flush, so the step is not applicable
+ * rather than failed. Everything else propagates.
+ */
+async function fsyncHostFile(p: string): Promise<void> {
+  if (!fsExistsSync(p)) return;
+  const handle = await nodeFs.open(p, 'r+');
+  try {
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -152,9 +230,10 @@ async function copyDirRecursive(
 async function deployMcpConfig(
   deps: WriterDeps,
   options: WriteOptions,
+  promotionIo?: PromotionIo,
 ): Promise<{ wrote: boolean; error?: string }> {
   const home = deps.home();
-  const configPath = toPosix(join(home, '.claude.json'));
+  const configPath = claudeConfigPath(home);
 
   const { config, error } = await readExistingConfig(deps, configPath);
   if (config === null) {
@@ -179,8 +258,29 @@ async function deployMcpConfig(
     },
   };
 
-  await deps.fs.mkdir(dirname(configPath), { recursive: true });
-  await atomicWriteJson(deps, configPath, mergedConfig);
+  // DR-18: stage → verify → journal → backup → commit, replacing the former
+  // fixed-name tmp write + bare rename. The merge semantics above and the exact
+  // serialization below are unchanged — an atomic writer that atomically writes
+  // the wrong content is worse than the bug it fixes.
+  //
+  // `stagePath` pins the staged copy at the legacy `<target>.tmp` rather than the
+  // unique-per-attempt default. `claude-code.test.ts` asserts that exact path and
+  // is outside this change's declared files. The stage→VERIFY→publish sequence
+  // demotes the shared name from a SAFETY defect to a LIVENESS one: a concurrent
+  // writer can only clobber the staged copy BEFORE the verify, which then refuses
+  // to publish, so the live config is still old-complete or new-complete under
+  // every interleaving — what is lost is the guarantee that both writers succeed.
+  // `.vscode/mcp.json` and `.cursor/mcp.json` have nothing pinning their staged
+  // copy and use the unique default.
+  await promoteConfigFile(
+    configPath,
+    JSON.stringify(mergedConfig, null, 2),
+    claudeConfigPromotionFs(deps, configPath),
+    {
+      stagePath: `${configPath}.tmp`,
+      ...(promotionIo ? { io: promotionIo } : {}),
+    },
+  );
 
   return { wrote: true };
 }
@@ -257,14 +357,28 @@ export async function writeClaudeCode(
   deps: WriterDeps,
   options: WriteOptions,
   onramp: OnrampSeam = defaultOnrampSeam,
+  promotionIo?: PromotionIo,
 ): Promise<ConfigWriteResult> {
   const home = deps.home();
-  const configPath = toPosix(join(home, '.claude.json'));
+  const configPath = claudeConfigPath(home);
   const componentsWritten: string[] = [];
   const warnings: string[] = [];
 
+  // Phase 0: DR-18 startup/doctor recovery. FIRST, before phase 1 reads the
+  // existing config: an interrupted promotion can leave `~/.claude.json` absent
+  // with the previous config held in the backup, and a read-modify-write that
+  // reads that state merges into an empty base and then publishes it — silently
+  // converting a recoverable interruption into permanent data loss. It also has
+  // to run ahead of the already-registered SKIP below, which returns before any
+  // write happens at all and would otherwise leave the interruption unrepaired.
+  //
+  // Reached by `onboard`'s GENERATE stage and by `doctor --fix`, both of which
+  // drive this writer through `getAllWriters()`.
+  const recovery = recoverInterruptedConfigPromotions([configPath], promotionIo);
+  warnings.push(...recovery.failures.map((f) => f.error));
+
   // Phase 1: MCP config
-  const mcpResult = await deployMcpConfig(deps, options);
+  const mcpResult = await deployMcpConfig(deps, options, promotionIo);
   if (mcpResult.error) {
     return {
       runtime: 'claude-code',
@@ -335,14 +449,18 @@ export const claudeCodeWriter: RuntimeConfigWriter = {
  * Class wrapper used by init compositor — `new ClaudeCodeWriter()`.
  * Delegates to the same `writeClaudeCode` implementation. The optional
  * `onramp` seam is injectable for tests; production uses {@link defaultOnrampSeam}.
+ * `promotionIo` is the DR-18 recovery/promotion filesystem seam; production uses
+ * the real filesystem (`defaultPromotionIo()`).
  */
 export class ClaudeCodeWriter implements RuntimeConfigWriter {
   readonly runtime = 'claude-code' as const;
   private readonly onramp: OnrampSeam;
-  constructor(onramp: OnrampSeam = defaultOnrampSeam) {
+  private readonly promotionIo: PromotionIo | undefined;
+  constructor(onramp: OnrampSeam = defaultOnrampSeam, promotionIo?: PromotionIo) {
     this.onramp = onramp;
+    this.promotionIo = promotionIo;
   }
   write(deps: WriterDeps, options: WriteOptions): Promise<ConfigWriteResult> {
-    return writeClaudeCode(deps, options, this.onramp);
+    return writeClaudeCode(deps, options, this.onramp, this.promotionIo);
   }
 }

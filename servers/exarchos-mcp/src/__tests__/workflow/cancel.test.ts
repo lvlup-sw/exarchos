@@ -142,14 +142,14 @@ describe('handleCancel', () => {
 
       // Mock executeCompensation to return success (null checkpoint)
       const compensationModule = await import('../../workflow/compensation.js');
-      vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue({
+      vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue(processManaged({
         actions: [
           { actionId: 'delegate:cleanup-worktrees', status: 'executed', message: 'Done' },
         ],
         events: [],
         success: true,
         checkpoint: null,
-      });
+      }));
 
       // Act
       const result = await handleCancel({ featureId: 'ckpt-clear' }, tmpDir, null);
@@ -178,14 +178,14 @@ describe('handleCancel', () => {
 
       // Mock executeCompensation to return success
       const compensationModule = await import('../../workflow/compensation.js');
-      vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue({
+      vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue(processManaged({
         actions: [
           { actionId: 'delegate:cleanup-worktrees', status: 'executed', message: 'Done' },
         ],
         events: [],
         success: true,
         checkpoint: null,
-      });
+      }));
 
       // Act
       const result = await handleCancel({ featureId: 'ckpt-null' }, tmpDir, null);
@@ -217,15 +217,18 @@ describe('handleCancel', () => {
 
       // Mock compensation to succeed (no partial failure)
       const compensationModule = await import('../../workflow/compensation.js');
-      vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue({
+      vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue(processManaged({
         actions: [],
         events: [],
         success: true,
         checkpoint: null,
-      });
+      }));
 
-      // Mock event store append to throw (simulating JSONL failure)
-      vi.spyOn(eventStore, 'append').mockRejectedValue(
+      // Mock the atomic phase-mutation trail append to throw (simulating a
+      // storage failure). DR-7 routes the whole cancellation trail through
+      // `appendTrailAtomically` — one transaction — so that is the seam a
+      // storage failure surfaces at.
+      vi.spyOn(eventStore, 'appendTrailAtomically').mockRejectedValue(
         new Error('Disk full'),
       );
 
@@ -258,41 +261,39 @@ describe('handleCancel', () => {
       rawState._esVersion = 2;
       await writeRawState('cancel-comp-keys', rawState);
 
-      // Mock compensation to return events
-      const compensationModule = await import('../../workflow/compensation.js');
-      vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue({
-        actions: [
-          { actionId: 'delegate:cleanup-worktrees', status: 'executed', message: 'Done' },
-          { actionId: 'delegate:delete-branches', status: 'executed', message: 'Done' },
-        ],
-        events: [
-          { type: 'compensation', timestamp: new Date().toISOString(), metadata: { action: 'cleanup-worktrees' } },
-          { type: 'compensation', timestamp: new Date().toISOString(), metadata: { action: 'delete-branches' } },
-        ],
-        success: true,
-        checkpoint: null,
-      });
-
-      // Spy on append to capture idempotency keys
-      const appendCalls: Array<{ idempotencyKey?: string }> = [];
-      const originalAppend = eventStore.append.bind(eventStore);
-      vi.spyOn(eventStore, 'append').mockImplementation(async (streamId, event, options) => {
-        appendCalls.push({ idempotencyKey: options?.idempotencyKey });
-        return originalAppend(streamId, event, options);
-      });
+      // Deliberately NOT mocking executeCompensation: the cancellation process
+      // manager now OWNS compensation-fact emission, so stubbing it out would
+      // stub the very keys under assertion. The old
+      // `<featureId>:cancel:compensation:<type>:<action>` scheme was replaced by
+      // a digest key scoped to (featureId, cancelId, action) — collision-free
+      // across concurrent cancels of the same feature.
+      //
+      // Seam note: cancel writes now go through the fenced atomic append
+      // (`AtomicAppender.decideOnce`), which stamps the idempotency key onto the
+      // event itself rather than passing it as an `append` option. Asserting
+      // against the persisted stream is therefore strictly stronger than the
+      // previous `append`/`appendValidated` option spy — it proves the key is
+      // durable, not merely requested.
 
       // Act
       await handleCancel({ featureId: 'cancel-comp-keys' }, tmpDir, eventStore);
 
-      // Assert: compensation events have idempotency keys matching the pattern
-      // The first two append calls after init should be compensation events
-      // Filter for compensation-related calls
-      const compKeys = appendCalls
-        .map((c) => c.idempotencyKey)
-        .filter((k): k is string => k !== undefined && k.includes('compensation'));
-      expect(compKeys.length).toBe(2);
-      expect(compKeys[0]).toBe('cancel-comp-keys:cancel:compensation:compensation:cleanup-worktrees');
-      expect(compKeys[1]).toBe('cancel-comp-keys:cancel:compensation:compensation:delete-branches');
+      // Assert: every compensation fact carries an idempotency key — that key is
+      // what makes a resumed or retried cancellation converge instead of
+      // repeating completed compensation.
+      const persisted = await eventStore.query('cancel-comp-keys');
+      const compensationEvents = persisted.filter((e) =>
+        e.type.startsWith('cancel.compensation-'),
+      );
+      expect(compensationEvents.length).toBeGreaterThan(0);
+      for (const event of compensationEvents) {
+        expect(event.idempotencyKey, `${event.type} must be idempotency-keyed`).toBeDefined();
+        expect(event.idempotencyKey).toMatch(/^cancel:[0-9a-f]{64}$/);
+      }
+      // Keys are distinct per (action, phase) — a shared key would collapse two
+      // different compensation outcomes into one durable fact.
+      const keys = compensationEvents.map((e) => e.idempotencyKey);
+      expect(new Set(keys).size).toBe(keys.length);
     });
 
     it('handleCancel_TransitionEvents_HaveIdempotencyKeys', async () => {
@@ -309,12 +310,12 @@ describe('handleCancel', () => {
 
       // Mock compensation to succeed with no events
       const compensationModule = await import('../../workflow/compensation.js');
-      vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue({
+      vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue(processManaged({
         actions: [],
         events: [],
         success: true,
         checkpoint: null,
-      });
+      }));
 
       // Spy on append to capture idempotency keys
       const appendCalls: Array<{ type: string; idempotencyKey?: string }> = [];
@@ -327,13 +328,16 @@ describe('handleCancel', () => {
       // Act
       await handleCancel({ featureId: 'cancel-trans-keys' }, tmpDir, eventStore);
 
-      // Assert: transition events have idempotency keys
-      const transKeys = appendCalls
-        .filter((c) => c.idempotencyKey?.includes('transition'))
-        .map((c) => c.idempotencyKey);
+      // Assert: transition events have idempotency keys.
+      // DR-7 — read the DURABLE stream rather than an `append` spy: the
+      // cancellation trail now commits through one atomic transaction, and the
+      // persisted key is the contract that actually dedups a retry.
+      const transKeys = (await eventStore.query('cancel-trans-keys'))
+        .map((e) => e.idempotencyKey)
+        .filter((k): k is string => k !== undefined && k.includes('transition'));
       expect(transKeys.length).toBeGreaterThanOrEqual(1);
       // The transition key should match the pattern: ${featureId}:cancel:transition:${type}:${from}:cancelled
-      expect(transKeys[0]).toMatch(/^cancel-trans-keys:cancel:transition:\w+:delegate:cancelled$/);
+      expect(transKeys[0]).toMatch(/^cancel-trans-keys:cancel:transition:[\w.-]+:delegate:cancelled$/);
     });
 
     it('handleCancel_CancelEvent_HasIdempotencyKey', async () => {
@@ -350,12 +354,12 @@ describe('handleCancel', () => {
 
       // Mock compensation to succeed
       const compensationModule = await import('../../workflow/compensation.js');
-      vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue({
+      vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue(processManaged({
         actions: [],
         events: [],
         success: true,
         checkpoint: null,
-      });
+      }));
 
       // Spy on append to capture idempotency keys
       const appendCalls: Array<{ type: string; idempotencyKey?: string }> = [];
@@ -368,10 +372,12 @@ describe('handleCancel', () => {
       // Act
       await handleCancel({ featureId: 'cancel-event-key' }, tmpDir, eventStore);
 
-      // Assert: the cancel completion event has an idempotency key
-      const cancelKey = appendCalls
-        .filter((c) => c.idempotencyKey?.includes('cancel:complete'))
-        .map((c) => c.idempotencyKey);
+      // Assert: the cancel completion event has an idempotency key.
+      // DR-7 — asserted against the durable stream (see the transition-key
+      // test above for why the `append` spy is no longer the seam).
+      const cancelKey = (await eventStore.query('cancel-event-key'))
+        .map((e) => e.idempotencyKey)
+        .filter((k): k is string => k !== undefined && k.includes('cancel:complete'));
       expect(cancelKey.length).toBe(1);
       expect(cancelKey[0]).toBe('cancel-event-key:cancel:complete');
     });
@@ -402,33 +408,31 @@ describe('handleCancel', () => {
 
               // Mock compensation
               const compensationModule = await import('../../workflow/compensation.js');
-              vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue({
+              vi.spyOn(compensationModule, 'executeCompensation').mockResolvedValue(processManaged({
                 actions: [],
                 events: [],
                 success: true,
                 checkpoint: null,
-              });
+              }));
 
-              // First attempt: fail event append on the first call within cancel
-              let callCount = 0;
-              const originalAppend = eventStore.append.bind(eventStore);
-              vi.spyOn(eventStore, 'append').mockImplementation(async (streamId, event, options) => {
-                callCount++;
-                // Fail on the 1st cancel-related append
-                if (callCount === 1) {
-                  throw new Error('Transient failure');
-                }
-                return originalAppend(streamId, event, options);
-              });
+              // First attempt: fail the atomic cancellation-trail append.
+              // DR-7 — the trail is one transaction, so this is the single
+              // seam a transient storage failure surfaces at.
+              let trailCalls = 0;
+              const originalTrail = eventStore.appendTrailAtomically.bind(eventStore);
+              vi.spyOn(eventStore, 'appendTrailAtomically').mockImplementation(
+                async (streamId, events, operationId) => {
+                  trailCalls++;
+                  if (trailCalls === 1) {
+                    throw new Error('Transient failure');
+                  }
+                  return originalTrail(streamId, events, operationId);
+                },
+              );
 
               // First cancel attempt should fail
               const result1 = await handleCancel({ featureId: 'cancel-pbt' }, propDir, eventStore);
               expect(result1.success).toBe(false);
-
-              // Reset mock to let retry succeed
-              vi.spyOn(eventStore, 'append').mockImplementation(async (streamId, event, options) => {
-                return originalAppend(streamId, event, options);
-              });
 
               // Retry cancel — state should not have been mutated by first attempt
               const result2 = await handleCancel({ featureId: 'cancel-pbt' }, propDir, eventStore);
@@ -452,3 +456,31 @@ describe('handleCancel', () => {
     });
   });
 });
+
+/**
+ * Shape a mocked `executeCompensation` result the way the process-managed path
+ * really returns it.
+ *
+ * Cancellation readiness requires a DURABLE outcome for every compensation
+ * action — a result without `durableOutcomes` means compensation ran outside the
+ * process manager, which must fail closed as COMPENSATION_PARTIAL. Mocks that
+ * omit it therefore exercise the fail-closed path rather than the behaviour
+ * under test. Deriving the outcomes from the mocked actions keeps the two in
+ * lockstep so this cannot drift again.
+ */
+function processManaged<T extends { actions: readonly { actionId: string }[] }>(
+  result: T,
+): T & {
+  durableOutcomes: {
+    completedActionIds: readonly string[];
+    outcomeSequences: readonly number[];
+  };
+} {
+  return {
+    ...result,
+    durableOutcomes: {
+      completedActionIds: result.actions.map((a) => a.actionId),
+      outcomeSequences: result.actions.map((_, i) => i + 1),
+    },
+  };
+}

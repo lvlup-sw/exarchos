@@ -54,7 +54,8 @@ invariants:
       - atomic-appender
       - stream-lock-manager
     summary: >
-      Concurrency is serialized in two tiers. Tier 1 (in-process): the
+      Concurrency is serialized in two tiers. This is a CLOSED claim, not a
+      target (DR-19 / EFF-001, closed 2026-08-04). Tier 1 (in-process): the
       StreamLockManager runs concurrent same-stream appends sequentially via a
       per-stream Promise-chain mutex. Tier 2 (cross-process): SQLite WAL with
       BEGIN IMMEDIATE acquires the write lock up-front, and a per-stream version
@@ -64,7 +65,16 @@ invariants:
       backstop, not the conflict detector. Plain appends serialize
       transparently; only a genuine OCC mismatch (a stale expectedSequence)
       surfaces a conflict, carrying expected/actual directly. No process-level
-      mutex, no PID lock, no advisory file.
+      mutex, no PID lock, no advisory file. WITNESS: three genuine OS child
+      processes drive the production SqliteBackend through the production driver
+      against one SQLite file, held in the write-lock queue simultaneously and
+      asserting an interleaving witness (a run that did not actually contend
+      fails), plus a startup version-gate repair arm. Weakening BEGIN IMMEDIATE
+      to a deferred BEGIN, disabling the startup repair, or replacing the driver
+      with a no-op each turn the corresponding test RED — the fixture cannot
+      pass vacuously. Cross-process linearization is therefore asserted
+      categorically: a change that cannot keep that fixture green is a
+      violation, not a caveat.
     citations:
       - "Mohan et al., *ARIES* (ACM TODS 1992):
         https://dl.acm.org/doi/10.1145/128765.128770"
@@ -74,6 +84,8 @@ invariants:
       - "SQLite WAL documentation: https://sqlite.org/wal.html"
     references:
       - servers/exarchos-mcp/src/event-store/atomic-appender.ts
+      - servers/exarchos-mcp/src/storage/sqlite-backend.ts
+      - servers/exarchos-mcp/test/process/multi-process-append.test.ts
       - docs/architecture/runtime.md#§4
 
   - id: INV-8
@@ -185,10 +197,18 @@ invariants:
     enforcement:
       mode: audit
       audit-prompt: >
-        Is each agent's authority bounded by construction rather than by
-        convention? A read-only agent must be unable to mutate the working tree;
-        a task-isolated agent must be unable to write outside its worktree. Flag
-        a posture asserted in prose but not enforced at the capability boundary.
+        Is each agent's authority bounded by the chokepoint that owns the
+        resource, rather than by convention? STATE authority is enforced in the
+        dispatch/MCP handler — a read-only agent must be unable to invoke a
+        mutating action. PROCESS LIFECYCLE and top-level worktree placement are
+        enforced by the spawn-bounded launcher. SPATIAL write confinement is
+        NOT launcher-owned: it is a per-harness capability that must be
+        reported as prevention | detection | advisory | unavailable, and must
+        never be inferred from the launcher's cwd or worktree ownership. Flag a
+        posture asserted in prose but not enforced at a capability boundary,
+        and flag any claim that a task-isolated agent CANNOT write outside its
+        worktree where the harness's declared spatial posture is advisory or
+        unavailable.
     axis: substrate
     cost-of-load: always-load
     applies-to:
@@ -196,14 +216,26 @@ invariants:
       - capability-resolver
       - handshake
       - sub-agent-dispatch
+      - launcher
     summary: >
       Every agent declares one of three postures in agent spec YAML: read-only |
       task-isolated | shared-mutating. The MCP initialize handshake declares the
       runtime half. The capability resolver merges posture with handshake;
-      mismatches resolve to the handshake (handshake-authoritative). Postures
-      are unrepresentable-by-construction — a read-only agent cannot mutate the
-      working tree; a task-isolated agent cannot write outside its assigned
-      worktree.
+      mismatches resolve to the handshake (handshake-authoritative). What a
+      posture makes unrepresentable-by-construction is bounded by the chokepoint
+      that owns the resource: STATE authority in the dispatch/MCP handler (a
+      read-only agent cannot invoke a mutating action), PROCESS LIFECYCLE and
+      top-level worktree placement in the spawn-bounded launcher. SPATIAL write
+      confinement is deliberately EXCLUDED from the by-construction claim: no
+      component in the single-machine frame owns the kernel write path, and
+      harness-created nested worktrees sit outside the launcher's reach, so
+      filesystem confinement is a DECLARED per-harness capability carrying a
+      posture of prevention | detection | advisory | unavailable — never
+      inferred from launcher cwd/worktree ownership. Lifecycle ownership and
+      spatial isolation are separate audit dimensions; absorbing spatial
+      confinement into this invariant requires the space-moat fork (an upstream
+      Bash-covering hook standard or a kernel sandbox), and asserting it before
+      that lands is an overclaim, not an invariant.
     citations:
       - "Mark S. Miller, *Robust Composition* (PhD dissertation, JHU 2006):
         https://papers.agoric.com/papers/robust-composition/full-text"
@@ -216,6 +248,7 @@ invariants:
     references:
       - servers/exarchos-mcp/src/capabilities/resolver.ts
       - servers/exarchos-mcp/src/agents/generate-agents.ts
+      - servers/exarchos-mcp/src/launcher/create-worktree.ts
       - docs/architecture/runtime.md#§7
 
   - id: INV-12
@@ -398,35 +431,65 @@ invariants:
       - docs/architecture/runtime.md#§8
 
   - id: INV-2
-    dimension: facade-equivalence
+    dimension: contract-client-equivalence
     integrity-class: substrate
     phase-affinity: [ review ]
     severity:
       default: advisory
     enforcement:
-      # mode:audit, not check: a grep for "behavior in an adapter file" is a
-      # low-precision proxy that cannot prove parity and would false-positive
-      # on legitimate adapter code. Parity is proven by the parity-harness
-      # tests; the reviewer judges adapter discipline.
+      # mode:audit, not check: "is this module a GENERATED client of the
+      # compiled contract?" is a whole-tree structural question, not a
+      # line-oriented diff property, and a grep for "behavior in an adapter
+      # file" would false-positive on legitimate presentation code. The
+      # MECHANICAL backstops are the dispatch-seam containment census and the
+      # DR-25 deviation ledger in `contract/cli/cli-contract-seam.ts` — every
+      # non-projection module importing the runtime `dispatch` value must carry
+      # a governed, unexpired ledger row, and a row covering nothing fails as
+      # STALE_DEVIATION. The parity harnesses are a WITNESS, never the proof.
       mode: audit
       audit-prompt: >
-        Do the CLI and MCP adapters carry only presentation, with all behavior
-        in the shared dispatch core? Flag logic added to adapters/cli.ts or
-        adapters/mcp.ts beyond formatting, and any verb lacking a parity or
-        registered outputSchema guarantee.
+        Does this change reach the shared contract handler through the compiled
+        contract, or does it hand-assemble a call to the runtime `dispatch`
+        value? Any module outside CONTRACT_PROJECTIONS that imports `dispatch`
+        must be covered by a governed, unexpired row in CLI_CONTRACT_DEVIATIONS
+        carrying an owner, a rationale, a retirement condition and an expiry.
+        Flag a new direct-dispatch path with no ledger row, behavior added to
+        adapters/cli.ts or adapters/mcp.ts beyond presentation, and any verb
+        lacking a registered outputSchema. Do NOT accept a passing parity
+        fixture as evidence that two hand-written surfaces are equal by
+        construction.
     axis: substrate
     cost-of-load: always-load
     applies-to:
-      - cli-adapter
+      - contract-compiler
+      - cli-client
       - mcp-adapter
       - dispatch-core
-      - parity-tests
+      - deviation-ledger
     summary: >
-      CLI and MCP are both facades over a single functional dispatch core. For
-      any verb, the same DispatchContext + arguments must produce the same
-      ToolResult. Adapters carry zero behavior — only presentation. Post-#1266,
-      every action also registers a Zod outputSchema so parity is schema-checked
-      in addition to byte-checked.
+      The MCP wire projection of the compiled contract is the invocation
+      surface; the CLI is a CLIENT of that same contract, equal to the wire BY
+      CONSTRUCTION rather than by hand-coordination — not a peer facade kept in
+      step by fixtures. Behavior lives in the shared dispatch core; a client
+      carries presentation only (argv parsing, exit codes, stdio framing, error
+      rendering, carrier translation). Byte- and schema-equivalence across
+      carriers (the parity harnesses plus each action's registered Zod
+      outputSchema) is the WITNESS of that construction, never the invariant
+      itself: a suite of green parity fixtures does not make two hand-written
+      surfaces equal. The shipped `adapters/cli.ts` meets this framing for
+      dispatch ADDRESSING: every api-action call site addresses its action by
+      contract ActionId through the generated client
+      (`contract/cli/generated-client.ts`, a contract projection) which
+      verifies the id against the compiled surface before dispatching, so an
+      action the contract does not compile cannot be addressed and the adapter
+      imports no runtime `dispatch` value; the Commander tree it keeps is
+      hand-authored presentation. The DR-25 deviation that previously covered
+      the adapter's hand-assembled direct dispatch path
+      (`cli-direct-dispatch`) is RETIRED and CLI_CONTRACT_DEVIATIONS is empty;
+      the census machinery stays armed, so any future direct route to the
+      dispatch core must be a contract projection or record a new governed,
+      owned, expiring deviation — an acknowledged, expiring debt AGAINST this
+      invariant, never a weakening OF it.
     citations:
       - "Alistair Cockburn, *Hexagonal Architecture (Ports & Adapters)* (2005):
         https://alistair.cockburn.us/hexagonal-architecture/"
@@ -436,6 +499,8 @@ invariants:
         https://modelcontextprotocol.io/specification/2025-06-18/server/tools"
     references:
       - docs/architecture/invariants/references/INV-2-facade-equivalence.md
+      - servers/exarchos-mcp/src/contract/cli/cli-contract-seam.ts
+      - servers/exarchos-mcp/src/contract/cli/generated-client.ts
       - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
       - docs/designs/archive/2026-05-07-milestone-16-mcp-alignment.md
 
@@ -512,14 +577,22 @@ invariants:
       - skills-renderer
       - commands
     summary: >
-      Skills, rules, and workflows must not couple to any single harness. Six
-      runtimes are first-class (Claude Code, Codex, Copilot, Cursor, OpenCode,
-      generic). Runtime-specific text is tokenized via {{TOKEN}} placeholders or
-      guarded via <!-- requires:* --> blocks. Source-of-truth edits go to
-      skills-src/; skills/<runtime>/** is generated. INV-4 owns the *platform*
-      axis (6 runtimes); INV-6 owns the orthogonal *workload* axis (workflow
-      types). The two are complementary substrate properties — substrate
-      guarantees hold across both axes.
+      Authored content is emitted ONCE as a standard-conformant artifact
+      wherever a standard converged — Agent Skills (SKILL.md), AGENTS.md, and
+      MCP — and each harness reads it natively; the only residual per-harness
+      variance is the tool prefix, carried by a bare logical name the agent
+      resolves from its own tool list. Per-runtime fan-out is TECHNICAL DEBT,
+      not the target architecture: a thin shim survives only where NO standard
+      exists, and every residual shim carries an owner, the capability reason it
+      exists, and a retirement condition. Conformance plus shim minimization —
+      not render-parity across N runtime variants — is the metric, because a
+      byte-perfect per-harness render proves the artifacts match, not that the
+      guarantee holds. Source-of-truth edits go to skills-src/; everything under
+      skills/** is generated build output and is never edited directly.
+      Runtime-specific text is tokenized via {{TOKEN}} placeholders or guarded
+      via <!-- requires:* --> blocks. INV-4 owns the *harness* axis; INV-6 owns
+      the orthogonal *workload* axis (workflow types) and INV-16 the orthogonal
+      *OS* axis — substrate guarantees hold across all three.
     citations:
       - "Andrew Hunt & David Thomas, *The Pragmatic Programmer* — DRY / Single
         Source of Truth (Addison-Wesley 1999):
@@ -746,8 +819,8 @@ invariants:
       unlinking an open file, unlike POSIX); package-manager spawns resolve
       their .cmd shim via resolveExecutable; module-relative paths use
       fileURLToPath. INV-16 owns the *OS* axis; INV-4 owns the orthogonal
-      *harness* axis (6 AI runtimes) — both are platform-agnosticity substrate
-      properties.
+      *harness* axis (standards-conformance plus thin shims) — both are
+      platform-agnosticity substrate properties.
     citations:
       - "Node.js, *Path* (OS-specific separators; fs accepts '/' on Windows):
         https://nodejs.org/api/path.html"
@@ -797,9 +870,10 @@ invariants:
       registry-enumeration snapshot. The budget and escape-hatch are properties
       of the canonical response contract — declared in the registry descriptor,
       enforced in the shared core, rendered through a presentation seam — never
-      special-cased in one facade. This carries the INV-2 reframe (#1608: the
-      CLI is a presentation client over the MCP contract, equivalence by
-      construction) and the facade-codegen direction (system-design 05) forward:
+      special-cased in one facade. This is downstream of the GOVERNING INV-2
+      (the CLI is a client of the compiled contract, equivalence by
+      construction — re-approved under DR-26, superseding the #1608 pending
+      note) and of the facade-codegen direction (system-design 05):
       the registered outputSchema must be total over every emittable shape
       (baseline + capped + degraded), the precondition that makes facade
       equivalence hold by construction. INV-17 is the response-economy

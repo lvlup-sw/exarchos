@@ -99,7 +99,7 @@ exarchos_orchestrate({
   action: "generate_traceability",
   designFile: "docs/specs/<date>-<feature>.md",
   planFile: "docs/specs/<date>-<feature>.md",
-  output: "docs/specs/<date>-<feature>-traceability.md"
+  outputFile: "docs/specs/<date>-<feature>-traceability.md"
 })
 ```
 
@@ -189,8 +189,7 @@ exarchos_orchestrate({
 exarchos_orchestrate({
   action: "spec_coverage_check",
   planFile: "docs/specs/<date>-<feature>.md",
-  repoRoot: ".",
-  threshold: 80
+  repoRoot: "."
 })
 ```
 

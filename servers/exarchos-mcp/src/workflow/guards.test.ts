@@ -810,7 +810,8 @@ describe('allReviewsPassed (synthesis ready)', () => {
     // nontrivial diff — `2 > -1` is true) or fractional (meaningless for a count)
     // is not a valid budget. The guard rejects it and leaves the NoCoverage axis
     // inert rather than blocking a valid transition — matching `resolveMaxNoCoverage`
-    // and the count-side `isInteger && >= 0` check (INV-2 parity).
+    // and the count-side `isInteger && >= 0` check (governing INV-2 — the budget
+    // contract is single-sourced in the core, so both readers inherit one decision).
     for (const badBudget of [-1, 1.5]) {
       const state = mutationBase(
         1.0,

@@ -1194,3 +1194,215 @@ describe('handleTaskDecomposition', () => {
     );
   });
 });
+
+// ─── P02-06: decomposition & risk plausibility (handler integration) ────────
+//
+// The structural gate historically accepted whatever risk/boundary stamps a
+// planner declared. These tests prove the handler now surfaces a STRUCTURED
+// CHALLENGE (typed `plausibility` findings + a report section) for implausible
+// decompositions, without flipping `passed` (it is a challenge, not a hard
+// fail) and without silently accepting them.
+
+interface PlausibilityChallengeShape {
+  readonly signal: string;
+  readonly scope: string;
+  readonly taskId?: string;
+  readonly observed: number;
+  readonly threshold: number;
+  readonly message: string;
+}
+interface PlausibilityShape {
+  readonly challenged: boolean;
+  readonly challenges: readonly PlausibilityChallengeShape[];
+  readonly overridden: readonly (PlausibilityChallengeShape & { overrideRationale: string })[];
+}
+interface DecompositionDataShape {
+  readonly passed: boolean;
+  readonly plausibility: PlausibilityShape;
+  readonly report: string;
+}
+
+function uniformLowNoBoundaryPlan(n: number): string {
+  const tasks = Array.from({ length: n }, (_, i) => {
+    const id = `T-${String(i + 1).padStart(2, '0')}`;
+    return [
+      `### Task ${id}: Deliver bounded increment ${i + 1} with clearly scoped intent`,
+      '',
+      '**Risk Tier:** low · **Boundary Touching:** false',
+      '',
+      '**Files:**',
+      `- \`src/mod${i}/file.ts\``,
+      '',
+      '**Dependencies:** None',
+      '**Parallelizable:** No',
+    ].join('\n');
+  });
+  return `# Implementation Plan\n\n## Tasks\n\n${tasks.join('\n\n')}\n`;
+}
+
+describe('handleTaskDecomposition — plausibility (P02-06)', () => {
+  const stateDir = '/tmp/test-state';
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('HandleTaskDecomposition_48TasksUniformLowNoBoundary_ChallengesButPasses', async () => {
+    // Exit-proof (a): a 48-task plan uniformly stamped low-risk / no-boundary
+    // triggers a structured challenge on both uniformity signals — surfaced,
+    // not silently accepted — while remaining a PASS (challenge, not hard fail).
+    mockedReadFile.mockResolvedValue(uniformLowNoBoundaryPlan(48));
+
+    const result = await handleTaskDecomposition(
+      { featureId: 'f', planPath: 'p.md' },
+      stateDir,
+      mockStore as unknown as EventStore,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as DecompositionDataShape;
+    expect(data.plausibility.challenged).toBe(true);
+    const signals = data.plausibility.challenges.map((c) => c.signal).sort();
+    expect(signals).toContain('risk-uniformity');
+    expect(signals).toContain('boundary-uniformity');
+    // Structured challenge, NOT a hard fail: structure is otherwise sound.
+    expect(data.passed).toBe(true);
+    // Not silent — the report calls it out.
+    expect(data.report).toContain('CHALLENGE (risk-uniformity)');
+  });
+
+  it('HandleTaskDecomposition_OversizedTask_ChallengesHistoricalSize', async () => {
+    // Exit-proof (b): a single task whose file set dwarfs a historical task
+    // triggers a historical-size challenge.
+    const files = Array.from({ length: 15 }, (_, i) => `- \`src/mod/file${i}.ts\``).join('\n');
+    const plan = [
+      '# Implementation Plan',
+      '',
+      '## Tasks',
+      '',
+      '### Task T-01: One oversized task that swallows fifteen files in a single unit',
+      '',
+      '**Risk Tier:** high · **Boundary Touching:** true',
+      '',
+      '**Files:**',
+      files,
+      '',
+      '**Tests:**',
+      '- [RED] `Giant_Does_Everything`',
+      '',
+      '**Dependencies:** None',
+    ].join('\n');
+    mockedReadFile.mockResolvedValue(plan);
+
+    const result = await handleTaskDecomposition(
+      { featureId: 'f', planPath: 'p.md' },
+      stateDir,
+      mockStore as unknown as EventStore,
+    );
+
+    const data = result.data as DecompositionDataShape;
+    expect(data.plausibility.challenged).toBe(true);
+    const size = data.plausibility.challenges.find((c) => c.signal === 'historical-size');
+    expect(size).toBeDefined();
+    expect(size?.taskId).toBe('T-01');
+    expect(size?.observed).toBe(15);
+  });
+
+  it('HandleTaskDecomposition_WellDecomposedPlan_NoPlausibilityChallenge', async () => {
+    // Exit-proof (c): the canonical well-decomposed fixture (3 mixed tasks,
+    // small file sets) produces no plausibility challenge.
+    mockedReadFile.mockResolvedValue(WELL_DECOMPOSED_PLAN);
+
+    const result = await handleTaskDecomposition(
+      { featureId: 'f', planPath: 'p.md' },
+      stateDir,
+      mockStore as unknown as EventStore,
+    );
+
+    const data = result.data as DecompositionDataShape;
+    expect(data.plausibility.challenged).toBe(false);
+    expect(data.plausibility.challenges).toHaveLength(0);
+    expect(data.report).toContain('No plausibility challenges');
+  });
+
+  it('HandleTaskDecomposition_BreadthOverrideWithRationale_SuppressesChallenge', async () => {
+    // Exit-proof (d): an explicit `**Plausibility Override:**` line with a
+    // non-empty rationale suppresses the breadth challenge; the override is
+    // recorded (auditable), not invisible.
+    const plan = [
+      '# Implementation Plan',
+      '',
+      '## Tasks',
+      '',
+      '### Task T-01: Cross-cutting rename that legitimately spans many modules by design',
+      '',
+      '**Risk Tier:** medium · **Boundary Touching:** true',
+      '',
+      '**Files:**',
+      '- `a/1.ts`',
+      '- `b/2.ts`',
+      '- `c/3.ts`',
+      '- `d/4.ts`',
+      '- `e/5.ts`',
+      '',
+      '**Plausibility Override:** breadth: atomic cross-module rename, cannot be split',
+      '',
+      '**Tests:**',
+      '- [RED] `Rename_AllModules_Consistent`',
+      '',
+      '**Dependencies:** None',
+    ].join('\n');
+    mockedReadFile.mockResolvedValue(plan);
+
+    const result = await handleTaskDecomposition(
+      { featureId: 'f', planPath: 'p.md' },
+      stateDir,
+      mockStore as unknown as EventStore,
+    );
+
+    const data = result.data as DecompositionDataShape;
+    expect(data.plausibility.challenges.some((c) => c.signal === 'breadth')).toBe(false);
+    const overridden = data.plausibility.overridden.find((c) => c.signal === 'breadth');
+    expect(overridden).toBeDefined();
+    expect(overridden?.overrideRationale).toBe('atomic cross-module rename, cannot be split');
+    expect(data.report).toContain('OVERRIDDEN (breadth)');
+  });
+
+  it('HandleTaskDecomposition_BreadthOverrideMissing_DoesNotSuppress', async () => {
+    // Companion to (d): the SAME broad task WITHOUT the override line is
+    // challenged — proving the suppression is driven by the rationale, not the
+    // task shape.
+    const plan = [
+      '# Implementation Plan',
+      '',
+      '## Tasks',
+      '',
+      '### Task T-01: Cross-cutting rename that legitimately spans many modules by design',
+      '',
+      '**Risk Tier:** medium · **Boundary Touching:** true',
+      '',
+      '**Files:**',
+      '- `a/1.ts`',
+      '- `b/2.ts`',
+      '- `c/3.ts`',
+      '- `d/4.ts`',
+      '- `e/5.ts`',
+      '',
+      '**Tests:**',
+      '- [RED] `Rename_AllModules_Consistent`',
+      '',
+      '**Dependencies:** None',
+    ].join('\n');
+    mockedReadFile.mockResolvedValue(plan);
+
+    const result = await handleTaskDecomposition(
+      { featureId: 'f', planPath: 'p.md' },
+      stateDir,
+      mockStore as unknown as EventStore,
+    );
+
+    const data = result.data as DecompositionDataShape;
+    expect(data.plausibility.challenges.some((c) => c.signal === 'breadth')).toBe(true);
+    expect(data.plausibility.overridden).toHaveLength(0);
+  });
+});

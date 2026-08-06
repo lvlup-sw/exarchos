@@ -80,6 +80,7 @@ import {
 } from './workflow-state-projection.js';
 import {
   delegationReadinessProjection,
+  scopeReadinessToWave,
   DELEGATION_READINESS_VIEW,
 } from './delegation-readiness-view.js';
 import type { DelegationReadinessState } from './delegation-readiness-view.js';
@@ -103,6 +104,11 @@ import {
   CONVERGENCE_VIEW,
 } from './convergence-view.js';
 import type { ConvergenceViewState } from './convergence-view.js';
+import {
+  gateReliabilityProjection,
+  GATE_RELIABILITY_VIEW,
+} from './gate-reliability-view.js';
+import type { GateReliabilityViewState } from './gate-reliability-view.js';
 import { detectRegressions, emitRegressionEvents } from '../quality/regression-detector.js';
 import type { FailureTracker } from '../quality/regression-detector.js';
 import { computeAttribution, isValidDimension } from '../quality/attribution.js';
@@ -139,6 +145,7 @@ function createMaterializer(stateDir: string): ViewMaterializer {
   materializer.register(SHEPHERD_STATUS_VIEW, shepherdStatusProjection);
   materializer.register(PROVENANCE_VIEW, provenanceProjection);
   materializer.register(CONVERGENCE_VIEW, convergenceProjection);
+  materializer.register(GATE_RELIABILITY_VIEW, gateReliabilityProjection);
   return materializer;
 }
 
@@ -1868,6 +1875,13 @@ export async function handleViewSessionProvenance(
 export async function handleViewDelegationReadiness(
   args: {
     workflowId?: string;
+    /**
+     * WFQ-002: the active wave's task IDs. When present, readiness counters,
+     * blockers, and the `ready` flag are computed over exactly this set instead
+     * of every historical `task.assigned` event on the stream — the same
+     * scoping `prepare_delegation` applies, through the same pure core.
+     */
+    tasks?: readonly string[];
     // DR-8 (Task 024) — compact-by-default drops the per-task ID tracking
     // lists; `detail: true` restores them.
     detail?: boolean;
@@ -1881,10 +1895,14 @@ export async function handleViewDelegationReadiness(
     const streamId = args.workflowId ?? 'default';
 
     const events = await queryDeltaEvents(store, materializer, streamId, DELEGATION_READINESS_VIEW);
-    const view = materializer.materialize<DelegationReadinessState>(
+    const materialized = materializer.materialize<DelegationReadinessState>(
       streamId,
       DELEGATION_READINESS_VIEW,
       events,
+    );
+    const view = scopeReadinessToWave(
+      materialized,
+      args.tasks?.map((id) => ({ id })),
     );
 
     // DR-8 (Task 024) compact-by-default — drop the per-task ID tracking lists
@@ -2211,6 +2229,51 @@ export async function handleViewConvergence(
       dimensions[name] = rest;
     }
     return { success: true, data: { ...effectiveView, dimensions } };
+  } catch (err) {
+    return {
+      success: false,
+      error: {
+        code: 'VIEW_ERROR',
+        message: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
+}
+
+// ─── View Gate Reliability Handler ─────────────────────────────────────────
+//
+// BASE-002 (structural-closure Wave 0): the gate-reliability read model is a
+// production view action, not a dead module. It stays diagnostic-only — no
+// admission or transition authority — but it is now reachable through the
+// registered `gate_reliability` action and folded through the same production
+// materializer as every other projection.
+
+export async function handleViewGateReliability(
+  args: {
+    workflowId?: string;
+    /** Restores the raw fold inputs retained for arrival-order recomputation. */
+    detail?: boolean;
+  },
+  stateDir: string,
+  eventStore: EventStore,
+): Promise<ToolResult> {
+  try {
+    const store = eventStore;
+    const materializer = getOrCreateMaterializer(stateDir);
+    const streamId = args.workflowId ?? 'default';
+
+    const events = await queryDeltaEvents(store, materializer, streamId, GATE_RELIABILITY_VIEW);
+    const view = materializer.materialize<GateReliabilityViewState>(
+      streamId,
+      GATE_RELIABILITY_VIEW,
+      events,
+    );
+
+    if (args.detail) {
+      return { success: true, data: view };
+    }
+    const { _foldEvents: _ignoredFoldEvents, ...publicView } = view;
+    return { success: true, data: publicView };
   } catch (err) {
     return {
       success: false,

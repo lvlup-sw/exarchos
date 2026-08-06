@@ -34,9 +34,14 @@ import {
 import { workflowLogger } from '../logger.js';
 import { getHSMDefinition, isBuiltInWorkflowType, getValidTransitions } from './state-machine.js';
 import { hsmTransitionGuard } from './hsm-transition-guard.js';
+import { recordLiveTransition } from './admission/live-shadow-observer.js';
 import { getPlaybook, composePhasePlaybook } from './playbooks.js';
 import { lintHandoff, type HandoffLintFinding } from './handoff-lint.js';
 import { resolveGateSet } from './phase-kind.js';
+import {
+  resolveBoundaryTouching,
+  resolveRiskTier,
+} from './verification-policy-resolver.js';
 import { type ToolResult } from '../format.js';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs/promises';
@@ -59,6 +64,11 @@ import { appendSnapshot } from '../projections/store.js';
 import type { SnapshotRecord } from '../projections/snapshot-schema.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import { buildValidatedEvent } from '../event-store/event-factory.js';
+import {
+  allocateInitialPhaseAttemptId,
+  allocatePhaseAttemptId,
+  readPhaseAttemptId,
+} from './phase-attempt-id.js';
 // #1555 — shared `asOf` bounded-fold seam (dispatch-core, INV-2). Bounds the
 // event list to `events[0..N]` before the cache-bypassing fresh fold.
 import { resolveAsOfEvents } from '../projections/cursor.js';
@@ -95,28 +105,21 @@ function stripInternalFields(state: Record<string, unknown>): Record<string, unk
 export const CURRENT_ES_VERSION = 2;
 
 /** Check whether a workflow state uses the pure event-sourcing path. */
-export function isEventSourced(state: Record<string, unknown>): boolean {
+export function isEventSourced(state: unknown): boolean {
+  if (typeof state !== 'object' || state === null) return false;
+  if (!('_esVersion' in state)) return false;
   return state._esVersion === CURRENT_ES_VERSION;
 }
 
 // ─── Workflow Risk Tier (review-gate path, R5) ──────────────────────────────
-
-/**
- * Read a workflow-level risk tier off the (`.passthrough()`) workflow state,
- * for the tier-aware `/review` required-reviews contract (review-contract.ts).
- *
- * The risk tier is task-classification data produced by `prepare_delegation`.
- * It reaches the review-gate path only when a workflow-level tier is stamped on
- * state under `riskTier`; absent that stamp this returns `undefined` and the
- * contract falls back to the backward-compatible no-tier roster. Returns the
- * raw string and lets `getRequiredReviews` validate it (an unrecognised value
- * yields no tier-coupled dimensions), so a malformed stamp is inert rather than
- * throwing or injecting a spurious dimension.
- */
-function resolveWorkflowRiskTier(state: Record<string, unknown>): string | undefined {
-  const tier = state.riskTier;
-  return typeof tier === 'string' ? tier : undefined;
-}
+//
+// DR-10 (T-14): the local `resolveWorkflowRiskTier` shim is retired. It read
+// the raw stamp and left every call site to coerce it, which is how the
+// weakest-coordinate collapse (`rawTier === 'high' ? … : 'low'`) got written.
+// Both call sites now use `resolveRiskTier` from
+// `verification-policy-resolver.ts` — the single authority for turning an
+// untrusted stamp into a tier claim, which returns `'unknown'` rather than
+// fabricating one.
 
 // ─── handleInit ─────────────────────────────────────────────────────────────
 
@@ -191,6 +194,10 @@ export async function handleInit(
     const isOneshotWithPolicy =
       input.workflowType === 'oneshot' && input.synthesisPolicy !== undefined;
     let eventSequence = 0;
+    // Initial entry has no predecessor/version decision to key from, so mint an
+    // opaque ID and persist it on workflow.started. The persisted event remains
+    // canonical if concurrent init callers hit the idempotency cache.
+    let phaseAttemptId = allocateInitialPhaseAttemptId();
     if (eventStore) {
       try {
         // #1325 — route through buildValidatedEvent for defense-in-depth
@@ -206,12 +213,19 @@ export async function handleInit(
             // DR-5: repo identity, present only when the composite supplied it.
             // Absent ⇒ exactly today's event shape (unscoped legacy behavior).
             ...(repoKey !== undefined ? { repoRoot: repoKey } : {}),
+            phaseAttemptId,
           },
         });
         const event = await eventStore.appendValidated(input.featureId, validatedEvent, {
           idempotencyKey: `${input.featureId}:workflow.started`,
         });
         eventSequence = event.sequence;
+        const persistedPhaseAttemptId = (
+          event.data as Record<string, unknown> | undefined
+        )?.phaseAttemptId;
+        if (typeof persistedPhaseAttemptId === 'string') {
+          phaseAttemptId = persistedPhaseAttemptId as typeof phaseAttemptId;
+        }
       } catch (err) {
         // Event-first: if event append fails, do NOT create state file
         return {
@@ -246,6 +260,7 @@ export async function handleInit(
     const extraFields: Record<string, unknown> = {
       _eventSequence: eventSequence,
       _esVersion: CURRENT_ES_VERSION,
+      phaseAttemptId,
     };
     if (input.workflowType === 'oneshot' && input.synthesisPolicy !== undefined) {
       extraFields.oneshot = { synthesisPolicy: input.synthesisPolicy };
@@ -267,6 +282,7 @@ export async function handleInit(
         featureId: state.featureId,
         workflowType: state.workflowType,
         phase: state.phase,
+        phaseAttemptId,
       },
       _meta: buildCheckpointMeta(state._checkpoint),
     };
@@ -351,7 +367,7 @@ export async function handleGet(
   }
 
   // Version discriminator: ES v2 workflows materialize from events
-  const useEventSource = isEventSourced(state as unknown as Record<string, unknown>)
+  const useEventSource = isEventSourced(state)
     && eventStore !== null
     && moduleViewMaterializer !== null;
 
@@ -541,6 +557,9 @@ export async function handleSet(
   },
 ): Promise<ToolResult> {
   const stateFile = path.join(stateDir, `${input.featureId}.state.json`);
+  // Retained across the CAS loop. A retry must re-use the identity already
+  // committed by its first event-first pass, never mint a second attempt.
+  let transitionPhaseAttemptId: string | undefined;
 
   for (let attempt = 0; attempt <= MAX_CAS_RETRIES; attempt++) {
     let state: WorkflowState;
@@ -692,25 +711,33 @@ export async function handleSet(
         // roster when absent — exactly the pre-slice-3 behaviour.
         // `getRequiredReviews` ignores an unrecognised tier, so a malformed
         // stamp can never inject a dimension.
-        // Coerce the (defensively-read, possibly-undefined/garbage) tier to a
-        // literal RiskTier for the resolver ctx. Only `high` carries an extra
-        // review dimension (mutation-adequacy); every other value → the base
-        // roster, so collapsing non-high to `low` is byte-identical to the prior
-        // `getRequiredReviews(workflowType, rawTier)` behavior (the ctx shim).
-        const rawTier = resolveWorkflowRiskTier(mutableState);
-        const riskTier =
-          rawTier === 'high' ? 'high' : rawTier === 'medium' ? 'medium' : 'low';
+        // ─── DR-10 (T-14): monotonic, fail-safe tier resolution ────────────
+        // Previously this collapsed an absent/malformed tier to the literal
+        // `'low'` and hardcoded `boundaryTouching: false` — the two WEAKEST
+        // ladder coordinates, asserted on no evidence. `resolveRiskTier`
+        // returns `'unknown'` instead of fabricating a tier, and
+        // `resolveBoundaryTouching` fails safe to `true`; `reviewRosterTier`
+        // then projects `'unknown'` onto NO tier claim (`undefined`), which
+        // yields the workflow-type base roster. That is materially different
+        // from claiming `'low'`: it makes no positive assertion about blast
+        // radius, and it cannot inject a tier-coupled dimension that no
+        // producer will ever satisfy. The opposite projection —
+        // `failSafeVerificationProfile` — governs which gates RUN, where the
+        // hazard is under-verification rather than deadlock; see the resolver
+        // module for why the two directions differ.
+        const resolvedTier = resolveRiskTier(mutableState.riskTier);
+        const boundaryTouching = resolveBoundaryTouching(mutableState.boundaryTouching);
         // DR-7: route the review roster through the single REVIEW gate-set
         // resolver — `resolveGateSet('REVIEW')`, the same resolver phase-entry
         // uses — instead of calling `getRequiredReviews` directly, so REVIEW
-        // obligations have ONE source. The `'review-contract'` resolver wraps
-        // `getRequiredReviews` verbatim (review-contract.ts SoT), so the resolved
-        // dimension set is byte-identical (parity-pinned). `boundaryTouching` is
-        // unused by the review resolver; an absent/unrecognised tier falls back to
-        // the workflow-type base roster (the ctx shim — never throws).
+        // obligations have ONE source. The resolver owns the `'unknown'`
+        // projection (see its comment): the roster makes no tier claim, while
+        // the verification ladder escalates. `boundaryTouching` is unused by the
+        // review resolver but is now RESOLVED rather than hardcoded `false`, so
+        // no weakest-coordinate assertion survives anywhere on this path.
         const typeDefaults = resolveGateSet('REVIEW', {
-          riskTier,
-          boundaryTouching: false,
+          riskTier: resolvedTier,
+          boundaryTouching,
           workflowType,
         }).flatMap((g) => (g.family === 'review' ? [g.gate] : []));
         if (typeDefaults.length) {
@@ -741,7 +768,7 @@ export async function handleSet(
       // low/medium never run mutation-adequacy, so the guard's score check stays
       // inert there. Advisory by default: with mode !== 'block' nothing is
       // injected, so the guard never enforces. Stripped before persistence below.
-      if (resolveWorkflowRiskTier(mutableState) === 'high') {
+      if (resolveRiskTier(mutableState.riskTier) === 'high') {
         if (options?.mutationEnforcement !== undefined) {
           mutableState._mutationEnforcement = options.mutationEnforcement;
         }
@@ -806,6 +833,21 @@ export async function handleSet(
 
     if (input.phase) {
       const fromPhase = state.phase;
+      if (fromPhase !== input.phase && transitionPhaseAttemptId === undefined) {
+        transitionPhaseAttemptId = allocatePhaseAttemptId(
+          input.featureId,
+          fromPhase,
+          input.phase,
+          readPhaseAttemptId(state),
+          expectedVersion,
+        );
+      }
+      if (transitionPhaseAttemptId !== undefined) {
+        // Internal workflow/dispatch context consumed by the HSM event emitter
+        // and future proof producers. It is stripped after the decision; only
+        // the active `phaseAttemptId` is persisted.
+        mutableState._pendingPhaseAttemptId = transitionPhaseAttemptId;
+      }
       let attemptResult;
       try {
         attemptResult = await hsmTransitionGuard.attempt(
@@ -814,10 +856,33 @@ export async function handleSet(
           input.phase,
           {
             state: mutableState,
+            // DR-10 (T-15): the PRE-update state. Field updates are applied to
+            // `mutableState` above so phase guards see the new state, which for
+            // the danger coordinate would let `updates: { riskTier: 'low' }`
+            // weaken the very transition it accompanies. Passing the pre-update
+            // state lets the primitive floor the coordinate monotonically — the
+            // stamp still persists and governs later calls.
+            priorState: state as unknown as Record<string, unknown>,
             workflowType: state.workflowType as string,
             skipPhases: options?.skipPhases,
             idempotencyKeySuffix: String(expectedVersion),
             eventStore,
+            // ─── P07-02: live shadow observer (Transition tasks 027/051) ──
+            // Feed the authoritative legacy transition outcome to the
+            // evidence-backed admission engine, side by side, so the RESERVED
+            // cutover gate can accumulate live evidence (>=20 attempts, all
+            // phase kinds, both outcomes). This is the ONLY production wiring of
+            // the P07-01 seam. It is behaviour-preserving for the AUTHORITATIVE
+            // decision: the observer is error-isolated and cannot alter the
+            // returned legacy result or any workflow event.
+            //
+            // DR-23 / T-31: `observerEventStore` is `GuardContext.eventStore`,
+            // forwarded by the primitive. It is what makes the shadow evidence
+            // durable (`admission.shadow-attempt` /
+            // `admission.disagreement-disposition`) instead of a process-scoped
+            // ring buffer. Enforcement does NOT flip here.
+            shadowObserver: (observation, observerEventStore) =>
+              recordLiveTransition(observation, mutableState, observerEventStore),
           },
         );
       } catch (err) {
@@ -897,6 +962,7 @@ export async function handleSet(
             phase: state.phase,
             updatedAt: state.updatedAt,
             idempotent: true,
+            phaseAttemptId: readPhaseAttemptId(state),
           },
           _meta: buildCheckpointMeta(state._checkpoint),
         };
@@ -904,6 +970,7 @@ export async function handleSet(
 
       if (!attemptResult.idempotent) {
         mutableState.phase = attemptResult.newPhase;
+        mutableState.phaseAttemptId = transitionPhaseAttemptId;
 
         if (Object.keys(attemptResult.historyUpdates).length > 0) {
           const history = {
@@ -936,6 +1003,7 @@ export async function handleSet(
       delete mutableState._mutationEnforcement;
       delete mutableState._mutationThreshold;
       delete mutableState._maxNoCoverage;
+      delete mutableState._pendingPhaseAttemptId;
     }
 
     // Transition events are now emitted inside `hsmTransitionGuard.attempt`
@@ -992,7 +1060,7 @@ export async function handleSet(
     // ─── Event-first: append state.patched event for v2 field updates ──
     const updateKeys = input.updates ? Object.keys(input.updates) : [];
     if (
-      isEventSourced(state as unknown as Record<string, unknown>)
+      isEventSourced(state)
       && eventStore
       && updateKeys.length > 0
     ) {
@@ -1104,7 +1172,7 @@ export async function handleSet(
     // snapshot derived from the full event stream. This ensures the
     // state file is always a derived artifact of the event log.
     if (
-      isEventSourced(state as unknown as Record<string, unknown>)
+      isEventSourced(state)
       && eventStore
       && moduleViewMaterializer
     ) {
@@ -1161,6 +1229,7 @@ export async function handleSet(
         phase: mutableState.phase as string,
         workflowType: mutableState.workflowType as string,
         updatedAt: mutableState.updatedAt as string,
+        phaseAttemptId: mutableState.phaseAttemptId as string,
       },
       _meta: buildCheckpointMeta(mutableState._checkpoint as WorkflowState['_checkpoint']),
     };
@@ -1991,4 +2060,3 @@ function resolveDotPath(obj: Record<string, unknown>, dotPath: string): unknown 
 
   return current;
 }
-

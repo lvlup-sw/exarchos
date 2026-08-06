@@ -9,8 +9,35 @@ vi.mock('./pure/provenance-chain.js', () => ({
   verifyProvenanceChain: vi.fn(),
 }));
 
+vi.mock('node:fs/promises', () => ({
+  readFile: vi.fn(async (path: string) => `fixture:${path}`),
+}));
+
 vi.mock('./gate-utils.js', () => ({
   emitGateEvent: vi.fn(async () => {}),
+}));
+
+vi.mock('./gate-runner.js', () => ({
+  runPhaseGateWithEvidence: vi.fn(async (request) => {
+    try {
+      return await request.executeProvider(
+        {
+          gateClass: request.gateClass,
+          providerRef: 'test-provider',
+          actionName: 'test-provider',
+        },
+        request.providerInput,
+      );
+    } catch (error) {
+      return {
+        success: false,
+        error: {
+          code: 'GATE_PROVIDER_FAILED',
+          message: error instanceof Error ? error.message : String(error),
+        },
+      };
+    }
+  }),
 }));
 
 import { verifyProvenanceChain } from './pure/provenance-chain.js';
@@ -219,7 +246,7 @@ describe('handleProvenanceChain', () => {
     );
   });
 
-  it('should be resilient to gate emission failure', async () => {
+  it('should return a structured failure when shadow gate emission fails', async () => {
     // Arrange
     mockedVerify.mockReturnValueOnce({
       status: 'pass',
@@ -239,8 +266,10 @@ describe('handleProvenanceChain', () => {
       mockStore,
     );
 
-    expect(result.success).toBe(true);
-    expect(result.data?.passed).toBe(true);
+    expect(result).toMatchObject({
+      success: false,
+      error: { code: 'GATE_PROVIDER_FAILED', message: 'Store failure' },
+    });
   });
 
   it('should report orphan refs from the TS result', async () => {

@@ -8,6 +8,8 @@ import type { WorkflowState } from '../workflow/types.js';
 import type { EventSender } from './backend.js';
 import { SqliteBackend, SqliteImmediateUnsupportedError } from './sqlite-backend.js';
 import { VersionConflictError } from './memory-backend.js';
+import { AtomicAppender } from '../event-store/atomic-appender.js';
+import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 // ─── DR-4 durability posture + DR-3 immediate fail-fast ─────────────────────
 
@@ -19,6 +21,155 @@ describe('SqliteBackend durability + immediate (DR-3 / DR-4)', () => {
           synchronous: 'sometimes' as unknown as 'normal' | 'full',
         }),
     ).toThrowError(/invalid storage.synchronous/);
+  });
+
+  describe('SqliteBackend decideOnce transaction (DR-4)', () => {
+    it('DecideOnce_EventInsertFailure_RollsBackOperationClaimEventsAndSequence', async () => {
+      const stateDir = await mkdtemp(path.join(tmpdir(), 'decide-once-rollback-'));
+      const backend = new SqliteBackend(path.join(stateDir, 'decide-once.db'));
+      backend.initialize();
+      const appender = new AtomicAppender({ stateDir, sqliteBackend: backend });
+      const streamId = 'decide-once-rollback';
+
+      const stmts = (
+        backend as unknown as {
+          stmts: { insertEventStrict: { run: (...args: unknown[]) => unknown } };
+        }
+      ).stmts;
+      const originalRun = stmts.insertEventStrict.run.bind(stmts.insertEventStrict);
+      let inserts = 0;
+      stmts.insertEventStrict.run = (...args: unknown[]) => {
+        inserts += 1;
+        if (inserts === 2) {
+          throw new Error('simulated decideOnce event INSERT failure');
+        }
+        return originalRun(...args);
+      };
+
+      try {
+        await expect(
+          appender.decideOnce('operation-rollback', 'sha256:rollback', () => ({
+            streamId,
+            events: [
+              { type: 'gate.executed', data: { sibling: 1 } },
+              { type: 'gate.executed', data: { sibling: 2 } },
+            ],
+            result: { verdict: 'pass' },
+          })),
+        ).rejects.toThrow('simulated decideOnce event INSERT failure');
+      } finally {
+        stmts.insertEventStrict.run = originalRun;
+      }
+
+      expect(backend.lookupOperationClaim('operation-rollback')).toBeUndefined();
+      expect(backend.queryEvents(streamId)).toEqual([]);
+      expect(backend.readSequenceHighWaterMark(streamId)).toBe(0);
+
+      const retried = await appender.decideOnce(
+        'operation-rollback',
+        'sha256:rollback',
+        () => ({
+          streamId,
+          events: [
+            { type: 'gate.executed', data: { sibling: 1 } },
+            { type: 'gate.executed', data: { sibling: 2 } },
+          ],
+          result: { verdict: 'pass' },
+        }),
+      );
+      expect(retried).toEqual({ verdict: 'pass' });
+      expect(backend.queryEvents(streamId).map((event) => event.sequence)).toEqual([1, 2]);
+
+      backend.close();
+      await rmrfAsync(stateDir);
+    });
+
+    it('DecideOnce_ConcurrentConnections_SerializeClosureAndStreamSequence', async () => {
+      const stateDir = await mkdtemp(path.join(tmpdir(), 'decide-once-concurrent-'));
+      const dbPath = path.join(stateDir, 'decide-once.db');
+      const backendA = new SqliteBackend(dbPath);
+      const backendB = new SqliteBackend(dbPath);
+      backendA.initialize();
+      backendB.initialize();
+      const appenderA = new AtomicAppender({ stateDir, sqliteBackend: backendA });
+      const appenderB = new AtomicAppender({ stateDir, sqliteBackend: backendB });
+      let closureCalls = 0;
+
+      const decide = (appender: AtomicAppender) =>
+        appender.decideOnce(
+          'operation-concurrent',
+          'sha256:concurrent',
+          (ctx) => {
+            closureCalls += 1;
+            const snapshot = ctx.readStream('decide-once-concurrent');
+            return {
+              streamId: 'decide-once-concurrent',
+              expectedSequence: snapshot.version,
+              events: [{ type: 'gate.executed', data: { observed: snapshot.version } }],
+              result: { canonicalVersion: snapshot.version },
+            };
+          },
+        );
+
+      const [left, right] = await Promise.all([decide(appenderA), decide(appenderB)]);
+      expect(left).toEqual(right);
+      expect(closureCalls).toBe(1);
+      expect(backendA.queryEvents('decide-once-concurrent')).toHaveLength(1);
+
+      backendA.close();
+      backendB.close();
+      await rmrfAsync(stateDir);
+    });
+
+    it('DecideOnce_JSONResult_RoundTripsCanonicallyAcrossRetries', async () => {
+      await fc.assert(
+        fc.asyncProperty(fc.jsonValue(), async (canonicalResult) => {
+          const backend = new SqliteBackend(':memory:');
+          backend.initialize();
+          const appender = new AtomicAppender({
+            stateDir: tmpdir(),
+            sqliteBackend: backend,
+          });
+          let closureCalls = 0;
+          try {
+            const first = await appender.decideOnce(
+              'operation-property',
+              'sha256:property',
+              () => {
+                closureCalls += 1;
+                return {
+                  streamId: 'decide-once-property',
+                  events: [{ type: 'gate.executed' }],
+                  result: canonicalResult,
+                };
+              },
+            );
+            const retry = await appender.decideOnce(
+              'operation-property',
+              'sha256:property',
+              () => {
+                closureCalls += 1;
+                throw new Error('completed operation must bypass closure');
+              },
+            );
+
+            expect(retry).toEqual(first);
+            // The claim's canonical wire shape is JSON (`atomicDecideOnce`
+            // stores `JSON.parse(JSON.stringify(result))` and returns that
+            // same shape to fresh AND retried callers). JSON cannot represent
+            // a negative zero (`JSON.stringify(-0)` is `"0"`), so the correct
+            // expectation is the round-tripped form — comparing against the
+            // raw closure value made the property flake whenever fast-check
+            // generated `-0`.
+            expect(retry).toEqual(JSON.parse(JSON.stringify(canonicalResult)));
+            expect(closureCalls).toBe(1);
+          } finally {
+            backend.close();
+          }
+        }),
+        { numRuns: 25 },
+      );
+    });
   });
 
   it('Synchronous_DefaultNormal_InitializesAndAppends', () => {
@@ -1450,5 +1601,77 @@ describe('SqliteBackend correlationFilteredQueries counter (#1448 Task 2)', () =
     });
 
     expect(backend.getStats().correlationFilteredQueries).toBe(1);
+  });
+});
+
+// ─── EFF-001 repair gate-lowering TOCTOU (regression) ───────────────────────
+//
+// `repairSequenceHighWaterMarks` used to run its divergence SELECT on the bare
+// connection and apply the upserts in a SEPARATE transaction, with a blind
+// `SET sequence = excluded.sequence` overwrite. A sibling process that repaired
+// AND appended between the two steps got its freshly-advanced gate LOWERED back
+// to the stale tail — gate-below-tail, so the next append re-issues a persisted
+// sequence and PK-violates. The fix is two independent guards: the SELECT and
+// the upserts now share one BEGIN IMMEDIATE transaction, and the repair upsert
+// is monotonic (`MAX(sequence, excluded.sequence)`). This regression pins the
+// monotonic floor by replaying the exact interleaving.
+
+describe('SqliteBackend EFF-001 repair TOCTOU (gate-lowering)', () => {
+  it('Sqlite_StaleRepairAfterConcurrentAdvance_NeverLowersTheGate', async () => {
+    const stateDir = await mkdtemp(path.join(tmpdir(), 'repair-toctou-'));
+    const dbPath = path.join(stateDir, 'repair-toctou.db');
+    const streamId = 'repair-toctou-stream';
+
+    // Seed events 1..5, then force the gate back to 3 — the crash shape the
+    // startup repair exists for (gate trails the durable tail).
+    const seeder = new SqliteBackend(dbPath);
+    seeder.initialize();
+    for (let seq = 1; seq <= 5; seq++) {
+      seeder.appendEvent(streamId, makeEvent({ streamId, sequence: seq }));
+    }
+    const seederDb = (
+      seeder as unknown as {
+        db: { prepare: (sql: string) => { run: (...args: unknown[]) => unknown } };
+      }
+    ).db;
+    seederDb.prepare('UPDATE sequences SET sequence = ? WHERE streamId = ?').run(3, streamId);
+    seeder.close();
+
+    // Process A's repair computes divergence { tail: 5, gate: 3 }: its
+    // corrective value is 5.
+    const staleTail = 5;
+
+    // Before A applies it, process B starts up (its own repair raises the
+    // gate 3 → 5 through the real repair path) and then appends: the gate
+    // advances PAST A's snapshot.
+    const backendB = new SqliteBackend(dbPath);
+    backendB.initialize();
+    expect(
+      backendB.readSequenceHighWaterMark(streamId),
+      'startup repair must raise the diverged gate to the durable tail',
+    ).toBe(5);
+    for (let seq = 6; seq <= 8; seq++) {
+      backendB.appendEvent(streamId, makeEvent({ streamId, sequence: seq }));
+    }
+    expect(backendB.readSequenceHighWaterMark(streamId)).toBe(8);
+
+    // Process A now applies its STALE repair through the same statement the
+    // repair path uses. The monotonic upsert must leave the advanced gate
+    // untouched — lowering it to 5 would hand out sequence 6 next, which is
+    // already persisted (PK violation).
+    const stmts = (
+      backendB as unknown as {
+        stmts: { upsertSequenceMonotonic: { run: (...args: unknown[]) => unknown } };
+      }
+    ).stmts;
+    stmts.upsertSequenceMonotonic.run(streamId, staleTail);
+
+    expect(
+      backendB.readSequenceHighWaterMark(streamId),
+      'a stale repair must never lower the gate below the durable tail',
+    ).toBe(8);
+
+    backendB.close();
+    await rmrfAsync(stateDir);
   });
 });

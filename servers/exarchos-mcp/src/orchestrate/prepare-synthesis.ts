@@ -12,6 +12,8 @@ import { resolveWorkflowState } from './resolve-state.js';
 import { emitGateEvent } from './gate-utils.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
 import { globToRegExp } from '../architecture/glob-to-regexp.js';
+import { createEvidenceSubject } from '../workflow/admission/evidence-subject.js';
+import { runPhaseGateWithEvidence } from './gate-runner.js';
 
 // ─── Result Types ──────────────────────────────────────────────────────────
 
@@ -278,6 +280,33 @@ function checkTaskCompletion(
 // ─── Handler ───────────────────────────────────────────────────────────────
 
 export async function handlePrepareSynthesis(
+  args: { featureId: string; projectConfig?: ResolvedProjectConfig },
+  stateDir: string,
+  eventStore: EventStore,
+): Promise<ToolResult> {
+  if (!args.featureId) {
+    return {
+      success: false,
+      error: { code: 'INVALID_INPUT', message: 'featureId is required' },
+    };
+  }
+
+  return runPhaseGateWithEvidence({
+    streamId: args.featureId,
+    gateClass: 'prepare-synthesis',
+    requirementId: 'requirement:prepare-synthesis',
+    stateDir,
+    eventStore,
+    subject: (phaseAttemptId) => createEvidenceSubject(
+      { kind: 'phase-attempt', phaseAttemptId },
+      { gate: 'prepare-synthesis' },
+    ),
+    providerInput: args,
+    executeProvider: async () => executePrepareSynthesis(args, stateDir, eventStore),
+  });
+}
+
+async function executePrepareSynthesis(
   args: { featureId: string; projectConfig?: ResolvedProjectConfig },
   stateDir: string,
   eventStore: EventStore,

@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from 'vite
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { fileURLToPath } from 'node:url';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
 // The boundary-lint leg (SIV-3 Layer A, task 027) is exercised below against
@@ -38,6 +39,15 @@ vi.mock('./pure/static-analysis.js', async (importActual) => {
     runStaticAnalysis: (...args: unknown[]) => mockRunStaticAnalysis(...args),
   };
 });
+
+// Carrier-focused legacy tests exercise the provider body. Durable proof
+// behavior is covered against the real runner in ladder-gate-evidence.test.ts.
+vi.mock('./durable-gate-producer.js', () => ({
+  runDurableGateProducer: (
+    _scope: unknown,
+    executeProvider: () => Promise<ToolResult>,
+  ) => executeProvider(),
+}));
 
 // ─── Mock event store ────────────────────────────────────────────────────────
 
@@ -207,10 +217,10 @@ describe('handleStaticAnalysis', () => {
     });
   });
 
-  // ─── Gate Event Emission ──────────────────────────────────────────────
+  // ─── No legacy gate event emission ────────────────────────────────────
 
   describe('gate event emission', () => {
-    it('handleStaticAnalysis_EmitsGateExecutedEvent', async () => {
+    it('handleStaticAnalysis_DoesNotEmitLegacyGateExecutedEvent', async () => {
       // Arrange
       mockRunStaticAnalysis.mockReturnValue(makePassingResult());
 
@@ -220,53 +230,7 @@ describe('handleStaticAnalysis', () => {
       await handleStaticAnalysis(args, STATE_DIR, mockStore as unknown as EventStore);
 
       // Assert
-      expect(mockStore.append).toHaveBeenCalledTimes(1);
-      const appendCall = mockStore.append.mock.calls[0];
-      expect(appendCall[0]).toBe('feat-1');
-      const event = appendCall[1] as {
-        type: string;
-        data: {
-          gateName: string;
-          layer: string;
-          passed: boolean;
-          details: Record<string, unknown>;
-        };
-      };
-      expect(event.type).toBe('gate.executed');
-      expect(event.data.gateName).toBe('static-analysis');
-      expect(event.data.layer).toBe('quality');
-      expect(event.data.passed).toBe(true);
-      expect(event.data.details).toEqual({
-        dimension: 'D2',
-        phase: 'delegate',
-        passCount: 2,
-        failCount: 0,
-      });
-    });
-  });
-
-  // ─── Phase in Gate Event Details ──────────────────────────────────────
-
-  describe('phase in gate event details', () => {
-    it('handleStaticAnalysis_EmitsGateEvent_IncludesPhaseInDetails', async () => {
-      // Arrange
-      mockRunStaticAnalysis.mockReturnValue(makePassingResult());
-
-      const args = { featureId: 'feat-1', repoRoot: '/home/user/project' };
-
-      // Act
-      await handleStaticAnalysis(args, STATE_DIR, mockStore as unknown as EventStore);
-
-      // Assert
-      expect(mockStore.append).toHaveBeenCalledTimes(1);
-      const appendCall = mockStore.append.mock.calls[0];
-      const event = appendCall[1] as {
-        type: string;
-        data: {
-          details: Record<string, unknown>;
-        };
-      };
-      expect(event.data.details.phase).toBe('delegate');
+      expect(mockStore.append).not.toHaveBeenCalled();
     });
   });
 
@@ -318,26 +282,7 @@ describe('handleStaticAnalysis', () => {
       expect(data.failCount).toBe(0);
       expect(data.report).toContain('Result: SKIP');
 
-      // Assert: gate.executed event reflects skip in details payload.
-      expect(mockStore.append).toHaveBeenCalledTimes(1);
-      const appendCall = mockStore.append.mock.calls[0];
-      expect(appendCall[0]).toBe('feat-1');
-      const event = appendCall[1] as {
-        type: string;
-        data: {
-          gateName: string;
-          layer: string;
-          passed: boolean;
-          details: Record<string, unknown>;
-        };
-      };
-      expect(event.type).toBe('gate.executed');
-      expect(event.data.gateName).toBe('static-analysis');
-      expect(event.data.layer).toBe('quality');
-      expect(event.data.passed).toBe(false);
-      expect(event.data.details.dimension).toBe('D2');
-      expect(event.data.details.skipped).toBe(true);
-      expect(event.data.details.skipReason).toBe('no-toolchain');
+      expect(mockStore.append).not.toHaveBeenCalled();
     });
   });
 
@@ -639,9 +584,16 @@ describe('runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)', ()
     // — distinct from the handler suite above, which mocks it.)
     const repoRoot = makeBoundaryFixture({ withConfig: true, withViolation: false });
     // Make it a Node project so the gate has a recognized toolchain to run.
+    // T-09 / DR-6: every constituent script must be declared — an undeclared
+    // one SKIPs, and a skipped constituent now degrades the aggregate away
+    // from 'pass'. This fixture is about the boundary leg, so it declares all
+    // three to keep the aggregate reachable at PASS.
     fs.writeFileSync(
       path.join(repoRoot, 'package.json'),
-      JSON.stringify({ name: 'fixture', scripts: { lint: 'eslint .' } }),
+      JSON.stringify({
+        name: 'fixture',
+        scripts: { lint: 'eslint .', typecheck: 'tsc --noEmit', 'quality-check': 'npm run qc' },
+      }),
       'utf-8',
     );
 
@@ -879,9 +831,15 @@ describe('runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)', ()
     // invocation (lint/typecheck/depcruise/semgrep), so the suite PASSes and the
     // taint leg shows up as a counted check.
     const repoRoot = makeTaintFixture({ withRuleset: true });
+    // T-09 / DR-6: declare every constituent script so no constituent SKIPs
+    // and the aggregate can still reach PASS (this fixture is about the taint
+    // leg, not about the skip-degrade rule).
     fs.writeFileSync(
       path.join(repoRoot, 'package.json'),
-      JSON.stringify({ name: 'fixture', scripts: { lint: 'eslint .' } }),
+      JSON.stringify({
+        name: 'fixture',
+        scripts: { lint: 'eslint .', typecheck: 'tsc --noEmit', 'quality-check': 'npm run qc' },
+      }),
       'utf-8',
     );
 
@@ -895,4 +853,350 @@ describe('runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)', ()
     const calls = (runner as ReturnType<typeof vi.fn>).mock.calls;
     expect(calls.some((c: unknown[]) => c[0] === 'semgrep')).toBe(true);
   });
+});
+
+// ─── T-09 / DR-6: a skipped constituent check cannot render as PASS ─────────
+//
+// CHARACTERIZATION OF THE OLD BEHAVIOR (now deliberately changed):
+//   `runStaticAnalysis` tallied only PASS and FAIL. A constituent that never
+//   ran (no `lint` script, no `quality-check` script, or a `--skip-*` flag)
+//   produced a `SKIP` line in the report that was invisible to the verdict.
+//   With `total = passCount + failCount`, a repo whose only real check was
+//   `typecheck` rendered `**Result: PASS** (2/2 checks passed)` — the exact
+//   string DR-6 names — while lint and quality-check were silently skipped.
+//   `status` was `failCount === 0 ? 'pass' : 'fail'`, so SKIP could never
+//   move the aggregate off green.
+//
+// NEW CONTRACT (asserted below):
+//   SKIP is tallied first-class. Precedence is FAIL ≻ DEGRADED ≻ PASS:
+//   a real failure still dominates, otherwise ANY skipped constituent yields
+//   `status:'skip'` + `skipReason:'constituent-skipped'` and a
+//   `**Result: DEGRADED**` line. PASS is reachable only when every
+//   constituent actually ran and passed.
+describe('DR-6 — a skipped constituent renders DEGRADED, never PASS', () => {
+  let tmpDir: string;
+
+  beforeAll(async () => {
+    const actual = await vi.importActual<typeof import('./pure/static-analysis.js')>(
+      './pure/static-analysis.js',
+    );
+    realRunStaticAnalysis = actual.runStaticAnalysis;
+  });
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dr6-static-analysis-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  /** A Node fixture declaring exactly the npm scripts given. */
+  function nodeFixture(scripts: Record<string, string>): string {
+    const repoRoot = path.join(tmpDir, 'repo-' + Math.random().toString(36).slice(2));
+    fs.mkdirSync(repoRoot, { recursive: true });
+    fs.writeFileSync(
+      path.join(repoRoot, 'package.json'),
+      JSON.stringify({ name: 'dr6-fixture', scripts }, null, 2),
+      'utf-8',
+    );
+    return repoRoot;
+  }
+
+  const ALL_SCRIPTS = {
+    lint: 'eslint .',
+    typecheck: 'tsc --noEmit',
+    'quality-check': 'npm run qc',
+  };
+
+  function passRunner(): RunCommandFn {
+    return vi.fn(() => ({ exitCode: 0, stdout: '', stderr: '' }));
+  }
+
+  // ─── The aggregate cannot report PASS when a constituent was skipped ──────
+
+  it('StaticAnalysis_LintScriptAbsent_DegradesAndCannotReportPass', () => {
+    // The DR-6 defect verbatim: no `lint` and no `quality-check` script, a
+    // passing `typecheck`. Old behavior: **Result: PASS** (n/n checks passed).
+    const repoRoot = nodeFixture({ typecheck: 'tsc --noEmit' });
+
+    const result = realRunStaticAnalysis({ repoRoot, runCommand: passRunner() });
+
+    expect(result.status).not.toBe('pass');
+    expect(result.status).toBe('skip');
+    expect(result.skipReason).toBe('constituent-skipped');
+    expect(result.skipCount).toBe(2); // Lint + Quality check
+    expect(result.failCount).toBe(0);
+    // The rendered dimension must not read as a clean pass.
+    expect(result.output).not.toContain('Result: PASS');
+    expect(result.output).toContain('Result: DEGRADED');
+    expect(result.output).toContain("no 'lint' script in package.json");
+  });
+
+  it('StaticAnalysis_ConstituentSkippedByFlag_DegradesAndCannotReportPass', () => {
+    // A `--skip-*` flag is still a check that did not run. The caller narrowed
+    // the scope; that does not turn the unrun check into evidence of a pass.
+    const repoRoot = nodeFixture(ALL_SCRIPTS);
+
+    const result = realRunStaticAnalysis({
+      repoRoot,
+      skipLint: true,
+      runCommand: passRunner(),
+    });
+
+    expect(result.status).not.toBe('pass');
+    expect(result.status).toBe('skip');
+    expect(result.skipReason).toBe('constituent-skipped');
+    expect(result.skipCount).toBe(1);
+    expect(result.output).toContain('Result: DEGRADED');
+    expect(result.output).not.toContain('Result: PASS');
+  });
+
+  it('StaticAnalysis_EveryConstituentRanAndPassed_StillReportsPass', () => {
+    // Positive control: PASS remains reachable — the degrade is caused by the
+    // skip, not by the new tally. Without this, the DEGRADED assertions above
+    // would also hold for a stub that never returns 'pass'.
+    const repoRoot = nodeFixture(ALL_SCRIPTS);
+    const runner = passRunner();
+
+    const result = realRunStaticAnalysis({ repoRoot, runCommand: runner });
+
+    expect(result.status).toBe('pass');
+    expect(result.skipCount).toBe(0);
+    expect(result.passCount).toBe(3);
+    expect(result.output).toContain('Result: PASS');
+    expect(result.output).not.toContain('Result: DEGRADED');
+
+    // …and the declared `lint` script is actually INVOKED, not merely present.
+    const calls = (runner as ReturnType<typeof vi.fn>).mock.calls;
+    expect(
+      calls.some(
+        (c: unknown[]) =>
+          c[0] === 'npm' && Array.isArray(c[1]) && (c[1] as string[]).join(' ') === 'run lint',
+      ),
+    ).toBe(true);
+  });
+
+  it('StaticAnalysis_FailureAlongsideSkip_ReportsFailNotDegraded', () => {
+    // Precedence: a real finding dominates the degrade so an operator sees the
+    // failure first. DEGRADED must not mask a FAIL.
+    const repoRoot = nodeFixture({ lint: 'eslint .', typecheck: 'tsc --noEmit' });
+
+    const runner: RunCommandFn = vi.fn((_cmd: string, args: readonly string[]) =>
+      args.join(' ') === 'run lint'
+        ? { exitCode: 1, stdout: '', stderr: 'lint errors' }
+        : { exitCode: 0, stdout: '', stderr: '' },
+    );
+
+    const result = realRunStaticAnalysis({ repoRoot, runCommand: runner });
+
+    expect(result.status).toBe('fail');
+    expect(result.failCount).toBe(1);
+    expect(result.skipCount).toBe(1); // quality-check
+    expect(result.output).toContain('Result: FAIL');
+  });
+
+  // ─── The handler carries the degrade to its callers ───────────────────────
+
+  it('handleStaticAnalysis_ConstituentSkipped_ReturnsNotPassedAndSkipped', async () => {
+    mockRunStaticAnalysis.mockReturnValue({
+      status: 'skip' as const,
+      output: '**Result: DEGRADED** (1/1 checks passed, 2 skipped — inconclusive, not a pass)',
+      skipReason: 'constituent-skipped' as const,
+      passCount: 1,
+      failCount: 0,
+      skipCount: 2,
+      projectType: 'Node.js',
+    });
+
+    const result = await handleStaticAnalysis(
+      { featureId: 'feat-dr6', repoRoot: '/home/user/project' },
+      STATE_DIR,
+      mockStore as unknown as EventStore,
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      passed: boolean;
+      skipped?: boolean;
+      skipReason?: string;
+      degraded?: boolean;
+      skipCount: number;
+      report: string;
+    };
+    expect(data.passed).toBe(false);
+    expect(data.skipped).toBe(true);
+    expect(data.skipReason).toBe('constituent-skipped');
+    expect(data.degraded).toBe(true);
+    expect(data.skipCount).toBe(2);
+    expect(data.report).not.toContain('Result: PASS');
+  });
+
+  // ─── Indeterminate blocks protected promotion exactly as fail does ────────
+  //
+  // Trace: handleStaticAnalysis (passed:false + skipped:true)
+  //   → gate-utils.normalizeGateVerdict  ⇒ 'indeterminate'
+  //   → gate-runner records gate evidence with that verdict
+  //   → admission/policy-evaluation.evaluateGate ⇒ indeterminate disposition
+  //   → PolicyVerdict 'indeterminate'
+  //   → admission/transition-command: phase advances ONLY under 'allow',
+  //     so indeterminate leaves the phase UNCHANGED exactly as deny does.
+
+  it('NormalizeGateVerdict_SkippedStaticAnalysis_IsIndeterminateNotPassOrFail', async () => {
+    const { normalizeGateVerdict } = await import('./gate-utils.js');
+
+    const skipped = normalizeGateVerdict({
+      success: true,
+      data: { passed: false, skipped: true, skipReason: 'constituent-skipped' },
+    } as unknown as ToolResult);
+    expect(skipped).toBe('indeterminate');
+
+    // A real failure is still 'fail' — the skip branch must not swallow it.
+    expect(
+      normalizeGateVerdict({ success: true, data: { passed: false } } as unknown as ToolResult),
+    ).toBe('fail');
+    // …and a genuine pass is still 'pass'.
+    expect(
+      normalizeGateVerdict({ success: true, data: { passed: true } } as unknown as ToolResult),
+    ).toBe('pass');
+    // Deliberately narrow: the established skip-PASS advisory carriers
+    // (`passed:true` + `skipped:true`) are untouched.
+    expect(
+      normalizeGateVerdict({
+        success: true,
+        data: { passed: true, skipped: true },
+      } as unknown as ToolResult),
+    ).toBe('pass');
+  });
+
+  it('AdmissionPolicy_IndeterminateGateEvidence_BlocksExactlyAsFailDoes', async () => {
+    // Drives the REAL admission algebra (schema-parsed evidence, real
+    // evaluatePolicy) — no hand-mock of the policy contract.
+    const [{ AdmissionEvidenceV1Schema, AdmissionRequirementV1Schema }, authorityMod, policyMod] =
+      await Promise.all([
+        import('../workflow/admission/types.js'),
+        import('../workflow/admission/policy-authority.js'),
+        import('../workflow/admission/policy-evaluation.js'),
+      ]);
+    const { createCapabilityAuthority, POLICY_CAPABILITY } = authorityMod;
+    const { evaluatePolicy } = policyMod;
+
+    const SHA = 'a'.repeat(64);
+    const EVAL_AT = '2026-08-04T20:00:00.000Z';
+    const FRESH_AT = '2026-08-04T19:45:00.000Z';
+    const GATE_PRODUCER = 'producer.gate-runner';
+    const digest = { algorithm: 'sha256' as const, value: SHA };
+    const subject = { kind: 'task' as const, taskId: 'T-09', digest };
+
+    const authority = createCapabilityAuthority([
+      { principalId: GATE_PRODUCER, capabilities: [POLICY_CAPABILITY.ISSUE_GATE_EVIDENCE] },
+    ]);
+
+    const requirement = AdmissionRequirementV1Schema.parse({
+      contractVersion: '1.0',
+      requirementId: 'req-static-analysis',
+      phaseAttemptId: 'pa-1',
+      subject,
+      kind: 'gate-evidence',
+      gateId: 'gate.static-analysis',
+    });
+
+    const evidence = (verdict: 'pass' | 'fail' | 'indeterminate') =>
+      AdmissionEvidenceV1Schema.parse({
+        contractVersion: '1.0',
+        evidenceId: `ev-${verdict}`,
+        requirementId: 'req-static-analysis',
+        phaseAttemptId: 'pa-1',
+        subject,
+        producer: {
+          producerId: GATE_PRODUCER,
+          providerRef: 'provider.static-analysis',
+          providerVersion: '1.0',
+          invocationId: 'inv-1',
+        },
+        policyId: 'policy-1',
+        policyDigest: digest,
+        contentDigest: { algorithm: 'sha256' as const, value: 'b'.repeat(64) },
+        createdAt: FRESH_AT,
+        kind: 'gate',
+        verdict,
+      });
+
+    const evaluate = (verdict: 'pass' | 'fail' | 'indeterminate') =>
+      evaluatePolicy({
+        requirements: [requirement],
+        obligations: {
+          gates: [],
+          minimumApprovals: 0,
+          minimumCorroboratingSources: 0,
+          waivable: true,
+        },
+        activeEvidence: [evidence(verdict)],
+        authority,
+        evaluatedAt: EVAL_AT,
+        freshnessHorizonMs: 60 * 60 * 1000,
+      });
+
+    const onFail = evaluate('fail');
+    const onIndeterminate = evaluate('indeterminate');
+    const onPass = evaluate('pass');
+
+    // A fail blocks…
+    expect(onFail.verdict).not.toBe('allow');
+    // …and an indeterminate blocks exactly the same way — never a
+    // pass-with-a-warning, and (unlike a deny) not rescuable by a waiver even
+    // though this obligation set is `waivable: true`.
+    expect(onIndeterminate.verdict).not.toBe('allow');
+    expect(onIndeterminate.verdict).toBe('indeterminate');
+    expect(onIndeterminate.appliedWaiverIds).toEqual([]);
+    // Control: only a real pass admits.
+    expect(onPass.verdict).toBe('allow');
+  });
+
+  // ─── The `lint` script exists, is real, and can fail ──────────────────────
+
+  it('RootPackageJson_DeclaresRealLintScript_NotANoOp', () => {
+    const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
+    const pkg = JSON.parse(
+      fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf-8'),
+    ) as { scripts?: Record<string, string> };
+
+    const lint = pkg.scripts?.['lint'];
+    expect(lint, 'root package.json must declare a `lint` script (DR-6)').toBeTruthy();
+    // It must invoke the linter this repo already carries (eslint + eslint.config.js),
+    // not a no-op that can never fail.
+    expect(lint).toContain('eslint');
+    expect(lint).not.toMatch(/^\s*(echo|true|:|exit\s+0)\b/);
+    expect(fs.existsSync(path.join(repoRoot, 'eslint.config.js'))).toBe(true);
+
+    // The gate's other Node constituent must be declared too, or the repo's own
+    // static-analysis dimension degrades forever (DR-6 applied to this repo).
+    expect(pkg.scripts?.['quality-check']).toBeTruthy();
+  });
+
+  it('LintScript_ConfiguredEngine_ReportsViolationAsError', async () => {
+    // Proves the `lint` script CAN fail: the repo's real eslint.config.js is
+    // loaded and asked to lint a source that violates one of its rules. A
+    // non-zero errorCount is exactly what makes `eslint` exit non-zero, which
+    // is what the gate reads as FAIL.
+    const { ESLint } = await import('eslint');
+    const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
+    const eslint = new ESLint({ cwd: repoRoot });
+
+    const violating = [
+      "import { execFileSync } from 'node:child_process';",
+      "execFileSync('npm', ['run', 'lint']);",
+      '',
+    ].join('\n');
+    const clean = 'export const ok = 1;\n';
+    const filePath = path.join(repoRoot, 'servers/exarchos-mcp/src/dr6-lint-probe.ts');
+
+    const bad = await eslint.lintText(violating, { filePath });
+    const good = await eslint.lintText(clean, { filePath });
+
+    expect(bad.reduce((n, r) => n + r.errorCount, 0)).toBeGreaterThan(0);
+    // Control: the same config is clean on compliant source, so the failure
+    // above is the rule firing, not a broken config.
+    expect(good.reduce((n, r) => n + r.errorCount, 0)).toBe(0);
+  }, 60_000);
 });

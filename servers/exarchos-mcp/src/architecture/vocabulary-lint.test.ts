@@ -25,7 +25,9 @@ const INVARIANTS_DOC = path.join(REPO_ROOT, '.exarchos/invariants.md');
  * tests stable independent of that landing order. See Wave B2 in
  * docs/proposals/2026-05-20-invariants-catalog-v2-spec.md §4.0.
  */
-const ENABLED_CONFIG = { invariants: { devCatalog: 'enabled' as const } };
+const ENABLED_CONFIG = {
+  invariants: { catalogs: [{ path: INVARIANTS_DOC, tier: 'dev' as const }] },
+};
 
 describe('vocabulary-lint', () => {
   let tmpDir: string;
@@ -148,7 +150,12 @@ describe('scanText (DR-5 core)', () => {
       new Set<string>(),
     );
     expect(findings.length).toBe(2);
-    expect(findings.map((f) => f.line).sort()).toEqual([1, 2]);
+    // Hoisted rather than `.sort()).toEqual(...)` inline, matching the two
+    // other order-normalised assertions in this file. The expected side is a
+    // literal, not a second read of the corpus, so this is not the parity
+    // shape the DR-30 `@oracle-sources` rule polices.
+    const lines = findings.map((f) => f.line).sort();
+    expect(lines).toEqual([1, 2]);
   });
 });
 

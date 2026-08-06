@@ -10,8 +10,12 @@
 // INV-6 GUARD: no workflow names / phase ids / transitions here — only
 // kind-universal obligations. (The resolver wiring lives in later tasks.)
 
-import { resolveVerificationPolicy } from './verification-policy-resolver.js';
-import { type GateName, type RiskTier } from './verification-policy.js';
+import {
+  resolveVerificationPolicy,
+  reviewRosterTier,
+  type ResolvedRiskTier,
+} from './verification-policy-resolver.js';
+import { type GateName } from './verification-policy.js';
 import {
   type DesignDepth,
   type PlanDepthGateName,
@@ -151,7 +155,16 @@ export const KIND_OBLIGATIONS = {
 
 /** Context a gate resolver needs to compute the sequence for a phase. */
 export interface ResolveGateSetCtx {
-  readonly riskTier: RiskTier;
+  /**
+   * The task's blast-radius tier, or `'unknown'` when no trustworthy claim
+   * exists (DR-10 / T-14). `'unknown'` is carried through the kind layer rather
+   * than collapsed by the caller, because the two gate resolvers that read it
+   * have OPPOSITE fail-safe directions — the verification ladder must escalate
+   * to the strongest cell, the review roster must NOT fabricate a tier claim.
+   * Collapsing it here (the old `rawTier === 'high' ? … : 'low'` shim in
+   * `tools.ts`) is what let an unresolved tier select the weakest ladder cell.
+   */
+  readonly riskTier: ResolvedRiskTier;
   readonly boundaryTouching: boolean;
   readonly config?: ResolvedProjectConfig | undefined;
   /**
@@ -215,8 +228,18 @@ const GATE_RESOLVERS: Readonly<
   // `MatchesReviewContractSoT` test) — never re-listed here. The roster is the
   // workflow-type base plus tier-coupled dimensions (e.g. `mutation-adequacy`
   // at HIGH tier), keyed off the resolution `ctx`.
+  //
+  // DR-10 (T-14): an `'unknown'` tier is projected to NO tier claim rather than
+  // escalated. Escalating here would inject `mutation-adequacy` into every
+  // workflow that was never tier-stamped, and nothing would ever produce that
+  // dimension — a permanent review→synthesize deadlock, strictly worse than the
+  // base roster. It is still NOT the same as claiming `'low'`: no positive
+  // blast-radius assertion is made and no config cell can bind an empty
+  // override to it. The escalating direction is applied by the
+  // `'verification-ladder'` resolver above, where the hazard is
+  // under-verification and an extra gate is recoverable.
   'review-contract': (ctx) =>
-    getRequiredReviews(ctx.workflowType ?? '', ctx.riskTier).map(
+    getRequiredReviews(ctx.workflowType ?? '', reviewRosterTier(ctx.riskTier)).map(
       (gate): ResolvedGate => ({ family: 'review', gate }),
     ),
   // The synthesis-readiness gate-set (DR-9): the four `prepare_synthesis` legs

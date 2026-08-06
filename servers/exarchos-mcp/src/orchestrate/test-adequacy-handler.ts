@@ -1,14 +1,14 @@
 // ─── check_test_adequacy handler (task 014) ──────────────────────────────────
 //
 // Orchestrate action that runs the kill probe (mutation-testing-at-N=1) for a
-// task's diff and emits a `gate.executed` event. The probe composition itself
+// task's diff and persists canonical subject-bound evidence. The probe composition itself
 // lives in the pure-ish `test-adequacy.ts` (split/snapshot/revert/run/restore);
 // this handler wires the production seams:
 //   • resolve repoRoot (supports the worktree-aware 'auto' mode, #1330)
 //   • compute the task diff's changed files via git (baseRef...HEAD)
 //   • resolve the test command via resolveTestRuntime and shell it out,
 //     scoped to the changed test files
-//   • emit gate.executed with operationId idempotency (INV-8)
+//   • persist evidence with trusted-operation idempotency (INV-8)
 //
 // The result is an INV-5b advisory carrier: success:true with data.passed
 // reflecting the probe verdict, never an error envelope for a vacuous-test
@@ -18,15 +18,24 @@
 import { runCommandSync } from '../utils/process.js';
 import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
-import { defaultGitExec, emitGateEvent, SKIPPED_BY_POLICY } from './gate-utils.js';
-import { emitPolicySkipIfNeeded, runGatePreflight } from './pure/gate-preflight.js';
+import { defaultGitExec, resolvePolicySkip, SKIPPED_BY_POLICY } from './gate-utils.js';
+import { runGatePreflight } from './pure/gate-preflight.js';
+import { runDurableGateProducer } from './durable-gate-producer.js';
 import { resolveTestRuntime } from '../config/test-runtime-resolver.js';
 import { splitCommand } from '../config/tokenize-command.js';
 import { detectToolchain, testGlobsForToolchain } from '../config/toolchains.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
 import type { RiskTier } from '../workflow/verification-policy.js';
 import type { GitExec } from './pure/execute-merge.js';
-import { runProbe, type ProbeResult, type TestRunFn } from './test-adequacy.js';
+import {
+  runProbe,
+  resolveProbeTestGlobs,
+  interpretProbeVerdict,
+  verdictOf,
+  type ProbeResult,
+  type TestRunFn,
+} from './test-adequacy.js';
+import { assertNever } from '../contract/error-families.js';
 
 // ─── Args / Result ───────────────────────────────────────────────────────────
 
@@ -45,16 +54,14 @@ export interface TestAdequacyArgs {
   /** Explicit agent worktree path — preferred resolver seam for 'auto'. */
   readonly worktreePath?: string;
   /**
-   * Idempotency key for the gate emission (INV-8). When the same operationId is
-   * replayed, the gate.executed collapses to a single row.
+   * Legacy compatibility field. Evidence idempotency is bound exclusively to
+   * the trusted DispatchContext operationId.
    */
   readonly operationId?: string;
 
   /**
-   * SDLC phase to attribute the emitted `gate.executed` event to. Defaults to
-   * 'delegate' (the per-task verification-ladder rung). Back-of-pipeline callers
-   * (review, on the combined diff) pass 'review' so convergence/projection
-   * attributes the kill-probe to the review phase, not delegate (#1618 C2).
+   * Legacy phase carrier retained for public input compatibility. Evidence is
+   * attributed to the active persisted phaseAttemptId.
    */
   readonly phase?: string;
 
@@ -148,24 +155,48 @@ function buildDefaultRunTests(repoRoot: string): TestRunFn {
 }
 
 /**
- * Compute the repo-relative files changed by the task diff (baseRef...HEAD).
- * Returns an empty list on git failure (the probe then short-circuits to the
- * no-new-tests discriminant — never a spurious kill).
+ * Compute the repo-relative files changed by the task diff.
+ *
+ * The HEAD side is the task `branch` when the caller names one, falling back to
+ * the checked-out `HEAD`. Diffing `HEAD` unconditionally silently probed the
+ * wrong tree whenever `repoRoot` was not the task worktree (e.g. an orchestrator
+ * calling from the main worktree), yielding an empty diff and a vacuous pass.
+ *
+ * Returns a discriminated result so a git failure is distinguishable from a
+ * genuinely empty diff: the former must fail the gate, not skip it (WFQ-005).
  */
-function changedFilesFor(gitExec: GitExec, repoRoot: string, baseRef: string): string[] {
-  const result = gitExec(repoRoot, ['diff', '--name-only', `${baseRef}...HEAD`]);
-  if (result.exitCode !== 0) return [];
-  return result.stdout
-    .split('\n')
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0);
+export type ChangedFilesResult =
+  | { readonly ok: true; readonly files: string[] }
+  | { readonly ok: false; readonly detail: string };
+
+export function changedFilesFor(
+  gitExec: GitExec,
+  repoRoot: string,
+  baseRef: string,
+  headRef?: string,
+): ChangedFilesResult {
+  const head = headRef && headRef.trim().length > 0 ? headRef.trim() : 'HEAD';
+  const result = gitExec(repoRoot, ['diff', '--name-only', `${baseRef}...${head}`]);
+  if (result.exitCode !== 0) {
+    return {
+      ok: false,
+      detail: `git diff ${baseRef}...${head} exited ${result.exitCode}: ${result.stdout.trim()}`,
+    };
+  }
+  return {
+    ok: true,
+    files: result.stdout
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0),
+  };
 }
 
 // ─── Handler ──────────────────────────────────────────────────────────────
 
 export async function handleTestAdequacy(
   args: TestAdequacyArgs,
-  _stateDir: string,
+  stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
   // Preflight (DR-10): validate the DispatchContext + inputs and resolve the
@@ -185,96 +216,130 @@ export async function handleTestAdequacy(
   const repoRoot = pre.repoRoot;
   const baseRef = args.baseBranch || 'main';
 
-  // ── FIX-1a: verification-ladder self-routing on the stamped profile ──────
-  // When the caller threads the task's riskTier/boundaryTouching stamp and the
-  // policy sequence excludes this gate, skip BEFORE touching the tree — and
-  // still record the routing decision as a gate.executed event.
-  const policySkip = await emitPolicySkipIfNeeded({
-    eventStore,
-    featureId: args.featureId,
-    taskId: args.taskId,
-    branch: args.branch,
-    operationId: args.operationId,
-    riskTier: args.riskTier,
-    boundaryTouching: args.boundaryTouching,
-    projectConfig: args.projectConfig,
-    policyGateName: 'check_test_adequacy',
-    emitGateName: 'test-adequacy',
-    layer: 'testing',
-    phase: args.phase ?? 'delegate',
-  });
-  if (policySkip) {
-    return {
-      success: true,
-      data: {
-        passed: true,
-        skipped: true,
-        redObserved: false,
-        restoredClean: true,
-        probedTests: [],
-        discriminant: SKIPPED_BY_POLICY,
-        reason: policySkip.reason,
-      },
-    };
-  }
-
-  const gitExec = args.gitExec ?? defaultGitExec;
-  const runTests = args.runTests ?? buildDefaultRunTests(repoRoot);
-  const changedFiles = changedFilesFor(gitExec, repoRoot, baseRef);
-
-  // ── FIX-3: thread the resolved toolchain's test-file layout into the probe.
-  // The toolchain registry is the SoT for layout (python tests/**, go *_test.go,
-  // …); toolchains on the co-located default convention resolve to null and the
-  // probe falls back to DEFAULT_TEST_GLOBS.
-  const toolchain = detectToolchain(repoRoot);
-  const toolchainGlobs = toolchain ? testGlobsForToolchain(toolchain.id) : null;
-
-  const probe: ProbeResult = await runProbe({
-    gitExec,
-    repoRoot,
-    baseRef,
-    changedFiles,
-    runTests,
-    ...(toolchainGlobs ? { testGlobs: toolchainGlobs } : {}),
-  });
-
-  // Emit gate.executed with operationId idempotency (INV-8). Fire-and-forget:
-  // emission failure must not break the gate verdict.
-  try {
-    await emitGateEvent(
+  return runDurableGateProducer(
+    {
+      gateClass: 'test-adequacy',
+      featureId: args.featureId,
+      taskId: args.taskId,
+      ...(args.branch ? { branch: args.branch } : {}),
+      baseRef,
+      repoRoot,
+      stateDir,
       eventStore,
-      args.featureId,
-      'test-adequacy',
-      'testing',
-      probe.passed,
-      {
-        dimension: 'D1',
-        phase: args.phase ?? 'delegate',
-        taskId: args.taskId,
-        ...(args.branch ? { branch: args.branch } : {}),
-        redObserved: probe.redObserved,
-        restoredClean: probe.restoredClean,
-        probedTests: probe.probedTests,
-        ...(probe.discriminant ? { discriminant: probe.discriminant } : {}),
-        ...(probe.report ? { report: probe.report } : {}),
-      },
-      args.operationId,
-    );
-  } catch {
-    /* fire-and-forget */
-  }
-
-  // INV-5b advisory carrier — success:true with data.passed reflecting the
-  // probe verdict, NOT an error envelope.
-  return {
-    success: true,
-    data: {
-      passed: probe.passed,
-      redObserved: probe.redObserved,
-      restoredClean: probe.restoredClean,
-      probedTests: probe.probedTests,
-      ...(probe.discriminant ? { discriminant: probe.discriminant } : {}),
-      ...(probe.report ? { report: probe.report } : {}),
     },
+    async () => {
+      const policySkip = resolvePolicySkip({
+        gateName: 'check_test_adequacy',
+        riskTier: args.riskTier,
+        boundaryTouching: args.boundaryTouching,
+        config: args.projectConfig,
+      });
+      if (policySkip) {
+        return {
+          success: true,
+          data: {
+            passed: true,
+            // An explicitly-labelled SKIP, never proof: the ladder policy
+            // routed this gate out of the sequence, so nothing was verified.
+            skipped: true,
+            disposition: 'advisory-skip',
+            redObserved: false,
+            restoredClean: true,
+            probedTests: [],
+            discriminant: SKIPPED_BY_POLICY,
+            reason: policySkip.reason,
+          },
+        };
+      }
+
+      const gitExec = args.gitExec ?? defaultGitExec;
+      const runTests = args.runTests ?? buildDefaultRunTests(repoRoot);
+      const changed = changedFilesFor(gitExec, repoRoot, baseRef, args.branch);
+      const toolchain = detectToolchain(repoRoot);
+      // SUBJECT FIX: the toolchain's prescribed layout AUGMENTS the co-located
+      // conventions instead of replacing them. Replacing them made every
+      // `*.test.*` file invisible in any repo whose root marker resolved to a
+      // layout-prescribing toolchain — an empty test set, i.e. the gate probing
+      // the wrong subject. See `resolveProbeTestGlobs`.
+      const testGlobs = resolveProbeTestGlobs(
+        toolchain ? testGlobsForToolchain(toolchain.id) : null,
+      );
+
+      const probe: ProbeResult = await runProbe({
+        gitExec,
+        repoRoot,
+        baseRef,
+        changedFiles: changed.ok ? changed.files : [],
+        ...(changed.ok ? {} : { diffFailed: true }),
+        ...(args.riskTier ? { riskTier: args.riskTier } : {}),
+        runTests,
+        testGlobs,
+      });
+
+      // INV-5b advisory carrier — success:true with data.passed reflecting the
+      // probe verdict, NOT an error envelope.
+      //
+      // The carrier is built by EXHAUSTIVE consumption of `probe.verdict` (the
+      // single authority). A future verdict variant cannot be silently folded
+      // into a pass: `assertNever` fails the build first.
+      return {
+        success: true,
+        data: buildAdequacyCarrier(probe, args.riskTier),
+      };
+    },
+  );
+}
+
+/** The advisory carrier the gate returns, derived from the probe's verdict. */
+interface AdequacyCarrier {
+  readonly passed: boolean;
+  readonly disposition: string;
+  readonly redObserved: boolean;
+  readonly restoredClean: boolean;
+  readonly probedTests: readonly string[];
+  readonly skipped?: boolean;
+  readonly discriminant?: string;
+  readonly report?: string;
+}
+
+/**
+ * Translate a {@link ProbeResult} into the gate's advisory carrier by switching
+ * EXHAUSTIVELY on the authoritative verdict union.
+ *
+ * The point of the switch is that "the probe could not run" (`indeterminate`)
+ * has to be handled explicitly at this boundary — it can no longer fall through
+ * a `passed` boolean and arrive dressed as success. An indeterminate verdict is
+ * always stamped `skipped:true` when it degraded to an advisory skip, so a
+ * consumer reading the carrier can always tell a SKIPPED check from a PASSED
+ * one without re-deriving policy.
+ */
+function buildAdequacyCarrier(probe: ProbeResult, riskTier?: RiskTier): AdequacyCarrier {
+  // `verdictOf` prefers the stamped union and otherwise reconstructs one
+  // fail-closed, so even a legacy-shaped carrier is judged by the union.
+  const verdict = verdictOf(probe);
+  const interpretation = interpretProbeVerdict(verdict, riskTier);
+
+  const base = {
+    passed: interpretation.passed,
+    disposition: interpretation.disposition,
+    redObserved: probe.redObserved === true,
+    restoredClean: probe.restoredClean !== false,
+    probedTests: probe.probedTests ?? [],
+    ...(interpretation.report ? { report: interpretation.report } : {}),
   };
+
+  switch (verdict.kind) {
+    case 'passed':
+      return base;
+    case 'failed':
+      return base;
+    case 'indeterminate':
+      return {
+        ...base,
+        discriminant: verdict.cause,
+        ...(interpretation.skipped ? { skipped: true } : {}),
+      };
+    default:
+      return assertNever(verdict, 'ProbeVerdict');
+  }
 }

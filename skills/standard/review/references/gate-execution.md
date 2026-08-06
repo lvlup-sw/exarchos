@@ -32,12 +32,12 @@ Run automated security pattern detection via orchestrate:
 exarchos_orchestrate({
   action: "check_security_scan",
   featureId: "<id>",
-  repoRoot: "<repo-root>",
-  baseBranch: "main"
+  diffContent: "<unified diff>"
 })
 ```
 
-The handler automatically emits a `gate.executed` event with dimension D1.
+`diffContent` is optional — omit it to let the gate scan the resolved worktree
+diff. The handler automatically emits a `gate.executed` event with dimension D1.
 
 **On `passed: true`:** No security patterns detected.
 **On `passed: false`:** Potential security issues found — include in review report.

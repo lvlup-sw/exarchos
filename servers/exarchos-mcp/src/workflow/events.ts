@@ -1,6 +1,7 @@
 import type { Event, EventType } from './types.js';
 import type { EventStore } from '../event-store/store.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
+import { ADMISSION_EVENT_TYPE_VALUES } from './admission/types.js';
 
 /** Default event log cap — configurable via EVENT_LOG_MAX env var */
 export const EVENT_LOG_MAX = (() => {
@@ -160,6 +161,15 @@ export function mapInternalToExternalType(internalType: string): string {
     'phase.exited': 'phase.exited',
     'phase.blocked': 'phase.blocked',
   };
+
+  // Admission event types are canonical event-store types — pass them through
+  // unchanged, identical to the phase.entered/exited/blocked pattern (P01-03).
+  // The `workflow.${type}` fallback would mangle them into unregistered
+  // `workflow.admission.*` types that WorkflowEventBase's refine rejects.
+  for (const admissionType of ADMISSION_EVENT_TYPE_VALUES) {
+    typeMap[admissionType] = admissionType;
+  }
+
   return typeMap[internalType] ?? `workflow.${internalType}`;
 }
 
@@ -185,6 +195,14 @@ export function mapExternalToInternalType(externalType: string): string {
     'phase.exited': 'phase.exited',
     'phase.blocked': 'phase.blocked',
   };
+
+  // Admission event types round-trip as identity, matching the forward map
+  // (P01-03). The `?? externalType` fallback already handles them; listed for
+  // symmetry with mapInternalToExternalType.
+  for (const admissionType of ADMISSION_EVENT_TYPE_VALUES) {
+    reverseMap[admissionType] = admissionType;
+  }
+
   return reverseMap[externalType] ?? externalType;
 }
 

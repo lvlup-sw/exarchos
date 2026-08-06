@@ -45,29 +45,25 @@ plugins:
   impeccable:
     enabled: true
 
-# invariants-catalog — opt-in to the dev-invariants catalog.
-# This file IS the explicit opt-in for Exarchos contributors. The loader
-# defaults to disabled even inside the Exarchos repo; entries only surface
-# at /ideate Phase 0 because this committed file declares the flag here.
-# Consumers using Exarchos as a plugin in another repo never see these
-# entries unless they add the same key to their own .exarchos.yml.
+# invariants-catalog — register the catalogs this repo loads.
 #
-# The CANONICAL registration is the explicit `catalogs:` entry below: the dev
+# Registration in `catalogs:` is the ONE AND ONLY opt-in (DR-31). The dev
 # catalog (relocated to `.exarchos/invariants.md` in T19) is registered exactly
-# like a user catalog — a `{ path, tier }` object — so it flows through the same
-# `resolveCatalogSources` discovery surface every consumer catalog uses.
+# like a user catalog would be — a `{ path, tier }` object — so it flows through
+# the same `resolveCatalogSources` discovery surface every consumer catalog
+# uses. `tier: dev` carries the audience scoping, nothing else.
 #
-# `devCatalog: enabled` is back-compat SUGAR that ALSO desugars to
-# `{ path: .exarchos/invariants.md, tier: dev }`. We KEEP it here intentionally
-# (design §4.3) ONLY to satisfy the legacy direct-load gate that the explicit
-# registration does not yet drive: `vocabulary-lint` and the `/ideate` Phase-0
-# `loadInvariants` path still read the boolean directly. The catalog-sources
-# path-dedup collapses the sugar and the explicit registration into ONE dev
-# source (proven by RepoConfig_ExplicitDevRegistration_DedupesWithSugar and
-# RepoConfig_DesugaredDevSource_MatchesGoldenSnapshot in
-# servers/exarchos-mcp/src/architecture/resolve-effective-catalog.test.ts), so
-# there is no double-registration. Full retirement of the `devCatalog` boolean
-# is a tracked follow-up — NOT this task.
+# This repository therefore consumes its own invariants precisely the way a
+# downstream consumer does: a local `.exarchos.yml` pointing at a local catalog
+# file. There is no repo-only loading mode. Entries surface at /ideate Phase 0
+# because THIS registration exists, not because the loader detected anything;
+# consumers using Exarchos as a plugin in another repo see nothing here unless
+# they register their own catalog in their own `.exarchos.yml`.
+#
+# The retired `devCatalog: enabled` boolean is GONE (T-43). It survives only as
+# a deprecated `.exarchos.yml` alias that the config schema desugars into the
+# registration below and reports via `exarchos doctor`; it is not written here
+# and no code reads it.
 #
 # To author new entries through the wizard, run `/exarchos:invariants` (see
 # docs/guides/authoring-invariants.md).
@@ -77,6 +73,5 @@ plugins:
 #      docs/proposals/2026-05-20-invariants-catalog-v2-spec.md §4.0
 #      docs/designs/2026-05-25-invariants-authoring-wizard.md §4.3
 invariants:
-  devCatalog: enabled
   catalogs:
     - { path: .exarchos/invariants.md, tier: dev }

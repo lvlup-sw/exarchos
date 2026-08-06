@@ -1,8 +1,16 @@
 import { describe, it, expect } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { parse as parseYaml } from 'yaml';
 import {
   ExarchosConfigSchema,
   InvariantsConfigSchema,
+  collectConfigDeprecations,
+  DEV_CATALOG_PATH,
+  DEV_CATALOG_DEPRECATION_CODE,
 } from './exarchos-config-schema.js';
+import { resolveCatalogSources } from '../architecture/catalog-sources.js';
 
 describe('ExarchosConfigSchema — toolchains (tier 3)', () => {
   it('accepts a user-declared toolchain with markers + commands', () => {
@@ -252,18 +260,7 @@ describe('ExarchosConfigSchema', () => {
 });
 
 /**
- * Invariants-catalog-v2 — Wave B1.
- *
- * `ExarchosConfig` must accept an optional `invariants.devCatalog` enum
- * flag so the invariants loader (Wave B2) can gate the catalog at the
- * `.exarchos.yml` layer. See:
- *
- *   docs/proposals/2026-05-20-invariants-catalog-v2-spec.md §1.1 + §4.0 + §7.0
- *
- * Default semantics: the field is OPTIONAL on the schema. `undefined` is
- * equivalent to `'disabled'` at the loader (B2) — there is no schema-level
- * default so the loader can distinguish "operator never declared it" from
- * "operator explicitly opted out" if that ever matters.
+ * Invariants-catalog config surface.
  *
  * `parseExarchosConfig` here is `ExarchosConfigSchema.parse` — the canonical
  * validator. The function name in the spec / plan is `parseExarchosConfig`;
@@ -274,25 +271,262 @@ describe('ExarchosConfigSchema', () => {
  * CodeRabbit finding 3: tests targeting `exarchos-config-schema.ts`
  * belong in `src/config/` per the repo's co-located-tests convention.)
  */
-describe('ExarchosConfigSchema — invariants.devCatalog (Wave B1)', () => {
-  it('ExarchosConfig_AcceptsInvariantsDevCatalogEnabled_PreservesEnumValue', () => {
-    const result = ExarchosConfigSchema.safeParse({
-      invariants: { devCatalog: 'enabled' },
+/**
+ * DR-31 / T-43 — `invariants.devCatalog` retired as a deprecated ALIAS.
+ *
+ * ## What replaced what
+ *
+ * The key used to be a live, repo-only gate: `resolveCatalogSources` read the
+ * boolean directly and synthesized a privileged catalog source from it (DR-31
+ * site 2). T-42 deleted that branch. T-43 finishes the job at the config
+ * boundary:
+ *
+ *   - the key is GONE from the parsed shape — `InvariantsConfigSchema`
+ *     desugars it away, so no production reader can gate on the boolean (the
+ *     doctor probe that did, `orchestrate/doctor/probes.ts`, became a compile
+ *     error and now asks the registration question instead);
+ *   - it is RETAINED on the INPUT shape as a deprecated alias, because the
+ *     schema is `.strict()` and `loadExarchosConfig` THROWS on an unknown key
+ *     — deleting it outright would hard-fail config load on upgrade for every
+ *     consumer who ever wrote it;
+ *   - `devCatalog: 'enabled'` desugars to exactly the registration it was
+ *     always sugar for, `{ path: .exarchos/invariants.md, tier: dev }`, so an
+ *     un-migrated consumer keeps the catalog they had instead of silently
+ *     losing it;
+ *   - `collectConfigDeprecations` reports it as a TYPED deprecation the doctor
+ *     surfaces, so the operator learns the replacement edit.
+ *
+ * ## Oracle structure (DR-30) — two authorities, never a self-comparison
+ *
+ *   - **Authority 1 (subject):** the production parse+discovery pipeline —
+ *     `ExarchosConfigSchema` → `resolveCatalogSources`.
+ *   - **Authority 2 (expectation):** `normalizeVerbatim` below, a
+ *     re-implementation of the documented normalization contract applied to
+ *     the `catalogs:` list sliced verbatim out of the RAW `.exarchos.yml`
+ *     text. It shares no code with the subject.
+ */
+describe('ExarchosConfigSchema — invariants.devCatalog retirement (DR-31 / T-43)', () => {
+  const REPO_ROOT = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    '../../../..',
+  );
+  const REPO_CONFIG_PATH = path.join(REPO_ROOT, '.exarchos.yml');
+
+  /** The RAW, unparsed `.exarchos.yml` document this repository ships. */
+  function rawRepoDocument(): Record<string, unknown> {
+    expect(
+      fs.existsSync(REPO_CONFIG_PATH),
+      `real repo config missing at ${REPO_CONFIG_PATH}`,
+    ).toBe(true);
+    const doc: unknown = parseYaml(fs.readFileSync(REPO_CONFIG_PATH, 'utf8'));
+    expect(typeof doc === 'object' && doc !== null).toBe(true);
+    return doc as Record<string, unknown>;
+  }
+
+  /** Raw `invariants:` block, mutated by `mutate`. Never re-uses parsed data. */
+  function rawInvariantsBlock(
+    mutate: (b: Record<string, unknown>) => void = () => {},
+  ): Record<string, unknown> {
+    const block = structuredClone(rawRepoDocument().invariants);
+    expect(
+      typeof block === 'object' && block !== null,
+      'real .exarchos.yml declares no `invariants:` block — the subject of ' +
+        'this oracle does not exist',
+    ).toBe(true);
+    const next = block as Record<string, unknown>;
+    mutate(next);
+    return next;
+  }
+
+  /**
+   * AUTHORITY 2 — the documented normalization contract, re-implemented here:
+   * bare string ⇒ `tier: 'user'`; object ⇒ `tier ?? 'user'`. No call into
+   * `resolveCatalogSources`, no call into the schema.
+   */
+  function normalizeVerbatim(
+    block: Record<string, unknown>,
+  ): Array<{ path: string; tier: string }> {
+    const raw = (block.catalogs ?? []) as Array<
+      string | { path: string; tier?: string }
+    >;
+    return raw.map((r) =>
+      typeof r === 'string'
+        ? { path: r, tier: 'user' }
+        : { path: r.path, tier: r.tier ?? 'user' },
+    );
+  }
+
+  /** AUTHORITY 1 — parse an `invariants:` block, then discover its sources. */
+  function parseThenResolve(
+    block: Record<string, unknown>,
+  ): Array<{ path: string; tier: string }> {
+    const parsed = ExarchosConfigSchema.safeParse({ invariants: block });
+    expect(
+      parsed.success,
+      'config failed the production schema: ' +
+        (parsed.success ? '' : JSON.stringify(parsed.error.issues)),
+    ).toBe(true);
+    if (!parsed.success) throw new Error('unreachable');
+    return resolveCatalogSources(parsed.data);
+  }
+
+  it('ExarchosConfig_DevCatalogRemoved_EffectiveCatalogUnchanged', () => {
+    // THE DR-31 ACCEPTANCE PROPERTY, at the config boundary, on the REAL repo
+    // config. Both metamorphic directions are asserted so this stays
+    // load-bearing whichever way the committed file goes: T-43 deleted the key
+    // from disk, so `withoutFlag` is what ships and `withFlag` is the
+    // pre-T-43 file reconstructed.
+    const withoutFlag = rawInvariantsBlock((b) => {
+      delete b.devCatalog;
     });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.invariants?.devCatalog).toBe('enabled');
-    }
+    const withFlag = rawInvariantsBlock((b) => {
+      b.devCatalog = 'enabled';
+    });
+
+    // NON-VACUITY 1: the metamorphic pair must genuinely differ, or the
+    // equality below is a tautology over two identical inputs.
+    expect(withFlag).not.toEqual(withoutFlag);
+    expect(withFlag).toHaveProperty('devCatalog', 'enabled');
+    expect(withoutFlag).not.toHaveProperty('devCatalog');
+
+    // NON-VACUITY 2: the independent expectation is non-empty, so "unchanged"
+    // cannot be satisfied by a pipeline that resolves nothing at all.
+    const expected = normalizeVerbatim(withoutFlag);
+    expect(expected.length).toBeGreaterThan(0);
+    expect(expected).toContainEqual({ path: DEV_CATALOG_PATH, tier: 'dev' });
+
+    // The property: identical effective sources with and without the key, and
+    // both agree with the independently-derived expectation.
+    expect(parseThenResolve(withoutFlag)).toEqual(expected);
+    expect(parseThenResolve(withFlag)).toEqual(expected);
+
+    // NON-VACUITY 3 (POSITIVE CONTROL — the T-42 lesson). The three equalities
+    // above are all "resolves the same" assertions; they would ALL still hold
+    // if `parseThenResolve` were wired to something that never reads config.
+    // Break the input and the resolution must collapse — proving the machinery
+    // under the equalities actually ran and is config-sensitive.
+    const noRegistration = rawInvariantsBlock((b) => {
+      delete b.devCatalog;
+      delete b.catalogs;
+    });
+    expect(parseThenResolve(noRegistration)).toEqual([]);
+    expect(normalizeVerbatim(noRegistration)).toEqual([]);
   });
 
-  it('ExarchosConfig_AcceptsInvariantsDevCatalogDisabled_PreservesEnumValue', () => {
-    const result = ExarchosConfigSchema.safeParse({
-      invariants: { devCatalog: 'disabled' },
+  it('ExarchosConfig_LegacyDevCatalogKey_EmitsTypedDeprecation', () => {
+    // A consumer who never migrated: the alias and NOTHING else.
+    const legacyDocument = { invariants: { devCatalog: 'enabled' } };
+
+    const deprecations = collectConfigDeprecations(legacyDocument);
+    expect(deprecations).toHaveLength(1);
+    const [d] = deprecations;
+
+    // TYPED, not prose: a surface can branch on `code` and render
+    // `replacement` as a concrete edit without regex-matching the message.
+    expect(d!.code).toBe(DEV_CATALOG_DEPRECATION_CODE);
+    expect(d!.key).toBe('invariants.devCatalog');
+    expect(d!.replacement).toEqual({ path: DEV_CATALOG_PATH, tier: 'dev' });
+    expect(d!.message).toContain('deprecated');
+    expect(d!.message).toContain(DEV_CATALOG_PATH);
+
+    // AND THE DESUGARING IT ADVERTISES ACTUALLY HAPPENS. Cross-checking the
+    // diagnostic against the transform is what stops the deprecation from
+    // being a lie: the replacement it names must be the registration the
+    // schema really produces, derived from the parse, not from the message.
+    const parsed = ExarchosConfigSchema.safeParse(legacyDocument);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) throw new Error('unreachable');
+    expect(resolveCatalogSources(parsed.data)).toEqual([d!.replacement]);
+
+    // The key itself is gone from the parsed shape — nothing downstream can
+    // gate on the boolean.
+    expect(parsed.data.invariants).not.toHaveProperty('devCatalog');
+
+    // POSITIVE CONTROL for the negative half: `collectConfigDeprecations`
+    // returning `[]` must MEAN something. A config with no deprecated key is
+    // clean, and — the point of T-43 — so is this repository's own committed
+    // config. If the key ever creeps back into `.exarchos.yml`, this reddens.
+    expect(collectConfigDeprecations({ invariants: { catalogs: [] } })).toEqual([]);
+    expect(collectConfigDeprecations(rawRepoDocument())).toEqual([]);
+  });
+
+  it('ExarchosConfig_DevCatalogDisabled_DeprecatedWithNoRegistration', () => {
+    // `disabled` was only ever the default restated, so it desugars to NOTHING
+    // — but it is still a retired key, so it still reports, with a null
+    // replacement (there is no registration to suggest).
+    const doc = { invariants: { devCatalog: 'disabled' } };
+    const [d] = collectConfigDeprecations(doc);
+    expect(d!.code).toBe(DEV_CATALOG_DEPRECATION_CODE);
+    expect(d!.replacement).toBeNull();
+
+    const parsed = ExarchosConfigSchema.safeParse(doc);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) throw new Error('unreachable');
+    expect(resolveCatalogSources(parsed.data)).toEqual([]);
+    expect(parsed.data.invariants).not.toHaveProperty('devCatalog');
+  });
+
+  it('ExarchosConfig_LegacyDevCatalogKey_AcceptedNotRejected', () => {
+    // THE BACK-COMPAT CONTRACT, pinned so a flip is caught. The schema is
+    // `.strict()` and `loadExarchosConfig` throws on validation failure, so
+    // removing `devCatalog` from the schema outright would turn every
+    // un-migrated `.exarchos.yml` into a hard config-load failure on upgrade.
+    // The alias is retained precisely to prevent that. This test reddens if
+    // the key is ever made unknown (rejected) OR if the alias is silently
+    // widened to accept junk.
+    expect(
+      ExarchosConfigSchema.safeParse({ invariants: { devCatalog: 'enabled' } })
+        .success,
+    ).toBe(true);
+    expect(
+      ExarchosConfigSchema.safeParse({ invariants: { devCatalog: 'disabled' } })
+        .success,
+    ).toBe(true);
+
+    // The discriminating half: a genuinely-unknown sibling key IS rejected, so
+    // the acceptance above is the alias being honoured and not `.strict()`
+    // having quietly gone slack.
+    expect(
+      ExarchosConfigSchema.safeParse({ invariants: { devCatalogue: 'enabled' } })
+        .success,
+    ).toBe(false);
+  });
+
+  it('ExarchosConfig_AliasAndExplicitRegistration_DedupeToOneDevSource', () => {
+    // The shape this repo shipped BEFORE T-43: the alias AND the explicit
+    // registration for the same path. The desugar carries over the retired
+    // branch's `(path, tier: 'dev')` dedupe, so the catalog is registered
+    // ONCE — a second copy would double-load it.
+    const parsed = ExarchosConfigSchema.safeParse({
+      invariants: {
+        devCatalog: 'enabled',
+        catalogs: [{ path: DEV_CATALOG_PATH, tier: 'dev' }],
+      },
     });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.invariants?.devCatalog).toBe('disabled');
-    }
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) throw new Error('unreachable');
+    expect(resolveCatalogSources(parsed.data)).toEqual([
+      { path: DEV_CATALOG_PATH, tier: 'dev' },
+    ]);
+  });
+
+  it('ExarchosConfig_AliasWithUnrelatedRegistrations_AppendsWithoutClobbering', () => {
+    // The alias is ADDITIVE: a consumer's own registrations survive it, and
+    // the desugared dev entry lands after them. Without this, the desugar
+    // could pass the dedupe test above by simply replacing the list.
+    const parsed = ExarchosConfigSchema.safeParse({
+      invariants: {
+        devCatalog: 'enabled',
+        catalogs: ['team.md', { path: 'ops.md', tier: 'user' }],
+      },
+    });
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) throw new Error('unreachable');
+    expect(resolveCatalogSources(parsed.data)).toEqual([
+      { path: 'team.md', tier: 'user' },
+      { path: 'ops.md', tier: 'user' },
+      { path: DEV_CATALOG_PATH, tier: 'dev' },
+    ]);
   });
 
   it('ExarchosConfig_RejectsInvalidDevCatalogValue', () => {
@@ -305,10 +539,8 @@ describe('ExarchosConfigSchema — invariants.devCatalog (Wave B1)', () => {
   });
 
   it('ExarchosConfig_EmptyObject_LeavesInvariantsUndefined', () => {
-    // Default-disabled semantics: an operator who never declared the
-    // `invariants:` block must get `undefined`, not a synthetic
-    // `{ devCatalog: 'disabled' }` placeholder. The loader (B2) treats
-    // `undefined === disabled` so a default value would only obscure intent.
+    // An operator who never declared the `invariants:` block must get
+    // `undefined`, not a synthetic placeholder block.
     const result = ExarchosConfigSchema.safeParse({});
     expect(result.success).toBe(true);
     if (result.success) {
@@ -317,16 +549,13 @@ describe('ExarchosConfigSchema — invariants.devCatalog (Wave B1)', () => {
   });
 
   it('ExarchosConfig_InvariantsBlockWithoutDevCatalog_Validates', () => {
-    // The `invariants:` block may exist without `devCatalog` set — e.g. for
-    // forward-compatibility with future sub-keys. The block itself is
-    // optional; `devCatalog` inside is also optional.
-    const result = ExarchosConfigSchema.safeParse({
-      invariants: {},
-    });
+    // The `invariants:` block may exist empty — the post-T-43 canonical shape
+    // for a repo that has not registered anything yet.
+    const result = ExarchosConfigSchema.safeParse({ invariants: {} });
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.invariants).toBeDefined();
-      expect(result.data.invariants?.devCatalog).toBeUndefined();
+      expect(result.data.invariants).not.toHaveProperty('devCatalog');
     }
   });
 
@@ -345,7 +574,9 @@ describe('ExarchosConfigSchema — invariants.devCatalog (Wave B1)', () => {
 // `overrides`, `enforcement`. These extend the canonical
 // `InvariantsConfigSchema` for user-authored catalog files, per-invariant
 // severity/enabled tuning, and per-phase enforcement, while preserving
-// `devCatalog` and the `.strict()` posture.
+// the `.strict()` posture. (T-43: `devCatalog` is no longer among the
+// preserved OUTPUT keys — it is a deprecated input-only alias, covered by
+// the DR-31 block above.)
 describe('InvariantsConfigSchema — additive keys (T-18 / DR-6)', () => {
   it('InvariantsConfigSchema_NewKeys_ParseAndStrictReject', () => {
     const ok = InvariantsConfigSchema.safeParse({
@@ -359,8 +590,13 @@ describe('InvariantsConfigSchema — additive keys (T-18 / DR-6)', () => {
     });
     expect(ok.success).toBe(true);
     if (ok.success) {
-      expect(ok.data.devCatalog).toBe('enabled');
-      expect(ok.data.catalogs).toEqual(['.exarchos/invariants.yml']);
+      // T-43: the alias is desugared away — absent from the output, and its
+      // registration appended to the operator's own `catalogs:` list.
+      expect(ok.data).not.toHaveProperty('devCatalog');
+      expect(ok.data.catalogs).toEqual([
+        '.exarchos/invariants.yml',
+        { path: DEV_CATALOG_PATH, tier: 'dev' },
+      ]);
       expect(ok.data.overrides?.['SDLC-3']?.severity).toBe('advisory');
       expect(ok.data.overrides?.['SDLC-7']?.enabled).toBe(false);
       expect(ok.data.enforcement?.review).toBe('blocking');

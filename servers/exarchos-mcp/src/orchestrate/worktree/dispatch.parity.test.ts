@@ -308,7 +308,9 @@ describe('worktree surface conformance (registry-driven, DR-1)', () => {
         expect(mcpResult.success, `${name} mcp success`).toBe(true);
         expect(exitCode, `${name} cli exit`).toBe(0);
 
-        // (3) INV-2 parity — byte-equal across carriers.
+        // (3) governing INV-2 WITNESS — byte-equal across carriers. Evidence
+        // that both clients route through the one contract handler; not, on
+        // its own, proof that equivalence is constructed.
         expect(normalize(cliResult), `${name} parity`).toEqual(normalize(mcpResult));
         expect(JSON.stringify(normalize(cliResult))).toEqual(JSON.stringify(normalize(mcpResult)));
 

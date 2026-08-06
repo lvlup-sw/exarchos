@@ -15,6 +15,8 @@ import {
 import { resolveVerificationPolicy } from '../workflow/verification-policy-resolver.js';
 import type { PhaseKind } from '../workflow/phase-kind.js';
 import type { GitExec } from './pure/execute-merge.js';
+import type { EvidenceArtifactReferenceV1 } from '../workflow/admission/evidence-artifact.js';
+import type { AdmissionEvidenceRecorded } from '../event-store/schemas.js';
 
 /**
  * Shared production git executor for the per-task gate handlers (FIX-4 dedupe).
@@ -81,7 +83,7 @@ export async function emitGateEvent(
    * Optional idempotency key (INV-8). When supplied, a second emission with the
    * same key collapses to the first row instead of appending a duplicate — so a
    * gate re-run under the same operationId leaves a single `gate.executed`.
-   * Omit it for fire-and-forget gates that intentionally emit one row per call.
+   * Omit it for legacy gates that intentionally emit one row per call.
    */
   idempotencyKey?: string,
 ): Promise<void> {
@@ -102,6 +104,80 @@ export async function emitGateEvent(
   } else {
     await store.append(streamId, event);
   }
+}
+
+// ─── Canonical gate-runner result helpers ───────────────────────────────────
+
+/** Compact durable references added to (but never substituted for) gate data. */
+export interface GateEvidenceReference {
+  readonly evidenceId: string;
+  readonly subject: AdmissionEvidenceRecorded['evidence']['subject'];
+  readonly contentDigest: AdmissionEvidenceRecorded['evidence']['contentDigest'];
+  readonly supersedesEvidenceId?: string;
+  readonly reportArtifact?: EvidenceArtifactReferenceV1;
+}
+
+/**
+ * Normalize the existing gate carriers to the proof verdict vocabulary.
+ *
+ * A provider error is indeterminate, while advisory carriers retain their
+ * established `data.passed` contract. A success carrier without a boolean
+ * verdict is also indeterminate rather than being promoted to passing proof.
+ *
+ * DR-6: a carrier that is BOTH explicitly skipped and not-passing is
+ * `indeterminate`, not `fail`. The gate did not run to a conclusion, so it
+ * produced neither proof nor a finding — reporting it as `fail` would name a
+ * failure that was never observed. Indeterminate is NOT lenient: it fails
+ * closed downstream exactly as a deny does (policy-evaluation's `evaluateGate`
+ * → `indeterminate('EVALUATOR_FAILED')` → `PolicyVerdict 'indeterminate'` →
+ * `transition-command` records the attempt and leaves the phase UNCHANGED; a
+ * waiver never rescues it).
+ *
+ * Deliberately narrow: the skip-PASS carriers elsewhere in the codebase
+ * (`{ passed: true, skipped: true }` — advisory skips that satisfy a presence
+ * requirement) are untouched. Only `passed !== true && skipped === true`
+ * reroutes, and static-analysis is its sole producer today.
+ */
+export function normalizeGateVerdict(result: ToolResult): 'pass' | 'fail' | 'indeterminate' {
+  if (!result.success) return 'indeterminate';
+  const data = result.data;
+  if (data === null || typeof data !== 'object' || Array.isArray(data)) {
+    return 'indeterminate';
+  }
+  const passed = (data as { readonly passed?: unknown }).passed;
+  const skipped = (data as { readonly skipped?: unknown }).skipped;
+  if (skipped === true && passed !== true) return 'indeterminate';
+  if (passed === true) return 'pass';
+  if (passed === false) return 'fail';
+
+  const ready = (data as { readonly ready?: unknown }).ready;
+  if (ready === true) return 'pass';
+  if (ready === false) return 'fail';
+
+  const verdict = (data as { readonly verdict?: unknown }).verdict;
+  if (verdict === 'APPROVED') return 'pass';
+  if (verdict === 'NEEDS_FIXES' || verdict === 'BLOCKED') return 'fail';
+  return 'indeterminate';
+}
+
+/**
+ * Preserve the provider envelope and its data fields while adding proof refs.
+ * Gate data is object-shaped in the owned provider registry; the fallback
+ * keeps an unusual primitive carrier available under `result`.
+ */
+export function attachGateEvidence(
+  result: ToolResult,
+  references: readonly GateEvidenceReference[],
+): ToolResult {
+  const priorData = result.data;
+  const data =
+    priorData !== null && typeof priorData === 'object' && !Array.isArray(priorData)
+      ? { ...(priorData as Readonly<Record<string, unknown>>), evidenceReferences: references }
+      : {
+          ...(priorData === undefined ? {} : { result: priorData }),
+          evidenceReferences: references,
+        };
+  return { ...result, data };
 }
 
 // ─── Worktree-Aware repoRoot Resolution (#1330) ─────────────────────────────
