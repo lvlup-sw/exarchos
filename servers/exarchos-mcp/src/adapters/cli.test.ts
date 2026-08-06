@@ -75,7 +75,7 @@ import {
   createCliDispatchContext,
   runCli,
   CLI_EXIT_CODES,
-  CLI_DIRECT_DISPATCH_DEVIATION,
+  CLI_PROMOTED_ACTION_IDS,
 } from './cli.js';
 import { dispatch } from '../core/dispatch.js';
 import { TOOL_REGISTRY, getFullRegistry } from '../registry.js';
@@ -95,7 +95,13 @@ import {
   type CliCommand,
   type ContractDeviation,
   type DeviationAnnotationSite,
+  type DispatchSite,
 } from '../contract/cli/cli-contract-seam.js';
+import {
+  contractActionIds,
+  invokeContractAction,
+  UnknownContractActionError,
+} from '../contract/cli/generated-client.js';
 import { CONTRACT_EXIT_CODES, exitCodeForError } from '../contract/error-families.js';
 
 // ─── Test Helpers ────────────────────────────────────────────────────────────
@@ -1124,60 +1130,97 @@ describe('CLI top-level promotion (DR-7)', () => {
 // ═══════════════════════════════════════════════════════════════════════════
 //
 // The governing framing makes the CLI a GENERATED client of the compiled
-// contract, equal to the MCP surface BY CONSTRUCTION. Reality diverged on three
-// counts: this adapter imports the runtime `dispatch` value directly,
-// `cli-surface.json` is read only by drift guards, and CLI/MCP agreement was
-// asserted only over a MOCKED handler.
+// contract, equal to the MCP surface BY CONSTRUCTION. DR-25 first recorded the
+// adapter's hand-assembled dispatch path as a governed, expiring deviation;
+// the PRIMARY resolution has since landed and this suite pins the constructed
+// state:
 //
-// DR-25 accepts either resolution. Generating the adapter is a substantial
-// subprogram, so this suite pins the OTHER one and makes it real:
-//
-//   1. `Cli_ApiAction_HasNoDirectDispatchPath` — no UNACKNOWLEDGED direct
-//      dispatch path remains. The CLI's path still exists, but it is admitted
-//      only by a governed, owned, unexpired ledger row that the adapter itself
-//      acknowledges; every way that record could rot fails the census closed.
-//   2. `Cli_GeneratedClient_AgreesWithMcpViaRealHandler` — agreement is proven
+//   1. `Cli_ApiAction_HasNoDirectDispatchPath` — `adapters/cli.ts` no longer
+//      reaches the shared handler at all. The only CLI-side dispatch site is
+//      the generated client (`contract/cli/generated-client.ts`), a contract
+//      PROJECTION; the deviation ledger is empty, and every way a future
+//      record could rot still fails the census closed (kill arms below run
+//      against a SYNTHETIC fixture row, since no live row remains).
+//   2. `Cli_EveryAddressedActionId_ExistsInDerivedSurface` — every ActionId
+//      the adapter can address exists in `deriveCliSurface(compileForCli())`,
+//      so a renamed/removed action reddens the build instead of surfacing as
+//      a runtime addressing failure.
+//   3. `Cli_GeneratedClient_AgreesWithMcpViaRealHandler` — agreement is proven
 //      through a REAL registered handler over BOTH seams (the real Commander
-//      tree and the real MCP server over a real transport), never a mock.
+//      tree, now addressing through the production generated client, and the
+//      real MCP server over a real transport), never a mock.
 // ───────────────────────────────────────────────────────────────────────────
 
-/** The live ledger row covering this adapter's direct dispatch path. */
-function cliDeviation(): ContractDeviation {
-  const row = CLI_CONTRACT_DEVIATIONS.find((d) => d.module === 'adapters/cli.ts');
-  if (!row) throw new Error('no recorded deviation for adapters/cli.ts');
-  return row;
+/** A synthetic deviating module for the ledger kill arms (no live counterpart). */
+const FIXTURE_DEVIANT_MODULE = 'cli-commands/fixture-direct-dispatch.ts';
+
+/**
+ * A fully governed SYNTHETIC ledger row. The live ledger is empty (the DR-25
+ * deviation retired with the generated client), so the kill arms exercise the
+ * census machinery against this fixture instead of a real row — the arms must
+ * stay armed for the NEXT candidate deviation, not rot with the retired one.
+ */
+function fixtureDeviation(): ContractDeviation {
+  return {
+    id: 'fixture-direct-dispatch',
+    module: FIXTURE_DEVIANT_MODULE,
+    invariant: 'INV-2',
+    kind: 'direct-dispatch-path',
+    owner: 'exarchos',
+    rationale:
+      'Synthetic kill-arm fixture: a hypothetical module importing the runtime dispatch value.',
+    retirement: 'The fixture module stops importing the runtime dispatch value.',
+    tracking: 'DR-25 · adapters/cli.test.ts kill-arm fixture',
+    expires: '2099-12-31',
+  };
 }
 
-/** A ledger row with one field overridden, for the kill arms. */
+/** The fixture row with one field overridden, for the kill arms. */
 function mutateDeviation(patch: Partial<ContractDeviation>): ContractDeviation[] {
-  return [{ ...cliDeviation(), ...patch }];
+  return [{ ...fixtureDeviation(), ...patch }];
 }
 
-describe('DR-25: CLI api-action dispatch path is governed, not unacknowledged', () => {
+/** The live projection sites PLUS the fixture's synthetic dispatch site. */
+function fixtureSites(): DispatchSite[] {
+  return [...CONTRACT_PROJECTIONS.map((module) => ({ module })), { module: FIXTURE_DEVIANT_MODULE }];
+}
+
+/** The acknowledgement the synthetic module would export, agreeing with its row. */
+function fixtureAnnotations(): DeviationAnnotationSite[] {
+  const row = fixtureDeviation();
+  return [
+    {
+      module: FIXTURE_DEVIANT_MODULE,
+      annotation: {
+        invariant: row.invariant,
+        module: row.module,
+        owner: row.owner,
+        expires: row.expires,
+      },
+    },
+  ];
+}
+
+describe('DR-25: CLI api-action dispatch path is generated, and the deviation is retired', () => {
   it('Cli_ApiAction_HasNoDirectDispatchPath', async () => {
-    // ── The honest starting fact: the adapter DOES reach the shared handler
-    //    directly. The census must not be able to hide that.
+    // ── The DR-25 primary resolution, structurally: the adapter no longer
+    //    reaches the shared handler at all. The only CLI-side dispatch site is
+    //    the generated client, and every live site is a contract PROJECTION.
     const sites = await scanDispatchSites();
     const moduleNames = sites.map((s) => s.module);
-    expect(moduleNames).toContain('adapters/cli.ts');
-
-    // ── The governing invariant: NO UNACKNOWLEDGED direct dispatch path. Every
-    //    live site is either a contract projection (the MCP wire) or covered by
-    //    a recorded deviation — and nothing else reaches the seam at all.
-    const annotations = await collectDeviationAnnotations();
-    expect(runDeviationLedgerCensus(sites, CLI_CONTRACT_DEVIATIONS, annotations)).toEqual([]);
+    expect(moduleNames).not.toContain('adapters/cli.ts');
+    expect(moduleNames).toContain('contract/cli/generated-client.ts');
+    expect(moduleNames).toContain('adapters/mcp.ts');
     expect([...moduleNames].sort()).toEqual([...AUTHORIZED_DISPATCH_PROJECTIONS].sort());
-    expect(CONTRACT_PROJECTIONS).not.toContain('adapters/cli.ts');
+    expect(CONTRACT_PROJECTIONS).toContain('contract/cli/generated-client.ts');
 
-    // ── The acknowledgement is machine-readable AT the deviation site, and the
-    //    ledger and the site agree (a prose comment would satisfy neither).
-    const row = cliDeviation();
-    expect(CLI_DIRECT_DISPATCH_DEVIATION).toEqual({
-      invariant: row.invariant,
-      module: row.module,
-      owner: row.owner,
-      expires: row.expires,
-    });
+    // ── Nothing is admitted by deviation any more: the live ledger is EMPTY,
+    //    no module exports an acknowledgement, and the ledger census over the
+    //    real sites is green with that empty ledger.
+    expect(CLI_CONTRACT_DEVIATIONS).toEqual([]);
+    const annotations = await collectDeviationAnnotations();
+    expect(annotations).toEqual([]);
+    expect(runDeviationLedgerCensus(sites, CLI_CONTRACT_DEVIATIONS, annotations)).toEqual([]);
 
     // ── The whole live census (all three collectors) is green.
     const audit = await auditCliContract();
@@ -1185,45 +1228,53 @@ describe('DR-25: CLI api-action dispatch path is governed, not unacknowledged', 
     expect(audit.ok).toBe(true);
   });
 
-  it('CliDeviation_IsOwnedJustifiedAndUnexpired', () => {
-    const row = cliDeviation();
+  it('CliDeviation_LedgerIsEmpty_AndTheRetiredRowCannotQuietlyReturn', async () => {
+    // The inversion of the old `CliDeviation_IsOwnedJustifiedAndUnexpired`
+    // pin: there is no longer a row to own, justify, or expire — retirement
+    // means the ledger is empty and the adapter has no dispatch site.
+    expect(CLI_CONTRACT_DEVIATIONS).toEqual([]);
+    const sites = await scanDispatchSites();
+    expect(sites.map((s) => s.module)).not.toContain('adapters/cli.ts');
 
-    // A named owner, a reason, a retirement condition and a tracking ref — an
-    // unowned or unjustified exception is theatre.
-    expect(row.owner.trim()).not.toBe('');
-    expect(row.invariant).toBe('INV-2');
-    expect(row.rationale.trim().length).toBeGreaterThan(0);
-    expect(row.retirement.trim().length).toBeGreaterThan(0);
-    expect(row.tracking).toContain('DR-25');
-
-    // A REAL deadline, still open. When it passes, the census fails closed and
-    // the deviation must be re-accepted explicitly or retired.
-    expect(row.expires).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(Date.parse(`${row.expires}T23:59:59.999Z`)).toBeGreaterThan(Date.now());
+    // Re-recording the retired row against today's tree fails closed as
+    // STALE_DEVIATION (it would cover no live site) — the ledger cannot be
+    // used to quietly re-admit the direct path without the import coming back.
+    const resurrected = runDeviationLedgerCensus(
+      sites,
+      mutateDeviation({ id: 'cli-direct-dispatch', module: 'adapters/cli.ts' }),
+      fixtureAnnotations(),
+    );
+    expect(resurrected.map((d) => d.code)).toContain('STALE_DEVIATION');
   });
 
-  it('CliDeviation_EveryWayTheRecordCouldRot_FailsClosed', async () => {
-    const sites = await scanDispatchSites();
-    const annotations = await collectDeviationAnnotations();
+  it('CliDeviation_EveryWayTheRecordCouldRot_FailsClosed', () => {
+    // All arms run against the SYNTHETIC fixture row + fabricated sites: the
+    // live ledger is empty, but the machinery must stay armed for the next
+    // candidate deviation. Baseline first — a fully governed fixture passes,
+    // so each red arm below is attributable to its single mutation.
+    const sites = fixtureSites();
+    const annotations = fixtureAnnotations();
     const codes = (diags: readonly { readonly code: string }[]): string[] =>
       diags.map((d) => d.code);
+    expect(runDeviationLedgerCensus(sites, [fixtureDeviation()], annotations)).toEqual([]);
 
-    // (a) Drop the ledger entirely — the direct path becomes UNACKNOWLEDGED.
-    //     This is the arm that proves the acknowledgement is load-bearing: with
-    //     no record, the governing INV-2 is violated and the census says so.
+    // (a) Drop the ledger row — the fixture's direct path becomes
+    //     UNACKNOWLEDGED. This is the arm that proves the acknowledgement is
+    //     load-bearing: with no record, the governing INV-2 is violated and
+    //     the census says so.
     const unrecorded = runDeviationLedgerCensus(sites, [], annotations);
     expect(unrecorded).toContainEqual(
       expect.objectContaining({
         code: 'UNACKNOWLEDGED_INV2_DEVIATION',
-        module: 'adapters/cli.ts',
+        module: FIXTURE_DEVIANT_MODULE,
       }),
     );
 
-    // (b) A NEW bypass elsewhere is unacknowledged too — the ledger governs one
-    //     named module, it does not amnesty the whole tree.
+    // (b) A SECOND bypass elsewhere is unacknowledged too — a ledger row
+    //     governs one named module, it does not amnesty the whole tree.
     const planted = runDeviationLedgerCensus(
       [...sites, { module: 'cli-commands/rogue-direct-dispatch.ts' }],
-      CLI_CONTRACT_DEVIATIONS,
+      [fixtureDeviation()],
       annotations,
     );
     expect(planted).toContainEqual(
@@ -1254,13 +1305,13 @@ describe('DR-25: CLI api-action dispatch path is governed, not unacknowledged', 
     ).toContainEqual(expect.objectContaining({ code: 'UNGOVERNED_DEVIATION', field: 'rationale' }));
 
     // (g) Stale cover fails — a row for a module that no longer reaches the
-    //     seam. This is the arm that RETIRES the ledger once the CLI really is
-    //     generated: the row turns red and must be deleted.
+    //     seam. This is the arm that retired the real DR-25 row when the CLI
+    //     became genuinely generated.
     expect(
       codes(
         runDeviationLedgerCensus(
-          sites.filter((s) => s.module !== 'adapters/cli.ts'),
-          CLI_CONTRACT_DEVIATIONS,
+          sites.filter((s) => s.module !== FIXTURE_DEVIANT_MODULE),
+          [fixtureDeviation()],
           annotations,
         ),
       ),
@@ -1269,22 +1320,23 @@ describe('DR-25: CLI api-action dispatch path is governed, not unacknowledged', 
     // (h) A missing site acknowledgement fails — the ledger alone is not
     //     enough; the deviating module must own its deviation.
     const unannotated: DeviationAnnotationSite[] = [
-      { module: 'adapters/cli.ts', annotation: undefined },
+      { module: FIXTURE_DEVIANT_MODULE, annotation: undefined },
     ];
     expect(
-      codes(runDeviationLedgerCensus(sites, CLI_CONTRACT_DEVIATIONS, unannotated)),
+      codes(runDeviationLedgerCensus(sites, [fixtureDeviation()], unannotated)),
     ).toContain('DEVIATION_ANNOTATION_MISMATCH');
 
     // (i) A site acknowledgement that DISAGREES with the ledger fails — the two
     //     records cannot drift apart silently.
+    const [agreeing] = fixtureAnnotations();
     const drifted: DeviationAnnotationSite[] = [
       {
-        module: 'adapters/cli.ts',
-        annotation: { ...CLI_DIRECT_DISPATCH_DEVIATION, expires: '2099-01-01' },
+        module: FIXTURE_DEVIANT_MODULE,
+        annotation: { ...agreeing!.annotation!, expires: '2098-01-01' },
       },
     ];
     expect(
-      codes(runDeviationLedgerCensus(sites, CLI_CONTRACT_DEVIATIONS, drifted)),
+      codes(runDeviationLedgerCensus(sites, [fixtureDeviation()], drifted)),
     ).toContain('DEVIATION_ANNOTATION_MISMATCH');
 
     // (j) Claiming the module is ALSO fully compliant fails — "compliance"
@@ -1292,12 +1344,81 @@ describe('DR-25: CLI api-action dispatch path is governed, not unacknowledged', 
     //     where `adapters/cli.ts` simply sat in the authorized list).
     expect(
       codes(
-        runDeviationLedgerCensus(sites, CLI_CONTRACT_DEVIATIONS, annotations, new Date(), [
-          'adapters/mcp.ts',
-          'adapters/cli.ts',
+        runDeviationLedgerCensus(sites, [fixtureDeviation()], annotations, new Date(), [
+          ...CONTRACT_PROJECTIONS,
+          FIXTURE_DEVIANT_MODULE,
         ]),
       ),
     ).toContain('CONFLICTING_DEVIATION');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  T-34 / DR-25 — the generated client addresses only compiled actions
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// The "generated" property, pinned at the production seam: an ActionId is
+// dispatchable if and only if the compiled contract contains it. These run
+// over the file-wide MOCKED `dispatch` — they pin the seam's ADDRESSING
+// contract (verify → split → dispatch payload shape), not handler behavior,
+// which `Cli_GeneratedClient_AgreesWithMcpViaRealHandler` proves below over
+// the real graph.
+// ───────────────────────────────────────────────────────────────────────────
+
+describe('DR-25: generated client addresses only compiled contract actions', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('Cli_EveryAddressedActionId_ExistsInDerivedSurface', async () => {
+    const surfaceIds = new Set(
+      deriveCliSurface(compileForCli()).commands.map((c) => c.actionId),
+    );
+
+    // The four hard-wired top-level promotions address by these literal ids.
+    for (const actionId of Object.values(CLI_PROMOTED_ACTION_IDS)) {
+      expect(surfaceIds.has(actionId), `${actionId} missing from the derived surface`).toBe(true);
+    }
+
+    // Every registry-derived `<tool>.<action>` id the auto-generated command
+    // tree can address exists in the compiled surface — a renamed or removed
+    // action reddens the build HERE instead of surfacing at runtime as an
+    // UnknownContractActionError.
+    for (const tool of getFullRegistry()) {
+      for (const action of tool.actions) {
+        const actionId = `${tool.name}.${action.name}`;
+        expect(
+          surfaceIds.has(actionId),
+          `${actionId} is registered on the CLI but the contract does not compile it`,
+        ).toBe(true);
+      }
+    }
+
+    // The production seam verifies against this same derivation — its id set
+    // and the freshly derived surface cannot disagree.
+    expect([...(await contractActionIds())].sort()).toEqual([...surfaceIds].sort());
+  });
+
+  it('GeneratedClient_UnknownActionId_FailsLoud_WithoutDispatching', async () => {
+    await expect(
+      invokeContractAction('exarchos_workflow.no_such_action', {}, createTestContext()),
+    ).rejects.toThrow(UnknownContractActionError);
+    // Fail LOUD means fail BEFORE the shared handler: nothing was dispatched.
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it('GeneratedClient_SplitsVerifiedActionId_AndDispatchesTheContractPayload', async () => {
+    const ctx = createTestContext();
+    const result = await invokeContractAction('exarchos_workflow.get', { featureId: 'wcfix' }, ctx);
+    // The (tool, action) pair comes from the VERIFIED id, and the payload is
+    // the `{ action, ...args }` shape the shared handler expects.
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    expect(dispatch).toHaveBeenCalledWith(
+      'exarchos_workflow',
+      { action: 'get', featureId: 'wcfix' },
+      ctx,
+    );
+    expect(result).toEqual({ success: true, data: { mocked: true } });
   });
 });
 
@@ -1313,7 +1434,10 @@ describe('DR-25: CLI api-action dispatch path is governed, not unacknowledged', 
 //
 //   • a REAL `core/dispatch` over a REAL `EventStore` in a REAL temp state dir,
 //     resolving the REAL registered `exarchos_workflow` composite handler;
-//   • the CLI seam driven through the REAL Commander tree (`buildCli`);
+//   • the CLI seam driven through the REAL Commander tree (`buildCli`), whose
+//     api-action callbacks now address the handler through the PRODUCTION
+//     generated client (`contract/cli/generated-client.ts`) — the seam under
+//     test is the shipped addressing path, not a harness stand-in;
 //   • the MCP seam driven through the REAL `createMcpServer` over a REAL
 //     client/server transport pair — so `stampOnboardSurface`, per-action output
 //     validation and `toMcpResult` all run, not just `toEnvelope`;
@@ -1477,6 +1601,22 @@ describe('DR-25: generated CLI client agrees with MCP through a real handler', (
       // failure discriminator by construction.
       expect(cliErr.exitCode).toBe(exitCodeForError(errorCode));
       expect(cliErr.exitCode).not.toBe(CONTRACT_EXIT_CODES.SUCCESS);
+
+      // ── The production generated client IS the addressing seam on that CLI
+      //    path. Probe it directly against the same real context: the verified
+      //    ActionId reaches the same real handler, and an id the contract does
+      //    not compile cannot be addressed at all (fail loud, no dispatch).
+      const generatedClient = await import('../contract/cli/generated-client.js');
+      const direct = await generatedClient.invokeContractAction(
+        command.actionId,
+        { featureId },
+        realCtx,
+      );
+      expect(direct.success).toBe(true);
+      expect((direct.data as Record<string, unknown>).featureId).toBe(featureId);
+      await expect(
+        generatedClient.invokeContractAction('exarchos_workflow.not_a_compiled_action', {}, realCtx),
+      ).rejects.toThrow(/not part of the compiled contract surface/);
     } finally {
       process.exitCode = savedExitCode;
       if (client) await client.close();

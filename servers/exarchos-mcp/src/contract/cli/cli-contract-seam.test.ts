@@ -65,10 +65,11 @@ describe('CLI-surface generation', () => {
 
 describe('Dispatch-seam containment census', () => {
   // Exit-proof (a): the LIVE tree's direct-dispatch paths are exactly the
-  // authorized projection surface — the MCP wire (a contract projection) plus
-  // any module a recorded DR-25 deviation covers (`adapters/cli.ts` today).
-  // This is also the genuine-findings gate: a new bypass anywhere in shipped
-  // source turns it red.
+  // authorized projection surface — the MCP wire and the CLI's generated
+  // client, both contract projections (the DR-25 deviation ledger is empty
+  // since `adapters/cli.ts` stopped importing the dispatch value). This is
+  // also the genuine-findings gate: a new bypass anywhere in shipped source
+  // turns it red.
   it('LiveTree_OnlyAuthorizedProjectionsImportTheDispatchValue', async () => {
     const sites = await scanDispatchSites();
     expect(sites.map((s) => s.module)).toEqual([...AUTHORIZED_DISPATCH_PROJECTIONS].sort());
@@ -105,11 +106,13 @@ describe('Dispatch-seam containment census', () => {
     expect(stripped).not.toContain('from y');
   });
 
-  // Exit-proof (b): a PLANTED direct-dispatch path fails the census.
+  // Exit-proof (b): a PLANTED direct-dispatch path fails the census. Since the
+  // DR-25 primary resolution, `adapters/cli.ts` itself would be such a plant —
+  // its old direct path is no longer authorized by anything.
   it('PlantedUnauthorizedDispatchSite_FailsCensus', () => {
     const diagnostics = runDispatchSeamCensus([
-      { module: 'adapters/cli.ts' },
       { module: 'adapters/mcp.ts' },
+      { module: 'contract/cli/generated-client.ts' },
       { module: 'cli-commands/rogue-direct-dispatch.ts' },
     ]);
     expect(diagnostics.some((d) => d.code === 'UNAUTHORIZED_DISPATCH_SITE')).toBe(true);
@@ -120,10 +123,24 @@ describe('Dispatch-seam containment census', () => {
     }
   });
 
+  // A REGRESSED adapter — `adapters/cli.ts` re-importing the dispatch value —
+  // is a plain unauthorized bypass now, not a recordable state: the retired
+  // deviation must not quietly come back.
+  it('RegressedCliAdapterDispatchImport_FailsCensus', () => {
+    const diagnostics = runDispatchSeamCensus([
+      { module: 'adapters/mcp.ts' },
+      { module: 'contract/cli/generated-client.ts' },
+      { module: 'adapters/cli.ts' },
+    ]);
+    expect(diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'UNAUTHORIZED_DISPATCH_SITE', module: 'adapters/cli.ts' }),
+    );
+  });
+
   // The other ratchet arm: a declared projection that stops routing through the
   // shared handler is stale cover.
   it('StaleProjection_FailsCensus', () => {
-    const diagnostics = runDispatchSeamCensus([{ module: 'adapters/cli.ts' }]);
+    const diagnostics = runDispatchSeamCensus([{ module: 'contract/cli/generated-client.ts' }]);
     expect(
       diagnostics.some((d) => d.code === 'STALE_DISPATCH_PROJECTION' && d.module === 'adapters/mcp.ts'),
     ).toBe(true);

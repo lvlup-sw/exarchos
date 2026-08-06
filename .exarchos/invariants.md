@@ -476,14 +476,20 @@ invariants:
       carriers (the parity harnesses plus each action's registered Zod
       outputSchema) is the WITNESS of that construction, never the invariant
       itself: a suite of green parity fixtures does not make two hand-written
-      surfaces equal. The shipped `adapters/cli.ts` does NOT yet meet this
-      framing — it is a hand-written Commander tree importing the runtime
-      `dispatch` value — and that gap is carried as ONE governed, owned,
-      self-retiring deviation (`cli-direct-dispatch`, owner `exarchos` via
-      CODEOWNERS, expires 2027-02-28) in CLI_CONTRACT_DEVIATIONS, with every
-      other direct route to the dispatch core failing the census closed. The
-      deviation is an acknowledged, expiring debt AGAINST this invariant, never
-      a weakening OF it.
+      surfaces equal. The shipped `adapters/cli.ts` meets this framing for
+      dispatch ADDRESSING: every api-action call site addresses its action by
+      contract ActionId through the generated client
+      (`contract/cli/generated-client.ts`, a contract projection) which
+      verifies the id against the compiled surface before dispatching, so an
+      action the contract does not compile cannot be addressed and the adapter
+      imports no runtime `dispatch` value; the Commander tree it keeps is
+      hand-authored presentation. The DR-25 deviation that previously covered
+      the adapter's hand-assembled direct dispatch path
+      (`cli-direct-dispatch`) is RETIRED and CLI_CONTRACT_DEVIATIONS is empty;
+      the census machinery stays armed, so any future direct route to the
+      dispatch core must be a contract projection or record a new governed,
+      owned, expiring deviation — an acknowledged, expiring debt AGAINST this
+      invariant, never a weakening OF it.
     citations:
       - "Alistair Cockburn, *Hexagonal Architecture (Ports & Adapters)* (2005):
         https://alistair.cockburn.us/hexagonal-architecture/"
@@ -494,6 +500,7 @@ invariants:
     references:
       - docs/architecture/invariants/references/INV-2-facade-equivalence.md
       - servers/exarchos-mcp/src/contract/cli/cli-contract-seam.ts
+      - servers/exarchos-mcp/src/contract/cli/generated-client.ts
       - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
       - docs/designs/archive/2026-05-07-milestone-16-mcp-alignment.md
 
