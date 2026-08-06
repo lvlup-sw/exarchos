@@ -437,7 +437,8 @@ function listFilesRecursiveReal(absDir: string): string[] {
   const out: string[] = [];
   const stack: string[] = [absDir];
   while (stack.length > 0) {
-    const current = stack.pop()!;
+    const current = stack.pop();
+    if (current === undefined) break; // len>0 makes this unreachable; satisfies noUncheckedIndexedAccess without an assertion
     let entries: string[];
     try {
       entries = readdirSync(current);
