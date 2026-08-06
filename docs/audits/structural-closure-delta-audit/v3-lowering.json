@@ -1,0 +1,1188 @@
+{
+  "schemaVersion": 1,
+  "inventoryId": "v3-lowering",
+  "generatedAt": "2026-07-24T00:56:12.682Z",
+  "status": "reconciled",
+  "sourceRange": {
+    "baseline": "30831d05f67c44b80e45391b67ed29f11dda4276",
+    "candidate": "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5"
+  },
+  "declaredScope": {
+    "mechanismSources": [
+      "30831d05..13cf9642 diff and 43-commit history",
+      "candidate v2.12 proof-substrate spec and 17 tasks",
+      "candidate dogfood report: CB-1 through CB-9 and DOC-1 through DOC-6",
+      "candidate structural-principles assessment",
+      "event/schema/registry/runtime additions",
+      "compatibility/deprecation carriers"
+    ],
+    "primaryDispositions": [
+      "workflow-ir",
+      "admission-policy",
+      "generated-action-projection",
+      "runtime-chokepoint",
+      "retirement",
+      "unresolved"
+    ],
+    "searchRoots": [
+      "docs/specs/2026-07-21-phase-gate-v212-proof-substrate.md",
+      "docs/audits/2026-07-21-phase-gate-v212-dogfood.md",
+      "docs/audits/2026-07-21-structural-principles-codebase-assessment.md",
+      "docs/specs/2026-07-21-phase-gate-transition-admission-roadmap.md",
+      "docs/specs/2026-07-21-phase-gate-transition-admission-roadmap-traceability.md",
+      "docs/system-design.html",
+      "docs/architecture/invariants-v3-contract-seam.md",
+      ".exarchos/invariants.md",
+      "servers/exarchos-mcp/src/",
+      "scripts/",
+      "skills-src/",
+      ".exarchos.yml"
+    ],
+    "excluded": []
+  },
+  "authoritativeV3Sources": [
+    {
+      "path": "docs/specs/2026-07-21-phase-gate-transition-admission-roadmap.md",
+      "status": "candidate roadmap authority"
+    },
+    {
+      "path": "docs/specs/2026-07-21-phase-gate-transition-admission-roadmap-traceability.md",
+      "status": "candidate roadmap traceability"
+    },
+    {
+      "path": "docs/system-design.html",
+      "status": "architecture and v3 Workflow Builder consolidation authority"
+    },
+    {
+      "path": "docs/architecture/invariants-v3-contract-seam.md",
+      "status": "generated-contract migration seam for invariant schemas"
+    },
+    {
+      "path": ".exarchos/invariants.md",
+      "status": "binding repository invariants"
+    }
+  ],
+  "commands": [
+    "git diff --name-status 30831d05f67c44b80e45391b67ed29f11dda4276 13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
+    "git rev-list --count 30831d05f67c44b80e45391b67ed29f11dda4276..13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
+    "git show 13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:docs/specs/2026-07-21-phase-gate-v212-proof-substrate.md",
+    "git show 13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:docs/audits/2026-07-21-phase-gate-v212-dogfood.md",
+    "git show 13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:docs/specs/2026-07-21-phase-gate-transition-admission-roadmap.md",
+    "git show 13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:docs/system-design.html"
+  ],
+  "universe": {
+    "changedFiles": 89,
+    "commits": 43,
+    "v212Tasks": 17,
+    "codeBugs": 9,
+    "documentationIssues": 6
+  },
+  "rowCount": 30,
+  "rows": [
+    {
+      "primaryDisposition": "workflow-ir",
+      "migrationEvidence": [
+        "No legacy events to migrate (new system)",
+        "CB-1 requires startup repair: compare streams.version with MAX(events.sequence) or fail loud",
+        "Fix candidate: BEGIN IMMEDIATE transaction in servers/exarchos-mcp/src/event-store/atomic-appender.ts (not verified under concurrent stress)"
+      ],
+      "v3AuthorityEvidence": [
+        "docs/specs/2026-07-21-phase-gate-v212-proof-substrate.md: proof events referenced (lines 3.2)",
+        "MISSING: v3 event-store atomicity spec (CB-1 repair not defined in v3 authority)"
+      ],
+      "candidatePosture": "Added 9+ event types: admission.requirement, admission.evidence, admission.decision, admission.waiver, admission.authorization, workflow.cas-failed, workflow.pruned, workflow.projection_degraded",
+      "dogfoodFindings": [
+        "CB-1: 'UNIQUE constraint failed: events.streamId, events.sequence' — sequence divergence after concurrent appends",
+        "CB-1: 'Expected sequence 236, actual 235' — stream version row out of sync with event max sequence",
+        "Playbook violation: team.disbanded event never emitted (appends blocked by CB-1)"
+      ],
+      "id": "M001",
+      "ownerControl": {
+        "exitCondition": "Multi-process EventStore stress test passes + startup repair verified on diverged state",
+        "ciPosture": "Advisory (no blocking test for concurrent EventStore instances)",
+        "reevaluateAt": "v3 event-store atomicity spec finalized",
+        "owner": "servers/exarchos-mcp/src/event-store/atomic-appender.ts composition root",
+        "retirementProof": "Not applicable (new system)"
+      },
+      "name": "Admission proof event schemas",
+      "candidateEvidence": [
+        "81476cf2 (feat: add admission proof event schemas)",
+        "servers/exarchos-mcp/src/event-store/schemas.ts:9-100",
+        "servers/exarchos-mcp/src/event-store/schemas.legacy.test.ts",
+        "servers/exarchos-mcp/src/event-store/admission-event-authorization.test.ts"
+      ],
+      "compatibilityCarrier": "Runtime-only event discriminant enum; new events have no legacy equivalent",
+      "disposition": "partial",
+      "finding": "Event schema added and appends protected by transaction wrapper (candidate fix for CB-1). However, CB-1 divergence still reproducible in dogfood; startup repair not verified in audit. v3 must include multi-process test proving divergence cannot occur and startup repair reconciles.",
+      "baselinePosture": "None (new system)"
+    },
+    {
+      "primaryDisposition": "workflow-ir",
+      "migrationEvidence": [
+        "Branded types are write-once; no legacy paths",
+        "Parsing is .parse() only; compatible with v3 validation"
+      ],
+      "v3AuthorityEvidence": [
+        "docs/specs/2026-07-21-phase-gate-v212-proof-substrate.md: evidence subjects referenced",
+        "MISSING: v3 IR spec defining whether these branded IDs map to v3 evidence subject types"
+      ],
+      "candidatePosture": "20 branded ID types: RequirementId, EvidenceId, DecisionId, WaiverId, WorkflowId, PhaseAttemptId, WaveId, TaskId, CommitId, DiffId, ArtifactId, GateId, PolicyId, OperationId, InvocationId, PrincipalId, ProviderRef, AuthorizationId, CapabilityId, ApprovalClass",
+      "dogfoodFindings": [],
+      "id": "M002",
+      "ownerControl": {
+        "exitCondition": "v3 IR spec confirms ID schema matches",
+        "ciPosture": "Compile-time exhaustiveness (TypeScript branded types)",
+        "reevaluateAt": "v3 workflow IR specification finalized",
+        "owner": "servers/exarchos-mcp/src/workflow/admission/types.ts",
+        "retirementProof": "Not applicable (new IR)"
+      },
+      "name": "Proof domain types (branded IDs)",
+      "candidateEvidence": [
+        "84c1beac (feat: add versioned proof domain types)",
+        "servers/exarchos-mcp/src/workflow/admission/types.ts:20-80 (branded type defs)",
+        "servers/exarchos-mcp/src/workflow/admission/types.test.ts"
+      ],
+      "compatibilityCarrier": "Internal IR contract; no public surface",
+      "disposition": "partial",
+      "finding": "Branded ID types are new, deterministic, and replay-stable. No backward-compat gate required. v3 adoption: include as-is. The v2.12 mechanism is implemented, but the row's own evidence records missing mechanism-specific v3 authority, so it cannot be classified closed for lowering.",
+      "baselinePosture": "None (new system)"
+    },
+    {
+      "primaryDisposition": "workflow-ir",
+      "migrationEvidence": [
+        "Closed ADT (compile-time exhaustive)",
+        "Extensible only via new discriminant (breaking change for v3)"
+      ],
+      "v3AuthorityEvidence": [
+        "MISSING: v3 IR spec confirming evidence subject kinds and discriminant mapping"
+      ],
+      "candidatePosture": "Discriminated union: workflow, phase-attempt, wave, task, commit, diff, artifact (7 subject kinds)",
+      "dogfoodFindings": [],
+      "id": "M003",
+      "ownerControl": {
+        "exitCondition": "v3 IR spec confirms subject kinds",
+        "ciPosture": "Compile-time exhaustiveness (TypeScript discriminated union)",
+        "reevaluateAt": "v3 workflow IR specification finalized",
+        "owner": "servers/exarchos-mcp/src/workflow/admission/evidence-subject.ts",
+        "retirementProof": "Not applicable (new IR)"
+      },
+      "name": "Evidence subjects (servers/exarchos-mcp/src/workflow/task/commit/diff ADT)",
+      "candidateEvidence": [
+        "b97105b3 (feat: validate canonical evidence subjects)",
+        "servers/exarchos-mcp/src/workflow/admission/evidence-subject.ts:1-50 (discriminator)",
+        "servers/exarchos-mcp/src/workflow/admission/evidence-subject.test.ts (209 lines, NEW)"
+      ],
+      "compatibilityCarrier": "Internal IR contract; closed ADT",
+      "disposition": "partial",
+      "finding": "Evidence subjects are closed ADT with 7 kinds. No legacy subjects exist. v3 adoption: include as-is; extensibility requires new discriminant compile-time check. The v2.12 mechanism is implemented, but the row's own evidence records missing mechanism-specific v3 authority, so it cannot be classified closed for lowering.",
+      "baselinePosture": "None (new system)"
+    },
+    {
+      "primaryDisposition": "runtime-chokepoint",
+      "migrationEvidence": [
+        "CAS identity is immutable once committed",
+        "V1 digest algorithm is stable; future versions require new schema version"
+      ],
+      "v3AuthorityEvidence": [
+        "MISSING: v3 artifact storage spec confirming CAS identity scheme"
+      ],
+      "candidatePosture": "CAS with sha256 digest V1 (64-byte hex), versioned schema, content-addressed artifact indexing",
+      "dogfoodFindings": [],
+      "id": "M004",
+      "ownerControl": {
+        "exitCondition": "v3 artifact storage spec finalized",
+        "ciPosture": "Runtime validation (sha256 regex check: ^[a-f0-9]{64}$)",
+        "reevaluateAt": "v3 storage architecture documented",
+        "owner": "servers/exarchos-mcp/src/artifacts/content-addressed-store.ts composition root",
+        "retirementProof": "Not applicable (new system)"
+      },
+      "name": "Evidence artifacts & content-addressed store (CAS)",
+      "candidateEvidence": [
+        "96c55fc0 (feat: add content-addressed evidence artifacts)",
+        "servers/exarchos-mcp/src/workflow/admission/evidence-artifact.ts:50-100 (digest schema)",
+        "servers/exarchos-mcp/src/artifacts/content-addressed-store.ts (NEW)",
+        "servers/exarchos-mcp/src/workflow/admission/evidence-artifact.test.ts (213 lines, NEW)"
+      ],
+      "compatibilityCarrier": "Internal storage carrier; not public CLI result",
+      "disposition": "partial",
+      "finding": "CAS with sha256 V1 digest is deterministic and replay-stable. No legacy artifacts to migrate. v3 adoption: include as-is; define v2 digest schema if needed in future. The v2.12 mechanism is implemented, but the row's own evidence records missing mechanism-specific v3 authority, so it cannot be classified closed for lowering.",
+      "baselinePosture": "None (new system)"
+    },
+    {
+      "primaryDisposition": "runtime-chokepoint",
+      "migrationEvidence": [
+        "Authorization check is built-in and fail-closed",
+        "No legacy bypass to remove"
+      ],
+      "v3AuthorityEvidence": [
+        "MISSING: v3 event authorization spec defining reserved event ownership"
+      ],
+      "candidatePosture": "Authorization check before append; reserved events (admission proof events) require canonical owner",
+      "dogfoodFindings": [],
+      "id": "M005",
+      "ownerControl": {
+        "exitCondition": "v3 confirms reserved-event ownership model",
+        "ciPosture": "Blocking append guard (test coverage in admission-event-authorization.test.ts)",
+        "reevaluateAt": "v3 event authorization spec finalized",
+        "owner": "servers/exarchos-mcp/src/event-store/atomic-appender.ts composition root",
+        "retirementProof": "Not applicable (new guard)"
+      },
+      "name": "Reserved proof event protection (authorization guard)",
+      "candidateEvidence": [
+        "4b40310e (fix: protect admission proof appends)",
+        "servers/exarchos-mcp/src/event-store/admission-event-authorization.test.ts (NEW)",
+        "servers/exarchos-mcp/src/event-store/atomic-appender.ts (modified to include authorization check)"
+      ],
+      "compatibilityCarrier": "Internal event-store guard; not public",
+      "disposition": "partial",
+      "finding": "Authorization guard is built-in and fail-closed. No backward-compat gate required. v3 adoption: include as-is. The v2.12 mechanism is implemented, but the row's own evidence records missing mechanism-specific v3 authority, so it cannot be classified closed for lowering.",
+      "baselinePosture": "None (new guard)"
+    },
+    {
+      "primaryDisposition": "workflow-ir",
+      "migrationEvidence": [
+        "Registry is mechanically enforced at compile time",
+        "Adoption requires all gates to migrate to provider interface"
+      ],
+      "v3AuthorityEvidence": [
+        "docs/specs/2026-07-21-phase-gate-v212-proof-substrate.md:74-82, 123-132 (gate ownership TODO)",
+        "MISSING: v3 mandate that all gates must route through provider registry"
+      ],
+      "candidatePosture": "SupportedGateClass enum with satisfies Record<...> compile-time cardinality check: 9 builtins (test-adequacy, contract-drift, mock-boundary, static-analysis, integration-suite, plan-coverage, provenance-chain, review-verdict, prepare-synthesis)",
+      "dogfoodFindings": [
+        "CB-2, CB-5: v2.12 dogfood shows over-enforcement of gates (check_integration_suite runs for every task, not once per wave)",
+        "M015 finding: ownership-census script added but v2.12 run executed pre-census gates; enforcement not blocking"
+      ],
+      "id": "M006",
+      "ownerControl": {
+        "exitCondition": "All gate.executed events in production come from canonical runner; CI enforcer blocks non-registry gates",
+        "ciPosture": "Compile-time check only (satisfies Record); CI enforcement script added but not verified blocking",
+        "reevaluateAt": "v3 gate-runner canonicity mandate finalized",
+        "owner": "servers/exarchos-mcp/src/orchestrate/gate-provider-registry.ts composition root + scripts/check-gate-runner-ownership.mjs",
+        "retirementProof": "Not applicable (new registry)"
+      },
+      "name": "Gate provider registry (exhaustive gate-class ownership)",
+      "candidateEvidence": [
+        "a0aa84c9 (feat: add exhaustive gate provider registry)",
+        "servers/exarchos-mcp/src/orchestrate/gate-provider-registry.ts:80-106 (satisfies Record exhaustiveness)",
+        "servers/exarchos-mcp/src/orchestrate/gate-provider-registry.test.ts"
+      ],
+      "compatibilityCarrier": "Internal dispatch table; not public",
+      "disposition": "partial",
+      "finding": "Registry exists with compile-time exhaustiveness check. However, v2.12 dogfood shows pre-census gates still executing directly (not via registry). v3 must make gate-runner+registry adoption mandatory and enforce it in CI before gates execute.",
+      "baselinePosture": "Scattered direct gate emitters; no single registry"
+    },
+    {
+      "id": "M007",
+      "finding": "The candidate adds the canonical durable runner, but diagnostic/legacy observations and incomplete packaged reachability prevent a universal selected-runner claim.",
+      "migrationEvidence": [
+        "v2.12 has runner code; adoption status undefined",
+        "v3 must decide: mandatory runner adoption (breaking change) requires migration strategy"
+      ],
+      "v3AuthorityEvidence": [
+        "docs/system-design.html: v3.0 Workflow Builder compiles to typed IR and retires closed-form registries",
+        "docs/specs/2026-07-21-phase-gate-transition-admission-roadmap.md: canonical gate runner precedes strict admission cutover"
+      ],
+      "baselinePosture": "Gate runner code present but not mandated; v2.12 spec marks as TODO",
+      "ownerControl": {
+        "owner": "servers/exarchos-mcp/src/orchestrate/gate-runner.ts and gate ownership census",
+        "ciPosture": "gating ownership census; universal packaged selection incomplete",
+        "exitCondition": "Every applicable gate action resolves to the canonical runner and packaged/process proof rejects direct execution bypasses.",
+        "reevaluateAt": "v3 admission cutover",
+        "retirementProof": "Legacy/direct gate paths and their reservations are removed after replay and compatibility proof."
+      },
+      "name": "Gate runner adoption mandate (canonical workflow execution surface)",
+      "candidateEvidence": [
+        "scripts/check-gate-runner-ownership.mjs (NEW)",
+        "docs/specs/2026-07-21-phase-gate-v212-proof-substrate.md:123 ('gate-runner TODO marker')"
+      ],
+      "primaryDisposition": "runtime-chokepoint",
+      "dogfoodFindings": [],
+      "compatibilityCarrier": "Internal workflow execution; not public",
+      "candidatePosture": "Gate runner code added and wired; adoption decision deferred",
+      "disposition": "partial"
+    },
+    {
+      "compatibilityCarrier": "Internal event sourcing; not public",
+      "id": "M008",
+      "v3AuthorityEvidence": [
+        "docs/specs/2026-07-21-phase-gate-transition-admission-roadmap.md DR-3: enforceable gate outcomes are typed, immutable, subject-bound evidence statements",
+        "docs/specs/2026-07-21-phase-gate-transition-admission-roadmap.md Task 015: migrate per-task verification gates to evidence statements"
+      ],
+      "primaryDisposition": "workflow-ir",
+      "finding": "Ladder gate evidence migration complete and committed. Gates emit durable events via new infrastructure. v3 adoption: include as-is.",
+      "ownerControl": {
+        "retirementProof": "Not applicable (migration complete)",
+        "exitCondition": "v3 confirms event sourcing for all ladder gates",
+        "ciPosture": "Blocking event emission (ladder-gate-evidence.test.ts verifies)",
+        "reevaluateAt": "v3 ladder gate architecture finalized",
+        "owner": "servers/exarchos-mcp/src/orchestrate/static-analysis.ts, servers/exarchos-mcp/src/orchestrate/contract-drift-handler.ts"
+      },
+      "disposition": "closed",
+      "name": "Ladder gate evidence migration (static-analysis, contract-drift)",
+      "baselinePosture": "Ladder gates executed; no durable evidence emission",
+      "candidateEvidence": [
+        "e6e837b4 (feat: persist ladder gate evidence)",
+        "servers/exarchos-mcp/src/orchestrate/ladder-gate-evidence.test.ts (NEW)",
+        "servers/exarchos-mcp/src/orchestrate/static-analysis.ts (modified)",
+        "servers/exarchos-mcp/src/orchestrate/contract-drift-handler.ts (modified)"
+      ],
+      "migrationEvidence": [
+        "Migration complete; ladder gates now emit canonical events",
+        "Event sourcing is deterministic fold; replay-safe"
+      ],
+      "dogfoodFindings": [],
+      "candidatePosture": "Static-analysis, contract-drift gates now emit durable gate evidence events"
+    },
+    {
+      "compatibilityCarrier": "Internal event sourcing; not public",
+      "id": "M009",
+      "v3AuthorityEvidence": [
+        "docs/specs/2026-07-21-phase-gate-transition-admission-roadmap.md DR-3: enforceable gate outcomes are typed, immutable, subject-bound evidence statements",
+        "docs/specs/2026-07-21-phase-gate-transition-admission-roadmap.md Task 016: migrate plan, review, and synthesis gates to evidence statements"
+      ],
+      "primaryDisposition": "workflow-ir",
+      "finding": "Phase gate evidence migration complete and committed. Gates emit durable events. Note: CB-4 integration-suite parsing bug remains unfixed (v3 must close separately). v3 adoption: include event sourcing as-is; fix CB-4 parsing separately.",
+      "ownerControl": {
+        "retirementProof": "Not applicable (migration complete)",
+        "exitCondition": "v3 confirms event sourcing for all phase gates",
+        "ciPosture": "Blocking event emission (phase-gate-evidence.test.ts verifies)",
+        "reevaluateAt": "v3 phase gate architecture finalized",
+        "owner": "servers/exarchos-mcp/src/orchestrate/check-integration-suite.ts, servers/exarchos-mcp/src/orchestrate/prepare-synthesis.ts"
+      },
+      "disposition": "closed",
+      "name": "Phase gate evidence migration (integration-suite, plan-coverage, etc.)",
+      "baselinePosture": "Phase gates executed; evidence partial or missing",
+      "candidateEvidence": [
+        "fd32043d (feat: persist phase gate evidence)",
+        "servers/exarchos-mcp/src/orchestrate/phase-gate-evidence.test.ts (NEW)",
+        "servers/exarchos-mcp/src/orchestrate/check-integration-suite.ts (modified)",
+        "servers/exarchos-mcp/src/orchestrate/prepare-synthesis.ts (modified)"
+      ],
+      "migrationEvidence": [
+        "Migration committed; phase gates emit events",
+        "Note: CB-4 bug blocks integration-suite gate but event infrastructure is sound"
+      ],
+      "dogfoodFindings": [
+        "CB-4: check_integration_suite JSON parsing still broken ('runner produced no parseable vitest JSON' — fix not merged)"
+      ],
+      "candidatePosture": "Integration-suite, plan-coverage, provenance-chain, review-verdict, prepare-synthesis gates emit durable events"
+    },
+    {
+      "compatibilityCarrier": "Internal query layer; not public",
+      "id": "M010",
+      "v3AuthorityEvidence": [
+        "MISSING: v3 telemetry spec confirming gate reliability projection"
+      ],
+      "primaryDisposition": "runtime-chokepoint",
+      "finding": "Gate reliability projection is deterministic and replay-stable. No backward-compat gate required. v3 adoption: include as-is. The v2.12 mechanism is implemented, but the row's own evidence records missing mechanism-specific v3 authority, so it cannot be classified closed for lowering.",
+      "ownerControl": {
+        "retirementProof": "Not applicable (new view)",
+        "exitCondition": "v3 confirms gate reliability telemetry model",
+        "ciPosture": "Deterministic projection tests (gate-reliability-view.test.ts)",
+        "reevaluateAt": "v3 telemetry architecture finalized",
+        "owner": "servers/exarchos-mcp/src/views/gate-reliability-view.ts"
+      },
+      "disposition": "partial",
+      "name": "Gate reliability projection (gate pass/fail aggregation)",
+      "baselinePosture": "No reliability aggregation",
+      "candidateEvidence": [
+        "0e36154d (feat: project attributable gate reliability)",
+        "servers/exarchos-mcp/src/views/gate-reliability-view.ts (NEW)",
+        "servers/exarchos-mcp/src/views/gate-reliability-view.test.ts (NEW)"
+      ],
+      "migrationEvidence": [
+        "Projection is deterministic fold; replay-safe",
+        "v3 can compute from v2.12 gate events without compat gate"
+      ],
+      "dogfoodFindings": [],
+      "candidatePosture": "New projection: gate pass/fail rates, per-provider stats, evidence attribution"
+    },
+    {
+      "compatibilityCarrier": "Internal admission logic; not public",
+      "id": "M011",
+      "v3AuthorityEvidence": [
+        "docs/specs/2026-07-21-phase-gate-transition-admission-roadmap.md (references evidence selection)",
+        "MISSING: v3 admission-policy spec defining backward-compat rule for legacy evidence selection"
+      ],
+      "primaryDisposition": "admission-policy",
+      "finding": "Evidence selection is deterministic and pure. However, no backward-compat gate specified. v3 must decide: do old selection heuristics remain valid for legacy workflows, or must all evidence be re-selected with new logic? If backward-compat, test corpus must cover equivalence.",
+      "ownerControl": {
+        "retirementProof": "If breaking, migration proof must re-select evidence for all existing workflows and verify determinism",
+        "exitCondition": "v3 admission-policy spec defines replay rule (backward-compat or breaking)",
+        "ciPosture": "Deterministic reducer tests (select-evidence.test.ts); no legacy compat test",
+        "reevaluateAt": "v3 admission-policy finalized",
+        "owner": "servers/exarchos-mcp/src/workflow/admission/select-evidence.ts"
+      },
+      "disposition": "partial",
+      "name": "Evidence lifecycle: select active evidence (deterministic policy)",
+      "baselinePosture": "Evidence selection implicit or heuristic",
+      "candidateEvidence": [
+        "d8f7dea8 (feat: select active evidence deterministically)",
+        "servers/exarchos-mcp/src/workflow/admission/select-evidence.ts:50-150 (deterministic reducer)",
+        "servers/exarchos-mcp/src/workflow/admission/select-evidence.test.ts (528 lines, NEW)"
+      ],
+      "migrationEvidence": [
+        "Selection logic is pure but new; old workflows used different heuristics",
+        "v3 must define replay policy: backward-compat (accept old heuristics as valid) or breaking (re-select with new logic)"
+      ],
+      "dogfoodFindings": [],
+      "candidatePosture": "Pure deterministic selection function: evidence subject → active evidence candidate"
+    },
+    {
+      "compatibilityCarrier": "Internal workflow identifier; not public",
+      "id": "M012",
+      "v3AuthorityEvidence": [
+        "docs/specs/2026-07-21-phase-gate-v212-proof-substrate.md references phase attempt lifecycle",
+        "MISSING: v3 IR spec defining retroactive PhaseAttemptId derivation for old workflows"
+      ],
+      "primaryDisposition": "workflow-ir",
+      "finding": "Phase attempt ID system is new and durable. However, no retroactive ID derivation logic visible. v3 must define: do old phase events receive synthesized PhaseAttemptIds, or are old workflows missing identity? If synthesis required, projection logic must be deterministic and replay-stable.",
+      "ownerControl": {
+        "retirementProof": "If retroactive derivation required, migration must be deterministic and verified on legacy event corpus",
+        "exitCondition": "v3 spec defines retroactive ID derivation (if needed); tests cover gap-fill scenarios",
+        "ciPosture": "Branded type construction via .parse(); no gap-fill logic for old workflows",
+        "reevaluateAt": "v3 workflow IR specification finalized",
+        "owner": "servers/exarchos-mcp/src/workflow/phase-attempt-id.ts"
+      },
+      "disposition": "partial",
+      "name": "Phase attempt identity (durable phase attempt ID)",
+      "baselinePosture": "Phases tracked by sequence; no distinct identity",
+      "candidateEvidence": [
+        "f967053a (feat: persist phase attempt identity)",
+        "servers/exarchos-mcp/src/workflow/phase-attempt-id.ts (36 lines, NEW)",
+        "servers/exarchos-mcp/src/workflow/phase-attempt.test.ts (303 lines, NEW)"
+      ],
+      "migrationEvidence": [
+        "PhaseAttemptId is new; old workflows do not have it",
+        "v3 projection must either derive retroactively from phase events or declare old workflows non-compliant"
+      ],
+      "dogfoodFindings": [],
+      "candidatePosture": "PhaseAttemptId branded type, persistent across retries"
+    },
+    {
+      "compatibilityCarrier": "Internal event-store operation; not public",
+      "id": "M013",
+      "v3AuthorityEvidence": [
+        "MISSING: v3 event-store operation spec confirming decideOnce semantics"
+      ],
+      "primaryDisposition": "runtime-chokepoint",
+      "finding": "Transactional decideOnce operation is new and introduces no backward-compat issues. v3 adoption: include as-is; gate decision points must migrate to decideOnce (breaking change but no legacy compat gate needed). The v2.12 mechanism is implemented, but the row's own evidence records missing mechanism-specific v3 authority, so it cannot be classified closed for lowering.",
+      "ownerControl": {
+        "retirementProof": "Old decision paths must be retired; no fire-and-forget effects permitted",
+        "exitCondition": "v3 confirms decideOnce as standard decision-coupling operation",
+        "ciPosture": "Transactional semantics tested (atomic-appender.test.ts)",
+        "reevaluateAt": "v3 event-store specification finalized",
+        "owner": "servers/exarchos-mcp/src/event-store/atomic-appender.ts"
+      },
+      "disposition": "partial",
+      "name": "Transactional decideOnce (atomic decision & effect coupling)",
+      "baselinePosture": "Gate decisions scattered; possible race conditions",
+      "candidateEvidence": [
+        "7cf27223 (feat: add transactional decideOnce)",
+        "servers/exarchos-mcp/src/event-store/atomic-appender.ts (modified)",
+        "servers/exarchos-mcp/src/event-store/atomic-appender.test.ts (modified)"
+      ],
+      "migrationEvidence": [
+        "decideOnce is new operation; no legacy code paths",
+        "v3 adopters must migrate gate decision points to use decideOnce"
+      ],
+      "dogfoodFindings": [],
+      "candidatePosture": "decideOnce(streamId, condition, decision, effectFn) transactional wrapper"
+    },
+    {
+      "compatibilityCarrier": "Internal dispatch contract; not public CLI/MCP surface",
+      "id": "M014",
+      "v3AuthorityEvidence": [
+        "MISSING: v3 dispatch authorization spec"
+      ],
+      "primaryDisposition": "runtime-chokepoint",
+      "finding": "Caller authorization snapshots are internal dispatch typing. No backward-compat gate required. v3 adoption: include as-is. The v2.12 mechanism is implemented, but the row's own evidence records missing mechanism-specific v3 authority, so it cannot be classified closed for lowering.",
+      "ownerControl": {
+        "retirementProof": "Not applicable (internal typing)",
+        "exitCondition": "v3 confirms caller authorization snapshot model",
+        "ciPosture": "Typed principal construction via .parse()",
+        "reevaluateAt": "v3 dispatch architecture finalized",
+        "owner": "servers/exarchos-mcp/src/dispatch/caller-identity.ts"
+      },
+      "disposition": "partial",
+      "name": "Trusted caller authorization snapshots (typed principal)",
+      "baselinePosture": "Caller identity implicit or passed as string",
+      "candidateEvidence": [
+        "0643969b (feat: add trusted caller authorization snapshots)",
+        "servers/exarchos-mcp/src/dispatch/caller-identity.ts (NEW)",
+        "servers/exarchos-mcp/src/dispatch/caller-identity.test.ts (NEW)"
+      ],
+      "migrationEvidence": [
+        "New typed wrapper; CLI/MCP dispatch unchanged"
+      ],
+      "dogfoodFindings": [],
+      "candidatePosture": "Branded PrincipalId, authorization snapshot at dispatch boundary"
+    },
+    {
+      "candidatePosture": "Gating ownership census added to npm validate/CI; pinned candidate execution reports 84 exact typed owners.",
+      "compatibilityCarrier": "CI enforcement; not runtime",
+      "ownerControl": {
+        "owner": "scripts/check-gate-runner-ownership.mjs and v3 Workflow Builder ownership generation",
+        "ciPosture": "gating",
+        "exitCondition": "Generated v3 action/IR ownership rejects bypasses and the 84-occurrence source census reaches a documented retirement point.",
+        "reevaluateAt": "v3 generated action/IR cutover",
+        "retirementProof": "Delete the census only after negative fixtures prove generated ownership rejects every former bypass class."
+      },
+      "migrationEvidence": [
+        "Keep the census gating through migration.",
+        "Retire it only when generated IR/action ownership mechanically excludes non-canonical gate producers."
+      ],
+      "name": "Gate ownership census (CI enforcement script)",
+      "v3AuthorityEvidence": [
+        "docs/system-design.html: v3 typed IR retires closed-form registries",
+        "docs/specs/2026-07-21-phase-gate-transition-admission-roadmap.md: gate runner is the migration chokepoint before v3 admission"
+      ],
+      "disposition": "partial",
+      "id": "M015",
+      "finding": "The control is effective in v2.12 and should remain gating during migration, then retire when generated v3 ownership makes the source census redundant.",
+      "baselinePosture": "No ownership enforcement",
+      "candidateEvidence": [
+        "scripts/check-gate-runner-ownership.mjs",
+        "scripts/enforcer-wiring-manifest.json: added gating primary",
+        ".github/workflows/ci.yml: ownership census and self-test steps",
+        "candidate archive execution: check-gate-runner-ownership clean, 84 findings"
+      ],
+      "dogfoodFindings": [
+        "v2.12 dogfood executed before ownership enforcement was active",
+        "gates were executed by pre-census handlers; census script was not blocking"
+      ],
+      "primaryDisposition": "retirement"
+    },
+    {
+      "candidatePosture": "Cancel state machine: request → compensation phases → cleanup, fully replayable from cancel event",
+      "compatibilityCarrier": "Internal workflow state machine; not public",
+      "ownerControl": {
+        "owner": "servers/exarchos-mcp/src/workflow/cancel.ts, servers/exarchos-mcp/src/workflow/cleanup.ts, and servers/exarchos-mcp/src/workflow/compensation.ts",
+        "ciPosture": "cancel process-manager tests; no gap-fill tests for old workflows",
+        "exitCondition": "v3 defines legacy cancel-state initialization and replay fixtures cover gap-fill or explicit non-cancellable behavior.",
+        "reevaluateAt": "v3 workflow lifecycle specification",
+        "retirementProof": "Any legacy initialization path is removed only after all persisted workflow versions migrate deterministically."
+      },
+      "migrationEvidence": [
+        "Cancel machine is new; old workflows created before M016 do not have it",
+        "v3 replay must initialize cancel machine on replay or treat pre-M016 workflows as non-cancellable"
+      ],
+      "name": "Cancellation process manager (replayable cancel state machine)",
+      "v3AuthorityEvidence": [
+        "MISSING: v3 workflow IR spec defining cancel machine initialization for old workflows"
+      ],
+      "disposition": "partial",
+      "id": "M016",
+      "finding": "Cancel state machine is fully replayable and test-covered. However, no strategy defined for initializing cancel machine on replay of old workflows. v3 must define: do old workflows receive synthesized cancel initialization, or are they non-cancellable? If synthesis required, tests must verify determinism.",
+      "baselinePosture": "Cancel events emitted; logic not fully replayable",
+      "candidateEvidence": [
+        "1ba089f3 (feat: make cancellation replayable)",
+        "servers/exarchos-mcp/src/workflow/cancel-process-manager.test.ts (318 lines, NEW)",
+        "servers/exarchos-mcp/src/workflow/cancel.ts (modified, +317 lines)",
+        "servers/exarchos-mcp/src/workflow/cleanup.ts (modified)",
+        "servers/exarchos-mcp/src/workflow/compensation.ts (modified)"
+      ],
+      "dogfoodFindings": [],
+      "primaryDisposition": "workflow-ir"
+    },
+    {
+      "candidatePosture": "Appends wrapped in BEGIN IMMEDIATE transaction; stream.version and events.sequence updated atomically",
+      "compatibilityCarrier": "Internal event-store durability; not public",
+      "ownerControl": {
+        "owner": "servers/exarchos-mcp/src/event-store/atomic-appender.ts composition root",
+        "retirementProof": "Old non-atomic append paths must be removed; all appends use transactional wrapper",
+        "reevaluateAt": "v3 event-store atomicity spec finalized",
+        "exitCondition": "Multi-process EventStore stress test passes; startup repair verified on diverged state; CB-1 regression test added",
+        "ciPosture": "Advisory (transaction fix present but CB-1 recurrence not blocked by test)"
+      },
+      "migrationEvidence": [
+        "Fix candidate: BEGIN IMMEDIATE transaction",
+        "MISSING: multi-process EventStore stress test proving divergence cannot occur",
+        "MISSING: startup repair comparing streams.version with MAX(events.sequence)"
+      ],
+      "name": "Transactional event append atomicity (BEGIN IMMEDIATE transaction)",
+      "v3AuthorityEvidence": [
+        "MISSING: v3 event-store atomicity spec with startup repair and multi-process verification"
+      ],
+      "disposition": "partial",
+      "id": "M017",
+      "finding": "BEGIN IMMEDIATE transaction wrapper added as CB-1 fix candidate. However, CB-1 divergence still reproducible in dogfood. Fix not verified under concurrent multi-instance stress. v3 must include: (1) multi-process EventStore test triggering concurrent appends, (2) startup repair reconciling diverged state or failing loud, (3) verification that CB-1 reproduction cannot occur.",
+      "baselinePosture": "Appends checked for sequence; stream.version and events.sequence not atomically updated",
+      "candidateEvidence": [
+        "4b40310e, 7cf27223, 81476cf2 (multiple commits touching servers/exarchos-mcp/src/event-store/atomic-appender.ts)",
+        "servers/exarchos-mcp/src/event-store/atomic-appender.ts (modified with transaction wrapper)",
+        "servers/exarchos-mcp/src/event-store/atomic-appender.test.ts (modified)"
+      ],
+      "dogfoodFindings": [
+        "CB-1: 'UNIQUE constraint failed: events.streamId, events.sequence' — divergence still reproducible",
+        "CB-1: 'Expected sequence 236, actual 235' — stream version out of sync with event max sequence",
+        "CB-1 notes: 'not updated atomically across concurrent EventStore instances, or one path is bypassing the version update'"
+      ],
+      "primaryDisposition": "runtime-chokepoint"
+    },
+    {
+      "candidatePosture": "ADMISSION_RUNTIME_CONTRACT_VERSION = '1.0', AdmissionRuntimeContractVersionSchema",
+      "compatibilityCarrier": "Internal runtime carrier; not public",
+      "ownerControl": {
+        "owner": "servers/exarchos-mcp/src/workflow/admission/types.ts",
+        "retirementProof": "Not applicable (locked at V1)",
+        "reevaluateAt": "v3 admission IR specification finalized",
+        "exitCondition": "v3 confirms admission contract versioning model",
+        "ciPosture": "Version constant and schema (compile-time check)"
+      },
+      "migrationEvidence": [
+        "Version 1 is explicit and hardcoded",
+        "Future versions require new schema branch; only V1 records replayable today"
+      ],
+      "name": "Runtime schemas: admission contract version (versioned V1 spec)",
+      "v3AuthorityEvidence": [
+        "MISSING: v3 admission contract versioning strategy"
+      ],
+      "disposition": "partial",
+      "id": "M018",
+      "finding": "Admission runtime contract version V1 is explicit and locked. No backward-compat gate required. v3 adoption: include as-is; define v2 schema if needed in future. The v2.12 mechanism is implemented, but the row's own evidence records missing mechanism-specific v3 authority, so it cannot be classified closed for lowering.",
+      "baselinePosture": "No versioned contract",
+      "candidateEvidence": [
+        "84c1beac, 81476cf2",
+        "servers/exarchos-mcp/src/workflow/admission/types.ts:5-10 (version const and schema)"
+      ],
+      "dogfoodFindings": [],
+      "primaryDisposition": "admission-policy"
+    },
+    {
+      "candidatePosture": "servers/exarchos-mcp/src/orchestrate/test-adequacy-handler.ts separates pre/post filtering; task-added source revert and restore are tested.",
+      "compatibilityCarrier": "Verification ladder gate; not public result",
+      "ownerControl": {
+        "owner": "servers/exarchos-mcp/src/orchestrate/test-adequacy-handler.ts and servers/exarchos-mcp/src/orchestrate/test-adequacy.ts",
+        "ciPosture": "blocking verification-ladder gate; committed-branch discovery remains partial",
+        "exitCondition": "A committed-branch integration test proves merge-base..HEAD test discovery and rejects no-new-tests when tests changed.",
+        "reevaluateAt": "v3 verification-ladder definition",
+        "retirementProof": "Old worktree-only discovery path is removed after committed-branch fixtures pass."
+      },
+      "migrationEvidence": [
+        "Fix committed; CB-3 mitigation in place"
+      ],
+      "name": "Orchestrate: test adequacy gate updates (task-added source revert)",
+      "v3AuthorityEvidence": [
+        "MISSING: v3 verification ladder spec confirming test-adequacy gate behavior"
+      ],
+      "disposition": "partial",
+      "id": "M019",
+      "finding": "Test-adequacy gate fix committed to v2.12 branch. CB-3 notes recurrence risk: gate may still incorrectly report no-new-tests. v3 must add integration test against committed branch (not uncommitted worktree) verifying gate discovers test files from merge-base..HEAD.",
+      "baselinePosture": "Adequacy gate could not revert task-added source files",
+      "candidateEvidence": [
+        "51f06ad8 and 0d72b09d: task-added source handling changes",
+        "servers/exarchos-mcp/src/orchestrate/test-adequacy-handler.ts",
+        "servers/exarchos-mcp/src/orchestrate/test-adequacy.ts",
+        "servers/exarchos-mcp/src/orchestrate/test-adequacy.test.ts"
+      ],
+      "dogfoodFindings": [
+        "CB-3: test adequacy cannot reliably analyze committed task branches.",
+        "Observed revert-conflict for task-added source and no-new-tests for branches that added tests."
+      ],
+      "primaryDisposition": "runtime-chokepoint"
+    },
+    {
+      "candidatePosture": "(No visible fix in candidate diff)",
+      "compatibilityCarrier": "Verification ladder gate; not public",
+      "ownerControl": {
+        "owner": "servers/exarchos-mcp/src/orchestrate/check-integration-suite.ts",
+        "retirementProof": "Old npm-stdout-parse path must be removed; no fire-and-forget JSON parsing",
+        "reevaluateAt": "v3 verification ladder specification finalized; issue #1537 closed",
+        "exitCondition": "v3 includes direct Vitest invocation or framed JSON parsing; dogfood re-run verifies gate works",
+        "ciPosture": "Blocking gate (verification ladder stage); currently broken"
+      },
+      "migrationEvidence": [
+        "CB-4 fix not included in candidate (issue #1537 still open)",
+        "v3 must land fix before release"
+      ],
+      "name": "Integration suite parsing: direct vitest invocation (JSON parsing fix)",
+      "v3AuthorityEvidence": [
+        "CB-4 spec: 'Invoke the resolved Vitest binary directly or parse a framed JSON report file. Do not parse the complete npm stdout as one JSON object.'",
+        "MISSING: v3 gate specification with fixed parsing"
+      ],
+      "disposition": "open",
+      "id": "M020",
+      "finding": "CB-4 JSON parsing bug remains unfixed in v2.12 candidate. Integration-suite gate fails even when scoped suites pass. Issue #1537 open. v3 must land fix: invoke Vitest binary directly or parse framed report file (do not parse complete npm stdout as JSON). Dogfood must re-run with fixed parser.",
+      "baselinePosture": "Parser invokes npm, receives non-JSON preamble + JSON, fails on first parse",
+      "candidateEvidence": [
+        "servers/exarchos-mcp/src/orchestrate/check-integration-suite.ts (referenced in dogfood; no committed fix visible)"
+      ],
+      "dogfoodFindings": [
+        "CB-4: 'runner produced no parseable vitest JSON' — npm preamble and workspace output break JSON.parse(raw)",
+        "CB-4 issue #1537 open; fix NOT MERGED"
+      ],
+      "primaryDisposition": "workflow-ir"
+    },
+    {
+      "candidatePosture": "(No explicit startup repair visible in diff; CB-1 suggests needed)",
+      "compatibilityCarrier": "Internal event-store startup logic; not public",
+      "ownerControl": {
+        "owner": "servers/exarchos-mcp/src/event-store/atomic-appender.ts, servers/exarchos-mcp/src/storage/sqlite-backend.ts",
+        "retirementProof": "Not applicable (repair is addition, not retirement)",
+        "reevaluateAt": "v3 event-store specification finalized",
+        "exitCondition": "Startup repair code verified present; multi-process test proves divergence reconciliation; CB-1 regression blocked",
+        "ciPosture": "Advisory (repair not verified present or blocking)"
+      },
+      "migrationEvidence": [
+        "CB-1 recommends repair; not verified implemented in candidate",
+        "Unknown whether fix relies on BEGIN IMMEDIATE alone (insufficient) or includes explicit repair"
+      ],
+      "name": "Event-store: sequence divergence detection & startup repair (CB-1 remediation)",
+      "v3AuthorityEvidence": [
+        "CB-1 spec (dogfood): 'Add startup repair that compares streams.version with MAX(events.sequence) and fails loud or reconciles'",
+        "MISSING: v3 event-store startup spec confirming repair logic"
+      ],
+      "disposition": "indeterminate",
+      "id": "M021",
+      "finding": "CB-1 startup repair is recommended in dogfood spec but not verified implemented in candidate. v3 must decide: is startup repair mandatory? If yes, must include (1) comparison logic for streams.version vs. MAX(events.sequence), (2) reconciliation or fail-loud strategy, (3) multi-process EventStore test proving repair works.",
+      "baselinePosture": "Divergence possible; not detected at startup",
+      "candidateEvidence": [
+        "servers/exarchos-mcp/src/event-store/atomic-appender.ts, servers/exarchos-mcp/src/storage/sqlite-backend.ts (referenced in CB-1 spec; repair not verified)"
+      ],
+      "dogfoodFindings": [
+        "CB-1: 'Expected sequence 236, actual 235' — stream version row at 235 while event 236 exists",
+        "CB-1: 'permanently blocking later task completion, checkpoint, and team lifecycle events'"
+      ],
+      "primaryDisposition": "runtime-chokepoint"
+    },
+    {
+      "candidateEvidence": [
+        "docs/audits/2026-07-21-phase-gate-v212-dogfood.md:277-292",
+        "servers/exarchos-mcp/src/runbooks/definitions.ts"
+      ],
+      "disposition": "open",
+      "v3AuthorityEvidence": [
+        "docs/specs/2026-07-21-phase-gate-transition-admission-roadmap.md: proof production and admission must be ordered before transition decisions",
+        "docs/system-design.html: verification claims should execute at the cheapest sound layer"
+      ],
+      "name": "Task-completion runbook gate ownership and ordering",
+      "baselinePosture": "Per-task completion can duplicate agent verification, run the cumulative integration suite per task, and record task completion before the final blocking suite.",
+      "candidatePosture": "Candidate dogfood observes the six-step task-completion runbook with task_complete at step 5 and check_integration_suite at step 6.",
+      "finding": "The candidate runbook duplicates verification and records completion before a later blocking step; v3 must assign one owner and move cumulative proof to the wave boundary.",
+      "id": "M022",
+      "primaryDisposition": "runtime-chokepoint",
+      "ownerControl": {
+        "owner": "servers/exarchos-mcp/src/runbooks/definitions.ts",
+        "ciPosture": "blocking runbook; current order is dogfood-confirmed unsafe",
+        "exitCondition": "Runbook order is corrected and dogfood proves task completion cannot precede any blocking per-task gate.",
+        "reevaluateAt": "v3 verification/admission runbook cutover",
+        "retirementProof": "Old six-step order is removed and event history proves no completion-before-gate path remains."
+      },
+      "dogfoodFindings": [
+        "CB-5: Task-completion runbook over-enforces and orders gates unsafely.",
+        "Step 5 is task_complete; step 6 is check_integration_suite.",
+        "The integration action says not to use it for a single task and describes a cumulative post-merge backstop."
+      ],
+      "compatibilityCarrier": "task-completion runbook definition and task.completed event ordering",
+      "migrationEvidence": [
+        "End per-task completion after scoped adequacy/static analysis.",
+        "Run one integration suite at the wave boundary after merges.",
+        "Emit task.completed only after all blocking per-task gates pass."
+      ]
+    },
+    {
+      "candidateEvidence": [
+        "docs/audits/2026-07-21-phase-gate-v212-dogfood.md:209-230",
+        "servers/exarchos-mcp/src/views/delegation-readiness-view.ts",
+        "servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts"
+      ],
+      "disposition": "open",
+      "v3AuthorityEvidence": [
+        "docs/system-design.html: v3 Workflow Builder IR is the authored task/wave authority",
+        "docs/specs/2026-07-21-phase-gate-transition-admission-roadmap.md: admission decisions use explicit scoped subjects"
+      ],
+      "name": "Active delegation wave scoping",
+      "baselinePosture": "Readiness can derive expected worktrees from historical task.assigned events outside the active wave.",
+      "candidatePosture": "A four-task prepare_delegation call was rejected using all 17 workflow tasks and later required 17 worktrees.",
+      "finding": "The readiness projection conflates workflow history with the active wave. v3 needs an explicit wave/task-set identity rather than a generic security scope field.",
+      "id": "M023",
+      "primaryDisposition": "workflow-ir",
+      "ownerControl": {
+        "owner": "delegation readiness view and prepare_delegation",
+        "ciPosture": "blocking readiness gate",
+        "exitCondition": "A regression test proves a subset wave is evaluated only against its supplied canonical task IDs.",
+        "reevaluateAt": "v3 task/wave IR definition",
+        "retirementProof": "Historical all-task inference is deleted after wave-scoped replay compatibility is proven."
+      },
+      "dogfoodFindings": [
+        "CB-2: prepare_delegation still ignores wave scoping.",
+        "taskCount=4, workflow.tasks=17, then 17 worktrees pending."
+      ],
+      "compatibilityCarrier": "prepare_delegation tasks argument and historical task.assigned events",
+      "migrationEvidence": [
+        "Canonicalize active task IDs from the current prepare_delegation call.",
+        "Ignore historical assignments outside that set for readiness/worktree expectations."
+      ]
+    },
+    {
+      "id": "M024",
+      "disposition": "open",
+      "dogfoodFindings": [
+        "DOC-1: Delegate skill falsely says prepare_delegation creates worktrees.",
+        "DOC-2: Worktree path conventions contradict each other.",
+        "DOC-3: Plan skill passes an invalid threshold scale.",
+        "DOC-4: Merge guidance is incompatible with current action semantics."
+      ],
+      "name": "Skill guidance projection and runtime-variant documentation",
+      "candidateEvidence": [
+        "docs/audits/2026-07-21-phase-gate-v212-dogfood.md:352-400",
+        "skills-src/delegate/SKILL.md",
+        "skills-src/plan/SKILL.md"
+      ],
+      "v3AuthorityEvidence": [
+        ".exarchos/invariants.md INV-4: skills remain harness-agnostic and generated from skills-src/",
+        "docs/system-design.html: action/tool contracts move toward generated projections",
+        "docs/architecture/invariants-v3-contract-seam.md: handwritten contract-shaped schemas are intended to become generated equivalents"
+      ],
+      "candidatePosture": "(No visible change in diff; skill documentation gap persists)",
+      "baselinePosture": "Skills defined in skills-src/; docs manually maintained or stale",
+      "primaryDisposition": "generated-action-projection",
+      "finding": "The repository has a source/generator seam, but candidate guidance still contains four dogfood-confirmed contract mismatches and no packaged containment proof.",
+      "compatibilityCarrier": "Documentation; not runtime code",
+      "migrationEvidence": [
+        "Correct skills-src guidance before regeneration.",
+        "Generate runtime variants and prove skills:guard plus packaged/install containment."
+      ],
+      "ownerControl": {
+        "owner": "skills-src owners and skills renderer",
+        "ciPosture": "skills:guard checks generated drift; semantic guidance accuracy remains review-driven",
+        "exitCondition": "DOC-1 through DOC-4 are corrected in skills-src, regenerated variants pass guard, and packaged runtime guidance matches action semantics.",
+        "reevaluateAt": "v3 generated action/skill projection design",
+        "retirementProof": "Retire manual claims only after generated contract projections cover the same runtime guidance."
+      }
+    },
+    {
+      "candidateEvidence": [
+        "docs/audits/2026-07-21-phase-gate-v212-dogfood.md:294-305",
+        "servers/exarchos-mcp/src/orchestrate/plan-coverage.ts"
+      ],
+      "disposition": "open",
+      "v3AuthorityEvidence": [
+        "docs/system-design.html: one authored servers/exarchos-mcp/src/workflow/contract representation at the v3 endpoint",
+        "current unified spec convention: Design & Rationale plus Decomposition in one artifact"
+      ],
+      "name": "Unified-spec plan-coverage parser",
+      "baselinePosture": "The coverage parser expects legacy design heading shapes.",
+      "candidatePosture": "Dogfood returns NO_DESIGN_SECTIONS until an artificial second top-level Technical Design compatibility section is added.",
+      "finding": "This is a schema-shape compatibility defect, not malformed-spec crash recovery. The v3 parser must consume the canonical unified template directly.",
+      "id": "M025",
+      "primaryDisposition": "runtime-chokepoint",
+      "ownerControl": {
+        "owner": "servers/exarchos-mcp/src/orchestrate/plan-coverage.ts",
+        "ciPosture": "blocking plan-coverage gate",
+        "exitCondition": "Canonical unified specs pass without duplicate top-level compatibility sections.",
+        "reevaluateAt": "v3 spec/IR parser definition",
+        "retirementProof": "Legacy duplicate-heading compatibility path is removed after migration fixtures pass."
+      },
+      "dogfoodFindings": [
+        "CB-6: Unified-spec coverage parser does not understand the unified template.",
+        "The parser expects ### headings under legacy top-level design headings instead of the canonical Design & Rationale shape."
+      ],
+      "compatibilityCarrier": "unified spec Markdown shape consumed by check_plan_coverage",
+      "migrationEvidence": [
+        "Parse DR-N and technical design directly under Design & Rationale.",
+        "Delete the duplicate compatibility-section requirement."
+      ]
+    },
+    {
+      "candidateEvidence": [
+        "docs/audits/2026-07-21-phase-gate-v212-dogfood.md:307-322",
+        "servers/exarchos-mcp/src/orchestrate/task-decomposition.ts"
+      ],
+      "disposition": "open",
+      "v3AuthorityEvidence": [
+        "docs/system-design.html: bounded proof-carrying changes and cheap verification layers",
+        "delegate/plan playbook task-size requirements"
+      ],
+      "name": "Task-decomposition breadth and effort adequacy",
+      "baselinePosture": "The gate checks descriptions/files/tests/DAG/overlap but not likely line volume, behavior count, or expected execution time.",
+      "candidatePosture": "Dogfood reports 17/17 well-decomposed even though the first ten tasks produced 41 files and 9,585 insertions against a 2-5 minute task guideline.",
+      "finding": "The gap is task breadth/effort estimation, not an arbitrary maximum subtask count. v3 must measure likely work volume and behavior count.",
+      "id": "M026",
+      "primaryDisposition": "runtime-chokepoint",
+      "ownerControl": {
+        "owner": "servers/exarchos-mcp/src/orchestrate/task-decomposition.ts",
+        "ciPosture": "blocking planning gate with incomplete adequacy dimensions",
+        "exitCondition": "The dogfood 41-file/9,585-line plan is flagged or requires explicit oversized-task rationale.",
+        "reevaluateAt": "v3 decomposition policy definition",
+        "retirementProof": "Presence-only decomposition verdict is removed after historical-size fixtures pass."
+      },
+      "dogfoodFindings": [
+        "CB-7: Task decomposition gate gives false confidence on task granularity.",
+        "Observed 17/17 well-decomposed; ten tasks produced 41 files and 9,585 insertions."
+      ],
+      "compatibilityCarrier": "plan task stamps and check_task_decomposition result",
+      "migrationEvidence": [
+        "Add broad-file-set and multi-behavior warnings.",
+        "Use historical file/line change data and require rationale above configured thresholds."
+      ]
+    },
+    {
+      "candidateEvidence": [
+        "docs/audits/2026-07-21-phase-gate-v212-dogfood.md:324-335",
+        "servers/exarchos-mcp/src/event-store/schemas.ts: workflow.projection_degraded",
+        "servers/exarchos-mcp/src/workflow/rehydrate.ts: degraded fallback emission",
+        "servers/exarchos-mcp/src/views/workflow-state-projection.ts"
+      ],
+      "disposition": "partial",
+      "v3AuthorityEvidence": [
+        ".exarchos/invariants.md INV-1: event log is authoritative and projections are deterministic folds",
+        "docs/specs/2026-07-21-phase-gate-transition-admission-roadmap.md: admission must consume trustworthy replayable state"
+      ],
+      "name": "Projection degradation signal and fail-safe consumers",
+      "baselinePosture": "Views can expose stale projections without a sufficiently prominent blocking degradation state.",
+      "candidatePosture": "Candidate defines and emits workflow.projection_degraded in rehydrate fallback paths and exposes projection lag metadata, but dogfood still observes stale pipeline/workflow state for more than 500 seconds.",
+      "finding": "Candidate has real degradation machinery, but it is not proven global or blocking for every stale view path exposed by dogfood.",
+      "id": "M027",
+      "primaryDisposition": "runtime-chokepoint",
+      "ownerControl": {
+        "owner": "rehydration and view projection owners",
+        "ciPosture": "schema/rehydrate tests; global convergence proof incomplete",
+        "exitCondition": "Injected sequence disagreement triggers a durable degradation fact and every affected view blocks or prominently fails safe.",
+        "reevaluateAt": "v3 projection/admission cutover",
+        "retirementProof": "No retirement; replacement must preserve deterministic replay and degraded-state signaling."
+      },
+      "dogfoodFindings": [
+        "CB-8: Workflow projections silently lag and contradict git/event reality.",
+        "Cancelled workflow remained at plan-review; seven tasks reported complete while ten were merged; lag exceeded 500 seconds."
+      ],
+      "compatibilityCarrier": "workflow.projection_degraded event, envelope projectionLag metadata, and view behavior",
+      "migrationEvidence": [
+        "Retain the degradation event and extend sequence/version disagreement detection to all relevant views.",
+        "Make consumers fail safe instead of silently serving contradictory state."
+      ]
+    },
+    {
+      "candidateEvidence": [
+        "docs/audits/2026-07-21-phase-gate-v212-dogfood.md:337-348",
+        "servers/exarchos-mcp/src/orchestrate/spec-coverage-check.ts"
+      ],
+      "disposition": "open",
+      "v3AuthorityEvidence": [
+        "docs/system-design.html: claims belong at the cheapest sound proof layer",
+        "docs/specs/2026-07-21-phase-gate-transition-admission-roadmap.md: admission consumes evidence appropriate to the current lifecycle stage"
+      ],
+      "name": "Plan-time versus implementation-time spec coverage",
+      "baselinePosture": "One coverage action can require declared test files to exist during planning before implementation creates them.",
+      "candidatePosture": "Dogfood spec_coverage_check fails because referenced future test files are absent.",
+      "finding": "The required split is lifecycle timing, not splitting a monolithic audit artifact. v3 must expose separate plan-time and post-implementation checks.",
+      "id": "M028",
+      "primaryDisposition": "runtime-chokepoint",
+      "ownerControl": {
+        "owner": "servers/exarchos-mcp/src/orchestrate/spec-coverage-check.ts",
+        "ciPosture": "blocking coverage gate at the wrong lifecycle stage",
+        "exitCondition": "Forward-declared tests pass planning validation and fail only if absent after implementation.",
+        "reevaluateAt": "v3 verification lifecycle definition",
+        "retirementProof": "Old single-stage existence check is removed after both new action fixtures pass."
+      },
+      "dogfoodFindings": [
+        "CB-9: Spec coverage is incompatible with planning new test files.",
+        "Plan-time declaration validation is conflated with post-implementation file-existence validation."
+      ],
+      "compatibilityCarrier": "spec_coverage_check action and declared test paths/names",
+      "migrationEvidence": [
+        "Split plan syntax validation from implementation coverage validation.",
+        "Run file-existence checks only after task implementation."
+      ]
+    },
+    {
+      "dogfoodFindings": [
+        "DOC-5: 'Committed .exarchos.yml uses an invalid top-level mutation key'",
+        "DOC-5 observed warning: 'unrecognized_keys: mutation'",
+        "DOC-5 severity: MEDIUM",
+        "DOC-5 schema evidence: mutation is valid under a toolchain's commands, not as top-level key",
+        "DOC-5 impact: 'Repeated validation noise in agent and gate output obscured real failures'"
+      ],
+      "finding": "DOC-5 schema validation bug unfixed. Committed .exarchos.yml contains invalid top-level mutation key causing validation warnings that obscure real failures. v3 must land fix: (1) move mutation command into valid toolchains entry, OR (2) add and document top-level mutation key as valid schema. Integration test must verify validation passes cleanly on dogfood corpus.",
+      "disposition": "open",
+      "name": "Exarchos configuration schema validation (.exarchos.yml top-level mutation key)",
+      "primaryDisposition": "admission-policy",
+      "baselinePosture": "No top-level mutation key validation",
+      "id": "M029",
+      "candidateEvidence": [
+        ".exarchos.yml:4-11 (REFERENCED in dogfood; validation not corrected in candidate diff)"
+      ],
+      "ownerControl": {
+        "reevaluateAt": "v3 configuration schema specification finalized",
+        "retirementProof": "Invalid top-level keys must be rejected; v3 schema must be strictly enforced",
+        "ciPosture": "Advisory (validation warnings not failing CI)",
+        "exitCondition": "v3 includes schema correction; CI validation passes cleanly on all committed .exarchos.yml files",
+        "owner": ".exarchos.yml schema + validation logic"
+      },
+      "v3AuthorityEvidence": [
+        ".exarchos/invariants.md INV-5a: inputs are schema-constrained",
+        "docs/system-design.html: v3 Workflow Builder/IR becomes the authored workflow definition seam"
+      ],
+      "compatibilityCarrier": "Configuration schema; public",
+      "migrationEvidence": [
+        "DOC-5 fix NOT MERGED; candidate still uses invalid top-level mutation key",
+        "v3 must clarify schema: move mutation into toolchains or add documented top-level schema"
+      ],
+      "candidatePosture": "(No visible fix in diff; DOC-5 recommends schema correction)"
+    },
+    {
+      "dogfoodFindings": [
+        "DOC-6: 'Verification responsibilities are duplicated between agent and lead'",
+        "DOC-6 severity: HIGH",
+        "DOC-6 observed behavior: 'Implementer prompt tells agent to run tests and verification. Lead then told to rerun task-completion gate chain.'",
+        "DOC-6 impact: 'Agents ran focused tests and typecheck, followed by lead adequacy, contract, mock, static, targeted tests, merge, and post-merge tests. Verification was executed 2-3 times per task.'"
+      ],
+      "finding": "DOC-6 verification duplication unfixed. Orchestration workflow duplicates verification responsibilities between agent and lead, causing 2-3x redundant testing per task and extending dogfood elapsed time. v3 must land fix: define single owner for each verification step; agent evidence must be consumed by lead with only independent spot checks and wave-level cumulative gate. Workflow IR must be updated to enforce single-owner semantics.",
+      "disposition": "open",
+      "name": "Verification responsibility consolidation (agent vs. lead duplication)",
+      "primaryDisposition": "workflow-ir",
+      "baselinePosture": "Agent and lead both perform full verification suites (duplication)",
+      "id": "M030",
+      "candidateEvidence": [
+        "agents/implementer.md: implementer verification responsibilities",
+        "skills-src/delegate/SKILL.md: lead task-completion gate chain",
+        "servers/exarchos-mcp/src/agents/definitions.ts: generated agent specification source"
+      ],
+      "ownerControl": {
+        "reevaluateAt": "v3 workflow responsibility model finalized",
+        "retirementProof": "Duplicate verification paths must be removed; v3 workflow must prevent parallel re-execution of same gate",
+        "ciPosture": "Advisory (duplication not prevented in workflow IR)",
+        "exitCondition": "v3 workflow IR clarifies agent/lead responsibility boundaries; gate execution proves single-owner enforcement",
+        "owner": "workflow orchestration + skill responsibility model"
+      },
+      "v3AuthorityEvidence": [
+        "docs/specs/2026-07-21-phase-gate-transition-admission-roadmap.md: proof production and admission consumption are separate responsibilities",
+        "docs/system-design.html: proof lanes should assign claims to the cheapest sound proof layer"
+      ],
+      "compatibilityCarrier": "Workflow orchestration; internal",
+      "migrationEvidence": [
+        "DOC-6 fix NOT IMPLEMENTED; candidate still duplicates verification",
+        "v3 must clarify: agent does initial tests, lead consumes agent evidence for independent spot checks only"
+      ],
+      "candidatePosture": "(No visible fix in diff; DOC-6 recommends consolidation)"
+    }
+  ],
+  "findings": [
+    {
+      "id": "LOWERING-F001",
+      "disposition": "open",
+      "message": "All 30 identified mechanisms have one primary disposition, but open/partial rows prevent a closed v3 migration claim.",
+      "evidence": [
+        "M001",
+        "M002",
+        "M003",
+        "M004",
+        "M005",
+        "M006",
+        "M007",
+        "M010",
+        "M011",
+        "M012",
+        "M013",
+        "M014",
+        "M015",
+        "M016",
+        "M017",
+        "M018",
+        "M019",
+        "M020",
+        "M021",
+        "M022",
+        "M023",
+        "M024",
+        "M025",
+        "M026",
+        "M027",
+        "M028",
+        "M029",
+        "M030"
+      ]
+    },
+    {
+      "id": "LOWERING-F002",
+      "disposition": "partial",
+      "message": "The repository contains real v3 roadmap/system-design authority; unresolved status is limited to mechanisms whose specific lowering or cutover proof is absent.",
+      "evidence": [
+        "docs/specs/2026-07-21-phase-gate-transition-admission-roadmap.md",
+        "docs/specs/2026-07-21-phase-gate-transition-admission-roadmap-traceability.md",
+        "docs/system-design.html",
+        "docs/architecture/invariants-v3-contract-seam.md",
+        ".exarchos/invariants.md"
+      ]
+    },
+    {
+      "id": "LOWERING-F003",
+      "disposition": "open",
+      "message": "All nine code bugs and all six documentation issues are mapped to mechanism rows.",
+      "evidence": [
+        "CB-1..CB-9",
+        "DOC-1..DOC-6"
+      ]
+    }
+  ],
+  "limitations": [
+    "No external Strategos issue body or contract package was fetched; only repository-pinned authority was credited.",
+    "No candidate build, historical workflow replay, or concurrent stress test was executed.",
+    "Rows distinguish v2.12 code presence from v3 authority/cutover proof."
+  ],
+  "failedProbes": [
+    {
+      "command": "Initial mechanism reconciliation M001-M028",
+      "error": "The first pass claimed 29 rows for 28 IDs and omitted DOC-5 and DOC-6.",
+      "affectedRows": [
+        "mechanism universe",
+        "M029",
+        "M030"
+      ],
+      "retry": "Reconciled 30 unique rows M001-M030 and mapped all 9 code bugs plus 6 documentation issues.",
+      "status": "resolved"
+    },
+    {
+      "command": "Initial authority summary",
+      "error": "It stated that no v3 authority sources existed despite pinned roadmap, system-design, and contract-seam files.",
+      "affectedRows": [
+        "v3 authority evidence"
+      ],
+      "retry": "Added five repository-pinned authority sources and retained unresolved only where mechanism-specific authority is missing.",
+      "status": "resolved"
+    }
+  ],
+  "reconciliation": {
+    "duplicateMechanisms": [],
+    "missingPrimaryDispositions": [],
+    "conflictingAuthority": [],
+    "danglingReferences": [],
+    "dispositionCounts": {
+      "partial": 18,
+      "closed": 2,
+      "open": 9,
+      "indeterminate": 1
+    },
+    "primaryDispositionCounts": {
+      "workflow-ir": 11,
+      "runtime-chokepoint": 14,
+      "admission-policy": 3,
+      "retirement": 1,
+      "generated-action-projection": 1
+    },
+    "dogfoodMapping": {
+      "codeBugs": [
+        "CB-1",
+        "CB-2",
+        "CB-3",
+        "CB-4",
+        "CB-5",
+        "CB-6",
+        "CB-7",
+        "CB-8",
+        "CB-9"
+      ],
+      "documentationIssues": [
+        "DOC-1",
+        "DOC-2",
+        "DOC-3",
+        "DOC-4",
+        "DOC-5",
+        "DOC-6"
+      ]
+    },
+    "aggregateDisposition": "open"
+  }
+}

@@ -1,0 +1,1668 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Phase-Gate v2.12 Remediation Review</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;500;600;700&family=Red+Hat+Mono:wght@400;500;600&family=Saira+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: oklch(0.145 0.012 104);
+      --surface: oklch(0.185 0.014 104);
+      --surface-raised: oklch(0.225 0.016 104);
+      --surface-soft: oklch(0.17 0.012 104);
+      --ink: oklch(0.93 0.018 92);
+      --ink-dim: oklch(0.76 0.025 92);
+      --ink-faint: oklch(0.59 0.025 96);
+      --line: oklch(0.67 0.032 96 / 0.24);
+      --line-soft: oklch(0.67 0.032 96 / 0.12);
+      --signal: oklch(0.78 0.15 72);
+      --signal-soft: oklch(0.78 0.15 72 / 0.11);
+      --good: oklch(0.78 0.14 136);
+      --good-soft: oklch(0.78 0.14 136 / 0.1);
+      --danger: oklch(0.69 0.18 29);
+      --danger-soft: oklch(0.69 0.18 29 / 0.1);
+      --proof: oklch(0.72 0.09 222);
+      --proof-soft: oklch(0.72 0.09 222 / 0.1);
+      --space-xs: 4px;
+      --space-sm: 8px;
+      --space-md: 12px;
+      --space-lg: 16px;
+      --space-xl: 24px;
+      --space-2xl: 32px;
+      --space-3xl: 48px;
+      --space-4xl: 64px;
+      --space-5xl: 96px;
+      --display: "Saira Condensed", sans-serif;
+      --body: "Atkinson Hyperlegible Next", sans-serif;
+      --mono: "Red Hat Mono", monospace;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(1100px 620px at 84% -12%, oklch(0.78 0.15 72 / 0.055), transparent 64%),
+        radial-gradient(780px 520px at -8% 12%, oklch(0.72 0.09 222 / 0.045), transparent 62%),
+        var(--bg);
+      color: var(--ink);
+      font-family: var(--body);
+      font-size: 16px;
+      line-height: 1.66;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a { color: var(--signal); }
+    code, .mono {
+      font-family: var(--mono);
+      font-size: 0.88em;
+      overflow-wrap: anywhere;
+    }
+    button, input, select, textarea { font: inherit; }
+    button { cursor: pointer; }
+    :focus-visible { outline: 2px solid var(--signal); outline-offset: 3px; }
+
+    .shell {
+      width: min(1260px, calc(100% - 32px));
+      margin: 0 auto;
+      padding-bottom: var(--space-5xl);
+    }
+
+    .topline {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: var(--space-lg);
+      padding: var(--space-lg) 0;
+      border-bottom: 1px solid var(--line);
+      color: var(--ink-faint);
+      font: 500 11px/1.4 var(--mono);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .topline .live { color: var(--good); }
+
+    header {
+      display: grid;
+      grid-template-columns: minmax(0, 1.55fr) minmax(260px, 0.45fr);
+      gap: clamp(var(--space-2xl), 5vw, var(--space-4xl));
+      padding: clamp(var(--space-3xl), 8vw, var(--space-5xl)) 0 var(--space-4xl);
+      border-bottom: 1px solid var(--line);
+      align-items: end;
+    }
+    .kicker {
+      color: var(--signal);
+      font: 600 12px/1.3 var(--mono);
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+    h1, h2, h3 {
+      margin: 0;
+      font-family: var(--display);
+      font-weight: 600;
+      color: var(--ink);
+    }
+    h1 {
+      max-width: 15ch;
+      margin-top: var(--space-md);
+      font-size: clamp(3.25rem, 8vw, 7.25rem);
+      line-height: 0.88;
+      letter-spacing: -0.035em;
+      text-transform: uppercase;
+    }
+    h1 em {
+      display: block;
+      color: var(--signal);
+      font-style: normal;
+    }
+    .hero-copy {
+      max-width: 70ch;
+      margin: var(--space-xl) 0 0;
+      color: var(--ink-dim);
+      font-size: clamp(1.08rem, 2vw, 1.28rem);
+      line-height: 1.55;
+    }
+    .hero-copy strong { color: var(--ink); }
+
+    .audit-index {
+      display: grid;
+      gap: var(--space-md);
+      align-content: end;
+      min-width: 0;
+    }
+    .index-row {
+      display: grid;
+      grid-template-columns: 54px minmax(0, 1fr);
+      gap: var(--space-md);
+      padding: var(--space-md) 0;
+      border-top: 1px solid var(--line);
+    }
+    .index-row b {
+      color: var(--signal);
+      font: 600 1.45rem/1 var(--display);
+    }
+    .index-row span {
+      color: var(--ink-dim);
+      font-size: 0.92rem;
+      line-height: 1.35;
+    }
+
+    .section {
+      display: grid;
+      grid-template-columns: minmax(150px, 0.28fr) minmax(0, 1.72fr);
+      gap: clamp(var(--space-xl), 5vw, var(--space-4xl));
+      padding: clamp(var(--space-4xl), 8vw, var(--space-5xl)) 0;
+      border-bottom: 1px solid var(--line-soft);
+    }
+    .section-label {
+      position: sticky;
+      top: var(--space-xl);
+      align-self: start;
+      color: var(--ink-faint);
+      font: 600 11px/1.45 var(--mono);
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+    }
+    .section-label strong {
+      display: block;
+      margin-bottom: var(--space-sm);
+      color: var(--signal);
+      font-size: 1.1rem;
+      letter-spacing: 0;
+    }
+    .section-main { min-width: 0; }
+    h2 {
+      max-width: 22ch;
+      font-size: clamp(2.35rem, 5vw, 4.8rem);
+      line-height: 0.98;
+      letter-spacing: -0.025em;
+      text-transform: uppercase;
+    }
+    h3 {
+      font-size: clamp(1.35rem, 2vw, 1.75rem);
+      line-height: 1.1;
+      letter-spacing: -0.01em;
+    }
+    .lede {
+      max-width: 72ch;
+      margin: var(--space-xl) 0 var(--space-2xl);
+      color: var(--ink-dim);
+      font-size: 1.06rem;
+    }
+    .lede strong { color: var(--ink); }
+
+    .decision {
+      display: grid;
+      grid-template-columns: minmax(0, 1.25fr) minmax(260px, 0.75fr);
+      gap: var(--space-lg);
+      margin-top: var(--space-2xl);
+    }
+    .decision-thesis {
+      min-width: 0;
+      padding: clamp(var(--space-xl), 4vw, var(--space-3xl));
+      border: 1px solid color-mix(in oklch, var(--signal), transparent 45%);
+      background: var(--signal-soft);
+    }
+    .decision-thesis p {
+      max-width: 26ch;
+      margin: 0;
+      font: 600 clamp(1.65rem, 3vw, 2.7rem)/1.18 var(--display);
+      text-transform: uppercase;
+    }
+    .decision-thesis mark {
+      color: var(--signal);
+      background: transparent;
+    }
+    .decision-why {
+      min-width: 0;
+      padding: var(--space-xl);
+      border: 1px solid var(--line);
+      background: var(--surface);
+    }
+    .decision-why ul {
+      display: grid;
+      gap: var(--space-md);
+      margin: var(--space-lg) 0 0;
+      padding-left: 20px;
+      color: var(--ink-dim);
+    }
+
+    .before-after {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: var(--space-md);
+      margin-top: var(--space-2xl);
+    }
+    .side {
+      min-width: 0;
+      padding: var(--space-xl);
+      border: 1px solid var(--line);
+      background: var(--surface);
+    }
+    .side.before { border-color: color-mix(in oklch, var(--signal), transparent 58%); }
+    .side.after { border-color: color-mix(in oklch, var(--good), transparent 55%); }
+    .side .label {
+      margin-bottom: var(--space-lg);
+      color: var(--ink);
+      font: 600 12px/1.35 var(--mono);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+    .side.before .label { color: var(--signal); }
+    .side.after .label { color: var(--good); }
+    .side ul {
+      display: grid;
+      gap: var(--space-sm);
+      margin: 0;
+      padding-left: 19px;
+      color: var(--ink-dim);
+    }
+
+    .status-key {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-sm);
+      margin-bottom: var(--space-lg);
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      max-width: 100%;
+      padding: 5px 9px;
+      border: 1px solid var(--line);
+      color: var(--ink-dim);
+      font: 500 11px/1.25 var(--mono);
+      overflow-wrap: anywhere;
+    }
+    .badge::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      flex: 0 0 auto;
+      border-radius: 50%;
+      background: currentColor;
+    }
+    .badge.live { color: var(--danger); border-color: color-mix(in oklch, var(--danger), transparent 58%); }
+    .badge.partial { color: var(--signal); border-color: color-mix(in oklch, var(--signal), transparent 58%); }
+    .badge.proof { color: var(--proof); border-color: color-mix(in oklch, var(--proof), transparent 55%); }
+    .badge.cheap { color: var(--good); border-color: color-mix(in oklch, var(--good), transparent 58%); }
+
+    .table-wrap {
+      max-width: 100%;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      background: var(--surface-soft);
+    }
+    table {
+      width: 100%;
+      min-width: 850px;
+      border-collapse: collapse;
+      font-size: 0.93rem;
+    }
+    th, td {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line-soft);
+      text-align: left;
+      vertical-align: top;
+      overflow-wrap: anywhere;
+    }
+    th {
+      color: var(--ink-faint);
+      background: var(--surface);
+      font: 600 10px/1.35 var(--mono);
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+    }
+    td:first-child {
+      width: 17%;
+      color: var(--ink);
+      font-weight: 600;
+    }
+    td:nth-child(2) { width: 46%; color: var(--ink-dim); }
+    tr:last-child td { border-bottom: 0; }
+    tr:hover td { background: oklch(0.25 0.02 104 / 0.45); }
+
+    .diagram-frame {
+      max-width: 100%;
+      overflow-x: auto;
+      margin-top: var(--space-2xl);
+      padding: var(--space-xl);
+      border: 1px solid var(--line);
+      background: var(--surface-soft);
+    }
+    .drift-map {
+      display: block;
+      width: 100%;
+      min-width: 1180px;
+      height: auto;
+    }
+    .drift-map text {
+      font-family: var(--body);
+      fill: #eee9dc;
+    }
+    .drift-map .svg-label {
+      font-family: var(--mono);
+      font-size: 15px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      fill: #b5ae9b;
+    }
+    .drift-map .svg-node-title {
+      font-family: var(--display);
+      font-size: 21px;
+      font-weight: 600;
+      fill: #f0eadb;
+    }
+    .drift-map .svg-node-note {
+      font-size: 15px;
+      fill: #c8c0ad;
+    }
+    .drift-map .svg-edge-label {
+      font-family: var(--mono);
+      font-size: 14px;
+      fill: #e7b766;
+    }
+    table.seam-table {
+      min-width: 1420px;
+      table-layout: fixed;
+    }
+    table.seam-table th:nth-child(1) { width: 14%; }
+    table.seam-table th:nth-child(2) { width: 24%; }
+    table.seam-table th:nth-child(3) { width: 21%; }
+    table.seam-table th:nth-child(4) { width: 25%; }
+    table.seam-table th:nth-child(5) { width: 16%; }
+    .diagram-caption {
+      max-width: 76ch;
+      margin: var(--space-md) 0 0;
+      color: var(--ink-faint);
+      font-size: 0.9rem;
+    }
+    .diagram-caption strong { color: var(--ink-dim); }
+    .diagram-pair {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: var(--space-md);
+      margin-top: var(--space-3xl);
+    }
+    .diagram-pair .diagram-frame { margin-top: 0; }
+    .architecture-svg {
+      display: block;
+      width: 100%;
+      min-width: 900px;
+      height: auto;
+    }
+    .architecture-svg text {
+      font-family: var(--body);
+      fill: #eee9dc;
+    }
+    .architecture-svg .arch-band {
+      font-family: var(--mono);
+      font-size: 14px;
+      letter-spacing: 0.08em;
+      fill: #b5ae9b;
+    }
+    .architecture-svg .arch-title {
+      font-family: var(--display);
+      font-size: 19px;
+      font-weight: 600;
+      fill: #f0eadb;
+    }
+    .architecture-svg .arch-note {
+      font-size: 14px;
+      fill: #c8c0ad;
+    }
+
+    .root-list {
+      counter-reset: root;
+      display: grid;
+      gap: var(--space-sm);
+      margin-top: var(--space-2xl);
+    }
+    .root {
+      counter-increment: root;
+      display: grid;
+      grid-template-columns: 72px minmax(0, 1fr);
+      gap: var(--space-lg);
+      padding: var(--space-xl) 0;
+      border-top: 1px solid var(--line);
+    }
+    .root::before {
+      content: "0" counter(root);
+      color: var(--signal);
+      font: 600 2.4rem/1 var(--display);
+    }
+    .root p {
+      max-width: 72ch;
+      margin: var(--space-sm) 0 0;
+      color: var(--ink-dim);
+    }
+
+    .options {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: var(--space-md);
+      margin-top: var(--space-2xl);
+    }
+    .option {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-lg);
+      padding: var(--space-xl);
+      border: 1px solid var(--line);
+      background: var(--surface);
+    }
+    .option.recommended {
+      border-color: color-mix(in oklch, var(--good), transparent 48%);
+      background: var(--good-soft);
+    }
+    .option .letter {
+      color: var(--ink-faint);
+      font: 600 2.6rem/1 var(--display);
+    }
+    .option.recommended .letter { color: var(--good); }
+    .option p { margin: 0; color: var(--ink-dim); }
+    .option ul {
+      display: grid;
+      gap: var(--space-sm);
+      margin: 0;
+      padding-left: 19px;
+      color: var(--ink-dim);
+    }
+    .option .verdict {
+      margin-top: auto;
+      padding-top: var(--space-lg);
+      border-top: 1px solid var(--line);
+      color: var(--ink);
+      font-weight: 700;
+    }
+
+    .program {
+      display: grid;
+      gap: var(--space-sm);
+      margin-top: var(--space-2xl);
+    }
+    .track {
+      display: grid;
+      grid-template-columns: 92px minmax(190px, 0.55fr) minmax(0, 1.45fr);
+      gap: var(--space-lg);
+      align-items: start;
+      padding: var(--space-xl) 0;
+      border-top: 1px solid var(--line);
+    }
+    .track-num {
+      color: var(--signal);
+      font: 600 2rem/1 var(--display);
+    }
+    .track p { margin: 0; color: var(--ink-dim); }
+    .track strong { color: var(--ink); }
+
+    .cadence {
+      margin-top: var(--space-3xl);
+    }
+    .cadence-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: var(--space-sm);
+      margin-top: var(--space-lg);
+    }
+    .cadence-item {
+      min-width: 0;
+      padding: var(--space-lg);
+      border: 1px solid var(--line);
+      background: var(--surface);
+    }
+    .cadence-item b {
+      display: block;
+      color: var(--signal);
+      font: 600 1.25rem/1.1 var(--display);
+      text-transform: uppercase;
+    }
+    .cadence-item span {
+      display: block;
+      margin-top: var(--space-sm);
+      color: var(--ink-dim);
+      font-size: 0.9rem;
+    }
+
+    .timeline {
+      display: grid;
+      gap: 0;
+      margin-top: var(--space-2xl);
+      border-top: 1px solid var(--line);
+    }
+    .phase {
+      display: grid;
+      grid-template-columns: 120px minmax(0, 0.55fr) minmax(0, 1.45fr);
+      gap: var(--space-lg);
+      padding: var(--space-xl) 0;
+      border-bottom: 1px solid var(--line-soft);
+    }
+    .phase-id {
+      color: var(--ink-faint);
+      font: 600 11px/1.35 var(--mono);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+    .phase h3 { font-size: 1.4rem; }
+    .phase p { margin: 0; color: var(--ink-dim); }
+
+    .criteria {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: var(--space-sm) var(--space-xl);
+      margin-top: var(--space-2xl);
+      counter-reset: exit;
+    }
+    .criterion {
+      counter-increment: exit;
+      display: grid;
+      grid-template-columns: 38px minmax(0, 1fr);
+      gap: var(--space-md);
+      padding: var(--space-lg) 0;
+      border-top: 1px solid var(--line);
+      color: var(--ink-dim);
+    }
+    .criterion::before {
+      content: counter(exit);
+      color: var(--good);
+      font: 600 1.25rem/1 var(--display);
+    }
+
+    .review-board {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(280px, 0.55fr);
+      gap: var(--space-xl);
+      margin-top: var(--space-2xl);
+      align-items: start;
+    }
+    .question {
+      display: grid;
+      gap: var(--space-lg);
+      padding: var(--space-xl);
+      border: 1px solid var(--line);
+      background: var(--surface);
+    }
+    .question + .question { margin-top: var(--space-md); }
+    fieldset {
+      display: grid;
+      gap: var(--space-md);
+      min-width: 0;
+      margin: 0;
+      padding: 0;
+      border: 0;
+    }
+    legend {
+      margin-bottom: var(--space-md);
+      color: var(--ink);
+      font: 600 1.3rem/1.15 var(--display);
+      text-transform: uppercase;
+    }
+    label.choice {
+      display: grid;
+      grid-template-columns: 20px minmax(0, 1fr);
+      gap: var(--space-md);
+      align-items: start;
+      padding: var(--space-md);
+      border: 1px solid var(--line-soft);
+      color: var(--ink-dim);
+    }
+    label.choice:has(input:checked) {
+      border-color: color-mix(in oklch, var(--signal), transparent 45%);
+      background: var(--signal-soft);
+      color: var(--ink);
+    }
+    input[type="radio"], input[type="checkbox"] {
+      margin-top: 4px;
+      accent-color: var(--signal);
+    }
+    textarea, select {
+      width: 100%;
+      min-width: 0;
+      border: 1px solid var(--line);
+      background: var(--bg);
+      color: var(--ink);
+      padding: 11px 12px;
+    }
+    textarea { min-height: 110px; resize: vertical; }
+    .queue {
+      justify-self: start;
+      border: 1px solid var(--signal);
+      background: var(--signal);
+      color: var(--bg);
+      padding: 9px 14px;
+      font-weight: 700;
+    }
+    .queue.secondary {
+      border-color: var(--line);
+      background: transparent;
+      color: var(--ink);
+    }
+    .queue:hover { filter: brightness(1.08); }
+    .queued-note {
+      min-height: 1.4em;
+      color: var(--good);
+      font: 500 11px/1.4 var(--mono);
+    }
+
+    .review-aside {
+      min-width: 0;
+      padding: var(--space-xl);
+      border: 1px solid color-mix(in oklch, var(--proof), transparent 55%);
+      background: var(--proof-soft);
+    }
+    .review-aside ol {
+      display: grid;
+      gap: var(--space-md);
+      margin: var(--space-lg) 0 0;
+      padding-left: 20px;
+      color: var(--ink-dim);
+    }
+
+    footer {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: var(--space-xl);
+      padding: var(--space-3xl) 0 0;
+      color: var(--ink-faint);
+      font-size: 0.9rem;
+    }
+    footer p { max-width: 72ch; margin: 0; }
+
+    @media (max-width: 920px) {
+      header,
+      .section,
+      .decision,
+      .review-board {
+        grid-template-columns: 1fr;
+      }
+      .section-label {
+        position: static;
+        display: flex;
+        gap: var(--space-md);
+        align-items: baseline;
+      }
+      .section-label strong { margin: 0; }
+      .before-after { grid-template-columns: 1fr; }
+      .diagram-pair { grid-template-columns: 1fr; }
+      .options { grid-template-columns: 1fr; }
+      .cadence-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .track { grid-template-columns: 60px minmax(0, 1fr); }
+      .track p { grid-column: 2; }
+      .phase { grid-template-columns: 92px minmax(0, 1fr); }
+      .phase p { grid-column: 2; }
+    }
+
+    @media (max-width: 620px) {
+      .shell { width: min(100% - 22px, 1260px); }
+      .topline { align-items: flex-start; flex-direction: column; }
+      h1 { font-size: clamp(3rem, 17vw, 5rem); }
+      .criteria, .cadence-grid { grid-template-columns: 1fr; }
+      .root { grid-template-columns: 52px minmax(0, 1fr); }
+      .track, .phase { grid-template-columns: 1fr; }
+      .track p, .phase p { grid-column: 1; }
+      footer { grid-template-columns: 1fr; }
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+      .section-main > * {
+        animation: rise 520ms cubic-bezier(.22, 1, .36, 1) both;
+      }
+      .section-main > *:nth-child(2) { animation-delay: 45ms; }
+      .section-main > *:nth-child(3) { animation-delay: 90ms; }
+      @keyframes rise {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="topline">
+      <span>Exarchos / Discovery / 2026-07-23</span>
+      <span class="live">Review surface ready for annotation</span>
+    </div>
+
+    <header>
+      <div>
+        <div class="kicker">Phase-Gate v2.12 dogfood</div>
+        <h1>Audit the <em>closure</em></h1>
+        <p class="hero-copy">
+          The dogfood trace is not a patch backlog. It is evidence that
+          <strong>strong local controls still do not compose into one closed,
+          shipped proof system.</strong>
+        </p>
+      </div>
+      <div class="audit-index" aria-label="Dogfood summary">
+        <div class="index-row"><b>25+</b><span>explicit failed or error completions</span></div>
+        <div class="index-row"><b>20.8%</b><span>minimum observed failure rate</span></div>
+        <div class="index-row"><b>9,585</b><span>insertions from ten supposedly small tasks</span></div>
+        <div class="index-row"><b>6</b><span>sources of truth that contradicted one another</span></div>
+      </div>
+    </header>
+
+    <section class="section">
+      <aside class="section-label"><strong>01</strong>Decision</aside>
+      <div class="section-main">
+        <h2>Choose structural closure</h2>
+        <p class="lede">
+          Re-run the seven-principles assessment as a delta against the latest
+          branch, then inventory every hand-authored contract, effect path,
+          packaged edge, and driftable resource. <strong>A containment patch
+          only counts when it adds a ratchet or names its retirement path.</strong>
+        </p>
+        <div class="decision">
+          <div class="decision-thesis">
+            <p>A patch with better sequencing is <mark>still a patch.</mark></p>
+          </div>
+          <div class="decision-why">
+            <h3>Why this shape</h3>
+            <ul>
+              <li>The July 21 structural assessment already identified weak global closure.</li>
+              <li>Recent commits landed a canonical gate runner, durable evidence, and an ownership census.</li>
+              <li>The next step is to prove those structures cover every production and packaged path.</li>
+              <li>Every interim edit must lower into #1258's workflow IR or an explicit runtime chokepoint.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <aside class="section-label"><strong>02</strong>Evidence status</aside>
+      <div class="section-main">
+        <h2>What is live, partial, or only apparently fixed</h2>
+        <p class="lede">
+          The current tree changes the disposition of the report. The important
+          distinction is not “fixed vs. unfixed,” but <strong>live defect vs.
+          partial fix vs. source fix that still lacks packaged-runtime proof.</strong>
+        </p>
+        <div class="status-key" aria-label="Status legend">
+          <span class="badge live">Live defect</span>
+          <span class="badge partial">Partial fix</span>
+          <span class="badge proof">Needs live proof</span>
+          <span class="badge cheap">Cheap correction</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Finding</th>
+                <th>Current evidence</th>
+                <th>Status</th>
+                <th>Recommended action</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>CB-1 Stream integrity</td>
+                <td><code>atomic-appender.ts</code> now describes allocation, OCC, insert, and claim inside one SQLite transaction, yet the dogfood persisted an event/HWM split.</td>
+                <td><span class="badge proof">Needs artifact proof</span></td>
+                <td>Capture the existing package version/build SHA/plugin and skill hashes, then test two real MCP processes.</td>
+              </tr>
+              <tr>
+                <td>CB-2 Wave readiness</td>
+                <td><code>computeScopedWorktrees</code> exists and is applied to <code>args.tasks</code>.</td>
+                <td><span class="badge proof">Needs live proof</span></td>
+                <td>Reproduce against the packaged binary before reopening #1206.</td>
+              </tr>
+              <tr>
+                <td>CB-3 Test adequacy</td>
+                <td>Committed diffs use <code>baseRef...HEAD</code>, but added source paths still collide with <code>git checkout &lt;base&gt; -- path</code>.</td>
+                <td><span class="badge partial">Partial fix</span></td>
+                <td>Remove task-added source during the probe; make no-tests policy tier-aware.</td>
+              </tr>
+              <tr>
+                <td>CB-4 Integration JSON</td>
+                <td>The runner still parses package-manager stdout with one <code>JSON.parse</code>. Issue #1537 is open.</td>
+                <td><span class="badge live">Live defect</span></td>
+                <td>Use a framed report file or invoke Vitest directly.</td>
+              </tr>
+              <tr>
+                <td>CB-5 Gate cadence</td>
+                <td>The task runbook still marks complete before the full suite and runs the suite for every task.</td>
+                <td><span class="badge live">Live defect</span></td>
+                <td>Move integration to wave close; complete after task blockers.</td>
+              </tr>
+              <tr>
+                <td>CB-6 / CB-9 Phase semantics</td>
+                <td>Plan coverage still expects legacy design headings; spec coverage still requires future tests to exist.</td>
+                <td><span class="badge live">Live defect</span></td>
+                <td>Parse the unified spec and split declaration from implementation evidence.</td>
+              </tr>
+              <tr>
+                <td>Risk-tier stamping</td>
+                <td>Recent branch work changed classification, model routing, gate routing, and durable evidence. The observed blanket stamps may have come from a cached binary or generated skill.</td>
+                <td><span class="badge proof">Verify current artifact</span></td>
+                <td>Do not add new risk policy until the packaged current revision reproduces the behavior.</td>
+              </tr>
+              <tr>
+                <td>Documentation drift</td>
+                <td>Worktree ownership, threshold scale, merge posture, and config placement remain contradictory.</td>
+                <td><span class="badge cheap">Cheap correction</span></td>
+                <td>Fix immediately; validate examples against schemas.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <aside class="section-label"><strong>03</strong>System diagnosis</aside>
+      <div class="section-main">
+        <h2>Five structural gaps explain the trace</h2>
+        <div class="root-list">
+          <article class="root">
+            <div>
+              <h3>Existing provenance was not captured at the failure boundary</h3>
+              <p>Package version, build SHA, plugin version, and generated-skill hash should already identify the running artifact. The dogfood preflight must record and compare them before attributing behavior to current source.</p>
+            </div>
+          </article>
+          <article class="root">
+            <div>
+              <h3>Gate scope, owner, and cadence are conflated</h3>
+              <p>The old loop lets an implementer run focused tests, the task runbook rerun adequacy/static/integration, the lead rerun targeted tests after merge, and review run combined checks. The recent durable producer and runner census are the right direction; closure means every enforceable gate flows through them and no direct emitter or shell path remains.</p>
+            </div>
+          </article>
+          <article class="root">
+            <div>
+              <h3>Hand-rolled contracts remain editable in parallel</h3>
+              <p>Interfaces, Zod schemas, registry metadata, runbooks, CLI rendering, skills, runtime YAML, and examples can all describe the same behavior. A stale generated skill can preserve a defect after source code has moved on.</p>
+            </div>
+          </article>
+          <article class="root">
+            <div>
+              <h3>Local closure is strong; global closure is weak</h3>
+              <p>Registries prove providers exist and actions have schemas, but no single graph proves public action → dispatch → handler → owned effect → output contract → packaged fixture for every capability.</p>
+            </div>
+          </article>
+          <article class="root">
+            <div>
+              <h3>Temporary and advisory controls lack structural exits</h3>
+              <p>Compatibility parsers, manual fallbacks, advisory checks, and swallowed effects can persist indefinitely unless each has an owner, CI disposition, and measurable promotion or removal condition.</p>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <aside class="section-label"><strong>04</strong>Seam map</aside>
+      <div class="section-main">
+        <h2>Where drift can enter today</h2>
+        <p class="lede">
+          Drift is possible wherever one fact has multiple editable carriers,
+          one effect has multiple execution paths, or one shipped artifact can
+          outlive the source revision that produced it.
+        </p>
+
+        <div class="diagram-frame">
+          <svg class="drift-map" viewBox="0 0 1440 1020" role="img" aria-labelledby="drift-map-title drift-map-desc">
+            <title id="drift-map-title">Current Exarchos drift seams</title>
+            <desc id="drift-map-desc">Four horizontal lanes show parallel contract representations, the production execution path, verification and promotion, and shipped artifacts. Dashed orange arrows identify manual synchronization, bypass paths, proof bypass, and artifact freshness risks.</desc>
+            <defs>
+              <marker id="arrow-solid" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+                <path d="M0,0 L0,6 L9,3 z" fill="#70a9b6"></path>
+              </marker>
+              <marker id="arrow-drift" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+                <path d="M0,0 L0,6 L9,3 z" fill="#e7b766"></path>
+              </marker>
+              <marker id="arrow-proof" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+                <path d="M0,0 L0,6 L9,3 z" fill="#8ebf75"></path>
+              </marker>
+            </defs>
+
+            <rect x="18" y="18" width="1404" height="240" fill="#24251f" stroke="#5b5b4d"></rect>
+            <rect x="18" y="278" width="1404" height="250" fill="#1e2526" stroke="#4e6061"></rect>
+            <rect x="18" y="548" width="1404" height="205" fill="#20251d" stroke="#53604b"></rect>
+            <rect x="18" y="773" width="1404" height="225" fill="#25221d" stroke="#615542"></rect>
+
+            <text x="42" y="50" class="svg-label">1 / parallel representations</text>
+            <text x="42" y="310" class="svg-label">2 / production execution</text>
+            <text x="42" y="580" class="svg-label">3 / proof and promotion</text>
+            <text x="42" y="805" class="svg-label">4 / shipped and cached artifacts</text>
+
+            <rect x="555" y="65" width="330" height="62" fill="#343328" stroke="#e7b766"></rect>
+            <text x="720" y="91" text-anchor="middle" class="svg-node-title">One intended capability</text>
+            <text x="720" y="113" text-anchor="middle" class="svg-node-note">the fact everyone is trying to describe</text>
+
+            <line x1="145" y1="151" x2="1295" y2="151" stroke="#e7b766" stroke-width="2" stroke-dasharray="8 7"></line>
+            <line x1="720" y1="127" x2="720" y2="151" stroke="#e7b766" stroke-width="2" stroke-dasharray="8 7"></line>
+            <text x="735" y="143" class="svg-edge-label">manual synchronization bus</text>
+
+            <g>
+              <rect x="45" y="176" width="175" height="55" fill="#2e2f28" stroke="#81785f"></rect>
+              <text x="132" y="199" text-anchor="middle" class="svg-node-title">TypeScript</text>
+              <text x="132" y="219" text-anchor="middle" class="svg-node-note">interfaces</text>
+              <line x1="132" y1="151" x2="132" y2="176" stroke="#e7b766" stroke-width="2" stroke-dasharray="8 7" marker-end="url(#arrow-drift)"></line>
+            </g>
+            <g>
+              <rect x="240" y="176" width="175" height="55" fill="#2e2f28" stroke="#81785f"></rect>
+              <text x="327" y="199" text-anchor="middle" class="svg-node-title">Zod</text>
+              <text x="327" y="219" text-anchor="middle" class="svg-node-note">runtime schemas</text>
+              <line x1="327" y1="151" x2="327" y2="176" stroke="#e7b766" stroke-width="2" stroke-dasharray="8 7" marker-end="url(#arrow-drift)"></line>
+            </g>
+            <g>
+              <rect x="435" y="176" width="175" height="55" fill="#2e2f28" stroke="#81785f"></rect>
+              <text x="522" y="199" text-anchor="middle" class="svg-node-title">Registry</text>
+              <text x="522" y="219" text-anchor="middle" class="svg-node-note">metadata</text>
+              <line x1="522" y1="151" x2="522" y2="176" stroke="#e7b766" stroke-width="2" stroke-dasharray="8 7" marker-end="url(#arrow-drift)"></line>
+            </g>
+            <g>
+              <rect x="630" y="176" width="175" height="55" fill="#2e2f28" stroke="#81785f"></rect>
+              <text x="717" y="199" text-anchor="middle" class="svg-node-title">Runbooks</text>
+              <text x="717" y="219" text-anchor="middle" class="svg-node-note">guards + order</text>
+              <line x1="717" y1="151" x2="717" y2="176" stroke="#e7b766" stroke-width="2" stroke-dasharray="8 7" marker-end="url(#arrow-drift)"></line>
+            </g>
+            <g>
+              <rect x="825" y="176" width="175" height="55" fill="#2e2f28" stroke="#81785f"></rect>
+              <text x="912" y="199" text-anchor="middle" class="svg-node-title">Skills + docs</text>
+              <text x="912" y="219" text-anchor="middle" class="svg-node-note">examples + claims</text>
+              <line x1="912" y1="151" x2="912" y2="176" stroke="#e7b766" stroke-width="2" stroke-dasharray="8 7" marker-end="url(#arrow-drift)"></line>
+            </g>
+            <g>
+              <rect x="1020" y="176" width="175" height="55" fill="#2e2f28" stroke="#81785f"></rect>
+              <text x="1107" y="199" text-anchor="middle" class="svg-node-title">Runtime YAML</text>
+              <text x="1107" y="219" text-anchor="middle" class="svg-node-note">generated variants</text>
+              <line x1="1107" y1="151" x2="1107" y2="176" stroke="#e7b766" stroke-width="2" stroke-dasharray="8 7" marker-end="url(#arrow-drift)"></line>
+            </g>
+            <g>
+              <rect x="1215" y="176" width="175" height="55" fill="#2e2f28" stroke="#81785f"></rect>
+              <text x="1302" y="199" text-anchor="middle" class="svg-node-title">CLI</text>
+              <text x="1302" y="219" text-anchor="middle" class="svg-node-note">rendering metadata</text>
+              <line x1="1302" y1="151" x2="1302" y2="176" stroke="#e7b766" stroke-width="2" stroke-dasharray="8 7" marker-end="url(#arrow-drift)"></line>
+            </g>
+
+            <g>
+              <rect x="55" y="350" width="190" height="72" fill="#243234" stroke="#70a9b6"></rect>
+              <text x="150" y="378" text-anchor="middle" class="svg-node-title">CLI / MCP root</text>
+              <text x="150" y="401" text-anchor="middle" class="svg-node-note">public entry</text>
+              <rect x="300" y="350" width="190" height="72" fill="#243234" stroke="#70a9b6"></rect>
+              <text x="395" y="378" text-anchor="middle" class="svg-node-title">Dispatch</text>
+              <text x="395" y="401" text-anchor="middle" class="svg-node-note">route selection</text>
+              <rect x="545" y="350" width="190" height="72" fill="#243234" stroke="#70a9b6"></rect>
+              <text x="640" y="378" text-anchor="middle" class="svg-node-title">Handler</text>
+              <text x="640" y="401" text-anchor="middle" class="svg-node-note">orchestration</text>
+              <rect x="790" y="350" width="190" height="72" fill="#243234" stroke="#70a9b6"></rect>
+              <text x="885" y="378" text-anchor="middle" class="svg-node-title">Effect port</text>
+              <text x="885" y="401" text-anchor="middle" class="svg-node-note">declared boundary</text>
+              <rect x="1035" y="350" width="260" height="72" fill="#243234" stroke="#70a9b6"></rect>
+              <text x="1165" y="378" text-anchor="middle" class="svg-node-title">Observable effect</text>
+              <text x="1165" y="401" text-anchor="middle" class="svg-node-note">event · git · files · process</text>
+              <line x1="245" y1="386" x2="300" y2="386" stroke="#70a9b6" stroke-width="3" marker-end="url(#arrow-solid)"></line>
+              <line x1="490" y1="386" x2="545" y2="386" stroke="#70a9b6" stroke-width="3" marker-end="url(#arrow-solid)"></line>
+              <line x1="735" y1="386" x2="790" y2="386" stroke="#70a9b6" stroke-width="3" marker-end="url(#arrow-solid)"></line>
+              <line x1="980" y1="386" x2="1035" y2="386" stroke="#70a9b6" stroke-width="3" marker-end="url(#arrow-solid)"></line>
+            </g>
+
+            <path d="M717 231 V322 H640 V350" fill="none" stroke="#e7b766" stroke-width="2" stroke-dasharray="8 7" marker-end="url(#arrow-drift)"></path>
+            <text x="735" y="291" class="svg-edge-label">runbook can duplicate or reorder calls</text>
+
+            <path d="M735 410 V475 H1165 V422" fill="none" stroke="#e7b766" stroke-width="2" stroke-dasharray="8 7" marker-end="url(#arrow-drift)"></path>
+            <text x="820" y="467" class="svg-edge-label">direct append / shell bypasses the owned port</text>
+
+            <g>
+              <rect x="115" y="620" width="210" height="68" fill="#293123" stroke="#8ebf75"></rect>
+              <text x="220" y="648" text-anchor="middle" class="svg-node-title">Gate result</text>
+              <text x="220" y="670" text-anchor="middle" class="svg-node-note">tool execution</text>
+              <rect x="405" y="620" width="210" height="68" fill="#293123" stroke="#8ebf75"></rect>
+              <text x="510" y="648" text-anchor="middle" class="svg-node-title">Evidence</text>
+              <text x="510" y="670" text-anchor="middle" class="svg-node-note">event / artifact</text>
+              <rect x="695" y="620" width="210" height="68" fill="#293123" stroke="#8ebf75"></rect>
+              <text x="800" y="648" text-anchor="middle" class="svg-node-title">Projection</text>
+              <text x="800" y="670" text-anchor="middle" class="svg-node-note">active proof</text>
+              <rect x="985" y="620" width="300" height="68" fill="#293123" stroke="#8ebf75"></rect>
+              <text x="1135" y="648" text-anchor="middle" class="svg-node-title">Promotion decision</text>
+              <text x="1135" y="670" text-anchor="middle" class="svg-node-note">task · wave · review · transition</text>
+              <line x1="325" y1="654" x2="405" y2="654" stroke="#8ebf75" stroke-width="3" marker-end="url(#arrow-proof)"></line>
+              <line x1="615" y1="654" x2="695" y2="654" stroke="#8ebf75" stroke-width="3" marker-end="url(#arrow-proof)"></line>
+              <line x1="905" y1="654" x2="985" y2="654" stroke="#8ebf75" stroke-width="3" marker-end="url(#arrow-proof)"></line>
+            </g>
+            <path d="M220 688 V723 H1135 V688" fill="none" stroke="#e7b766" stroke-width="2" stroke-dasharray="8 7" marker-end="url(#arrow-drift)"></path>
+            <text x="500" y="713" class="svg-edge-label">best-effort persistence can shape success before proof is durable</text>
+
+            <g>
+              <rect x="65" y="850" width="190" height="68" fill="#312b22" stroke="#b79b6c"></rect>
+              <text x="160" y="878" text-anchor="middle" class="svg-node-title">Source revision</text>
+              <text x="160" y="900" text-anchor="middle" class="svg-node-note">intended build</text>
+              <rect x="330" y="835" width="180" height="58" fill="#312b22" stroke="#b79b6c"></rect>
+              <text x="420" y="870" text-anchor="middle" class="svg-node-title">Binary</text>
+              <rect x="330" y="915" width="180" height="58" fill="#312b22" stroke="#b79b6c"></rect>
+              <text x="420" y="950" text-anchor="middle" class="svg-node-title">Plugin</text>
+              <rect x="585" y="835" width="235" height="58" fill="#312b22" stroke="#b79b6c"></rect>
+              <text x="702" y="861" text-anchor="middle" class="svg-node-title">Generated artifacts</text>
+              <text x="702" y="881" text-anchor="middle" class="svg-node-note">skills · agents · hooks</text>
+              <rect x="895" y="850" width="250" height="68" fill="#312b22" stroke="#e7b766"></rect>
+              <text x="1020" y="878" text-anchor="middle" class="svg-node-title">Installed cache</text>
+              <text x="1020" y="900" text-anchor="middle" class="svg-node-note">may mix revisions</text>
+              <line x1="255" y1="884" x2="330" y2="864" stroke="#70a9b6" stroke-width="3" marker-end="url(#arrow-solid)"></line>
+              <line x1="255" y1="884" x2="330" y2="944" stroke="#70a9b6" stroke-width="3" marker-end="url(#arrow-solid)"></line>
+              <path d="M160 918 V1000 H702 V893" fill="none" stroke="#70a9b6" stroke-width="3" marker-end="url(#arrow-solid)"></path>
+              <path d="M420 835 V820 H1020 V850" fill="none" stroke="#70a9b6" stroke-width="3" marker-end="url(#arrow-solid)"></path>
+              <path d="M420 973 V985 H1020 V918" fill="none" stroke="#70a9b6" stroke-width="3" marker-end="url(#arrow-solid)"></path>
+              <line x1="820" y1="864" x2="895" y2="884" stroke="#70a9b6" stroke-width="3" marker-end="url(#arrow-solid)"></line>
+            </g>
+            <rect x="1190" y="850" width="190" height="68" fill="#302b21" stroke="#e7b766"></rect>
+            <text x="1285" y="878" text-anchor="middle" class="svg-node-title">Freshness seam</text>
+            <text x="1285" y="900" text-anchor="middle" class="svg-node-note">cache can outlive source</text>
+            <line x1="1145" y1="884" x2="1190" y2="884" stroke="#e7b766" stroke-width="3" stroke-dasharray="10 8" marker-end="url(#arrow-drift)"></line>
+
+            <g transform="translate(1170 48)">
+              <line x1="0" y1="0" x2="55" y2="0" stroke="#70a9b6" stroke-width="3" marker-end="url(#arrow-solid)"></line>
+              <text x="68" y="5" class="svg-node-note">declared path</text>
+              <line x1="0" y1="28" x2="55" y2="28" stroke="#e7b766" stroke-width="2" stroke-dasharray="8 7" marker-end="url(#arrow-drift)"></line>
+              <text x="68" y="33" class="svg-node-note">drift seam</text>
+            </g>
+          </svg>
+        </div>
+        <p class="diagram-caption">
+          <strong>Dashed edges are drift risks.</strong> They represent manual
+          synchronization, bypassable effect paths, success without durable
+          proof, and cached artifacts that may no longer correspond to source.
+        </p>
+
+        <h3 style="margin-top: 42px;">Seam inventory: current guard vs. structural closure</h3>
+        <div class="table-wrap" style="margin-top: 16px;">
+          <table class="seam-table">
+            <thead>
+              <tr><th>Seam</th><th>How drift is possible now</th><th>Already in place</th><th>How drift becomes impossible</th><th>Destination</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Public action contract</td><td>TS, Zod, registry metadata, handler assumptions, dispatch hints, MCP, CLI, and docs can change independently.</td><td>Every action has an output schema, annotations, phases/roles, dispatch/economy hints, and registry construction checks.</td><td>Generate trusted dispatch metadata and standard MCP/CLI/docs projections from one Exarchos action API contract.</td><td>Internal API contract → MCP 2026-07-28 / #1604 / #1606</td></tr>
+              <tr><td>Workflow topology + policy</td><td>HSM definitions, playbooks, guards, runbooks, and skill prose encode overlapping lifecycle facts.</td><td>Phase-kind resolver, state machine, transition tests, unified specs.</td><td>Workflow Builder compiles one definition to WorkflowDefinitionV1; generated topology and admission replace closed registries.</td><td>Workflow IR / #1258</td></tr>
+              <tr><td>Gate result algebra</td><td><code>success</code>, <code>passed</code>, skip, warning, error, and indeterminate can be combined ambiguously.</td><td>Typed evidence verdicts and stronger runtime schemas exist on the feature branch.</td><td>Generated discriminated unions make invalid combinations unrepresentable and admission consumes total outcomes.</td><td>TypeSpec evidence/admission contract</td></tr>
+              <tr><td>Gate execution ownership</td><td>Handlers can emit directly, shell out independently, or return before evidence persists.</td><td>Canonical gate runner, durable producer, provider registry, runner ownership census.</td><td>Ownership census rejects every direct path; canonical runner persists subject-bound evidence before success.</td><td>v2.12 proof substrate → v3 admission</td></tr>
+              <tr><td>Gate scope + cadence</td><td>Implementer, task runbook, lead, wave, and review can re-prove the same claim or order blockers incorrectly.</td><td>Risk ladder, phase kinds, evidence subjects for task/wave/diff/artifact.</td><td>IR gate declarations plus admission requirements define subject, cardinality, freshness, corroboration, and blocking boundary.</td><td>GateStep + AdmissionPolicyDefinition</td></tr>
+              <tr><td>Effect ownership</td><td>Broad contexts permit direct event-store, git, filesystem, or process access outside a module's declared responsibility.</td><td>Event-store composition-root guard; some pure/effect adapter seams; dependency rules.</td><td>Each module declares state/effect ownership and uses typed ports; graph closure rejects alternate effects.</td><td>Module contracts + ship graph</td></tr>
+              <tr><td>Event store + projections</td><td>Alternate writers, swallowed append failures, stale HWM, or lagging projections can contradict the log.</td><td>SQLite WAL, atomic appender, idempotency, projection folds, integrity checks.</td><td>One authorized append path, packaged concurrent-process fixture, invariant probe, and indeterminate admission on corrupt/missing proof.</td><td>Runtime substrate chokepoint</td></tr>
+              <tr><td>Runtime capability</td><td>Skills may assume worktree creation, git mutation, hooks, or agent durability that the harness does not provide.</td><td>Capability resolver, standard skills, launcher, runtime profiles.</td><td>Conform where standards exist; enforce state in dispatch/MCP and spatial/process constraints in launcher.</td><td>Non-IR runtime chokepoints</td></tr>
+              <tr><td>Generated guidance</td><td>Skills, runbooks, examples, and aliases can carry stale names, scales, defaults, or behavior claims.</td><td>Skills renderer, generated drift guards, standard skill format.</td><td>Generate workflow guidance from IR and facade examples from action schemas; delete authoritative prose copies.</td><td>IR/MCP-generated artifacts</td></tr>
+              <tr><td>Packaging + cache</td><td>Binary, plugin, installed skills, and user caches can be mutually valid but from different revisions.</td><td>Package/build version, plugin compatibility, skill hash, compiled-binary MCP fixture.</td><td>Artifact manifest binds source, contract, generator, plugin, skill, and binary digests; dogfood stops on mismatch.</td><td>Proof-carrying build output</td></tr>
+              <tr><td>Advisory / temporary controls</td><td>Warnings and compatibility paths can survive indefinitely and become de facto policy.</td><td>Enforcer wiring manifest records blocking/advisory/retired posture.</td><td>Every temporary control requires owner, expiry, exit condition, kill fixture, and unfiltered CI path.</td><td>Ratchet manifest</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="diagram-pair">
+          <div>
+            <div class="diagram-frame">
+              <svg class="architecture-svg" viewBox="0 0 900 820" role="img" aria-labelledby="target-title target-desc">
+                <title id="target-title">Structurally closed target architecture</title>
+                <desc id="target-desc">Four stacked bands show canonical contract sources, generated artifacts, a single owned runtime path, and mandatory proof and packaging.</desc>
+                <defs>
+                  <marker id="target-arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+                    <path d="M0,0 L0,6 L9,3 z" fill="#8ebf75"></path>
+                  </marker>
+                </defs>
+
+                <rect x="15" y="15" width="870" height="150" fill="#24251f" stroke="#5b5b4d"></rect>
+                <rect x="15" y="180" width="870" height="150" fill="#1e2526" stroke="#4e6061"></rect>
+                <rect x="15" y="345" width="870" height="210" fill="#20251d" stroke="#53604b"></rect>
+                <rect x="15" y="570" width="870" height="230" fill="#25221d" stroke="#615542"></rect>
+
+                <text x="35" y="43" class="arch-band">1 / canonical sources</text>
+                <rect x="55" y="70" width="240" height="66" fill="#343328" stroke="#e7b766"></rect>
+                <text x="175" y="98" text-anchor="middle" class="arch-title">Strategos TypeSpec</text>
+                <text x="175" y="120" text-anchor="middle" class="arch-note">workflow + admission contract</text>
+                <rect x="330" y="70" width="240" height="66" fill="#343328" stroke="#e7b766"></rect>
+                <text x="450" y="98" text-anchor="middle" class="arch-title">WorkflowBuilder</text>
+                <text x="450" y="120" text-anchor="middle" class="arch-note">.workflow.ts authoring</text>
+                <rect x="605" y="70" width="240" height="66" fill="#343328" stroke="#e7b766"></rect>
+                <text x="725" y="98" text-anchor="middle" class="arch-title">Exarchos action API</text>
+                <text x="725" y="120" text-anchor="middle" class="arch-note">schema + trusted dispatch metadata</text>
+
+                <text x="35" y="208" class="arch-band">2 / deterministic generation</text>
+                <rect x="70" y="235" width="230" height="66" fill="#243234" stroke="#70a9b6"></rect>
+                <text x="185" y="263" text-anchor="middle" class="arch-title">WorkflowDefinitionV1</text>
+                <text x="185" y="285" text-anchor="middle" class="arch-note">typed JSON IR</text>
+                <rect x="335" y="235" width="230" height="66" fill="#243234" stroke="#70a9b6"></rect>
+                <text x="450" y="263" text-anchor="middle" class="arch-title">Generated code</text>
+                <text x="450" y="285" text-anchor="middle" class="arch-note">types · Zod · dispatch · providers</text>
+                <rect x="600" y="235" width="230" height="66" fill="#243234" stroke="#70a9b6"></rect>
+                <text x="715" y="263" text-anchor="middle" class="arch-title">MCP / CLI projections</text>
+                <text x="715" y="285" text-anchor="middle" class="arch-note">standard wire · UX · docs · fixtures</text>
+                <line x1="175" y1="136" x2="175" y2="235" stroke="#8ebf75" stroke-width="3" marker-end="url(#target-arrow)"></line>
+                <line x1="450" y1="136" x2="235" y2="235" stroke="#8ebf75" stroke-width="3" marker-end="url(#target-arrow)"></line>
+                <line x1="725" y1="136" x2="715" y2="235" stroke="#8ebf75" stroke-width="3" marker-end="url(#target-arrow)"></line>
+                <path d="M725 136 V195 H500 V235" fill="none" stroke="#8ebf75" stroke-width="3" marker-end="url(#target-arrow)"></path>
+                <line x1="300" y1="268" x2="335" y2="268" stroke="#8ebf75" stroke-width="3" marker-end="url(#target-arrow)"></line>
+
+                <text x="35" y="373" class="arch-band">3 / one owned runtime path</text>
+                <rect x="45" y="405" width="150" height="66" fill="#293123" stroke="#8ebf75"></rect>
+                <text x="120" y="433" text-anchor="middle" class="arch-title">Compiler</text>
+                <text x="120" y="455" text-anchor="middle" class="arch-note">topology + policy</text>
+                <rect x="225" y="405" width="150" height="66" fill="#293123" stroke="#8ebf75"></rect>
+                <text x="300" y="433" text-anchor="middle" class="arch-title">Dispatch</text>
+                <text x="300" y="455" text-anchor="middle" class="arch-note">one public root</text>
+                <rect x="405" y="405" width="150" height="66" fill="#293123" stroke="#8ebf75"></rect>
+                <text x="480" y="433" text-anchor="middle" class="arch-title">Handler</text>
+                <text x="480" y="455" text-anchor="middle" class="arch-note">typed orchestration</text>
+                <rect x="585" y="405" width="150" height="66" fill="#293123" stroke="#8ebf75"></rect>
+                <text x="660" y="433" text-anchor="middle" class="arch-title">Effect port</text>
+                <text x="660" y="455" text-anchor="middle" class="arch-note">owned capability</text>
+                <rect x="765" y="405" width="95" height="66" fill="#293123" stroke="#8ebf75"></rect>
+                <text x="812" y="433" text-anchor="middle" class="arch-title">Effect</text>
+                <text x="812" y="455" text-anchor="middle" class="arch-note">observable</text>
+                <line x1="120" y1="301" x2="120" y2="405" stroke="#8ebf75" stroke-width="3" marker-end="url(#target-arrow)"></line>
+                <line x1="195" y1="438" x2="225" y2="438" stroke="#8ebf75" stroke-width="3" marker-end="url(#target-arrow)"></line>
+                <line x1="375" y1="438" x2="405" y2="438" stroke="#8ebf75" stroke-width="3" marker-end="url(#target-arrow)"></line>
+                <line x1="555" y1="438" x2="585" y2="438" stroke="#8ebf75" stroke-width="3" marker-end="url(#target-arrow)"></line>
+                <line x1="735" y1="438" x2="765" y2="438" stroke="#8ebf75" stroke-width="3" marker-end="url(#target-arrow)"></line>
+                <rect x="225" y="495" width="510" height="38" fill="#25302c" stroke="#70a9b6"></rect>
+                <text x="480" y="520" text-anchor="middle" class="arch-note">generated ship-surface graph validates every node and edge above</text>
+
+                <text x="35" y="598" class="arch-band">4 / mandatory proof and packaged composition</text>
+                <rect x="45" y="630" width="150" height="66" fill="#312b22" stroke="#b79b6c"></rect>
+                <text x="120" y="658" text-anchor="middle" class="arch-title">Provider</text>
+                <text x="120" y="680" text-anchor="middle" class="arch-note">runs gate</text>
+                <rect x="225" y="630" width="150" height="66" fill="#312b22" stroke="#b79b6c"></rect>
+                <text x="300" y="658" text-anchor="middle" class="arch-title">Runner</text>
+                <text x="300" y="680" text-anchor="middle" class="arch-note">persists first</text>
+                <rect x="405" y="630" width="150" height="66" fill="#312b22" stroke="#b79b6c"></rect>
+                <text x="480" y="658" text-anchor="middle" class="arch-title">Evidence</text>
+                <text x="480" y="680" text-anchor="middle" class="arch-note">subject-bound</text>
+                <rect x="585" y="630" width="150" height="66" fill="#312b22" stroke="#b79b6c"></rect>
+                <text x="660" y="658" text-anchor="middle" class="arch-title">Admission</text>
+                <text x="660" y="680" text-anchor="middle" class="arch-note">total decision</text>
+                <rect x="765" y="630" width="95" height="66" fill="#312b22" stroke="#b79b6c"></rect>
+                <text x="812" y="658" text-anchor="middle" class="arch-title">Atomic</text>
+                <text x="812" y="680" text-anchor="middle" class="arch-note">append</text>
+                <line x1="195" y1="663" x2="225" y2="663" stroke="#8ebf75" stroke-width="3" marker-end="url(#target-arrow)"></line>
+                <line x1="375" y1="663" x2="405" y2="663" stroke="#8ebf75" stroke-width="3" marker-end="url(#target-arrow)"></line>
+                <line x1="555" y1="663" x2="585" y2="663" stroke="#8ebf75" stroke-width="3" marker-end="url(#target-arrow)"></line>
+                <line x1="735" y1="663" x2="765" y2="663" stroke="#8ebf75" stroke-width="3" marker-end="url(#target-arrow)"></line>
+                <rect x="180" y="730" width="540" height="42" fill="#25302c" stroke="#70a9b6"></rect>
+                <text x="450" y="757" text-anchor="middle" class="arch-note">packaged-artifact fixture proves the shipped binary reaches the effect</text>
+                <line x1="812" y1="471" x2="812" y2="630" stroke="#8ebf75" stroke-width="3" marker-end="url(#target-arrow)"></line>
+              </svg>
+            </div>
+            <p class="diagram-caption"><strong>Target closure.</strong> Generation removes parallel editability; typed ports remove hidden effects; the ship graph proves reachability; admission makes proof mandatory.</p>
+          </div>
+          <div>
+            <div class="diagram-frame">
+              <svg class="architecture-svg" viewBox="0 0 900 820" role="img" aria-labelledby="feature-title feature-desc">
+                <title id="feature-title">Proof-carrying path for AI-generated feature work</title>
+                <desc id="feature-desc">Eight vertically arranged stages derive impact, regenerate artifacts, select proofs, build and test the packaged artifact, bind evidence, and admit or ratchet the change.</desc>
+                <defs>
+                  <marker id="feature-arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+                    <path d="M0,0 L0,6 L9,3 z" fill="#8ebf75"></path>
+                  </marker>
+                </defs>
+                <line x1="90" y1="70" x2="90" y2="750" stroke="#59664f" stroke-width="4"></line>
+
+                <circle cx="90" cy="82" r="22" fill="#343328" stroke="#e7b766"></circle>
+                <text x="90" y="89" text-anchor="middle" class="arch-title">1</text>
+                <rect x="145" y="45" width="700" height="74" fill="#24251f" stroke="#e7b766"></rect>
+                <text x="175" y="76" class="arch-title">Change the contract, IR node, or module boundary</text>
+                <text x="175" y="100" class="arch-note">The feature starts from the authoritative surface, not an implementation file.</text>
+
+                <line x1="90" y1="104" x2="90" y2="165" stroke="#8ebf75" stroke-width="3" marker-end="url(#feature-arrow)"></line>
+                <circle cx="90" cy="187" r="22" fill="#243234" stroke="#70a9b6"></circle>
+                <text x="90" y="194" text-anchor="middle" class="arch-title">2</text>
+                <rect x="145" y="150" width="700" height="74" fill="#1e2526" stroke="#70a9b6"></rect>
+                <text x="175" y="181" class="arch-title">Generate compatibility and impact closure</text>
+                <text x="175" y="205" class="arch-note">Classify the change; compute reverse dependencies, effects, and packaged surfaces.</text>
+
+                <line x1="90" y1="209" x2="90" y2="270" stroke="#8ebf75" stroke-width="3" marker-end="url(#feature-arrow)"></line>
+                <circle cx="90" cy="292" r="22" fill="#243234" stroke="#70a9b6"></circle>
+                <text x="90" y="299" text-anchor="middle" class="arch-title">3</text>
+                <rect x="145" y="255" width="700" height="74" fill="#1e2526" stroke="#70a9b6"></rect>
+                <text x="175" y="286" class="arch-title">Regenerate every derivative</text>
+                <text x="175" y="310" class="arch-note">Types, validators, providers, CLI, docs, skills, fixtures, and manifests update together.</text>
+
+                <line x1="90" y1="314" x2="90" y2="375" stroke="#8ebf75" stroke-width="3" marker-end="url(#feature-arrow)"></line>
+                <circle cx="90" cy="397" r="22" fill="#293123" stroke="#8ebf75"></circle>
+                <text x="90" y="404" text-anchor="middle" class="arch-title">4</text>
+                <rect x="145" y="360" width="700" height="74" fill="#20251d" stroke="#8ebf75"></rect>
+                <text x="175" y="391" class="arch-title">Assign each claim to the cheapest sound proof</text>
+                <text x="175" y="415" class="arch-note">Compiler for states; graph for wiring; contracts for providers; E2E only for composition.</text>
+
+                <line x1="90" y1="419" x2="90" y2="480" stroke="#8ebf75" stroke-width="3" marker-end="url(#feature-arrow)"></line>
+                <circle cx="90" cy="502" r="22" fill="#293123" stroke="#8ebf75"></circle>
+                <text x="90" y="509" text-anchor="middle" class="arch-title">5</text>
+                <rect x="145" y="465" width="700" height="74" fill="#20251d" stroke="#8ebf75"></rect>
+                <text x="175" y="496" class="arch-title">Run structural, conformance, property, and component proofs</text>
+                <text x="175" y="520" class="arch-note">Every selected check is derived from the impact closure and has a failure signal.</text>
+
+                <line x1="90" y1="524" x2="90" y2="585" stroke="#8ebf75" stroke-width="3" marker-end="url(#feature-arrow)"></line>
+                <circle cx="90" cy="607" r="22" fill="#312b22" stroke="#b79b6c"></circle>
+                <text x="90" y="614" text-anchor="middle" class="arch-title">6</text>
+                <rect x="145" y="570" width="700" height="74" fill="#25221d" stroke="#b79b6c"></rect>
+                <text x="175" y="601" class="arch-title">Build and benchmark the shipped artifact</text>
+                <text x="175" y="625" class="arch-note">A small production-path E2E proves real transport, persistence, packaging, and performance.</text>
+
+                <line x1="90" y1="629" x2="90" y2="690" stroke="#8ebf75" stroke-width="3" marker-end="url(#feature-arrow)"></line>
+                <circle cx="90" cy="712" r="22" fill="#312b22" stroke="#b79b6c"></circle>
+                <text x="90" y="719" text-anchor="middle" class="arch-title">7</text>
+                <rect x="145" y="675" width="700" height="74" fill="#25221d" stroke="#b79b6c"></rect>
+                <text x="175" y="706" class="arch-title">Bind evidence and admit the change</text>
+                <text x="175" y="730" class="arch-note">Revision, contract, tools, environment, and artifact digest must match; new defect classes become ratchets.</text>
+              </svg>
+            </div>
+            <p class="diagram-caption"><strong>New feature path.</strong> AI-generated code is not trusted because it has more tests; it is trusted because every affected obligation is derived, proved at the cheapest sound layer, packaged, and bound to admission.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <aside class="section-label"><strong>05</strong>Options</aside>
+      <div class="section-main">
+        <h2>Three plausible paths</h2>
+        <p class="lede">Only one balances immediate relief with recurrence prevention.</p>
+        <div class="options">
+          <article class="option">
+            <div class="letter">A</div>
+            <h3>Patch train</h3>
+            <p>Open one issue for each report item and fix them in severity order.</p>
+            <ul>
+              <li>Fast visible closure</li>
+              <li>Small review surfaces</li>
+              <li>Preserves duplicated contracts</li>
+              <li>Does not explain source/runtime mismatches</li>
+            </ul>
+            <div class="verdict">Use only for containment.</div>
+          </article>
+          <article class="option">
+            <div class="letter">B</div>
+            <h3>Phase-gate closure only</h3>
+            <p>Generate and centralize phase-gate contracts without auditing the wider shipped surface.</p>
+            <ul>
+              <li>Better than isolated patches</li>
+              <li>Completes current evidence work</li>
+              <li>Leaves the same drift classes elsewhere</li>
+              <li>Adds another targeted closure island</li>
+            </ul>
+            <div class="verdict">Still too narrow.</div>
+          </article>
+          <article class="option recommended">
+            <div class="letter">C</div>
+            <h3>Structural closure audit</h3>
+            <p>Delta-audit the latest branch and build one convergence plan for contracts, effects, packaging, and proof.</p>
+            <ul>
+              <li>Addresses defect classes, not instances</li>
+              <li>Reuses existing registries and runner census</li>
+              <li>Makes drift and reachability graph failures</li>
+              <li>Gives every patch a retirement condition</li>
+            </ul>
+            <div class="verdict">Recommended.</div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <aside class="section-label"><strong>06</strong>Program</aside>
+      <div class="section-main">
+        <h2>Six tracks, sequenced by structural dependency</h2>
+        <div class="program">
+          <article class="track">
+            <div class="track-num">T0</div>
+            <h3>Delta structural audit</h3>
+            <p><strong>Re-score the seven principles on the latest branch.</strong> Verify what the canonical gate runner, durable producer, evidence migrations, and ownership census closed after the July 21 assessment.</p>
+          </article>
+          <article class="track">
+            <div class="track-num">T1</div>
+            <h3>Generated shared boundaries</h3>
+            <p>Use <strong>Strategos.Contracts TypeSpec + WorkflowDefinitionV1</strong> for workflow semantics and one richer <strong>Exarchos action API contract</strong> for dispatch semantics. Project standard MCP 2026-07-28 schemas, CLI, docs/skills, fixtures, and graph metadata from that contract.</p>
+          </article>
+          <article class="track">
+            <div class="track-num">T2</div>
+            <h3>Ship-surface graph</h3>
+            <p>Generate <code>authored workflow → IR → compiled topology/policy → public action → handler → owned effect → output → packaged fixture</code>. Missing or alternate edges fail one closure check.</p>
+          </article>
+          <article class="track">
+            <div class="track-num">T3</div>
+            <h3>Close proof-producing effects</h3>
+            <p>Route every enforceable gate through the canonical runner, persist evidence before success, reject direct emitters, and let admission consume pass/fail/skipped/indeterminate explicitly.</p>
+          </article>
+          <article class="track">
+            <div class="track-num">T4</div>
+            <h3>Driftable artifact inventory</h3>
+            <p>Model binaries, plugin caches, generated skills/agents/hooks, runtime embeddings, command aliases, examples, and user installs as revision-bound artifacts with existing provenance/hash checks.</p>
+          </article>
+          <article class="track">
+            <div class="track-num">T5</div>
+            <h3>Ratchet temporary controls</h3>
+            <p>Require every advisory, compatibility path, containment patch, and manual fallback to declare an owner, CI disposition, and measurable promotion or removal condition.</p>
+          </article>
+        </div>
+
+        <div class="cadence">
+          <h3>Gate ownership: from repeated commands to one evidence chain</h3>
+          <div class="cadence-grid">
+            <div class="cadence-item"><b>Produce</b><span>One provider runs the check against a subject digest and records toolchain identity.</span></div>
+            <div class="cadence-item"><b>Persist</b><span>The canonical runner writes subject-bound evidence before returning success.</span></div>
+            <div class="cadence-item"><b>Consume</b><span>Task, wave, or review admission selects valid evidence by subject and policy, not by rerunning folklore.</span></div>
+            <div class="cadence-item"><b>Invalidate</b><span>A changed commit, diff, policy, producer, or toolchain digest makes prior evidence ineligible.</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <aside class="section-label"><strong>07</strong>IR convergence</aside>
+      <div class="section-main">
+        <h2>v2.12 proves; v3.0 consolidates</h2>
+        <p class="lede">
+          The system design names #1258 as the consolidation endpoint.
+          <strong>Every interim mechanism must lower into workflow IR, remain at
+          an explicit runtime chokepoint, or be deleted.</strong>
+        </p>
+        <div class="before-after">
+          <div class="side before">
+            <div class="label">v2.12 / additive proof substrate</div>
+            <ul>
+              <li>Characterize legacy transition decisions and bypasses.</li>
+              <li>Persist subject-bound evidence through the canonical runner.</li>
+              <li>Record phase-attempt identity, provenance, supersession, contradiction, and reliability.</li>
+              <li>Run audit/shadow evaluation without changing legal behavior.</li>
+              <li>Do not freeze a temporary public admission contract.</li>
+            </ul>
+          </div>
+          <div class="side after">
+            <div class="label">v3.0 / shared IR cutover</div>
+            <ul>
+              <li>Extend Strategos.Contracts TypeSpec and generate Exarchos Zod.</li>
+              <li>Compile closed edge conditions, gate declarations, and admission policies from WorkflowDefinitionV1.</li>
+              <li>Generate MCP and CLI presentation from the Exarchos action API contract.</li>
+              <li>Migrate built-in workflows through #1258.</li>
+              <li>Enable admission and delete legacy guards, HSM definitions, and closed-form playbooks.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="decision" style="margin-top: 24px;">
+          <div class="decision-thesis">
+            <p>MCP is the <mark>wire projection</mark>, not the whole Exarchos API contract.</p>
+          </div>
+          <div class="decision-why">
+            <h3>Do we extend MCP?</h3>
+            <ul>
+              <li><strong>No protocol fork.</strong> External clients receive standard MCP input/output schemas, structured content, and standard annotations.</li>
+              <li>The generated internal action contract also carries trusted phases/roles, gate and auto-emission metadata, dispatch/economy hints, long-running posture, deprecation, capability posture, and effect ownership.</li>
+              <li>That richer contract generates the dispatch interfaces, MCP registration, CLI/help, docs/skills, ship-graph nodes, and conformance fixtures.</li>
+              <li>Exarchos-specific metadata stays in the generated internal module or companion manifest; clients that do not know it still see valid MCP tools.</li>
+            </ul>
+          </div>
+        </div>
+
+        <h3 style="margin-top: 38px;">How the dogfood findings lower</h3>
+        <div class="table-wrap" style="margin-top: 16px;">
+          <table>
+            <thead>
+              <tr><th>Surface</th><th>v2.12 treatment</th><th>v3.0 target</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Gate ordering + duplicate verification</td><td>Characterize cadence; route all results through the durable producer; bind owner and subject.</td><td><code>GateStep</code> plus admission requirements define scope, freshness, cardinality, and blocking semantics.</td></tr>
+              <tr><td>Risk tier + boundary status</td><td>Verify current packaged routing; freeze inputs in phase-attempt facts and shadow requirement sets.</td><td><code>RequirementResolver</code> compiles phase kind, risk, boundary, policy, and reliability.</td></tr>
+              <tr><td>Legacy guards + patched pass state</td><td>Capture allow/deny/bypass fixtures; add typed evidence and waiver events; shadow decisions.</td><td>Closed condition AST plus admission policy; delete <code>workflow/guards.ts</code> and custom shell guards.</td></tr>
+              <tr><td>Skills, runbooks, docs, examples</td><td>Mark authoritative vs. generated; validate temporary examples against live schemas.</td><td>Generate workflow guidance from builder/IR and facade examples from Exarchos action-contract projections; delete closed-form playbooks.</td></tr>
+              <tr><td>Worktree + merge capability</td><td>Enforce through launcher/dispatch and record capability provenance.</td><td>IR may declare requirements; spatial/process enforcement remains a non-IR runtime chokepoint.</td></tr>
+              <tr><td>Binary / plugin / skill drift</td><td>Capture existing package/build/plugin/skill identity before dogfood.</td><td>Bind source, contract, generator, and artifact digests into proof-carrying build outputs.</td></tr>
+              <tr><td>Stream / projection disagreement</td><td>Preserve a kill fixture and prove the packaged storage path.</td><td>Runtime invariant outside IR; corrupt or missing evidence yields <code>indeterminate</code> and blocks admission.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 style="margin-top: 38px;">Seven principles become seven proof obligations</h3>
+        <div class="table-wrap" style="margin-top: 16px;">
+          <table>
+            <thead>
+              <tr><th>Principle</th><th>Convergence move</th><th>Cheapest sound proof</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>1. Generate boundaries</td><td>Workflow semantics from shared TypeSpec IR; dispatch semantics from one Exarchos action contract; MCP/CLI/docs are projections.</td><td>Regenerate, clean-tree guard, compatibility diff, generated conformance fixtures.</td></tr>
+              <tr><td>2. Algebraic behavior</td><td>Use pass/fail/skipped/indeterminate and allow/deny/indeterminate unions; isolate effects behind ports.</td><td>Strict exhaustive compilation plus adapter contract tests.</td></tr>
+              <tr><td>3. Provable modules</td><td>Narrow contracts for condition evaluation, requirements, evidence, admission, identity, storage, and artifacts.</td><td>Ownership/dependency checks and public-boundary component tests.</td></tr>
+              <tr><td>4. Graph completeness</td><td>Prove authored IR reaches compiled policy, public action, handler, owned effect, output, and packaged fixture.</td><td>Generated graph closure plus a small real-binary path test.</td></tr>
+              <tr><td>5. Cheapest proof</td><td>Generation proves representation; compiler proves unions; graph proves wiring; E2E proves packaging only.</td><td>Each criterion names one primary proof and why a cheaper layer is insufficient.</td></tr>
+              <tr><td>6. Proof-carrying changes</td><td>Bind evidence to subject, revision, contract/policy/tool versions, artifact digest, and environment.</td><td>Generated impact closure and admission rejection of stale evidence.</td></tr>
+              <tr><td>7. Structural ratchets</td><td>Turn every dogfood defect into a kill fixture at the earliest sound layer.</td><td>The guard fails on the old defect, runs everywhere protected, and cannot skip as pass.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 style="margin-top: 38px;">Empirical cutover gates</h3>
+        <p class="lede" style="margin-bottom: 16px;">
+          Each result is stored with source SHA, binary tag, contract and
+          generator versions, environment, date, and raw samples. Qualitative
+          “green” is not sufficient.
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Obligation</th><th>E2E / benchmark protocol</th><th>Acceptance threshold</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Artifact freshness</td><td>Mutate binary SHA, plugin version, skill hash, and runtime digest independently.</td><td>Matching set proceeds; <strong>4/4</strong> mismatches block before workflow calls.</td></tr>
+              <tr><td>Generated boundary</td><td>Seed drift in static type, Zod, CLI metadata, docs/skill snippet, fixture, and compatibility metadata.</td><td><strong>6/6</strong> seeded drifts fail regeneration/conformance; tree returns clean.</td></tr>
+              <tr><td>Ship graph</td><td>Seed missing route, handler, provider selection, owned effect, output schema, and packaged fixture.</td><td><strong>100%</strong> public actions are closed; <strong>6/6</strong> negative controls fail.</td></tr>
+              <tr><td>Evidence durability</td><td>At least <strong>100</strong> invocations per enforceable gate class with deterministic append failures and reruns.</td><td>Zero success without evidence; <strong>100%</strong> append failures fail/indeterminate; one operation ID → one record.</td></tr>
+              <tr><td>Hot-stream concurrency</td><td><strong>4 child processes × 250 appends × 3 runs</strong>, with restart between runs.</td><td><strong>3,000/3,000</strong> dense unique events; HWM/projections match; p99 ≤ baseline +20%.</td></tr>
+              <tr><td>Admission latency</td><td><strong>10,000</strong> decisions each at 10, 100, and 1,000 active evidence records.</td><td>p99 <strong>&lt;15 ms</strong>, excluding gate execution and report generation.</td></tr>
+              <tr><td>Shadow cutover</td><td>Replay deterministic corpus plus live attempts for every phase kind.</td><td>Zero unexplained fixture disagreements; ≥<strong>20</strong> live attempts with allow and deny coverage.</td></tr>
+              <tr><td>Verification economy</td><td>Record command+subject digest, wall time, calls, output bytes/tokens, and caught failures.</td><td>No identical command+subject reruns; full integration exactly once per wave; seeded catch rate does not regress.</td></tr>
+              <tr><td>Packaged path</td><td>Spawn the compiled binary and exercise real MCP transport, persistence, configuration, and packaging per effect family.</td><td>Every effect family has a passing packaged fixture; source-level handler calls cannot substitute.</td></tr>
+              <tr><td>Ratchet efficacy</td><td>Run every dogfood kill fixture with a matched control and injected guard-infrastructure failure.</td><td>Old defect fails, control passes, and infrastructure failure never reports success.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <aside class="section-label"><strong>08</strong>Sequence</aside>
+      <div class="section-main">
+        <h2>Audit first, then converge</h2>
+        <div class="timeline">
+          <article class="phase">
+            <div class="phase-id">Phase A / Delta</div>
+            <h3>Refresh the structural assessment</h3>
+            <p>Assess the latest feature branch, record closed gaps, and emit machine-readable contract, effect, artifact, advisory, and packaged-proof inventories.</p>
+          </article>
+          <article class="phase">
+            <div class="phase-id">Phase B / Generate</div>
+            <h3>Collapse the shared boundaries</h3>
+            <p>Generate workflow semantics from Strategos.Contracts/WorkflowDefinitionV1 and dispatch semantics from the Exarchos action API contract, with MCP/CLI/docs as projections; prove every derivative cannot drift independently.</p>
+          </article>
+          <article class="phase">
+            <div class="phase-id">Phase C / Close</div>
+            <h3>Build graph closure</h3>
+            <p>Connect registries into the ship-surface graph, eliminate unowned effect paths, and require packaged fixtures for every shipped capability.</p>
+          </article>
+          <article class="phase">
+            <div class="phase-id">Phase D / Ratchet</div>
+            <h3>Retire temporary controls</h3>
+            <p>Promote or remove advisories by exit condition, bind dogfood to artifact provenance, and convert every accepted incident into an unfiltered structural check.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <aside class="section-label"><strong>09</strong>Exit criteria</aside>
+      <div class="section-main">
+        <h2>Define success before the rerun</h2>
+        <p class="lede">A green merge is insufficient. The next dogfood must prove the governance system itself is trustworthy.</p>
+        <div class="criteria">
+          <div class="criterion">Dogfood preflight records and matches package version, build SHA, plugin version, and generated-skill hash.</div>
+          <div class="criterion">A four-task wave in a 17-task workflow reports exactly four expected worktrees.</div>
+          <div class="criterion">Two real processes append concurrently without event/HWM divergence.</div>
+          <div class="criterion">Restart preserves stream appendability and projection consistency.</div>
+          <div class="criterion">Test adequacy discovers committed test diffs and handles new source paths.</div>
+          <div class="criterion">The full integration suite runs once per wave from a structured report.</div>
+          <div class="criterion">No task is complete before every task-scoped blocker passes.</div>
+          <div class="criterion">The canonical unified spec passes without compatibility headings.</div>
+          <div class="criterion">Plan-time coverage accepts future tests while validating declarations.</div>
+          <div class="criterion">Risk-tier behavior is verified against the current packaged artifact before new policy is proposed.</div>
+          <div class="criterion">Repeated infrastructure failures emit friction and reduced-mode guidance.</div>
+          <div class="criterion">Events, projections, and git reconstruct the same trace without arbitration.</div>
+          <div class="criterion">Every public action has one reachable implementation, owned effect, output contract, and packaged fixture.</div>
+          <div class="criterion">Every advisory or temporary compatibility path has an explicit exit condition.</div>
+          <div class="criterion">Every v2.12 mechanism names its v3.0 IR lowering, non-IR chokepoint, or deletion milestone.</div>
+          <div class="criterion">The shadow corpus meets the quantitative cutover gate before legacy admission is replaced.</div>
+          <div class="criterion">A baseline-vs-candidate benchmark artifact records raw samples, provenance, variance, and regression budget.</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <aside class="section-label"><strong>10</strong>Your decisions</aside>
+      <div class="section-main">
+        <h2>Review decisions</h2>
+        <p class="lede">
+          Review closed on <strong>Option C</strong>: repository-wide structural
+          closure, optimized for the smallest closed target. Breaking changes
+          are acceptable when they retire driftable or bypassable surfaces.
+        </p>
+        <div class="review-board">
+          <div>
+            <form class="question" data-lavish-question="program-choice" onsubmit="queueProgram(event)">
+              <fieldset>
+                <legend>Which program should the follow-on design use?</legend>
+                <label class="choice">
+                  <input type="radio" name="program" value="Option A: independent patch train">
+                  <span><strong>Option A</strong> - independent patch train</span>
+                </label>
+                <label class="choice">
+                  <input type="radio" name="program" value="Option B: phase-gate-only structural closure">
+                  <span><strong>Option B</strong> - structurally close phase-gate only</span>
+                </label>
+                <label class="choice">
+                  <input type="radio" name="program" value="Option C: repository-wide structural closure audit and convergence" checked>
+                  <span><strong>Option C</strong> - repository-wide structural closure audit and convergence</span>
+                </label>
+              </fieldset>
+              <button class="queue" type="submit">Queue program choice</button>
+              <div class="queued-note" id="program-status" aria-live="polite"></div>
+            </form>
+
+            <form class="question" data-lavish-question="containment-priority" onsubmit="queuePriorities(event)">
+              <fieldset>
+                <legend>What must the structural audit inventory?</legend>
+                <label class="choice"><input type="checkbox" name="priority" value="all competing contract sources and generated derivatives" checked><span>Competing contract sources and generated derivatives</span></label>
+                <label class="choice"><input type="checkbox" name="priority" value="effect ownership, direct emitters, and shell bypass paths" checked><span>Effect ownership, direct emitters, and shell bypass paths</span></label>
+                <label class="choice"><input type="checkbox" name="priority" value="public action to packaged artifact reachability graph" checked><span>Public action to packaged artifact reachability graph</span></label>
+                <label class="choice"><input type="checkbox" name="priority" value="cached binaries, plugin installs, generated skills, agents, hooks, and runtimes" checked><span>Cached and generated artifact freshness</span></label>
+                <label class="choice"><input type="checkbox" name="priority" value="v2.12 to v3.0 workflow IR lowering and legacy retirement map" checked><span>v2.12 → v3.0 workflow IR lowering and legacy retirement map</span></label>
+                <label class="choice"><input type="checkbox" name="priority" value="advisory and temporary controls with exit conditions"><span>Advisory and temporary controls with exit conditions</span></label>
+                <label class="choice"><input type="checkbox" name="priority" value="module ownership and permitted dependency/effect directions"><span>Module ownership and dependency/effect directions</span></label>
+              </fieldset>
+              <button class="queue" type="submit">Queue audit scope</button>
+              <div class="queued-note" id="priority-status" aria-live="polite"></div>
+            </form>
+
+            <form class="question" data-lavish-question="constraints" onsubmit="queueConstraints(event)">
+              <fieldset>
+                <legend>Constraints or corrections</legend>
+                <label for="risk-posture">Preferred structural posture</label>
+                <select id="risk-posture" name="posture">
+                  <option value="generate without intentional breaking changes">Generate without intentional breaking changes</option>
+                  <option value="allow narrow breaking changes to eliminate parallel contract sources">Allow narrow breaking changes to eliminate parallel sources</option>
+                  <option value="optimize for the smallest structurally closed target" selected>Optimize for the smallest structurally closed target</option>
+                </select>
+                <label for="notes">Anything the design must add, remove, or challenge?</label>
+                <textarea id="notes" name="notes">Breaking changes are OK.</textarea>
+              </fieldset>
+              <button class="queue secondary" type="submit">Queue constraints</button>
+              <div class="queued-note" id="constraint-status" aria-live="polite"></div>
+            </form>
+          </div>
+
+          <aside class="review-aside">
+            <h3>Persisted outcome</h3>
+            <ol>
+              <li>Audit competing contract sources and generated derivatives exhaustively.</li>
+              <li>Audit effect ownership, direct emitters, and shell bypass paths exhaustively.</li>
+              <li>Generate the public-action-to-packaged-artifact reachability graph.</li>
+              <li>Inventory cached and generated artifacts with revision provenance.</li>
+              <li>Map every v2.12 mechanism to v3.0 IR lowering or legacy retirement.</li>
+            </ol>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      <p>
+        Full report:
+        <code>2026-07-23-phase-gate-v212-dogfood-remediation.md</code>.
+        Source traces: <code>2026-07-21-phase-gate-v212-dogfood.md</code> and
+        <code>2026-07-21-structural-principles-codebase-assessment.md</code>.
+        Convergence sources: <code>sol-research.zip/agent-principles.md</code>,
+        the transition-admission spec, <code>docs/system-design.html</code>, and #1258.
+      </p>
+      <span class="mono">design source: existing Exarchos Lavish artifact</span>
+    </footer>
+  </div>
+
+  <script>
+    function queuePrompt(prompt, options) {
+      if (window.lavish && typeof window.lavish.queuePrompt === "function") {
+        window.lavish.queuePrompt(prompt, options);
+        return true;
+      }
+      return false;
+    }
+
+    function queueProgram(event) {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const choice = new FormData(form).get("program");
+      if (!choice) return;
+      const prompt = `Use ${choice} for the follow-on phase-gate remediation design. Update the discovery recommendation if this changes it.`;
+      const queued = queuePrompt(prompt, {
+        tag: "decision",
+        text: `Program: ${choice}`,
+        element: form,
+        queueKey: "program-choice",
+        data: { question: "program", answer: choice }
+      });
+      document.getElementById("program-status").textContent =
+        queued ? "Queued locally. Press Send to Agent when ready." : "Lavish queue is unavailable in this view.";
+    }
+
+    function queuePriorities(event) {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const priorities = Array.from(new FormData(form).getAll("priority"));
+      if (priorities.length === 0) return;
+      const prompt = `Treat these as required exhaustive inventories for the Exarchos structural closure audit: ${priorities.join("; ")}. Update the discovery report and follow-on design scope accordingly.`;
+      const queued = queuePrompt(prompt, {
+        tag: "scope",
+        text: `Audit scope: ${priorities.join(", ")}`,
+        element: form,
+        queueKey: "structural-audit-scope",
+        data: { question: "structural-audit-scope", answers: priorities }
+      });
+      document.getElementById("priority-status").textContent =
+        queued ? "Queued locally. Press Send to Agent when ready." : "Lavish queue is unavailable in this view.";
+    }
+
+    function queueConstraints(event) {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const data = new FormData(form);
+      const posture = data.get("posture");
+      const notes = String(data.get("notes") || "").trim();
+      const prompt = `For the phase-gate remediation design, use this migration posture: ${posture}.${notes ? ` Additional constraints: ${notes}` : ""}`;
+      const queued = queuePrompt(prompt, {
+        tag: "constraint",
+        text: `Migration posture: ${posture}`,
+        element: form,
+        queueKey: "constraints",
+        data: { question: "constraints", posture, notes }
+      });
+      document.getElementById("constraint-status").textContent =
+        queued ? "Queued locally. Press Send to Agent when ready." : "Lavish queue is unavailable in this view.";
+    }
+  </script>
+</body>
+</html>

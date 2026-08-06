@@ -1,0 +1,5 @@
+92a55c266e602cf8e2083b502580196c2db2f63f8fa2f5f740fa8d8c0c0c8388  DOGFOOD-REPORT.md
+8bb7065151fe6c043e7361af10d294f1f010784106406916f1332accb63936f5  METADATA.json
+01b53b91f04bd6f4c0955f69b410ac5d1abcecc96140fa88f8198e76e21d60cf  phase-gate-v212-proof-substrate-source.zip
+52c909cc68b1bb8a7452e690b7a3571b2517eb5d47f61496180016a00fddb160  phase-gate-v212-proof-substrate.bundle
+5c8488ba532fb273b7fbcf086d5bcb3979ae5fb58694876c3111992eff9190d3  phase-gate-v212-proof-substrate.diff

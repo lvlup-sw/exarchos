@@ -1,0 +1,918 @@
+{
+  "schemaVersion": 1,
+  "status": "target-state",
+  "generatedAt": "2026-07-24T08:26:04.758Z",
+  "auditedSnapshot": "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
+  "authority": {
+    "currentCatalog": ".exarchos/invariants.md",
+    "targetDecisions": [
+      "GitHub #1601 — standards-first harness agnosticism (latest INV-11 clarification)",
+      "GitHub #1604 — MCP adapter migration to 2026-07-28 stateless specification",
+      "GitHub #1606 — CLI as MCP-contract client plus presentation codegen",
+      "GitHub #1608 — invariant catalog reframes",
+      "GitHub #1258 — Workflow Builder SDK and shared Strategos.Contracts workflow IR",
+      "GitHub #1247 — Workflow IR substrate and TypeSpec/Zod codegen phase",
+      "docs/system-design.html §05-§06"
+    ],
+    "precedence": [
+      "Current behavior is measured against the committed invariant catalog.",
+      "Target-state recommendations use #1601/#1599 latest clarifications when child issue text is stale.",
+      "Shared workflow/event/evidence IR types come from Strategos.Contracts.",
+      "Exarchos-specific product API, presentation, policy, and implementation bindings remain Exarchos-owned."
+    ]
+  },
+  "externalAuthorityPinning": {
+    "mcp": [
+      "Pin the exact 2026-07-28 RC/final specification revision and SDK version used by codegen.",
+      "Vendor the protocol JSON Schemas and hand-authored conformance fixtures with source URL, commit/release digest, and license/provenance.",
+      "Never generate against a floating latest specification or SDK.",
+      "When final/SDK changes, produce a machine-readable schema/behavior diff and migration decision before regeneration."
+    ],
+    "v3Architecture": [
+      "Record an interim approved ADR/contract freeze for API-001/CTR-012 decisions.",
+      "Every later #1258/#1247/#1599 change must diff against the frozen contract and classify compatibility/migration impact.",
+      "Downstream generated work may proceed against the pin, but cannot be declared final until the authoritative issue/doc accepts or supersedes it."
+    ],
+    "fallback": [
+      "Feature-flag the pinned draft adapter/compiler output from the stable runtime path.",
+      "Keep migration fixtures capable of regenerating from both pinned draft and final spec during the transition window.",
+      "Refuse release when generated artifacts reference an unapproved or floating authority digest."
+    ]
+  },
+  "invariantOverlay": [
+    {
+      "id": "INV-2",
+      "current": "CLI and MCP are sibling facades over one dispatch core, with parity proven by tests.",
+      "target": "The MCP contract is the single invocation surface. The CLI is a generated in-process client and presentation layer over that contract.",
+      "auditImpact": [
+        "Parity is no longer the primary closure mechanism.",
+        "The parity suite becomes a contract-codegen golden/differential test.",
+        "Packaged tests still prove built-artifact selection and rendering, not duplicate business behavior."
+      ]
+    },
+    {
+      "id": "INV-4",
+      "current": "Six runtime renderings are first-class and drift-guarded.",
+      "target": "Emit standard Agent Skills, AGENTS.md, and MCP artifacts once; retain thin shims only where no standard exists.",
+      "auditImpact": [
+        "Per-runtime fan-out is technical debt, not the target architecture.",
+        "Conformance and shim minimization replace render-parity as the primary metric.",
+        "Every residual shim needs an owner, capability reason, and retirement condition."
+      ]
+    },
+    {
+      "id": "INV-11",
+      "current": "Task-isolated agents are described as unable to write outside their worktree by construction.",
+      "target": "The launcher owns lifecycle and top-level placement. Spatial write confinement is a per-harness capability and requires a Bash-covering hook standard or a kernel sandbox.",
+      "auditImpact": [
+        "Launcher/WLM acceptance must not claim filesystem write confinement.",
+        "Lifecycle and spatial isolation become separate audit dimensions.",
+        "The capability contract must report prevention, detection, advisory, or unavailable posture per harness."
+      ]
+    }
+  ],
+  "contractArchitecture": {
+    "layers": [
+      {
+        "id": "protocol",
+        "owner": "MCP specification 2026-07-28",
+        "responsibility": "Stateless request/response transport, full JSON Schema 2020-12 tool contracts, structuredContent, request _meta, discovery, cache metadata, Tasks extension, cancellation, and protocol error codes."
+      },
+      {
+        "id": "shared-ir",
+        "owner": "Strategos.Contracts",
+        "responsibility": "Cross-product workflow IR, event/evidence subjects, gate classes, fork/compensation edges, decisions, abstention/error unions, and shared compatibility shapes."
+      },
+      {
+        "id": "exarchos-api",
+        "owner": "Exarchos",
+        "responsibility": "Composite tools, actions, envelopes, next actions, policies, host commands, standard artifact projections, extension handshake, compatibility, and presentation metadata."
+      },
+      {
+        "id": "implementation-bindings",
+        "owner": "Exarchos runtime",
+        "responsibility": "One exact handler and optional summarizer/presenter hook per stable action ID; functions never enter the serializable wire contract."
+      },
+      {
+        "id": "generated-clients-and-artifacts",
+        "owner": "Contract compiler",
+        "responsibility": "MCP registration, runtime validators/types, CLI client/parser/renderers, fixtures, standard skills/instructions, documentation catalogs, and Workflow Builder action references."
+      }
+    ],
+    "sourceLayout": [
+      "contracts/exarchos-api/main.tsp",
+      "contracts/exarchos-api/tools.tsp",
+      "contracts/exarchos-api/envelope.tsp",
+      "contracts/exarchos-api/errors.tsp",
+      "contracts/exarchos-api/policies.tsp",
+      "contracts/exarchos-api/presentation.tsp",
+      "contracts/exarchos-api/extensions.tsp",
+      "contracts/exarchos-api/compatibility.tsp",
+      "contracts/implementation-bindings.ts"
+    ],
+    "productContract": {
+      "fields": [
+        "apiContractVersion",
+        "mcpSpecificationVersion",
+        "packageVersion",
+        "buildSourceSha",
+        "contractDigest",
+        "supportedProtocolFeatures",
+        "compositeTools",
+        "hostCommands",
+        "standardArtifactProjections",
+        "extensionContract"
+      ]
+    },
+    "surfacePartition": {
+      "rule": "Every CLI-visible ID is exactly one of API action, API presentation alias, or host command.",
+      "apiAction": "MCP-invocable contract action with one stable ActionId and implementation binding.",
+      "apiPresentationAlias": "CLI spelling or top-level promotion that references one API ActionId and owns no behavior/schema.",
+      "hostCommand": "Local process/bootstrap/server operation that cannot be invoked through MCP; must state why.",
+      "currentStandaloneClassification": {
+        "apiPresentationAliases": [
+          "doctor",
+          "feedback",
+          "schema",
+          "topology",
+          "emissions",
+          "onboard",
+          "init",
+          "merge-orchestrate"
+        ],
+        "hostCommands": [
+          "mcp",
+          "version",
+          "install-skills"
+        ]
+      }
+    },
+    "actionContract": {
+      "identity": [
+        "stableActionId",
+        "toolName",
+        "actionName",
+        "contractVersion",
+        "stability: experimental|preview|stable|deprecated",
+        "introducedIn",
+        "deprecatedIn",
+        "replacementActionId",
+        "aliases",
+        "visibility: public|hidden"
+      ],
+      "schemas": [
+        "inputSchema JSON Schema 2020-12",
+        "success data schema",
+        "closed error union",
+        "full output envelope schema",
+        "capped/degraded/detail/paginated output variants",
+        "examples and negative fixtures"
+      ],
+      "executionPolicy": [
+        "allowed phases and roles",
+        "trusted safety class",
+        "readOnly/destructive/idempotent/openWorld hints",
+        "effect class and owner reference",
+        "dry-run policy",
+        "compensation policy",
+        "queryability and next-action semantics",
+        "task suitability, TTL, cancellation, and follow/wait semantics",
+        "response economy budget and summarizer hook ID",
+        "cacheScope and ttlMs"
+      ],
+      "evidencePolicy": [
+        "auto-emitted event types",
+        "required model-emitted events",
+        "subject and provenance requirements",
+        "artifact/evidence references",
+        "admission requirement IDs"
+      ],
+      "presentationPolicy": [
+        "CLI command, aliases, grouping, and top-level promotion",
+        "flag names, aliases, coercion, requiredness, and secret redaction",
+        "human formats: table|tree|text|json",
+        "compact/detail/pagination affordances",
+        "dry-run rendering",
+        "exit-code mapping by closed error code",
+        "examples and help text"
+      ]
+    },
+    "envelopeContract": {
+      "success": [
+        "success=true",
+        "typed data",
+        "next_actions",
+        "_meta operation/correlation/projection identity",
+        "_perf",
+        "warnings",
+        "_corrections",
+        "_eventHints",
+        "_cacheHints"
+      ],
+      "failure": [
+        "success=false",
+        "closed error code",
+        "message",
+        "action",
+        "validTargets",
+        "suggestedFix",
+        "expectedShape",
+        "retryability and retryAfter",
+        "same diagnostic side channels as success where applicable"
+      ],
+      "invariants": [
+        "Every emittable runtime shape is represented in the output schema.",
+        "No success-shaped fallback exists outside the declared union.",
+        "CLI --json emits the same envelope data contract as MCP structuredContent."
+      ]
+    },
+    "errorLayerMapping": {
+      "origins": [
+        "transport and JSON-RPC framing errors",
+        "unknown MCP method/tool/action errors",
+        "input/schema/coercion errors",
+        "authentication and authorization errors",
+        "capability/workspace/tenant policy errors",
+        "task creation, polling, expiry, ownership, and cancellation errors",
+        "deadline/timeout and client cancellation",
+        "action/domain failures returned by handlers",
+        "output-schema and economy violations",
+        "adapter/presenter exceptions",
+        "unexpected internal exceptions"
+      ],
+      "normalizedFields": [
+        "layer",
+        "stableCode",
+        "protocolCode and isError mapping",
+        "typed details schema",
+        "retryable and retryAfter",
+        "validTargets and suggestedFix",
+        "CLI exit code",
+        "compatibility/version behavior",
+        "redaction policy"
+      ],
+      "rule": "Every failure origin maps exactly once into the closed Exarchos failure envelope or a protocol error defined by the contract; no throw or adapter-only shape bypasses the mapping.",
+      "requiredTests": [
+        "unknown method/tool/action",
+        "invalid input/coercion",
+        "authorization and scope denial",
+        "task expiry/ownership/cancellation",
+        "timeout and cancellation race",
+        "handler failure",
+        "invalid output shape",
+        "presenter exception",
+        "internal exception redaction"
+      ]
+    },
+    "hostCommandContract": {
+      "purpose": "Classify CLI-only bootstrap/launcher/server-mode operations that cannot be MCP actions without pretending INV-2 applies to them.",
+      "requiredFields": [
+        "stableCommandId",
+        "reasonHostLocal",
+        "input/error/result contract",
+        "effects and safety",
+        "exit codes",
+        "relationship to MCP actions",
+        "retirement or standardization path"
+      ],
+      "examples": [
+        "mcp server mode",
+        "launcher harness verbs",
+        "install-skills/bootstrap operations",
+        "version/build identity inspection"
+      ]
+    },
+    "extensionContract": {
+      "handshake": [
+        "extension identity and version",
+        "signed publisher identity and implementation provenance",
+        "tool/action schemas and contract digests",
+        "immutable admitted implementation/package digest",
+        "trusted/untrusted annotations",
+        "effect capabilities",
+        "authentication/authorization requirements",
+        "compatibility range",
+        "conflict and namespace rules",
+        "resource/schema complexity limits and quotas",
+        "isolation/sandbox requirement",
+        "minimum harness spatial posture required per effect capability",
+        "revocation and expiry metadata"
+      ],
+      "rule": "Untrusted consumer schemas may be presented but never promoted to server-trusted safety/effect policy without server-owned admission. Admission pins signed identity and implementation digest, applies namespace/effect allowlists and quotas, and is revalidated before execution to prevent TOCTOU swaps.",
+      "requiredTests": [
+        "schema expansion bomb and oversized recursive schema",
+        "undeclared filesystem/process/network effect",
+        "digest swap after admission",
+        "namespace/action capture",
+        "forged publisher or trusted annotation",
+        "revoked or expired extension",
+        "stale revocation cache and revocation-source outage",
+        "revocation-epoch rollback and local clock rollback",
+        "sandbox/limit violation"
+      ],
+      "signingProfile": {
+        "format": "DSSE envelope over an RFC 8785 canonical JSON admission payload",
+        "supportedTrust": [
+          "Sigstore keyless identity with Fulcio certificate + Rekor inclusion",
+          "or explicitly configured offline trust roots for air-gapped installs"
+        ],
+        "signedPayload": [
+          "publisher identity",
+          "extension ID/version and monotonic release counter",
+          "implementation/package digest",
+          "API contract and schema digests",
+          "action IDs/namespaces",
+          "trusted/untrusted policy declarations",
+          "effect capabilities and resource limits",
+          "compatibility range",
+          "issued-at, expiry, revocation epoch"
+        ],
+        "trustPolicy": [
+          "allowed issuer, subject/repository, workflow identity, and ref/tag policy",
+          "key/issuer rotation overlap window",
+          "revocation source and cache freshness",
+          "maximum revocation-cache age; stale or unavailable source fails closed for new admission/execution",
+          "offline signed revocation list/checkpoint for disconnected operation",
+          "monotonic revocation epoch and rollback-resistant trusted time/clock policy",
+          "transparency-log inclusion or offline equivalent",
+          "anti-rollback: reject lower version/revocation epoch or stale integrated timestamp"
+        ]
+      },
+      "isolationAdmission": {
+        "postureLevels": [
+          "prevention: kernel sandbox or Bash-covering blocking hook owns the write path",
+          "detection: post-write detection with attributable durable violation evidence",
+          "advisory: prose/instruction only",
+          "unavailable: no meaningful spatial control"
+        ],
+        "rules": [
+          "Each extension effect capability declares the minimum required posture.",
+          "Admission resolves the target harness posture from server-trusted capability evidence, never extension metadata.",
+          "If the harness posture is below the required level, execution is refused or explicitly downgraded to a capability-safe mode such as read-only.",
+          "Advisory/unavailable posture cannot admit arbitrary filesystem/process/network extension code as trusted."
+        ],
+        "requiredTests": [
+          "prevention tier blocks an undeclared filesystem/process effect",
+          "detection tier records and attributes the violation and applies declared failure policy",
+          "advisory tier refuses an extension requiring prevention",
+          "unavailable tier refuses execution or restricts it to a no-effect/read-only mode",
+          "forged extension posture metadata cannot upgrade the server-resolved harness posture"
+        ]
+      }
+    },
+    "statelessRuntimeContract": {
+      "forbiddenServerState": [
+        "initialize/oninitialized session state",
+        "notification-populated roots caches",
+        "connection-scoped client identity/capabilities",
+        "connection-scoped task ownership",
+        "in-memory-only task/cancellation state required for resumption"
+      ],
+      "requestContext": [
+        "transport-authenticated principal",
+        "untrusted request _meta hints",
+        "server-derived capabilities and policy",
+        "workspace/repository/tenant scope",
+        "request, invocation, operation, and correlation IDs",
+        "roots/resource view resolved for this request",
+        "deadline/cancellation token"
+      ],
+      "rootsAndReverseRequests": [
+        "roots/list or successor semantics are request-scoped and never cached as authority across clients",
+        "elicitation and sampling/reverse requests bind to the initiating request/task and authenticated client route",
+        "load-balancer routing either preserves the reverse-request route or returns a typed unsupported/input-required result"
+      ],
+      "durableTasks": [
+        "globally unique task ID independent of server process",
+        "authenticated owner/principal and workspace scope",
+        "durable state, result, progress cursor, and idempotency key",
+        "expiry, tombstone, retention, and garbage-collection policy",
+        "idempotent cancellation and terminal-state conflict rules",
+        "durable worker lease and monotonically increasing fencing token",
+        "terminal-state precedence and rejection of stale post-cancel result/effect commits",
+        "restart and cross-instance resume/load-balancer behavior"
+      ],
+      "requiredTests": [
+        "Alternate requests from two clients across fresh server instances and prove no capability/root/principal leakage.",
+        "Create a task on one instance, poll/cancel/resume on another, restart all instances, and recover the same durable state.",
+        "Reject cross-principal/workspace task reads and cancellation.",
+        "Prove expired/tombstoned task behavior and idempotent repeated cancellation.",
+        "Race cancellation against effect/result commit from an old fenced worker and prove the stale commit is rejected."
+      ]
+    },
+    "securityContext": {
+      "trustModel": [
+        "Transport or host integration authenticates the principal; request _meta never authenticates.",
+        "Server derives trusted capabilities, roles, workspace/tenant scope, and policy.",
+        "Client metadata is retained only as untrusted presentation/compatibility hints.",
+        "Evidence producer identity binds to the authenticated principal and server-validated implementation."
+      ],
+      "perActionAuthorization": [
+        "required principal class",
+        "required scopes/roles",
+        "workspace/repository/tenant constraints",
+        "cross-resource policy",
+        "anti-replay/idempotency requirement",
+        "server-derived capability requirement"
+      ],
+      "antiReplay": [
+        "request/operation ID uniqueness policy",
+        "timestamp/deadline tolerance",
+        "nonce or idempotency-key binding for mutations",
+        "principal + action + subject binding",
+        "canonical full-request digest including normalized input, selected MCP/API/action versions, contract digest, policy digest, principal, workspace scope, and effect subject",
+        "shared durable replay ledger or idempotency-claim table visible to every server instance",
+        "atomic claim-before-effect transaction and duplicate-result recovery",
+        "retention, expiry, tombstone, and garbage-collection rules sized to the replay window"
+      ],
+      "stableClaimIdentity": [
+        "caller-supplied or server-issued idempotency key",
+        "authenticated principal",
+        "workspace/tenant scope",
+        "stable ActionId",
+        "stable action namespace"
+      ],
+      "requestFingerprint": [
+        "canonical normalized full input",
+        "stable effect subject identity",
+        "selected MCP/API/action versions",
+        "contract digest",
+        "authorization/effect/policy digest"
+      ],
+      "upgradeRule": "Stable claim identity is version-independent and reserves the idempotency key across subjects. If a retry presents a different subject/request/version/policy fingerprint, the server returns a typed idempotency conflict or explicit migration decision; it never creates a fresh effect claim implicitly. Stored-result replay requires current authorization and a lossless projection to the negotiated result schema, otherwise it returns forbidden/conflict/migration.",
+      "replayClaimStateMachine": [
+        "claimed",
+        "effect-started",
+        "completed with stored typed result",
+        "failed-retryable",
+        "failed-terminal",
+        "compensating",
+        "compensated",
+        "compensation-failed-needs-manual-intervention",
+        "abandoned/expired"
+      ],
+      "replayRecovery": [
+        "durable lease owner and fencing token",
+        "lease expiry and atomic takeover",
+        "stored-result replay for completed claims only after current authorization and lossless negotiated-schema projection",
+        "effect-specific precheck/reconciliation before retry",
+        "compensation requirement for non-transactional filesystem/process/network effects",
+        "typed compensation-failure diagnostics, bounded retry, and explicit manual-intervention affordance",
+        "no effect commit after lease loss, cancellation, or terminal claim"
+      ],
+      "requiredTests": [
+        "spoofed _meta identity/capabilities",
+        "replayed mutation with altered subject or principal",
+        "same replay sent concurrently to different server instances and after restart",
+        "retry the same stable claim before and after API/action/policy upgrade and prove no duplicate effect executes",
+        "reuse the same idempotency key with a different subject and prove a typed conflict with no effect",
+        "revoke scope before stored-result replay and prove disclosure is denied",
+        "negotiate an incompatible result version and prove replay returns conflict/migration rather than an invalid payload",
+        "kill or fail compensation mid-flight and prove the claim terminates as compensation-failed-needs-manual-intervention rather than hanging or falsely completing",
+        "cross-workspace and cross-tenant access",
+        "privilege escalation through presentation aliases",
+        "generated CLI path and direct MCP path enforce the same authorization exactly once"
+      ]
+    }
+  },
+  "shimPolicy": {
+    "baseline": "Generate a manifest of every residual harness shim, source, packaged destination, capability reason, owner, issue, and expiry.",
+    "budget": "The shim count is non-increasing. A new shim requires evidence that no standard surface exists plus an approved retirement issue.",
+    "expiry": "Every shim has a dated reevaluation and a finite expiry or milestone; perpetual compatibility shims are rejected.",
+    "proof": [
+      "native standard artifact loads and behaves correctly on every conformant harness",
+      "residual shim is packaged and loaded only on the harnesses that require it",
+      "retired shim and its drift guard are absent from source, package, install destination, and user cache"
+    ],
+    "currentBaseline": {
+      "snapshot": "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
+      "totalFileShims": 39,
+      "categories": {
+        "runtimeSpecificSkillVariants": 18,
+        "commandAliases": 16,
+        "runtimeHookProjections": 5
+      },
+      "perHarness": {
+        "claude": 3,
+        "codex": 4,
+        "copilot": 4,
+        "cursor": 4,
+        "generic": 4,
+        "opencode": 20
+      },
+      "evidence": "contracts.json generated-skill/runtime-alias/hook-projection rows; standard outputs excluded"
+    }
+  },
+  "generatedArtifactProvenance": {
+    "manifestFields": [
+      "generatedPath",
+      "generatorId and compiler version",
+      "source contract paths and stable model IDs",
+      "source schema/API/IR versions",
+      "source contract digest",
+      "generated content digest",
+      "generation timestamp excluded from deterministic content"
+    ],
+    "fileMarker": "Every generated text/source file carries a machine-checked generated/do-not-edit header with generator ID and source contract digest.",
+    "ciRules": [
+      "Every declared generated-output path must appear in the generated manifest.",
+      "Every manifest entry must be reproduced by a successful compiler invocation in CI.",
+      "A generated file without provenance, a provenance entry without output, or a hand edit fails CI.",
+      "Generator/source changes and generated outputs must land in the same commit."
+    ],
+    "negativeTests": [
+      "hand-edit a generated descriptor without changing TypeSpec",
+      "add a manual file under a generated output directory",
+      "remove a manifest entry while retaining output",
+      "change generator version without regenerating",
+      "reuse a stale source contract digest"
+    ]
+  },
+  "independentImplementationOracle": {
+    "purpose": "Prevent generated declarations and generated tests from agreeing on the same wrong protection/effect/output classification.",
+    "independentSources": [
+      "TypeScript AST/call-graph extraction from implementation bindings and handlers",
+      "server-owned authorization/guard registries",
+      "effect occurrence/owner ledger",
+      "explicit output-shape observation from hand-authored protocol fixtures",
+      "pinned pre-codegen behavioral characterization corpus for every action",
+      "packaged mutation probes that bypass or alter middleware/bindings"
+    ],
+    "reconciledFacts": [
+      "exact handler",
+      "pure/read-only versus effectful",
+      "effect owner and capability class",
+      "authorization requirement and scopes",
+      "dry-run/idempotency/compensation behavior",
+      "emittable output variants",
+      "defaults/coercion semantics",
+      "domain result semantics",
+      "ordered effect and event trace"
+    ],
+    "rule": "Unknown, conflicting, or generated-only classifications fail the build. The oracle is produced independently of the TypeSpec declarations and is reconciled before generated registration/client acceptance.",
+    "negativeTests": [
+      "mark an effectful handler pure",
+      "remove an authorization guard while leaving the contract protected",
+      "add an effect without an owner",
+      "emit an undeclared degraded/capped output variant",
+      "swap an implementation binding after generation",
+      "swap two same-signature handlers and require semantic/effect-trace differential failure"
+    ]
+  },
+  "generatedClientProofMatrix": {
+    "classificationOracle": "independentImplementationOracle",
+    "denominator": {
+      "apiActions": 119,
+      "apiPresentationAliases": 8,
+      "hostCommands": 3
+    },
+    "requiredCasesPerApiAction": [
+      "positive request/result",
+      "input schema boundary/negative case",
+      "authorization allow and deny where protected",
+      "closed error mapping",
+      "direct-dispatch/bypass mutation negative",
+      "baseline plus capped/degraded/detail/paginated output variants when applicable",
+      "effect-owner/dry-run/idempotency case when effectful"
+    ],
+    "requiredCasesPerEffectfulAction": [
+      "atomic claim-before-effect",
+      "crash after claim before effect",
+      "crash after effect-started before provider commit",
+      "crash after provider effect before result persistence",
+      "lease loss and stale fenced-worker commit rejection",
+      "cancellation before and during effect",
+      "cross-instance lease takeover",
+      "effect-specific reconciliation or provider idempotency-token recovery",
+      "compensation success and compensation-failed-needs-manual-intervention"
+    ],
+    "requiredCasesPerPresentationAlias": [
+      "alias resolves to exactly one ActionId",
+      "same authorization/validation chain as direct MCP",
+      "structured envelope equality",
+      "human rendering/exit policy golden"
+    ],
+    "requiredCasesPerHostCommand": [
+      "positive packaged-process invocation",
+      "input/coercion boundary and closed error/exit mapping",
+      "declared safety/effect/dry-run behavior",
+      "proof that the command is genuinely host-local and does not shadow an API action",
+      "build/install/server lifecycle failure path"
+    ],
+    "independentOracles": [
+      "hand-authored protocol fixtures not emitted by the code generator",
+      "pinned legacy-to-generated differential corpus for every ActionId covering defaults, coercion, domain result, errors, and ordered effect/event traces",
+      "mutation operators that bypass middleware, swap handler binding, weaken schema, or alter error mapping",
+      "packaged binary/process tests"
+    ],
+    "gate": "Coverage matrix is machine-reconciled across all API actions, presentation aliases, and host commands AND the independent implementation/security/effect oracle; unknown or conflicting classifications and missing cases fail CI, and representative subsets are forbidden."
+  },
+  "generatedOutputs": [
+    {
+      "id": "mcp-registration",
+      "outputs": [
+        "tools/list full input/output JSON Schemas",
+        "server/discover capabilities",
+        "protocol cache/TTL metadata",
+        "structuredContent validators"
+      ]
+    },
+    {
+      "id": "runtime-contracts",
+      "outputs": [
+        "TypeScript types",
+        "Zod validators",
+        "serializable action descriptors",
+        "contract digest table",
+        "compatibility registry"
+      ]
+    },
+    {
+      "id": "implementation-binding-check",
+      "outputs": [
+        "ActionId -> exact handler",
+        "ActionId -> summarizer hook",
+        "ActionId -> presenter policy hook",
+        "orphan/duplicate binding failures"
+      ]
+    },
+    {
+      "id": "cli-client",
+      "outputs": [
+        "Commander/argv parser",
+        "schema coercion",
+        "in-process MCP contract call",
+        "typed result decoding",
+        "format/exit/dry-run templates",
+        "help/examples"
+      ]
+    },
+    {
+      "id": "standard-artifacts",
+      "outputs": [
+        "standard SKILL.md action references",
+        "AGENTS.md contract vocabulary",
+        "thin harness shims",
+        "generated action documentation"
+      ]
+    },
+    {
+      "id": "workflow-ir-bindings",
+      "outputs": [
+        "vendor-neutral namespaced ActionRef in Strategos.Contracts: namespace + contract ID + version range",
+        "Exarchos-owned projection from ActionRef to stable Exarchos ActionId",
+        "compile-time validation that workflow nodes reference available compatible actions",
+        "generated gate/effect/evidence policy links outside the shared IR core"
+      ]
+    },
+    {
+      "id": "proof-fixtures",
+      "outputs": [
+        "positive/negative schema fixtures",
+        "error compatibility fixtures",
+        "CLI golden snapshots",
+        "MCP/CLI differential tests",
+        "package/install contract digest checks"
+      ]
+    }
+  ],
+  "pipeline": [
+    {
+      "phase": 0,
+      "name": "Authority and compatibility decisions",
+      "inputs": [
+        "#1601/#1608 overlay",
+        "#1604 protocol migration",
+        "#1258 shared IR",
+        "current 119-action registry"
+      ],
+      "outputs": [
+        "approved meta-model",
+        "versioning rules",
+        "host-command exception list",
+        "compatibility policy"
+      ],
+      "gate": "No unresolved authority for generated fields."
+    },
+    {
+      "phase": 1,
+      "name": "MCP 2026-07-28 migration",
+      "inputs": [
+        "final protocol schemas and SDK"
+      ],
+      "outputs": [
+        "stateless adapter with no initialize/oninitialized authority",
+        "request-scoped authenticated context plus untrusted _meta hints",
+        "request-scoped roots/reverse-request routing",
+        "server/discover",
+        "full input/output schema support",
+        "durable cross-instance task ownership/expiry/tombstones/resumption",
+        "idempotent cancellation and restart/load-balancer semantics",
+        "new protocol/error/cache behavior"
+      ],
+      "gate": "Tier-1 protocol conformance passes, two-client/fresh-instance tests prove no state leakage, and durable task/cancellation restart/load-balancer fixtures pass."
+    },
+    {
+      "phase": 2,
+      "name": "Contract compiler substrate",
+      "inputs": [
+        "Exarchos TypeSpec",
+        "Strategos.Contracts generated schemas"
+      ],
+      "outputs": [
+        "JSON Schema",
+        "TS/Zod",
+        "descriptors",
+        "compatibility/error registries",
+        "digests",
+        "generated provenance manifest and file headers"
+      ],
+      "gate": "Every current action and envelope round-trips losslessly; no z.unknown escape remains without an explicit open-world declaration; every generated output is compiler-produced and provenance-manifested in the same commit."
+    },
+    {
+      "phase": 3,
+      "name": "Runtime registry and implementation binding migration",
+      "inputs": [
+        "generated descriptors",
+        "current handlers"
+      ],
+      "outputs": [
+        "generated TOOL_REGISTRY data",
+        "minimal binding map",
+        "deleted duplicate schema/description declarations"
+      ],
+      "gate": "119/119 actions have one contract and one handler; zero orphan or duplicate bindings."
+    },
+    {
+      "phase": 4,
+      "name": "CLI presentation client codegen",
+      "inputs": [
+        "generated contract descriptors",
+        "presentation policy templates"
+      ],
+      "outputs": [
+        "argv/flags/help/rendering/exit mapping",
+        "in-process MCP contract invocation"
+      ],
+      "gate": "No API action calls dispatch directly from CLI; instrumentation proves authorization, capability resolution, input validation, economy, handler binding, output validation, and error mapping execute exactly once; independent hand-authored protocol fixtures plus mutation/negative bypass tests pass."
+    },
+    {
+      "phase": 5,
+      "name": "Workflow IR and standards projections",
+      "inputs": [
+        "stable ActionIds",
+        "Workflow Builder IR",
+        "standard artifact projections"
+      ],
+      "outputs": [
+        "typed action references in IR",
+        "standard SKILL.md/AGENTS.md/MCP artifacts",
+        "enumerated thin shims"
+      ],
+      "gate": "No workflow or standard artifact embeds facade-specific call syntax; every shim has a capability reason and retirement condition."
+    },
+    {
+      "phase": 6,
+      "name": "Retirement and ratchets",
+      "inputs": [
+        "generated clients/artifacts",
+        "migration fixtures"
+      ],
+      "outputs": [
+        "removed parity-as-authority paths",
+        "removed handwritten facade schema/help/rendering duplicates",
+        "CI codegen/compatibility/packaged-proof ratchets"
+      ],
+      "gate": "Manual declarations cannot drift because they no longer exist or are mechanically checked policy hooks."
+    }
+  ],
+  "handCodedPolicyBoundary": [
+    "Handler implementations and domain behavior",
+    "Human rendering aesthetics and table/tree layout templates",
+    "Secret redaction policy",
+    "Exit-code policy for stable error classes",
+    "Dry-run wording and confirmation UX",
+    "Local-only launcher/bootstrap operations explicitly outside MCP action equivalence",
+    "Summarizer/presenter hook implementations referenced by generated IDs"
+  ],
+  "compatibility": {
+    "versions": [
+      "MCP specification version",
+      "Exarchos API contract version",
+      "per-action contract version",
+      "Strategos.Contracts workflow IR version",
+      "package version",
+      "build source SHA and contract digest"
+    ],
+    "changeClasses": [
+      "additive-compatible",
+      "input-widening-additive",
+      "input-tightening-breaking",
+      "output-optional-addition-additive",
+      "output-required-addition-or-removal-breaking",
+      "breaking-error",
+      "presentation-only",
+      "retirement"
+    ],
+    "behaviorChangeClasses": [
+      "authorization or required-scope change",
+      "trusted safety annotation change",
+      "pure/read-only versus effectful classification change",
+      "effect owner/capability change",
+      "idempotency or replay-window change",
+      "dry-run or compensation semantic change",
+      "task suitability/ownership/expiry/cancellation change",
+      "evidence/auto-emission/admission policy change",
+      "response-economy/cache/pagination behavior change"
+    ],
+    "requiredArtifacts": [
+      "machine-readable schema diff",
+      "migration/upcast rule",
+      "deprecation/replacement metadata",
+      "golden fixture update",
+      "packaged compatibility test"
+    ],
+    "negotiation": [
+      "Client declares supported MCP, Exarchos API, and per-action contract ranges.",
+      "Server selects the highest mutually supported version or fails with a typed incompatible-version error; silent downgrade is forbidden.",
+      "Every request and structured result carries the selected API/action version and contract digest.",
+      "Upcasts are directional and occur at one generated read/dispatch seam; downcasts require an explicit lossless projection.",
+      "Input compatibility is contravariant: widening accepted input is additive; tightening is breaking unless negotiated as a new version.",
+      "Output compatibility is covariant: adding required output or removing output is breaking; additive optional output follows declared client tolerance.",
+      "Error-union additions are breaking for closed clients unless the negotiated range declares open error handling."
+    ],
+    "canonicalDigest": [
+      "RFC 8785 JSON Canonicalization Scheme for generated JSON contract artifacts",
+      "SHA-256 over canonical bytes",
+      "Digest includes imported Strategos.Contracts schema versions, codegen compiler version, authorization/effect/safety/idempotency/dry-run/task/evidence policies, and presentation policy IDs",
+      "Digest is embedded in discovery, binary metadata, release manifest, and installed cache metadata"
+    ],
+    "matrixTests": [
+      "old client / new server",
+      "new client / old server",
+      "mixed per-action version ranges",
+      "unsupported version refusal",
+      "input widening versus tightening",
+      "output additive optional versus required/removal",
+      "error-union evolution",
+      "authorization/scope policy evolution",
+      "effect/safety/idempotency/dry-run policy evolution",
+      "task/cancellation/evidence policy evolution",
+      "digest mismatch and stale generated client"
+    ]
+  },
+  "security": [
+    "Server-trusted safety/effect policy is generated from reviewed contract authority, never client annotations.",
+    "Custom extension annotations remain untrusted until admitted.",
+    "Stateless request _meta identity/capabilities remain untrusted hints; authenticated transport/host context supplies the principal, scope, and server-derived capabilities threaded into evidence provenance.",
+    "Generated CLI never bypasses the MCP authorization/validation handler.",
+    "Error rendering redacts secrets without changing the structured error code or retry semantics.",
+    "Contract digests are embedded in build/release/install metadata."
+  ],
+  "acceptanceGates": [
+    "Every external authority is pinned by exact spec/SDK/model revision and digest; floating latest inputs cannot generate releasable artifacts, and final-spec drift requires a reviewed migration diff.",
+    "Every CLI-visible ID is classified exactly once as API action, API presentation alias, or host command; host commands are limited to operations impossible through MCP.",
+    "All 119 built-in API actions and all host commands/presentation aliases are classified in the Exarchos API contract.",
+    "119/119 API actions have total input, success, error, and output-envelope schemas.",
+    "119/119 API actions have one exact implementation binding and declared pure/effectful classification.",
+    "CLI API commands are fully generated and invoke the MCP contract handler in-process; direct dispatch calls are absent outside the handler layer.",
+    "An independently generated implementation/security/effect/output oracle reconciles every action classification before registration/client acceptance; unknown or conflicting classifications fail.",
+    "Packaged instrumentation proves generated CLI and direct MCP paths traverse authentication, authorization, capability resolution, input validation, economy, handler binding, output validation, and error mapping exactly once.",
+    "Independent hand-authored protocol fixtures and mutation/negative bypass tests validate generated MCP/CLI surfaces.",
+    "A machine-reconciled proof matrix covers every generated API action and presentation alias across positive, schema-boundary, authorization, error, bypass, output-variant, and effect-policy cases; subset-only coverage cannot pass.",
+    "Every independently classified effectful ActionId/effect owner passes claim/effect/result crash-window, lease-loss, cancellation, takeover, reconciliation/idempotency-token, and compensation-failure cases.",
+    "Every ActionId passes a pinned legacy-to-generated semantic differential covering defaults/coercion, domain result, errors, and ordered effect/event traces; same-signature handler swaps fail.",
+    "The proof matrix covers every host command across packaged invocation, input/error/exit, safety/effect/dry-run, lifecycle failure, and host-local classification cases.",
+    "Every failure origin maps exactly once to a protocol error or typed Exarchos failure envelope; no thrown/pre-dispatch/adapter failure escapes the mapping.",
+    "Every stable error code has one typed payload, compatibility classification, CLI exit code, retry policy, and fixture.",
+    "Stateless multi-client/fresh-instance tests prove no session/root/capability/principal/task leakage and durable cross-instance task/cancellation recovery.",
+    "Every mutation uses a shared durable atomic replay/idempotency claim visible across instances/restarts, and stale fenced workers cannot commit effects or results after cancellation.",
+    "Replay claims bind the canonical full request, selected protocol/API/action versions, contract and policy digests, principal/scope, and effect subject; crash recovery covers every claim/effect window with leases, takeover, stored-result replay, reconciliation, or compensation.",
+    "Stable replay claim identity is version-independent; retries across contract/policy upgrades return stored results, typed conflicts, or explicit migrations and cannot execute a duplicate effect.",
+    "Stored-result replay re-evaluates current authorization and returns data only through a lossless projection to the negotiated schema; revoked access or incompatible versions return typed denial/conflict/migration.",
+    "A failed or interrupted compensation enters a typed compensation-failed-needs-manual-intervention terminal state with bounded retry and operator affordances; it cannot hang or be reported compensated.",
+    "Spoofed _meta, replay, cross-workspace/tenant access, and presentation-alias privilege escalation tests fail closed.",
+    "Workflow Builder IR uses vendor-neutral namespaced ActionRef values; the Exarchos projection rejects missing/incompatible actions at compile time.",
+    "Version negotiation, refusal, directional upcast/downcast, variance, mixed-version, and canonical digest fixtures pass.",
+    "Standard artifacts contain logical action references only; no facade-specific call syntax.",
+    "Every residual harness shim is enumerated, capability-justified, packaged, tested, assigned a finite expiry, and the shim budget never increases without an approved missing-standard exception.",
+    "Extension admission verifies signed provenance and immutable digest, enforces namespace/effect/schema/resource/isolation policy, supports revocation, and rejects TOCTOU swaps.",
+    "Extension signatures use the declared DSSE/canonical-payload trust profile with issuer/repository/ref policy, rotation/revocation, transparency or offline trust root, and anti-rollback verification.",
+    "Extension admission/execution fails closed on stale or unavailable revocation data and rejects revocation-epoch or clock rollback using signed checkpoints/trusted monotonic policy.",
+    "Extension admission resolves prevention/detection/advisory/unavailable spatial posture per harness and refuses or safely downgrades effect capabilities when the required posture is unavailable.",
+    "Every generated output carries a machine-checked provenance marker and manifest entry tied to a successful compiler invocation, source model IDs, compiler version, and contract digest in the same commit.",
+    "Codegen is deterministic and produces zero uncommitted drift.",
+    "MCP/CLI generated golden tests plus packaged differential tests pass.",
+    "Contract/API/build digests agree across server discovery, binary version metadata, release manifest, and installed cache."
+  ],
+  "explicitNonGoals": [
+    "Generating handler business logic.",
+    "Treating MCP protocol schemas alone as the full Exarchos API contract.",
+    "Encoding executable functions inside TypeSpec or JSON Schema.",
+    "Treating client-controlled request _meta as authentication or authorization.",
+    "Embedding Exarchos-specific ActionIds directly in the vendor-neutral Strategos IR core.",
+    "Claiming launcher-based filesystem confinement for INV-11.",
+    "Generating bespoke per-harness artifacts where a standard exists.",
+    "Making Exarchos an MCP client of Basileus."
+  ]
+}
