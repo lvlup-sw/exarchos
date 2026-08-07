@@ -1145,7 +1145,7 @@ This is R-11 inverted: not "the mechanism ships and nothing calls it", but *"the
 
 ### Task 063: Inventory every Wave-1 guard and prove it is reachable from CI
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-24
-**Files:** `.github/workflows/ci.yml`, `scripts/enforcer-wiring-manifest.json`, guard modules as needed
+**Files:** `scripts/guard-inventory.ts`, `.github/workflows/ci.yml`, `scripts/enforcer-wiring-manifest.json`, guard modules as needed
 **Detail:** **R-11 — "the mechanism ships and nothing calls it" — is this program's declared dominant risk, and Wave 1 has been accumulating instances.** Three are already recorded by the tasks that shipped them, each reported against its own work:
 - `resolveDispatchShape` (task 046) — no production caller; exercised only by tests, with task 047 as its second test consumer.
 - `auditVacuityRatchet` / `auditVacuitySeedIntegrity` / `auditVacuityAllowlist` (tasks 055, 060) — driven **only** by co-located vitest. The pre-existing `auditVacuityAllowlist` is called by no production code either, so this is inherited, not introduced.

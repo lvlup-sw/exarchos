@@ -1021,6 +1021,38 @@ jobs:
       - name: Module-intent gate self-test (DR-8, task 015)
         run: bash scripts/check-module-intent.test.sh
 
+      # Wave-1 guard inventory + CI-reachability proof (DR-24, task 063). Parses
+      # this workflow, both package.json script tables, both vitest configs and
+      # the enforcer-wiring manifest, then proves every guard Wave 1 shipped is
+      # executed by some CI job — or carries a recorded, EXPIRING reason why not.
+      # Also reports path-filtered hosting rather than accepting it (#1711's
+      # skipped-as-passed failure), and fails closed on a zero-guard resolution.
+      # This step IS the guard: the module is a library, its assertions live in
+      # the test, so hosting the test here satisfies DR-24's "each guard's
+      # self-test runs in the same CI job as the guard" for free. Must be
+      # UNFILTERED — `scripts/**` is outside the `root` path filter, so the
+      # filtered `test-root` job skips-as-passed on exactly the PR that edits this
+      # inventory. Rides the deps tail (needs vitest + typescript + js-yaml from
+      # the root install above), not the zero-dep prefix.
+      # See docs/guides/ci-gate-hosting.md.
+      - name: Wave-1 guard-inventory reachability proof (DR-24, task 063)
+        run: npx --no-install vitest run scripts/guard-inventory.test.ts
+
+      # Cast-census self-test re-assert (DR-24, task 063 finding). The DR-14 cast
+      # budget is the constraint every task in this wave is judged against, and
+      # its census (`scripts/tsconfig-strictness/count-casts.ts`) was hosted ONLY
+      # by the `root`-filtered `test-root` job — while its own source sits under
+      # `scripts/**`, which the `root` filter excludes. A PR that weakened the
+      # census therefore never armed the only job that runs it: the two-surface
+      # subset rule violated, found by the inventory above. This re-assert closes
+      # the implementation-surface half on the unfiltered host. It is the
+      # fixture-driven SELF-TEST only (tmpdir + string inputs); the repo-wide
+      # ratchet stays in `src/tsconfig-strictness.test.ts` on `test-root`, so this
+      # step adds no new repo-wide assertion. Same DR-10 pattern as the
+      # `.test.sh` re-asserts above.
+      - name: Cast-census self-test re-assert (DR-24, unfiltered)
+        run: npx --no-install vitest run scripts/tsconfig-strictness/count-casts.test.ts
+
   # ─────────────────────────────────────────────────────────────────────
   # e2e-process
   # ─────────────────────────────────────────────────────────────────────
