@@ -1,0 +1,865 @@
+#!/usr/bin/env node
+/**
+ * check-measured-premises — DR-27 measured-premise drift gate.
+ *
+ * ── The defect this closes ──────────────────────────────────────────────────
+ * Every numeric and structural claim in `docs/specs/2026-08-06-internal-
+ * mechanics-overhaul.md` is a REPRESENTATION OF A DERIVATION, and none of them
+ * were bound to it. That is the program's own defect class — "a declaration
+ * exists, is enforced, and cannot fail" — instantiated by the document that
+ * defines it. It is not hypothetical:
+ *
+ *   - rev 1 was refuted 3/3 by an adversarial panel for stale measurements: it
+ *     was authored against a worktree 7 commits behind `origin/main` and never
+ *     re-measured against the branch it lands on;
+ *   - rev 3 reproduced the class in DR-4 — it asserted 109 vacuous of 123 when
+ *     the tree said 112 of 122, and called two declarations "typed" that are in
+ *     fact vacuous.
+ *
+ * DR-24 already carries the rule ("re-derive wave premises against the landing
+ * branch at plan time") — but as prose a human must remember, which is PDD's
+ * *"a fix relies on someone remembering a convention"* row. This gate makes it
+ * mechanical: the document may not assert a number that nothing produces.
+ *
+ * ── What is checked ─────────────────────────────────────────────────────────
+ * 1. MEASURED CLAIMS. A claim is annotated inline:
+ *
+ *        <!-- measured: output-schema-vacuous -->112<!-- /measured -->
+ *
+ *    The name resolves to a DERIVATION in {@link DERIVATIONS} — a census
+ *    function, a script, or a counted scan. The literal between the markers is
+ *    compared against the re-derived value; disagreement FAILS.
+ *
+ * 2. NON-EMPTY DENOMINATOR. A run that resolves ZERO annotated claims FAILS
+ *    rather than passing clean. Without this tooth, deleting every annotation —
+ *    or renaming the document — reads green, which is precisely the failure
+ *    mode the gate exists to prevent.
+ *
+ * 3. PROOF RUNGS. DR-0 failed DIFFERENTLY from a stale count: it asserted a
+ *    proof rung its subject could not carry ("a partially-migrated tree must
+ *    fail typecheck" — impossible, because TypeScript has no nominal package
+ *    identity). A rung is therefore a CLAIM ABOUT THE SUBJECT and is falsifiable
+ *    like any other. Each obligation-map row carries a one-line probe:
+ *
+ *        | 3 — structural<!-- rung-probe: fixture:path/to/x.test.ts --> | ...
+ *        | 2 — types<!-- rung-probe: none -->                           | ...
+ *
+ *    An UNPROBED rung is a reportable GAP, not a pass — "nothing" is a
+ *    reportable answer, per the obligation map's own `Failure signal` column.
+ *    A row carrying NO annotation at all is a different thing: the map is then
+ *    partial, the instrument cannot see the row, and that FAILS (the rung-side
+ *    analogue of the non-empty-denominator rule).
+ *
+ * ── Verdicts and exit codes ─────────────────────────────────────────────────
+ *   pass  → exit 0. Every claim agrees; every obligation row is probed.
+ *   gaps  → exit 0 (exit 1 under `--fail-on-gap`). No drift, but one or more
+ *           rungs are unprobed. Deliberately NOT reported as a pass.
+ *   fail  → exit 1. Drift, an empty denominator, an unknown derivation, a
+ *           malformed literal, or an obligation row with no probe annotation.
+ *   usage → exit 2. Bad flags, unreadable document, derivation subprocess
+ *           failure. Fail-closed: a gate that no-ops on a tooling error is a
+ *           gate that isn't there.
+ *
+ * ── Scope ───────────────────────────────────────────────────────────────────
+ * `docs/specs/2026-08-06-internal-mechanics-overhaul.md` plus
+ * `.exarchos/invariants.md`, and NOTHING else. Generalizing to all of `docs/`
+ * is explicitly out of scope per DR-27 and needs its own ADR.
+ *
+ * Flags:
+ *   --document <path>   Scan this document instead of the default scope.
+ *                       Repeatable. Paths resolve against the repo root.
+ *   --fail-on-gap       Promote unprobed rungs from `gaps` to `fail`.
+ *   --json              Emit the machine-readable report on stdout.
+ *   --help              Show usage.
+ */
+import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import * as path from 'node:path';
+import process from 'node:process';
+
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(SCRIPT_DIR, '..');
+
+/** DR-27's declared scope. Two documents. Not `docs/**`. */
+export const DEFAULT_DOCUMENTS = Object.freeze([
+  'docs/specs/2026-08-06-internal-mechanics-overhaul.md',
+  '.exarchos/invariants.md',
+]);
+
+const EXIT_PASS = 0;
+const EXIT_FAIL = 1;
+const EXIT_USAGE = 2;
+
+// ─── Annotation grammar ─────────────────────────────────────────────────────
+
+const MEASURED_RE =
+  /<!--\s*measured:\s*([a-z0-9][a-z0-9-]*)\s*-->([\s\S]*?)<!--\s*\/measured\s*-->/g;
+const RUNG_PROBE_RE = /<!--\s*rung-probe:\s*([^>]*?)\s*-->/g;
+
+/**
+ * @typedef {Object} MeasuredClaim
+ * @property {string} name    Derivation name.
+ * @property {string} raw     Verbatim text between the markers.
+ * @property {number} line    1-based line of the opening marker.
+ */
+
+/**
+ * Extract every `<!-- measured: name -->literal<!-- /measured -->` span.
+ *
+ * @param {string} text
+ * @returns {MeasuredClaim[]}
+ */
+export function scanMeasuredClaims(text) {
+  /** @type {MeasuredClaim[]} */
+  const claims = [];
+  MEASURED_RE.lastIndex = 0;
+  let m;
+  while ((m = MEASURED_RE.exec(text)) !== null) {
+    claims.push({
+      name: m[1],
+      raw: m[2],
+      line: text.slice(0, m.index).split('\n').length,
+    });
+  }
+  return claims;
+}
+
+/**
+ * Parse a claim literal. Accepts plain integers and thousands-separated forms
+ * (`1,613`) because the document writes both. Anything else is malformed —
+ * a literal the checker cannot read is a claim it cannot bind.
+ *
+ * @param {string} raw
+ * @returns {number | undefined}
+ */
+export function parseClaimLiteral(raw) {
+  const trimmed = raw.trim();
+  if (!/^[0-9][0-9,]*$/.test(trimmed)) return undefined;
+  const digits = trimmed.replace(/,/g, '');
+  const value = Number.parseInt(digits, 10);
+  return Number.isSafeInteger(value) ? value : undefined;
+}
+
+// ─── Obligation map (the rung half) ─────────────────────────────────────────
+
+/**
+ * @typedef {Object} ObligationRow
+ * @property {string} property   First cell — the property being claimed.
+ * @property {string} rung       The `Primary proof (rung)` cell, markers stripped.
+ * @property {string[]} probes   Raw probe declarations found on the row.
+ * @property {number} line       1-based line of the row.
+ */
+
+/** Split a markdown table row on UNESCAPED pipes. */
+function splitRow(line) {
+  const cells = [];
+  let current = '';
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '\\' && line[i + 1] === '|') {
+      current += '|';
+      i++;
+      continue;
+    }
+    if (ch === '|') {
+      cells.push(current);
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  cells.push(current);
+  // A markdown row is fenced by pipes, so the first and last splits are empty.
+  if (cells.length >= 2 && cells[0].trim() === '') cells.shift();
+  if (cells.length >= 1 && cells[cells.length - 1].trim() === '') cells.pop();
+  return cells.map((c) => c.trim());
+}
+
+const SEPARATOR_ROW = /^\s*\|?[\s:|-]+\|[\s:|-]*$/;
+
+/**
+ * Locate the obligation map and read one record per row.
+ *
+ * The table is identified by its HEADER — a row carrying both a
+ * `Primary proof (rung)` column and a `Failure signal` column. Identifying by
+ * heading text would break the moment the section is renamed; identifying by
+ * the columns the check actually reads cannot.
+ *
+ * @param {string} text
+ * @returns {{ found: boolean, rows: ObligationRow[] }}
+ */
+export function scanObligationRungs(text) {
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const header = lines[i];
+    if (!header.includes('|')) continue;
+    const cells = splitRow(header);
+    const rungIndex = cells.findIndex((c) => /primary proof/i.test(c));
+    const hasFailureSignal = cells.some((c) => /failure signal/i.test(c));
+    if (rungIndex < 0 || !hasFailureSignal) continue;
+
+    /** @type {ObligationRow[]} */
+    const rows = [];
+    for (let j = i + 1; j < lines.length; j++) {
+      const line = lines[j];
+      if (!line.trim().startsWith('|')) break;
+      if (SEPARATOR_ROW.test(line)) continue;
+      const rowCells = splitRow(line);
+      if (rowCells.length === 0) continue;
+      const probes = [];
+      RUNG_PROBE_RE.lastIndex = 0;
+      let pm;
+      while ((pm = RUNG_PROBE_RE.exec(line)) !== null) probes.push(pm[1].trim());
+      rows.push({
+        property: stripAnnotations(rowCells[0] ?? ''),
+        rung: stripAnnotations(rowCells[rungIndex] ?? ''),
+        probes,
+        line: j + 1,
+      });
+    }
+    return { found: true, rows };
+  }
+  return { found: false, rows: [] };
+}
+
+function stripAnnotations(cell) {
+  return cell.replace(/<!--[\s\S]*?-->/g, '').trim();
+}
+
+/**
+ * Resolve a probe declaration against the working tree.
+ *
+ * `fixture:<repo-relative path>` — the file must exist. A probe pointing at a
+ * file that is not there is worse than no probe: it asserts evidence that
+ * cannot be inspected, so it degrades to a GAP with a named reason rather than
+ * passing.
+ *
+ * `command:<npm script>` — the script must be declared in the root
+ * `package.json`, so "run this to see the rung is bearable" is checkable.
+ *
+ * `none` — the honest answer when the subject has no probe yet. Reported as a
+ * gap; never a pass.
+ *
+ * @param {string} probe
+ * @param {{ repoRoot?: string }} [opts]
+ * @returns {{ status: 'probed' | 'gap' | 'malformed', reason?: string }}
+ */
+export function resolveRungProbe(probe, opts = {}) {
+  const repoRoot = opts.repoRoot ?? REPO_ROOT;
+  if (probe === 'none') {
+    return { status: 'gap', reason: 'declared-unprobed' };
+  }
+  const sep = probe.indexOf(':');
+  if (sep < 0) {
+    return { status: 'malformed', reason: `expected '<kind>:<target>' or 'none', got ${JSON.stringify(probe)}` };
+  }
+  const kind = probe.slice(0, sep).trim();
+  const target = probe.slice(sep + 1).trim();
+  if (target === '') {
+    return { status: 'malformed', reason: `probe kind '${kind}' has an empty target` };
+  }
+  if (kind === 'fixture') {
+    const abs = path.resolve(repoRoot, target);
+    return existsSync(abs)
+      ? { status: 'probed' }
+      : { status: 'gap', reason: `probe-target-missing: ${target}` };
+  }
+  if (kind === 'command') {
+    let scripts = {};
+    try {
+      scripts = JSON.parse(readFileSync(path.join(repoRoot, 'package.json'), 'utf8')).scripts ?? {};
+    } catch {
+      return { status: 'gap', reason: 'probe-target-missing: root package.json unreadable' };
+    }
+    return Object.prototype.hasOwnProperty.call(scripts, target)
+      ? { status: 'probed' }
+      : { status: 'gap', reason: `probe-target-missing: npm script '${target}'` };
+  }
+  return { status: 'malformed', reason: `unknown probe kind '${kind}'` };
+}
+
+// ─── The check itself (pure — no I/O, no process exit) ──────────────────────
+
+/**
+ * @typedef {Object} CheckOptions
+ * @property {{ path: string, text: string }[]} documents
+ * @property {(name: string) => number | undefined} derive       Re-derive a claim.
+ * @property {(name: string) => boolean} isKnownDerivation       Is the name bound at all?
+ * @property {(probe: string) => { status: string, reason?: string }} [resolveProbe]
+ * @property {boolean} [failOnGap]
+ */
+
+/**
+ * Compare every annotated claim against its derivation and classify every
+ * obligation-map rung.
+ *
+ * @param {CheckOptions} options
+ */
+export function checkMeasuredPremises(options) {
+  const {
+    documents,
+    derive,
+    isKnownDerivation,
+    resolveProbe = (probe) => resolveRungProbe(probe),
+    failOnGap = false,
+  } = options;
+
+  /** @type {{ document: string, line: number, name: string, literal: number | undefined, derived: number | undefined, verdict: string, detail?: string }[]} */
+  const claims = [];
+  /** @type {{ document: string, line: number, property: string, rung: string, probe: string | undefined, verdict: string, reason?: string }[]} */
+  const rungs = [];
+  /** @type {string[]} */
+  const failures = [];
+
+  let obligationMapFound = false;
+
+  for (const doc of documents) {
+    for (const claim of scanMeasuredClaims(doc.text)) {
+      const literal = parseClaimLiteral(claim.raw);
+      const base = { document: doc.path, line: claim.line, name: claim.name, literal };
+
+      if (!isKnownDerivation(claim.name)) {
+        claims.push({ ...base, derived: undefined, verdict: 'unknown-derivation' });
+        failures.push(
+          `${doc.path}:${claim.line} — claim '${claim.name}' names no derivation. ` +
+            `The document may not assert a number nothing produces; register the ` +
+            `derivation or remove the annotation.`,
+        );
+        continue;
+      }
+      if (literal === undefined) {
+        claims.push({ ...base, derived: undefined, verdict: 'malformed-literal' });
+        failures.push(
+          `${doc.path}:${claim.line} — claim '${claim.name}' has an unreadable literal ` +
+            `${JSON.stringify(claim.raw)}; expected an integer.`,
+        );
+        continue;
+      }
+
+      let derived;
+      try {
+        derived = derive(claim.name);
+      } catch (err) {
+        derived = undefined;
+        claims.push({
+          ...base,
+          derived: undefined,
+          verdict: 'derivation-unavailable',
+          detail: err instanceof Error ? err.message : String(err),
+        });
+        failures.push(
+          `${doc.path}:${claim.line} — derivation '${claim.name}' could not run: ` +
+            `${err instanceof Error ? err.message : String(err)}`,
+        );
+        continue;
+      }
+      if (typeof derived !== 'number') {
+        claims.push({ ...base, derived: undefined, verdict: 'derivation-unavailable' });
+        failures.push(
+          `${doc.path}:${claim.line} — derivation '${claim.name}' produced no value.`,
+        );
+        continue;
+      }
+      if (derived !== literal) {
+        claims.push({ ...base, derived, verdict: 'drifted' });
+        failures.push(
+          `${doc.path}:${claim.line} — DRIFT in '${claim.name}': document says ` +
+            `${literal}, derivation says ${derived}. Re-derive the premise against ` +
+            `the landing branch and update the literal (DR-27).`,
+        );
+        continue;
+      }
+      claims.push({ ...base, derived, verdict: 'agree' });
+    }
+
+    const map = scanObligationRungs(doc.text);
+    if (!map.found) continue;
+    obligationMapFound = true;
+    for (const row of map.rows) {
+      const at = { document: doc.path, line: row.line, property: row.property, rung: row.rung };
+      if (row.probes.length === 0) {
+        rungs.push({ ...at, probe: undefined, verdict: 'unannotated' });
+        failures.push(
+          `${doc.path}:${row.line} — obligation row ${JSON.stringify(row.property)} ` +
+            `declares rung ${JSON.stringify(row.rung)} with no \`rung-probe\` ` +
+            `annotation. A rung is a claim about the subject; an unannotated row ` +
+            `is invisible to the check, which is the same hole the non-empty ` +
+            `denominator rule closes. Annotate it — 'none' is a legitimate answer.`,
+        );
+        continue;
+      }
+      if (row.probes.length > 1) {
+        rungs.push({ ...at, probe: row.probes.join(' | '), verdict: 'unannotated' });
+        failures.push(
+          `${doc.path}:${row.line} — obligation row ${JSON.stringify(row.property)} ` +
+            `carries ${row.probes.length} \`rung-probe\` annotations; exactly one is required.`,
+        );
+        continue;
+      }
+      const probe = row.probes[0];
+      const resolved = resolveProbe(probe);
+      if (resolved.status === 'malformed') {
+        rungs.push({ ...at, probe, verdict: 'unannotated', reason: resolved.reason });
+        failures.push(
+          `${doc.path}:${row.line} — malformed \`rung-probe\` on ` +
+            `${JSON.stringify(row.property)}: ${resolved.reason}`,
+        );
+        continue;
+      }
+      rungs.push({
+        ...at,
+        probe,
+        verdict: resolved.status === 'probed' ? 'probed' : 'gap',
+        ...(resolved.reason === undefined ? {} : { reason: resolved.reason }),
+      });
+    }
+  }
+
+  const claimsResolved = claims.filter((c) => c.verdict === 'agree' || c.verdict === 'drifted').length;
+  if (claimsResolved === 0) {
+    failures.push(
+      'EMPTY_DENOMINATOR — the run resolved ZERO annotated claims. A check over an ' +
+        'empty subject proves nothing and MUST fail rather than report clean: a ' +
+        'renamed document, a deleted annotation block, or a broken scanner would ' +
+        'otherwise read green exactly when the instrument stopped working.',
+    );
+  }
+  if (!obligationMapFound) {
+    failures.push(
+      'RUNG_MAP_MISSING — no obligation map was found in the scanned documents. The ' +
+        'rung half of DR-27 has lost its subject; a run that cannot see the map ' +
+        'cannot report its gaps.',
+    );
+  }
+
+  const gapCount = rungs.filter((r) => r.verdict === 'gap').length;
+  const verdict = failures.length > 0 ? 'fail' : gapCount > 0 ? 'gaps' : 'pass';
+  const exitCode =
+    verdict === 'fail' || (verdict === 'gaps' && failOnGap) ? EXIT_FAIL : EXIT_PASS;
+
+  return {
+    verdict,
+    exitCode,
+    claims,
+    rungs,
+    failures,
+    counts: {
+      claimsAnnotated: claims.length,
+      claimsResolved,
+      drifted: claims.filter((c) => c.verdict === 'drifted').length,
+      rungRows: rungs.length,
+      rungsProbed: rungs.filter((r) => r.verdict === 'probed').length,
+      rungGaps: gapCount,
+      rungsUnannotated: rungs.filter((r) => r.verdict === 'unannotated').length,
+    },
+  };
+}
+
+// ─── Derivations ────────────────────────────────────────────────────────────
+//
+// Each entry binds an annotation name to the artifact that produces its value.
+// `ts` derivations are answered by one `tsx` subprocess against
+// `scripts/measured-premises-derive.ts`; `scan` derivations are pure Node so
+// the common case needs no subprocess at all.
+
+const MCP_SRC = 'servers/exarchos-mcp/src';
+const CLI_SOURCE = `${MCP_SRC}/adapters/cli.ts`;
+const REGISTRY_SOURCE = `${MCP_SRC}/registry.ts`;
+
+/** @type {Record<string, { kind: 'ts' | 'scan', describe: string, fn?: (root: string) => number }>} */
+export const DERIVATIONS = {
+  'output-schema-total': {
+    kind: 'ts',
+    describe: `censusOutputSchemas().total — every action declaration in TOOL_REGISTRY`,
+  },
+  'output-schema-vacuous': {
+    kind: 'ts',
+    describe: `censusOutputSchemas().vacuousCount — success-branch data is z.unknown()/z.any()`,
+  },
+  'output-schema-substantive': {
+    kind: 'ts',
+    describe: `censusOutputSchemas().substantiveCount — success-branch data pins a real shape`,
+  },
+  'event-types-total': {
+    kind: 'ts',
+    describe: `EventTypes.length in ${MCP_SRC}/event-store/schemas.ts`,
+  },
+  'sdk-import-sites': {
+    kind: 'scan',
+    describe: `files under ${MCP_SRC} referencing '@modelcontextprotocol/sdk'`,
+    fn: (root) => sdkImportFiles(root).length,
+  },
+  'sdk-import-directories': {
+    kind: 'scan',
+    describe: `distinct directories under ${MCP_SRC} containing an '@modelcontextprotocol/sdk' reference`,
+    fn: (root) => new Set(sdkImportFiles(root).map((f) => path.dirname(f))).size,
+  },
+  'cli-handwritten-literals': {
+    kind: 'scan',
+    describe: `\`.command('<literal>')\` call sites in ${CLI_SOURCE}, comments excluded`,
+    fn: (root) => countCommandLiterals(readSource(root, CLI_SOURCE)),
+  },
+  'withcappedshape-count': {
+    kind: 'scan',
+    describe: `\`outputSchema: withCappedShape(\` declaration sites in ${REGISTRY_SOURCE}`,
+    fn: (root) => countWithCappedShapeDeclarations(readSource(root, REGISTRY_SOURCE)),
+  },
+};
+
+function readSource(root, relative) {
+  return readFileSync(path.join(root, relative), 'utf8');
+}
+
+const SKIP_DIRS = new Set(['node_modules', 'dist', 'coverage', '.git']);
+
+function walkTypeScript(dir, out) {
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return out;
+  }
+  for (const entry of entries) {
+    if (SKIP_DIRS.has(entry.name)) continue;
+    const child = path.join(dir, entry.name);
+    if (entry.isDirectory()) walkTypeScript(child, out);
+    else if (entry.isFile() && child.endsWith('.ts')) out.push(child);
+  }
+  return out;
+}
+
+/**
+ * The DR-26 kill-fixture subject: every file that reaches an SDK package
+ * directly, tests included. Tests are counted deliberately — DR-26's seam rule
+ * forbids the direct import everywhere, and a subject list that quietly omits
+ * the test tree would under-report the denominator it exists to prove
+ * non-empty.
+ */
+function sdkImportFiles(root) {
+  const base = path.join(root, ...MCP_SRC.split('/'));
+  if (!existsSync(base) || !statSync(base).isDirectory()) return [];
+  return walkTypeScript(base, []).filter((file) =>
+    readFileSync(file, 'utf8').includes('@modelcontextprotocol/sdk'),
+  );
+}
+
+/**
+ * Blank out comments while preserving every byte offset, so line numbers and
+ * subsequent matches stay honest.
+ *
+ * This is not decoration. A naive `/\.command\(/g` over `cli.ts` counts 15 call
+ * sites because a JSDoc block writes `program.command(...)` in prose — and the
+ * spec's own measured claim is 14 total / 11 literal. A derivation that has to
+ * be "tuned" until it reproduces the document's number is the defect DR-27
+ * removes; a derivation that reads only code is the fix.
+ */
+export function blankComments(source) {
+  let out = '';
+  let i = 0;
+  const n = source.length;
+  while (i < n) {
+    const ch = source[i];
+    const next = source[i + 1];
+    if (ch === '/' && next === '/') {
+      while (i < n && source[i] !== '\n') {
+        out += ' ';
+        i++;
+      }
+      continue;
+    }
+    if (ch === '/' && next === '*') {
+      while (i < n && !(source[i] === '*' && source[i + 1] === '/')) {
+        out += source[i] === '\n' ? '\n' : ' ';
+        i++;
+      }
+      out += i < n ? '  ' : '';
+      i += 2;
+      continue;
+    }
+    if (ch === "'" || ch === '"' || ch === '`') {
+      const quote = ch;
+      out += ch;
+      i++;
+      while (i < n) {
+        if (source[i] === '\\') {
+          out += source[i] + (source[i + 1] ?? '');
+          i += 2;
+          continue;
+        }
+        out += source[i];
+        if (source[i] === quote) {
+          i++;
+          break;
+        }
+        i++;
+      }
+      continue;
+    }
+    out += ch;
+    i++;
+  }
+  return out;
+}
+
+/**
+ * Count `.command('<string literal>')` call sites — the hand-written half of
+ * the CLI surface. Sites whose first argument is an identifier expression
+ * (`cliName`, `harness`, `commandName`) are the derivation loops and are NOT
+ * counted: G1's whole policy is that provenance is visible in the source and
+ * erased in the built tree.
+ */
+export function countCommandLiterals(source) {
+  const code = blankComments(source);
+  const re = /\.command\(\s*(['"`])/g;
+  let count = 0;
+  while (re.exec(code) !== null) count++;
+  return count;
+}
+
+/**
+ * Count the declaration sites that construct a substantive `outputSchema`.
+ *
+ * Scoped to `outputSchema: withCappedShape(` on purpose: the source also
+ * carries the function's own declaration and a JSDoc mention, neither of which
+ * is a declaration. This derivation is INDEPENDENT of the census — it reads
+ * source text, the census reads the Zod object — so the two agreeing on 10 is a
+ * genuine cross-check rather than one number quoted twice.
+ */
+export function countWithCappedShapeDeclarations(source) {
+  const code = blankComments(source);
+  const re = /outputSchema\s*:\s*withCappedShape\s*\(/g;
+  let count = 0;
+  while (re.exec(code) !== null) count++;
+  return count;
+}
+
+// ─── tsx bridge (same idiom as check-prefix-fingerprint.mjs) ────────────────
+
+/**
+ * Resolve how to invoke `tsx`. Prefers the JS CLI entrypoint run under
+ * `process.execPath` over the `node_modules/.bin/tsx` shim, because the shim is
+ * a POSIX shebang script with no `.exe`/`.cmd` extension and Win32 cannot
+ * launch it without a shell.
+ */
+function resolveTsx(root) {
+  const candidates = [
+    path.join(root, 'node_modules', 'tsx', 'dist', 'cli.mjs'),
+    path.join(root, 'servers', 'exarchos-mcp', 'node_modules', 'tsx', 'dist', 'cli.mjs'),
+  ];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return { command: process.execPath, args: [candidate] };
+  }
+  return { command: 'tsx', args: [] };
+}
+
+/**
+ * Run the TS derivation entrypoint once and return its value map. Any failure
+ * is fatal (exit 2) rather than "no value": a derivation that cannot run must
+ * not be silently downgraded to a missing number, or the gate reports clean on
+ * the very tooling break that disabled it.
+ */
+function loadTsDerivations(root) {
+  const entry = path.join(root, 'scripts', 'measured-premises-derive.ts');
+  const { command, args } = resolveTsx(root);
+  const result = spawnSync(command, [...args, entry], {
+    cwd: root,
+    encoding: 'utf8',
+    env: { ...process.env },
+  });
+  if (result.error) {
+    fatal(`failed to spawn tsx (${command}): ${result.error.message}`);
+  }
+  if (result.status !== 0) {
+    fatal(
+      'TS derivations failed\n' +
+        `  entry:  ${entry}\n` +
+        `  status: ${result.status}\n` +
+        `  stderr: ${result.stderr ?? ''}`,
+    );
+  }
+  try {
+    const parsed = JSON.parse(result.stdout ?? '');
+    if (parsed === null || typeof parsed !== 'object') throw new Error('not an object');
+    return parsed;
+  } catch (err) {
+    fatal(
+      `TS derivations produced unparseable stdout: ${JSON.stringify(result.stdout ?? '')} ` +
+        `(${err instanceof Error ? err.message : String(err)})`,
+    );
+  }
+  return {};
+}
+
+/**
+ * Build the lazy derivation seam. The `tsx` subprocess runs at most once, and
+ * only if a `ts`-backed name is actually referenced by a scanned document.
+ */
+export function makeDeriver(root) {
+  /** @type {Record<string, number> | undefined} */
+  let tsValues;
+  /** @type {Map<string, number>} */
+  const memo = new Map();
+
+  return {
+    isKnownDerivation: (name) => Object.prototype.hasOwnProperty.call(DERIVATIONS, name),
+    derive: (name) => {
+      const hit = memo.get(name);
+      if (hit !== undefined) return hit;
+      const spec = DERIVATIONS[name];
+      if (spec === undefined) return undefined;
+      let value;
+      if (spec.kind === 'ts') {
+        if (tsValues === undefined) tsValues = loadTsDerivations(root);
+        value = tsValues[name];
+        if (typeof value !== 'number') {
+          throw new Error(`TS derivation entrypoint returned no value for '${name}'`);
+        }
+      } else {
+        value = spec.fn(root);
+      }
+      memo.set(name, value);
+      return value;
+    },
+  };
+}
+
+// ─── CLI ────────────────────────────────────────────────────────────────────
+
+function fatal(message) {
+  process.stderr.write(`check-measured-premises: ${message}\n`);
+  process.exit(EXIT_USAGE);
+}
+
+function printHelp() {
+  process.stderr.write(
+    [
+      'Usage: node scripts/check-measured-premises.mjs [flags]',
+      '',
+      'Flags:',
+      '  --document <path>  Scan this document (repeatable). Default: DR-27 scope.',
+      '  --fail-on-gap      Treat unprobed obligation rungs as a failure.',
+      '  --json             Emit the machine-readable report.',
+      '  --help             Show this message.',
+      '',
+      'Exit codes: 0 pass/gaps, 1 fail (or gaps under --fail-on-gap), 2 usage/env error.',
+      '',
+    ].join('\n'),
+  );
+}
+
+function parseArgs(argv) {
+  const documents = [];
+  let failOnGap = false;
+  let json = false;
+  for (let i = 0; i < argv.length; i++) {
+    const flag = argv[i];
+    const value = argv[i + 1];
+    switch (flag) {
+      case '--document':
+        if (!value) {
+          printHelp();
+          fatal('--document requires a path');
+        }
+        documents.push(value);
+        i++;
+        break;
+      case '--fail-on-gap':
+        failOnGap = true;
+        break;
+      case '--json':
+        json = true;
+        break;
+      case '-h':
+      case '--help':
+        printHelp();
+        process.exit(EXIT_PASS);
+        break;
+      default:
+        printHelp();
+        fatal(`unknown flag: ${flag}`);
+    }
+  }
+  return {
+    documents: documents.length > 0 ? documents : [...DEFAULT_DOCUMENTS],
+    failOnGap,
+    json,
+  };
+}
+
+function formatReport(report) {
+  const lines = [];
+  const { counts } = report;
+  lines.push(
+    `check-measured-premises: ${counts.claimsResolved} measured claim(s) re-derived; ` +
+      `${counts.rungRows} obligation row(s) classified.`,
+  );
+
+  for (const claim of report.claims) {
+    if (claim.verdict === 'agree') continue;
+    lines.push(
+      `  [${claim.verdict.toUpperCase()}] ${claim.document}:${claim.line} ${claim.name} ` +
+        `document=${claim.literal ?? '?'} derived=${claim.derived ?? '?'}`,
+    );
+  }
+
+  if (counts.rungGaps > 0 || counts.rungsUnannotated > 0) {
+    lines.push('');
+    lines.push(
+      `  proof-rung gaps (${counts.rungGaps} unprobed, ${counts.rungsProbed} probed of ` +
+        `${counts.rungRows}) — reportable, NOT a pass:`,
+    );
+    for (const rung of report.rungs) {
+      if (rung.verdict === 'probed') continue;
+      lines.push(
+        `    [${rung.verdict.toUpperCase()}] rung ${JSON.stringify(rung.rung)} — ` +
+          `${rung.property}${rung.reason ? ` (${rung.reason})` : ''}`,
+      );
+    }
+  }
+
+  if (report.failures.length > 0) {
+    lines.push('');
+    lines.push(`  ${report.failures.length} failure(s):`);
+    for (const failure of report.failures) lines.push(`    - ${failure}`);
+  }
+
+  lines.push('');
+  lines.push(`  VERDICT: ${report.verdict.toUpperCase()}`);
+  return lines.join('\n');
+}
+
+function main() {
+  const { documents, failOnGap, json } = parseArgs(process.argv.slice(2));
+
+  const loaded = documents.map((relative) => {
+    const abs = path.resolve(REPO_ROOT, relative);
+    if (!existsSync(abs)) fatal(`document not found: ${relative}`);
+    return { path: relative, text: readFileSync(abs, 'utf8') };
+  });
+
+  const { derive, isKnownDerivation } = makeDeriver(REPO_ROOT);
+  const report = checkMeasuredPremises({
+    documents: loaded,
+    derive,
+    isKnownDerivation,
+    failOnGap,
+  });
+
+  if (json) {
+    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  } else {
+    const text = `${formatReport(report)}\n`;
+    if (report.exitCode === EXIT_PASS) process.stdout.write(text);
+    else process.stderr.write(text);
+  }
+  process.exit(report.exitCode);
+}
+
+const invokedDirectly = (() => {
+  const argv1 = process.argv[1];
+  if (!argv1) return false;
+  return path.resolve(argv1) === path.resolve(fileURLToPath(import.meta.url));
+})();
+
+if (invokedDirectly) main();

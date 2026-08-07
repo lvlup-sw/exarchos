@@ -952,6 +952,24 @@ jobs:
       - name: Prose-lint gate — rehydration prose slop (DR-13)
         run: node scripts/check-prose-lint.mjs
 
+      # Measured-premise drift gate (task 054, DR-27). Binds every annotated
+      # numeric claim in the internal-mechanics-overhaul spec (+ the invariants
+      # catalog) to the artifact that produces it, so the document cannot assert
+      # a number nothing derives. The `outputSchema` census and `EventTypes`
+      # derivations shell out to `tsx` over the MCP source, so this rides the
+      # deps tail rather than the zero-dep prefix. Unfiltered on purpose: the
+      # premises drift when the CODE changes, which is precisely the PR a
+      # docs-path filter would skip.
+      - name: Measured-premise drift gate (DR-27)
+        run: node scripts/check-measured-premises.mjs
+
+      # Its own self-test on the same host (DR-24: "each guard's self-test runs
+      # in the same CI job as the guard", so guard-execution failure cannot pass
+      # as success). Includes the rev-3 kill fixture — a document already proven
+      # wrong, which the checker must still report as drifted.
+      - name: Measured-premise gate self-test (DR-27)
+        run: npx --no-install vitest run scripts/check-measured-premises.test.ts
+
       # No-circular runtime import-cycle ratchet (task 010, DR-4/DR-8). Runs the
       # ROOT-hoisted dependency-cruiser over servers/exarchos-mcp/src, computes
       # the runtime cycles (Tarjan, via architecture/import-cycles.ts), and diffs

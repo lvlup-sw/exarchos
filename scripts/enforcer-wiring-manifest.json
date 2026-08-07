@@ -73,6 +73,13 @@
       "rationale": "Unfiltered zero-dependency census: exact typed owners cover every production gate emitter, provider registration, playbook observation, and v3.0-reserved custom-shell transition guard."
     },
     {
+      "script": "scripts/check-measured-premises.mjs",
+      "disposition": "gating",
+      "workflow": ".github/workflows/ci.yml",
+      "diffDependent": false,
+      "rationale": "grep-gates deps-tail step (task 054, DR-27): every annotated numeric claim in docs/specs/2026-08-06-internal-mechanics-overhaul.md is re-derived from the artifact that produces it (outputSchema census, EventTypes array, counted source scans) and a disagreement fails CI — the document cannot assert a number nothing produces. Rides the tsx-backed tail, not the zero-dep prefix, because the vacuity census must read the Zod schema OBJECT (a named binding launders a source-text grep). Deliberately NOT diffDependent and deliberately unfiltered: premises go stale when the CODE moves, which is exactly the PR a docs-path filter would skip. Also reachable via `npm run validate`; the ci.yml step is the failable path. Its self-test (check-measured-premises.test.ts, including the rev-3 kill fixture) re-asserts on the same host per DR-24."
+    },
+    {
       "script": "scripts/check-module-intent.mjs",
       "disposition": "gating",
       "workflow": ".github/workflows/ci.yml",
