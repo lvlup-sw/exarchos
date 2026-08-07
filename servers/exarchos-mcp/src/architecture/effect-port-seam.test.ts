@@ -10,6 +10,7 @@ import {
   type EffectPortRule,
 } from './effect-port-seam.js';
 import { scanEffectOccurrences, type EffectOccurrence } from './effect-ledger.js';
+import { lexModule } from '../test-helpers/module-lexer.js';
 
 const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -26,7 +27,7 @@ describe('footprintOf / moduleFootprint', () => {
   });
 
   it('derives a footprint from real source via the ledger detector', () => {
-    expect([...moduleFootprint('x.ts', `import net from 'node:net';`)]).toEqual(['network']);
+    expect([...moduleFootprint('x.ts', `import net from 'node:net';`, lexModule)]).toEqual(['network']);
   });
 });
 
@@ -62,7 +63,7 @@ describe('runEffectPortCensus — verdict logic', () => {
 
 describe('EXIT PROOF — live narrow effect ports', () => {
   it('(a) every curated module holds exactly its declared narrow port', async () => {
-    const result = await auditEffectPorts(SRC_ROOT);
+    const result = await auditEffectPorts(SRC_ROOT, lexModule);
     // Surfacing the diagnostics array makes any regression self-describing.
     expect(result.diagnostics).toEqual([]);
     expect(result.ok).toBe(true);
@@ -70,7 +71,7 @@ describe('EXIT PROOF — live narrow effect ports', () => {
   });
 
   it('(b) a planted broad effect on a narrow-port module FAILS against the live footprints', async () => {
-    const occurrences = await scanEffectOccurrences(SRC_ROOT);
+    const occurrences = await scanEffectOccurrences(SRC_ROOT, lexModule);
     // workflow/feedback.ts is the network-only owner; plant a process effect on it.
     const planted: EffectOccurrence = {
       module: 'workflow/feedback.ts',
@@ -91,7 +92,7 @@ describe('EXIT PROOF — live narrow effect ports', () => {
   });
 
   it('every declared port module performs at least one of its declared classes (no phantom)', async () => {
-    const occurrences = await scanEffectOccurrences(SRC_ROOT);
+    const occurrences = await scanEffectOccurrences(SRC_ROOT, lexModule);
     for (const rule of NARROW_EFFECT_PORTS) {
       const actual = footprintOf(rule.module, occurrences);
       for (const cls of rule.port) {

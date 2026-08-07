@@ -1,4 +1,10 @@
-import { detectModuleEffects, scanEffectOccurrences, type EffectClass, type EffectOccurrence } from './effect-ledger.js';
+import {
+  detectModuleEffects,
+  scanEffectOccurrences,
+  type EffectClass,
+  type EffectOccurrence,
+  type ModuleLexer,
+} from './effect-ledger.js';
 
 /**
  * P07-06 — narrow effect-port census (structural conformance).
@@ -136,12 +142,21 @@ export function runEffectPortCensus(
   });
 }
 
-/** Collect the live occurrences and return the narrow-port verdict over the real tree. */
+/**
+ * Collect the live occurrences and return the narrow-port verdict over the real
+ * tree.
+ *
+ * `lex` is the ledger's lexer port — required here for the same reason it is
+ * required there (see `effect-ledger.ts`'s {@link ModuleLexer}): this module is
+ * shipped source, and the only sound lexer is the TypeScript compiler, which the
+ * effect ledger will not admit into `src/`.
+ */
 export async function auditEffectPorts(
   sourceRoot: string,
+  lex: ModuleLexer,
   rules: readonly EffectPortRule[] = NARROW_EFFECT_PORTS,
 ): Promise<EffectPortResult> {
-  const occurrences = await scanEffectOccurrences(sourceRoot);
+  const occurrences = await scanEffectOccurrences(sourceRoot, lex);
   return runEffectPortCensus(occurrences, rules);
 }
 
@@ -150,8 +165,12 @@ export async function auditEffectPorts(
  * ledger's own detector. Used by unit tests to pin a module's port against its
  * real source without walking the tree.
  */
-export function moduleFootprint(module: string, source: string): ReadonlySet<EffectClass> {
-  return new Set(detectModuleEffects(module, source).map((o) => o.effectClass));
+export function moduleFootprint(
+  module: string,
+  source: string,
+  lex: ModuleLexer,
+): ReadonlySet<EffectClass> {
+  return new Set(detectModuleEffects(module, source, lex).map((o) => o.effectClass));
 }
 
 // ─── The declared narrow ports ──────────────────────────────────────────────

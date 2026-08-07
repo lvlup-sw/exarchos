@@ -23,6 +23,7 @@ import {
   type LayerAllowance,
   type LayerEdge,
 } from './layer-boundaries-seam.js';
+import { lexModule } from '../test-helpers/module-lexer.js';
 
 const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -63,7 +64,7 @@ describe('detectLayerEdges', () => {
       `import { EventStore } from '../event-store/store.js';
        import { handleInit } from './tools.js';
        import { format } from '../format.js';
-       import { z } from 'zod';`,
+       import { z } from 'zod';`, lexModule,
     );
     expect(edges).toHaveLength(1);
     expect(edges[0]?.targetLayer).toBe('event-store');
@@ -74,13 +75,13 @@ describe('detectLayerEdges', () => {
   it('does NOT count a specifier that only appears in a comment or string', () => {
     const edges = detectLayerEdges(
       'utils/leaf.ts',
-      `// import { x } from '../workflow/y.js';\nconst s = "from '../workflow/z.js'"; export const y = 1;`,
+      `// import { x } from '../workflow/y.js';\nconst s = "from '../workflow/z.js'"; export const y = 1;`, lexModule,
     );
     expect(edges).toHaveLength(0);
   });
 
   it('emits nothing for a root-level source file', () => {
-    expect(detectLayerEdges('format.ts', `import { x } from './workflow/y.js';`)).toEqual([]);
+    expect(detectLayerEdges('format.ts', `import { x } from './workflow/y.js';`, lexModule)).toEqual([]);
   });
 });
 
@@ -158,7 +159,7 @@ describe('runLayerBoundaryCensus — verdict logic', () => {
 
 describe('EXIT PROOF — live allowed-dependency layering', () => {
   it('(a) the live shipped source has ZERO forbidden imports and no stale allowance', async () => {
-    const result = await auditLayerBoundaries(SRC_ROOT);
+    const result = await auditLayerBoundaries(SRC_ROOT, lexModule);
     // Surfacing the diagnostics array makes any regression self-describing.
     expect(result.diagnostics).toEqual([]);
     expect(result.ok).toBe(true);
@@ -166,7 +167,7 @@ describe('EXIT PROOF — live allowed-dependency layering', () => {
   });
 
   it('(b) a planted forbidden import from a governed leaf FAILS against the live edges', async () => {
-    const edges = await scanLayerEdges(SRC_ROOT);
+    const edges = await scanLayerEdges(SRC_ROOT, lexModule);
     const planted: LayerEdge = {
       module: 'utils/rogue.ts',
       sourceLayer: 'utils',
@@ -184,7 +185,7 @@ describe('EXIT PROOF — live allowed-dependency layering', () => {
   });
 
   it('every declared allowance is exercised by at least one live edge (no phantom cover)', async () => {
-    const edges = await scanLayerEdges(SRC_ROOT);
+    const edges = await scanLayerEdges(SRC_ROOT, lexModule);
     for (const a of LAYER_ALLOWED_IMPORTS) {
       for (const target of a.allow) {
         expect(
@@ -236,7 +237,7 @@ describe('detectDeclarationSeamUsage', () => {
       `import type { Declaration } from '../contract/declaration.js';
        import { TOOL_REGISTRY } from '../registry.js';
        import { z } from 'zod';`,
-      TEST_RULE,
+      lexModule, TEST_RULE,
     );
 
     expect(found?.contractImports).toEqual(['../contract/declaration.js']);
@@ -250,7 +251,7 @@ describe('detectDeclarationSeamUsage', () => {
       detectDeclarationSeamUsage(
         'workflow/tools.ts',
         `import { EventStore } from '../event-store/store.js';`,
-        TEST_RULE,
+        lexModule, TEST_RULE,
       ),
     ).toBeUndefined();
   });
@@ -263,11 +264,11 @@ describe('detectDeclarationSeamUsage', () => {
       'contract/rogue.ts',
       `import type { Declaration } from './declaration.js';
        import { TOOL_REGISTRY } from '../registry.js';`,
-      TEST_RULE,
+      lexModule, TEST_RULE,
     );
 
     expect(found?.storageImports.map((i) => i.storageModule)).toEqual(['registry.ts']);
-    expect(detectLayerEdges('contract/rogue.ts', `import { X } from '../registry.js';`)).toEqual([]);
+    expect(detectLayerEdges('contract/rogue.ts', `import { X } from '../registry.js';`, lexModule)).toEqual([]);
   });
 
   it('detectDeclarationSeamUsage_StoreNamedOnlyInACommentOrString_ReportsNoImport', () => {
@@ -277,7 +278,7 @@ describe('detectDeclarationSeamUsage', () => {
        // import { TOOL_REGISTRY } from '../registry.js';
        const doc = "see '../registry.js'";
        export const x = doc;`,
-      TEST_RULE,
+      lexModule, TEST_RULE,
     );
 
     expect(found?.contractImports).toHaveLength(1);
@@ -290,7 +291,7 @@ describe('detectDeclarationSeamUsage', () => {
       `import type { Declaration } from './declaration.js';
        import { TOOL_REGISTRY } from '../registry.js';
        import { CompositeTool } from '../registry.js';`,
-      TEST_RULE,
+      lexModule, TEST_RULE,
     );
 
     expect(found?.storageImports).toHaveLength(1);
@@ -445,7 +446,7 @@ describe('runDeclarationSeamCensus — verdict logic', () => {
 
 describe('EXIT PROOF — the live declaration seam (DR-1)', () => {
   it('auditDeclarationSeam_LiveShippedSource_ReportsNoDiagnostics', async () => {
-    const result = await auditDeclarationSeam(SRC_ROOT);
+    const result = await auditDeclarationSeam(SRC_ROOT, lexModule);
 
     expect(result.diagnostics).toEqual([]);
     expect(result.ok).toBe(true);
@@ -455,7 +456,7 @@ describe('EXIT PROOF — the live declaration seam (DR-1)', () => {
     // The non-empty-denominator criterion, measured rather than asserted: if the
     // contract modules or the stores are moved/renamed, these drop to zero and
     // the census above fails instead of reading clean.
-    const result = await auditDeclarationSeam(SRC_ROOT);
+    const result = await auditDeclarationSeam(SRC_ROOT, lexModule);
 
     expect(result.consumerCount).toBeGreaterThan(0);
     expect(result.resolvedStorageCount).toBe(DECLARATION_SEAM.storage.length);
@@ -463,7 +464,7 @@ describe('EXIT PROOF — the live declaration seam (DR-1)', () => {
   });
 
   it('scanDeclarationSeam_LiveTree_FindsTheAccessorAndEveryDeclaredStore', async () => {
-    const scan = await scanDeclarationSeam(SRC_ROOT);
+    const scan = await scanDeclarationSeam(SRC_ROOT, lexModule);
 
     expect(scan.accessorPresent).toBe(true);
     expect(scan.storage.filter((s) => !s.resolved)).toEqual([]);
@@ -474,7 +475,7 @@ describe('EXIT PROOF — the live declaration seam (DR-1)', () => {
     // stays storage-free. A kind-indexed subject map would have had to name
     // `CompositeTool` / `CliActionHints`, forcing `contract/declaration.ts` to
     // import `registry.ts` — a store — which is what this pins shut.
-    const scan = await scanDeclarationSeam(SRC_ROOT);
+    const scan = await scanDeclarationSeam(SRC_ROOT, lexModule);
 
     for (const module of DECLARATION_SEAM.contractModules) {
       const found = scan.usages.find((u) => u.module === module);
@@ -489,7 +490,7 @@ describe('EXIT PROOF — the live declaration seam (DR-1)', () => {
     // subject has not been shown to work; this is that subject.
     const seeded = detectDeclarationSeamUsage(
       VIOLATOR_MODULE,
-      await readFile(VIOLATOR_FIXTURE, 'utf8'),
+      await readFile(VIOLATOR_FIXTURE, 'utf8'), lexModule,
     );
     expect(seeded, 'the seeded fixture must resolve as a seam participant').toBeDefined();
     if (seeded === undefined) return;
@@ -497,7 +498,7 @@ describe('EXIT PROOF — the live declaration seam (DR-1)', () => {
     expect(seeded.contractImports.length, 'the fixture must read as a CONSUMER').toBeGreaterThan(0);
     expect(seeded.storageImports.map((i) => i.storageModule)).toEqual(['event-store/schemas.ts']);
 
-    const live = await scanDeclarationSeam(SRC_ROOT);
+    const live = await scanDeclarationSeam(SRC_ROOT, lexModule);
     const result = runDeclarationSeamCensus({ ...live, usages: [...live.usages, seeded] });
 
     expect(result.ok).toBe(false);
@@ -511,7 +512,7 @@ describe('EXIT PROOF — the live declaration seam (DR-1)', () => {
   it('scanDeclarationSeam_LiveTree_ExcludesTheSeededViolatorFixture', async () => {
     // The probe would be worthless if its own subject leaked into the live scan
     // (the census would then be red for everyone).
-    const scan = await scanDeclarationSeam(SRC_ROOT);
+    const scan = await scanDeclarationSeam(SRC_ROOT, lexModule);
 
     expect(scan.usages.map((u) => u.module)).not.toContain(VIOLATOR_MODULE);
   });

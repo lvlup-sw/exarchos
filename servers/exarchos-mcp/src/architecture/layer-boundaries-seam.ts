@@ -1,7 +1,12 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 
-import { EXCLUDED_DIRS, isScannableFile, extractImportSpecifiers } from './effect-ledger.js';
+import {
+  EXCLUDED_DIRS,
+  isScannableFile,
+  extractImportSpecifiers,
+  type ModuleLexer,
+} from './effect-ledger.js';
 
 /**
  * P07-06 — allowed-dependency layering census (structural conformance).
@@ -139,15 +144,25 @@ export function resolveTarget(module: string, specifier: string): string | undef
 
 /**
  * Enumerate the first-party cross-directory import edges of one module. Pure;
- * comment/string-aware via {@link extractImportSpecifiers}. Intra-layer edges and
- * edges to a root-level file are excluded (see the scope note above).
+ * the specifiers come from the ledger's lexer PORT via {@link
+ * extractImportSpecifiers}, so a store named only in prose is not an edge and a
+ * nested template literal cannot manufacture one. Intra-layer edges and edges to
+ * a root-level file are excluded (see the scope note above).
+ *
+ * Type-only imports and `import('…')` type queries ARE edges here — the question
+ * is layering, not runtime effect — which is why this consumes the full
+ * specifier surface rather than the ledger's value-import filter.
  */
-export function detectLayerEdges(module: string, source: string): LayerEdge[] {
+export function detectLayerEdges(
+  module: string,
+  source: string,
+  lex: ModuleLexer,
+): LayerEdge[] {
   if (isRootFile(module)) return [];
   const sourceLayer = layerOf(module);
   const edges: LayerEdge[] = [];
   const seen = new Set<string>();
-  for (const specifier of extractImportSpecifiers(source)) {
+  for (const specifier of extractImportSpecifiers(source, lex)) {
     const targetModule = resolveTarget(module, specifier);
     if (targetModule === undefined) continue;
     if (isRootFile(targetModule)) continue;
@@ -179,12 +194,15 @@ async function collectScannableFiles(root: string): Promise<string[]> {
 }
 
 /** Scan the shipped source under `sourceRoot` and enumerate every layer edge. */
-export async function scanLayerEdges(sourceRoot: string): Promise<readonly LayerEdge[]> {
+export async function scanLayerEdges(
+  sourceRoot: string,
+  lex: ModuleLexer,
+): Promise<readonly LayerEdge[]> {
   const files = await collectScannableFiles(sourceRoot);
   const perFile = await Promise.all(
     files.map(async (file) => {
       const module = relative(sourceRoot, file).replaceAll('\\', '/');
-      return detectLayerEdges(module, await readFile(file, 'utf8'));
+      return detectLayerEdges(module, await readFile(file, 'utf8'), lex);
     }),
   );
   return Object.freeze(
@@ -264,9 +282,10 @@ export function runLayerBoundaryCensus(
 /** Collect the live layer edges and return the census verdict over the real tree. */
 export async function auditLayerBoundaries(
   sourceRoot: string,
+  lex: ModuleLexer,
   allowances: readonly LayerAllowance[] = LAYER_ALLOWED_IMPORTS,
 ): Promise<LayerBoundaryResult> {
-  const edges = await scanLayerEdges(sourceRoot);
+  const edges = await scanLayerEdges(sourceRoot, lex);
   return runLayerBoundaryCensus(edges, allowances);
 }
 
@@ -501,6 +520,7 @@ export interface DeclarationSeamResult {
 export function detectDeclarationSeamUsage(
   module: string,
   source: string,
+  lex: ModuleLexer,
   rule: DeclarationSeamRule = DECLARATION_SEAM,
 ): DeclarationSeamUsage | undefined {
   const contractModules = new Set(rule.contractModules);
@@ -511,7 +531,7 @@ export function detectDeclarationSeamUsage(
   const seenContract = new Set<string>();
   const seenStorage = new Set<string>();
 
-  for (const specifier of extractImportSpecifiers(source)) {
+  for (const specifier of extractImportSpecifiers(source, lex)) {
     const target = resolveTarget(module, specifier);
     if (target === undefined || target === module) continue;
     if (contractModules.has(target) && !seenContract.has(specifier)) {
@@ -655,6 +675,7 @@ export function runDeclarationSeamCensus(
 /** Collect every declaration-seam usage and store resolution under `sourceRoot`. */
 export async function scanDeclarationSeam(
   sourceRoot: string,
+  lex: ModuleLexer,
   rule: DeclarationSeamRule = DECLARATION_SEAM,
 ): Promise<DeclarationSeamScan> {
   const files = await collectScannableFiles(sourceRoot);
@@ -667,7 +688,7 @@ export async function scanDeclarationSeam(
   for (const module of [...modules.keys()].sort()) {
     const file = modules.get(module);
     if (file === undefined) continue;
-    const usage = detectDeclarationSeamUsage(module, await readFile(file, 'utf8'), rule);
+    const usage = detectDeclarationSeamUsage(module, await readFile(file, 'utf8'), lex, rule);
     if (usage !== undefined) usages.push(usage);
   }
 
@@ -692,9 +713,10 @@ export async function scanDeclarationSeam(
 /** Scan the shipped source and return the declaration-seam verdict over the real tree. */
 export async function auditDeclarationSeam(
   sourceRoot: string,
+  lex: ModuleLexer,
   rule: DeclarationSeamRule = DECLARATION_SEAM,
 ): Promise<DeclarationSeamResult> {
-  return runDeclarationSeamCensus(await scanDeclarationSeam(sourceRoot, rule), rule);
+  return runDeclarationSeamCensus(await scanDeclarationSeam(sourceRoot, lex, rule), rule);
 }
 
 // ─── The declared declaration seam ──────────────────────────────────────────
