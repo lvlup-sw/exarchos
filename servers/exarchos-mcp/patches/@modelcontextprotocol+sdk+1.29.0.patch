@@ -1,15 +1,23 @@
 diff --git a/node_modules/@modelcontextprotocol/sdk/dist/esm/server/mcp.js b/node_modules/@modelcontextprotocol/sdk/dist/esm/server/mcp.js
-index 2314d88..e82dcd7 100644
+index 2314d88..25faddf 100644
 --- a/node_modules/@modelcontextprotocol/sdk/dist/esm/server/mcp.js
 +++ b/node_modules/@modelcontextprotocol/sdk/dist/esm/server/mcp.js
-@@ -72,14 +72,29 @@ export class McpServer {
+@@ -72,14 +72,44 @@ export class McpServer {
                      name,
                      title: tool.title,
                      description: tool.description,
-+                    // [exarchos patch #1366] target: 'draft-2020-12' added so the
-+                    // tools/list boundary natively emits the MCP-spec-required schema
-+                    // marker instead of the SDK default ('draft-7'). See upstream PR
-+                    // (TBD) and docs/research/2026-05-13-zod-v4-decision-record-addendum.md.
++                    // [exarchos patch #1366 — RE-BASED by DR-0 task 050]
++                    // target: 'draft-2020-12' so the tools/list boundary emits the
++                    // schema dialect the MCP spec requires instead of this SDK's
++                    // default ('draft-7'). NOT a workaround for an open upstream bug:
++                    // upstream fixed this in @modelcontextprotocol/server@2.0.0, which
++                    // hard-codes JSON_SCHEMA_CONVERSION_TARGET = 'draft-2020-12' with
++                    // no draft-7 path at all (measured, task 050). This patch is a
++                    // v1-only BACKPORT of v2-native behaviour; its death condition is
++                    // the removal of @modelcontextprotocol/sdk (task 053), not an
++                    // upstream release. Do not delete it while v1 still serves the
++                    // wire — reversing it fails tools-list-2020-12 + the byte golden
++                    // 6/6. Enforced by src/__tests__/sdk-patch-policy.test.ts.
                      inputSchema: (() => {
                          const obj = normalizeObjectSchema(tool.inputSchema);
 -                        return obj
@@ -24,13 +32,20 @@ index 2314d88..e82dcd7 100644
 +                            pipeStrategy: 'input',
 +                            target: 'draft-2020-12'
 +                        });
-+                        // [exarchos patch #1366] MCP spec requires `type: 'object'` at
-+                        // root of inputSchema/outputSchema. Zod v4's z.toJSONSchema()
-+                        // emits a discriminated union as a top-level `anyOf` (no `type`).
-+                        // For DU-rooted schemas we splice in `type: 'object'` so the
-+                        // SDK's response validator accepts the manifest; the anyOf
-+                        // branches remain intact so structurally typed clients can
-+                        // still narrow.
++                        // [exarchos patch #1366 — RE-BASED by DR-0 task 050]
++                        // MCP requires `type: 'object'` at the root of a tool
++                        // inputSchema. Zod v4 emits a discriminated union as a
++                        // top-level `oneOf` with no `type` (measured under zod 4.4.3;
++                        // the pre-050 note here said `anyOf`, which was wrong), so
++                        // DU-rooted schemas get `type: 'object'` spliced in while the
++                        // branches stay intact for structurally typed clients.
++                        // v2 2.0.0 does this natively in standardSchemaToJsonSchema.
++                        // NOTE the divergence v2 introduced: v2 stamps an OUTPUT root
++                        // only when it is provably object-shaped (SEP-2106 lets an
++                        // outputSchema have any root), whereas this splice is
++                        // unconditional. Our LCD is a DU of objects, so both agree and
++                        // the wire golden is unmoved — but task 053 must not assume
++                        // the two are equivalent for a non-object-rooted schema.
 +                        if (emitted && typeof emitted === 'object' && emitted.type === undefined) {
 +                            emitted.type = 'object';
 +                        }
@@ -38,21 +53,24 @@ index 2314d88..e82dcd7 100644
                      })(),
                      annotations: tool.annotations,
                      execution: tool.execution,
-@@ -88,10 +103,19 @@ export class McpServer {
+@@ -88,10 +118,22 @@ export class McpServer {
                  if (tool.outputSchema) {
                      const obj = normalizeObjectSchema(tool.outputSchema);
                      if (obj) {
 -                        toolDefinition.outputSchema = toJsonSchemaCompat(obj, {
-+                        // [exarchos patch #1366] target: 'draft-2020-12' — see inputSchema note above.
++                        // [exarchos patch #1366 — RE-BASED by DR-0 task 050]
++                        // target: 'draft-2020-12' — see the inputSchema note above.
 +                        const emitted = toJsonSchemaCompat(obj, {
                              strictUnions: true,
 -                            pipeStrategy: 'output'
 +                            pipeStrategy: 'output',
 +                            target: 'draft-2020-12'
                          });
-+                        // [exarchos patch #1366] see inputSchema note above —
-+                        // splice `type: 'object'` into DU-rooted schemas so the
-+                        // tools/list response validator accepts them.
++                        // [exarchos patch #1366 — RE-BASED by DR-0 task 050]
++                        // see the inputSchema note above — splice `type: 'object'`
++                        // into DU-rooted schemas so the tools/list response validator
++                        // accepts them. This is the hunk that keeps the advertised LCD
++                        // envelope object-rooted on v1; v2 2.0.0 does it natively.
 +                        if (emitted && typeof emitted === 'object' && emitted.type === undefined) {
 +                            emitted.type = 'object';
 +                        }
@@ -61,20 +79,27 @@ index 2314d88..e82dcd7 100644
                  }
                  return toolDefinition;
 diff --git a/node_modules/@modelcontextprotocol/sdk/dist/esm/server/zod-compat.js b/node_modules/@modelcontextprotocol/sdk/dist/esm/server/zod-compat.js
-index be30a22..6b25dac 100644
+index be30a22..3a6c33d 100644
 --- a/node_modules/@modelcontextprotocol/sdk/dist/esm/server/zod-compat.js
 +++ b/node_modules/@modelcontextprotocol/sdk/dist/esm/server/zod-compat.js
-@@ -106,7 +106,16 @@ export function normalizeObjectSchema(schema) {
+@@ -106,7 +106,23 @@ export function normalizeObjectSchema(schema) {
          // Check if it's a v4 object
          const v4Schema = schema;
          const def = v4Schema._zod?.def;
 -        if (def && (def.type === 'object' || def.shape !== undefined)) {
-+        // [exarchos patch #1366] accept ZodDiscriminatedUnion: a v4 DU has
-+        // def.type === 'union' and a string `discriminator` field (distinguishing
-+        // it from a plain ZodUnion). MCP spec tool schemas are always object-rooted,
-+        // but a top-level DU IS structurally an object (every variant is). Without
-+        // this branch normalizeObjectSchema returns undefined and the SDK falls
-+        // back to EMPTY_OBJECT_JSON_SCHEMA, dropping the LCD. See upstream PR (TBD).
++        // [exarchos patch #1366 — RE-BASED by DR-0 task 050]
++        // Accept ZodDiscriminatedUnion: a v4 DU has def.type === 'union' and a
++        // string `discriminator` field (distinguishing it from a plain ZodUnion).
++        // A top-level DU of objects IS structurally object-rooted. Without this
++        // branch normalizeObjectSchema returns undefined, the caller skips the
++        // `toolDefinition.outputSchema = …` assignment entirely, and the LCD is
++        // dropped from the manifest SILENTLY — measured, task 050: reversing this
++        // patch leaves every production tool with no advertised outputSchema.
++        // v2 2.0.0 has no equivalent gap: normalizeRawShapeSchema passes any
++        // Standard Schema straight through, so v2's registerTool accepts a Zod v4
++        // discriminated union as outputSchema directly (task 049's lead, verified
++        // at the wire by ToolsList_DiscriminatedUnionRoot_HasObjectType). v1-only
++        // backport; delete with v1 in task 053.
 +        if (def &&
 +            (def.type === 'object' ||
 +                def.shape !== undefined ||
@@ -82,14 +107,20 @@ index be30a22..6b25dac 100644
              return schema;
          }
      }
-@@ -116,6 +125,13 @@ export function normalizeObjectSchema(schema) {
+@@ -116,6 +132,19 @@ export function normalizeObjectSchema(schema) {
          if (v3Schema.shape !== undefined) {
              return schema;
          }
-+        // [exarchos patch #1366] accept v3 ZodDiscriminatedUnion. v3 DUs don't
-+        // expose `.shape` on the union itself (the shape lives on each member),
-+        // but the SDK should still treat the union as an object-rooted schema.
-+        // Detect via `_def.typeName === 'ZodDiscriminatedUnion'`.
++        // [exarchos patch #1366 — RE-BASED by DR-0 task 050]
++        // Accept a v3 ZodDiscriminatedUnion. v3 DUs don't expose `.shape` on the
++        // union itself (the shape lives on each member), so detect via
++        // `_def.typeName === 'ZodDiscriminatedUnion'`.
++        // UNREACHABLE FROM THIS REPO: the package depends on zod 4.4.3 and no
++        // module imports the `zod/v3` compat subpath, so `isZ4Schema` is true for
++        // every schema we hand the SDK and this else-branch never runs. Retained
++        // as inert defence rather than trimmed — removing it would shrink the
++        // patch without changing any measured behaviour, and the whole patch is
++        // scheduled for deletion with v1 in task 053 anyway.
 +        if (v3Schema._def && v3Schema._def.typeName === 'ZodDiscriminatedUnion') {
 +            return schema;
 +        }
