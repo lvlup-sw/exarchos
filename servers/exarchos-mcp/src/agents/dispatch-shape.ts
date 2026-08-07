@@ -31,6 +31,10 @@
 //     which never executes is the exact defect this table exists to remove.
 //   - An entry with `fallback: null` is terminal: on an undeclared capability
 //     the resolution is a TYPED ERROR, never a silent no-op (INV-4).
+//   - The table is frozen TRANSITIVELY (`deepFreezeTable`), not just at the
+//     top. Any nested object or array added to an entry must be reached by
+//     that walk, or the table's advertised immutability stops being true for
+//     the part that was added.
 //
 // The posture TYPE is taken from `types.ts` (the interface declaration), NOT
 // from `spec.ts` (the Zod declaration). The two are deliberate twins that
@@ -187,13 +191,56 @@ const RAW_DISPATCH_MAP: Readonly<Record<AgentPosture, DispatchShape>> = {
   },
 };
 
-/** Frozen posture → dispatch-shape map. Direct lookups are O(1). */
+// ─── Immutability (transitive, and therefore actually true) ─────────────────
+//
+// `readonly` is a COMPILE-TIME claim. This table is handed out by reference —
+// `dispatchShapeFor` returns the shared entry, and `resolveDispatchShape`
+// returns the shared `fallback` object to every capability-degraded caller —
+// so a single mutation would corrupt every subsequent dispatch process-wide.
+// Freezing only the outer object and its three entries left the parts BELOW
+// those entries writable at runtime: each entry's `requires` array, and the
+// `fallback` shapes (plus their own `requires`), which are exactly what a
+// degraded runtime receives. The walk below closes all of it.
+
+/**
+ * Freeze a shape and everything reachable through it: its `requires` array and
+ * its declared `fallback` (itself a `DispatchShape`, so it gets the same
+ * treatment, recursively). Freezing is in place, so the returned reference is
+ * the one that was passed in.
+ */
+function deepFreezeShape(shape: DispatchShape): DispatchShape {
+  Object.freeze(shape.requires);
+  if (shape.fallback !== null) deepFreezeShape(shape.fallback);
+  return Object.freeze(shape);
+}
+
+/**
+ * Freeze the whole table transitively: the container, every entry, and
+ * everything reachable from an entry.
+ *
+ * Iterates the table's OWN values rather than naming the three postures, so a
+ * posture added to the table is frozen by construction — a hand-written list
+ * here would silently leave the newest entry mutable, which is the same
+ * partial-freeze defect this replaces.
+ */
+function deepFreezeTable(
+  table: Readonly<Record<AgentPosture, DispatchShape>>,
+): Readonly<Record<AgentPosture, DispatchShape>> {
+  for (const shape of Object.values(table)) deepFreezeShape(shape);
+  return Object.freeze(table);
+}
+
+/**
+ * Posture → dispatch-shape map, frozen TRANSITIVELY: the map, each entry, each
+ * entry's `requires` array, and each declared `fallback` (with its own
+ * `requires`). Direct lookups are O(1).
+ *
+ * The immutability is a RUNTIME guarantee, not merely the `readonly` types —
+ * `DispatchShape_FallbackMutationAttempt_LeavesTheSharedShapeIntact` proves it
+ * by attempting real mutations through `Reflect` and `Object.assign`.
+ */
 export const POSTURE_DISPATCH_MAP: Readonly<Record<AgentPosture, DispatchShape>> =
-  Object.freeze({
-    'read-only': Object.freeze(RAW_DISPATCH_MAP['read-only']),
-    'task-isolated': Object.freeze(RAW_DISPATCH_MAP['task-isolated']),
-    'shared-mutating': Object.freeze(RAW_DISPATCH_MAP['shared-mutating']),
-  });
+  deepFreezeTable(RAW_DISPATCH_MAP);
 
 /**
  * The postures this table actually binds — its OWN key set, read off the frozen

@@ -49,6 +49,7 @@ import {
   validateDispatchShape,
   validateProvisionedDispatch,
   type DispatchLaunch,
+  type DispatchShape,
   type RuntimeCapabilityDeclaration,
 } from './dispatch-shape.js';
 import { AgentPosture } from './spec.js';
@@ -346,5 +347,158 @@ describe('DispatchShape runtime resolution (DR-25, INV-4)', () => {
       expect(resolved.degraded).toBe(false);
       expect(resolved.shape).toBe(dispatchShapeFor(posture));
     }
+  });
+});
+
+// ─── 5. The table is immutable at RUNTIME, transitively (DR-25, task 059) ───
+//
+// `readonly` on `DispatchShape` is a COMPILE-TIME claim, and asserting it in a
+// test would be circular — it would only restate the declaration the compiler
+// already enforces. The claim worth proving is the RUNTIME one, because the
+// table is handed out by reference: `dispatchShapeFor` returns the shared
+// entry and `resolveDispatchShape` returns the shared `fallback` object to
+// every capability-degraded caller. One mutation would corrupt every
+// subsequent degraded dispatch process-wide.
+//
+// So these tests attempt REAL mutations — `Reflect.set` / `Reflect.defineProperty`
+// / `Reflect.deleteProperty` (which report refusal by returning `false`) and
+// `Object.assign` (which throws on a frozen target in strict mode) — and each
+// probe is paired with a CONTROL run against an unfrozen structural twin, so a
+// probe that could never mutate anything cannot pass as proof of immutability.
+
+describe('DispatchShape immutability (DR-25)', () => {
+  /**
+   * A harness that reads and writes natively but cannot spawn. Enough to force
+   * `read-only` onto its declared fallback while still MEETING that fallback's
+   * own `requires`, so the resolution DEGRADES rather than erroring — which is
+   * what puts the shared fallback object in a caller's hands.
+   */
+  const noSpawn: RuntimeCapabilityDeclaration = {
+    runtime: 'no-spawn-harness',
+    supportLevels: buildSupportMap('native', { 'subagent:spawn': 'unsupported' }),
+  };
+
+  /** A structurally identical shape that is deliberately NOT frozen. */
+  function unfrozenTwin(shape: DispatchShape): DispatchShape {
+    return { ...shape, requires: [...shape.requires] };
+  }
+
+  /**
+   * Widening guard used by the reachability walk. A type guard, not a cast:
+   * arrays and plain objects both satisfy it, which is what a structural walk
+   * needs, and nothing here asserts a type the compiler has not checked.
+   */
+  function isWalkable(value: unknown): value is Readonly<Record<string, unknown>> {
+    return typeof value === 'object' && value !== null;
+  }
+
+  /** Every object reachable from `root` by own enumerable properties. */
+  function reachable(root: unknown, seen: object[] = []): readonly object[] {
+    if (!isWalkable(root) || seen.includes(root)) return seen;
+    seen.push(root);
+    for (const value of Object.values(root)) reachable(value, seen);
+    return seen;
+  }
+
+  it('DispatchShape_FallbackMutationAttempt_LeavesTheSharedShapeIntact', () => {
+    // The object a capability-degraded runtime is ACTUALLY handed.
+    const first = resolveDispatchShape('read-only', noSpawn);
+    expect(first.honoured).toBe(true);
+    if (!first.honoured) throw new Error('unreachable');
+    expect(first.degraded).toBe(true);
+    if (!first.degraded) throw new Error('unreachable');
+    const degraded = first.shape;
+    expect(degraded).toBe(dispatchShapeFor('read-only').fallback);
+
+    // ── PROBE CONTROL ───────────────────────────────────────────────────────
+    // The same four techniques against an UNFROZEN structural twin all land.
+    // Without this arm, a probe that mutates nothing anywhere would "prove"
+    // immutability against any implementation, frozen or not.
+    const twin = unfrozenTwin(degraded);
+    expect(Reflect.set(twin, 'naming', 'named')).toBe(true);
+    expect(twin.naming).toBe('named');
+    expect(Reflect.set(twin.requires, 0, 'fs:write')).toBe(true);
+    expect(twin.requires[0]).toBe('fs:write');
+    expect(Reflect.deleteProperty(twin, 'rationale')).toBe(true);
+    expect(twin.rationale).toBeUndefined();
+    expect(() => Object.assign(unfrozenTwin(degraded), { naming: 'named' })).not.toThrow();
+
+    // ── THE RUNTIME GUARANTEE ───────────────────────────────────────────────
+    // Every probe above, replayed against the SHIPPED fallback. All refused.
+    expect(Object.isFrozen(degraded)).toBe(true);
+    expect(Object.isFrozen(degraded.requires)).toBe(true);
+
+    expect(Reflect.set(degraded, 'naming', 'named')).toBe(false);
+    expect(Reflect.set(degraded, 'workspace', 'worktree')).toBe(false);
+    expect(Reflect.set(degraded, 'subagent', true)).toBe(false);
+    expect(Reflect.defineProperty(degraded, 'rationale', { value: 'rewritten' })).toBe(false);
+    expect(Reflect.deleteProperty(degraded, 'rationale')).toBe(false);
+    // The `requires` array too — an entry rewritten in place…
+    expect(Reflect.set(degraded.requires, 0, 'fs:write')).toBe(false);
+    // …and no APPEND either: a frozen array is non-extensible.
+    expect(Reflect.set(degraded.requires, degraded.requires.length, 'fs:write')).toBe(false);
+    // The strict-mode THROWING form, which is what an ordinary
+    // `shape.naming = 'named'` compiles to at runtime.
+    expect(() => Object.assign(degraded, { naming: 'named' })).toThrow(TypeError);
+
+    // ── NOTHING MOVED ───────────────────────────────────────────────────────
+    expect(degraded.subagent).toBe(false);
+    expect(degraded.naming).toBe('anonymous');
+    expect(degraded.workspace).toBe('inherited');
+    expect([...degraded.requires]).toEqual(['fs:read']);
+    expect(degraded.rationale).toContain('Still runs the prompt');
+
+    // ── …AND THE NEXT DEGRADED DISPATCH IS UNAFFECTED ───────────────────────
+    // The point of the whole guarantee. Process-wide corruption through one
+    // shared reference is what freezing prevents, so the observable claim is
+    // that a LATER resolution still gets the declared shape.
+    const second = resolveDispatchShape('read-only', noSpawn);
+    expect(second.honoured).toBe(true);
+    if (!second.honoured) throw new Error('unreachable');
+    expect(second.degraded).toBe(true);
+    if (!second.degraded) throw new Error('unreachable');
+    expect(second.shape).toBe(degraded);
+    expect(second.shape.naming).toBe('anonymous');
+    expect(second.shape.subagent).toBe(false);
+    expect([...second.shape.requires]).toEqual(['fs:read']);
+  });
+
+  it('DispatchShape_EveryNodeReachableFromTheTable_IsFrozenTransitively', () => {
+    const nodes = reachable(POSTURE_DISPATCH_MAP);
+
+    // DENOMINATOR — a walk that resolved nothing would satisfy the `filter`
+    // below vacuously. The expectation is derived from the table's STRUCTURE
+    // (one container, plus an object and a `requires` array per shape and per
+    // declared fallback), not from the walk itself.
+    const expectedNodes = AgentPosture.options.reduce((total, posture) => {
+      const shape = dispatchShapeFor(posture);
+      return total + 2 + (shape.fallback === null ? 0 : 2);
+    }, 1);
+    expect(expectedNodes).toBeGreaterThan(1);
+    expect(nodes.length).toBe(expectedNodes);
+
+    // …and it found the specific nodes the old partial freeze left writable.
+    expect(nodes).toContain(POSTURE_DISPATCH_MAP);
+    for (const posture of AgentPosture.options) {
+      const shape = dispatchShapeFor(posture);
+      expect(nodes).toContain(shape);
+      expect(nodes).toContain(shape.requires);
+      if (shape.fallback !== null) {
+        expect(nodes).toContain(shape.fallback);
+        expect(nodes).toContain(shape.fallback.requires);
+      }
+    }
+
+    // CONTROL — `Object.isFrozen` must be capable of answering `false` on a
+    // node of this shape, or the sweep below is measuring nothing.
+    expect(Object.isFrozen(unfrozenTwin(dispatchShapeFor('read-only')))).toBe(false);
+
+    const unfrozen = nodes.filter((node) => !Object.isFrozen(node));
+    expect(
+      unfrozen.length,
+      `${unfrozen.length} object(s) reachable from POSTURE_DISPATCH_MAP are not frozen: ` +
+        `${JSON.stringify(unfrozen)}. \`readonly\` is a compile-time claim only — a caller ` +
+        `holding the shared shape can still mutate it at runtime.`,
+    ).toBe(0);
   });
 });

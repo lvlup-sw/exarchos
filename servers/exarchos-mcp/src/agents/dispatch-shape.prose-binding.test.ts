@@ -29,12 +29,6 @@
 //
 // ── What this binding DOES NOT COVER — stated plainly ───────────────────────
 //
-//   naming for `shared-mutating` — the shipped table states only
-//     `subagent: false`, `workspace: "main-worktree"` for that row, so the
-//     map's `naming: 'anonymous'` is pinned only to "not `named`", NOT to
-//     `anonymous`. This is an under-specification in the prose, not a
-//     disagreement, and it is REPORTED rather than papered over. (See the
-//     coherence rule in `bindProseToMap`.)
 //   requires  — the capability list is not in the table. The section's closing
 //     paragraph describes degradation in sentences; sentences are not parsed
 //     here, because a parser over free prose degrades to vacuous far faster
@@ -48,6 +42,20 @@
 //     ("**Omit `name`.**"). Unbound.
 //
 // A partial binding that is honestly described beats one that overclaims.
+//
+// ── CLOSED by task 059: naming for `shared-mutating` ────────────────────────
+//
+// That row used to state only `subagent: false` and `workspace: "main-worktree"`,
+// so the map's `naming: 'anonymous'` was pinned by rule (3) below only to "not
+// `named`" — 1 of 9 posture-field cells unbindable. The row now states
+// `naming: "anonymous"` and the cell is compared like any other, which takes
+// `MIN_BOUND_CELLS` from 8 to 9 and makes the table TOTALLY bound: 3 rows ×
+// 3 fields. `ProseBinding_SharedMutatingNaming_IsNowBound` pins that.
+//
+// Rule (3) — the weaker "not `named`" claim for a row that omits `naming` — is
+// KEPT rather than deleted: it is the correct behaviour for any future
+// `subagent: false` row that legitimately omits the field. No shipped row
+// exercises it any more, so it is exercised below against a fixture map.
 //
 // ── The two authorities (DR-30) ─────────────────────────────────────────────
 //
@@ -105,14 +113,15 @@ const boundShapes: ReadonlyMap<string, DispatchShape> = new Map(
 /**
  * The floor on how many prose cells this binding actually compares.
  *
- * Hand-counted against the shipped table (2026-08-07): `read-only` and
- * `task-isolated` state all three fields, `shared-mutating` states two — 3 + 3
- * + 2 = 8. Written by hand ON PURPOSE: a floor derived from the parse would
- * agree with a parser that had stopped seeing cells, which is the vacuity this
- * whole test is guarding against. A row that loses a cell reddens the mandatory
- * -cell rule; this floor is the second, cruder tooth under the same property.
+ * Hand-counted against the shipped table (task 059, 2026-08-07): all three
+ * rows state all three fields — 3 × 3 = 9. It was 8 until `shared-mutating`
+ * gained its `naming` cell. Written by hand ON PURPOSE: a floor derived from
+ * the parse would agree with a parser that had stopped seeing cells, which is
+ * the vacuity this whole test is guarding against. A row that loses a cell
+ * reddens the mandatory-cell rule; this floor is the second, cruder tooth
+ * under the same property.
  */
-const MIN_BOUND_CELLS = 8;
+const MIN_BOUND_CELLS = 9;
 
 // ─── Failure mode: a prose parse that resolves nothing must never read clean ─
 
@@ -536,6 +545,82 @@ describe('Delegate skill prose ⇄ POSTURE_DISPATCH_MAP (DR-25, task 056)', () =
     expect(report.comparisons.length).toBeGreaterThanOrEqual(MIN_BOUND_CELLS);
 
     expect(report.mismatches).toEqual([]);
+  });
+
+  it('ProseBinding_SharedMutatingNaming_IsNowBound', () => {
+    const markdown = readFileSync(SKILL_SOURCE, 'utf8');
+    const parsed = parseProseDispatchTable(markdown, SKILL_LABEL);
+
+    const row = parsed.rows.find((candidate) => candidate.posture === 'shared-mutating');
+    expect(row, 'the posture table must document `shared-mutating`').toBeDefined();
+    if (row === undefined) throw new Error('unreachable');
+
+    // The cell that used to be missing. While it was, the map's
+    // `naming: 'anonymous'` was pinned only to "not `named`".
+    expect(row.stated.get('naming')).toBe('anonymous');
+
+    // …and it is genuinely COMPARED against the map, not merely present in the
+    // prose. Presence without a comparison would be exactly the overclaim the
+    // header warns about.
+    const report = bindProseToMap(parsed, boundShapes);
+    expect(report.mismatches).toEqual([]);
+    expect(
+      report.comparisons.filter((c) => c.posture === 'shared-mutating' && c.field === 'naming'),
+    ).toEqual([
+      { posture: 'shared-mutating', field: 'naming', prose: 'anonymous', map: 'anonymous' },
+    ]);
+
+    // The table is now TOTALLY bound: every row states every bound field. The
+    // expectation is derived from the MAP and the field list — two authorities
+    // the parse never touches — so it is a real denominator, not a restatement
+    // of what the parser happened to find.
+    expect(report.comparisons.length).toBe(boundShapes.size * BOUND_FIELDS.length);
+    expect(MIN_BOUND_CELLS).toBe(boundShapes.size * BOUND_FIELDS.length);
+
+    // ── FALSIFIABILITY ──────────────────────────────────────────────────────
+    // The newly-bound cell has teeth: seed a drift into exactly this cell and
+    // the binding reddens. Before the cell was stated there was nothing here
+    // to seed, which is what "unbindable" meant.
+    const needle = '`naming: "anonymous"`, `workspace: "main-worktree"`';
+    const seeded = '`naming: "named"`, `workspace: "main-worktree"`';
+    expect(markdown.split(needle).length - 1).toBe(1);
+    const fixture = markdown.replace(needle, seeded);
+    expect(fixture).not.toBe(markdown);
+
+    const drifted = bindProseToMap(
+      parseProseDispatchTable(fixture, '<shared-mutating-drift fixture>'),
+      boundShapes,
+    );
+    const reported = drifted.mismatches.join('\n');
+    expect(drifted.mismatches.length).toBeGreaterThan(0);
+    expect(reported).toContain('shared-mutating');
+    expect(reported).toContain('naming: named');
+    expect(reported).toContain('naming: anonymous');
+
+    // ── The weaker rule (3) survives for a FUTURE row that omits `naming` ────
+    // No shipped row exercises it now, so it is exercised against a fixture
+    // map: prose that omits `naming` on a `subagent: false` row still refuses
+    // a map binding `naming: 'named'`.
+    const omitted = markdown.replace(
+      '`subagent: false`, `naming: "anonymous"`',
+      '`subagent: false`',
+    );
+    expect(omitted).not.toBe(markdown);
+    const parsedOmitted = parseProseDispatchTable(omitted, '<naming-omitted fixture>');
+
+    // Against the SHIPPED map (`anonymous`) omission is legal — under-specified,
+    // not a disagreement…
+    expect(bindProseToMap(parsedOmitted, boundShapes).mismatches).toEqual([]);
+
+    // …but against a map that answered `named`, it is a mismatch.
+    const sharedMutating = boundShapes.get('shared-mutating');
+    if (sharedMutating === undefined) throw new Error('unreachable');
+    const namedMutator: ReadonlyMap<string, DispatchShape> = new Map(boundShapes).set(
+      'shared-mutating',
+      { ...sharedMutating, naming: 'named' },
+    );
+    const weak = bindProseToMap(parsedOmitted, namedMutator);
+    expect(weak.mismatches.join('\n')).toContain('nothing can be named');
   });
 
   it('ProseBinding_SeededProseDrift_FailsTheBinding', () => {
