@@ -61,6 +61,7 @@ import {
   type ToolAction,
 } from '../../registry.js';
 import { EnvelopeSchema } from '../../schemas/envelope.js';
+import { unregisteredActionOutputSchema } from '../../output-schema-declaration.js';
 import { toEnvelope, wrap, wrapError, type ToolResult } from '../../format.js';
 import {
   buildBindingTable,
@@ -666,7 +667,11 @@ function buildRealProbeAction(): ToolAction {
     schema: z.object({}).strict(),
     phases: new Set(['delegate']),
     roles: new Set([REAL_REGISTRY_PROBE_ROLE]),
-    outputSchema: EnvelopeSchema(z.unknown()),
+    // DR-4 (task 055): the probe is a FIXTURE action, deliberately absent from
+    // the built-in registry the vacuity census enumerates, so it has no
+    // allowlist id to waive. The bounded out-of-registry escape keeps it
+    // constructible without reopening the vacuous form on `ToolAction`.
+    outputSchema: unregisteredActionOutputSchema(),
     annotations: {
       safety: 'read-only',
       readOnly: true,

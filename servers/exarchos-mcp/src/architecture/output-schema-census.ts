@@ -48,8 +48,28 @@
  */
 import { z } from 'zod';
 import { TOOL_REGISTRY } from '../registry.js';
-import type { CompositeTool } from '../registry.js';
 import { extractEnvelopeDataSchema } from '../orchestrate/worktree/schemas.js';
+import { VACUITY_ALLOWLIST_IDS } from '../output-schema-vacuity-allowlist.js';
+
+/**
+ * The census's subject, stated STRUCTURALLY rather than as `CompositeTool`.
+ *
+ * DR-4 (task 055) narrowed `ToolAction.outputSchema` to a branded type only two
+ * constructors can mint. The census must NOT inherit that narrowing: its job is
+ * to classify whatever schema a declaration actually carries, including one
+ * that reached the registry through a path the type system does not govern (a
+ * forged brand, the out-of-registry escape). A seam that accepted only branded
+ * schemas would be unable to see exactly the case the ratchet exists to catch.
+ * `CompositeTool` satisfies this shape, so `TOOL_REGISTRY` remains the default.
+ */
+export interface CensusableAction {
+  readonly name: string;
+  readonly outputSchema: z.ZodType;
+}
+export interface CensusableTool {
+  readonly name: string;
+  readonly actions: readonly CensusableAction[];
+}
 
 /** The two-way partition every action declaration falls into. */
 export type VacuityClass = 'vacuous' | 'substantive';
@@ -201,7 +221,7 @@ export function classifyOutputSchema(outputSchema: z.ZodType): {
  * exercise the empty-subject failure) without mutating the real registry.
  */
 export function censusOutputSchemas(
-  tools: readonly CompositeTool[] = TOOL_REGISTRY,
+  tools: readonly CensusableTool[] = TOOL_REGISTRY,
 ): OutputSchemaCensusReport {
   const records: OutputSchemaRecord[] = [];
   const diagnostics: CensusDiagnostic[] = [];
@@ -300,6 +320,151 @@ export function formatOutputSchemaCensus(report: OutputSchemaCensusReport): stri
     }
   }
 
+  return lines.join('\n');
+}
+
+// ─── DR-4 ratchet: the shrink-only vacuity allowlist ────────────────────────
+//
+// The census above measures. This is the policy laid over the measurement, and
+// it is the RUNTIME half of DR-4 — the compile-time half lives in
+// `output-schema-declaration.ts`, where `ToolAction.outputSchema` accepts only
+// a branded schema and the waiver escape accepts only a seeded id.
+//
+// Why membership and not a count: a threshold ("no more than 112 vacuous") is
+// satisfied by swapping — pay down `a`, introduce `b`, and the number never
+// moves. The audit below compares SETS in both directions, so a swap surfaces
+// as two findings even though the cardinality is unchanged.
+
+/** A condition that makes the allowlist and the live census disagree. */
+export type VacuityAllowlistFinding =
+  | { readonly code: 'EMPTY_CENSUS'; readonly message: string }
+  | { readonly code: 'UNTRUSTWORTHY_CENSUS'; readonly message: string }
+  | { readonly code: 'UNWAIVED_VACUITY'; readonly id: string; readonly message: string }
+  | { readonly code: 'STALE_WAIVER'; readonly id: string; readonly message: string };
+
+export interface VacuityAllowlistAudit {
+  /** True when the allowlist is EXACTLY the live vacuous population. */
+  readonly ok: boolean;
+  /** Declarations enumerated. Zero is a failure, never a clean run. */
+  readonly total: number;
+  /** Live vacuous ids, sorted — the measurement. */
+  readonly vacuous: readonly string[];
+  /** Allowlisted ids, sorted — the policy. */
+  readonly waived: readonly string[];
+  /** Vacuous today with no waiver. New vacuity; the ratchet's growth tooth. */
+  readonly unwaived: readonly string[];
+  /** Waived but no longer vacuous. Paid-down debt that must be DELETED. */
+  readonly stale: readonly string[];
+  readonly findings: readonly VacuityAllowlistFinding[];
+}
+
+/**
+ * Audit the shrink-only allowlist against the live census.
+ *
+ * Both arguments default to the live pair, so the production call is
+ * `auditVacuityAllowlist()`. They are injectable seams for the same reason the
+ * census takes `tools`: the co-located vitest has to drive compositions the
+ * live tree cannot produce (an emptied subject, a swapped entry) without
+ * touching the real registry or the real seed.
+ *
+ * Three teeth:
+ *   1. NON-EMPTY DENOMINATOR. A census over zero declarations proves nothing;
+ *      it is what a moved module or a broken import looks like. It FAILS rather
+ *      than reporting "0 unwaived — clean".
+ *   2. UNWAIVED_VACUITY. A declaration that is vacuous today and not on the
+ *      list. This is the runtime mirror of the compile-time tooth, and it is
+ *      what catches vacuity that entered through a path the type system does
+ *      not govern (a forged brand, the out-of-registry escape).
+ *   3. STALE_WAIVER. A waiver whose declaration is no longer vacuous — fixed,
+ *      or deleted outright. There is no way to park a paid-down entry: the
+ *      moment the debt is paid, the entry must go. That is what makes the list
+ *      shrink-only rather than merely bounded.
+ */
+export function auditVacuityAllowlist(
+  report: OutputSchemaCensusReport = censusOutputSchemas(),
+  allowlist: readonly string[] = VACUITY_ALLOWLIST_IDS,
+): VacuityAllowlistAudit {
+  const findings: VacuityAllowlistFinding[] = [];
+
+  if (report.total === 0) {
+    findings.push({
+      code: 'EMPTY_CENSUS',
+      message:
+        'The outputSchema census enumerated ZERO declarations, so the allowlist ' +
+        'audit has an empty denominator and proves nothing. An audit that reports ' +
+        'clean against no subject is the instrument dying green — the exact ' +
+        'failure mode DR-4 exists to prevent. Check that the tool registry still ' +
+        'resolves and still declares actions.',
+    });
+  } else if (!report.ok) {
+    findings.push({
+      code: 'UNTRUSTWORTHY_CENSUS',
+      message:
+        `The census raised ${report.diagnostics.length} diagnostic(s), so its ` +
+        'vacuous/substantive partition cannot be trusted as the audit input. ' +
+        'Resolve the census diagnostics before reading this verdict.',
+    });
+  }
+
+  const vacuous = [...report.vacuous].sort();
+  const waived = [...new Set(allowlist)].sort();
+  const vacuousSet = new Set(vacuous);
+  const waivedSet = new Set(waived);
+  const declared = new Set(report.records.map((r) => r.id));
+
+  const unwaived = vacuous.filter((id) => !waivedSet.has(id));
+  const stale = waived.filter((id) => !vacuousSet.has(id));
+
+  for (const id of unwaived) {
+    findings.push({
+      code: 'UNWAIVED_VACUITY',
+      id,
+      message:
+        `'${id}' declares a vacuous outputSchema (success-branch 'data' accepts ` +
+        'every value) and carries no allowlist entry. Give it a real data schema ' +
+        'and declare it with withCappedShape(...). Adding an entry to the ' +
+        'allowlist is NOT the fix — the list may only shrink.',
+    });
+  }
+  for (const id of stale) {
+    findings.push({
+      code: 'STALE_WAIVER',
+      id,
+      message: declared.has(id)
+        ? `'${id}' is waived in the vacuity allowlist but its outputSchema is no ` +
+          'longer vacuous. The debt is paid — DELETE its line from ' +
+          'output-schema-vacuity-allowlist.ts.'
+        : `'${id}' is waived in the vacuity allowlist but no such action is ` +
+          'declared any more. DELETE its line from ' +
+          'output-schema-vacuity-allowlist.ts.',
+    });
+  }
+
+  return Object.freeze({
+    ok: findings.length === 0,
+    total: report.total,
+    vacuous: Object.freeze(vacuous),
+    waived: Object.freeze(waived),
+    unwaived: Object.freeze(unwaived),
+    stale: Object.freeze(stale),
+    findings: Object.freeze(findings),
+  });
+}
+
+/** Render the allowlist audit for a human or an agent. */
+export function formatVacuityAllowlistAudit(audit: VacuityAllowlistAudit): string {
+  const lines: string[] = [
+    `outputSchema vacuity allowlist: ${audit.waived.length} waived, ` +
+      `${audit.vacuous.length} vacuous of ${audit.total} declarations — ` +
+      `${audit.ok ? 'OK' : 'FAILED'}.`,
+  ];
+  if (audit.findings.length > 0) {
+    lines.push(`  ${audit.findings.length} finding(s):`);
+    for (const finding of audit.findings) {
+      const subject = 'id' in finding ? ` ${finding.id}:` : '';
+      lines.push(`    [${finding.code}]${subject} ${finding.message}`);
+    }
+  }
   return lines.join('\n');
 }
 

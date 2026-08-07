@@ -7,7 +7,7 @@ import { registerEventType, unregisterEventType } from '../event-store/schemas.j
 import { ViewRegistry } from '../views/registry.js';
 import { registerCustomTool, unregisterCustomTool, setCustomToolActionHandler, ALL_PHASES } from '../registry.js';
 import type { CompositeTool, ToolAction } from '../registry.js';
-import { EnvelopeSchema } from '../schemas/envelope.js';
+import { unregisteredActionOutputSchema } from '../output-schema-declaration.js';
 import { logger } from '../logger.js';
 import type { ViewProjection } from '../views/materializer.js';
 import type { ExarchosConfig, WorkflowDefinition } from './define.js';
@@ -361,7 +361,14 @@ export async function registerCustomTools(
           schema: z.object({}).passthrough(),
           phases: ALL_PHASES,
           roles: new Set<string>(['any']),
-          outputSchema: EnvelopeSchema(z.unknown()),
+          // DR-4 (task 055): a custom tool's action names come from
+          // `.exarchos.yml` at runtime, so there is no compile-time literal to
+          // match against the vacuity allowlist. These actions are outside the
+          // built-in registry the DR-4 census enumerates; the bounded escape
+          // records that explicitly instead of letting the vacuous form back
+          // into the type. Using it inside `registry.ts` would surface as an
+          // UNWAIVED_VACUITY finding from `auditVacuityAllowlist`.
+          outputSchema: unregisteredActionOutputSchema(),
           annotations: {
             safety: 'local-mutation',
             readOnly: false,
