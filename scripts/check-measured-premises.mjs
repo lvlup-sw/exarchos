@@ -105,6 +105,9 @@ import { fileURLToPath } from 'node:url';
 import * as path from 'node:path';
 import process from 'node:process';
 import ts from 'typescript';
+// Task 064's packaging gate, imported so `validate-plugin-checks` derives the
+// number a real run reports rather than re-implementing the policy's expansion.
+import { evaluatePackaging, diskTree } from './validate-plugin.mjs';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, '..');
@@ -494,6 +497,9 @@ export function checkMeasuredPremises(options) {
 const MCP_SRC = 'servers/exarchos-mcp/src';
 const CLI_SOURCE = `${MCP_SRC}/adapters/cli.ts`;
 const REGISTRY_SOURCE = `${MCP_SRC}/registry.ts`;
+/** Task 064's data files — see the two `validate-*` derivations below. */
+const VALIDATE_MANIFEST = 'scripts/validate-manifest.json';
+const PACKAGING_POLICY = '.claude-plugin/packaging-policy.json';
 
 /** @type {Record<string, { kind: 'ts' | 'scan', describe: string, fn?: (root: string) => number }>} */
 export const DERIVATIONS = {
@@ -540,7 +546,76 @@ export const DERIVATIONS = {
     describe: `parsed \`outputSchema: withCappedShape(...)\` declaration sites in ${REGISTRY_SOURCE}`,
     fn: (root) => countWithCappedShapeDeclarations(readSource(root, REGISTRY_SOURCE), REGISTRY_SOURCE),
   },
+  // Task 064 (DR-24). The spec's own account of `npm run validate` carried two
+  // unannotated numbers and BOTH were wrong when re-derived on the landing
+  // branch — it said a 17-step chain whose step 1 "fails 4 of 9 checks", where
+  // the tree held a NINE-step chain whose step 1 failed FIVE of nine. That is
+  // exactly DR-27's class: a representation of a derivation with nothing behind
+  // it, in the document that defines the class. Both numbers now derive.
+  'validate-chain-steps': {
+    kind: 'scan',
+    describe: `declared steps in ${VALIDATE_MANIFEST} — the denominator \`npm run validate\` reports`,
+    fn: (root) => countValidateSteps(root),
+  },
+  'validate-plugin-checks': {
+    kind: 'scan',
+    describe:
+      `checks the shipped ${PACKAGING_POLICY} produces against the shipped tree — ` +
+      'the plugin gate\'s own denominator',
+    fn: (root) => countPackagingChecks(root),
+  },
 };
+
+/**
+ * Steps declared by the validate manifest.
+ *
+ * Non-empty denominator, the same tooth `sdk-import-sites` carries: a manifest
+ * resolving zero steps would let the document assert `0` and read green, when
+ * "the runner knows of no gates" is the failure task 064 exists to remove.
+ *
+ * @param {string} root
+ * @returns {number}
+ */
+export function countValidateSteps(root) {
+  const absolute = path.join(root, VALIDATE_MANIFEST);
+  if (!existsSync(absolute)) {
+    throw new Error(`check-measured-premises: validate manifest ${VALIDATE_MANIFEST} does not exist`);
+  }
+  const steps = JSON.parse(readFileSync(absolute, 'utf8')).steps;
+  if (!Array.isArray(steps) || steps.length === 0) {
+    throw new Error(
+      `check-measured-premises: ${VALIDATE_MANIFEST} declares 0 steps — refusing to derive ` +
+        'a premise from an empty denominator',
+    );
+  }
+  return steps.length;
+}
+
+/**
+ * Checks the packaging policy produces against the tree at `root`.
+ *
+ * Re-evaluates the real gate rather than counting policy entries, because the
+ * number the spec talks about is the number a RUN reports — clauses expand into
+ * more than one check apiece, and a count of entries would drift from the
+ * observable output the moment that mapping changed.
+ *
+ * @param {string} root
+ * @returns {number}
+ */
+export function countPackagingChecks(root) {
+  const absolute = path.join(root, PACKAGING_POLICY);
+  if (!existsSync(absolute)) {
+    throw new Error(`check-measured-premises: packaging policy ${PACKAGING_POLICY} does not exist`);
+  }
+  const { checks } = evaluatePackaging(JSON.parse(readFileSync(absolute, 'utf8')), diskTree(root));
+  if (checks.length === 0) {
+    throw new Error(
+      `check-measured-premises: ${PACKAGING_POLICY} produced 0 checks — refusing to derive ` +
+        'a premise from an empty denominator',
+    );
+  }
+  return checks.length;
+}
 
 function readSource(root, relative) {
   return readFileSync(path.join(root, relative), 'utf8');
