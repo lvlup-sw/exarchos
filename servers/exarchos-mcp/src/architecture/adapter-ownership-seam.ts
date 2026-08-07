@@ -1,4 +1,9 @@
-import { scanEffectOccurrences, type EffectClass, type EffectOccurrence } from './effect-ledger.js';
+import {
+  scanEffectOccurrences,
+  type EffectClass,
+  type EffectOccurrence,
+  type ModuleLexer,
+} from './effect-ledger.js';
 
 /**
  * P07-06 — direct adapter-ownership census (structural conformance).
@@ -130,12 +135,21 @@ export function runAdapterOwnershipCensus(
   });
 }
 
-/** Collect the live occurrences and return the adapter-ownership verdict over the real tree. */
+/**
+ * Collect the live occurrences and return the adapter-ownership verdict over the
+ * real tree.
+ *
+ * `lex` is the ledger's lexer port — required here for the same reason it is
+ * required there (see `effect-ledger.ts`'s {@link ModuleLexer}): this module is
+ * shipped source, and the only sound lexer is the TypeScript compiler, which the
+ * effect ledger will not admit into `src/`.
+ */
 export async function auditAdapterOwnership(
   sourceRoot: string,
+  lex: ModuleLexer,
   rules: readonly AdapterOwnershipRule[] = ADAPTER_OWNERSHIP,
 ): Promise<AdapterOwnershipResult> {
-  const occurrences = await scanEffectOccurrences(sourceRoot);
+  const occurrences = await scanEffectOccurrences(sourceRoot, lex);
   return runAdapterOwnershipCensus(occurrences, rules);
 }
 

@@ -8,6 +8,7 @@ import {
   type AdapterOwnershipRule,
 } from './adapter-ownership-seam.js';
 import { scanEffectOccurrences, type EffectOccurrence } from './effect-ledger.js';
+import { lexModule } from '../test-helpers/module-lexer.js';
 
 const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -52,7 +53,7 @@ describe('runAdapterOwnershipCensus — verdict logic', () => {
 
 describe('EXIT PROOF — live adapter ownership', () => {
   it('(a) the live shipped source confines every declared adapter to its owner surface', async () => {
-    const result = await auditAdapterOwnership(SRC_ROOT);
+    const result = await auditAdapterOwnership(SRC_ROOT, lexModule);
     // Surfacing the diagnostics array makes any regression self-describing.
     expect(result.diagnostics).toEqual([]);
     expect(result.ok).toBe(true);
@@ -60,7 +61,7 @@ describe('EXIT PROOF — live adapter ownership', () => {
   });
 
   it('(b) a planted network effect outside the owner surface FAILS against the live occurrences', async () => {
-    const occurrences = await scanEffectOccurrences(SRC_ROOT);
+    const occurrences = await scanEffectOccurrences(SRC_ROOT, lexModule);
     const planted: EffectOccurrence = {
       module: 'orchestrate/rogue-client.ts',
       effectClass: 'network',
@@ -79,7 +80,7 @@ describe('EXIT PROOF — live adapter ownership', () => {
   });
 
   it('every declared adapter owner performs the effect it owns (no phantom owner)', async () => {
-    const occurrences = await scanEffectOccurrences(SRC_ROOT);
+    const occurrences = await scanEffectOccurrences(SRC_ROOT, lexModule);
     for (const rule of ADAPTER_OWNERSHIP) {
       for (const owner of rule.owners) {
         expect(
