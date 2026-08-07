@@ -62,6 +62,8 @@ INV-2 quantifies parity over "**the same** DispatchContext + arguments." But the
 
 Every one of those three fields exists to expose an MCP capability that the CLI has no way to express: a server-initiated `roots/list` request, a server-initiated `elicitation/create` request, and an SDK task lifecycle bound to a live connection. **All three are exactly what `2026-07-28` removes, deprecates, or restructures.**
 
+The loophole is also wider than the context. INV-2 quantifies over "the same DispatchContext **+ arguments**", and the `task: { ttl }` augmentation key is an argument **only the MCP facade can send** — there is no `--task` flag, because `addFlagsFromSchema` derives flags from the action schema and `task` is stripped before validation (§5.3). So a whole behavioural branch (`runTasksAugmented`) is reachable from one facade and not the other, and both halves of INV-2's quantifier — context *and* args — are carrying divergence that the adapter-focused audit prompt cannot see.
+
 ---
 
 ## 3. Pattern-by-pattern composition
@@ -190,13 +192,60 @@ That is a structural improvement to the invariant, not merely a code cleanup, an
 
 ---
 
-## 5. Concrete CLI-contract consequences
+## 5. Where the changes actually land — the CLI is derived, so: not in the CLI
 
-1. **A new exit code for `input_required`.** `CLI_EXIT_CODES` (0–3) has no slot for "needs input." Mapping it to `INVALID_INPUT: 1` via the DR-7 table would be wrong — the input was not invalid, it was incomplete-by-design, and the call is resumable. Add a distinct code; keep the mapping presentation-only per DR-7.
-2. **`requestState` needs a CLI carrier.** A scripted CLI resuming an MRTR flow must pass the token back. `addFlagsFromSchema` derives flags from the action schema, and `requestState` is *protocol* state, not action state — so it needs a reserved flag (e.g. `--request-state`) handled like the existing `task` augmentation key: **stripped before `.strict()` schema validation**, exactly as `dispatch()` already strips `task`. That strip-before-validate pattern is the precedent; reuse it rather than inventing a second one.
-3. **`--follow` and `tasks/get` converge further.** Already paired by the INV-2 comment; the 2026 lifecycle removes the unpaired blocking method. Re-base `tasks/get` on the same pure-fold discipline and drop the `task.polled` write (§3.2).
-4. **`longRunning` becomes load-bearing on both facades.** Today it drives CLI heartbeats only. Under server-directed tasks it also decides which MCP calls return a task handle. It graduates from CLI presentation metadata to a shared behavioural declaration — which means **the parity harness must start covering it**.
-5. **Interactive vs. scripted CLI is now a real distinction.** MRTR gives an interactive CLI a stdin prompt loop and a scripted CLI a resumable token. That is new surface area; decide deliberately rather than letting it emerge.
+The layering is ratified, not merely conventional. INV-17 states it verbatim:
+
+> …the **INV-2 reframe (#1608: the CLI is a presentation client over the MCP contract, equivalence by construction)** and the **facade-codegen direction (system-design 05)**… the registered `outputSchema` must be **total over every emittable shape (baseline + capped + degraded)**, the precondition that makes facade equivalence hold by construction.
+
+So: **MCP contract is canonical (the wire); the dispatch core owns logic, database ops, and the economy measurement seam; the CLI is a derived presentation client.** Flags are not hand-written — `addFlagsFromSchema` emits them from each action's Zod schema. And the mechanism that makes equivalence hold *by construction* rather than *by test* is **output-contract totality**: the registered `outputSchema` (143 registrations in `registry.ts`) must cover every shape the core can emit.
+
+That relocates every item below out of the facades and into the core contract.
+
+### 5.1 The real cost centre: MRTR adds a fourth emittable shape
+
+INV-17 enumerates three shapes — **baseline, capped, degraded**. `input_required` is a **fourth**.
+
+If it reaches the wire without being added to the registered `outputSchema`, **totality breaks — and with it the stated precondition for equivalence-by-construction.** Facade equivalence would silently downgrade from *"holds by construction"* to *"holds wherever a parity test happens to cover it"*, which is the regime #1608 reframed away from.
+
+So the work is not "teach the CLI about `input_required`." It is:
+
+> **Extend the canonical response contract with a fourth state, then re-establish `outputSchema` totality across 143 registrations.**
+
+That is a core-contract change with a registry-wide blast radius, and it is the single largest composition cost in the revision. It is also why §7's "design the envelope state first" is not stylistic advice: the envelope shape is the input to a 143-site totality obligation, and revisiting it means redoing all of them.
+
+### 5.2 Exit codes are presentation, and stay presentation
+
+DR-7 already declares the `errorCode` → exit-code table **presentation metadata**. Once the core envelope carries an `input_required` discriminator, the CLI mapping is a table row, not a contract change. `CLI_EXIT_CODES` (0–3) has no slot for "needs input," so add one — but note the ordering dependency: **the code is derivable only after the core envelope has the state.** Adding the exit code first, by special-casing in the CLI adapter, is precisely the INV-2 violation the audit prompt looks for.
+
+### 5.3 The flag generator has no reserved-flag concept — and that is load-bearing
+
+`addFlagsFromSchema` derives flags from the action schema, skips exactly one field (`action`), and always adds `--json`. There is **no reserved/excluded-flag mechanism** — zero matches for `RESERVED`/`skip`/`exclude`/`omit` in the generator. Protocol-level fields therefore have nowhere to live in the generated surface.
+
+This is not theoretical. **`task: { ttl }` is not CLI-reachable**: there is no `--task` flag, and `dispatch()` strips the key before `.strict()` validation. Task augmentation has always been MCP-only.
+
+Two things follow. First, that is a **pre-existing facade divergence** — a whole behavioural branch (`runTasksAugmented`) reachable from one facade and not the other — which INV-2's adapter-focused audit never surfaced, because the divergence lives in the *context* and the *args*, not the adapters (§2.3). Second, **server-directed task creation closes it for free**: driven by `longRunning` registry metadata, the branch stops depending on a caller-supplied key that only one facade can send (§3.2).
+
+### 5.4 `requestState` — the case where owning the database changes the answer
+
+The spec's `requestState` exists because a stateless HTTP MCP server **has nowhere to put resumption state**. Exarchos has an event store, and the dispatch core owns it. That difference should be used, not ignored.
+
+The composition that preserves one core contract:
+
+- **dispatch** mints a resumption handle backed by the event store (a pending-input event / stream position) and returns it inside the `input_required` envelope;
+- the **MCP facade** wraps that handle in a spec-conformant signed `requestState` via the SDK codec — wire integrity, as the spec requires, since the token round-trips through an untrusted client;
+- the **CLI** passes the same handle back as an ordinary argument.
+
+One core contract, two renderings — the layering working as designed. It also dissolves the flag problem: a resumption handle that is *action state* is emittable by the existing generator, whereas a protocol-level signed blob would force a reserved-flag concept into `addFlagsFromSchema` and give the CLI protocol state it has no other use for.
+
+The inverse design — treat the signed blob as primary and have the CLI carry it — is what my earlier framing assumed, and it is worse on both counts: it adds a generator concept **and** it puts wire-layer state in a facade that owns none.
+
+### 5.5 The two items that genuinely are CLI-shaped
+
+- **`--follow` and `tasks/get` converge further.** Already paired by the INV-2 comment at `cli.ts:239`; the 2026 lifecycle removes the unpaired blocking method. Re-base `tasks/get` on the same pure-fold discipline and drop the `task.polled` write (§3.2).
+- **Interactive vs. scripted CLI becomes a real distinction.** MRTR gives an interactive CLI a stdin prompt loop and a scripted CLI a resumable handle. This is the one place the CLI grows genuinely new surface rather than re-deriving it — so decide it deliberately (§8.1).
+
+And one that is neither: **`longRunning` graduates from CLI presentation metadata to a shared behavioural declaration**, since it will decide which MCP calls return a task handle. It moves *into* the core contract, and **the parity harness must start covering it**.
 
 ---
 
@@ -204,7 +253,7 @@ That is a structural improvement to the invariant, not merely a code cleanup, an
 
 | # | Risk |
 | --- | --- |
-| C1 | **`resultType` vs. `success` conflation.** `input_required` is neither success nor failure. Overloading `success: false` corrupts the DR-7 error→exit-code mapping and every `Envelope<T>` consumer. Needs a third state, designed once, at the envelope level. |
+| C1 | **`resultType` vs. `success` conflation, and the totality obligation behind it.** `input_required` is neither success nor failure; overloading `success: false` corrupts the DR-7 error→exit-code mapping and every `Envelope<T>` consumer. Worse, it is a **fourth emittable shape** under INV-17, so it must land in `outputSchema` across 143 registrations or facade equivalence stops holding by construction (§5.1). Design once, at the envelope level, before any MRTR code. |
 | C2 | **`requestState` is untrusted input crossing a trust boundary.** Signed (HMAC-SHA256), **not encrypted** — the client can base64url-decode it. Use `createRequestStateCodec`; never hand-roll; never put anything confidential in it; bind to principal + originating method + expiry. |
 | C3 | **`task.polled` write-on-poll.** Already contrary to the `VIEW_FOLLOW_ACTIONS` purity invariant; becomes a write-amplification and timeline-pollution problem once polling is the primary lifecycle. |
 | C4 | **Dual-era divergence is a *third* facade.** During the `serveStdio` dual-era window there are effectively CLI, MCP-2025, and MCP-2026 behaviours. In a repo that just finished a test de-divergence wave (#1705), keep this window short and deliberate. |
@@ -216,12 +265,13 @@ That is a structural improvement to the invariant, not merely a code cleanup, an
 ## 7. Recommendations
 
 1. **Tighten INV-2** to quantify over the *facade*, not the context — something like: *"any behavioural difference between facades must be expressible as a difference in the rendered presentation of one shared `ToolResult`; capability adapters on `DispatchContext` that gate behaviour are INV-2 violations, not exemptions."* This is the durable structural fix, and §4 is what makes it newly achievable. Author it through `/exarchos:invariants` rather than hand-editing the catalog.
-2. **Design the `input_required` envelope state before writing any MRTR code.** It touches `Envelope<T>`, the DR-7 exit-code table, the parity harness, and every consumer. It is the one decision here that is expensive to revisit (C1).
-3. **Adopt MRTR early** — the legacy shim means it works on today's wire, and it hands the CLI a resumable-flow capability it does not currently have (§3.3).
-4. **Make `longRunning` the single task trigger** for both facades, and extend the parity harness to cover it (§3.2).
-5. **Drop the `task.polled` write from `tasks/get`** and re-base it on the pure-fold discipline the view arm already proves (C3).
-6. **Derive `server/discover` from the registry** (C5).
-7. **Keep `_cacheHints` and `ttlMs`/`cacheScope` separate**, and note that the in-envelope design is why the CLI gets prompt-cache hints for free — a useful precedent when deciding where future hints live (§3.5).
+2. **Design the `input_required` envelope state before writing any MRTR code, and treat it as an INV-17 totality obligation.** It is a *fourth emittable shape* alongside baseline/capped/degraded, so it touches `Envelope<T>`, the DR-7 exit-code table, the parity harness, every consumer, and — the expensive part — **`outputSchema` totality across 143 registry registrations**. Revisiting the shape means redoing all of them, which is what makes this the one decision that is genuinely expensive to get wrong (C1, §5.1).
+3. **Mint the MRTR resumption handle in the dispatch core, from the event store**, and let the MCP facade wrap it in the SDK's signed `requestState` codec. One core contract, two renderings — and it avoids forcing a reserved-flag concept into `addFlagsFromSchema` (§5.4).
+4. **Adopt MRTR early** — the legacy shim means it works on today's wire, and it hands the CLI a resumable-flow capability it does not currently have (§3.3).
+5. **Make `longRunning` the single task trigger** for both facades, and extend the parity harness to cover it — it becomes a behavioural declaration, not CLI presentation metadata (§3.2, §5.5).
+6. **Drop the `task.polled` write from `tasks/get`** and re-base it on the pure-fold discipline the view arm already proves (C3).
+7. **Derive `server/discover` from the registry** (C5).
+8. **Keep `_cacheHints` and `ttlMs`/`cacheScope` separate**, and note that the in-envelope design is why the CLI gets prompt-cache hints for free — a useful precedent when deciding where future hints live (§3.5).
 
 ---
 
@@ -230,7 +280,7 @@ That is a structural improvement to the invariant, not merely a code cleanup, an
 1. **Does the interactive CLI get a stdin prompt loop for `input_required`, or is the scripted token-passing flow the only mode?** Affects whether the CLI grows an interactive surface it has so far avoided.
 2. **Should the removed `tasks/list` come back as an `exarchos_view` domain verb?** §3.2 argues yes on INV-2 grounds; it is a scope call.
 3. **Does `longRunning` alone carry enough signal to decide server-directed task creation**, or does it need a per-action threshold/TTL now that it becomes behavioural rather than presentational?
-4. **Where does `requestState` sit relative to the event store?** A signed opaque blob and a durable event stream are two different persistence stories for one flow. Minting `requestState` *from* an event-stream position would unify them — worth exploring, not obviously right.
+4. **Does the event-store-backed resumption handle (§5.4) hold for every MRTR flow**, or do some need state the event store should not carry? The design is sound for workflow-scoped flows, where a stream position is the natural handle. A flow with no `featureId` — a cold `describe`, an onboarding prompt — has no stream to anchor to, and may still need an opaque token.
 5. **Does the DKG / remote-agent work want an `io.exarchos.*` extension** for its protocol-level vocabulary, now that the extensions framework is the sanctioned path (§3.6)?
 
 ---
@@ -240,7 +290,7 @@ That is a structural improvement to the invariant, not merely a code cleanup, an
 **Specification / SDK** — as enumerated in the companion doc's §10; the load-bearing ones here are the [changelog](https://modelcontextprotocol.io/specification/2026-07-28/changelog), the [release post](https://blog.modelcontextprotocol.io/posts/2026-07-28/) (explicit-handle guidance, server-directed tasks), the [release candidate post](https://blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate/) (SEP-2260 consent model, `tasks/list` removal rationale), and [Supporting protocol revision 2026-07-28](https://ts.sdk.modelcontextprotocol.io/v2/migration/support-2026-07-28.html) (`requestState`, `inputRequired`, legacy shim, `subscriptions/listen`, cache-hint defaults).
 
 **Repository** (inspected at `main` @ `30831d05f`)
-- `.exarchos/invariants.md` — INV-2 (lines 400–438), verbatim summary + audit prompt
+- `.exarchos/invariants.md` — INV-2 (lines 400–438), verbatim summary + audit prompt; **INV-17** (lines ~784–806), which states the #1608 reframe ("the CLI is a presentation client over the MCP contract, equivalence by construction"), the facade-codegen direction, and the `outputSchema`-totality precondition
 - `servers/exarchos-mcp/src/core/dispatch.ts` — `dispatch()` signature; `DispatchContext` (the three optional capability adapters); `task` strip-before-validate precedent
 - `servers/exarchos-mcp/src/adapters/cli.ts` — `CLI_EXIT_CODES`; DR-7 error→exit mapping; `VIEW_FOLLOW_ACTIONS` + the INV-2 `--follow`/`tasks/get` purity comment (line 239); DR-5 `longRunning` heartbeats
 - `servers/exarchos-mcp/src/adapters/schema-to-flags.ts` — `addFlagsFromSchema`
