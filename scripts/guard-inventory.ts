@@ -1064,22 +1064,24 @@ export interface GuardExemption {
  * {@link auditGuardInventory} for the four ways an entry can fail.
  */
 export const GUARD_EXEMPTIONS: readonly GuardExemption[] = Object.freeze([
-  Object.freeze({
-    artifact: 'scripts/validate-plugin.sh',
-    excuses: 'unreachable',
-    reason:
-      'Genuinely unwired, and the inventory is right to say so. It is step 1 of the 17-step ' +
-      '`npm run validate` && chain — and `validate` is invoked by no workflow (task 054 found ' +
-      'that while registering its own gate). Worse, `validate-plugin.sh` FAILS 4 of 9 checks ' +
-      'today (`.mcp.json` absent; `hooks.json` missing `SessionEnd`; `hooks.json` carries the ' +
-      'retired `SessionStart`), so the && chain dies at step 1 and every one of the 16 later ' +
-      'gates never executes locally either. CI is unaffected — those gates are wired into ' +
-      '`ci.yml` individually — but a local `validate` run is not evidence that any gate past ' +
-      'step 1 passed. It became visible to this inventory only when task 064 was filed and ' +
-      'named this file, which is the discovery channel working as intended.',
-    blockedBy: 'task 064 (DR-24) — fix the four packaging checks and stop the chain truncating silently',
-    expires: '2026-11-05',
-  }),
+  // DISCHARGED by task 064 — entry removed rather than re-dated.
+  //
+  // `scripts/validate-plugin.sh` now runs as a blocking, unfiltered step in
+  // ci.yml's `grep-gates` job (plus a DR-10 `.test.sh` re-assert), so it no
+  // longer exhibits `unreachable` and `auditGuardInventory` would flag a
+  // surviving entry as `[stale-exemption]`. That tooth is what forced this
+  // deletion, and it is the mechanism working as designed.
+  //
+  // Two numbers this entry carried were WRONG when measured on the landing
+  // branch on 2026-08-07, and both came from the spec's Task 064 prose rather
+  // than from a derivation — the DR-27 class, in the file that inventories
+  // DR-24. Recorded here so the correction is not lost with the entry:
+  //   - the `validate` chain was NINE steps, not seventeen;
+  //   - `validate-plugin.sh` failed FIVE of nine checks (four passed), and from
+  //     FOUR distinct causes, not three: the entry omitted `.claude-plugin/
+  //     plugin.json` missing a `hooks` field.
+  // All four causes turned out to be the GATE being stale, not the package —
+  // each contradicted a green assertion in `src/plugin-validation.test.ts`.
   Object.freeze({
     artifact: 'servers/exarchos-mcp/scripts/cli-derivation-guard.ts',
     excuses: 'unreachable',

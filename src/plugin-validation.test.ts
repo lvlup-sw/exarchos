@@ -172,14 +172,28 @@ describe('Core Plugin Structure', () => {
     });
 
     it('packageJson_scripts_includesValidation', () => {
-      // The validate script is a chain: plugin-structure check + any
-      // additional CI gates (e.g. T047/DR-12 prefix-fingerprint check).
-      // Assert the plugin check is still in the chain rather than pinning
-      // the exact string so new gates can be added without a test breakage
-      // for every one of them.
+      // `validate` used to be an inline `&&` chain, and this test asserted a
+      // substring of it. Task 064 replaced the chain with an aggregating runner
+      // whose steps are DATA (scripts/validate-manifest.json), because an `&&`
+      // chain whose first step is red makes every later gate skipped-as-passed:
+      // measured 2026-08-07, 1 of 9 declared steps executed.
+      //
+      // So the assertion moves to the data. The plugin-packaging gate must
+      // still be a declared step — but a substring check on a command line can
+      // no longer see that, and pretending otherwise is what let the previous
+      // drift hide.
       const pkgPath = join(repoRoot, 'package.json');
       const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
-      expect(pkg.scripts.validate).toContain('bash scripts/validate-plugin.sh');
+      expect(pkg.scripts.validate).toBe('node scripts/run-validate.mjs');
+
+      const manifest = JSON.parse(
+        readFileSync(join(repoRoot, 'scripts', 'validate-manifest.json'), 'utf-8'),
+      );
+      const ids = manifest.steps.map((s: { id: string }) => s.id);
+      expect(ids).toContain('plugin-packaging');
+      // Non-empty denominator: a manifest that declares nothing must never be
+      // mistaken for a validate run that had nothing to complain about.
+      expect(manifest.steps.length).toBeGreaterThan(0);
     });
 
     it('packageJson_keywords_updatedForPlugin', () => {
@@ -188,6 +202,55 @@ describe('Core Plugin Structure', () => {
       expect(pkg.keywords).toContain('claude-code-plugin');
       expect(pkg.keywords).toContain('agent-governance');
       expect(pkg.keywords).toContain('event-sourcing');
+    });
+  });
+
+  // Task 064 (DR-24). This suite and scripts/validate-plugin.sh were two
+  // independent statements of one packaging policy with no channel between
+  // them, and by 2026-08-07 they disagreed on FOUR clauses — the shell gate
+  // demanded a `.mcp.json` this suite's tree does not ship, demanded a
+  // plugin.json `hooks` field line 21 asserts is undefined, demanded a
+  // `SessionEnd` hook line 116 asserts is absent, and forbade the
+  // `SessionStart` line 114 asserts is present. Nobody paid a cost, because the
+  // gate was step 1 of an `&&` chain no workflow ran.
+  //
+  // .claude-plugin/packaging-policy.json is now the single statement, and these
+  // cases assert that this suite's own expectations still agree with it. If a
+  // future edit moves one and not the other, this is where it stops.
+  describe('packaging policy agreement (task 064, DR-24)', () => {
+    const policy = JSON.parse(
+      readFileSync(join(repoRoot, '.claude-plugin', 'packaging-policy.json'), 'utf-8'),
+    );
+
+    it('PackagingPolicy_HookSet_AgreesWithThisSuite', () => {
+      const expected = policy.hooks.expected.map((h: { type: string }) => h.type).sort();
+      const retired = policy.hooks.retired.map((h: { type: string }) => h.type);
+      // Mirrors hooksConfig_declaredHooks_areObserverOnly above, term for term.
+      expect(expected).toEqual(['SessionStart', 'SubagentStop']);
+      for (const t of ['PreToolUse', 'TaskCompleted', 'TeammateIdle', 'SubagentStart', 'PreCompact', 'SessionEnd']) {
+        expect(retired, `${t} must stay recorded as retired`).toContain(t);
+      }
+      expect(policy.hooks.exact).toBe(true);
+    });
+
+    it('PackagingPolicy_ManifestFields_AgreeWithThisSuite', () => {
+      const required = policy.manifest.requiredFields.map((f: { field: string }) => f.field);
+      const forbidden = policy.manifest.forbiddenFields.map((f: { field: string }) => f.field);
+      // Mirrors pluginManifest_requiredFields_containsAllFields above.
+      for (const f of ['name', 'version', 'commands', 'skills', 'mcpServers']) {
+        expect(required, `${f} must stay required`).toContain(f);
+      }
+      expect(forbidden, 'declaring `hooks` double-registers every hook').toContain('hooks');
+      expect(policy.manifest.mcpServers.expected.map((s: { name: string }) => s.name)).toEqual(['exarchos']);
+      expect(policy.manifest.mcpServers.exact).toBe(true);
+    });
+
+    it('PackagingPolicy_ForbidsTheStandaloneMcpJson_AndTheRepoHasNone', () => {
+      const forbidden = policy.forbiddenFiles.map((f: { path: string }) => f.path);
+      expect(forbidden).toContain('.mcp.json');
+      // The claim and the tree, asserted together — a policy naming a file that
+      // is already present would be a rule nobody could satisfy.
+      expect(existsSync(join(repoRoot, '.mcp.json'))).toBe(false);
     });
   });
 

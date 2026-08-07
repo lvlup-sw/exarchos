@@ -15,7 +15,11 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runScriptCheck, makeFixtureSrc as makeFixtureSrcShared } from './test-utils.js';
+import {
+  runScriptCheck,
+  makeFixtureSrc as makeFixtureSrcShared,
+  validateManifestCommands,
+} from './test-utils.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..');
@@ -165,10 +169,15 @@ describe('check-single-workflow-fold CLI (#1554)', () => {
   });
 
   it('Validate_ChainedIntoNpmValidate', () => {
+    // Task 064 (DR-24): `validate` is no longer an inline `&&` chain, so a
+    // substring check on `pkg.scripts.validate` can no longer see whether this
+    // gate is wired into it. The steps are DATA now — the old chain died at
+    // step 1 and every later gate read as skipped-as-passed — so the same
+    // question is put to scripts/validate-manifest.json instead.
     const pkg = JSON.parse(readFileSync(ROOT_PACKAGE_JSON, 'utf8')) as {
       scripts?: Record<string, string>;
     };
-    const validate = pkg.scripts?.validate ?? '';
-    expect(validate).toContain('check-single-workflow-fold.mjs');
+    expect(pkg.scripts?.validate ?? '').toContain('run-validate.mjs');
+    expect(validateManifestCommands(REPO_ROOT)).toContain('check-single-workflow-fold.mjs');
   });
 });
