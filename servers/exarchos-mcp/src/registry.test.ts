@@ -727,7 +727,11 @@ describe('TOOL_REGISTRY', () => {
       // six-condition gate report) and `cutover_decide` (operator-gated
       // event-sourced rollout decision) onto exarchos_orchestrate — INV-5d,
       // no new visible tool: 77 → 79.
-      expect(composite!.actions).toHaveLength(79);
+      // Task 068 (DR-23) added `invariants_amend` — the id-targeted,
+      // field-scoped amend path the invariant catalog previously lacked
+      // entirely (invariants_add is append-only, so entries were effectively
+      // immutable once committed). INV-5d, no new visible tool: 79 → 80.
+      expect(composite!.actions).toHaveLength(80);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -857,6 +861,12 @@ describe('TOOL_REGISTRY', () => {
       'doctor',
       'invariants_scaffold',
       'invariants_add',
+      // Task 068 — the amend path the catalog previously lacked. Like the two
+      // above it dispatches through an explicit composite branch rather than
+      // ACTION_HANDLERS, so it is skipped here and ENFORCED by the routing
+      // assertion below (which is what would catch a registration with no
+      // branch — the UNKNOWN_ACTION hazard).
+      'invariants_amend',
     ]);
 
     // The full set of explicit composite dispatch branches — SPECIAL_ACTIONS plus
@@ -931,6 +941,13 @@ describe('TOOL_REGISTRY', () => {
           action: 'invariants_add',
           repoRoot: base,
           entry: { dimension: 'x', summary: 'y' },
+          dryRun: true,
+        },
+        invariants_amend: {
+          action: 'invariants_amend',
+          repoRoot: base,
+          id: 'U-1',
+          patch: { summary: 'y' },
           dryRun: true,
         },
       };
@@ -2968,6 +2985,7 @@ const EXPECTED_EFFECTIVE_BUDGETS: Readonly<Record<string, number>> = {
   'exarchos_orchestrate.onboard': 2000,
   'exarchos_orchestrate.invariants_scaffold': 2000,
   'exarchos_orchestrate.invariants_add': 2000,
+  'exarchos_orchestrate.invariants_amend': 2000,
   'exarchos_orchestrate.acquire_worktree': 2000,
   'exarchos_orchestrate.release_worktree': 2000,
   'exarchos_orchestrate.prune_worktrees': 2000,
@@ -3200,6 +3218,15 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
     'exarchos_view.export': {
       featureId: 'f', workflowExists: false, exported: false,
     },
+    // `invariants_amend` (task 068). The dry-run branch is the minimal valid
+    // baseline: `renderedEntry`/`diff` are dry-run-only and `events` is
+    // commit-only, so all three are optional and the floor is the required
+    // core plus a non-empty `patchedFields`.
+    'exarchos_orchestrate.invariants_amend': {
+      committed: false, id: 'INV-17', tier: 'dev',
+      catalog: '.exarchos/invariants.md', patchedFields: ['summary'],
+      next_actions: [],
+    },
   };
   function baselineEnvelope(data: Record<string, unknown>): Record<string, unknown> {
     return {
@@ -3349,8 +3376,10 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       // Enumerated from code, not assumed — the post-002 base carried 8 (the two
       // exarchos_workflow LCD schemas wrap EnvelopeSchema(z.unknown()) and are
       // NOT typed). The worktree-lifecycle `inspect` verb (DR-4) added a 9th
-      // typed-output view action; the `export` verb (DR-6) adds the 10th.
-      expect(actions.length).toBe(10);
+      // typed-output view action; the `export` verb (DR-6) adds the 10th;
+      // `invariants_amend` (task 068) adds the 11th — declared substantively
+      // because a new action cannot acquire a shrink-only vacuity waiver.
+      expect(actions.length).toBe(11);
       for (const { tool, action } of actions) {
         const parsed = action.outputSchema.safeParse(cappedEnvelope());
         expect(

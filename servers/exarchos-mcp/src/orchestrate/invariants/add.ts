@@ -213,8 +213,16 @@ function duplicateIdResult(
 /**
  * Map a validation failure (ZodError or UnknownCheckKindError) to the INV-5b
  * carrier shape so the agent can self-correct rather than re-guess.
+ *
+ * Shared with `invariants_amend`: an amendment is re-validated against the
+ * SAME `InvariantEntryV3Schema`, so it must fail with the same carrier shape.
+ * `action` is echoed into `suggestedFix.params.action` so the offered fix is
+ * re-invokable against the verb the caller actually used.
  */
-function validationErrorResult(err: unknown): ToolResult {
+export function validationErrorResult(
+  err: unknown,
+  action: 'invariants_add' | 'invariants_amend' = 'invariants_add',
+): ToolResult {
   if (err instanceof UnknownCheckKindError) {
     return {
       success: false,
@@ -230,7 +238,7 @@ function validationErrorResult(err: unknown): ToolResult {
         suggestedFix: {
           tool: 'exarchos_orchestrate',
           params: {
-            action: 'invariants_add',
+            action,
             note: "Use a known leaf kind (grep | structural | heuristic). The enforcement DSL is declarative-only (INV-4) — there is no shell/exec kind.",
           },
         },
@@ -264,7 +272,7 @@ function validationErrorResult(err: unknown): ToolResult {
         suggestedFix: {
           tool: 'exarchos_orchestrate',
           params: {
-            action: 'invariants_add',
+            action,
             note: 'Correct the fields above and re-run with dryRun:true to preview.',
           },
         },

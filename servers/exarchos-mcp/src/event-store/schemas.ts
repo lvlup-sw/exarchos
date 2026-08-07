@@ -383,6 +383,12 @@ export const EventTypes = [
   // (by `invariants_add`). Both are server-deterministic (auto) — the handler
   // owns the write, the model is never nagged to hand-emit them.
   'invariant.authored',
+  // `invariant.amended` is appended by the `invariants_amend` composite handler
+  // on commit (task 068). Distinct from `invariant.authored` on purpose: an
+  // amendment is not an authoring, and an audit trail that recorded a
+  // correction as a fresh authoring would be a record that does not mean what
+  // it says. Carries the field names the patch replaced.
+  'invariant.amended',
   'catalog.registered',
   // verification-ladder slice 1 (task 020) — mutation-run liveness (INV-10).
   // `mutation.executing_started` lands at the start of a (non-dry-run) mutation
@@ -870,6 +876,7 @@ export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
   // registration of a catalog file in `.exarchos.yml`. Server-deterministic:
   // the handler owns the append, so they are never model-emitted hints.
   'invariant.authored': 'auto',
+  'invariant.amended': 'auto',
   'catalog.registered': 'auto',
 
   // auto — emitted by the `mutation-adequacy` gate handler
@@ -1800,6 +1807,24 @@ export const InvariantAuthoredDataSchema = z.object({
   tier: z.enum(['dev', 'user']),
   dimension: z.string().optional(),
   mode: z.enum(['audit', 'check']).optional(),
+});
+
+/**
+ * `invariant.amended` — emitted by `invariants_amend` on commit (task 068).
+ * Records which entry was corrected, in which catalog, and WHICH FIELDS the
+ * amendment replaced, so the audit trail can reconstruct not just that an
+ * entry changed but what part of it did (INV-1 event-sourcing integrity).
+ *
+ * Separate from `invariant.authored` deliberately: amending is not authoring,
+ * and folding the two would make the history unable to distinguish a new rule
+ * from a correction to an existing one.
+ */
+export const InvariantAmendedDataSchema = z.object({
+  id: z.string().min(1),
+  catalog: z.string().min(1),
+  tier: z.enum(['dev', 'user']),
+  /** Top-level entry fields the patch replaced. Never empty. */
+  fields: z.array(z.string().min(1)).min(1),
 });
 
 /**
@@ -3852,6 +3877,7 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
 
   // Invariant authoring (invariants-catalog-wizard, P2)
   'invariant.authored': InvariantAuthoredDataSchema,
+  'invariant.amended': InvariantAmendedDataSchema,
   'catalog.registered': CatalogRegisteredDataSchema,
 
   // Mutation-run liveness (verification-ladder slice 1, task 020 / INV-10)
@@ -4072,6 +4098,7 @@ export type OnboardRequested = z.infer<typeof OnboardRequestedDataSchema>;
 export type OnboardExecuted = z.infer<typeof OnboardExecutedDataSchema>;
 // invariants-catalog-wizard (P2) — authoring lifecycle event payloads.
 export type InvariantAuthored = z.infer<typeof InvariantAuthoredDataSchema>;
+export type InvariantAmended = z.infer<typeof InvariantAmendedDataSchema>;
 export type CatalogRegistered = z.infer<typeof CatalogRegisteredDataSchema>;
 export type MergePreflight = z.infer<typeof MergePreflightData>;
 export type MergeRequested = z.infer<typeof MergeRequestedData>;
@@ -4233,6 +4260,7 @@ export type EventDataMap = {
   'onboard.executed': OnboardExecuted;
   // invariants-catalog-wizard (P2) — authoring lifecycle events.
   'invariant.authored': InvariantAuthored;
+  'invariant.amended': InvariantAmended;
   'catalog.registered': CatalogRegistered;
   'merge.preflight': MergePreflight;
   'merge.requested': MergeRequested;

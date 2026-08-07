@@ -1014,6 +1014,7 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       case 'elicitation.declined':
       case 'stash.detected':
       case 'invariant.authored':
+      case 'invariant.amended':
       case 'catalog.registered':
       case 'mutation.executing_started':
       case 'mutation.executed':

@@ -644,7 +644,12 @@ describe('EventTypes', () => {
     // Bumped 169 → 170: #1739 (cutover promotion path) — admission.cutover-ready
     //   (the observer auto-export hook's first-time readiness fact, `auto`,
     //   store-identity idempotency key).
-    expect(EventTypes).toHaveLength(170);
+    // Bumped 170 → 171: task 068 (DR-23) — invariant.amended, emitted by the
+    //   `invariants_amend` composite handler on commit. Deliberately NOT folded
+    //   into invariant.authored: amending is not authoring, and an audit trail
+    //   that recorded a correction as a fresh authoring would be a record that
+    //   does not mean what it says.
+    expect(EventTypes).toHaveLength(171);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');
@@ -4210,8 +4215,9 @@ describe('WLM operational-core merge lease schemas', () => {
     // (wiring-closure T-06) durable projection-health pair projection.degraded /
     // projection.recovered (167 → 169), plus the #1739 cutover promotion path's
     // admission.cutover-ready first-readiness fact (169 → 170 — the 12th
-    // admission replay contract).
-    expect(EventTypes).toHaveLength(170);
+    // admission replay contract), plus task 068's invariant.amended — the
+    // audit record of an invariant-catalog amendment (170 → 171).
+    expect(EventTypes).toHaveLength(171);
     // No duplicate slipped in while bumping the count.
     expect(new Set(EventTypes).size).toBe(EventTypes.length);
   });
