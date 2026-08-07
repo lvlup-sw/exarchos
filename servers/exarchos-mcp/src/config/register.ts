@@ -6,7 +6,7 @@ import { extendWorkflowTypeEnum, unextendWorkflowTypeEnum } from '../workflow/sc
 import { registerEventType, unregisterEventType } from '../event-store/schemas.js';
 import { ViewRegistry } from '../views/registry.js';
 import { registerCustomTool, unregisterCustomTool, setCustomToolActionHandler, ALL_PHASES } from '../registry.js';
-import type { CompositeTool, ToolAction } from '../registry.js';
+import type { ExtensionCompositeTool, ExtensionToolAction } from '../registry.js';
 import { unregisteredActionOutputSchema } from '../output-schema-declaration.js';
 import { logger } from '../logger.js';
 import type { ViewProjection } from '../views/materializer.js';
@@ -321,7 +321,11 @@ export async function registerCustomTools(
 
   try {
     for (const [toolName, toolDef] of Object.entries(config.tools)) {
-      const actions: ToolAction[] = [];
+      // DR-4 (task 060): `ExtensionToolAction`, not `ToolAction`. These actions
+      // are declared by the USER in `.exarchos.yml`, not by `registry.ts`, and
+      // the nominal split is what lets DR-4 close the built-in registry's
+      // `outputSchema` escape without closing this supported surface.
+      const actions: ExtensionToolAction[] = [];
       const pendingHandlers: Array<{ actionName: string; handler: (args: Record<string, unknown>) => Promise<unknown> }> = [];
 
       for (const actionDef of toolDef.actions) {
@@ -366,8 +370,13 @@ export async function registerCustomTools(
           // match against the vacuity allowlist. These actions are outside the
           // built-in registry the DR-4 census enumerates; the bounded escape
           // records that explicitly instead of letting the vacuous form back
-          // into the type. Using it inside `registry.ts` would surface as an
-          // UNWAIVED_VACUITY finding from `auditVacuityAllowlist`.
+          // into the type.
+          //
+          // Task 060: the escape now mints the DISTINCT `ExtensionOutputSchema`
+          // brand, so this call is legal here and is a compile error inside
+          // `registry.ts` — the run-time-only bound task 055 shipped (an
+          // UNWAIVED_VACUITY finding from `auditVacuityAllowlist`) is now backed
+          // by the type system for the registry path.
           outputSchema: unregisteredActionOutputSchema(),
           annotations: {
             safety: 'local-mutation',
@@ -379,7 +388,7 @@ export async function registerCustomTools(
         });
       }
 
-      const compositeTool: CompositeTool = {
+      const compositeTool: ExtensionCompositeTool = {
         name: toolName,
         description: toolDef.description,
         actions,

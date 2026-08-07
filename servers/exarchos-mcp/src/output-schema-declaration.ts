@@ -12,9 +12,10 @@
  * byte-checked plus a tautology.
  *
  * This module makes that declaration UNCONSTRUCTIBLE rather than merely
- * counted. `ToolAction.outputSchema` no longer accepts `z.ZodType`; it accepts
- * {@link DeclaredOutputSchema}, a brand only two constructors in this file can
- * mint:
+ * counted. A registered action's `outputSchema` no longer accepts `z.ZodType`;
+ * a built-in declaration (`BuiltinToolAction`, the type `TOOL_REGISTRY` carries)
+ * accepts {@link DeclaredOutputSchema}, a brand only two constructors in this
+ * file can mint:
  *
  *   • {@link withCappedShape} — the sole constructor of a SUBSTANTIVE schema.
  *     It is already the only form the live tree uses for its 10 typed actions,
@@ -24,14 +25,36 @@
  *     `output-schema-vacuity-allowlist.ts`. A new action's id is not in that
  *     union, so a new vacuous declaration does not compile.
  *
+ * ── Two brands, not one (task 060) ──────────────────────────────────────────
+ * Task 055 reported a hole against its own claim: `unregisteredActionOutputSchema()`
+ * minted the SAME brand as the two registry constructors, so a new REGISTRY
+ * action could reach for the out-of-registry escape and compile. The failure was
+ * still detected — `auditVacuityAllowlist` reports it as `UNWAIVED_VACUITY` —
+ * but at run time, while DR-4 claims the compile-time rung.
+ *
+ * The brand value is therefore a two-member literal set, not a constant:
+ * {@link DeclaredOutputSchema} carries `'declared'` and {@link ExtensionOutputSchema}
+ * carries `'extension'`. Neither is assignable to the other. `BuiltinToolAction`
+ * (the type `TOOL_REGISTRY` is declared with) takes `DeclaredOutputSchema` only,
+ * so the escape does not typecheck inside the registry; `ExtensionToolAction`
+ * (the type `config/register.ts` and `contract/oracle/fixtures.ts` build) takes
+ * `ExtensionOutputSchema` only, so the extension surface keeps working. The
+ * `.exarchos.yml` custom-tool path is NOT closed — it is given its own nominal
+ * type, which is what makes the registry path closable without breaking it.
+ *
  * ── Why a constructor restriction and not a ratchet ─────────────────────────
  * A one-constructor surface does not need counting. DR-2 made report-coupling
  * have no constructible variant rather than budgeting it, and the same move
  * applies here: a count threshold is satisfied by swapping one vacuous
  * declaration for another, while an allowlist plus a closed constructor set is
- * not. The runtime half of the ratchet (`auditVacuityAllowlist`) lives in
+ * not. The runtime half of the ratchet (`auditVacuityAllowlist` plus, since task
+ * 060, `auditVacuitySeedIntegrity`) lives in
  * `architecture/output-schema-census.ts`, where the census that measures the
- * population already lives.
+ * population already lives. The second of those closes the residual the
+ * constructor restriction alone cannot: a swap that edits the ALLOWLIST itself,
+ * which every check against today's registry agrees with. See
+ * `output-schema-seed-pin.ts` for the prior state that makes it detectable and
+ * for why that call went the opposite way from `LEGACY_SHAPE_DEBT`'s precedent.
  *
  * ── Why the brand is a real runtime property ────────────────────────────────
  * A phantom (declaration-only) brand would have to be minted with a type
@@ -58,32 +81,75 @@ import type { VacuityWaiverId } from './output-schema-vacuity-allowlist.js';
  */
 export const OUTPUT_SCHEMA_BRAND: unique symbol = Symbol('exarchos.outputSchema.declared');
 
-const BRAND_VALUE: 'declared' = 'declared';
+const DECLARED_BRAND: 'declared' = 'declared';
+const EXTENSION_BRAND: 'extension' = 'extension';
 
 /**
- * An `outputSchema` that went through one of this module's constructors.
+ * An `outputSchema` that went through one of this module's REGISTRY
+ * constructors ({@link withCappedShape} / {@link vacuityWaiver}).
  *
  * Assignable to `z.ZodType` in every direction that matters, so the ~20
  * consumers that read `action.outputSchema` (the MCP D.5 validator, `describe`,
  * the contract compiler, the census) needed no change. What it is NOT is
- * assignable FROM a bare `z.ZodType` — which is the whole mechanism.
+ * assignable FROM a bare `z.ZodType` — nor from {@link ExtensionOutputSchema},
+ * which is the task-060 half of the mechanism.
  */
 export type DeclaredOutputSchema = z.ZodType & {
-  readonly [OUTPUT_SCHEMA_BRAND]: typeof BRAND_VALUE;
+  readonly [OUTPUT_SCHEMA_BRAND]: typeof DECLARED_BRAND;
 };
 
 /**
- * Attach the brand. Deliberately NOT exported: an exported "bless any schema"
- * function would be a universal bypass and would make the compile-time tooth
- * decorative.
+ * An `outputSchema` for an action declared OUTSIDE the built-in registry — a
+ * `.exarchos.yml` custom tool or the oracle's registration probe. Minted only by
+ * {@link unregisteredActionOutputSchema}.
+ *
+ * A distinct brand VALUE, so this type is not assignable to
+ * {@link DeclaredOutputSchema} and therefore cannot satisfy `BuiltinToolAction.
+ * outputSchema`. That is what makes the escape unreachable from the registry
+ * construction path while leaving the extension path fully supported.
+ */
+export type ExtensionOutputSchema = z.ZodType & {
+  readonly [OUTPUT_SCHEMA_BRAND]: typeof EXTENSION_BRAND;
+};
+
+/**
+ * Either brand. This is what `ToolAction` — the type every CONSUMER of a
+ * registered action reads — declares, so dispatch, the MCP adapter, the CLI
+ * adapter and `describe` handle built-in and extension actions uniformly. The
+ * narrowing that closes the hole is applied at the DECLARATION types
+ * (`BuiltinToolAction` / `ExtensionToolAction`), not here.
+ */
+export type RegisteredOutputSchema = DeclaredOutputSchema | ExtensionOutputSchema;
+
+/**
+ * Attach the registry brand. Deliberately NOT exported: an exported "bless any
+ * schema" function would be a universal bypass and would make the compile-time
+ * tooth decorative.
  */
 function declareOutputSchema(schema: z.ZodType): DeclaredOutputSchema {
-  return Object.assign(schema, { [OUTPUT_SCHEMA_BRAND]: BRAND_VALUE });
+  return Object.assign(schema, { [OUTPUT_SCHEMA_BRAND]: DECLARED_BRAND });
 }
 
-/** Runtime counterpart of the brand, so tests can observe the closed set. */
+/** Attach the extension brand. Not exported, for the same reason. */
+function declareExtensionOutputSchema(schema: z.ZodType): ExtensionOutputSchema {
+  return Object.assign(schema, { [OUTPUT_SCHEMA_BRAND]: EXTENSION_BRAND });
+}
+
+/** Runtime counterpart of the registry brand, so tests can observe the closed set. */
 export function isDeclaredOutputSchema(schema: z.ZodType): schema is DeclaredOutputSchema {
-  return OUTPUT_SCHEMA_BRAND in schema && schema[OUTPUT_SCHEMA_BRAND] === BRAND_VALUE;
+  return OUTPUT_SCHEMA_BRAND in schema && schema[OUTPUT_SCHEMA_BRAND] === DECLARED_BRAND;
+}
+
+/**
+ * Runtime counterpart of the EXTENSION brand.
+ *
+ * The two predicates are mutually exclusive by construction, which is what lets
+ * a test observe the nominal split instead of taking the type printer's word for
+ * it: every live `TOOL_REGISTRY` declaration answers `true` to
+ * {@link isDeclaredOutputSchema} and `false` here.
+ */
+export function isExtensionOutputSchema(schema: z.ZodType): schema is ExtensionOutputSchema {
+  return OUTPUT_SCHEMA_BRAND in schema && schema[OUTPUT_SCHEMA_BRAND] === EXTENSION_BRAND;
 }
 
 // ─── Capped-shape outputSchema union (DR-1/DR-3/DR-8, Task 022) ───────────────
@@ -177,20 +243,28 @@ export function vacuityWaiver(
 }
 
 /**
- * The one escape for `ToolAction`s that are NOT part of the built-in registry
- * and therefore have no census id to waive: user-declared custom tools built
- * from `.exarchos.yml` (`config/register.ts`) and the oracle's registration
- * probe (`contract/oracle/fixtures.ts`). Their action names come from config or
- * from a fixture, so no compile-time literal union can cover them.
+ * The one escape for actions that are NOT part of the built-in registry and
+ * therefore have no census id to waive: user-declared custom tools built from
+ * `.exarchos.yml` (`config/register.ts`) and the oracle's registration probe
+ * (`contract/oracle/fixtures.ts`). Their action names come from config or from a
+ * fixture, so no compile-time literal union can cover them.
  *
- * This is bounded, not open: any use of it INSIDE the built-in registry
- * produces a live vacuous declaration with no allowlist entry, which
- * `auditVacuityAllowlist` reports as `UNWAIVED_VACUITY`. The type system stops
- * new vacuity in `registry.ts`; this constant's blast radius is stopped by the
- * runtime ratchet instead.
+ * TASK 060 — this is now BOUNDED AT COMPILE TIME, not just by the runtime
+ * ratchet. It returns {@link ExtensionOutputSchema}, whose brand value differs
+ * from {@link DeclaredOutputSchema}'s, so it satisfies `ExtensionToolAction.
+ * outputSchema` and does NOT satisfy `BuiltinToolAction.outputSchema`. A new
+ * action in `registry.ts` that reaches for this escape fails `npm run
+ * typecheck`; `TOOL_REGISTRY` is declared `readonly BuiltinCompositeTool[]`, so
+ * the door is the registry constant itself and not any one array's annotation.
+ *
+ * Task 055 shipped this as a run-time-only bound (`UNWAIVED_VACUITY` from
+ * `auditVacuityAllowlist`) and said so. That ratchet is unchanged and still
+ * covers vacuity that reaches the registry through a path the type system does
+ * not govern — a forged brand, or a custom tool. What changed is that the
+ * registry construction path is no longer such a path.
  */
-export function unregisteredActionOutputSchema(): DeclaredOutputSchema {
-  return declareOutputSchema(EnvelopeSchema(z.unknown()));
+export function unregisteredActionOutputSchema(): ExtensionOutputSchema {
+  return declareExtensionOutputSchema(EnvelopeSchema(z.unknown()));
 }
 
 // ─── Compile-time guarantees (verified by `npm run typecheck`) ───────────────
@@ -220,9 +294,27 @@ export type _OutputSchemaUnseededIdCannotBeWaived = Expect<
   IsNotAssignable<'exarchos_workflow.a_brand_new_action', VacuityWaiverId>
 >;
 /**
- * …and the guarantee is not vacuous: both constructors DO produce the brand, so
- * the aliases above are rejecting the unbranded case rather than rejecting
- * everything.
+ * TASK 060, HOLE 1 — the out-of-registry escape mints a DIFFERENT brand, so it
+ * is not a `DeclaredOutputSchema` and cannot satisfy `BuiltinToolAction.
+ * outputSchema`. The other half of this claim (that `BuiltinToolAction` really
+ * does demand `DeclaredOutputSchema`) is stated in `registry.ts`, at the
+ * boundary it governs.
+ */
+export type _OutputSchemaExtensionEscapeIsNotDeclared = Expect<
+  IsNotAssignable<ReturnType<typeof unregisteredActionOutputSchema>, DeclaredOutputSchema>
+>;
+/** …and symmetrically, a registry-blessed schema is not an extension schema. */
+export type _OutputSchemaDeclaredIsNotExtension = Expect<
+  IsNotAssignable<ReturnType<typeof withCappedShape>, ExtensionOutputSchema>
+>;
+export type _OutputSchemaWaiverIsNotExtension = Expect<
+  IsNotAssignable<ReturnType<typeof vacuityWaiver>, ExtensionOutputSchema>
+>;
+/**
+ * …and the guarantee is not vacuous: all three constructors DO produce their
+ * brand, so the aliases above are rejecting the wrong-brand case rather than
+ * rejecting everything. Without these lines, narrowing any of the three brands
+ * to something nothing can produce would leave every negative proof passing.
  */
 export type _OutputSchemaCappedShapeIsDeclared = Expect<
   ReturnType<typeof withCappedShape> extends DeclaredOutputSchema ? true : false
@@ -230,7 +322,22 @@ export type _OutputSchemaCappedShapeIsDeclared = Expect<
 export type _OutputSchemaWaiverIsDeclared = Expect<
   ReturnType<typeof vacuityWaiver> extends DeclaredOutputSchema ? true : false
 >;
+export type _OutputSchemaEscapeIsExtension = Expect<
+  ReturnType<typeof unregisteredActionOutputSchema> extends ExtensionOutputSchema ? true : false
+>;
 /** A declared schema is still a `z.ZodType`, so no consumer had to change. */
 export type _OutputSchemaDeclaredIsStillZodType = Expect<
   DeclaredOutputSchema extends z.ZodType ? true : false
+>;
+/** …and so is an extension schema — `ToolAction` consumers see one shape. */
+export type _OutputSchemaExtensionIsStillZodType = Expect<
+  ExtensionOutputSchema extends z.ZodType ? true : false
+>;
+/** Both brands satisfy the consumer-facing union, which is why nothing rippled. */
+export type _OutputSchemaBothBrandsAreRegistered = Expect<
+  DeclaredOutputSchema extends RegisteredOutputSchema
+    ? ExtensionOutputSchema extends RegisteredOutputSchema
+      ? true
+      : false
+    : false
 >;
