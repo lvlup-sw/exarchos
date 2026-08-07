@@ -232,6 +232,87 @@ export type WorkflowDefinitionId = string;
 // `evals/benchmarks/seeded-defects/corpus.ts` is the seeded-defect eval taxonomy, a different
 // population; `SupportedGateClass` already subsumes its mechanical members.)
 
+// ─── The closed weld vocabularies, in DATA form ─────────────────────────────
+//
+// Added by task 008 (DR-1), the first CONSUMER. The four vocabularies above are closed literal
+// unions, but shipped as TYPES only — and a type cannot be iterated at runtime. `withSubject`
+// (`contract/declaration-seam.ts`) narrows a declaration's `unknown` subject through a
+// caller-supplied guard, so task 008 must decide at RUNTIME whether a value inhabits
+// {@link EventRegistration}. Without a data form, that guard could only check
+// `typeof rationale === 'string'` — which accepts `{ tier: 'substrate', rationale: 'because' }`
+// and narrows it to a type it does not inhabit. That is an assertion wearing a guard's clothing,
+// and it would re-open the universal escape hatch {@link SubstrateRationale} is closed to prevent.
+//
+// These are FORMS of the vocabularies above, not second authorities: each is pinned to its union
+// by a mutual-assignability proof at the bottom of this file, so adding a member to either side
+// without the other is a `tsc` error. Same idiom, and the same reasoning, as {@link EVENT_TIERS}
+// — explicit readonly tuple annotations rather than const assertions, so this module still spends
+// nothing from the repo's type-assertion budget.
+//
+// The OPEN reference aliases deliberately get no data form. `EffectProviderId`, `ConsumerId` and
+// `WorkflowDefinitionId` are structurally `string`, so a non-empty-string check is FAITHFUL to
+// what they promise; whether an id resolves to a live provider/consumer/workflow is reference
+// integrity, which is a boot failure (task 012) and not a compile or guard failure — the split
+// `contract/ir/references.ts` already draws.
+
+/** {@link SubstrateRationale} as data. Weld-strength order, matching the union's declaration. */
+export const SUBSTRATE_RATIONALES: readonly [
+  'transition-record',
+  'append-path',
+  'session-lifecycle',
+  'concurrency-outcome',
+  'compensation-record',
+] = [
+  'transition-record',
+  'append-path',
+  'session-lifecycle',
+  'concurrency-outcome',
+  'compensation-record',
+];
+
+/** {@link ReconcilerId} as data. Task 032 (DR-11) extends BOTH halves or neither. */
+export const RECONCILER_IDS: readonly ['worktree', 'branch', 'pr'] = ['worktree', 'branch', 'pr'];
+
+/**
+ * {@link GroundTruthSource} as data — the reconciler port's two effect classes.
+ *
+ * `'filesystem'` is absent for the reason the type excludes it: a reconciler senses, it does not
+ * hold state (INV-1). The proof below fails if `effect-port-seam.ts` ever widens the port, which
+ * is the intended way to find out.
+ */
+export const GROUND_TRUTH_SOURCES: readonly ['process', 'network'] = ['process', 'network'];
+
+/**
+ * {@link SupportedGateClass} as data — the nine classes with exactly one registered provider each.
+ *
+ * Deliberately NOT imported from `orchestrate/gate-provider-registry.ts` as a value. That module
+ * builds its provider registry at module load, and every import in THIS file is `import type`
+ * precisely so the module contributes zero runtime import edges (see the header). The
+ * mutual-assignability proof below binds this tuple to the shipped union just as tightly as an
+ * import would, at no runtime cost: a tenth gate class is a compile error here.
+ */
+export const JUDGMENT_GATE_CLASSES: readonly [
+  'test-adequacy',
+  'contract-drift',
+  'mock-boundary',
+  'static-analysis',
+  'integration-suite',
+  'plan-coverage',
+  'provenance-chain',
+  'review-verdict',
+  'prepare-synthesis',
+] = [
+  'test-adequacy',
+  'contract-drift',
+  'mock-boundary',
+  'static-analysis',
+  'integration-suite',
+  'plan-coverage',
+  'provenance-chain',
+  'review-verdict',
+  'prepare-synthesis',
+];
+
 // ─── The variants ───────────────────────────────────────────────────────────
 
 /** Emitted by the event store's own machinery as an inseparable part of an operation. */
@@ -531,4 +612,35 @@ export type _EventRegistration_TwoAxes_ReproduceEventEmissionSource = Expect<
  */
 export type _EventRegistration_LifecycleAxis_IsDisjointFromTheTierAxis = Expect<
   IsNotAssignable<EventLifecycle, EventTier>
+>;
+
+// ─── The data forms are FORMS, not second authorities (task 008) ────────────
+//
+// Each closed weld vocabulary's tuple and its union are the same set, checked both directions.
+// This is what makes the runtime guard in `event-declarations.ts` sound rather than optimistic:
+// it can only accept a `rationale` / `reconciler` / `groundTruth` / `gate` the TYPE also accepts.
+// Extend either half alone and `tsc` fails here, at the pair, instead of silently letting the
+// guard drift wider (or narrower) than the union it claims to decide.
+
+/** {@link SUBSTRATE_RATIONALES} is exactly {@link SubstrateRationale}. */
+export type _EventRegistration_SubstrateRationaleData_MatchesTheUnion = Expect<
+  MutuallyAssignable<(typeof SUBSTRATE_RATIONALES)[number], SubstrateRationale>
+>;
+
+/** {@link RECONCILER_IDS} is exactly {@link ReconcilerId}. */
+export type _EventRegistration_ReconcilerIdData_MatchesTheUnion = Expect<
+  MutuallyAssignable<(typeof RECONCILER_IDS)[number], ReconcilerId>
+>;
+
+/** {@link GROUND_TRUTH_SOURCES} is exactly {@link GroundTruthSource}. */
+export type _EventRegistration_GroundTruthData_MatchesTheUnion = Expect<
+  MutuallyAssignable<(typeof GROUND_TRUTH_SOURCES)[number], GroundTruthSource>
+>;
+
+/**
+ * {@link JUDGMENT_GATE_CLASSES} is exactly {@link SupportedGateClass} — the tooth that makes
+ * the no-value-import decision safe. A gate class added upstream reddens the build here.
+ */
+export type _EventRegistration_JudgmentGateData_MatchesTheUnion = Expect<
+  MutuallyAssignable<(typeof JUDGMENT_GATE_CLASSES)[number], SupportedGateClass>
 >;

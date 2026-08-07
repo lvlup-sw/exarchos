@@ -721,9 +721,19 @@ export const DECLARATION_SEAM: DeclarationSeamRule = Object.freeze({
     ),
   ]),
 
-  // Empty by design at Wave 1a: the accessor takes its store through a port and
-  // imports nothing, so no module yet needs the exemption. Waves 1b+ add the
-  // lift adapters here, one reviewed entry each; STALE_SOURCE_ADAPTER keeps an
-  // entry from outliving the lift it covers.
-  sourceAdapters: Object.freeze([]),
+  // One reviewed entry per lift, as Wave 1a anticipated. STALE_SOURCE_ADAPTER
+  // keeps an entry from outliving the lift it covers, so an exemption cannot
+  // decay into cover for a violation.
+  sourceAdapters: Object.freeze([
+    {
+      module: 'event-store/event-declarations.ts',
+      note:
+        'DR-1 task 008 — the EVENT declaration lift. Reads `EventTypes` + `EVENT_EMISSION_REGISTRY` ' +
+        'out of `event-store/schemas.ts` and projects them into `Declaration<\'event\', …>`, which is ' +
+        'the one job that necessarily names both sides of the seam. The exemption is narrow: this ' +
+        'module exports no store handle and no write path, so consumers reach the catalog through ' +
+        '`openEventDeclarationSeam` and never acquire a storage import of their own. #1258 replaces ' +
+        'this module\'s `DeclarationSource` with an IR read and the exemption moves with it.',
+    },
+  ]),
 });
