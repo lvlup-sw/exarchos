@@ -658,21 +658,30 @@ export function requireMutationCapabilities(
 type Expect<T extends true> = T;
 type IsNotAssignable<A, B> = A extends B ? false : true;
 
-/** REVIEW (read-only) bundles must NOT satisfy a mutating consumer. */
+/**
+ * REVIEW (read-only) bundles must NOT satisfy a mutating consumer.
+ * @proof
+ */
 export type _PolaReviewBundleNotMutating = Expect<
   IsNotAssignable<
     CapabilityBundle<(typeof KIND_OBLIGATIONS)['REVIEW']['posture']>,
     CapabilityBundle<MutatingPosture>
   >
 >;
-/** PLAN (read-only) bundles must NOT satisfy a mutating consumer. */
+/**
+ * PLAN (read-only) bundles must NOT satisfy a mutating consumer.
+ * @proof
+ */
 export type _PolaPlanBundleNotMutating = Expect<
   IsNotAssignable<
     CapabilityBundle<(typeof KIND_OBLIGATIONS)['PLAN']['posture']>,
     CapabilityBundle<MutatingPosture>
   >
 >;
-/** IMPLEMENT (task-isolated) bundles MUST satisfy a mutating consumer. */
+/**
+ * IMPLEMENT (task-isolated) bundles MUST satisfy a mutating consumer.
+ * @proof
+ */
 export type _PolaImplementBundleMutating = Expect<
   CapabilityBundle<(typeof KIND_OBLIGATIONS)['IMPLEMENT']['posture']> extends CapabilityBundle<MutatingPosture>
     ? true

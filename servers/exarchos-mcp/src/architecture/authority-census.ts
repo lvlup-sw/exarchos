@@ -701,17 +701,24 @@ type NotAssignable<A, B> = [A] extends [B] ? false : true;
  * vocabulary, and cannot silently stop using part of it either. The spec's
  * `Census_ErrorVocabulary_MatchesExistingSeams` requirement, discharged by the
  * compiler rather than by a test that a future edit could delete.
+ * @proof
  */
 export type _CensusKindsAreReachabilityKinds = Expect<
   Assignable<CensusFindingKind, ClosureDiagnostic['kind']>
 >;
 
-/** …and nothing in the reachability vocabulary is missing here. */
+/**
+ * …and nothing in the reachability vocabulary is missing here.
+ * @proof
+ */
 export type _ReachabilityKindsAreCensusKinds = Expect<
   Assignable<ClosureDiagnostic['kind'], CensusFindingKind>
 >;
 
-/** Hop statuses are P05-05's, not a parallel union. */
+/**
+ * Hop statuses are P05-05's, not a parallel union.
+ * @proof
+ */
 export type _CensusHopStatusIsReachabilityHopStatus = Expect<
   Assignable<CensusHopResolution['status'], HopStatus>
 >;
@@ -721,17 +728,22 @@ export type _CensusHopStatusIsReachabilityHopStatus = Expect<
  * so a fourth hop is a COMPILE error until its evidence class is stated. The
  * analogue of P05-05's `HOP_AUTHORITIES` totality — a hop cannot join the census
  * without declaring what resolves it.
+ * @proof
  */
 export type _EveryHopDeclaresItsEvidence = Expect<
   Assignable<CensusHop, keyof typeof HOP_EVIDENCE>
 >;
 
-/** …and no evidence entry exists for a hop the census does not run. */
+/**
+ * …and no evidence entry exists for a hop the census does not run.
+ * @proof
+ */
 export type _EvidenceAddsNoHops = Expect<Assignable<keyof typeof HOP_EVIDENCE, CensusHop>>;
 
 /**
  * An enforcement instrument must state its direction. A registration without one
  * does not typecheck, so "registered" can never come to mean "unexamined".
+ * @proof
  */
 export type _InstrumentWithoutDirection_FailsCompile = Expect<
   NotAssignable<
@@ -744,6 +756,7 @@ export type _InstrumentWithoutDirection_FailsCompile = Expect<
  * A finding must state its blocking status. Making the field optional would let
  * a finding default to non-blocking, which is exactly how per-row enforcement
  * degrades into no enforcement.
+ * @proof
  */
 export type _FindingWithoutBlocking_FailsCompile = Expect<
   NotAssignable<

@@ -755,11 +755,15 @@ type NotAssignableTo<A, B> = A extends B ? false : true;
  * THE ACCEPTANCE CRITERION. `EnvelopeSchema(z.unknown())` — the expression 109
  * declaration sites used to write — cannot be assigned to the field. A new
  * action that reaches for it does not compile.
+ * @proof
  */
 export type _OutputSchemaNewActionDeclaringVacuousFailsCompile = ExpectTrue<
   NotAssignableTo<ReturnType<typeof EnvelopeSchema<z.ZodUnknown>>, BuiltinToolAction['outputSchema']>
 >;
-/** …and it is not assignable to the CONSUMER union either, so nothing widened. */
+/**
+ * …and it is not assignable to the CONSUMER union either, so nothing widened.
+ * @proof
+ */
 export type _OutputSchemaNewActionDeclaringVacuousIsNotRegistered = ExpectTrue<
   NotAssignableTo<ReturnType<typeof EnvelopeSchema<z.ZodUnknown>>, ToolAction['outputSchema']>
 >;
@@ -768,6 +772,7 @@ export type _OutputSchemaNewActionDeclaringVacuousIsNotRegistered = ExpectTrue<
  * allowlist is not a `VacuityWaiverId`, so `vacuityWaiver('<new id>')` is also
  * a compile error. Waiving a NEW declaration requires editing the generated
  * seed file, which is exactly the reviewable act DR-4 wants it to be.
+ * @proof
  */
 export type _OutputSchemaNewActionCannotBeWaived = ExpectTrue<
   NotAssignableTo<'exarchos_view.a_brand_new_action', VacuityWaiverId>
@@ -780,11 +785,15 @@ export type _OutputSchemaNewActionCannotBeWaived = ExpectTrue<
  * built-in declaration's `outputSchema`. A new action in this file that reaches
  * for `unregisteredActionOutputSchema()` does not compile — it no longer merely
  * reddens the runtime audit.
+ * @proof
  */
 export type _OutputSchemaRegistryActionUsingExtensionEscapeFailsCompile = ExpectTrue<
   NotAssignableTo<ExtensionOutputSchema, BuiltinToolAction['outputSchema']>
 >;
-/** The same claim one level up: an extension action is not a registry declaration. */
+/**
+ * The same claim one level up: an extension action is not a registry declaration.
+ * @proof
+ */
 export type _OutputSchemaExtensionActionIsNotABuiltinDeclaration = ExpectTrue<
   NotAssignableTo<ExtensionToolAction, BuiltinToolAction>
 >;
@@ -793,6 +802,7 @@ export type _OutputSchemaExtensionActionIsNotABuiltinDeclaration = ExpectTrue<
  * `CompositeTool` (whose actions carry the consumer-facing union) is not a legal
  * `TOOL_REGISTRY` entry, so a new `readonly ToolAction[]` array cannot be
  * smuggled in beside the five that exist.
+ * @proof
  */
 export type _OutputSchemaRegistryDoorRejectsUnnarrowedTools = ExpectTrue<
   NotAssignableTo<CompositeTool, BuiltinCompositeTool>
@@ -803,23 +813,31 @@ export type _OutputSchemaRegistryDoorRejectsUnnarrowedTools = ExpectTrue<
  * declaration's. Without these lines the aliases above would still pass if a
  * field had been narrowed to something nothing at all can produce, and the
  * `.exarchos.yml` surface could have been "closed" by breaking it.
+ * @proof
  */
 export type _OutputSchemaCappedShapeSatisfiesTheField = ExpectTrue<
   ReturnType<typeof withCappedShape> extends BuiltinToolAction['outputSchema'] ? true : false
 >;
+/** @proof */
 export type _OutputSchemaWaiverSatisfiesTheField = ExpectTrue<
   ReturnType<typeof vacuityWaiver> extends BuiltinToolAction['outputSchema'] ? true : false
 >;
+/** @proof */
 export type _OutputSchemaExtensionEscapeSatisfiesTheExtensionField = ExpectTrue<
   ExtensionOutputSchema extends ExtensionToolAction['outputSchema'] ? true : false
 >;
-/** Both declaration types remain consumable as plain `ToolAction`s. */
+/**
+ * Both declaration types remain consumable as plain `ToolAction`s.
+ * @proof
+ */
 export type _OutputSchemaBuiltinActionIsAToolAction = ExpectTrue<
   BuiltinToolAction extends ToolAction ? true : false
 >;
+/** @proof */
 export type _OutputSchemaExtensionActionIsAToolAction = ExpectTrue<
   ExtensionToolAction extends ToolAction ? true : false
 >;
+/** @proof */
 export type _OutputSchemaExtensionToolIsACompositeTool = ExpectTrue<
   ExtensionCompositeTool extends CompositeTool ? true : false
 >;

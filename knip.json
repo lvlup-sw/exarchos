@@ -4,6 +4,9 @@
     "tsx"
   ],
   "ignoreExportsUsedInFile": true,
+  "tags": [
+    "-proof"
+  ],
   "workspaces": {
     ".": {
       "entry": [
@@ -12,6 +15,7 @@
         "src/skills-guard.ts",
         "src/placeholder-lint.ts",
         "scripts/audit/knip-diff.ts",
+        "scripts/measured-premises-derive.ts",
         "scripts/**/*.test.ts",
         "test/**/*.test.ts"
       ],

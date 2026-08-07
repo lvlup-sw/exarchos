@@ -391,7 +391,10 @@ type Assignable<A, B> = [A] extends [B] ? true : false;
 type NotAssignable<A, B> = [A] extends [B] ? false : true;
 type MutuallyAssignable<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
 
-/** {@link EVENT_EMISSION_SOURCES} is exactly the shipped `EventEmissionSource`, both directions. */
+/**
+ * {@link EVENT_EMISSION_SOURCES} is exactly the shipped `EventEmissionSource`, both directions.
+ * @proof
+ */
 export type _EventDeclarations_EmissionSourceData_MatchesTheUnion = Expect<
   MutuallyAssignable<(typeof EVENT_EMISSION_SOURCES)[number], EventEmissionSource>
 >;
@@ -401,12 +404,16 @@ export type _EventDeclarations_EmissionSourceData_MatchesTheUnion = Expect<
  * so `DeclarationSeam.get`/`list` — written against `Declaration<K>` in Wave 1a, before this
  * subject existed — keep compiling untouched. This is `_DeclarationSubjectWidensToUnknown`
  * discharged at a real consumer rather than on a hypothetical `{ source: 'auto' }`.
+ * @proof
  */
 export type _EventDeclarations_LiftedSubjectWidensToTheSeamForm = Expect<
   Assignable<Declaration<'event', EventSubject>, Declaration<'event'>>
 >;
 
-/** A lifted declaration is an instance of the one envelope — nothing sits outside the union. */
+/**
+ * A lifted declaration is an instance of the one envelope — nothing sits outside the union.
+ * @proof
+ */
 export type _EventDeclarations_LiftedDeclarationIsAnyDeclaration = Expect<
   Assignable<Declaration<'event', EventSubject>, AnyDeclaration>
 >;
@@ -415,6 +422,7 @@ export type _EventDeclarations_LiftedDeclarationIsAnyDeclaration = Expect<
  * **The no-reshape guarantee for task 010.** A DR-2 registration is already a valid subject, so
  * annotating an event type changes a VALUE and reshapes no type here. Fixing `EventSubject` to
  * the emission arm alone flips this to `false`.
+ * @proof
  */
 export type _EventDeclarations_RegistrationIsUsableAsSubject = Expect<
   Assignable<EventRegistration, EventSubject>
@@ -424,6 +432,7 @@ export type _EventDeclarations_RegistrationIsUsableAsSubject = Expect<
  * The two migration arms are disjoint: an emission subject is NOT a registration. Without this,
  * {@link isEventRegistration} could be trivially satisfied by the un-annotated arm and the
  * `SubjectFailingTheGuard` test would be passing for the wrong reason.
+ * @proof
  */
 export type _EventDeclarations_EmissionSubjectIsNotARegistration = Expect<
   NotAssignable<EventEmissionSubject, EventRegistration>
@@ -433,6 +442,7 @@ export type _EventDeclarations_EmissionSubjectIsNotARegistration = Expect<
  * The lift does not narrow the store: every `EventEmissionSource` the registry can hold is a
  * subject this bridge can carry. A `planned` or `retired` event is carried like any other, so the
  * lifted catalog is the whole catalog rather than the emitted part of it.
+ * @proof
  */
 export type _EventDeclarations_EverySourceIsCarryable = Expect<
   Assignable<{ readonly source: EventEmissionSource }, EventSubject>

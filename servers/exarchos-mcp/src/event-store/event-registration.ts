@@ -590,6 +590,7 @@ type AnyBareRegistration = { [T in EventTier]: BareRegistration<T> }[EventTier];
  *
  * Falsifier: give any arm a shape satisfiable without its weld field (make `rationale`
  * optional, widen it to `string`, allow `consumedBy: []`) and this alias stops being `true`.
+ * @proof
  */
 export type _EventRegistration_ReportCoupledVariant_HasNoConstructibleForm = Expect<
   IsNotAssignable<AnyBareRegistration, EventRegistration>
@@ -608,6 +609,7 @@ type CarriesAWeld<R> = R extends unknown
  * testing one hand-written bare shape, it quantifies over the arms themselves and asserts none
  * of them is discriminant-only. A weldless sixth arm makes this `true | false`, which
  * `Expect` rejects.
+ * @proof
  */
 export type _EventRegistration_EveryTierArm_CarriesAWeldField = Expect<
   [CarriesAWeld<EventTierVariant>] extends [true] ? true : false
@@ -619,6 +621,7 @@ export type _EventRegistration_EveryTierArm_CarriesAWeldField = Expect<
  * provider, so it looks welded, but nothing reads what it emits — a report with extra steps.
  * The non-empty tuple on {@link CapabilityRegistration.consumedBy} is what rejects it, and
  * relaxing that to `readonly ConsumerId[]` makes this alias `false`.
+ * @proof
  */
 export type _EventRegistration_CapabilityWithNoConsumers_HasNoConstructibleForm = Expect<
   IsNotAssignable<
@@ -637,6 +640,7 @@ export type _EventRegistration_CapabilityWithNoConsumers_HasNoConstructibleForm 
  * exhaustiveness criterion at its sharpest: adding an arm without listing it (or listing a tier
  * with no arm) is a compile error, so no enumeration over `EVENT_TIERS` can silently miss a
  * variant.
+ * @proof
  */
 export type _EventRegistration_DeclaredTiers_MatchTheVariantArms = Expect<
   MutuallyAssignable<EventTierVariant['tier'], EventTier>
@@ -647,6 +651,7 @@ export type _EventRegistration_DeclaredTiers_MatchTheVariantArms = Expect<
  * (`{ source: 'auto' | 'model' | 'hook' }`). The literal is written ONCE, here, against a value
  * derived from `EventEmissionSource` — two authorities compared, so adding a sixth member to
  * the shipped union cannot widen {@link EmissionSource} unnoticed.
+ * @proof
  */
 export type _EventRegistration_EmissionAxis_IsTheRegistrableSet = Expect<
   MutuallyAssignable<EmissionSource, 'auto' | 'model' | 'hook'>
@@ -657,6 +662,7 @@ export type _EventRegistration_EmissionAxis_IsTheRegistrableSet = Expect<
  * correction proven rather than asserted in prose. `EmissionSource` (from tier) plus the
  * non-`active` lifecycle states is the full five-value union: no source is underivable, and no
  * value is derivable that the registry cannot hold.
+ * @proof
  */
 export type _EventRegistration_TwoAxes_ReproduceEventEmissionSource = Expect<
   MutuallyAssignable<EmissionSource | Exclude<EventLifecycle, 'active'>, EventEmissionSource>
@@ -666,6 +672,7 @@ export type _EventRegistration_TwoAxes_ReproduceEventEmissionSource = Expect<
  * The lifecycle axis is NOT a coupling class: no lifecycle value is a tier, and no tier is a
  * lifecycle value. If a future edit collapsed them back into one axis this stops holding, which
  * is exactly the regression rev 3 corrected.
+ * @proof
  */
 export type _EventRegistration_LifecycleAxis_IsDisjointFromTheTierAxis = Expect<
   IsNotAssignable<EventLifecycle, EventTier>
@@ -679,17 +686,26 @@ export type _EventRegistration_LifecycleAxis_IsDisjointFromTheTierAxis = Expect<
 // Extend either half alone and `tsc` fails here, at the pair, instead of silently letting the
 // guard drift wider (or narrower) than the union it claims to decide.
 
-/** {@link SUBSTRATE_RATIONALES} is exactly {@link SubstrateRationale}. */
+/**
+ * {@link SUBSTRATE_RATIONALES} is exactly {@link SubstrateRationale}.
+ * @proof
+ */
 export type _EventRegistration_SubstrateRationaleData_MatchesTheUnion = Expect<
   MutuallyAssignable<(typeof SUBSTRATE_RATIONALES)[number], SubstrateRationale>
 >;
 
-/** {@link RECONCILER_IDS} is exactly {@link ReconcilerId}. */
+/**
+ * {@link RECONCILER_IDS} is exactly {@link ReconcilerId}.
+ * @proof
+ */
 export type _EventRegistration_ReconcilerIdData_MatchesTheUnion = Expect<
   MutuallyAssignable<(typeof RECONCILER_IDS)[number], ReconcilerId>
 >;
 
-/** {@link GROUND_TRUTH_SOURCES} is exactly {@link GroundTruthSource}. */
+/**
+ * {@link GROUND_TRUTH_SOURCES} is exactly {@link GroundTruthSource}.
+ * @proof
+ */
 export type _EventRegistration_GroundTruthData_MatchesTheUnion = Expect<
   MutuallyAssignable<(typeof GROUND_TRUTH_SOURCES)[number], GroundTruthSource>
 >;
@@ -697,6 +713,7 @@ export type _EventRegistration_GroundTruthData_MatchesTheUnion = Expect<
 /**
  * {@link JUDGMENT_GATE_CLASSES} is exactly {@link SupportedGateClass} — the tooth that makes
  * the no-value-import decision safe. A gate class added upstream reddens the build here.
+ * @proof
  */
 export type _EventRegistration_JudgmentGateData_MatchesTheUnion = Expect<
   MutuallyAssignable<(typeof JUDGMENT_GATE_CLASSES)[number], SupportedGateClass>

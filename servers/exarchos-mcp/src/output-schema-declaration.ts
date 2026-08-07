@@ -277,19 +277,31 @@ export function unregisteredActionOutputSchema(): ExtensionOutputSchema {
 type Expect<T extends true> = T;
 type IsNotAssignable<A, B> = A extends B ? false : true;
 
-/** The vacuous form is not a declared schema. This is DR-4's whole point. */
+/**
+ * The vacuous form is not a declared schema. This is DR-4's whole point.
+ * @proof
+ */
 export type _OutputSchemaVacuousEnvelopeIsNotDeclared = Expect<
   IsNotAssignable<ReturnType<typeof EnvelopeSchema<z.ZodUnknown>>, DeclaredOutputSchema>
 >;
-/** Neither is a TYPED envelope that skipped the constructor. */
+/**
+ * Neither is a TYPED envelope that skipped the constructor.
+ * @proof
+ */
 export type _OutputSchemaUnbrandedTypedEnvelopeIsNotDeclared = Expect<
   IsNotAssignable<ReturnType<typeof EnvelopeSchema<z.ZodObject>>, DeclaredOutputSchema>
 >;
-/** Nor any bare `z.ZodType` — the field's old type admitted every schema. */
+/**
+ * Nor any bare `z.ZodType` — the field's old type admitted every schema.
+ * @proof
+ */
 export type _OutputSchemaBareZodTypeIsNotDeclared = Expect<
   IsNotAssignable<z.ZodType, DeclaredOutputSchema>
 >;
-/** An id that is not seeded cannot be waived. This is the shrink-only tooth. */
+/**
+ * An id that is not seeded cannot be waived. This is the shrink-only tooth.
+ * @proof
+ */
 export type _OutputSchemaUnseededIdCannotBeWaived = Expect<
   IsNotAssignable<'exarchos_workflow.a_brand_new_action', VacuityWaiverId>
 >;
@@ -299,14 +311,19 @@ export type _OutputSchemaUnseededIdCannotBeWaived = Expect<
  * outputSchema`. The other half of this claim (that `BuiltinToolAction` really
  * does demand `DeclaredOutputSchema`) is stated in `registry.ts`, at the
  * boundary it governs.
+ * @proof
  */
 export type _OutputSchemaExtensionEscapeIsNotDeclared = Expect<
   IsNotAssignable<ReturnType<typeof unregisteredActionOutputSchema>, DeclaredOutputSchema>
 >;
-/** …and symmetrically, a registry-blessed schema is not an extension schema. */
+/**
+ * …and symmetrically, a registry-blessed schema is not an extension schema.
+ * @proof
+ */
 export type _OutputSchemaDeclaredIsNotExtension = Expect<
   IsNotAssignable<ReturnType<typeof withCappedShape>, ExtensionOutputSchema>
 >;
+/** @proof */
 export type _OutputSchemaWaiverIsNotExtension = Expect<
   IsNotAssignable<ReturnType<typeof vacuityWaiver>, ExtensionOutputSchema>
 >;
@@ -315,25 +332,37 @@ export type _OutputSchemaWaiverIsNotExtension = Expect<
  * brand, so the aliases above are rejecting the wrong-brand case rather than
  * rejecting everything. Without these lines, narrowing any of the three brands
  * to something nothing can produce would leave every negative proof passing.
+ * @proof
  */
 export type _OutputSchemaCappedShapeIsDeclared = Expect<
   ReturnType<typeof withCappedShape> extends DeclaredOutputSchema ? true : false
 >;
+/** @proof */
 export type _OutputSchemaWaiverIsDeclared = Expect<
   ReturnType<typeof vacuityWaiver> extends DeclaredOutputSchema ? true : false
 >;
+/** @proof */
 export type _OutputSchemaEscapeIsExtension = Expect<
   ReturnType<typeof unregisteredActionOutputSchema> extends ExtensionOutputSchema ? true : false
 >;
-/** A declared schema is still a `z.ZodType`, so no consumer had to change. */
+/**
+ * A declared schema is still a `z.ZodType`, so no consumer had to change.
+ * @proof
+ */
 export type _OutputSchemaDeclaredIsStillZodType = Expect<
   DeclaredOutputSchema extends z.ZodType ? true : false
 >;
-/** …and so is an extension schema — `ToolAction` consumers see one shape. */
+/**
+ * …and so is an extension schema — `ToolAction` consumers see one shape.
+ * @proof
+ */
 export type _OutputSchemaExtensionIsStillZodType = Expect<
   ExtensionOutputSchema extends z.ZodType ? true : false
 >;
-/** Both brands satisfy the consumer-facing union, which is why nothing rippled. */
+/**
+ * Both brands satisfy the consumer-facing union, which is why nothing rippled.
+ * @proof
+ */
 export type _OutputSchemaBothBrandsAreRegistered = Expect<
   DeclaredOutputSchema extends RegisteredOutputSchema
     ? ExtensionOutputSchema extends RegisteredOutputSchema
