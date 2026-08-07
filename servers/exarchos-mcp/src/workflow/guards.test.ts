@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { guards } from './guards.js';
+import { collectReviewStatuses, guards } from './guards.js';
 import type { GuardFailure } from './guards.js';
 
 // ─── teamDisbandedEmitted Guard Tests ───────────────────────────────────────
@@ -1377,5 +1377,170 @@ describe('reportArtifactExists', () => {
     const result = guards.reportArtifactExists.evaluate(state);
     expect(result).not.toBe(true);
     expect((result as GuardFailure).passed).toBe(false);
+  });
+});
+
+// ─── DR-24 / Task 057: shape narrowing replaces shape assertion ─────────────
+//
+// The guard table used to ASSERT the shape of untyped projection fields
+// (`state.tasks as Array<{ status: string }>`, `state.reviews as Record<…>`).
+// An assertion cannot fail, so malformed state reached property access with the
+// checker's blessing and surfaced only as a runtime TypeError that the state
+// machine caught and relabelled. These tests pin the narrowed behaviour: the
+// guard DECIDES on the shape and reports, rather than throwing.
+
+describe('guards — malformed state is narrowed, not asserted (DR-24)', () => {
+  describe('allTasksComplete', () => {
+    it('AllTasksComplete_TasksIsArrayLikeNotArray_ReturnsStructuredFailureWithoutThrowing', () => {
+      // An array-LIKE object has `.length` but no `.every`. Under the old
+      // assertion this threw; the guard must instead reject it in-band.
+      const state: Record<string, unknown> = {
+        featureId: 'f1',
+        tasks: { length: 1, 0: { status: 'pending' } },
+      };
+
+      const result = guards.allTasksComplete.evaluate(state);
+
+      expect(result).not.toBe(true);
+      const failure = result as GuardFailure;
+      expect(failure.passed).toBe(false);
+      expect(failure.reason).toContain('must be an array');
+    });
+
+    it('AllTasksComplete_TasksIsNonArrayScalar_DoesNotReadAsZeroTasksComplete', () => {
+      // The dangerous failure mode: treating unusable `tasks` as "empty, so all
+      // complete" would turn corrupt state into a green gate.
+      for (const corrupt of ['pending', 7, true]) {
+        const result = guards.allTasksComplete.evaluate({ featureId: 'f1', tasks: corrupt });
+        expect(result).not.toBe(true);
+      }
+    });
+
+    it('AllTasksComplete_TasksContainsNullEntry_ReportsIncompleteWithoutThrowing', () => {
+      const state: Record<string, unknown> = {
+        featureId: 'f1',
+        tasks: [{ id: 't1', status: 'complete' }, null],
+      };
+
+      const result = guards.allTasksComplete.evaluate(state);
+
+      expect(result).not.toBe(true);
+      expect((result as GuardFailure).reason).toContain('1 task(s) incomplete');
+    });
+
+    it('AllTasksComplete_TaskStatusIsNonString_CountsAsIncomplete', () => {
+      const state: Record<string, unknown> = {
+        featureId: 'f1',
+        tasks: [{ id: 't1', status: 42 }],
+      };
+
+      expect(guards.allTasksComplete.evaluate(state)).not.toBe(true);
+    });
+
+    it('AllTasksComplete_TasksAbsentOrEmpty_StillPasses', () => {
+      expect(guards.allTasksComplete.evaluate({ featureId: 'f1' })).toBe(true);
+      expect(guards.allTasksComplete.evaluate({ featureId: 'f1', tasks: [] })).toBe(true);
+    });
+
+    it('AllTasksComplete_NonStringTaskId_FallsBackToPlaceholderInSuggestedFix', () => {
+      const state: Record<string, unknown> = {
+        featureId: 'f1',
+        tasks: [{ id: 99, status: 'pending' }],
+      };
+
+      const failure = guards.allTasksComplete.evaluate(state) as GuardFailure;
+
+      const updates = failure.suggestedFix?.params.updates as { tasks: Array<{ id: string }> };
+      expect(updates.tasks[0]?.id).toBe('<task-id>');
+    });
+  });
+
+  describe('object-shaped state fields', () => {
+    it('AllReviewsPassed_ReviewsIsString_ReportsMissingRatherThanMiningCharacters', () => {
+      // `Object.entries('pending')` yields index/character pairs. The old
+      // assertion handed that string to the collector as if it were a record.
+      const result = guards.allReviewsPassed.evaluate({ featureId: 'f1', reviews: 'pending' });
+
+      expect(result).not.toBe(true);
+      expect((result as GuardFailure).reason).toContain('missing');
+    });
+
+    it('PrUrlExists_SynthesisIsString_DoesNotSatisfyTheGuard', () => {
+      const result = guards.prUrlExists.evaluate({ featureId: 'f1', synthesis: 'https://pr' });
+
+      expect(result).not.toBe(true);
+    });
+
+    it('PlanReviewComplete_PlanReviewIsArray_DoesNotSatisfyTheGuard', () => {
+      const result = guards.planReviewComplete.evaluate({
+        featureId: 'f1',
+        planReview: [{ approved: true }],
+      });
+
+      expect(result).not.toBe(true);
+    });
+  });
+
+  describe('collectReviewStatuses', () => {
+    it('CollectReviewStatuses_ArrayEntry_IsIgnoredNotIndexWalked', () => {
+      // An array entry used to be walked by the nested branch, minting a
+      // `a.0` status out of a shape that is not a review entry at all.
+      expect(collectReviewStatuses({ a: [{ status: 'pass' }] })).toEqual([]);
+    });
+
+    it('CollectReviewStatuses_NestedArrayValue_IsIgnored', () => {
+      expect(collectReviewStatuses({ a: { inner: [{ status: 'pass' }] } })).toEqual([]);
+    });
+
+    it('CollectReviewStatuses_PlainAndNestedRecords_StillCollected', () => {
+      expect(collectReviewStatuses({ a: { status: 'pass' } })).toEqual([
+        { path: 'a', status: 'pass' },
+      ]);
+      expect(collectReviewStatuses({ a: { inner: { verdict: 'APPROVED' } } })).toEqual([
+        { path: 'a.inner', status: 'approved' },
+      ]);
+    });
+  });
+
+  describe('list-shaped state fields', () => {
+    it('TeamDisbandedEmitted_EventsIsNonArray_DoesNotThrowAndPassesVacuously', () => {
+      // `_events` not being a list means no `team.spawned` was observed, which
+      // is the existing "no team to disband" pass. Previously `.some` threw.
+      expect(guards.teamDisbandedEmitted.evaluate({ featureId: 'f1', _events: 'nope' })).toBe(true);
+    });
+
+    it('TeamDisbandedEmitted_EventsContainsNullEntry_DoesNotThrow', () => {
+      const state: Record<string, unknown> = {
+        featureId: 'f1',
+        _events: [null, { type: 'team.spawned' }],
+      };
+
+      expect(guards.teamDisbandedEmitted.evaluate(state)).not.toBe(true);
+    });
+
+    it('AllReviewsPassed_RequiredReviewsHasNonStringEntry_StaysReportedAsMissing', () => {
+      // Filtering non-strings out of the requirement list would SHRINK the
+      // requirement set — the one direction this guard must never move.
+      const state: Record<string, unknown> = {
+        featureId: 'f1',
+        reviews: { spec: { status: 'pass' } },
+        _requiredReviews: ['spec', 42],
+      };
+
+      const result = guards.allReviewsPassed.evaluate(state);
+
+      expect(result).not.toBe(true);
+      expect((result as GuardFailure).reason).toContain('42');
+    });
+
+    it('AllReviewsPassed_RequiredReviewsIsNonArray_TreatedAsNoRequirements', () => {
+      const state: Record<string, unknown> = {
+        featureId: 'f1',
+        reviews: { spec: { status: 'pass' } },
+        _requiredReviews: 'spec',
+      };
+
+      expect(guards.allReviewsPassed.evaluate(state)).toBe(true);
+    });
   });
 });

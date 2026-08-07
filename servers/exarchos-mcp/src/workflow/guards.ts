@@ -45,6 +45,62 @@ export function composeGuards(id: string, description: string, ...innerGuards: G
 // ─── Guard Helpers ──────────────────────────────────────────────────────────
 
 /**
+ * Reads a nested object field off untyped workflow state.
+ *
+ * The field is NARROWED with `isPlainObject`, never asserted (DR-14). Guard
+ * state arrives as `Record<string, unknown>` straight off the projection, so a
+ * `string`, number, array, or `null` can appear under any field. An assertion
+ * would hand the checker a claim it cannot back — `state.reviews` given an
+ * object type while holding `"pending"` — and every downstream property read would
+ * then be silently `undefined` with no type error to show for it. Narrowing
+ * collapses those malformed shapes onto the SAME `undefined` that a missing
+ * field produces, which is the branch every caller already handles as "guard
+ * not satisfied".
+ *
+ * This is the read the mutation-adequacy NoCoverage check (Check 4b in
+ * `allReviewsPassed`) already performed inline; hoisting it makes the whole
+ * guard table share the one narrowing instead of half-asserting.
+ */
+function readObjectField(
+  state: Record<string, unknown>,
+  field: string,
+): Record<string, unknown> | undefined {
+  const value = state[field];
+  return isPlainObject(value) ? value : undefined;
+}
+
+/**
+ * Reads a field expected to hold a list of record-shaped entries (e.g.
+ * `state._events`), keeping only the entries that ARE records.
+ *
+ * Asserting `readonly Record<string, unknown>[]` here was doubly unbacked: a
+ * non-array field would blow up on `.some(...)` at runtime with the checker
+ * insisting the call was fine, and a `null` entry inside the array would throw
+ * on the first property read. Narrowing yields an empty list for the former and
+ * drops the latter, so callers get the "no matching event" answer they already
+ * handle instead of a TypeError (DR-14).
+ */
+function readRecordArrayField(
+  state: Record<string, unknown>,
+  field: string,
+): readonly Record<string, unknown>[] {
+  const value = state[field];
+  return Array.isArray(value) ? value.filter(isPlainObject) : [];
+}
+
+/**
+ * Reads a string-typed property off a value of unknown shape, yielding
+ * `undefined` when the value is not a record or the property is not a string.
+ * Used where an element type was previously asserted onto untyped projection
+ * data (DR-14).
+ */
+function readStringField(value: unknown, field: string): string | undefined {
+  if (!isPlainObject(value)) return undefined;
+  const raw = value[field];
+  return typeof raw === 'string' ? raw : undefined;
+}
+
+/**
  * A TYPED ARTIFACT REFERENCE (DR-5). An artifact field carries either a path
  * (`docs/specs/…md`, a URL) or the artifact contents — both of which are
  * strings. Anything else is not a reference to anything.
@@ -81,7 +137,7 @@ function makeArtifactGuard(field: string, description: string, customId?: string
       // this loose check, so the rejection never reached production. Both the
       // canonical `artifacts[field]` read AND the legacy top-level fallback are
       // narrowed — tightening only one leaves the other as an open bypass.
-      const artifacts = state.artifacts as Record<string, unknown> | undefined;
+      const artifacts = readObjectField(state, 'artifacts');
       if (artifacts != null && isTypedArtifactReference(artifacts[field])) return true;
       // Fallback: check top-level field
       if (isTypedArtifactReference(state[field])) return true;
@@ -139,9 +195,12 @@ export function collectReviewStatuses(
   reviews: Record<string, unknown>,
 ): Array<{ path: string; status: string }> {
   const results: Array<{ path: string; status: string }> = [];
-  for (const [key, value] of Object.entries(reviews)) {
-    if (typeof value !== 'object' || value === null) continue;
-    const entry = value as Record<string, unknown>;
+  for (const [key, entry] of Object.entries(reviews)) {
+    // `isPlainObject` replaces a `typeof … === 'object'` probe followed by an
+    // assertion to the very type the probe could not establish: `typeof []` is
+    // also `'object'`, so an array review entry used to reach `extractStatus`
+    // given a record type. The predicate narrows for real (DR-14).
+    if (!isPlainObject(entry)) continue;
     const status = extractStatus(entry);
     if (status !== undefined) {
       // Flat review: { status: "approved", ... } or { verdict: "pass", ... }
@@ -151,9 +210,8 @@ export function collectReviewStatuses(
       results.push({ path: key, status: entry.passed ? 'passed' : 'failed' });
     } else {
       // Nested: { specReview: { status: "pass" }, qualityReview: { verdict: "approved" } }
-      for (const [subKey, subValue] of Object.entries(entry)) {
-        if (typeof subValue !== 'object' || subValue === null) continue;
-        const sub = subValue as Record<string, unknown>;
+      for (const [subKey, sub] of Object.entries(entry)) {
+        if (!isPlainObject(sub)) continue;
         const subStatus = extractStatus(sub);
         if (subStatus !== undefined) {
           results.push({ path: `${key}.${subKey}`, status: subStatus });
@@ -169,13 +227,26 @@ export function collectReviewStatuses(
 const UNSAFE_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 
 /**
+ * A fresh prototype-less record. `Object.create(null)` is declared to return
+ * `any`, so the RETURN ANNOTATION — not an assertion at each call site — is
+ * what pins the type and stops the `any` from spreading (DR-14).
+ */
+function emptyRecord(): Record<string, unknown> {
+  return Object.create(null);
+}
+
+/**
  * Builds an expectedShape for failed reviews, listing each failed path with { status: 'pass' }.
  * Handles dotted paths (e.g. "A1.specReview") by building nested objects.
+ *
+ * The `reviews` key is declared in the return type rather than re-asserted by
+ * the caller: `allReviewsPassed` merges these entries into its own
+ * expectedShape and previously had to assert the property back into existence.
  */
 function buildFailedReviewsExpectedShape(
   notPassed: Array<{ path: string; status: string }>,
-): Record<string, unknown> {
-  const reviewEntries: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
+): { reviews: Record<string, unknown> } {
+  const reviewEntries = emptyRecord();
   for (const s of notPassed) {
     const parts = s.path.split('.');
     let cursor: Record<string, unknown> = reviewEntries;
@@ -183,10 +254,13 @@ function buildFailedReviewsExpectedShape(
     for (let i = 0; i < parts.length - 1; i += 1) {
       const key = parts[i];
       if (key === undefined || UNSAFE_KEYS.has(key)) { skip = true; break; }
-      if (typeof cursor[key] !== 'object' || cursor[key] === null) {
-        cursor[key] = Object.create(null) as Record<string, unknown>;
-      }
-      cursor = cursor[key] as Record<string, unknown>;
+      // Reuse an existing branch only when it really is a record. The old
+      // `typeof … === 'object'` probe accepted arrays and then asserted them
+      // to a record; `isPlainObject` decides and narrows in one step.
+      const existing = cursor[key];
+      const branch = isPlainObject(existing) ? existing : emptyRecord();
+      cursor[key] = branch;
+      cursor = branch;
     }
     if (skip) continue;
     const leafKey = parts[parts.length - 1];
@@ -215,7 +289,7 @@ const MAX_SYNTHESIZE_RETRIES = 3;
  * anti-pattern seen in hotfixTrackSelected/thoroughTrackSelected.
  */
 function hasSynthesizeRequestEvent(state: Record<string, unknown>): boolean {
-  const events = (state._events as readonly Record<string, unknown>[]) ?? [];
+  const events = readRecordArrayField(state, '_events');
   return events.some((e) => e.type === 'synthesize.requested');
 }
 
@@ -225,7 +299,7 @@ function hasSynthesizeRequestEvent(state: Record<string, unknown>): boolean {
  * policy literals; unrecognized values collapse to the default.
  */
 function readSynthesisPolicy(state: Record<string, unknown>): 'always' | 'never' | 'on-request' {
-  const oneshot = state.oneshot as Record<string, unknown> | undefined;
+  const oneshot = readObjectField(state, 'oneshot');
   const raw = oneshot?.synthesisPolicy;
   if (raw === 'always' || raw === 'never' || raw === 'on-request') return raw;
   return 'on-request';
@@ -242,11 +316,34 @@ export const guards = {
     id: 'all-tasks-complete',
     description: 'All tasks must be complete',
     evaluate: (state: Record<string, unknown>): GuardResult => {
-      const tasks = state.tasks as Array<{ id?: string; status: string }> | undefined;
-      if (!tasks || tasks.length === 0) return true;
-      if (tasks.every((t) => t.status === 'complete')) return true;
-      const incomplete = tasks.filter((t) => t.status !== 'complete');
+      // Asserting `Array<{ id?: string; status: string }>` promised the checker
+      // a shape nothing verified: `state.tasks` is projected untyped, so a
+      // `null` entry made `t.status` a TypeError the types said was impossible,
+      // and an array-LIKE object (`{ length: 1, 0: … }`) made `.every` one too.
+      // Both used to surface only via a caught exception. Now the malformed list
+      // is REJECTED explicitly and a task whose `status` is absent or non-string
+      // simply is not 'complete' (DR-14).
+      //
+      // Absent `tasks` still passes — a workflow with no task list has nothing
+      // outstanding — but a PRESENT-yet-unusable `tasks` must never read as
+      // "zero tasks, all complete"; that would turn corrupt state into a green
+      // gate. `state-machine.legacy.test.ts` pins this transition to a failure.
+      const rawTasks = state.tasks;
+      if (rawTasks == null) return true;
       const featureId = (typeof state.featureId === 'string' ? state.featureId : '<featureId>');
+      if (!Array.isArray(rawTasks)) {
+        return {
+          passed: false,
+          reason:
+            `all-tasks-complete not satisfied: state.tasks must be an array of tasks ` +
+            `(got ${typeof rawTasks}) — task completion cannot be verified`,
+          expectedShape: { tasks: [{ id: '<task-id>', status: 'complete' }] },
+        };
+      }
+      const tasks: readonly unknown[] = rawTasks;
+      if (tasks.length === 0) return true;
+      const incomplete = tasks.filter((t) => readStringField(t, 'status') !== 'complete');
+      if (incomplete.length === 0) return true;
       return {
         passed: false,
         reason: `all-tasks-complete not satisfied: ${incomplete.length} task(s) incomplete`,
@@ -258,7 +355,7 @@ export const guards = {
             featureId,
             updates: {
               tasks: incomplete.map((t) => ({
-                id: t.id ?? '<task-id>',
+                id: readStringField(t, 'id') ?? '<task-id>',
                 status: 'complete',
               })),
             },
@@ -272,7 +369,7 @@ export const guards = {
     id: 'all-reviews-passed',
     description: 'All required reviews must be present and have passed',
     evaluate: (state: Record<string, unknown>): GuardResult => {
-      const reviews = state.reviews as Record<string, unknown> | undefined;
+      const reviews = readObjectField(state, 'reviews');
       if (!reviews) {
         return {
           passed: false,
@@ -297,30 +394,37 @@ export const guards = {
       // like `__proto__`. A present-but-empty entry would then be
       // skipped by `collectReviewStatuses` and the guard would return
       // true with nothing actually verified. CodeRabbit finding on #1076.
-      const requiredReviews = state._requiredReviews as readonly string[] | undefined;
+      // Narrowed rather than asserted to `readonly string[]` (DR-14). Entries
+      // are checked one at a time so a non-string entry stays REPORTED as
+      // missing — filtering the list would quietly shrink the requirement set,
+      // which is the one direction this guard must never move.
+      const requiredReviews: readonly unknown[] = Array.isArray(state._requiredReviews)
+        ? state._requiredReviews
+        : [];
       const missing: string[] = [];
-      if (requiredReviews && requiredReviews.length > 0) {
-        for (const key of requiredReviews) {
-          if (UNSAFE_KEYS.has(key)) {
+      if (requiredReviews.length > 0) {
+        for (const rawKey of requiredReviews) {
+          if (typeof rawKey !== 'string' || UNSAFE_KEYS.has(rawKey)) {
             // Never trust proto-pollution keys as "present" — they're
-            // inherited on every object.
-            missing.push(key);
+            // inherited on every object. A non-string requirement names no
+            // dimension that can be satisfied, so it is missing by definition.
+            missing.push(String(rawKey));
             continue;
           }
+          const key = rawKey;
           if (!Object.prototype.hasOwnProperty.call(reviews, key)) {
             missing.push(key);
             continue;
           }
           const entry = reviews[key];
-          if (typeof entry !== 'object' || entry === null) {
+          if (!isPlainObject(entry)) {
             missing.push(key);
             continue;
           }
-          const entryObj = entry as Record<string, unknown>;
           // Must carry at least one recognizable shape: status, verdict,
           // or legacy `passed: boolean`. An empty `{}` is not present.
-          const hasStatus = extractStatus(entryObj) !== undefined;
-          const hasLegacyPassed = typeof entryObj.passed === 'boolean';
+          const hasStatus = extractStatus(entry) !== undefined;
+          const hasLegacyPassed = typeof entry.passed === 'boolean';
           if (!hasStatus && !hasLegacyPassed) {
             missing.push(key);
           }
@@ -364,13 +468,9 @@ export const guards = {
         reasons.push(
           `Reviews not passed: ${notPassed.map((s) => `${s.path} (status: "${s.status}")`).join(', ')}`,
         );
-        const failedShape = buildFailedReviewsExpectedShape(notPassed).reviews as
-          | Record<string, unknown>
-          | undefined;
-        if (failedShape) {
-          for (const [k, v] of Object.entries(failedShape)) {
-            expectedReviews[k] = v;
-          }
+        const failedShape = buildFailedReviewsExpectedShape(notPassed).reviews;
+        for (const [k, v] of Object.entries(failedShape)) {
+          expectedReviews[k] = v;
         }
         // Include failing entries in the suggestedFix dot-path patch so
         // an agent applying the fix can resolve BOTH missing dimensions
@@ -408,7 +508,10 @@ export const guards = {
         typeof state._mutationThreshold === 'number' &&
         Number.isFinite(state._mutationThreshold)
       ) {
-        const dim = reviews['mutation-adequacy'] as Record<string, unknown> | undefined;
+        // Narrowed, not asserted — the same read Check 4b performs below
+        // (DR-14). A non-object `reviews['mutation-adequacy']` carries no
+        // score, which is exactly the `undefined` branch.
+        const dim = readObjectField(reviews, 'mutation-adequacy');
         if (dim?.degraded === true) {
           reasons.push(
             `mutation-adequacy gate degraded (runner failed or emitted an unparseable ` +
@@ -455,8 +558,7 @@ export const guards = {
         // Capture the narrowed budget right after the `typeof` check above
         // (real narrowing, not an escape-hatch cast — DR-14).
         const maxNoCoverage = state._maxNoCoverage;
-        const rawDim = reviews['mutation-adequacy'];
-        const dim = isPlainObject(rawDim) ? rawDim : undefined;
+        const dim = readObjectField(reviews, 'mutation-adequacy');
         if (dim && dim.skipped !== true && dim.degraded !== true) {
           const noCoverage = dim.noCoverage;
           if (typeof noCoverage !== 'number' || !Number.isInteger(noCoverage) || noCoverage < 0) {
@@ -501,7 +603,7 @@ export const guards = {
     id: 'any-review-failed',
     description: 'At least one review must have failed',
     evaluate: (state: Record<string, unknown>): GuardResult => {
-      const reviews = state.reviews as Record<string, unknown> | undefined;
+      const reviews = readObjectField(state, 'reviews');
       if (!reviews) {
         return {
           passed: false,
@@ -532,9 +634,9 @@ export const guards = {
     id: 'pr-url-exists',
     description: 'PR URL must exist',
     evaluate: (state: Record<string, unknown>): GuardResult => {
-      const synthesis = state.synthesis as Record<string, unknown> | undefined;
+      const synthesis = readObjectField(state, 'synthesis');
       if (synthesis?.prUrl != null) return true;
-      const artifacts = state.artifacts as Record<string, unknown> | undefined;
+      const artifacts = readObjectField(state, 'artifacts');
       if (artifacts?.pr != null) return true;
       const featureId = (typeof state.featureId === 'string' ? state.featureId : '<featureId>');
       return {
@@ -571,7 +673,7 @@ export const guards = {
     id: 'triage-complete',
     description: 'Triage must be complete',
     evaluate: (state: Record<string, unknown>): GuardResult => {
-      const triage = state.triage as Record<string, unknown> | undefined;
+      const triage = readObjectField(state, 'triage');
       if (triage != null && triage.symptom != null) return true;
       return {
         passed: false,
@@ -585,7 +687,7 @@ export const guards = {
     id: 'root-cause-found',
     description: 'Root cause must be identified',
     evaluate: (state: Record<string, unknown>): GuardResult => {
-      const investigation = state.investigation as Record<string, unknown> | undefined;
+      const investigation = readObjectField(state, 'investigation');
       if (investigation != null && investigation.rootCause != null) return true;
       return {
         passed: false,
@@ -638,14 +740,14 @@ export const guards = {
   implementationComplete: {
     id: 'implementation-complete',
     description: 'Implementation must be complete',
-    evaluate: () => true as GuardResult,
+    evaluate: (): GuardResult => true,
   },
 
   validationPassed: {
     id: 'validation-passed',
     description: 'Validation must have passed',
     evaluate: (state: Record<string, unknown>): GuardResult => {
-      const validation = state.validation as Record<string, unknown> | undefined;
+      const validation = readObjectField(state, 'validation');
       if (validation != null && validation.testsPass === true) return true;
       return {
         passed: false,
@@ -659,7 +761,7 @@ export const guards = {
     id: 'review-passed',
     description: 'Review must have passed',
     evaluate: (state: Record<string, unknown>): GuardResult => {
-      const reviews = state.reviews as Record<string, unknown> | undefined;
+      const reviews = readObjectField(state, 'reviews');
       if (!reviews) {
         return {
           passed: false,
@@ -694,7 +796,7 @@ export const guards = {
     description: 'Scope assessment must be complete',
     evaluate: (state: Record<string, unknown>): GuardResult => {
       // Check under explore.scopeAssessment (canonical) or root scopeAssessment (legacy/convenience)
-      const explore = state.explore as Record<string, unknown> | undefined;
+      const explore = readObjectField(state, 'explore');
       if (explore?.scopeAssessment != null) return true;
       if (state.scopeAssessment != null) return true;
       return {
@@ -709,7 +811,7 @@ export const guards = {
     id: 'brief-complete',
     description: 'Brief must be complete',
     evaluate: (state: Record<string, unknown>): GuardResult => {
-      const brief = state.brief as Record<string, unknown> | undefined;
+      const brief = readObjectField(state, 'brief');
       if (brief != null && brief.goals != null) return true;
       return {
         passed: false,
@@ -759,7 +861,7 @@ export const guards = {
     id: 'docs-updated',
     description: 'Documentation must be updated',
     evaluate: (state: Record<string, unknown>): GuardResult => {
-      const validation = state.validation as Record<string, unknown> | undefined;
+      const validation = readObjectField(state, 'validation');
       if (validation?.docsUpdated === true) return true;
       return {
         passed: false,
@@ -773,7 +875,7 @@ export const guards = {
     id: 'goals-verified',
     description: 'Refactor goals must be verified',
     evaluate: (state: Record<string, unknown>): GuardResult => {
-      const validation = state.validation as Record<string, unknown> | undefined;
+      const validation = readObjectField(state, 'validation');
       if (validation?.testsPass === true) return true;
       return {
         passed: false,
@@ -787,7 +889,7 @@ export const guards = {
     id: 'plan-review-complete',
     description: 'Plan review must be complete with no gaps',
     evaluate: (state: Record<string, unknown>): GuardResult => {
-      const planReview = state.planReview as Record<string, unknown> | undefined;
+      const planReview = readObjectField(state, 'planReview');
       if (planReview?.approved === true) return true;
       const featureId = (typeof state.featureId === 'string' ? state.featureId : '<featureId>');
       return {
@@ -806,7 +908,7 @@ export const guards = {
     id: 'plan-review-gaps-found',
     description: 'Plan review found coverage gaps',
     evaluate: (state: Record<string, unknown>): GuardResult => {
-      const planReview = state.planReview as Record<string, unknown> | undefined;
+      const planReview = readObjectField(state, 'planReview');
       if (planReview?.gapsFound === true) return true;
       return {
         passed: false,
@@ -820,7 +922,7 @@ export const guards = {
     id: 'merge-verified',
     description: 'Merge must be verified by the orchestrator before cleanup',
     evaluate: (state: Record<string, unknown>): GuardResult => {
-      const cleanup = state._cleanup as Record<string, unknown> | undefined;
+      const cleanup = readObjectField(state, '_cleanup');
       if (!cleanup || cleanup.mergeVerified !== true) {
         return {
           passed: false,
@@ -835,7 +937,7 @@ export const guards = {
     id: 'team-disbanded-emitted',
     description: 'Team must be disbanded before transitioning out of delegation',
     evaluate: (state: Record<string, unknown>): GuardResult => {
-      const events = (state._events as readonly Record<string, unknown>[]) ?? [];
+      const events = readRecordArrayField(state, '_events');
       // No team spawned (subagent mode) — guard passes automatically
       const hasTeamSpawned = events.some((e) => e.type === 'team.spawned');
       if (!hasTeamSpawned) return true;
@@ -894,7 +996,7 @@ export const guards = {
       // contents, both of which are strings. Patches that set
       // `artifacts.plan = true` or `= {}` no longer silently advance
       // the workflow.
-      const artifacts = state.artifacts as Record<string, unknown> | undefined;
+      const artifacts = readObjectField(state, 'artifacts');
       const plan = artifacts?.plan;
       // Whitespace-only plan strings are not a real plan artifact — they
       // satisfy `.length > 0` but carry no content, which would let a
@@ -980,7 +1082,7 @@ export const guards = {
     id: 'escalation-required',
     description: 'Investigation determined fix requires architectural redesign',
     evaluate: (state: Record<string, unknown>): GuardResult => {
-      const investigation = state.investigation as Record<string, unknown> | undefined;
+      const investigation = readObjectField(state, 'investigation');
       if (investigation?.escalate === true) return true;
       return {
         passed: false,
@@ -994,7 +1096,7 @@ export const guards = {
     id: 'revisions-exhausted',
     description: 'Plan revision count has reached the maximum allowed',
     evaluate: (state: Record<string, unknown>): GuardResult => {
-      const planReview = state.planReview as Record<string, unknown> | undefined;
+      const planReview = readObjectField(state, 'planReview');
       const rawCount = planReview?.revisionCount;
       const count = typeof rawCount === 'number' && Number.isFinite(rawCount) ? rawCount : 0;
       // Cap is the injected `.exarchos.yml` value (`_maxPlanRevisions`, set in
@@ -1015,7 +1117,7 @@ export const guards = {
     id: 'pr-requested',
     description: 'PR creation has been requested',
     evaluate: (state: Record<string, unknown>): GuardResult => {
-      const synthesis = state.synthesis as Record<string, unknown> | undefined;
+      const synthesis = readObjectField(state, 'synthesis');
       if (synthesis?.requested === true) return true;
       return {
         passed: false,
@@ -1029,7 +1131,7 @@ export const guards = {
     id: 'synthesize-retryable',
     description: 'Synthesis can be retried (has error and retries remaining)',
     evaluate: (state: Record<string, unknown>): GuardResult => {
-      const synthesis = state.synthesis as Record<string, unknown> | undefined;
+      const synthesis = readObjectField(state, 'synthesis');
       if (synthesis?.lastError == null) {
         return {
           passed: false,
@@ -1052,7 +1154,7 @@ export const guards = {
     id: 'fix-verified-directly',
     description: 'Fix was pushed directly to main without PR',
     evaluate: (state: Record<string, unknown>): GuardResult => {
-      const resolution = state.resolution as Record<string, unknown> | undefined;
+      const resolution = readObjectField(state, 'resolution');
       if (resolution?.directPush === true && resolution.commitSha != null) return true;
       return {
         passed: false,
@@ -1066,7 +1168,7 @@ export const guards = {
     id: 'sources-collected',
     description: 'Research sources must be collected',
     evaluate: (state: Record<string, unknown>): GuardResult => {
-      const artifacts = state.artifacts as Record<string, unknown> | undefined;
+      const artifacts = readObjectField(state, 'artifacts');
       const sources = artifacts?.sources;
       if (Array.isArray(sources) && sources.length > 0) return true;
       const featureId = (typeof state.featureId === 'string' ? state.featureId : '<featureId>');
@@ -1087,6 +1189,6 @@ export const guards = {
   always: {
     id: 'always',
     description: 'Always passes',
-    evaluate: () => true as GuardResult,
+    evaluate: (): GuardResult => true,
   },
 } as const satisfies Record<string, Guard>;
