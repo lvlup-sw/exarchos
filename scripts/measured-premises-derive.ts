@@ -24,6 +24,7 @@
  * value it cannot stand behind is the defect DR-27 exists to remove.
  */
 import { censusOutputSchemas } from '../servers/exarchos-mcp/src/architecture/output-schema-census.js';
+import { censusReportCoupling } from '../servers/exarchos-mcp/src/architecture/report-coupling-census.js';
 import { EventTypes } from '../servers/exarchos-mcp/src/event-store/schemas.js';
 
 /** The derivation names this entrypoint answers. Keys match the annotation names. */
@@ -32,6 +33,7 @@ export interface TsDerivedValues {
   readonly 'output-schema-vacuous': number;
   readonly 'output-schema-substantive': number;
   readonly 'event-types-total': number;
+  readonly 'report-coupled-events': number;
 }
 
 export function deriveTsPremises(): TsDerivedValues {
@@ -46,11 +48,24 @@ export function deriveTsPremises(): TsDerivedValues {
     );
   }
 
+  // Same fail-closed rule, applied to G3's census (task 013). The spec asserted "25 report-coupled
+  // types" as bare prose in two places; DR-27's whole point is that a number nothing derives is an
+  // unbound claim, and this census is the artifact that derives it.
+  const coupling = censusReportCoupling();
+
+  if (!coupling.ok) {
+    const detail = coupling.diagnostics.map((d) => `[${d.code}] ${d.message}`).join('\n');
+    throw new Error(
+      `report-coupling census is not trustworthy — refusing to emit its counts:\n${detail}`,
+    );
+  }
+
   return {
     'output-schema-total': census.total,
     'output-schema-vacuous': census.vacuousCount,
     'output-schema-substantive': census.substantiveCount,
     'event-types-total': EventTypes.length,
+    'report-coupled-events': coupling.reportCoupledCount,
   };
 }
 

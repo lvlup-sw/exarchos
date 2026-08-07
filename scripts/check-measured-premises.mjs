@@ -513,6 +513,12 @@ export const DERIVATIONS = {
     kind: 'ts',
     describe: `EventTypes.length in ${MCP_SRC}/event-store/schemas.ts`,
   },
+  'report-coupled-events': {
+    kind: 'ts',
+    describe:
+      `censusReportCoupling().reportCoupledCount — registrations whose DR-2 tier + lifecycle ` +
+      `derive the emission source 'model' (G3's seed, ${MCP_SRC}/architecture/report-coupling-census.ts)`,
+  },
   'sdk-import-sites': {
     kind: 'scan',
     describe:

@@ -1095,6 +1095,25 @@ jobs:
           src/architecture/output-schema-census.test.ts
           src/output-schema-vacuity-allowlist.test.ts
 
+      # G3 report-coupled ratchet (DR-2, task 013). Enumerates the live event
+      # registry, derives each registration's coupling through the DR-2 tier
+      # union, and holds the report-coupled population to a shrink-only seed
+      # (membership + ISO expiry + a frozen key-set pin against in-place swaps).
+      # The census module is a pure library, so this test file IS the guard — and
+      # it carries the kill fixtures (a seeded 26th report-coupled registration,
+      # an emptied denominator, a seeded tier/source disagreement), which
+      # satisfies DR-24's "each guard's self-test runs in the same CI job as the
+      # guard" for free: guard-execution failure exits non-zero here rather than
+      # passing as success. Must be UNFILTERED — the co-located test would
+      # otherwise be hosted only by `test-mcp`, which is filtered on `mcp` and
+      # skips-as-passed on exactly the PRs #1711 describes. Rides the deps tail,
+      # not the zero-dep prefix: it resolves the MCP TypeScript source through
+      # the MCP vitest installed by the two steps above.
+      # See docs/guides/ci-gate-hosting.md.
+      - name: G3 report-coupled ratchet (DR-2, task 013)
+        working-directory: servers/exarchos-mcp
+        run: npx --no-install vitest run src/architecture/report-coupling-census.test.ts
+
   # ─────────────────────────────────────────────────────────────────────
   # e2e-process
   # ─────────────────────────────────────────────────────────────────────
