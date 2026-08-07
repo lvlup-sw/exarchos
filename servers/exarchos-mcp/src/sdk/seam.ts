@@ -33,15 +33,34 @@
  * onto this seam. This file provides the type-level half; those provide the
  * import-level half. See `./brand.ts` for why neither subsumes the other.
  *
- * ── Deliberate holes (task 051 owns them) ───────────────────────────────────
+ * ── The Tasks store surface, and where it went (task 051 FILLED these) ──────
  * v2 `2.0.0` DELETED the experimental Tasks store seam: no
  * `ServerOptions.taskStore`, and zero matches for `TaskStore` /
- * `CreateTaskOptions` / `isTerminal` in either v2 package. `adapters/mcp.ts`
- * constructs `new McpServer(…, { taskStore })` against `EventSourcedTaskStore`,
- * so the v2 side of that surface cannot be re-exported. It is represented here
- * as a named {@link SdkSurfaceGap} rather than invented: {@link V2TaskStore},
- * {@link V2CreateTaskOptions}, {@link V2Client}, {@link V2StdioClientTransport}.
- * Designing the replacement is task 051's job, not this module's.
+ * `CreateTaskOptions` / `isTerminal` in either v2 package. Task 052 left three
+ * uninhabited {@link SdkSurfaceGap} holes here rather than invent replacements.
+ * Task 051 filled them, and the fill is a RELOCATION rather than a re-export:
+ *
+ *   • `TaskStore`        → `../task-store/port.ts` `TaskStorePort`
+ *   • `CreateTaskOptions`→ `../task-store/port.ts` `CreateTaskParams`
+ *   • `isTerminal`       → `../task-store/port.ts` `isTaskTerminal`
+ *
+ * Those are OWNED and generation-neutral, so they are deliberately NOT
+ * re-exported from this module: routing them through the SDK seam would claim
+ * they are drawn from a generation, and they are not drawn from either. The one
+ * gap that remains genuinely absent — and stays represented as a hole — is
+ * {@link V2TaskStoreServerOption}, because a v2 server handed a `taskStore`
+ * option **ignores it silently** (measured), which is the sharpest edge in this
+ * whole migration. `../task-store/attach.ts` is the seam that makes that
+ * silence impossible to ship.
+ *
+ * What this module DOES contribute to the Tasks story is vocabulary the SDKs
+ * still own: {@link isV1TaskTerminal} (the v1 oracle the owned predicate is
+ * differentially tested against) and {@link V2_TASK_STATUS_VALUES} (v2's own
+ * runtime status enum). Two packages, two authorities, so the equivalence test
+ * has something that can genuinely disagree.
+ *
+ * {@link V2Client} and {@link V2StdioClientTransport} remain holes for an
+ * unrelated reason: the v2 client package is simply not installed.
  *
  * ── Scope ───────────────────────────────────────────────────────────────────
  * The re-exported surface is the surface the package actually uses today, so
@@ -83,6 +102,7 @@ import {
   InMemoryTransport as SdkV2InMemoryTransport,
   LATEST_PROTOCOL_VERSION as SDK_V2_LATEST_PROTOCOL_VERSION,
 } from '@modelcontextprotocol/server';
+import { TaskStatusSchema as SdkV2TaskStatusSchema } from '@modelcontextprotocol/core';
 import type {
   Transport as SdkV2Transport,
   Task as SdkV2Task,
@@ -148,16 +168,27 @@ export type V2Request = V2<SdkV2Request>;
 export type V2RequestId = SdkV2RequestId;
 export type V2Result = V2<SdkV2Result>;
 
-// ── Typed holes: surfaces v2 2.0.0 does not have (task 051 / client package) ──
+// ── Typed holes: surfaces v2 2.0.0 does not have ─────────────────────────────
 
 /**
- * v2 `2.0.0` deleted `ServerOptions.taskStore` and the `TaskStore` interface.
- * `EventSourcedTaskStore` (#1272/#1273) therefore has no v2 counterpart.
+ * There is no v2 `ServerOptions.taskStore`, and — measured against
+ * `@modelcontextprotocol/server@2.0.0` — passing one anyway is **ignored
+ * silently**: no throw, no warning, the key is dropped and every `tasks/*`
+ * request thereafter answers `-32601`. That is why this stays an uninhabited
+ * hole even though the store CONTRACT was successfully relocated: the contract
+ * has an owned replacement (`../task-store/port.ts`), the constructor option
+ * has none, and conflating the two is exactly how a migration ships a server
+ * that is persistent and dark at the same time.
+ *
+ * `../task-store/attach.ts` is the seam that acts on this: its v2 attachment
+ * type has no `serverOptions` member to spread, so there is nothing to hand the
+ * v2 constructor in the first place.
+ *
+ * Renamed from task 052's `V2TaskStore` because the thing that is missing is
+ * the OPTION, not the contract — the old name asserted the contract had no v2
+ * counterpart, which stopped being true once the contract became ours.
  */
-export type V2TaskStore = SdkSurfaceGap<'v2 2.0.0 deleted the experimental Tasks store seam (no ServerOptions.taskStore, no TaskStore) — the replacement is task 051'>;
-
-/** Counterpart of {@link V1CreateTaskOptions}; deleted with the store seam. */
-export type V2CreateTaskOptions = SdkSurfaceGap<'v2 2.0.0 deleted CreateTaskOptions with the Tasks store seam — the replacement is task 051'>;
+export type V2TaskStoreServerOption = SdkSurfaceGap<'v2 2.0.0 deleted ServerOptions.taskStore and every tasks/* handler, and a v2 server IGNORES the option silently — the store contract lives at ../task-store/port.ts and the attach seam at ../task-store/attach.ts'>;
 
 /** `@modelcontextprotocol/client` is not a declared dependency of this package. */
 export type V2Client = SdkSurfaceGap<'@modelcontextprotocol/client is not installed — only core + server are declared dependencies'>;
@@ -287,17 +318,36 @@ type DropFirst<T extends readonly unknown[]> = T extends readonly [unknown, ...i
 // Branded predicates, constants and schemas
 // ════════════════════════════════════════════════════════════════════════════
 
-/** v1 `isTerminal` — is a task status a terminal state? */
+/**
+ * v1 `isTerminal` — is a task status a terminal state?
+ *
+ * Retained deliberately after task 051 relocated the predicate to
+ * `../task-store/port.ts`. This is now the **oracle**: the owned
+ * `isTaskTerminal` is differentially compared against it over v2's full status
+ * vocabulary by `TaskStoreSeam_TerminalStateQuery_MatchesV1Semantics`. Keeping
+ * the v1 function reachable is what stops that test from comparing the
+ * replacement with itself.
+ */
 export function isV1TaskTerminal(status: V1TaskStatus): boolean {
   return sdkV1IsTerminal(status);
 }
 
 /**
- * v2 has no `isTerminal`; the behavioural replacement is task 051's
- * `TaskStoreSeam_TerminalStateQuery_MatchesV1Semantics`. Deliberately absent
- * rather than re-implemented here — see {@link V2TaskStore}.
+ * v2's own task-status vocabulary, read from `@modelcontextprotocol/core`'s
+ * runtime `TaskStatusSchema` enum rather than restated.
+ *
+ * A *runtime* value, not a type: the equivalence test needs a population it can
+ * iterate, and a type union cannot be iterated. Because it comes from a
+ * different npm package than {@link isV1TaskTerminal}, the two are genuinely
+ * independent authorities — a v2 release that adds or renames a status makes
+ * this list grow and the agreement assertion fail, which is the intended
+ * signal rather than a nuisance.
+ *
+ * Deliberately typed `readonly string[]` rather than the enum's literal union:
+ * consumers ask "is this status terminal?" of arbitrary strings folded out of
+ * durable events, and narrowing here would push a cast onto every call site.
  */
-export type IsV2TaskTerminal = SdkSurfaceGap<'v2 2.0.0 deleted isTerminal with the Tasks store seam — the behavioural replacement is task 051'>;
+export const V2_TASK_STATUS_VALUES: readonly string[] = SdkV2TaskStatusSchema.options;
 
 /** The protocol version the v1 SDK advertises. */
 export const V1_LATEST_PROTOCOL_VERSION: string = SDK_V1_LATEST_PROTOCOL_VERSION;

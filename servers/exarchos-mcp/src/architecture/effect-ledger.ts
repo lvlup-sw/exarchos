@@ -276,9 +276,19 @@ const THIRD_PARTY_NETWORK_CLIENTS: ReadonlySet<string> = new Set([
  *     and therefore unreachable from shipped code. If the seam ever re-exports
  *     one of those, this entry stops being true and must be replaced by an
  *     `EFFECT_OWNERSHIP` rule naming the owner.
- *     (`@modelcontextprotocol/core` is a declared dependency but is not imported
- *     by any shipped module yet, so it is deliberately NOT listed — a forgotten
- *     entry fails the census loudly, which is the direction this list grows in.)
+ *   - `@modelcontextprotocol/core` — VETTED by DR-0 / task 051, which is the
+ *     first shipped import of it. The list's prior note said core was omitted
+ *     because nothing imported it, and that the census would fail loudly on the
+ *     first import; it did exactly that, and this entry is the human vetting act
+ *     it demanded rather than a silencing of it.
+ *     The judgement is narrower than the `server` entry, and checkable the same
+ *     way: `sdk/seam.ts` draws exactly ONE symbol from core — `TaskStatusSchema`,
+ *     a Zod enum of five string literals, read once at module scope for
+ *     `V2_TASK_STATUS_VALUES`. Core's network-capable surface (`createFetchWithInit`,
+ *     the OAuth client/metadata helpers, `SdkHttpError`) is not imported and not
+ *     re-exported, so it is unreachable from shipped code. Widening that single
+ *     import invalidates this entry and requires an `EFFECT_OWNERSHIP` rule
+ *     naming the owner.
  *   - `better-sqlite3` — embedded file-backed SQLite driver; the filesystem
  *     effect it performs is already owned at `storage/` granularity. (The
  *     `bun:sqlite` sibling needs no entry: it carries a builtin SCHEME and is
@@ -292,6 +302,7 @@ const THIRD_PARTY_NETWORK_CLIENTS: ReadonlySet<string> = new Set([
  *                    validator. All pure data transforms.
  */
 export const INERT_DEPENDENCIES: ReadonlySet<string> = new Set([
+  '@modelcontextprotocol/core',
   '@modelcontextprotocol/sdk',
   '@modelcontextprotocol/server',
   'better-sqlite3',

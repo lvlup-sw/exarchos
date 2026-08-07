@@ -18,6 +18,7 @@ import type { RootsClient } from '../workspace/discovery.js';
 import { EnvelopeSchema } from '../schemas/envelope.js';
 import { logger } from '../logger.js';
 import { EventSourcedTaskStore } from '../task-store/event-sourced-task-store.js';
+import { attachTaskStoreToV1 } from '../task-store/attach.js';
 import type { NextAction } from '../next-action.js';
 import type { ToolResult } from '../format.js';
 import {
@@ -345,7 +346,7 @@ export function createMcpServer(ctx: DispatchContext): McpServer {
 
   const mcpSessionId = randomUUID();
   let mcpRuntimeContext: McpCallerRuntimeContext = { sessionId: mcpSessionId };
-  // #1272 — canonical TaskStore wiring. The SDK's `InMemoryTaskStore`
+  // #1272 — canonical task-store wiring. The SDK's `InMemoryTaskStore`
   // is demo-only (state lost on restart); EventSourcedTaskStore is the
   // event-sourced production replacement that projects task lifecycle
   // from the same event store the rest of dispatch writes to (INV-1).
@@ -353,7 +354,24 @@ export function createMcpServer(ctx: DispatchContext): McpServer {
   // owns a per-task in-memory cache that needs to live as long as the
   // MCP session; the underlying durable substrate (`ctx.eventStore`)
   // is shared across sessions.
-  const taskStore = new EventSourcedTaskStore(ctx.eventStore);
+  //
+  // DR-0 / task 051 — the binding now goes through the attach seam
+  // (`../task-store/attach.ts`) rather than straight into the constructor
+  // literal. This composer is v1, so the seam hands back a
+  // `SdkServedTaskStoreAttachment` whose `serverOptions` is spread into the
+  // `McpServer` options below — byte-for-byte the same `{ taskStore }` the
+  // pre-seam code passed, so nothing changes on the wire.
+  //
+  // The seam earns its place on the OTHER branch: v2 `2.0.0` deleted
+  // `ServerOptions.taskStore` AND every `tasks/*` handler, and a v2 server
+  // handed the option ignores it silently. `attachTaskStoreToV2` therefore
+  // returns a type with no `serverOptions` member at all and a non-empty
+  // `hostMustServe`, so the migration cannot quietly produce a server that
+  // is persistent but dark on the wire.
+  const taskAttachment = attachTaskStoreToV1(
+    new EventSourcedTaskStore(ctx.eventStore),
+  );
+  const taskStore = taskAttachment.store;
 
   // ─── #1273 / C2 (T30) — thread the local TaskStore onto the dispatch ctx
   // so the C1 task-augmented branch fires when `tools/call` params carry
@@ -385,7 +403,7 @@ export function createMcpServer(ctx: DispatchContext): McpServer {
         // `execution.taskSupport: 'optional'`) and the explicit
         // `tasks/{get,result,cancel,list}` methods (the SDK's
         // setRequestHandler wiring installs these automatically when
-        // `taskStore` is supplied to the constructor below).
+        // `taskStore` is supplied — see the attach seam above).
         tasks: {
           list: {},
           cancel: {},
@@ -394,7 +412,11 @@ export function createMcpServer(ctx: DispatchContext): McpServer {
           },
         },
       },
-      taskStore,
+      // Spread rather than `taskStore,` so the option travels WITH the
+      // generation decision that produced it (DR-0 / task 051). Identical
+      // at runtime; the difference is that the v2 attachment has no such
+      // member to spread, which is what stops the silent-degradation path.
+      ...taskAttachment.serverOptions,
     },
   );
 
