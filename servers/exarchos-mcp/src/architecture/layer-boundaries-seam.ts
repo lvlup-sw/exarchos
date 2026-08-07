@@ -299,7 +299,17 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
   allowance('pruner', ['topology'], 'Pruner safeguards read only the topology layer.'),
   allowance('hooks', ['config'], 'Hook wiring reads only config; hooks are an advisory side-channel.'),
   allowance('runbooks', ['adapters'], 'Runbooks render only through the adapters IO facade.'),
-  allowance('task-store', ['event-store'], 'The task store persists only via the event store.'),
+  allowance(
+    'task-store',
+    ['event-store', 'sdk'],
+    'The task store persists only via the event store. The `sdk` edge is DR-0 / ' +
+      'task 051: `task-store/attach.ts` describes how a store binds to each SDK ' +
+      'generation, so it names `SdkGeneration` — and that vocabulary has ONE ' +
+      'authority (`sdk/brand.ts`, which itself imports nothing). Re-declaring the ' +
+      'generation union locally to dodge this edge would install the second ' +
+      'authority the brand exists to prevent. `task-store/port.ts` deliberately ' +
+      'keeps ZERO imports, so the SDK-facing surface is confined to `attach.ts`.',
+  ),
   allowance('stack', ['event-store', 'views'], 'Stack renders event-store state through views.'),
   allowance('cli', ['event-store', 'ndjson'], 'CLI surface reads event-store state and frames it as NDJSON.'),
   allowance(
