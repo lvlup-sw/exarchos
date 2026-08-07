@@ -150,15 +150,30 @@ PDD deliverable 1, specified per §3a. Ranked by findings eliminated. **Every gu
 | **Mechanism** | Extend `contract/reachability/graph.ts`: `REACHABILITY_HOPS` gains `event` + `consumer`; `HOP_AUTHORITIES` for both is `'runtime'`, never `'self'` (the co-located prohibition test must still pass). |
 | **Kill fixture** | The CLI-surface row above (2 authorities) and the event-catalog row (4 unbound representations). Both fail on day one. |
 | **Self-test** | `kill-fixtures.test.ts` entry per new hop: mutating the real upstream authority drops the census below 100%. |
-| **Protected path** | CI, unfiltered. |
-| **Exceptions** | None. A boundary that cannot name one authority is a design finding, not an allowlist candidate. |
+| **Protected path** | CI, unfiltered. **Per-row enforcement, not wholesale** — see below. |
+| **Exceptions** | No blanket allowlist. Each boundary row carries an explicit `enforceFrom` wave and an owner; a row with no `enforceFrom` fails the census's own totality check. |
+
+> **Enforcement schedule reconciled in rev 3.** Rev 2 stated G5's enforcement date **three contradictory ways**: "flipped to blocking within the same wave" (Technical Design), "Census is observe-only until Wave 4" (obligation map), and `Wave1Exit_AllFiveGuards_BlockOnSeededViolation` (task 027). Those cannot all hold, because G5's own kill fixtures are rows whose authority is not remediated until Waves 2–5 — the CLI-surface row reaches one authority only at DR-19, the event-catalog row at DR-16/DR-20, the effect↔event row at DR-7, and the capability row at DR-14. Flipping wholesale at Wave 1 exit with no allowlist would red-line CI for four waves.
+>
+> **The single rule:** G5 ships in Wave 1 **observe-only**, and each boundary row flips to blocking **at the wave that remediates it**, declared as `enforceFrom` data on the row itself:
+>
+> | Row | `enforceFrom` |
+> |---|---|
+> | CLI surface | Wave 4 (DR-19 retires the last literal) |
+> | Response shape | Wave 1 (G2 ratchet is live immediately) |
+> | Event catalog | Wave 5 (DR-20 completes disposition) |
+> | Effect ↔ event | Wave 2 (DR-7 bijection) |
+> | Capability / posture | Wave 3 (DR-14) |
+> | Phase sequencing | Wave 1 (already single-authority on the landing branch) |
+>
+> Task 027's exit assertion narrows accordingly: **all five guards are *live*, and every row whose `enforceFrom` is Wave 1 blocks on a seeded violation.** "Observe-only" is a recorded, per-row, expiring state — not an indefinite one, which is what the obligation map's blanket wording would have permitted.
 
 ### Decisions taken
 
 | # | Decision | Rationale |
 |---|---|---|
 | **D1** | **Absorb the taxonomy spec rather than layer on it** | Both inputs are one defect class. Two programs would define G1–G5 twice and maintain two ratchet sets. The taxonomy spec is unfiled, so nothing is stranded. |
-| **D2** | **Registry is the IR's current storage, not a competing authority** | Per D3 of the superseded spec, the IR is the destination. Every declaration this program adds is IR-shaped, so #1258 **relocates** the declaration site rather than re-binding every representation. Binding is written against the *seam* (`registerEventType`, the registry descriptor), never the storage shape. |
+| **D2** | **Registry is the IR's current storage, not a competing authority** | Per D3 of the superseded spec, the IR is the destination. Every declaration this program adds is IR-shaped, so #1258 **relocates** the declaration site rather than re-binding every representation. **Re-anchored in rev 3:** rev 2 named `registerEventType` as the bridge. It is not — it *throws* on built-in names (`schemas.ts:507`, `BUILT_IN_EVENT_TYPES.has(name)`), so it carries **zero of the 170 built-in types** and accepts only 3 of the 5 source values. The authority for built-ins is the static `EventTypes` array plus the `EVENT_EMISSION_REGISTRY` literal; **the declaration envelope wraps those**, and `registerEventType` is a second, smaller consumer for runtime-registered custom types. Binding is written against the *declaration accessor*, never the storage shape. |
 | **D3** | **Wave 1 ships guards, not architecture** | PDD: add the guard that makes derivation mandatory *before* another instance of the pattern. Another correct instance without enforcement decays exactly as the first did. |
 | **D4** | **Each obligation lands on its cheapest sound rung; no single spine** | Coupling → rung 2; CLI surface → rung 1; emission contract → rung 3; reconciliation → rung 5. A single-mechanism design forces claims onto the wrong rung (see Alternatives B and C). |
 | **D5** | **Adopt MRTR before the era cutover** | The SDK's legacy shim runs an `inputRequired()` handler unchanged on 2025-era connections, so the refactor is not gated on the wire switch — and it converts elicitation from a context capability into a result shape, closing an INV-2 divergence early. |
@@ -196,28 +211,37 @@ Every declaration this program introduces (event tier, action contract, CLI verb
 **Acceptance criteria:**
 - A single `Declaration<K>` envelope type carries `kind`, `id`, `authority`, and `boundTo[]`; event/action/CLI-verb declarations are instances, not parallel shapes.
 - Declarations are consumed **only** through the seam accessor; a direct read of registry storage from a consumer fails `layer-boundaries-seam.ts`.
-- **Relocation proof:** a fixture moves one declaration's storage from the registry to an in-memory stand-in IR and asserts every guard (G1–G5) still passes unchanged, with no consumer edit. This is the load-bearing proof of D2 — without it, "IR-shaped" is a claim, not a property.
+- **Relocation proof — re-specified in rev 3.** Rev 2's version was both mis-sequenced and unfalsifiable: it sat in Wave 1a but asserted over G1–G5, four of which do not exist yet (G4 is Wave 2), and its `Relocation_RequiresNoConsumerEdit` criterion asserted "zero diff across the 10 consumers" from inside a runtime fixture that never edits source — true by construction, so it could not fail.
+  - **Mechanism (rung 2, not rung 5):** consumers may import **only** the declaration accessor's type, never the storage module. Relocation is then proven by a *compile-time* substitution — swap the storage implementation behind the accessor and require `tsc` to pass with no consumer change. A cheaper sound layer replaces the integration fixture, per PDD's proof order.
+  - **Falsifier:** seed a consumer that imports the storage module directly; the substitution must fail to compile. This is the assertion rev 2 lacked — the proof now has a way to be wrong.
+  - **Sequencing:** the compile-time half lands in Wave 1a (it needs only tasks 005–006). The *guard-suite* half — "all live guards still pass after substitution" — moves to Wave 1 exit (task 027), where the guards actually exist, and re-runs at each later wave exit as guards are added.
 - The envelope is additive: existing registrations compile untouched.
 
 ### DR-2: Tiered, coupling-typed event registration **[T-1]**
 
 `EventRegistration` is a discriminated union in which report-coupling is **not a constructible variant**.
 
+> **Corrected in rev 3 — coupling and lifecycle are two axes, not one.** Rev 2 required `EventEmissionSource` to be *derived from tier*. That is unsatisfiable: the shipped union is `'auto' | 'model' | 'hook' | 'planned' | 'retired'` (`schemas.ts:564`), and `planned` (schema exists, not yet emitted) and `retired` (schema exists, no longer emitted) are **lifecycle states orthogonal to coupling** — no total function tier→source can produce them, so no tier assignment could reproduce the current registry. Confirming the split: `registerEventType` accepts only `'auto' | 'model' | 'hook'`, so the two lifecycle values are not even registrable through the runtime seam.
+
 ```ts
-type EventRegistration =
+type EventRegistration = {
+  lifecycle: 'active' | 'planned' | 'retired';   // orthogonal axis
+} & (
   | { tier: 'substrate';      rationale: SubstrateRationale }
   | { tier: 'capability';     provider: EffectProviderId; consumedBy: ConsumerId[] }
   | { tier: 'observation';    reconciler: ReconcilerId; groundTruth: GroundTruthSource }
   | { tier: 'judgment';       gate: GateClass; contentSchema: z.ZodSchema }
-  | { tier: 'workflow-local'; workflow: WorkflowDefinitionId };
+  | { tier: 'workflow-local'; workflow: WorkflowDefinitionId }
+);
 ```
 
 **Acceptance criteria:**
-- All 170 existing types carry a tier; the union is exhaustive (`tsc` proves it).
+- All 170 existing types carry a tier **and** a lifecycle; the union is exhaustive (`tsc` proves it).
 - A registration attempting report-coupling does not compile — there is no variant to construct.
 - A `capability` registration naming an unresolvable `EffectProviderId` fails at boot.
-- **G3** ratchet pins the report-coupled count at its current value, permitting only decrease.
-- `EventEmissionSource` is *derived* from tier, not independently authored; a seeded disagreement fails.
+- **G3** ratchet seeds from the report-coupled count **derived at guard introduction** (25 on the landing branch) and permits only decrease. The seed is computed, never written as a literal.
+- **Derivation is total over the emission axis only:** `source ∈ {auto, model, hook}` is derived from tier; `planned`/`retired` are produced by `lifecycle`, not tier. A seeded tier↔source disagreement fails; a `lifecycle: 'retired'` entry is *not* a disagreement.
+- **Error-path criterion:** a registration whose `lifecycle` is `planned`/`retired` but which is nonetheless emitted at runtime fails the EmissionVerifier (DR-15) — the lifecycle axis is enforced, not decorative.
 
 ### DR-3: Compile-time event-name grammar **[T-2]**
 
@@ -298,8 +322,19 @@ MRTR's `input_required` is neither success nor failure. Overloading `success: fa
 
 ### DR-11: Reconciler interface and content-addressed observation **[T-5]**
 
+> **Added in rev 3 — the indeterminate arm.** Rev 2 handled `indeterminate` only in DR-15. That gap is load-bearing precisely here: `observe(scope)` performs real I/O (git for worktrees/branches, the VCS API for PRs), and with a two-valued return an unreachable provider produces an **empty observation that is then treated as ground truth** — emitting a spurious `divergence.detected` and feeding DR-13's auto-repair path. That is the same "absent observation must not become positive assurance" failure DR-18 names for the oracle and rev 2 named nowhere else.
+
+```ts
+type ObservationOutcome<S> =
+  | { kind: 'observed';      facts: S }
+  | { kind: 'absent';        facts: S }        // the subject genuinely is not there
+  | { kind: 'indeterminate'; reason: string }; // could not observe — NOT evidence
+```
+
 **Acceptance criteria:**
-- `Reconciler<S>` exposes `observe(scope)` (I/O, no writes, no appends) and `diff(observed, projected)` (pure, no I/O).
+- `Reconciler<S>` exposes `observe(scope): ObservationOutcome<S>` (I/O, no writes, no appends) and `diff(observed, projected)` (pure, no I/O). **`diff` accepts only `observed` and `absent`** — an `indeterminate` outcome is unrepresentable as a diff input, so the failure mode is excluded at rung 2 rather than remembered.
+- An `indeterminate` outcome appends **no** `divergence.detected`, never triggers `reconcile.repair`, and surfaces through the same degraded-result contract as DR-13's other non-dispositive states.
+- **Kill fixture:** an unreachable VCS API on the `pr` reconciler must yield `indeterminate`, not an empty observation. Seeded by fault injection; the pre-fix behaviour is the failing subject.
 - `observationKey = obs:<subject>:<subjectId>:<sha256(canonicalize(facts))>`.
 - **Idempotency proof:** N runs against an unchanged world append exactly one event; fixture asserts N ≥ 100.
 - `effect-port-seam.ts` governs the layer — declared port is exactly `process` + `network`, so a reconciler structurally cannot mutate (INV-1: sensing, never state).
@@ -398,6 +433,10 @@ MRTR's `input_required` is neither success nor failure. Overloading `success: fa
 - `hidden: true` is resolved — expose-and-annotate, or move off the tool registry. A CLI-reachable tool absent from the MCP contract contradicts the #1608 reframe.
 - The local `patch-package` patch is removed if SEP-2106 covers both its fixes (2020-12 target **and** the DU-root `type: 'object'` splice); `tools-list-2020-12.test.ts` is retained as a conformance test.
 - **Error-path criterion:** an era-mismatched method is rejected with the SDK's typed error before reaching the transport, never a silent no-op.
+- **`server/discover` is derived from the registry, never authored beside it** *(added rev 3 — MC-4 was under-absorbed; rev 2 contained zero occurrences of it)*. The 2026-07-28 revision makes it **MUST-implement**, and it carries its own `ttlMs`/`cacheScope`. Hand-maintaining it would create exactly the second-source-of-truth this program exists to eliminate — the composition report flags it as R-G for that reason.
+  - Discovery output (identity, supported versions, extensions) is generated from the declaration envelope (DR-1); a hand-edited discovery response fails the authority census (G5) as an unbound representation.
+  - Cache hints on list results are **`ttlMs`/`cacheScope` only** and are kept distinct from Exarchos's in-envelope `_cacheHints` (the prompt-cache boundary marker). They are different layers; conflating them would break the DR-14 capability gate. Rev 2 omitted both.
+  - **Error-path criterion:** a discovery response that disagrees with the live registry fails a conformance test rather than being served — absent verification must not become positive assurance.
 
 ### DR-23: Invariant amendments **[new — D9]**
 
@@ -460,6 +499,22 @@ PDD deliverable 3. `Failure signal` distinguishes fail from indeterminate; "noth
 | Capability resolution fails closed | POLA gates | Trust boundary widens silently | 2 — types | DR-14 narrowest-posture default | Typed denial | Dual-era seam retains handshake path |
 | Deleted event types still replay | event store | Historical streams unreadable | 4 — contract test | DR-21 byte-identical fixture | Fixture diff | `LEGACY_EVENT_TYPES` is frozen, not removed |
 | Invariant text is true | catalog | An authority asserting something false | 6 — human judgment | DR-23 via `/exarchos:invariants` | **Nothing** — reportable gap | Catalog is versioned; revert |
+
+### Production path
+
+PDD Design-mode deliverable 3, **added in rev 3** — rev 2 offered only a flat list of integration points, which is not a path from a public root to an observable effect. This matters more here than usual: the program's dominant risk (R-11 / DR-24) is *"the mechanism ships and nothing calls it"*, and rev 2 stated that as a rule with no path model to check it against.
+
+Per new capability: **public root → route → handler → domain port → adapter → observable effect**, with the artifact that proves each edge is live.
+
+| Capability | Public root | Route | Handler | Port | Observable effect | Proof fixture | Rollback |
+|---|---|---|---|---|---|---|---|
+| **Resumable input** (DR-8/9) | `tools/call` · CLI action verb | dispatch `action` discriminator | composite handler returns `inputRequired(...)` | event store (handle mint) | `input_required` envelope on both facades + pending-input event appended | cross-facade parity fixture (child-process `serveStdio` + CLI) | envelope state additive until wire-exposed |
+| **Reconciliation** (DR-11/12/13) | phase transition · session start · launcher spawn | boundary hook | `Reconciler.observe` → `diff` | `effect-port-seam` (`process` + `network` only) | `divergence.detected` appended with no agent tool call | DR-12 exit proof: manually deleted worktree | per-reconciler disable; observe-only mode |
+| **Emission contract** (DR-15) | any `tools/call` | dispatch interceptor chain | `EmissionVerifier` post-dispatch | event store | `emission.contract-violated` appended; response fails in CI/dev | seeded handler that skips its declared emission | policy switch to telemetry-only |
+| **Effect coupling** (DR-7) | any mutating verb | composite handler | `runEffect(plan)` | `EffectPlan.emits` | effect + its event committed together, or neither | boot-time bijection over the ledger | `role: 'recovery'` |
+| **Derived CLI** (DR-5/19) | `exarchos <verb>` | `buildCli` derivation helper | registry action | — | rendered command tree | G1 source parse + DR-19 generate-and-diff | allowlist with ISO expiry |
+
+Every row's effect is **observable in the event store or the rendered surface** — not "the module exists". A capability whose row cannot name an observable effect does not ship.
 
 ### Compatibility classification
 
