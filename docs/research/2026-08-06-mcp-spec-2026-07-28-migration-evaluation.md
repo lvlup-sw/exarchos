@@ -20,6 +20,8 @@ The migration splits cleanly into three buckets, and the headline breaking chang
 
 **Recommendation: migrate, but stage it — and treat the Tasks surface as a go/no-go gate, not a step.**
 
+> **Read the companion doc's §3 before planning.** Four components — CLI code-generation (MC-1), event-sourced dispatch integration (MC-2), `outputSchema` fullness (MC-3), and the dispatch↔spec↔CLI mapping (MC-4) — determine whether this migration lands on a contract that holds or one that only appears to. They are **gates, not follow-ups**, and they are sequenced into §8 below. The most severe: **106 of 118 `outputSchema` declarations are vacuous**, so the precondition INV-17 rests equivalence-by-construction on is currently a tautology for ~90% of actions.
+
 Two findings dominate everything else:
 
 - **The Tasks surface is a hard blocker (§5.4).** Exarchos's `#1273` task surface spans **14 non-test source files**. On a 2026-era connection the TypeScript SDK returns `-32601` for every `tasks/*` method — they are physically absent from the era's method registry. `tasks/result` and `tasks/list` are *removed from the protocol*, not renamed. There is no shim. This is the single largest cost in the migration and the only item that can make the answer "not yet."
@@ -315,6 +317,7 @@ Servers **MUST** implement `server/discover`. Exarchos already has strong intros
 
 | # | Risk | Assessment |
 | --- | --- | --- |
+| **R0** | **Vacuous `outputSchema` false confidence (MC-3).** 106 of 118 declarations are `EnvelopeSchema(z.unknown())`, yet INV-17 names `outputSchema` totality as the precondition for equivalence-by-construction and INV-2 claims parity is "schema-checked in addition to byte-checked." For ~90% of actions that check cannot fail — which reads as coverage while providing none. **Highest severity across both documents**, because every other verification claim in this migration inherits it. Same defect class as the vacuous `withSession` gate (#1692). |
 | R1 | **Tasks surface cost is unbounded until scoped** | The one item that can flip the recommendation. 14 files, but an unknown fraction is `RESERVED` dead stub. **Audit before planning.** |
 | R2 | **No client speaks 2026 yet?** | Anthropic's own post says support is "being rolled out across Claude products soon." If Claude Code does not negotiate `2026-07-28`, an era cutover buys **zero** user-visible benefit today. **Unverified — must be checked before scheduling the cutover.** The dual-era `serveStdio` default makes this a scheduling question, not a blocker. |
 | R3 | **Capability resolution is a trust boundary** | §5.2 touches POLA gates. Needs security review, not a routine delegate wave. |
@@ -341,9 +344,15 @@ Staged so each phase is independently valuable and independently revertible. **P
 - Attempt patch removal; keep `tools-list-2020-12.test.ts` as a conformance test (**R5**).
 - Gate: full suite green, no wire change, `npm run build` + MCP-server typecheck (which the root typecheck skips).
 
+**Phase 1.5 — MC-3 gate: tighten `outputSchema` (blocks Phase 2)**
+- 106 of 118 declarations are `EnvelopeSchema(z.unknown())`. Tighten them, and make a vacuous declaration a **finding** rather than a pass under INV-17's audit; add a downward ratchet on the count.
+- **Why it blocks MRTR:** `input_required` is a fourth emittable shape. Vacuous schemas absorb it with no test failing, so landing MRTR first banks a silent pass and widens the gap between the declared and real contract.
+- Correct INV-17's totality triple while here — `withCappedShape` covers baseline ∪ capped; `degraded` is a `_meta` flag.
+
 **Phase 2 — MRTR rewrite of elicitation (works on the *current* wire via the legacy shim)**
+- **Design the `input_required` envelope state first** — it is neither `success: true` nor `success: false`, and overloading the latter corrupts the DR-7 exit-code mapping. This is the decision most expensive to revisit.
 - Convert `elicitInput` call/await into `inputRequired(...)` returns.
-- Adopt `createRequestStateCodec` — do not hand-roll the HMAC.
+- **MC-2:** mint the resumption handle in the dispatch core from the event store; let the MCP facade wrap it in the SDK's signed `requestState` (`createRequestStateCodec` — do not hand-roll the HMAC). One core contract, two renderings.
 - Add a test proving the **production** path is live, not just the fixture (the `#1424` lesson).
 
 **Phase 3 — Per-request capability resolution**
@@ -355,6 +364,11 @@ Staged so each phase is independently valuable and independently revertible. **P
 - Swap to `serveStdio(factory)`; keep dual-era (do **not** pass `legacy: 'reject'`).
 - Land the Tasks re-platform per Phase 0's findings.
 - Add 2026-era test coverage via child-process `serveStdio` (**R4** — budget for flakiness).
+
+**Phase 4.5 — MC-1 / MC-4: close the generated-surface and mapping gaps**
+- **MC-1:** registry descriptors for the 8 hand-written top-level CLI verbs (retiring 14 `.command(...)` registrations across 1,565 lines), a reserved-flag concept in the generator, and presentation derived from the envelope discriminator. Start with `merge_orchestrate`, which is defined twice — once as the only `posture: 'shared-mutating'` action, once by hand. Add a `skills:guard`-style drift gate.
+- **MC-4:** resolve `hidden: true` (a CLI-reachable tool absent from the MCP contract contradicts the #1608 reframe); make `longRunning` the single task trigger and extend the parity harness to cover it.
+- Tighten INV-2 to quantify over the *facade* rather than the context and arguments, so the next capability adapter cannot reopen the hole silently.
 
 **Phase 5 — Leverage (each independently valuable, none blocking)**
 - **Cache hints on `tools/list`** — highest value-per-effort; measure against the `#1679` baseline.
