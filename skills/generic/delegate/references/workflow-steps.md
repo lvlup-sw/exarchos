@@ -31,6 +31,14 @@ TodoWrite({
 
 ## Step 4: Dispatch Implementers
 
+**The launch shape is provisioned, not improvised.** Every provisioning verb emits a
+`dispatch` field alongside `posture` — `prepare_delegation` for a mutating wave,
+`prepare_review` for a reviewer or plan-review panel. That field carries the mechanical
+launch parameters (`subagent`, `naming`, `workspace`), the harness capabilities it
+`requires`, and the declared `fallback` to use when a runtime cannot honour them (DR-25).
+**Read the shape off the emitted `dispatch`.** Where this reference and an emitted
+`dispatch` disagree, the emitted field is the contract and wins.
+
 **Parallel dispatch:**
 ```typescript
 // Launch multiple in single message for parallel execution
@@ -50,6 +58,12 @@ Task({
 ```
 
 
+
+On a runtime with no native subagent spawn, the emitted `dispatch` resolves to its
+declared `fallback` instead of being improvised: the caller performs the read-only pass
+inline, in its own context. That is a degradation the caller must surface — the pass is no
+longer fresh-context — but a fallback always still runs the prompt.
+
 ## Step 5: Monitor Progress
 
 For background tasks, collect results using the runtime's result-collection primitive:
@@ -57,6 +71,7 @@ For background tasks, collect results using the runtime's result-collection prim
 [task output is the assistant's next message]
 ```
 If the runtime uses a poll/await API, pass the `task_id` returned at dispatch time. Inline-reply runtimes deliver results as the subagent's next message — no `task_id` is needed.
+
 
 
 ## Step 6: Collect Results
