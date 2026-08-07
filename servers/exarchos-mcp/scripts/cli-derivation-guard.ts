@@ -221,7 +221,19 @@ function readParseErrors(sourceFile: ts.SourceFile): { readonly count: number; r
   };
 }
 
-function parseOrThrow(source: string, fileName: string): ts.SourceFile {
+/**
+ * Parse `source`, refusing a RECOVERED parse.
+ *
+ * Exported so a second source-level measurement does not have to re-derive
+ * fail-closed parse semantics (task 026's live authority proof reuses it). The
+ * `label` prefixes the failure so the message still names the caller; it
+ * defaults to this guard, so the existing behaviour and message are unchanged.
+ */
+export function parseOrThrow(
+  source: string,
+  fileName: string,
+  label: string = 'cli-derivation-guard',
+): ts.SourceFile {
   const sourceFile = ts.createSourceFile(
     fileName,
     source,
@@ -232,7 +244,7 @@ function parseOrThrow(source: string, fileName: string): ts.SourceFile {
   const errors = readParseErrors(sourceFile);
   if (errors.count > 0) {
     throw new Error(
-      `cli-derivation-guard: ${fileName} did not parse cleanly (${errors.count} syntax ` +
+      `${label}: ${fileName} did not parse cleanly (${errors.count} syntax ` +
         `error(s); first: ${errors.detail}). Refusing to report a result derived from a ` +
         'recovered parse, which would silently under-report literal command sites.',
     );
