@@ -944,6 +944,11 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 **Risk Tier:** medium · **Boundary Touching:** false · **Implements:** DR-5
 **Files:** `servers/exarchos-mcp/scripts/cli-vocab-guard.test.ts`
 **Detail:** Proves the guard measures **derivation**, not vocabulary — the exact gap in today's guard.
+
+> **Two defects task 021 found in 020's guard and correctly reported rather than fixed — 022 owns them:**
+> 1. **The non-empty-denominator tooth is only half-installed.** It lives in `scanGovernedSources`; the pure `scanSourceForCommandSites` parses an empty string cleanly and returns zero sites **without throwing**. Latent today because nothing calls the pure function directly — but a future gate wired to it bypasses the protection entirely, and the whole point of the tooth is that a moved or renamed file cannot read as a clean run. Push it down to the pure function.
+> 2. `cli-derivation-allowlist.json`'s `$comment` points at `cli-derivation-seam.ts`, **a filename that does not exist** — the module was renamed to `cli-derivation-guard.ts`. A stale pointer inside policy data that a future author reads to decide whether their entry is legitimate.
+
 **Verification:** medium — scoped tests.
 **Dependencies:** 020 · **Parallelizable:** No
 
