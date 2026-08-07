@@ -1031,6 +1031,34 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 **Verification:** high — type-level + scoped tests + `check_test_adequacy`.
 **Dependencies:** 016 · **Parallelizable:** No *(supersedes 017; re-scope 017 to allowlist expiry enforcement)*
 
+### Task 058: Correct the cast census to measure assertions, not text
+**Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-24
+**Files:** `scripts/tsconfig-strictness/count-casts.ts`, `src/tsconfig-strictness.test.ts`
+**Detail:** **The cast census is itself an instance of this program's defect class** — a guard that is declared, enforced, and measures a property other than the one it names. `AS_CAST` matches `\bas\s+…[A-Za-z_$][\w$]*` over **raw source text**, so it counts English prose in comments ("as a", "as an") and **namespace imports** (`import * as path`) as type assertions. Neither is a cast. On the landing branch a large fraction of the 3258 matches are not assertions at all — the exact same shape as `cli-vocab-guard` binding *vocabulary* instead of *derivation* (DR-5) and `outputSchema` recording *presence* instead of *substance* (DR-4). **A budget of 5 that a JSDoc comment can consume is not measuring type debt.**
+
+Task 057 established the second half of the problem: the two assertions pin the count into the closed window `[BASELINE, BASELINE+5]`, always six values wide, so **paydown slides the window and never widens it**. Removing 37 casts bought exactly what removing 6 would have. The wave's real constraint is therefore **5 net new matches across all remaining tasks combined** — and under the current census, ordinary documentation consumes it.
+
+**Acceptance criteria:**
+- The census counts **type assertions only**: comments and string literals are stripped before matching, and `import * as X` / `export * as X` are excluded.
+- `as const`, `as unknown`, `as any` and `as <Type>` in real expression position are still counted — the correction removes false positives, it must not create false negatives.
+- **Kill fixture:** a source containing `// treat this as a hint` plus `import * as path from 'node:path'` plus one genuine `x as Foo` must count **exactly 1**. On the current census it counts 3.
+- **Non-empty denominator:** a census resolving zero files fails rather than passing clean.
+- `BASELINE` is re-derived from the corrected census in the same commit; **`DELTA_BUDGET` stays at 5** — now denominated in real assertions, which makes it a meaningful constraint rather than a documentation tax.
+- **Provenance:** the commit records old and new counts and states that the baseline change reflects a *measurement correction*, not a paydown, so the PR #1733 history stays interpretable.
+
+**Verification:** high — scoped tests + full root suite + `check_test_adequacy`.
+**Dependencies:** 057 · **Parallelizable:** No *(it redefines the measurement every other task is judged against)*
+
+### Task 059: Deep-freeze dispatch fallbacks + close the last prose-binding cell
+**Risk Tier:** low · **Boundary Touching:** false · **Implements:** DR-25
+**Files:** `servers/exarchos-mcp/src/agents/dispatch-shape.ts`, `skills-src/delegate/references/parallel-strategy.md`
+**Detail:** Two low-severity defects found by task 056 and verified. (1) `POSTURE_DISPATCH_MAP` is **shallow**-frozen: the map and its three entries are frozen, but `READ_ONLY_FALLBACK` and `TASK_ISOLATED_FALLBACK` are plain consts, so `POSTURE_DISPATCH_MAP['read-only'].fallback` is mutable at runtime despite the module comment claiming otherwise — and that object is exactly what `resolveDispatchShape` hands a capability-degraded runtime, so a caller could corrupt every subsequent degraded dispatch. (2) The `shared-mutating` table row omits `naming`, leaving 1 of 9 posture-field cells unbindable by task 056; adding `` `naming: "anonymous"` `` closes it with **no test change** — the parser picks it up automatically. Remember to run `npm run build:skills` and commit the regenerated tree.
+**Tests:**
+- `DispatchShape_FallbackMutationAttempt_LeavesTheSharedShapeIntact`
+- `ProseBinding_SharedMutatingNaming_IsNowBound` — the bound-cell floor rises from 8 to 9
+**Verification:** low — scoped tests; `npm run skills:guard` must pass.
+**Dependencies:** 056 · **Parallelizable:** Yes
+
 ### Task 056: Bind the delegate skill prose to `POSTURE_DISPATCH_MAP`
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-25
 **Files:** `servers/exarchos-mcp/src/agents/dispatch-shape.prose-binding.test.ts` (new)
