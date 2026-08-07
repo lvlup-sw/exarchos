@@ -261,9 +261,24 @@ const THIRD_PARTY_NETWORK_CLIENTS: ReadonlySet<string> = new Set([
  * subpath of a listed package (`@modelcontextprotocol/sdk/server/mcp.js`) is
  * covered by one entry.
  *
- *   - `@modelcontextprotocol/sdk` — the MCP protocol SDK. It DOES own transport
- *     I/O, but only over the stdio/in-memory transports this server constructs;
- *     the server never gives it a network transport. Vetted, not ignored.
+ *   - `@modelcontextprotocol/sdk` — the MCP protocol SDK (v1). It DOES own
+ *     transport I/O, but only over the stdio/in-memory transports this server
+ *     constructs; the server never gives it a network transport. Vetted, not
+ *     ignored.
+ *   - `@modelcontextprotocol/server` — the v2 MCP server package, reached ONLY
+ *     through the owned SDK seam (`sdk/seam.ts`, DR-26). The same judgement as
+ *     v1 applies, and here it is narrower and checkable: the seam re-exports
+ *     `McpServer`, `Server`, `InMemoryTransport` and `StdioServerTransport` and
+ *     nothing else. The package's network-capable surface —
+ *     `WebStandardStreamableHTTPServerTransport`,
+ *     `PerRequestHTTPServerTransport`, `createMcpHandler`, `requireBearerAuth`,
+ *     `createFetchWithInit` and the OAuth-metadata helpers — is not re-exported
+ *     and therefore unreachable from shipped code. If the seam ever re-exports
+ *     one of those, this entry stops being true and must be replaced by an
+ *     `EFFECT_OWNERSHIP` rule naming the owner.
+ *     (`@modelcontextprotocol/core` is a declared dependency but is not imported
+ *     by any shipped module yet, so it is deliberately NOT listed — a forgotten
+ *     entry fails the census loudly, which is the direction this list grows in.)
  *   - `better-sqlite3` — embedded file-backed SQLite driver; the filesystem
  *     effect it performs is already owned at `storage/` granularity. (The
  *     `bun:sqlite` sibling needs no entry: it carries a builtin SCHEME and is
@@ -278,6 +293,7 @@ const THIRD_PARTY_NETWORK_CLIENTS: ReadonlySet<string> = new Set([
  */
 export const INERT_DEPENDENCIES: ReadonlySet<string> = new Set([
   '@modelcontextprotocol/sdk',
+  '@modelcontextprotocol/server',
   'better-sqlite3',
   'commander',
   'gray-matter',
