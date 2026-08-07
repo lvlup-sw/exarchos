@@ -275,8 +275,19 @@ function classify(arg: ts.Expression | undefined): CommandSiteKind {
 /**
  * Parse `source` and return every `.command(` site with its classification.
  *
- * Pure over a source string — the two self-tests drive it directly with seeded
- * input, so neither needs to mutate a file on disk.
+ * Pure over a source string — the self-tests drive it directly with seeded
+ * input, so none of them needs to mutate a file on disk.
+ *
+ * THROWS on a source that yields ZERO `.command(` sites. This is the non-empty
+ * denominator, and it lives HERE rather than in {@link scanGovernedSources}
+ * because a tooth installed only in the outer function is bypassed by every
+ * direct caller of the pure one: an empty string parses cleanly, returns zero
+ * sites, produces zero violations, and reads as a clean run — which is exactly
+ * the "moved or renamed composition root silently stops being governed" failure
+ * the tooth exists to make impossible. Task 021 reported it as half-installed;
+ * task 022 pushed it down. The check is therefore unconditional and has no
+ * opt-out parameter: an escape hatch would restore the hole for whoever passed
+ * it.
  */
 export function scanSourceForCommandSites(source: string, file: string): DerivationScan {
   const sourceFile = parseOrThrow(source, file);
@@ -301,6 +312,15 @@ export function scanSourceForCommandSites(source: string, file: string): Derivat
   };
   ts.forEachChild(sourceFile, visit);
 
+  if (sites.length === 0) {
+    throw new Error(
+      `cli-derivation-guard: "${file}" yielded 0 \`.command(\` sites. A source that ` +
+        'registers no commands is not a composition root — this is a broken scan (renamed ' +
+        'file, changed registration idiom, wrong path), not a clean run. The non-empty ' +
+        'denominator is enforced in the pure scanner so no caller can route around it.',
+    );
+  }
+
   return {
     sites,
     literals: sites.filter((s) => s.kind === 'literal'),
@@ -322,6 +342,12 @@ function firstToken(literal: string): string {
  * A guard that parses nothing reports no violations and passes clean, so a
  * moved or renamed composition root would read as "policy satisfied". The
  * non-empty denominator is the tooth that makes that impossible.
+ *
+ * The zero-site arm of that tooth is NOT re-implemented here: it lives in
+ * {@link scanSourceForCommandSites}, which this function calls per file, so the
+ * error surfaces exactly ONCE and names the offending file. A defensive second
+ * copy here would be unreachable (dead policy that cannot be shown to work) and,
+ * if it ever did fire, would report the same fact twice with two wordings.
  */
 export function scanGovernedSources(
   repoRoot: string = REPO_ROOT,
@@ -345,14 +371,10 @@ export function scanGovernedSources(
           'report a clean scan over a file that is not there.',
       );
     }
+    // `scanSourceForCommandSites` owns the zero-site refusal (see its doc
+    // comment) and names `rel` in the message, so nothing is added by checking
+    // again here.
     const scan = scanSourceForCommandSites(readFileSync(abs, 'utf8'), rel);
-    if (scan.sites.length === 0) {
-      throw new Error(
-        `cli-derivation-guard: governed source "${rel}" yielded 0 \`.command(\` sites. A ` +
-          'composition root that registers no commands is not a composition root — this ' +
-          'is a broken scan (renamed file, changed registration idiom), not a clean run.',
-      );
-    }
     all.push(...scan.sites);
   }
 
@@ -362,6 +384,129 @@ export function scanGovernedSources(
     derived: all.filter((s) => s.kind === 'derived'),
     indeterminate: all.filter((s) => s.kind === 'indeterminate'),
   };
+}
+
+// ─── Policy-data file references ─────────────────────────────────────────────
+//
+// Task 021 found that this policy file's `$comment` pointed at
+// `cli-derivation-seam.ts` — a module that had been RENAMED to
+// `cli-derivation-guard.ts` and no longer existed. Correcting that one string
+// would leave the class open: `$comment` is the text a future author reads to
+// decide whether their entry is legitimate, and nothing checked that what it
+// named was real. So the reference is BOUND instead — every file a policy file
+// names must resolve on disk, or the guard refuses to read the policy at all.
+//
+// This is not "measuring text instead of structure" (the failure mode this
+// program keeps hitting). The text IS the artifact under policy here: a token
+// like `servers/.../cli-derivation-guard.ts` is a claim that a file exists, and
+// the check verifies exactly that claim. Nothing is inferred about meaning.
+
+/**
+ * Extensions that make a token inside policy prose a FILE REFERENCE.
+ *
+ * Data rather than a baked alternation so a policy file that starts pointing at
+ * a workflow YAML or a design doc is covered by the same binding, without the
+ * class being reopened one extension at a time.
+ */
+export const REFERENCED_EXTENSIONS: readonly string[] = Object.freeze([
+  'ts',
+  'mts',
+  'cts',
+  'js',
+  'mjs',
+  'json',
+  'md',
+  'yml',
+  'yaml',
+]);
+
+const FILE_REFERENCE_PATTERN = new RegExp(
+  `[A-Za-z0-9_@.\\-/]+\\.(?:${REFERENCED_EXTENSIONS.join('|')})\\b`,
+  'g',
+);
+
+/** Every file reference the policy prose makes, in order of appearance. */
+export function extractPolicyFileReferences(commentText: string): readonly string[] {
+  return commentText.match(FILE_REFERENCE_PATTERN) ?? [];
+}
+
+export interface PolicyReferenceProblem {
+  /** The offending token, or `'(none)'` for the empty-denominator case. */
+  readonly reference: string;
+  readonly detail: string;
+}
+
+/**
+ * Check every file reference in `commentText` against the tree at `repoRoot`.
+ *
+ * Two ways to fail:
+ *
+ *  - **Unverifiable.** A bare basename (`cli-derivation-guard.ts`) names no
+ *    single place on disk, so it cannot be checked and cannot be followed by a
+ *    reader either. Repo-relative paths are required.
+ *  - **Stale.** A repo-relative path that does not exist — the shipped defect.
+ *
+ * Plus the **non-empty denominator**: prose that names NO file at all is
+ * reported too. A policy file whose comment points nowhere gives its reader
+ * nothing to follow, and — the load-bearing reason — it is indistinguishable
+ * from a broken extractor. Without this arm, a regression in
+ * {@link extractPolicyFileReferences} would silently check zero references and
+ * report a clean run, which is the same defect one level up.
+ */
+export function findPolicyReferenceProblems(
+  commentText: string,
+  repoRoot: string = REPO_ROOT,
+): readonly PolicyReferenceProblem[] {
+  const references = extractPolicyFileReferences(commentText);
+  if (references.length === 0) {
+    return [
+      {
+        reference: '(none)',
+        detail:
+          'the policy prose names no file at all. It must point at the module that ' +
+          'implements the policy, as a repo-relative path, so a reader can follow it and ' +
+          'so a rename cannot go unnoticed. Zero references is also what a broken ' +
+          'reference extractor looks like, and that must not read as a clean run.',
+      },
+    ];
+  }
+
+  const problems: PolicyReferenceProblem[] = [];
+  for (const reference of references) {
+    if (!reference.includes('/')) {
+      problems.push({
+        reference,
+        detail:
+          'is a bare filename. Write the repo-relative path (e.g. ' +
+          '`servers/exarchos-mcp/scripts/<file>`) so the reference can be verified against ' +
+          'the tree and followed by a reader.',
+      });
+      continue;
+    }
+    if (!existsSync(path.join(repoRoot, reference))) {
+      problems.push({
+        reference,
+        detail:
+          'does not exist. A policy file that names a module which is not there sends the ' +
+          'next author looking for a file that was renamed or deleted — update the ' +
+          'reference, or drop it.',
+      });
+    }
+  }
+  return problems;
+}
+
+/** Normalize a `$comment` that may be a string or an array of lines. */
+function readCommentText(parsed: unknown): string {
+  const raw: unknown =
+    typeof parsed === 'object' && parsed !== null ? Reflect.get(parsed, '$comment') : undefined;
+  if (typeof raw === 'string') return raw;
+  if (Array.isArray(raw)) {
+    const lines: string[] = [];
+    for (const line of raw) if (typeof line === 'string') lines.push(line);
+    return lines.join('\n');
+  }
+  return '';
 }
 
 // ─── Allowlist ───────────────────────────────────────────────────────────────
@@ -378,7 +523,8 @@ export function scanGovernedSources(
  * Fails closed on a missing or malformed file: a guard that silently treats an
  * unreadable allowlist as "allow nothing" would be fine, but one that treats it
  * as "allow everything" would not, and an unreadable policy file is a broken
- * gate either way.
+ * gate either way. It also fails closed on a policy file whose `$comment` names
+ * a file that does not exist — see {@link findPolicyReferenceProblems}.
  */
 export function readAllowlist(repoRoot: string = REPO_ROOT): ReadonlySet<string> {
   const abs = path.join(repoRoot, ALLOWLIST_PATH);
@@ -413,6 +559,20 @@ export function readAllowlist(repoRoot: string = REPO_ROOT): ReadonlySet<string>
         'and thereby neutralized the rejection DR-5 requires. The remedy is to DELETE the ' +
         'hand-written `.command(...)` call from the composition root and let the registry ' +
         'declaration be the single definition, never to add it here.',
+    );
+  }
+
+  // Every file the policy prose names must exist. Checked AFTER the kill-fixture
+  // rejection deliberately: a stale doc pointer must never be the error that
+  // surfaces in place of DR-5's load-bearing refusal.
+  const referenceProblems = findPolicyReferenceProblems(readCommentText(parsed), repoRoot);
+  if (referenceProblems.length > 0) {
+    throw new Error(
+      `cli-derivation-guard: ${ALLOWLIST_PATH} has ${referenceProblems.length} broken file ` +
+        `reference(s) in its "$comment": ` +
+        referenceProblems.map((p) => `"${p.reference}" ${p.detail}`).join(' ') +
+        ' The comment is what a future author reads to decide whether their entry is ' +
+        'legitimate, so a pointer that does not resolve is a broken policy file, not a typo.',
     );
   }
 

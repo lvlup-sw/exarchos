@@ -1,7 +1,12 @@
 {
   "$comment": [
-    "DR-5 / G1 policy data for cli-derivation-seam.ts — command names tolerated as",
-    "hand-written string literals in the CLI composition root.",
+    "DR-5 / G1 policy data for servers/exarchos-mcp/scripts/cli-derivation-guard.ts —",
+    "command names tolerated as hand-written string literals in the CLI composition root.",
+    "",
+    "Every file named in this comment must be a repo-relative path that EXISTS: the guard",
+    "refuses to read this policy otherwise. (An earlier revision pointed at a",
+    "cli-derivation-seam module that had been renamed away, so the pointer a future author",
+    "follows led nowhere. The reference is bound now rather than merely corrected.)",
     "",
     "This ships EMPTY on purpose. On introduction the guard reports all 11 literals",
     "currently in servers/exarchos-mcp/src/adapters/cli.ts (doctor, version, feedback,",
@@ -16,10 +21,11 @@
     "",
     "KILL FIXTURE — DO NOT ADD 'merge-orchestrate' HERE. It is the guard's live",
     "failing subject: merge_orchestrate is declared BOTH as a registry action (with",
-    "posture: 'shared-mutating') and by hand in cli.ts. An earlier revision of this",
-    "policy allowlisted it, which neutralized the exact rejection DR-5 requires. The",
-    "guard now REFUSES to read this file at all if the name appears (see",
-    "KILL_FIXTURE_COMMANDS in cli-derivation-guard.ts). The remedy is to delete the",
+    "posture: 'shared-mutating') and by hand in servers/exarchos-mcp/src/adapters/cli.ts.",
+    "An earlier revision of this policy allowlisted it, which neutralized the exact",
+    "rejection DR-5 requires. The guard now REFUSES to read this file at all if the name",
+    "appears (see KILL_FIXTURE_COMMANDS in",
+    "servers/exarchos-mcp/scripts/cli-derivation-guard.ts). The remedy is to delete the",
     "hand-written .command('merge-orchestrate') call, never to exempt it."
   ],
   "allowed": []

@@ -22,7 +22,55 @@ import {
   scanSourceForCommandSites,
   findDerivationViolations,
   readAllowlist,
+  extractPolicyFileReferences,
+  findPolicyReferenceProblems,
 } from './cli-derivation-guard.js';
+
+/**
+ * The module this policy data points at. Written out here as a SECOND authority:
+ * the guard derives nothing from this constant, so if the module is renamed and
+ * only one of the two is updated, the suite disagrees with the tree.
+ */
+const GUARD_MODULE_PATH = 'servers/exarchos-mcp/scripts/cli-derivation-guard.ts';
+
+/** The pre-rename path that actually shipped inside the policy `$comment`. */
+const RENAMED_AWAY_MODULE_PATH = 'servers/exarchos-mcp/scripts/cli-derivation-seam.ts';
+
+/**
+ * Write a policy file into a throwaway tree.
+ *
+ * The default `$comment` names a file that RESOLVES inside that tree, because
+ * the reader now refuses a policy file whose prose points at something that is
+ * not there (task 022). Fixtures that are about the ENTRY rules therefore have
+ * to be valid on the reference rules, and vice versa — which is the point: the
+ * two rejections are independent.
+ */
+function seedAllowlist(
+  root: string,
+  allowed: readonly string[],
+  comment?: readonly string[],
+): void {
+  const abs = path.join(root, ALLOWLIST_PATH);
+  mkdirSync(path.dirname(abs), { recursive: true });
+  // The guard module lives in the same directory as its policy data; a stub is
+  // enough because only the reference's EXISTENCE is under test.
+  writeFileSync(path.join(root, GUARD_MODULE_PATH), '', 'utf8');
+  writeFileSync(
+    abs,
+    JSON.stringify({ $comment: comment ?? [`policy data for ${GUARD_MODULE_PATH}`], allowed }),
+    'utf8',
+  );
+}
+
+/** The message a throwing call produced, so two failure paths can be compared. */
+function messageOf(fn: () => unknown): string {
+  try {
+    fn();
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err);
+  }
+  throw new Error('expected the call to throw, and it did not');
+}
 
 /**
  * The kill fixture: the hand-written literals present on the landing branch,
@@ -243,14 +291,142 @@ describe('cli-derivation-guard (DR-5 / G1)', () => {
     // rather than silently dropping the entry, because a silently ignored
     // allowlist line reads to its author as granted.
     const root = mkdtempSync(path.join(tmpdir(), 'imo-021-'));
-    const abs = path.join(root, ALLOWLIST_PATH);
-    mkdirSync(path.dirname(abs), { recursive: true });
-    writeFileSync(abs, JSON.stringify({ allowed: ['doctor', 'merge-orchestrate'] }), 'utf8');
+    seedAllowlist(root, ['doctor', 'merge-orchestrate']);
     expect(() => readAllowlist(root)).toThrow(/allowlists the kill fixture/);
 
     // The same file WITHOUT the kill fixture is accepted — so the rejection is
     // specific to the excluded name, not a guard that refuses every allowlist.
-    writeFileSync(abs, JSON.stringify({ allowed: ['doctor'] }), 'utf8');
+    seedAllowlist(root, ['doctor']);
     expect([...readAllowlist(root)]).toEqual(['doctor']);
+  });
+
+  // ─── Task 022 (a): the non-empty denominator, pushed down ──────────────────
+  //
+  // Task 021 reported this tooth as HALF-INSTALLED: it lived in
+  // `scanGovernedSources`, while the pure `scanSourceForCommandSites` parsed an
+  // empty string cleanly and handed back a zero-site scan without complaint.
+  // Latent only because nothing called the pure function directly — and two
+  // callers have since appeared (`authority-live-proof`). A future gate wired to
+  // the pure function would have bypassed the protection entirely, which is the
+  // failure the tooth exists to prevent, one level down.
+
+  it('CliDerivationGuard_PureScanner_ZeroCommandSites_Throws', () => {
+    // (1) The empty string: parses cleanly, registers nothing. This is the exact
+    // input task 021 reported as returning a clean zero-site scan.
+    expect(() => scanSourceForCommandSites('', 'empty.ts')).toThrow(
+      /yielded 0 `\.command\(` sites/,
+    );
+
+    // (2) A syntactically valid module that simply registers no commands — what
+    // a moved or renamed composition root looks like to the scanner.
+    expect(() => scanSourceForCommandSites('export const nothing = 1;\n', 'moved.ts')).toThrow(
+      /yielded 0 `\.command\(` sites/,
+    );
+
+    // (3) The message names the file, so the failure says WHICH source is empty
+    // rather than only that something was.
+    expect(messageOf(() => scanSourceForCommandSites('', 'moved-root.ts'))).toContain(
+      '"moved-root.ts"',
+    );
+
+    // (4) The refusal is about ZERO SITES, not about the absence of the TEXT
+    // `.command`. Near-miss members (`.commands`, `.commandName`) are not sites,
+    // so a file full of them is still empty as far as the policy is concerned —
+    // a text-matching implementation would pass this and is thereby excluded.
+    expect(() =>
+      scanSourceForCommandSites('const n = program.commands.length + x.commandName;\n', 'near.ts'),
+    ).toThrow(/yielded 0 `\.command\(` sites/);
+
+    // (5) Off-by-one control: ONE site is enough. Without this the tooth could
+    // be a `<= 1` and the test above would not notice.
+    const single = scanSourceForCommandSites('program.command(cliName);\n', 'one.ts');
+    expect(single.sites).toHaveLength(1);
+    expect(single.derived).toHaveLength(1);
+
+    // (6) THE ERROR SURFACES ONCE. `scanGovernedSources` no longer keeps its own
+    // copy of this check, so a governed source that registers nothing fails with
+    // the SAME message the pure scanner produces for the same input — one
+    // wording, one origin, and no possibility of the two drifting apart.
+    const rel = GOVERNED_SOURCES[0];
+    if (rel === undefined) throw new Error('GOVERNED_SOURCES is empty');
+    const root = mkdtempSync(path.join(tmpdir(), 'imo-022-denominator-'));
+    const abs = path.join(root, rel);
+    mkdirSync(path.dirname(abs), { recursive: true });
+    writeFileSync(abs, 'export const nothing = 1;\n', 'utf8');
+
+    const viaOuter = messageOf(() => scanGovernedSources(root));
+    const viaPure = messageOf(() => scanSourceForCommandSites('export const nothing = 1;\n', rel));
+    expect(viaOuter).toBe(viaPure);
+    expect(viaOuter).toContain(rel);
+  });
+
+  // ─── Task 022 (b): the policy file's own pointers are bound ────────────────
+  //
+  // Task 021 found the shipped `$comment` pointing at `cli-derivation-seam.ts`,
+  // a module renamed to `cli-derivation-guard.ts` and therefore absent. That is
+  // the text a future author reads to decide whether their entry is legitimate.
+  // Correcting the string alone would leave the class open, so the reference is
+  // BOUND: a file named by the policy must exist, or the policy is not read.
+
+  it('CliDerivationGuard_PolicyCommentNamingAMissingModule_IsRejected', () => {
+    // ── The live subject, and this measurement's non-empty denominator ────────
+    // A reference extractor that silently matched nothing would report every
+    // policy file clean. Pin the shipped file's references as non-empty and
+    // name-checked, so a regression in the extractor reddens here.
+    const rawAllowlist: unknown = JSON.parse(
+      readFileSync(path.join(REPO_ROOT, ALLOWLIST_PATH), 'utf8'),
+    );
+    const commentLines: unknown =
+      typeof rawAllowlist === 'object' && rawAllowlist !== null
+        ? Reflect.get(rawAllowlist, '$comment')
+        : undefined;
+    expect(Array.isArray(commentLines)).toBe(true);
+    const commentText = Array.isArray(commentLines) ? commentLines.join('\n') : '';
+
+    const references = extractPolicyFileReferences(commentText);
+    expect(references.length).toBeGreaterThan(0);
+    expect(references).toContain(GUARD_MODULE_PATH);
+    expect(references).toContain('servers/exarchos-mcp/src/adapters/cli.ts');
+    // The renamed-away path is gone from the shipped data.
+    expect(references).not.toContain(RENAMED_AWAY_MODULE_PATH);
+    expect(findPolicyReferenceProblems(commentText)).toEqual([]);
+    expect(() => readAllowlist()).not.toThrow();
+
+    // ── KILL FIXTURE: the defect exactly as it shipped ───────────────────────
+    // Restore the pre-rename pointer and the policy file must be refused.
+    const root = mkdtempSync(path.join(tmpdir(), 'imo-022-reference-'));
+    seedAllowlist(root, ['doctor'], [`DR-5 / G1 policy data for ${RENAMED_AWAY_MODULE_PATH}.`]);
+    expect(() => readAllowlist(root)).toThrow(/cli-derivation-seam\.ts" does not exist/);
+
+    // ── The two ways a pointer fails to be checkable ─────────────────────────
+    // A bare basename names no single place on disk, so it can be neither
+    // verified nor followed. Rejecting it is what stops the class from
+    // reappearing as `see cli-derivation-guard.ts` in some future comment.
+    seedAllowlist(root, ['doctor'], ['see KILL_FIXTURE_COMMANDS in cli-derivation-guard.ts.']);
+    expect(() => readAllowlist(root)).toThrow(/is a bare filename/);
+
+    // Prose that names NO file is refused too: it leaves the reader nothing to
+    // follow, and it is indistinguishable from a broken extractor.
+    seedAllowlist(root, ['doctor'], ['DR-5 policy data. Entries are tolerated literals.']);
+    expect(() => readAllowlist(root)).toThrow(/names no file at all/);
+
+    const abs = path.join(root, ALLOWLIST_PATH);
+    writeFileSync(abs, JSON.stringify({ allowed: ['doctor'] }), 'utf8');
+    expect(() => readAllowlist(root)).toThrow(/names no file at all/);
+
+    // ── And the corrected pointer is accepted ────────────────────────────────
+    // Without this the rejection could be a reader that refuses every comment.
+    seedAllowlist(root, ['doctor'], [`DR-5 / G1 policy data for ${GUARD_MODULE_PATH}.`]);
+    expect([...readAllowlist(root)]).toEqual(['doctor']);
+
+    // ── Ordering: a stale pointer never MASKS the DR-5 kill-fixture refusal ───
+    // Both rules can fire on one file; only one error can surface. The
+    // load-bearing one must win.
+    seedAllowlist(
+      root,
+      ['merge-orchestrate'],
+      [`DR-5 / G1 policy data for ${RENAMED_AWAY_MODULE_PATH}.`],
+    );
+    expect(() => readAllowlist(root)).toThrow(/allowlists the kill fixture/);
   });
 });
