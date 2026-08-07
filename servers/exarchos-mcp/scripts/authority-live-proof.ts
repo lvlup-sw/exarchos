@@ -6,10 +6,17 @@
 // WHAT THIS IS, AND WHAT IT DELIBERATELY IS NOT
 //
 // Task 025 shipped the closure verdict (`architecture/authority-census.ts`) and
-// stated its own limitation as DATA rather than prose: `HOP_EVIDENCE` records
+// stated its own limitation as DATA rather than prose: the evidence field records
 // the `authority` and `binding` hops as resolving against `declared-row` — "a
 // committed measurement, not independent evidence about the tree". The census
 // therefore proves the TABLE is inconsistent. It does not prove the TREE is.
+//
+// Task 066 re-keyed that field to (hop, ROW), so the two rows this module
+// measures now carry `live-measurement` while the other six stay `declared-row`.
+// Their `oracle` entries name THIS module and its entrypoints; the co-located
+// test resolves those names against the real exports and compares the declared
+// subject paths against `GOVERNED_SOURCES` + `EVENT_CATALOG_SOURCES` below, so a
+// source added here without reaching the evidence table fails CI.
 //
 // This module closes that gap for the two rows task 026 names, and it does so
 // WITHOUT introducing an enforcement instrument:

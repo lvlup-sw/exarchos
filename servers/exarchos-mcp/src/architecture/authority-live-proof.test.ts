@@ -1,11 +1,13 @@
 // ─── The authority census, proved LIVE against the tree (DR-6, G5, task 026) ─
 //
 // Task 025's census resolves its `authority` and `binding` hops against task
-// 024's committed rows, and says so as data: `HOP_EVIDENCE` marks both as
+// 024's committed rows, and says so as data: the evidence table marks both as
 // `declared-row` — "a committed measurement, not independent evidence about the
 // tree". So the shipped census proves the TABLE is inconsistent. These tests
 // prove the TREE is, by rebuilding the two rows task 026 names FROM SOURCE and
-// running the same unmodified census over them.
+// running the same unmodified census over them. Since task 066 re-keyed that
+// table by (hop, ROW), these two rows — and only these two — now carry
+// `live-measurement`, with a witness this file resolves against the oracle.
 //
 // Nothing here remediates anything, and nothing here judges: the verdict is
 // `runAuthorityCensus`, with its own finding kinds, its own closure rule and its
@@ -25,7 +27,7 @@
 // the `PHASE_EXPECTED_EVENTS` partial-binding assertions below are precisely
 // where a drift between them would surface.
 import { describe, it, expect } from 'vitest';
-import { readFileSync, mkdtempSync } from 'node:fs';
+import { readFileSync, mkdtempSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { EVENT_EMISSION_REGISTRY } from '../event-store/schemas.js';
@@ -33,7 +35,8 @@ import { PHASE_EXPECTED_EVENTS } from '../orchestrate/check-event-emissions.js';
 import { topologyRows, type AuthorityTopologyRow } from './authority-topology.js';
 import {
   runAuthorityCensus,
-  HOP_EVIDENCE,
+  liveMeasuredBoundaries,
+  rowEvidence,
   type AuthorityCensusReport,
   type CensusFinding,
 } from './authority-census.js';
@@ -43,6 +46,10 @@ import {
   GOVERNED_SOURCES,
   REPO_ROOT,
 } from '../../scripts/cli-derivation-guard.js';
+// The namespace import is what lets the evidence table's `oracle.entrypoint`
+// be resolved BY NAME against the oracle's real exports (below) rather than
+// compared against a string another list also restates.
+import * as liveProof from '../../scripts/authority-live-proof.js';
 import {
   EVENT_CATALOG_REPRESENTATION_IDS,
   EVENT_CATALOG_SOURCES,
@@ -543,15 +550,53 @@ describe('authority census — the live proof fails closed', () => {
   it('AuthorityCensus_LiveProof_UpgradesEvidenceForTwoRowsOnly', () => {
     // What this task did and did NOT earn, stated where CI can see it.
     //
-    // `HOP_EVIDENCE` is keyed by HOP, not by (hop, row). Flipping `authority`
-    // or `binding` away from `declared-row` would claim live evidence for all
-    // eight rows, and six of them still have none — the exact over-claim the
-    // evidence-class field was introduced to prevent. So it is left alone here,
-    // and the upgrade is recorded as a per-row fact instead: these two rows, and
-    // only these two, now have a measurement that reads the tree.
-    expect(HOP_EVIDENCE.authority).toBe('declared-row');
-    expect(HOP_EVIDENCE.binding).toBe('declared-row');
-    expect(HOP_EVIDENCE.enforcement).toBe('registered-instrument');
+    // Task 025 shipped the evidence field keyed by HOP, so this task could not
+    // record its own result: flipping `authority`/`binding` away from
+    // `declared-row` would have claimed live evidence for all eight rows when
+    // six still had none. Task 066 re-keyed it by (hop, ROW), and the upgrade is
+    // recorded here — these two rows, and only these two, have a measurement
+    // that reads the tree.
+    expect([...liveMeasuredBoundaries()].sort()).toEqual(['cli-surface', 'event-catalog']);
+    for (const boundary of ['cli-surface', 'event-catalog']) {
+      if (boundary !== 'cli-surface' && boundary !== 'event-catalog') continue;
+      expect(rowEvidence(boundary).authority.evidence).toBe('live-measurement');
+      expect(rowEvidence(boundary).binding.evidence).toBe('live-measurement');
+    }
+    // The six that earned nothing stay strictly weaker on both row-resolved hops.
+    for (const boundary of topologyRows().map((r) => r.boundary)) {
+      if (boundary === 'cli-surface' || boundary === 'event-catalog') continue;
+      expect(rowEvidence(boundary).authority.evidence).toBe('declared-row');
+      expect(rowEvidence(boundary).binding.evidence).not.toBe('live-measurement');
+    }
+
+    // ── The witness is checked, not described ────────────────────────────────
+    // Every `live-measurement` entry names a module, an exported entrypoint and
+    // the tree paths the measurement reads. Here — the one place that can import
+    // BOTH the evidence table and the oracle — each part is resolved against the
+    // oracle itself, so a row cannot claim a live measurement by describing one.
+    const oracleExports: Record<string, unknown> = { ...liveProof };
+    const declaredSubjects = new Set<string>();
+    for (const boundary of liveMeasuredBoundaries()) {
+      for (const hop of ['authority', 'binding'] as const) {
+        const cell = rowEvidence(boundary)[hop];
+        expect(cell.evidence).toBe('live-measurement');
+        if (cell.evidence !== 'live-measurement') continue;
+        expect(cell.oracle.module).toBe('servers/exarchos-mcp/scripts/authority-live-proof.ts');
+        expect(existsSync(path.join(REPO_ROOT, cell.oracle.module))).toBe(true);
+        expect(typeof oracleExports[cell.oracle.entrypoint]).toBe('function');
+        for (const subject of cell.oracle.subjects) {
+          expect(existsSync(path.join(REPO_ROOT, subject))).toBe(true);
+          declaredSubjects.add(subject);
+        }
+      }
+    }
+    // …and the declared subject set is exactly what the oracle's own source
+    // lists say it reads — DERIVED from `GOVERNED_SOURCES` +
+    // `EVENT_CATALOG_SOURCES`, never restated here. A source added to either
+    // list without reaching the evidence table fails this.
+    expect([...declaredSubjects].sort()).toEqual(
+      [...new Set([...GOVERNED_SOURCES, ...Object.values(EVENT_CATALOG_SOURCES)])].sort(),
+    );
 
     const measured: readonly MeasuredBoundary[] = [
       measureCliSurfaceLive(),
