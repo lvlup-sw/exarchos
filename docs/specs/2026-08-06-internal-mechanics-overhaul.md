@@ -1,6 +1,6 @@
 # Spec: Internal mechanics overhaul — one authority per contract, bound mechanically, IR-shaped
 
-**Date:** 2026-08-06 · **Revised:** 2026-08-07 (rev 4) · **Feature:** `internal-mechanics-overhaul` · **Depth:** deep
+**Date:** 2026-08-06 · **Revised:** 2026-08-07 (rev 4.10) · **Feature:** `internal-mechanics-overhaul` · **Depth:** deep
 **Method:** `proof-driven-development` (Design mode) — `~/.agents/skills/proof-driven-development`
 **Baseline:** rebased onto `origin/main`; **every count below is re-derived from the landing branch.**
 
@@ -721,7 +721,9 @@ Research pre-pass: discovery workflow **`mcp-spec-2026-07-28-migration`** (gathe
 
 ### Scope
 
-**Target:** Partial — **Wave 0 and Wave 1 decomposed to task granularity (tasks 001–027 and 046–048).** Waves 2–5 carry one anchor task per DR (028–045) for provenance, to be re-planned after Wave 1 exit.
+**Target:** Partial — **Wave 0 and Wave 1 decomposed to task granularity (tasks 001–027, 046–067).** Waves 2–5 carry one anchor task per DR (028–045) for provenance, to be re-planned after Wave 1 exit.
+
+> **Task-ID ranges, since three appends have now widened this.** 001–004 retired (rev 2). 005–027 = the rev-1/rev-3 Wave 1 body, 027 the join point. 028–045 = Waves 2–5 anchors. 046–050 = rev-4 additions (DR-25, DR-0 remainder). 051–067 = tasks *derived from running Wave 1*, each one a defect a shipped task found and reported rather than worked around. That third range is the program working as designed, not scope creep — but it means **the task count is not fixed at plan time**, and any statement of the form "N of M tasks complete" must re-derive M.
 
 **Excluded, with rationale:** Waves 2–5 are *deliberately* not decomposed in this pass. **DR-6's authority-topology census is the instrument that enumerates the real remediation subjects** — which boundaries have unbound representations, which events lack a consumer hop, which effects lack a coupling. Decomposing Waves 2–5 before that census has run would be fabricating a subject list rather than deriving one, which is precisely the precision-manufacturing PDD warns against ("do not add abstractions, manifests, generators, or test layers without a concrete correctness obligation").
 
@@ -734,13 +736,13 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 | DR | Requirement | Tasks |
 |----|-------------|-------|
 | — | ~~Wave 0 prerequisite (INV-9 defects)~~ — **REMOVED rev 2**, already closed on the landing branch; tasks 001–004 retired | — |
-| DR-0 | SDK v1→v2 package split, ahead of every consumer | 049, 050 |
+| DR-0 | SDK v1→v2 package split, ahead of every consumer | 049, 050, 051 |
 | DR-1 | IR-shaped declaration envelope | 005, 006, 007, 008 |
 | DR-2 | Tiered, coupling-typed event registration | 009, 010, 011, 012, 013 |
 | DR-3 | Compile-time event-name grammar | 014, 015 |
-| DR-4 | `outputSchema` non-vacuity | 016, 017, 018, 019 |
+| DR-4 | `outputSchema` non-vacuity | 016, 017, 018, 019, 055, 060 |
 | DR-5 | CLI derivation guard | 020, 021, 022, 023 |
-| DR-6 | Authority-topology census | 024, 025, 026, 027 |
+| DR-6 | Authority-topology census | 024, 025, 026, 027, 066 |
 | DR-7 | Effect ledger | 028 *(anchor)* |
 | DR-8 | Fourth envelope state | 029 *(anchor)* |
 | DR-9 | Core-minted resumption handle | 030 *(anchor)* |
@@ -758,8 +760,12 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 | DR-21 | Replay and compatibility | 042 *(anchor)* |
 | DR-22 | MCP era cutover + Tasks re-platform | 043 *(anchor)* |
 | DR-23 | Invariant amendments | 044 *(anchor)* |
-| DR-24 | Wave sequencing / anti-inertness | 045 *(anchor)* |
-| DR-25 | Dispatch shape belongs to the provisioning contract | 046, 047, 048 |
+| DR-24 | Wave sequencing / anti-inertness | 045 *(anchor)*, 057, 058, 063, 064, 066, 067 |
+| DR-25 | Dispatch shape belongs to the provisioning contract | 046, 047, 048, 056, 059 |
+| DR-26 | SDK generation seam *(rev 4)* | 052, 053, 062, 065 |
+| DR-27 | Measured-premise binding *(rev 4)* | 054, 061 |
+
+> **Matrix reconciled rev 4.10.** Rows for DR-26/DR-27 were absent and tasks 051–066 were unmapped, because the rev-4 tasks were appended without re-deriving this table. `check_plan_coverage` reads it, so its authoring-time **PASS 24/24** was measuring rev 3's task set, not the shipped one. Re-run the gate at 027; do not treat the recorded result as current.
 
 ### Tasks
 
@@ -1142,6 +1148,27 @@ This is R-11 inverted: not "the mechanism ships and nothing calls it", but *"the
 
 **Verification:** medium — scoped tests + `check_test_adequacy`.
 **Dependencies:** 062 · **Parallelizable:** Yes
+
+### Task 067: `validate-no-legacy` is red — the wave's own proof idiom reads as dead code
+**Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-24
+**Files:** `scripts/audit/knip-diff.ts`, `scripts/audit/knip-allowlist.json`, `knip.json`
+**Detail:** **Measured 2026-08-07 on the integration tip `077dd5151`:** `bash scripts/validate-no-legacy.sh` exits 1 with `[knip-diff] FAIL (unallowlisted): 94 dead-code finding(s)`. This is a **blocking CI job** (`ci.yml:627`, rolled into `CI Gate` at `ci.yml:1279`), so the whole wave cannot merge to `main` until it is green. It was 81 findings when first recorded and has grown with each landed task — it scales with the wave, which is what makes an allowlist-per-finding the wrong shape.
+
+**The 94 split three ways, and only one third is this task's to allowlist:**
+
+1. **69 `_`-prefixed compile-time proof aliases** (`_DeclarationMissingAuthority_FailsCompile`, `_EventRegistration_ReportCoupledVariant_HasNoConstructibleForm`, …) across `contract/declaration.ts`, `event-store/event-registration.ts`, `event-store/event-declarations.ts`, `event-store/event-annotations.ts`, `architecture/authority-census.ts`. **These are not dead code — they are the wave's rung-2 proof mechanism.** They must live in non-test sources precisely because `tsconfig.json` excludes `*.test.ts`, which is what makes `tsc` the prover. knip sees an unreferenced exported type and is correct on its own terms; the terms are what need stating.
+2. **23 `src/sdk/seam.ts` findings** (9 `export`, 14 `type`) — `createV1Server`, `V1TaskStore`, `V2StdioClientTransport`, … **Do not allowlist these.** They are unreferenced because task 052 landed the seam and **task 053 has not yet migrated the import sites onto it** — this is a true R-11 reading (the mechanism ships and nothing calls it) and it is *correct* for the guard to say so. They resolve when 053 lands, and if they do not, that is 053 failing its own totality test.
+3. **2 `file` findings** — `scripts/measured-premises-derive.ts` (task 054) and `architecture/__fixtures__/declaration-seam-violator.fixture.ts` (tasks 006/007). **Determine which they are before deciding.** Either knip's entry-point config cannot see a real caller (a config gap), or nothing calls them (R-11 again, in the wave's own new code — the honest outcome is to wire the caller, not to allowlist the finding).
+
+**Acceptance criteria:**
+- The proof-alias convention is exempted **by a rule knip evaluates**, not by 69 hand-written allowlist rows — a JSDoc tag (`@proof`) consumed via knip's `tags` config, or an equivalent config-level predicate. An allowlist that must be appended to on every future proof alias re-creates the drift this task exists to remove.
+- **The exemption is bounded and cannot silently widen.** It must match the proof idiom specifically, not "any unreferenced exported type". Kill fixture: a genuinely dead exported type that does **not** carry the convention still fails the sweep.
+- **Non-empty denominator:** an exemption rule matching zero symbols, or a knip run resolving zero files, fails rather than passing clean.
+- The seam's 23 findings are **left failing** and recorded as 053's subject; state the post-053 expected count so the next runner can falsify it.
+- `bash scripts/validate-no-legacy.sh` exits 0 with the seam findings either resolved by 053 or carrying a dated, owned, expiring entry that names 053 as the discharge.
+
+**Verification:** medium — scoped tests + kill-probe (a non-conforming dead export must still fail).
+**Dependencies:** None *(coordinate with 053, which discharges group 2)* · **Parallelizable:** Yes
 
 ### Task 063: Inventory every Wave-1 guard and prove it is reachable from CI
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-24
