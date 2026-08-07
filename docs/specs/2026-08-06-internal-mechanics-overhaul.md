@@ -19,6 +19,17 @@
 > **Corrected measurements (rev 3 → rev 4):** vacuous `outputSchema` **109/123 → 112/122**; substantive declarations **12 → 10** (all `withCappedShape`; the 2 HSM reclassified vacuous); SDK import sites **unmeasured → 38 files across 13 directories**. Holding: `withCappedShape` 10, `EventTypes` 170, hand-written CLI literals 11.
 >
 > **Scope added:** **DR-26** (SDK generation seam — restores DR-0's rung-2 claim), **DR-27** (measured-premise binding — kills the drift class), and a **seventh authority-topology row** for the SDK boundary, which rev 3 omitted entirely while it carried two authorities.
+>
+> ### Revision 4.1 — batch-2 findings
+>
+> Batch 2 (tasks 006, 047, 048) merged clean with zero new failures. Two findings:
+>
+> 1. **DR-25's own documentation deliverable created a new unbound representation.** Task 048's skill prose is a fifth representation of the posture→dispatch contract and nothing binds it to `POSTURE_DISPATCH_MAP`. This is the **second** boundary to grow an unbound prose representation — the topology table already records "skill prose (#1716)" at the event catalog — which makes it a pattern, not an oversight. **Documentation that restates a contract is a representation, and representations get bound.** → DR-25 gains a binding criterion; task 056.
+> 2. **The cast budget has ZERO headroom, measured — not the ~1 unit previously briefed.** `asCast` delta is **5 of budget 5**. The wave's remaining production tasks cannot add a single `as <identifier>`, and the census counts JSDoc prose. Resolution is paydown, not re-baselining. → task 057, which must land **before** the next production batch.
+>
+> **A briefing error worth recording, because it cost three agents real effort.** The repo has **two** cast censuses with different regexes: `scripts/check-type-debt.mjs` matches only `as unknown as`, while `scripts/tsconfig-strictness/count-casts.ts` matches `as` + any identifier and therefore counts prose. A green `check-type-debt` run proves nothing about the prose trap. The gate that bites is `FixWave_CastBudget_MeasuredAndWithinDeclaredLimit`.
+>
+> **Task 006 also settled DR-1's open refinement, against the prior expectation.** The kind-indexed subject map was **rejected on measurement**: it would force `contract/declaration.ts` to import registry storage (action and CLI-verb subjects live in `registry.ts`), which the seam census this same task built would then flag — the refinement contradicted DR-1. Both shapes were also compiled standalone and fail *identically* at the generic narrowing site, so the map's promised precision never reaches the accessor. Exactness is recovered per-consumer via `withSubject(declaration, guard)`, which is the correct posture post-#1258 anyway: after a deserialization round-trip the subject genuinely is untrusted, and a map would have promised a type nothing had checked.
 
 > ## Revision 2 — what the plan-review panel refuted
 >
@@ -105,7 +116,7 @@ PDD deliverable 2. Representation counts are measured, not estimated. **More tha
 | **Response shape** | `outputSchema` (118); `Envelope<T>` type; the runtime payload | `outputSchema` nominally | **No** — 109 vacuous | Authority exists but asserts nothing. → **G2** |
 | **Event catalog** | `EVENT_EMISSION_REGISTRY`; `autoEmits` rows (`z.string()`); `PHASE_EXPECTED_EVENTS` (hand-maintained); skill prose (#1716) | registry nominally | **No** | 4 representations, none bound. → **G3, G5, DR-10, DR-16** |
 | **Effect ↔ event** | `EffectPlan`; the append site | *none* | **No** | `effect-carrier.ts` references no event store. → **G4/DR-7** |
-| **Capability/posture** | agent-spec YAML; `posture-mapping.ts`; MCP handshake; INV-11 text | handshake ("handshake-authoritative") | Partially | **Authority is being deleted** by the spec revision. → **DR-14, DR-23** |
+| **Capability/posture** | agent-spec YAML; `posture-mapping.ts`; MCP handshake; INV-11 text; **delegate skill prose** *(added rev 4.1)* | handshake ("handshake-authoritative") | Partially | **Authority is being deleted** by the spec revision. **5 representations** — task 048's docs added the fifth, and it is unbound. → **DR-14, DR-23, DR-25** |
 | **Phase sequencing** | HSM topology; `PHASE_EXPECTED_EVENTS`; playbooks | HSM guard (INV-9) | **Bypassed today** | 3 direct `executeTransition` callers. → **Wave 0** |
 | **SDK generation** *(new in rev 4)* | `@modelcontextprotocol/sdk` (v1) imported directly; `@modelcontextprotocol/{core,server}` (v2) imported directly; **38 import sites across 13 directories** | *contested* | **No** | **2 authorities.** Rev 3 omitted this row entirely while DR-0 depended on it. Structural typing makes the two generations mutually assignable, so nothing — not `tsc`, not a guard — currently separates them. → **G6 / DR-26** |
 
@@ -512,6 +523,11 @@ This is PDD's *"a fix relies on someone remembering a convention"* row: the corr
 - The delegate skill references gain a read-only dispatch section. They currently document only worktree-isolated implementers (`workflow-steps.md` agent-teams variant: *"named teammates, each assigned to a worktree"*) and the anonymous async path — read-only dispatch is undocumented, which is the gap the incident fell through.
 - **Error-path criterion:** a `dispatch` shape naming a harness capability the runtime does not declare (e.g. worktree isolation on a runtime without native support) resolves to the declared fallback rather than silently degrading to a shape that does not run the prompt (INV-4 platform agnosticity). A dispatch that cannot be honoured is a typed error, never a silent no-op.
 - **Self-test:** a seeded provisioning result whose `dispatch` contradicts its `posture` (e.g. `read-only` + named-with-isolation) fails the suite, so guard-execution failure cannot pass as success.
+- **The skill prose is bound to `POSTURE_DISPATCH_MAP`, not merely consistent with it** *(added rev 4.1)*. A test parses the posture table out of `skills-src/delegate/references/parallel-strategy.md` and asserts it against the shipped map; disagreement fails. **Non-empty denominator:** a parse resolving zero rows fails rather than passing clean.
+
+> **Why rev 4.1 added that criterion.** Task 048 shipped the read-only dispatch documentation correctly and then reported the consequence against itself: **the prose is a new representation of the posture→dispatch contract, and nothing binds it.** It can drift from `agents/dispatch-shape.ts` silently. The mitigation available inside a docs task was a *convention* — the prose declares the emitted `dispatch` field authoritative — which is precisely the *"a fix relies on someone remembering a convention"* row DR-25 exists to close. So DR-25's own documentation deliverable reproduced DR-25's defect one boundary over.
+>
+> This is the **second** occurrence of the class at a second boundary: the topology table already records *"skill prose (#1716)"* as an unbound representation of the **event catalog**. Two independent boundaries have now grown an unbound prose representation, which makes it a pattern rather than an oversight — **documentation that restates a contract is a representation, and representations get bound.** Task 048 correctly did not write the fix, because the binding test lives in `servers/exarchos-mcp/src/**` and task 047 was concurrent there. Tracked as task 056.
 
 **Sequencing note:** this lands in **Wave 1**, not later, because Waves 2–5 of this very program dispatch agents through these verbs. Leaving the contract unbound means the program's own execution keeps hitting the defect it exists to eliminate.
 
@@ -1014,6 +1030,27 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 - `OutputSchema_AllowlistEntrySwapped_FailsRatchet` — shrink-only beats a count threshold
 **Verification:** high — type-level + scoped tests + `check_test_adequacy`.
 **Dependencies:** 016 · **Parallelizable:** No *(supersedes 017; re-scope 017 to allowlist expiry enforcement)*
+
+### Task 056: Bind the delegate skill prose to `POSTURE_DISPATCH_MAP`
+**Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-25
+**Files:** `servers/exarchos-mcp/src/agents/dispatch-shape.prose-binding.test.ts` (new)
+**Detail:** Task 048's docs are a fifth representation of the posture→dispatch contract and are currently unbound — the prose can drift from the shipped map with nothing failing. Parse the table out of `skills-src/delegate/references/parallel-strategy.md` and assert it against `POSTURE_DISPATCH_MAP`. Read the **`skills-src/` source**, not a rendered `skills/<runtime>/` copy, so the binding sits at the authoring surface rather than on a generated artifact.
+**Tests:**
+- `ProseBinding_SkillTableAndPostureMap_Agree` — the binding
+- `ProseBinding_SeededProseDrift_FailsTheBinding` — kill fixture: mutate one table cell, the test must go red
+- `ProseBinding_ZeroRowsParsed_FailsClosed` — non-empty denominator; a renamed heading must not read clean
+**Verification:** medium — scoped tests + `check_test_adequacy`.
+**Dependencies:** 046, 048 · **Parallelizable:** Yes
+
+### Task 057: Restore cast-budget headroom by paying down `as` debt
+**Risk Tier:** medium · **Boundary Touching:** false · **Implements:** DR-24
+**Files:** production modules under `src/` and `servers/exarchos-mcp/src/` carrying removable `as` casts
+**Detail:** **Measured on the integration branch: `asCast` delta is 5 of budget 5 — ZERO headroom** (`countCasts` 3295 vs baseline 3290, `DELTA_BUDGET.asCast = 5`). The assertion is `<= 5`, so it passes today and **fails at 6**: the next production module in this wave that adds any `as <identifier>` reds the root suite. Note the census (`scripts/tsconfig-strictness/count-casts.ts`) matches `as` followed by *any* identifier over raw source, so **ordinary JSDoc prose — "as a", "as an" — counts**; `.test.ts` and `__tests__/` are excluded, which is why test-only tasks appear clean and are not evidence of headroom.
+**Resolution is paydown, never re-baselining.** The highest-yield pattern is *validate-then-re-assert*: replace `typeof (x as T).name === 'string'` probes plus `const {…} = x as T` with a `value is T` predicate built on `in`-narrowing — strictly better typing that removes every assertion. Also check whether each `as const` is load-bearing; several are not, and `tsc` will say so.
+**Tests:**
+- `CastBudget_AfterPaydown_HasHeadroomForRemainingWaveTasks` — asserts a positive margin, not merely `<= budget`
+**Verification:** medium — scoped tests + full root suite.
+**Dependencies:** None · **Parallelizable:** Yes *(but land BEFORE the next production-code batch)*
 
 ### Task 048: Document read-only dispatch in the delegate skill references
 **Risk Tier:** low · **Boundary Touching:** false · **Implements:** DR-25
