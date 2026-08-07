@@ -45,7 +45,7 @@ The shapes you will see emitted:
 |---------|----------------------|------------------|
 | `read-only` | `subagent: true`, `naming: "anonymous"`, `workspace: "inherited"` | Anonymous async subagent. **Omit `name`.** No worktree — nothing is mutated. |
 | `task-isolated` | `subagent: true`, `naming: "named"`, `workspace: "worktree"` | Named **and** worktree-isolated. Both, never one. |
-| `shared-mutating` | `subagent: false`, `workspace: "main-worktree"` | Not a subagent at all — run it in the main worktree. |
+| `shared-mutating` | `subagent: false`, `naming: "anonymous"`, `workspace: "main-worktree"` | Not a subagent at all — run it in the main worktree. |
 
 ### Read-Only Dispatch: Never Name It
 
