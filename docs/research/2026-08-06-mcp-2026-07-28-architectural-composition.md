@@ -272,6 +272,10 @@ And one that is neither: **`longRunning` graduates from CLI presentation metadat
 6. **Drop the `task.polled` write from `tasks/get`** and re-base it on the pure-fold discipline the view arm already proves (C3).
 7. **Derive `server/discover` from the registry** (C5).
 8. **Keep `_cacheHints` and `ttlMs`/`cacheScope` separate**, and note that the in-envelope design is why the CLI gets prompt-cache hints for free — a useful precedent when deciding where future hints live (§3.5).
+9. **Tighten the 106 vacuous `outputSchema` declarations** — this is the precondition INV-17 already claims to rest on, and it is currently a tautology for 90% of actions. Sequence it *before* MRTR lands, or `input_required` will be absorbed silently by schemas that assert nothing (§9.1). Treat parity of a vacuous schema as an INV-17 finding, not a pass.
+10. **Complete CLI code-generation** — give top-level operational verbs a registry descriptor (retiring 14 hand-written `.command(...)` registrations), add the reserved-flag concept, and derive presentation rules from the envelope discriminator. Resolve the `merge_orchestrate` double-definition as the first case (§9.3).
+11. **Resolve `hidden: true`** — a CLI-reachable tool absent from the MCP contract contradicts the #1608 reframe. Expose-and-annotate, or move it off the tool registry (§9.2).
+12. **Exploit 2020-12 for the composite pattern** — with `oneOf`/`anyOf` and conditionals now native at the input boundary, the action discriminated union is expressible in the advertised schema rather than spliced by patch (§9.2). Verify this as part of the patch-removal check in the companion doc.
 
 ---
 
@@ -285,7 +289,78 @@ And one that is neither: **`longRunning` graduates from CLI presentation metadat
 
 ---
 
-## 9. Sources
+## 9. Addendum — `outputSchema` audit, the dispatch↔spec mapping, and the codegen gap
+
+Added after review. §9.1 materially revises §5.1.
+
+### 9.1 Is `outputSchema` used fully and consistently? — Consistently yes. Fully **no**.
+
+**Presence: 100%, structurally enforced.** `readonly outputSchema: z.ZodType` is required at the interface boundary (not optional), and `validateAction` enforces presence at module load, so a malformed declaration fails the import (DIM-3 fail-closed). There is no action without one.
+
+**Substance: ~10%.**
+
+| Declared value | Count |
+| --- | ---: |
+| `EnvelopeSchema(z.unknown())` — **vacuous** | **106** |
+| `withCappedShape(<Typed>OutputSchema)` — DR-10 worktree surface | 10 |
+| `WorkflowTransitionOutputSchema` / `WorkflowUpdateOutputSchema` — HSM | 2 |
+| **Total action declarations** | **118** |
+
+So **106 of 118 (≈90%) declare `data: unknown`** — a schema that validates every payload and therefore constrains none. The registry's own JSDoc says so plainly: *"most attach `EnvelopeSchema(z.unknown())`… Per-action data-shape tightening is incremental follow-up work (design §10, out of scope for Wave 0)."*
+
+**Why this matters more than the count suggests.** INV-17 names `outputSchema` totality as *the precondition that makes facade equivalence hold by construction*. A vacuous schema satisfies totality **trivially** — it is total over every shape because it is total over all shapes, including wrong ones. For 90% of actions the precondition is met on paper and guarantees nothing. INV-2's claim that "parity is schema-checked in addition to byte-checked" is, today, byte-checked plus a tautology for nine actions in ten.
+
+This is the same defect class as the vacuous `withSession` gate (#1692): present, enforced, and asserting nothing.
+
+**Consequence for MRTR — this revises §5.1.** I framed the fourth emittable shape as a 143-site obligation. Sharper and less comfortable: it is a **12-site obligation and a 106-site non-event.** The vacuous schemas will absorb `input_required` silently, without a single test failing. The migration will *look* clean precisely where the contract is weakest, and will quietly widen the gap between the declared contract and the real one.
+
+So the honest sequencing inverts what "totality" implies:
+- adding `input_required` to the **12 typed** schemas is real, bounded work;
+- adding it to the **106 vacuous** ones is a no-op that should instead be **replaced by tightening them**, because tightening is the only thing that makes the fourth shape verifiable at all.
+
+**A note on the third shape.** INV-17's triple is baseline + capped + degraded. `withCappedShape` returns `EnvelopeSchema(z.union([baseData, CappedDataSchema]))` — baseline ∪ capped only. *Degraded* is not a data shape: it is a `_meta` marker (`economyDegraded`), structurally admitted by the envelope's `_meta: Record<string, unknown>`. Totality over degraded therefore holds by envelope structure, not per-action declaration. That is defensible, but the helper's name overstates its coverage, and the "triple" is really a pair plus a flag.
+
+### 9.2 How the dispatch core maps onto the spec
+
+The shape: 4 visible composite tools (+1 hidden) × 118 actions, dispatched on an `action` discriminator carried in the request body.
+
+| Exarchos concept | MCP `2026-07-28` | Fit |
+| --- | --- | --- |
+| Composite tool + `action` discriminator | `tools/call` with `name` | **Improves.** SEP-2106 lifts input schemas to full JSON Schema 2020-12 with `oneOf`/`anyOf`/`allOf` and conditionals (root stays `type: "object"`). The discriminated union of action schemas becomes **natively expressible** — exactly what the local patch currently splices by hand. The composite pattern goes from patched-in to first-class. |
+| `Envelope<T>` (`success`/`data`/`next_actions`/`_meta`/`_perf`) | `structuredContent` + `outputSchema` | **Improves.** Output schemas are now unrestricted and `structuredContent` may be any JSON value, not only an object. |
+| `next_actions` (HATEOAS) | no analogue | Neutral — lives in the envelope, hence facade-neutral by construction. A good precedent (§3.5). |
+| `annotations` (readOnly/destructive/idempotent/openWorld) | spec-defined, explicitly untrusted hints | Unchanged. |
+| `longRunning` | server-directed Tasks trigger | **Improves** — one declaration drives both facades (§3.2). |
+| `economy` budget | no analogue | Neutral, in-envelope. Distinct axis from `ttlMs`/`cacheScope` (§3.5). |
+| `posture` / capability tiers | per-request `_meta` client capabilities | Source changes; precision improves (§3.7). |
+| Event-sourced state + `featureId` | *"mint an explicit handle… the model can see the handle and thread it between tools"* | **Already aligned** (§3.1). |
+| `hidden: true` (1 tool) | excluded from `tools/list`; CLI-reachable | **Layering violation** — below. |
+
+**The one genuine misfit is `hidden: true`.** The registry declares it as *"excluded from MCP registration (not exposed to agents). **CLI access is preserved.**"* Under the #1608 reframe — the CLI is a presentation client over the MCP contract — a CLI-reachable tool absent from the MCP contract is the CLI presenting something the canonical contract does not contain. That is not a presentation difference; it is surface the contract does not cover. Resolve it either by exposing and annotating the tool rather than hiding it, or by moving it out of the tool registry into a non-contract admin surface.
+
+**A routing note for v3.2.** `Mcp-Name` carries the *tool* name. With 118 verbs behind 4 tool names, every request presents as one of four values, so gateway routing, metering, and per-operation authorization cannot see the actual verb. Irrelevant on stdio; a real design input the moment a remote surface exists (companion doc §4).
+
+### 9.3 CLI codegen — the gap, quantified
+
+**Decision recorded: the CLI layer should be fully code-generated. The current state is not acceptable.**
+
+What is already derived: the tool/action tree. The registration loop walks the registry, `addFlagsFromSchema` emits flags from each action's Zod schema, and the descriptor already carries `cli.flags` (aliases, descriptions) and `cli.examples`.
+
+What is not: **1,565 lines of `adapters/cli.ts`** containing **14 hand-written `.command(...)` registrations** across 8 top-level verbs — `doctor`, `emissions`, `init`, `install-skills`, `mcp`, `merge-orchestrate`, `onboard`, `version`.
+
+`merge-orchestrate` is the sharpest instance: it is a registered action (`merge_orchestrate` — the only action declaring `posture: 'shared-mutating'`) **and** a hand-written top-level command. One verb, two definitions, one of them outside the generated path and outside the parity guarantee.
+
+Three gaps to close, in dependency order:
+
+1. **Top-level operational verbs need a registry representation.** A descriptor for "this action also surfaces as a top-level CLI verb" would let the 8 hand-written commands generate instead of being authored. This is the bulk of the 1,565 lines.
+2. **The generator needs a reserved-flag concept** (§5.3). Without it, protocol-level fields have nowhere to live — and today's evidence is that they simply do not exist on the CLI (`task: { ttl }` is unreachable).
+3. **Presentation rules should derive from the envelope discriminator**, not from adapter switches — the DR-7 errorCode→exit-code table and, imminently, the `input_required` rendering.
+
+Generation also makes §9.1 tractable from the other direction. Today a vacuous `outputSchema` is merely a weak assertion that nothing checks. Once the CLI renderer is *generated from* the schema, `data: unknown` becomes a **visible hole in the generated surface** — there is nothing to generate a typed renderer from. Codegen converts an invisible contract weakness into a build-time one, which is the same move INV-11 makes elsewhere: prefer unrepresentable over merely forbidden.
+
+---
+
+## 10. Sources
 
 **Specification / SDK** — as enumerated in the companion doc's §10; the load-bearing ones here are the [changelog](https://modelcontextprotocol.io/specification/2026-07-28/changelog), the [release post](https://blog.modelcontextprotocol.io/posts/2026-07-28/) (explicit-handle guidance, server-directed tasks), the [release candidate post](https://blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate/) (SEP-2260 consent model, `tasks/list` removal rationale), and [Supporting protocol revision 2026-07-28](https://ts.sdk.modelcontextprotocol.io/v2/migration/support-2026-07-28.html) (`requestState`, `inputRequired`, legacy shim, `subscriptions/listen`, cache-hint defaults).
 
