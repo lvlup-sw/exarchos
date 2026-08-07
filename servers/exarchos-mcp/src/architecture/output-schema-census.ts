@@ -51,10 +51,13 @@ import { z } from 'zod';
 import { TOOL_REGISTRY } from '../registry.js';
 import { extractEnvelopeDataSchema } from '../orchestrate/worktree/schemas.js';
 import {
+  VACUITY_ALLOWLIST,
   VACUITY_ALLOWLIST_IDS,
   VACUITY_RETIRED_IDS,
+  type VacuityWaiverEntry,
 } from '../output-schema-vacuity-allowlist.js';
 import {
+  VACUITY_EXPIRY_HORIZON,
   VACUITY_SEED_DIGEST_ALGORITHM,
   VACUITY_SEED_KEY_SET_DIGEST,
 } from '../output-schema-seed-pin.js';
@@ -578,25 +581,299 @@ export function auditVacuitySeedIntegrity(
   });
 }
 
-/** Every finding DR-4's ratchet can raise, from either half. */
-export type VacuityRatchetFinding = VacuityAllowlistFinding | VacuitySeedFinding;
+// ─── DR-4 fourth tooth: the expiry is ENFORCED, not advisory (task 017) ─────
+//
+// DR-4's exceptions row reads: "Allowlist keyed by action id, owner, expiry.
+// Entries expire per wave; expiry is enforced, not advisory." Task 055 wrote
+// `{ owner, expires }` onto all 112 entries and then read NEITHER field. The
+// only thing standing between the seed and a permanent exemption was a date
+// string that no code path consulted — `outputSchema`'s own presence-not-
+// substance defect, reproduced inside the mechanism built to remove it. Two
+// checks existed at the shape level and neither was enforcement: the co-located
+// vitest asserts `expires` MATCHES `/^\d{4}-\d{2}-\d{2}$/`, which is a claim
+// about the string's punctuation, not about the deadline having any effect.
+//
+// This tooth is the effect. It is deliberately separate from the two above
+// because it is the only one that is a function of TIME:
+//
+//   • membership and seed integrity are STRUCTURAL — same verdict forever, for
+//     a fixed pair of inputs. They belong in the unit suite, and they are there.
+//   • expiry is TEMPORAL — the same repository is green today and red in March
+//     2027, which is the entire point of a deadline. A wall-clock read inside
+//     the unit suite would turn "the debt came due" into "the test suite stopped
+//     working", and a developer who cannot run tests fixes the CLOCK, not the
+//     debt. So NOTHING in this module reads `new Date()`: `today` is a required
+//     first parameter, and the single production clock read lives at the CI
+//     guard's entrypoint (`servers/exarchos-mcp/scripts/output-schema-ratchet-
+//     guard.ts`), which is the artifact that blocks the merge.
+//
+// Dates are compared as ISO `YYYY-MM-DD` STRINGS, never as `Date` values.
+// Lexicographic order on that format is calendar order, so the comparison has no
+// timezone, no DST, no leap-second and no millisecond component — a guard whose
+// verdict depended on which side of midnight UTC the runner started would be its
+// own flake class.
+
+/** A condition that makes an allowlist entry's deadline invalid or past due. */
+export type VacuityExpiryFinding =
+  | { readonly code: 'EMPTY_ALLOWLIST'; readonly message: string }
+  | { readonly code: 'UNREADABLE_CLOCK'; readonly message: string }
+  | { readonly code: 'MALFORMED_HORIZON'; readonly message: string }
+  | { readonly code: 'MALFORMED_WAIVER'; readonly id: string; readonly message: string }
+  | { readonly code: 'WAIVER_BEYOND_HORIZON'; readonly id: string; readonly message: string }
+  | { readonly code: 'EXPIRED_WAIVER'; readonly id: string; readonly message: string };
+
+export interface VacuityExpiryAudit {
+  /** True when every entry is well-formed, within the horizon, and not past due. */
+  readonly ok: boolean;
+  /** The instant the verdict was taken at, echoed so a report is self-describing. */
+  readonly today: string;
+  /** The pinned horizon the entries were measured against. */
+  readonly horizon: string;
+  /** Entries examined. Zero is a failure, never a clean run. */
+  readonly entryCount: number;
+  /** Ids whose `expires` is strictly before `today`. The deadline, bitten. */
+  readonly expired: readonly string[];
+  /** Ids whose `expires` is later than the pinned horizon — a self-granted renewal. */
+  readonly beyondHorizon: readonly string[];
+  /** Ids with an empty owner or an unparseable `expires`. Fails closed. */
+  readonly malformed: readonly string[];
+  /** Whole days from `today` to `horizon`; negative once the horizon itself is past. */
+  readonly daysToHorizon: number;
+  readonly findings: readonly VacuityExpiryFinding[];
+}
+
+const ISO_DAY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
+const MS_PER_DAY = 86_400_000;
+
+/**
+ * Is `value` a real calendar day written `YYYY-MM-DD`?
+ *
+ * The pattern alone is not enough: `2027-02-31` and `2027-13-01` both match it
+ * and neither exists. Both would compare cheerfully under `<` and produce a
+ * confident, wrong verdict — so the value is round-tripped through `Date.UTC`
+ * and rejected unless every component survives. A guard that accepts an
+ * impossible deadline has an impossible deadline.
+ */
+export function isIsoDay(value: string): boolean {
+  const match = ISO_DAY_PATTERN.exec(value);
+  if (match === null) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const utc = Date.UTC(year, month - 1, day);
+  if (Number.isNaN(utc)) return false;
+  const round = new Date(utc);
+  return (
+    round.getUTCFullYear() === year &&
+    round.getUTCMonth() + 1 === month &&
+    round.getUTCDate() === day
+  );
+}
+
+/**
+ * The UTC calendar day of an instant, as `YYYY-MM-DD`.
+ *
+ * UTC and not local time on purpose: a CI runner, a developer laptop and a
+ * reviewer in another timezone must agree on whether a waiver is past due, or
+ * "expired" becomes a property of who ran the guard. An invalid `Date` yields
+ * the empty string, which {@link auditVacuityExpiry} reports as
+ * `UNREADABLE_CLOCK` rather than silently treating as "long ago".
+ */
+export function isoDayUtc(now: Date): string {
+  const ms = now.getTime();
+  if (Number.isNaN(ms)) return '';
+  const year = String(now.getUTCFullYear()).padStart(4, '0');
+  const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(now.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/** Whole days between two ISO days. Both must be well-formed; otherwise `0`. */
+function daysBetween(from: string, to: string): number {
+  if (!isIsoDay(from) || !isIsoDay(to)) return 0;
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / MS_PER_DAY);
+}
+
+/**
+ * Audit every allowlist entry's deadline as of a NAMED day.
+ *
+ * `today` is required and has no default — see the section header. Every other
+ * input defaults to the live artifact, so the production call is
+ * `auditVacuityExpiry(isoDayUtc(new Date()))`.
+ *
+ * Four teeth:
+ *   1. NON-EMPTY DENOMINATOR. An allowlist that resolves to zero entries makes
+ *      "no expired waiver" true for the worst possible reason — a moved module,
+ *      a broken import, a renamed export. It FAILS. The legitimate zero state
+ *      exists (the debt is fully paid), and it is not this: reaching zero
+ *      deletes the allowlist module, the pin and this audit in one commit, which
+ *      is stated in `output-schema-vacuity-allowlist.ts`'s own header.
+ *   2. WELL-FORMEDNESS. An empty owner or an `expires` that is not a real
+ *      calendar day fails closed. An unowned waiver has nobody to come due for,
+ *      and an unparseable date cannot be compared — neither may read as "fine".
+ *   3. HORIZON. `expires` later than {@link VACUITY_EXPIRY_HORIZON} fails. This
+ *      is what stops a waiver from renewing itself: the entry cannot name a date
+ *      of its own choosing, so extending the debt means moving ONE pinned
+ *      constant in a file of frozen values, not 112 lines in a sorted literal.
+ *   4. EXPIRY. `expires` strictly before `today` fails. Inclusive of the expiry
+ *      day itself — an entry marked `2027-02-28` is live THROUGH 2027-02-28 and
+ *      dead on 2027-03-01, matching the field's documented meaning ("the date
+ *      after which the waiver is expired").
+ */
+export function auditVacuityExpiry(
+  today: string,
+  entries: Readonly<Record<string, VacuityWaiverEntry>> = VACUITY_ALLOWLIST,
+  horizon: string = VACUITY_EXPIRY_HORIZON,
+): VacuityExpiryAudit {
+  const findings: VacuityExpiryFinding[] = [];
+  const ids = Object.keys(entries).sort();
+  const clockOk = isIsoDay(today);
+  const horizonOk = isIsoDay(horizon);
+
+  if (!clockOk) {
+    findings.push({
+      code: 'UNREADABLE_CLOCK',
+      message:
+        `The expiry audit was handed '${today}' as the current day, which is not a real ` +
+        'calendar date in YYYY-MM-DD form. Every deadline comparison below would be ' +
+        'meaningless, so the audit fails rather than reporting the waivers live.',
+    });
+  }
+  if (!horizonOk) {
+    findings.push({
+      code: 'MALFORMED_HORIZON',
+      message:
+        `The pinned expiry horizon '${horizon}' is not a real calendar date in YYYY-MM-DD ` +
+        'form. VACUITY_EXPIRY_HORIZON in output-schema-seed-pin.ts is the one deadline ' +
+        'every waiver is measured against; an unreadable horizon disables the tooth that ' +
+        'stops a waiver renewing itself, so it fails closed.',
+    });
+  }
+  if (ids.length === 0) {
+    findings.push({
+      code: 'EMPTY_ALLOWLIST',
+      message:
+        'The vacuity allowlist resolved ZERO entries, so the expiry audit has an empty ' +
+        'denominator and proves nothing — "no expired waiver" is trivially true over no ' +
+        'waivers. That is what a moved module or a broken import looks like, so it fails ' +
+        'rather than reporting clean. If the debt really did reach zero, the allowlist ' +
+        'module, its pin and this audit are DELETED in the same commit.',
+    });
+  }
+
+  const expired: string[] = [];
+  const beyondHorizon: string[] = [];
+  const malformed: string[] = [];
+
+  for (const id of ids) {
+    const entry = entries[id];
+    if (entry === undefined) continue;
+
+    if (entry.owner.trim().length === 0 || !isIsoDay(entry.expires)) {
+      malformed.push(id);
+      findings.push({
+        code: 'MALFORMED_WAIVER',
+        id,
+        message:
+          `'${id}' carries owner '${entry.owner}' and expires '${entry.expires}'. A waiver ` +
+          'needs a non-empty owner (someone the debt comes due for) and a real calendar ' +
+          'date in YYYY-MM-DD form (something the deadline can be compared against). ' +
+          'Neither can be inferred, so the entry fails closed.',
+      });
+      continue;
+    }
+
+    if (horizonOk && entry.expires > horizon) {
+      beyondHorizon.push(id);
+      findings.push({
+        code: 'WAIVER_BEYOND_HORIZON',
+        id,
+        message:
+          `'${id}' expires ${entry.expires}, later than the pinned horizon ${horizon}. A ` +
+          'waiver may not name its own deadline — that is renewal without a decision. Pay ' +
+          'the declaration down (give it a real data schema, declare it with ' +
+          'withCappedShape(...), and MOVE its entry to VACUITY_RETIRED), or move ' +
+          'VACUITY_EXPIRY_HORIZON in output-schema-seed-pin.ts as a deliberate, isolated ' +
+          'commit that re-dates the WHOLE outstanding debt.',
+      });
+    }
+
+    if (clockOk && entry.expires < today) {
+      expired.push(id);
+      findings.push({
+        code: 'EXPIRED_WAIVER',
+        id,
+        message:
+          `'${id}' (owner: ${entry.owner}) expired on ${entry.expires}; today is ${today}. ` +
+          'DR-4: the expiry is ENFORCED, not advisory. Give the declaration a real data ' +
+          'schema and MOVE its entry to VACUITY_RETIRED. Bumping the date is not the fix — ' +
+          `the entry cannot exceed the pinned horizon ${horizon}.`,
+      });
+    }
+  }
+
+  return Object.freeze({
+    ok: findings.length === 0,
+    today,
+    horizon,
+    entryCount: ids.length,
+    expired: Object.freeze(expired),
+    beyondHorizon: Object.freeze(beyondHorizon),
+    malformed: Object.freeze(malformed),
+    daysToHorizon: daysBetween(today, horizon),
+    findings: Object.freeze(findings),
+  });
+}
+
+/** Render the expiry audit for a human or an agent. */
+export function formatVacuityExpiryAudit(audit: VacuityExpiryAudit): string {
+  const lines: string[] = [
+    `outputSchema vacuity expiry: ${audit.entryCount} waiver(s) as of ${audit.today}, ` +
+      `horizon ${audit.horizon} (${audit.daysToHorizon} day(s)) — ${audit.ok ? 'OK' : 'FAILED'}.`,
+  ];
+  if (audit.findings.length > 0) {
+    lines.push(`  ${audit.findings.length} finding(s):`);
+    for (const finding of audit.findings) {
+      const subject = 'id' in finding ? ` ${finding.id}:` : '';
+      lines.push(`    [${finding.code}]${subject} ${finding.message}`);
+    }
+  }
+  return lines.join('\n');
+}
+
+/** Every finding DR-4's ratchet can raise, from any half. */
+export type VacuityRatchetFinding =
+  | VacuityAllowlistFinding
+  | VacuitySeedFinding
+  | VacuityExpiryFinding;
 
 export interface VacuityRatchetVerdict {
   readonly ok: boolean;
   readonly membership: VacuityAllowlistAudit;
   readonly seed: VacuitySeedIntegrityAudit;
+  /**
+   * The temporal half. `undefined` when the verdict was taken WITHOUT a clock —
+   * {@link auditVacuityRatchet} is the structural composition and deliberately
+   * does not invent a "now". {@link auditVacuityRatchetAsOf} supplies one.
+   */
+  readonly expiry: VacuityExpiryAudit | undefined;
   readonly findings: readonly VacuityRatchetFinding[];
 }
 
 /**
- * DR-4's ratchet, whole: membership against today PLUS the seed key set against
- * its pin. Defaults to the live triple, so the production call is
+ * DR-4's STRUCTURAL ratchet: membership against today's registry PLUS the seed
+ * key set against its pin. Defaults to the live pair, so the production call is
  * `auditVacuityRatchet()`.
  *
  * The two halves are complementary, and neither is sufficient:
  *   • membership alone is blind to a swap that edits the seed;
  *   • the pin alone is blind to a waived declaration that stopped being vacuous.
  * Together the only green path is: fix the schema, then move the entry.
+ *
+ * Time is NOT part of this verdict. Both halves are pure functions of the
+ * registry and the seed, so this composition returns the same answer on every
+ * day — which is what makes it safe to assert in a unit suite.
+ * {@link auditVacuityRatchetAsOf} adds the expiry half at a named instant.
  */
 export function auditVacuityRatchet(
   membership: VacuityAllowlistAudit = auditVacuityAllowlist(),
@@ -607,6 +884,36 @@ export function auditVacuityRatchet(
     ok: membership.ok && seed.ok,
     membership,
     seed,
+    expiry: undefined,
+    findings: Object.freeze(findings),
+  });
+}
+
+/**
+ * DR-4's ratchet, WHOLE: the two structural halves plus the expiry half, taken
+ * as of a named day. This is what the CI guard runs.
+ *
+ * `today` is required. The clock is read exactly once, at the guard's
+ * entrypoint, and threaded in — so this function, like everything else in this
+ * module, is a pure function of its arguments and its verdict is reproducible
+ * from the report it prints.
+ */
+export function auditVacuityRatchetAsOf(
+  today: string,
+  membership: VacuityAllowlistAudit = auditVacuityAllowlist(),
+  seed: VacuitySeedIntegrityAudit = auditVacuitySeedIntegrity(),
+  expiry: VacuityExpiryAudit = auditVacuityExpiry(today),
+): VacuityRatchetVerdict {
+  const findings: VacuityRatchetFinding[] = [
+    ...membership.findings,
+    ...seed.findings,
+    ...expiry.findings,
+  ];
+  return Object.freeze({
+    ok: membership.ok && seed.ok && expiry.ok,
+    membership,
+    seed,
+    expiry,
     findings: Object.freeze(findings),
   });
 }
