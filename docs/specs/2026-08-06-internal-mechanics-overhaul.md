@@ -216,6 +216,8 @@ PDD deliverable 1, specified per §3a. Ranked by findings eliminated. **Every gu
 >
 > **The single rule:** G5 ships in Wave 1 **observe-only**, and each boundary row flips to blocking **at the wave that remediates it**, declared as `enforceFrom` data on the row itself:
 >
+> **⚠️ DR-20 will NOT discharge the phase-sequencing row — discovered rev 4.9 by task 026's sensitivity control.** The control was run to prove the event-catalog row's failure is real, and it did not go clean, which is how the scoping error surfaced. `PHASE_EXPECTED_EVENTS` is carried by **two** rows. Deriving it for one leaves the other's claim behind, and task 025's cross-row tooth fires `binding | ambiguous` on **both** carriers — that tooth has now fired against a real change rather than a fixture. Aligning both carriers closes `event-catalog`, and `phase-sequencing` then reports `binding | stale-exception`, because **binding `PHASE_EXPECTED_EVENTS` to `EVENT_EMISSION_REGISTRY` does not bind it to the HSM guard.** Deriving the event *names* says nothing about whether the phase *keys* track the HSM phase set. The row's Wave-1 `enforceFrom` therefore needs its own remediation, which no current DR owns.
+>
 > | Row | `enforceFrom` |
 > |---|---|
 > | CLI surface | Wave 4 (DR-19 retires the last literal) |
@@ -1092,6 +1094,22 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 - `OutputSchema_AllowlistEntrySwapped_FailsRatchet` — shrink-only beats a count threshold
 **Verification:** high — type-level + scoped tests + `check_test_adequacy`.
 **Dependencies:** 016 · **Parallelizable:** No *(supersedes 017; re-scope 017 to allowlist expiry enforcement)*
+
+### Task 066: Per-row evidence keys, and typecheck the `scripts/` trees
+**Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-6, DR-24
+**Files:** `servers/exarchos-mcp/src/architecture/authority-census.ts`, `servers/exarchos-mcp/tsconfig.json`, `tsconfig.json`
+**Detail:** Two structural gaps, each reported by the task that hit it rather than worked around.
+
+1. **`HOP_EVIDENCE` cannot record what task 026 proved.** It is `Record<CensusHop, HopEvidence>` — keyed by **hop**, not by (hop, row). Task 026 upgraded the `cli-surface` and `event-catalog` rows from `declared-row` to live tree measurement, but flipping the hop-level value would claim live evidence for **all eight** rows when six still have none — precisely the over-claim the field was introduced to prevent. 026 correctly left it alone and pinned the three values unchanged. **A genuine upgrade needs a per-row evidence key**, which is a change to task 025's data model.
+2. **`servers/exarchos-mcp/scripts/` is typechecked by nothing.** Both tsconfigs use `include: ["src/**/*"]`, and `**/*.test.ts` is excluded everywhere. **Three separate tasks (020, 021, 026) independently discovered this and each verified their files by hand with a standalone `tsc --noEmit`** under the project's strict flags. That is three agents paying the same tax for a hole none of them was scoped to fix. The guards now living there — `cli-derivation-guard.ts`, `authority-live-proof.ts`, `cli-vocab-guard.ts` — are exactly the enforcement code that most needs type checking.
+
+**Acceptance criteria:**
+- Evidence is recorded per (hop, row), and a row with no live measurement cannot inherit another row's evidence class.
+- `scripts/` is covered by a typecheck that runs in CI; widening `include` may pull in unrelated files, so scope deliberately and say what you included.
+- **Non-empty denominator** on both: an evidence map covering zero rows, or a typecheck resolving zero files, fails rather than passing clean.
+
+**Verification:** medium — scoped tests + `check_test_adequacy`.
+**Dependencies:** 025, 026 · **Parallelizable:** Yes
 
 ### Task 064: `npm run validate` dies at step 1 — 16 gates never run locally
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-24
