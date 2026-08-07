@@ -388,27 +388,40 @@ type WellFormedEvent = {
  * `Declaration`. Making `authority` optional flips this to `false` and fails
  * `tsc`, so "every declaration names an authority" is enforced by the compiler
  * rather than asserted by a reviewer.
+ * @proof
  */
 export type _DeclarationMissingAuthority_FailsCompile = Expect<
   NotAssignable<Omit<WellFormedEvent, 'authority'>, Declaration<'event'>>
 >;
 
-/** Control for the proof above: WITH `authority`, the same record IS assignable. */
+/**
+ * Control for the proof above: WITH `authority`, the same record IS assignable.
+ * @proof
+ */
 export type _DeclarationWithAuthority_Compiles = Expect<
   Assignable<WellFormedEvent, Declaration<'event'>>
 >;
 
-/** `kind` is required — a declaration is never anonymous about its family. */
+/**
+ * `kind` is required — a declaration is never anonymous about its family.
+ * @proof
+ */
 export type _DeclarationMissingKind_FailsCompile = Expect<
   NotAssignable<Omit<WellFormedEvent, 'kind'>, Declaration<'event'>>
 >;
 
-/** `id` is required — a declaration is always addressable. */
+/**
+ * `id` is required — a declaration is always addressable.
+ * @proof
+ */
 export type _DeclarationMissingId_FailsCompile = Expect<
   NotAssignable<Omit<WellFormedEvent, 'id'>, Declaration<'event'>>
 >;
 
-/** `boundTo` is required — "binds nothing" is stated as `[]`, never omitted. */
+/**
+ * `boundTo` is required — "binds nothing" is stated as `[]`, never omitted.
+ * @proof
+ */
 export type _DeclarationMissingBoundTo_FailsCompile = Expect<
   NotAssignable<Omit<WellFormedEvent, 'boundTo'>, Declaration<'event'>>
 >;
@@ -417,6 +430,7 @@ export type _DeclarationMissingBoundTo_FailsCompile = Expect<
  * Authority is SINGULAR. A record naming two authorities does not typecheck, so
  * the G1/G5 "2 authorities on one boundary" defect cannot be expressed within
  * a single declaration.
+ * @proof
  */
 export type _DeclarationPluralAuthority_FailsCompile = Expect<
   NotAssignable<
@@ -432,30 +446,43 @@ export type _DeclarationPluralAuthority_FailsCompile = Expect<
  * any kind into its own interface with an extra field breaks this.
  */
 type FieldsOf<K extends DeclarationKind> = keyof Declaration<K>;
+/** @proof */
 export type _DeclarationEventActionFieldsEqual = Expect<
   Assignable<FieldsOf<'event'>, FieldsOf<'action'>>
 >;
+/** @proof */
 export type _DeclarationActionEventFieldsEqual = Expect<
   Assignable<FieldsOf<'action'>, FieldsOf<'event'>>
 >;
+/** @proof */
 export type _DeclarationActionCliVerbFieldsEqual = Expect<
   Assignable<FieldsOf<'action'>, FieldsOf<'cli-verb'>>
 >;
+/** @proof */
 export type _DeclarationCliVerbActionFieldsEqual = Expect<
   Assignable<FieldsOf<'cli-verb'>, FieldsOf<'action'>>
 >;
 
-/** The declared field list is exactly the envelope's key set — both directions. */
+/**
+ * The declared field list is exactly the envelope's key set — both directions.
+ * @proof
+ */
 export type _DeclarationFieldsMatchType = Expect<
   Assignable<DeclarationField, FieldsOf<DeclarationKind>>
 >;
+/** @proof */
 export type _DeclarationTypeMatchesFields = Expect<
   Assignable<FieldsOf<DeclarationKind>, DeclarationField>
 >;
 
-/** Every kind is an INSTANCE of the one shape — nothing sits outside the union. */
+/**
+ * Every kind is an INSTANCE of the one shape — nothing sits outside the union.
+ * @proof
+ */
 export type _DeclarationEventIsInstance = Expect<Assignable<Declaration<'event'>, AnyDeclaration>>;
+/** @proof */
 export type _DeclarationActionIsInstance = Expect<Assignable<Declaration<'action'>, AnyDeclaration>>;
+/** @proof */
 export type _DeclarationCliVerbIsInstance = Expect<
   Assignable<Declaration<'cli-verb'>, AnyDeclaration>
 >;
@@ -464,6 +491,7 @@ export type _DeclarationCliVerbIsInstance = Expect<
  * Kinds do NOT collapse into each other: an action declaration is not usable
  * where an event declaration is required. This is what makes `Declaration<K>` a
  * family of distinct types rather than one loose record with a label.
+ * @proof
  */
 export type _DeclarationActionIsNotEvent = Expect<
   NotAssignable<Declaration<'action'>, Declaration<'event'>>
@@ -476,6 +504,7 @@ export type _DeclarationActionIsNotEvent = Expect<
  * lands `Declaration<'event', EventRegistration>`. If `subject` were invariant
  * (mutable rather than `readonly`), this would fail and every later wave would
  * force a reshape of this type.
+ * @proof
  */
 export type _DeclarationSubjectWidensToUnknown = Expect<
   Assignable<Declaration<'event', { source: 'auto' }>, Declaration<'event'>>
@@ -485,6 +514,7 @@ export type _DeclarationSubjectWidensToUnknown = Expect<
  * The widened form does NOT narrow back — a consumer holding the seam's
  * `Declaration<'event'>` cannot silently treat the subject like a concrete
  * registration without a guard.
+ * @proof
  */
 export type _DeclarationUnknownDoesNotNarrow = Expect<
   NotAssignable<Declaration<'event'>, Declaration<'event', { source: 'auto' }>>

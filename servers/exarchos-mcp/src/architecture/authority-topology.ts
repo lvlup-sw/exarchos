@@ -1029,7 +1029,10 @@ type WellFormedRow = {
   measured: string;
 };
 
-/** Control: the well-formed row IS a row. */
+/**
+ * Control: the well-formed row IS a row.
+ * @proof
+ */
 export type _RowWellFormed_Compiles = Expect<Assignable<WellFormedRow, AuthorityTopologyRow>>;
 
 /**
@@ -1037,17 +1040,24 @@ export type _RowWellFormed_Compiles = Expect<Assignable<WellFormedRow, Authority
  * the field optional flips this to `false` and fails `tsc`, so "every boundary
  * names a wave" is a compiler guarantee, not a reviewer's promise. The runtime
  * half is `MISSING_ENFORCE_FROM` above; both are required.
+ * @proof
  */
 export type _RowMissingEnforceFrom_FailsCompile = Expect<
   NotAssignable<Omit<WellFormedRow, 'enforceFrom'>, AuthorityTopologyRow>
 >;
 
-/** A row without provenance is not a row — every row states derived or declared. */
+/**
+ * A row without provenance is not a row — every row states derived or declared.
+ * @proof
+ */
 export type _RowMissingProvenance_FailsCompile = Expect<
   NotAssignable<Omit<WellFormedRow, 'provenance'>, AuthorityTopologyRow>
 >;
 
-/** A row without representations is not a row — a boundary binds something. */
+/**
+ * A row without representations is not a row — a boundary binds something.
+ * @proof
+ */
 export type _RowMissingRepresentations_FailsCompile = Expect<
   NotAssignable<Omit<WellFormedRow, 'representations'>, AuthorityTopologyRow>
 >;
@@ -1057,17 +1067,24 @@ export type _RowMissingRepresentations_FailsCompile = Expect<
  * authorities does not typecheck, so the G5 "two authorities on one boundary"
  * defect cannot be smuggled into a resolved row — it must be declared
  * `contested`. Mirrors `_DeclarationPluralAuthority_FailsCompile`.
+ * @proof
  */
 export type _AuthorityPluralInSingleArm_FailsCompile = Expect<
   NotAssignable<{ kind: 'single'; authority: readonly string[] }, BoundaryAuthority>
 >;
 
-/** A `declared` provenance without a rationale does not typecheck. */
+/**
+ * A `declared` provenance without a rationale does not typecheck.
+ * @proof
+ */
 export type _DeclaredProvenanceWithoutReason_FailsCompile = Expect<
   NotAssignable<{ kind: 'declared' }, RowProvenance>
 >;
 
-/** A `bound` representation that does not name what binds it does not typecheck. */
+/**
+ * A `bound` representation that does not name what binds it does not typecheck.
+ * @proof
+ */
 export type _BoundRepresentationWithoutTarget_FailsCompile = Expect<
   NotAssignable<{ kind: 'bound'; how: string }, RepresentationBinding>
 >;
@@ -1078,27 +1095,40 @@ export type _BoundRepresentationWithoutTarget_FailsCompile = Expect<
  * dropped from {@link CONTRACT_BOUNDARIES} without breaking the compile. This is
  * the type-level half of the guarantee whose runtime half is
  * `MISSING_DERIVED_BOUNDARY`.
+ * @proof
  */
 export type _DeclarationKindBoundariesAreBoundaryIds = Expect<
   Assignable<(typeof DECLARATION_KIND_BOUNDARIES)[DeclarationKind], ContractBoundaryId>
 >;
 
-/** Every SDK generation contributes a representation id — total over the seam's union. */
+/**
+ * Every SDK generation contributes a representation id — total over the seam's union.
+ * @proof
+ */
 export type _SdkGenerationsAreTotal = Expect<
   Assignable<SdkGeneration, keyof typeof SDK_GENERATION_REPRESENTATIONS>
 >;
 
-/** …and nothing outside the seam's union sits in the map. */
+/**
+ * …and nothing outside the seam's union sits in the map.
+ * @proof
+ */
 export type _SdkMapAddsNoGenerations = Expect<
   Assignable<keyof typeof SDK_GENERATION_REPRESENTATIONS, SdkGeneration>
 >;
 
-/** The row table is TOTAL over the boundary domain — a boundary with no row fails `tsc`. */
+/**
+ * The row table is TOTAL over the boundary domain — a boundary with no row fails `tsc`.
+ * @proof
+ */
 export type _TopologyCoversEveryBoundary = Expect<
   Assignable<ContractBoundaryId, keyof typeof AUTHORITY_TOPOLOGY>
 >;
 
-/** …and carries no row for a boundary outside the domain. */
+/**
+ * …and carries no row for a boundary outside the domain.
+ * @proof
+ */
 export type _TopologyAddsNoBoundaries = Expect<
   Assignable<keyof typeof AUTHORITY_TOPOLOGY, ContractBoundaryId>
 >;

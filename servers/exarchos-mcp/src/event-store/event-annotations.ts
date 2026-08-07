@@ -1004,6 +1004,7 @@ type Assignable<A, B> = [A] extends [B] ? true : false;
  * DR-2 registration rather than a look-alike. Weakening any value — dropping `consumedBy`, using
  * a rationale outside the closed vocabulary, naming a tenth gate class — fails here, at the
  * table, rather than at a runtime guard nobody ran.
+ * @proof
  */
 export type _EventAnnotations_TableValues_AreRegistrations = Expect<
   Assignable<(typeof EVENT_ANNOTATIONS)[string], EventRegistration>
@@ -1013,6 +1014,7 @@ export type _EventAnnotations_TableValues_AreRegistrations = Expect<
  * The module satisfies the port task 008 opened. If `EventAnnotationSource` ever changes shape,
  * this is where it is felt — not in `eventDeclarations`, which would keep compiling against the
  * default no-op source and silently carry an un-annotated catalog.
+ * @proof
  */
 export type _EventAnnotations_Source_ImplementsThePort = Expect<
   Assignable<typeof ANNOTATED_EVENTS, EventAnnotationSource>
