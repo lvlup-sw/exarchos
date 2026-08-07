@@ -50,12 +50,20 @@ const registerEntryBaseShape = {
   permanent: z.literal(true).optional(),
 };
 
-/** The minimal shared shape every register entry satisfies (before key fields). */
+/**
+ * The minimal shared shape every register entry satisfies (before key fields).
+ *
+ * The two optional fields are `| undefined` deliberately, not decoratively.
+ * `z.infer` of an `.optional()` field is `T | undefined` under
+ * `exactOptionalPropertyTypes`, so without the widening every caller passing a
+ * validated entry into {@link isEntryExpired} — which is every caller — fails to
+ * compile. That was invisible until task 066 brought `scripts/` under `tsc`.
+ */
 export type RegisterEntryBase = {
   owner: string;
   rationale: string;
-  expires?: string;
-  permanent?: true;
+  expires?: string | undefined;
+  permanent?: true | undefined;
 };
 
 /**
@@ -77,10 +85,37 @@ export function makeRegisterSchema<T extends z.ZodRawShape>(keyFields: T) {
   return z
     .object({ ...registerEntryBaseShape, ...keyFields })
     .strict()
-    .refine((entry) => (entry.expires !== undefined) !== (entry.permanent === true), {
-      message:
-        'each entry must set EXACTLY ONE of `expires` (a YYYY-MM-DD review deadline) or `permanent: true`',
-    });
+    .refine(
+      (entry) => {
+        const { expires, permanent } = exemptionFields(entry);
+        return (expires !== undefined) !== (permanent === true);
+      },
+      {
+        message:
+          'each entry must set EXACTLY ONE of `expires` (a YYYY-MM-DD review deadline) or `permanent: true`',
+      },
+    );
+}
+
+/**
+ * Read the XOR pair off a parsed entry.
+ *
+ * The refinement runs on the OUTPUT of a schema built from a generic shape `T`,
+ * whose type Zod cannot reduce to a property bag while `T` is unresolved — so
+ * `entry.expires` does not typecheck at the definition site even though it
+ * always exists at runtime. Reading the two fields reflectively keeps the
+ * refinement's behaviour identical and costs no type assertion; the surrounding
+ * `.object()` is what guarantees their shapes. (Surfaced by task 066, the first
+ * typecheck this tree has ever had.)
+ */
+function exemptionFields(entry: unknown): {
+  readonly expires: unknown;
+  readonly permanent: unknown;
+} {
+  if (typeof entry !== 'object' || entry === null) {
+    return { expires: undefined, permanent: undefined };
+  }
+  return { expires: Reflect.get(entry, 'expires'), permanent: Reflect.get(entry, 'permanent') };
 }
 
 /**

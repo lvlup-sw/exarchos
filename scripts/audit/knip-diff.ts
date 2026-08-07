@@ -41,7 +41,14 @@ export interface KnipViolation {
   /** For `kind === 'file'` this is the file path; otherwise the symbol / dep name. */
   readonly symbol: string;
   readonly file: string;
-  readonly line?: number;
+  /**
+   * `| undefined` deliberately: {@link parseKnipOutput} sets this from
+   * `readLine`, which honestly returns `number | undefined` for a knip finding
+   * that carries no line. Under `exactOptionalPropertyTypes` an explicit
+   * `undefined` is not the same as an absent key, so the field must admit it.
+   * (Surfaced by task 066, the first typecheck this tree has ever had.)
+   */
+  readonly line?: number | undefined;
 }
 
 /** Thrown when knip output cannot be parsed into the expected shape (DR-8). */
@@ -262,7 +269,12 @@ const DEFAULT_INCLUDE = 'files,dependencies,exports,types';
 
 function parseIncludeArg(argv: readonly string[]): string {
   const i = argv.indexOf('--include');
-  return i >= 0 && argv[i + 1] ? argv[i + 1] : DEFAULT_INCLUDE;
+  if (i < 0) return DEFAULT_INCLUDE;
+  // Same truthiness semantics as before (a missing OR empty value falls back),
+  // written so the narrowing survives — `argv[i + 1]` is not a constant index,
+  // so the guard did not narrow the second read. Task 066.
+  const value = argv[i + 1];
+  return value !== undefined && value !== '' ? value : DEFAULT_INCLUDE;
 }
 
 function defaultRunKnip(include: string): KnipRun {
