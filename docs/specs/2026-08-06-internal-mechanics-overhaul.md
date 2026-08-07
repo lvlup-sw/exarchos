@@ -376,6 +376,24 @@ The wiring audit's dominant finding is **shipping a correct mechanism nothing ca
 
 ---
 
+### DR-25: Dispatch shape belongs to the provisioning contract, not orchestrator convention **[new]**
+
+`prepare_review` and `prepare_delegation` emit `posture`, `instruction`, and `provisionedContext` — but **not the dispatch shape** the orchestrator must use to launch the agent. The orchestrator therefore improvises the harness invocation. For a `read-only` posture, where worktree isolation is genuinely pointless, the natural improvisation (`name` without `isolation`) produces an **idle mailbox teammate that never runs the prompt** — the spawn returns success, the agent emits `idle_notification` pings that read like progress, and the review never happens.
+
+This is PDD's *"a fix relies on someone remembering a convention"* row: the correct dispatch shape exists as knowledge, and nothing mechanically requires it. It is also the sharpest possible instance of the program's own thesis — a **provisioning contract that declares a posture it does not bind**.
+
+**Live incident (2026-08-07):** the plan-review panel for *this spec* was provisioned `posture: 'read-only'`, dispatched with `name` and no isolation, and produced three phantom teammates and zero verdicts. `ListAgents` omitted them entirely. Recovery via `SendMessage` also failed; only a fresh anonymous dispatch worked.
+
+**Acceptance criteria:**
+- `prepare_review` and `prepare_delegation` results carry a `dispatch` field naming the required launch shape for the emitted posture: `read-only` → anonymous async (`name` omitted); `task-isolated` → named **plus** worktree isolation; `shared-mutating` → main-worktree, never a subagent.
+- **Totality:** a registry-enumeration test asserts every declared `AgentPosture` has exactly one `dispatch` entry. A posture with no entry fails the suite — the mapping cannot be partial.
+- **Kill fixture:** today's `prepare_review` output, which carries `posture: 'read-only'` and no `dispatch` field, fails that totality test on introduction.
+- The delegate skill references gain a read-only dispatch section. They currently document only worktree-isolated implementers (`workflow-steps.md` agent-teams variant: *"named teammates, each assigned to a worktree"*) and the anonymous async path — read-only dispatch is undocumented, which is the gap the incident fell through.
+- **Error-path criterion:** a `dispatch` shape naming a harness capability the runtime does not declare (e.g. worktree isolation on a runtime without native support) resolves to the declared fallback rather than silently degrading to a shape that does not run the prompt (INV-4 platform agnosticity). A dispatch that cannot be honoured is a typed error, never a silent no-op.
+- **Self-test:** a seeded provisioning result whose `dispatch` contradicts its `posture` (e.g. `read-only` + named-with-isolation) fails the suite, so guard-execution failure cannot pass as success.
+
+**Sequencing note:** this lands in **Wave 1**, not later, because Waves 2–5 of this very program dispatch agents through these verbs. Leaving the contract unbound means the program's own execution keeps hitting the defect it exists to eliminate.
+
 ## Supporting Analysis
 
 ### Obligation map
@@ -470,7 +488,7 @@ Research pre-pass: discovery workflow **`mcp-spec-2026-07-28-migration`** (gathe
 
 ### Scope
 
-**Target:** Partial — **Wave 0 and Wave 1 decomposed to task granularity (tasks 001–027).** Waves 2–5 carry one anchor task per DR (028–045) for provenance, to be re-planned after Wave 1 exit.
+**Target:** Partial — **Wave 0 and Wave 1 decomposed to task granularity (tasks 001–027 and 046–048).** Waves 2–5 carry one anchor task per DR (028–045) for provenance, to be re-planned after Wave 1 exit.
 
 **Excluded, with rationale:** Waves 2–5 are *deliberately* not decomposed in this pass. **DR-6's authority-topology census is the instrument that enumerates the real remediation subjects** — which boundaries have unbound representations, which events lack a consumer hop, which effects lack a coupling. Decomposing Waves 2–5 before that census has run would be fabricating a subject list rather than deriving one, which is precisely the precision-manufacturing PDD warns against ("do not add abstractions, manifests, generators, or test layers without a concrete correctness obligation").
 
@@ -507,6 +525,7 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 | DR-22 | MCP era cutover + Tasks re-platform | 043 *(anchor)* |
 | DR-23 | Invariant amendments | 044 *(anchor)* |
 | DR-24 | Wave sequencing / anti-inertness | 045 *(anchor)* |
+| DR-25 | Dispatch shape belongs to the provisioning contract | 046, 047, 048 |
 
 ### Tasks
 
@@ -756,7 +775,37 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 - `Wave1Exit_EachGuardSelfTest_RunsInSameCiJob` — guard-execution failure cannot pass as success
 - `Wave1Exit_AllGuardsOnUnfilteredPaths` — #1711: a path-filtered gate is skipped-as-passed on the PRs it polices
 **Verification:** high — integration suite + `check_test_adequacy`.
-**Dependencies:** 004, 013, 015, 017, 023, 026 · **Parallelizable:** No
+**Dependencies:** 004, 013, 015, 017, 023, 026, 046, 047 · **Parallelizable:** No
+
+**Wave 1f — DR-25: bind the dispatch shape to the declared posture**
+
+### Task 046: Add a posture-to-dispatch mapping to the two provisioning verbs
+**Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-25
+**Files:** `src/orchestrate/prepare-review.ts`, `src/orchestrate/prepare-delegation.ts`, `src/agents/dispatch-shape.ts`, `src/agents/dispatch-shape.test.ts`
+**Detail:** `dispatch` becomes part of the emitted contract — `read-only` → anonymous async; `task-isolated` → named plus worktree isolation; `shared-mutating` → main worktree, never a subagent. Policy is data the verb reads, not prose in a skill.
+**Tests:**
+- `DispatchShape_EveryDeclaredPosture_HasExactlyOneEntry` — totality over `AgentPosture`
+- `PrepareReview_ReadOnlyPosture_EmitsAnonymousAsyncShape`
+- `DispatchShape_ShapeContradictsPosture_FailsValidation` — self-test: a `read-only` result carrying a named-with-isolation shape is rejected
+**Verification:** medium — scoped tests + `check_test_adequacy`.
+**Dependencies:** None · **Parallelizable:** Yes
+
+### Task 047: Prove today's prepare_review output fails the dispatch totality test
+**Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-25
+**Files:** `src/orchestrate/__tests__/dispatch-shape.kill-fixture.test.ts`
+**Detail:** The kill fixture is the current `prepare_review` result — `posture: 'read-only'` with no `dispatch` field. A guard with no current failing subject has not been shown to work.
+**Tests:**
+- `PrepareReview_CurrentOutput_LacksDispatchField` — fails on introduction
+- `DispatchShape_UnsupportedRuntimeCapability_ReturnsTypedError` — INV-4 fallback, never a silent no-op
+**Verification:** medium — scoped tests + `check_test_adequacy`.
+**Dependencies:** 046 · **Parallelizable:** No
+
+### Task 048: Document read-only dispatch in the delegate skill references
+**Risk Tier:** low · **Boundary Touching:** false · **Implements:** DR-25
+**Files:** `skills-src/delegate/references/workflow-steps.md`, `skills-src/delegate/references/parallel-strategy.md`
+**Detail:** The references cover worktree-isolated implementers and the anonymous async path; read-only dispatch (reviewers, researchers, the `prepare_review` panel) is undocumented — the gap the 2026-08-07 incident fell through. Edit `skills-src/`, run `npm run build:skills`, commit both source and the regenerated tree.
+**Verification:** low — static; `npm run skills:guard` must pass (the generated tree may not drift).
+**Dependencies:** 046 · **Parallelizable:** Yes
 
 #### Waves 2–5 — anchor tasks (re-planned after Wave 1 exit)
 
