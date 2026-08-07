@@ -46,10 +46,18 @@
  * {@link TOOL_REGISTRY}, plus a formatter, so the co-located vitest and any
  * future CLI wrapper share one source of truth.
  */
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { TOOL_REGISTRY } from '../registry.js';
 import { extractEnvelopeDataSchema } from '../orchestrate/worktree/schemas.js';
-import { VACUITY_ALLOWLIST_IDS } from '../output-schema-vacuity-allowlist.js';
+import {
+  VACUITY_ALLOWLIST_IDS,
+  VACUITY_RETIRED_IDS,
+} from '../output-schema-vacuity-allowlist.js';
+import {
+  VACUITY_SEED_DIGEST_ALGORITHM,
+  VACUITY_SEED_KEY_SET_DIGEST,
+} from '../output-schema-seed-pin.js';
 
 /**
  * The census's subject, stated STRUCTURALLY rather than as `CompositeTool`.
@@ -449,6 +457,174 @@ export function auditVacuityAllowlist(
     stale: Object.freeze(stale),
     findings: Object.freeze(findings),
   });
+}
+
+// ─── DR-4 third tooth: the seed key set is pinned (task 060) ────────────────
+//
+// `auditVacuityAllowlist` above compares the allowlist against TODAY, in both
+// directions. What it structurally cannot see is an IN-PLACE SWAP: drop `a`
+// (genuinely paid down) and add `c` (newly vacuous) in the same edit, and every
+// comparison against today's registry agrees. The cardinality is unchanged, so a
+// count cannot see it either; the compile-time waiver union cannot see it
+// because the union IS the edited file.
+//
+// Detecting "only removals happened" requires PRIOR STATE, and prior state is
+// not derivable — it is written down once, in `output-schema-seed-pin.ts`. The
+// quantity pinned is the union of the live allowlist and the retirement
+// graveyard, which is INVARIANT under the one legal edit (a paydown MOVES an
+// entry from one map to the other). So the pin never changes for legitimate
+// work, and any change to it is by construction someone re-seeding.
+//
+// This is deliberately NOT folded into `auditVacuityAllowlist`: that function's
+// seams are driven with synthetic subjects by its tests, and a seed pin over a
+// synthetic subject would be meaningless. `auditVacuityRatchet()` below is the
+// composition that runs all three teeth against the live triple.
+
+/** A condition that means the SEED's key set is no longer the one that was pinned. */
+export type VacuitySeedFinding =
+  | { readonly code: 'SEED_KEY_SET_DRIFT'; readonly message: string }
+  | { readonly code: 'RETIRED_AND_WAIVED'; readonly id: string; readonly message: string };
+
+export interface VacuitySeedIntegrityAudit {
+  /** True when the live key set hashes to the pinned digest and the maps are disjoint. */
+  readonly ok: boolean;
+  /** `|allowlist ∪ retired|` — the seed's size, which legal edits do not change. */
+  readonly keySetSize: number;
+  /** Digest computed from the live key set. */
+  readonly digest: string;
+  /** Digest recorded when the seed was frozen. */
+  readonly pinnedDigest: string;
+  /** Ids present in BOTH maps. A paydown is a MOVE, never a copy. */
+  readonly overlapping: readonly string[];
+  readonly findings: readonly VacuitySeedFinding[];
+}
+
+/**
+ * The seed key set's digest: `sha256` over the sorted, deduplicated ids joined
+ * by newlines.
+ *
+ * Order- and duplicate-insensitive on purpose — the pinned quantity is a SET,
+ * so re-sorting the allowlist literal or writing an id twice must not move the
+ * digest. Only membership does.
+ */
+export function vacuitySeedDigest(ids: readonly string[]): string {
+  const canonical = [...new Set(ids)].sort().join('\n');
+  return createHash(VACUITY_SEED_DIGEST_ALGORITHM).update(canonical, 'utf8').digest('hex');
+}
+
+/**
+ * Audit the seed's key set against its frozen pin.
+ *
+ * All three inputs are injectable for the same reason the census takes `tools`:
+ * the co-located vitest has to pose an in-place swap, and a swap cannot be posed
+ * against the real seed without editing the real seed.
+ *
+ * Two findings:
+ *   • `SEED_KEY_SET_DRIFT` — the union of waived + retired ids no longer hashes
+ *     to the pin. Adding an id trips it; so does deleting one outright instead
+ *     of retiring it. The message says what the legal edit is, because the
+ *     tempting "fix" (regenerate the pin) is the failure this tooth exists to
+ *     prevent.
+ *   • `RETIRED_AND_WAIVED` — an id in both maps. Harmless to the digest (a set
+ *     union absorbs it) and therefore worth catching separately: it means a
+ *     paydown was recorded as a copy rather than a move, which leaves a waiver
+ *     alive for a declaration someone believes is retired.
+ */
+export function auditVacuitySeedIntegrity(
+  waived: readonly string[] = VACUITY_ALLOWLIST_IDS,
+  retired: readonly string[] = VACUITY_RETIRED_IDS,
+  pinnedDigest: string = VACUITY_SEED_KEY_SET_DIGEST,
+): VacuitySeedIntegrityAudit {
+  const findings: VacuitySeedFinding[] = [];
+
+  const waivedSet = new Set(waived);
+  const overlapping = [...new Set(retired)].filter((id) => waivedSet.has(id)).sort();
+  const keySet = [...new Set([...waived, ...retired])].sort();
+  const digest = vacuitySeedDigest(keySet);
+
+  if (digest !== pinnedDigest) {
+    findings.push({
+      code: 'SEED_KEY_SET_DRIFT',
+      message:
+        `The vacuity seed's key set no longer matches its frozen pin: ${keySet.length} ` +
+        `id(s) hash to ${digest}, pinned ${pinnedDigest}. The seed key set is ` +
+        'ALLOWLIST ∪ RETIRED, and it is invariant under every legal edit — paying a ' +
+        'declaration down MOVES its entry from VACUITY_ALLOWLIST to VACUITY_RETIRED, ' +
+        'it does not delete it. A drift therefore means an id was ADDED (new vacuity ' +
+        'smuggled in as a swap, which no comparison against today\'s registry can ' +
+        'see) or DELETED (a paydown recorded as a deletion, which destroys the prior ' +
+        'state this tooth is made of). Do NOT regenerate the pin to go green.',
+    });
+  }
+
+  for (const id of overlapping) {
+    findings.push({
+      code: 'RETIRED_AND_WAIVED',
+      id,
+      message:
+        `'${id}' is in BOTH the vacuity allowlist and the retirement record. A ` +
+        'paydown is a MOVE, not a copy — delete the VACUITY_ALLOWLIST line. Left as ' +
+        'is, the declaration reads as retired while still holding a live waiver.',
+    });
+  }
+
+  return Object.freeze({
+    ok: findings.length === 0,
+    keySetSize: keySet.length,
+    digest,
+    pinnedDigest,
+    overlapping: Object.freeze(overlapping),
+    findings: Object.freeze(findings),
+  });
+}
+
+/** Every finding DR-4's ratchet can raise, from either half. */
+export type VacuityRatchetFinding = VacuityAllowlistFinding | VacuitySeedFinding;
+
+export interface VacuityRatchetVerdict {
+  readonly ok: boolean;
+  readonly membership: VacuityAllowlistAudit;
+  readonly seed: VacuitySeedIntegrityAudit;
+  readonly findings: readonly VacuityRatchetFinding[];
+}
+
+/**
+ * DR-4's ratchet, whole: membership against today PLUS the seed key set against
+ * its pin. Defaults to the live triple, so the production call is
+ * `auditVacuityRatchet()`.
+ *
+ * The two halves are complementary, and neither is sufficient:
+ *   • membership alone is blind to a swap that edits the seed;
+ *   • the pin alone is blind to a waived declaration that stopped being vacuous.
+ * Together the only green path is: fix the schema, then move the entry.
+ */
+export function auditVacuityRatchet(
+  membership: VacuityAllowlistAudit = auditVacuityAllowlist(),
+  seed: VacuitySeedIntegrityAudit = auditVacuitySeedIntegrity(),
+): VacuityRatchetVerdict {
+  const findings: VacuityRatchetFinding[] = [...membership.findings, ...seed.findings];
+  return Object.freeze({
+    ok: membership.ok && seed.ok,
+    membership,
+    seed,
+    findings: Object.freeze(findings),
+  });
+}
+
+/** Render the seed-integrity audit for a human or an agent. */
+export function formatVacuitySeedIntegrityAudit(audit: VacuitySeedIntegrityAudit): string {
+  const lines: string[] = [
+    `outputSchema vacuity seed key set: ${audit.keySetSize} id(s), digest ` +
+      `${audit.digest} vs pinned ${audit.pinnedDigest} — ${audit.ok ? 'OK' : 'FAILED'}.`,
+  ];
+  if (audit.findings.length > 0) {
+    lines.push(`  ${audit.findings.length} finding(s):`);
+    for (const finding of audit.findings) {
+      const subject = 'id' in finding ? ` ${finding.id}:` : '';
+      lines.push(`    [${finding.code}]${subject} ${finding.message}`);
+    }
+  }
+  return lines.join('\n');
 }
 
 /** Render the allowlist audit for a human or an agent. */

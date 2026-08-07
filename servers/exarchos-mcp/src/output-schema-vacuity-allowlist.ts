@@ -14,23 +14,42 @@
 // and the number never moves. Membership cannot be gamed that way — `b` is not
 // on the list, so it fails, and `a`'s entry goes stale the moment it is fixed.
 //
-// ── The two teeth ───────────────────────────────────────────────────────────
+// ── The three teeth ─────────────────────────────────────────────────────────
 //   1. COMPILE TIME. {@link VacuityWaiverId} is the literal union of the keys
 //      below, and `vacuityWaiver()` (in `output-schema-declaration.ts`) accepts
 //      nothing else. A NEW action cannot declare a vacuous `outputSchema` at
 //      all: `EnvelopeSchema(z.unknown())` is unbranded and therefore not
-//      assignable to `ToolAction.outputSchema`, and the waiver escape rejects
-//      any id that is not already seeded here.
-//   2. RUN TIME. `auditVacuityAllowlist()` in
+//      assignable to `BuiltinToolAction.outputSchema`, the out-of-registry
+//      escape now mints a DIFFERENT brand that a registry declaration cannot
+//      use (task 060), and the waiver escape rejects any id that is not already
+//      seeded here.
+//   2. RUN TIME — MEMBERSHIP. `auditVacuityAllowlist()` in
 //      `architecture/output-schema-census.ts` pins this list against the live
 //      census in both directions — an unwaived vacuous declaration fails, and a
 //      waiver whose declaration is no longer vacuous goes STALE and must be
 //      deleted. There is no way to park a paid-down entry here.
+//   3. RUN TIME — KEY-SET INTEGRITY (task 060). Teeth 1 and 2 both compare this
+//      file against TODAY. Neither can see an IN-PLACE SWAP: pay `a` down, make
+//      `c` vacuous, and edit this file to drop `a` and add `c` — every
+//      comparison against today's registry agrees, and the count never moves.
+//      Detecting "only removals happened" needs PRIOR STATE, so
+//      `auditVacuitySeedIntegrity()` pins the union of {@link VACUITY_ALLOWLIST}
+//      and {@link VACUITY_RETIRED} against the frozen digest in
+//      `output-schema-seed-pin.ts`. A paid-down entry MOVES to `VACUITY_RETIRED`
+//      instead of being deleted, so the union is invariant and the pin never
+//      changes for any legal edit.
 //
 // ── How to shrink it ────────────────────────────────────────────────────────
 // Give the action a real `data` schema, declare it with `withCappedShape(...)`,
-// and DELETE its line below. That is the only supported edit. Entries are never
-// added: adding one is what the two teeth above exist to prevent.
+// and MOVE its line from {@link VACUITY_ALLOWLIST} to {@link VACUITY_RETIRED},
+// swapping `expires` for `retiredAt: '<the date you paid it down>'`. That is the
+// only supported edit. Entries are never ADDED to either map: an addition
+// changes the seed key set, and the pinned digest is what makes that a red
+// build rather than a line a reviewer has to notice.
+//
+// If an action is DELETED outright, its waiver is retired the same way — the
+// debt did not get paid, but the declaration is gone, and tooth 2 would
+// otherwise report the waiver stale forever.
 //
 // Owner is derived from the declaring composite tool; the expiry is the seed's
 // uniform horizon. Task 017 enforces the expiry over exactly this shape — the
@@ -42,6 +61,27 @@ export interface VacuityWaiverEntry {
   readonly owner: string;
   /** ISO date (YYYY-MM-DD) after which the waiver is expired. */
   readonly expires: string;
+}
+
+/**
+ * One PAID-DOWN (or deleted) seed entry.
+ *
+ * The graveyard exists for one reason: it keeps the SEED KEY SET invariant. The
+ * pinned digest in `output-schema-seed-pin.ts` is taken over
+ * `keys(VACUITY_ALLOWLIST) ∪ keys(VACUITY_RETIRED)`, so a legal paydown is a
+ * MOVE (digest unchanged) and an illegal addition is a GROWTH (digest changed).
+ * That is the whole difference between "the list shrank" and "the list was
+ * swapped", and it is not derivable from today's registry alone.
+ *
+ * It is not a suppression list. A retired id that is STILL vacuous is not
+ * waived, so `auditVacuityAllowlist` reports it as `UNWAIVED_VACUITY` — moving
+ * an entry here without doing the work fails louder than leaving it alone.
+ */
+export interface VacuityRetiredEntry {
+  /** Team that owned the paydown. Carried over from the waiver. */
+  readonly owner: string;
+  /** ISO date (YYYY-MM-DD) on which the entry left {@link VACUITY_ALLOWLIST}. */
+  readonly retiredAt: string;
 }
 
 export const VACUITY_ALLOWLIST = Object.freeze({
@@ -160,6 +200,24 @@ export const VACUITY_ALLOWLIST = Object.freeze({
 }) satisfies Readonly<Record<string, VacuityWaiverEntry>>;
 
 /**
+ * Seed entries that have LEFT {@link VACUITY_ALLOWLIST} — paid down (the schema
+ * is substantive now) or removed with their action.
+ *
+ * Empty at seeding time, and it grows by exactly one entry for every entry the
+ * allowlist loses. `keys(VACUITY_ALLOWLIST) ∪ keys(VACUITY_RETIRED)` is the
+ * frozen seed key set that `output-schema-seed-pin.ts` pins, which is what makes
+ * an in-place swap a red build instead of a diff a reviewer must catch.
+ *
+ * Deleting from HERE is as illegal as adding: both change the union. When the
+ * allowlist reaches zero, `VacuityWaiverId` becomes `never`, `vacuityWaiver()`
+ * is uncallable, and this whole module — graveyard, pin and all — is deleted in
+ * one commit.
+ */
+export const VACUITY_RETIRED: Readonly<Record<string, VacuityRetiredEntry>> = Object.freeze({
+  // (none yet — nothing has been paid down since the 2026-08 seeding)
+});
+
+/**
  * The literal union of every allowlisted declaration id. This is the type that
  * makes the allowlist SHRINK-ONLY at compile time: {@link vacuityWaiver} takes
  * this union, so an action id that is not already seeded here cannot be waived
@@ -170,4 +228,9 @@ export type VacuityWaiverId = keyof typeof VACUITY_ALLOWLIST;
 /** Every seeded id, sorted — the ratchet's population. */
 export const VACUITY_ALLOWLIST_IDS: readonly string[] = Object.freeze(
   Object.keys(VACUITY_ALLOWLIST).sort(),
+);
+
+/** Every retired id, sorted — the other half of the frozen seed key set. */
+export const VACUITY_RETIRED_IDS: readonly string[] = Object.freeze(
+  Object.keys(VACUITY_RETIRED).sort(),
 );

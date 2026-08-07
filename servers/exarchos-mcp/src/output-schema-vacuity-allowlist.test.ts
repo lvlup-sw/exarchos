@@ -22,10 +22,12 @@
 // `output-schema-vacuity-allowlist.ts` — a static artifact that imports nothing
 // and cannot observe a schema. Authority B is the set of Zod schema OBJECTS the
 // tool registry constructs at module-import time, walked structurally by the
-// census; it cannot observe the data file. Their agreement is the claim; their
-// disagreement is the finding.
+// census; it cannot observe the data file. Authority C (task 060) is the FROZEN
+// PIN `output-schema-seed-pin.ts` — prior state, recorded once, which likewise
+// imports nothing and cannot observe either of the other two. Their agreement is
+// the claim; their disagreement is the finding.
 //
-// @oracle-sources: ./output-schema-vacuity-allowlist.ts, the Zod schema objects the live tool registry constructs at module-import time and the census walks structurally
+// @oracle-sources: ./output-schema-vacuity-allowlist.ts, ./output-schema-seed-pin.ts, the Zod schema objects the live tool registry constructs at module-import time and the census walks structurally
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -34,9 +36,13 @@ import { z } from 'zod';
 import {
   VACUITY_ALLOWLIST,
   VACUITY_ALLOWLIST_IDS,
+  VACUITY_RETIRED,
+  VACUITY_RETIRED_IDS,
 } from './output-schema-vacuity-allowlist.js';
+import { VACUITY_SEED_KEY_SET_DIGEST } from './output-schema-seed-pin.js';
 import {
   isDeclaredOutputSchema,
+  isExtensionOutputSchema,
   withCappedShape,
   vacuityWaiver,
   unregisteredActionOutputSchema,
@@ -44,9 +50,14 @@ import {
 import {
   censusOutputSchemas,
   auditVacuityAllowlist,
+  auditVacuityRatchet,
+  auditVacuitySeedIntegrity,
   formatVacuityAllowlistAudit,
+  formatVacuitySeedIntegrityAudit,
+  vacuitySeedDigest,
 } from './architecture/output-schema-census.js';
 import type { CensusableAction, CensusableTool } from './architecture/output-schema-census.js';
+import { TOOL_REGISTRY } from './registry.js';
 import { EnvelopeSchema } from './schemas/envelope.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -131,6 +142,213 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
       (rhs) => !rhs.startsWith('withCappedShape(') && !rhs.startsWith('vacuityWaiver('),
     );
     expect(unrecognised).toEqual([]);
+  });
+
+  it('OutputSchema_RegistryActionUsingExtensionEscape_FailsCompile', () => {
+    // TASK 060, HOLE 1. Task 055 closed the vacuous EXPRESSION but left
+    // `unregisteredActionOutputSchema()` minting the SAME brand as the two
+    // registry constructors, so a new REGISTRY action could call the
+    // out-of-registry escape and compile. The audit still reported it
+    // (UNWAIVED_VACUITY) — at run time, while DR-4 claims compile time.
+    //
+    // The compile-time claim itself is machine-checked by `npm run typecheck`
+    // over `_OutputSchemaRegistryActionUsingExtensionEscapeFailsCompile` in
+    // `registry.ts` and `_OutputSchemaExtensionEscapeIsNotDeclared` in
+    // `output-schema-declaration.ts` — NON-TEST source, because the package
+    // tsconfig excludes `*.test.ts`. What this test adds is the runtime-
+    // observable half: the split is two distinct brand VALUES on a real symbol
+    // property, so "these are different types" can be checked by looking.
+    const escape = unregisteredActionOutputSchema();
+    expect(isExtensionOutputSchema(escape)).toBe(true);
+    expect(isDeclaredOutputSchema(escape)).toBe(false);
+
+    // …and the split is not "the escape is branded, everything else isn't":
+    // both registry constructors carry the OTHER brand, in both directions.
+    const capped = withCappedShape(EnvelopeSchema(TYPED_DATA));
+    const waived = vacuityWaiver('exarchos_workflow.init');
+    expect(isDeclaredOutputSchema(capped)).toBe(true);
+    expect(isExtensionOutputSchema(capped)).toBe(false);
+    expect(isDeclaredOutputSchema(waived)).toBe(true);
+    expect(isExtensionOutputSchema(waived)).toBe(false);
+
+    // The live registry uses NONE of the escape today. This is the assertion
+    // that reddens if a built-in declaration ever acquires the extension brand,
+    // and its denominator is real rather than an empty filter.
+    const live = TOOL_REGISTRY.flatMap((t) =>
+      t.actions.map((a) => ({ id: `${t.name}.${a.name}`, schema: a.outputSchema })),
+    );
+    expect(live.length).toBeGreaterThan(100);
+    expect(live.filter((a) => isExtensionOutputSchema(a.schema)).map((a) => a.id)).toEqual([]);
+    expect(live.filter((a) => !isDeclaredOutputSchema(a.schema)).map((a) => a.id)).toEqual([]);
+
+    // The `.exarchos.yml` surface was NOT closed by breaking it — closing the
+    // registry path by making the escape unconstructible everywhere would pass
+    // every assertion above and ship a regression. The escape still mints a
+    // usable, vacuous, extension-branded envelope.
+    const envelope = (data: unknown): unknown => ({
+      success: true,
+      data,
+      next_actions: [],
+      _meta: {},
+      _perf: { ms: 1, bytes: 1, tokens: 1 },
+    });
+    expect(escape.safeParse(envelope({ anything: 'goes' })).success).toBe(true);
+    expect(escape.safeParse(envelope(['and', 'so', 'does', 'this'])).success).toBe(true);
+    // …and it is still exactly as vacuous as before, so the census and the
+    // runtime ratchet keep seeing it — the nominal split changed WHO may call
+    // the escape, not what it produces.
+    expect(censusOutputSchemas([tool('custom', [action('run', escape)])]).vacuous).toEqual([
+      'custom.run',
+    ]);
+
+    // The type-level statements are present at the boundaries they govern, and
+    // the registry does not so much as IMPORT the escape. (Scope note: `tsc`
+    // checks the aliases; these assertions only stop a silent deletion of the
+    // guard from reading as a pass here.)
+    const registrySrc = readFileSync(REGISTRY_SRC, 'utf8');
+    expect(registrySrc).toContain('_OutputSchemaRegistryActionUsingExtensionEscapeFailsCompile');
+    expect(registrySrc).toContain('_OutputSchemaExtensionActionIsNotABuiltinDeclaration');
+    expect(registrySrc).toContain('_OutputSchemaRegistryDoorRejectsUnnarrowedTools');
+    // The escape is not imported and not called anywhere in the registry — read
+    // from the CODE lines only, so the prose that explains WHY it is absent is
+    // not mistaken for a use of it.
+    const registryCode = registrySrc.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l));
+    expect(registryCode.length).toBeGreaterThan(1000);
+    expect(registryCode.filter((l) => l.includes('unregisteredActionOutputSchema'))).toEqual([]);
+    // The positive half — without it the negatives would pass vacuously if a
+    // field were narrowed to something nothing can produce, or if the extension
+    // surface were "closed" by deleting it.
+    expect(registrySrc).toContain('_OutputSchemaExtensionEscapeSatisfiesTheExtensionField');
+    expect(registrySrc).toContain('_OutputSchemaCappedShapeSatisfiesTheField');
+    expect(registrySrc).toContain('_OutputSchemaWaiverSatisfiesTheField');
+
+    // The door is the registry constant, not a per-array annotation: the five
+    // action arrays AND `TOOL_REGISTRY` itself are declared with the narrowed
+    // types, so a sixth `readonly ToolAction[]` array cannot be smuggled in.
+    expect(registrySrc).toContain('export const TOOL_REGISTRY: readonly BuiltinCompositeTool[]');
+    expect(registrySrc).not.toMatch(/^const \w+Actions: readonly ToolAction\[\] = \[/m);
+    expect([...registrySrc.matchAll(/^const \w+Actions: readonly BuiltinToolAction\[\] = \[/gm)])
+      .toHaveLength(5);
+
+    const declarationSrc = readFileSync(DECLARATION_SRC, 'utf8');
+    expect(declarationSrc).toContain('_OutputSchemaExtensionEscapeIsNotDeclared');
+    expect(declarationSrc).toContain('_OutputSchemaEscapeIsExtension');
+    // The extension brand's minting function is no more exported than the
+    // registry one — otherwise either brand could be forged onto any schema.
+    expect(declarationSrc).toContain('function declareExtensionOutputSchema(');
+    expect(declarationSrc).not.toContain('export function declareExtensionOutputSchema(');
+  });
+
+  it('OutputSchema_AllowlistIdSwappedInPlace_FailsTheShrinkOnlyCheck', () => {
+    // TASK 060, HOLE 2 — the decision, made executable.
+    //
+    // Every check task 055 shipped compares the allowlist against TODAY. An
+    // in-place swap moves both sides at once: pay `a` down, make `c` vacuous,
+    // and edit the seed to drop `a` and add `c`. Membership agrees in both
+    // directions, the count never moves, and the compile-time waiver union
+    // accepts `c` because the union IS the file that was edited. "Only removals
+    // happened" is not a statement about today; it needs PRIOR STATE.
+    //
+    // The pin in `output-schema-seed-pin.ts` is that prior state, and the
+    // quantity it pins — ALLOWLIST ∪ RETIRED — is invariant under the one legal
+    // edit, so it never has to be regenerated for legitimate work.
+
+    // Baseline: the seed was {a, b}, nothing retired yet.
+    const pinned = vacuitySeedDigest(['t.a', 't.b']);
+    expect(auditVacuitySeedIntegrity(['t.a', 't.b'], [], pinned).ok).toBe(true);
+
+    // THE SWAP. `a` out, `c` in — same cardinality, and the membership audit is
+    // clean against the swapped registry because both halves moved together.
+    const swappedRegistry = censusOutputSchemas([
+      tool('t', [action('a', substantive()), action('b', vacuous()), action('c', vacuous())]),
+    ]);
+    const membership = auditVacuityAllowlist(swappedRegistry, ['t.b', 't.c']);
+    expect(membership.ok).toBe(true);
+    expect(membership.unwaived).toEqual([]);
+    expect(membership.stale).toEqual([]);
+    expect(membership.waived).toHaveLength(2);
+
+    // …and THAT is what the pin catches. Same count, different set.
+    const swapped = auditVacuitySeedIntegrity(['t.b', 't.c'], [], pinned);
+    expect(swapped.ok).toBe(false);
+    expect(swapped.keySetSize).toBe(2);
+    expect(swapped.digest).not.toBe(pinned);
+    expect(swapped.findings.map((f) => f.code)).toEqual(['SEED_KEY_SET_DRIFT']);
+    expect(formatVacuitySeedIntegrityAudit(swapped)).toContain('FAILED');
+    expect(formatVacuitySeedIntegrityAudit(swapped)).toContain('Do NOT regenerate the pin');
+
+    // Composed, the ratchet fails even though its membership half is green —
+    // this is the whole reason the two halves are not the same check.
+    const composed = auditVacuityRatchet(membership, swapped);
+    expect(membership.ok).toBe(true);
+    expect(composed.ok).toBe(false);
+    expect(composed.findings.map((f) => f.code)).toEqual(['SEED_KEY_SET_DRIFT']);
+
+    // THE LEGAL EDIT: pay `a` down and MOVE its entry to the graveyard. The
+    // union is unchanged, so the pin is unchanged — the pin costs nothing on
+    // the happy path, which is what stops it from becoming a regenerate ritual.
+    const paidDown = auditVacuitySeedIntegrity(['t.b'], ['t.a'], pinned);
+    expect(paidDown.ok).toBe(true);
+    expect(paidDown.digest).toBe(pinned);
+    expect(paidDown.keySetSize).toBe(2);
+
+    // Deleting instead of retiring destroys the prior state, so it fails too —
+    // otherwise a swap could be spelled as delete-then-add across two commits.
+    const deletedNotRetired = auditVacuitySeedIntegrity(['t.b'], [], pinned);
+    expect(deletedNotRetired.ok).toBe(false);
+    expect(deletedNotRetired.findings.map((f) => f.code)).toEqual(['SEED_KEY_SET_DRIFT']);
+
+    // Retiring an entry WITHOUT paying it down is not an escape from the
+    // membership half: retired ids are not waivers, so the still-vacuous
+    // declaration comes back as unwaived. The two halves only clear together.
+    const retiredButUnfixed = auditVacuityAllowlist(
+      censusOutputSchemas([tool('t', [action('a', vacuous()), action('b', vacuous())])]),
+      ['t.b'],
+    );
+    expect(retiredButUnfixed.unwaived).toEqual(['t.a']);
+    expect(retiredButUnfixed.ok).toBe(false);
+
+    // An id parked in BOTH maps is absorbed by the set union, so it would be
+    // invisible to the digest alone. It is its own finding.
+    const both = auditVacuitySeedIntegrity(['t.a', 't.b'], ['t.a'], pinned);
+    expect(both.digest).toBe(pinned);
+    expect(both.overlapping).toEqual(['t.a']);
+    expect(both.ok).toBe(false);
+    expect(both.findings.map((f) => f.code)).toEqual(['RETIRED_AND_WAIVED']);
+
+    // The digest is over a SET: re-sorting the literal or writing an id twice
+    // must not move it, or every reformat would look like tampering.
+    expect(vacuitySeedDigest(['t.b', 't.a'])).toBe(pinned);
+    expect(vacuitySeedDigest(['t.a', 't.b', 't.a'])).toBe(pinned);
+    expect(vacuitySeedDigest(['t.a'])).not.toBe(pinned);
+
+    // THE LIVE TRIPLE. The seed is 112 ids across the two maps, it hashes to the
+    // frozen pin, and the pin is a literal in a module that imports nothing —
+    // it cannot have been computed from what it is checking.
+    const liveSeed = auditVacuitySeedIntegrity();
+    expect(liveSeed.keySetSize).toBe(
+      new Set([...VACUITY_ALLOWLIST_IDS, ...VACUITY_RETIRED_IDS]).size,
+    );
+    expect(liveSeed.keySetSize).toBe(112);
+    expect(liveSeed.pinnedDigest).toBe(VACUITY_SEED_KEY_SET_DIGEST);
+    expect(liveSeed.findings).toEqual([]);
+    expect(liveSeed.ok).toBe(true);
+    expect(Object.keys(VACUITY_RETIRED)).toEqual([]);
+
+    // Retired entries carry the owner + ISO paydown date. Vacuous today (empty
+    // retirement record), so the shape is pinned against a constructed entry
+    // rather than asserted over nothing — an empty `every()` is a rubber stamp.
+    const retirementShape = (entry: { owner: string; retiredAt: string }): boolean =>
+      entry.owner.length > 0 && /^\d{4}-\d{2}-\d{2}$/.test(entry.retiredAt);
+    expect(retirementShape({ owner: 'views', retiredAt: '2026-08-07' })).toBe(true);
+    expect(retirementShape({ owner: '', retiredAt: '2026-08-07' })).toBe(false);
+    expect(retirementShape({ owner: 'views', retiredAt: 'soon' })).toBe(false);
+    expect(
+      Object.values(VACUITY_RETIRED).filter((entry) => !retirementShape(entry)),
+    ).toEqual([]);
+
+    // And the whole ratchet is green against the live triple.
+    expect(auditVacuityRatchet().ok).toBe(true);
   });
 
   it('OutputSchema_AllowlistSeed_DerivedFromCensusNotLiteral', () => {

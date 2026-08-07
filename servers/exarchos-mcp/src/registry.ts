@@ -52,7 +52,16 @@ import {
 // not typecheck. See `output-schema-declaration.ts` for the mechanism and
 // `output-schema-vacuity-allowlist.ts` for the shrink-only seed.
 import { withCappedShape, vacuityWaiver } from './output-schema-declaration.js';
-import type { DeclaredOutputSchema } from './output-schema-declaration.js';
+// NOTE (task 060): `unregisteredActionOutputSchema` is deliberately NOT imported
+// here. It is the out-of-registry escape, and this file is the registry. Its
+// absence from this import list is checked textually by
+// `output-schema-vacuity-allowlist.test.ts`; its unusability here is checked by
+// `tsc` via `_OutputSchemaRegistryActionUsingExtensionEscapeFailsCompile` below.
+import type {
+  DeclaredOutputSchema,
+  ExtensionOutputSchema,
+  RegisteredOutputSchema,
+} from './output-schema-declaration.js';
 import type { VacuityWaiverId } from './output-schema-vacuity-allowlist.js';
 // Lifecycle verbs (worktree-lifecycle-verbs) — task-019 shared field shapes +
 // task-008 `inspect` typed output schema. Import shapes from the SoT module so
@@ -621,11 +630,23 @@ export interface ToolAction {
    * expression is unbranded, and the waiver rejects an unseeded id. See
    * `_OutputSchema*` below for the machine-checked statement of that.
    *
+   * TASK 060 widened THIS field — the CONSUMER-facing one — to
+   * {@link RegisteredOutputSchema}, the union of the registry brand and the
+   * out-of-registry extension brand, so dispatch / the MCP adapter / the CLI
+   * adapter / `describe` keep seeing one action type across built-in and
+   * `.exarchos.yml` tools. The narrowing that closes DR-4's first hole moved to
+   * the DECLARATION types: {@link BuiltinToolAction} (what {@link TOOL_REGISTRY}
+   * is declared with) accepts `DeclaredOutputSchema` only, and
+   * {@link ExtensionToolAction} accepts `ExtensionOutputSchema` only. Widening
+   * here is not a loosening of the tooth: nothing can be constructed for this
+   * union that could not already be constructed for one of its members, and no
+   * value of this union type can reach `TOOL_REGISTRY`.
+   *
    * The field is required at the interface boundary; the registration-
    * time validator (`validateAction`) also enforces presence at module
    * load so a malformed declaration fails the import (DIM-3 fail-closed).
    */
-  readonly outputSchema: DeclaredOutputSchema;
+  readonly outputSchema: RegisteredOutputSchema;
   /**
    * DR-1 structural marker for the worktree "DR-10 surface" actions
    * (acquire_worktree, release_worktree, prune_worktrees, serialize_merge, ps,
@@ -659,6 +680,66 @@ export interface CompositeTool {
   readonly slimDescription?: string;
 }
 
+// ─── DR-4 (task 060): the two DECLARATION paths, told apart nominally ────────
+//
+// `ToolAction` / `CompositeTool` above are the CONSUMER types — what dispatch,
+// the adapters and `describe` read. The two types below are the DECLARATION
+// types, and they are the ones that carry DR-4's compile-time tooth.
+//
+// Task 055 closed `outputSchema` vacuity for the built-in registry and then
+// reported the residual: `unregisteredActionOutputSchema()` — the bounded escape
+// for actions whose name is not a compile-time literal — minted the same brand
+// as the two registry constructors, so a NEW registry action could call it and
+// compile. The audit still reported it (`UNWAIVED_VACUITY`), but at run time,
+// while DR-4 claims compile time.
+//
+// The fix is nominal, not a deletion: `.exarchos.yml` custom tools are a
+// SUPPORTED surface and must keep working. The escape now mints
+// `ExtensionOutputSchema`, `ExtensionToolAction` is the type the two extension
+// sites build, and `TOOL_REGISTRY` is declared `readonly BuiltinCompositeTool[]`
+// — so the escape is not merely discouraged in this file, it does not typecheck
+// in it, and the door is the registry constant rather than any single array's
+// annotation (adding a sixth `readonly ToolAction[]` array to TOOL_REGISTRY is
+// itself a compile error).
+
+/**
+ * An action DECLARED in {@link TOOL_REGISTRY}.
+ *
+ * Identical to {@link ToolAction} except that `outputSchema` is narrowed to
+ * {@link DeclaredOutputSchema} — the brand minted only by `withCappedShape`
+ * (substantive) and `vacuityWaiver` (allowlisted). The out-of-registry escape
+ * mints the other brand and is therefore not assignable here.
+ */
+export interface BuiltinToolAction extends ToolAction {
+  readonly outputSchema: DeclaredOutputSchema;
+}
+
+/** A composite tool whose actions are all built-in declarations. */
+export interface BuiltinCompositeTool extends CompositeTool {
+  readonly actions: readonly BuiltinToolAction[];
+}
+
+/**
+ * An action declared OUTSIDE the built-in registry: a `.exarchos.yml` custom
+ * tool (`config/register.ts`) or the oracle registration probe
+ * (`contract/oracle/fixtures.ts`). Its name is a runtime string, so it has no
+ * census id to waive and no compile-time literal to match against the allowlist
+ * union — which is exactly why it needs its own nominal type rather than a
+ * shared escape.
+ *
+ * Assignable to {@link ToolAction}, so an extension action is dispatchable,
+ * registrable and describable exactly like a built-in one. NOT assignable to
+ * {@link BuiltinToolAction}, which is the whole point.
+ */
+export interface ExtensionToolAction extends ToolAction {
+  readonly outputSchema: ExtensionOutputSchema;
+}
+
+/** A composite tool assembled from extension-declared actions. */
+export interface ExtensionCompositeTool extends CompositeTool {
+  readonly actions: readonly ExtensionToolAction[];
+}
+
 // ─── DR-4: vacuity is unconstructible at the ToolAction boundary ─────────────
 //
 // `OutputSchema_NewActionDeclaringVacuous_FailsCompile`, stated where it is
@@ -676,6 +757,10 @@ type NotAssignableTo<A, B> = A extends B ? false : true;
  * action that reaches for it does not compile.
  */
 export type _OutputSchemaNewActionDeclaringVacuousFailsCompile = ExpectTrue<
+  NotAssignableTo<ReturnType<typeof EnvelopeSchema<z.ZodUnknown>>, BuiltinToolAction['outputSchema']>
+>;
+/** …and it is not assignable to the CONSUMER union either, so nothing widened. */
+export type _OutputSchemaNewActionDeclaringVacuousIsNotRegistered = ExpectTrue<
   NotAssignableTo<ReturnType<typeof EnvelopeSchema<z.ZodUnknown>>, ToolAction['outputSchema']>
 >;
 /**
@@ -688,15 +773,55 @@ export type _OutputSchemaNewActionCannotBeWaived = ExpectTrue<
   NotAssignableTo<'exarchos_view.a_brand_new_action', VacuityWaiverId>
 >;
 /**
+ * TASK 060, HOLE 1 — THE ACCEPTANCE CRITERION.
+ * `OutputSchema_RegistryActionUsingExtensionEscape_FailsCompile`, stated where
+ * it is enforced. The out-of-registry escape returns `ExtensionOutputSchema`
+ * (proved in `output-schema-declaration.ts`), and that type does not satisfy a
+ * built-in declaration's `outputSchema`. A new action in this file that reaches
+ * for `unregisteredActionOutputSchema()` does not compile — it no longer merely
+ * reddens the runtime audit.
+ */
+export type _OutputSchemaRegistryActionUsingExtensionEscapeFailsCompile = ExpectTrue<
+  NotAssignableTo<ExtensionOutputSchema, BuiltinToolAction['outputSchema']>
+>;
+/** The same claim one level up: an extension action is not a registry declaration. */
+export type _OutputSchemaExtensionActionIsNotABuiltinDeclaration = ExpectTrue<
+  NotAssignableTo<ExtensionToolAction, BuiltinToolAction>
+>;
+/**
+ * …and the DOOR is the registry constant, not a per-array annotation: a plain
+ * `CompositeTool` (whose actions carry the consumer-facing union) is not a legal
+ * `TOOL_REGISTRY` entry, so a new `readonly ToolAction[]` array cannot be
+ * smuggled in beside the five that exist.
+ */
+export type _OutputSchemaRegistryDoorRejectsUnnarrowedTools = ExpectTrue<
+  NotAssignableTo<CompositeTool, BuiltinCompositeTool>
+>;
+/**
  * And the guarantee is not vacuous — the two blessed constructors DO satisfy
- * the field. Without this line the aliases above would still pass if the field
- * had been narrowed to something nothing at all can produce.
+ * a built-in declaration's field, and the escape DOES satisfy an extension
+ * declaration's. Without these lines the aliases above would still pass if a
+ * field had been narrowed to something nothing at all can produce, and the
+ * `.exarchos.yml` surface could have been "closed" by breaking it.
  */
 export type _OutputSchemaCappedShapeSatisfiesTheField = ExpectTrue<
-  ReturnType<typeof withCappedShape> extends ToolAction['outputSchema'] ? true : false
+  ReturnType<typeof withCappedShape> extends BuiltinToolAction['outputSchema'] ? true : false
 >;
 export type _OutputSchemaWaiverSatisfiesTheField = ExpectTrue<
-  ReturnType<typeof vacuityWaiver> extends ToolAction['outputSchema'] ? true : false
+  ReturnType<typeof vacuityWaiver> extends BuiltinToolAction['outputSchema'] ? true : false
+>;
+export type _OutputSchemaExtensionEscapeSatisfiesTheExtensionField = ExpectTrue<
+  ExtensionOutputSchema extends ExtensionToolAction['outputSchema'] ? true : false
+>;
+/** Both declaration types remain consumable as plain `ToolAction`s. */
+export type _OutputSchemaBuiltinActionIsAToolAction = ExpectTrue<
+  BuiltinToolAction extends ToolAction ? true : false
+>;
+export type _OutputSchemaExtensionActionIsAToolAction = ExpectTrue<
+  ExtensionToolAction extends ToolAction ? true : false
+>;
+export type _OutputSchemaExtensionToolIsACompositeTool = ExpectTrue<
+  ExtensionCompositeTool extends CompositeTool ? true : false
 >;
 
 // ─── Schema Generation ──────────────────────────────────────────────────────
@@ -1090,7 +1215,7 @@ const describeSchema = z.object({
 });
 
 /** Creates a shared describe action definition for composite tools. */
-function makeDescribeAction(waiverId: VacuityWaiverId): ToolAction {
+function makeDescribeAction(waiverId: VacuityWaiverId): BuiltinToolAction {
   return {
     name: 'describe',
     description: 'Return full schemas, descriptions, gate metadata, and phase/role info for specific actions',
@@ -1121,7 +1246,7 @@ const workflowDescribeSchema = z.object({
 });
 
 /** Creates a workflow-specific describe action with topology, playbook, and config support. */
-function makeWorkflowDescribeAction(waiverId: VacuityWaiverId): ToolAction {
+function makeWorkflowDescribeAction(waiverId: VacuityWaiverId): BuiltinToolAction {
   return {
     name: 'describe',
     description: 'Return full schemas, descriptions, gate metadata, and phase/role info for specific actions. Optionally return HSM topology, phase playbooks, or annotated project config.',
@@ -1147,7 +1272,7 @@ const eventDescribeSchema = z.object({
 });
 
 /** Creates a describe action for the event tool that supports both actions, eventTypes, and emissionGuide. */
-function makeEventDescribeAction(waiverId: VacuityWaiverId): ToolAction {
+function makeEventDescribeAction(waiverId: VacuityWaiverId): BuiltinToolAction {
   return {
     name: 'describe',
     description: 'Return schemas for actions and/or event types, or the emission guide. At least one of actions, eventTypes, or emissionGuide must be provided.',
@@ -1340,7 +1465,7 @@ export { CappedDataSchema, withCappedShape } from './output-schema-declaration.j
 
 // ─── Composite Tool: exarchos_workflow ───────────────────────────────────────
 
-const workflowActions: readonly ToolAction[] = [
+const workflowActions: readonly BuiltinToolAction[] = [
   {
     name: 'init',
     description: 'Initialize a new workflow. Auto-emits workflow.started event. For workflowType=oneshot, an optional synthesisPolicy (always | never | on-request) seeds state.oneshot.synthesisPolicy; silently ignored for other workflow types.',
@@ -1623,7 +1748,7 @@ const workflowActions: readonly ToolAction[] = [
 
 // ─── Composite Tool: exarchos_event ─────────────────────────────────────────
 
-const eventActions: readonly ToolAction[] = [
+const eventActions: readonly BuiltinToolAction[] = [
   {
     name: 'append',
     description: 'Append an event to a stream',
@@ -1673,7 +1798,7 @@ const eventActions: readonly ToolAction[] = [
 
 // ─── Composite Tool: exarchos_orchestrate ───────────────────────────────────
 
-const orchestrateActions: readonly ToolAction[] = [
+const orchestrateActions: readonly BuiltinToolAction[] = [
   {
     name: 'task_claim',
     description: 'Claim a task for execution',
@@ -3468,7 +3593,7 @@ const orchestrateActions: readonly ToolAction[] = [
 
 // ─── Composite Tool: exarchos_view ──────────────────────────────────────────
 
-const viewActions: readonly ToolAction[] = [
+const viewActions: readonly BuiltinToolAction[] = [
   {
     name: 'pipeline',
     description: "Aggregated view of active workflows with stack positions, repo-scoped by default to the caller's repo (excludes completed/cancelled unless includeCompleted=true). Returns ≤ 10 compact entries; data.page carries {total, offset, limit, hasMore} and data.scope/data.unscopedTotal report the effective scope and the pre-scope count so hidden rows are perceivable. Pass scope='all' to span every repo, an explicit repoRoot to scope to another repo, or detail=true for the full per-task map.",
@@ -4108,7 +4233,7 @@ const viewActions: readonly ToolAction[] = [
 
 // ─── Composite Tool: exarchos_sync ──────────────────────────────────────────
 
-const syncActions: readonly ToolAction[] = [
+const syncActions: readonly BuiltinToolAction[] = [
   {
     name: 'now',
     description: 'Trigger immediate sync with remote',
@@ -4122,7 +4247,13 @@ const syncActions: readonly ToolAction[] = [
 
 // ─── Tool Registry ──────────────────────────────────────────────────────────
 
-export const TOOL_REGISTRY: readonly CompositeTool[] = [
+// DR-4 (task 060) — the type on THIS constant is the registry's door. Declared
+// `readonly BuiltinCompositeTool[]`, so every action reaching the registry must
+// carry a `DeclaredOutputSchema`: the out-of-registry escape does not typecheck
+// here, and neither does a `readonly ToolAction[]` array smuggled in beside the
+// five below. It stays assignable to `readonly CompositeTool[]`, so no consumer
+// changed.
+export const TOOL_REGISTRY: readonly BuiltinCompositeTool[] = [
   {
     name: 'exarchos_workflow',
     description: 'Workflow lifecycle management — init, read, update, cancel, cleanup, checkpoint, reconcile, and rehydrate workflows',
