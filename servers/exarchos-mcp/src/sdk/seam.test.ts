@@ -43,6 +43,7 @@ import {
   runSdkSeamCensus,
   type SdkImportSite,
 } from '../architecture/sdk-generation-seam.js';
+import { parseModuleSpecifiers } from '../test-helpers/module-specifier-parser.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // src/sdk → servers/exarchos-mcp
@@ -51,11 +52,17 @@ const srcRoot = path.join(packageRoot, 'src');
 
 // ── Fixture specifiers are ASSEMBLED, never written literally ────────────────
 //
+// The original reason no longer holds, and saying so is the point.
 // `LintSdkGenerationMixing_RepoSources_AreNotYetMixed` sweeps every `.ts` file
-// under `src/`, including this one. A literal `from '@modelcontextprotocol/…'`
-// in fixture text would make this file look like a module straddling both
-// generations. Building the specifier at runtime keeps the guard's own test
-// material invisible to the guard without widening its exception list.
+// under `src/`, including this one, and a literal `from '@modelcontextprotocol/…'`
+// in fixture text USED TO make this file look like a module straddling both
+// generations. Task 062 replaced that sweep's text match with a real parse, so
+// fixture text in a template literal is no longer an import site and the
+// assembly is no longer load-bearing.
+//
+// It is retained rather than unwound because it still buys one thing: this file
+// contributes nothing to DR-26's `bypassSiteCount` under EITHER instrument, so
+// the live-tree numbers here cannot drift for a reason internal to the test.
 const SCOPE = '@modelcontextprotocol';
 const v1Specifier = (subpath: string): string => `${SCOPE}/sdk/${subpath}`;
 const v2Specifier = (subpath: string): string => `${SCOPE}/${subpath}`;
@@ -319,7 +326,11 @@ describe('DR-26 — owned SDK seam, generation-branded handles', () => {
     // Both generations are declared dependencies, so "nothing imports either
     // one" is a broken scan (relocated root, renamed seam, dead scanner), never
     // a clean tree.
-    const empty = runSdkSeamCensus({ sites: [], seamModulePresent: true });
+    const empty = runSdkSeamCensus({
+      sites: [],
+      seamModulePresent: true,
+      moduleCount: 400,
+    });
     expect(empty.ok).toBe(false);
     expect(empty.siteCount).toBe(0);
     expect(empty.diagnostics.map((d) => d.code)).toContain('EMPTY_SDK_IMPORT_DENOMINATOR');
@@ -329,6 +340,9 @@ describe('DR-26 — owned SDK seam, generation-branded handles', () => {
     // on everything, so its rejection above says nothing about emptiness."
     const scan = scanLiveTree();
     expect(scan.sites.length).toBeGreaterThan(0);
+    // The population is checked independently of the hits (task 062): once the
+    // migration completes, a low site count stops being evidence of a live scan.
+    expect(scan.moduleCount).toBeGreaterThan(50);
     const live = runSdkSeamCensus(scan);
     expect(
       live.diagnostics.map((d) => d.message),
@@ -377,12 +391,20 @@ describe('DR-26 — owned SDK seam, generation-branded handles', () => {
       line: 3,
       throughSeam: false,
     };
-    const moved = runSdkSeamCensus({ sites: [site], seamModulePresent: false });
+    const moved = runSdkSeamCensus({
+      sites: [site],
+      seamModulePresent: false,
+      moduleCount: 400,
+    });
     expect(moved.ok).toBe(false);
     expect(moved.diagnostics.map((d) => d.code)).toContain('SDK_SEAM_MODULE_MISSING');
 
     // Present but drawing from nothing is a seam in name only.
-    const hollow = runSdkSeamCensus({ sites: [site], seamModulePresent: true });
+    const hollow = runSdkSeamCensus({
+      sites: [site],
+      seamModulePresent: true,
+      moduleCount: 400,
+    });
     expect(hollow.ok).toBe(false);
     expect(hollow.diagnostics.map((d) => d.code)).toContain('SEAM_IMPORTS_NO_SDK');
   });
@@ -397,7 +419,11 @@ describe('DR-26 — owned SDK seam, generation-branded handles', () => {
       line: 10,
       throughSeam: true,
     };
-    const result = runSdkSeamCensus({ sites: [seamV1Only], seamModulePresent: true });
+    const result = runSdkSeamCensus({
+      sites: [seamV1Only],
+      seamModulePresent: true,
+      moduleCount: 400,
+    });
     expect(result.ok).toBe(false);
     const uncovered = result.diagnostics.filter((d) => d.code === 'SEAM_GENERATION_UNCOVERED');
     expect(uncovered.map((d) => (d.code === 'SEAM_GENERATION_UNCOVERED' ? d.generation : ''))).toEqual([
@@ -408,11 +434,19 @@ describe('DR-26 — owned SDK seam, generation-branded handles', () => {
   it('CollectSdkImportSites_SeamAndBypass_AreAttributedApart', () => {
     const source = importFrom(v1Specifier('types.js')) + importFrom(v2Specifier('server'));
 
-    const seamSites = collectSdkImportSites(`src/${SDK_SEAM_MODULE}`, source);
+    const seamSites = collectSdkImportSites(
+      `src/${SDK_SEAM_MODULE}`,
+      source,
+      parseModuleSpecifiers,
+    );
     expect(seamSites.map((s) => s.generation)).toEqual(['v1', 'v2']);
     expect(seamSites.map((s) => s.throughSeam)).toEqual([true, true]);
 
-    const bypassSites = collectSdkImportSites('src/adapters/mcp.ts', source);
+    const bypassSites = collectSdkImportSites(
+      'src/adapters/mcp.ts',
+      source,
+      parseModuleSpecifiers,
+    );
     expect(bypassSites.map((s) => s.throughSeam)).toEqual([false, false]);
   });
 
@@ -432,11 +466,17 @@ describe('DR-26 — owned SDK seam, generation-branded handles', () => {
     const mixed = importFrom(v1Specifier('inMemory.js')) + importFrom(v2Specifier('server'));
 
     // The seam holds both generations by design — that IS "sole importer".
-    expect(lintSdkGenerationMixing(`src/${SDK_SEAM_MODULE}`, mixed)).toEqual([]);
+    expect(
+      lintSdkGenerationMixing(`src/${SDK_SEAM_MODULE}`, mixed, parseModuleSpecifiers),
+    ).toEqual([]);
 
     // Any other module holding both is still a HIGH finding. The exemption is
     // not a hole: it is one named path, and the very next module over fails.
-    const findings = lintSdkGenerationMixing('src/adapters/mcp.ts', mixed);
+    const findings = lintSdkGenerationMixing(
+      'src/adapters/mcp.ts',
+      mixed,
+      parseModuleSpecifiers,
+    );
     expect(findings).toHaveLength(1);
     expect(findings[0]?.severity).toBe('HIGH');
   });
@@ -448,10 +488,21 @@ describe('DR-26 — owned SDK seam, generation-branded handles', () => {
  * Walk the shipped source and attribute every SDK import. The population is
  * derived from the filesystem, never enumerated, so a relocated tree shows up as
  * an empty denominator instead of a clean pass.
+ *
+ * NO SELF-EXCEPTION (task 062). This walk used to skip its own file. That
+ * exception existed because the superseded specifier matcher could not tell a
+ * fixture string from an import, so a test file that merely NAMES both
+ * generations polluted the census — and this file's runtime specifier assembly
+ * was the belt to that exception's braces. The parse makes both unnecessary:
+ * every `.ts` under `src/` is now scanned on the same terms, including this one.
  */
-function scanLiveTree(): { sites: SdkImportSite[]; seamModulePresent: boolean } {
+function scanLiveTree(): {
+  sites: SdkImportSite[];
+  seamModulePresent: boolean;
+  moduleCount: number;
+} {
   const sites: SdkImportSite[] = [];
-  const selfName = path.basename(fileURLToPath(import.meta.url));
+  let moduleCount = 0;
   const walk = (dir: string): void => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
@@ -461,16 +512,21 @@ function scanLiveTree(): { sites: SdkImportSite[]; seamModulePresent: boolean } 
         continue;
       }
       if (!entry.name.endsWith('.ts')) continue;
-      // This file assembles its fixture specifiers at runtime, so it contributes
-      // nothing either way; skipping it keeps that independent of the assembly.
-      if (entry.name === selfName) continue;
+      moduleCount += 1;
       const module = path.relative(srcRoot, full).split(path.sep).join('/');
-      sites.push(...collectSdkImportSites(module, fs.readFileSync(full, 'utf8')));
+      sites.push(
+        ...collectSdkImportSites(
+          module,
+          fs.readFileSync(full, 'utf8'),
+          parseModuleSpecifiers,
+        ),
+      );
     }
   };
   walk(srcRoot);
   return {
     sites,
     seamModulePresent: fs.existsSync(path.join(srcRoot, ...SDK_SEAM_MODULE.split('/'))),
+    moduleCount,
   };
 }
