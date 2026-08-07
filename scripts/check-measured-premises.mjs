@@ -530,17 +530,38 @@ function walkTypeScript(dir, out) {
 }
 
 /**
+ * The owned SDK seam (DR-26, task 052). Nothing under this directory is a
+ * DIRECT-import subject: `sdk/seam.ts` is the sanctioned importer and
+ * `sdk/brand.ts` is its generation vocabulary. Counting them would make the
+ * denominator include the very module that closes it — and would hand task 053
+ * a migration target that must not be migrated.
+ */
+const SDK_SEAM_DIR = `${MCP_SRC}/sdk`;
+
+/**
  * The DR-26 kill-fixture subject: every file that reaches an SDK package
- * directly, tests included. Tests are counted deliberately — DR-26's seam rule
- * forbids the direct import everywhere, and a subject list that quietly omits
- * the test tree would under-report the denominator it exists to prove
- * non-empty.
+ * DIRECTLY — that is, outside the owned seam — tests included. Tests are counted
+ * deliberately: DR-26's seam rule forbids the direct import everywhere, and a
+ * subject list that quietly omits the test tree would under-report the
+ * denominator it exists to prove non-empty.
+ *
+ * KNOWN LIMITATION, recorded rather than silently carried: the match is on raw
+ * text, so a file that only NAMES `@modelcontextprotocol/sdk` in a comment or a
+ * string counts as an import site. That is the same text-versus-parse defect
+ * task 058 corrected in the cast census, one boundary over, and it inflates this
+ * derivation above the true import-site count. Correcting it moves the spec's
+ * literals and belongs with the DR-27 instrument (task 054), not here — the seam
+ * exclusion below is scoped to keeping the derivation's SUBJECT correct, not to
+ * re-opening how it counts.
  */
 function sdkImportFiles(root) {
   const base = path.join(root, ...MCP_SRC.split('/'));
   if (!existsSync(base) || !statSync(base).isDirectory()) return [];
-  return walkTypeScript(base, []).filter((file) =>
-    readFileSync(file, 'utf8').includes('@modelcontextprotocol/sdk'),
+  const seamDir = path.join(root, ...SDK_SEAM_DIR.split('/'));
+  return walkTypeScript(base, []).filter(
+    (file) =>
+      !file.startsWith(`${seamDir}${path.sep}`) &&
+      readFileSync(file, 'utf8').includes('@modelcontextprotocol/sdk'),
   );
 }
 
