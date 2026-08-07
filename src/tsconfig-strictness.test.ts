@@ -90,7 +90,44 @@ describe('DR-14: noUncheckedIndexedAccess ratchet (root)', () => {
   // Lowering the floor here TIGHTENS the ratchet: the new floor is 32 sites
   // stricter than the one it replaces. `nonNull` is untouched at 99 because
   // the refactor removed no non-null assertions.
-  const BASELINE: CastCounts = { nonNull: 99, asCast: 3258, asAny: 3 };
+  //
+  // ===================================================================
+  // MEASUREMENT CORRECTION — NOT A PAYDOWN (task 058, DR-24, 2026-08-07)
+  // ===================================================================
+  // Every number ABOVE this line was produced by the OLD text census and is
+  // NOT comparable to the numbers below it. Read them as a different unit.
+  //
+  // asCast 3258 -> 1753, nonNull 99 -> 78, asAny 3 -> 0. **No type debt was
+  // paid down by that change.** Not one assertion was removed from the tree;
+  // the census stopped counting things that were never assertions. Until
+  // task 058 it matched `\bas\s+…` against RAW SOURCE TEXT, so it scored
+  // English prose in comments, namespace imports and string contents as type
+  // debt. Measured split of the 1505-match drop:
+  //
+  //     -1260  English prose in comments  ("…tracked as a known gap…")
+  //      -140  namespace imports          (`import * as path from …`)
+  //       -68  import/export aliases      (`import { load as yamlLoad }`)
+  //       -60  text inside string/template literals
+  //       +23  literal-type assertions the old regex MISSED
+  //             (`x as 'created' | 'updated'`, `x as 5` — its alternation
+  //              had no branch for a quote or a digit)
+  //
+  // All three surviving `as any` matches were comment prose, so the tree
+  // holds ZERO real `as any`: with DELTA_BUDGET.asAny at 0, the very first
+  // genuine one now fails the gate. `nonNull` fell purely by false-positive
+  // removal — the old regex had no false negatives on that axis.
+  //
+  // Why this had to happen before the rest of the wave: the ceiling and floor
+  // below pin the count into a CLOSED window (see DELTA_BUDGET), so the
+  // wave's real allowance is 5 net new matches across all remaining tasks
+  // combined — and under the text census an ordinary JSDoc sentence could
+  // spend it. The census was itself an instance of this program's defect
+  // class: an instrument that is declared, enforced, and measures a property
+  // other than the one it names. It now counts parsed AST assertion nodes
+  // (`ts.isAsExpression` / `<T>x` / `ts.isNonNullExpression`), so the budget
+  // is denominated in real type debt. See `count-casts.ts` for the mechanism
+  // and for why it now parses instead of pattern-matching.
+  const BASELINE: CastCounts = { nonNull: 78, asCast: 1753, asAny: 0 };
   // Declared budget = MAX escape-hatch sites maintenance work may introduce
   // before the NEXT documented re-baseline. Deliberately tighter than the
   // pre-wave nonNull budget: large additions must re-baseline in the open
@@ -106,6 +143,11 @@ describe('DR-14: noUncheckedIndexedAccess ratchet (root)', () => {
   // legitimately needs more than DELTA_BUDGET new sites re-baselines in the
   // open with provenance recorded above, which is the documented path and the
   // only one that keeps the floor meaningful.
+  //
+  // UNCHANGED by task 058's measurement correction, deliberately. The budget
+  // is no longer a documentation tax now that it is denominated in real
+  // assertions, so 5 buys strictly more genuine headroom than it did before
+  // while gating strictly more real debt.
   const DELTA_BUDGET: CastCounts = { nonNull: 5, asCast: 5, asAny: 0 };
 
   it('FixWave_CastBudget_MeasuredAndWithinDeclaredLimit', () => {
