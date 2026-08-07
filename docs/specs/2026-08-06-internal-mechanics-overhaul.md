@@ -1,6 +1,6 @@
 # Spec: Internal mechanics overhaul — one authority per contract, bound mechanically, IR-shaped
 
-**Date:** 2026-08-06 · **Revised:** 2026-08-07 (rev 4.12) · **Feature:** `internal-mechanics-overhaul` · **Depth:** deep
+**Date:** 2026-08-06 · **Revised:** 2026-08-07 (rev 4.13) · **Feature:** `internal-mechanics-overhaul` · **Depth:** deep
 **Method:** `proof-driven-development` (Design mode) — `~/.agents/skills/proof-driven-development`
 **Baseline:** rebased onto `origin/main`; **every count below is re-derived from the landing branch.**
 
@@ -721,9 +721,9 @@ Research pre-pass: discovery workflow **`mcp-spec-2026-07-28-migration`** (gathe
 
 ### Scope
 
-**Target:** Partial — **Wave 0 and Wave 1 decomposed to task granularity (tasks 001–027, 046–070).** Waves 2–5 carry one anchor task per DR (028–045) for provenance, to be re-planned after Wave 1 exit.
+**Target:** Partial — **Wave 0 and Wave 1 decomposed to task granularity (tasks 001–027, 046–072).** Waves 2–5 carry one anchor task per DR (028–045) for provenance, to be re-planned after Wave 1 exit.
 
-> **Task-ID ranges, since three appends have now widened this.** 001–004 retired (rev 2). 005–027 = the rev-1/rev-3 Wave 1 body, 027 the join point. 028–045 = Waves 2–5 anchors. 046–050 = rev-4 additions (DR-25, DR-0 remainder). 051–070 = tasks *derived from running Wave 1*, each one a defect a shipped task found and reported rather than worked around. That third range is the program working as designed, not scope creep — but it means **the task count is not fixed at plan time**, and any statement of the form "N of M tasks complete" must re-derive M.
+> **Task-ID ranges, since three appends have now widened this.** 001–004 retired (rev 2). 005–027 = the rev-1/rev-3 Wave 1 body, 027 the join point. 028–045 = Waves 2–5 anchors. 046–050 = rev-4 additions (DR-25, DR-0 remainder). 051–072 = tasks *derived from running Wave 1*, each one a defect a shipped task found and reported rather than worked around. That third range is the program working as designed, not scope creep — but it means **the task count is not fixed at plan time**, and any statement of the form "N of M tasks complete" must re-derive M.
 
 **Excluded, with rationale:** Waves 2–5 are *deliberately* not decomposed in this pass. **DR-6's authority-topology census is the instrument that enumerates the real remediation subjects** — which boundaries have unbound representations, which events lack a consumer hop, which effects lack a coupling. Decomposing Waves 2–5 before that census has run would be fabricating a subject list rather than deriving one, which is precisely the precision-manufacturing PDD warns against ("do not add abstractions, manifests, generators, or test layers without a concrete correctness obligation").
 
@@ -760,9 +760,9 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 | DR-21 | Replay and compatibility | 042 *(anchor)* |
 | DR-22 | MCP era cutover + Tasks re-platform | 043 *(anchor)* |
 | DR-23 | Invariant amendments | 044 *(anchor)*, 068 |
-| DR-24 | Wave sequencing / anti-inertness | 045 *(anchor)*, 057, 058, 063, 064, 066, 067, 068, 069, 070 |
+| DR-24 | Wave sequencing / anti-inertness | 045 *(anchor)*, 057, 058, 063, 064, 066, 067, 068, 069, 070, 071 |
 | DR-25 | Dispatch shape belongs to the provisioning contract | 046, 047, 048, 056, 059 |
-| DR-26 | SDK generation seam *(rev 4)* | 052, 053, 062, 065 |
+| DR-26 | SDK generation seam *(rev 4)* | 052, 053, 062, 065, 072 |
 | DR-27 | Measured-premise binding *(rev 4)* | 054, 061 |
 
 > **Matrix reconciled rev 4.10.** Rows for DR-26/DR-27 were absent and tasks 051–066 were unmapped, because the rev-4 tasks were appended without re-deriving this table. `check_plan_coverage` reads it, so its authoring-time **PASS 24/24** was measuring rev 3's task set, not the shipped one. Re-run the gate at 027; do not treat the recorded result as current.
@@ -1235,6 +1235,53 @@ This is R-11 inverted: not "the mechanism ships and nothing calls it", but *"the
 
 **Verification:** medium — scoped tests + kill-probe (both directions).
 **Dependencies:** None *(coordinate with 067, which owns `knip-diff.ts`'s other half)* · **Parallelizable:** Yes
+
+### Task 071: `batch_append` does not validate event data; `append` does
+**Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-24
+**Files:** `servers/exarchos-mcp/src/event-store/`, the `exarchos_event` handlers
+**Detail:** **Measured 2026-08-07 by the orchestrator, against the live store.** `task.completed` registers `evidence` as an **object** — `{type: 'test'|'build'|'typecheck'|'manual', output: string, passed: boolean}`, `additionalProperties: false`. Emitting that event through `append` with `evidence` as a **string** is correctly rejected:
+
+```
+VALIDATION_ERROR: Event data validation failed for type 'task.completed':
+  evidence: Invalid input: expected object, received string
+```
+
+Emitting **the identical payload** through `batch_append` **succeeds**. Six such events are on the `internal-mechanics-overhaul` stream right now (sequences 152–157), each carrying a `string` where the registered schema declares an object. Confirmed by querying them back — the malformed value is what was stored, not a rendering artifact.
+
+**This is the same defect class as task 068's**, one layer down: a schema that exists, is enforced on one write path, and can be bypassed entirely by choosing the other door. It is worse than 068's, in one specific way — 068's duplicate id is caught later by the *reader*, so the damage surfaces. Here the event store is the authoritative record, events are immutable, and **nothing downstream re-validates**, so malformed data is permanent and silent. Every projection over `task.completed.evidence` must now defend against a type the schema says cannot occur.
+
+**Acceptance criteria:**
+- `batch_append` validates each event against its registered schema, with the **same** validator `append` uses — shared, not a second implementation. Two validators is the multiple-authority defect DR-6 exists to detect, and it is how the paths diverged in the first place.
+- **Atomicity is a decision, not an accident.** State whether one invalid event rejects the whole batch or only itself, and make the tests say which. Silently appending the valid subset would trade one silent failure for another.
+- **Kill fixture:** the exact payload above — `task.completed` with a string `evidence` — must fail through `batch_append`. It currently succeeds.
+- **Non-empty denominator:** a batch resolving zero events, or a validator resolving zero registered schemas, fails rather than passing clean.
+- **Do not migrate or rewrite the six existing events.** They are immutable history and the record of this defect. Determine instead whether any projection reads `evidence` and would break on the string form; report what you find.
+
+**Verification:** high — scoped tests + kill-probe + integration over the real store.
+**Dependencies:** None · **Parallelizable:** Yes
+
+### Task 072: Three more near-duplicate lexers, now that a real one exists
+**Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-26
+**Files:** `servers/exarchos-mcp/src/architecture/vcs-ownership.ts`, `servers/exarchos-mcp/src/workflow/admission/remediation-purity.ts`, the `delivery-safety` module, `servers/exarchos-mcp/src/test-helpers/module-lexer.ts`
+**Detail:** Reported by task 065 against its own work. Having replaced `effect-ledger.ts`'s hand-rolled lexer with a real parse behind a caller-supplied port, 065 named three surviving instances of the same construct:
+
+- `architecture/vcs-ownership.ts :: stripComments`
+- `workflow/admission/remediation-purity.ts :: extractImportSpecifiers`
+- `delivery-safety :: maskLiteralsAndComments`
+
+Each is an **eighth-occurrence candidate** of the measure-the-wrong-property pattern. This is not speculative: 065 measured its own subject and found the heuristic wrong in **both** directions — a regex containing a backtick hid a real `node:fs` import from the scan entirely (heuristic 0 specifiers, parse 1), and a nested template substitution made it **invent** an effect that was not there (heuristic 1, parse 0), falsifying that module's own written promise that it "never invents one". 065 also found `import('p').T` type queries miscounted as value imports, and flagged that class as likely present in these three.
+
+**The work is now cheap, which is why it is worth doing:** `src/test-helpers/module-lexer.ts` already exists, already returns both `imports` and `maskedSource` from one parse, and already lives in the only directory both excluded from the effect ledger and inside `tsconfig.json`'s `include`. The port pattern is established.
+
+**Acceptance criteria:**
+- Each of the three either adopts the existing port or is **proven correct against 065's `ADVERSARIAL_SET`** — do not write a fourth adversarial table.
+- **Per-site kill fixture with both numbers asserted.** 065's own rule: a table on which the two instruments never differ fails, rather than silently leaving the port unmotivated. If a site genuinely has no disagreeing input, say so and justify leaving it alone — that is a real possible outcome, not a failure.
+- Check each for the `import('p').T` miscount specifically.
+- **Non-empty denominator** on every scan, and **no cast-budget spend**.
+- The shipped bundle stays byte-identical; 065 verified both `--target=bun` and `--target=node` at 991 modules with matching md5s.
+
+**Verification:** medium — scoped tests + kill-probe per site.
+**Dependencies:** 065 · **Parallelizable:** Yes
 
 ### Task 063: Inventory every Wave-1 guard and prove it is reachable from CI
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-24
