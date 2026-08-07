@@ -1037,6 +1037,20 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 **Verification:** high — type-level + scoped tests + `check_test_adequacy`.
 **Dependencies:** 016 · **Parallelizable:** No *(supersedes 017; re-scope 017 to allowlist expiry enforcement)*
 
+### Task 060: Close the two residual holes in DR-4's compile-time claim
+**Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-4
+**Files:** `servers/exarchos-mcp/src/output-schema-declaration.ts`, `servers/exarchos-mcp/src/output-schema-vacuity-allowlist.ts`, `servers/exarchos-mcp/src/config/register.ts`
+**Detail:** Task 055 made vacuity unconstructible and **reported two holes against its own claim rather than letting them pass.** Both are real and neither is unguarded, but the type system alone does not close them.
+
+1. **`unregisteredActionOutputSchema()` is a compile-time bypass.** `config/register.ts` (custom tools from `.exarchos.yml`) and `contract/oracle/fixtures.ts` (the oracle probe) construct `ToolAction` with no compile-time-known action name, so they cannot use the allowlist union. A **new registry action** could call the same escape and compile. The runtime audit still reports it as `UNWAIVED_VACUITY`, so the failure is detected — but at rung 3, not rung 2, which is a weaker guarantee than DR-4 claims. Close it by making the escape unreachable from the registry construction path (a distinct nominal type for extension-declared actions is the obvious route), **not** by deleting the extension path.
+2. **A swap that edits the allowlist file is not caught by the runtime audit alone.** Detecting "only removals happened" needs prior state. Task 055 deliberately declined a frozen seed or digest pin, on the precedent of the repo's own `LEGACY_SHAPE_DEBT`, leaving the growth tooth as the compile-time union — adding an id means editing a file headed `GENERATED SEED`, which is the reviewable act. **Task 017 owns the decision**: either accept the reviewability argument explicitly, or add the `retiredAt` + key-set digest that closes it fully. Recording it so the choice is made rather than inherited.
+
+**Tests:**
+- `OutputSchema_RegistryActionUsingExtensionEscape_FailsCompile`
+- `OutputSchema_AllowlistIdSwappedInPlace_FailsTheShrinkOnlyCheck` *(only if 017 chooses the digest route)*
+**Verification:** medium — scoped tests + `check_test_adequacy`.
+**Dependencies:** 055 · **Parallelizable:** Yes
+
 ### Task 058: Correct the cast census to measure assertions, not text
 **Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-24
 **Files:** `scripts/tsconfig-strictness/count-casts.ts`, `src/tsconfig-strictness.test.ts`
