@@ -689,7 +689,9 @@ Research pre-pass: discovery workflow **`mcp-spec-2026-07-28-migration`** (gathe
 6. **Does the composite tool pattern survive a remote surface?** `Mcp-Name` exposes 4 tool names for 118 verbs — if v3.2 wants per-verb edge policy, this is the blocker, and it may want deciding before Wave 5 rather than after.
 7. **What exactly should `sdk-import-sites` count?** *(opened rev 4.3 by task 024.)* The claim is bound to a precise derivation — *files under `servers/exarchos-mcp/src` referencing the v1 specifier, **test files included*** — and DR-27 correctly caught it drifting 38 → 40 as this wave added tests that mention the specifier as fixture text. But the **name is ambiguous even though the derivation is pinned**: task 024, measuring non-test files through the seam's own classifier, got 27 and read the difference as a disagreement. Two honest derivations, two different populations, one name.
    - The number that actually matters to DR-26 is the **production migration surface** task 053 must move — non-test files only, currently **16**. A claim that drifts whenever anyone adds a test is noise, and will keep reddening on unrelated work.
-   - **RESOLVED by task 052 (rev 4.4).** Both prior numbers were wrong, for the same underlying reason: the scanner matches **raw text**, so comment mentions count as imports (→ **task 061**). Parsing real specifiers gives **26 files / 13 directories** repo-wide. **The migration backlog task 053 actually owns is 56 bypass import sites across 24 files in 10 directories** under `servers/exarchos-mcp/src`. **Task 053 must not treat "38" as its backlog.** The claim is re-scoped and renamed by task 061, which lands first.
+   - **RESOLVED by tasks 061 + 062 (rev 4.8).** Every prior number was wrong for the same reason: the scanners matched **raw text**, so comment mentions and template-literal fixtures counted as imports (→ tasks **061**, **062**). Task 062 reproduced 061's derivation exactly at 061's own commit and confirmed both the method and the figure.
+   - **Task 053's backlog is 44 bypass sites / 23 files / 9 directories (10 non-test)** at the current tip. It was 46 at 061's commit; **the two-site drop is real work, not an instrument change** — task 051 migrated two sites in `task-store/event-sourced-task-store.ts` behind the seam. **Not 56/24/10, and not 38.**
+   - ⚠️ **This very number is itself an unbound claim, which is a DR-27 gap.** `check-measured-premises.mjs` derives `sdk-import-sites` at **file** granularity only; there is no bound premise for the **site** count. So the figure above is prose, it drifted within five commits, and nothing caught it — task 062 caught it by hand. **Before task 053 runs, either bind the site count or re-derive it at dispatch**; do not read this line as authoritative.
    - **CLOSED by task 061 (rev 4.4).** The scanner now parses import/export specifiers, so a comment mention, a string, or a lint fixture written as a template literal is no longer an import site. Re-derived against this branch, old → new: `sdk-import-sites` **40 → 23**, `sdk-import-directories` **13 → 9**, and the previously-unbound "16 of them production" is now bound as `sdk-import-production-files` **16 → 10**. **The tree did not change; the instrument did** — no migration progress may be read from these numbers. 052's own figures were measured with the seam's `collectSdkImports` regex, which matches specifiers but does **not** exclude comments or literals, so they inherit the defect one level down: its "56 bypass import sites across 24 files in 10 directories" parses as **46 sites across 23 files in 9 directories**, the entire 10-site delta being `architecture/sdk-generation-seam.test.ts`, whose SDK "imports" are the lint's own fixture strings. Its repo-wide "26 files / 13 directories" parses as **26 files / 12 directories**. **Task 053's backlog is 46 sites / 23 files / 9 directories, of which 10 files are non-test — not 56 / 24 / 10, and certainly not 38.** Task 061 did **not** rename or re-scope the claim: renaming would conflate a semantic change with the arithmetic correction, which is exactly what this bullet exists to keep separable.
    - **A separate finding from 024, verified independently and NOT deferred:** the row's prose claims both generations are "imported directly". **That is false.** v2 has **zero** production import sites — the only non-test file naming `@modelcontextprotocol/{core,server}` is `architecture/sdk-generation-seam.ts`, which lists them as *data* for the lint. v1 is imported; v2 is merely installed. Corrected in the row below. Also: `@modelcontextprotocol/client` appears in the seam's v2 list but **is not installed**.
 
@@ -1090,6 +1092,38 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 - `OutputSchema_AllowlistEntrySwapped_FailsRatchet` — shrink-only beats a count threshold
 **Verification:** high — type-level + scoped tests + `check_test_adequacy`.
 **Dependencies:** 016 · **Parallelizable:** No *(supersedes 017; re-scope 017 to allowlist expiry enforcement)*
+
+### Task 064: `npm run validate` dies at step 1 — 16 gates never run locally
+**Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-24
+**Files:** `package.json`, `scripts/validate-plugin.sh`, `.claude-plugin/`, `hooks/hooks.json`
+**Detail:** **Measured 2026-08-07, and it is worse than an inert gate — it is a whole inert *chain*.** `validate` is a 17-step `&&` sequence. Step 1 is `scripts/validate-plugin.sh`, which **fails 4 of 9 checks today** (`.mcp.json` absent; `hooks.json` missing `SessionEnd`; `hooks.json` carries the retired `SessionStart`). Step 17 is `check-measured-premises.mjs`. So **every step after the first never executes locally**, including DR-27's own premise gate.
+
+This is R-11 inverted: not "the mechanism ships and nothing calls it", but *"the caller exists, is invoked, and silently reaches almost none of what it names."* Task 054 wired the premise gate into `ci.yml` separately, so **CI is unaffected** — but anyone treating a local `validate` run as evidence that any gate past step 1 passed is wrong, and has been for some time.
+
+**Acceptance criteria:**
+- The four plugin-packaging failures are fixed, or each is recorded as a deliberate, expiring exception with an owner.
+- **The chain cannot silently truncate again.** Either run every step and aggregate failures rather than short-circuiting, or add a check that the number of steps actually executed equals the number declared. A `&&` chain whose early step is red makes every later gate skipped-as-passed to a human reader — the same #1711 failure the program already fights in CI, one layer up.
+- **Non-empty denominator:** a `validate` run that executes zero gates fails loudly rather than reporting success.
+
+**Verification:** medium — scoped tests + the wiring manifest's self-check.
+**Dependencies:** None · **Parallelizable:** Yes *(coordinate with 063, which owns the CI-side inventory)*
+
+### Task 065: Parse specifiers in `effect-ledger.ts`'s `extractImports` — the seventh occurrence
+**Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-26
+**Files:** `servers/exarchos-mcp/src/architecture/effect-ledger.ts`
+**Detail:** `extractImports` is a hand-rolled comment/string/regex-aware lexer in **shipped `src/`**, and its own header admits the regex-versus-division rule is a heuristic. Seventh candidate occurrence of the measure-the-wrong-property pattern.
+
+**It cannot be fixed the way 058, 061 and 062 were, and that constraint is the interesting part.** Task 062 tested this directly: adding `import ts from 'typescript'` to a module under `architecture/` **fails the effect-ledger census** with `INDETERMINATE_OWNER`, because `typescript` is not in `INERT_DEPENDENCIES`. 062 declined to vet it inert, on an argument that should be preserved: *the ledger's existing inert entries all turn on "the effectful surface is unreachable from what we import", and `import ts` puts `ts.sys` — full filesystem and process access — one property access away.* The module cannot honestly claim inertness for the compiler.
+
+062's own resolution is the precedent: **invert the parse to the caller as a required port**, matching `architecture/import-cycles.ts`, which takes dependency-cruiser JSON rather than running it. The parser implementation lives in `src/test-helpers/`, the only directory both excluded from the effect ledger and inside `tsconfig.json`'s `include`, so it is still typechecked.
+
+**Acceptance criteria:**
+- `extractImports` either takes a parser port or is proven correct against the adversarial set (`//` inside a string, `/* */` inside a template, a regex literal containing a quote, nested template substitution).
+- **Kill fixture:** an input where the heuristic and a real parse disagree, with both numbers asserted.
+- The shipped bundle stays byte-identical — 062 verified its own change that way (`bun build`, 991 modules / 5.16 MB, containing neither parser symbol).
+
+**Verification:** medium — scoped tests + `check_test_adequacy`.
+**Dependencies:** 062 · **Parallelizable:** Yes
 
 ### Task 063: Inventory every Wave-1 guard and prove it is reachable from CI
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-24
