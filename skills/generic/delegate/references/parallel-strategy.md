@@ -16,6 +16,24 @@ Group B (depends on Group A):
 ```
 
 
+## Dispatch Shape by Posture
+
+The launch shape is chosen by **what the agent is allowed to touch**, not by convenience.
+Each provisioning verb emits a `dispatch` field next to `posture` that binds the shape
+(DR-25) — `prepare_delegation` for a mutating wave, `prepare_review` for a reviewer or
+plan-review panel. **Read the shape off that emitted field**, which carries its own
+`requires` and `fallback` so a host can resolve it against the runtime it is actually
+launching on. Nothing in this file is a second source of truth: where prose and an emitted
+`dispatch` disagree, the emitted field wins.
+
+
+When a runtime does not natively support subagent spawn, the emitted `dispatch` resolves
+to its declared `fallback` rather than being improvised: read-only work runs inline in the
+caller's own context (degraded — no longer fresh-context, which the caller must surface),
+and a `task-isolated` wave falls back to an **anonymous** dispatch into the shared
+checkout, serialized by the caller. Deliberately not named-without-isolation: a fallback
+must still run the prompt.
+
 
 
 
