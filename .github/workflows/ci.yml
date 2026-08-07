@@ -833,6 +833,36 @@ jobs:
       - name: Enforcer-wiring gate self-test (DR-8, task 015)
         run: bash scripts/check-enforcer-wiring.test.sh
 
+      # Plugin-packaging gate (task 064, DR-24). Previously reachable ONLY as
+      # step 1 of the `npm run validate` && chain, which no workflow invokes
+      # (class-2 unreachable) — and it was itself RED, so the 8 gates after it
+      # never executed locally either. Measured 2026-08-07: 1 of 9 declared
+      # steps ran. Its expectations now live in
+      # `.claude-plugin/packaging-policy.json`, read at runtime, and the gate is
+      # zero-dependency node (the old bash+jq implementation is a thin wrapper),
+      # so it rides this unfiltered zero-dep prefix and fires on every PR.
+      - name: Plugin-packaging gate (DR-24, task 064)
+        run: bash scripts/validate-plugin.sh
+
+      # DR-10 re-assert for the gate above. Its `.test.ts` runs only in the
+      # path-filtered `test-root` job (which excludes `scripts/**`), so a
+      # scripts-only PR would skip the case that proves the gate can still fail.
+      # This `.test.sh` asserts the fail-closed + non-empty-denominator paths on
+      # THIS unfiltered host. See docs/guides/ci-gate-hosting.md.
+      - name: Plugin-packaging gate self-test (DR-10, task 064)
+        run: bash scripts/validate-plugin.test.sh
+
+      # The aggregating `npm run validate` runner (task 064, DR-24). Runs every
+      # step declared in scripts/validate-manifest.json instead of
+      # short-circuiting, so a red early gate can no longer render the later
+      # ones as skipped-as-passed. `--list` is the cheap reachability proof for
+      # THIS host: it fails when the manifest declares zero steps, which is the
+      # non-empty-denominator tooth. The steps themselves are each wired
+      # individually elsewhere in this job (and in the tsx tail), so running the
+      # whole chain here would only duplicate them.
+      - name: Validate manifest declares a non-empty step list (DR-24, task 064)
+        run: node scripts/run-validate.mjs --list
+
       - name: npm-ci-retry helper tests
         run: bash scripts/npm-ci-retry.test.sh
 
