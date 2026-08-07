@@ -16,6 +16,34 @@ import { resolvePlanReviewDepth, type PlanReviewRung } from '../workflow/phase-k
 import type { DesignDepth } from '../workflow/plan-depth-policy.js';
 import { changedFilesAgainstBase, deriveIntent, persistIntent } from './extract-intent.js';
 import type { WorkflowIntent } from '../workflow/schemas.js';
+import { dispatchShapeFor, type DispatchShape } from '../agents/dispatch-shape.js';
+import type { AgentPosture } from '../agents/types.js';
+
+// ─── DR-25: the posture this verb provisions ────────────────────────────────
+
+/**
+ * Both `prepare_review` paths provision a REVIEWER, and a reviewer mutates
+ * nothing — the posture is `read-only` on the plan-review path and the
+ * code-review path alike.
+ *
+ * Declared once, so the emitted `posture` and the emitted `dispatch` are
+ * derived from the SAME value and cannot drift apart. That is the whole point
+ * of DR-25: before this, `posture` was declared and the launch shape was left
+ * to orchestrator convention, and the convention lost.
+ *
+ * `satisfies` (not a `: AgentPosture` annotation) keeps the `'read-only'`
+ * LITERAL type — which `PlanReviewProvisioning.posture` narrows to — while
+ * still rejecting a typo against the declared posture vocabulary at compile
+ * time. Same idiom as `DISPATCH_PHASE_KIND` in `prepare-delegation.ts`.
+ */
+const REVIEW_POSTURE = 'read-only' satisfies AgentPosture;
+
+/**
+ * The launch shape the orchestrator MUST use for this posture (DR-25):
+ * anonymous async subagent, `name` omitted. Read from the posture table, not
+ * restated here.
+ */
+const REVIEW_DISPATCH: DispatchShape = dispatchShapeFor(REVIEW_POSTURE);
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -163,7 +191,16 @@ const PLAN_REVIEW_INSTRUCTION =
  */
 export interface PlanReviewProvisioning {
   readonly mode: 'plan-review';
-  readonly posture: 'read-only';
+  readonly posture: typeof REVIEW_POSTURE;
+  /**
+   * DR-25: the launch shape the orchestrator MUST use — anonymous async
+   * subagent, `name` omitted. Required, not optional: a provisioning that
+   * declares a posture without binding its dispatch is the defect this field
+   * exists to remove. Carries its own `requires` / `fallback` so a host on a
+   * runtime that cannot honour it resolves the DECLARED fallback rather than
+   * improvising one.
+   */
+  readonly dispatch: DispatchShape;
   readonly adversarial: true;
   readonly instruction: string;
   readonly rung: PlanReviewRung;
@@ -218,7 +255,9 @@ function assemblePlanReviewProvisioning(args: PrepareReviewArgs): PlanReviewProv
   const rung = resolvePlanReviewDepth(args.designDepth);
   return {
     mode: 'plan-review',
-    posture: 'read-only',
+    posture: REVIEW_POSTURE,
+    // DR-25: bound from the SAME literal the posture is emitted from.
+    dispatch: REVIEW_DISPATCH,
     adversarial: true,
     instruction: PLAN_REVIEW_INSTRUCTION,
     rung,
@@ -425,6 +464,12 @@ export async function handlePrepareReview(
       },
       findingFormat: FINDING_FORMAT,
       pluginStatus,
+      // DR-25: the back-of-pipeline code review is dispatched too, and to the
+      // same read-only reviewer — so it carries the same bound pair. Emitting
+      // `posture` without `dispatch` here would leave the identical
+      // improvisation gap the plan-review path just closed.
+      posture: REVIEW_POSTURE,
+      dispatch: REVIEW_DISPATCH,
       // DR-1 (#1593): the derived intent rides along for convenience; the
       // load-bearing contract is its persistence to `artifacts.intent` above.
       // The warning surfaces a fail-soft persist so callers aren't silent.
