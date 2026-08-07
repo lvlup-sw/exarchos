@@ -1,6 +1,6 @@
 # Spec: Internal mechanics overhaul — one authority per contract, bound mechanically, IR-shaped
 
-**Date:** 2026-08-06 · **Revised:** 2026-08-07 (rev 4.10) · **Feature:** `internal-mechanics-overhaul` · **Depth:** deep
+**Date:** 2026-08-06 · **Revised:** 2026-08-07 (rev 4.11) · **Feature:** `internal-mechanics-overhaul` · **Depth:** deep
 **Method:** `proof-driven-development` (Design mode) — `~/.agents/skills/proof-driven-development`
 **Baseline:** rebased onto `origin/main`; **every count below is re-derived from the landing branch.**
 
@@ -721,9 +721,9 @@ Research pre-pass: discovery workflow **`mcp-spec-2026-07-28-migration`** (gathe
 
 ### Scope
 
-**Target:** Partial — **Wave 0 and Wave 1 decomposed to task granularity (tasks 001–027, 046–067).** Waves 2–5 carry one anchor task per DR (028–045) for provenance, to be re-planned after Wave 1 exit.
+**Target:** Partial — **Wave 0 and Wave 1 decomposed to task granularity (tasks 001–027, 046–069).** Waves 2–5 carry one anchor task per DR (028–045) for provenance, to be re-planned after Wave 1 exit.
 
-> **Task-ID ranges, since three appends have now widened this.** 001–004 retired (rev 2). 005–027 = the rev-1/rev-3 Wave 1 body, 027 the join point. 028–045 = Waves 2–5 anchors. 046–050 = rev-4 additions (DR-25, DR-0 remainder). 051–067 = tasks *derived from running Wave 1*, each one a defect a shipped task found and reported rather than worked around. That third range is the program working as designed, not scope creep — but it means **the task count is not fixed at plan time**, and any statement of the form "N of M tasks complete" must re-derive M.
+> **Task-ID ranges, since three appends have now widened this.** 001–004 retired (rev 2). 005–027 = the rev-1/rev-3 Wave 1 body, 027 the join point. 028–045 = Waves 2–5 anchors. 046–050 = rev-4 additions (DR-25, DR-0 remainder). 051–069 = tasks *derived from running Wave 1*, each one a defect a shipped task found and reported rather than worked around. That third range is the program working as designed, not scope creep — but it means **the task count is not fixed at plan time**, and any statement of the form "N of M tasks complete" must re-derive M.
 
 **Excluded, with rationale:** Waves 2–5 are *deliberately* not decomposed in this pass. **DR-6's authority-topology census is the instrument that enumerates the real remediation subjects** — which boundaries have unbound representations, which events lack a consumer hop, which effects lack a coupling. Decomposing Waves 2–5 before that census has run would be fabricating a subject list rather than deriving one, which is precisely the precision-manufacturing PDD warns against ("do not add abstractions, manifests, generators, or test layers without a concrete correctness obligation").
 
@@ -740,7 +740,7 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 | DR-1 | IR-shaped declaration envelope | 005, 006, 007, 008 |
 | DR-2 | Tiered, coupling-typed event registration | 009, 010, 011, 012, 013 |
 | DR-3 | Compile-time event-name grammar | 014, 015 |
-| DR-4 | `outputSchema` non-vacuity | 016, 017, 018, 019, 055, 060 |
+| DR-4 | `outputSchema` non-vacuity | 016, 017, 018, 019, 055, 060, 069 |
 | DR-5 | CLI derivation guard | 020, 021, 022, 023 |
 | DR-6 | Authority-topology census | 024, 025, 026, 027, 066 |
 | DR-7 | Effect ledger | 028 *(anchor)* |
@@ -759,8 +759,8 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 | DR-20 | Catalog disposition | 041 *(anchor)* |
 | DR-21 | Replay and compatibility | 042 *(anchor)* |
 | DR-22 | MCP era cutover + Tasks re-platform | 043 *(anchor)* |
-| DR-23 | Invariant amendments | 044 *(anchor)* |
-| DR-24 | Wave sequencing / anti-inertness | 045 *(anchor)*, 057, 058, 063, 064, 066, 067 |
+| DR-23 | Invariant amendments | 044 *(anchor)*, 068 |
+| DR-24 | Wave sequencing / anti-inertness | 045 *(anchor)*, 057, 058, 063, 064, 066, 067, 068, 069 |
 | DR-25 | Dispatch shape belongs to the provisioning contract | 046, 047, 048, 056, 059 |
 | DR-26 | SDK generation seam *(rev 4)* | 052, 053, 062, 065 |
 | DR-27 | Measured-premise binding *(rev 4)* | 054, 061 |
@@ -932,7 +932,50 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 **Files:** `.exarchos/invariants.md` (INV-17 `audit-prompt`) via `/exarchos:invariants`
 **Detail:** A vacuous declaration is a violation of the precondition INV-17 names — not a pass. **Do not hand-edit catalog YAML.**
 **Verification:** low — static (catalog schema validation).
-**Dependencies:** 016 · **Parallelizable:** Yes
+**Dependencies:** 016, **068, 069** · **Parallelizable:** Yes
+
+> **BLOCKED on dispatch, 2026-08-07 — two prerequisites discovered, both verified by the orchestrator.** The dispatched agent declined to hand-edit the catalog and reported instead; its branch is at parity with base, zero commits. That was the correct call and it surfaced a defect pair worth more than the task.
+>
+> 1. **There is no sanctioned way to amend an existing entry.** `invariants_add` is append-only (`appendEntryToCatalog` calls only `YAMLSeq.add`), and no `invariants_update` / `_amend` / `_edit` / `_remove` verb exists. The `/exarchos:invariants` skill's own anti-pattern table forbids hand-writing YAML. So every sanctioned surface is closed, and **catalog entries are effectively immutable once committed** — which makes DR-23's whole "invariant amendments" line item unreachable, not just this task. → **task 068**
+> 2. **The field being amended has no instructed reader.** `auditPrompt` is rendered from the catalog (probe: 21/21 entries projected, INV-17 present) and returned at `check-invariant-conformance.ts:371`. Confirmed independently: it appears in exactly five files repo-wide, four of them `.test.ts`. It *does* reach the MCP caller — but the action declares `outputSchema: vacuityWaiver('exarchos_orchestrate.check_invariant_conformance')`, so it arrives through a schema constraining nothing, and no skill, command, rule or doc tells anyone to read it. **The anti-vacuity audit prompt is delivered through a vacuous output schema.** → **task 069**
+>
+> Amending INV-17 before both land would ship a correction nothing is directed to act on — R-11, this program's declared dominant risk, in the very task meant to close a vacuity hole. **Re-dispatch 019 after 068 and 069.** Note 027's exit does not depend on 019, so this does not block the wave exit.
+
+### Task 068: An amend path for the invariant catalog, and write-time id uniqueness
+**Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-23, DR-24
+**Files:** `servers/exarchos-mcp/src/orchestrate/invariants/add.ts`, `servers/exarchos-mcp/src/registry.ts`, `skills-src/invariants/SKILL.md`
+**Detail:** Two defects, one root: **the catalog's write path is weaker than its own read path.**
+
+1. **No amend verb.** Every correction to a shipped entry is unreachable through the sanctioned surface.
+2. **`invariants_add` accepts a colliding explicit `id` and silently appends a duplicate** (`add.ts:320-322` honors `args.id` with no membership test). It returns `success: true` with an append diff. Committing that authors a file the loader then **refuses to read** — `invariants-loader.ts:344` throws `Duplicate invariant ID`. A writer that can produce a document its own reader rejects is the defect class this program exists to remove, and it is independently worth fixing even if the amend verb never lands.
+
+**Acceptance criteria:**
+- An id-targeted, field-scoped amendment is reachable through a verb, `dryRun`-first, emitting an event so the change is auditable. Amending is not re-scaffolding: the entry's identity and un-named fields must survive.
+- **Write-time validation is at least as strong as read-time.** A colliding `id` fails at write. Derive the check from the loader's uniqueness rule rather than restating it — two independent copies of one rule is the multiple-authority defect DR-6 exists to detect.
+- **Kill fixture:** the exact probe that exposed this — `invariants_add` with explicit `id: "INV-17"` against a catalog already containing INV-17 — must FAIL. It currently returns `success: true`.
+- **Non-empty denominator:** a uniqueness check resolving zero existing entries fails rather than passing clean.
+- The skill's anti-pattern table is updated so "route mutations through `invariants_add`" stops being unsatisfiable for an amendment.
+
+**Verification:** medium — scoped tests + kill-probe.
+**Dependencies:** None · **Parallelizable:** Yes
+
+### Task 069: Give the audit-mode path an instructed reader, and type the gate that carries it
+**Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-4, DR-24
+**Files:** `servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts`, `servers/exarchos-mcp/src/registry.ts`, the DR-4 allowlist data file, `skills-src/` as needed
+**Detail:** `check_invariant_conformance` computes `auditPrompt` and returns it, but `findings[]` are produced only from `mode: 'check'` combinator trees — so an **`audit`-mode invariant contributes text to a field no skill mentions and no formatter renders.** INV-17 is audit-mode. This is why task 019 is blocked: correcting its prompt would change a string nobody is directed to read.
+
+The second half is the sharper one. The action declares `outputSchema: vacuityWaiver(...)`, so the field crosses the boundary **untyped** — a consumer could not rely on its presence or shape even if instructed to read it. The conformance gate for a catalog containing the anti-vacuity invariant is itself on the vacuity allowlist.
+
+**Acceptance criteria:**
+- An audit-mode invariant's prompt reaches a reader that is **instructed to act on it** — a skill or command step, not merely a field on a returned object. State the consumer by file and line.
+- `check_invariant_conformance` gets a substantive `outputSchema` via the sole substantive constructor (`withCappedShape`), and its `vacuityWaiver` entry is **removed** from the allowlist. Removal is a *shrink*, which the shrink-only ratchet permits; adding or swapping is not.
+- **Non-empty denominator:** an audit projection resolving zero applicable entries fails rather than rendering an empty prompt that reads as a clean audit.
+- **Kill fixture:** an audit-mode invariant whose prompt is never surfaced must be detectable — prove the new path RED against the current state before wiring it.
+
+> **Sequencing:** hold until task 017 lands. 017 is concurrently editing the DR-4 allowlist data file, and 069 removes an entry from it.
+
+**Verification:** medium — scoped tests + kill-probe.
+**Dependencies:** 017 · **Parallelizable:** No
 
 **Wave 1d — DR-5: CLI derivation guard (G1)**
 
