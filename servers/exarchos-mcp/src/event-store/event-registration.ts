@@ -161,7 +161,27 @@ export type SubstrateRationale =
   /** Records the outcome of the store's own concurrency control (CAS, circuit, retry). */
   | 'concurrency-outcome'
   /** The store's compensation/rollback bookkeeping — the INV-9 compensation contract. */
-  | 'compensation-record';
+  | 'compensation-record'
+  /**
+   * The durable record a handler writes of the non-idempotent operation it is performing,
+   * appended INSIDE the operation rather than by a caller — the INV-13 intent/result split
+   * (`*.requested` before the effect, `*.executed` after it) and the operation-audit records
+   * that follow the same rule.
+   *
+   * **Added by task 010, using the extension licence this doc block grants above, because the
+   * catalog forced it.** 66 of the 170 registrations are handler-owned records with NO consumer
+   * fold anywhere in `views/`, `projections/`, or `telemetry/`. `capability` cannot hold them —
+   * `consumedBy` is a non-empty tuple on purpose — and none of the five original rationales names
+   * a mechanism outside the store's own machinery. Without this member those 66 have no
+   * constructible variant at all, which would have made task 010 unshippable rather than making
+   * a finding visible.
+   *
+   * This is the WEAKEST weld in the union and it is deliberately named so it reads that way: it
+   * says only "the code performing the operation owns the append", which is the emission-axis
+   * claim (`auto`) and nothing more. It is the population task 013's G3 successor should look at
+   * next — see the module header of `event-annotations.ts`.
+   */
+  | 'operation-record';
 
 /**
  * The effect provider whose effect this `capability` event is welded to. Resolvable against
@@ -262,12 +282,14 @@ export const SUBSTRATE_RATIONALES: readonly [
   'session-lifecycle',
   'concurrency-outcome',
   'compensation-record',
+  'operation-record',
 ] = [
   'transition-record',
   'append-path',
   'session-lifecycle',
   'concurrency-outcome',
   'compensation-record',
+  'operation-record',
 ];
 
 /** {@link ReconcilerId} as data. Task 032 (DR-11) extends BOTH halves or neither. */
@@ -386,9 +408,20 @@ export type EventRegistration = {
  * The total tier -> emission-source map. Total over {@link EventTier} by type, so a new tier
  * cannot be added without deciding what emits it.
  *
- * These are the coupling claims each tier makes, and task 011 — which wires this into
- * `EVENT_EMISSION_REGISTRY` — is where they meet the 170 live registrations. Task 011 changes
- * VALUES in this record; it does not change its shape.
+ * These are the coupling claims each tier makes, and task 010 — which annotated the 170 live
+ * registrations against them — is where they first met a real population. Task 010 changed
+ * VALUES in this record; it did not change its shape.
+ *
+ * **Measured against the catalog by task 010 (see `event-annotations.ts` for the annotations
+ * that constitute the measurement):**
+ *
+ * | tier | members | verdict |
+ * |---|---|---|
+ * | `substrate` | 95 | `'auto'` VALIDATED — every active one declares `auto` |
+ * | `capability` | 50 | `'auto'` VALIDATED for every active one except `benchmark.completed` |
+ * | `observation` | **0** | UNVALIDATABLE — DR-11's reconcilers do not exist yet |
+ * | `judgment` | 7 | `'model'` VALIDATED — all seven declare `model` |
+ * | `workflow-local` | 18 | `'model'` — CHANGED from `'auto'` by task 010; see below |
  */
 export const EMISSION_SOURCE_BY_TIER: Readonly<Record<EventTier, EmissionSource>> = Object.freeze(
   {
@@ -398,13 +431,37 @@ export const EMISSION_SOURCE_BY_TIER: Readonly<Record<EventTier, EmissionSource>
     capability: 'auto',
     // Reconcilers fire at boundaries — session start, phase transition, launcher
     // spawn/teardown (DR-12: "boundary hook", no timer and no daemon).
+    //
+    // UNCHANGED BY TASK 010, AND DELIBERATELY SO. This tier has ZERO members in the live
+    // catalog: DR-11's `Reconciler<S>` and its `divergence.detected` event are task 032's
+    // work, and the one registration that declares `'hook'` today
+    // (`benchmark.completed`) is measurably NOT a reconciler event — it names none of the
+    // three DR-11 subjects and has no emitter anywhere in the tree. So nothing in the
+    // catalog can validate this value in EITHER direction, and rewriting it to `'auto'`
+    // on the strength of the `subagent.tokens_used` precedent would have substituted one
+    // unvalidated judgment for another. It is left as task 009 wrote it, and named here as
+    // the one entry task 010 could not measure.
     observation: 'hook',
-    // The model composes the verdict CONTENT; the gate owns the append. This is the only tier
-    // that derives 'model', which is what leaves the report-coupled census a real subject to
-    // shrink (G3) instead of a vacuously empty one.
+    // The model composes the verdict CONTENT; the gate owns the append.
+    //
+    // VALIDATED, but NOT sufficient on its own — the correction task 010 measured. Task 009
+    // expected this to be the only tier deriving 'model' and therefore to carry all 25
+    // report-coupled registrations. Only 7 of the 25 can name a `SupportedGateClass` that
+    // carries their verdict; the other 18 are emitted from a model-walked runbook step with
+    // no gate anywhere near them, and annotating those `judgment` would have planted 18
+    // welds naming a gate that never appends the event. Those 18 are `workflow-local`.
     judgment: 'model',
-    // The owning workflow definition's transition machinery appends it.
-    'workflow-local': 'auto',
+    // CHANGED FROM 'auto' BY TASK 010 — measured, not inherited.
+    //
+    // `'auto'` was unvalidatable: no built-in event is owned by a user `ExarchosConfig.workflows`
+    // definition, so on task 009's reading this tier had zero members and its value was a guess.
+    // The catalog does hold the coupling, one level down. `PHASE_EXPECTED_EVENTS`
+    // (`orchestrate/check-event-emissions.ts`) is a live, mechanically-checked authority that
+    // maps model-emitted events to the workflow PHASE that owns them, and its own header states
+    // why they stay model-emitted: "their transition site is a model-walked runbook step
+    // bracketing a `native:` harness tool". A workflow definition's step composing the emission
+    // IS what `source: 'model'` records, so `'model'` is the measured value.
+    'workflow-local': 'model',
   },
 );
 
