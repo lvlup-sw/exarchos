@@ -16,6 +16,8 @@ import * as path from 'node:path';
 import {
   GOVERNED_SOURCES,
   REPO_ROOT,
+  ALLOWLIST_PATH,
+  KILL_FIXTURE_COMMANDS,
   scanGovernedSources,
   scanSourceForCommandSites,
   findDerivationViolations,
@@ -141,5 +143,114 @@ describe('cli-derivation-guard (DR-5 / G1)', () => {
     expect(() => scanSourceForCommandSites('const x = (;', 'broken.ts')).toThrow(
       /did not parse cleanly/,
     );
+  });
+
+  // ─── DR-5 kill fixture (task 021) ──────────────────────────────────────────
+  //
+  // `merge_orchestrate` is declared TWICE: as a registry action carrying
+  // `posture: 'shared-mutating'`, and by hand as `.command('merge-orchestrate')`
+  // in the composition root. That duplication is the finding. The registry
+  // declaration is the survivor; the hand-written command is DELETED by DR-5's
+  // remediation, not exempted.
+  //
+  // These two tests exist because an earlier revision of the policy allowlisted
+  // `merge-orchestrate`, neutralizing the very rejection DR-5 requires. The
+  // guard is not demonstrated by running — only by rejecting a real, currently
+  // present subject.
+
+  it('CliDerivationGuard_MergeOrchestrateLiteral_IsRejected', () => {
+    // The LIVE composition root on disk — not a synthetic fixture. Anything
+    // proven here is proven about the shipped `cli.ts`.
+    const scan = scanGovernedSources();
+
+    const sites = scan.literals.filter((s) => s.name === 'merge-orchestrate');
+    expect(sites).toHaveLength(1);
+    const site = sites[0];
+    if (site === undefined) throw new Error('unreachable: length asserted above');
+
+    expect(site.kind).toBe('literal');
+    expect(site.expression).toBe("'merge-orchestrate'");
+    expect(site.file).toBe('servers/exarchos-mcp/src/adapters/cli.ts');
+
+    // Anchor the parser's report to the live TEXT: the hand-written call is
+    // still physically present. This doubles as the standing proof that DR-5's
+    // remediation (deleting it) has NOT happened yet — the guard therefore has
+    // a real failing subject rather than a hypothetical one.
+    const lines = readFileSync(governedSourcePath(), 'utf8').split('\n');
+    const literalLine = lines.findIndex((l) => l.includes(".command('merge-orchestrate')")) + 1;
+    expect(literalLine).toBeGreaterThan(0);
+    // The reported line anchors the head of the chained call (`program`), which
+    // may sit above the `.command(...)` continuation line — hence `<=`, not `===`.
+    expect(site.line).toBeLessThanOrEqual(literalLine);
+
+    // Rejected under the shipped allowlist.
+    const reported = findDerivationViolations(scan, readAllowlist());
+    expect(reported.map((v) => v.name)).toContain('merge-orchestrate');
+
+    // THE DECISIVE ASSERTION. Today the allowlist is empty, so "is rejected"
+    // would hold for any name at all — a vacuous pass. Bless the other ten
+    // literals (the tracked debt this allowlist exists to carry) and the kill
+    // fixture must be the ONLY survivor. This is what distinguishes a real
+    // exclusion from an accident of the allowlist being empty right now, and it
+    // is the assertion that goes red if a later wave populates the allowlist
+    // and quietly includes `merge-orchestrate`.
+    const otherTen = new Set(
+      EXPECTED_HAND_WRITTEN_LITERALS.filter((n) => n !== 'merge-orchestrate'),
+    );
+    expect(otherTen.size).toBe(10);
+    const survivors = findDerivationViolations(scan, otherTen);
+    expect(survivors.map((v) => v.name)).toEqual(['merge-orchestrate']);
+
+    // And the exclusion is a MECHANISM, not data: handing the guard an
+    // allowlist that names the kill fixture does not suppress it.
+    const withKillFixtureAllowed = new Set([...otherTen, 'merge-orchestrate']);
+    const stillRejected = findDerivationViolations(scan, withKillFixtureAllowed);
+    expect(stillRejected.map((v) => v.name)).toEqual(['merge-orchestrate']);
+
+    // The failure message must tell the reader the remedy is DELETION, not an
+    // exemption — otherwise the next author reaches for the allowlist again.
+    const detail = stillRejected[0]?.detail ?? '';
+    expect(detail).toContain('not allowlistable');
+    expect(detail).toMatch(/[Dd]elete the hand-written command/);
+  });
+
+  it('CliDerivationGuard_MergeOrchestrate_IsAbsentFromTheAllowlist', () => {
+    // (1) Absence in the shipped POLICY DATA, read as raw JSON rather than
+    // through `readAllowlist` — the parsed view now refuses such a file, so
+    // checking only the parsed view could never observe the entry.
+    const rawAllowlist: unknown = JSON.parse(
+      readFileSync(path.join(REPO_ROOT, ALLOWLIST_PATH), 'utf8'),
+    );
+    const allowedRaw =
+      typeof rawAllowlist === 'object' && rawAllowlist !== null
+        ? Reflect.get(rawAllowlist, 'allowed')
+        : undefined;
+    expect(Array.isArray(allowedRaw)).toBe(true);
+    expect(allowedRaw).not.toContain('merge-orchestrate');
+
+    // (2) Absence in the parsed view.
+    expect([...readAllowlist()]).not.toContain('merge-orchestrate');
+
+    // (3) The name is registered as a kill fixture, so the exclusion is
+    // declared policy rather than an omission nobody wrote down.
+    expect(KILL_FIXTURE_COMMANDS).toContain('merge-orchestrate');
+
+    // (4) THE TOOTH. A future well-meaning addition must FAIL. Assertions (1)
+    // and (2) alone are satisfied by an empty file and would be satisfied
+    // again by a file that simply had not been edited yet; they cannot show
+    // that adding the entry is rejected. Seed an allowlist that grants the
+    // exemption and confirm the guard refuses the file outright — loudly,
+    // rather than silently dropping the entry, because a silently ignored
+    // allowlist line reads to its author as granted.
+    const root = mkdtempSync(path.join(tmpdir(), 'imo-021-'));
+    const abs = path.join(root, ALLOWLIST_PATH);
+    mkdirSync(path.dirname(abs), { recursive: true });
+    writeFileSync(abs, JSON.stringify({ allowed: ['doctor', 'merge-orchestrate'] }), 'utf8');
+    expect(() => readAllowlist(root)).toThrow(/allowlists the kill fixture/);
+
+    // The same file WITHOUT the kill fixture is accepted — so the rejection is
+    // specific to the excluded name, not a guard that refuses every allowlist.
+    writeFileSync(abs, JSON.stringify({ allowed: ['doctor'] }), 'utf8');
+    expect([...readAllowlist(root)]).toEqual(['doctor']);
   });
 });

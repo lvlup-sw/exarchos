@@ -12,7 +12,15 @@
     "Populating this list, and enforcing that it may only ever SHRINK (an entry may",
     "leave, none may arrive), is a separate deliverable and is deliberately not",
     "implemented by the guard yet. Until then the guard reads this file but nothing",
-    "ratchets it."
+    "ratchets it.",
+    "",
+    "KILL FIXTURE — DO NOT ADD 'merge-orchestrate' HERE. It is the guard's live",
+    "failing subject: merge_orchestrate is declared BOTH as a registry action (with",
+    "posture: 'shared-mutating') and by hand in cli.ts. An earlier revision of this",
+    "policy allowlisted it, which neutralized the exact rejection DR-5 requires. The",
+    "guard now REFUSES to read this file at all if the name appears (see",
+    "KILL_FIXTURE_COMMANDS in cli-derivation-guard.ts). The remedy is to delete the",
+    "hand-written .command('merge-orchestrate') call, never to exempt it."
   ],
   "allowed": []
 }
