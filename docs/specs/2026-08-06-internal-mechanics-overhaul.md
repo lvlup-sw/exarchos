@@ -89,6 +89,21 @@ Two structural aggravators: the catalog is **workflow-overfitted** (`PHASE_EXPEC
 
 This is not an instruction-quality problem. Per the superseded spec's discovery pass, measured per-step process-instruction compliance for frontier models is near zero for steps that are not instrumentally required. **Correctness currently depends on someone being careful.** PDD's objective is to make the class unwritable.
 
+> ### The measure-the-wrong-property pattern *(recorded rev 4.4 — four occurrences, three found by implementation)*
+>
+> The Problem Statement names four boundaries where a declaration exists, is enforced, and cannot fail. Implementing Wave 1 surfaced a **second, sharper form of the same disease: the enforcement instruments themselves measure a property adjacent to the one they name.** Every instance is a text-shaped proxy standing in for a structural fact:
+>
+> | Instrument | Names | Actually measures | Found by |
+> |---|---|---|---|
+> | `cli-vocab-guard` | derivation | **vocabulary** | design (DR-5) |
+> | `outputSchema` | substance | **presence** | design (DR-4) |
+> | `count-casts.ts` | type assertions | **the text "as"** — prose and namespace imports | task 057 → 058 |
+> | `check-measured-premises.mjs` `sdkImportFiles` | import sites | **substring occurrence** — comment mentions | task 052 → 061 |
+>
+> The last two were found **only by running the plan**, and the fourth lives inside DR-27 — *the instrument built to catch unbound claims contained one.* That is not irony to be noted and moved past; it is the load-bearing evidence for DR-27's own necessity, and the reason its acceptance criteria require a kill fixture rather than a green run.
+>
+> **The generalisation, for every guard this program ships and every one it later adds:** a guard whose subject is *source text* is measuring a proxy. Ask what structural fact the text stands for, then measure that fact — parse, resolve, or type it. Where a text proxy is genuinely the cheapest sound option, the guard must carry a **kill fixture that distinguishes the proxy from the property** (a comment mentioning the thing; a namespace import; a named alias), because that fixture is the only evidence the proxy has not silently decoupled.
+
 ### Chosen Approach
 
 **Every contract surface declares exactly one authority, every other representation is mechanically bound to it, and the declaration is shaped as the IR it will become.**
@@ -650,7 +665,7 @@ Research pre-pass: discovery workflow **`mcp-spec-2026-07-28-migration`** (gathe
 6. **Does the composite tool pattern survive a remote surface?** `Mcp-Name` exposes 4 tool names for 118 verbs — if v3.2 wants per-verb edge policy, this is the blocker, and it may want deciding before Wave 5 rather than after.
 7. **What exactly should `sdk-import-sites` count?** *(opened rev 4.3 by task 024.)* The claim is bound to a precise derivation — *files under `servers/exarchos-mcp/src` referencing the v1 specifier, **test files included*** — and DR-27 correctly caught it drifting 38 → 40 as this wave added tests that mention the specifier as fixture text. But the **name is ambiguous even though the derivation is pinned**: task 024, measuring non-test files through the seam's own classifier, got 27 and read the difference as a disagreement. Two honest derivations, two different populations, one name.
    - The number that actually matters to DR-26 is the **production migration surface** task 053 must move — non-test files only, currently **16**. A claim that drifts whenever anyone adds a test is noise, and will keep reddening on unrelated work.
-   - **Task 053 should re-scope this claim** to the production surface and rename it accordingly. Deferred rather than done now because task 052 is concurrently reshaping exactly these imports, so re-deriving mid-flight would churn.
+   - **RESOLVED by task 052 (rev 4.4).** Both prior numbers were wrong, for the same underlying reason: the scanner matches **raw text**, so comment mentions count as imports (→ **task 061**). Parsing real specifiers gives **26 files / 13 directories** repo-wide. **The migration backlog task 053 actually owns is 56 bypass import sites across 24 files in 10 directories** under `servers/exarchos-mcp/src`. **Task 053 must not treat "38" as its backlog.** The claim is re-scoped and renamed by task 061, which lands first.
    - **A separate finding from 024, verified independently and NOT deferred:** the row's prose claims both generations are "imported directly". **That is false.** v2 has **zero** production import sites — the only non-test file naming `@modelcontextprotocol/{core,server}` is `architecture/sdk-generation-seam.ts`, which lists them as *data* for the lint. v1 is imported; v2 is merely installed. Corrected in the row below. Also: `@modelcontextprotocol/client` appears in the seam's v2 list but **is not installed**.
 
 8. **What denominator does `118` count?** *(opened rev 4.2 by task 054.)* The spec uses **118** for actions/verbs/`outputSchema` in several places, but the live census measures **122** runtime actions — a gap of 4 that nobody has reconciled. Candidate explanations: it counted **visible-only** actions (excluding the hidden `exarchos_sync`), or it predates `makeDescribeAction` becoming a factory serving two tools, or it predates later verb additions. Task 054 deliberately **left `118` unannotated** rather than invent a derivation to justify it — annotating a number whose meaning is unknown would manufacture exactly the false agreement DR-27 exists to prevent. **Until someone establishes what `118` counts, it is an unbound claim** and every use of it in this document is unverified. Whoever closes this should either bind it to a real derivation or replace it with the measured 122.
@@ -1036,6 +1051,22 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 - `OutputSchema_AllowlistEntrySwapped_FailsRatchet` — shrink-only beats a count threshold
 **Verification:** high — type-level + scoped tests + `check_test_adequacy`.
 **Dependencies:** 016 · **Parallelizable:** No *(supersedes 017; re-scope 017 to allowlist expiry enforcement)*
+
+### Task 061: Parse specifiers in DR-27's import scanner instead of matching raw text
+**Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-27
+**Files:** `scripts/check-measured-premises.mjs`, `docs/specs/2026-08-06-internal-mechanics-overhaul.md`
+**Detail:** **The defect class has now appeared a fourth time, inside the instrument built to catch it.** `sdkImportFiles` matches raw file text (`source.includes('@modelcontextprotocol/sdk')`), so a file that merely *names* the package in a comment counts as an import site — the identical text-versus-parse error task 058 corrected in the cast census, reproduced one boundary over in DR-27's own scanner. An instrument that measures text while claiming to measure imports is an unbound claim living inside the mechanism whose purpose is to bind claims.
+
+Measured by parsing actual specifiers (task 052): **26 files across 13 directories** repo-wide — 25 excluding the lint's own fixture file — not 38. **The directory count was right; the file count is inflated by ~46%.**
+
+**Acceptance criteria:**
+- The scanner parses import/export specifiers rather than matching substrings. A package named only in a comment or a string is **not** an import site.
+- **Kill fixture:** a file whose sole mention of the package is in a comment counts **0**; the same file with a real import counts **1**. Under today's scanner both count 1.
+- The affected literals in this document are re-derived and updated in the same commit, with old and new recorded so the correction is auditable and cannot be confused with a real change in the tree.
+- **Sweep the other `kind: 'scan'` derivations for the same defect** — `cli-handwritten-literals` already blanks comments, so the pattern is known to the codebase; the question is which others don't.
+
+**Verification:** medium — scoped tests + `check_test_adequacy`.
+**Dependencies:** 054 · **Parallelizable:** Yes *(but land before 053 relies on the count)*
 
 ### Task 060: Close the two residual holes in DR-4's compile-time claim
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-4
