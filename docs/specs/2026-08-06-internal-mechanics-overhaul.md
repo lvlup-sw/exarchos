@@ -1,8 +1,24 @@
 # Spec: Internal mechanics overhaul — one authority per contract, bound mechanically, IR-shaped
 
-**Date:** 2026-08-06 · **Revised:** 2026-08-07 (rev 2) · **Feature:** `internal-mechanics-overhaul` · **Depth:** deep
+**Date:** 2026-08-06 · **Revised:** 2026-08-07 (rev 4) · **Feature:** `internal-mechanics-overhaul` · **Depth:** deep
 **Method:** `proof-driven-development` (Design mode) — `~/.agents/skills/proof-driven-development`
 **Baseline:** rebased onto `origin/main`; **every count below is re-derived from the landing branch.**
+
+> ## Revision 4 — what Wave 1 implementation falsified
+>
+> Rev 4 is an **amendment cycle, not an authoring revision.** Revs 1–3 were authored; rev 4 is written against evidence produced by *running the plan*. The first Wave 1 batch (tasks 049, 005, 016, 046) shipped to `feat/internal-mechanics-overhaul`, and three of this spec's own claims did not survive contact with the landing branch. The revision counter was reset by operator decision on that basis: **the counter exists to stop authoring loops, and freezing the spec against measured reality is not what it is for.**
+>
+> **Three findings, all the same defect — this spec's own thesis turned back on it.** Each is a declaration that exists, is enforced, and *cannot fail*:
+>
+> 1. **DR-0's error-path criterion was unsatisfiable.** "A partially-migrated tree must fail typecheck" is impossible as stated: v1 and v2 both declare a *structural* `Transport`, and TypeScript has no notion of nominal package identity, so `tsc --strict` accepts every mixing direction — including the cross-package `InMemoryTransport` linked pair the criterion specifically named. This is *worse* than assumed: a partial migration compiles clean and fails at runtime as a hang or an empty result. **The criterion was assigned to a subject that cannot carry it.** → resolved by **DR-26**, which makes the rung-2 claim true rather than abandoning it.
+> 2. **DR-4's counts were wrong, and so was its "typed" set.** Measured: **112 vacuous of 122**, not 109/123. The reconciliation closes exactly — `109 literal + 1 factory duplicate (makeDescribeAction serves two tools) + 2 named bindings = 112`; the old denominator counted two non-declarations (`ToolAction.outputSchema` at `registry.ts:608`, the `withCappedShape` parameter at `:1318`). The load-bearing half: **the "2 HSM" declarations rev 3 called typed are themselves vacuous** — `WorkflowUpdateOutputSchema` *is* literally `EnvelopeSchema(z.unknown())`, and `WorkflowTransitionOutputSchema` wraps it in an intersection constraining `_meta.deprecation` only, leaving `data` as `z.unknown()`. Calling them typed *because they have names* is the presence-not-substance error G2 exists to catch. **The migration template is 10 declarations, not 12.** → resolved by **DR-4** (amended).
+> 3. **DR-1 under-specified the envelope.** Four fields carry identity and topology but not *what was declared*, so tasks 007/008 would have had to reach past the seam into storage — re-opening the coupling DR-1 closes. → **`subject` ratified as a fifth field** (DR-1, amended).
+>
+> **Why all three happened.** The spec asserts measured facts, proof rungs and type shapes, and *nothing binds those assertions to the artifacts that would falsify them*. Rev 1 was refuted 3/3 for this exact class; rev 3 reproduced it in DR-4. DR-24 already states the rule — re-derive wave premises at plan time — but as **a rule someone must remember**, which is PDD's own anti-pattern row. → **DR-27** makes it mechanical.
+>
+> **Corrected measurements (rev 3 → rev 4):** vacuous `outputSchema` **109/123 → 112/122**; substantive declarations **12 → 10** (all `withCappedShape`; the 2 HSM reclassified vacuous); SDK import sites **unmeasured → 38 files across 13 directories**. Holding: `withCappedShape` 10, `EventTypes` 170, hand-written CLI literals 11.
+>
+> **Scope added:** **DR-26** (SDK generation seam — restores DR-0's rung-2 claim), **DR-27** (measured-premise binding — kills the drift class), and a **seventh authority-topology row** for the SDK boundary, which rev 3 omitted entirely while it carried two authorities.
 
 > ## Revision 2 — what the plan-review panel refuted
 >
@@ -19,7 +35,7 @@
 > **Counts are no longer literals.** Every ratchet seeds from a value **derived at guard introduction** and asserts only monotonic decrease. Rev 1 hard-coded `106`, which is precisely the defect class G2 exists to remove, restated as an acceptance criterion.
 
 **Inputs:**
-- **Supersedes** [`docs/specs/2026-08-05-event-taxonomy-v2.md`](./2026-08-05-event-taxonomy-v2.md) — its DR-1…DR-15 are absorbed below with provenance noted per DR. *(That file is currently **untracked** in the working checkout; commit it before this spec lands so the supersession has a git ancestor — see Risk R-9.)*
+- **Supersedes** [`docs/specs/2026-08-05-event-taxonomy-v2.md`](./2026-08-05-event-taxonomy-v2.md) — its DR-1…DR-15 are absorbed below with provenance noted per DR. *(**R-9 discharged, verified 2026-08-07:** that file is tracked on `origin/main`, so the supersession has a git ancestor. The stale "untracked" note here was itself an unbound representation — it contradicted the withdrawal recorded in the rev-2 block above. Exactly the class DR-27 now binds.)*
 - Discovery workflow `mcp-spec-2026-07-28-migration`:
   - [`docs/research/2026-08-06-mcp-spec-2026-07-28-migration-evaluation.md`](../research/2026-08-06-mcp-spec-2026-07-28-migration-evaluation.md)
   - [`docs/research/2026-08-06-mcp-2026-07-28-architectural-composition.md`](../research/2026-08-06-mcp-2026-07-28-architectural-composition.md) — MC-1…MC-4
@@ -91,6 +107,9 @@ PDD deliverable 2. Representation counts are measured, not estimated. **More tha
 | **Effect ↔ event** | `EffectPlan`; the append site | *none* | **No** | `effect-carrier.ts` references no event store. → **G4/DR-7** |
 | **Capability/posture** | agent-spec YAML; `posture-mapping.ts`; MCP handshake; INV-11 text | handshake ("handshake-authoritative") | Partially | **Authority is being deleted** by the spec revision. → **DR-14, DR-23** |
 | **Phase sequencing** | HSM topology; `PHASE_EXPECTED_EVENTS`; playbooks | HSM guard (INV-9) | **Bypassed today** | 3 direct `executeTransition` callers. → **Wave 0** |
+| **SDK generation** *(new in rev 4)* | `@modelcontextprotocol/sdk` (v1) imported directly; `@modelcontextprotocol/{core,server}` (v2) imported directly; **38 import sites across 13 directories** | *contested* | **No** | **2 authorities.** Rev 3 omitted this row entirely while DR-0 depended on it. Structural typing makes the two generations mutually assignable, so nothing — not `tsc`, not a guard — currently separates them. → **G6 / DR-26** |
+
+> **Why the SDK row was missing, and why that matters.** Rev 3 asserted a compile-time guarantee (DR-0's error-path criterion) over a boundary it had not entered in its own topology table. Had the boundary been modelled, the census would have asked "what is the authority?" and the answer — *neither generation; both are imported directly* — would have exposed the criterion as unsatisfiable before it was written. **A boundary absent from the topology is the one place an unbound representation can hide from the census designed to find it**, which is why DR-6's totality check must range over a boundary list that is itself derived, not hand-maintained (see DR-26 acceptance criteria).
 
 ### Guards
 
@@ -200,16 +219,28 @@ Rev 1 omitted the split entirely while three of its DRs depended on v2-only APIs
 - **Nothing changes on the wire.** v2 speaks the 2025-era protocol until an explicit era opt-in, so this DR lands with byte-identical `tools/list` and `tools/call` output — pinned by the existing golden fixtures.
 - `src/__tests__/sdk-pin-policy.test.ts` is retargeted to the v2 package names, **keeping the exact-pin policy** (its rationale — opt into surface changes deliberately — is strengthened, not weakened, by this program).
 - The `patch-package` patch is evaluated against v2 and either dropped or re-based, with `tools-list-2020-12.test.ts` retained as a conformance test either way.
-- **Error-path criterion:** a partially-migrated tree (some modules on v1, some on v2) must fail typecheck rather than resolve two copies of the protocol types — a `InMemoryTransport`-style linked pair drawn from different packages is a documented v2 footgun and is rejected at compile time.
+- ~~**Error-path criterion:** a partially-migrated tree (some modules on v1, some on v2) must fail typecheck rather than resolve two copies of the protocol types — a `InMemoryTransport`-style linked pair drawn from different packages is a documented v2 footgun and is rejected at compile time.~~
+- **Error-path criterion — FALSIFIED in rev 4, superseded by DR-26.** The criterion above was **measured and does not hold**, in any mixing direction. Both generations declare a *structural* `Transport`; TypeScript has no notion of nominal package identity; `tsc --strict` therefore accepts v1-into-v2, v2-into-v1, **and** the cross-package `InMemoryTransport` linked pair the criterion named as its kill fixture. The failure mode is the dangerous one: a partially-migrated tree **compiles clean and fails at runtime** as a hang or an empty result, never as an error.
+  - **This is not a criterion to weaken — it is a criterion assigned to the wrong subject.** You cannot brand a third party's structural type. You *can* brand your own seam's handle type and forbid direct SDK imports, which restores the rung-2 guarantee exactly as originally claimed. That is **DR-26**.
+  - **Interim state (shipped in task 049):** `architecture/sdk-generation-seam.ts` rejects any module importing both generations, at rung 3. Its test compiles the mixed fixture with `tsc` and pins the *measured* acceptance, so if a future release makes the two nominally incompatible the expectation flips and the lint retires **on evidence** rather than on belief.
+  - **Lesson recorded, not discarded:** rev 3 asserted a proof rung without probing whether the subject could carry it. **A proof rung is a claim about the subject, and is falsifiable — probe it before assigning an obligation to it.** DR-27 generalizes this beyond counts to rungs.
 
 **Sequencing:** Wave 1, before DR-9, DR-14 and DR-22. Zero wire change means it carries no era risk and unblocks three later DRs.
+
+**Wave 1 batch-1 status (measured 2026-08-07):** the additive package split **landed** — v2 `core`/`server` at exact `2.0.0` alongside v1 `sdk@1.29.0`, lockfile insertions-only, `tools/list` pinned byte-identical by a committed golden. **The source migration is blocked and DR-0 is therefore partial:** v2 `2.0.0` **deleted the experimental Tasks store seam** — no `ServerOptions.taskStore`, and `TaskStore` / `CreateTaskOptions` / `isTerminal` have **zero matches anywhere in either v2 package**. `adapters/mcp.ts` constructs `new McpServer(…, { taskStore })` against `EventSourcedTaskStore` (#1272/#1273) and `cli.ts` calls `connect()` on it, so both adapters need a **replacement seam designed first**. The Tasks *protocol types* survive; only the server-side store wiring is gone. Tracked as task 051.
 
 ### DR-1: IR-shaped declaration envelope **[new — D2]**
 
 Every declaration this program introduces (event tier, action contract, CLI verb) is defined as an IR-shaped record carried through the existing seam, so #1258 relocates the declaration site rather than re-binding representations.
 
 **Acceptance criteria:**
-- A single `Declaration<K>` envelope type carries `kind`, `id`, `authority`, and `boundTo[]`; event/action/CLI-verb declarations are instances, not parallel shapes.
+- A single `Declaration<K>` envelope type carries `kind`, `id`, `authority`, `boundTo[]` — **and `subject` (ratified in rev 4, see below)**; event/action/CLI-verb declarations are instances, not parallel shapes.
+
+> **`subject` ratified as the fifth field (rev 4).** Task 005 shipped `Declaration<K, S = unknown>` with a fifth `subject` field and flagged the deviation for sign-off. **Accepted, and the DR is amended rather than the implementation.** The four declared fields carry *identity* (`kind`, `id`) and *topology* (`authority`, `boundTo[]`) but not **what was declared** — so tasks 007/008 would have had to reach past the seam into registry storage to recover it, re-opening precisely the coupling DR-1 exists to close. A four-field envelope would have made the seam rule (task 006) unenforceable in practice.
+>
+> Two shape decisions are load-bearing and are ratified with it:
+> - **`authority` is a single field, not an array.** This makes "one boundary, two authorities" — the G1/G5 defect class — **unrepresentable inside a declaration**. It can only appear as two declarations claiming one subject, which is a *census-level* finding for DR-6, not a malformed record. The defect is pushed to the layer that can see it.
+> - **`subject` is a defaulted type parameter, not a per-kind union.** This keeps `Declaration<'event'>` a **supertype** of `Declaration<'event', EventRegistration>`, so a task-006 accessor typed against the widened form keeps compiling as later waves narrow it. **Open refinement:** a kind-indexed subject map (`DeclarationSubjects[K]`) would be more precise, trading that variance for exactness. Task 006 is the first real consumer and is the right place to decide; it is **not** deferred indefinitely — 006 must record the decision either way.
 - Declarations are consumed **only** through the seam accessor; a direct read of registry storage from a consumer fails `layer-boundaries-seam.ts`.
 - **Relocation proof — re-specified in rev 3.** Rev 2's version was both mis-sequenced and unfalsifiable: it sat in Wave 1a but asserted over G1–G5, four of which do not exist yet (G4 is Wave 2), and its `Relocation_RequiresNoConsumerEdit` criterion asserted "zero diff across the 10 consumers" from inside a runtime fixture that never edits source — true by construction, so it could not fail.
   - **Mechanism (rung 2, not rung 5):** consumers may import **only** the declaration accessor's type, never the storage module. Relocation is then proven by a *compile-time* substitution — swap the storage implementation behind the accessor and require `tsc` to pass with no consumer change. A cheaper sound layer replaces the integration fixture, per PDD's proof order.
@@ -252,12 +283,18 @@ type EventRegistration = {
 
 ### DR-4: `outputSchema` non-vacuity **[MC-3 — new]**
 
-**Acceptance criteria:**
-- **G2** ships with the ratchet seeded at the measured 109; the count may only decrease.
-- A new action declaring `EnvelopeSchema(z.unknown())` fails CI (G2 self-test).
+> **Amended in rev 4 — measured, and the mechanism upgraded from rung 3 to rung 2.** Task 016's census measured **112 vacuous of 122**, not the 109/123 rev 3 asserted, and reclassified the two "HSM typed" declarations as vacuous (`WorkflowUpdateOutputSchema` *is* `EnvelopeSchema(z.unknown())`; `WorkflowTransitionOutputSchema` intersects it with a constraint on `_meta.deprecation` only, leaving `data` as `z.unknown()`). That measurement exposed something rev 3 missed: **`withCappedShape` is the sole constructor of a substantive `outputSchema` — 10 for 10.**
+>
+> A one-constructor surface does not need a *counting ratchet*. It needs a **constructor restriction**, which is rung 2 and matches this program's own doctrine (DR-2: "report-coupling has no variant"). Rev 3 specified a rung-3 census for a property the type system can carry outright — the same misassignment DR-0 made in the other direction.
+
+**Acceptance criteria (amended rev 4):**
+- **Vacuity is unconstructible for new actions.** `ToolAction.outputSchema` accepts only the branded return of `withCappedShape` (or an explicit allowlist entry). A new action declaring `EnvelopeSchema(z.unknown())` **does not compile** — it is not rejected by a guard that must be remembered and run.
+- The **112 existing vacuous declarations** become an explicit **shrink-only allowlist**, each with an owner and an ISO expiry. Entries may only be removed. The list is seeded **from the census output, derived at introduction — never written as a literal.**
+- **G2 is the allowlist-shrink ratchet**, not a count threshold. This is strictly stronger: a threshold permits swapping one vacuous declaration for another, an allowlist does not.
+- **Non-empty denominator:** a census enumerating zero declarations **fails**, so a moved module or an import error cannot read as a clean run.
 - INV-17's audit treats a vacuous declaration as a **violation of the precondition it names**, not a pass.
-- The 12 currently-typed declarations (10 `withCappedShape`, 2 HSM) are the migration template; the DR-10 worktree surface is the reference implementation.
-- **Ordering proof:** a fixture asserts DR-8's fourth envelope state **cannot** be declared satisfied for an action whose `outputSchema` is vacuous — the vacuity ratchet and the envelope obligation are wired to the same census, so the 109 cannot silently absorb the new state.
+- The **10** currently-typed declarations — all `withCappedShape`; **there is no second constructor** — are the migration template; the DR-10 worktree surface is the reference implementation.
+- **Ordering proof:** a fixture asserts DR-8's fourth envelope state **cannot** be declared satisfied for an action whose `outputSchema` is vacuous — the allowlist and the envelope obligation are wired to the same census, so the 112 cannot silently absorb the new state.
 
 ### DR-5: CLI derivation guard **[MC-1 — new]**
 
@@ -477,6 +514,36 @@ This is PDD's *"a fix relies on someone remembering a convention"* row: the corr
 - **Self-test:** a seeded provisioning result whose `dispatch` contradicts its `posture` (e.g. `read-only` + named-with-isolation) fails the suite, so guard-execution failure cannot pass as success.
 
 **Sequencing note:** this lands in **Wave 1**, not later, because Waves 2–5 of this very program dispatch agents through these verbs. Leaving the contract unbound means the program's own execution keeps hitting the defect it exists to eliminate.
+
+### DR-26: SDK generation seam — restore DR-0's rung-2 claim **[new in rev 4]**
+
+DR-0's error-path criterion is **not weakened, it is relocated to a subject that can carry it.** The criterion failed because it asserted nominal separation over *someone else's* structurally-typed package. Exarchos cannot brand `@modelcontextprotocol`'s `Transport` — but it can brand **its own seam's handle type** and forbid direct SDK imports, at which point mixing generations fails `tsc` exactly as originally claimed.
+
+This is the **DR-1 pattern applied to a second boundary**, and it uses no new instrument: the "consumers may only read through the accessor" rule is already enforced by the shipped `architecture/layer-boundaries-seam.ts` (304 lines). Per the program's own rule, *if a guard required a novel instrument, that would be evidence it was the wrong design.*
+
+**Acceptance criteria:**
+- One owned module is the sole importer of either SDK generation, re-exporting the used surface with a **generation brand** (`__gen: 'v1' | 'v2'`) on every handle type that crosses the seam.
+- **Rung 2:** a value drawn from one generation and passed where the other is expected **fails typecheck**. This is DR-0's original criterion, now true.
+- **Falsifier (the assertion DR-0 lacked):** seed a module importing an SDK package directly; the seam rule must reject it. A seam with no current failing subject has not been shown to work — and on introduction there are **38 such subjects across 13 directories**, so the denominator is non-empty by measurement, not by assertion.
+- **Non-empty denominator:** a seam check that resolves zero SDK import sites **fails**, so a moved or renamed module cannot pass as a clean tree.
+- The rung-3 lint shipped in task 049 (`architecture/sdk-generation-seam.ts`) is **retained as the seam-bypass enforcement**, not as a substitute for the type guarantee. It retires only when the brand covers every crossing — and its retirement must be justified by measurement, not by belief that migration is complete.
+- The **SDK generation** row enters the authority-topology table with `enforceFrom`, and DR-6's totality check ranges over a **derived** boundary list — a hand-maintained list is exactly how this boundary went unmodelled in rev 3.
+
+**Sequencing:** Wave 1, after task 049's additive split, alongside DR-1's seam (task 006) so both instances of the pattern land together. Blocks the DR-0 source migration and therefore DR-9/DR-14/DR-22.
+
+### DR-27: Measured-premise binding — the spec is a bound representation **[new in rev 4]**
+
+Every numeric and structural claim in this document is a **representation of a derivation**, and none of them are bound to it. That is this program's own defect class, instantiated by the document that defines it. The evidence is not theoretical: **rev 1 was refuted 3/3 for stale measurements, and rev 3 reproduced the same class in DR-4** — wrong numerator, wrong denominator, and a "typed" set that was actually vacuous. DR-24 already carries the rule ("re-derive wave premises against the landing branch at plan time"), but as prose a human must remember, which is PDD's *"a fix relies on someone remembering a convention"* row.
+
+**Acceptance criteria:**
+- Measured claims in the spec carry a machine-readable annotation naming their derivation, e.g. `<!-- measured: output-schema-vacuous -->112<!-- /measured -->`.
+- A checker maps each name to a derivation (a census function, a script, a counted grep) and **fails when the document's literal disagrees with the re-derived value.** The document cannot assert a number nothing produces.
+- **Kill fixture:** run the checker against **rev 3 of this file** — it must report the DR-4 counts (`109`, `123`, "12 typed") as drifted. A checker that passes on a document already known to be wrong has not been shown to work.
+- **Non-empty denominator:** a run that resolves zero annotated claims fails rather than passing clean.
+- **Rung claims are annotated too.** DR-0 failed by asserting a proof rung its subject could not carry, which is a different failure from a stale count. Each obligation-map row's rung carries a one-line *probe* — the command or fixture that shows the subject can bear that rung — and an unprobed rung is a reportable gap, **not** a pass. ("Nothing" is a reportable answer, per the obligation map's own `Failure signal` column.)
+- Scope is **this document plus `.exarchos/invariants.md`**; generalizing to all of `docs/` is explicitly out of scope and needs its own ADR.
+
+**Sequencing:** Wave 1. It is cheap, and every later wave's premises are re-derived through it — including the Waves 2–5 re-plan that DR-24 already gates on Wave 1 exit.
 
 ## Supporting Analysis
 
@@ -893,6 +960,60 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 - `DispatchShape_UnsupportedRuntimeCapability_ReturnsTypedError` — INV-4 fallback, never a silent no-op
 **Verification:** medium — scoped tests + `check_test_adequacy`.
 **Dependencies:** 046 · **Parallelizable:** No
+
+**Wave 1-pre (rev 4) — DR-26: SDK generation seam; DR-27: measured-premise binding; DR-0 remainder**
+
+### Task 051: Design and land a replacement Tasks-store seam for SDK v2
+**Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-0
+**Files:** `servers/exarchos-mcp/src/task-store/`, `servers/exarchos-mcp/src/adapters/mcp.ts`, `servers/exarchos-mcp/src/adapters/cli.ts`
+**Detail:** v2 `2.0.0` deleted `ServerOptions.taskStore` and the `TaskStore` / `CreateTaskOptions` / `isTerminal` interfaces; `EventSourcedTaskStore` (#1272/#1273) has no v2 counterpart. The Tasks *protocol types* survive — only the server-side store wiring is gone. Unblocks the DR-0 source migration for both adapters.
+**Tests:**
+- `TaskStoreSeam_V2Server_PreservesEventSourcedPersistence` — the seam keeps the event-sourced guarantee
+- `TaskStoreSeam_TerminalStateQuery_MatchesV1Semantics` — `isTerminal` has a behavioural replacement, not just a type one
+**Verification:** high — scoped tests + `check_test_adequacy` + integration suite.
+**Dependencies:** 049 · **Parallelizable:** No
+
+### Task 052: Owned SDK seam module with generation-branded handle types
+**Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-26
+**Files:** `servers/exarchos-mcp/src/sdk/seam.ts` (new), `servers/exarchos-mcp/src/sdk/brand.ts` (new)
+**Detail:** Sole importer of either generation; re-exports the used surface with `__gen: 'v1' | 'v2'` brands on every handle crossing the seam. Restores DR-0's rung-2 claim that structural typing defeated.
+**Tests:**
+- `SdkSeam_HandleFromOtherGeneration_FailsCompile` — the rung-2 guarantee DR-0 originally claimed
+- `SdkSeam_ZeroImportSitesResolved_FailsClosed` — non-empty denominator
+**Verification:** high — type-level tests + `check_test_adequacy` + integration.
+**Dependencies:** 049 · **Parallelizable:** No *(foundation for the migration)*
+
+### Task 053: Migrate the 38 SDK import sites onto the seam + layer-boundaries rule
+**Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-26
+**Files:** `servers/exarchos-mcp/src/architecture/layer-boundaries-seam.ts`, the 38 measured import sites
+**Detail:** 38 files across 13 directories import an SDK package directly today — the seam's kill fixture, measured not asserted. A direct import must fail the seam rule after migration.
+**Tests:**
+- `SdkSeam_DirectSdkImport_FailsSeamRule` — kill fixture, 38 subjects on introduction
+- `SdkSeam_MigratedTree_ResolvesEverySiteThroughSeam` — totality over the measured site list
+**Verification:** high — scoped tests + `check_test_adequacy` + integration suite.
+**Dependencies:** 052 · **Parallelizable:** No
+
+### Task 054: Measured-premise annotation + drift checker
+**Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-27
+**Files:** `scripts/check-measured-premises.mjs` (new), `docs/specs/2026-08-06-internal-mechanics-overhaul.md`
+**Detail:** Annotated claims name their derivation; the checker re-derives and fails on disagreement. Scope is this spec plus `.exarchos/invariants.md` — generalizing to all of `docs/` needs its own ADR.
+**Tests:**
+- `MeasuredPremises_Rev3Document_ReportsDr4CountsAsDrifted` — kill fixture against a document already known wrong
+- `MeasuredPremises_ZeroAnnotationsResolved_FailsClosed` — non-empty denominator
+- `MeasuredPremises_UnprobedProofRung_ReportsGapNotPass` — an unprobed rung is reportable, never a pass
+**Verification:** medium — scoped tests + kill-probe.
+**Dependencies:** None · **Parallelizable:** Yes
+
+### Task 055: Make `outputSchema` vacuity unconstructible + seed the shrink-only allowlist
+**Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-4
+**Files:** `servers/exarchos-mcp/src/registry.ts`, `servers/exarchos-mcp/src/architecture/output-schema-census.ts`, allowlist data file
+**Detail:** `withCappedShape` is the sole substantive constructor (10 of 10, measured). Type `ToolAction.outputSchema` to accept only its branded return or an allowlist entry, so vacuity stops being counted and starts being unconstructible. Supersedes the rung-3 counting ratchet planned for task 017.
+**Tests:**
+- `OutputSchema_NewActionDeclaringVacuous_FailsCompile` — rung 2, replaces the CI-guard formulation
+- `OutputSchema_AllowlistSeed_DerivedFromCensusNotLiteral` — the 112 come from the census
+- `OutputSchema_AllowlistEntrySwapped_FailsRatchet` — shrink-only beats a count threshold
+**Verification:** high — type-level + scoped tests + `check_test_adequacy`.
+**Dependencies:** 016 · **Parallelizable:** No *(supersedes 017; re-scope 017 to allowlist expiry enforcement)*
 
 ### Task 048: Document read-only dispatch in the delegate skill references
 **Risk Tier:** low · **Boundary Touching:** false · **Implements:** DR-25
