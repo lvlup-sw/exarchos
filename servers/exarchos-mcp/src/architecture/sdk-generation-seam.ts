@@ -54,6 +54,14 @@
  * which is why {@link lintSdkGenerationMixing} exempts {@link SDK_SEAM_MODULE}
  * and nothing else. Retiring this lint requires measuring that the brand covers
  * every crossing — not believing the migration is complete.
+ *
+ * ── Task 062: this module reads specifiers, and now it reads them correctly ──
+ * The note above says the lint "reads specifiers, not dataflow". That was true
+ * of its intent and false of its implementation: it matched raw text, so a
+ * specifier written inside a template literal — the shape every lint fixture in
+ * this package uses — read as an import. See {@link SpecifierParser} for the
+ * measured consequence (DR-26's migration denominator was floored ten above
+ * zero) and for why the parse is a caller-supplied port rather than an import.
  */
 import type { PluginFinding } from '../review/check-catalog.js';
 import type { SdkGeneration } from '../sdk/brand.js';
@@ -79,11 +87,54 @@ const V2_PACKAGES: readonly string[] = [
 ];
 
 /**
- * Matches the module specifier of a static import/export or a dynamic
- * `import(...)`. Captures the specifier from whichever quote style is used.
+ * One module specifier a parser resolved, with the 1-based line of its literal.
  */
-const SPECIFIER_RE =
-  /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*)['"]([^'"]+)['"]/g;
+export interface ParsedSpecifier {
+  readonly specifier: string;
+  readonly line: number;
+}
+
+/**
+ * Resolves every module specifier a source text actually imports or re-exports.
+ *
+ * ── Why this is a PORT and not an implementation (DR-26, task 062) ───────────
+ * Until task 062 this module matched specifiers with
+ *
+ *     /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*)['"]([^'"]+)['"]/g
+ *
+ * against raw source. That regex carries no comment or literal exclusion, so an
+ * SDK specifier written inside a template literal counted as an import — and the
+ * lint's own fixture file, `sdk-generation-seam.test.ts`, holds TEN of them as
+ * test input. They are not imports and can never be migrated, so DR-26's
+ * {@link SdkSeamCensusResult.bypassSiteCount} was floored TEN above zero and
+ * task 053 would have been handed a migration target it could not reach. A gate
+ * that cannot succeed is worse than no gate.
+ *
+ * The sound answer is to parse, not to strip: a specifier inside a comment, a
+ * string or a template literal is not an import NODE, so it is absent by
+ * construction rather than by filtering. But the parser is `typescript`, a
+ * devDependency, and this module is shipped source — importing it here would
+ * make the compiler a runtime dependency of the compiled binary, which the
+ * effect ledger correctly rejects (`unvetted-dependency:typescript` is a network
+ * occurrence under `architecture/`, a layer owning no network rule; the live
+ * census was run against that exact edit and failed).
+ *
+ * So the parse is INVERTED to the caller, exactly as the filesystem walk already
+ * is, and exactly as `architecture/import-cycles.ts` inverts its
+ * dependency-cruiser run. This module keeps the POLICY — which specifier belongs
+ * to which generation, which module is the seam — and owns no mechanism. The
+ * shipped implementation is `test-helpers/module-specifier-parser.ts`, where
+ * `typescript` is licensed.
+ *
+ * The parameter is REQUIRED wherever it appears. A default would have to be
+ * either the old regex (the defect, retained) or a throwing stub (a runtime
+ * failure where the checker could have spoken), and an optional parser is how a
+ * caller silently gets the wrong denominator back.
+ */
+export type SpecifierParser = (
+  source: string,
+  fileName?: string,
+) => readonly ParsedSpecifier[];
 
 /** True when `specifier` is exactly `pkg` or one of its subpaths. */
 function isPackageOrSubpath(specifier: string, pkg: string): boolean {
@@ -106,22 +157,30 @@ export function classifySdkImport(specifier: string): SdkGeneration | undefined 
   return undefined;
 }
 
-/** Every MCP SDK specifier in `source`, in source order, with its generation. */
+/**
+ * Every MCP SDK import in `source`, in source order, with its generation.
+ *
+ * `parse` resolves what the module actually imports; this function only decides
+ * which of those specifiers is an SDK specifier. See {@link SpecifierParser} for
+ * why the parse is a required parameter rather than something this module does
+ * for itself.
+ *
+ * @param source   Module source text.
+ * @param parse    Specifier resolver — `test-helpers/module-specifier-parser.ts`
+ *                 in this package.
+ * @param fileName Reported to `parse` for its diagnostics only; it has no effect
+ *                 on the result.
+ */
 export function collectSdkImports(
   source: string,
+  parse: SpecifierParser,
+  fileName?: string,
 ): { specifier: string; generation: SdkGeneration; line: number }[] {
   const out: { specifier: string; generation: SdkGeneration; line: number }[] = [];
-  // Reset the shared regex's lastIndex — it carries the /g flag.
-  SPECIFIER_RE.lastIndex = 0;
-  let match: RegExpExecArray | null;
-  while ((match = SPECIFIER_RE.exec(source)) !== null) {
-    const specifier = match[1];
-    if (specifier === undefined) continue;
-    const generation = classifySdkImport(specifier);
+  for (const parsed of parse(source, fileName)) {
+    const generation = classifySdkImport(parsed.specifier);
     if (generation === undefined) continue;
-    // Line number of the match start (1-based).
-    const line = source.slice(0, match.index).split('\n').length;
-    out.push({ specifier, generation, line });
+    out.push({ specifier: parsed.specifier, generation, line: parsed.line });
   }
   return out;
 }
@@ -148,6 +207,9 @@ export function isOwnedSeamModule(filePath: string): boolean {
  * @param filePath Path reported on the finding. Also decides the DR-26 seam
  *   exemption — see {@link SDK_SEAM_MODULE}.
  * @param source   Module source text.
+ * @param parse    Specifier resolver — see {@link SpecifierParser}. Required, so
+ *   a caller cannot fall back to a text match and re-acquire the template-literal
+ *   false positives task 062 removed.
  * @returns A single HIGH finding when the module imports from BOTH the v1 and
  *   v2 SDK generations; an empty array otherwise. Importing exclusively from
  *   one generation is always allowed — that is what "migrate directory by
@@ -158,9 +220,10 @@ export function isOwnedSeamModule(filePath: string): boolean {
 export function lintSdkGenerationMixing(
   filePath: string,
   source: string,
+  parse: SpecifierParser,
 ): PluginFinding[] {
   if (isOwnedSeamModule(filePath)) return [];
-  const imports = collectSdkImports(source);
+  const imports = collectSdkImports(source, parse, filePath);
   const v1 = imports.filter((i) => i.generation === 'v1');
   const v2 = imports.filter((i) => i.generation === 'v2');
   if (v1.length === 0 || v2.length === 0) return [];
@@ -217,7 +280,10 @@ export function lintSdkGenerationMixing(
 //
 // The census is pure — it consumes an already-collected scan rather than
 // walking the tree itself — matching `lintSdkGenerationMixing` above and keeping
-// filesystem effects with the caller.
+// filesystem effects with the caller. Since task 062 the PARSE is inverted the
+// same way and for a sharper reason (see {@link SpecifierParser}): this module
+// is shipped source, and the only sound specifier resolver is the TypeScript
+// compiler, which is a devDependency the effect ledger will not admit here.
 
 /**
  * Every generation the census ranges over.
@@ -248,9 +314,25 @@ export interface SdkSeamScan {
   readonly sites: readonly SdkImportSite[];
   /** Whether {@link SDK_SEAM_MODULE} exists under the scan root. */
   readonly seamModulePresent: boolean;
+  /**
+   * How many modules the scan actually VISITED — the population, not the hits.
+   *
+   * Required, never optional or derived. It is the only tooth that can tell
+   * "the tree is fully migrated" from "the walk resolved nothing", and those two
+   * become indistinguishable in `sites` the moment task 053 finishes: a
+   * completed migration legitimately drives {@link
+   * SdkSeamCensusResult.bypassSiteCount} to zero, so a low site count stops
+   * being evidence of a healthy scan. An optional field defaulting to "unknown"
+   * would hand every caller the vacuity back.
+   */
+  readonly moduleCount: number;
 }
 
 export type SdkSeamDiagnostic =
+  | {
+      readonly code: 'EMPTY_MODULE_POPULATION';
+      readonly message: string;
+    }
   | {
       readonly code: 'EMPTY_SDK_IMPORT_DENOMINATOR';
       readonly message: string;
@@ -273,11 +355,22 @@ export type SdkSeamDiagnostic =
 
 export interface SdkSeamCensusResult {
   readonly ok: boolean;
+  /** Modules the scan visited. Zero is a failure, never a pass. */
+  readonly moduleCount: number;
   /** Every SDK import site — the denominator. Zero is a failure, never a pass. */
   readonly siteCount: number;
   /** Sites inside the owned seam. */
   readonly seamSiteCount: number;
-  /** Sites outside the owned seam — task 053's migration backlog. */
+  /**
+   * Sites outside the owned seam — task 053's migration backlog.
+   *
+   * Zero is the SUCCESS state and always has been, but until task 062 it was
+   * arithmetically unreachable: `collectSdkImports` matched raw text, so the
+   * lint's own fixture file contributed ten specifiers written inside template
+   * literals. Those are not imports and cannot be migrated, so no amount of real
+   * migration could drive this below ten. Parsing removes the floor; nothing
+   * about the census's shape ever imposed one.
+   */
   readonly bypassSiteCount: number;
   readonly diagnostics: readonly SdkSeamDiagnostic[];
 }
@@ -291,9 +384,10 @@ export interface SdkSeamCensusResult {
 export function collectSdkImportSites(
   module: string,
   source: string,
+  parse: SpecifierParser,
 ): SdkImportSite[] {
   const throughSeam = isOwnedSeamModule(module);
-  return collectSdkImports(source).map((imported) => ({
+  return collectSdkImports(source, parse, module).map((imported) => ({
     module,
     specifier: imported.specifier,
     generation: imported.generation,
@@ -303,22 +397,44 @@ export function collectSdkImportSites(
 }
 
 /**
- * Verdict over an already-collected scan. Four independent fail-closed teeth,
+ * Verdict over an already-collected scan. Five independent fail-closed teeth,
  * each covering a distinct way this check could quietly become vacuous:
  *
- *   - `EMPTY_SDK_IMPORT_DENOMINATOR` — nothing resolved at all (scan root moved,
- *     or the specifier scanner stopped matching);
+ *   - `EMPTY_MODULE_POPULATION`     — the walk visited no modules at all, so
+ *     every count below it is zero for a reason that has nothing to do with the
+ *     tree (scan root moved, renamed package directory, broken walker);
+ *   - `EMPTY_SDK_IMPORT_DENOMINATOR` — modules were visited but none imports
+ *     either generation, so the specifier parser resolved nothing;
  *   - `SDK_SEAM_MODULE_MISSING`      — the seam was moved or renamed, so the
  *     brand covers nothing;
  *   - `SEAM_IMPORTS_NO_SDK`          — the seam file exists but imports no SDK,
  *     so it is a seam in name only;
  *   - `SEAM_GENERATION_UNCOVERED`    — an installed generation no longer reaches
  *     the seam, so half the brand has rotted while still reading as present.
+ *
+ * Note what is deliberately NOT a tooth: a zero {@link
+ * SdkSeamCensusResult.bypassSiteCount}. That is the state task 053 is driving
+ * toward, and failing on it would make the migration's success indistinguishable
+ * from its instrument breaking. The two are separated by the first two teeth
+ * instead — a completed migration still visits modules and still resolves the
+ * seam's own sites, so the population and the denominator both stay non-empty.
  */
 export function runSdkSeamCensus(scan: SdkSeamScan): SdkSeamCensusResult {
   const diagnostics: SdkSeamDiagnostic[] = [];
   const seamSites = scan.sites.filter((site) => site.throughSeam);
   const bypassSites = scan.sites.filter((site) => !site.throughSeam);
+
+  if (scan.moduleCount <= 0) {
+    diagnostics.push({
+      code: 'EMPTY_MODULE_POPULATION',
+      message:
+        'The SDK seam census resolved ZERO modules. Every count it reports is ' +
+        'therefore zero for a reason unrelated to the tree — a moved scan root, ' +
+        'a renamed package directory or a broken walker all present this way, ' +
+        'and all three read as a completed migration. Reported as a failure ' +
+        'rather than a pass (DR-26 non-empty denominator).',
+    });
+  }
 
   if (scan.sites.length === 0) {
     diagnostics.push({
@@ -369,6 +485,7 @@ export function runSdkSeamCensus(scan: SdkSeamScan): SdkSeamCensusResult {
 
   return {
     ok: diagnostics.length === 0,
+    moduleCount: scan.moduleCount,
     siteCount: scan.sites.length,
     seamSiteCount: seamSites.length,
     bypassSiteCount: bypassSites.length,
