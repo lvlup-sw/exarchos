@@ -108,6 +108,16 @@ This is not an instruction-quality problem. Per the superseded spec's discovery 
 >
 > **The generalisation, for every guard this program ships and every one it later adds:** a guard whose subject is *source text* is measuring a proxy. Ask what structural fact the text stands for, then measure that fact — parse, resolve, or type it. Where a text proxy is genuinely the cheapest sound option, the guard must carry a **kill fixture that distinguishes the proxy from the property** (a comment mentioning the thing; a namespace import; a named alias), because that fixture is the only evidence the proxy has not silently decoupled.
 
+> ### A closed union with no data form cannot be enforced at a boundary *(recorded rev 4.6 — task 008)*
+>
+> Task 009 closed `SubstrateRationale`, `ReconcilerId`, `GroundTruthSource` and the gate classes as **types only**, deliberately and for a good reason: a free-text `rationale` would be a universal escape hatch re-admitting report-coupling under a new name. Task 008, its first consumer, then discovered the consequence: **a type cannot be iterated at runtime**, so the only guard writable against a type-only closed union is `typeof rationale === 'string'` — which accepts `{ tier: 'substrate', rationale: 'because' }` and re-opens the very hatch the closure existed to shut.
+>
+> The closure was real at the compile boundary and **vacuous at the trust boundary**, which is where `withSubject`, deserialization, and every future `#1258` round-trip actually live.
+>
+> **The rule this program adopts:** a closed vocabulary that any consumer must validate at runtime ships **both** a type and a data form, bound to each other by a **mutual-assignability proof** — so neither can drift, and deleting a member from either fails `tsc`. A type without its data form is a compile-time-only guarantee that silently degrades to a string check at the first boundary that needs it.
+>
+> This generalises past events. Every task in this program that ships a closed vocabulary — DR-6's boundary ids, DR-10's meta-model, DR-14's postures — inherits it, and the cost is small: four tuples and four proofs, paid once at the declaration site instead of re-litigated at every consumer.
+
 ### Chosen Approach
 
 **Every contract surface declares exactly one authority, every other representation is mechanically bound to it, and the declaration is shaped as the IR it will become.**
