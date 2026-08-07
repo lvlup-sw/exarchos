@@ -68,6 +68,30 @@ import {
   reconstructImplementerPrompt,
   IMPLEMENTER_PROMPT_TEMPLATE,
 } from '../agents/definitions.js';
+import { dispatchShapeFor, type DispatchShape } from '../agents/dispatch-shape.js';
+import type { AgentPosture } from '../agents/types.js';
+
+// ─── DR-25: the posture this verb provisions ────────────────────────────────
+
+/**
+ * A delegated wave dispatches mutating agents (implementer / fixer /
+ * scaffolder), whose trust tier is `task-isolated` — the same posture their
+ * specs declare. Held once so the emitted `posture` and the emitted `dispatch`
+ * derive from ONE value and cannot drift.
+ *
+ * `satisfies` (not a `: AgentPosture` annotation) preserves the literal type
+ * that `PrepareDelegationResult.posture` narrows to while still rejecting a
+ * typo at compile time — the same idiom {@link DISPATCH_PHASE_KIND} uses.
+ */
+const DELEGATION_POSTURE = 'task-isolated' satisfies AgentPosture;
+
+/**
+ * The launch shape the orchestrator MUST use for a delegated wave (DR-25):
+ * a NAMED subagent WITH worktree isolation. The pair is the shape — a name
+ * without a worktree is an unrunnable mailbox teammate, and a worktree without
+ * a name cannot be addressed for merge. Read from the posture table.
+ */
+const DELEGATION_DISPATCH: DispatchShape = dispatchShapeFor(DELEGATION_POSTURE);
 
 // ─── Result Interface ────────────────────────────────────────────────────────
 
@@ -155,6 +179,19 @@ export interface TaskClassification {
 export interface PrepareDelegationResult {
   readonly ready: boolean;
   readonly readiness: DelegationReadinessState;
+  /**
+   * DR-25: the trust tier of the agents this wave dispatches. Emitted so the
+   * result is self-describing and its {@link dispatch} shape is checkable
+   * against it.
+   */
+  readonly posture: typeof DELEGATION_POSTURE;
+  /**
+   * DR-25: the launch shape the orchestrator MUST use — named subagent PLUS
+   * worktree isolation. REQUIRED (not optional) on the declared result type, so
+   * the compiler forces every construction site to carry it; an optional field
+   * would let a future return path re-open the improvisation gap.
+   */
+  readonly dispatch: DispatchShape;
   readonly blockers?: string[];
   readonly qualityHints?: Array<{ category: string; severity: string; hint: string }>;
   readonly isolation?: 'native';
@@ -1429,6 +1466,8 @@ export async function handlePrepareDelegation(
       const result: PrepareDelegationResult = {
         ready: false,
         readiness: effectiveReadiness,
+        posture: DELEGATION_POSTURE,
+        dispatch: DELEGATION_DISPATCH,
         blockers: effectiveBlockers,
         ...(args.nativeIsolation ? { isolation: 'native' as const } : {}),
       };
@@ -1579,6 +1618,8 @@ export async function handlePrepareDelegation(
     const result: PrepareDelegationResult = {
       ready: true,
       readiness: effectiveReadiness,
+      posture: DELEGATION_POSTURE,
+      dispatch: DELEGATION_DISPATCH,
       qualityHints,
       ...(args.nativeIsolation ? { isolation: 'native' as const } : {}),
       ...(taskClassifications ? { taskClassifications } : {}),
