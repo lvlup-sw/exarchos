@@ -256,7 +256,17 @@ Rev 1 omitted the split entirely while three of its DRs depended on v2-only APIs
 **Acceptance criteria:**
 - The v2 packages (`@modelcontextprotocol/{core,server}`) are added **alongside** the pinned v1 `@modelcontextprotocol/sdk` — they have different names and coexist, so this is additive and independently revertible.
 - Sources migrate directory-by-directory; the v1 dependency is removed only when nothing imports it (`grep -rn "@modelcontextprotocol/sdk"` returns zero non-vendor hits).
-- **Nothing changes on the wire.** v2 speaks the 2025-era protocol until an explicit era opt-in, so this DR lands with byte-identical `tools/list` and `tools/call` output — pinned by the existing golden fixtures.
+- **Nothing changes on the wire — amended rev 4.7, scoped to `tools/*`.** v2 speaks the 2025-era protocol until an explicit era opt-in, so this DR lands with byte-identical `tools/list` and `tools/call` output, pinned by the existing golden fixtures. **`tasks/*` is now an explicit, decided exception** (see below); the criterion holds for every other surface.
+
+> **D10 — `tasks/*` is not served on v2. Operator decision, 2026-08-07.** Task 051 measured the situation directly rather than inferring it: a live v2 `McpServer` answers **all four** of `tasks/{get,result,list,cancel}` with `-32601` while `ping` on the same connection answers normally — v2 ships **no server-side Tasks runtime at all**. Worse for safety, `new McpServer(info, { taskStore })` on v2 is **accepted silently**: no throw, no warning, the key is dropped. v2's own protocol types carry `@deprecated … wire vocabulary with no SDK runtime; kept importable for interoperability only`.
+>
+> So the naive migration produces a server that is **fully persistent and quietly dark on the wire** — a silent degradation, which is the failure mode this whole program exists to make unreachable.
+>
+> **The decision: accept the wire loss.** `tasks/*` stays unserved on v2. Rationale: the MCP `2026-07-28` revision **deletes `tasks/result` and `tasks/list`** and moves the feature into an extension, so serving them now is building toward a removed surface. Task lifecycle does not depend on them — the CLI `--follow` loop and dispatch's Tasks-augmented branch drive the store **directly** and never went through the SDK. The two options that were rejected: serving `get`+`cancel` only (no evidence of an external client polling — task 051 looked and found none), and serving all four (ships surface the spec is deleting).
+>
+> **Accepted cost, stated so it is not discovered later:** an MCP client that polls `tasks/get` breaks on migration. The rejection must be a **typed `-32601` from a surface we chose not to serve, not a silent no-op** — the same distinction DR-25 draws for dispatch. **DR-23 carries the INV-5b amendment** this implies; the two are companions, and INV-5b's "long-running ops use Tasks (SEP-1686)" text is falsified by the same measurement.
+>
+> **Still open, and owned by task 053:** two deleted-surface import sites remain — `cli/follow-loop.ts:47` (`isTerminal` → `isTaskTerminal` from `task-store/port.js`, 2 call sites) and `dispatch/tasks-augmented.ts:58` (`CreateTaskOptions` → `CreateTaskParams`). Until those land, **DR-0's source migration is not fully unblocked**: the store is, the follow-loop and the dispatch branch are not.
 - `src/__tests__/sdk-pin-policy.test.ts` is retargeted to the v2 package names, **keeping the exact-pin policy** (its rationale — opt into surface changes deliberately — is strengthened, not weakened, by this program).
 - The `patch-package` patch is evaluated against v2 and either dropped or re-based, with `tools-list-2020-12.test.ts` retained as a conformance test either way.
 - ~~**Error-path criterion:** a partially-migrated tree (some modules on v1, some on v2) must fail typecheck rather than resolve two copies of the protocol types — a `InMemoryTransport`-style linked pair drawn from different packages is a documented v2 footgun and is rejected at compile time.~~
@@ -983,8 +993,17 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 **Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-6, DR-24
 **Files:** `.github/workflows/ci.yml`, `servers/exarchos-mcp/src/architecture/authority-topology.data.ts`, `servers/exarchos-mcp/src/architecture/__tests__/wave1-exit.test.ts`
 **Detail:** Each guard ships wired to its kill fixture, proven RED, then flipped to blocking within this wave. **Wave exit is a seeded-failure test against production composition** — never "the module exists" (DR-24).
+
+> **Exit condition restated, rev 4.7 — the original was unachievable.** `Wave1Exit_AllFiveGuards_BlockOnSeededViolation` presumes wave-1 rows are otherwise clean, so that a *seeded* violation is what turns them red. Task 025 measured the truth: **0 of 8 boundaries pass closure, with 16 findings**, and **wave-1 already carries 5 real blocking findings** — `response-shape` ×2, `phase-sequencing` ×2, and the `action-contract` enforcement claim. Blocking counts per wave are 5 → 8 → 11 → 13 → 16.
+>
+> A seeded-violation test is meaningless against a subject that is already failing: it cannot distinguish "the guard caught my seed" from "the guard was already red." **027 must therefore do one of two things, and choosing is part of the task:**
+> 1. **Remediate the 5 wave-1 findings first**, then assert the seeded-violation test as originally written. This is the honest reading of "flip to enforce" and is preferred — but the `action-contract` finding is that the P05-05 census *does not discharge G5*, which is real work, not a data edit.
+> 2. **Restate the exit condition** as *"every wave-1 row's finding population equals the measured baseline, and a seeded violation adds exactly one finding attributable to the seed."* This is achievable today and still falsifiable, because it pins the delta rather than the absolute.
+>
+> **Do not take a third path of moving the `action-contract` row to a later wave to make the count zero.** Task 025 deliberately left it at `already-enforced` precisely so the finding stays visible; relabelling it would erase a measured failure rather than fix it, which is the defect class this program exists to eliminate.
+
 **Tests:**
-- `Wave1Exit_AllFiveGuards_BlockOnSeededViolation` — against shipped composition, not mocks
+- `Wave1Exit_AllFiveGuards_BlockOnSeededViolation` — against shipped composition, not mocks; **see the restatement above before implementing this literally**
 - `Wave1Exit_EachGuardSelfTest_RunsInSameCiJob` — guard-execution failure cannot pass as success
 - `Wave1Exit_AllGuardsOnUnfilteredPaths` — #1711: a path-filtered gate is skipped-as-passed on the PRs it polices
 **Verification:** high — integration suite + `check_test_adequacy`.
