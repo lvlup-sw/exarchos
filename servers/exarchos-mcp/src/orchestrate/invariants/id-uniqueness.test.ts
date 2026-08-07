@@ -31,7 +31,8 @@ import { fileURLToPath } from 'node:url';
 
 import type { DispatchContext } from '../../core/dispatch.js';
 import type { ToolResult } from '../../format.js';
-import { handleAdd, readCatalogIds } from './add.js';
+import { handleAdd } from './add.js';
+import { readCatalogIds } from './catalog-file.js';
 import type { ScaffoldDeps } from './scaffold.js';
 import { EXARCHOS_PACKAGE_NAME } from './reserved-tier-guard.js';
 import {
