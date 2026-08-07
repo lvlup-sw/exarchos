@@ -37,12 +37,14 @@ import {
   scanMeasuredClaims,
   scanObligationRungs,
   parseClaimLiteral,
+  collectModuleSpecifiers,
+  countSdkImportSpecifiers,
   countCommandLiterals,
   countWithCappedShapeDeclarations,
   resolveRungProbe,
   DERIVATIONS,
-  // @ts-expect-error — dependency-free `.mjs` gate script with JSDoc types only,
-  // deliberately not compiled: it must run in the zero-dep unfiltered CI lane.
+  // @ts-expect-error — `.mjs` gate script with JSDoc types only, deliberately not
+  // compiled: `node scripts/check-measured-premises.mjs` is the failable path.
 } from './check-measured-premises.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -340,13 +342,200 @@ describe('check-measured-premises (task 054, DR-27)', () => {
     // `registry.ts` carries the function's own declaration and a JSDoc mention
     // alongside the real declaration sites. Counting bare `withCappedShape(`
     // would report the definition as a declaration.
+    //
+    // The two declaration sites are wrapped in a real object literal (task 061):
+    // the derivation now PARSES, and bare `outputSchema: …,` fragments are not a
+    // program. The discriminating content is unchanged — the JSDoc mention and
+    // the function's own definition must still not count.
     const source = [
       '/** See {@link withCappedShape}. */',
       'export function withCappedShape(outputSchema: z.ZodType): z.ZodType { return outputSchema; }',
-      '  outputSchema: withCappedShape(AOutputSchema),',
-      '  outputSchema:withCappedShape(BOutputSchema),',
+      'export const registry = {',
+      '  a: { outputSchema: withCappedShape(AOutputSchema) },',
+      '  b: { outputSchema:withCappedShape(BOutputSchema) },',
+      '};',
     ].join('\n');
     expect(countWithCappedShapeDeclarations(source)).toBe(2);
+  });
+
+  // ── task 061: the scanner parses specifiers, it does not match text ────────
+
+  /**
+   * The predicate `sdkImportFiles` used before task 061, restated here verbatim
+   * so the SIZE of the defect is pinned and not merely its absence.
+   *
+   * Restating it in the test rather than keeping dead code in the gate is
+   * deliberate: the superseded behaviour is a claim about history, and a claim
+   * about history belongs with the assertion that history was wrong.
+   */
+  function rawTextScannerCountedFile(source: string): number {
+    return source.includes('@modelcontextprotocol/sdk') ? 1 : 0;
+  }
+
+  const COMMENT_ONLY_MENTION = [
+    '/**',
+    ' * Historical note: this module used to import `@modelcontextprotocol/sdk`',
+    ' * directly before the seam existed.',
+    ' */',
+    "import { z } from 'zod';",
+    'export const marker = z.string();',
+  ].join('\n');
+
+  const REAL_IMPORT = [
+    '/**',
+    ' * Historical note: this module used to import `@modelcontextprotocol/sdk`',
+    ' * directly before the seam existed.',
+    ' */',
+    "import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';",
+    "import { z } from 'zod';",
+    'export const marker = z.string();',
+  ].join('\n');
+
+  it('SdkImportScan_PackageNamedOnlyInComment_CountsZeroWhereRawTextCountedOne', () => {
+    // THE KILL FIXTURE. Two files that differ by exactly one line: one names the
+    // package only in prose, the other actually imports it. A scanner that
+    // measures imports must separate them; a scanner that measures text cannot.
+    expect(countSdkImportSpecifiers(COMMENT_ONLY_MENTION, 'comment-only.ts')).toBe(0);
+    expect(countSdkImportSpecifiers(REAL_IMPORT, 'real-import.ts')).toBe(1);
+
+    // And the defect being closed, stated as a number rather than as a story:
+    // the superseded predicate answered 1 for BOTH, so it could not tell an
+    // import site from a sentence about one.
+    expect(rawTextScannerCountedFile(COMMENT_ONLY_MENTION)).toBe(1);
+    expect(rawTextScannerCountedFile(REAL_IMPORT)).toBe(1);
+  });
+
+  it('SdkImportScan_SpecifierInsideStringOrTemplateLiteral_IsNotAnImportSite', () => {
+    // Not hypothetical: `architecture/sdk-generation-seam.test.ts` holds ten
+    // SDK import STATEMENTS inside template literals — they are the lint's own
+    // fixtures, the input it lints, not imports the module makes. The raw-text
+    // scanner counted that file; every regex over specifiers that ignores
+    // literal context counts its ten sites.
+    const fixtureBearingModule = [
+      "import { describe } from 'vitest';",
+      'const MIXED_FIXTURE = `',
+      "import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';",
+      "import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';",
+      '`;',
+      'const single = "@modelcontextprotocol/sdk/types.js";',
+      'export { MIXED_FIXTURE, single, describe };',
+    ].join('\n');
+
+    expect(countSdkImportSpecifiers(fixtureBearingModule, 'fixtures.test.ts')).toBe(0);
+    expect(rawTextScannerCountedFile(fixtureBearingModule)).toBe(1);
+  });
+
+  it('SdkImportScan_EveryImportForm_IsResolvedNotOnlyStaticFrom', () => {
+    // Totality in the other direction. Parsing removes false positives; it must
+    // not buy that by introducing false negatives, so every form the tree can
+    // spell an import in is asserted present. A parse that silently missed
+    // `export … from` or a dynamic `import()` would UNDER-report, which is the
+    // worse failure: it reads as migration progress.
+    const everyForm = [
+      "import a from '@modelcontextprotocol/sdk/a.js';",
+      "import type { B } from '@modelcontextprotocol/sdk/b.js';",
+      "import '@modelcontextprotocol/sdk/c.js';",
+      "export { d } from '@modelcontextprotocol/sdk/d.js';",
+      "export * from '@modelcontextprotocol/sdk/e.js';",
+      "const f = await import('@modelcontextprotocol/sdk/f.js');",
+      "const g = require('@modelcontextprotocol/sdk/g.js');",
+      "import h = require('@modelcontextprotocol/sdk/h.js');",
+      'export { a, f, g, h };',
+    ].join('\n');
+    expect(countSdkImportSpecifiers(everyForm, 'every-form.ts')).toBe(8);
+
+    // Package identity is exact-or-subpath, so a differently-named package that
+    // merely shares the prefix is not the v1 SDK.
+    const neighbouringPackage = [
+      "import x from '@modelcontextprotocol/sdk-next';",
+      "import y from '@modelcontextprotocol/core';",
+      'export { x, y };',
+    ].join('\n');
+    expect(countSdkImportSpecifiers(neighbouringPackage, 'neighbour.ts')).toBe(0);
+    expect(collectModuleSpecifiers(neighbouringPackage, 'neighbour.ts')).toEqual([
+      '@modelcontextprotocol/sdk-next',
+      '@modelcontextprotocol/core',
+    ]);
+  });
+
+  it('SdkImportScan_ScanRootResolvingNoFiles_ThrowsRatherThanReportingZero', () => {
+    // Non-empty denominator, DR-26's own rule applied to DR-27's instrument. A
+    // relocated `src/` resolves zero files, reports zero import sites, and reads
+    // as a COMPLETED migration. The derivation must refuse to answer instead.
+    const derivation = (DERIVATIONS as Record<string, { fn?: (root: string) => number }>)[
+      'sdk-import-sites'
+    ];
+    expect(derivation?.fn).toBeTypeOf('function');
+    expect(() => derivation!.fn!(path.join(REPO_ROOT, 'no-such-tree'))).toThrow(
+      /scan root .* does not exist|resolved 0/,
+    );
+
+    // And the empty answer is not reachable by another door: the checker treats
+    // a derivation that cannot run as a FAILURE, never as a missing number.
+    const report = checkMeasuredPremises({
+      documents: [
+        {
+          path: 'synthetic.md',
+          text: [
+            '| Property | Scope | Consequence if false | Primary proof (rung) | Proof artifact | Failure signal | Rollback |',
+            '|---|---|---|---|---|---|---|',
+            '| P | all | Bad | 2 — types<!-- rung-probe: none --> | X | Y | Z |',
+            '',
+            'Claim: <!-- measured: sdk-import-sites -->23<!-- /measured -->.',
+            '',
+          ].join('\n'),
+        },
+      ],
+      derive: () => {
+        throw new Error('scan root resolved 0 TypeScript files');
+      },
+      isKnownDerivation: () => true,
+    }) as Report;
+    expect(report.claims[0]?.verdict).toBe('derivation-unavailable');
+    expect(report.verdict).toBe('fail');
+  });
+
+  it('CommandLiteralScan_CallSiteInsideStringLiteral_IsNotCounted', () => {
+    // The sweep of the OTHER `kind: 'scan'` derivations required by task 061.
+    // `cli-handwritten-literals` already blanked COMMENTS, but blanking
+    // deliberately preserved string and template literals — so a call site
+    // written inside a string still counted, and a nested template desynced the
+    // hand-rolled lexer outright. Both are the same text-versus-parse class.
+    const callSiteInsideAString = [
+      'const doc = ".command(\'ghost\')";',
+      "program.command('real');",
+      'export { doc };',
+    ].join('\n');
+    expect(countCommandLiterals(callSiteInsideAString, 'strings.ts')).toBe(1);
+
+    const nestedTemplate = [
+      "const t = `x${`.command('ghost')`}z`;",
+      "program.command('real');",
+      'export { t };',
+    ].join('\n');
+    expect(countCommandLiterals(nestedTemplate, 'nested-template.ts')).toBe(1);
+  });
+
+  it('WithCappedShapeScan_DeclarationInsideStringLiteral_IsNotCounted', () => {
+    // Same sweep, second derivation. `withcappedshape-count` shared the
+    // comment-blanking predecessor and therefore shared its blind spot.
+    const source = [
+      'const snippet = "outputSchema: withCappedShape(GhostSchema)";',
+      'const template = `outputSchema: withCappedShape(OtherGhostSchema)`;',
+      'export const registry = { a: { outputSchema: withCappedShape(RealSchema) } };',
+      'export { snippet, template };',
+    ].join('\n');
+    expect(countWithCappedShapeDeclarations(source, 'registry-like.ts')).toBe(1);
+  });
+
+  it('SourceScan_ModuleThatDoesNotParse_ThrowsRatherThanUnderCounting', () => {
+    // `ts.createSourceFile` never throws: handed broken input it returns a
+    // partial tree with nodes missing, so a derivation over a recovered parse
+    // reports a number BELOW the truth and still reads green. An under-counting
+    // premise is strictly worse than an over-counting one.
+    expect(() =>
+      countSdkImportSpecifiers("import { a from '@modelcontextprotocol/sdk';", 'broken.ts'),
+    ).toThrow(/did not parse cleanly/);
   });
 
   it('MeasuredPremises_MalformedProbeDeclaration_IsRejectedNotIgnored', () => {

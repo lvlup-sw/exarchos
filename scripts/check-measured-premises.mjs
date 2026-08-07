@@ -65,6 +65,33 @@
  * `.exarchos/invariants.md`, and NOTHING else. Generalizing to all of `docs/`
  * is explicitly out of scope per DR-27 and needs its own ADR.
  *
+ * ── Why every `scan` derivation PARSES (task 061) ───────────────────────────
+ * The `scan` derivations read TypeScript source. Until task 061 they read it as
+ * TEXT: `sdkImportFiles` matched `source.includes('@modelcontextprotocol/sdk')`,
+ * so a module that merely NAMED the package in a comment or a string counted as
+ * an import site. That is the defect class this whole program exists to remove —
+ * an instrument that is declared, is enforced, and measures a property other
+ * than the one it names — instantiated INSIDE the instrument built to catch it.
+ * It was not theoretical: the derivation reported 40 files across 13 directories
+ * where the tree holds 23 across 9, a 74% inflation, and every one of the 17
+ * extra files names the package only in prose or in a lint fixture string.
+ *
+ * The comment-blanking half of the old approach — a hand-rolled `blankComments`
+ * lexer, since removed — was not a fix either. It preserved string and template
+ * literals by design, so a call site written inside a string still counted, and
+ * a NESTED template (`` `x${`…`}z` ``) desynced it outright. Both failures are
+ * pinned as tests, so `cli-handwritten-literals` and `withcappedshape-count`
+ * carried the same class latently even though they agreed with the parse on
+ * today's tree. Re-deriving TypeScript's lexical grammar by hand is how the
+ * original defect arrived; `typescript` cannot disagree with the compiler about
+ * what an import — or a call site — is.
+ *
+ * `typescript` is a root devDependency and this gate already rides CI's
+ * tsx-backed deps tail rather than the zero-dep prefix (see
+ * `scripts/enforcer-wiring-manifest.json`), so the dependency costs nothing that
+ * was not already installed — the same trade `scripts/audit/consolidate-suite.mjs`
+ * and `scripts/tsconfig-strictness/count-casts.ts` already make.
+ *
  * Flags:
  *   --document <path>   Scan this document instead of the default scope.
  *                       Repeatable. Paths resolve against the repo root.
@@ -77,6 +104,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import * as path from 'node:path';
 import process from 'node:process';
+import ts from 'typescript';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, '..');
@@ -487,23 +515,30 @@ export const DERIVATIONS = {
   },
   'sdk-import-sites': {
     kind: 'scan',
-    describe: `files under ${MCP_SRC} referencing '@modelcontextprotocol/sdk'`,
+    describe:
+      `files under ${MCP_SRC} whose PARSED import/export specifiers include ` +
+      `'@modelcontextprotocol/sdk' (or a subpath), owned seam excluded`,
     fn: (root) => sdkImportFiles(root).length,
   },
   'sdk-import-directories': {
     kind: 'scan',
-    describe: `distinct directories under ${MCP_SRC} containing an '@modelcontextprotocol/sdk' reference`,
+    describe: `distinct directories holding a file counted by 'sdk-import-sites'`,
     fn: (root) => new Set(sdkImportFiles(root).map((f) => path.dirname(f))).size,
+  },
+  'sdk-import-production-files': {
+    kind: 'scan',
+    describe: `non-test files counted by 'sdk-import-sites' — task 053's production migration surface`,
+    fn: (root) => sdkImportFiles(root).filter((f) => !isTestFile(f)).length,
   },
   'cli-handwritten-literals': {
     kind: 'scan',
-    describe: `\`.command('<literal>')\` call sites in ${CLI_SOURCE}, comments excluded`,
-    fn: (root) => countCommandLiterals(readSource(root, CLI_SOURCE)),
+    describe: `parsed \`.command('<literal>')\` call sites in ${CLI_SOURCE}`,
+    fn: (root) => countCommandLiterals(readSource(root, CLI_SOURCE), CLI_SOURCE),
   },
   'withcappedshape-count': {
     kind: 'scan',
-    describe: `\`outputSchema: withCappedShape(\` declaration sites in ${REGISTRY_SOURCE}`,
-    fn: (root) => countWithCappedShapeDeclarations(readSource(root, REGISTRY_SOURCE)),
+    describe: `parsed \`outputSchema: withCappedShape(...)\` declaration sites in ${REGISTRY_SOURCE}`,
+    fn: (root) => countWithCappedShapeDeclarations(readSource(root, REGISTRY_SOURCE), REGISTRY_SOURCE),
   },
 };
 
@@ -538,89 +573,191 @@ function walkTypeScript(dir, out) {
  */
 const SDK_SEAM_DIR = `${MCP_SRC}/sdk`;
 
+/** The v1 package root. Every `@modelcontextprotocol/sdk/...` subpath is v1. */
+const SDK_V1_PACKAGE = '@modelcontextprotocol/sdk';
+
+// ─── Source parsing ─────────────────────────────────────────────────────────
+
 /**
- * The DR-26 kill-fixture subject: every file that reaches an SDK package
+ * Parse one module, refusing a RECOVERED parse.
+ *
+ * `ts.createSourceFile` never throws: handed broken input it returns a partial
+ * tree with nodes silently missing, which under-reports. An under-counting
+ * derivation is strictly worse than an over-counting one — it lets the document
+ * assert a number smaller than the truth and still reads green — so a recovered
+ * parse is fatal here. `parseDiagnostics` is off the public `ts.SourceFile`
+ * surface but is the only way to tell a clean parse from a recovered one; this
+ * is the same access `scripts/tsconfig-strictness/count-casts.ts` makes for the
+ * same reason.
+ *
+ * @param {string} source
+ * @param {string} fileName
+ * @returns {import('typescript').SourceFile}
+ */
+export function parseModule(source, fileName = 'source.ts') {
+  const sourceFile = ts.createSourceFile(
+    fileName,
+    source,
+    ts.ScriptTarget.Latest,
+    /* setParentNodes */ false,
+    ts.ScriptKind.TS,
+  );
+  const diagnostics = sourceFile.parseDiagnostics ?? [];
+  const first = diagnostics[0];
+  if (first !== undefined) {
+    const detail = ts.flattenDiagnosticMessageText(first.messageText, ' ');
+    throw new Error(
+      `check-measured-premises: ${fileName} did not parse cleanly ` +
+        `(${diagnostics.length} syntax error(s); first: ${detail}). Refusing to ` +
+        `derive a premise from a recovered parse, which would silently ` +
+        `under-report and let the document assert a number below the truth.`,
+    );
+  }
+  return sourceFile;
+}
+
+/**
+ * Every MODULE SPECIFIER the parsed program actually imports or re-exports.
+ *
+ * Covers every form the tree uses or could use, so the parse cannot under-report
+ * where the old text match could not miss anything:
+ *
+ *   `import x from 'p'` · `import type { T } from 'p'` · `import 'p'` ·
+ *   `export { x } from 'p'` · `export * from 'p'` · `await import('p')` ·
+ *   `require('p')` · `import p = require('p')`
+ *
+ * A specifier inside a comment, a string, or a template literal is NOT one of
+ * these nodes and is therefore absent by construction rather than by filtering —
+ * which is the whole point of parsing instead of matching.
+ *
+ * @param {string} source
+ * @param {string} [fileName]
+ * @returns {string[]}
+ */
+export function collectModuleSpecifiers(source, fileName = 'source.ts') {
+  const sourceFile = parseModule(source, fileName);
+  /** @type {string[]} */
+  const specifiers = [];
+
+  /** @param {import('typescript').Node} node */
+  const visit = (node) => {
+    if (
+      (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
+      node.moduleSpecifier !== undefined &&
+      ts.isStringLiteral(node.moduleSpecifier)
+    ) {
+      specifiers.push(node.moduleSpecifier.text);
+    } else if (
+      ts.isImportEqualsDeclaration(node) &&
+      ts.isExternalModuleReference(node.moduleReference) &&
+      ts.isStringLiteral(node.moduleReference.expression)
+    ) {
+      specifiers.push(node.moduleReference.expression.text);
+    } else if (ts.isCallExpression(node)) {
+      const isDynamicImport = node.expression.kind === ts.SyntaxKind.ImportKeyword;
+      const isRequire = ts.isIdentifier(node.expression) && node.expression.text === 'require';
+      const first = node.arguments[0];
+      if (
+        (isDynamicImport || isRequire) &&
+        first !== undefined &&
+        (ts.isStringLiteral(first) || ts.isNoSubstitutionTemplateLiteral(first))
+      ) {
+        specifiers.push(first.text);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(sourceFile, visit);
+
+  return specifiers;
+}
+
+/**
+ * True when `specifier` is exactly `pkg` or one of its subpaths.
+ *
+ * Deliberately NOT `startsWith(pkg)`: that would swallow a hypothetical future
+ * `@modelcontextprotocol/sdk-next`, which is a different package.
+ *
+ * @param {string} specifier
+ * @param {string} pkg
+ */
+function isPackageOrSubpath(specifier, pkg) {
+  return specifier === pkg || specifier.startsWith(`${pkg}/`);
+}
+
+/**
+ * How many v1 SDK specifiers one module actually imports. Zero for a module that
+ * only NAMES the package — in a comment, a string, or a lint fixture written as
+ * a template literal.
+ *
+ * This is the kill-fixture surface for task 061: the superseded predicate was
+ * `source.includes('@modelcontextprotocol/sdk')`, which answers 1 for a
+ * comment-only mention where this answers 0.
+ *
+ * @param {string} source
+ * @param {string} [fileName]
+ * @returns {number}
+ */
+export function countSdkImportSpecifiers(source, fileName = 'source.ts') {
+  return collectModuleSpecifiers(source, fileName).filter((specifier) =>
+    isPackageOrSubpath(specifier, SDK_V1_PACKAGE),
+  ).length;
+}
+
+/**
+ * The DR-26 kill-fixture subject: every file that IMPORTS an SDK package
  * DIRECTLY — that is, outside the owned seam — tests included. Tests are counted
  * deliberately: DR-26's seam rule forbids the direct import everywhere, and a
  * subject list that quietly omits the test tree would under-report the
  * denominator it exists to prove non-empty.
  *
- * KNOWN LIMITATION, recorded rather than silently carried: the match is on raw
- * text, so a file that only NAMES `@modelcontextprotocol/sdk` in a comment or a
- * string counts as an import site. That is the same text-versus-parse defect
- * task 058 corrected in the cast census, one boundary over, and it inflates this
- * derivation above the true import-site count. Correcting it moves the spec's
- * literals and belongs with the DR-27 instrument (task 054), not here — the seam
- * exclusion below is scoped to keeping the derivation's SUBJECT correct, not to
- * re-opening how it counts.
+ * NON-EMPTY DENOMINATOR (the count-casts rule, one boundary over): a scan that
+ * resolves ZERO TypeScript files throws instead of returning an empty list. A
+ * relocated `src/`, a typo in {@link MCP_SRC} or a renamed package directory all
+ * present the same way — as a clean run over nothing — and would report a LOWER
+ * count, which reads as "the migration made progress" and passes the gate.
+ *
+ * @param {string} root
+ * @returns {string[]}
  */
 function sdkImportFiles(root) {
   const base = path.join(root, ...MCP_SRC.split('/'));
-  if (!existsSync(base) || !statSync(base).isDirectory()) return [];
+  if (!existsSync(base) || !statSync(base).isDirectory()) {
+    throw new Error(
+      `check-measured-premises: SDK import scan root "${MCP_SRC}" does not exist ` +
+        `under ${root}. An unresolvable scan root reports 0 import sites and would ` +
+        `read as a completed migration, so it fails rather than being trusted.`,
+    );
+  }
+  const files = walkTypeScript(base, []);
+  if (files.length === 0) {
+    throw new Error(
+      `check-measured-premises: SDK import scan root "${MCP_SRC}" resolved 0 ` +
+        `TypeScript files. An empty denominator reports 0 import sites and would ` +
+        `read as a completed migration, so it fails rather than being trusted.`,
+    );
+  }
   const seamDir = path.join(root, ...SDK_SEAM_DIR.split('/'));
-  return walkTypeScript(base, []).filter(
+  return files.filter(
     (file) =>
       !file.startsWith(`${seamDir}${path.sep}`) &&
-      readFileSync(file, 'utf8').includes('@modelcontextprotocol/sdk'),
+      countSdkImportSpecifiers(readFileSync(file, 'utf8'), file) > 0,
   );
 }
 
 /**
- * Blank out comments while preserving every byte offset, so line numbers and
- * subsequent matches stay honest.
+ * A test file, by the repo's own convention (`scripts/tsconfig-strictness/
+ * count-casts.ts` uses the same two rules): a `.test` / `.bench` / `.type-test`
+ * / `.fixture` basename, or any path segment named `__tests__`.
  *
- * This is not decoration. A naive `/\.command\(/g` over `cli.ts` counts 15 call
- * sites because a JSDoc block writes `program.command(...)` in prose — and the
- * spec's own measured claim is 14 total / 11 literal. A derivation that has to
- * be "tuned" until it reproduces the document's number is the defect DR-27
- * removes; a derivation that reads only code is the fix.
+ * @param {string} file Absolute or repo-relative path.
  */
-export function blankComments(source) {
-  let out = '';
-  let i = 0;
-  const n = source.length;
-  while (i < n) {
-    const ch = source[i];
-    const next = source[i + 1];
-    if (ch === '/' && next === '/') {
-      while (i < n && source[i] !== '\n') {
-        out += ' ';
-        i++;
-      }
-      continue;
-    }
-    if (ch === '/' && next === '*') {
-      while (i < n && !(source[i] === '*' && source[i + 1] === '/')) {
-        out += source[i] === '\n' ? '\n' : ' ';
-        i++;
-      }
-      out += i < n ? '  ' : '';
-      i += 2;
-      continue;
-    }
-    if (ch === "'" || ch === '"' || ch === '`') {
-      const quote = ch;
-      out += ch;
-      i++;
-      while (i < n) {
-        if (source[i] === '\\') {
-          out += source[i] + (source[i + 1] ?? '');
-          i += 2;
-          continue;
-        }
-        out += source[i];
-        if (source[i] === quote) {
-          i++;
-          break;
-        }
-        i++;
-      }
-      continue;
-    }
-    out += ch;
-    i++;
-  }
-  return out;
+function isTestFile(file) {
+  const normalised = file.replaceAll('\\', '/');
+  return (
+    /\.(test|bench|type-test|fixture)\.ts$/.test(normalised) ||
+    normalised.includes('/__tests__/')
+  );
 }
 
 /**
@@ -629,29 +766,74 @@ export function blankComments(source) {
  * (`cliName`, `harness`, `commandName`) are the derivation loops and are NOT
  * counted: G1's whole policy is that provenance is visible in the source and
  * erased in the built tree.
+ *
+ * Parsed, not matched (task 061). A JSDoc block in `cli.ts` writes
+ * `program.command(...)` in prose and a naive `/\.command\(/g` counts it; the
+ * comment-blanking predecessor handled that case but still counted a call site
+ * written inside a STRING, and desynced on a nested template literal. The AST
+ * has neither problem: a call expression inside a string literal is not a call
+ * expression.
+ *
+ * @param {string} source
+ * @param {string} [fileName]
+ * @returns {number}
  */
-export function countCommandLiterals(source) {
-  const code = blankComments(source);
-  const re = /\.command\(\s*(['"`])/g;
+export function countCommandLiterals(source, fileName = 'source.ts') {
+  const sourceFile = parseModule(source, fileName);
   let count = 0;
-  while (re.exec(code) !== null) count++;
+  /** @param {import('typescript').Node} node */
+  const visit = (node) => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      node.expression.name.text === 'command'
+    ) {
+      const first = node.arguments[0];
+      if (
+        first !== undefined &&
+        (ts.isStringLiteral(first) || ts.isNoSubstitutionTemplateLiteral(first))
+      ) {
+        count++;
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(sourceFile, visit);
   return count;
 }
 
 /**
  * Count the declaration sites that construct a substantive `outputSchema`.
  *
- * Scoped to `outputSchema: withCappedShape(` on purpose: the source also
- * carries the function's own declaration and a JSDoc mention, neither of which
- * is a declaration. This derivation is INDEPENDENT of the census — it reads
- * source text, the census reads the Zod object — so the two agreeing on 10 is a
- * genuine cross-check rather than one number quoted twice.
+ * Scoped to the `outputSchema: withCappedShape(...)` PROPERTY ASSIGNMENT on
+ * purpose: the source also carries the function's own declaration and a JSDoc
+ * mention, neither of which is a declaration. This derivation is INDEPENDENT of
+ * the census — it reads the parsed source, the census reads the Zod object — so
+ * the two agreeing on 10 is a genuine cross-check rather than one number quoted
+ * twice.
+ *
+ * @param {string} source
+ * @param {string} [fileName]
+ * @returns {number}
  */
-export function countWithCappedShapeDeclarations(source) {
-  const code = blankComments(source);
-  const re = /outputSchema\s*:\s*withCappedShape\s*\(/g;
+export function countWithCappedShapeDeclarations(source, fileName = 'source.ts') {
+  const sourceFile = parseModule(source, fileName);
   let count = 0;
-  while (re.exec(code) !== null) count++;
+  /** @param {import('typescript').Node} node */
+  const visit = (node) => {
+    if (
+      ts.isPropertyAssignment(node) &&
+      (ts.isIdentifier(node.name) || ts.isStringLiteral(node.name)) &&
+      node.name.text === 'outputSchema' &&
+      ts.isCallExpression(node.initializer) &&
+      ts.isIdentifier(node.initializer.expression) &&
+      node.initializer.expression.text === 'withCappedShape'
+    ) {
+      count++;
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(sourceFile, visit);
   return count;
 }
 
