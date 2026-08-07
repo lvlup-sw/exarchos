@@ -99,6 +99,10 @@ This is not an instruction-quality problem. Per the superseded spec's discovery 
 > | `outputSchema` | substance | **presence** | design (DR-4) |
 > | `count-casts.ts` | type assertions | **the text "as"** — prose and namespace imports | task 057 → 058 |
 > | `check-measured-premises.mjs` `sdkImportFiles` | import sites | **substring occurrence** — comment mentions | task 052 → 061 |
+| `check-measured-premises.mjs` `blankComments` | call sites | **text outside comments** — string/template contents still counted | task 061 (latent) |
+| `sdk-generation-seam.ts` `collectSdkImports` | import sites | **regex specifier match** — template-literal fixtures counted | task 061 → 062 |
+
+> **Six now, and the last one had teeth.** `collectSdkImports` feeds DR-26's `bypassSiteCount`, whose denominator therefore includes ten fixture strings that can never be migrated — so task 053's migration gate **could not have reached zero**. Note also that each successive fix was found by the *previous* fix's author looking one rung down: 057→058 (cast census), 052→061 (premise scanner), 061→062 (seam scanner). The pattern is not "one bad guard"; it is that **a text proxy tends to be built on another text proxy**, and finding one is a reason to look beneath it rather than to declare the class closed.
 >
 > The last two were found **only by running the plan**, and the fourth lives inside DR-27 — *the instrument built to catch unbound claims contained one.* That is not irony to be noted and moved past; it is the load-bearing evidence for DR-27's own necessity, and the reason its acceptance criteria require a kill fixture rather than a green run.
 >
@@ -151,7 +155,7 @@ PDD deliverable 1, specified per §3a. Ranked by findings eliminated. **Every gu
 | **Mechanism** | **Rung 3, source-level.** Parse `servers/exarchos-mcp/src/adapters/cli.ts` and assert every `.command(` argument is an identifier expression, not a string literal. This discriminates exactly where a tree-walk cannot, because provenance is visible in the *source* and erased in the *built tree*. It also needs no `buildCli` resolution, so — unlike the existing vocab guard — it carries **no `bun:sqlite` dependency** and can host in the zero-dep unfiltered job (see Protected path). Complements, and does not replace, `cli-vocab-guard`'s banned-vocabulary predicate. |
 | **Kill fixture** | The **<!-- measured: cli-handwritten-literals -->11<!-- /measured --> hand-written literals on the landing branch** — `doctor`, `version`, `feedback`, `schema`, `topology`, `emissions`, `mcp`, `onboard`, `init`, `merge-orchestrate`, `install-skills` (`cli.ts:399,471,506,555,592,611,622,662,734,772,837`). The guard reports all <!-- measured: cli-handwritten-literals -->11<!-- /measured --> on introduction. |
 | **Self-test** | Two, because detection alone is insufficient. (1) Seed a 12th literal → guard must fail. (2) **Non-empty denominator:** the guard must fail if it parses zero `.command(` sites at all, so a moved/renamed file or a parse error cannot pass as a clean run. |
-| **Protected path** | CI, **unfiltered**, in the zero-dep `grep-gates` host. Rev 1 asserted an unfiltered path for a `buildCli`-resolving mechanism that ci.yml documents as needing Bun + MCP deps, and therefore hosts in the path-filtered `test-mcp` job — i.e. rev 1 specified exactly the #1711 skipped-as-passed configuration it cited #1711 to avoid. The source-parse mechanism removes that dependency rather than working around it. |
+| **Protected path** | CI, **unfiltered**, on the **deps tail of the `grep-gates` job** — *corrected rev 4.5*. Rev 1 asserted an unfiltered path for a `buildCli`-resolving mechanism that ci.yml documents as needing Bun + MCP deps, and therefore hosts in the path-filtered `test-mcp` job — i.e. rev 1 specified exactly the #1711 skipped-as-passed configuration it cited #1711 to avoid. The source-parse mechanism removes that dependency. **But "zero-dep `grep-gates` host" was itself wrong**, and the repo's own [`docs/guides/ci-gate-hosting.md`](../guides/ci-gate-hosting.md) forbids the phrase in a heading: *"`grep-gates` has two identities — never call it 'zero-dependency'."* The zero-dep **prefix** runs with no `npm ci` at all; a parser-based guard needs `typescript` resolvable and therefore rides the **deps tail**. The `bun:sqlite` freedom is real and still the point — it buys plain `node`/`tsx` instead of Bun, not zero dependencies. |
 | **Exceptions** | The <!-- measured: cli-handwritten-literals -->11<!-- /measured --> literals enter an allowlist keyed by command name, each with an owner and an **ISO expiry date** (not a "wave-scoped" label, which is not mechanically evaluable). Entries may only be removed. **`merge-orchestrate` is excluded from the allowlist** — it is the kill fixture and must remain rejected; rev 1 allowlisted it, neutralizing the very rejection DR-5 requires. Its hand-written command is deleted in DR-5, not exempted. |
 
 #### G2 — `outputSchema` non-vacuity ratchet *(new policy on an existing mechanism)*
@@ -1052,6 +1056,24 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 - `OutputSchema_AllowlistEntrySwapped_FailsRatchet` — shrink-only beats a count threshold
 **Verification:** high — type-level + scoped tests + `check_test_adequacy`.
 **Dependencies:** 016 · **Parallelizable:** No *(supersedes 017; re-scope 017 to allowlist expiry enforcement)*
+
+### Task 062: Parse specifiers in `collectSdkImports` — the fifth occurrence, and it blocks task 053
+**Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-26
+**Files:** `servers/exarchos-mcp/src/architecture/sdk-generation-seam.ts`
+**Detail:** **The same defect, a fifth time — and this instance is load-bearing, not cosmetic.** `collectSdkImports` matches specifiers with a regex carrying **no comment or string-literal exclusion**, so SDK specifiers written inside template literals count as imports. The lint's own fixture file, `sdk-generation-seam.test.ts`, contains ten such specifiers as *test input*.
+
+**Why this blocks task 053.** DR-26's `bypassSiteCount` denominator currently includes those ten fixture strings. They are not imports and can never be migrated, so **the denominator cannot reach zero** — task 053 would be asked to drive a count to zero that is arithmetically floored above it. A migration gate that cannot succeed is worse than no gate.
+
+It also explains a measurement disagreement worth preserving: task 052 published 053's backlog as **56 sites / 24 files / 10 dirs**, measured with this very regex. Task 061's AST parse gives **46 sites / 23 files / 9 directories** (10 non-test). The entire delta is that one fixture file. **053's backlog is 46/23/9 — not 56/24/10, and not the original 38.**
+
+**Acceptance criteria:**
+- `collectSdkImports` resolves real import/export specifiers; a specifier inside a comment, string, or template literal is not an import site.
+- **Kill fixture:** the lint's own `sdk-generation-seam.test.ts` drops from 10 counted sites to 0. Assert both numbers so the defect's size is pinned.
+- **Non-empty denominator:** a scan resolving zero modules fails rather than passing clean.
+- `bypassSiteCount` becomes a denominator that **can** reach zero, and a test asserts that property directly.
+
+**Verification:** medium — scoped tests + `check_test_adequacy`.
+**Dependencies:** 052 · **Parallelizable:** Yes *(must land BEFORE 053)*
 
 ### Task 061: Parse specifiers in DR-27's import scanner instead of matching raw text
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-27
