@@ -140,6 +140,8 @@ const ALLOWLIST_CLASSES = [
         'Remediation no-mutation census (P06-06): a source-import audit proving remediation.ts imports no event-store, atomic-appender, or filesystem API — i.e. that remediation is pure data and can never patch pass-state. Test-invoked structural gate, same class as effect-ledger.',
       'architecture/delivery-safety.ts':
         'Silent-swallow static check for required delivery paths (P04-01): its co-located test runs auditDeliverySafety against the live channel modules and fails on any empty catch / empty .catch() around a required delivery. Test-invoked structural gate, same class as effect-ledger.',
+      'architecture/output-schema-census.ts':
+        'outputSchema vacuity census (DR-4): enumerates every TOOL_REGISTRY action declaration and partitions each declared outputSchema into vacuous (data accepts every value) vs substantive, failing closed on an empty subject. Its co-located test runs it against the live registry. Test-invoked structural gate, same class as effect-ledger — deliberately not a production import target so the shipped server never depends on the census.',
     },
     matches(rel) {
       return Object.prototype.hasOwnProperty.call(this.members, rel);
