@@ -1,0 +1,18 @@
+{
+  "$comment": [
+    "DR-5 / G1 policy data for cli-derivation-seam.ts — command names tolerated as",
+    "hand-written string literals in the CLI composition root.",
+    "",
+    "This ships EMPTY on purpose. On introduction the guard reports all 11 literals",
+    "currently in servers/exarchos-mcp/src/adapters/cli.ts (doctor, version, feedback,",
+    "schema, topology, emissions, mcp, onboard, init, merge-orchestrate,",
+    "install-skills) rather than blessing them, so the guard's first run states the",
+    "real size of the debt instead of reporting green over it.",
+    "",
+    "Populating this list, and enforcing that it may only ever SHRINK (an entry may",
+    "leave, none may arrive), is a separate deliverable and is deliberately not",
+    "implemented by the guard yet. Until then the guard reads this file but nothing",
+    "ratchets it."
+  ],
+  "allowed": []
+}
