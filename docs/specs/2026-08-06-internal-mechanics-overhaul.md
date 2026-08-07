@@ -1067,6 +1067,26 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 **Verification:** high — type-level + scoped tests + `check_test_adequacy`.
 **Dependencies:** 016 · **Parallelizable:** No *(supersedes 017; re-scope 017 to allowlist expiry enforcement)*
 
+### Task 063: Inventory every Wave-1 guard and prove it is reachable from CI
+**Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-24
+**Files:** `.github/workflows/ci.yml`, `scripts/enforcer-wiring-manifest.json`, guard modules as needed
+**Detail:** **R-11 — "the mechanism ships and nothing calls it" — is this program's declared dominant risk, and Wave 1 has been accumulating instances.** Three are already recorded by the tasks that shipped them, each reported against its own work:
+- `resolveDispatchShape` (task 046) — no production caller; exercised only by tests, with task 047 as its second test consumer.
+- `auditVacuityRatchet` / `auditVacuitySeedIntegrity` / `auditVacuityAllowlist` (tasks 055, 060) — driven **only** by co-located vitest. The pre-existing `auditVacuityAllowlist` is called by no production code either, so this is inherited, not introduced.
+- `cli-derivation-guard` (task 020) — correct and complete, but exits 1 on the landing branch by design and cannot be wired blocking until task 023 populates the allowlist.
+
+Task 054 already demonstrated the failure mode is live rather than theoretical: registering its gate surfaced that **`npm run validate` is invoked by no workflow**, so a validate-only wiring would itself have been R-11. The repo's `enforcer-wiring-manifest.json` has a class for exactly this (`unreachable-npm`).
+
+**Acceptance criteria:**
+- A single inventory enumerates every guard Wave 1 shipped and records, per guard: its CI job, whether that job is path-filtered, and whether it currently blocks or observes.
+- **Every guard is reachable from a CI job** — or carries a recorded, expiring reason why not (task 020's allowlist dependency is the legitimate example).
+- **Non-empty denominator:** an inventory resolving zero guards fails rather than passing clean.
+- **Path-filtered hosting is reported, not silently accepted** — #1711's skipped-as-passed failure is the reason this DR exists.
+
+**Sequencing:** before **task 027**. Task 027 asserts the Wave-1 exit condition, and discovering an unwired guard at the join point would block every remaining task at once. This task front-loads that discovery.
+**Verification:** medium — scoped tests + the wiring manifest's own self-check.
+**Dependencies:** 020, 025, 046, 055, 060 · **Parallelizable:** Yes
+
 ### Task 062: Parse specifiers in `collectSdkImports` — the fifth occurrence, and it blocks task 053
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-26
 **Files:** `servers/exarchos-mcp/src/architecture/sdk-generation-seam.ts`
