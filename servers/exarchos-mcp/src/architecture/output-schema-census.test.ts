@@ -35,18 +35,26 @@ import {
   formatOutputSchemaCensus,
   acceptsEveryValue,
 } from './output-schema-census.js';
+import type { CensusableAction, CensusableTool } from './output-schema-census.js';
 import { TOOL_REGISTRY } from '../registry.js';
-import type { CompositeTool, ToolAction } from '../registry.js';
 import { EnvelopeSchema } from '../schemas/envelope.js';
 
 // ─── Authority A — the declaration form, read from registry source text ──────
 //
 // A declaration site is an `outputSchema:` property at object-literal depth
-// (four-space indent). That deliberately excludes the two `outputSchema`
-// occurrences in `registry.ts` that are NOT declarations: the `ToolAction`
-// interface field (two-space indent) and the `withCappedShape` parameter
-// (column zero). Each site is paired with the nearest preceding action `name:`
-// at the same depth.
+// (four-space indent). That deliberately excludes the `outputSchema`
+// occurrences in `registry.ts` that are NOT declarations (the `ToolAction`
+// interface field, at two-space indent). Each site is paired with the nearest
+// preceding action `name:` at the same depth.
+//
+// DR-4 task 055 changed the SPELLING this authority reads, not what it means.
+// Vacuity is now unconstructible: `ToolAction.outputSchema` takes a branded
+// schema, so the 109 sites that wrote `EnvelopeSchema(z.unknown())` literally
+// now route through `vacuityWaiver('<id>')` and the 10 typed ones still spell
+// `withCappedShape(...)`. The two declarations that reach vacuity through a
+// NAMED BINDING pass it as the waiver's second argument, so the source form
+// still distinguishes them — which is what keeps the "aliased vacuity" finding
+// auditable from the source side rather than only from the object walk.
 
 const REGISTRY_SRC = resolve(dirname(fileURLToPath(import.meta.url)), '../registry.ts');
 
@@ -74,38 +82,36 @@ function readDeclarationSites(): readonly DeclarationSite[] {
   return sites;
 }
 
+/** The pre-DR-4 spelling of vacuity. No declaration site may use it any more. */
 const LITERAL_VACUOUS_RHS = 'EnvelopeSchema(z.unknown())';
+/** The sole substantive constructor. */
 const isCappedShapeRhs = (rhs: string): boolean => rhs.startsWith('withCappedShape(');
-const isNamedBindingRhs = (rhs: string): boolean =>
-  rhs !== LITERAL_VACUOUS_RHS && !isCappedShapeRhs(rhs);
+/** The allowlist escape — vacuity, declared against an owned, expiring entry. */
+const isWaiverRhs = (rhs: string): boolean => rhs.startsWith('vacuityWaiver(');
+/**
+ * A waiver carrying an explicit schema argument: vacuity reached through a
+ * NAMED BINDING rather than the default envelope. These are the declarations a
+ * source-text detector would score as typed if it only looked for the literal
+ * vacuous expression.
+ */
+const isNamedBindingRhs = (rhs: string): boolean => isWaiverRhs(rhs) && rhs.includes(', ');
 
 // ─── Synthetic registry fixtures ─────────────────────────────────────────────
 //
 // The census takes `tools` as an injected seam (the `description-budget.ts`
-// idiom), so composition can be varied without touching the live registry.
+// idiom), so composition can be varied without touching the live registry. The
+// seam is `CensusableTool`, NOT `CompositeTool`: since DR-4 task 055 narrowed
+// `ToolAction.outputSchema` to a branded type, a seam typed `CompositeTool`
+// would refuse the raw `z.ZodType` subjects below — and refusing them is
+// exactly wrong for a detector whose job is to classify vacuity that arrived
+// WITHOUT going through the blessed constructors.
 
-const READ_ONLY_LOCAL = {
-  safety: 'read-only',
-  readOnly: true,
-  destructive: false,
-  idempotent: true,
-  openWorld: false,
-} as const;
-
-function action(name: string, outputSchema: z.ZodType): ToolAction {
-  return {
-    name,
-    description: `synthetic ${name}`,
-    schema: z.object({}),
-    phases: new Set<string>(),
-    roles: new Set<string>(),
-    outputSchema,
-    annotations: READ_ONLY_LOCAL,
-  };
+function action(name: string, outputSchema: z.ZodType): CensusableAction {
+  return { name, outputSchema };
 }
 
-function tool(name: string, actions: readonly ToolAction[]): CompositeTool {
-  return { name, description: `synthetic ${name}`, actions };
+function tool(name: string, actions: readonly CensusableAction[]): CensusableTool {
+  return { name, actions };
 }
 
 /** A schema that pins a real `data` shape — the migration template. */
@@ -128,7 +134,7 @@ describe('DR-4: outputSchema vacuity census', () => {
     // lockstep, when the enumerated subject changes — across several distinct
     // compositions, none of which matches the live registry's numbers.
     const compositions: ReadonlyArray<{
-      tools: readonly CompositeTool[];
+      tools: readonly CensusableTool[];
       total: number;
       vacuous: number;
       substantive: number;
@@ -291,12 +297,13 @@ describe('DR-4: outputSchema vacuity census', () => {
     });
 
     // THE FINDING, made executable. Authority A enumerates the live
-    // declarations whose source spells a NAMED binding — neither the literal
-    // vacuous form nor `withCappedShape`. A source-text grep counts those as
-    // typed. Authority B walks their schema objects and finds `data` is still
-    // `z.unknown()`. Every one of them must be counted vacuous; if a future
-    // change makes one genuinely typed, this assertion fails and the reconciled
-    // arithmetic below has to be re-derived rather than quietly drifting.
+    // declarations whose source reaches vacuity through a NAMED binding rather
+    // than the plain envelope. A detector that only knew the literal vacuous
+    // expression would score those typed. Authority B walks their schema
+    // objects and finds `data` is still `z.unknown()`. Every one of them must be
+    // counted vacuous; if a future change makes one genuinely typed, this
+    // assertion fails and the reconciled arithmetic below has to be re-derived
+    // rather than quietly drifting.
     const namedBindings = readDeclarationSites().filter((s) => isNamedBindingRhs(s.rhs));
     expect(namedBindings.length).toBeGreaterThan(0);
 
@@ -337,13 +344,21 @@ describe('DR-4: outputSchema vacuity census', () => {
     const sites = readDeclarationSites();
     const literalVacuousSites = sites.filter((s) => s.rhs === LITERAL_VACUOUS_RHS).length;
     const cappedSites = sites.filter((s) => isCappedShapeRhs(s.rhs)).length;
+    const waiverSites = sites.filter((s) => isWaiverRhs(s.rhs)).length;
     const namedBindingSites = sites.filter((s) => isNamedBindingRhs(s.rhs)).length;
 
-    // Authority A: what the source spells. 109 literal vacuous + 10
-    // withCappedShape + 2 named bindings = 121 declaration sites.
-    expect(sites).toHaveLength(literalVacuousSites + cappedSites + namedBindingSites);
-    expect(literalVacuousSites).toBe(109);
+    // Authority A: what the source spells. 111 allowlist waivers + 10
+    // withCappedShape = 121 declaration sites, and the two forms are
+    // EXHAUSTIVE — DR-4 task 055 left no third spelling. The literal vacuous
+    // expression is extinct at declaration sites because it no longer
+    // typechecks there, which is the acceptance criterion restated from the
+    // source side.
+    expect(sites).toHaveLength(waiverSites + cappedSites);
+    expect(literalVacuousSites).toBe(0);
+    expect(waiverSites).toBe(111);
     expect(cappedSites).toBe(10);
+    // Two of the waivers carry an explicit named binding — the aliased vacuity
+    // this census exists to see through.
     expect(namedBindingSites).toBe(2);
 
     // Authority B: what the registry actually builds. One MORE action than
@@ -352,11 +367,12 @@ describe('DR-4: outputSchema vacuity census', () => {
     const factoryDuplicates = report.total - sites.length;
     expect(factoryDuplicates).toBe(1);
 
-    // The reconciliation. Semantic vacuity = every literal vacuous site, plus
-    // the extra runtime instance the factory mints, plus BOTH named bindings —
-    // which a source grep would have scored typed. Substantive = exactly the
-    // withCappedShape sites.
-    expect(report.vacuousCount).toBe(literalVacuousSites + factoryDuplicates + namedBindingSites);
+    // The reconciliation. Semantic vacuity = every waived site plus the extra
+    // runtime instance the factory mints. Substantive = exactly the
+    // withCappedShape sites. The two authorities are computed from different
+    // things — the source spelling and the Zod object walk — and still land on
+    // the same partition.
+    expect(report.vacuousCount).toBe(waiverSites + factoryDuplicates);
     expect(report.substantiveCount).toBe(cappedSites);
 
     // The measured figures, pinned so drift shows up as a diff, not silence.
