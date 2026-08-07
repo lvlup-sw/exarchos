@@ -1,6 +1,6 @@
 # Spec: Internal mechanics overhaul — one authority per contract, bound mechanically, IR-shaped
 
-**Date:** 2026-08-06 · **Revised:** 2026-08-07 (rev 4.11) · **Feature:** `internal-mechanics-overhaul` · **Depth:** deep
+**Date:** 2026-08-06 · **Revised:** 2026-08-07 (rev 4.12) · **Feature:** `internal-mechanics-overhaul` · **Depth:** deep
 **Method:** `proof-driven-development` (Design mode) — `~/.agents/skills/proof-driven-development`
 **Baseline:** rebased onto `origin/main`; **every count below is re-derived from the landing branch.**
 
@@ -721,9 +721,9 @@ Research pre-pass: discovery workflow **`mcp-spec-2026-07-28-migration`** (gathe
 
 ### Scope
 
-**Target:** Partial — **Wave 0 and Wave 1 decomposed to task granularity (tasks 001–027, 046–069).** Waves 2–5 carry one anchor task per DR (028–045) for provenance, to be re-planned after Wave 1 exit.
+**Target:** Partial — **Wave 0 and Wave 1 decomposed to task granularity (tasks 001–027, 046–070).** Waves 2–5 carry one anchor task per DR (028–045) for provenance, to be re-planned after Wave 1 exit.
 
-> **Task-ID ranges, since three appends have now widened this.** 001–004 retired (rev 2). 005–027 = the rev-1/rev-3 Wave 1 body, 027 the join point. 028–045 = Waves 2–5 anchors. 046–050 = rev-4 additions (DR-25, DR-0 remainder). 051–069 = tasks *derived from running Wave 1*, each one a defect a shipped task found and reported rather than worked around. That third range is the program working as designed, not scope creep — but it means **the task count is not fixed at plan time**, and any statement of the form "N of M tasks complete" must re-derive M.
+> **Task-ID ranges, since three appends have now widened this.** 001–004 retired (rev 2). 005–027 = the rev-1/rev-3 Wave 1 body, 027 the join point. 028–045 = Waves 2–5 anchors. 046–050 = rev-4 additions (DR-25, DR-0 remainder). 051–070 = tasks *derived from running Wave 1*, each one a defect a shipped task found and reported rather than worked around. That third range is the program working as designed, not scope creep — but it means **the task count is not fixed at plan time**, and any statement of the form "N of M tasks complete" must re-derive M.
 
 **Excluded, with rationale:** Waves 2–5 are *deliberately* not decomposed in this pass. **DR-6's authority-topology census is the instrument that enumerates the real remediation subjects** — which boundaries have unbound representations, which events lack a consumer hop, which effects lack a coupling. Decomposing Waves 2–5 before that census has run would be fabricating a subject list rather than deriving one, which is precisely the precision-manufacturing PDD warns against ("do not add abstractions, manifests, generators, or test layers without a concrete correctness obligation").
 
@@ -760,7 +760,7 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 | DR-21 | Replay and compatibility | 042 *(anchor)* |
 | DR-22 | MCP era cutover + Tasks re-platform | 043 *(anchor)* |
 | DR-23 | Invariant amendments | 044 *(anchor)*, 068 |
-| DR-24 | Wave sequencing / anti-inertness | 045 *(anchor)*, 057, 058, 063, 064, 066, 067, 068, 069 |
+| DR-24 | Wave sequencing / anti-inertness | 045 *(anchor)*, 057, 058, 063, 064, 066, 067, 068, 069, 070 |
 | DR-25 | Dispatch shape belongs to the provisioning contract | 046, 047, 048, 056, 059 |
 | DR-26 | SDK generation seam *(rev 4)* | 052, 053, 062, 065 |
 | DR-27 | Measured-premise binding *(rev 4)* | 054, 061 |
@@ -1212,6 +1212,27 @@ This is R-11 inverted: not "the mechanism ships and nothing calls it", but *"the
 
 **Verification:** medium — scoped tests + kill-probe (a non-conforming dead export must still fail).
 **Dependencies:** None *(coordinate with 053, which discharges group 2)* · **Parallelizable:** Yes
+
+### Task 070: The guard inventory cannot see a guard hosted inside a wrapper script
+**Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-24
+**Files:** `scripts/guard-inventory.ts`, `scripts/guard-inventory.test.ts`
+**Detail:** **`GuardInventory_EveryWave1Guard_IsReachableFromACiJob` is RED on the integration branch** — reproduced by the orchestrator at rev 4.11: 1 failed / 30 passed, `scripts/audit/knip-diff.ts [unwired-guard] no CI job executes it and no expiring reason is recorded`.
+
+**Provenance, recorded because it matters more than the fix.** Nothing about knip-diff's wiring changed. **The spec did.** Rev 4.10 filed task 067 and named `scripts/audit/knip-diff.ts` on its `**Files:**` line, which pulled the path into the inventory's *second* discovery channel — "Wave-1 task `**Files:**` entries parsed out of the spec" — for the first time. The inventory then measured it and, correctly by its own lights, could not find a host. This is the third time task 063's discovery channels have surfaced a fact by widening (see the `validate-plugin.sh` and `cli-derivation-guard.ts` reconciliations in `ab7f2a83e`), and it is the channel working as designed.
+
+**But the verdict is wrong, and that is the defect.** `knip-diff.ts` *is* executed in CI: `.github/workflows/ci.yml` runs `bash scripts/validate-no-legacy.sh`, and that script invokes `"$TSX_BIN" "$KNIP_DIFF"` where `KNIP_DIFF="$SCRIPT_DIR/audit/knip-diff.ts"`. **The host resolver does not follow a `bash <script>` run-step into the script's contents**, so any guard hosted one level of indirection deep reads as unwired.
+
+**Do NOT add a `GUARD_EXEMPTIONS` entry.** The guard is not unwired, so the exemption would record a reason that is false — a wiring lie of exactly the kind the inventory's own stale-exemption tooth exists to catch. Task 017 identified this and declined it; do the same.
+
+**Acceptance criteria:**
+- The resolver resolves **indirect hosting**: a guard invoked by a shell script that a CI run-step invokes is reachable, and the reported host names the real chain (job → script → guard), not just the job.
+- **Fix the class, not the path.** Special-casing `validate-no-legacy.sh` leaves the next wrapper-hosted guard mis-reported. If you bound the indirection (e.g. one level), say so explicitly and state what that misses.
+- **Do not shrink the denominator to make the number go away.** Narrowing channel 2 so a task's `**Files:**` line stops classifying pre-existing infrastructure would remove the finding by removing the measurement — the precise anti-pattern this program exists to eliminate. If you believe `knip-diff.ts` is genuinely out of the Wave-1 guard population, argue it on what a guard *is*, not on what makes the test green.
+- **Kill fixture:** a guard invoked only from a wrapper script must be reported reachable, **and** a guard invoked from nothing must still be reported unwired. Prove both — an indirection rule that reports everything reachable is vacuous.
+- **Non-empty denominator:** a resolver that walks zero run-steps, or zero wrapper scripts, fails rather than reporting clean.
+
+**Verification:** medium — scoped tests + kill-probe (both directions).
+**Dependencies:** None *(coordinate with 067, which owns `knip-diff.ts`'s other half)* · **Parallelizable:** Yes
 
 ### Task 063: Inventory every Wave-1 guard and prove it is reachable from CI
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-24
