@@ -1,12 +1,5 @@
 // ─── The IR-shaped declaration envelope (DR-1) ───────────────────────────────
 //
-// RESERVED(issue: #1258, owner: exarchos, expires: 2026-11-30) — the Wave 1a
-// foundation type, landing one task ahead of its first production importer. The
-// seam accessor (task 006, `contract/declaration-seam.ts`) is that importer and
-// should DELETE this header when it lands; if Wave 1 stalls, the expiry makes
-// the orphan visible instead of letting an unused contract type accrete
-// (DR-7 module-intent gate).
-//
 // One record type for EVERY declaration this program introduces — event tier,
 // action contract, CLI verb. Not three parallel shapes: three *instances* of
 // `Declaration<K>`, discriminated by `kind`.
