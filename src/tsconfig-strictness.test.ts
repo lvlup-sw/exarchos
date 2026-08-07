@@ -74,12 +74,38 @@ describe('DR-14: noUncheckedIndexedAccess ratchet (root)', () => {
   // not this ratchet. Measured on the post-fix-cycle integration tip:
   // nonNull 99 (prior baseline 84 + 15 after the fix wave removed 9 assertion
   // sites), asCast 3290, asAny 3 (zero growth — the outright bar held).
-  const BASELINE: CastCounts = { nonNull: 99, asCast: 3290, asAny: 3 };
+  //
+  // RE-BASELINE DOWNWARD (internal-mechanics-overhaul task 057, DR-24,
+  // 2026-08-07): asCast 3295 → 3258. Thirty-seven `as` assertions were PAID
+  // DOWN in `servers/exarchos-mcp/src/workflow/guards.ts` — the guard table
+  // asserted the shape of untyped projection fields (`state.tasks as Array<{
+  // status: string }>`, `state.reviews as Record<string, unknown>`) instead of
+  // narrowing them, so malformed state reached property access with the
+  // checker's blessing and surfaced only as a TypeError the state machine
+  // caught and relabelled. Every site now narrows through `isPlainObject`, and
+  // a present-but-unusable `tasks` is REJECTED in-band rather than read as
+  // "zero tasks, all complete". Pinned by `guards.test.ts` →
+  // "malformed state is narrowed, not asserted (DR-24)".
+  //
+  // Lowering the floor here TIGHTENS the ratchet: the new floor is 32 sites
+  // stricter than the one it replaces. `nonNull` is untouched at 99 because
+  // the refactor removed no non-null assertions.
+  const BASELINE: CastCounts = { nonNull: 99, asCast: 3258, asAny: 3 };
   // Declared budget = MAX escape-hatch sites maintenance work may introduce
   // before the NEXT documented re-baseline. Deliberately tighter than the
   // pre-wave nonNull budget: large additions must re-baseline in the open
   // (with review provenance recorded above), never ride a slack budget.
   // `as any` may never grow.
+  //
+  // HOW THE WINDOW WORKS — the delta ceiling and the symmetric floor below
+  // together pin each measured count into `[BASELINE, BASELINE + DELTA_BUDGET]`.
+  // That window is DELTA_BUDGET wide no matter how deep a paydown precedes it:
+  // removing sites and re-baselining SLIDES the window down, it does not widen
+  // it. So a paydown buys back the full budget (moving a saturated 5-of-5 count
+  // to 0-of-5) — it does not bank extra allowance for later. Work that
+  // legitimately needs more than DELTA_BUDGET new sites re-baselines in the
+  // open with provenance recorded above, which is the documented path and the
+  // only one that keeps the floor meaningful.
   const DELTA_BUDGET: CastCounts = { nonNull: 5, asCast: 5, asAny: 0 };
 
   it('FixWave_CastBudget_MeasuredAndWithinDeclaredLimit', () => {
