@@ -648,6 +648,7 @@ Research pre-pass: discovery workflow **`mcp-spec-2026-07-28-migration`** (gathe
 4. **Does `longRunning` alone carry enough signal for server-directed task creation**, or does it need a per-action threshold/TTL now that it is behavioural rather than presentational?
 5. **What is the Wave-0 scope of the Tasks audit?** The 14-file surface includes a `RESERVED(#1273 … expires 2027-01-31)` dead stub; the live fraction sets DR-22's true size.
 6. **Does the composite tool pattern survive a remote surface?** `Mcp-Name` exposes 4 tool names for 118 verbs — if v3.2 wants per-verb edge policy, this is the blocker, and it may want deciding before Wave 5 rather than after.
+7. **What denominator does `118` count?** *(opened rev 4.2 by task 054.)* The spec uses **118** for actions/verbs/`outputSchema` in several places, but the live census measures **122** runtime actions — a gap of 4 that nobody has reconciled. Candidate explanations: it counted **visible-only** actions (excluding the hidden `exarchos_sync`), or it predates `makeDescribeAction` becoming a factory serving two tools, or it predates later verb additions. Task 054 deliberately **left `118` unannotated** rather than invent a derivation to justify it — annotating a number whose meaning is unknown would manufacture exactly the false agreement DR-27 exists to prevent. **Until someone establishes what `118` counts, it is an unbound claim** and every use of it in this document is unverified. Whoever closes this should either bind it to a real derivation or replace it with the measured 122.
 
 ### Risks
 
