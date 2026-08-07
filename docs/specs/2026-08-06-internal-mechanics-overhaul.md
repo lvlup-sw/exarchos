@@ -1,7 +1,22 @@
 # Spec: Internal mechanics overhaul — one authority per contract, bound mechanically, IR-shaped
 
-**Date:** 2026-08-06 · **Feature:** `internal-mechanics-overhaul` · **Depth:** deep
+**Date:** 2026-08-06 · **Revised:** 2026-08-07 (rev 2) · **Feature:** `internal-mechanics-overhaul` · **Depth:** deep
 **Method:** `proof-driven-development` (Design mode) — `~/.agents/skills/proof-driven-development`
+**Baseline:** rebased onto `origin/main`; **every count below is re-derived from the landing branch.**
+
+> ## Revision 2 — what the plan-review panel refuted
+>
+> Rev 1 was **refuted 3/3** by an adversarial panel. Root cause: rev 1 was authored against a worktree **7 commits behind `origin/main`** and never re-measured against the branch it lands on. One claim was worse than stale — the "only `merge_orchestrate` declares a posture" line was copied from a **stale JSDoc** rather than measured, which is the exact defect this program exists to eliminate.
+>
+> **Dismissed as panel-side artifacts** (three voters measured the stale tree; verified present on `origin/main`): the claim that `core/effect-carrier.ts`, `vcs/mutation-owner.ts`, `architecture/{effect-ledger,effect-port-seam,layer-boundaries-seam,adapter-ownership-seam,vcs-ownership}.ts` and the whole `contract/` tree do not exist; the claim that they live only in an unmerged branch; the missing-input-documents gap; and **R-9 (now withdrawn — the taxonomy spec is tracked on `origin/main`)**.
+>
+> **Corrected measurements** (rev 1 → landing branch): vacuous `outputSchema` **106 → 109**; `cli.ts` **1,565 → 1,613** lines; `.command()` **"14 hand-written" → 14 total, of which 3 are derivation loops and 11 are hand-written literals**; hand-written top-level verbs **8 → 11** (adds `feedback`, `schema`, `topology`); `shared-mutating` actions **1 → 4** (`merge_orchestrate`, `prune_worktrees`, `serialize_merge`, `cutover_decide`); `EventTypes` **169 → 170** (pinned by three tests). Holding unchanged: `withCappedShape` 10, `longRunning` 9, `hidden: true` 1, `VIEW_FOLLOW_ACTIONS` 5.
+>
+> **Wave 0 is deleted.** Its three premises are already closed on the landing branch: `makeArtifactGuard` requires a resolvable reference (its own comment records the retired `!= null` probe), `evidenceBypass` has zero hits, and `executeTransition` has one non-test caller — the guard itself. Waves renumber; the program no longer has an INV-9 prerequisite.
+>
+> **Structural fixes** carried into this revision: G1 redesigned (rev 1's policy could not discriminate — see DR-5); G3/G4 promoted to full §3a tables; G5's contradictory enforcement dates reconciled; DR-1's relocation proof re-sequenced and given a falsifiable mechanism; the **SDK v1→v2 package split added as DR-0**, which rev 1 omitted while depending on v2-only APIs; `server/discover` absorbed into DR-22 (MC-4 was under-absorbed); `indeterminate` extended beyond DR-15; PDD's **production-path deliverable** added.
+>
+> **Counts are no longer literals.** Every ratchet seeds from a value **derived at guard introduction** and asserts only monotonic decrease. Rev 1 hard-coded `106`, which is precisely the defect class G2 exists to remove, restated as an acceptance criterion.
 
 **Inputs:**
 - **Supersedes** [`docs/specs/2026-08-05-event-taxonomy-v2.md`](./2026-08-05-event-taxonomy-v2.md) — its DR-1…DR-15 are absorbed below with provenance noted per DR. *(That file is currently **untracked** in the working checkout; commit it before this spec lands so the supersession has a git ancestor — see Risk R-9.)*
@@ -38,9 +53,9 @@ Anchored to `.exarchos/invariants.md` (always-load tier, plus reference-only ent
 
 Exarchos declares more contracts than it binds. Across four independent boundaries, the same defect appears: **a declaration exists, is enforced, and cannot fail.**
 
-1. **The event registry records authorship, not reliability.** `source: 'auto' | 'model'` says who composes the payload, not what the emission is welded to. All 169 types require *some* tool call. The 25 `model` types are report-coupled — a dedicated append accomplishing nothing else, therefore the first thing dropped under context pressure.
-2. **`outputSchema` records presence, not substance.** The field is required at the interface boundary and `validateAction` fails the import without it — but **106 of 118 declarations are `EnvelopeSchema(z.unknown())`**. INV-17 names `outputSchema` totality as *the precondition that makes facade equivalence hold by construction*; a vacuous schema satisfies totality trivially, because it is total over all shapes including wrong ones. For nine actions in ten, INV-2's "schema-checked in addition to byte-checked" is byte-checked plus a tautology.
-3. **The CLI's single-authority idiom exists and has decayed.** Flags derive from each action's Zod schema — and **1,565 lines of `adapters/cli.ts` carry 14 hand-written `.command(...)` registrations** across 8 top-level verbs. `merge_orchestrate` is declared twice: once as the only `posture: 'shared-mutating'` action, once by hand. `cli-vocab-guard` already walks the real composition root (`buildCli(ctx)`) — but its policy is a *banned-vocabulary set*, so a hand-written command with good vocabulary passes. The guard that looks like it would catch this is measuring a different property.
+1. **The event registry records authorship, not reliability.** `source: 'auto' | 'model'` says who composes the payload, not what the emission is welded to. All 170 types require *some* tool call. The 25 `model` types are report-coupled — a dedicated append accomplishing nothing else, therefore the first thing dropped under context pressure.
+2. **`outputSchema` records presence, not substance.** The field is required at the interface boundary and `validateAction` fails the import without it — but **109 of 123 declarations are `EnvelopeSchema(z.unknown())`**. INV-17 names `outputSchema` totality as *the precondition that makes facade equivalence hold by construction*; a vacuous schema satisfies totality trivially, because it is total over all shapes including wrong ones. For nine actions in ten, INV-2's "schema-checked in addition to byte-checked" is byte-checked plus a tautology.
+3. **The CLI's single-authority idiom exists and has decayed.** Flags derive from each action's Zod schema — and **1,613 lines of `adapters/cli.ts` carry 14 `.command(...)` call sites, of which only 3 are derivation loops and 11 are hand-written literals**: `doctor`, `version`, `feedback`, `schema`, `topology`, `emissions`, `mcp`, `onboard`, `init`, `merge-orchestrate`, `install-skills`. `merge_orchestrate` is declared twice — as a registered action *and* by hand. (Rev 1 claimed it was the only `posture: 'shared-mutating'` action, quoting a **stale JSDoc**; there are four — `merge_orchestrate`, `prune_worktrees`, `serialize_merge`, `cutover_decide`. The duplication is the finding; the uniqueness was never true.) `cli-vocab-guard` already walks the real composition root — but its policy is a *banned-vocabulary set*, so a hand-written command with good vocabulary passes. The guard that looks like it would catch this is measuring a different property. **And so did rev 1's replacement:** "traces to a registry declaration" does not discriminate either, because the hand-written commands call `addFlagsFromSchema` against the registry action. Only a source-level check separates derived from hand-written (G1, rev 2).
 4. **Detection exists and is discarded.** `_eventHints.missing` is computed (`check-event-emissions.ts:36-79`) and consumed only by the CLI pretty-printer (`cli-format.ts:96-103`). `hsm-transition-guard.ts` has no predicate of the form "expected event was never emitted."
 
 Two structural aggravators: the catalog is **workflow-overfitted** (`PHASE_EXPECTED_EVENTS` keyed by literal built-in phase names, which INV-6 forbids and #1258 makes untenable), and **INV-2's quantifier leaks** — it ranges over "the same DispatchContext **+ arguments**", and both halves carry divergence its adapter-focused audit cannot see (three optional capability adapters; a `task: { ttl }` key only the MCP facade can send).
@@ -71,7 +86,7 @@ PDD deliverable 2. Representation counts are measured, not estimated. **More tha
 |---|---:|---|---|---|
 | **Action contract** | registry descriptor; 10 derived consumers (composites ×4, launcher verb, docs generator, description-budget, rehydration fingerprint, CLI, MCP) | registry | Yes for the 10 | **Holds.** The idiom is real — which is what makes the bypasses below findings rather than noise. |
 | **CLI surface** | registry-derived tree; **14 hand-written `.command(...)`** | *contested* | **No** | **2 authorities.** `cli-vocab-guard` binds vocabulary, not derivation. `merge_orchestrate` declared twice. → **G1** |
-| **Response shape** | `outputSchema` (118); `Envelope<T>` type; the runtime payload | `outputSchema` nominally | **No** — 106 vacuous | Authority exists but asserts nothing. → **G2** |
+| **Response shape** | `outputSchema` (118); `Envelope<T>` type; the runtime payload | `outputSchema` nominally | **No** — 109 vacuous | Authority exists but asserts nothing. → **G2** |
 | **Event catalog** | `EVENT_EMISSION_REGISTRY`; `autoEmits` rows (`z.string()`); `PHASE_EXPECTED_EVENTS` (hand-maintained); skill prose (#1716) | registry nominally | **No** | 4 representations, none bound. → **G3, G5, DR-10, DR-16** |
 | **Effect ↔ event** | `EffectPlan`; the append site | *none* | **No** | `effect-carrier.ts` references no event store. → **G4/DR-7** |
 | **Capability/posture** | agent-spec YAML; `posture-mapping.ts`; MCP handshake; INV-11 text | handshake ("handshake-authoritative") | Partially | **Authority is being deleted** by the spec revision. → **DR-14, DR-23** |
@@ -83,14 +98,16 @@ PDD deliverable 1, specified per §3a. Ranked by findings eliminated. **Every gu
 
 #### G1 — CLI derivation guard *(new policy on an existing mechanism)*
 
+> **Redesigned in rev 2.** Rev 1's policy — "every command traces to a registry declaration" — **passed its own kill fixture**. The hand-written `merge-orchestrate`, `doctor` and `onboard` all call `addFlagsFromSchema(cmd, action.schema, …)` against the registry action, so they genuinely *do* trace to a registry declaration; and a Commander-tree walk records no provenance, so the mechanism could not observe hand-written-vs-derived at all. It would have shipped with a green self-test and its real subject surviving — the exact defect it was written to fix.
+
 | Field | Value |
 |---|---|
-| **Policy** | Every command name, alias, and long flag in the built Commander tree traces to a registry declaration. Policy is **data** — an allowlist file, not prose in a test body. |
-| **Mechanism** | Extend `scripts/cli-vocab-guard.ts`, which already walks the rendered surface from `buildCli(ctx)` — the real composition root. Add a derivation predicate beside the existing banned-vocabulary predicate. |
-| **Kill fixture** | `merge-orchestrate` — declared as both a registered action and a hand-written command. The guard must reject the hand-written definition. |
-| **Self-test** | Seed a hand-written `.command('nonce')` with clean vocabulary; the guard must fail. Proves guard-execution failure cannot pass as success. |
-| **Protected path** | CI, **unfiltered** — per #1711, a gate in a path-filtered job is skipped-as-passed on exactly the PRs it exists to police. |
-| **Exceptions** | The 8 current top-level verbs enter an allowlist, each with an owner and a wave-scoped expiry. The allowlist may only shrink (DR-5). |
+| **Policy** | The CLI composition root contains **no literal `.command('<name>')` call**. Every command is registered through a derivation helper (`registerActionCommand`, the composite-tool loop, the harness loop) that takes its name from a registry declaration. Policy is **data**: a source-path list plus an allowlist file, not prose in a test body. |
+| **Mechanism** | **Rung 3, source-level.** Parse `servers/exarchos-mcp/src/adapters/cli.ts` and assert every `.command(` argument is an identifier expression, not a string literal. This discriminates exactly where a tree-walk cannot, because provenance is visible in the *source* and erased in the *built tree*. It also needs no `buildCli` resolution, so — unlike the existing vocab guard — it carries **no `bun:sqlite` dependency** and can host in the zero-dep unfiltered job (see Protected path). Complements, and does not replace, `cli-vocab-guard`'s banned-vocabulary predicate. |
+| **Kill fixture** | The **11 hand-written literals on the landing branch** — `doctor`, `version`, `feedback`, `schema`, `topology`, `emissions`, `mcp`, `onboard`, `init`, `merge-orchestrate`, `install-skills` (`cli.ts:399,471,506,555,592,611,622,662,734,772,837`). The guard reports all 11 on introduction. |
+| **Self-test** | Two, because detection alone is insufficient. (1) Seed a 12th literal → guard must fail. (2) **Non-empty denominator:** the guard must fail if it parses zero `.command(` sites at all, so a moved/renamed file or a parse error cannot pass as a clean run. |
+| **Protected path** | CI, **unfiltered**, in the zero-dep `grep-gates` host. Rev 1 asserted an unfiltered path for a `buildCli`-resolving mechanism that ci.yml documents as needing Bun + MCP deps, and therefore hosts in the path-filtered `test-mcp` job — i.e. rev 1 specified exactly the #1711 skipped-as-passed configuration it cited #1711 to avoid. The source-parse mechanism removes that dependency rather than working around it. |
+| **Exceptions** | The 11 literals enter an allowlist keyed by command name, each with an owner and an **ISO expiry date** (not a "wave-scoped" label, which is not mechanically evaluable). Entries may only be removed. **`merge-orchestrate` is excluded from the allowlist** — it is the kill fixture and must remain rejected; rev 1 allowlisted it, neutralizing the very rejection DR-5 requires. Its hand-written command is deleted in DR-5, not exempted. |
 
 #### G2 — `outputSchema` non-vacuity ratchet *(new policy on an existing mechanism)*
 
@@ -98,18 +115,32 @@ PDD deliverable 1, specified per §3a. Ranked by findings eliminated. **Every gu
 |---|---|
 | **Policy** | `EnvelopeSchema(z.unknown())` is a **finding**, not a pass. Count may only decrease; new actions may not construct it. |
 | **Mechanism** | Registry-enumeration snapshot + two-way ratchet, reusing the type-debt ratchet idiom already in CI. |
-| **Kill fixture** | The 106 current vacuous declarations — the ratchet's initial value, and its proof of a live subject. |
+| **Kill fixture** | The 109 current vacuous declarations — the ratchet's initial value, and its proof of a live subject. |
 | **Self-test** | Add a new action declaring `EnvelopeSchema(z.unknown())`; CI must fail. |
 | **Protected path** | CI, unfiltered. |
 | **Exceptions** | Allowlist keyed by action id, owner, expiry. Entries expire per wave; expiry is enforced, not advisory. |
 
-#### G3 — Event coupling union *(absorbed: superseded DR-1)*
+#### G3 — Event coupling union *(absorbed: superseded DR-1; promoted to a full §3a table in rev 2)*
 
-Report-coupling is **not a constructible variant**, so the class is unwritable at rung 2 rather than detected at rung 4. **Kill fixture:** the 25 currently report-coupled types. **Self-test:** a seeded disagreement between tier and derived `EventEmissionSource` fails. **Exceptions:** `team.spawned` / `team.disbanded`, `blockedBy: '#1473'`, ratchet pinned at exactly 2.
+| Field | Value |
+|---|---|
+| **Policy** | Every registered event declares one of five tiers. **Report-coupling has no variant**, so the class is unwritable at rung 2 rather than detected at rung 4. The permitted report-coupled set is an allowlist file with owner + expiry, not a count in prose. |
+| **Mechanism** | Discriminated union in `event-store/event-registration.ts` (rung 2, `tsc`) plus a census over the registry (rung 3) reusing the existing ratchet error vocabulary. |
+| **Kill fixture** | The **25 currently report-coupled types** on the landing branch (`source: 'model'` in `EVENT_EMISSION_REGISTRY`). The census reports 25 on introduction. |
+| **Self-test** | (1) A seeded disagreement between declared tier and derived `EventEmissionSource` fails. (2) **Non-empty denominator:** a census that enumerates zero registrations fails rather than passing clean. |
+| **Protected path** | CI, unfiltered. The census reads the registry module; if that import requires MCP deps, it hosts alongside G2 in the same lane — the host is named in the task, not left implicit (the rev-1 omission that #1711 punishes). |
+| **Exceptions** | `team.spawned` / `team.disbanded` only, each carrying `blockedBy: '#1473'`, an owner, and an ISO expiry. The ratchet permits **monotonic decrease from the introduction value**; the Wave-5 target of 2 is an *exit condition recorded in DR-20*, not a seed in this guard — rev 1 conflated the two. |
 
-#### G4 — Effect ledger bijection *(absorbed: superseded DR-4)*
+#### G4 — Effect ledger bijection *(absorbed: superseded DR-4; promoted to a full §3a table in rev 2)*
 
-An effect cannot be planned without naming the event that records it; `T` is unreachable without the append. **Kill fixture:** `VcsMutationOwner`'s current merge/branch effects, which perform effects with no event coupling. **Self-test:** seed a second primary producer → boot fails with `UNOWNED_EVENT`/`STALE_PROVIDER` (existing vocabulary, not new).
+| Field | Value |
+|---|---|
+| **Policy** | Every `EffectPlan` names the event that records it; every T1 event has exactly one **primary** owner. `T` is unreachable without the append having occurred. Ownership is declared data (`role: 'primary' \| 'recovery'`), not inferred. |
+| **Mechanism** | Rung 2 — `Committed<T>` makes an uncommitted effect's result type unusable — plus a **boot-time bijection check** over the ledger. Extends the shipped `core/effect-carrier.ts` (P04-01) and `architecture/effect-ledger.ts`. |
+| **Kill fixture** | **Re-scoped in rev 2.** Rev 1 named `VcsMutationOwner` as an uncoupled subject; on the landing branch it is the *reference implementation* of the coupling (it appends `vcs.requested` before the effect and `vcs.executed`/`vcs.compensated` after). The real failing subjects are the effect call sites that are **not** routed through `VcsMutationOwner` — enumerated by the boot-time bijection on introduction, and recorded as the seed. **A task must publish that enumeration before G4 is declared specified** (see DR-7); a guard whose failing subject is asserted rather than measured is what rev 1 got wrong. |
+| **Self-test** | (1) Seed a second primary producer for one event → boot fails. (2) Seed an effect with no `emits` → compile fails. (3) Non-empty denominator: a bijection over zero plans fails. |
+| **Protected path** | Boot-time, so it blocks **server start and every CI job that boots the server** — not a lint lane. Named explicitly because a boot check that only runs in one job is skipped-as-passed everywhere else. |
+| **Exceptions** | `role: 'recovery'` producers are exempt from the single-primary rule **but not from coupling**; each recovery producer is recorded with an owner and expiry. Rev 1 granted this escape hatch in the obligation map with no owner/expiry record. |
 
 #### G5 — Authority-topology census *(new — generalizes superseded DR-3/DR-11)*
 
@@ -144,6 +175,20 @@ Provenance is marked per DR: **[T-n]** = absorbed from superseded taxonomy DR-n;
 
 **Wave 1 — Authority: bind before building**
 
+### DR-0: SDK v1→v2 package split, ahead of every consumer **[new in rev 2 — MC-1]**
+
+Rev 1 omitted the split entirely while three of its DRs depended on v2-only APIs, producing a **circular schedule**: DR-9 needs `createRequestStateCodec` and `inputRequired()`, DR-14 needs `ctx.mcpReq.envelope`, and DR-9's parity proof needs `serveStdio` as a child process — all from `@modelcontextprotocol/server`. Rev 1 scheduled the split inside DR-22 (Wave 5), whose task depends on DR-9 and DR-14. The source migration evaluation sequences it the other way and explicitly calls it *"mechanical, do first… safe to land independently."*
+
+**Acceptance criteria:**
+- The v2 packages (`@modelcontextprotocol/{core,server}`) are added **alongside** the pinned v1 `@modelcontextprotocol/sdk` — they have different names and coexist, so this is additive and independently revertible.
+- Sources migrate directory-by-directory; the v1 dependency is removed only when nothing imports it (`grep -rn "@modelcontextprotocol/sdk"` returns zero non-vendor hits).
+- **Nothing changes on the wire.** v2 speaks the 2025-era protocol until an explicit era opt-in, so this DR lands with byte-identical `tools/list` and `tools/call` output — pinned by the existing golden fixtures.
+- `src/__tests__/sdk-pin-policy.test.ts` is retargeted to the v2 package names, **keeping the exact-pin policy** (its rationale — opt into surface changes deliberately — is strengthened, not weakened, by this program).
+- The `patch-package` patch is evaluated against v2 and either dropped or re-based, with `tools-list-2020-12.test.ts` retained as a conformance test either way.
+- **Error-path criterion:** a partially-migrated tree (some modules on v1, some on v2) must fail typecheck rather than resolve two copies of the protocol types — a `InMemoryTransport`-style linked pair drawn from different packages is a documented v2 footgun and is rejected at compile time.
+
+**Sequencing:** Wave 1, before DR-9, DR-14 and DR-22. Zero wire change means it carries no era risk and unblocks three later DRs.
+
 ### DR-1: IR-shaped declaration envelope **[new — D2]**
 
 Every declaration this program introduces (event tier, action contract, CLI verb) is defined as an IR-shaped record carried through the existing seam, so #1258 relocates the declaration site rather than re-binding representations.
@@ -168,7 +213,7 @@ type EventRegistration =
 ```
 
 **Acceptance criteria:**
-- All 169 existing types carry a tier; the union is exhaustive (`tsc` proves it).
+- All 170 existing types carry a tier; the union is exhaustive (`tsc` proves it).
 - A registration attempting report-coupling does not compile — there is no variant to construct.
 - A `capability` registration naming an unresolvable `EffectProviderId` fails at boot.
 - **G3** ratchet pins the report-coupled count at its current value, permitting only decrease.
@@ -184,18 +229,18 @@ type EventRegistration =
 ### DR-4: `outputSchema` non-vacuity **[MC-3 — new]**
 
 **Acceptance criteria:**
-- **G2** ships with the ratchet seeded at the measured 106; the count may only decrease.
+- **G2** ships with the ratchet seeded at the measured 109; the count may only decrease.
 - A new action declaring `EnvelopeSchema(z.unknown())` fails CI (G2 self-test).
 - INV-17's audit treats a vacuous declaration as a **violation of the precondition it names**, not a pass.
 - The 12 currently-typed declarations (10 `withCappedShape`, 2 HSM) are the migration template; the DR-10 worktree surface is the reference implementation.
-- **Ordering proof:** a fixture asserts DR-8's fourth envelope state **cannot** be declared satisfied for an action whose `outputSchema` is vacuous — the vacuity ratchet and the envelope obligation are wired to the same census, so the 106 cannot silently absorb the new state.
+- **Ordering proof:** a fixture asserts DR-8's fourth envelope state **cannot** be declared satisfied for an action whose `outputSchema` is vacuous — the vacuity ratchet and the envelope obligation are wired to the same census, so the 109 cannot silently absorb the new state.
 
 ### DR-5: CLI derivation guard **[MC-1 — new]**
 
 **Acceptance criteria:**
 - **G1** ships, extending `cli-vocab-guard`'s `buildCli(ctx)` walk with a derivation predicate.
 - `merge-orchestrate`'s hand-written definition is rejected (kill fixture); its registry declaration is the survivor, preserving `posture: 'shared-mutating'` on the single remaining definition.
-- The 8 top-level verbs enter an allowlist with per-entry owner and wave-scoped expiry; **the allowlist may only shrink**, enforced by ratchet.
+- The 11 hand-written top-level verbs enter an allowlist with per-entry owner and wave-scoped expiry; **the allowlist may only shrink**, enforced by ratchet.
 - A seeded hand-written command with clean vocabulary fails the guard (self-test) — proving the guard measures derivation, not vocabulary.
 
 ### DR-6: Authority-topology census **[new — generalizes T-3/T-11]**
@@ -227,7 +272,7 @@ MRTR's `input_required` is neither success nor failure. Overloading `success: fa
 **Acceptance criteria:**
 - `Envelope<T>` gains a third discriminated state, designed once, at the envelope level.
 - `CLI_EXIT_CODES` gains a distinct code, **derived from the envelope discriminator**, not switched on in the adapter. A CLI-side special-case fails INV-2's audit.
-- The state lands in all 12 typed `outputSchema` declarations; DR-4's ordering proof prevents the 106 vacuous ones from silently absorbing it.
+- The state lands in all 12 typed `outputSchema` declarations; DR-4's ordering proof prevents the 109 vacuous ones from silently absorbing it.
 - `input_required` reconciles with `next_actions` semantics (INV-12) rather than sitting beside them — one affordance contract, not two.
 - **Error-path criterion:** a malformed or expired resumption attempt returns a typed envelope, never a validation crash; an `input_required` that can never be satisfied (no capability, no operator) degrades to a typed terminal error rather than an infinite retry.
 
@@ -423,7 +468,7 @@ PDD deliverable 5. Reverse-dependency closure per changed shared contract.
 | Contract | Change | Class | Reverse closure | Rollback |
 |---|---|---|---|---|
 | `Envelope<T>` | +1 discriminated state | **Breaking** for exhaustive consumers | 118 actions, both facades, parity harness, DR-7 exit table | Additive until wire-exposed; irreversible once clients branch on it |
-| `EventRegistration` | union replaces flat record | **Breaking** at registration sites | 169 registrations | Types only; revert is mechanical |
+| `EventRegistration` | union replaces flat record | **Breaking** at registration sites | 170 registrations | Types only; revert is mechanical |
 | `EffectPlan` | `emits` becomes required | **Breaking** at all effect call sites | every `runEffect` caller | `performAndCommit()` helper absorbs the common case |
 | `ToolAction` | + top-level-verb descriptor | **Additive** | registry consumers (10) | Optional field |
 | `CapabilityResolver` | lifetime connection → request | **Breaking** internally; behaviour-preserving | POLA gates, dispatch, `applyCacheHints` | Dual-era seam keeps the handshake path live |
@@ -492,7 +537,7 @@ Research pre-pass: discovery workflow **`mcp-spec-2026-07-28-migration`** (gathe
 
 **Excluded, with rationale:** Waves 2–5 are *deliberately* not decomposed in this pass. **DR-6's authority-topology census is the instrument that enumerates the real remediation subjects** — which boundaries have unbound representations, which events lack a consumer hop, which effects lack a coupling. Decomposing Waves 2–5 before that census has run would be fabricating a subject list rather than deriving one, which is precisely the precision-manufacturing PDD warns against ("do not add abstractions, manifests, generators, or test layers without a concrete correctness obligation").
 
-Two subject lists *are* already measured and therefore Wave 1 is fully decomposable now: the **106 vacuous `outputSchema` declarations** (DR-4) and the **14 hand-written CLI commands across 8 top-level verbs** (DR-5). Wave 1 also matches the house-standard bundle size (~26 tasks, one integration branch), and it is the wave PDD's decision table requires to land first: *add the guard that makes derivation mandatory before adding another instance of the pattern.*
+Two subject lists *are* already measured and therefore Wave 1 is fully decomposable now: the **109 vacuous `outputSchema` declarations** (DR-4) and the **14 hand-written CLI commands across 11 hand-written top-level verbs** (DR-5). Wave 1 also matches the house-standard bundle size (~26 tasks, one integration branch), and it is the wave PDD's decision table requires to land first: *add the guard that makes derivation mandatory before adding another instance of the pattern.*
 
 Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures, censuses reporting real subject counts) → `/exarchos:plan` over Waves 2–5 with the census output as input.
 
@@ -500,7 +545,8 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 
 | DR | Requirement | Tasks |
 |----|-------------|-------|
-| — | Wave 0 prerequisite (INV-9 defects, P01-03/P02-03/P06-05) | 001, 002, 003, 004 |
+| — | ~~Wave 0 prerequisite (INV-9 defects)~~ — **REMOVED rev 2**, already closed on the landing branch; tasks 001–004 retired | — |
+| DR-0 | SDK v1→v2 package split, ahead of every consumer | 049, 050 |
 | DR-1 | IR-shaped declaration envelope | 005, 006, 007, 008 |
 | DR-2 | Tiered, coupling-typed event registration | 009, 010, 011, 012, 013 |
 | DR-3 | Compile-time event-name grammar | 014, 015 |
@@ -529,53 +575,46 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 
 ### Tasks
 
-**Wave 0 — INV-9 closure (blocks everything)**
 
-### Task 001: Require a resolvable artifact path in `makeArtifactGuard` instead of any truthy value
-**Risk Tier:** high · **Boundary Touching:** true · **Implements:** Wave 0 (P01-03)
-**Files:** `src/workflow/guards/artifact-guard.ts`, `src/workflow/guards/artifact-guard.test.ts`
-**Detail:** `{"artifacts":{"plan":true}}` currently clears a phase gate. The guard must resolve the value to an existing artifact path, not merely assert non-null.
+**Wave 0 — REMOVED in rev 2. Tasks 001–004 withdrawn.**
+
+> Rev 1 declared Wave 0 (INV-9 closure) the prerequisite for the whole program, on the strength of the 2026-08-04 wiring audit. All three premises are **already closed on the landing branch**, verified after rebase:
+> - `makeArtifactGuard` (`servers/exarchos-mcp/src/workflow/guards.ts`) already requires a resolvable typed reference on both the canonical and legacy paths; its own comment records the retired `!= null` probe.
+> - `evidenceBypass` returns **zero hits** across the tree.
+> - `executeTransition` has **one** non-test call site — `workflow/hsm-transition-guard.ts`, the sanctioned INV-9 authority — plus its definition in `workflow/state-machine.ts`.
+>
+> Task IDs 001–004 are **retired, not reused**, so dependency edges and recorded workflow state stay stable. Task 027's dependency on 004 is dropped. **The program now begins at Wave 1 with no external prerequisite.**
+>
+> Lesson preserved rather than discarded: the audit that justified Wave 0 was real when written and stale when consumed. Any future wave premise must be re-derived against the landing branch at plan time — which is what DR-24's wave-exit discipline now requires explicitly.
+
+**Wave 1-pre — DR-0: SDK v2 package split (unblocks DR-9, DR-14, DR-22)**
+
+### Task 049: Add the v2 packages alongside v1 and migrate sources directory by directory
+**Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-0
+**Files:** `servers/exarchos-mcp/package.json`, `servers/exarchos-mcp/src/adapters/mcp.ts`, `servers/exarchos-mcp/src/adapters/cli.ts`, `servers/exarchos-mcp/src/__tests__/sdk-pin-policy.test.ts`
+**Detail:** v1 and v2 have different package names and coexist, so the swap is incremental and revertible. Nothing goes on the wire — v2 speaks the 2025-era protocol until an explicit era opt-in.
 **Tests:**
-- `ArtifactGuard_TruthyLiteralValue_Rejected` — `{plan: true}` fails the gate
-- `ArtifactGuard_NonexistentPath_Rejected` — a well-formed but unresolvable path fails
-- `ArtifactGuard_ResolvablePath_Accepted` — the happy path still clears
-**Verification:** high — scoped tests + `check_test_adequacy` + integration suite across the HSM seam.
+- `ToolsList_AfterV2Migration_ByteIdenticalToGolden` — no wire change
+- `SdkPinPolicy_V2Packages_AreExactPinned` — the exact-pin policy survives retargeting
+- `MixedV1V2Imports_FailTypecheck` — a partially-migrated tree cannot resolve two protocol-type copies
+**Verification:** high — scoped tests + `check_test_adequacy` + integration suite (`tools/list`, `tools/call` golden fixtures).
 **Dependencies:** None · **Parallelizable:** Yes
 
-### Task 002: Replace `task_complete`'s agent-supplied `evidenceBypass` with a non-authorable evidence predicate
-**Risk Tier:** high · **Boundary Touching:** true · **Implements:** Wave 0 (P02-03)
-**Files:** `src/orchestrate/task-complete/index.ts`, `src/orchestrate/task-complete/evidence-policy.ts`, `src/orchestrate/task-complete/index.test.ts`
-**Detail:** An agent-supplied `evidenceBypass` is currently the only path through. Evidence must be produced by the runtime, not asserted by the caller.
+### Task 050: Evaluate the patch-package patch against v2 and retain the 2020-12 conformance test
+**Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-0
+**Files:** `servers/exarchos-mcp/patches/`, `servers/exarchos-mcp/package.json`, `servers/exarchos-mcp/src/__tests__/integration/tools-list-2020-12.test.ts`
+**Detail:** The patch forces draft-2020-12 and splices `type: 'object'` onto DU-rooted schemas. SEP-2106 may cover one, both, or neither — the test decides, and it is retained regardless as a conformance check rather than a patch guard.
 **Tests:**
-- `TaskComplete_EvidenceBypassOnly_Rejected` — bypass-only completion fails
-- `TaskComplete_RuntimeProducedEvidence_Accepted` — runtime-observed evidence clears
-- `TaskComplete_ForgedEvidenceShape_Rejected` — caller-authored evidence payload fails
-**Verification:** high — scoped tests + `check_test_adequacy` + integration suite.
-**Dependencies:** None · **Parallelizable:** Yes
-
-### Task 003: Route the three direct `executeTransition` callers through the HSM transition guard
-**Risk Tier:** high · **Boundary Touching:** true · **Implements:** Wave 0 (P06-05)
-**Files:** `src/workflow/hsm-transition-guard.ts`, `src/workflow/executeTransition.ts`, `src/architecture/transition-authority-seam.ts`
-**Detail:** INV-9 declares the HSM guard the sole authority for phase sequencing; three modules bypass it entirely.
-**Tests:**
-- `ExecuteTransition_HasExactlyOneCaller` — structural census over the call graph
-- `DirectTransition_BypassingGuard_FailsSeam` — a seeded direct call fails the seam check
-- `GuardedTransition_InvalidTarget_Rejected` — guard semantics preserved through the reroute
-**Verification:** high — scoped tests + `check_test_adequacy` + integration suite across the HSM seam.
-**Dependencies:** None · **Parallelizable:** Yes
-
-### Task 004: Wave 0 kill fixtures + structural ratchet
-**Risk Tier:** medium · **Boundary Touching:** true · **Implements:** Wave 0
-**Files:** `src/workflow/__tests__/inv9-kill-fixtures.test.ts`
-**Detail:** Preserve all three defects as permanent kill fixtures so the class cannot regrow (PDD: "preserve the old defect as a kill fixture").
+- `ToolsList_UnderV2_EmitsNative2020_12` — decides the first half empirically
+- `ToolsList_DiscriminatedUnionRoot_HasObjectType` — decides the second half
 **Verification:** medium — scoped tests + `check_test_adequacy`.
-**Dependencies:** 001, 002, 003 · **Parallelizable:** No
+**Dependencies:** 049 · **Parallelizable:** No
 
 **Wave 1a — DR-1: the IR-shaped declaration envelope (foundation)**
 
 ### Task 005: Define the IR-shaped `Declaration<K>` envelope type as the shared contract foundation
 **Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-1
-**Files:** `src/contract/declaration.ts`, `src/contract/declaration.test.ts`
+**Files:** `servers/exarchos-mcp/src/contract/declaration.ts`, `servers/exarchos-mcp/src/contract/declaration.test.ts`
 **Detail:** Carries `kind`, `id`, `authority`, `boundTo[]`. Additive — every existing registration compiles untouched.
 **Tests:**
 - `Declaration_ExistingRegistrations_CompileUnchanged` — additivity proof
@@ -586,14 +625,14 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 
 ### Task 006: Seam accessor + `layer-boundaries-seam` rule
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-1
-**Files:** `src/contract/declaration-seam.ts`, `src/architecture/layer-boundaries-seam.ts`
+**Files:** `servers/exarchos-mcp/src/contract/declaration-seam.ts`, `servers/exarchos-mcp/src/architecture/layer-boundaries-seam.ts`
 **Detail:** Consumers read declarations only through the accessor; a direct registry-storage read fails the seam.
 **Verification:** medium — scoped tests + kill-probe (seed a direct read → seam fails).
 **Dependencies:** 005 · **Parallelizable:** No
 
 ### Task 007: Prove declaration storage can relocate to the IR without editing any consumer
 **Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-1
-**Files:** `src/contract/__tests__/relocation-proof.test.ts`, `src/contract/__tests__/fixtures/in-memory-ir.ts`
+**Files:** `servers/exarchos-mcp/src/contract/__tests__/relocation-proof.test.ts`, `servers/exarchos-mcp/src/contract/__tests__/fixtures/in-memory-ir.ts`
 **Detail:** **The load-bearing proof of D2.** Without it, "IR-shaped" is a claim rather than a property, and #1258 would re-open every class this program closes.
 **Tests:**
 - `Relocation_StorageMovedToStandInIr_AllGuardsStillPass` — G1…G5 green after relocation
@@ -604,12 +643,12 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 
 ### Task 008: Migrate `registerEventType` onto the declaration envelope as the D3 bridge
 **Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-1
-**Files:** `src/event-store/schemas.ts`, `src/event-store/schemas.test.ts`
+**Files:** `servers/exarchos-mcp/src/event-store/schemas.ts`, `servers/exarchos-mcp/src/event-store/schemas.test.ts`
 **Detail:** The bridge D3 names — the same data carried through the existing seam, distinct from the `registerCustomTool` family #1708 deletes at v3.0.
 **Tests:**
 - `RegisterEventType_EmitsDeclarationEnvelope` — registration produces the shared shape
 - `RegisterEventType_RegistrationSnapshot_ByteStable` — no drift across repeated runs
-- `RegisterEventType_LegacyCallSites_Unchanged` — additivity across all 169 registrations
+- `RegisterEventType_LegacyCallSites_Unchanged` — additivity across all 170 registrations
 **Verification:** high — integration suite + `check_test_adequacy`; byte-stable registration snapshot.
 **Dependencies:** 005, 006 · **Parallelizable:** No
 
@@ -617,7 +656,7 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 
 ### Task 009: Define the five-tier `EventRegistration` union so report-coupling has no constructible variant
 **Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-2
-**Files:** `src/event-store/event-registration.ts`, `src/event-store/event-registration.test.ts`
+**Files:** `servers/exarchos-mcp/src/event-store/event-registration.ts`, `servers/exarchos-mcp/src/event-store/event-registration.test.ts`
 **Detail:** Makes the class unwritable at proof rung 2 rather than detected at rung 4 — the central PDD move of Wave 1.
 **Tests:**
 - `EventRegistration_ReportCoupledVariant_DoesNotExist` — compile-time assertion in source (tsconfig excludes `*.test.ts`, so this must not live in a test)
@@ -626,47 +665,47 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 **Verification:** high — type-level + `check_test_adequacy` + integration.
 **Dependencies:** 005 · **Parallelizable:** No
 
-### Task 010: Annotate all 169 registered event types with their tier and coupling
+### Task 010: Annotate all 170 registered event types with their tier and coupling
 **Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-2
-**Files:** `src/event-store/schemas.ts`, `src/event-store/schemas.test.ts`
+**Files:** `servers/exarchos-mcp/src/event-store/schemas.ts`, `servers/exarchos-mcp/src/event-store/schemas.test.ts`
 **Detail:** The bulk migration. Every existing type gains a tier; the union's exhaustiveness is what proves none was missed.
 **Tests:**
 - `EventRegistry_AllRegisteredTypes_CarryATier` — enumeration over the registry, no gaps
-- `EventRegistry_RegistrationSnapshot_MatchesGolden` — pins the 169-type surface against drift
+- `EventRegistry_RegistrationSnapshot_MatchesGolden` — pins the 170-type surface against drift
 - `EventRegistry_ReportCoupledCount_Equals25` — the G3 ratchet's seed value, asserted
 **Verification:** high — exhaustive-union compile + `check_test_adequacy` + registration snapshot.
 **Dependencies:** 009 · **Parallelizable:** No
 
 ### Task 011: Derive `EventEmissionSource` from tier
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-2
-**Files:** `src/event-store/schemas.ts`
+**Files:** `servers/exarchos-mcp/src/event-store/schemas.ts`
 **Detail:** Source is derived, never independently authored; a seeded disagreement must fail.
 **Verification:** medium — scoped tests + kill-probe on the seeded disagreement.
 **Dependencies:** 010 · **Parallelizable:** Yes *(with 012)*
 
 ### Task 012: Boot-time `EffectProviderId` resolution check
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-2
-**Files:** `src/event-store/registration-validate.ts`
+**Files:** `servers/exarchos-mcp/src/event-store/registration-validate.ts`
 **Detail:** A `capability` registration naming an unresolvable provider fails at boot.
 **Verification:** medium — scoped tests + kill-probe.
 **Dependencies:** 010 · **Parallelizable:** Yes *(with 011)*
 
 ### Task 013: G3 report-coupled ratchet + kill fixture
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-2
-**Files:** `src/architecture/report-coupling-census.ts`, CI wiring
+**Files:** `servers/exarchos-mcp/src/architecture/report-coupling-census.ts`, CI wiring
 **Detail:** Seed at the measured 25; permit only decrease. Kill fixture = those 25. Self-test: a new report-coupled registration fails.
 **Verification:** medium — scoped tests + `check_test_adequacy`. Wired to an **unfiltered** CI path (#1711).
 **Dependencies:** 010 · **Parallelizable:** No
 
 ### Task 014: `WellFormedEventName` template-literal type
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-3
-**Files:** `src/event-store/event-name.ts`
+**Files:** `servers/exarchos-mcp/src/event-store/event-name.ts`
 **Verification:** medium — type-level tests; a malformed name must fail compilation.
 **Dependencies:** 009 · **Parallelizable:** Yes
 
 ### Task 015: Grammar census two-way ratchet
 **Risk Tier:** medium · **Boundary Touching:** false · **Implements:** DR-3
-**Files:** `src/architecture/event-grammar-census.ts`, CI wiring
+**Files:** `servers/exarchos-mcp/src/architecture/event-grammar-census.ts`, CI wiring
 **Detail:** Reuse the existing ratchet error vocabulary; unfiltered CI path.
 **Verification:** medium — scoped tests + kill-probe.
 **Dependencies:** 014 · **Parallelizable:** Yes
@@ -675,21 +714,21 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 
 ### Task 016: Vacuity detector over the registry
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-4
-**Files:** `src/architecture/output-schema-census.ts` (new)
-**Detail:** Enumerate declarations; classify `EnvelopeSchema(z.unknown())` as vacuous. Must report **106** on introduction — its proof of a live subject.
+**Files:** `servers/exarchos-mcp/src/architecture/output-schema-census.ts` (new)
+**Detail:** Enumerate declarations; classify `EnvelopeSchema(z.unknown())` as vacuous. Must report **109** on introduction — its proof of a live subject.
 **Verification:** medium — scoped tests + kill-probe; snapshot pins the initial count.
 **Dependencies:** None · **Parallelizable:** Yes
 
 ### Task 017: G2 ratchet + allowlist with owner/expiry
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-4
-**Files:** `src/architecture/output-schema-census.ts`, allowlist data file, CI wiring
+**Files:** `servers/exarchos-mcp/src/architecture/output-schema-census.ts`, allowlist data file, CI wiring
 **Detail:** Count may only decrease. Allowlist entries carry owner + expiry; **expiry is enforced, not advisory**.
 **Verification:** medium — scoped tests + `check_test_adequacy`; unfiltered CI path.
 **Dependencies:** 016 · **Parallelizable:** No
 
 ### Task 018: G2 self-test — new vacuous action fails CI
 **Risk Tier:** medium · **Boundary Touching:** false · **Implements:** DR-4
-**Files:** `src/architecture/__tests__/output-schema-census.selftest.test.ts`
+**Files:** `servers/exarchos-mcp/src/architecture/__tests__/output-schema-census.selftest.test.ts`
 **Detail:** Proves guard-execution failure cannot pass as success.
 **Verification:** medium — scoped tests.
 **Dependencies:** 017 · **Parallelizable:** Yes
@@ -705,28 +744,28 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 
 ### Task 020: Derivation predicate over the `buildCli` walk
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-5
-**Files:** `scripts/cli-vocab-guard.ts`
+**Files:** `servers/exarchos-mcp/scripts/cli-vocab-guard.ts`
 **Detail:** Extend the existing walk of the rendered Commander surface with a predicate that every command/alias/flag traces to a registry declaration. Policy is **data**, not prose in a test body.
 **Verification:** medium — scoped tests + kill-probe.
 **Dependencies:** 005 · **Parallelizable:** Yes
 
 ### Task 021: G1 kill fixture — reject `merge-orchestrate`'s hand-written definition
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-5
-**Files:** `scripts/cli-vocab-guard.test.ts`
+**Files:** `servers/exarchos-mcp/scripts/cli-vocab-guard.test.ts`
 **Detail:** The registry declaration survives, preserving `posture: 'shared-mutating'` on the single remaining definition. A guard with no current failing subject has not been shown to work.
 **Verification:** medium — scoped tests + `check_test_adequacy`.
 **Dependencies:** 020 · **Parallelizable:** No
 
 ### Task 022: G1 self-test — clean-vocabulary hand-written command must fail
 **Risk Tier:** medium · **Boundary Touching:** false · **Implements:** DR-5
-**Files:** `scripts/cli-vocab-guard.test.ts`
+**Files:** `servers/exarchos-mcp/scripts/cli-vocab-guard.test.ts`
 **Detail:** Proves the guard measures **derivation**, not vocabulary — the exact gap in today's guard.
 **Verification:** medium — scoped tests.
 **Dependencies:** 020 · **Parallelizable:** No
 
-### Task 023: Shrink-only allowlist for the 8 hand-written top-level CLI verbs
+### Task 023: Shrink-only allowlist for the 11 hand-written top-level CLI verbs
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-5
-**Files:** `scripts/cli-derivation-allowlist.json`, `scripts/cli-vocab-guard.ts`, `.github/workflows/ci.yml`
+**Files:** `servers/exarchos-mcp/scripts/cli-derivation-allowlist.json`, `servers/exarchos-mcp/scripts/cli-vocab-guard.ts`, `.github/workflows/ci.yml`
 **Detail:** `doctor`, `emissions`, `init`, `install-skills`, `mcp`, `merge-orchestrate`, `onboard`, `version` — each with owner and wave-scoped expiry. Reaches zero at DR-19.
 **Verification:** medium — scoped tests + kill-probe (seed a 9th entry → fail).
 **Dependencies:** 021, 022 · **Parallelizable:** No
@@ -735,7 +774,7 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 
 ### Task 024: Model each contract boundary as data naming one authority and its bound representations
 **Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-6
-**Files:** `src/architecture/authority-topology.ts`, `src/architecture/authority-topology.data.ts`, `src/architecture/authority-topology.test.ts`
+**Files:** `servers/exarchos-mcp/src/architecture/authority-topology.ts`, `servers/exarchos-mcp/src/architecture/authority-topology.data.ts`, `servers/exarchos-mcp/src/architecture/authority-topology.test.ts`
 **Detail:** Policy is data the census reads, never prose inside a test body (PDD §3a).
 **Tests:**
 - `BoundaryModel_TwoAuthorities_IsRepresentable_AndFlagged` — the model can express the defect it must detect
@@ -746,7 +785,7 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 
 ### Task 025: Implement the authority census so unbound or multiply-owned boundaries fail closure
 **Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-6
-**Files:** `src/architecture/authority-topology.ts`, `src/architecture/authority-topology.census.test.ts`
+**Files:** `servers/exarchos-mcp/src/architecture/authority-topology.ts`, `servers/exarchos-mcp/src/architecture/authority-topology.census.test.ts`
 **Detail:** Reuses the existing census/ratchet error vocabulary (`adapter-ownership-seam.ts`, `effect-port-seam.ts`) — no new instrument.
 **Tests:**
 - `Census_MoreThanOneAuthority_FailsClosure`
@@ -757,7 +796,7 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 
 ### Task 026: Prove the census fails live on the CLI-surface and event-catalog rows before remediation
 **Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-6
-**Files:** `src/architecture/__tests__/authority-topology.kill-fixtures.test.ts`
+**Files:** `servers/exarchos-mcp/src/architecture/__tests__/authority-topology.kill-fixtures.test.ts`
 **Detail:** A guard with no current failing subject has not been shown to work — 2 authorities on the CLI surface, 4 unbound representations on the event catalog.
 **Tests:**
 - `KillFixture_CliSurface_ReportsTwoAuthorities`
@@ -768,20 +807,20 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 
 ### Task 027: Flip all five guards from observe to enforce and prove the Wave 1 exit
 **Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-6, DR-24
-**Files:** `.github/workflows/ci.yml`, `src/architecture/authority-topology.data.ts`, `src/architecture/__tests__/wave1-exit.test.ts`
+**Files:** `.github/workflows/ci.yml`, `servers/exarchos-mcp/src/architecture/authority-topology.data.ts`, `servers/exarchos-mcp/src/architecture/__tests__/wave1-exit.test.ts`
 **Detail:** Each guard ships wired to its kill fixture, proven RED, then flipped to blocking within this wave. **Wave exit is a seeded-failure test against production composition** — never "the module exists" (DR-24).
 **Tests:**
 - `Wave1Exit_AllFiveGuards_BlockOnSeededViolation` — against shipped composition, not mocks
 - `Wave1Exit_EachGuardSelfTest_RunsInSameCiJob` — guard-execution failure cannot pass as success
 - `Wave1Exit_AllGuardsOnUnfilteredPaths` — #1711: a path-filtered gate is skipped-as-passed on the PRs it polices
 **Verification:** high — integration suite + `check_test_adequacy`.
-**Dependencies:** 004, 013, 015, 017, 023, 026, 046, 047 · **Parallelizable:** No
+**Dependencies:** 013, 015, 017, 023, 026, 046, 047 · **Parallelizable:** No
 
 **Wave 1f — DR-25: bind the dispatch shape to the declared posture**
 
 ### Task 046: Add a posture-to-dispatch mapping to the two provisioning verbs
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-25
-**Files:** `src/orchestrate/prepare-review.ts`, `src/orchestrate/prepare-delegation.ts`, `src/agents/dispatch-shape.ts`, `src/agents/dispatch-shape.test.ts`
+**Files:** `servers/exarchos-mcp/src/orchestrate/prepare-review.ts`, `servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts`, `servers/exarchos-mcp/src/agents/dispatch-shape.ts`, `servers/exarchos-mcp/src/agents/dispatch-shape.test.ts`
 **Detail:** `dispatch` becomes part of the emitted contract — `read-only` → anonymous async; `task-isolated` → named plus worktree isolation; `shared-mutating` → main worktree, never a subagent. Policy is data the verb reads, not prose in a skill.
 **Tests:**
 - `DispatchShape_EveryDeclaredPosture_HasExactlyOneEntry` — totality over `AgentPosture`
@@ -792,7 +831,7 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 
 ### Task 047: Prove today's prepare_review output fails the dispatch totality test
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-25
-**Files:** `src/orchestrate/__tests__/dispatch-shape.kill-fixture.test.ts`
+**Files:** `servers/exarchos-mcp/src/orchestrate/__tests__/dispatch-shape.kill-fixture.test.ts`
 **Detail:** The kill fixture is the current `prepare_review` result — `posture: 'read-only'` with no `dispatch` field. A guard with no current failing subject has not been shown to work.
 **Tests:**
 - `PrepareReview_CurrentOutput_LacksDispatchField` — fails on introduction
@@ -875,7 +914,7 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 
 ### Parallelization
 
-**Wave 0** — 001, 002, 003 fully parallel (distinct modules); 004 joins them.
+**Wave 0** — removed in rev 2 (already closed on the landing branch).
 
 **Wave 1** — 005 is the foundation and blocks 1b–1e. After it:
 - **Group A (events):** 009 → 010 → {011 ∥ 012} → 013; 014 → 015
@@ -904,7 +943,7 @@ Groups A–D are mutually parallel after 005/006 land, and touch disjoint files 
 - [ ] Wave 0: INV-9 closed; all three defects preserved as kill fixtures
 - [ ] `Declaration<K>` envelope shipped; **relocation proof green** (D2 is a property, not a claim)
 - [ ] G1 rejects `merge-orchestrate`'s hand-written definition; self-test proves it measures derivation not vocabulary
-- [ ] G2 seeded at 106 and shrink-only; new vacuous action fails CI
+- [ ] G2 seeded at 109 and shrink-only; new vacuous action fails CI
 - [ ] G3 report-coupled ratchet pinned at 25, shrink-only
 - [ ] G5 census fails on the CLI-surface and event-catalog rows before remediation
 - [ ] Every guard's self-test runs in the same CI job as the guard
