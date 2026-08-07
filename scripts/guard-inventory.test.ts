@@ -592,7 +592,14 @@ describe('Exclusions stay reviewable', () => {
     // The R-11 axis, orthogonal to CI reachability: these run on every
     // MCP-touching PR through their co-located vitest and are called by nothing
     // in production. Reported so Wave-1 exit cannot inherit them unexamined.
+    //
+    // `cli-derivation-guard.ts` was pinned here on task 063's own branch and is
+    // deliberately NOT pinned any more: task 026 exported `parseOrThrow` from it
+    // and `scripts/authority-live-proof.ts` imports it, so it now has a real
+    // production caller and left the R-11 set. That is the axis working — a name
+    // pinned as R-11 forever would assert a fact the tree is allowed to change.
+    // The population assertion below stays, so the set cannot silently empty.
     expect(liveAudit.noProductionCaller.length).toBeGreaterThan(0);
-    expect(liveAudit.noProductionCaller).toContain('servers/exarchos-mcp/scripts/cli-derivation-guard.ts');
+    expect(liveAudit.noProductionCaller).toContain('scripts/guard-inventory.ts');
   });
 });
