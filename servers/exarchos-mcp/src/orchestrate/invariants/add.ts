@@ -30,6 +30,12 @@ import {
   InvariantEntryV3Schema,
   UnknownCheckKindError,
 } from '../../architecture/invariant-schema.js';
+// DR-6 — the catalog's primary-key rule has ONE authority, in the loader. The
+// write path enforces the reader's predicate rather than a second copy of it.
+import {
+  findDuplicateInvariantId,
+  duplicateInvariantIdMessage,
+} from '../../architecture/invariants-loader.js';
 import type { ScaffoldDeps } from './scaffold.js';
 import { wireCatalogRegistration } from './exarchos-yml-writer.js';
 import { assertDevTierAllowed } from './reserved-tier-guard.js';
@@ -116,23 +122,100 @@ function splitCatalog(contents: string): {
   return { frontmatter: contents, body: undefined };
 }
 
-/** Read existing entry ids from a catalog file's `invariants:` list. */
-function readExistingIds(catalogContents: string): string[] {
+/**
+ * Outcome of scanning a catalog for the ids already in use.
+ *
+ * The discriminant is the point. The previous `readExistingIds` returned a bare
+ * `string[]` and collapsed EVERY failure — absent `invariants:` key, a renamed
+ * key, a null/map/scalar node, an entry with no readable id — into `[]`. An
+ * empty id list is indistinguishable from "no collisions", so a moved or
+ * renamed catalog read as a clean uniqueness check and every id looked free.
+ * That is a vacuous denominator, and a uniqueness guard resting on one proves
+ * nothing (task 068 / DR-24).
+ *
+ * `resolved: true` with `ids: []` is a DIFFERENT and legitimate state: a
+ * freshly scaffolded catalog really is `invariants: []`. The tooth is
+ * resolvability, not cardinality — making zero entries fatal outright would
+ * make it impossible to author a catalog's first entry.
+ */
+export type CatalogIdScan =
+  | { readonly resolved: true; readonly ids: readonly string[] }
+  | { readonly resolved: false; readonly reason: string };
+
+/**
+ * Read the ids already in use in a catalog file's `invariants:` list.
+ *
+ * Fail-closed: resolves ONLY when the frontmatter parses, `invariants` is
+ * present AND is a sequence, and every element carries a string `id`. Anything
+ * else is unresolved — we cannot prove an id is free against entries we could
+ * not read.
+ */
+export function readCatalogIds(catalogContents: string): CatalogIdScan {
   const { frontmatter } = splitCatalog(catalogContents);
-  const doc = parseDocument(frontmatter);
-  const list = doc.get('invariants') as unknown;
-  const ids: string[] = [];
-  if (list && typeof (list as { toJSON?: unknown }).toJSON === 'function') {
-    const arr = (list as { toJSON: () => unknown }).toJSON();
-    if (Array.isArray(arr)) {
-      for (const e of arr) {
-        if (e && typeof e === 'object' && typeof (e as { id?: unknown }).id === 'string') {
-          ids.push((e as { id: string }).id);
-        }
-      }
-    }
+
+  let doc: ReturnType<typeof parseDocument>;
+  try {
+    doc = parseDocument(frontmatter);
+  } catch (err) {
+    return {
+      resolved: false,
+      reason: `catalog frontmatter did not parse as YAML: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    };
   }
-  return ids;
+  if (doc.errors.length > 0) {
+    return {
+      resolved: false,
+      reason: `catalog frontmatter did not parse as YAML: ${doc.errors[0]?.message ?? 'unknown error'}`,
+    };
+  }
+
+  const list = doc.get('invariants', true) as unknown;
+  if (list === undefined || list === null) {
+    return {
+      resolved: false,
+      reason:
+        "catalog has no readable 'invariants:' list — the key is absent, null, or renamed. " +
+        'A uniqueness check cannot run against entries it could not resolve.',
+    };
+  }
+  if (!isSeq(list)) {
+    return {
+      resolved: false,
+      reason:
+        "catalog's 'invariants:' is not a YAML sequence. A uniqueness check " +
+        'cannot run against entries it could not resolve.',
+    };
+  }
+
+  const raw = list.toJSON() as unknown;
+  if (!Array.isArray(raw)) {
+    return {
+      resolved: false,
+      reason: "catalog's 'invariants:' did not project to an array",
+    };
+  }
+
+  const ids: string[] = [];
+  for (const [index, entry] of raw.entries()) {
+    if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
+      return {
+        resolved: false,
+        reason: `catalog entry at index ${index} is not an object — its id cannot be read`,
+      };
+    }
+    const id = (entry as { id?: unknown }).id;
+    if (typeof id !== 'string' || id.length === 0) {
+      return {
+        resolved: false,
+        reason: `catalog entry at index ${index} carries no readable string id — a uniqueness check against it would be vacuous`,
+      };
+    }
+    ids.push(id);
+  }
+
+  return { resolved: true, ids };
 }
 
 /**
@@ -199,6 +282,87 @@ function appendToInvariantsSeq(doc: ReturnType<typeof parseDocument>, validated:
     list = doc.get('invariants', true) as unknown;
   }
   (list as YAMLSeq).add(validated);
+}
+
+/**
+ * INV-5b carrier-shape refusal for a primary-key collision. Names the offending
+ * id, the ids already in use, and points the agent at `invariants_amend` — the
+ * verb that actually does what a caller re-using an existing id is usually
+ * trying to do (task 068).
+ */
+function duplicateIdResult(
+  id: string,
+  relCatalog: string,
+  tier: 'dev' | 'user',
+  existingIds: readonly string[],
+): ToolResult {
+  return {
+    success: false,
+    error: {
+      code: 'DUPLICATE_INVARIANT_ID',
+      // The loader's own sentence — one message regardless of which path
+      // (read or write) refused.
+      message:
+        `${duplicateInvariantIdMessage(id)}. Catalog '${relCatalog}' resolved ` +
+        `${existingIds.length} existing entr${existingIds.length === 1 ? 'y' : 'ies'} ` +
+        `and one already carries this id; appending a second would author a ` +
+        `file the invariants loader refuses to read. To CHANGE the existing ` +
+        `entry use invariants_amend; to add a NEW entry omit 'id' and let it ` +
+        `be auto-assigned.`,
+      expectedShape: {
+        id: `an id not already in ${relCatalog}, or omit it entirely`,
+      },
+      suggestedFix: {
+        tool: 'exarchos_orchestrate',
+        params: {
+          action: 'invariants_amend',
+          id,
+          catalog: relCatalog,
+          tier,
+          note:
+            'Amending edits the existing entry in place (identity and unnamed ' +
+            'fields survive). To append a brand-new entry instead, re-run ' +
+            "invariants_add without 'id'.",
+        },
+      },
+    },
+  };
+}
+
+/**
+ * INV-5b carrier-shape refusal for a catalog whose id list did not RESOLVE.
+ * Shared by `invariants_add` and `invariants_amend`: neither may proceed on a
+ * denominator it could not read (task 068 / DR-24).
+ */
+function catalogUnreadableResult(
+  relCatalog: string,
+  tier: 'dev' | 'user',
+  reason: string,
+): ToolResult {
+  return {
+    success: false,
+    error: {
+      code: 'CATALOG_UNREADABLE',
+      message:
+        `Cannot resolve the existing entries of catalog '${relCatalog}': ${reason} ` +
+        `Refusing to write: an unresolved entry list would make the id-uniqueness ` +
+        `check vacuous, so a moved or renamed catalog would read as "no collisions".`,
+      expectedShape: {
+        invariants: '[ { id: string, ... } ]  # a YAML sequence of entries',
+      },
+      suggestedFix: {
+        tool: 'exarchos_orchestrate',
+        params: {
+          action: 'doctor',
+          note:
+            `Check that '${relCatalog}' is the intended catalog and that its ` +
+            "frontmatter declares an 'invariants:' sequence whose entries each " +
+            'carry a string id. Run invariants_scaffold to create a fresh one.',
+          tier,
+        },
+      },
+    },
+  };
 }
 
 /**
@@ -316,10 +480,29 @@ export async function handleAdd(
   }
   const catalogContents = deps.read(catalogAbs);
 
+  // Resolve the ids already in use. This is the DENOMINATOR of the uniqueness
+  // check below, so an unresolvable list is refused rather than treated as
+  // "zero ids in use, therefore no collisions" (task 068 / DR-24).
+  const scan = readCatalogIds(catalogContents);
+  if (!scan.resolved) {
+    return catalogUnreadableResult(relCatalog, tier, scan.reason);
+  }
+  const existingIds = scan.ids;
+
   // Allocate the id (or honor an explicit override) and validate the entry.
-  const existingIds = readExistingIds(catalogContents);
-  const id =
-    args.id ?? allocateNextId(existingIds, NAMESPACE_PREFIX[tier]);
+  const id = args.id ?? allocateNextId(existingIds, NAMESPACE_PREFIX[tier]);
+
+  // Write-time primary-key enforcement, at least as strong as read-time.
+  // `args.id` was previously honored with no membership test, so authoring an
+  // id already in the catalog returned success and produced a file the loader
+  // then refused to read. The predicate is the LOADER's own
+  // (`findDuplicateInvariantId`), applied to the id list this write WOULD
+  // produce — literally "would the reader reject the document I am about to
+  // author?" — so reader and writer cannot disagree.
+  const collision = findDuplicateInvariantId([...existingIds, id]);
+  if (collision !== undefined) {
+    return duplicateIdResult(collision, relCatalog, tier, existingIds);
+  }
 
   let validated;
   try {
