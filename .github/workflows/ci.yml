@@ -1053,6 +1053,48 @@ jobs:
       - name: Cast-census self-test re-assert (DR-24, unfiltered)
         run: npx --no-install vitest run scripts/tsconfig-strictness/count-casts.test.ts
 
+      # G2 `outputSchema` vacuity ratchet (DR-4, task 017). Runs all four teeth
+      # against the live triple: membership (allowlist vs census, both
+      # directions), seed key-set integrity (vs the frozen digest), and — new in
+      # task 017 — the per-entry EXPIRY, enforced rather than advisory. Tasks 055
+      # and 060 shipped the first three but wired NONE of them to an executable
+      # gate: the whole `auditVacuity*` family was driven only by its co-located
+      # vitest in the `mcp`-PATH-FILTERED `test-mcp` job, which
+      # scripts/guard-inventory.ts names as an R-11 instance and #1711 names as
+      # skipped-as-passed on exactly the PRs it polices. This step is the gate.
+      #
+      # This is ALSO the one place DR-4's mechanism reads the wall clock: the
+      # library takes `today` as a required argument so its unit tests are
+      # deterministic, and the deadline reddens the MERGE rather than a
+      # developer's local `vitest run`. Expect it to go red of its own accord
+      # after VACUITY_EXPIRY_HORIZON (2027-02-28) — that is the deadline working,
+      # and the repair is paying declarations down, never re-dating the horizon.
+      #
+      # Rides the deps tail (needs `tsx` + the MCP node_modules to resolve the
+      # registry's Zod objects — a named binding launders a source-text grep, so
+      # the schema OBJECT must be walked), not the zero-dep prefix. Must be
+      # UNFILTERED: the allowlist, the pin and this guard all live under
+      # `servers/exarchos-mcp/**`, but the ratchet governs a repo-wide contract
+      # and a `mcp`-filtered host skips-as-passed on any PR outside it.
+      # See docs/guides/ci-gate-hosting.md.
+      - name: outputSchema vacuity ratchet — G2 + enforced expiry (DR-4, task 017)
+        run: npx --no-install tsx servers/exarchos-mcp/scripts/output-schema-ratchet-guard.ts
+
+      # Its self-tests on the SAME host (DR-24: "each guard's self-test runs in
+      # the same CI job as the guard", so guard-execution failure cannot pass as
+      # success). Includes task 017's kill fixtures — the live 112-entry seed
+      # carried one day past its horizon, and the blanket "bump every date in one
+      # commit" renewal — both of which must be RED. Hosting the census and
+      # allowlist suites here too closes their implementation-surface half: their
+      # only other host is the `mcp`-filtered `test-mcp`.
+      - name: outputSchema ratchet self-tests re-assert (DR-4/DR-24, unfiltered)
+        working-directory: servers/exarchos-mcp
+        run: >-
+          npx --no-install vitest run
+          scripts/output-schema-ratchet-guard.test.ts
+          src/architecture/output-schema-census.test.ts
+          src/output-schema-vacuity-allowlist.test.ts
+
   # ─────────────────────────────────────────────────────────────────────
   # e2e-process
   # ─────────────────────────────────────────────────────────────────────

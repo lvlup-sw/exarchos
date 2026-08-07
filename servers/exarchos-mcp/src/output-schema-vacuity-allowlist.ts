@@ -14,7 +14,7 @@
 // and the number never moves. Membership cannot be gamed that way — `b` is not
 // on the list, so it fails, and `a`'s entry goes stale the moment it is fixed.
 //
-// ── The three teeth ─────────────────────────────────────────────────────────
+// ── The four teeth ──────────────────────────────────────────────────────────
 //   1. COMPILE TIME. {@link VacuityWaiverId} is the literal union of the keys
 //      below, and `vacuityWaiver()` (in `output-schema-declaration.ts`) accepts
 //      nothing else. A NEW action cannot declare a vacuous `outputSchema` at
@@ -38,6 +38,21 @@
 //      `output-schema-seed-pin.ts`. A paid-down entry MOVES to `VACUITY_RETIRED`
 //      instead of being deleted, so the union is invariant and the pin never
 //      changes for any legal edit.
+//   4. RUN TIME — EXPIRY (task 017). Teeth 1-3 govern WHICH declarations may be
+//      waived. None of them governs FOR HOW LONG, and until task 017 nothing
+//      did: `expires` below was written by task 055 and read by no code path, so
+//      the "wave-scoped" deadline DR-4 specifies was a permanent exemption
+//      wearing a date. `auditVacuityExpiry()` in
+//      `architecture/output-schema-census.ts` now fails on an entry whose
+//      `expires` is past, and — because a deadline its own owner may move is not
+//      a deadline — ALSO fails on an entry whose `expires` is later than the
+//      single pinned `VACUITY_EXPIRY_HORIZON` in `output-schema-seed-pin.ts`.
+//      An entry therefore cannot renew itself at all; re-dating the debt means
+//      moving one frozen constant in a file that contains nothing else, as a
+//      deliberate commit. The clock is read once, at the CI guard's entrypoint
+//      (`servers/exarchos-mcp/scripts/output-schema-ratchet-guard.ts`), never
+//      inside the unit suite — a deadline must redden the MERGE, not a developer's
+//      local `vitest run`.
 //
 // ── How to shrink it ────────────────────────────────────────────────────────
 // Give the action a real `data` schema, declare it with `withCappedShape(...)`,
@@ -52,14 +67,21 @@
 // otherwise report the waiver stale forever.
 //
 // Owner is derived from the declaring composite tool; the expiry is the seed's
-// uniform horizon. Task 017 enforces the expiry over exactly this shape — the
-// entry record is `{ owner, expires }` and must stay that way.
+// uniform horizon, which task 017 pinned as `VACUITY_EXPIRY_HORIZON` and
+// enforces over exactly this shape — the entry record is `{ owner, expires }`
+// and must stay that way.
 
 /** One waiver: who owns paying it down, and by when. */
 export interface VacuityWaiverEntry {
   /** Team accountable for replacing the vacuous schema with a real one. */
   readonly owner: string;
-  /** ISO date (YYYY-MM-DD) after which the waiver is expired. */
+  /**
+   * ISO date (YYYY-MM-DD) after which the waiver is expired — the waiver is live
+   * THROUGH this day and dead the next. ENFORCED by `auditVacuityExpiry()`, and
+   * capped by `VACUITY_EXPIRY_HORIZON`: a date later than the horizon fails, so
+   * an entry cannot buy itself more time. Bringing a date FORWARD is always
+   * legal (it only shortens the debt's life).
+   */
   readonly expires: string;
 }
 

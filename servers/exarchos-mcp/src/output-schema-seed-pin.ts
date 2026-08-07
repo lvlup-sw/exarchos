@@ -98,3 +98,55 @@ export const VACUITY_SEED_KEY_SET_DIGEST =
  * hex string.
  */
 export const VACUITY_SEED_DIGEST_ALGORITHM = 'sha256';
+
+// ─── The frozen expiry horizon (DR-4, task 017) ─────────────────────────────
+//
+// DR-4 says the allowlist entries carry an owner and an ISO expiry, and that
+// "expiry is enforced, not advisory". Task 055 wrote the `expires` field into
+// every entry and NOTHING READ IT — the field was pure documentation, which is
+// the presence-not-substance defect DR-4 itself exists to remove, reproduced one
+// layer up inside DR-4's own mechanism. Task 017 makes the field load-bearing:
+// `auditVacuityExpiry()` in `architecture/output-schema-census.ts` fails on an
+// entry whose `expires` is in the past.
+//
+// ── Why the horizon is a SEPARATE, FROZEN constant ──────────────────────────
+// A deadline that the deadline's owner may move is not a deadline. If `expires`
+// were enforced against nothing else, the cheapest green on the day it bites is
+// a sed over `output-schema-vacuity-allowlist.ts` bumping all 112 dates by a
+// year — an edit that looks exactly like the routine paydown diffs the file
+// already receives, buried in a 112-line sorted object literal.
+//
+// So a waiver may not name ITS OWN deadline. Every entry's `expires` must be at
+// or before this ONE pinned date; an entry past it fails with
+// `WAIVER_BEYOND_HORIZON` before its own expiry is even consulted. Per-entry
+// renewal is therefore impossible, and blanket renewal collapses to editing this
+// single line — in a file that imports nothing, contains only frozen values, and
+// is headed with the instruction not to edit it to go green. That is the whole
+// of what this buys: it converts "112 invisible bumps" into "one conspicuous
+// one".
+//
+// ── What this does NOT claim ───────────────────────────────────────────────
+// It is not tamper-proof, for exactly the reason the digest above is not: an
+// author who can edit the allowlist can edit this line too, and a reviewer must
+// catch that. The residual is identical in shape and is recorded here rather
+// than papered over. What changed is that the illegal act is now a single,
+// isolated, semantically unambiguous line in a file whose only content is
+// frozen values — instead of no act at all, which is what "advisory" meant.
+//
+// ── Moving it legally ──────────────────────────────────────────────────────
+// There is one legal reason to change this value: the program deliberately
+// re-dating the whole outstanding debt, as an explicit decision with an owner.
+// That is a commit that touches this line and nothing else. Anything that
+// bundles it with a paydown, a registry change, or a "make CI green" fix is the
+// failure mode this constant exists to make visible.
+
+/**
+ * The single deadline every `outputSchema` vacuity waiver is measured against —
+ * the uniform horizon the 112 seed entries were written with on 2026-08-07.
+ *
+ * An entry may expire EARLIER than this (paying a subset down sooner is always
+ * legal); it may never expire later. Compared as an ISO `YYYY-MM-DD` string, so
+ * ordering is lexicographic and no timezone, DST or `Date` arithmetic enters the
+ * comparison.
+ */
+export const VACUITY_EXPIRY_HORIZON = '2027-02-28';
