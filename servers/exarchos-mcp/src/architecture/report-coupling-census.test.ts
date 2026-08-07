@@ -36,6 +36,7 @@ import {
   auditReportCouplingSeedIntegrity,
   censusReportCoupling,
   formatReportCouplingCensus,
+  formatReportCouplingRatchet,
   reportCouplingSeedDigest,
 } from './report-coupling-census.js';
 import {
@@ -116,7 +117,14 @@ describe('G3 report-coupling census (DR-2, task 013)', () => {
 
   it('ReportCouplingRatchet_LiveTree_Passes', () => {
     const verdict = auditReportCouplingRatchet();
-    expect(verdict.findings, verdict.findings.map((f) => f.code).join(', ')).toEqual([]);
+    // Render the failure through the module's own composite formatter rather than re-deriving a
+    // message here. It exists to print exactly this verdict (census + membership + pin), and a
+    // second hand-rolled rendering is a second authority on what the guard says when it fails.
+    // It was also this module's only unreferenced export — knip flagged it, correctly, as the
+    // R-11 shape: shipped and called by nothing.
+    expect(verdict.findings, formatReportCouplingRatchet(verdict, censusReportCoupling())).toEqual(
+      [],
+    );
     expect(verdict.ok).toBe(true);
 
     // The pin covers the whole seed on the landing branch: nothing has been retired yet, so the key

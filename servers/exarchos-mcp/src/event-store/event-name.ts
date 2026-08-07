@@ -670,7 +670,8 @@ type MalformedFixtureNames = (typeof MALFORMED_EVENT_NAMES)[number]['name'];
  * Falsifier: this alias is what a vacuous grammar fails. `type IsWellFormedEventName<S> = true`
  * (equivalently `WellFormedEventName = string`) makes it `false` and reddens `tsc` — which is the
  * property that distinguishes a grammar from a decoration.
- */
+ @proof
+ * */
 export type _EventName_MalformedFixtures_AreAllRejected = Expect<
   AllMalformed<MalformedFixtureNames>
 >;
@@ -686,7 +687,8 @@ export type _EventName_MalformedFixtures_AreAllRejected = Expect<
  * The `[N] extends [never]` guard inside {@link AllWellFormed} is what stops this from passing
  * vacuously if `EventType` ever resolves to `never` (a moved module, a broken re-export) — the
  * non-empty-denominator rule, applied to the 170.
- */
+ @proof
+ * */
 export type _EventName_EveryRegisteredType_IsWellFormed = Expect<AllWellFormed<EventType>>;
 
 /**
@@ -696,7 +698,8 @@ export type _EventName_EveryRegisteredType_IsWellFormed = Expect<AllWellFormed<E
  * {@link AllMalformed}: the fixture union is genuinely inhabited. If {@link MALFORMED_EVENT_NAMES}
  * were emptied, `MalformedFixtureNames` would be `never` and the rejection proof above would be
  * quantifying over nothing.
- */
+ @proof
+ * */
 export type _EventName_KillFixtures_AreNonEmpty = Expect<
   [MalformedFixtureNames] extends [never] ? false : true
 >;
@@ -706,7 +709,8 @@ export type _EventName_KillFixtures_AreNonEmpty = Expect<
  *
  * The sample table agrees with the grammar. Cheap, but it is what catches a sample row that stops
  * being representative after a grammar edit.
- */
+ @proof
+ * */
 export type _EventName_WellFormedSamples_AreAllAccepted = Expect<
   AllWellFormed<(typeof WELL_FORMED_EVENT_NAME_SAMPLES)[number]>
 >;
@@ -717,7 +721,8 @@ export type _EventName_WellFormedSamples_AreAllAccepted = Expect<
  * The anti-vacuity proof stated in its sharpest form: the grammar does not accept `string`. Any
  * implementation that degrades to "some string" — the exact defect DR-3 exists to prevent — makes
  * this alias `false`.
- */
+ @proof
+ * */
 export type _EventName_UnconstrainedString_IsNotWellFormed = Expect<
   IsWellFormedEventName<string> extends false ? true : false
 >;
@@ -729,7 +734,8 @@ export type _EventName_UnconstrainedString_IsNotWellFormed = Expect<
  * good and one bad name it yields exactly the good one. This pins the distributive behaviour that
  * makes it usable as a generic constraint — a non-distributive version would collapse the whole
  * union to `never` and silently reject valid names.
- */
+ @proof
+ * */
 export type _EventName_WellFormedEventName_FiltersAUnion = Expect<
   MutuallyAssignable<WellFormedEventName<'merge.executed' | 'mergeexecuted'>, 'merge.executed'>
 >;
@@ -740,7 +746,8 @@ export type _EventName_WellFormedEventName_FiltersAUnion = Expect<
  * The two public forms agree on the real corpus: filtering the whole `EventType` union through
  * {@link WellFormedEventName} drops nothing. A clause that rejected even one live name would show
  * up here as a set inequality, which is a sharper failure than a boolean.
- */
+ @proof
+ * */
 export type _EventName_RegisteredTypesSurvive_WellFormedEventName = Expect<
   MutuallyAssignable<WellFormedEventName<EventType>, EventType>
 >;
@@ -752,17 +759,20 @@ export type _EventName_RegisteredTypesSurvive_WellFormedEventName = Expect<
 // also accepts. Extend either half alone and `tsc` fails here, at the pair, instead of letting the
 // runtime checker drift away from the grammar it implements.
 
-/** {@link LOWER_ALPHA} is exactly {@link LowerAlpha} — all 26, no more. */
+/** {@link LOWER_ALPHA} is exactly {@link LowerAlpha} — all 26, no more. @proof
+ * */
 export type _EventName_LowerAlphaData_MatchesTheUnion = Expect<
   MutuallyAssignable<(typeof LOWER_ALPHA)[number], LowerAlpha>
 >;
 
-/** {@link WORD_SEPARATORS} is exactly {@link WordSeparator}. */
+/** {@link WORD_SEPARATORS} is exactly {@link WordSeparator}. @proof
+ * */
 export type _EventName_WordSeparatorData_MatchesTheUnion = Expect<
   MutuallyAssignable<(typeof WORD_SEPARATORS)[number], WordSeparator>
 >;
 
-/** {@link EVENT_NAME_DEFECTS} is exactly {@link EventNameDefect} — the census's vocabulary. */
+/** {@link EVENT_NAME_DEFECTS} is exactly {@link EventNameDefect} — the census's vocabulary. @proof
+ * */
 export type _EventName_DefectData_MatchesTheUnion = Expect<
   MutuallyAssignable<(typeof EVENT_NAME_DEFECTS)[number], EventNameDefect>
 >;

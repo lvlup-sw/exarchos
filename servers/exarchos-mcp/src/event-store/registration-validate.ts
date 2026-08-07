@@ -398,7 +398,8 @@ type MutuallyAssignable<A, B> = [A] extends [B] ? ([B] extends [A] ? true : fals
  * Falsifier: redefine `EffectProviderId` as a closed literal union, a brand, or anything other than
  * the provider map's key, and this alias stops being `true` — which is the moment the runtime
  * lookup would start resolving against a different vocabulary than the one being declared.
- */
+ @proof
+ * */
 export type _RegistrationValidate_ProviderId_IsTheProviderMapKey = Expect<
   MutuallyAssignable<EffectProviderId, EffectProvider['tool']>
 >;
@@ -406,7 +407,8 @@ export type _RegistrationValidate_ProviderId_IsTheProviderMapKey = Expect<
 /**
  * The capability arm's `provider` field carries exactly that id space — so narrowing on
  * `tier === 'capability'` and resolving `.provider` is resolving the thing the union promises.
- */
+ @proof
+ * */
 export type _RegistrationValidate_CapabilityProvider_IsAProviderId = Expect<
   MutuallyAssignable<CapabilityRegistration['provider'], EffectProviderId>
 >;
@@ -416,7 +418,8 @@ export type _RegistrationValidate_CapabilityProvider_IsAProviderId = Expect<
  * marks only `capability` as boot-resolvable cannot be silently under-covering: were a future arm
  * to gain its own `provider`, this alias goes `false` and the build names it, rather than the gate
  * quietly skipping a second population of provider references.
- */
+ @proof
+ * */
 export type _RegistrationValidate_ProviderField_IsUniqueToTheCapabilityArm = Expect<
   MutuallyAssignable<Extract<EventTierVariant, { provider: unknown }>['tier'], 'capability'>
 >;
@@ -426,7 +429,8 @@ export type _RegistrationValidate_ProviderField_IsUniqueToTheCapabilityArm = Exp
  * this at the declaration; stating it as a proof makes the intent survive a refactor that widens
  * the annotation to `Partial<…>` or an index signature — either of which would let a sixth tier
  * arrive with no resolution decision and be skipped at boot by omission.
- */
+ @proof
+ * */
 export type _RegistrationValidate_Policy_IsTotalOverTheTierAxis = Expect<
   MutuallyAssignable<keyof typeof WELD_RESOLUTION_POLICY, EventTier>
 >;
