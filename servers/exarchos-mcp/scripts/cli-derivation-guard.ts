@@ -117,6 +117,40 @@ export const GOVERNED_SOURCES: readonly string[] = Object.freeze([
 /** Repo-relative location of the allowlist data file. */
 export const ALLOWLIST_PATH = 'servers/exarchos-mcp/scripts/cli-derivation-allowlist.json';
 
+/**
+ * The KILL FIXTURE: command names that may never be allowlisted.
+ *
+ * `merge-orchestrate` is the guard's live failing subject. It is declared
+ * TWICE — once as a registry action (`merge_orchestrate`, carrying
+ * `posture: 'shared-mutating'`) and once by hand as `.command('merge-orchestrate')`
+ * in the composition root. That duplication is precisely the finding DR-5
+ * exists to remove; the registry declaration is the survivor.
+ *
+ * This constant exists because an earlier revision of the policy put
+ * `merge-orchestrate` ON the allowlist. That single line neutralized the very
+ * rejection DR-5 requires: the guard kept its kill fixture in the file, kept
+ * reporting a number, and no longer rejected the one command whose rejection
+ * was the point. A guard with no currently-failing subject has not been shown
+ * to work — it has only been shown to run.
+ *
+ * So the exclusion is a MECHANISM, not a convention:
+ *
+ *   - {@link findDerivationViolations} never suppresses these names, whatever
+ *     the allowlist says — the rejection cannot be switched off from data.
+ *   - {@link readAllowlist} REFUSES a policy file that lists one, so the
+ *     mistake is rejected loudly at authoring time instead of being silently
+ *     ignored and read as consent.
+ *
+ * The remedy for a kill-fixture name is to DELETE the hand-written command
+ * (DR-5's remediation), never to exempt it.
+ */
+export const KILL_FIXTURE_COMMANDS: readonly string[] = Object.freeze(['merge-orchestrate']);
+
+/** Is `name` a kill-fixture command — one that can never be exempted? */
+export function isKillFixture(name: string): boolean {
+  return KILL_FIXTURE_COMMANDS.includes(name);
+}
+
 // ─── Scan results ────────────────────────────────────────────────────────────
 
 /**
@@ -353,6 +387,23 @@ export function readAllowlist(repoRoot: string = REPO_ROOT): ReadonlySet<string>
   }
   const names: string[] = [];
   for (const v of allowed) if (typeof v === 'string') names.push(v);
+
+  // The kill fixture is not exemptible. Refusing the FILE (rather than quietly
+  // dropping the entry) is deliberate: a silently-ignored allowlist line reads
+  // to its author as granted, and the whole failure mode being guarded against
+  // here is an exemption that nobody noticed was load-bearing.
+  const exempted = names.filter(isKillFixture);
+  if (exempted.length > 0) {
+    throw new Error(
+      `cli-derivation-guard: ${ALLOWLIST_PATH} allowlists the kill fixture ` +
+        `${exempted.map((n) => `"${n}"`).join(', ')}. These names are the guard's live failing ` +
+        'subject and must remain rejected — an earlier revision exempted `merge-orchestrate` ' +
+        'and thereby neutralized the rejection DR-5 requires. The remedy is to DELETE the ' +
+        'hand-written `.command(...)` call from the composition root and let the registry ' +
+        'declaration be the single definition, never to add it here.',
+    );
+  }
+
   return new Set(names);
 }
 
@@ -378,18 +429,27 @@ export function findDerivationViolations(
   const violations: DerivationViolation[] = [];
 
   for (const site of scan.literals) {
-    if (allowlist.has(site.name)) continue;
+    // The allowlist is consulted for ordinary tracked debt only. A kill-fixture
+    // name is reported unconditionally, so the rejection survives the eventual
+    // population of the allowlist with the other tolerated literals and cannot
+    // be turned off by editing data.
+    const killFixture = isKillFixture(site.name);
+    if (!killFixture && allowlist.has(site.name)) continue;
     violations.push({
       file: site.file,
       line: site.line,
       column: site.column,
       kind: site.kind,
       name: site.name,
-      detail:
-        `\`.command(${site.expression})\` bakes the command name into the composition ` +
-        'root. Register it through a derivation helper (registerActionCommand, the ' +
-        'composite-tool loop, or the harness loop) so the name comes from a registry ' +
-        'declaration.',
+      detail: killFixture
+        ? `\`.command(${site.expression})\` is the DR-5 kill fixture: \`${site.name}\` is ` +
+          'declared BOTH as a registry action and by hand here. It is not allowlistable. ' +
+          'Delete the hand-written command and let the registry declaration — which carries ' +
+          "`posture: 'shared-mutating'` — be the single remaining definition."
+        : `\`.command(${site.expression})\` bakes the command name into the composition ` +
+          'root. Register it through a derivation helper (registerActionCommand, the ' +
+          'composite-tool loop, or the harness loop) so the name comes from a registry ' +
+          'declaration.',
     });
   }
 
