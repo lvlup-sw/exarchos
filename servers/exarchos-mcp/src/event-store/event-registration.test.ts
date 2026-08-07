@@ -131,7 +131,15 @@ describe('EventRegistration', () => {
       expect(source).not.toBe('retired');
       derived.push(source);
     }
-    expect(derived).toEqual(['auto', 'auto', 'hook', 'model', 'auto']);
+    // In `EVENT_TIERS` order: substrate, capability, observation, judgment, workflow-local.
+    //
+    // The last entry was `'auto'` when task 009 wrote this and is `'model'` since task 010
+    // MEASURED the record against the 170 live registrations. `'auto'` had zero members and so
+    // was never validated; the 18 report-coupled events emitted from a model-walked runbook step
+    // are `workflow-local`, and a workflow definition's step composing the emission is exactly
+    // what `source: 'model'` records. See `EMISSION_SOURCE_BY_TIER`'s doc block and
+    // `event-annotations.ts`.
+    expect(derived).toEqual(['auto', 'auto', 'hook', 'model', 'model']);
   });
 
   it('FindTierSourceDisagreement_SeededTierSourceMismatch_IsReported', () => {
