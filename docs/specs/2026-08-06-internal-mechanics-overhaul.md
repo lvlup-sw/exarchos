@@ -1,6 +1,6 @@
 # Spec: Internal mechanics overhaul — one authority per contract, bound mechanically, IR-shaped
 
-**Date:** 2026-08-06 · **Revised:** 2026-08-07 (rev 4.13) · **Feature:** `internal-mechanics-overhaul` · **Depth:** deep
+**Date:** 2026-08-06 · **Revised:** 2026-08-07 (rev 4.14) · **Feature:** `internal-mechanics-overhaul` · **Depth:** deep
 **Method:** `proof-driven-development` (Design mode) — `~/.agents/skills/proof-driven-development`
 **Baseline:** rebased onto `origin/main`; **every count below is re-derived from the landing branch.**
 
@@ -726,9 +726,9 @@ Research pre-pass: discovery workflow **`mcp-spec-2026-07-28-migration`** (gathe
 
 ### Scope
 
-**Target:** Partial — **Wave 0 and Wave 1 decomposed to task granularity (tasks 001–027, 046–072).** Waves 2–5 carry one anchor task per DR (028–045) for provenance, to be re-planned after Wave 1 exit.
+**Target:** Partial — **Wave 0 and Wave 1 decomposed to task granularity (tasks 001–027, 046–073).** Waves 2–5 carry one anchor task per DR (028–045) for provenance, to be re-planned after Wave 1 exit.
 
-> **Task-ID ranges, since three appends have now widened this.** 001–004 retired (rev 2). 005–027 = the rev-1/rev-3 Wave 1 body, 027 the join point. 028–045 = Waves 2–5 anchors. 046–050 = rev-4 additions (DR-25, DR-0 remainder). 051–072 = tasks *derived from running Wave 1*, each one a defect a shipped task found and reported rather than worked around. That third range is the program working as designed, not scope creep — but it means **the task count is not fixed at plan time**, and any statement of the form "N of M tasks complete" must re-derive M.
+> **Task-ID ranges, since three appends have now widened this.** 001–004 retired (rev 2). 005–027 = the rev-1/rev-3 Wave 1 body, 027 the join point. 028–045 = Waves 2–5 anchors. 046–050 = rev-4 additions (DR-25, DR-0 remainder). 051–073 = tasks *derived from running Wave 1*, each one a defect a shipped task found and reported rather than worked around. That third range is the program working as designed, not scope creep — but it means **the task count is not fixed at plan time**, and any statement of the form "N of M tasks complete" must re-derive M.
 
 **Excluded, with rationale:** Waves 2–5 are *deliberately* not decomposed in this pass. **DR-6's authority-topology census is the instrument that enumerates the real remediation subjects** — which boundaries have unbound representations, which events lack a consumer hop, which effects lack a coupling. Decomposing Waves 2–5 before that census has run would be fabricating a subject list rather than deriving one, which is precisely the precision-manufacturing PDD warns against ("do not add abstractions, manifests, generators, or test layers without a concrete correctness obligation").
 
@@ -764,7 +764,7 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 | DR-20 | Catalog disposition | 041 *(anchor)* |
 | DR-21 | Replay and compatibility | 042 *(anchor)* |
 | DR-22 | MCP era cutover + Tasks re-platform | 043 *(anchor)* |
-| DR-23 | Invariant amendments | 044 *(anchor)*, 068 |
+| DR-23 | Invariant amendments | 044 *(anchor)*, 068, 073 |
 | DR-24 | Wave sequencing / anti-inertness | 045 *(anchor)*, 057, 058, 063, 064, 066, 067, 068, 069, 070, 071 |
 | DR-25 | Dispatch shape belongs to the provisioning contract | 046, 047, 048, 056, 059 |
 | DR-26 | SDK generation seam *(rev 4)* | 052, 053, 062, 065, 072 |
@@ -1294,6 +1294,27 @@ Each is an **eighth-occurrence candidate** of the measure-the-wrong-property pat
 
 **Verification:** medium — scoped tests + kill-probe per site.
 **Dependencies:** 065 · **Parallelizable:** Yes
+
+### Task 073: `invariants_amend` re-flows entries it was not asked to touch
+**Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-23, DR-24
+**Files:** `servers/exarchos-mcp/src/orchestrate/invariants/catalog-file.ts`, `servers/exarchos-mcp/src/orchestrate/invariants/amend.ts`
+**Detail:** Found by task 019 against task 068's verb, on the first real use of it.
+
+`invariants_amend` advertises itself as **id-targeted and field-scoped**, and semantically it is. But committing re-serializes the **whole frontmatter document**, so `yaml`'s line-width folding re-wraps folded scalars in unrelated entries. Task 019's one-field amendment to INV-17 produced a **69-insert / 34-delete** diff, roughly 35 lines of which were cosmetic re-wrap of INV-2 and INV-11.
+
+019 proved it is whitespace-only — parsing before and after and diffing the parsed entries yields exactly one semantic change (`INV-17: enforcement`), 21/21 entries intact, markdown body byte-identical. **So it is diff noise, not content drift.** It is still not harmless, and 019 is the evidence:
+
+- The catalog is a **frozen contract authority** whose digest is taken over the **raw file text**. The collateral re-wrap moves that digest exactly as much as the real edit does, so task 019 had to re-run the authority generator and perform the review-and-approve gesture (`CURRENT_APPROVER` bump) for what was semantically a two-string-literal change.
+- **Every future one-field amendment will therefore drag a contract re-approval along with it**, and a reviewer reading the diff cannot separate the amendment from the reflow without running a parse-level comparison. That is a review surface that punishes the correct, sanctioned path — the one DR-23 exists to make usable.
+
+**Acceptance criteria:**
+- An amendment writes back **only the amended entry's serialized lines**, spliced into the original text, rather than round-tripping the whole document. Sibling entries are byte-identical.
+- **Kill fixture:** amend one field of one entry in a catalog whose siblings carry folded scalars, and assert the diff touches only that entry — proved on the raw text, not the parsed form, because raw text is what the digest covers.
+- **Non-empty denominator:** a splice that matches zero lines, or a write that resolves zero entries, fails rather than passing clean.
+- State whether the authority digest still moves for a genuine wording change. It should — the catalog's wording is a load-bearing generation input — but it must move for the amendment and nothing else.
+
+**Verification:** medium — scoped tests + kill-probe on the raw-text diff.
+**Dependencies:** 068 · **Parallelizable:** Yes
 
 ### Task 063: Inventory every Wave-1 guard and prove it is reachable from CI
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-24
