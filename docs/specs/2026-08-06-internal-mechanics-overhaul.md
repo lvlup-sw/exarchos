@@ -1010,10 +1010,15 @@ The second half is the sharper one. The action declares `outputSchema: vacuityWa
 **Verification:** medium — scoped tests.
 **Dependencies:** 020 · **Parallelizable:** No
 
-### Task 023: Shrink-only allowlist for the 11 hand-written top-level CLI verbs
+
+### Task 023: Shrink-only allowlist for the hand-written top-level CLI verbs
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-5
-**Files:** `servers/exarchos-mcp/scripts/cli-derivation-allowlist.json`, `servers/exarchos-mcp/scripts/cli-vocab-guard.ts`, `.github/workflows/ci.yml`
-**Detail:** `doctor`, `emissions`, `init`, `install-skills`, `mcp`, `merge-orchestrate`, `onboard`, `version` — each with owner and wave-scoped expiry. Reaches zero at DR-19.
+**Files:** `servers/exarchos-mcp/scripts/cli-derivation-allowlist.json`, `servers/exarchos-mcp/scripts/cli-derivation-guard.ts`, `servers/exarchos-mcp/scripts/cli-derivation-seed-pin.ts`, `servers/exarchos-mcp/scripts/cli-derivation-ratchet-guard.ts`, `.github/workflows/ci.yml`
+**Detail:** <!-- measured: cli-allowlisted-literals -->10<!-- /measured --> verbs — `doctor`, `emissions`, `feedback`, `init`, `install-skills`, `mcp`, `onboard`, `schema`, `topology`, `version` — each with owner and an ISO expiry capped by one pinned horizon. Reaches zero at DR-19.
+
+> **Corrected at implementation, rev 4.9.** This line previously named EIGHT verbs and INCLUDED `merge-orchestrate`. Both were wrong when re-derived against the tree: the parse reports <!-- measured: cli-handwritten-literals -->11<!-- /measured --> literals (`feedback`, `schema` and `topology` were omitted), and `merge-orchestrate` is the kill fixture that G1's own Exceptions row forbids allowlisting — the shipped guard REFUSES a policy file that names it, so following this line would have produced a policy file the mechanism rejects. The tracked population is therefore <!-- measured: cli-allowlisted-literals -->10<!-- /measured -->, and it now derives.
+>
+> **Unowned remediation, reported not fixed.** G1's Exceptions row says `merge-orchestrate`'s hand-written command "is deleted in DR-5, not exempted", and DR-5's acceptance criteria call the registry declaration "the single remaining definition". No task in Waves 1a–1d owns that deletion, and task 023's `**Files:**` list does not include the composition root. So `cli-derivation-guard.ts` still exits 1 on exactly one violation and keeps its `GUARD_EXEMPTIONS` entry (re-scoped to name this edit); the shrink-only RATCHET is wired blocking and unfiltered as `cli-derivation-ratchet-guard.ts`. Removing a promoted top-level verb is a user-visible surface change that the `init` / `install-skills` precedent handles with a one-release rename stub — a decision, not a guard task.
 **Verification:** medium — scoped tests + kill-probe (seed a 9th entry → fail).
 **Dependencies:** 021, 022 · **Parallelizable:** No
 

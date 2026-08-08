@@ -501,6 +501,9 @@ const REGISTRY_SOURCE = `${MCP_SRC}/registry.ts`;
 /** Task 064's data files — see the two `validate-*` derivations below. */
 const VALIDATE_MANIFEST = 'scripts/validate-manifest.json';
 const PACKAGING_POLICY = '.claude-plugin/packaging-policy.json';
+
+/** Task 023's DR-5 policy data — see the `cli-allowlisted-literals` derivation below. */
+const CLI_DERIVATION_ALLOWLIST = 'servers/exarchos-mcp/scripts/cli-derivation-allowlist.json';
 /** @type {Record<string, { kind: 'ts' | 'scan', describe: string, fn?: (root: string) => number }>} */
 export const DERIVATIONS = {
   'output-schema-total': {
@@ -553,6 +556,22 @@ export const DERIVATIONS = {
     kind: 'scan',
     describe: `parsed \`.command('<literal>')\` call sites in ${CLI_SOURCE}`,
     fn: (root) => countCommandLiterals(readSource(root, CLI_SOURCE), CLI_SOURCE),
+  },
+  // Task 023 (DR-5). The spec's Task 023 prose named EIGHT verbs and included
+  // `merge-orchestrate`; the parse says ELEVEN literals, of which
+  // `merge-orchestrate` is the kill fixture and is not allowlistable — so the
+  // tracked population is TEN. That is a second unannotated number in the same
+  // document that was wrong when re-derived, which is exactly DR-27's class.
+  // It derives now. The number is bound to the parse from the other side too:
+  // `auditCliAllowlistMembership` fails when a tracked name is not a live
+  // literal AND when a live literal is untracked, so this count cannot drift
+  // from `cli-handwritten-literals` without the ratchet going red.
+  'cli-allowlisted-literals': {
+    kind: 'scan',
+    describe:
+      `tolerated hand-written verbs in ${CLI_DERIVATION_ALLOWLIST} — the DR-5 shrink-only ` +
+      'population, which is every literal command site EXCEPT the kill fixture',
+    fn: (root) => countCliAllowlistEntries(root),
   },
   'withcappedshape-count': {
     kind: 'scan',
@@ -628,6 +647,48 @@ export function countPackagingChecks(root) {
     );
   }
   return checks.length;
+}
+
+/**
+ * Tolerated hand-written CLI verbs in the DR-5 shrink-only allowlist.
+ *
+ * Counts the KEYS of the `allowed` map rather than re-deriving the population
+ * from the composition root, because the two are already bound to each other by
+ * `auditCliAllowlistMembership` in BOTH directions — an untracked literal and a
+ * tracked non-literal both fail the ratchet. Re-implementing the exclusion of
+ * the kill fixture here would copy DR-5's policy into this file, where it could
+ * disagree with the guard.
+ *
+ * Non-empty denominator, the same tooth the other `scan` derivations carry: a
+ * policy file resolving zero entries would let the document assert `0` and read
+ * green, when "the allowlist was moved, renamed or emptied" is a broken
+ * measurement. The legitimate zero state is DR-19, and it deletes this file.
+ *
+ * @param {string} root
+ * @returns {number}
+ */
+export function countCliAllowlistEntries(root) {
+  const absolute = path.join(root, CLI_DERIVATION_ALLOWLIST);
+  if (!existsSync(absolute)) {
+    throw new Error(
+      `check-measured-premises: CLI derivation allowlist ${CLI_DERIVATION_ALLOWLIST} does not exist`,
+    );
+  }
+  const { allowed } = JSON.parse(readFileSync(absolute, 'utf8'));
+  if (typeof allowed !== 'object' || allowed === null || Array.isArray(allowed)) {
+    throw new Error(
+      `check-measured-premises: ${CLI_DERIVATION_ALLOWLIST} has no "allowed" object — refusing ` +
+        'to derive a premise from a policy file whose shape it cannot verify',
+    );
+  }
+  const names = Object.keys(allowed);
+  if (names.length === 0) {
+    throw new Error(
+      `check-measured-premises: ${CLI_DERIVATION_ALLOWLIST} tolerates 0 verbs — refusing to ` +
+        'derive a premise from an empty denominator',
+    );
+  }
+  return names.length;
 }
 function readSource(root, relative) {
   return readFileSync(path.join(root, relative), 'utf8');

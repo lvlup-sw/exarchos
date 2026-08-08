@@ -18,6 +18,7 @@ import {
   REPO_ROOT,
   ALLOWLIST_PATH,
   KILL_FIXTURE_COMMANDS,
+  isKillFixture,
   scanGovernedSources,
   scanSourceForCommandSites,
   findDerivationViolations,
@@ -44,6 +45,11 @@ const RENAMED_AWAY_MODULE_PATH = 'servers/exarchos-mcp/scripts/cli-derivation-se
  * not there (task 022). Fixtures that are about the ENTRY rules therefore have
  * to be valid on the reference rules, and vice versa — which is the point: the
  * two rejections are independent.
+ *
+ * Callers still pass a bare list of NAMES: every fixture here is about which
+ * names a policy file may contain, not about owners or deadlines, so the
+ * `{ owner, expires }` records task 023 introduced are filled in with a uniform
+ * placeholder rather than repeated at each call site.
  */
 function seedAllowlist(
   root: string,
@@ -55,9 +61,15 @@ function seedAllowlist(
   // The guard module lives in the same directory as its policy data; a stub is
   // enough because only the reference's EXISTENCE is under test.
   writeFileSync(path.join(root, GUARD_MODULE_PATH), '', 'utf8');
+  const entries: Record<string, { owner: string; expires: string }> = {};
+  for (const name of allowed) entries[name] = { owner: 'cli-surface', expires: '2027-02-28' };
   writeFileSync(
     abs,
-    JSON.stringify({ $comment: comment ?? [`policy data for ${GUARD_MODULE_PATH}`], allowed }),
+    JSON.stringify({
+      $comment: comment ?? [`policy data for ${GUARD_MODULE_PATH}`],
+      allowed: entries,
+      retired: {},
+    }),
     'utf8',
   );
 }
@@ -122,11 +134,26 @@ describe('cli-derivation-guard (DR-5 / G1)', () => {
     // "14 hand-written" — both are numbers a careless measurement produces here.
     expect(scan.sites).toHaveLength(14);
 
-    // The guard REPORTS all 11 on introduction: the allowlist ships empty, so
-    // nothing is blessed away.
-    expect(readAllowlist().size).toBe(0);
+    // ── What the shipped allowlist blesses, and what it cannot ───────────────
+    // Task 020 shipped this file EMPTY and asserted `size === 0`, so the guard's
+    // first run stated the real size of the debt. Task 023 populated it with the
+    // TEN allowlistable literals — every hand-written name except the kill
+    // fixture, which `readPolicy` refuses outright.
+    //
+    // Both sides are DERIVED. The expected key set is the second authority
+    // (`EXPECTED_HAND_WRITTEN_LITERALS`, transcribed from the spec) minus the
+    // declared kill fixtures; the actual is read off disk. A count written as a
+    // literal here would be broken by a correct paydown, which is how four
+    // assertions in this wave broke.
+    const allowlistable = EXPECTED_HAND_WRITTEN_LITERALS.filter((n) => !isKillFixture(n));
+    expect([...readAllowlist()].sort()).toEqual([...allowlistable].sort());
+    expect(readAllowlist().size).toBe(EXPECTED_HAND_WRITTEN_LITERALS.length - KILL_FIXTURE_COMMANDS.length);
+
+    // The guard therefore reports exactly the kill fixtures — not zero. DR-5's
+    // remediation for `merge-orchestrate` is DELETION of the hand-written call,
+    // and until that lands this is the guard working, not the guard broken.
     const violations = findDerivationViolations(scan, readAllowlist());
-    expect(violations).toHaveLength(11);
+    expect(violations.map((v) => v.name).sort()).toEqual([...KILL_FIXTURE_COMMANDS].sort());
 
     // ── Comment blanking, demonstrated rather than asserted in prose ─────────
     // A naive text scan counts one MORE site than the parser, because a JSDoc
@@ -265,16 +292,25 @@ describe('cli-derivation-guard (DR-5 / G1)', () => {
   it('CliDerivationGuard_MergeOrchestrate_IsAbsentFromTheAllowlist', () => {
     // (1) Absence in the shipped POLICY DATA, read as raw JSON rather than
     // through `readAllowlist` — the parsed view now refuses such a file, so
-    // checking only the parsed view could never observe the entry.
+    // checking only the parsed view could never observe the entry. Both maps are
+    // checked: task 023 added the `retired` graveyard, and "retire the kill
+    // fixture" is the same authoring mistake one map over.
     const rawAllowlist: unknown = JSON.parse(
       readFileSync(path.join(REPO_ROOT, ALLOWLIST_PATH), 'utf8'),
     );
-    const allowedRaw =
-      typeof rawAllowlist === 'object' && rawAllowlist !== null
-        ? Reflect.get(rawAllowlist, 'allowed')
-        : undefined;
-    expect(Array.isArray(allowedRaw)).toBe(true);
-    expect(allowedRaw).not.toContain('merge-orchestrate');
+    const rawMapKeys = (field: string): string[] => {
+      const raw: unknown =
+        typeof rawAllowlist === 'object' && rawAllowlist !== null
+          ? Reflect.get(rawAllowlist, field)
+          : undefined;
+      if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+        throw new Error(`the shipped policy file has no "${field}" object`);
+      }
+      return Object.keys(raw);
+    };
+    expect(rawMapKeys('allowed').length).toBeGreaterThan(0);
+    expect(rawMapKeys('allowed')).not.toContain('merge-orchestrate');
+    expect(rawMapKeys('retired')).not.toContain('merge-orchestrate');
 
     // (2) Absence in the parsed view.
     expect([...readAllowlist()]).not.toContain('merge-orchestrate');
@@ -410,8 +446,18 @@ describe('cli-derivation-guard (DR-5 / G1)', () => {
     seedAllowlist(root, ['doctor'], ['DR-5 policy data. Entries are tolerated literals.']);
     expect(() => readAllowlist(root)).toThrow(/names no file at all/);
 
+    // The same, with the `$comment` key ABSENT rather than uninformative. The
+    // policy body is otherwise well-shaped, so this isolates the reference rule
+    // from the shape rule the reader applies first.
     const abs = path.join(root, ALLOWLIST_PATH);
-    writeFileSync(abs, JSON.stringify({ allowed: ['doctor'] }), 'utf8');
+    writeFileSync(
+      abs,
+      JSON.stringify({
+        allowed: { doctor: { owner: 'cli-surface', expires: '2027-02-28' } },
+        retired: {},
+      }),
+      'utf8',
+    );
     expect(() => readAllowlist(root)).toThrow(/names no file at all/);
 
     // ── And the corrected pointer is accepted ────────────────────────────────

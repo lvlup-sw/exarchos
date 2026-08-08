@@ -1177,6 +1177,57 @@ jobs:
           src/architecture/output-schema-census.selftest.test.ts
           src/output-schema-vacuity-allowlist.test.ts
 
+      # G1 CLI-derivation allowlist ratchet (DR-5, task 023). Parses the CLI
+      # composition root, derives the hand-written-literal population from that
+      # parse, and holds it to a shrink-only allowlist: membership in BOTH
+      # directions (an untracked literal fails; a tracked name that is no longer a
+      # literal goes stale), a frozen key-set pin over `allowed ∪ retired` that
+      # catches an in-place swap no count and no comparison-against-today can see,
+      # and a per-entry ISO expiry that is ENFORCED and capped by one pinned
+      # horizon so a waiver cannot renew itself.
+      #
+      # This is ALSO the one place DR-5's mechanism reads the wall clock: the
+      # library takes `today` as a required argument so its unit tests are
+      # deterministic, and the deadline reddens the MERGE rather than a
+      # developer's local `vitest run`. Expect it to go red of its own accord
+      # after CLI_DERIVATION_EXPIRY_HORIZON (2027-02-28) — that is the deadline
+      # working, and the repair is registering verbs through a derivation helper,
+      # never re-dating the horizon.
+      #
+      # Note this is the RATCHET entrypoint, not `cli-derivation-guard.ts`. That
+      # sibling states the DERIVATION policy ("no literal `.command(` at all"),
+      # whose live failing subject `merge-orchestrate` is the DR-5 kill fixture
+      # and is deliberately not allowlistable — so it exits 1 by design until the
+      # hand-written call is deleted, and keeps its GUARD_EXEMPTIONS entry. The
+      # ratchet is the half that is enforceable today.
+      #
+      # Rides the deps tail (needs `tsx` + `typescript`; it parses the source and
+      # never resolves `buildCli`, so unlike the sibling `cli-vocab-guard` it
+      # needs neither Bun nor `bun:sqlite`), not the zero-dep prefix. Must be
+      # UNFILTERED: the policy file, the pin and this guard all live under
+      # `servers/exarchos-mcp/**`, but a `mcp`-filtered host skips-as-passed on
+      # any PR outside it. See docs/guides/ci-gate-hosting.md.
+      - name: CLI derivation allowlist ratchet — G1 shrink-only + enforced expiry (DR-5, task 023)
+        run: npx --no-install tsx servers/exarchos-mcp/scripts/cli-derivation-ratchet-guard.ts
+
+      # Its self-tests, plus the DERIVATION guard's, on the SAME host (DR-24:
+      # "each guard's self-test runs in the same CI job as the guard"). These
+      # carry task 023's kill probes — a seeded eleventh entry, an in-place swap,
+      # a paydown recorded as a deletion, the live seed carried one day past its
+      # horizon, the blanket "bump every date" renewal and an emptied allowlist —
+      # and task 021/022's kill fixture, which asserts against the LIVE
+      # composition root that `merge-orchestrate` is still rejected and still
+      # absent from both policy maps. Hosting them here closes their
+      # implementation-surface half: their only other host is the `mcp`-filtered
+      # `test-mcp`, and `changes.mcp` does not arm on a workflow-only PR.
+      - name: CLI derivation guard + ratchet self-tests re-assert (DR-5/DR-24, unfiltered)
+        working-directory: servers/exarchos-mcp
+        run: >-
+          npx --no-install vitest run
+          scripts/cli-derivation-ratchet-guard.test.ts
+          scripts/cli-derivation-guard.test.ts
+          scripts/cli-vocab-guard.test.ts
+
       # G3 report-coupled ratchet (DR-2, task 013). Enumerates the live event
       # registry, derives each registration's coupling through the DR-2 tier
       # union, and holds the report-coupled population to a shrink-only seed

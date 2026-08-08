@@ -1729,19 +1729,48 @@ export const GUARD_EXEMPTIONS: readonly GuardExemption[] = Object.freeze([
   //     plugin.json` missing a `hooks` field.
   // All four causes turned out to be the GATE being stale, not the package —
   // each contradicted a green assertion in `src/plugin-validation.test.ts`.
+  // NARROWED by task 023, not discharged. This entry named task 023 as its
+  // blocker on the reasoning that populating the allowlist would make the gate
+  // green. Task 023 landed and the reasoning turned out to be incomplete, so the
+  // correction is recorded here rather than the entry being re-dated:
+  //
+  //   Ten of the eleven literals are now tracked debt with an owner and an
+  //   ENFORCED deadline, and the ratchet half is wired blocking and unfiltered
+  //   (`cli-derivation-ratchet-guard.ts`, which this inventory reports as
+  //   `enforcement: blocks`, `pathFilteredOnly: false`). What remains is ONE
+  //   violation — `merge-orchestrate`, the DR-5 kill fixture. It is not
+  //   allowlistable: `readPolicy` refuses a policy file that names it, because
+  //   an earlier revision exempted it and thereby neutralized the rejection DR-5
+  //   requires. DR-5's stated remediation is to DELETE the hand-written
+  //   `.command('merge-orchestrate')` call and let the registry declaration be
+  //   the single remaining definition — and NO Wave-1 task owns that edit. Task
+  //   023's `**Files:**` list does not include the composition root, and
+  //   removing a promoted top-level verb is a user-visible surface change that
+  //   the `init` / `install-skills` precedent says needs a rename stub, i.e. a
+  //   decision rather than a guard task.
+  //
+  // So the derivation entrypoint stays unwired, and this entry now names the
+  // edit that actually unblocks it.
   Object.freeze({
     artifact: 'servers/exarchos-mcp/scripts/cli-derivation-guard.ts',
     excuses: 'unreachable',
     reason:
-      'Correct and complete, but exits 1 on the landing branch BY DESIGN: it reports all 11 ' +
-      'literal `.command(` sites in the CLI composition root, and the shrink-only allowlist ' +
-      'that turns that report into an enforceable budget is not populated yet. Wiring it ' +
-      'blocking today would red-line every PR. Note its co-located self-test DOES run on ' +
-      'every MCP-touching PR — and asserts the current count (11), not the policy (zero) — so ' +
-      '"the self-test is hosted" must not be read as "the gate is wired". Host class when it ' +
-      'is wired (docs/guides/ci-gate-hosting.md): the DEPS TAIL of the unfiltered `grep-gates` ' +
-      'job — it needs `typescript` resolvable, so it cannot ride the zero-dep prefix.',
-    blockedBy: 'task 023 (DR-5) — shrink-only allowlist for the 11 hand-written top-level CLI verbs',
+      'Exits 1 on the landing branch BY DESIGN, and after task 023 for exactly ONE reason: ' +
+      'the hand-written `.command(\'merge-orchestrate\')` call is still present in the CLI ' +
+      'composition root. It is the DR-5 kill fixture and is deliberately NOT allowlistable, so ' +
+      'the derivation entrypoint cannot go green until the call is deleted, and wiring it ' +
+      'blocking today would red-line every PR. The RATCHET half — shrink-only allowlist, ' +
+      'per-entry owner and enforced expiry — is wired blocking and unfiltered as ' +
+      '`servers/exarchos-mcp/scripts/cli-derivation-ratchet-guard.ts`; this entry covers only ' +
+      'the derivation verdict. Note the co-located self-test DOES run on every MCP-touching PR ' +
+      'AND on the unfiltered grep-gates tail, and it asserts that the kill fixture is still ' +
+      'rejected — so "the self-test is hosted" must still not be read as "the gate is wired". ' +
+      'Host class when it is wired (docs/guides/ci-gate-hosting.md): the DEPS TAIL of the ' +
+      'unfiltered `grep-gates` job — it needs `typescript` resolvable, so it cannot ride the ' +
+      'zero-dep prefix.',
+    blockedBy:
+      "DR-5 remediation — delete the hand-written `.command('merge-orchestrate')` from " +
+      'servers/exarchos-mcp/src/adapters/cli.ts (unowned by any Wave-1 task; reported by task 023)',
     expires: '2026-11-05',
   }),
   Object.freeze({
