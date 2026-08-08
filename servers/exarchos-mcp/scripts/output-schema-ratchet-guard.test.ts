@@ -120,9 +120,11 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
     // work, so the subject is produced twice — once from the LIVE seed carried
     // past its own deadline, and once from a single planted entry.
 
-    // (1) The live 112, one day after the horizon. Nothing synthetic: these are
-    // the real waivers, the real owners and the real dates, read from the
-    // generated data file. The denominator is 112, not an empty filter.
+    // (1) The live allowlist (112 as seeded, 111 since task 069's paydown), one
+    // day after the horizon. Nothing synthetic: these are the real waivers, the
+    // real owners and the real dates, read from the generated data file. The
+    // denominator is the live list, not an empty filter — asserted below against
+    // `VACUITY_ALLOWLIST_IDS.length` and `toBeGreaterThan(0)`.
     const live = auditVacuityExpiry(FIRST_DEAD_DAY);
     expect(live.entryCount).toBe(VACUITY_ALLOWLIST_IDS.length);
     expect(live.entryCount).toBeGreaterThan(0);
@@ -198,7 +200,11 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
     expect(green.code).toBe(0);
     expect(green.err).toBe('');
     expect(green.out).toContain('OK as of 2026-08-07');
-    expect(green.out).toContain('112 waived of 122 declaration(s)');
+    // 111, not the 112 that were seeded: task 069 paid
+    // `exarchos_orchestrate.check_invariant_conformance` down. The denominator
+    // is unchanged at 122 — a paydown moves a declaration between the two
+    // classes, it does not remove the declaration.
+    expect(green.out).toContain('111 waived of 122 declaration(s)');
     expect(green.out).toContain(`horizon ${VACUITY_EXPIRY_HORIZON}`);
 
     // Exactly one day separates green from red, and both were produced by this
@@ -360,7 +366,9 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
     // redden if a hand-edited entry ever lost its owner or its date, with a real
     // denominator rather than an empty `every()`.
     const liveWellFormed = auditVacuityExpiry(SEEDED_ON);
-    expect(liveWellFormed.entryCount).toBe(112);
+    // 111 since task 069 retired the first entry; 112 were seeded.
+    expect(liveWellFormed.entryCount).toBe(111);
+    expect(liveWellFormed.entryCount).toBe(VACUITY_ALLOWLIST_IDS.length);
     expect(liveWellFormed.malformed).toEqual([]);
   });
 
@@ -377,7 +385,7 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
     expect(LIVE_SUBJECT.horizon).toBe(VACUITY_EXPIRY_HORIZON);
 
     // …and behaviourally, not just structurally: with ONLY the day injected, the
-    // guard reports the real 112 ids. A stubbed default could not produce them.
+    // guard reports the real live ids. A stubbed default could not produce them.
     const red = invoke({ today: FIRST_DEAD_DAY });
     for (const id of ['exarchos_workflow.init', 'exarchos_view.tasks', 'exarchos_event.append']) {
       expect(red.err, id).toContain(id);
@@ -423,7 +431,8 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
     // the other two behind whichever repair came first.
     const whole = auditVacuityRatchetAsOf(SEEDED_ON);
     expect(whole.expiry).toBeDefined();
-    expect(whole.expiry?.entryCount).toBe(112);
+    // 111 since task 069's paydown; 112 were seeded.
+    expect(whole.expiry?.entryCount).toBe(111);
     expect(whole.ok).toBe(true);
     expect(whole.findings).toEqual([]);
 

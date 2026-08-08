@@ -3200,6 +3200,17 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
     'exarchos_view.export': {
       featureId: 'f', workflowExists: false, exported: false,
     },
+    // DR-4 / task 069: the invariant-conformance gate, paid down from
+    // `vacuityWaiver` to a real schema. The baseline is its minimal emittable
+    // shape — every declared field is required, including the audit-mode
+    // delivery pair (`auditPrompt` + `auditInvariantIds`) a reader is now
+    // instructed to act on. Their being required is the point: an optional field
+    // is not something a reader can be told to iterate.
+    'exarchos_orchestrate.check_invariant_conformance': {
+      verdict: 'APPROVED', high: 0, medium: 0, low: 0, findings: [],
+      auditPrompt: '', auditInvariantIds: [], auditProjection: 'no-audit-entries',
+      applicableCount: 0, report: 'PASS',
+    },
   };
   function baselineEnvelope(data: Record<string, unknown>): Record<string, unknown> {
     return {
@@ -3349,8 +3360,10 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       // Enumerated from code, not assumed — the post-002 base carried 8 (the two
       // exarchos_workflow LCD schemas wrap EnvelopeSchema(z.unknown()) and are
       // NOT typed). The worktree-lifecycle `inspect` verb (DR-4) added a 9th
-      // typed-output view action; the `export` verb (DR-6) adds the 10th.
-      expect(actions.length).toBe(10);
+      // typed-output view action; the `export` verb (DR-6) adds the 10th; and
+      // DR-4 task 069's paydown of `check_invariant_conformance` adds the 11th —
+      // the first entry to LEAVE the vacuity allowlist rather than arrive typed.
+      expect(actions.length).toBe(11);
       for (const { tool, action } of actions) {
         const parsed = action.outputSchema.safeParse(cappedEnvelope());
         expect(

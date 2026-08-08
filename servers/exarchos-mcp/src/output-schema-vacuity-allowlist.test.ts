@@ -333,16 +333,32 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
     expect(liveSeed.pinnedDigest).toBe(VACUITY_SEED_KEY_SET_DIGEST);
     expect(liveSeed.findings).toEqual([]);
     expect(liveSeed.ok).toBe(true);
-    expect(Object.keys(VACUITY_RETIRED)).toEqual([]);
 
-    // Retired entries carry the owner + ISO paydown date. Vacuous today (empty
-    // retirement record), so the shape is pinned against a constructed entry
-    // rather than asserted over nothing — an empty `every()` is a rubber stamp.
+    // THE MECHANISM, EXERCISED FOR REAL. Task 069 performed the first paydown,
+    // so the graveyard is no longer empty — and the digest above is UNCHANGED,
+    // which is the property the whole design rests on. A paydown MOVES an id
+    // between the two maps; the union, and therefore the pin, is invariant.
+    expect(Object.keys(VACUITY_RETIRED)).toEqual([
+      'exarchos_orchestrate.check_invariant_conformance',
+    ]);
+    expect(VACUITY_ALLOWLIST_IDS).not.toContain(
+      'exarchos_orchestrate.check_invariant_conformance',
+    );
+    // …and the retired id is genuinely paid down, not parked: the membership
+    // half would report it `UNWAIVED_VACUITY` if its schema were still vacuous.
+    expect(censusOutputSchemas().substantive).toContain(
+      'exarchos_orchestrate.check_invariant_conformance',
+    );
+
+    // Retired entries carry the owner + ISO paydown date. The shape predicate is
+    // pinned against constructed entries in BOTH directions first, so the
+    // filter below is a real test rather than an empty `every()`.
     const retirementShape = (entry: { owner: string; retiredAt: string }): boolean =>
       entry.owner.length > 0 && /^\d{4}-\d{2}-\d{2}$/.test(entry.retiredAt);
     expect(retirementShape({ owner: 'views', retiredAt: '2026-08-07' })).toBe(true);
     expect(retirementShape({ owner: '', retiredAt: '2026-08-07' })).toBe(false);
     expect(retirementShape({ owner: 'views', retiredAt: 'soon' })).toBe(false);
+    expect(Object.values(VACUITY_RETIRED).length).toBeGreaterThan(0);
     expect(
       Object.values(VACUITY_RETIRED).filter((entry) => !retirementShape(entry)),
     ).toEqual([]);

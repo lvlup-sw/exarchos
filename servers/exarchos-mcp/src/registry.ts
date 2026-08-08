@@ -46,6 +46,11 @@ import {
   WaitOutputSchema,
   WorktreesOutputSchema,
 } from './orchestrate/worktree/schemas.js';
+// DR-4 (task 069) — the invariant-conformance gate's response contract, paid
+// down from `vacuityWaiver` to a real `data` schema. Held in its own module so
+// the registry does not pull the handler's import closure (event store, config
+// loader, catalog resolver) in behind it.
+import { CheckInvariantConformanceOutputSchema } from './orchestrate/check-invariant-conformance-schema.js';
 // DR-4 (task 055) — the closed `outputSchema` declaration surface. `ToolAction.
 // outputSchema` accepts only what these two constructors mint, so the vacuous
 // form (`EnvelopeSchema(z.unknown())`) is not merely discouraged here, it does
@@ -2987,7 +2992,17 @@ const orchestrateActions: readonly BuiltinToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
-    outputSchema: vacuityWaiver('exarchos_orchestrate.check_invariant_conformance'),
+    // DR-4 / task 069: PAID DOWN. This gate governs conformance to the catalog
+    // that contains the anti-vacuity invariant, and it used to advertise
+    // `EnvelopeSchema(z.unknown())` — total over every payload shape, including
+    // the wrong ones. `auditPrompt` is the one field the audit-mode path exists
+    // to deliver, so a consumer instructed to act on it needs the contract to
+    // guarantee its presence and its name; `auditInvariantIds` is its enumerable
+    // checklist. Both are declared REQUIRED, and
+    // `architecture/audit-delivery-closure.ts` reddens if either stops being so.
+    // Its allowlist entry MOVED to `VACUITY_RETIRED` — a shrink, which leaves the
+    // pinned seed digest unchanged.
+    outputSchema: withCappedShape(CheckInvariantConformanceOutputSchema),
     // The gate reads the catalog and computes a verdict, but `emitGateEvent`s
     // on every call — so it is NOT readOnly. Annotating it read-only would let
     // readonly-capability clients mutate the event store. LOCAL_MUTATION

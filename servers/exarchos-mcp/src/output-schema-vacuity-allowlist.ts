@@ -125,7 +125,6 @@ export const VACUITY_ALLOWLIST = Object.freeze({
   'exarchos_orchestrate.check_event_emissions': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.check_exploration_depth': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.check_integration_suite': { owner: 'orchestration', expires: '2027-02-28' },
-  'exarchos_orchestrate.check_invariant_conformance': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.check_mock_boundary': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.check_operational_resilience': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.check_plan_coverage': { owner: 'orchestration', expires: '2027-02-28' },
@@ -236,7 +235,19 @@ export const VACUITY_ALLOWLIST = Object.freeze({
  * one commit.
  */
 export const VACUITY_RETIRED: Readonly<Record<string, VacuityRetiredEntry>> = Object.freeze({
-  // (none yet — nothing has been paid down since the 2026-08 seeding)
+  // TASK 069 — the first paydown. The gate that evaluates conformance to the
+  // catalog CONTAINING the anti-vacuity invariant was itself on this allowlist,
+  // so the audit-mode prompt it exists to deliver crossed the tool boundary
+  // through a schema constraining nothing. It now declares
+  // `withCappedShape(CheckInvariantConformanceOutputSchema)` — see
+  // `orchestrate/check-invariant-conformance-schema.ts`. The id MOVED here
+  // rather than being deleted, so `keys(VACUITY_ALLOWLIST) ∪ keys(VACUITY_RETIRED)`
+  // is unchanged and `VACUITY_SEED_KEY_SET_DIGEST` did NOT have to be touched —
+  // which is the whole point of the graveyard.
+  'exarchos_orchestrate.check_invariant_conformance': {
+    owner: 'orchestration',
+    retiredAt: '2026-08-07',
+  },
 });
 
 /**
