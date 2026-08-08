@@ -53,6 +53,7 @@ export const CLI_ACTION_IDS: readonly string[] = [
   'exarchos_orchestrate.generate_traceability',
   'exarchos_orchestrate.get_pr_comments',
   'exarchos_orchestrate.invariants_add',
+  'exarchos_orchestrate.invariants_amend',
   'exarchos_orchestrate.invariants_scaffold',
   'exarchos_orchestrate.investigation_timer',
   'exarchos_orchestrate.list_prs',

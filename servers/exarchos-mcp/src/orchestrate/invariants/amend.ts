@@ -46,12 +46,13 @@ import {
   splitCatalog,
   readCatalogIds,
   catalogUnreadableResult,
+  isPlainRecord,
 } from './catalog-file.js';
 import { validationErrorResult } from './add.js';
 import type { ScaffoldDeps } from './scaffold.js';
 import { assertDevTierAllowed } from './reserved-tier-guard.js';
 
-const NEXT_ACTIONS = ['doctor', 'view invariants_effective'] as const;
+const NEXT_ACTIONS: readonly string[] = ['doctor', 'view invariants_effective'];
 
 /**
  * The `data` payload `invariants_amend` advertises across the tool boundary.
@@ -121,17 +122,20 @@ export interface HandleAmendArgs {
 function findEntry(
   doc: ReturnType<typeof parseDocument>,
   id: string,
-): { index: number; current: Record<string, unknown> } | undefined {
-  const list = doc.get('invariants', true) as unknown;
+): { seq: YAMLSeq; index: number; current: Record<string, unknown> } | undefined {
+  // `isSeq` / `isMap` / `isPlainRecord` are type PREDICATES, so every
+  // narrowing below is checked by the compiler rather than asserted with a
+  // cast. The sequence is returned alongside the index so the caller can
+  // replace in place without re-resolving (and re-asserting) the node.
+  const list: unknown = doc.get('invariants', true);
   if (!isSeq(list)) return undefined;
-  const items = (list as YAMLSeq).items;
+  const items = list.items;
   for (let index = 0; index < items.length; index += 1) {
     const item = items[index];
     if (!isMap(item)) continue;
-    const projected = item.toJSON() as unknown;
-    if (projected === null || typeof projected !== 'object') continue;
-    const current = projected as Record<string, unknown>;
-    if (current.id === id) return { index, current };
+    const projected: unknown = item.toJSON();
+    if (!isPlainRecord(projected)) continue;
+    if (projected.id === id) return { seq: list, index, current: projected };
   }
   return undefined;
 }
@@ -158,8 +162,7 @@ export function replaceEntryInCatalog(
       `invariants_amend: entry '${id}' vanished between the id scan and the write`,
     );
   }
-  const list = doc.get('invariants', true) as YAMLSeq;
-  list.set(found.index, validated);
+  found.seq.set(found.index, validated);
 
   if (body !== undefined) {
     return `---\n${doc.toString()}---\n${body}`;
@@ -396,7 +399,7 @@ export async function handleAmend(
   const emitted: string[] = [];
   try {
     await ctx.eventStore.append(`invariants/${tier}`, {
-      type: 'invariant.amended' as const,
+      type: 'invariant.amended',
       data: {
         id: args.id,
         catalog: relCatalog,

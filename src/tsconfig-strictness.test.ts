@@ -127,7 +127,28 @@ describe('DR-14: noUncheckedIndexedAccess ratchet (root)', () => {
   // (`ts.isAsExpression` / `<T>x` / `ts.isNonNullExpression`), so the budget
   // is denominated in real type debt. See `count-casts.ts` for the mechanism
   // and for why it now parses instead of pattern-matching.
-  const BASELINE: CastCounts = { nonNull: 78, asCast: 1753, asAny: 0 };
+  // ===================================================================
+  // PAYDOWN RE-BASELINE — asCast 1753 -> 1748 (task 068, DR-23/DR-24, 2026-08-07)
+  // ===================================================================
+  // A real paydown of 5 assertion sites, measured on the post-058 AST census
+  // (so it IS comparable to the number it replaces). Provenance:
+  //
+  //   -5  `orchestrate/invariants/add.ts` — the old `readExistingIds` read a
+  //       catalog's ids through five successive assertions (`as unknown`,
+  //       two `as { toJSON … }`, two `as { id … }`). Its replacement,
+  //       `readCatalogIds` in `orchestrate/invariants/catalog-file.ts`,
+  //       narrows through `isSeq` and a new `isPlainRecord` type PREDICATE
+  //       instead, so the compiler checks what the author used to assert.
+  //
+  // The `invariants_amend` verb added by the same task contributes ZERO net
+  // assertions: its YAML walk narrows through `isSeq`/`isMap`/`isPlainRecord`,
+  // and its dispatch branch takes typed args from the validator that proved
+  // them rather than re-asserting each field with `as` at the call site.
+  //
+  // Per the window rule below, this SLIDES the window down (it does not widen
+  // it): the wave's remaining delta allowance is restored to a full 5 of 5,
+  // not extended beyond it.
+  const BASELINE: CastCounts = { nonNull: 78, asCast: 1748, asAny: 0 };
   // Declared budget = MAX escape-hatch sites maintenance work may introduce
   // before the NEXT documented re-baseline. Deliberately tighter than the
   // pre-wave nonNull budget: large additions must re-baseline in the open

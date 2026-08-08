@@ -19,6 +19,18 @@ import { parseDocument, isSeq } from 'yaml';
 import type { ToolResult } from '../../format.js';
 
 /**
+ * Is `value` a plain (non-array, non-null) object?
+ *
+ * A real type predicate rather than an `as Record<string, unknown>` cast: the
+ * narrowing is then something the compiler CHECKED, not something the author
+ * asserted. Shared by every catalog reader that has to look at a projected
+ * YAML entry's fields.
+ */
+export function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
  * Split a catalog file into its YAML frontmatter and (optional) markdown body.
  *
  * Catalog files are EITHER markdown-with-frontmatter (`---\n<yaml>\n---\n<body>`
@@ -100,7 +112,7 @@ export function readCatalogIds(catalogContents: string): CatalogIdScan {
     };
   }
 
-  const list = doc.get('invariants', true) as unknown;
+  const list: unknown = doc.get('invariants', true);
   if (list === undefined || list === null) {
     return {
       resolved: false,
@@ -118,7 +130,7 @@ export function readCatalogIds(catalogContents: string): CatalogIdScan {
     };
   }
 
-  const raw = list.toJSON() as unknown;
+  const raw: unknown = list.toJSON();
   if (!Array.isArray(raw)) {
     return {
       resolved: false,
@@ -128,13 +140,13 @@ export function readCatalogIds(catalogContents: string): CatalogIdScan {
 
   const ids: string[] = [];
   for (const [index, entry] of raw.entries()) {
-    if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
+    if (!isPlainRecord(entry)) {
       return {
         resolved: false,
         reason: `catalog entry at index ${index} is not an object — its id cannot be read`,
       };
     }
-    const id = (entry as { id?: unknown }).id;
+    const id: unknown = entry.id;
     if (typeof id !== 'string' || id.length === 0) {
       return {
         resolved: false,

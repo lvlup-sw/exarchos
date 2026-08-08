@@ -17,6 +17,16 @@
  *    property the whole task is about — a writer must not be able to author a
  *    document its own reader rejects.
  */
+// @oracle-sources: ../../architecture/invariants-loader.js, the hand-written FENCED_CATALOG fixture and per-field expectations in this file
+//
+// The round-trip assertion compares what the READER (`loadInvariants`) projects
+// off disk against expectations a human wrote here — the catalog fixture and
+// the field values it should still carry after an amendment. Those are two
+// independent authorities: the loader never sees the fixture's intent, and the
+// fixture is not derived from the loader. Deliberately NOT declaring
+// `./amend.js` alongside the loader: `amend.ts` imports the loader (it shares
+// the primary-key rule rather than restating it — DR-6), so the two are
+// statically reachable and would be one authority wearing two names.
 import { describe, it, expect } from 'vitest';
 
 import * as os from 'node:os';

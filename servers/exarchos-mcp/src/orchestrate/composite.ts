@@ -645,37 +645,57 @@ function validateInvariantsAddArgs(
  */
 function validateInvariantsAmendArgs(
   rest: Record<string, unknown>,
-): ToolResult | null {
+): { ok: false; result: ToolResult } | { ok: true; args: HandleAmendArgs } {
   const common = validateInvariantsCommonArgs(rest);
-  if (common) return common;
-  if (typeof rest.id !== 'string' || rest.id.length === 0) {
+  if (common) return { ok: false, result: common };
+
+  const { id, patch, repoRoot, catalog, tier, dryRun, allowReservedTier } = rest;
+
+  if (typeof id !== 'string' || id.length === 0) {
     return {
-      success: false,
-      error: {
-        code: 'INVALID_INPUT',
-        message:
-          'id is required and must name the existing invariant entry to amend',
-        expectedShape: { id: 'INV-17' },
+      ok: false,
+      result: {
+        success: false,
+        error: {
+          code: 'INVALID_INPUT',
+          message:
+            'id is required and must name the existing invariant entry to amend',
+          expectedShape: { id: 'INV-17' },
+        },
       },
     };
   }
-  if (
-    rest.patch === undefined ||
-    rest.patch === null ||
-    typeof rest.patch !== 'object' ||
-    Array.isArray(rest.patch)
-  ) {
+  if (patch === undefined || patch === null || typeof patch !== 'object' || Array.isArray(patch)) {
     return {
-      success: false,
-      error: {
-        code: 'INVALID_INPUT',
-        message:
-          'patch must be an object naming the top-level entry fields to replace',
-        expectedShape: { patch: { summary: 'the corrected summary text' } },
+      ok: false,
+      result: {
+        success: false,
+        error: {
+          code: 'INVALID_INPUT',
+          message:
+            'patch must be an object naming the top-level entry fields to replace',
+          expectedShape: { patch: { summary: 'the corrected summary text' } },
+        },
       },
     };
   }
-  return null;
+
+  // Every field below was proven by a check above (or by
+  // `validateInvariantsCommonArgs`), so the handler args are BUILT from the
+  // narrowed values rather than re-asserted with `as` at the call site. The
+  // validator that establishes a type is the thing that should hand it over.
+  return {
+    ok: true,
+    args: {
+      repoRoot: typeof repoRoot === 'string' ? repoRoot : process.cwd(),
+      id,
+      patch: { ...patch },
+      ...(typeof catalog === 'string' ? { catalog } : {}),
+      ...(tier === 'dev' || tier === 'user' ? { tier } : {}),
+      dryRun: dryRun === undefined ? true : Boolean(dryRun),
+      ...(typeof allowReservedTier === 'boolean' ? { allowReservedTier } : {}),
+    },
+  };
 }
 
 // ─── Composite Handler ──────────────────────────────────────────────────────
@@ -824,18 +844,12 @@ export async function handleOrchestrate(
   // UNKNOWN_ACTION at runtime (the action is not in ACTION_HANDLERS) — a verb
   // that documents itself and then refuses every call. Both halves, always.
   if (action === 'invariants_amend') {
-    const invalid = validateInvariantsAmendArgs(rest);
-    if (invalid) return envelopeWrap(invalid, startedAt);
-    const amendArgs: HandleAmendArgs = {
-      repoRoot: typeof rest.repoRoot === 'string' ? rest.repoRoot : process.cwd(),
-      id: rest.id as string,
-      patch: rest.patch as Record<string, unknown>,
-      catalog: rest.catalog as string | undefined,
-      tier: rest.tier as 'dev' | 'user' | undefined,
-      dryRun: rest.dryRun === undefined ? true : Boolean(rest.dryRun),
-      allowReservedTier: rest.allowReservedTier as boolean | undefined,
-    };
-    return envelopeWrap(await handleAmend(amendArgs, ctx, realScaffoldDeps()), startedAt);
+    const validated = validateInvariantsAmendArgs(rest);
+    if (!validated.ok) return envelopeWrap(validated.result, startedAt);
+    return envelopeWrap(
+      await handleAmend(validated.args, ctx, realScaffoldDeps()),
+      startedAt,
+    );
   }
 
   // Handle runbook specially — it doesn't need stateDir
