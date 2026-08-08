@@ -1114,6 +1114,29 @@ jobs:
         working-directory: servers/exarchos-mcp
         run: npx --no-install vitest run src/architecture/report-coupling-census.test.ts
 
+      # Audit-delivery closure (DR-4/DR-24, task 069). Holds every declared
+      # delivery obligation to BOTH halves: the producing action's live
+      # `outputSchema` must declare the delivered field and its enumerator as
+      # required typed properties, and a declared reader document must carry the
+      # whole instruction inside one section. It exists because
+      # `check_invariant_conformance` computed `auditPrompt` and returned it
+      # through a `vacuityWaiver` schema while NO skill, command, rule or doc told
+      # anybody to read it — the field occurred in exactly five files repo-wide,
+      # four of them its own tests. The module is a pure library, so this test file
+      # IS the guard, and it carries the kill fixtures (the pre-069 vacuous
+      # contract, a reader that only invokes the gate, scattered non-co-located
+      # mentions, an emptied obligation list) — which satisfies DR-24's "each
+      # guard's self-test runs in the same CI job as the guard" for free.
+      #
+      # Must be UNFILTERED: the obligation binds a file under
+      # `servers/exarchos-mcp/**` to one under `skills-src/**`, so EITHER path
+      # filter would skip-as-passed on exactly the PR that breaks the binding
+      # from the other side. Rides the deps tail — it walks live Zod objects.
+      # See docs/guides/ci-gate-hosting.md.
+      - name: Audit-delivery closure (DR-4/DR-24, task 069)
+        working-directory: servers/exarchos-mcp
+        run: npx --no-install vitest run src/architecture/audit-delivery-closure.test.ts
+
   # ─────────────────────────────────────────────────────────────────────
   # e2e-process
   # ─────────────────────────────────────────────────────────────────────
