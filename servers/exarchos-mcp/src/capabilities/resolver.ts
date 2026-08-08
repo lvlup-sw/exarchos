@@ -399,21 +399,9 @@ export function resolveEffectiveCapabilities(
   return freezeSet(effective);
 }
 
-// ─── INV-11: the shared-mutating posture gate was DELETED ──────────────────
-//
-// `enforceSharedMutatingGate` lived here and rejected a `shared-mutating`
-// action whose caller declared `isolation:worktree` or lacked `fs:write`.
-// It is gone, not relaxed. The rationale is recorded at its former call site
-// in `core/dispatch.ts`; in short: `task-isolated` holds a strict SUPERSET of
-// `shared-mutating`'s capabilities, so the gate was never an authority
-// ordering — it read `isolation:worktree` as a location marker. INV-11
-// forbids inferring confinement from worktree ownership, and the capability
-// was self-declared, so the gate bounded nothing while pushing operators to
-// do the same merge by hand, unaudited.
-//
-// `enforceReadonlyGate` (core/dispatch.ts) is untouched: STATE authority IS
-// dispatch-owned under INV-11, and read-only callers are still rejected for
-// these verbs because they are absent from READ_ONLY_ACTIONS.
+// `enforceSharedMutatingGate` lived here until INV-11 retired it. Rationale in
+// `shared-mutating-gate.test.ts`. `enforceReadonlyGate` (core/dispatch.ts) is
+// untouched — state authority is dispatch-owned; confinement is not.
 
 // ─── T33 / DR-6: posture-driven resolution ────────────────────────────────
 

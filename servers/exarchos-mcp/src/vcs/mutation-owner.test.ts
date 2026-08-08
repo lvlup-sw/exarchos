@@ -130,10 +130,9 @@ describe('VCS mutation owner (P04-05)', () => {
     await rmrfAsync(repo);
   });
 
-  function owner(runner?: VcsGitRunner, caps: ReadonlySet<Capability> = SHARED_MUTATING): VcsMutationOwner {
+  function owner(runner?: VcsGitRunner): VcsMutationOwner {
     return new VcsMutationOwner({
       eventStore: store,
-      capabilities: caps,
       ...(runner !== undefined ? { gitRunner: runner } : {}),
     });
   }
@@ -166,26 +165,17 @@ describe('VCS mutation owner (P04-05)', () => {
     });
   });
 
-  // ── capability gate: REMOVED (INV-11) ──────────────────────────────────────
-  //
-  // `canMutateShared` decided LIVE vs dry-run from the caller's capabilities,
-  // mirroring the deleted `enforceSharedMutatingGate`. Its three cases are gone
-  // with it. See `capabilities/shared-mutating-gate.test.ts` for the full
-  // rationale; the point specific to THIS module is that its failure mode was
-  // silent — a caller failing the check was quietly downgraded to `dry-run` and
-  // handed a successful-looking result for a git mutation that never ran.
-  //
-  // What replaces those cases is the property that made the downgrade
-  // dangerous: mode is now the caller's explicit choice, never inferred.
+  // `canMutateShared` used to pick live-vs-dry-run from the caller's
+  // capabilities, and a caller that flunked got a dry-run plus a
+  // successful-looking result for a mutation that never ran. Removed under
+  // INV-11 (see `capabilities/shared-mutating-gate.test.ts`). The owner no
+  // longer takes capabilities at all, so that inference is now unwritable
+  // rather than merely unwritten — which is why there is no test here asserting
+  // "capabilities don't affect mode". There is no such input to vary.
 
-  describe('resolveMode (capabilities no longer participate)', () => {
-    it('VcsMutationOwner_WorktreeIsolatedCaller_MutatesLiveInsteadOfSilentlyDryRunning', async () => {
-      // `task-isolated` is precisely the set that used to force a dry-run. The
-      // branch must now actually exist afterwards — asserting the on-disk
-      // effect, not just the outcome tag, because the defect was that a caller
-      // got a successful-looking result for work that never happened.
-      const o = owner(undefined, capabilitiesForPosture('task-isolated'));
-      const outcome = await o.createBranch({
+  describe('mode is requested, never inferred', () => {
+    it('VcsMutationOwner_NoModeRequested_MutatesLive', async () => {
+      const outcome = await owner().createBranch({
         repoRoot: repo,
         branch: 'feature/live-default',
         base: 'main',
@@ -193,18 +183,15 @@ describe('VCS mutation owner (P04-05)', () => {
         epoch: 1,
       });
 
-      expect(isDryRun(outcome)).toBe(false);
+      // The on-disk branch is the assertion that matters: the old failure was a
+      // plausible outcome for work that never happened.
       expect(isSuccess(outcome)).toBe(true);
       expect(branchExists(repo, 'feature/live-default')).toBe(true);
     });
 
     it('VcsMutationOwner_ExplicitDryRun_IsStillHonoured', async () => {
-      // Dry-run did not disappear — it stopped being something the system
-      // decides on the caller's behalf. Both arms are asserted so this reads as
-      // "inference removed", not "dry-run removed".
       const { runner, calls } = neverRunner();
-      const o = owner(runner, capabilitiesForPosture('task-isolated'));
-      const outcome = await o.createBranch({
+      const outcome = await owner(runner).createBranch({
         repoRoot: repo,
         branch: 'feature/explicit-dry',
         base: 'main',
@@ -213,6 +200,7 @@ describe('VCS mutation owner (P04-05)', () => {
         mode: DRY_RUN,
       });
 
+      // Dry-run did not disappear; it stopped being chosen for you.
       expect(isDryRun(outcome)).toBe(true);
       expect(calls).toEqual([]);
       expect(branchExists(repo, 'feature/explicit-dry')).toBe(false);
@@ -537,36 +525,9 @@ describe('VCS mutation owner (P04-05)', () => {
     expect(await ledgerEvents()).toEqual([]); // no intent, no terminal
   });
 
-  // ── capability fallback: REMOVED (INV-11) ──────────────────────────────────
-  //
-  // This case asserted the inverse: a caller lacking shared-mutating capability
-  // "degrades to a dry-run outcome (no mutation)". That degradation is exactly
-  // what was deleted. It was the silent half of the removed gate — the caller
-  // was handed a plausible-looking outcome for a git mutation that never ran,
-  // with capability inference (which INV-11 says must not be drawn from
-  // worktree ownership) deciding whether real work happened.
-  //
-  // Restated in the opposite direction so the property is still PINNED: a
-  // caller with the weakest posture now performs the mutation for real. If
-  // capability-driven degradation is ever reintroduced, this fails.
-
-  it('does NOT degrade to dry-run when the caller lacks shared-mutating capability', async () => {
-    const o = owner(undefined, capabilitiesForPosture('read-only'));
-    const outcome = await o.createBranch({
-      repoRoot: repo,
-      branch: 'feature/no-cap',
-      base: 'main',
-      idempotencyKey: 'nocap-1',
-      epoch: 1,
-    });
-
-    expect(isDryRun(outcome)).toBe(false);
-    expect(isSuccess(outcome)).toBe(true);
-    // The on-disk effect is the point: previously this branch was never created.
-    expect(branchExists(repo, 'feature/no-cap')).toBe(true);
-    // And the mutation is now ledgered, where before it left no trace at all.
-    expect((await ledgerEvents()).length).toBeGreaterThan(0);
-  });
+  // A "degrades to dry-run when the caller lacks shared-mutating capability"
+  // case lived here. It is gone with the capability input itself — see the
+  // `mode is requested, never inferred` block above.
 });
 
 // ─── Shared git-mutation primitives (the single argv surface) ─────────────────

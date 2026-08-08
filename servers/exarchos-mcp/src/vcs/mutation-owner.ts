@@ -32,11 +32,10 @@
  *      (branch created, `worktree add` fails) compensates the branch it minted so
  *      no orphaned on-disk state survives a failure.
  *
- *   4. **Capability-aware fallback** — a caller that does not hold the
- *      shared-mutating capability set (or that is worktree-isolated) degrades to
- *      a typed dry-run outcome that performs NO mutation, rather than failing
- *      obscurely. Dry-run is structural: {@link runEffect} in dry-run mode never
- *      invokes the effect thunk.
+ *   4. **Structural dry-run** — a caller asking for dry-run gets a typed
+ *      outcome that performs NO mutation: {@link runEffect} never invokes the
+ *      effect thunk. The mode is requested, never inferred from capabilities
+ *      (that inference was removed under INV-11).
  *
  * The owner is process-effect only via {@link spawnCommandSync} (the single
  * cross-OS spawn primitive) and persists exclusively through the injected
@@ -45,8 +44,6 @@
  * effect ledger with no ledger edit required.
  */
 
-import type { Capability } from '../agents/capabilities.js';
-import { capabilitiesForPosture } from '../capabilities/posture-mapping.js';
 import {
   LIVE,
   plannedDryRun,
@@ -131,25 +128,11 @@ export function assertVcsEpochCurrent(
   }
 }
 
-// ─── Capability model: REMOVED (INV-11) ─────────────────────────────────────
-//
-// `canMutateShared(capabilities)` decided LIVE vs dry-run by mirroring
-// `resolver.ts`'s `enforceSharedMutatingGate`: a caller declaring
-// `isolation:worktree` was denied, and a caller had to hold every
-// shared-mutating capability. Both halves are gone with that gate.
-//
-// This copy was the more consequential of the two, because its failure mode was
-// SILENT. The gate at least returned a structured CAPABILITY_DENIED; here a
-// caller that failed the check was quietly downgraded to `dry-run` — the git
-// mutation simply did not happen, and the caller got a successful-looking
-// result describing work that was never done. A confinement claim INV-11 says
-// must never be inferred from worktree ownership was deciding whether real
-// merges executed.
-//
-// `resolveMode` now honours an explicit `request.mode` and otherwise runs LIVE.
-// Dry-run remains fully available — it is a caller's explicit choice, which is
-// what `--dry-run` always meant — but it is no longer something the system
-// infers from a self-declared capability and applies without saying so.
+// `canMutateShared` used to pick live-vs-dry-run from the caller's
+// capabilities. Removed with the dispatch gate (INV-11). It failed silently:
+// a caller that flunked the check got a dry-run and a successful-looking
+// result for a git mutation that never ran. Mode is now the caller's explicit
+// choice or LIVE.
 
 // ─── Git runner seam ─────────────────────────────────────────────────────────
 
@@ -365,8 +348,6 @@ export function foldVcsLedger(events: readonly WorkflowEvent[]): LedgerFold {
 
 export interface VcsMutationOwnerDeps {
   readonly eventStore: EventStore;
-  /** The requesting caller's capability set (drives the dry-run fallback). */
-  readonly capabilities: ReadonlySet<Capability>;
   /** Injectable git runner (default: real git via {@link spawnCommandSync}). */
   readonly gitRunner?: VcsGitRunner;
   /** Ledger stream override (default {@link VCS_MUTATION_STREAM}); useful for test isolation. */
@@ -384,20 +365,15 @@ export class VcsEffectError extends Error {
   }
 }
 
-/**
- * The single typed owner for git & worktree mutation. Construct one per caller
- * (its `capabilities` gate whether mutation runs live or degrades to dry-run).
- */
+/** The single typed owner for git & worktree mutation. */
 export class VcsMutationOwner {
   private readonly eventStore: EventStore;
-  private readonly capabilities: ReadonlySet<Capability>;
   private readonly git: VcsGitRunner;
   private readonly stream: string;
 
   constructor(deps: VcsMutationOwnerDeps) {
     ensureVcsMutationEventTypes();
     this.eventStore = deps.eventStore;
-    this.capabilities = deps.capabilities;
     this.git = deps.gitRunner ?? defaultVcsGitRunner;
     this.stream = deps.stream ?? VCS_MUTATION_STREAM;
   }
@@ -414,14 +390,7 @@ export class VcsMutationOwner {
       : base;
   }
 
-  /**
-   * Resolve the effective mode: an explicit override wins; otherwise LIVE.
-   *
-   * Capabilities no longer participate. They used to (`canMutateShared`), which
-   * meant a caller could be silently downgraded to dry-run and handed a
-   * successful-looking result for a mutation that never ran. Dry-run is now
-   * only ever a caller's explicit request.
-   */
+  /** An explicit mode wins; otherwise LIVE. Dry-run is never inferred. */
   private resolveMode(request: VcsMutationRequest): EffectMode {
     return request.mode ?? LIVE;
   }
@@ -461,8 +430,7 @@ export class VcsMutationOwner {
   ): Promise<EffectOutcome<T>> {
     const plan = this.planFor(request);
 
-    // 1. Capability-aware fallback: no shared-mutating authority → dry-run.
-    //    Structural: the effect thunk is never reached in dry-run mode.
+    // 1. Dry-run is structural: the effect thunk is never reached.
     const mode = this.resolveMode(request);
     if (mode.kind === 'dry-run') {
       return plannedDryRun<T>(plan);

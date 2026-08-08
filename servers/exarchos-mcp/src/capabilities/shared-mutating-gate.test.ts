@@ -1,43 +1,37 @@
-// ─── INV-11: the shared-mutating posture gate is REMOVED, and stays removed ──
+// The shared-mutating posture gate is removed. This file used to prove it
+// rejected task-isolated and read-only callers of `serialize_merge` /
+// `prune_worktrees`; it now proves the gate stays gone, because "we deleted
+// this" is a guarantee somebody can revoke by accident.
 //
-// This file used to prove that `enforceSharedMutatingGate` rejected a
-// task-isolated or read-only caller of `serialize_merge` / `prune_worktrees`
-// before the handler ran. That gate has been deleted, so those expectations are
-// gone with it — but the file is NOT deleted, because "the gate no longer
-// exists" is itself a guarantee somebody can revoke by accident. What follows
-// pins the removal.
+// Three reasons it went, worth keeping because re-adding it sounds reasonable:
 //
-// WHY IT WAS REMOVED (recorded here because a future reader will find the gate
-// a reasonable-sounding thing to re-add):
+// It never ran on real postures. The dispatch resolver is built in
+// `index.ts` and `core/context.ts` as `createInMemoryResolver([])` or
+// `[ANTHROPIC_NATIVE_CACHING])` — a response-cache flag that is not even a
+// `Capability`. Nothing feeds agent postures into it. So `has('fs:write')` was
+// always false and the gate denied every caller that reached it, which is how
+// `serialize_merge` came to answer CAPABILITY_DENIED unconditionally. It
+// passed its own suite because the suite hand-built the one input production
+// never supplies. Agent postures do matter, but at RENDER time:
+// `resolveCapabilities` → `adapters/claude.ts` → the agent's
+// `isolation: worktree` frontmatter, which is Claude Code's native isolation.
+// That path is untouched.
 //
-//   1. It was never an authority ordering. `task-isolated` holds
-//      {fs:read, fs:write, shell:exec, isolation:worktree, mcp:exarchos} — a
-//      strict SUPERSET of `shared-mutating`'s {fs:read, fs:write, shell:exec}.
-//      The DENIED tier was the more capable one. The gate was really testing
-//      `isolation:worktree` as a location marker ("I am inside a worktree"), a
-//      context assertion wearing a capability's clothes. The superset relation
-//      is asserted below, because it is the structural reason the gate could
-//      not have been a permission check.
+// It was not an authority ordering anyway. `task-isolated` holds a strict
+// superset of `shared-mutating`'s capabilities, so the denied tier was the more
+// capable one — the gate was reading `isolation:worktree` as a location marker,
+// not a permission. Asserted below, since it is the structural reason.
 //
-//   2. INV-11 forbids it in terms. Spatial write confinement "must never be
-//      inferred from the launcher's cwd or worktree ownership", and the catalog
-//      directs a reviewer to flag "any claim that a task-isolated agent CANNOT
-//      write outside its worktree". The gate's denial message made exactly that
-//      claim. Confinement is EXCLUDED from Exarchos's by-construction claims
-//      until a hook standard or kernel sandbox owns the write path.
+// INV-11 forbids the claim it made. Write confinement "must never be inferred
+// from the launcher's cwd or worktree ownership", and the catalog says to flag
+// any claim that a task-isolated agent cannot write outside its worktree. The
+// denial message made exactly that claim. Confinement is not ours until a hook
+// standard or kernel sandbox owns the write path.
 //
-//   3. Being self-declared, it bounded nothing. Capabilities arrive from the
-//      handshake, so a caller could decline to declare `isolation:worktree`;
-//      and with no sandbox in play a denied agent still runs `git merge` in
-//      Bash. Its only measured effect was to route merges AROUND the audited
-//      path — refusing the verb that takes the lease and emits events, while
-//      the unaudited shell path stayed open.
-//
-// WHAT STILL PROTECTS THE SHARED REF (unchanged): `serialize_merge`'s
-// single-writer lease, the merge preflight's ancestry check, and the launcher's
-// ownership of top-level worktree placement. STATE authority — the half INV-11
-// does assign to the dispatch handler — is still enforced by
-// `enforceReadonlyGate`, which is why the read-only case below still fails.
+// The shared ref is still protected by `serialize_merge`'s single-writer lease,
+// the merge preflight's ancestry check, and launcher-owned placement. State
+// authority still lives in `enforceReadonlyGate` — hence the read-only case
+// below.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -71,9 +65,7 @@ describe('shared-mutating posture gate — removed (INV-11)', () => {
   });
 
   it('SharedMutatingGate_IsNotExported_SoItCannotBeRewired', () => {
-    // The cheapest possible regression detector: the symbol is gone. If someone
-    // re-adds it, this fails and they are routed to the rationale above rather
-    // than discovering it after the fact.
+    // Cheapest possible detector: the symbol is gone.
     expect(
       (resolverModule as Record<string, unknown>).enforceSharedMutatingGate,
       'enforceSharedMutatingGate was deleted under INV-11 — see the header of ' +
@@ -82,14 +74,12 @@ describe('shared-mutating posture gate — removed (INV-11)', () => {
   });
 
   it('PostureCapabilities_TaskIsolated_IsAStrictSupersetOfSharedMutating', () => {
-    // The structural fact that made the old gate incoherent. Asserted rather
-    // than narrated so that a future edit to the posture table which would make
-    // a capability-ordered gate genuinely expressible shows up HERE, as a
-    // failure, instead of silently making the deleted gate look justified again.
+    // The structural fact that made the gate incoherent. If a posture-table
+    // edit ever makes a capability-ordered gate expressible, it fails here.
     const taskIsolated = capabilitiesForPosture('task-isolated');
     const sharedMutating = capabilitiesForPosture('shared-mutating');
 
-    // Non-empty denominator: an empty posture set would satisfy "subset" vacuously.
+    // Non-empty denominator: an empty set satisfies "subset" vacuously.
     expect(sharedMutating.size).toBeGreaterThan(0);
     for (const cap of sharedMutating) {
       expect(taskIsolated.has(cap), `task-isolated is missing ${cap}`).toBe(true);
@@ -98,9 +88,8 @@ describe('shared-mutating posture gate — removed (INV-11)', () => {
   });
 
   it('TaskIsolatedCaller_SerializeMerge_ReachesTheHandler', async () => {
-    // The behaviour change, stated positively. A task-isolated caller — the
-    // tier the deleted gate rejected — now reaches the composite handler. This
-    // is what unblocks the real-world failure: `serialize_merge` answering
+    // The behaviour change: the tier the gate rejected now reaches the handler.
+    // This is what unblocks the real failure — `serialize_merge` answering
     // CAPABILITY_DENIED and sending the operator to a manual `git merge`.
     const resolver = createInMemoryResolver(taskIsolatedCaps);
     expect(resolver.has('isolation:worktree')).toBe(true);
@@ -122,8 +111,8 @@ describe('shared-mutating posture gate — removed (INV-11)', () => {
       );
 
       expect(result.error?.code).not.toBe('CAPABILITY_DENIED');
-      // Handler ENTRY is the load-bearing assertion — a result that merely
-      // stopped being CAPABILITY_DENIED could still have been refused earlier.
+      // Handler entry is the real assertion; a result that merely stopped
+      // saying CAPABILITY_DENIED could still have been refused earlier.
       expect(compositeSpy).toHaveBeenCalled();
     } finally {
       restore();
@@ -131,10 +120,8 @@ describe('shared-mutating posture gate — removed (INV-11)', () => {
   });
 
   it('ReadOnlyCaller_PruneWorktrees_IsStillRejected_ByTheReadonlyGate', async () => {
-    // Removing the posture gate must not have widened STATE authority. The
-    // read-only tier is still refused these verbs — by `enforceReadonlyGate`,
-    // since they are absent from READ_ONLY_ACTIONS. Without this case the
-    // removal above could not be distinguished from "all gating is gone".
+    // Removing the posture gate must not widen state authority. Without this
+    // case, "the posture gate is gone" reads the same as "all gating is gone".
     const resolver = createInMemoryResolver(readOnlyCaps);
     expect(resolver.has('mcp:exarchos:readonly')).toBe(true);
     expect(resolver.has('fs:write')).toBe(false);

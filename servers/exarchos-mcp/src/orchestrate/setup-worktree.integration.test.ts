@@ -168,7 +168,6 @@ describe('setup_worktree / merge production-path exit proofs (P04-05)', () => {
         try {
           const owner = new VcsMutationOwner({
             eventStore: store,
-            capabilities: capabilitiesForPosture('shared-mutating'),
             stream: 'vcs-worktree-setup',
           });
           const outcome = await owner.createWorktree({
@@ -230,7 +229,6 @@ describe('setup_worktree / merge production-path exit proofs (P04-05)', () => {
     try {
       const owner = new VcsMutationOwner({
         eventStore: store,
-        capabilities: capabilitiesForPosture('shared-mutating'),
         stream: 'vcs-merge',
       });
       const adapter = buildLocalGitMergeAdapter(captureGitExec, repo);
