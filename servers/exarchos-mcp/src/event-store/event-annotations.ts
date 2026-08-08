@@ -357,6 +357,7 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     rationale: 'operation-record',
   },
   'invariant.authored': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
+  'invariant.amended': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
   'catalog.registered': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
   'mutation.executing_started': {
     lifecycle: 'active',

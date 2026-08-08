@@ -347,8 +347,8 @@ describe('DR-4: outputSchema vacuity census', () => {
     const waiverSites = sites.filter((s) => isWaiverRhs(s.rhs)).length;
     const namedBindingSites = sites.filter((s) => isNamedBindingRhs(s.rhs)).length;
 
-    // Authority A: what the source spells. 111 allowlist waivers + 10
-    // withCappedShape = 121 declaration sites, and the two forms are
+    // Authority A: what the source spells. 111 allowlist waivers + 11
+    // withCappedShape = 122 declaration sites, and the two forms are
     // EXHAUSTIVE — DR-4 task 055 left no third spelling. The literal vacuous
     // expression is extinct at declaration sites because it no longer
     // typechecks there, which is the acceptance criterion restated from the
@@ -356,7 +356,11 @@ describe('DR-4: outputSchema vacuity census', () => {
     expect(sites).toHaveLength(waiverSites + cappedSites);
     expect(literalVacuousSites).toBe(0);
     expect(waiverSites).toBe(111);
-    expect(cappedSites).toBe(10);
+    // Task 068 grew the SUBSTANTIVE side 10 → 11 (`invariants_amend`). The
+    // waiver count is unchanged: a new action cannot acquire a waiver (the
+    // allowlist is shrink-only and `vacuityWaiver`'s id is the literal union of
+    // seeded ids), so the only declaration open to it is the substantive one.
+    expect(cappedSites).toBe(11);
     // Two of the waivers carry an explicit named binding — the aliased vacuity
     // this census exists to see through.
     expect(namedBindingSites).toBe(2);
@@ -376,21 +380,21 @@ describe('DR-4: outputSchema vacuity census', () => {
     expect(report.substantiveCount).toBe(cappedSites);
 
     // The measured figures, pinned so drift shows up as a diff, not silence.
-    expect(report.total).toBe(122);
+    expect(report.total).toBe(123);
     expect(report.vacuousCount).toBe(112);
-    expect(report.substantiveCount).toBe(10);
+    expect(report.substantiveCount).toBe(11);
     expect(countByReason(report)).toEqual({
       'unknown-data': 111,
       'wrapped-unknown-data': 1,
-      'typed-data': 10,
+      'typed-data': 11,
       'unreadable-envelope': 0,
     });
 
     // The rendered report states the count against its denominator. A share
     // without a denominator is the rubber stamp this instrument removes.
     const rendered = formatOutputSchemaCensus(report);
-    expect(rendered).toContain('112 vacuous of 122 declarations');
-    expect(rendered).toContain('10 substantive');
+    expect(rendered).toContain('112 vacuous of 123 declarations');
+    expect(rendered).toContain('11 substantive');
 
     // The seed the ratchet consumes is a stable, sorted, deduplicated id list.
     expect(report.vacuous).toHaveLength(report.vacuousCount);

@@ -177,7 +177,44 @@ describe('DR-14: noUncheckedIndexedAccess ratchet (root)', () => {
   // The scanned surface is `count-casts.ts`'s own: `.ts` outside
   // `node_modules`/`dist`/`__tests__`/`__shims__`, excluding `*.test.ts`,
   // `*.bench.ts` and `*.type-test.ts`.
-  const BASELINE: CastCounts = { nonNull: 78, asCast: 1785, asAny: 0 };
+  //
+  // ===================================================================
+  // PAYDOWN RE-BASELINE — asCast 1785 -> 1779 (task 068 + a correction)
+  // ===================================================================
+  // Two separate movements, measured rather than assumed, because the arithmetic
+  // did not close on the first try and the gap turned out to be a real defect.
+  //
+  //   1785 -> 1784   CORRECTION. Task 066 declared 1785 from a measurement taken
+  //                  on the PRISTINE tip (c2f22665c) BEFORE its own edits. But one
+  //                  of those edits — replacing two assertions in
+  //                  `scripts/audit/register-entry-schema.ts` with a reflective
+  //                  `exemptionFields(entry: unknown)` read — removed a counted
+  //                  site. So the post-merge tree was 1784 while the baseline said
+  //                  1785, and the SYMMETRIC FLOOR (`counts >= BASELINE`) was RED
+  //                  from the moment 066 landed. Confirmed independently by task
+  //                  070, which reproduced it and proved it pre-existing by
+  //                  reverting its own files. Measured across three intermediate
+  //                  tips (4f4c4689f, 06971192e, 85442db63): all three read 1784,
+  //                  so tasks 011 and 053 contributed nothing to the movement.
+  //
+  //   1784 -> 1779   PAYDOWN, task 068, exactly the -5 it reported. The old
+  //                  `readExistingIds` in `orchestrate/invariants/add.ts` read a
+  //                  catalog's ids through five successive assertions
+  //                  (`as unknown`, two `as { toJSON … }`, two `as { id … }`).
+  //                  Its replacement, `readCatalogIds` in
+  //                  `orchestrate/invariants/catalog-file.ts`, narrows through
+  //                  `isSeq` and an `isPlainRecord` type PREDICATE, so the
+  //                  compiler checks what the author used to assert. The
+  //                  `invariants_amend` verb the same task added contributes ZERO
+  //                  net assertions.
+  //
+  // The lesson, recorded because it cost a red floor nobody saw: a baseline
+  // measured BEFORE the measuring task's own edits is stale on arrival. Measure
+  // the tree you are shipping, not the one you started from.
+  //
+  // Per the window rule below this SLIDES the window down — the wave's remaining
+  // delta allowance is restored to a full 5 of 5, not extended beyond it.
+  const BASELINE: CastCounts = { nonNull: 78, asCast: 1779, asAny: 0 };
   // Declared budget = MAX escape-hatch sites maintenance work may introduce
   // before the NEXT documented re-baseline. Deliberately tighter than the
   // pre-wave nonNull budget: large additions must re-baseline in the open

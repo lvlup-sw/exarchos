@@ -30,6 +30,19 @@ import {
   InvariantEntryV3Schema,
   UnknownCheckKindError,
 } from '../../architecture/invariant-schema.js';
+// DR-6 — the catalog's primary-key rule has ONE authority, in the loader. The
+// write path enforces the reader's predicate rather than a second copy of it.
+import {
+  findDuplicateInvariantId,
+  duplicateInvariantIdMessage,
+} from '../../architecture/invariants-loader.js';
+// Catalog file shape + the resolvable-denominator id scan, shared with
+// `invariants_amend` so the two writers cannot disagree about either.
+import {
+  splitCatalog,
+  readCatalogIds,
+  catalogUnreadableResult,
+} from './catalog-file.js';
 import type { ScaffoldDeps } from './scaffold.js';
 import { wireCatalogRegistration } from './exarchos-yml-writer.js';
 import { assertDevTierAllowed } from './reserved-tier-guard.js';
@@ -85,55 +98,6 @@ export function allocateNextId(existingIds: readonly string[], prefix: string): 
   return `${prefix}-${max + 1}`;
 }
 
-/**
- * Split a catalog file into its YAML frontmatter and (optional) markdown body.
- *
- * Catalog files are EITHER markdown-with-frontmatter (`---\n<yaml>\n---\n<body>`
- * — the dev catalog) OR bare YAML (no fences, no body — a user could register a
- * `.yml`). We do the split ourselves rather than via gray-matter's `.matter`
- * field: gray-matter v4 caches by input string and only populates `.matter` on
- * the FIRST parse of a given string, returning `undefined` for it on a cache
- * hit. Both `readExistingIds` and `appendEntryToCatalog` parse the same file
- * contents, so depending on `.matter` is a latent crash. A direct fence scan is
- * deterministic and cache-free.
- *
- * Returns `{ frontmatter, body }` where `body` is `undefined` for the bare-YAML
- * shape (no fences) and the verbatim post-fence text (including its leading
- * newline) for the fenced shape.
- */
-function splitCatalog(contents: string): {
-  frontmatter: string;
-  body: string | undefined;
-} {
-  // Frontmatter must open at the very start with a `---` line. Match the
-  // opening fence, the frontmatter block, the closing `---` line, then the rest.
-  const match = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n([\s\S]*))?$/.exec(
-    contents,
-  );
-  if (match) {
-    return { frontmatter: match[1] ?? '', body: match[2] ?? '' };
-  }
-  return { frontmatter: contents, body: undefined };
-}
-
-/** Read existing entry ids from a catalog file's `invariants:` list. */
-function readExistingIds(catalogContents: string): string[] {
-  const { frontmatter } = splitCatalog(catalogContents);
-  const doc = parseDocument(frontmatter);
-  const list = doc.get('invariants') as unknown;
-  const ids: string[] = [];
-  if (list && typeof (list as { toJSON?: unknown }).toJSON === 'function') {
-    const arr = (list as { toJSON: () => unknown }).toJSON();
-    if (Array.isArray(arr)) {
-      for (const e of arr) {
-        if (e && typeof e === 'object' && typeof (e as { id?: unknown }).id === 'string') {
-          ids.push((e as { id: string }).id);
-        }
-      }
-    }
-  }
-  return ids;
-}
 
 /**
  * Append a validated entry to a catalog file's `invariants:` sequence,
@@ -202,10 +166,63 @@ function appendToInvariantsSeq(doc: ReturnType<typeof parseDocument>, validated:
 }
 
 /**
+ * INV-5b carrier-shape refusal for a primary-key collision. Names the offending
+ * id, the ids already in use, and points the agent at `invariants_amend` — the
+ * verb that actually does what a caller re-using an existing id is usually
+ * trying to do (task 068).
+ */
+function duplicateIdResult(
+  id: string,
+  relCatalog: string,
+  tier: 'dev' | 'user',
+  existingIds: readonly string[],
+): ToolResult {
+  return {
+    success: false,
+    error: {
+      code: 'DUPLICATE_INVARIANT_ID',
+      // The loader's own sentence — one message regardless of which path
+      // (read or write) refused.
+      message:
+        `${duplicateInvariantIdMessage(id)}. Catalog '${relCatalog}' resolved ` +
+        `${existingIds.length} existing entr${existingIds.length === 1 ? 'y' : 'ies'} ` +
+        `and one already carries this id; appending a second would author a ` +
+        `file the invariants loader refuses to read. To CHANGE the existing ` +
+        `entry use invariants_amend; to add a NEW entry omit 'id' and let it ` +
+        `be auto-assigned.`,
+      expectedShape: {
+        id: `an id not already in ${relCatalog}, or omit it entirely`,
+      },
+      suggestedFix: {
+        tool: 'exarchos_orchestrate',
+        params: {
+          action: 'invariants_amend',
+          id,
+          catalog: relCatalog,
+          tier,
+          note:
+            'Amending edits the existing entry in place (identity and unnamed ' +
+            'fields survive). To append a brand-new entry instead, re-run ' +
+            "invariants_add without 'id'.",
+        },
+      },
+    },
+  };
+}
+
+/**
  * Map a validation failure (ZodError or UnknownCheckKindError) to the INV-5b
  * carrier shape so the agent can self-correct rather than re-guess.
+ *
+ * Shared with `invariants_amend`: an amendment is re-validated against the
+ * SAME `InvariantEntryV3Schema`, so it must fail with the same carrier shape.
+ * `action` is echoed into `suggestedFix.params.action` so the offered fix is
+ * re-invokable against the verb the caller actually used.
  */
-function validationErrorResult(err: unknown): ToolResult {
+export function validationErrorResult(
+  err: unknown,
+  action: 'invariants_add' | 'invariants_amend' = 'invariants_add',
+): ToolResult {
   if (err instanceof UnknownCheckKindError) {
     return {
       success: false,
@@ -221,7 +238,7 @@ function validationErrorResult(err: unknown): ToolResult {
         suggestedFix: {
           tool: 'exarchos_orchestrate',
           params: {
-            action: 'invariants_add',
+            action,
             note: "Use a known leaf kind (grep | structural | heuristic). The enforcement DSL is declarative-only (INV-4) — there is no shell/exec kind.",
           },
         },
@@ -255,7 +272,7 @@ function validationErrorResult(err: unknown): ToolResult {
         suggestedFix: {
           tool: 'exarchos_orchestrate',
           params: {
-            action: 'invariants_add',
+            action,
             note: 'Correct the fields above and re-run with dryRun:true to preview.',
           },
         },
@@ -316,10 +333,29 @@ export async function handleAdd(
   }
   const catalogContents = deps.read(catalogAbs);
 
+  // Resolve the ids already in use. This is the DENOMINATOR of the uniqueness
+  // check below, so an unresolvable list is refused rather than treated as
+  // "zero ids in use, therefore no collisions" (task 068 / DR-24).
+  const scan = readCatalogIds(catalogContents);
+  if (!scan.resolved) {
+    return catalogUnreadableResult(relCatalog, tier, scan.reason);
+  }
+  const existingIds = scan.ids;
+
   // Allocate the id (or honor an explicit override) and validate the entry.
-  const existingIds = readExistingIds(catalogContents);
-  const id =
-    args.id ?? allocateNextId(existingIds, NAMESPACE_PREFIX[tier]);
+  const id = args.id ?? allocateNextId(existingIds, NAMESPACE_PREFIX[tier]);
+
+  // Write-time primary-key enforcement, at least as strong as read-time.
+  // `args.id` was previously honored with no membership test, so authoring an
+  // id already in the catalog returned success and produced a file the loader
+  // then refused to read. The predicate is the LOADER's own
+  // (`findDuplicateInvariantId`), applied to the id list this write WOULD
+  // produce — literally "would the reader reject the document I am about to
+  // author?" — so reader and writer cannot disagree.
+  const collision = findDuplicateInvariantId([...existingIds, id]);
+  if (collision !== undefined) {
+    return duplicateIdResult(collision, relCatalog, tier, existingIds);
+  }
 
   let validated;
   try {

@@ -46,6 +46,7 @@ import {
   WaitOutputSchema,
   WorktreesOutputSchema,
 } from './orchestrate/worktree/schemas.js';
+import { AmendInvariantOutputSchema } from './orchestrate/invariants/amend.js';
 // DR-4 (task 055) — the closed `outputSchema` declaration surface. `ToolAction.
 // outputSchema` accepts only what these two constructors mint, so the vacuous
 // form (`EnvelopeSchema(z.unknown())`) is not merely discouraged here, it does
@@ -3420,6 +3421,51 @@ const orchestrateActions: readonly BuiltinToolAction[] = [
       { event: 'catalog.registered', condition: 'conditional', description: 'On first registration of the target catalog' },
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.invariants_add'),
+    annotations: LOCAL_MUTATION,
+  },
+  {
+    // Task 068 / DR-23: the catalog had no sanctioned amend path. `invariants_add`
+    // is append-only and the `/exarchos:invariants` skill forbids hand-writing
+    // catalog YAML, so entries were effectively IMMUTABLE once committed —
+    // every correction to a shipped invariant was unreachable.
+    //
+    // This verb is id-targeted and field-scoped: `id` names an existing entry
+    // (identity is NOT patchable), `patch` names the top-level fields to
+    // replace, and every field the patch omits survives verbatim. Amending is
+    // not re-scaffolding. `dryRun` defaults true (INV-5c); a commit emits
+    // `invariant.amended`. INV-5d: ACTION, not a fifth visible tool.
+    //
+    // Field-name contract (`buildRegistrationSchema`): `id` / `catalog` /
+    // `tier` / `dryRun` / `repoRoot` / `allowReservedTier` reuse the exact base
+    // types `invariants_add` already declares. The patch field is named `patch`
+    // rather than the more obvious `fields` BECAUSE `fields` is already
+    // declared on this tool as `coercedStringArray()` (an array) — a record
+    // there would be a base-type collision and would throw at registration.
+    name: 'invariants_amend',
+    description:
+      "Amend one EXISTING invariant entry in a registered catalog, in place. `id` names the entry to correct and is not itself patchable; `patch` names the top-level fields to replace, and any field the patch omits is carried through unchanged. The merged entry is re-validated against the full v3 schema (including the sandbox-safe .strict() enforcement DSL). Defaults to dryRun:true — returns the amended YAML entry + a before/after diff without writing; pass dryRun:false to commit (emits invariant.amended). Use this, NOT invariants_add, to correct a shipped invariant: invariants_add only appends, and re-using an existing id there is rejected. Do not hand-edit catalog YAML. After committing, run doctor and inspect the result via the invariants_effective view.",
+    schema: z.object({
+      id: z.string(),
+      patch: z.record(z.string(), z.unknown()),
+      catalog: z.string().optional(),
+      tier: z.enum(['dev', 'user']).optional(),
+      // INV-5c: dry-run default lives at the handler/dispatch boundary, not as
+      // a Zod `.default(true)` — see the note on `invariants_add.dryRun`.
+      dryRun: z.boolean().optional(),
+      repoRoot: z.string().optional(),
+      allowReservedTier: z.boolean().optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+    autoEmits: [
+      { event: 'invariant.amended', condition: 'conditional', description: 'On commit (dryRun:false)' },
+    ],
+    // DR-4: declared SUBSTANTIVELY via the sole substantive constructor. A new
+    // action has no seeded `vacuityWaiver` entry, and the waiver allowlist is
+    // shrink-only — acquiring one would be a ratchet violation, so the shape is
+    // stated instead. (`vacuityWaiver`'s `id` is typed as the literal union of
+    // seeded ids, so this is enforced at compile time, not by convention.)
+    outputSchema: withCappedShape(AmendInvariantOutputSchema),
     annotations: LOCAL_MUTATION,
   },
   // ─── Worktree-lifecycle Actions (WLM foundation, task 008) ────────────────

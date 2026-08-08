@@ -308,6 +308,51 @@ function projectV3Fields(raw: RawInvariantEntry, entry: InvariantEntry): void {
   if (v3['integrity-class'] !== undefined) entry.integrityClass = v3['integrity-class'];
 }
 
+// ─── Catalog primary-key rule (DR-6: ONE authority, read AND write) ─────────
+//
+// Ids are the catalog's primary key. This rule was previously an inline
+// `Set`-based loop inside `parseInvariantEntries` — reachable only from the
+// READ path — while `invariants_add` honored an explicit `id` with no
+// membership test at all. The writer could therefore author a catalog the
+// reader refuses to load (task 068 / DR-24).
+//
+// It is extracted here, not restated at the write site, so the two paths cannot
+// drift: `parseInvariantEntries` (read) and `orchestrate/invariants/add.ts`
+// (write) both call these two functions and nothing else decides id uniqueness.
+// A change to what "duplicate" means — case-folding, namespace scoping — moves
+// both paths in one edit.
+
+/**
+ * The catalog's primary-key rule. Returns the FIRST id that appears more than
+ * once in `ids`, or `undefined` when every id is unique.
+ *
+ * Total over its input: an empty list is vacuously unique. Callers that must
+ * not accept a vacuous answer are responsible for proving their denominator
+ * RESOLVED before asking (see `readCatalogIds` in
+ * `orchestrate/invariants/add.ts`) — this function cannot distinguish "no
+ * entries" from "could not read the entries", and must not pretend to.
+ */
+export function findDuplicateInvariantId(
+  ids: Iterable<string>,
+): string | undefined {
+  const seen = new Set<string>();
+  for (const id of ids) {
+    if (seen.has(id)) return id;
+    seen.add(id);
+  }
+  return undefined;
+}
+
+/**
+ * The wire-visible rejection text for a primary-key violation. Shared so the
+ * writer's refusal and the loader's throw are the same sentence — a caller
+ * matching on this string sees one message regardless of which path produced
+ * it.
+ */
+export function duplicateInvariantIdMessage(id: string): string {
+  return `Duplicate invariant ID: ${id}`;
+}
+
 /**
  * Pure raw→typed projection for a list of catalog entries (no file-IO, no
  * `schema-version` guard, no `devCatalog` gate, no scope filter). Validates and
@@ -339,13 +384,12 @@ export function parseInvariantEntries(rawEntries: unknown): InvariantEntry[] {
   });
   // Reject duplicate IDs — IDs are the catalog's primary key and must be
   // unique. A silent duplicate would shadow the earlier entry and corrupt
-  // vocabulary-lint / ideate Constraint surfacing.
-  const seen = new Set<string>();
-  for (const entry of entries) {
-    if (seen.has(entry.id)) {
-      throw new Error(`Duplicate invariant ID: ${entry.id}`);
-    }
-    seen.add(entry.id);
+  // vocabulary-lint / ideate Constraint surfacing. The rule itself lives in
+  // `findDuplicateInvariantId` so the WRITE path enforces the identical
+  // predicate rather than a second copy of it (DR-6 / task 068).
+  const duplicate = findDuplicateInvariantId(entries.map((e) => e.id));
+  if (duplicate !== undefined) {
+    throw new Error(duplicateInvariantIdMessage(duplicate));
   }
   return entries;
 }

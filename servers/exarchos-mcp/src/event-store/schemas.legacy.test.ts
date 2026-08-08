@@ -553,7 +553,10 @@ describe('EventTypes', () => {
     // #1739 (cutover promotion path): bumped 169 → 170 for
     // `admission.cutover-ready` — the observer auto-export hook's first-time
     // readiness fact (store-identity idempotency key, `auto`).
-    expect(EventTypes).toHaveLength(170);
+    //
+    // Task 068 (DR-23): bumped 170 → 171 for `invariant.amended`, emitted by
+    // the `invariants_amend` composite handler on commit.
+    expect(EventTypes).toHaveLength(171);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');

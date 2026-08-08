@@ -107,6 +107,8 @@ import {
 import { handleScaffold } from './invariants/scaffold.js';
 import type { HandleScaffoldArgs } from './invariants/scaffold.js';
 import { handleAdd } from './invariants/add.js';
+import { handleAmend } from './invariants/amend.js';
+import type { HandleAmendArgs } from './invariants/amend.js';
 import type { HandleAddArgs } from './invariants/add.js';
 import { realScaffoldDeps } from './invariants/fs-deps.js';
 import { applyLadderGateSeverity, resolvePhaseMode } from './gate-utils.js';
@@ -633,6 +635,69 @@ function validateInvariantsAddArgs(
   return null;
 }
 
+/**
+ * Guard-clause validation for `invariants_amend` (task 068). Layers the
+ * amend-specific checks on the common string/tier checks: `id` is REQUIRED
+ * here (it names the entry to correct, and an amend with no target is
+ * meaningless — unlike `invariants_add`, where `id` is an optional override),
+ * and `patch` must be a plain object. Runs at the dispatch boundary BEFORE the
+ * unchecked `rest.*` casts reach the handler.
+ */
+function validateInvariantsAmendArgs(
+  rest: Record<string, unknown>,
+): { ok: false; result: ToolResult } | { ok: true; args: HandleAmendArgs } {
+  const common = validateInvariantsCommonArgs(rest);
+  if (common) return { ok: false, result: common };
+
+  const { id, patch, repoRoot, catalog, tier, dryRun, allowReservedTier } = rest;
+
+  if (typeof id !== 'string' || id.length === 0) {
+    return {
+      ok: false,
+      result: {
+        success: false,
+        error: {
+          code: 'INVALID_INPUT',
+          message:
+            'id is required and must name the existing invariant entry to amend',
+          expectedShape: { id: 'INV-17' },
+        },
+      },
+    };
+  }
+  if (patch === undefined || patch === null || typeof patch !== 'object' || Array.isArray(patch)) {
+    return {
+      ok: false,
+      result: {
+        success: false,
+        error: {
+          code: 'INVALID_INPUT',
+          message:
+            'patch must be an object naming the top-level entry fields to replace',
+          expectedShape: { patch: { summary: 'the corrected summary text' } },
+        },
+      },
+    };
+  }
+
+  // Every field below was proven by a check above (or by
+  // `validateInvariantsCommonArgs`), so the handler args are BUILT from the
+  // narrowed values rather than re-asserted with `as` at the call site. The
+  // validator that establishes a type is the thing that should hand it over.
+  return {
+    ok: true,
+    args: {
+      repoRoot: typeof repoRoot === 'string' ? repoRoot : process.cwd(),
+      id,
+      patch: { ...patch },
+      ...(typeof catalog === 'string' ? { catalog } : {}),
+      ...(tier === 'dev' || tier === 'user' ? { tier } : {}),
+      dryRun: dryRun === undefined ? true : Boolean(dryRun),
+      ...(typeof allowReservedTier === 'boolean' ? { allowReservedTier } : {}),
+    },
+  };
+}
+
 // ─── Composite Handler ──────────────────────────────────────────────────────
 
 /**
@@ -771,6 +836,22 @@ export async function handleOrchestrate(
     return envelopeWrap(await handleAdd(addArgs, ctx, realScaffoldDeps()), startedAt);
   }
 
+  // invariants_amend (task 068 / DR-23) — the amend path the catalog previously
+  // lacked entirely. Like invariants_add it needs the full DispatchContext,
+  // because a commit emits `invariant.amended` via ctx.eventStore.
+  //
+  // Registering the action in registry.ts WITHOUT this branch would return
+  // UNKNOWN_ACTION at runtime (the action is not in ACTION_HANDLERS) — a verb
+  // that documents itself and then refuses every call. Both halves, always.
+  if (action === 'invariants_amend') {
+    const validated = validateInvariantsAmendArgs(rest);
+    if (!validated.ok) return envelopeWrap(validated.result, startedAt);
+    return envelopeWrap(
+      await handleAmend(validated.args, ctx, realScaffoldDeps()),
+      startedAt,
+    );
+  }
+
   // Handle runbook specially — it doesn't need stateDir
   if (action === 'runbook') {
     if (rest.phase !== undefined && typeof rest.phase !== 'string') {
@@ -800,7 +881,7 @@ export async function handleOrchestrate(
       success: false,
       error: {
         code: 'UNKNOWN_ACTION',
-        message: `Unknown orchestrate action '${String(action)}'. Valid actions: ${Object.keys(ACTION_HANDLERS).join(', ')}, describe, runbook, doctor, onboard, invariants_scaffold, invariants_add`,
+        message: `Unknown orchestrate action '${String(action)}'. Valid actions: ${Object.keys(ACTION_HANDLERS).join(', ')}, describe, runbook, doctor, onboard, invariants_scaffold, invariants_add, invariants_amend`,
       },
     };
   }

@@ -354,10 +354,18 @@ describe('handleAdd — T9 commit', () => {
     expect(types).not.toContain('catalog.registered');
   });
 
-  it('handleAdd_Commit_NonSequenceInvariantsNode_NormalizesAndAppends', async () => {
-    // #1487 review: a malformed catalog whose `invariants:` is a non-sequence
-    // (scalar/map) must not throw a raw TypeError on `.add`. The handler resets
-    // the node to an empty sequence, then appends the validated entry.
+  it('handleAdd_Commit_NonSequenceInvariantsNode_RefusesStructurally', async () => {
+    // #1487 review established that a malformed catalog whose `invariants:` is
+    // a non-sequence (scalar/map) must not throw a raw TypeError on `.add`.
+    // It originally satisfied that by resetting the node to an empty sequence
+    // and appending — which silently DESTROYED the malformed content and made
+    // the id-uniqueness denominator vacuous (task 068 / DR-24): every id looks
+    // free when the entry list resolves to nothing.
+    //
+    // The contract is now the stronger form of the same intent: a structured
+    // `CATALOG_UNREADABLE` refusal, not a raw TypeError and not a silent
+    // overwrite. `appendEntryToCatalog`'s normalization survives as
+    // defense-in-depth for direct callers (unit-tested below).
     const fake = makeFakeFs({
       '/repo/.exarchos/invariants.md': 'invariants: not-a-list\n',
     });
@@ -375,11 +383,15 @@ describe('handleAdd — T9 commit', () => {
       fake.deps,
     );
 
-    expect(result.success).toBe(true);
-    expect((result.data as { committed: boolean }).committed).toBe(true);
-    const written = fake.files.get('/repo/.exarchos/invariants.md')!;
-    expect(written).toMatch(/id: U-1/);
-    expect(written).toMatch(/mode: audit/);
+    expect(result.success).toBe(false);
+    expect((result as { error?: { code?: string } }).error?.code).toBe(
+      'CATALOG_UNREADABLE',
+    );
+    // The malformed catalog is left exactly as it was found.
+    expect(fake.writes).toHaveLength(0);
+    expect(fake.files.get('/repo/.exarchos/invariants.md')).toBe(
+      'invariants: not-a-list\n',
+    );
   });
 
   it('handleAdd_DevTier_UsesInvNamespace', async () => {
