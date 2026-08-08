@@ -26,6 +26,7 @@
 import { censusOutputSchemas } from '../servers/exarchos-mcp/src/architecture/output-schema-census.js';
 import { censusReportCoupling } from '../servers/exarchos-mcp/src/architecture/report-coupling-census.js';
 import { EventTypes } from '../servers/exarchos-mcp/src/event-store/schemas.js';
+import { censusEventNameGrammar } from '../servers/exarchos-mcp/src/architecture/event-grammar-census.js';
 
 /** The derivation names this entrypoint answers. Keys match the annotation names. */
 export interface TsDerivedValues {
@@ -34,10 +35,12 @@ export interface TsDerivedValues {
   readonly 'output-schema-substantive': number;
   readonly 'event-types-total': number;
   readonly 'report-coupled-events': number;
+  readonly 'event-name-pattern-divergence': number;
 }
 
 export function deriveTsPremises(): TsDerivedValues {
   const census = censusOutputSchemas();
+  const grammar = censusEventNameGrammar();
 
   if (!census.ok) {
     const detail = census.diagnostics
@@ -66,6 +69,11 @@ export function deriveTsPremises(): TsDerivedValues {
     'output-schema-substantive': census.substantiveCount,
     'event-types-total': EventTypes.length,
     'report-coupled-events': coupling.reportCoupledCount,
+    // Task 015's measured disagreement between the two authorities that decide
+    // what an event name may be: the shipped `EVENT_NAME_PATTERN` and the DR-3
+    // grammar. Task 075 exists to collapse them; until it lands, the number is
+    // a bound premise so the spec cannot state a stale one.
+    'event-name-pattern-divergence': grammar.divergent.length,
   };
 }
 

@@ -1,6 +1,6 @@
 # Spec: Internal mechanics overhaul — one authority per contract, bound mechanically, IR-shaped
 
-**Date:** 2026-08-06 · **Revised:** 2026-08-07 (rev 4.15) · **Feature:** `internal-mechanics-overhaul` · **Depth:** deep
+**Date:** 2026-08-06 · **Revised:** 2026-08-07 (rev 4.16) · **Feature:** `internal-mechanics-overhaul` · **Depth:** deep
 **Method:** `proof-driven-development` (Design mode) — `~/.agents/skills/proof-driven-development`
 **Baseline:** rebased onto `origin/main`; **every count below is re-derived from the landing branch.**
 
@@ -726,9 +726,9 @@ Research pre-pass: discovery workflow **`mcp-spec-2026-07-28-migration`** (gathe
 
 ### Scope
 
-**Target:** Partial — **Wave 0 and Wave 1 decomposed to task granularity (tasks 001–027, 046–074).** Waves 2–5 carry one anchor task per DR (028–045) for provenance, to be re-planned after Wave 1 exit.
+**Target:** Partial — **Wave 0 and Wave 1 decomposed to task granularity (tasks 001–027, 046–075).** Waves 2–5 carry one anchor task per DR (028–045) for provenance, to be re-planned after Wave 1 exit.
 
-> **Task-ID ranges, since three appends have now widened this.** 001–004 retired (rev 2). 005–027 = the rev-1/rev-3 Wave 1 body, 027 the join point. 028–045 = Waves 2–5 anchors. 046–050 = rev-4 additions (DR-25, DR-0 remainder). 051–074 = tasks *derived from running Wave 1*, each one a defect a shipped task found and reported rather than worked around. That third range is the program working as designed, not scope creep — but it means **the task count is not fixed at plan time**, and any statement of the form "N of M tasks complete" must re-derive M.
+> **Task-ID ranges, since three appends have now widened this.** 001–004 retired (rev 2). 005–027 = the rev-1/rev-3 Wave 1 body, 027 the join point. 028–045 = Waves 2–5 anchors. 046–050 = rev-4 additions (DR-25, DR-0 remainder). 051–075 = tasks *derived from running Wave 1*, each one a defect a shipped task found and reported rather than worked around. That third range is the program working as designed, not scope creep — but it means **the task count is not fixed at plan time**, and any statement of the form "N of M tasks complete" must re-derive M.
 
 **Excluded, with rationale:** Waves 2–5 are *deliberately* not decomposed in this pass. **DR-6's authority-topology census is the instrument that enumerates the real remediation subjects** — which boundaries have unbound representations, which events lack a consumer hop, which effects lack a coupling. Decomposing Waves 2–5 before that census has run would be fabricating a subject list rather than deriving one, which is precisely the precision-manufacturing PDD warns against ("do not add abstractions, manifests, generators, or test layers without a concrete correctness obligation").
 
@@ -744,7 +744,7 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 | DR-0 | SDK v1→v2 package split, ahead of every consumer | 049, 050, 051 |
 | DR-1 | IR-shaped declaration envelope | 005, 006, 007, 008 |
 | DR-2 | Tiered, coupling-typed event registration | 009, 010, 011, 012, 013 |
-| DR-3 | Compile-time event-name grammar | 014, 015 |
+| DR-3 | Compile-time event-name grammar | 014, 015, 075 |
 | DR-4 | `outputSchema` non-vacuity | 016, 017, 018, 019, 055, 060, 069 |
 | DR-5 | CLI derivation guard | 020, 021, 022, 023 |
 | DR-6 | Authority-topology census | 024, 025, 026, 027, 066 |
@@ -1341,6 +1341,30 @@ It is invisible to everything that would otherwise catch it. `guard-inventory` s
 
 **Verification:** medium — scoped tests + per-site kill-probe.
 **Dependencies:** None *(coordinate with 020/023 on `cli-derivation-guard.ts`)* · **Parallelizable:** Yes
+
+### Task 075: Collapse `EVENT_NAME_PATTERN` into the DR-3 grammar — a public-seam behaviour change
+**Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-3, DR-6
+**Files:** `servers/exarchos-mcp/src/event-store/schemas.ts`, `servers/exarchos-mcp/src/event-store/event-name.ts`, migration notes
+**Detail:** Two authorities decide what an event name may be, and they disagree on **<!-- measured: event-name-pattern-divergence -->25<!-- /measured --> of 171** live names. Found by task 014, measured on the runtime path by task 015, and recorded by 015 as an owned, dated, two-way-checked concession rather than fixed — because fixing it changes a public runtime seam.
+
+- `EVENT_NAME_PATTERN` (`schemas.ts`) is `/^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$/` — **no `_` in either character class** — so it rejects 25 of its own built-ins. It has never failed because `registerEventType` applies it **only to custom registrations**; the built-ins are a literal array never fed through it. A validator its own authoritative corpus fails, invisible because it is never pointed at that corpus.
+- The DR-3 grammar (`event-name.ts`, task 014) was derived from all 171 registered names and accepts every one of them, but is **narrower** than the shipped pattern in the other direction: no digits, single-word namespaces.
+
+So the two disagree in **both** directions, and the runtime half is the permissive one: `registerEventType('my-app.started2', …)` **succeeds today** and lands a grammar-violating name in the live registry. That is the population no type can quantify over — which is exactly why task 015's census enumerates `getValidEventTypes()` rather than `EventTypes`.
+
+**The change:** make `registerEventType` consume `isWellFormedEventName` and delete `EVENT_NAME_PATTERN`. That collapses two authorities into one, which is what DR-6 wants.
+
+**Why it is its own task, and high tier.** It is a breaking change to a public seam. Custom names with digits (`deploy.v2`) or multi-word namespaces (`my-app.started`) **stop registering**; snake_case **starts**. `ExarchosConfig.events` lets users declare event types this repo knows nothing about, so real user configs can break at load.
+
+**Acceptance criteria:**
+- One authority decides name well-formedness. The census's `divergesFromShippedPattern` concession is **retired**, not re-dated — and task 015 wired the stale direction so leaving it standing after the repair trips `STALE_SEED_ENTRY`. Let that fire; do not silence it.
+- **Re-examine the no-digits clause against evidence before adopting it as the runtime rule.** Task 014 chose it deliberately (0 of 171 built-ins use a digit, so the strict reading was the falsifiable one) but built-ins are not the population at risk here — user-registered names are, and `deploy.v2` is an ordinary thing to want. Decide on measured user-config evidence, and say what you measured.
+- A migration note: what breaks, what starts working, and what a user with an affected name does. INV-1 makes renaming a registered event a log-compatibility break, so the note must cover already-persisted streams.
+- **Kill fixture both ways:** a name the old pattern admitted and the grammar rejects must now fail *with a message naming the migration*, and a name the old pattern rejected (snake_case) must now succeed.
+- **Non-empty denominator:** a validator resolving zero names fails rather than passing clean.
+
+**Verification:** high — scoped tests + `check_test_adequacy` + integration over the registration seam and a replay of persisted streams.
+**Dependencies:** 014, 015 · **Parallelizable:** Yes
 
 ### Task 063: Inventory every Wave-1 guard and prove it is reachable from CI
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-24

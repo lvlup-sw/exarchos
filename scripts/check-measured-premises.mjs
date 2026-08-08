@@ -525,6 +525,13 @@ export const DERIVATIONS = {
       `censusReportCoupling().reportCoupledCount — registrations whose DR-2 tier + lifecycle ` +
       `derive the emission source 'model' (G3's seed, ${MCP_SRC}/architecture/report-coupling-census.ts)`,
   },
+  'event-name-pattern-divergence': {
+    kind: 'ts',
+    describe:
+      `censusEventNameGrammar().divergent.length — registered names on which the shipped ` +
+      `EVENT_NAME_PATTERN and the DR-3 grammar disagree (task 015's measurement; task 075 ` +
+      `collapses the two authorities, ${MCP_SRC}/architecture/event-grammar-census.ts)`,
+  },
   'sdk-import-sites': {
     kind: 'scan',
     describe:
