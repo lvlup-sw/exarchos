@@ -1,9 +1,9 @@
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import {
-  createV1McpServer,
-  V1_ROOTS_LIST_CHANGED_NOTIFICATION_SCHEMA,
-  type V1McpServer,
+  createV2McpServer,
+  V2_ROOTS_LIST_CHANGED_NOTIFICATION_METHOD,
+  type V2McpServer,
 } from '../sdk/seam.js';
 import {
   getFullRegistry,
@@ -21,7 +21,7 @@ import type { RootsClient } from '../workspace/discovery.js';
 import { EnvelopeSchema } from '../schemas/envelope.js';
 import { logger } from '../logger.js';
 import { EventSourcedTaskStore } from '../task-store/event-sourced-task-store.js';
-import { attachTaskStoreToV1 } from '../task-store/attach.js';
+import { attachTaskStoreToV2, describeTaskWireGap } from '../task-store/attach.js';
 import type { NextAction } from '../next-action.js';
 import type { ToolResult } from '../format.js';
 import {
@@ -338,7 +338,7 @@ function validateAgainstActionSchema(
  *    `toMcpResult` so both `content[0].text` (legacy SHOULD per MCP spec)
  *    and `structuredContent` (the typed envelope payload) ride together.
  */
-export function createMcpServer(ctx: DispatchContext): V1McpServer {
+export function createMcpServer(ctx: DispatchContext): V2McpServer {
   // ─── P03-04 (API-004) — pre-startup binding gate ────────────────────────────
   // MCP is a wire projection of the Exarchos contract; before we advertise a
   // single tool, assert every contract ActionId resolves to exactly one
@@ -358,23 +358,35 @@ export function createMcpServer(ctx: DispatchContext): V1McpServer {
   // MCP session; the underlying durable substrate (`ctx.eventStore`)
   // is shared across sessions.
   //
-  // DR-0 / task 051 — the binding now goes through the attach seam
-  // (`../task-store/attach.ts`) rather than straight into the constructor
-  // literal. This composer is v1, so the seam hands back a
-  // `SdkServedTaskStoreAttachment` whose `serverOptions` is spread into the
-  // `McpServer` options below — byte-for-byte the same `{ taskStore }` the
-  // pre-seam code passed, so nothing changes on the wire.
+  // DR-0 / task 049 — this composer is now v2, so the binding goes through
+  // `attachTaskStoreToV2`. That attachment has NO `serverOptions` member: v2
+  // `2.0.0` deleted `ServerOptions.taskStore` and every `tasks/*` handler, and
+  // a v2 server handed the option ignores it SILENTLY. There is therefore
+  // nothing to spread into the constructor below, which is the seam working as
+  // designed — the checker refuses the pretence instead of a reviewer having to
+  // catch it.
   //
-  // The seam earns its place on the OTHER branch: v2 `2.0.0` deleted
-  // `ServerOptions.taskStore` AND every `tasks/*` handler, and a v2 server
-  // handed the option ignores it silently. `attachTaskStoreToV2` therefore
-  // returns a type with no `serverOptions` member at all and a non-empty
-  // `hostMustServe`, so the migration cannot quietly produce a server that
-  // is persistent but dark on the wire.
-  const taskAttachment = attachTaskStoreToV1(
+  // Persistence is unaffected. `store` is the same `EventSourcedTaskStore`
+  // instance projecting from the same event store (INV-1), and every consumer
+  // that drives it directly — dispatch's Tasks-augmented branch below, the CLI
+  // `--follow` loop — never went through the SDK at all.
+  const taskAttachment = attachTaskStoreToV2(
     new EventSourcedTaskStore(ctx.eventStore),
   );
   const taskStore = taskAttachment.store;
+
+  // ── D10's accepted wire loss, ANNOUNCED (task 049) ────────────────────────
+  // `hostMustServe` is non-empty on v2, and this is the production caller that
+  // says so out loud. Before task 049 `describeTaskWireGap` had no caller at
+  // all — a mechanism shipped without its consumer (R-11), which is how an
+  // "accepted" cost becomes indistinguishable at runtime from a regression
+  // nobody noticed. Logged once per server construction, at warn.
+  const taskWireGap = describeTaskWireGap(taskAttachment);
+  if (taskWireGap !== undefined) {
+    logger
+      .child({ subsystem: 'mcp-tasks' })
+      .warn({ hostMustServe: taskAttachment.hostMustServe }, taskWireGap);
+  }
 
   // ─── #1273 / C2 (T30) — thread the local TaskStore onto the dispatch ctx
   // so the C1 task-augmented branch fires when `tools/call` params carry
@@ -394,32 +406,42 @@ export function createMcpServer(ctx: DispatchContext): V1McpServer {
   // (early) is intentional: the McpServer constructor below needs the
   // same instance for its SDK-level `tasks/*` wiring.
 
-  const server = createV1McpServer(
+  const server = createV2McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
     {
       capabilities: {
         experimental: {
           'claude/channel': {},
         },
-        // #1273 / T32 — advertise tasks capability so clients see the
-        // server supports request-augmented `tools/call` (per-tool
-        // `execution.taskSupport: 'optional'`) and the explicit
-        // `tasks/{get,result,cancel,list}` methods (the SDK's
-        // setRequestHandler wiring installs these automatically when
-        // `taskStore` is supplied — see the attach seam above).
+        // #1273 / T32 — advertise ONLY the tasks capability this server
+        // actually honours.
+        //
+        // ── NARROWED BY TASK 049, and the narrowing is the D10 contract ─────
+        // `list: {}` and `cancel: {}` were dropped. They advertise the
+        // `tasks/list` and `tasks/cancel` METHODS, which v2 does not serve —
+        // every one answers `-32601`. Advertising them here while answering
+        // -32601 there would be a server that lies in its handshake and fails
+        // on use, which is strictly worse than the honest absence D10 chose:
+        // the decision was to accept the wire loss and make the rejection a
+        // TYPED `-32601` from a surface we chose not to serve, never a silent
+        // no-op and never a false promise.
+        //
+        // `requests.tools.call` STAYS, and the asymmetry is load-bearing: it
+        // advertises that `tools/call` accepts a `task: { ttl? }` augmentation,
+        // which dispatch's Tasks-augmented branch serves ITSELF out of
+        // `ctx.taskStore` below. That path never went through the SDK, so v2
+        // deleting the SDK's Tasks runtime does not touch it — this capability
+        // is still true.
         tasks: {
-          list: {},
-          cancel: {},
           requests: {
             tools: { call: {} },
           },
         },
       },
-      // Spread rather than `taskStore,` so the option travels WITH the
-      // generation decision that produced it (DR-0 / task 051). Identical
-      // at runtime; the difference is that the v2 attachment has no such
-      // member to spread, which is what stops the silent-degradation path.
-      ...taskAttachment.serverOptions,
+      // NOTE: no `...taskAttachment.serverOptions` here. The v2 attachment has
+      // no such member — see the attach seam above. This is not an omission to
+      // restore later; it is the type system refusing an option v2 would have
+      // silently ignored.
     },
   );
 
@@ -507,8 +529,11 @@ export function createMcpServer(ctx: DispatchContext): V1McpServer {
         );
       }
     };
+    // v2 discriminates notification handlers by METHOD NAME, where v1 took a Zod
+    // schema — see `V2_ROOTS_LIST_CHANGED_NOTIFICATION_METHOD`. The payload type
+    // now comes from the SDK's own `NotificationTypeMap`, so nothing here parses.
     server.server.setNotificationHandler(
-      V1_ROOTS_LIST_CHANGED_NOTIFICATION_SCHEMA,
+      V2_ROOTS_LIST_CHANGED_NOTIFICATION_METHOD,
       async () => {
         try {
           handleRootsListChanged(resolver);

@@ -68,7 +68,10 @@ describe('verifyContractAuthority — exit proofs', () => {
     const realPkg = JSON.parse(fs.readFileSync(base.packageJsonFile, 'utf8')) as {
       dependencies: Record<string, string>;
     };
-    realPkg.dependencies['@modelcontextprotocol/sdk'] = '^1.29.0'; // floating!
+    // Retargeted with the extractor (task 049): seeding a range on the RETIRED
+    // v1 key would leave the live `server` pin exact, so the freeze would pass
+    // and this kill probe would silently stop killing.
+    realPkg.dependencies['@modelcontextprotocol/server'] = '^2.0.0'; // floating!
     const floatingPkg = tmpFile('package.json', JSON.stringify(realPkg, null, 2));
 
     // Rebuild an approved lock from THIS floating tree — the freeze must still

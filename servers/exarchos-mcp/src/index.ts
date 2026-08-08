@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import type { V1McpServer } from './sdk/seam.js';
+import type { V2McpServer } from './sdk/seam.js';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { realpathSync } from 'node:fs';
@@ -219,7 +219,7 @@ export function registerBackendCleanup(backend: StorageBackend): void {
 export async function createServer(
   stateDir: string,
   options?: CreateServerOptions,
-): Promise<V1McpServer> {
+): Promise<V2McpServer> {
   const backend = options?.backend;
 
   // Configure module-level stores (EventStore is threaded via DispatchContext)

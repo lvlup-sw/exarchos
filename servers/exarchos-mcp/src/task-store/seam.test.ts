@@ -36,13 +36,9 @@ import {
 import { TERMINAL_TASK_STATUSES, isTaskTerminal } from './port.js';
 import {
   V2_TASK_STATUS_VALUES,
-  connectV1Server,
   connectV2Server,
-  createV1LinkedTransportPair,
-  createV1McpServer,
   createV2LinkedTransportPair,
   createV2McpServer,
-  isV1TaskTerminal,
 } from '../sdk/seam.js';
 
 /** JSON-RPC "Method not found". */
@@ -231,55 +227,33 @@ describe('DR-0 / task 051 — replacement Tasks-store seam', () => {
         'assertion exists to catch.',
     ).toEqual([]);
 
-    // ── v1 keeps working, on the SAME durable task ──────────────────────────
-    // Additive-and-revertible, proven rather than claimed: a v1 server built
-    // from `attachTaskStoreToV1`'s `serverOptions` serves `tasks/get` for the
-    // task that was created through the v2 attachment, out of a store instance
-    // that never saw the write.
-    const v1Attachment = attachTaskStoreToV1(new EventSourcedTaskStore(eventStore));
-    expect(v1Attachment.hostMustServe).toEqual([]);
-    expect(describeTaskWireGap(v1Attachment)).toBeUndefined();
-
-    const v1Server = createV1McpServer(
-      { name: 'imo-051-v1', version: '1.0.0' },
-      {
-        capabilities: {
-          tasks: { list: {}, cancel: {}, requests: { tools: { call: {} } } },
-        },
-        ...v1Attachment.serverOptions,
-      },
-    );
-    const [v1Host, v1ServerSide] = createV1LinkedTransportPair();
-    const v1Inbox: unknown[] = [];
-    v1Host.onmessage = (message) => {
-      v1Inbox.push(message);
-    };
-    await connectV1Server(v1Server, v1ServerSide);
-    await v1Host.start();
-
-    let v1NextId = 1;
-    const callV1: Caller = async (method, params) => {
-      const id = v1NextId;
-      v1NextId += 1;
-      await v1Host.send({ jsonrpc: '2.0', id, method, params });
-      return awaitResponse(v1Inbox, id);
-    };
-
-    await callV1('initialize', {
-      protocolVersion: '2025-06-18',
-      capabilities: {},
-      clientInfo: { name: 'imo-051-probe', version: '1.0.0' },
-    });
-    await v1Host.send({ jsonrpc: '2.0', method: 'notifications/initialized' });
-
-    const v1TaskGet = await callV1('tasks/get', { taskId: created.taskId });
-    expect(
-      errorCodeOf(v1TaskGet),
-      'v1 must still serve tasks/get from the injected store — the migration ' +
-        'is additive and revertible only if this arm keeps passing',
-    ).toBeUndefined();
-    expect(resultOf(v1TaskGet)?.['taskId']).toBe(created.taskId);
-    expect(resultOf(v1TaskGet)?.['status']).toBe('completed');
+    // ── THE v1 ARM IS RETIRED, and the retirement is deliberate (task 049) ──
+    //
+    // This test used to end by building a SECOND server from
+    // `attachTaskStoreToV1`'s `serverOptions` and proving it still served
+    // `tasks/get` for the same durable task — the "additive and revertible"
+    // property DR-0 promised while both generations were installed.
+    //
+    // That property was real, it passed, and DR-0's source migration has now
+    // SPENT it: `@modelcontextprotocol/sdk` is uninstalled, so a v1 server is
+    // not merely unnecessary to build here, it is unconstructible. Keeping the
+    // arm alive by pointing it at a v2 server (which the mechanical rename did)
+    // produces a test asserting that v2 serves `tasks/get` — the exact opposite
+    // of D10, and a green-looking assertion of something false.
+    //
+    // Nothing is lost by removing it, and that is checkable rather than
+    // asserted: every guarantee it carried is still proven above, on the LIVE
+    // generation — persistence survives a fresh store built from events alone
+    // (the replay arm), and the wire loss is measured against a real v2 server
+    // that answers `ping` and `-32601` on all four methods. What the arm proved
+    // uniquely was revertibility, and there is nothing left to revert to.
+    //
+    // `attachTaskStoreToV1` itself is deliberately RETAINED in `attach.ts`. It
+    // is the v1 half of the generation contrast the module is built around, it
+    // is exercised by the attachment-shape assertions at the top of this file
+    // (which need no SDK), and deleting it would leave `attachTaskStoreToV2`
+    // asymmetric with nothing to be asymmetric AGAINST — which is what makes
+    // the missing `serverOptions` member legible as a decision.
   }, 30_000);
 
   /**
@@ -303,7 +277,15 @@ describe('DR-0 / task 051 — replacement Tasks-store seam', () => {
    * store's terminal guards are driven for real, so replacing `isTaskTerminal`
    * with `() => false` breaks behaviour and not just a pure-function assertion.
    *
-   * @oracle-sources: @modelcontextprotocol/sdk 1.29.0 isTerminal, @modelcontextprotocol/core 2.0.0 TaskStatusSchema
+   * ── ORACLE CHANGE, task 049 ─────────────────────────────────────────────
+   * v1 is no longer installed, so `isTerminal` can no longer be called live.
+   * The differential now runs against `V1_TERMINAL_VERDICTS` — v1's verdicts
+   * FROZEN with provenance at migration time — plus v2 `core`'s live
+   * `TaskStatusSchema`, which is still read at runtime and is still an
+   * authority independent of `./port.ts`. Read the table's own doc comment
+   * before treating it as an oracle; it is evidence.
+   *
+   * @oracle-sources: @modelcontextprotocol/core 2.0.0 TaskStatusSchema, ./port.ts
    */
   it('TaskStoreSeam_TerminalStateQuery_MatchesV1Semantics', async () => {
     // Anti-vacuity on the population itself: an empty vocabulary would make
@@ -312,23 +294,34 @@ describe('DR-0 / task 051 — replacement Tasks-store seam', () => {
     expect(V2_TASK_STATUS_VALUES).toContain('working');
     expect(V2_TASK_STATUS_VALUES).toContain('completed');
 
+    // TOTALITY OVER THE LIVE VOCABULARY, asserted before the comparison so a v2
+    // release that adds a status fails HERE — loudly, naming the new status —
+    // rather than slipping past as a key the frozen table simply lacks.
+    const unrecorded = V2_TASK_STATUS_VALUES.filter(
+      (status) => !(status in V1_TERMINAL_VERDICTS),
+    );
+    expect(
+      unrecorded,
+      `v2 declares task status(es) the frozen v1 verdict table does not cover: ` +
+        `${unrecorded.join(', ')}. A new status needs a terminal/non-terminal ` +
+        `DECISION recorded in V1_TERMINAL_VERDICTS and in TERMINAL_TASK_STATUSES ` +
+        `— it is not a test to relax.`,
+    ).toEqual([]);
+
     const owned: Record<string, boolean> = {};
-    const sdkV1: Record<string, boolean> = {};
+    const recorded: Record<string, boolean> = {};
     for (const status of V2_TASK_STATUS_VALUES) {
       owned[status] = isTaskTerminal(status);
-      // The oracle's parameter is v1's status union. Feeding it v2's runtime
-      // vocabulary is the point of the comparison, so the population is
-      // filtered to what v1 declares rather than asserted into the union — a
-      // status v2 has and v1 does not is a real divergence and shows up below
-      // as a missing key, not as a cast that hides it.
-      sdkV1[status] = isV1TaskTerminalFor(status);
+      recorded[status] = V1_TERMINAL_VERDICTS[status]!;
     }
     expect(
       owned,
-      'The owned terminal predicate disagrees with the v1 SDK oracle. Either ' +
-        'the replacement drifted, or a v2 release changed the status ' +
-        'vocabulary — both need a decision, neither is a test to relax.',
-    ).toEqual(sdkV1);
+      'The owned terminal predicate disagrees with the RECORDED v1 verdicts. ' +
+        'v1 is no longer installed, so this table is evidence rather than a ' +
+        'live oracle (see V1_TERMINAL_VERDICTS) — a disagreement means the ' +
+        'replacement drifted from semantics that were measured, not that the ' +
+        'oracle moved. Neither is a test to relax.',
+    ).toEqual(recorded);
 
     // Both verdicts must actually occur, or "agreement" is a constant function.
     const verdicts = new Set(Object.values(owned));
@@ -373,28 +366,38 @@ describe('DR-0 / task 051 — replacement Tasks-store seam', () => {
 });
 
 /**
- * Call the v1 oracle with a status drawn from v2's runtime vocabulary.
+ * The v1 oracle's verdict table, FROZEN as recorded evidence (task 049).
  *
- * `isV1TaskTerminal` is typed against v1's status union, and the population
- * here is a `string[]` read out of v2's schema at runtime. Rather than assert
- * the string into the union (which would spend cast budget AND hide a genuine
- * vocabulary divergence), the comparison is routed through v1's own membership
- * check: a status v1 does not declare is, by v1's semantics, not terminal —
- * which is exactly what `isTerminal`'s disjunction returns for it.
+ * ── Why this is a literal now, when a literal was previously the wrong shape ──
+ * Until task 049 this comparison called `isTerminal` out of
+ * `@modelcontextprotocol/sdk@1.29.0` live, which is what made it a genuine
+ * differential: two npm packages that could disagree. DR-0's source migration
+ * removed the v1 dependency outright, so that authority no longer exists to
+ * call. There is no honest way to keep calling it, and inventing a local
+ * re-implementation and calling it an oracle would be the "one authority wearing
+ * two names" defect DR-30's oracle-sources check exists to reject.
+ *
+ * So the oracle is retired the only way a retired oracle can stay useful: its
+ * verdicts are written down, with provenance, as the historical measurement they
+ * are. This table was produced by running v1 `1.29.0`'s `isTerminal` over v2
+ * `2.0.0`'s full `TaskStatusSchema` vocabulary at migration time, and it is
+ * evidence rather than an authority — it cannot re-derive itself, and it is
+ * labelled so no future reader mistakes it for a live check.
+ *
+ * What it still catches is real and is the reason it is not simply deleted: any
+ * future edit to `isTaskTerminal` that changes a verdict fails here, against a
+ * table the edit's author did not write. What it can no longer catch is v1
+ * changing — which is moot, because v1 is gone.
+ *
+ * The LIVE half of the differential survives in the test body: v2 `core`'s
+ * `TaskStatusSchema` is still read at runtime, so a v2 release that adds or
+ * renames a status makes the vocabulary assertions fail rather than silently
+ * widening the population.
  */
-function isV1TaskTerminalFor(status: string): boolean {
-  for (const known of V1_TASK_STATUSES) {
-    if (known === status) return isV1TaskTerminal(known);
-  }
-  return false;
-}
-
-/**
- * v1's task-status vocabulary, written out so each entry is typed as the
- * literal the v1 oracle accepts. This is the ONE hand-written list in the
- * comparison, and it is deliberately on the *oracle's* side: if v2 grows a
- * status v1 never had, `isV1TaskTerminalFor` reports `false` for it and the
- * equality assertion fails if the owned predicate says otherwise.
- */
-const V1_TASK_STATUSES: readonly ('working' | 'input_required' | 'completed' | 'failed' | 'cancelled')[] =
-  ['working', 'input_required', 'completed', 'failed', 'cancelled'];
+const V1_TERMINAL_VERDICTS: Readonly<Record<string, boolean>> = {
+  working: false,
+  input_required: false,
+  completed: true,
+  failed: true,
+  cancelled: true,
+};

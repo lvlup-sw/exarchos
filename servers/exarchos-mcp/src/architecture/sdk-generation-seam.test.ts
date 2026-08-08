@@ -310,11 +310,25 @@ import type { Tool } from '@modelcontextprotocol/core';
         'escape the mixing gate. Add them to V1_PACKAGE / V2_PACKAGES.',
     ).toEqual([]);
 
-    // DR-0's premise: BOTH generations are installed side by side. If either
-    // side disappears, the alongside-install has ended — which is a real
-    // milestone (v1 removal) that must be an explicit, reviewed edit here.
+    // ── THE ALONGSIDE-INSTALL HAS ENDED (task 049) ──────────────────────────
+    // The previous revision asserted `['v1', 'v2']` and said the milestone
+    // "must be an explicit, reviewed edit here". This is that edit: DR-0's
+    // source migration completed, nothing imports v1, and the dependency was
+    // removed. The tree is single-generation.
+    //
+    // The assertion is kept EXACT (`toEqual`) rather than loosened to "contains
+    // v2". An exact expectation is what made the v1 removal visible here in the
+    // first place, and the same tooth now catches the opposite mistake — a v1
+    // dependency creeping back in via a transitive hoist or a reverted lockfile
+    // would fail this immediately instead of quietly restoring the two-
+    // generation hazard the seam's brand exists to police.
     const generations = new Set(mcpDeps.map((n) => classifySdkImport(n)));
-    expect([...generations].sort()).toEqual(['v1', 'v2']);
+    expect(
+      [...generations].sort(),
+      'The installed MCP generation set changed. Task 049 left this tree on v2 ' +
+        'alone; a v1 entry reappearing is the alongside-install returning ' +
+        'unreviewed, and a v2 entry disappearing means the server has no SDK.',
+    ).toEqual(['v2']);
   });
 });
 
@@ -430,6 +444,7 @@ describe('DR-26 — collectSdkImports resolves imports, not text', () => {
       sites: [seamSite, v2SeamSite],
       seamModulePresent: true,
       moduleCount: 0,
+      installedGenerations: ['v1', 'v2'],
     });
     expect(empty.ok).toBe(false);
     expect(empty.moduleCount).toBe(0);
@@ -442,6 +457,7 @@ describe('DR-26 — collectSdkImports resolves imports, not text', () => {
       sites: [seamSite, v2SeamSite],
       seamModulePresent: true,
       moduleCount: 1,
+      installedGenerations: ['v1', 'v2'],
     });
     expect(populated.diagnostics).toEqual([]);
     expect(populated.ok).toBe(true);
@@ -452,6 +468,7 @@ describe('DR-26 — collectSdkImports resolves imports, not text', () => {
       sites: [],
       seamModulePresent: true,
       moduleCount: 400,
+      installedGenerations: ['v1', 'v2'],
     });
     expect(noSites.ok).toBe(false);
     expect(noSites.diagnostics.map((d) => d.code)).toContain(
@@ -487,6 +504,7 @@ describe('DR-26 — collectSdkImports resolves imports, not text', () => {
       sites,
       seamModulePresent: true,
       moduleCount: 2,
+      installedGenerations: ['v1', 'v2'],
     });
 
     expect(

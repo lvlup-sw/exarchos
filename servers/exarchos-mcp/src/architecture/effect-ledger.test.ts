@@ -624,16 +624,29 @@ describe('DR-13 kill — the widened detector sees evaded network clients', () =
   });
 
   it('EffectLedger_ClosedWorldAllowlist_IsPerPackageNotPerSubpath', () => {
-    // `@modelcontextprotocol/sdk/server/mcp.js` must be covered by the ONE
-    // `@modelcontextprotocol/sdk` allowlist entry, or every SDK subpath would be
-    // an unvetted dependency and the live tree would go red.
-    expect(packageNameOf('@modelcontextprotocol/sdk/server/mcp.js')).toBe(
-      '@modelcontextprotocol/sdk',
+    // `@modelcontextprotocol/server/stdio` must be covered by the ONE
+    // `@modelcontextprotocol/server` allowlist entry, or every SDK subpath would
+    // be an unvetted dependency and the live tree would go red.
+    //
+    // Retargeted from the v1 package by task 049. The scoped-package subpath
+    // rule is what is under test, so the specifier must name a package that is
+    // actually ALLOWLISTED — pointing it at the removed v1 SDK would have
+    // turned this into an assertion that unvetted packages are vetted, and it
+    // would have failed for the right reason while reading as the wrong one.
+    expect(packageNameOf('@modelcontextprotocol/server/stdio')).toBe(
+      '@modelcontextprotocol/server',
     );
     expect(packageNameOf('gray-matter')).toBe('gray-matter');
     expect(packageNameOf('yaml/dist/x.js')).toBe('yaml');
 
-    expect(classifySpecifier('@modelcontextprotocol/sdk/types.js')).toBeUndefined();
+    expect(classifySpecifier('@modelcontextprotocol/server/stdio')).toBeUndefined();
+    // …and the RETIRED generation is no longer vetted: a v1 subpath is now an
+    // unvetted dependency, which is the allowlist correctly declining to vouch
+    // for a package this tree does not install.
+    expect(classifySpecifier('@modelcontextprotocol/sdk/types.js')).toEqual({
+      effectClass: 'network',
+      evidence: 'unvetted-dependency:@modelcontextprotocol/sdk',
+    });
     expect(classifySpecifier('@acme/anything/deep/path.js')).toEqual({
       effectClass: 'network',
       evidence: 'unvetted-dependency:@acme/anything',

@@ -21,12 +21,12 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { z } from 'zod';
 import {
-  createV1Client,
-  createV1LinkedTransportPair,
-  connectV1Client,
-  connectV1Server,
-  type V1Client,
-  type V1InMemoryTransport,
+  createV2Client,
+  createV2LinkedTransportPair,
+  connectV2Client,
+  connectV2Server,
+  type V2Client,
+  type V2InMemoryTransport,
 } from '../../sdk/seam.js';
 import { createMcpServer } from '../../adapters/mcp.js';
 import { EventStore } from '../../event-store/store.js';
@@ -64,9 +64,9 @@ const READ_ONLY_PROBES: readonly ReadOnlyProbe[] = [
 
 describe('F.2 — tools/call carrier round-trip (Wave 0 §7)', () => {
   let tmpDir: string;
-  let client: V1Client;
-  let serverTransport: V1InMemoryTransport;
-  let clientTransport: V1InMemoryTransport;
+  let client: V2Client;
+  let serverTransport: V2InMemoryTransport;
+  let clientTransport: V2InMemoryTransport;
 
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tools-call-test-'));
@@ -79,14 +79,14 @@ describe('F.2 — tools/call carrier round-trip (Wave 0 §7)', () => {
     };
 
     const server = createMcpServer(ctx);
-    [clientTransport, serverTransport] = createV1LinkedTransportPair();
-    client = createV1Client(
+    [clientTransport, serverTransport] = createV2LinkedTransportPair();
+    client = createV2Client(
       { name: 'tools-call-test', version: '1.0.0' },
       { capabilities: {} },
     );
     await Promise.all([
-      connectV1Server(server, serverTransport),
-      connectV1Client(client, clientTransport),
+      connectV2Server(server, serverTransport),
+      connectV2Client(client, clientTransport),
     ]);
   });
 

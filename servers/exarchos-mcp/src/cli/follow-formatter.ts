@@ -18,7 +18,7 @@
  * `updateTaskStatus`), reused here instead of a fresh `new Date()` so
  * the rendered timeline matches the event-store record exactly.
  */
-import type { V1Task as Task } from '../sdk/seam.js';
+import type { V2Task as Task } from '../sdk/seam.js';
 
 /**
  * Widened in #1440 Op 1 (T7): the CLI `--follow` predicate now admits

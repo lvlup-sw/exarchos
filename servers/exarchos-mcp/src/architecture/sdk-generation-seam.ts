@@ -296,7 +296,12 @@ export function lintSdkGenerationMixing(
  * would spend the wave's remaining cast budget (5 sites total) on a list that
  * the checker can type for free.
  */
-const ALL_GENERATIONS: readonly SdkGeneration[] = ['v1', 'v2'];
+// `ALL_GENERATIONS` was deleted by task 049 rather than left unused. It listed
+// the generation VOCABULARY and was read as though it listed what is installed —
+// the conflation that made `SEAM_GENERATION_UNCOVERED` fire on a correctly
+// migrated tree. Coverage is now driven by `SdkSeamScan.installedGenerations`;
+// the vocabulary itself still has exactly one authority, `SdkGeneration` in
+// `../sdk/brand.ts`, and is deliberately NOT restated here.
 
 /** One resolved SDK import, attributed to the module that made it. */
 export interface SdkImportSite {
@@ -330,6 +335,25 @@ export interface SdkSeamScan {
    * would hand every caller the vacuity back.
    */
   readonly moduleCount: number;
+  /**
+   * Which generations are actually INSTALLED, read from `package.json`.
+   *
+   * ── Why this is an input rather than the module's own constant (task 049) ───
+   * `SEAM_GENERATION_UNCOVERED` claims *"the seam imports nothing from the {g}
+   * SDK, yet {g} is still an installed dependency"* — a statement about the
+   * dependency manifest. Until task 049 it was checked against the generation
+   * VOCABULARY (`['v1', 'v2']`) instead, which silently assumed every generation
+   * the brand can name is also installed. DR-0's migration removed v1 outright,
+   * making that assumption false and the diagnostic's own remedy ("or remove the
+   * dependency") unreachable: taking it produced the very failure it advised.
+   *
+   * So the census now reads installation from the caller. Required, never
+   * defaulted, for the same reason {@link SdkSeamScan.moduleCount} is: a default
+   * of "assume both" restores the bug, and a default of "assume none" makes the
+   * coverage arm vacuous. An empty list is itself reported (see
+   * `NO_SDK_GENERATION_INSTALLED`) rather than passing quietly.
+   */
+  readonly installedGenerations: readonly SdkGeneration[];
 }
 
 export type SdkSeamDiagnostic =
@@ -349,6 +373,10 @@ export type SdkSeamDiagnostic =
   | {
       readonly code: 'SEAM_IMPORTS_NO_SDK';
       readonly module: string;
+      readonly message: string;
+    }
+  | {
+      readonly code: 'NO_SDK_GENERATION_INSTALLED';
       readonly message: string;
     }
   | {
@@ -401,8 +429,10 @@ export function collectSdkImportSites(
 }
 
 /**
- * Verdict over an already-collected scan. Five independent fail-closed teeth,
- * each covering a distinct way this check could quietly become vacuous:
+ * Verdict over an already-collected scan. Independent fail-closed teeth, each
+ * covering a distinct way this check could quietly become vacuous (the list is
+ * enumerated rather than counted — a written total is one more thing to get
+ * wrong when a tooth is added, as task 049 added one):
  *
  *   - `EMPTY_MODULE_POPULATION`     — the walk visited no modules at all, so
  *     every count below it is zero for a reason that has nothing to do with the
@@ -413,6 +443,9 @@ export function collectSdkImportSites(
  *     brand covers nothing;
  *   - `SEAM_IMPORTS_NO_SDK`          — the seam file exists but imports no SDK,
  *     so it is a seam in name only;
+ *   - `NO_SDK_GENERATION_INSTALLED`  — the manifest reader resolved no installed
+ *     generation at all, which would make the coverage tooth below vacuously
+ *     green;
  *   - `SEAM_GENERATION_UNCOVERED`    — an installed generation no longer reaches
  *     the seam, so half the brand has rotted while still reading as present.
  *
@@ -471,8 +504,20 @@ export function runSdkSeamCensus(scan: SdkSeamScan): SdkSeamCensusResult {
         `that draws from neither generation brands nothing — it is a seam in ` +
         `name only, and every consumer of it is unprotected.`,
     });
+  } else if (scan.installedGenerations.length === 0) {
+    // Fail-closed twin to the empty-denominator teeth above: "no generation is
+    // uncovered" is trivially true of an empty installed set, so an empty set
+    // must be a failure rather than the strongest-looking pass in the file.
+    diagnostics.push({
+      code: 'NO_SDK_GENERATION_INSTALLED',
+      message:
+        'The census was handed ZERO installed SDK generations, which makes the ' +
+        'coverage arm below vacuously green. A tree with no MCP SDK dependency ' +
+        'at all is not a migrated tree — it is an unreadable manifest or a ' +
+        'broken reader.',
+    });
   } else {
-    for (const generation of ALL_GENERATIONS) {
+    for (const generation of scan.installedGenerations) {
       if (seamSites.some((site) => site.generation === generation)) continue;
       diagnostics.push({
         code: 'SEAM_GENERATION_UNCOVERED',

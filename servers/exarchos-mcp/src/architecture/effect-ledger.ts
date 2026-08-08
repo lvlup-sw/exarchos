@@ -334,13 +334,27 @@ const THIRD_PARTY_NETWORK_CLIENTS: ReadonlySet<string> = new Set([
  * This IS an exact-specifier list, but it grows in the SAFE direction: a
  * forgotten entry fails the census (loud), whereas a forgotten entry in the old
  * client denylist silently passed it. Match is on the PACKAGE name, so every
- * subpath of a listed package (`@modelcontextprotocol/sdk/server/mcp.js`) is
+ * subpath of a listed package (`@modelcontextprotocol/server/stdio`) is
  * covered by one entry.
  *
- *   - `@modelcontextprotocol/sdk` — the MCP protocol SDK (v1). It DOES own
- *     transport I/O, but only over the stdio/in-memory transports this server
- *     constructs; the server never gives it a network transport. Vetted, not
- *     ignored.
+ *   (`@modelcontextprotocol/sdk` — the v1 SDK — was REMOVED from this list by
+ *   task 049 along with the dependency itself. It was a declared owner with no
+ *   live import site, which is precisely the stale-cover condition the census
+ *   fails on; leaving it would have been an allowlist entry vouching for a
+ *   package that is not installed.)
+ *
+ *   - `@modelcontextprotocol/client` — the v2 MCP client package, added by task
+ *     049 so the integration proofs could drive a v2 server without a
+ *     cross-generation transport pair. The judgement is the same shape as the
+ *     `server` entry and just as checkable: the seam draws exactly `Client` and
+ *     `StdioClientTransport`, and `connectV2Client` accepts only a branded
+ *     `V2Transport`, of which the seam constructs only stdio and in-memory
+ *     halves. The package's network-capable surface —
+ *     `SSEClientTransport`, `StreamableHTTPClientTransport`, `withOAuth`,
+ *     `auth`, `createFetchWithInit` and the OAuth discovery/token helpers — is
+ *     not re-exported and therefore unreachable from shipped code. Re-exporting
+ *     any of those invalidates this entry and requires an `EFFECT_OWNERSHIP`
+ *     rule naming the owner.
  *   - `@modelcontextprotocol/server` — the v2 MCP server package, reached ONLY
  *     through the owned SDK seam (`sdk/seam.ts`, DR-26). The same judgement as
  *     v1 applies, and here it is narrower and checkable: the seam re-exports
@@ -378,8 +392,8 @@ const THIRD_PARTY_NETWORK_CLIENTS: ReadonlySet<string> = new Set([
  *                    validator. All pure data transforms.
  */
 export const INERT_DEPENDENCIES: ReadonlySet<string> = new Set([
+  '@modelcontextprotocol/client',
   '@modelcontextprotocol/core',
-  '@modelcontextprotocol/sdk',
   '@modelcontextprotocol/server',
   'better-sqlite3',
   'commander',

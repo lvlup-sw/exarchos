@@ -18,11 +18,11 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import {
-  createV1Client,
-  createV1LinkedTransportPair,
-  connectV1Client,
-  connectV1Server,
-  type V1Client,
+  createV2Client,
+  createV2LinkedTransportPair,
+  connectV2Client,
+  connectV2Server,
+  type V2Client,
 } from '../../sdk/seam.js';
 import { createMcpServer } from '../../adapters/mcp.js';
 import { buildCli } from '../../adapters/cli.js';
@@ -60,7 +60,7 @@ function maskNondeterministic(value: unknown): unknown {
 
 describe('F.3 — CLI ↔ MCP parity (Wave 0 §7)', () => {
   let tmpDir: string;
-  let client: V1Client;
+  let client: V2Client;
   let ctx: DispatchContext;
 
   beforeEach(async () => {
@@ -70,14 +70,14 @@ describe('F.3 — CLI ↔ MCP parity (Wave 0 §7)', () => {
     ctx = { stateDir: tmpDir, eventStore, enableTelemetry: false };
 
     const server = createMcpServer(ctx);
-    const [clientTransport, serverTransport] = createV1LinkedTransportPair();
-    client = createV1Client(
+    const [clientTransport, serverTransport] = createV2LinkedTransportPair();
+    client = createV2Client(
       { name: 'cli-parity-test', version: '1.0.0' },
       { capabilities: {} },
     );
     await Promise.all([
-      connectV1Server(server, serverTransport),
-      connectV1Client(client, clientTransport),
+      connectV2Server(server, serverTransport),
+      connectV2Client(client, clientTransport),
     ]);
   });
 

@@ -17,19 +17,38 @@
 // (recursively key-sorted, tools ordered by name) and compares it against a
 // committed golden file.
 //
-// HONEST SCOPE NOTE (task 049): the golden is currently produced by the **v1**
-// adapter, because the source migration is blocked — v2 2.0.0 removed the
-// experimental Tasks *store* seam (`ServerOptions.taskStore`, and the
-// `TaskStore` / `CreateTaskOptions` / `isTerminal` interface module) that
-// `adapters/mcp.ts` and `EventSourcedTaskStore` are built on. Until that is
-// redesigned, this golden does two jobs:
+// ── THE MIGRATION HAPPENED, AND THE GOLDEN MOVED BY EXACTLY ONE FIELD ───────
 //
-//   1. NOW — proves that adding the v2 packages alongside v1 perturbed no
-//      wire bytes (an additive dependency change must be inert).
-//   2. LATER — is the exact artifact the migration must reproduce. When
-//      `adapters/mcp.ts` moves to v2, this test passing unchanged IS the
-//      byte-identity proof. A diff here is the migration changing the
-//      contract, and must be reviewed rather than regenerated reflexively.
+// This golden is now produced by the **v2** adapter. Its previous revision said
+// a diff here "must be reviewed rather than regenerated reflexively". It was
+// reviewed; this is the review.
+//
+// MEASURED, not eyeballed: with the `execution` block removed from both sides,
+// the old and new goldens are byte-identical — same four tools, same order,
+// same descriptions, same `inputSchema`, `outputSchema` and `annotations`. The
+// ONLY delta across the whole `tools/list` surface is that every tool lost
+//
+//     "execution": { "taskSupport": "forbidden" }
+//
+// WHY IT IS NOT RECOVERABLE, rather than merely not recovered. v2's
+// `registerTool` config accepts `title`, `description`, `inputSchema`,
+// `outputSchema`, `annotations`, `icons` and `_meta` — and no `execution`
+// member at all. The field was never ours to declare: under v1 the SDK
+// SYNTHESISED it from the `taskStore` wiring, and v2 ships no server-side Tasks
+// runtime to synthesise it from. `@modelcontextprotocol/server@2.0.0` groups
+// `execution.taskSupport` with `capabilities.tasks` as one "known deleted-field
+// set", which is the same surface operator decision D10 accepted the loss of.
+//
+// So this is D10's accepted cost showing up one layer out from where D10 named
+// it. D10 said `tasks/*` answers a typed `-32601`; the same deletion also
+// removes the per-tool advertisement of task support. Recorded here explicitly
+// because DR-0's acceptance criterion is "byte-identical `tools/list`", and
+// that criterion now holds with exactly one named, structurally-forced
+// exception rather than absolutely.
+//
+// The test's job is unchanged and undiminished: any FURTHER diff is the
+// migration changing the contract, and must be reviewed rather than regenerated
+// reflexively.
 //
 // Regenerate deliberately (and review the diff) with:
 //   UPDATE_TOOLS_LIST_GOLDEN=1 npx vitest run src/__tests__/integration/tools-list-golden.test.ts
@@ -40,11 +59,11 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import {
-  createV1Client,
-  createV1LinkedTransportPair,
-  connectV1Client,
-  connectV1Server,
-  type V1Client,
+  createV2Client,
+  createV2LinkedTransportPair,
+  connectV2Client,
+  connectV2Server,
+  type V2Client,
 } from '../../sdk/seam.js';
 import { createMcpServer } from '../../adapters/mcp.js';
 import { EventStore } from '../../event-store/store.js';
@@ -72,7 +91,7 @@ function canonicalise(value: unknown): unknown {
 
 describe('DR-0 — tools/list wire golden', () => {
   let tmpDir: string;
-  let client: V1Client;
+  let client: V2Client;
 
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tools-list-golden-'));
@@ -85,14 +104,14 @@ describe('DR-0 — tools/list wire golden', () => {
     };
 
     const server = createMcpServer(ctx);
-    const [clientTransport, serverTransport] = createV1LinkedTransportPair();
-    client = createV1Client(
+    const [clientTransport, serverTransport] = createV2LinkedTransportPair();
+    client = createV2Client(
       { name: 'tools-list-golden', version: '1.0.0' },
       { capabilities: {} },
     );
     await Promise.all([
-      connectV1Server(server, serverTransport),
-      connectV1Client(client, clientTransport),
+      connectV2Server(server, serverTransport),
+      connectV2Client(client, clientTransport),
     ]);
   });
 

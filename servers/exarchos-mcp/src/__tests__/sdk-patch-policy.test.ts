@@ -33,6 +33,36 @@
 // being applied to the live tree. Without that, the death-condition arm would
 // be vacuous today (v1 is present) and would assert nothing at all.
 
+/**
+ * DR-30 authorities. The lifetime rule is a pure function over two sources,
+ * neither derived from the other:
+ *
+ *   • `../../package.json` — which SDK generations are DECLARED.
+ *   • the `patches/` DIRECTORY LISTING — which patch files exist, and for which
+ *     package@version (`patch-package` matches by the filename).
+ *
+ * A patch cannot compute the manifest and the manifest cannot compute the
+ * patches directory, so the two genuinely disagree in both directions the
+ * module docblock enumerates: deleted-too-early and kept-too-long.
+ *
+ * `patches/` cannot be NAMED as a path authority any more — task 049 deleted the
+ * last patch, so the directory does not exist and an annotation pointing at it
+ * would name an authority nobody can consult. The second declared authority is
+ * therefore `../../package-lock.json`, and it is a real one rather than a
+ * stand-in: the manifest records what is DECLARED, the lockfile records what npm
+ * actually RESOLVED, and a lockfile still carrying a v1 tree after the manifest
+ * dropped it is precisely how `patch-package` would go on finding a v1 install
+ * to patch. That is the deleted-too-early failure mode arriving through the back
+ * door, and nothing else in this file would catch it.
+ *
+ * (This file-level annotation replaces one that lived on
+ * `SdkPatch_RegeneratedContent_RetainsEveryBehaviouralHunk`, retired by task
+ * 049 — see the retirement note below. Its authorities were the patch text and
+ * the installed v1 modules; both are gone with the dependency.)
+ *
+ * @oracle-sources: ../../package.json, ../../package-lock.json
+ */
+
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -196,22 +226,69 @@ describe('DR-0 / task 050 — SDK patch lifetime policy', () => {
   });
 
   /**
-   * The live tree. Today v1 is still installed, so the expected verdict is
-   * "patch present, version matching, nothing to report".
+   * The live tree. Task 049 removed v1 AND its patch together, so the expected
+   * verdict is now "no v1 dependency, no v1 patch, nothing to report" — the
+   * death condition this policy was written to reach, actually reached.
+   *
+   * ── The anti-vacuity guard had to MOVE, not just relax ──────────────────────
+   * This arm used to assert `patches.length > 0` on the grounds that an empty
+   * read would make the verdict meaningless. That was right while a patch was
+   * expected; it is wrong now, because zero patches is the CORRECT state and the
+   * assertion would force an orphan file to exist forever to satisfy its own
+   * vacuity check.
+   *
+   * Deleting it outright would be the real hazard, so the tooth is relocated
+   * rather than dropped: the rule's non-vacuity is established by
+   * `CheckPatchLifetime_DisagreeingPopulations_AreRejected`, which drives
+   * `checkPatchLifetime` over BOTH populations synthetically (v1-present and
+   * v1-absent) and requires findings from each. A broken rule that returns `[]`
+   * for everything fails THERE, so `[]` here is meaningful. What remains
+   * checkable live — that the manifest read resolved something at all — stays.
    */
   it('PatchLifetime_LiveTree_AgreesWithTheDeclaredPin', () => {
     const dependencies = readDependencies();
     const patches = readPatchFilenames();
 
-    // Anti-vacuity: an empty read of either input would make the verdict below
-    // meaningless while still reporting green.
+    // Anti-vacuity on the input the tree can still be wrong about: a manifest
+    // read that resolved nothing would make the verdict below meaningless.
     expect(Object.keys(dependencies).length).toBeGreaterThan(0);
-    expect(patches.length).toBeGreaterThan(0);
 
     const findings = checkPatchLifetime(dependencies, patches);
     expect(
       findings.map((f) => f.message),
       'The SDK patch and the declared dependency disagree.',
+    ).toEqual([]);
+
+    // The death condition, asserted as a pair rather than inferred. Either half
+    // alone is a defect the rule above already names: a patch with no package
+    // is an orphan, a v1 package with no patch is the silent wire regression.
+    expect(dependencies[V1_PACKAGE]).toBeUndefined();
+    expect(patches.filter((n) => n.startsWith(V1_PATCH_PREFIX))).toEqual([]);
+
+    // ── SECOND AUTHORITY: what npm RESOLVED, not what we declared ────────────
+    // The lockfile is not derived from the manifest — it is the record of a
+    // resolution that already happened, and it can lag one behind. A lockfile
+    // still carrying the v1 tree would put a v1 install back under
+    // `node_modules` for `patch-package` to find, which is the deleted-too-early
+    // regression re-entering through a path the manifest check cannot see.
+    const lockRaw: unknown = JSON.parse(
+      readFileSync(join(packageRoot, 'package-lock.json'), 'utf8'),
+    );
+    const lockPackages =
+      typeof lockRaw === 'object' && lockRaw !== null
+        ? ((lockRaw as { packages?: Record<string, unknown> }).packages ?? {})
+        : {};
+    const lockedPaths = Object.keys(lockPackages);
+
+    // Anti-vacuity: an unreadable or empty lockfile must not read as "clean".
+    expect(lockedPaths.length).toBeGreaterThan(0);
+
+    expect(
+      lockedPaths.filter((p) => p.endsWith(`node_modules/${V1_PACKAGE}`)),
+      'The lockfile still resolves the v1 SDK even though the manifest dropped ' +
+        'it. `npm install` would restore a v1 tree under node_modules, and any ' +
+        'v1 patch would start applying again — run `npm install` to re-resolve ' +
+        'and commit the updated lockfile.',
     ).toEqual([]);
   });
 
@@ -235,88 +312,38 @@ describe('DR-0 / task 050 — SDK patch lifetime policy', () => {
   });
 
   /**
-   * The patch's SUBSTANCE, not its prose.
+   * ── RETIRED BY TASK 049, deliberately and with its guarantee re-homed ──────
    *
-   * Task 050 regenerated the patch to re-base its justification (it is a
-   * v1-only backport of v2-native behaviour, not a workaround for an open
-   * upstream bug). Regenerating from a mutated `node_modules` is exactly how a
-   * hunk gets silently lost, so the three behavioural changes are pinned by
-   * their code, not by their comments.
+   * `SdkPatch_RegeneratedContent_RetainsEveryBehaviouralHunk` used to pin the
+   * patch's three behavioural hunks against TWO authorities: the patch file
+   * (which DECLARED them) and the installed v1 SDK under `node_modules` (which
+   * DEMONSTRATED them). DR-0's source migration removed
+   * `@modelcontextprotocol/sdk` entirely and this task deleted the now-orphan
+   * patch, so BOTH authorities are gone — not stale, gone. There is no honest
+   * way to keep the assertion: it would be reading a file that does not exist
+   * about a package that is not installed.
    *
-   * BLOCKING ARM — every behavioural change must be present in the patch AND
-   * live in the installed SDK.
+   * WHAT THE PATCH EXISTED TO GUARANTEE IS UNCHANGED AND STILL CHECKED, which
+   * is the only reason this is a retirement rather than a loss. The patch was a
+   * v1-only backport of behaviour v2 has natively: `tools/list` emitting
+   * draft-2020-12, and the discriminated-union LCD envelope staying
+   * object-rooted instead of being silently dropped. Task 050 predicted this
+   * and said the conformance test is "retained regardless as a conformance
+   * check rather than a patch guard" — so the surviving guard is
+   * `integration/tools-list-2020-12.test.ts`, which asserts the WIRE OUTPUT
+   * rather than the mechanism that produced it. It passes against v2 with no
+   * patch applied, which is the empirical answer to the question task 050
+   * posed: SEP-2106 covers both halves.
    *
-   * NEGATIVE TWIN / second authority — the patch file DECLARES the changes;
-   * `node_modules/@modelcontextprotocol/sdk` DEMONSTRATES them. Neither is
-   * computed from the other, so they can genuinely disagree: a patch that is
-   * present but never applied (postinstall removed, filename version drifted,
-   * a hand-edit to node_modules) satisfies the file check alone while the wire
-   * quietly reverts to draft-07. Checking only the patch text would call that
-   * green.
+   * That substitution is strictly better than what it replaces. The old arm
+   * checked that a specific workaround was present in a specific vendored file;
+   * the surviving one checks the property anyone actually cares about, and
+   * would stay meaningful across any future SDK change.
    *
-   * @kill-seam: a patch file that is present and correct but never actually applied to the installed SDK
-   * @oracle-sources: patches/@modelcontextprotocol+sdk+1.29.0.patch, ../../node_modules/@modelcontextprotocol/sdk/dist/esm/server/mcp.js
+   * The LIFETIME rule above (`PatchLifetime_LiveTree_AgreesWithTheDeclaredPin`)
+   * is deliberately NOT retired: it is a pure function over (dependencies,
+   * patch filenames) with both populations exercised synthetically, so it needs
+   * no v1 to stay sharp — and it is precisely the rule that flagged this
+   * orphaned patch for deletion in the first place.
    */
-  it('SdkPatch_RegeneratedContent_RetainsEveryBehaviouralHunk', () => {
-    const patches = readPatchFilenames().filter((n) => n.startsWith(V1_PATCH_PREFIX));
-    expect(patches.length).toBe(1);
-    const patchName = patches[0];
-    if (patchName === undefined) throw new Error('no v1 patch resolved');
-    const body = readFileSync(join(patchesDir, patchName), 'utf8');
-
-    // Both files the patch must reach.
-    expect(body).toContain('server/mcp.js');
-    expect(body).toContain('server/zod-compat.js');
-
-    // Added lines only — a `+` prefix, so a coincidental match in the removed
-    // or context text cannot satisfy these.
-    const added = body
-      .split('\n')
-      .filter((line) => line.startsWith('+') && !line.startsWith('+++'))
-      .join('\n');
-
-    // Hunk 1/2 — the dialect. Both the input and the output conversion paths.
-    const targetLines = added
-      .split('\n')
-      .filter((l) => l.includes("target: 'draft-2020-12'"));
-    expect(
-      targetLines.length,
-      'the draft-2020-12 target must be set on BOTH the inputSchema and the ' +
-        'outputSchema conversion — one alone leaves half the manifest on draft-07',
-    ).toBeGreaterThanOrEqual(2);
-
-    // Hunk 3 — the object-root splice, on both paths.
-    const spliceLines = added.split('\n').filter((l) => l.includes("emitted.type = 'object'"));
-    expect(spliceLines.length).toBeGreaterThanOrEqual(2);
-
-    // Hunk 4 — DU acceptance, without which the splice never runs because the
-    // schema is dropped before it gets there.
-    expect(added).toContain("def.type === 'union'");
-    expect(added).toContain('def.discriminator');
-
-    // ── Second authority: the SAME changes, live in the installed SDK ───────
-    // A declared-but-unapplied patch is the failure this arm exists to catch.
-    const installedMcp = join(SDK_SERVER_DIR, 'mcp.js');
-    const installedZodCompat = join(SDK_SERVER_DIR, 'zod-compat.js');
-    expect(
-      existsSync(installedMcp) && existsSync(installedZodCompat),
-      `${V1_PACKAGE} is a dependency but its server modules are not installed — ` +
-        'run npm install before trusting this suite',
-    ).toBe(true);
-
-    const liveMcp = readFileSync(installedMcp, 'utf8');
-    const liveZodCompat = readFileSync(installedZodCompat, 'utf8');
-
-    expect(
-      liveMcp.split("target: 'draft-2020-12'").length - 1,
-      'the installed SDK does not carry the draft-2020-12 target on both ' +
-        'conversion paths — the patch is present but NOT applied. Run `npx ' +
-        'patch-package` (postinstall should have done this).',
-    ).toBeGreaterThanOrEqual(2);
-    expect(liveMcp.split("emitted.type = 'object'").length - 1).toBeGreaterThanOrEqual(2);
-    expect(
-      liveZodCompat,
-      'the installed SDK still drops discriminated unions — the patch is not applied',
-    ).toContain('def.discriminator');
-  });
 });

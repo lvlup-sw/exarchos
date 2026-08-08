@@ -35,7 +35,13 @@ describe('Package scaffold', () => {
       const pkg = JSON.parse(raw);
 
       expect(pkg.dependencies).toBeDefined();
-      expect(pkg.dependencies['@modelcontextprotocol/sdk']).toBeDefined();
+      // Retargeted by task 049 (DR-0): the v1 `@modelcontextprotocol/sdk` was
+      // removed once nothing imported it. The MCP dependency is now the v2
+      // trio, and all three must be present — a server package holding only
+      // `core` would typecheck and serve nothing.
+      expect(pkg.dependencies['@modelcontextprotocol/core']).toBeDefined();
+      expect(pkg.dependencies['@modelcontextprotocol/server']).toBeDefined();
+      expect(pkg.dependencies['@modelcontextprotocol/client']).toBeDefined();
       expect(pkg.dependencies['zod']).toBeDefined();
     });
 

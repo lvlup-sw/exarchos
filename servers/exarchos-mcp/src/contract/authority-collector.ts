@@ -20,7 +20,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { V1_LATEST_PROTOCOL_VERSION } from '../sdk/seam.js';
+import { V2_LATEST_PROTOCOL_VERSION } from '../sdk/seam.js';
 import { TOOL_REGISTRY } from '../registry.js';
 import {
   computeAuthorities,
@@ -89,7 +89,13 @@ function extractSdkVersionSpec(packageJsonText: string): string {
   if (parsed && typeof parsed === 'object' && 'dependencies' in parsed) {
     const deps = (parsed as { dependencies?: unknown }).dependencies;
     if (deps && typeof deps === 'object') {
-      const spec = (deps as Record<string, unknown>)['@modelcontextprotocol/sdk'];
+      // Retargeted to the v2 server package by task 049 (DR-0). The v1
+      // `@modelcontextprotocol/sdk` dependency is gone, and an extractor still
+      // reading its key would silently return '' — which reads downstream as
+      // "unpinned" rather than "the package moved", i.e. a floating-dependency
+      // alarm nobody could act on. This must name the package the protocol
+      // version above is actually read from.
+      const spec = (deps as Record<string, unknown>)['@modelcontextprotocol/server'];
       if (typeof spec === 'string') return spec;
     }
   }
@@ -119,7 +125,7 @@ export function collectAuthorityInputs(
   return {
     strategosContractsVersion: extractPackageVersion(packageJsonText),
     strategosContractsSource: readText(paths.strategosContractsFile),
-    mcpProtocolVersion: V1_LATEST_PROTOCOL_VERSION,
+    mcpProtocolVersion: V2_LATEST_PROTOCOL_VERSION,
     mcpSdkVersionSpec: extractSdkVersionSpec(packageJsonText),
     actionIds: flattenActionIds(),
     compatibilityPolicyVersion: COMPATIBILITY_POLICY_VERSION,

@@ -25,11 +25,11 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import {
-  createV1Client,
-  createV1LinkedTransportPair,
-  connectV1Client,
-  connectV1Server,
-  type V1Client,
+  createV2Client,
+  createV2LinkedTransportPair,
+  connectV2Client,
+  connectV2Server,
+  type V2Client,
 } from './sdk/seam.js';
 import { createServer } from './index.js';
 import { estimateTokens } from './architecture/description-budget.js';
@@ -78,17 +78,17 @@ afterEach(async () => {
  * a connected in-memory MCP client. Registers teardown in the module-level
  * cleanup stack so a failed assertion never leaks a transport or tmp dir.
  */
-async function bootProductionClient(): Promise<V1Client> {
+async function bootProductionClient(): Promise<V2Client> {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'slim-registration-'));
   // createServer is the production DispatchContext factory — the site of the
   // DR-6 `slimRegistration: true` flip. Driving the test through it (rather
   // than a hand-built ctx) is what ties these assertions to the flip.
   const server = await createServer(tmpDir);
-  const [clientTransport, serverTransport] = createV1LinkedTransportPair();
-  const client = createV1Client({ name: 'slim-registration-test', version: '1.0.0' }, { capabilities: {} });
+  const [clientTransport, serverTransport] = createV2LinkedTransportPair();
+  const client = createV2Client({ name: 'slim-registration-test', version: '1.0.0' }, { capabilities: {} });
   await Promise.all([
-    connectV1Server(server, serverTransport),
-    connectV1Client(client, clientTransport),
+    connectV2Server(server, serverTransport),
+    connectV2Client(client, clientTransport),
   ]);
   cleanups.push(async () => {
     try {

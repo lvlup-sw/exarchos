@@ -22,8 +22,8 @@
 // RESERVED(issue: #1273, owner: exarchos, expires: 2027-01-31) — reserved dead stub; deletion at expiry if unadopted (DR-7 module-intent gate)
 
 import type {
-  V1Result as Result,
-  V1Task as Task,
+  V2Result as Result,
+  V2Task as Task,
 } from '../sdk/seam.js';
 
 import type { EventSourcedTaskStore } from '../task-store/event-sourced-task-store.js';

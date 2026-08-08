@@ -23,11 +23,11 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import {
-  createV1Client,
-  createV1LinkedTransportPair,
-  connectV1Client,
-  connectV1Server,
-  type V1Client,
+  createV2Client,
+  createV2LinkedTransportPair,
+  connectV2Client,
+  connectV2Server,
+  type V2Client,
 } from '../../sdk/seam.js';
 import { createMcpServer } from '../../adapters/mcp.js';
 import { EventStore } from '../../event-store/store.js';
@@ -40,7 +40,7 @@ const MEDIAN_BUDGET_MS = 75;
 
 describe('F.6 — output validation overhead', () => {
   let tmpDir: string;
-  let client: V1Client;
+  let client: V2Client;
 
   beforeAll(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'perf-validation-test-'));
@@ -52,14 +52,14 @@ describe('F.6 — output validation overhead', () => {
       enableTelemetry: false,
     };
     const server = createMcpServer(ctx);
-    const [clientTransport, serverTransport] = createV1LinkedTransportPair();
-    client = createV1Client(
+    const [clientTransport, serverTransport] = createV2LinkedTransportPair();
+    client = createV2Client(
       { name: 'perf-validation-test', version: '1.0.0' },
       { capabilities: {} },
     );
     await Promise.all([
-      connectV1Server(server, serverTransport),
-      connectV1Client(client, clientTransport),
+      connectV2Server(server, serverTransport),
+      connectV2Client(client, clientTransport),
     ]);
   });
 

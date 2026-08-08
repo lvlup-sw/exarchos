@@ -35,13 +35,13 @@
 //     clients that don't support elicitation simply don't advertise it.
 
 import {
-  createV1Client,
-  createV1LinkedTransportPair,
-  connectV1Client,
-  connectV1Server,
-  V1_ELICIT_REQUEST_SCHEMA,
-  type V1Client,
-  type V1Server,
+  createV2Client,
+  createV2LinkedTransportPair,
+  connectV2Client,
+  connectV2Server,
+  V2_ELICIT_REQUEST_METHOD,
+  type V2Client,
+  type V2Server,
 } from '../../sdk/seam.js';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
@@ -117,8 +117,8 @@ export interface ElicitationTestPairOpts {
  * truth via `eventStore.query('elicitation/<operationId>')`.
  */
 export interface ElicitationTestPair {
-  readonly client: V1Client;
-  readonly server: V1Server;
+  readonly client: V2Client;
+  readonly server: V2Server;
   readonly eventStore: EventStore;
   readonly cleanup: () => Promise<void>;
 }
@@ -178,13 +178,13 @@ export async function createElicitationTestPair(
   // attaches to its half; the SDK runs the initialize handshake during
   // `client.connect(...)` so the capability snapshot fires before the
   // first `tools/call` lands.
-  const [clientTransport, serverTransport] = createV1LinkedTransportPair();
+  const [clientTransport, serverTransport] = createV2LinkedTransportPair();
 
   // Build the client with the caller's declared capabilities. The
   // capability shape (`elicitation: {}` vs absent) determines whether the
   // server's elicitation branch lights up — that's the discriminator the
   // T4 / T5 / T6 path tests pivot on.
-  const client = createV1Client(
+  const client = createV2Client(
     { name: 'elicitation-roundtrip-test', version: '1.0.0' },
     { capabilities: opts.clientCapabilities ?? {} },
   );
@@ -204,7 +204,9 @@ export async function createElicitationTestPair(
     const handler =
       opts.elicitInputHandler ?? (async () => ({ action: 'decline' as const }));
 
-    client.setRequestHandler(V1_ELICIT_REQUEST_SCHEMA, async (request) => {
+    // v2 keys request handlers by METHOD NAME rather than v1's Zod schema; the
+    // request type is resolved from the SDK's own `RequestTypeMap`.
+    client.setRequestHandler(V2_ELICIT_REQUEST_METHOD, async (request) => {
       // The SDK validates incoming requests against the union of
       // form-mode + URL-mode params; the dispatcher only emits form-mode
       // today, so we narrow without runtime checks here (a mismatch
@@ -217,13 +219,13 @@ export async function createElicitationTestPair(
       return {
         action: result.action,
         ...(result.content !== undefined ? { content: result.content } : {}),
-      } as Awaited<ReturnType<Parameters<V1Client['setRequestHandler']>[1]>>;
+      } as Awaited<ReturnType<Parameters<V2Client['setRequestHandler']>[1]>>;
     });
   }
 
   await Promise.all([
-    connectV1Server(mcpServer, serverTransport),
-    connectV1Client(client, clientTransport),
+    connectV2Server(mcpServer, serverTransport),
+    connectV2Client(client, clientTransport),
   ]);
 
   const cleanup = async (): Promise<void> => {

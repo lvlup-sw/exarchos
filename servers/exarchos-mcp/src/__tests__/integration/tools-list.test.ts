@@ -20,12 +20,12 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import {
-  createV1Client,
-  createV1LinkedTransportPair,
-  connectV1Client,
-  connectV1Server,
-  type V1Client,
-  type V1InMemoryTransport,
+  createV2Client,
+  createV2LinkedTransportPair,
+  connectV2Client,
+  connectV2Server,
+  type V2Client,
+  type V2InMemoryTransport,
 } from '../../sdk/seam.js';
 import { createMcpServer } from '../../adapters/mcp.js';
 import { EventStore } from '../../event-store/store.js';
@@ -60,9 +60,9 @@ interface ToolEntry {
 
 describe('F.1 — tools/list shape (Wave 0 §7)', () => {
   let tmpDir: string;
-  let client: V1Client;
-  let serverTransport: V1InMemoryTransport;
-  let clientTransport: V1InMemoryTransport;
+  let client: V2Client;
+  let serverTransport: V2InMemoryTransport;
+  let clientTransport: V2InMemoryTransport;
 
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tools-list-test-'));
@@ -75,14 +75,14 @@ describe('F.1 — tools/list shape (Wave 0 §7)', () => {
     };
 
     const server = createMcpServer(ctx);
-    [clientTransport, serverTransport] = createV1LinkedTransportPair();
-    client = createV1Client(
+    [clientTransport, serverTransport] = createV2LinkedTransportPair();
+    client = createV2Client(
       { name: 'tools-list-test', version: '1.0.0' },
       { capabilities: {} },
     );
     await Promise.all([
-      connectV1Server(server, serverTransport),
-      connectV1Client(client, clientTransport),
+      connectV2Server(server, serverTransport),
+      connectV2Client(client, clientTransport),
     ]);
   });
 

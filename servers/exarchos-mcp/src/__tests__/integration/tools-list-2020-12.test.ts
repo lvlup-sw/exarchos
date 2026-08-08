@@ -71,11 +71,9 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { z } from 'zod';
 import {
-  connectV1Client,
-  connectV1Server,
+  connectV2Client,
   connectV2Server,
-  createV1Client,
-  createV1LinkedTransportPair,
+  createV2Client,
   createV2LinkedTransportPair,
   createV2McpServer,
 } from '../../sdk/seam.js';
@@ -156,7 +154,7 @@ function unionBranchesOf(schema: Record<string, unknown>): unknown[] | undefined
 
 describe('tools/list schema conformance — v1 production adapter', () => {
   let tmpDir: string;
-  let client: ReturnType<typeof createV1Client>;
+  let client: ReturnType<typeof createV2Client>;
 
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tools-list-2020-12-'));
@@ -196,11 +194,11 @@ describe('tools/list schema conformance — v1 production adapter', () => {
       }),
     );
 
-    const [clientTransport, serverTransport] = createV1LinkedTransportPair();
-    client = createV1Client({ name: 'tools-list-2020-12-test', version: '1.0.0' }, { capabilities: {} });
+    const [clientTransport, serverTransport] = createV2LinkedTransportPair();
+    client = createV2Client({ name: 'tools-list-2020-12-test', version: '1.0.0' }, { capabilities: {} });
     await Promise.all([
-      connectV1Server(server, serverTransport),
-      connectV1Client(client, clientTransport),
+      connectV2Server(server, serverTransport),
+      connectV2Client(client, clientTransport),
     ]);
   });
 

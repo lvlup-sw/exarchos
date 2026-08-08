@@ -634,14 +634,14 @@ export function buildCli(ctx: DispatchContext, options?: BuildCliOptions): Comma
       // and other CLI subcommands under the DR-5 latency budget.
       const [
         { createMcpServer },
-        { createV1StdioServerTransport, connectV1Server },
+        { createV2StdioServerTransport, connectV2Server },
       ] = await Promise.all([import('./mcp.js'), import('../sdk/seam.js')]);
       const server = createMcpServer(ctx);
       // DR-26: the transport is drawn through the seam and the PAIRING goes
-      // through `connectV1Server`, which is where the generation brand is
+      // through `connectV2Server`, which is where the generation brand is
       // enforced — `server.connect(t)` would accept either generation's
       // transport because the SDK's own parameter is unbranded.
-      await connectV1Server(server, createV1StdioServerTransport());
+      await connectV2Server(server, createV2StdioServerTransport());
     });
 
   // ─── Top-level `exarchos onboard` command (DR-2/DR-5, task 011) ─────────

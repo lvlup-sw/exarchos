@@ -43,7 +43,7 @@
  * `action` callback after the `task.cancelled` event has been appended
  * (the store's `append` is event-store-first).
  */
-import type { V1Task as Task } from '../sdk/seam.js';
+import type { V2Task as Task } from '../sdk/seam.js';
 // DR-0 / task 051: v2 DELETED `isTerminal` along with the whole experimental
 // Tasks store seam, so this predicate is drawn from the OWNED port rather than
 // re-pointed at the seam. `../task-store/port.ts` imports nothing and is

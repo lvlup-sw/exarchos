@@ -37,12 +37,14 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   SDK_SEAM_MODULE,
+  classifySdkImport,
   isOwnedSeamModule,
   lintSdkGenerationMixing,
   collectSdkImportSites,
   runSdkSeamCensus,
   type SdkImportSite,
 } from '../architecture/sdk-generation-seam.js';
+import type { SdkGeneration } from './brand.js';
 import { parseModuleSpecifiers } from '../test-helpers/module-specifier-parser.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -79,81 +81,86 @@ const importFrom = (specifier: string): string => `import * as m from '${specifi
  */
 const SAME_GENERATION_FIXTURE = `
 import {
-  createV1McpServer,
-  createV1StdioServerTransport,
-  createV1Client,
-  createV1LinkedTransportPair,
-  connectV1Server,
-  connectV1Client,
   createV2McpServer,
   createV2StdioServerTransport,
+  createV2Client,
   createV2LinkedTransportPair,
   connectV2Server,
+  connectV2Client,
 } from '../src/sdk/seam.js';
-
-export async function v1Only(): Promise<void> {
-  const server = createV1McpServer({ name: 'probe', version: '1.0.0' });
-  await connectV1Server(server, createV1StdioServerTransport());
-
-  const [clientSide, serverSide] = createV1LinkedTransportPair();
-  const client = createV1Client({ name: 'probe', version: '1.0.0' });
-  await connectV1Client(client, clientSide);
-  await connectV1Server(createV1McpServer({ name: 'peer', version: '1.0.0' }), serverSide);
-}
 
 export async function v2Only(): Promise<void> {
   const server = createV2McpServer({ name: 'probe', version: '1.0.0' });
   await connectV2Server(server, createV2StdioServerTransport());
 
-  const [, serverSide] = createV2LinkedTransportPair();
+  const [clientSide, serverSide] = createV2LinkedTransportPair();
+  const client = createV2Client({ name: 'probe', version: '1.0.0' });
+  await connectV2Client(client, clientSide);
   await connectV2Server(createV2McpServer({ name: 'peer', version: '1.0.0' }), serverSide);
 }
 `;
 
 /**
- * THE KILL FIXTURE. Four crossings, in both directions, including the exact
- * cross-package "linked pair" DR-0 named and task 049 measured `tsc` accepting.
- * Every one of them must be rejected, and rejected BY THE BRAND (`__gen`).
+ * THE KILL FIXTURE — re-seeded by task 049, and the re-seeding is the point.
+ *
+ * ── Why this fixture no longer imports a second SDK ─────────────────────────
+ * Until task 049 this file crossed handles between two INSTALLED generations.
+ * DR-0's source migration removed `@modelcontextprotocol/sdk` entirely, so the
+ * literal crossing it used to perform is now unconstructible — there is no
+ * second package to draw a handle from.
+ *
+ * Deleting the proof along with the package would have been the exact defect
+ * task 027 corrected five times over: **a guarantee must not lapse at the moment
+ * it stops having a live subject.** The rung-2 claim DR-26 makes is about the
+ * BRAND, not about any particular pair of packages — "a handle marked as drawn
+ * from one generation is rejected where another is expected" — and the brand is
+ * still fully present and fully testable.
+ *
+ * So the counterparty is now SYNTHETIC: \`V1<Omit<V2Transport, '__gen'>>\` takes
+ * the real v2 transport shape, strips the phantom discriminant, and re-brands it
+ * \`v1\`. That is a value which is structurally a perfect transport and differs
+ * from an accepted one in the brand ALONE. This makes the probe strictly sharper
+ * than the two-package version it replaces: the old fixture's sixth crossing was
+ * rejected for an incidental \`exactOptionalPropertyTypes\` difference in
+ * \`onclose\` between the packages, which had to be excluded from the evidence by
+ * hand. With one shape and two brands there is no incidental difference left —
+ * every rejection here is necessarily the brand's, which is what lets the
+ * assertion below demand ALL of them rather than a hand-counted floor.
  */
 const CROSS_GENERATION_FIXTURE = `
 import {
-  createV1McpServer,
-  createV1StdioServerTransport,
-  createV1LinkedTransportPair,
-  connectV1Server,
   createV2McpServer,
-  createV2StdioServerTransport,
   createV2LinkedTransportPair,
   connectV2Server,
-  type V1Transport,
+  type V1,
   type V2Transport,
 } from '../src/sdk/seam.js';
 
-// 1. A v1 transport handed to a v2 server.
+/**
+ * A transport that is structurally identical to a v2 transport and branded v1.
+ * Strip-then-rebrand rather than intersect: \\\`V1<V2Transport>\\\` would collapse
+ * \\\`__gen\\\` to \\\`never\\\` and reject for an uninhabited-property reason, which
+ * would prove the intersection collapsed and not that the brand separates.
+ */
+declare const v1Transport: V1<Omit<V2Transport, '__gen'>>;
+
+// 1. A v1-branded transport handed to a v2 server.
 export async function v1TransportIntoV2Server(): Promise<void> {
-  await connectV2Server(createV2McpServer({ name: 'probe', version: '1.0.0' }), createV1StdioServerTransport());
+  await connectV2Server(createV2McpServer({ name: 'probe', version: '1.0.0' }), v1Transport);
 }
 
-// 2. A v2 transport handed to a v1 server.
-export async function v2TransportIntoV1Server(): Promise<void> {
-  await connectV1Server(createV1McpServer({ name: 'probe', version: '1.0.0' }), createV2StdioServerTransport());
-}
-
-// 3. The DR-0 kill fixture: a "linked pair" whose halves come from different
-//    generations. The halves are not linked; at runtime this is a hang.
+// 2. The DR-0 kill fixture: a "linked pair" whose halves disagree on generation.
+//    The halves are not linked to each other; at runtime this is a hang.
 export async function crossGenerationLinkedPair(): Promise<void> {
-  const [v1Half] = createV1LinkedTransportPair();
-  const [, v2Half] = createV2LinkedTransportPair();
-  await connectV2Server(createV2McpServer({ name: 'probe', version: '1.0.0' }), v1Half);
-  await connectV1Server(createV1McpServer({ name: 'probe', version: '1.0.0' }), v2Half);
+  const [v2Half] = createV2LinkedTransportPair();
+  await connectV2Server(createV2McpServer({ name: 'probe', version: '1.0.0' }), v2Half);
+  await connectV2Server(createV2McpServer({ name: 'probe', version: '1.0.0' }), v1Transport);
 }
 
-// 4. Plain assignment between the branded handle types, both directions.
-export function assignAcrossGenerations(v1: V1Transport, v2: V2Transport): void {
-  const asV2: V2Transport = v1;
-  const asV1: V1Transport = v2;
+// 3. Plain assignment between the branded handle types.
+export function assignAcrossGenerations(): void {
+  const asV2: V2Transport = v1Transport;
   void asV2;
-  void asV1;
 }
 `;
 
@@ -244,23 +251,18 @@ function runTsc(files: readonly string[]): TscRun {
 }
 
 /**
- * How many of the kill fixture's six crossings must be rejected BY THE BRAND.
+ * The kill fixture's crossings, DERIVED rather than written down.
  *
- * Measured, not guessed. Five of the six name `SdkGenerationBrand` / `__gen`:
- * the four `connect*` crossings (a handle passed where the other generation is
- * expected) and the v1→v2 assignment. The sixth — the v2→v1 assignment — is
- * rejected for an unrelated structural reason: under `exactOptionalPropertyTypes`
- * v2 declares `onclose?: (() => void) | undefined` where v1 declares
- * `onclose?: () => void`, so `undefined` is not assignable. That rejection is
- * incidental — it would evaporate the moment either package normalised its
- * optional-property style — so it is deliberately NOT counted as brand evidence.
- *
- * This floor is what makes the test a real kill probe: with `__gen` widened from
- * the generation literal to the full union, brand-attributed rejections drop to
- * ZERO and only that one incidental structural error survives — so asserting
- * merely "tsc failed" would still have passed against a dead brand.
+ * Each crossing is an exported function (or the one assignment inside it), so
+ * the population is read off the fixture text itself. A hand-written count is
+ * the single defect class this wave hit most often: a correct edit to the
+ * fixture silently disagrees with a literal nobody re-derived, and the guard
+ * fails while the code is right. Counting the `export` sites means adding a
+ * crossing automatically raises the bar it must clear.
  */
-const MIN_BRAND_ATTRIBUTED_REJECTIONS = 5;
+function crossingCountOf(fixture: string): number {
+  return [...fixture.matchAll(/^export (?:async )?function /gm)].length;
+}
 
 describe('DR-26 — owned SDK seam, generation-branded handles', () => {
   it('SdkSeam_HandleFromOtherGeneration_FailsCompile', () => {
@@ -304,18 +306,34 @@ describe('DR-26 — owned SDK seam, generation-branded handles', () => {
       expect(fromKill.length).toBeGreaterThan(0);
 
       // Rejected BY THE BRAND, not incidentally: the checker's explanation must
-      // name the generation discriminant. See MIN_BRAND_ATTRIBUTED_REJECTIONS
-      // for why a bare "tsc failed" assertion would not have been enough.
+      // name the generation discriminant.
+      //
+      // EVERY rejection must be the brand's, not merely a floor of them. The
+      // synthetic counterparty makes that demandable: fixture and accepted value
+      // share one structural shape and differ only in `__gen`, so there is no
+      // incidental structural difference left for a diagnostic to come from. If
+      // this ever fails on an unattributed diagnostic, the fixture has picked up
+      // a second reason to be rejected and stopped being a clean probe.
       const brandAttributed = fromKill.filter(
         (d) => d.text.includes('__gen') && d.text.includes('SdkGenerationBrand'),
       );
       expect(
         brandAttributed.length,
         `tsc rejected the mix, but ${brandAttributed.length} of ${fromKill.length} ` +
-          `rejections came from the generation brand — the rest may be ` +
-          `incidental structural differences that would disappear on the next ` +
-          `SDK release.\n${run.output}`,
-      ).toBeGreaterThanOrEqual(MIN_BRAND_ATTRIBUTED_REJECTIONS);
+          `rejections came from the generation brand — the rest are incidental ` +
+          `structural differences, which this fixture is built to have none of.` +
+          `\n${run.output}`,
+      ).toBe(fromKill.length);
+
+      // …and every crossing the fixture declares actually produced one. With
+      // `__gen` widened to the full union, brand rejections drop to ZERO — so a
+      // bare "tsc failed" assertion would have passed against a dead brand.
+      expect(
+        brandAttributed.length,
+        `The fixture declares ${crossingCountOf(CROSS_GENERATION_FIXTURE)} crossing(s) ` +
+          `but only ${brandAttributed.length} were rejected by the brand. A ` +
+          `crossing that compiles is a hole in the rung-2 guarantee.\n${run.output}`,
+      ).toBeGreaterThanOrEqual(crossingCountOf(CROSS_GENERATION_FIXTURE));
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
@@ -330,6 +348,7 @@ describe('DR-26 — owned SDK seam, generation-branded handles', () => {
       sites: [],
       seamModulePresent: true,
       moduleCount: 400,
+      installedGenerations: ['v2'],
     });
     expect(empty.ok).toBe(false);
     expect(empty.siteCount).toBe(0);
@@ -414,6 +433,7 @@ describe('DR-26 — owned SDK seam, generation-branded handles', () => {
       sites: [site],
       seamModulePresent: false,
       moduleCount: 400,
+      installedGenerations: ['v1', 'v2'],
     });
     expect(moved.ok).toBe(false);
     expect(moved.diagnostics.map((d) => d.code)).toContain('SDK_SEAM_MODULE_MISSING');
@@ -423,6 +443,7 @@ describe('DR-26 — owned SDK seam, generation-branded handles', () => {
       sites: [site],
       seamModulePresent: true,
       moduleCount: 400,
+      installedGenerations: ['v1', 'v2'],
     });
     expect(hollow.ok).toBe(false);
     expect(hollow.diagnostics.map((d) => d.code)).toContain('SEAM_IMPORTS_NO_SDK');
@@ -442,12 +463,50 @@ describe('DR-26 — owned SDK seam, generation-branded handles', () => {
       sites: [seamV1Only],
       seamModulePresent: true,
       moduleCount: 400,
+      // BOTH declared installed — that is what makes the v2 half's absence a
+      // rot rather than a correct single-generation tree. Reading this from the
+      // live manifest would make the case unconstructible now that v1 is gone.
+      installedGenerations: ['v1', 'v2'],
     });
     expect(result.ok).toBe(false);
     const uncovered = result.diagnostics.filter((d) => d.code === 'SEAM_GENERATION_UNCOVERED');
     expect(uncovered.map((d) => (d.code === 'SEAM_GENERATION_UNCOVERED' ? d.generation : ''))).toEqual([
       'v2',
     ]);
+  });
+
+  it('SdkSeamCensus_NoGenerationInstalled_FailsClosed', () => {
+    // The tooth task 049 added, with its own falsifier. Coverage is now checked
+    // against the INSTALLED set, and "no installed generation is uncovered" is
+    // trivially true of an empty set — so an empty set must fail rather than
+    // read as the cleanest possible tree.
+    const seamSite: SdkImportSite = {
+      module: SDK_SEAM_MODULE,
+      specifier: v2Specifier('server'),
+      generation: 'v2',
+      line: 10,
+      throughSeam: true,
+    };
+    const none = runSdkSeamCensus({
+      sites: [seamSite],
+      seamModulePresent: true,
+      moduleCount: 400,
+      installedGenerations: [],
+    });
+    expect(none.ok).toBe(false);
+    expect(none.diagnostics.map((d) => d.code)).toContain('NO_SDK_GENERATION_INSTALLED');
+
+    // NEGATIVE TWIN — the identical scan with the generation actually declared
+    // is GREEN. The seam it kills: "the census fails on any synthetic input, so
+    // its rejection above says nothing about emptiness specifically."
+    const declared = runSdkSeamCensus({
+      sites: [seamSite],
+      seamModulePresent: true,
+      moduleCount: 400,
+      installedGenerations: ['v2'],
+    });
+    expect(declared.diagnostics.map((d) => d.message)).toEqual([]);
+    expect(declared.ok).toBe(true);
   });
 
   it('CollectSdkImportSites_SeamAndBypass_AreAttributedApart', () => {
@@ -519,6 +578,7 @@ function scanLiveTree(): {
   sites: SdkImportSite[];
   seamModulePresent: boolean;
   moduleCount: number;
+  installedGenerations: SdkGeneration[];
 } {
   const sites: SdkImportSite[] = [];
   let moduleCount = 0;
@@ -547,5 +607,31 @@ function scanLiveTree(): {
     sites,
     seamModulePresent: fs.existsSync(path.join(srcRoot, ...SDK_SEAM_MODULE.split('/'))),
     moduleCount,
+    installedGenerations: installedGenerationsFromManifest(),
   };
+}
+
+/**
+ * Which SDK generations `package.json` actually declares.
+ *
+ * Read from the manifest rather than restated, so the census's coverage arm is
+ * checked against installation reality. `classifySdkImport` is reused as the
+ * classifier so the manifest and the import scan can never disagree about which
+ * package name belongs to which generation — a second mapping here would be a
+ * second authority for the vocabulary the lint already owns.
+ */
+function installedGenerationsFromManifest(): SdkGeneration[] {
+  const pkg: unknown = JSON.parse(
+    fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'),
+  );
+  const deps =
+    typeof pkg === 'object' && pkg !== null
+      ? ((pkg as { dependencies?: Record<string, string> }).dependencies ?? {})
+      : {};
+  const generations = new Set<SdkGeneration>();
+  for (const name of Object.keys(deps)) {
+    const generation = classifySdkImport(name);
+    if (generation !== undefined) generations.add(generation);
+  }
+  return [...generations];
 }

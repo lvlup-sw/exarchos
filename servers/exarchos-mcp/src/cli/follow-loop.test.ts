@@ -16,7 +16,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { PassThrough } from 'node:stream';
-import type { V1Task as Task } from '../sdk/seam.js';
+import type { V2Task as Task } from '../sdk/seam.js';
 
 import { runFollowLoop, type FollowTaskStore } from './follow-loop.js';
 

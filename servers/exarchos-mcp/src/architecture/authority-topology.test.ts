@@ -415,27 +415,49 @@ describe('authority topology — sdk-generation row vs the package manifest', ()
     return Object.keys(deps).filter((name) => name.startsWith('@modelcontextprotocol/'));
   }
 
-  it('SdkGenerationRow_MoreThanOneInstalledGeneration_IsRecordedAsContested', () => {
-    // Two independent authorities: the committed row, and what npm resolves.
-    // The row's authority is COMPUTED from the seam's generation union rather
-    // than written down, so when DR-26 collapses the tree to one generation
-    // this stops reporting `contested` without anyone editing the table — and
-    // this test starts disagreeing with the manifest if it does not.
-    const installed = installedSdkPackages();
-    const v1Installed = installed.some((p) => p === '@modelcontextprotocol/sdk');
-    const v2Installed = installed.some(
-      (p) =>
-        p === '@modelcontextprotocol/core' ||
-        p === '@modelcontextprotocol/server' ||
-        p === '@modelcontextprotocol/client',
-    );
-
-    expect(v1Installed).toBe(true);
-    expect(v2Installed).toBe(true);
-
+  it('SdkGenerationRow_RecognisedGenerations_AreRecordedAsContested', () => {
+    // ── WHAT "CONTESTED" MEASURES, corrected by task 049 ────────────────────
+    // This test used to assert that BOTH generations were installed, on the
+    // reading that the contest is between installed packages. DR-0's migration
+    // falsified that reading: v1 is gone and the row is still — correctly —
+    // contested.
+    //
+    // The boundary is contested because two distinct package families can
+    // represent "the MCP SDK" and the system must ADJUDICATE between them. That
+    // adjudication is live code, not history: `classifySdkImport` must still
+    // resolve `@modelcontextprotocol/sdk` to `v1` in order to REJECT it, the
+    // mixing lint's kill fixtures still name both, and `sdk/brand.ts` still
+    // brands handles by generation so a reintroduced v1 handle fails to compile.
+    // Uninstalling a generation resolves the contest for today; it does not
+    // dissolve the boundary, and a table that forgot v1 could not classify one
+    // if it came back.
+    //
+    // So the two claims are now asserted SEPARATELY rather than conflated:
+    // vocabulary breadth (why the row is contested) and installation reality
+    // (which generation actually ships). Conflating them is what made a
+    // correctly-migrated tree read as a table gone stale.
     const row = AUTHORITY_TOPOLOGY['sdk-generation'];
     expect(row.authority.kind).toBe('contested');
     expect(Object.keys(SDK_GENERATION_REPRESENTATIONS).length).toBeGreaterThan(1);
+
+    // Installation reality, cross-checked against npm — still a genuinely
+    // independent authority, and still able to disagree.
+    const installed = installedSdkPackages();
+    expect(
+      installed.some((p) => p === '@modelcontextprotocol/sdk'),
+      'v1 was removed by task 049. Its return is the alongside-install ' +
+        'resuming unreviewed — a DR-0 decision to reverse, not a dependency ' +
+        'to re-add.',
+    ).toBe(false);
+    expect(
+      installed.some(
+        (p) =>
+          p === '@modelcontextprotocol/core' ||
+          p === '@modelcontextprotocol/server' ||
+          p === '@modelcontextprotocol/client',
+      ),
+      'no v2 package is installed — the server has no SDK at all',
+    ).toBe(true);
   });
 
   it('SdkGenerationRow_EveryGeneration_ContributesAnAuthoritativeRepresentation', () => {

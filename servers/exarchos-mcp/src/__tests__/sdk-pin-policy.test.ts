@@ -5,47 +5,85 @@
 // rather than something `npm install` picks up implicitly. This test guards
 // against a future caret/tilde reintroduction on any of them.
 //
-// Two SDK generations are installed side by side (DR-0):
+// ── ONE generation, as of task 049 ──────────────────────────────────────────
 //
-//   • `@modelcontextprotocol/sdk`    — v1 (1.29.0). Still the only generation
-//     any source module imports; see the migration-blocker note below.
 //   • `@modelcontextprotocol/core`   — v2 protocol types.
-//   • `@modelcontextprotocol/server` — v2 server surface. Carries the APIs
-//     three later DRs depend on: `createRequestStateCodec` + `inputRequired`
-//     (DR-9), `ctx.mcpReq.envelope` (DR-14), and `serveStdio` (DR-9's parity
-//     proof). Adding it is additive and independently revertible.
-//
-// The two generations use DIFFERENT package names, so they coexist in one
-// `node_modules` without npm dedupe collapsing them — that is what makes the
-// alongside-install safe. It is also what makes mixing them a compile error
-// rather than a silent double-protocol-copy; `sdk-v2-type-isolation.test.ts`
-// pins that.
+//   • `@modelcontextprotocol/server` — v2 server surface.
+//   • `@modelcontextprotocol/client` — v2 client surface. Added by task 049:
+//     nine test modules and the exp1 eval driver drive the server through a
+//     `Client` over an in-memory linked pair, so a v2 server with a v1 client
+//     would have been the cross-generation pair `sdk/seam.ts` exists to forbid.
+//     Installing it is what let the v1 dependency go entirely.
 //
 // Re-scope note: the originating issue (#1292) assumed a `^1.0.0` range and
 // proposed swapping to `1.26.x`. That premise was already stale — the v1
 // dependency was exact at `1.29.0`. This is therefore a pin-policy
 // ratification + guard, not a version swap.
 //
-// MIGRATION BLOCKER (measured, not assumed — DR-0 task 049): v1 cannot be
-// removed yet. v2 2.0.0 deletes the experimental Tasks *store* seam that the
-// MCP adapter is built on — there is no `ServerOptions.taskStore`, and no
-// `@modelcontextprotocol/sdk/experimental/tasks/interfaces` counterpart for
-// `TaskStore` / `CreateTaskOptions` / `isTerminal`. `EventSourcedTaskStore`
-// (#1272/#1273) implements that v1 interface, so migrating `adapters/mcp.ts`
-// requires designing a replacement first. v1 therefore stays installed and
-// exact-pinned until that lands.
+// ── THE MIGRATION BLOCKER IS DISCHARGED, and this file records how ──────────
+// Earlier revisions of this file carried a standing note that v1 could not be
+// removed: v2 `2.0.0` deleted the experimental Tasks *store* seam the MCP
+// adapter was built on (no `ServerOptions.taskStore`, no counterpart for
+// `TaskStore` / `CreateTaskOptions` / `isTerminal`), so `EventSourcedTaskStore`
+// had nothing to implement against.
+//
+// Task 051 designed the replacement: the store contract is now OWNED
+// (`task-store/port.ts`), and `task-store/attach.ts` makes the one genuinely
+// missing surface — the constructor option, which a v2 server ignores SILENTLY
+// — impossible to ship by accident. What the migration deliberately gives up is
+// the `tasks/*` wire surface, which v2 does not serve at all; per operator
+// decision D10 that loss is accepted and announced (`describeTaskWireGap`),
+// never silent.
+//
+// The old `SdkPinPolicy_V1AndV2_CoexistAsDistinctPackages` expectation said its
+// own retirement condition out loud: *"If a future change drops v1, that is only
+// legitimate once nothing imports it — at which point this expectation should be
+// deleted deliberately, not silently."* This is that deliberate deletion. It is
+// replaced by `SdkPinPolicy_V1Generation_IsFullyRemoved`, which asserts the
+// stronger property the old test was waiting for, and asserts it over the SOURCE
+// TREE rather than over `package.json` alone — an uninstalled package that some
+// module still names is a broken build, not a completed migration.
 
-import { readFileSync } from 'node:fs';
+/**
+ * DR-30 authorities. `SdkPinPolicy_V1Generation_IsFullyRemoved` sweeps the
+ * source corpus, so its verdict rests on two sources neither of which is
+ * derived from the other:
+ *
+ *   • `../../package.json` — the DECLARED dependency set (what npm was asked
+ *     to install).
+ *   • the `src/` tree itself, parsed — the IMPORTED set (what the code
+ *     actually names).
+ *
+ * The disagreement worth catching is exactly the one DR-0's removal criterion
+ * names: a package removed from the manifest while a module still imports it,
+ * or still declared while nothing does. A manifest cannot compute the tree and
+ * the tree cannot compute the manifest, so they can genuinely disagree.
+ *
+ * @oracle-sources: ../../package.json, ../test-helpers/module-specifier-parser.ts
+ */
+
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative, sep } from 'node:path';
 import { describe, it, expect } from 'vitest';
+
+import { parseModuleSpecifiers } from '../test-helpers/module-specifier-parser.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 // src/__tests__ → servers/exarchos-mcp
-const packageJsonPath = join(here, '..', '..', 'package.json');
+const packageRoot = join(here, '..', '..');
+const packageJsonPath = join(packageRoot, 'package.json');
+const srcRoot = join(packageRoot, 'src');
 
-/** The v2 packages added by DR-0, alongside (not replacing) the v1 `sdk`. */
-const V2_PACKAGES = ['@modelcontextprotocol/core', '@modelcontextprotocol/server'] as const;
+/** The v2 packages. DR-0's migration landed on these three and only these. */
+const V2_PACKAGES = [
+  '@modelcontextprotocol/core',
+  '@modelcontextprotocol/server',
+  '@modelcontextprotocol/client',
+] as const;
+
+/** The retired v1 package root. Every `…/sdk/*` subpath belongs to it too. */
+const V1_PACKAGE = '@modelcontextprotocol/sdk';
 
 /** Exact version (`2.0.0`) or minor-x (`2.0.x`) — no range operators. */
 const EXACT_PIN = /^\d+\.\d+\.(\d+|x)$/;
@@ -66,12 +104,6 @@ function readDependencies(): Record<string, string> {
   return out;
 }
 
-function readRange(name: string): string {
-  const range = readDependencies()[name];
-  expect(range, `${name} must be a declared dependency`).toBeTypeOf('string');
-  return range;
-}
-
 function expectExactPin(name: string, range: string): void {
   expect(range, `${name} must be exact-pinned, got "${range}"`).toMatch(EXACT_PIN);
   // Explicitly NOT a caret or tilde range — the whole point of the policy.
@@ -79,46 +111,106 @@ function expectExactPin(name: string, range: string): void {
   expect(range.startsWith('~'), `${name} must not use a tilde range`).toBe(false);
 }
 
-describe('MCP SDK pin policy (#1292, DR-0)', () => {
-  it('McpSdkPin_PackageJson_IsExactNotCaretRange', () => {
-    expectExactPin('@modelcontextprotocol/sdk', readRange('@modelcontextprotocol/sdk'));
-  });
+/**
+ * Every `.ts` module under `src/`, paired with the package specifiers it imports.
+ *
+ * The population is DERIVED from the filesystem rather than enumerated, so a
+ * relocated tree surfaces as an empty denominator (caught below) instead of a
+ * clean pass. Specifiers come from a real parse, not a text match, so a v1
+ * package name appearing inside a fixture STRING — which several architecture
+ * tests carry on purpose, as the subject of their own kill fixtures — is
+ * correctly not counted as an import.
+ */
+function importSitesUnderSrc(): { moduleCount: number; v1Sites: string[] } {
+  const v1Sites: string[] = [];
+  let moduleCount = 0;
 
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === 'node_modules' || entry.name === 'dist') continue;
+        walk(full);
+        continue;
+      }
+      if (!entry.name.endsWith('.ts')) continue;
+      moduleCount += 1;
+      const module = relative(srcRoot, full).split(sep).join('/');
+      for (const parsed of parseModuleSpecifiers(readFileSync(full, 'utf8'), full)) {
+        const { specifier } = parsed;
+        if (specifier === V1_PACKAGE || specifier.startsWith(`${V1_PACKAGE}/`)) {
+          v1Sites.push(`${module}:${parsed.line} → ${specifier}`);
+        }
+      }
+    }
+  };
+
+  walk(srcRoot);
+  return { moduleCount, v1Sites };
+}
+
+describe('MCP SDK pin policy (#1292, DR-0)', () => {
   it('SdkPinPolicy_V2Packages_AreExactPinned', () => {
-    // Both v2 packages must be declared...
     const deps = readDependencies();
+
     for (const name of V2_PACKAGES) {
       expect(deps[name], `${name} must be a declared dependency (DR-0)`).toBeTypeOf(
         'string',
       );
     }
 
-    // ...and each must carry the same exact-pin policy as v1. The rationale is
-    // deliberate opt-in to surface changes: v2 is a new major whose surface is
-    // still settling, so an implicit `npm install` bump is exactly what the
-    // policy exists to prevent.
+    // Each must carry the exact-pin policy. The rationale is deliberate opt-in
+    // to surface changes: v2 is a new major whose surface is still settling, so
+    // an implicit `npm install` bump is exactly what the policy exists to
+    // prevent.
     for (const name of V2_PACKAGES) {
       expectExactPin(name, deps[name]!);
     }
 
-    // The two generations must stay on DIFFERENT package names — that is what
-    // lets them coexist. If a future edit ever points a v2 name at the v1
-    // package (or vice versa) the alongside-install premise silently breaks.
-    for (const name of V2_PACKAGES) {
-      expect(name).not.toBe('@modelcontextprotocol/sdk');
-      expect(deps[name]!.startsWith('1.')).toBe(false);
-    }
+    // All three are ONE generation and must move together. A tree holding
+    // `core@2.0.0` against `server@2.1.0` is the split-brain the single-seam
+    // design assumes away, and it would present as a structural type mismatch
+    // with no package identity to explain it.
+    const versions = new Set(V2_PACKAGES.map((name) => deps[name]!));
+    expect(
+      [...versions],
+      'The v2 packages must be pinned to ONE version — they are a single ' +
+        'generation and the seam draws handles across all three.',
+    ).toHaveLength(1);
   });
 
-  it('SdkPinPolicy_V1AndV2_CoexistAsDistinctPackages', () => {
-    // DR-0's core claim: this is ADDITIVE. v1 must still be declared while any
-    // source module still imports it. If a future change drops v1, that is
-    // only legitimate once nothing imports it — at which point this
-    // expectation should be deleted deliberately, not silently.
+  it('SdkPinPolicy_V1Generation_IsFullyRemoved', () => {
+    // ── DR-0's REMOVAL CRITERION, made executable ────────────────────────────
+    // The acceptance criterion was stated as a shell command: *"the v1
+    // dependency is removed only when nothing imports it (`grep -rn
+    // "@modelcontextprotocol/sdk"` returns zero non-vendor hits)"*. A criterion
+    // that only ever ran in someone's terminal is a criterion that regresses
+    // silently, so it lives here instead.
     const deps = readDependencies();
-    expect(deps['@modelcontextprotocol/sdk']).toBeTypeOf('string');
-    expect(deps['@modelcontextprotocol/core']).toBeTypeOf('string');
-    expect(deps['@modelcontextprotocol/server']).toBeTypeOf('string');
-    expect(deps['@modelcontextprotocol/sdk']!.startsWith('1.')).toBe(true);
+    expect(
+      deps[V1_PACKAGE],
+      `${V1_PACKAGE} (v1) was removed by task 049. Re-declaring it re-opens the ` +
+        `two-generation hazard the seam's brand exists to police — if that is ` +
+        `genuinely wanted, it is a DR-0 decision to reverse, not a dependency ` +
+        `to add back.`,
+    ).toBeUndefined();
+
+    const { moduleCount, v1Sites } = importSitesUnderSrc();
+
+    // ANTI-VACUITY on the population itself. "Zero v1 imports" is worthless if
+    // the walk resolved nothing — a relocated src root, a renamed extension or
+    // a dead parser would all read as a completed migration.
+    expect(
+      moduleCount,
+      'The source walk resolved implausibly few modules — the scan is broken, ' +
+        'so its zero-v1-imports verdict means nothing.',
+    ).toBeGreaterThan(50);
+
+    expect(
+      v1Sites,
+      `These modules still import the retired v1 SDK. The package is no longer ` +
+        `installed, so these are broken imports, not merely stale ones — route ` +
+        `them through \`sdk/seam.ts\`.`,
+    ).toEqual([]);
   });
 });
