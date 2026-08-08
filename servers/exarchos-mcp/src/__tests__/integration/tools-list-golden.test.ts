@@ -50,6 +50,27 @@
 // migration changing the contract, and must be reviewed rather than regenerated
 // reflexively.
 //
+// ── SECOND REVIEWED MOVE: the `featureId` alias on the three task verbs ─────
+//
+// MEASURED, not eyeballed: normalising both goldens and diffing yields exactly
+// TWO changed lines — the `exarchos_orchestrate` tool description, before and
+// after. The whole delta is the three task-verb signatures:
+//
+//     task_claim(taskId, agentId, streamId)              → (…, streamId?, featureId?)
+//     task_complete(taskId, result?, evidence?, streamId) → (…, streamId?, featureId?)
+//     task_fail(taskId, error, diagnostics?, streamId)    → (…, streamId?, featureId?)
+//
+// This is a WIDENING and therefore not a compatibility break: `streamId` went
+// required → optional and `featureId` was added optional, so every call that
+// was valid before is still valid and still resolves to the same stream
+// (`resolveStreamIdentity` prefers `streamId` when both are present — pinned by
+// `TaskVerbs_StreamIdWins_WhenBothSpellingsDisagree`). No tool was added or
+// removed, no order changed, and no other tool's schema moved.
+//
+// The change exists because requiring only the internal spelling made agents
+// ASK the operator for a value they already held: the workflow stream id IS the
+// bare featureId, which is the name every workflow surface uses.
+//
 // Regenerate deliberately (and review the diff) with:
 //   UPDATE_TOOLS_LIST_GOLDEN=1 npx vitest run src/__tests__/integration/tools-list-golden.test.ts
 

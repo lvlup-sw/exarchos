@@ -1829,7 +1829,13 @@ const orchestrateActions: readonly BuiltinToolAction[] = [
     schema: z.object({
       taskId: z.string().min(1),
       agentId: z.string().min(1),
-      streamId: z.string().min(1),
+      // DR-6: `streamId` IS the bare featureId. Both spellings are accepted
+      // and exactly one is required (`resolveStreamIdentity` in
+      // `tasks/tools.ts` is the single resolver). Requiring only the
+      // internal spelling made agents ASK the operator for a value they
+      // already held under the name every workflow surface uses.
+      streamId: z.string().min(1).optional(),
+      featureId: z.string().min(1).optional(),
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_TEAMMATE,
@@ -1850,7 +1856,13 @@ const orchestrateActions: readonly BuiltinToolAction[] = [
         output: z.string(),
         passed: z.boolean(),
       }).optional(),
-      streamId: z.string().min(1),
+      // DR-6: `streamId` IS the bare featureId. Both spellings are accepted
+      // and exactly one is required (`resolveStreamIdentity` in
+      // `tasks/tools.ts` is the single resolver). Requiring only the
+      // internal spelling made agents ASK the operator for a value they
+      // already held under the name every workflow surface uses.
+      streamId: z.string().min(1).optional(),
+      featureId: z.string().min(1).optional(),
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_TEAMMATE,
@@ -1867,7 +1879,13 @@ const orchestrateActions: readonly BuiltinToolAction[] = [
       taskId: z.string().min(1),
       error: z.string().min(1),
       diagnostics: coercedRecord().optional(),
-      streamId: z.string().min(1),
+      // DR-6: `streamId` IS the bare featureId. Both spellings are accepted
+      // and exactly one is required (`resolveStreamIdentity` in
+      // `tasks/tools.ts` is the single resolver). Requiring only the
+      // internal spelling made agents ASK the operator for a value they
+      // already held under the name every workflow surface uses.
+      streamId: z.string().min(1).optional(),
+      featureId: z.string().min(1).optional(),
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_TEAMMATE,

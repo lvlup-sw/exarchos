@@ -18,7 +18,7 @@ tools:
   - Bash
   - Grep
   - Glob
-model: sonnet
+model: inherit
 color: cyan
 disallowedTools:
   - Agent

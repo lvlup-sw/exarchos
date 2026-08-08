@@ -1251,3 +1251,92 @@ describe('handleTaskComplete workflow state sync', () => {
     expect(guardResult).toBe(true);
   });
 });
+
+// ─── streamId ⇄ featureId alias (DR-6) ──────────────────────────────────────
+//
+// The stream id IS the bare featureId, but the task verbs required the
+// `streamId` spelling and rejected `featureId`. The observable cost was an
+// agent ASKING the operator for a value it already held — so the property
+// under test is that the featureId spelling is SUFFICIENT, on every verb, and
+// lands on the identical stream. Asserting the append TARGET (not merely
+// `success`) is what makes this more than a schema-shape test: a resolver that
+// accepted `featureId` and then wrote to some other stream would sail through
+// a success-only assertion.
+describe('streamId ⇄ featureId alias on the task verbs', () => {
+  it('TaskVerbs_FeatureIdOnly_ResolveToTheSameStreamAsStreamId', async () => {
+    const store = new EventStore(tempDir);
+    await store.initialize();
+
+    // claim + complete driven ONLY by `featureId` — no `streamId` anywhere.
+    const claimed = await handleTaskClaim(
+      { taskId: 't-alias', agentId: 'agent-1', featureId: 'alias-feature' },
+      tempDir,
+      store,
+    );
+    expect(claimed.success, JSON.stringify(claimed.error)).toBe(true);
+
+    // `task_complete` additionally enforces the blocking static-analysis gate.
+    // Seeding it keeps this test about the ALIAS: without the seed the verb
+    // fails on GATE_NOT_PASSED, which would prove nothing either way about
+    // which spelling was accepted.
+    await store.append('alias-feature', {
+      type: 'gate.executed',
+      data: {
+        gateName: 'static-analysis',
+        layer: 'quality',
+        passed: true,
+        details: { taskId: 't-alias' },
+      },
+    });
+
+    const completed = await handleTaskComplete(
+      { taskId: 't-alias', featureId: 'alias-feature' },
+      tempDir,
+      store,
+    );
+    expect(completed.success, JSON.stringify(completed.error)).toBe(true);
+
+    // Both events landed on the BARE featureId stream — the equation the alias
+    // asserts, checked against the store rather than assumed.
+    const types = (await store.query('alias-feature')).map((e) => e.type);
+    expect(types).toContain('task.claimed');
+    expect(types).toContain('task.completed');
+  });
+
+  it('TaskVerbs_StreamIdWins_WhenBothSpellingsDisagree', async () => {
+    // Back-compat is the load-bearing half: an existing caller passing
+    // `streamId` must be unaffected even when a `featureId` is also present.
+    const store = new EventStore(tempDir);
+    await store.initialize();
+
+    const result = await handleTaskFail(
+      {
+        taskId: 't-both',
+        error: 'boom',
+        streamId: 'explicit-stream',
+        featureId: 'ignored-feature',
+      },
+      tempDir,
+      store,
+    );
+    expect(result.success, JSON.stringify(result.error)).toBe(true);
+
+    expect((await store.query('explicit-stream')).map((e) => e.type)).toContain('task.failed');
+    // The losing spelling must not have been written to at all.
+    expect(await store.query('ignored-feature')).toHaveLength(0);
+  });
+
+  it('TaskVerbs_NeitherSpelling_StillRejectsAndNamesBoth', async () => {
+    // The rejection must survive — widening an input is exactly where a
+    // required-ness check gets dropped by accident. The message must name the
+    // alias, since an error saying only "streamId is required" is what sent the
+    // agent to the operator in the first place.
+    const store = new EventStore(tempDir);
+    await store.initialize();
+
+    const result = await handleTaskComplete({ taskId: 't-none' }, tempDir, store);
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toContain('featureId');
+  });
+});

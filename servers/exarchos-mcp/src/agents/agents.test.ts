@@ -211,10 +211,20 @@ describe('Agent Spec Definitions', () => {
     expect(REVIEWER.mcpServers).toEqual(['exarchos']);
   });
 
-  it('ScaffolderSpec_HasCorrectConfig_SonnetModelLowEffort', () => {
+  it('ScaffolderSpec_HasCorrectConfig_InheritsModelLowEffort', () => {
     // Assert: scaffolder identity and model config
     expect(SCAFFOLDER.id).toBe('scaffolder');
-    expect(SCAFFOLDER.model).toBe('sonnet');
+    // `inherit`, not a pinned id. This assertion was previously
+    // `toBe('sonnet')` and the test was NAMED for it; the pin was a second
+    // model authority that silently outranked the `agents.tier-models` policy
+    // (default low→haiku), so a low-tier scaffold got sonnet regardless of
+    // what the operator configured. Model strength follows RISK; the agent
+    // choice selects the ROLE. Restated rather than deleted so the property
+    // stays pinned in the new direction — a spec that re-pins a model id here
+    // must fail.
+    expect(SCAFFOLDER.model).toBe('inherit');
+    // `effort` is NOT covered by that reasoning and stays asserted: it is this
+    // agent's role (the low-complexity agent by construction), not a model tier.
     expect(SCAFFOLDER.effort).toBe('low');
     expect(SCAFFOLDER.isolation).toBe('worktree');
     expect(SCAFFOLDER.resumable).toBe(false);

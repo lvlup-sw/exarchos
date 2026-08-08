@@ -589,7 +589,16 @@ When done, output a JSON completion report:
 }
 \`\`\``,
   disallowedTools: ['Agent'],
-  model: 'sonnet',
+  // `inherit`, NOT a pinned model id. A pin here is a second model authority:
+  // it silently outranks the tier policy (`agents.tier-models`, default
+  // low→haiku / medium→sonnet / high→opus) that `resolveModelForTask` derives
+  // from the task's `riskTier`, so a low-tier scaffold got sonnet no matter
+  // what the operator configured — and an operator raising the low-tier floor
+  // saw no effect here. Model strength is a function of RISK, not of which
+  // agent happens to be selected; the agent chooses the ROLE, the ladder
+  // chooses the STRENGTH. `effort: 'low'` stays because that is this agent's
+  // role (it is the low-complexity agent by construction), not a model choice.
+  model: 'inherit',
   effort: 'low',
   isolation: 'worktree',
   skills: [],

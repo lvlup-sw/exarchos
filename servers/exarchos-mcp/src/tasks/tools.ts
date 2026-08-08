@@ -31,6 +31,56 @@ function alreadyClaimedResult(taskId: string): ToolResult {
   };
 }
 
+// ─── streamId ⇄ featureId ────────────────────────────────────────────────────
+//
+// The workflow event stream id IS the bare featureId — asserted across the
+// codebase (`next-actions-computer.ts` derives `const streamId =
+// state.featureId`; `operations-fold.ts` documents "surfaces where `streamId`
+// IS the featureId"). The task verbs nonetheless took `streamId` as a REQUIRED
+// parameter and did not accept `featureId` at all.
+//
+// The cost of that was not a wrong answer, it was a wrong QUESTION: an agent
+// holding the featureId — which is what every workflow surface, prompt and
+// playbook names — had no way to satisfy a schema asking for `streamId`, so it
+// asked the operator for a value it already had under another name. A required
+// parameter that the caller can only supply by knowing an internal identity
+// equation is a parameter that gets asked about.
+//
+// Both spellings are now accepted and exactly one is required. `streamId` still
+// wins when both are given, so no existing caller changes behaviour. This is
+// deliberately ONE resolver rather than a copy per verb — three copies of an
+// identity equation is the multiply-owned-representation defect DR-6 exists to
+// detect, and it is how the spellings would drift apart later.
+export interface StreamIdentityArgs {
+  readonly streamId?: string;
+  readonly featureId?: string;
+}
+
+export type StreamIdentity =
+  | { readonly ok: true; readonly streamId: string }
+  | { readonly ok: false; readonly error: ToolResult };
+
+export function resolveStreamIdentity(args: StreamIdentityArgs): StreamIdentity {
+  const streamId = args.streamId ?? args.featureId;
+  if (!streamId) {
+    return {
+      ok: false,
+      error: {
+        success: false,
+        error: {
+          code: 'INVALID_INPUT',
+          // Names BOTH accepted spellings and the equation between them, so the
+          // remedy is readable off the error rather than inferred from source.
+          message:
+            'streamId is required (featureId is accepted as an alias — the ' +
+            'workflow stream id is the bare featureId)',
+        },
+      },
+    };
+  }
+  return { ok: true, streamId };
+}
+
 // ─── Gate blocking-ness (DR-2) ──────────────────────────────────────────────
 
 /**
@@ -78,7 +128,8 @@ export async function handleTaskClaim(
   args: {
     taskId: string;
     agentId: string;
-    streamId: string;
+    streamId?: string;
+    featureId?: string;
   },
   stateDir: string,
   eventStore: EventStore,
@@ -97,16 +148,13 @@ export async function handleTaskClaim(
     };
   }
 
-  if (!args.streamId) {
-    return {
-      success: false,
-      error: { code: 'INVALID_INPUT', message: 'streamId is required' },
-    };
-  }
+  const identity = resolveStreamIdentity(args);
+  if (!identity.ok) return identity.error;
+  const streamId = identity.streamId;
 
   for (let attempt = 0; attempt < MAX_CLAIM_RETRIES; attempt++) {
     try {
-      return await attemptTaskClaim(args, stateDir, eventStore);
+      return await attemptTaskClaim({ ...args, streamId }, stateDir, eventStore);
     } catch (err) {
       if (err instanceof SequenceConflictError) {
         // Exponential backoff: baseDelay * 2^attempt + jitter
@@ -139,17 +187,18 @@ async function attemptTaskClaim(
   stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
+  const { streamId } = args;
   const materializer = getOrCreateMaterializer(stateDir);
   const store = eventStore;
 
   // Load snapshot (if any) and query all events for the stream
-  await materializer.loadFromSnapshot(args.streamId, TASK_DETAIL_VIEW);
-  const events = await store.query(args.streamId);
+  await materializer.loadFromSnapshot(streamId, TASK_DETAIL_VIEW);
+  const events = await store.query(streamId);
   const currentSequence = events.length;
 
   // Materialize the task-detail view to check claim status
   const view = materializer.materialize<TaskDetailViewState>(
-    args.streamId,
+    streamId,
     TASK_DETAIL_VIEW,
     events,
   );
@@ -188,7 +237,7 @@ async function attemptTaskClaim(
   validateAgentEvent(claimEvent);
 
   const event = await store.append(
-    args.streamId,
+    streamId,
     claimEvent,
     { expectedSequence: currentSequence },
   );
@@ -207,7 +256,8 @@ export async function handleTaskComplete(
       output: string;
       passed: boolean;
     };
-    streamId: string;
+    streamId?: string;
+    featureId?: string;
   },
   stateDir: string,
   eventStore: EventStore,
@@ -219,12 +269,9 @@ export async function handleTaskComplete(
     };
   }
 
-  if (!args.streamId) {
-    return {
-      success: false,
-      error: { code: 'INVALID_INPUT', message: 'streamId is required' },
-    };
-  }
+  const identity = resolveStreamIdentity(args);
+  if (!identity.ok) return identity.error;
+  const streamId = identity.streamId;
 
   const store = eventStore;
 
@@ -283,7 +330,7 @@ export async function handleTaskComplete(
   // seen by the `task_complete` that followed it. Read one event type, one
   // shape — do NOT teach this reader to also accept the proof record; the fix
   // belongs at the producer.
-  const gateEvents = await store.query(args.streamId, { type: 'gate.executed' });
+  const gateEvents = await store.query(streamId, { type: 'gate.executed' });
 
   // Tolerant Reader (#1189): taskId may live at `data.details.taskId`
   // (canonical handler-emitted shape) or at `data.taskId` (operator-emitted
@@ -369,21 +416,21 @@ export async function handleTaskComplete(
   }
 
   try {
-    const event = await store.append(args.streamId, {
+    const event = await store.append(streamId, {
       type: 'task.completed',
       data,
-    }, { idempotencyKey: `${args.streamId}:task.completed:${args.taskId}` });
+    }, { idempotencyKey: `${streamId}:task.completed:${args.taskId}` });
 
     // Sync task status to workflow state file so guards (e.g. allTasksComplete) pass.
     // Uses CAS (compare-and-swap) with retry to prevent lost updates under parallel delegation.
-    const stateFile = path.join(stateDir, `${args.streamId}.state.json`);
+    const stateFile = path.join(stateDir, `${streamId}.state.json`);
     const maxAttempts = 3;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         const state = await readStateFile(stateFile);
         if (!Array.isArray(state.tasks)) {
           logger.warn(
-            { streamId: args.streamId, taskId: args.taskId, attempt },
+            { streamId: streamId, taskId: args.taskId, attempt },
             'task_complete state sync skipped: state.tasks is not an array',
           );
           break;
@@ -392,7 +439,7 @@ export async function handleTaskComplete(
         const task = tasks.find((t) => t.id === args.taskId);
         if (!task) {
           logger.warn(
-            { streamId: args.streamId, taskId: args.taskId, attempt },
+            { streamId: streamId, taskId: args.taskId, attempt },
             'task_complete state sync skipped: task not found in state.tasks',
           );
           break;
@@ -411,7 +458,7 @@ export async function handleTaskComplete(
           continue; // Re-read and retry
         }
         logger.warn(
-          { streamId: args.streamId, taskId: args.taskId, attempt, err: syncErr instanceof Error ? syncErr.message : String(syncErr) },
+          { streamId: streamId, taskId: args.taskId, attempt, err: syncErr instanceof Error ? syncErr.message : String(syncErr) },
           'task_complete state sync failed',
         );
         break;
@@ -437,7 +484,8 @@ export async function handleTaskFail(
     taskId: string;
     error: string;
     diagnostics?: Record<string, unknown>;
-    streamId: string;
+    streamId?: string;
+    featureId?: string;
   },
   _stateDir: string,
   eventStore: EventStore,
@@ -456,12 +504,9 @@ export async function handleTaskFail(
     };
   }
 
-  if (!args.streamId) {
-    return {
-      success: false,
-      error: { code: 'INVALID_INPUT', message: 'streamId is required' },
-    };
-  }
+  const identity = resolveStreamIdentity(args);
+  if (!identity.ok) return identity.error;
+  const streamId = identity.streamId;
 
   const store = eventStore;
 
@@ -475,10 +520,10 @@ export async function handleTaskFail(
   }
 
   try {
-    const event = await store.append(args.streamId, {
+    const event = await store.append(streamId, {
       type: 'task.failed',
       data,
-    }, { idempotencyKey: `${args.streamId}:task.failed:${args.taskId}` });
+    }, { idempotencyKey: `${streamId}:task.failed:${args.taskId}` });
 
     return { success: true, data: toEventAck(event) };
   } catch (err) {
