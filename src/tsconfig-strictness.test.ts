@@ -11,11 +11,27 @@
 // step and tax every `test:run`; no test in this repo does so. This guard fails
 // fast — in the unit suite, before the slow CI typecheck — if the flag is ever
 // silently removed, which is what would make the tree stop typechecking green.
+//
+// @oracle-sources: ../scripts/tsconfig-strictness/count-casts.ts, the TypeScript project resolver reading this repo's tsconfig files
+//
+// Task 066 brought a second authority into this file, and DR-30's scope rule
+// (assertion SHAPE, not annotation) correctly pulled it in. The two are
+// independent in both senses. STATIC: one is the repo's own AST cast census,
+// which parses source files and counts assertion nodes; the other is
+// TypeScript's config resolver, which answers a different question entirely —
+// which files a tsconfig project resolves — and neither reads the other's
+// output. SEMANTIC: `CENSUS_ROOTS` below is a hand-declared list of directories
+// the census is pointed at, while the resolver reports the directories the repo
+// actually compiles. Those two CAN disagree, and the whole reason
+// `ScriptsCastCensus_Roots_CoverEveryTypecheckedTree` exists is that they did:
+// `servers/exarchos-mcp/scripts/` was compiled by no project and censused by no
+// gate at the same time.
 
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
+import ts from 'typescript';
 import { countCasts, type CastCounts } from '../scripts/tsconfig-strictness/count-casts.js';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -127,7 +143,41 @@ describe('DR-14: noUncheckedIndexedAccess ratchet (root)', () => {
   // (`ts.isAsExpression` / `<T>x` / `ts.isNonNullExpression`), so the budget
   // is denominated in real type debt. See `count-casts.ts` for the mechanism
   // and for why it now parses instead of pattern-matching.
-  const BASELINE: CastCounts = { nonNull: 78, asCast: 1753, asAny: 0 };
+  //
+  // ===================================================================
+  // SCOPE CORRECTION — NOT A SPEND (task 066, DR-24, 2026-08-07)
+  // ===================================================================
+  // The census scanned `src` + `servers/exarchos-mcp/src` only, so BOTH
+  // `scripts/` trees were outside its jurisdiction — the same directories task
+  // 066 found were typechecked by nothing, discovered independently by task 022
+  // against a different gate. A directory covered by one gate and not the other
+  // re-opens the class one gate at a time, so the census roots are now exactly
+  // the four trees the two `tsconfig.scripts.json` projects and the two shipped
+  // tsconfigs compile. `scripts/tsconfig-scripts-coverage.test.ts` states the
+  // typecheck scope; the two scopes are kept identical on purpose.
+  //
+  // asCast 1753 -> 1785, nonNull 78 -> 78, asAny 0 -> 0. **No type debt was
+  // introduced by that change and none was paid down.** The 32 newly-counted
+  // assertions were already in the tree; the census simply had no jurisdiction
+  // over the directories holding them. Measured on the integration tip
+  // c2f22665c BEFORE any of task 066's edits, so the number is attributable to
+  // the scope change and to nothing else:
+  //
+  //     +26  scripts/                        (root; audit/, tsconfig-strictness/, …)
+  //      +6  servers/exarchos-mcp/scripts/   (cli-derivation-guard, cli-vocab-guard, …)
+  //      +0  nonNull on both trees           (neither carried a `!` assertion)
+  //      +0  asAny on both trees             (the outright bar already held there)
+  //
+  // Task 066's OWN delta is 0 on every axis: its fixes to the newly-visible type
+  // errors narrow (`if (value === undefined) throw`), widen a field
+  // (`?: T | undefined`) or read reflectively — never assert. The distinction
+  // this block records is between a delta (budgeted, and unspent) and
+  // pre-existing debt made visible (a baseline correction, stated plainly).
+  //
+  // The scanned surface is `count-casts.ts`'s own: `.ts` outside
+  // `node_modules`/`dist`/`__tests__`/`__shims__`, excluding `*.test.ts`,
+  // `*.bench.ts` and `*.type-test.ts`.
+  const BASELINE: CastCounts = { nonNull: 78, asCast: 1785, asAny: 0 };
   // Declared budget = MAX escape-hatch sites maintenance work may introduce
   // before the NEXT documented re-baseline. Deliberately tighter than the
   // pre-wave nonNull budget: large additions must re-baseline in the open
@@ -150,11 +200,22 @@ describe('DR-14: noUncheckedIndexedAccess ratchet (root)', () => {
   // while gating strictly more real debt.
   const DELTA_BUDGET: CastCounts = { nonNull: 5, asCast: 5, asAny: 0 };
 
+  /**
+   * Every tree the census has jurisdiction over — the four the repo compiles.
+   *
+   * Kept identical to the typecheck scope by
+   * `ScriptsCastCensus_Roots_MatchTheTypecheckedTrees` below, so neither gate
+   * can quietly cover a directory the other does not.
+   */
+  const CENSUS_ROOTS: readonly string[] = [
+    'src',
+    'servers/exarchos-mcp/src',
+    'scripts',
+    'servers/exarchos-mcp/scripts',
+  ];
+
   it('FixWave_CastBudget_MeasuredAndWithinDeclaredLimit', () => {
-    const counts = countCasts([
-      { dir: resolve(REPO_ROOT, 'src') },
-      { dir: resolve(REPO_ROOT, 'servers/exarchos-mcp/src') },
-    ]);
+    const counts = countCasts(CENSUS_ROOTS.map((dir) => ({ dir: resolve(REPO_ROOT, dir) })));
     const delta = {
       nonNull: counts.nonNull - BASELINE.nonNull,
       asCast: counts.asCast - BASELINE.asCast,
@@ -170,5 +231,57 @@ describe('DR-14: noUncheckedIndexedAccess ratchet (root)', () => {
     // on BOTH escape-hatch axes, not just non-null assertions.
     expect(counts.nonNull).toBeGreaterThanOrEqual(BASELINE.nonNull);
     expect(counts.asCast).toBeGreaterThanOrEqual(BASELINE.asCast);
+  });
+
+  it('ScriptsCastCensus_Roots_CoverEveryTypecheckedTree', () => {
+    // The structural fix for "same blind spot, different gate" (task 022's
+    // finding, folded into task 066). Two gates governed overlapping-but-unequal
+    // directories, and the difference was invisible because neither stated its
+    // scope in terms the other could be checked against.
+    //
+    // Both scopes are now DERIVED from the same source of truth — the tsconfig
+    // projects the repo actually compiles, discovered by globbing rather than
+    // listed — so a new project, or a widened `include`, drags the cast census
+    // along with it or fails here. No hand-maintained pair of lists to drift.
+    const packageRoots: readonly string[] = ['.', 'servers/exarchos-mcp'];
+    const configs: string[] = [];
+    for (const pkg of packageRoots) {
+      for (const entry of readdirSync(resolve(REPO_ROOT, pkg))) {
+        if (/^tsconfig(\..+)?\.json$/.test(entry)) configs.push(join(pkg, entry));
+      }
+    }
+    // Non-empty denominator: a discovery that finds no projects would make the
+    // containment assertion below vacuously true.
+    expect(configs.length).toBeGreaterThanOrEqual(4);
+
+    const compiled = new Set<string>();
+    for (const config of configs) {
+      const absolute = resolve(REPO_ROOT, config);
+      const read = ts.readConfigFile(absolute, (p) => readFileSync(p, 'utf8'));
+      expect(read.error).toBeUndefined();
+      const json: unknown = read.config;
+      if (typeof json !== 'object' || json === null) throw new Error(`${config} is not an object`);
+      const parsed = ts.parseJsonConfigFileContent(
+        json,
+        ts.sys,
+        dirname(absolute),
+        undefined,
+        absolute,
+      );
+      for (const file of parsed.fileNames) {
+        const rel = relative(REPO_ROOT, file).split(sep).join('/');
+        // Ambient declarations are excluded on BOTH sides: `count-casts.ts`
+        // skips `__shims__/`, and a declaration file holds no expressions to
+        // assert in. Comparing them would be comparing a scope neither gate has.
+        if (rel.endsWith('.d.ts')) continue;
+        compiled.add(rel);
+      }
+    }
+    expect(compiled.size).toBeGreaterThan(0);
+
+    for (const file of compiled) {
+      const covered = CENSUS_ROOTS.some((root) => file.startsWith(`${root}/`));
+      expect(covered, `${file} is compiled but sits outside the cast-census roots`).toBe(true);
+    }
   });
 });

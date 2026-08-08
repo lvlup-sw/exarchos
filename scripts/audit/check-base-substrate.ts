@@ -80,8 +80,17 @@ function invokedAsCli(): boolean {
 }
 
 function parseArgs(): { root: string } {
-  const root = process.argv.includes('--root') ? process.argv[process.argv.indexOf('--root') + 1] : process.cwd();
-  return { root };
+  const flag = process.argv.indexOf('--root');
+  if (flag === -1) return { root: process.cwd() };
+  // `--root` with no following argument previously produced `undefined`, which
+  // then reached `path.join` and failed with a message about the wrong thing.
+  // Fail on the actual mistake instead. (Surfaced by task 066, the first
+  // typecheck this tree has ever had.)
+  const value = process.argv[flag + 1];
+  if (value === undefined) {
+    throw new Error('[check-base-substrate] `--root` requires a directory path');
+  }
+  return { root: value };
 }
 
 if (invokedAsCli()) {

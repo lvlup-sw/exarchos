@@ -962,6 +962,48 @@ jobs:
       - name: CI-topology conformance test (DR-2)
         run: npx --no-install vitest run scripts/ci-topology.test.ts
 
+      # ── `scripts/` typechecks (task 066, DR-24) ────────────────────────────
+      # Both `scripts/` trees were compiled by NOTHING: `tsconfig.json` and
+      # `servers/exarchos-mcp/tsconfig.json` both `include: ["src/**/*"]`, so
+      # the guards living there — cli-derivation-guard.ts, authority-live-proof.ts,
+      # cli-vocab-guard.ts, guard-inventory.ts, scripts/audit/* — were never
+      # typechecked. Three separate tasks (020, 021, 026) each discovered this
+      # independently and each hand-ran a standalone `tsc --noEmit` over their own
+      # files; widening the tree at once surfaced 12 real errors (9 of them in
+      # scripts/audit/), all fixed by narrowing/widening rather than by a cast.
+      #
+      # Hosted HERE and not in test-root/test-mcp, deliberately. The scan surface
+      # of the root scripts project is `scripts/**` PLUS the MCP `src/` modules its
+      # guards import, and `changes.root` covers neither (this file already notes
+      # at the enforcer-wiring self-test above that the root filter excludes
+      # `scripts/**`, so a scripts-only PR skips test-root entirely). An unfiltered
+      # host makes the two-surface subset rule hold trivially. DR-1 host class:
+      # deps tail, unfiltered — both dep trees are installed above. See
+      # docs/guides/ci-gate-hosting.md.
+      - name: Typecheck the root `scripts/` tree (task 066, DR-24)
+        run: npx tsc -p tsconfig.scripts.json
+
+      - name: Typecheck the MCP `scripts/` tree (task 066, DR-24)
+        working-directory: servers/exarchos-mcp
+        run: npx tsc -p tsconfig.scripts.json
+
+      # The guard's own self-test on the same host (DR-24: "each guard's
+      # self-test runs in the same CI job as the guard"). `tsc -p` already fails
+      # on a config resolving ZERO files (TS18003), but it exits 0 over a config
+      # that quietly stopped covering the guards it exists to cover — so this
+      # asserts the resolved file set against a stated coverage floor, and
+      # carries the zero-file kill fixture.
+      - name: scripts/ typecheck coverage self-test (task 066, DR-24)
+        run: npx --no-install vitest run scripts/tsconfig-scripts-coverage.test.ts
+
+      # DR-14 cast-census scope (task 022's finding, folded into task 066): the
+      # census roots must cover every tree the tsconfig projects compile, so a
+      # directory cannot be typechecked by one gate and un-censused by the other.
+      # Runs unfiltered for the same reason as the typechecks above — the roots
+      # span both packages, and `changes.root` covers neither `scripts/` tree.
+      - name: Cast-census scope + budget ratchet (DR-14, task 066)
+        run: npx --no-install vitest run src/tsconfig-strictness.test.ts
+
       # DR-10 .test.sh re-assert for check-mutation-gate (task-015 pattern,
       # unfiltered — every check script's self-test runs on every PR). Its
       # invocation seam drives the real mutation-adequacy handler through a

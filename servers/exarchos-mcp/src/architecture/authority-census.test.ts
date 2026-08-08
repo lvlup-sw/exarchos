@@ -23,6 +23,7 @@ import {
   type ReachabilityInputs,
 } from '../contract/reachability/graph.js';
 import {
+  CONTRACT_BOUNDARIES,
   ENFORCEMENT_WAVES,
   topologyRows,
   type AuthorityTopologyRow,
@@ -30,14 +31,17 @@ import {
   type EnforcementWave,
 } from './authority-topology.js';
 import {
+  BOUNDARY_HOP_EVIDENCE,
   CENSUS_HOPS,
   ENFORCEMENT_INSTRUMENTS,
-  HOP_EVIDENCE,
+  auditRowEvidence,
   bindingSubjects,
   coversPopulation,
   declaredAuthorities,
   isEnforcedAt,
+  liveMeasuredBoundaries,
   matchingInstruments,
+  rowEvidence,
   runAuthorityCensus,
   waveIndex,
   type AuthorityCensusReport,
@@ -546,16 +550,24 @@ describe('authority census — vocabulary', () => {
     expect([...exercised].sort()).toEqual([...shipped].sort());
   });
 
-  it('AuthorityCensus_EveryHop_DeclaresItsEvidenceClass', () => {
-    // The analogue of P05-05's `HOP_AUTHORITIES`: a hop may not join the census
-    // without stating what resolves it. Two of the three hops resolve against
-    // the row's own declaration, which is a committed measurement and NOT
-    // independent evidence about the tree — recorded as data so a reviewer
-    // cannot mistake a row-derived verdict for a live one.
-    expect(Object.keys(HOP_EVIDENCE).sort()).toEqual([...CENSUS_HOPS].sort());
-    expect(HOP_EVIDENCE.authority).toBe('declared-row');
-    expect(HOP_EVIDENCE.binding).toBe('declared-row');
-    expect(HOP_EVIDENCE.enforcement).toBe('registered-instrument');
+  it('AuthorityCensus_EveryHopOfEveryRow_DeclaresItsEvidenceClass', () => {
+    // P05-05's `HOP_AUTHORITIES` totality, on BOTH axes (task 066): neither a hop
+    // nor a boundary may join the census without stating what resolves it. The
+    // table is total over `ContractBoundaryId × CensusHop`, so the denominator
+    // here is a product and not a hop count.
+    expect(Object.keys(BOUNDARY_HOP_EVIDENCE).sort()).toEqual([...CONTRACT_BOUNDARIES].sort());
+    for (const boundary of CONTRACT_BOUNDARIES) {
+      expect(Object.keys(rowEvidence(boundary)).sort()).toEqual([...CENSUS_HOPS].sort());
+      for (const hop of CENSUS_HOPS) {
+        const cell = rowEvidence(boundary)[hop];
+        // Every entry names the slot it sits in. This is what the compiler
+        // already enforces (`_InheritedEvidence_FailsCompile`); asserted here so
+        // a table arriving as DATA is held to the same rule.
+        expect(cell.boundary).toBe(boundary);
+        expect(cell.hop).toBe(hop);
+        expect(cell.why.length).toBeGreaterThan(40);
+      }
+    }
 
     // Every registered instrument names a module and a marker a reviewer can
     // resolve, and states a direction — no unexamined registration.
@@ -565,6 +577,186 @@ describe('authority census — vocabulary', () => {
       expect(instrument.marker.length).toBeGreaterThan(0);
       expect(instrument.why.length).toBeGreaterThan(40);
     }
+  });
+
+  it('AuthorityCensus_LiveMeasuredRows_AreTwoAndTheOtherSixStayDeclared', () => {
+    // The upgrade task 026 earned and could not record, now recorded — and the
+    // six rows that earned nothing left visibly weaker. Both halves are asserted:
+    // an over-claim (a seventh row acquiring `live-measurement`) and an
+    // under-claim (either of the two silently reverting) fail here.
+    expect([...liveMeasuredBoundaries()].sort()).toEqual(['cli-surface', 'event-catalog']);
+
+    const report = auditRowEvidence();
+    expect(report.ok).toBe(true);
+    // Non-empty denominators on all three axes — an evidence map covering zero
+    // rows, or a cross-check ranging over zero rows, must not pass clean.
+    expect(report.rowCount).toBe(CONTRACT_BOUNDARIES.length);
+    expect(report.entryCount).toBe(CONTRACT_BOUNDARIES.length * CENSUS_HOPS.length);
+    expect(report.checkedRows).toBe(CONTRACT_BOUNDARIES.length);
+    expect(report.liveMeasured).toEqual(['cli-surface', 'event-catalog']);
+    expect(report.declaredOnly).toHaveLength(6);
+    // 2 rows × 2 hops (authority + binding) carry the live class; nothing else.
+    expect(report.byClass['live-measurement']).toBe(4);
+    // Exactly one row claims `already-enforced`, so exactly one hop resolves
+    // against a registered instrument.
+    expect(report.byClass['registered-instrument']).toBe(1);
+
+    // Each live claim carries a witness a reviewer can re-run.
+    for (const boundary of liveMeasuredBoundaries()) {
+      for (const hop of CENSUS_HOPS) {
+        const cell = rowEvidence(boundary)[hop];
+        if (cell.evidence !== 'live-measurement') continue;
+        expect(cell.oracle.module).toContain('scripts/authority-live-proof.ts');
+        expect(cell.oracle.entrypoint.length).toBeGreaterThan(0);
+        expect(cell.oracle.subjects.length).toBeGreaterThan(0);
+      }
+    }
+
+    // The census reports the evidence alongside the verdict, per row.
+    const census = runAuthorityCensus();
+    for (const closure of census.boundaries) {
+      expect(closure.evidence).toEqual(rowEvidence(closure.boundary));
+    }
+  });
+
+  it('AuthorityCensus_EvidenceInheritedFromAnotherRow_FailsTheAudit', () => {
+    // The KILL FIXTURE for the runtime half. The compiler already refuses this
+    // in source; a table that arrives as DATA never met the compiler, so the
+    // same move is re-proved here: give a row with no live measurement a COPY of
+    // the entry belonging to a row that has one.
+    //
+    // Built by mutating the shipped table rather than hand-writing a whole one,
+    // so the fixture cannot drift away from the real shape and pass vacuously.
+    const inherited = {
+      ...BOUNDARY_HOP_EVIDENCE,
+      'response-shape': {
+        ...BOUNDARY_HOP_EVIDENCE['response-shape'],
+        authority: BOUNDARY_HOP_EVIDENCE['cli-surface'].authority,
+      },
+    };
+    const report = auditRowEvidence(inherited);
+    expect(report.ok).toBe(false);
+    const inheritance = report.findings.filter(
+      (f) => f.boundary === 'response-shape' && f.hop === 'authority',
+    );
+    expect(inheritance.length).toBeGreaterThan(0);
+    expect(inheritance[0]?.kind).toBe('stale-exception');
+    expect(inheritance.map((f) => f.message).join(' ')).toMatch(/cannot be inherited from another/);
+
+    // CONTROL: the unmutated table passes, so the failure above is attributable
+    // to the inheritance and not to the fixture being malformed.
+    expect(auditRowEvidence().ok).toBe(true);
+  });
+
+  it('AuthorityCensus_EmptyEvidenceMap_FailsRatherThanPassingClean', () => {
+    // The empty-denominator posture `layer-boundaries-seam.ts` established, on
+    // the evidence map. A table covering zero rows reports no per-entry findings
+    // — the exact shape of an instrument dying green — so the denominators are
+    // checked, not just the finding list.
+    const empty = auditRowEvidence({});
+    expect(empty.ok).toBe(false);
+    expect(empty.entryCount).toBe(0);
+    expect(empty.rowCount).toBe(0);
+    expect(empty.findings.some((f) => f.message.includes('ZERO (hop, row) entries'))).toBe(true);
+
+    // A complete table whose ROW denominator is empty also fails: every
+    // `not-applicable` claim would go unchecked.
+    const noRows = auditRowEvidence(BOUNDARY_HOP_EVIDENCE, []);
+    expect(noRows.ok).toBe(false);
+    expect(noRows.checkedRows).toBe(0);
+    expect(noRows.findings.some((f) => f.message.includes('ZERO rows'))).toBe(true);
+
+    // And a table that is not a table at all fails closed rather than throwing.
+    expect(auditRowEvidence(null).ok).toBe(false);
+    expect(auditRowEvidence('not a table').ok).toBe(false);
+  });
+
+  it('AuthorityCensus_NotApplicableEvidence_IsCheckedAgainstTheRow', () => {
+    // `not-applicable` is a claim about the ROW, so it is verified against the
+    // row rather than trusted — the two-way ratchet, both directions.
+    //
+    // Direction 1: a row whose `binding` hop DOES range over representations may
+    // not claim the hop resolves nothing. `sdk-generation` is the row that
+    // legitimately carries `not-applicable` there (every representation is
+    // authoritative, so the population is empty); hand it a row with a real
+    // binding population and the claim goes stale.
+    const withBindingPopulation = row({
+      boundary: 'sdk-generation',
+      representations: [authoritative('the authority itself'), unbound('a hand-authored copy')],
+    });
+    const stale = auditRowEvidence(BOUNDARY_HOP_EVIDENCE, [
+      ...topologyRows().filter((r) => r.boundary !== 'sdk-generation'),
+      withBindingPopulation,
+    ]);
+    expect(stale.ok).toBe(false);
+    expect(
+      stale.findings.some(
+        (f) => f.boundary === 'sdk-generation' && f.hop === 'binding' && f.kind === 'stale-exception',
+      ),
+    ).toBe(true);
+
+    // Direction 2: a row that starts claiming `already-enforced` makes the
+    // `enforcement` hop applicable, so evidence saying it resolves nothing is an
+    // under-claim the audit must catch — the coupling that stops a later wave
+    // flipping a row to enforce while leaving its evidence behind.
+    const nowEnforced = row({
+      boundary: 'response-shape',
+      enforceFrom: {
+        kind: 'already-enforced',
+        by: 'contract/reachability/graph.ts',
+      },
+    });
+    const underClaim = auditRowEvidence(BOUNDARY_HOP_EVIDENCE, [
+      ...topologyRows().filter((r) => r.boundary !== 'response-shape'),
+      nowEnforced,
+    ]);
+    expect(underClaim.ok).toBe(false);
+    expect(
+      underClaim.findings.some(
+        (f) =>
+          f.boundary === 'response-shape' &&
+          f.hop === 'enforcement' &&
+          f.kind === 'stale-exception',
+      ),
+    ).toBe(true);
+  });
+
+  it('AuthorityCensus_EvidenceFindingKinds_AreTheImportedVocabulary', () => {
+    // No novel error codes on the evidence side either: every finding kind the
+    // audit can emit is one P05-05 already ships. The corrupt fixtures below
+    // exercise both kinds the audit uses.
+    const corrupt = auditRowEvidence({
+      ...BOUNDARY_HOP_EVIDENCE,
+      'not-a-boundary': BOUNDARY_HOP_EVIDENCE['cli-surface'],
+      'effect-event': {
+        authority: { boundary: 'effect-event', hop: 'authority', evidence: 'guesswork', why: 'x' },
+        binding: BOUNDARY_HOP_EVIDENCE['effect-event'].binding,
+        enforcement: BOUNDARY_HOP_EVIDENCE['effect-event'].enforcement,
+      },
+    });
+    expect(corrupt.ok).toBe(false);
+    const kinds = new Set(corrupt.findings.map((f) => f.kind));
+    expect(kinds.size).toBeGreaterThan(1);
+    for (const kind of kinds) expect(['missing', 'ambiguous', 'stale-exception']).toContain(kind);
+
+    // A `live-measurement` claim with an empty subject list is a measurement
+    // over nothing, and is rejected on the same empty-denominator principle the
+    // census applies to its own populations.
+    const hollow = auditRowEvidence({
+      ...BOUNDARY_HOP_EVIDENCE,
+      'cli-surface': {
+        ...BOUNDARY_HOP_EVIDENCE['cli-surface'],
+        authority: {
+          boundary: 'cli-surface',
+          hop: 'authority',
+          evidence: 'live-measurement',
+          oracle: { module: 'x.ts', entrypoint: 'measure', subjects: [] },
+          why: BOUNDARY_HOP_EVIDENCE['cli-surface'].authority.why,
+        },
+      },
+    });
+    expect(hollow.ok).toBe(false);
+    expect(hollow.findings.some((f) => f.message.includes('measurement over nothing'))).toBe(true);
   });
 
   it('WaveOrdering_EveryWave_IsOrderedByItsPositionInEnforcementWaves', () => {

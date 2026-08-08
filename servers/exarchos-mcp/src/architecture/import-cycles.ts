@@ -191,10 +191,19 @@ export interface CycleBaselineEntry {
   readonly rationale: string;
   /** Tracking issue for the fix. */
   readonly issue: string;
-  /** ISO date the waiver lapses, XOR `permanent`. */
-  readonly expires?: string;
+  /**
+   * ISO date the waiver lapses, XOR `permanent`.
+   *
+   * `| undefined` deliberately: `cycle-gate.ts` feeds this interface entries
+   * produced by `z.infer`, whose `.optional()` fields are `T | undefined` under
+   * `exactOptionalPropertyTypes`. `cycle-gate.ts`'s own header already claimed
+   * its validated entry type "flows unchanged" into these helpers — a claim no
+   * typechecker had ever read, because `scripts/` was compiled by nothing until
+   * task 066. It does now.
+   */
+  readonly expires?: string | undefined;
   /** `true` when the edge is an accepted permanent exception (no expiry). */
-  readonly permanent?: boolean;
+  readonly permanent?: boolean | undefined;
 }
 
 /** The `cycle-baseline.json` document shape (DRAFT — task 010 finalizes). */
