@@ -212,9 +212,18 @@ describe('DR-14: noUncheckedIndexedAccess ratchet (root)', () => {
   // measured BEFORE the measuring task's own edits is stale on arrival. Measure
   // the tree you are shipping, not the one you started from.
   //
+  //   1779 -> 1777   PAYDOWN, the INV-11 removal of the shared-mutating posture
+  //                  gate. Not a refactor: `enforceSharedMutatingGate`
+  //                  (`capabilities/resolver.ts`) and `canMutateShared`
+  //                  (`vcs/mutation-owner.ts`) were DELETED, and the two
+  //                  assertions they carried went with them. The floor moved
+  //                  because the code moved, which is exactly the case this
+  //                  symmetric floor exists to force into the open rather than
+  //                  let drift silently downward.
+  //
   // Per the window rule below this SLIDES the window down — the wave's remaining
   // delta allowance is restored to a full 5 of 5, not extended beyond it.
-  const BASELINE: CastCounts = { nonNull: 78, asCast: 1779, asAny: 0 };
+  const BASELINE: CastCounts = { nonNull: 78, asCast: 1777, asAny: 0 };
   // Declared budget = MAX escape-hatch sites maintenance work may introduce
   // before the NEXT documented re-baseline. Deliberately tighter than the
   // pre-wave nonNull budget: large additions must re-baseline in the open

@@ -8,7 +8,6 @@ import type { ConfigHookRunner } from '../hooks/config-hooks.js';
 import type { Outbox } from '../sync/outbox.js';
 import type { ChannelEmitter } from '../channel/emitter.js';
 import type { CapabilityResolver } from '../capabilities/resolver.js';
-import { enforceSharedMutatingGate } from '../capabilities/resolver.js';
 import type { StorageBackend } from '../storage/backend.js';
 import type { RootsClient } from '../workspace/discovery.js';
 import type { ElicitationClient } from '../dispatch/elicitation-dispatch.js';
@@ -953,23 +952,37 @@ export async function dispatch(
     const denied = enforceReadonlyGate(tool, actionName, ctx.capabilityResolver);
     if (denied) return attachMeta(denied);
 
-    // DR-4 / INV-11: shared-mutating posture gate. Actions declaring
-    // `posture: 'shared-mutating'` (merge_orchestrate, serialize_merge,
-    // prune_worktrees) mutate the shared integration ref / main working tree
-    // with no worktree isolation. Reject a task-isolated (isolation:worktree)
-    // or read-only (no fs:write) caller at the resolver seam BEFORE the handler
-    // runs — structured CAPABILITY_DENIED, no handler entry, no event emission.
-    // Runs AFTER the readonly gate so the read-only tier keeps its existing
-    // message; this gate adds the task-isolated rejection the readonly allowlist
-    // cannot express (a task-isolated caller holds full mcp:exarchos and passes
-    // enforceReadonlyGate).
-    const postureDenied = enforceSharedMutatingGate(
-      tool,
-      actionName,
-      matchingAction.posture,
-      ctx.capabilityResolver,
-    );
-    if (postureDenied) return attachMeta(postureDenied);
+    // ── THE SHARED-MUTATING POSTURE GATE WAS DELETED HERE (INV-11) ──────────
+    //
+    // `enforceSharedMutatingGate` used to reject a `shared-mutating` action
+    // (merge_orchestrate, serialize_merge, prune_worktrees) whose caller either
+    // declared `isolation:worktree` or lacked `fs:write`. It was removed rather
+    // than relaxed, for three reasons:
+    //
+    //   1. It was not an authority ordering. `task-isolated` holds a strict
+    //      SUPERSET of `shared-mutating`'s capabilities, so the denied tier was
+    //      the more capable one. The gate read `isolation:worktree` as a
+    //      LOCATION MARKER ("I am inside a worktree") — a context assertion
+    //      wearing a capability's clothes.
+    //   2. INV-11 forbids it in terms: spatial write confinement "must never be
+    //      inferred from the launcher's cwd or worktree ownership", and the
+    //      catalog says to flag "any claim that a task-isolated agent CANNOT
+    //      write outside its worktree". The denial message made exactly that
+    //      claim. Write confinement is EXCLUDED from Exarchos's by-construction
+    //      claims until a hook standard or kernel sandbox owns the write path.
+    //   3. It was self-declared, so it bounded nothing. Capabilities come from
+    //      the handshake; a caller could simply not declare
+    //      `isolation:worktree`. And with no sandbox in the picture, a denied
+    //      agent still runs `git merge` in Bash. The gate's only measured
+    //      effect was to route merges AROUND the audited path — denying the
+    //      verb that takes the lease and emits events while leaving the
+    //      unaudited shell path open.
+    //
+    // What actually protects the shared ref is unchanged and remains in force:
+    // `serialize_merge`'s single-writer lease, the merge preflight's ancestry
+    // check, and the launcher's ownership of top-level worktree placement. The
+    // readonly gate above still enforces STATE authority, which is the half
+    // INV-11 does assign to the dispatch/MCP handler.
 
     // T-12 (P4 of rehydration-machinery-refactor): emit
     // `session.machinery_consumed` on the first non-rehydrate L5 handler

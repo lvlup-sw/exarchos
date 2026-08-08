@@ -131,32 +131,25 @@ export function assertVcsEpochCurrent(
   }
 }
 
-// ─── Capability model ────────────────────────────────────────────────────────
-
-/**
- * The capability set a `shared-mutating` posture holds (`fs:read` + `fs:write` +
- * `shell:exec`). Sourced from the canonical posture→capability table so this
- * owner consumes the existing trust model rather than re-deriving it.
- */
-const SHARED_MUTATING_CAPS: ReadonlySet<Capability> =
-  capabilitiesForPosture('shared-mutating');
-
-const WORKTREE_ISOLATION: Capability = 'isolation:worktree';
-
-/**
- * Whether `capabilities` authorizes a live shared VCS mutation. A worktree/branch
- * mutation lands on the SHARED `.git`, so — mirroring
- * `resolver.ts`'s `enforceSharedMutatingGate` — a worktree-isolated caller is
- * denied, and a caller must hold every shared-mutating capability. A caller that
- * fails this degrades to a dry-run outcome (never an obscure failure).
- */
-export function canMutateShared(capabilities: ReadonlySet<Capability>): boolean {
-  if (capabilities.has(WORKTREE_ISOLATION)) return false;
-  for (const cap of SHARED_MUTATING_CAPS) {
-    if (!capabilities.has(cap)) return false;
-  }
-  return true;
-}
+// ─── Capability model: REMOVED (INV-11) ─────────────────────────────────────
+//
+// `canMutateShared(capabilities)` decided LIVE vs dry-run by mirroring
+// `resolver.ts`'s `enforceSharedMutatingGate`: a caller declaring
+// `isolation:worktree` was denied, and a caller had to hold every
+// shared-mutating capability. Both halves are gone with that gate.
+//
+// This copy was the more consequential of the two, because its failure mode was
+// SILENT. The gate at least returned a structured CAPABILITY_DENIED; here a
+// caller that failed the check was quietly downgraded to `dry-run` — the git
+// mutation simply did not happen, and the caller got a successful-looking
+// result describing work that was never done. A confinement claim INV-11 says
+// must never be inferred from worktree ownership was deciding whether real
+// merges executed.
+//
+// `resolveMode` now honours an explicit `request.mode` and otherwise runs LIVE.
+// Dry-run remains fully available — it is a caller's explicit choice, which is
+// what `--dry-run` always meant — but it is no longer something the system
+// infers from a self-declared capability and applies without saying so.
 
 // ─── Git runner seam ─────────────────────────────────────────────────────────
 
@@ -421,10 +414,16 @@ export class VcsMutationOwner {
       : base;
   }
 
-  /** Resolve the effective mode: an explicit override wins; otherwise capabilities decide. */
+  /**
+   * Resolve the effective mode: an explicit override wins; otherwise LIVE.
+   *
+   * Capabilities no longer participate. They used to (`canMutateShared`), which
+   * meant a caller could be silently downgraded to dry-run and handed a
+   * successful-looking result for a mutation that never ran. Dry-run is now
+   * only ever a caller's explicit request.
+   */
   private resolveMode(request: VcsMutationRequest): EffectMode {
-    if (request.mode !== undefined) return request.mode;
-    return canMutateShared(this.capabilities) ? LIVE : { kind: 'dry-run' };
+    return request.mode ?? LIVE;
   }
 
   private async append(

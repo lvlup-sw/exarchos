@@ -18,8 +18,9 @@
     },
     "errorFamilies": {
       "total": 6,
-      "covered": 3,
+      "covered": 2,
       "missing": [
+        "authorization",
         "output",
         "presenter",
         "task"
