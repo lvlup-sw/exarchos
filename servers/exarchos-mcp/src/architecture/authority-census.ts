@@ -1380,12 +1380,14 @@ export type _CensusHopStatusIsReachabilityHopStatus = Expect<
  * COMPILE error until its evidence is stated for every pair. P05-05's
  * `HOP_AUTHORITIES` totality, lifted from per-hop to per-(hop, row): neither a
  * hop nor a boundary can join the census without declaring what resolves it.
- */
+ @proof
+ * */
 export type _EveryBoundaryDeclaresItsEvidence = Expect<
   Assignable<ContractBoundaryId, keyof typeof BOUNDARY_HOP_EVIDENCE>
 >;
 
-/** …and no evidence row exists for a boundary the census does not range over. */
+/** …and no evidence row exists for a boundary the census does not range over. @proof
+ * */
 export type _EvidenceAddsNoBoundaries = Expect<
   Assignable<keyof typeof BOUNDARY_HOP_EVIDENCE, ContractBoundaryId>
 >;
@@ -1417,7 +1419,8 @@ export type _EvidenceAddsNoHops = Expect<
  * a row that has none. It is rejected, because the entry's `boundary` is part of
  * its type and the slot's type pins that literal. No spread, no copy-paste and no
  * shared hop-level constant can move an evidence class from one row to another.
- */
+ @proof
+ * */
 export type _InheritedEvidence_FailsCompile = Expect<
   NotAssignable<
     {
@@ -1436,7 +1439,8 @@ export type _InheritedEvidence_FailsCompile = Expect<
  * `_InheritedEvidence_FailsCompile` would also hold if `RowHopEvidence` were
  * mistyped such that NOTHING satisfies it — a rejection that proves nothing. The
  * same entry, filed under its own row, compiles.
- */
+ @proof
+ * */
 export type _OwnRowEvidence_Compiles = Expect<
   Assignable<
     {
@@ -1449,7 +1453,8 @@ export type _OwnRowEvidence_Compiles = Expect<
   >
 >;
 
-/** The hop key is pinned the same way: one hop's evidence is not another's. */
+/** The hop key is pinned the same way: one hop's evidence is not another's. @proof
+ * */
 export type _InheritedHopEvidence_FailsCompile = Expect<
   NotAssignable<
     {
@@ -1466,7 +1471,8 @@ export type _InheritedHopEvidence_FailsCompile = Expect<
  * A `live-measurement` claim without its witness does not typecheck. The class is
  * not a label a row may simply assert — it costs a module, an entrypoint and the
  * paths the measurement reads.
- */
+ @proof
+ * */
 export type _LiveMeasurementWithoutOracle_FailsCompile = Expect<
   NotAssignable<
     { boundary: 'cli-surface'; hop: 'authority'; evidence: 'live-measurement'; why: string },
