@@ -147,26 +147,56 @@ describe('check-measured-premises (task 054, DR-27)', () => {
     expect(vacuous.length).toBeGreaterThan(0);
     expect(total.length).toBeGreaterThan(0);
     expect(substantive.length).toBeGreaterThan(0);
-
-    for (const claim of [...vacuous, ...total, ...substantive]) {
-      expect(claim.verdict, `${claim.name}@${claim.line}`).toBe('drifted');
-      expect(claim.literal).not.toBe(claim.derived);
-    }
+    // The fixture's literals are frozen (asserted above). Its DERIVED side is
+    // not — it is the live tree, and the live tree legitimately moves.
     expect(new Set(vacuous.map((c) => c.literal))).toEqual(new Set([109]));
     expect(new Set(total.map((c) => c.literal))).toEqual(new Set([123]));
     expect(new Set(substantive.map((c) => c.literal))).toEqual(new Set([12]));
 
-    // Discrimination, not blanket rejection: rev 3 was RIGHT about the CLI
-    // literal count and the event-type total, and those must still pass. A
-    // checker that fails every claim on a wrong document is a checker that
-    // isn't reading the claims.
+    // ── WHY THIS IS A PARTITION AND NOT A FIXED LIST (task 068, 2026-08-07) ──
+    //
+    // This block used to name which claims drift and which agree. That was a
+    // claim about the LIVE TREE dressed up as a claim about the fixture, and the
+    // tree falsified it in both directions at once when task 068 registered the
+    // `invariants_amend` verb and its `invariant.amended` event:
+    //
+    //   • `output-schema-total` — the tree grew 122 -> 123, so rev 3's WRONG
+    //     literal of 123 now AGREES. A stale number the tree happened to grow
+    //     into. Nothing about rev 3 became more correct.
+    //   • `event-types-total`  — the tree grew 170 -> 171, so rev 3's literal of
+    //     170, which this test asserted was RIGHT, now drifts.
+    //
+    // Pinning either verdict re-creates the defect this whole program exists to
+    // remove: an assertion that passes for a reason unrelated to the property it
+    // names. The two properties the fixture actually has to carry are invariant
+    // under tree growth, so assert exactly those two and nothing more.
+    const dr4 = [...vacuous, ...total, ...substantive];
     const cli = claimsNamed(report, 'cli-handwritten-literals');
     const events = claimsNamed(report, 'event-types-total');
     expect(cli.length).toBeGreaterThan(0);
     expect(events.length).toBeGreaterThan(0);
-    for (const claim of [...cli, ...events]) {
-      expect(claim.verdict, `${claim.name}@${claim.line}`).toBe('agree');
+    const all = [...dr4, ...cli, ...events];
+
+    // 1. NOT A PASS on a document proven wrong. At least one claim must drift,
+    //    and every drift must be a real literal/derived disagreement.
+    const drifted = all.filter((c) => c.verdict === 'drifted');
+    expect(drifted.length, 'a document known wrong must produce at least one drift').toBeGreaterThan(
+      0,
+    );
+    for (const claim of drifted) {
+      expect(claim.literal, `${claim.name}@${claim.line}`).not.toBe(claim.derived);
     }
+
+    // 2. NOT BLANKET REJECTION. A checker that fails every claim on a wrong
+    //    document is a checker that is not reading the claims. At least one
+    //    must agree — and if the tree ever drifts so that NONE does, this
+    //    fixture has stopped discriminating and the failure says so rather than
+    //    the fixture quietly becoming a rubber stamp.
+    const agreed = all.filter((c) => c.verdict === 'agree');
+    expect(
+      agreed.length,
+      'the fixture no longer discriminates — every claim drifts, so it cannot show the checker reads claims',
+    ).toBeGreaterThan(0);
   }, 120_000);
 
   it('MeasuredPremises_ZeroAnnotationsResolved_FailsClosed', () => {

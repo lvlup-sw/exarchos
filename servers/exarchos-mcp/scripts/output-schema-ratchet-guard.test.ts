@@ -198,7 +198,18 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
     expect(green.code).toBe(0);
     expect(green.err).toBe('');
     expect(green.out).toContain('OK as of 2026-08-07');
-    expect(green.out).toContain('112 waived of 122 declaration(s)');
+    // DERIVED, not written as a literal. This line used to read
+    // `'112 waived of 122 declaration(s)'`, and task 068 broke it by registering
+    // the `invariants_amend` verb with a substantive `withCappedShape` schema —
+    // a legitimate growth of the declaration population from 122 to 123 that has
+    // nothing to do with vacuity. A hard-coded denominator in the assertion made
+    // an unrelated, correct change look like a guard failure, which is the same
+    // "count written as a literal" defect this wave removes everywhere else.
+    // The waived count stays pinned by the seed digest; the DENOMINATOR is now
+    // read from the live census, so it tracks the tree.
+    const liveTotal = censusOutputSchemas().total;
+    expect(liveTotal).toBeGreaterThan(0);
+    expect(green.out).toContain(`${VACUITY_ALLOWLIST_IDS.length} waived of ${liveTotal} declaration(s)`);
     expect(green.out).toContain(`horizon ${VACUITY_EXPIRY_HORIZON}`);
 
     // Exactly one day separates green from red, and both were produced by this

@@ -80,8 +80,8 @@ Anchored to `.exarchos/invariants.md` (always-load tier, plus reference-only ent
 
 Exarchos declares more contracts than it binds. Across four independent boundaries, the same defect appears: **a declaration exists, is enforced, and cannot fail.**
 
-1. **The event registry records authorship, not reliability.** `source: 'auto' | 'model'` says who composes the payload, not what the emission is welded to. All <!-- measured: event-types-total -->170<!-- /measured --> types require *some* tool call. The 25 `model` types are report-coupled — a dedicated append accomplishing nothing else, therefore the first thing dropped under context pressure.
-2. **`outputSchema` records presence, not substance.** The field is required at the interface boundary and `validateAction` fails the import without it — but **<!-- measured: output-schema-vacuous -->112<!-- /measured --> of <!-- measured: output-schema-total -->122<!-- /measured --> declarations are `EnvelopeSchema(z.unknown())`**. INV-17 names `outputSchema` totality as *the precondition that makes facade equivalence hold by construction*; a vacuous schema satisfies totality trivially, because it is total over all shapes including wrong ones. For nine actions in ten, INV-2's "schema-checked in addition to byte-checked" is byte-checked plus a tautology.
+1. **The event registry records authorship, not reliability.** `source: 'auto' | 'model'` says who composes the payload, not what the emission is welded to. All <!-- measured: event-types-total -->171<!-- /measured --> types require *some* tool call. The 25 `model` types are report-coupled — a dedicated append accomplishing nothing else, therefore the first thing dropped under context pressure.
+2. **`outputSchema` records presence, not substance.** The field is required at the interface boundary and `validateAction` fails the import without it — but **<!-- measured: output-schema-vacuous -->112<!-- /measured --> of <!-- measured: output-schema-total -->123<!-- /measured --> declarations are `EnvelopeSchema(z.unknown())`**. INV-17 names `outputSchema` totality as *the precondition that makes facade equivalence hold by construction*; a vacuous schema satisfies totality trivially, because it is total over all shapes including wrong ones. For nine actions in ten, INV-2's "schema-checked in addition to byte-checked" is byte-checked plus a tautology.
 3. **The CLI's single-authority idiom exists and has decayed.** Flags derive from each action's Zod schema — and **1,613 lines of `adapters/cli.ts` carry 14 `.command(...)` call sites, of which only 3 are derivation loops and <!-- measured: cli-handwritten-literals -->11<!-- /measured --> are hand-written literals**: `doctor`, `version`, `feedback`, `schema`, `topology`, `emissions`, `mcp`, `onboard`, `init`, `merge-orchestrate`, `install-skills`. `merge_orchestrate` is declared twice — as a registered action *and* by hand. (Rev 1 claimed it was the only `posture: 'shared-mutating'` action, quoting a **stale JSDoc**; there are four — `merge_orchestrate`, `prune_worktrees`, `serialize_merge`, `cutover_decide`. The duplication is the finding; the uniqueness was never true.) `cli-vocab-guard` already walks the real composition root — but its policy is a *banned-vocabulary set*, so a hand-written command with good vocabulary passes. The guard that looks like it would catch this is measuring a different property. **And so did rev 1's replacement:** "traces to a registry declaration" does not discriminate either, because the hand-written commands call `addFlagsFromSchema` against the registry action. Only a source-level check separates derived from hand-written (G1, rev 2).
 4. **Detection exists and is discarded.** `_eventHints.missing` is computed (`check-event-emissions.ts:36-79`) and consumed only by the CLI pretty-printer (`cli-format.ts:96-103`). `hsm-transition-guard.ts` has no predicate of the form "expected event was never emitted."
 
@@ -319,7 +319,7 @@ type EventRegistration = {
 ```
 
 **Acceptance criteria:**
-- All <!-- measured: event-types-total -->170<!-- /measured --> existing types carry a tier **and** a lifecycle; the union is exhaustive (`tsc` proves it).
+- All <!-- measured: event-types-total -->171<!-- /measured --> existing types carry a tier **and** a lifecycle; the union is exhaustive (`tsc` proves it).
 - A registration attempting report-coupling does not compile — there is no variant to construct.
 - A `capability` registration naming an unresolvable `EffectProviderId` fails at boot.
 - **G3** ratchet seeds from the report-coupled count **derived at guard introduction** (<!-- measured: report-coupled-events -->25<!-- /measured --> on the landing branch) and permits only decrease. The seed is computed, never written as a literal. *Task 013 re-derived it and it held; the seed it landed is a MEMBERSHIP list, which is strictly stronger than "permits only decrease" — a count ceiling is satisfied by swapping one report-coupled type for another, a subset rule is not.*
@@ -345,7 +345,7 @@ type EventRegistration = {
 - **G2 is the allowlist-shrink ratchet**, not a count threshold. This is strictly stronger: a threshold permits swapping one vacuous declaration for another, an allowlist does not.
 - **Non-empty denominator:** a census enumerating zero declarations **fails**, so a moved module or an import error cannot read as a clean run.
 - INV-17's audit treats a vacuous declaration as a **violation of the precondition it names**, not a pass.
-- The **<!-- measured: output-schema-substantive -->10<!-- /measured -->** currently-typed declarations — all `withCappedShape`; **there is no second constructor** — are the migration template; the DR-10 worktree surface is the reference implementation.
+- The **<!-- measured: output-schema-substantive -->11<!-- /measured -->** currently-typed declarations — all `withCappedShape`; **there is no second constructor** — are the migration template; the DR-10 worktree surface is the reference implementation.
 - **Ordering proof:** a fixture asserts DR-8's fourth envelope state **cannot** be declared satisfied for an action whose `outputSchema` is vacuous — the allowlist and the envelope obligation are wired to the same census, so the <!-- measured: output-schema-vacuous -->112<!-- /measured --> cannot silently absorb the new state.
 
 ### DR-5: CLI derivation guard **[MC-1 — new]**
@@ -385,7 +385,7 @@ MRTR's `input_required` is neither success nor failure. Overloading `success: fa
 **Acceptance criteria:**
 - `Envelope<T>` gains a third discriminated state, designed once, at the envelope level.
 - `CLI_EXIT_CODES` gains a distinct code, **derived from the envelope discriminator**, not switched on in the adapter. A CLI-side special-case fails INV-2's audit.
-- The state lands in all <!-- measured: output-schema-substantive -->10<!-- /measured --> typed `outputSchema` declarations; DR-4's ordering proof prevents the <!-- measured: output-schema-vacuous -->112<!-- /measured --> vacuous ones from silently absorbing it.
+- The state lands in all <!-- measured: output-schema-substantive -->11<!-- /measured --> typed `outputSchema` declarations; DR-4's ordering proof prevents the <!-- measured: output-schema-vacuous -->112<!-- /measured --> vacuous ones from silently absorbing it.
 - `input_required` reconciles with `next_actions` semantics (INV-12) rather than sitting beside them — one affordance contract, not two.
 - **Error-path criterion:** a malformed or expired resumption attempt returns a typed envelope, never a validation crash; an `input_required` that can never be satisfied (no capability, no operator) degrades to a typed terminal error rather than an infinite retry.
 
@@ -649,7 +649,7 @@ PDD deliverable 5. Reverse-dependency closure per changed shared contract.
 | Contract | Change | Class | Reverse closure | Rollback |
 |---|---|---|---|---|
 | `Envelope<T>` | +1 discriminated state | **Breaking** for exhaustive consumers | 118 actions, both facades, parity harness, DR-7 exit table | Additive until wire-exposed; irreversible once clients branch on it |
-| `EventRegistration` | union replaces flat record | **Breaking** at registration sites | <!-- measured: event-types-total -->170<!-- /measured --> registrations | Types only; revert is mechanical |
+| `EventRegistration` | union replaces flat record | **Breaking** at registration sites | <!-- measured: event-types-total -->171<!-- /measured --> registrations | Types only; revert is mechanical |
 | `EffectPlan` | `emits` becomes required | **Breaking** at all effect call sites | every `runEffect` caller | `performAndCommit()` helper absorbs the common case |
 | `ToolAction` | + top-level-verb descriptor | **Additive** | registry consumers (10) | Optional field |
 | `CapabilityResolver` | lifetime connection → request | **Breaking** internally; behaviour-preserving | POLA gates, dispatch, `applyCacheHints` | Dual-era seam keeps the handshake path live |
@@ -1148,7 +1148,7 @@ The second half is the sharper one. The action declares `outputSchema: vacuityWa
 ### Task 055: Make `outputSchema` vacuity unconstructible + seed the shrink-only allowlist
 **Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-4
 **Files:** `servers/exarchos-mcp/src/registry.ts`, `servers/exarchos-mcp/src/architecture/output-schema-census.ts`, allowlist data file
-**Detail:** `withCappedShape` is the sole substantive constructor (<!-- measured: withcappedshape-count -->10<!-- /measured --> of <!-- measured: output-schema-substantive -->10<!-- /measured -->, measured). Type `ToolAction.outputSchema` to accept only its branded return or an allowlist entry, so vacuity stops being counted and starts being unconstructible. Supersedes the rung-3 counting ratchet planned for task 017.
+**Detail:** `withCappedShape` is the sole substantive constructor (<!-- measured: withcappedshape-count -->11<!-- /measured --> of <!-- measured: output-schema-substantive -->11<!-- /measured -->, measured). Type `ToolAction.outputSchema` to accept only its branded return or an allowlist entry, so vacuity stops being counted and starts being unconstructible. Supersedes the rung-3 counting ratchet planned for task 017.
 **Tests:**
 - `OutputSchema_NewActionDeclaringVacuous_FailsCompile` — rung 2, replaces the CI-guard formulation
 - `OutputSchema_AllowlistSeed_DerivedFromCensusNotLiteral` — the 112 come from the census
