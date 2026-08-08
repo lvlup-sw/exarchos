@@ -512,8 +512,21 @@ export type EventType = typeof EventTypes[number];
 const BUILT_IN_EVENT_TYPES = new Set<string>(EventTypes);
 const customEventTypes = new Set<string>();
 
-/** Name format: lowercase with hyphens, must contain at least one dot separator. */
-const EVENT_NAME_PATTERN = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$/;
+/**
+ * Name format: lowercase with hyphens, must contain at least one dot separator.
+ *
+ * EXPORTED FOR MEASUREMENT ONLY (DR-3, task 015) — its behaviour is unchanged, and
+ * {@link registerEventType} below is still its only consumer inside this module.
+ *
+ * `architecture/event-grammar-census.ts` reads this binding to measure how far it diverges from
+ * the DR-3 grammar over the LIVE catalog. It reads THIS regex rather than transcribing the
+ * character classes into the census, because a copy would be a third authority for the event-name
+ * vocabulary in a task whose whole purpose is to have one. Exporting it is what makes the pattern
+ * REACHABLE from the built-in corpus for the first time; the divergence that reachability exposes
+ * is recorded (owned, dated, shrink-only) by the census, deliberately NOT reconciled here — see
+ * the FINDING header in `event-store/event-name.ts`.
+ */
+export const EVENT_NAME_PATTERN = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$/;
 
 /**
  * Register a custom event type at runtime.

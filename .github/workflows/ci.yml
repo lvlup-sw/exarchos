@@ -1196,6 +1196,36 @@ jobs:
         working-directory: servers/exarchos-mcp
         run: npx --no-install vitest run src/architecture/report-coupling-census.test.ts
 
+      # DR-3 event-name grammar census + two-way ratchet (task 015). Enumerates
+      # the LIVE registry at runtime — `getValidEventTypes()`, so custom
+      # `registerEventType` names are in the denominator, which is the population
+      # no compile-time proof over `EventType` can see — decides every name
+      # against task 014's grammar, and holds the recorded grammar concessions to
+      # a two-way ratchet: a registered name the grammar rejects fails, and a
+      # recorded concession no live name exercises fails as stale cover. The
+      # census module is a pure library, so this test file IS the guard, and it
+      # carries the kill fixtures (a REAL malformed custom registration that
+      # `registerEventType` accepts today, an emptied denominator, an emptied
+      # concession table, a repaired EVENT_NAME_PATTERN, a lapsed expiry) — which
+      # satisfies DR-24's "each guard's self-test runs in the same CI job as the
+      # guard" for free.
+      #
+      # This is also where DR-3's mechanism reads the wall clock: the library
+      # takes `today` as a required argument so its unit cases are deterministic,
+      # and the concession deadline reddens the MERGE. Expect it to go red of its
+      # own accord after the seeded expiry (2027-02-28) — that is the deadline
+      # working, and the repair is retiring the concession, never re-dating it.
+      #
+      # Must be UNFILTERED: the census lives under `servers/exarchos-mcp/**` but
+      # governs a repo-wide naming contract, and an `mcp`-filtered host
+      # skips-as-passed on exactly the PRs #1711 describes. Rides the deps tail,
+      # not the zero-dep prefix — it resolves the MCP TypeScript source through
+      # the MCP vitest installed by the two steps above.
+      # See docs/guides/ci-gate-hosting.md.
+      - name: DR-3 event-name grammar ratchet (task 015)
+        working-directory: servers/exarchos-mcp
+        run: npx --no-install vitest run src/architecture/event-grammar-census.test.ts
+
       # Audit-delivery closure (DR-4/DR-24, task 069). Holds every declared
       # delivery obligation to BOTH halves: the producing action's live
       # `outputSchema` must declare the delivered field and its enumerator as
