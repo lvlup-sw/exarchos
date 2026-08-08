@@ -1,7 +1,10 @@
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { RootsListChangedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
+import {
+  createV1McpServer,
+  V1_ROOTS_LIST_CHANGED_NOTIFICATION_SCHEMA,
+  type V1McpServer,
+} from '../sdk/seam.js';
 import {
   getFullRegistry,
   buildRegistrationSchema,
@@ -335,7 +338,7 @@ function validateAgainstActionSchema(
  *    `toMcpResult` so both `content[0].text` (legacy SHOULD per MCP spec)
  *    and `structuredContent` (the typed envelope payload) ride together.
  */
-export function createMcpServer(ctx: DispatchContext): McpServer {
+export function createMcpServer(ctx: DispatchContext): V1McpServer {
   // ─── P03-04 (API-004) — pre-startup binding gate ────────────────────────────
   // MCP is a wire projection of the Exarchos contract; before we advertise a
   // single tool, assert every contract ActionId resolves to exactly one
@@ -391,7 +394,7 @@ export function createMcpServer(ctx: DispatchContext): McpServer {
   // (early) is intentional: the McpServer constructor below needs the
   // same instance for its SDK-level `tasks/*` wiring.
 
-  const server = new McpServer(
+  const server = createV1McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
     {
       capabilities: {
@@ -505,7 +508,7 @@ export function createMcpServer(ctx: DispatchContext): McpServer {
       }
     };
     server.server.setNotificationHandler(
-      RootsListChangedNotificationSchema,
+      V1_ROOTS_LIST_CHANGED_NOTIFICATION_SCHEMA,
       async () => {
         try {
           handleRootsListChanged(resolver);

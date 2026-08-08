@@ -34,10 +34,15 @@
 //     capability, the handler is NOT registered — this mirrors how real
 //     clients that don't support elicitation simply don't advertise it.
 
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { ElicitRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import {
+  createV1Client,
+  createV1LinkedTransportPair,
+  connectV1Client,
+  connectV1Server,
+  V1_ELICIT_REQUEST_SCHEMA,
+  type V1Client,
+  type V1Server,
+} from '../../sdk/seam.js';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -112,8 +117,8 @@ export interface ElicitationTestPairOpts {
  * truth via `eventStore.query('elicitation/<operationId>')`.
  */
 export interface ElicitationTestPair {
-  readonly client: Client;
-  readonly server: Server;
+  readonly client: V1Client;
+  readonly server: V1Server;
   readonly eventStore: EventStore;
   readonly cleanup: () => Promise<void>;
 }
@@ -173,14 +178,13 @@ export async function createElicitationTestPair(
   // attaches to its half; the SDK runs the initialize handshake during
   // `client.connect(...)` so the capability snapshot fires before the
   // first `tools/call` lands.
-  const [clientTransport, serverTransport] =
-    InMemoryTransport.createLinkedPair();
+  const [clientTransport, serverTransport] = createV1LinkedTransportPair();
 
   // Build the client with the caller's declared capabilities. The
   // capability shape (`elicitation: {}` vs absent) determines whether the
   // server's elicitation branch lights up — that's the discriminator the
   // T4 / T5 / T6 path tests pivot on.
-  const client = new Client(
+  const client = createV1Client(
     { name: 'elicitation-roundtrip-test', version: '1.0.0' },
     { capabilities: opts.clientCapabilities ?? {} },
   );
@@ -200,7 +204,7 @@ export async function createElicitationTestPair(
     const handler =
       opts.elicitInputHandler ?? (async () => ({ action: 'decline' as const }));
 
-    client.setRequestHandler(ElicitRequestSchema, async (request) => {
+    client.setRequestHandler(V1_ELICIT_REQUEST_SCHEMA, async (request) => {
       // The SDK validates incoming requests against the union of
       // form-mode + URL-mode params; the dispatcher only emits form-mode
       // today, so we narrow without runtime checks here (a mismatch
@@ -213,13 +217,13 @@ export async function createElicitationTestPair(
       return {
         action: result.action,
         ...(result.content !== undefined ? { content: result.content } : {}),
-      } as Awaited<ReturnType<Parameters<Client['setRequestHandler']>[1]>>;
+      } as Awaited<ReturnType<Parameters<V1Client['setRequestHandler']>[1]>>;
     });
   }
 
   await Promise.all([
-    mcpServer.connect(serverTransport),
-    client.connect(clientTransport),
+    connectV1Server(mcpServer, serverTransport),
+    connectV1Client(client, clientTransport),
   ]);
 
   const cleanup = async (): Promise<void> => {

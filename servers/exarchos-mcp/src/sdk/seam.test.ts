@@ -354,7 +354,26 @@ describe('DR-26 — owned SDK seam, generation-branded handles', () => {
     // The seam is a real subject, and the migration backlog task 053 owns is
     // measured rather than assumed.
     expect(live.seamSiteCount).toBeGreaterThan(0);
-    expect(live.bypassSiteCount).toBeGreaterThan(0);
+
+    // ── FLIPPED BY TASK 053, and the flip is the deliverable ─────────────────
+    // Task 052 asserted `toBeGreaterThan(0)` here: at that commit the tree held
+    // 42 bypass sites across 22 files, so a zero would have meant the scanner
+    // had stopped working. Task 053 migrated every one of them, so the honest
+    // expectation is now the exact opposite — and `toBe(0)` is STRICTLY
+    // STRONGER than the assertion it replaces, because it fails on a single
+    // regressed bypass rather than tolerating any positive count.
+    //
+    // The vacuity this arm exists to prevent is NOT re-opened: `moduleCount >
+    // 50`, `scan.sites.length > 0` and `seamSiteCount > 0` above are all
+    // checked independently of the bypass count, so a broken walk still fails
+    // here rather than reading as a completed migration (task 062's tooth).
+    expect(
+      live.bypassSiteCount,
+      'A module outside `sdk/seam.ts` imports an MCP SDK package directly. ' +
+        'DR-26 makes the seam the SOLE importer, so this is a bypass — route ' +
+        'the import through `sdk/seam.ts`. `architecture/layer-boundaries-seam.ts` ' +
+        'names the offending module.',
+    ).toBe(0);
 
     // Second authority: every generation npm was asked to install must be one
     // the seam actually draws from. `package.json` cannot be derived from the

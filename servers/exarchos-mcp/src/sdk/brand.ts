@@ -44,10 +44,13 @@
  * position: a module that bypasses the seam and imports the SDK directly still
  * compiles. That hole is intentional and is covered by a different instrument at
  * a different rung — `architecture/sdk-generation-seam.ts` (the rung-3
- * seam-bypass lint, shipped by task 049) and the layer rule task 053 adds. The
- * two are complementary by design: the lint decides *who may import the SDK*,
- * the brand decides *what may be passed to what*. Neither subsumes the other,
- * and DR-26 retains both for that reason.
+ * generation-mixing lint, shipped by task 049) and
+ * `architecture/layer-boundaries-seam.ts`'s `SDK_SEAM_BOUNDARY` rule (task 053),
+ * which rejects a direct SDK import outright and, as of task 053, has no
+ * exemptions and no live subject in the tree. The three are complementary by
+ * design: the rule decides *who may import the SDK*, the lint decides *who may
+ * hold both generations at once*, the brand decides *what may be passed to
+ * what*. None subsumes another, and DR-26 retains all three for that reason.
  */
 
 /**

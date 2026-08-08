@@ -265,12 +265,16 @@ export function lintSdkGenerationMixing(
 // shown to work.
 //
 // ── What it deliberately does NOT do ────────────────────────────────────────
-// It does NOT fail a module for importing the SDK directly. The tree is full of
-// such modules on introduction, and failing them here would make this census
-// unshippable before task 053 migrates them. Bypass sites are COUNTED (see
-// {@link SdkSeamCensusResult.bypassSiteCount}) so the migration has a
-// denominator to drive to zero; the rule that rejects them is task 053's, in
-// `layer-boundaries-seam.ts`.
+// It does NOT fail a module for importing the SDK directly. The tree was full of
+// such modules on introduction, and failing them here would have made this
+// census unshippable before task 053 migrated them. Bypass sites are COUNTED
+// (see {@link SdkSeamCensusResult.bypassSiteCount}) so the migration had a
+// denominator to drive to zero; the rule that REJECTS them is `SDK_SEAM_BOUNDARY`
+// in `layer-boundaries-seam.ts` (task 053), which now ships with zero exemptions
+// because the backlog reached zero. The split is retained rather than collapsed:
+// this census's job is to prove the instrument is alive (population, seam
+// presence, both generations covered), and folding the rejection into it would
+// make "migration complete" and "scanner broken" the same reading again.
 //
 // The size of that backlog is deliberately NOT restated here. It is a measured
 // premise, it lives annotated in the spec (`sdk-import-sites` /

@@ -54,8 +54,18 @@
  * though the parent dispatch may have already unwound. This is the load-
  * bearing detail tested in `tests/outcome/tasks-dispatch-lifecycle.test.ts`.
  */
-import type { Request, RequestId, Result } from '@modelcontextprotocol/sdk/types.js';
-import type { CreateTaskOptions } from '@modelcontextprotocol/sdk/experimental/tasks/interfaces.js';
+import type {
+  V1Request as Request,
+  V1RequestId as RequestId,
+  V1Result as Result,
+} from '../sdk/seam.js';
+// DR-0 / task 051: v2 DELETED `CreateTaskOptions` with the rest of the
+// experimental Tasks store seam, so the replacement is the OWNED
+// `CreateTaskParams` — field-for-field identical, generation-neutral, and
+// imported from a module that imports nothing. It is deliberately NOT
+// re-exported through the SDK seam: routing it there would claim it is drawn
+// from a generation, and it is drawn from neither.
+import type { CreateTaskParams } from '../task-store/port.js';
 
 import type { ToolResult } from '../format.js';
 import type { EventSourcedTaskStore } from '../task-store/event-sourced-task-store.js';
@@ -85,7 +95,7 @@ export function isTaskAugmented(args: Record<string, unknown>): boolean {
 /**
  * Type-guard for option fields that must be finite, non-negative numbers.
  * Rejects `NaN`, `Infinity`, negative values, and non-numeric types. Used
- * to defend the `CreateTaskOptions` extractor against malformed callers
+ * to defend the `CreateTaskParams` extractor against malformed callers
  * (dispatch-core sees raw args before any Zod parse — the augmentation
  * payload is peeled off the `task` field by `isTaskAugmented` first).
  */
@@ -112,7 +122,7 @@ function isPositiveInteger(v: unknown): v is number {
 }
 
 /**
- * Extract a typed `CreateTaskOptions` from a raw args.task value. Returns
+ * Extract typed `CreateTaskParams` from a raw args.task value. Returns
  * an empty options object if the input is malformed — callers should gate
  * on `isTaskAugmented` first, so this is only ever called with an object.
  * Numeric fields are validated against the same constraints the durable
@@ -122,19 +132,25 @@ function isPositiveInteger(v: unknown): v is number {
  * createTask defaults apply instead of propagating downstream where they
  * would surface as opaque setTimeout / TTL-expiry bugs or silent
  * event-append rejections.
+ *
+ * Built by conditional spread rather than by mutating a fresh literal (task
+ * 053): the owned `CreateTaskParams` declares its fields `readonly`, which the
+ * deleted `CreateTaskOptions` did not. Assigning through would need an `as`,
+ * and the whole wave's remaining cast budget is five sites — a shape change
+ * this local is not worth one.
  */
-export function extractTaskOptions(value: unknown): CreateTaskOptions {
+export function extractTaskOptions(value: unknown): CreateTaskParams {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return {};
   const rec = value as Record<string, unknown>;
-  const opts: CreateTaskOptions = {};
-  if (isNonNegativeNumber(rec.ttl)) opts.ttl = rec.ttl;
-  if (isPositiveInteger(rec.pollInterval)) opts.pollInterval = rec.pollInterval;
-  return opts;
+  return {
+    ...(isNonNegativeNumber(rec.ttl) ? { ttl: rec.ttl } : {}),
+    ...(isPositiveInteger(rec.pollInterval) ? { pollInterval: rec.pollInterval } : {}),
+  };
 }
 
 export interface RunTasksAugmentedArgs {
   readonly taskStore: EventSourcedTaskStore;
-  readonly taskOptions: CreateTaskOptions;
+  readonly taskOptions: CreateTaskParams;
   readonly requestId: RequestId;
   readonly request: Request;
   /**

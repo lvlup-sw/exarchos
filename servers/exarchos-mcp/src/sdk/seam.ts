@@ -28,10 +28,21 @@
  * ── What "sole importer" means, and what enforces it ────────────────────────
  * DR-26 requires exactly one module to import either generation. That property
  * is NOT self-enforcing from inside this file — it is enforced by
- * `../architecture/sdk-generation-seam.ts` (rung-3 lint, task 049) and by the
- * layer rule task 053 adds while migrating the 38 measured direct-import sites
- * onto this seam. This file provides the type-level half; those provide the
- * import-level half. See `./brand.ts` for why neither subsumes the other.
+ * `../architecture/sdk-generation-seam.ts` (rung-3 mixing lint, task 049) and by
+ * `../architecture/layer-boundaries-seam.ts`'s `SDK_SEAM_BOUNDARY` rule (task
+ * 053), which rejects a direct SDK import from any module but this one. This
+ * file provides the type-level half; those provide the import-level half. See
+ * `./brand.ts` for why neither subsumes the other.
+ *
+ * **The property now HOLDS, measured rather than asserted.** Task 053 migrated
+ * the whole backlog — 42 direct import sites across 22 files in 9 directories,
+ * 10 of them non-test — onto this module.
+ * `SdkSeam_MigratedTree_ResolvesEverySiteThroughSeam` walks the tree and asserts
+ * that the set of modules importing an MCP SDK package is exactly
+ * `{sdk/seam.ts}`. The rule's falsifier
+ * (`SdkSeam_DirectSdkImport_FailsSeamRule`) is kept alive separately, because
+ * "zero violations" over a migrated tree is otherwise indistinguishable from a
+ * rule that cannot fire.
  *
  * ── The Tasks store surface, and where it went (task 051 FILLED these) ──────
  * v2 `2.0.0` DELETED the experimental Tasks store seam: no
@@ -63,12 +74,16 @@
  * unrelated reason: the v2 client package is simply not installed.
  *
  * ── Scope ───────────────────────────────────────────────────────────────────
- * The re-exported surface is the surface the package actually uses today, so
- * task 053 can move call sites onto it without reshaping this API. This module
- * migrates NO call sites itself and removes NO dependency.
+ * The re-exported surface is the surface the package actually uses. Task 053
+ * moved every call site onto it and needed exactly one addition to do so — the
+ * two class objects below, for prototype-level spying, which no factory can
+ * serve. Nothing else in this API was reshaped by the migration.
+ *
+ * The v1 half is now fully consumed. The v2 half is not, and that is not an
+ * over-export: v2 has ZERO import sites anywhere in the tree because task 049's
+ * source migration is deliberately held until this seam is the only door. See
+ * the note on {@link createV2Server}.
  */
-
-// RESERVED(issue: #1604, owner: exarchos, expires: 2026-11-30) — the owned SDK seam (DR-26). Zero production importers until task 053 migrates the 38 measured direct-import sites onto it; if that adoption never happens the seam is dead weight and deletion at expiry is the correct outcome (DR-7 module-intent gate)
 
 // ─── v1 — @modelcontextprotocol/sdk ──────────────────────────────────────────
 import { McpServer as SdkV1McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -134,9 +149,24 @@ export type V1StdioServerTransport = V1<SdkV1StdioServerTransport>;
 export type V1StdioClientTransport = V1<SdkV1StdioClientTransport>;
 /** A v1 in-memory transport (one half of a linked pair). */
 export type V1InMemoryTransport = V1<SdkV1InMemoryTransport>;
-/** The v1 experimental Tasks store contract. */
+/**
+ * The v1 experimental Tasks store contract.
+ *
+ * ── OVER-EXPORT, reported by task 053 rather than papered over ──────────────
+ * This has no consumer and structurally cannot gain one: task 051 relocated the
+ * store contract to `../task-store/port.ts` (`TaskStorePort`) because v2 deleted
+ * the SDK interface outright, and every implementation now declares against the
+ * OWNED port. So `knip` reporting this dead is correct, and it is a genuine
+ * over-export by the seam — NOT a site task 053's migration missed.
+ *
+ * Left in place rather than deleted, deliberately: it is the v1 half of the
+ * v1↔v2 gap table that {@link V2TaskStoreServerOption} still documents, and
+ * removing one half of a documented pair mid-wave is a worse artifact than a
+ * reported finding. Whoever closes DR-0's source migration (task 049) should
+ * delete this and {@link V1CreateTaskOptions} together with the v1 dependency.
+ */
 export type V1TaskStore = V1<SdkV1TaskStore>;
-/** v1 task-creation options. */
+/** v1 task-creation options. Same over-export finding as {@link V1TaskStore} — superseded by `../task-store/port.ts`'s owned `CreateTaskParams`. */
 export type V1CreateTaskOptions = V1<SdkV1CreateTaskOptions>;
 
 // v1 protocol payload types.
@@ -211,6 +241,20 @@ export function createV1McpServer(
   return new SdkV1McpServer(...args);
 }
 
+/**
+ * ── OVER-EXPORT, reported by task 053 ───────────────────────────────────────
+ * Nothing in the tree CONSTRUCTS a v1 low-level `Server`. The adapter reaches
+ * one only as `mcpServer.server` (an accessor on an already-built `McpServer`),
+ * the elicitation fixture wants it as a TYPE ({@link V1Server}), and the one
+ * test that wants the class wants its PROTOTYPE ({@link V1_SERVER_CLASS}).
+ * Three distinct needs, none of them a constructor.
+ *
+ * So `knip` is right that this is unreferenced, and the cause is the seam
+ * over-exporting by symmetry with {@link createV1McpServer} — not a call site
+ * task 053 failed to migrate. Kept for now because deleting it while task 049
+ * is held would churn the constructor family the seam's shape is built around;
+ * recorded here so the next runner does not have to re-derive the reason.
+ */
 export function createV1Server(
   ...args: ConstructorParameters<typeof SdkV1Server>
 ): V1Server {
@@ -258,6 +302,20 @@ export function createV2McpServer(
   return new SdkV2McpServer(...args);
 }
 
+/**
+ * ── Why the v2 half has no callers, and why that is not dead code ────────────
+ * Task 053 drove the v1 half to full consumption but could not touch this one:
+ * **v2 has zero import sites anywhere in the tree.** v2 is installed, not used
+ * (measured — see the spec's Open Question 7). That is deliberate sequencing,
+ * not oversight: task 049's source migration is held until every site imports
+ * through this seam, precisely so that changing generation becomes a change to
+ * ONE module instead of a change to 22.
+ *
+ * So this surface is a mechanism that ships before its caller — R-11's exact
+ * shape — and `scripts/validate-no-legacy.sh` is CORRECT to say so. The honest
+ * discharge is task 049 wiring the caller, not an allowlist entry here. Task
+ * 053 reported it per-symbol rather than papering over it.
+ */
 export function createV2Server(
   ...args: ConstructorParameters<typeof SdkV2Server>
 ): V2Server {
@@ -348,6 +406,33 @@ export function isV1TaskTerminal(status: V1TaskStatus): boolean {
  * durable events, and narrowing here would push a cast onto every call site.
  */
 export const V2_TASK_STATUS_VALUES: readonly string[] = SdkV2TaskStatusSchema.options;
+
+// ── Class objects, for PROTOTYPE-level instrumentation only (task 053) ───────
+//
+// The factories above are the construction route and stay so. These two export
+// the constructor *objects* themselves, for the one thing a factory structurally
+// cannot serve: `vi.spyOn(McpServer.prototype, 'registerTool')`.
+//
+// That pattern needs the class IDENTITY — the very prototype object the
+// production path calls through — and there are six such call sites across
+// `adapters/mcp.test.ts` and `registration-parity.test.ts`. Before task 053 they
+// reached it by importing `@modelcontextprotocol/sdk/server/{mcp,index}.js`
+// directly, which is exactly the bypass DR-26 forbids. A seam that cannot
+// supply a surface its own tree uses is not "the sole importer"; it is a seam
+// with a hole and an exemption list.
+//
+// WHAT THIS COSTS, stated rather than glossed: `new V1_MCP_SERVER_CLASS(...)`
+// yields an UNBRANDED instance, so it is not the branded construction route.
+// That costs nothing the brand was already buying — `src/sdk/brand.ts` declares
+// `__gen` optional precisely so an unbranded value is admitted by either
+// generation's position, and every existing raw SDK value in the tree is
+// already unbranded. The rung-2 guarantee lives on the *pairing* functions
+// (`connectV1Server` and friends), which these do not weaken. What the seam
+// gains is the import-level half: nothing outside this module names the SDK.
+export const V1_MCP_SERVER_CLASS: typeof SdkV1McpServer = SdkV1McpServer;
+
+/** @see V1_MCP_SERVER_CLASS — the low-level v1 `Server` counterpart. */
+export const V1_SERVER_CLASS: typeof SdkV1Server = SdkV1Server;
 
 /** The protocol version the v1 SDK advertises. */
 export const V1_LATEST_PROTOCOL_VERSION: string = SDK_V1_LATEST_PROTOCOL_VERSION;

@@ -20,7 +20,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/sdk/types.js';
+import { V1_LATEST_PROTOCOL_VERSION } from '../sdk/seam.js';
 import { TOOL_REGISTRY } from '../registry.js';
 import {
   computeAuthorities,
@@ -119,7 +119,7 @@ export function collectAuthorityInputs(
   return {
     strategosContractsVersion: extractPackageVersion(packageJsonText),
     strategosContractsSource: readText(paths.strategosContractsFile),
-    mcpProtocolVersion: LATEST_PROTOCOL_VERSION,
+    mcpProtocolVersion: V1_LATEST_PROTOCOL_VERSION,
     mcpSdkVersionSpec: extractSdkVersionSpec(packageJsonText),
     actionIds: flattenActionIds(),
     compatibilityPolicyVersion: COMPATIBILITY_POLICY_VERSION,

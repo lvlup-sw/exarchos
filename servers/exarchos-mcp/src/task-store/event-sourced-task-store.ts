@@ -117,11 +117,11 @@
  */
 import { randomBytes } from 'node:crypto';
 import type {
-  Task,
-  RequestId,
-  Result,
-  Request,
-} from '@modelcontextprotocol/sdk/types.js';
+  V1Task as Task,
+  V1RequestId as RequestId,
+  V1Result as Result,
+  V1Request as Request,
+} from '../sdk/seam.js';
 import type { TaskStorePort, CreateTaskParams } from './port.js';
 import { isTaskTerminal } from './port.js';
 

@@ -22,8 +22,38 @@ import {
   type DeclarationSeamUsage,
   type LayerAllowance,
   type LayerEdge,
+  scanSdkSeamBoundary,
+  runSdkSeamBoundaryCensus,
+  type SdkSeamBoundaryScan,
+  detectSdkSeamUsage,
+  SDK_SEAM_BOUNDARY,
+  type SdkSeamUsage,
+  auditSdkSeamBoundary,
 } from './layer-boundaries-seam.js';
 import { lexModule } from '../test-helpers/module-lexer.js';
+
+import { readFileSync } from 'node:fs';
+import { classifySdkImport } from './sdk-generation-seam.js';
+import { parseModuleSpecifiers } from '../test-helpers/module-specifier-parser.js';
+
+/**
+ * DR-30 authorities. Task 053's DR-26 sweep at the bottom of this file compares
+ * two sources, neither derived from the other:
+ *
+ *   • `./sdk-generation-seam.ts` — the RULE. Which module is the owned seam
+ *     (`SDK_SEAM_MODULE`, re-exported as `SDK_SEAM_BOUNDARY.seamModule`) and
+ *     which package names constitute each generation (`classifySdkImport`).
+ *   • `../../package.json` — the INSTALLED REALITY. Which SDK generations npm
+ *     was actually asked to resolve.
+ *
+ * They can genuinely disagree, which is the point: a generation that is
+ * installed but no longer reaches the seam means half the brand has rotted
+ * while the bypass sweep still reads green, and a seam pointing at a module
+ * that moved means the sweep is measuring nothing. Neither is derivable from
+ * the other — `package.json` participates in no import graph.
+ *
+ * @oracle-sources: ./sdk-generation-seam.ts, ../../package.json
+ */
 
 const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -229,6 +259,12 @@ const usage = (
   contractImports: readonly string[],
   storageImports: readonly { storageModule: string; specifier: string }[],
 ): DeclarationSeamUsage => ({ module, contractImports, storageImports });
+const MCP_SCOPE = '@modelcontextprotocol';
+const v1Spec = (subpath: string): string => `${MCP_SCOPE}/sdk/${subpath}`;
+const v2Spec = (pkg: string): string => `${MCP_SCOPE}/${pkg}`;
+
+/** The module the kill fixture pretends to be — a plausible, non-seam path. */
+const ROGUE_MODULE = 'adapters/rogue-transport.ts';
 
 describe('detectDeclarationSeamUsage', () => {
   it('detectDeclarationSeamUsage_ModuleImportingContractAndStore_ReportsBothSides', () => {
@@ -515,5 +551,267 @@ describe('EXIT PROOF — the live declaration seam (DR-1)', () => {
     const scan = await scanDeclarationSeam(SRC_ROOT, lexModule);
 
     expect(scan.usages.map((u) => u.module)).not.toContain(VIOLATOR_MODULE);
+  });
+});
+
+describe('DR-26 — SDK generation seam: a direct SDK import fails the rule', () => {
+  it('SdkSeam_DirectSdkImport_FailsSeamRule', async () => {
+    // ── THE KILL FIXTURE ────────────────────────────────────────────────────
+    // A guard with no failing subject has not been shown to work. On
+    // introduction this rule had 42 real failing subjects across 22 files;
+    // task 053 migrated every one, so the falsifier is re-seeded here and must
+    // stay reproducible forever — otherwise "zero violations" over a fully
+    // migrated tree is indistinguishable from a rule that cannot fire.
+    const rogueSource = [
+      `import { McpServer } from '${v1Spec('server/mcp.js')}';`,
+      `import { StdioServerTransport } from '${v1Spec('server/stdio.js')}';`,
+      '',
+      'export function boot(): McpServer {',
+      "  const s = new McpServer({ name: 'rogue', version: '0.0.0' });",
+      '  void new StdioServerTransport();',
+      '  return s;',
+      '}',
+    ].join('\n');
+
+    const seeded = detectSdkSeamUsage(ROGUE_MODULE, rogueSource, parseModuleSpecifiers);
+    expect(seeded, 'the seeded fixture must resolve as an SDK importer').toBeDefined();
+    if (seeded === undefined) return;
+    expect(seeded.isSeam, 'the fixture is NOT the owned seam').toBe(false);
+    expect(seeded.imports.map((i) => i.generation)).toEqual(['v1', 'v1']);
+
+    // Injected into the LIVE scan, exactly as DR-1's violator probe is: the
+    // claim is that the rule as it actually runs against this tree would have
+    // rejected the module, not that a hand-built scan can be made to fail.
+    const live = await scanSdkSeamBoundary(SRC_ROOT, parseModuleSpecifiers);
+    const result = runSdkSeamBoundaryCensus({
+      ...live,
+      usages: [...live.usages, seeded],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.bypassModuleCount).toBe(1);
+    const rejections = result.diagnostics.filter(
+      (d) => d.code === 'DIRECT_SDK_IMPORT' && 'module' in d && d.module === ROGUE_MODULE,
+    );
+    expect(
+      rejections.length,
+      'every direct SDK import in the seeded module must be named, not just the first',
+    ).toBe(2);
+    // The message has to say what to do, or the guard is a riddle.
+    expect(rejections[0]?.message).toContain(SDK_SEAM_BOUNDARY.seamModule);
+  });
+
+  it('SdkSeam_SameModuleThroughTheSeam_Passes', async () => {
+    // NEGATIVE TWIN #1 — the rule measures the BYPASS, not "this module has
+    // anything to do with the SDK". Without this arm the kill fixture above
+    // would also pass against a rule that rejected every module in `adapters/`.
+    const throughSeam = [
+      "import { createV1McpServer, createV1StdioServerTransport } from '../sdk/seam.js';",
+      '',
+      'export function boot(): ReturnType<typeof createV1McpServer> {',
+      "  const s = createV1McpServer({ name: 'ok', version: '0.0.0' });",
+      '  void createV1StdioServerTransport();',
+      '  return s;',
+      '}',
+    ].join('\n');
+
+    expect(detectSdkSeamUsage(ROGUE_MODULE, throughSeam, parseModuleSpecifiers)).toBeUndefined();
+
+    const live = await scanSdkSeamBoundary(SRC_ROOT, parseModuleSpecifiers);
+    expect(runSdkSeamBoundaryCensus(live).ok).toBe(true);
+  });
+
+  it('SdkSeam_SpecifierInCommentOrLiteral_IsNotABypass', () => {
+    // NEGATIVE TWIN #2 — the rule reads the syntax tree, not the text. This is
+    // the defect task 062 removed one boundary over (a template-literal
+    // specifier counted as an import and floored DR-26's denominator ten above
+    // zero); re-asserted here because this census inherits the same policy
+    // module and would inherit the same defect if the parse were swapped for a
+    // regex.
+    const decoys = [
+      `// import { X } from '${v1Spec('types.js')}';`,
+      `/* export * from '${v2Spec('core')}'; */`,
+      `const FIXTURE = \`import { Y } from '${v1Spec('inMemory.js')}';\`;`,
+      `const note = "see: import z from '${v2Spec('server')}'";`,
+      'void FIXTURE; void note;',
+    ].join('\n');
+
+    expect(detectSdkSeamUsage(ROGUE_MODULE, decoys, parseModuleSpecifiers)).toBeUndefined();
+  });
+
+  it('SdkSeam_MigratedTree_ResolvesEverySiteThroughSeam', async () => {
+    // ── TOTALITY, over a DERIVED population ─────────────────────────────────
+    // The subject list is walked out of the tree, never enumerated here: a list
+    // written into a test is a second authority that goes stale the moment a
+    // module moves, which is the defect class this program exists to close.
+    const scan = await scanSdkSeamBoundary(SRC_ROOT, parseModuleSpecifiers);
+
+    // NON-EMPTY DENOMINATOR, checked on two axes that are both independent of
+    // the violation count. After a completed migration the violation list is
+    // empty either because the tree is clean or because the instrument died,
+    // and only these can tell those apart.
+    expect(
+      scan.moduleCount,
+      'the walk resolved almost no modules — scan root moved, or the walker broke',
+    ).toBeGreaterThan(50);
+    expect(scan.seamModulePresent).toBe(true);
+
+    const importers = scan.usages.map((u) => u.module).sort();
+    expect(
+      importers,
+      'EVERY module importing an MCP SDK package must be the owned seam. Any ' +
+        'other name here is a module that reaches a generation directly, which ' +
+        'is what DR-26 forbids and what task 053 migrated 42 sites across 22 ' +
+        'files to eliminate.',
+    ).toEqual([SDK_SEAM_BOUNDARY.seamModule]);
+
+    const result = runSdkSeamBoundaryCensus(scan);
+    expect(result.diagnostics).toEqual([]);
+    expect(result.ok).toBe(true);
+    expect(result.bypassModuleCount).toBe(0);
+    // The seam is a REAL subject, not a name that resolves to nothing.
+    expect(result.seamImportCount).toBeGreaterThan(0);
+
+    // ── THE SECOND AUTHORITY ────────────────────────────────────────────────
+    // Every generation npm was asked to INSTALL must still reach the seam. The
+    // expected set is read from `package.json` rather than written as
+    // `['v1','v2']`: a literal would make this a comparison of the tree with
+    // itself, and DR-30 is right that such a comparison can never disagree.
+    // Read this way the two sides are independent — dropping `sdk` from
+    // `dependencies`, or letting the seam's v2 re-exports rot away, each shows
+    // up here as a disagreement instead of a silent pass.
+    const seamGenerations = new Set(
+      scan.usages.flatMap((u) => u.imports.map((i) => i.generation)),
+    );
+    const pkgRaw: unknown = JSON.parse(readFileSync(join(SRC_ROOT, '..', 'package.json'), 'utf8'));
+    const deps: Record<string, unknown> =
+      typeof pkgRaw === 'object' && pkgRaw !== null && 'dependencies' in pkgRaw
+        ? Object(Reflect.get(pkgRaw, 'dependencies'))
+        : {};
+    const installedGenerations = new Set(
+      Object.keys(deps)
+        .map((name) => classifySdkImport(name))
+        .filter((generation) => generation !== undefined),
+    );
+    expect(
+      installedGenerations.size,
+      'no @modelcontextprotocol dependency resolved — the second authority is empty',
+    ).toBeGreaterThan(0);
+    expect([...seamGenerations].sort()).toEqual([...installedGenerations].sort());
+  });
+
+  it('SdkSeam_AuditOverLiveTree_IsGreen', async () => {
+    // The shipped entry point, end to end — `scanSdkSeamBoundary` +
+    // `runSdkSeamBoundaryCensus` composed exactly as a caller would use them.
+    const result = await auditSdkSeamBoundary(SRC_ROOT, parseModuleSpecifiers);
+    expect(result.diagnostics).toEqual([]);
+    expect(result.ok).toBe(true);
+  });
+});
+
+describe('DR-26 — SDK seam rule: fail-closed teeth', () => {
+  const seamUsage: SdkSeamUsage = {
+    module: SDK_SEAM_BOUNDARY.seamModule,
+    isSeam: true,
+    imports: [
+      { specifier: v1Spec('server/mcp.js'), generation: 'v1', line: 1 },
+      { specifier: v2Spec('server'), generation: 'v2', line: 2 },
+    ],
+  };
+  const healthy: SdkSeamBoundaryScan = {
+    usages: [seamUsage],
+    moduleCount: 400,
+    seamModulePresent: true,
+  };
+  const rogue: SdkSeamUsage = {
+    module: ROGUE_MODULE,
+    isSeam: false,
+    imports: [{ specifier: v1Spec('types.js'), generation: 'v1', line: 3 }],
+  };
+
+  it('SdkSeamRule_HealthyScan_IsGreen', () => {
+    // POSITIVE CONTROL. Without it, every rejection below would be consistent
+    // with a census that fails on everything.
+    expect(runSdkSeamBoundaryCensus(healthy).ok).toBe(true);
+  });
+
+  it('SdkSeamRule_ZeroModulesVisited_FailsClosed', () => {
+    const result = runSdkSeamBoundaryCensus({ ...healthy, moduleCount: 0 });
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics.map((d) => d.code)).toContain('EMPTY_SDK_SEAM_DENOMINATOR');
+  });
+
+  it('SdkSeamRule_SeamImportsNothing_FailsClosed', () => {
+    // The scanner stopped matching: no bypass is reported and none could be.
+    const result = runSdkSeamBoundaryCensus({ ...healthy, usages: [] });
+    expect(result.ok).toBe(false);
+    const empty = result.diagnostics.filter((d) => d.code === 'EMPTY_SDK_SEAM_DENOMINATOR');
+    expect(empty.some((d) => 'population' in d && d.population === 'seam-imports')).toBe(true);
+  });
+
+  it('SdkSeamRule_SeamModuleMissing_FailsClosed', () => {
+    const result = runSdkSeamBoundaryCensus({
+      usages: [],
+      moduleCount: 400,
+      seamModulePresent: false,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics.map((d) => d.code)).toContain('SDK_SEAM_MODULE_ABSENT');
+  });
+
+  it('SdkSeamRule_ExemptModule_IsNotAViolationButMustBeLive', () => {
+    const rule = {
+      seamModule: SDK_SEAM_BOUNDARY.seamModule,
+      exemptions: [
+        {
+          module: ROGUE_MODULE,
+          owner: 'exarchos',
+          expires: '2099-01-01',
+          reason: 'unit-test fixture',
+        },
+      ],
+    };
+    // An exemption suppresses the violation it names...
+    const covered = runSdkSeamBoundaryCensus(
+      { ...healthy, usages: [seamUsage, rogue] },
+      rule,
+      '2026-08-07',
+    );
+    expect(covered.ok).toBe(true);
+    expect(covered.bypassModuleCount).toBe(0);
+
+    // ...and becomes a failure itself the moment nothing exercises it, so an
+    // exemption cannot decay into cover for a violation that arrives later.
+    const stale = runSdkSeamBoundaryCensus(healthy, rule, '2026-08-07');
+    expect(stale.ok).toBe(false);
+    expect(stale.diagnostics.map((d) => d.code)).toContain('STALE_SDK_SEAM_EXEMPTION');
+  });
+
+  it('SdkSeamRule_ExpiredExemption_FailsClosed', () => {
+    const result = runSdkSeamBoundaryCensus(
+      { ...healthy, usages: [seamUsage, rogue] },
+      {
+        seamModule: SDK_SEAM_BOUNDARY.seamModule,
+        exemptions: [
+          {
+            module: ROGUE_MODULE,
+            owner: 'exarchos',
+            expires: '2026-01-01',
+            reason: 'unit-test fixture',
+          },
+        ],
+      },
+      '2026-08-07',
+    );
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics.map((d) => d.code)).toContain('EXPIRED_SDK_SEAM_EXEMPTION');
+  });
+
+  it('SdkSeamRule_ShippedExemptionList_IsEmpty', () => {
+    // The migration's own claim, asserted rather than described: task 053
+    // MOVED its 22 subjects instead of licensing any of them. A future entry
+    // here is a deliberate, reviewed act that this assertion forces into the
+    // diff.
+    expect(SDK_SEAM_BOUNDARY.exemptions).toEqual([]);
   });
 });

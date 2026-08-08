@@ -340,6 +340,12 @@ export const BOUNDARY_HOP_EVIDENCE: BoundaryHopEvidence = Object.freeze({
         entrypoint: 'measureEventCatalog',
         subjects: Object.freeze([
           'servers/exarchos-mcp/src/event-store/schemas.ts',
+          // Added when task 011 landed. It derived `EVENT_EMISSION_REGISTRY` from the DR-2 tier
+          // instead of hand-writing 170 values, so parsing `schemas.ts` for string-valued entries
+          // measures a literal that no longer exists. The oracle now reads the tier/lifecycle facts
+          // where they are DECLARED, and this subject list follows it — which is the whole point of
+          // deriving the list from the oracle's own sources rather than restating it.
+          'servers/exarchos-mcp/src/event-store/event-annotations.ts',
           'servers/exarchos-mcp/src/registry.ts',
           'servers/exarchos-mcp/src/orchestrate/check-event-emissions.ts',
           'skills-src',
@@ -356,6 +362,12 @@ export const BOUNDARY_HOP_EVIDENCE: BoundaryHopEvidence = Object.freeze({
         entrypoint: 'measureEventCatalog',
         subjects: Object.freeze([
           'servers/exarchos-mcp/src/event-store/schemas.ts',
+          // Added when task 011 landed. It derived `EVENT_EMISSION_REGISTRY` from the DR-2 tier
+          // instead of hand-writing 170 values, so parsing `schemas.ts` for string-valued entries
+          // measures a literal that no longer exists. The oracle now reads the tier/lifecycle facts
+          // where they are DECLARED, and this subject list follows it — which is the whole point of
+          // deriving the list from the oracle's own sources rather than restating it.
+          'servers/exarchos-mcp/src/event-store/event-annotations.ts',
           'servers/exarchos-mcp/src/registry.ts',
           'servers/exarchos-mcp/src/orchestrate/check-event-emissions.ts',
           'skills-src',

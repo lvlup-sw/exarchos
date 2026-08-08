@@ -42,8 +42,9 @@ import { prettyPrint, printError, toCliResult } from './cli-format.js';
 // and the playbook renderer — several MB of transitive graph that CLI
 // cold-start for `wf status` etc. never needs. We lazy-import inside the
 // `schema`, `topology`, and `emissions` sub-commands below.
-// NOTE: `./mcp.js` and `@modelcontextprotocol/sdk/server/stdio.js` are
-// intentionally NOT imported at module top-level. They are dynamically imported
+// NOTE: `./mcp.js` and `../sdk/seam.js` (DR-26's owned SDK seam, which holds
+// the transport constructor this command needs) are intentionally NOT imported
+// at module top-level. They are dynamically imported
 // inside the `mcp` sub-command action below so that cold-start for CLI mode
 // (e.g. `exarchos wf status`) does not pay the cost of loading the full MCP
 // SDK + tool-registration graph. See DR-5 / task 021 cold-start benchmark.
@@ -625,13 +626,16 @@ export function buildCli(ctx: DispatchContext, options?: BuildCliOptions): Comma
       // Dynamic imports: MCP SDK + registration graph are only needed when the
       // user actually invokes `exarchos mcp`. Keeps cold-start for `wf status`
       // and other CLI subcommands under the DR-5 latency budget.
-      const [{ createMcpServer }, { StdioServerTransport }] = await Promise.all([
-        import('./mcp.js'),
-        import('@modelcontextprotocol/sdk/server/stdio.js'),
-      ]);
+      const [
+        { createMcpServer },
+        { createV1StdioServerTransport, connectV1Server },
+      ] = await Promise.all([import('./mcp.js'), import('../sdk/seam.js')]);
       const server = createMcpServer(ctx);
-      const transport = new StdioServerTransport();
-      await server.connect(transport);
+      // DR-26: the transport is drawn through the seam and the PAIRING goes
+      // through `connectV1Server`, which is where the generation brand is
+      // enforced — `server.connect(t)` would accept either generation's
+      // transport because the SDK's own parameter is unbranded.
+      await connectV1Server(server, createV1StdioServerTransport());
     });
 
   // ─── Top-level `exarchos onboard` command (DR-2/DR-5, task 011) ─────────
