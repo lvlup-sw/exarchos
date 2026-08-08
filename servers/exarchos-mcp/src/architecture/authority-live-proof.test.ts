@@ -399,6 +399,10 @@ describe('authority census — the event-catalog row, live', () => {
 
     const remediated = measureEventCatalog({
       authority: sources.authority,
+      // The per-event tier/lifecycle declarations the emission source is derived from (task 011);
+      // unmodified here, because this counterfactual remediates the REPRESENTATIONS, not the
+      // authority.
+      annotations: sources.annotations,
       autoEmits: autoDerived,
       phaseExpectedEvents: allDerived,
       docs: proseRedacted,

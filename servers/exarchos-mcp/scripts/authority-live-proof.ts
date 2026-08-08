@@ -109,6 +109,16 @@ import {
   scanGovernedSources,
   type DerivationScan,
 } from './cli-derivation-guard.js';
+// The SHIPPED emission derivation and its two vocabularies, imported rather than restated so this
+// analyser cannot drift from the rule it measures. `event-registration.ts` has zero runtime import
+// edges (every import in it is `import type`), so this costs the script nothing.
+import {
+  EVENT_LIFECYCLES,
+  EVENT_TIERS,
+  resolveEmissionSource,
+  type EventLifecycle,
+  type EventTier,
+} from '../src/event-store/event-registration.js';
 
 const LABEL = 'authority-live-proof';
 
@@ -306,6 +316,15 @@ export function classifyInitializer(node: ts.Expression): SiteBinding {
 }
 
 /** Find `export const <name> … = { … }` and return the object literal. */
+/** `Object.freeze(<expr>)` -> `<expr>`; anything else unchanged. */
+function unwrapObjectFreeze(node: ts.Expression | undefined): ts.Expression | undefined {
+  if (node === undefined || !ts.isCallExpression(node)) return node;
+  const callee = node.expression;
+  if (!ts.isPropertyAccessExpression(callee)) return node;
+  if (!ts.isIdentifier(callee.expression) || callee.expression.text !== 'Object') return node;
+  if (callee.name.text !== 'freeze') return node;
+  return node.arguments[0] ?? node;
+}
 function findExportedObjectLiteral(
   sourceFile: ts.SourceFile,
   name: string,
@@ -314,7 +333,11 @@ function findExportedObjectLiteral(
   const visit = (node: ts.Node): void => {
     if (found !== undefined) return;
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === name) {
-      const init = node.initializer;
+      // `Object.freeze({ … })` is unwrapped: the freeze call is a runtime immutability decision,
+      // not a different declaration shape, and a measurement that silently found nothing because
+      // the authority gained a `freeze` would be the exact proxy failure this module guards
+      // against. Both forms are in the tree today (`EVENT_ANNOTATIONS` is frozen).
+      const init = unwrapObjectFreeze(node.initializer);
       if (init !== undefined && ts.isObjectLiteralExpression(init)) found = init;
     }
     ts.forEachChild(node, visit);
@@ -357,6 +380,75 @@ export function measureObjectLiteralEntries(
   return requireSites(sites, `\`${constName}\` in ${file}`);
 }
 
+/**
+ * Keys of a named exported object literal whose value is an object declaring `lifecycle` and
+ * `tier`, mapped to the emission source those two axes DERIVE.
+ *
+ * The replacement for reading a hand-written `source` column (task 011, DR-2): the column no
+ * longer exists, and the fact it used to transcribe is the tier/lifecycle pair parsed here. The
+ * composition is NOT re-implemented — `resolveEmissionSource` is imported from the shipped module
+ * that owns it, so this analyser cannot drift from the derivation it is measuring.
+ *
+ * Same fail-closed denominator as before: zero entries throws rather than reporting an empty
+ * catalog, and an entry missing either axis throws rather than being silently skipped.
+ */
+export function measureDerivedEmissionSources(
+  source: string,
+  file: string,
+  constName: string,
+): ReadonlyMap<string, string> {
+  const entries = new Map<string, string>();
+  const malformed: string[] = [];
+  const sourceFile = parseOrThrow(source, file, LABEL);
+  const literal = findExportedObjectLiteral(sourceFile, constName);
+  if (literal !== undefined) {
+    for (const property of literal.properties) {
+      if (!ts.isPropertyAssignment(property)) continue;
+      const key = propertyName(property.name);
+      const value = property.initializer;
+      if (key === undefined) continue;
+      if (!ts.isObjectLiteralExpression(value)) {
+        malformed.push(key);
+        continue;
+      }
+      const axis = (name: string): string | undefined => {
+        for (const member of value.properties) {
+          if (!ts.isPropertyAssignment(member)) continue;
+          if (propertyName(member.name) !== name) continue;
+          return ts.isStringLiteralLike(member.initializer) ? member.initializer.text : undefined;
+        }
+        return undefined;
+      };
+      const lifecycle = axis('lifecycle');
+      const tier = axis('tier');
+      if (lifecycle === undefined || tier === undefined) {
+        malformed.push(key);
+        continue;
+      }
+      if (!isEventLifecycle(lifecycle) || !isEventTier(tier)) {
+        malformed.push(key);
+        continue;
+      }
+      entries.set(key, resolveEmissionSource({ lifecycle, tier }));
+    }
+  }
+  if (malformed.length > 0) {
+    throw new Error(
+      `${LABEL}: \`${constName}\` in ${file} has ${malformed.length} entr(y|ies) whose ` +
+        '`lifecycle`/`tier` axes could not be read as the shipped vocabularies: ' +
+        `${malformed.sort().join(', ')}. An unreadable annotation must fail the measurement, not ` +
+        'drop out of the denominator.',
+    );
+  }
+  if (entries.size === 0) {
+    throw new Error(
+      `${LABEL}: \`${constName}\` in ${file} yielded ZERO annotated entries. The event catalog ` +
+        'authority cannot be empty; refusing to measure representations against a denominator of ' +
+        'nothing.',
+    );
+  }
+  return entries;
+}
 /** Keys of a named exported object literal whose value is a string literal. */
 export function measureStringValuedEntries(
   source: string,
@@ -493,11 +585,23 @@ export function measureProseEventMentions(
 /** Every source the event-catalog measurement reads, repo-relative. */
 export const EVENT_CATALOG_SOURCES: {
   readonly authority: string;
+  readonly annotations: string;
   readonly autoEmits: string;
   readonly phaseExpectedEvents: string;
   readonly proseRoot: string;
 } = Object.freeze({
   authority: 'servers/exarchos-mcp/src/event-store/schemas.ts',
+  // Where the per-event emission facts are DECLARED since task 011 (DR-2). `schemas.ts` still
+  // exports `EVENT_EMISSION_REGISTRY` — it is still the authority binding, and the row's
+  // representation id is unchanged — but its value is now
+  // `deriveEmissionRegistry(EventTypes, ANNOTATED_EVENTS.registrationOf)`, so parsing that file for
+  // string-valued entries measures a literal that no longer exists and reports zero.
+  //
+  // This is the measure-the-proxy failure mode in its purest form, and it fired exactly as it
+  // should: the empty-denominator guard threw rather than reporting a clean catalog of nothing.
+  // The fix is to measure the structural fact — the tier/lifecycle pair each event declares —
+  // and to derive the source through the SHIPPED derivation rather than restating it here.
+  annotations: 'servers/exarchos-mcp/src/event-store/event-annotations.ts',
   autoEmits: 'servers/exarchos-mcp/src/registry.ts',
   phaseExpectedEvents: 'servers/exarchos-mcp/src/orchestrate/check-event-emissions.ts',
   // The AUTHORED skills tree. `skills/<runtime>/` is generated from it, so
@@ -507,6 +611,7 @@ export const EVENT_CATALOG_SOURCES: {
 
 export interface EventCatalogSources {
   readonly authority: string;
+  readonly annotations: string;
   readonly autoEmits: string;
   readonly phaseExpectedEvents: string;
   readonly docs: readonly SkillDoc[];
@@ -558,6 +663,7 @@ export function readEventCatalogSources(repoRoot: string = REPO_ROOT): EventCata
   }
   return {
     authority: readOrThrow(repoRoot, EVENT_CATALOG_SOURCES.authority),
+    annotations: readOrThrow(repoRoot, EVENT_CATALOG_SOURCES.annotations),
     autoEmits: readOrThrow(repoRoot, EVENT_CATALOG_SOURCES.autoEmits),
     phaseExpectedEvents: readOrThrow(repoRoot, EVENT_CATALOG_SOURCES.phaseExpectedEvents),
     docs,
@@ -598,10 +704,10 @@ export interface EventCatalogMeasurement extends MeasuredBoundary {
  * cross-checks it against the live imported registry.
  */
 export function measureEventCatalog(sources: EventCatalogSources): EventCatalogMeasurement {
-  const registeredEvents = measureStringValuedEntries(
-    sources.authority,
-    EVENT_CATALOG_SOURCES.authority,
-    'EVENT_EMISSION_REGISTRY',
+  const registeredEvents = measureDerivedEmissionSources(
+    sources.annotations,
+    EVENT_CATALOG_SOURCES.annotations,
+    'EVENT_ANNOTATIONS',
   );
   const modelEvents = new Set<string>();
   for (const [event, source] of registeredEvents) if (source === 'model') modelEvents.add(event);
@@ -631,11 +737,14 @@ export function measureEventCatalog(sources: EventCatalogSources): EventCatalogM
       binding: { kind: 'authoritative' },
       sites: [
         {
-          file: EVENT_CATALOG_SOURCES.authority,
+          // The BINDING is still exported from `schemas.ts` (hence the unchanged representation
+          // id); the per-event facts behind it are declared in the annotations module, which is
+          // what was measured.
+          file: EVENT_CATALOG_SOURCES.annotations,
           line: 1,
           kind: 'derived',
           subject: 'EVENT_EMISSION_REGISTRY',
-          expression: `${registeredEvents.size} declared event types`,
+          expression: `${registeredEvents.size} declared event types (tier+lifecycle, source derived)`,
           start: -1,
           end: -1,
         },
@@ -858,3 +967,9 @@ export function measuredRow(
     measured: boundary.measured,
   };
 }
+
+const isEventLifecycle = (value: string): value is EventLifecycle =>
+  EVENT_LIFECYCLES.some((lifecycle) => lifecycle === value);
+
+const isEventTier = (value: string): value is EventTier =>
+  EVENT_TIERS.some((tier) => tier === value);

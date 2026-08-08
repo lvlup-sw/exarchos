@@ -54,7 +54,6 @@ import { createHash } from 'node:crypto';
 import { EVENT_EMISSION_REGISTRY, EventTypes } from '../event-store/schemas.js';
 import {
   ANNOTATED_EVENTS,
-  UNRECONCILED_REGISTRATIONS,
   tierSourceDisagreements,
   type DeclaredEmissionSources,
 } from '../event-store/event-annotations.js';
@@ -110,12 +109,12 @@ export type ReportCouplingDiagnostic =
       readonly code: 'TIER_SOURCE_DISAGREEMENT';
       readonly eventType: string;
       readonly message: string;
-    }
-  | {
-      readonly code: 'STALE_UNRECONCILED_RECORD';
-      readonly eventType: string;
-      readonly message: string;
     };
+// `STALE_UNRECONCILED_RECORD` was retired when task 011 landed. It audited
+// `UNRECONCILED_REGISTRATIONS` in the stale direction; task 011 deleted that exception list along
+// with the second authority that made exceptions possible, so the code had no constructible
+// subject. Retiring it is the point, not a loss: the class moved from "audited at rung 3" to
+// "unconstructible at rung 2", which is the move this whole wave is about.
 
 export interface ReportCouplingCensusReport {
   /** True when the census enumerated a non-empty subject and could classify all of it. */
@@ -188,32 +187,36 @@ export function censusReportCoupling(
     .map((r) => r.eventType);
 
   // The two authorities must agree about the population before the seed comparison means anything.
-  // Task 010's recorded exception is honoured — and audited in the stale direction, so a record
-  // that stops disagreeing must be deleted rather than left standing as cover.
-  const recorded = new Set(UNRECONCILED_REGISTRATIONS.map((u) => u.eventType));
+  //
+  // Integration note (task 011 landed after this census was written). This block originally ran a
+  // TWO-WAY ratchet against `UNRECONCILED_REGISTRATIONS` — task 010's recorded exception list —
+  // auditing the stale direction so a record that stopped disagreeing had to be deleted rather than
+  // left standing as cover. Task 011 then **removed the second authority entirely**:
+  // `EVENT_EMISSION_REGISTRY` is no longer 170 hand-written values, it is
+  // `deriveEmissionRegistry(EventTypes, ANNOTATED_EVENTS.registrationOf)`. With no per-event source
+  // site left to author, a live declared-vs-derived disagreement is unconstructible, the single
+  // recorded exception (`benchmark.completed`) was settled in favour of the measurement, and the
+  // exception list was deleted along with the population it covered.
+  //
+  // The stale-direction half went with it — auditing an exception list that cannot have entries is
+  // the vacuity this program exists to remove, and `STALE_UNRECONCILED_RECORD` left the diagnostic
+  // vocabulary for the same reason.
+  //
+  // The forward check STAYS, and is not vacuous: `declared` is a parameter, so a caller that
+  // supplies a hand-authored map still gets a real verdict. That is exactly how
+  // `ReportCoupling_SeededTierSourceDisagreement_IsReported` seeds one, and it is the guard that
+  // fires if a future change re-introduces an independently-authored registry.
   const live = new Set(tierSourceDisagreements(declared, annotations).map((d) => d.eventType));
   for (const eventType of [...live].sort()) {
-    if (recorded.has(eventType)) continue;
     diagnostics.push({
       code: 'TIER_SOURCE_DISAGREEMENT',
       eventType,
       message:
-        `'${eventType}' derives a different EventEmissionSource from its DR-2 tier than ` +
-        'EVENT_EMISSION_REGISTRY declares for it. Two authorities disagree about whether this ' +
-        'event is report-coupled, so the population this ratchet governs is ambiguous. Fix the ' +
-        'annotation or the registry — do NOT add an UNRECONCILED_REGISTRATIONS entry to silence ' +
-        'it unless the disagreement is genuinely unresolvable and carries an owner.',
-    });
-  }
-  for (const eventType of [...recorded].sort()) {
-    if (live.has(eventType)) continue;
-    diagnostics.push({
-      code: 'STALE_UNRECONCILED_RECORD',
-      eventType,
-      message:
-        `'${eventType}' is recorded in UNRECONCILED_REGISTRATIONS but its derived and declared ` +
-        'emission sources now agree. The record is stale cover — DELETE its entry from ' +
-        'event-store/event-annotations.ts.',
+        `'${eventType}' derives a different EventEmissionSource from its DR-2 tier than the ` +
+        'supplied registry declares for it. Two authorities disagree about whether this event is ' +
+        'report-coupled, so the population this ratchet governs is ambiguous. Since task 011 the ' +
+        'live registry is DERIVED from the tier, so this can only fire for a caller-supplied map — ' +
+        'fix the annotation, or stop hand-authoring the source.',
     });
   }
 

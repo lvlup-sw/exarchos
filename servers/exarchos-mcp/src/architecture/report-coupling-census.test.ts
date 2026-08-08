@@ -23,11 +23,7 @@
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
 import { EVENT_EMISSION_REGISTRY, EventTypes } from '../event-store/schemas.js';
-import {
-  ANNOTATED_EVENTS,
-  EVENT_ANNOTATIONS,
-  UNRECONCILED_REGISTRATIONS,
-} from '../event-store/event-annotations.js';
+import { ANNOTATED_EVENTS, EVENT_ANNOTATIONS } from '../event-store/event-annotations.js';
 import type { EventAnnotationSource } from '../event-store/event-declarations.js';
 import type { EventRegistration } from '../event-store/event-registration.js';
 import {
@@ -199,24 +195,20 @@ describe('G3 kill fixtures — the ratchet must be able to go red', () => {
     expect(disagreements[0]).toMatchObject({ eventType: 'workflow.started' });
   });
 
-  it('ReportCouplingCensus_StaleUnreconciledRecord_IsRejected', () => {
-    // Task 010's one recorded disagreement is honoured — and audited in the stale direction, so it
-    // cannot rot into cover once task 011 resolves it.
-    expect(UNRECONCILED_REGISTRATIONS.length).toBeGreaterThan(0);
-    const recorded = UNRECONCILED_REGISTRATIONS[0]?.eventType ?? '';
-    const registration = EVENT_ANNOTATIONS[recorded];
-    expect(registration).toBeDefined();
-
-    // Make the declared column agree with the derived source: the record is now stale cover.
-    const census = censusReportCoupling(EventTypes, ANNOTATED_EVENTS, {
-      ...EVENT_EMISSION_REGISTRY,
-      [recorded]: 'auto',
-    });
-    const stale = census.diagnostics.filter((d) => d.code === 'STALE_UNRECONCILED_RECORD');
-    expect(stale).toHaveLength(1);
-    expect(stale[0]).toMatchObject({ eventType: recorded });
-    expect(census.ok).toBe(false);
-  });
+  // `ReportCouplingCensus_StaleUnreconciledRecord_IsRejected` was RETIRED when task 011 landed.
+  //
+  // It asserted `UNRECONCILED_REGISTRATIONS.length > 0` and then proved that a record which stopped
+  // disagreeing was reported as stale cover. Its own comment anticipated the end: "so it cannot rot
+  // into cover once task 011 resolves it." Task 011 resolved it — `EVENT_EMISSION_REGISTRY` is now
+  // derived from the tier rather than hand-written, the one recorded disagreement
+  // (`benchmark.completed`) was settled in favour of the measurement, and the exception list was
+  // deleted with the population it covered.
+  //
+  // The test is removed rather than weakened because its subject is gone, not because it became
+  // inconvenient: with no exception list there is no stale record to construct, and a test whose
+  // precondition cannot hold is the vacuity this wave exists to delete. The forward direction is
+  // still covered by `ReportCoupling_SeededTierSourceDisagreement_IsReported`, which supplies a
+  // hand-authored map and is therefore still constructible.
 
   it('ReportCouplingSeed_PaidDownEntry_MustMoveRatherThanLinger', () => {
     // Re-couple one seeded event: its seed entry is now stale and must be RETIRED, not parked.

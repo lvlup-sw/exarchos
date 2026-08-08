@@ -1,11 +1,9 @@
-// RESERVED(issue: #1473, owner: exarchos, expires: 2026-11-30) — the DR-2 annotation table and
-// the censuses built on it. Production code whose production importers land next: task 011 derives
-// `EVENT_EMISSION_REGISTRY` from {@link reportCoupledEventTypes}/{@link tierSourceDisagreements},
-// task 012 resolves the `provider` welds this table supplies at boot, and task 013 seeds the G3
-// ratchet from {@link reportCoupledEventTypes}. Deliberately NOT filed as `declared-test-infra` —
-// this is not gate machinery, it is the coupling record for all 170 registrations, and misfiling
-// it would buy a permanent DR-7 exemption for the module the next three tasks read. If 011/012/013
-// never land, this expires and is deleted along with `event-registration.ts`.
+// ADOPTED by task 011 — this module is now load-bearing production code, not a reservation.
+// `schemas.ts` imports {@link ANNOTATED_EVENTS} to DERIVE `EVENT_EMISSION_REGISTRY`, so the
+// table below is the single authority for every registered event's emission source. The
+// `RESERVED(issue: #1473, …)` header this module carried while it had no production importer is
+// gone with the condition that justified it. Task 012 resolves the `provider` welds at boot and
+// task 013 seeds the G3 ratchet from {@link reportCoupledEventTypes}.
 //
 // ─── The DR-2 tier + lifecycle annotations for the event catalog (task 010) ──
 //
@@ -58,13 +56,19 @@
 //
 // ## What this module deliberately does NOT do
 //
-// It does not derive `EVENT_EMISSION_REGISTRY` (task 011), resolve `EffectProviderId` at boot
-// (task 012), or ratchet the report-coupled count (task 013). It exports the census functions
-// those tasks read, and every count they produce is COMPUTED from the table — no cardinality is
-// written as a literal anywhere in this file or its test.
+// It does not resolve `EffectProviderId` at boot (task 012) or ratchet the report-coupled count
+// (task 013). It exports the census functions those tasks read, and every count they produce is
+// COMPUTED from the table — no cardinality is written as a literal anywhere in this file or its
+// test. The derivation itself lives in `event-registration.ts` (`deriveEmissionRegistry`) and is
+// applied by `schemas.ts`; this module supplies its input.
 // ────────────────────────────────────────────────────────────────────────────
 
 import type { EventEmissionSource } from './schemas.js';
+// The judgment `contentSchema` values come from a LEAF module, not from `schemas.js`. Task 011
+// made `schemas.ts` derive `EVENT_EMISSION_REGISTRY` from this table, so a runtime value import
+// back into `schemas.ts` would close a cycle — one measured to throw at load under real Node ESM
+// (TDZ) and to fail `scripts/audit/cycle-gate.ts` in CI. The `EventEmissionSource` import above
+// stays, because `import type` is erased and contributes no edge.
 import {
   RemediationAttemptedDataSchema,
   RemediationSucceededDataSchema,
@@ -73,14 +77,24 @@ import {
   ReviewFindingData,
   TestResultData,
   TypecheckResultData,
-} from './schemas.js';
+} from './judgment-content-schemas.js';
 import {
   findTierSourceDisagreement,
   resolveEmissionSource,
   type EventRegistration,
   type TierSourceDisagreement,
 } from './event-registration.js';
-import type { EventAnnotationSource } from './event-declarations.js';
+
+// NOTE: this module deliberately does NOT name `EventAnnotationSource` from `event-declarations.ts`,
+// even as a type. `schemas.ts` imports this module to derive `EVENT_EMISSION_REGISTRY`, and the
+// static-reachability instruments in this repo (DR-30's oracle-independence walk,
+// `built-in-workflow-ir.structure.test.ts`) follow type-only specifiers. Naming the port here would
+// therefore make `contract/declaration.ts` reachable from every registration site — falsifying
+// DR-1's standing claim that "no registration site imports the envelope, so they can genuinely
+// disagree" (`contract/declaration.test.ts`). {@link ANNOTATED_EVENTS} is annotated structurally
+// instead, and the CONFORMANCE proof lives with the port it conforms to
+// (`_EventDeclarations_AnnotatedEvents_ImplementsThePort` in `event-declarations.ts`), which is
+// where a change of the port's shape should be felt anyway.
 
 // ─── The declared-source input, as a port ───────────────────────────────────
 
@@ -747,10 +761,11 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     provider: 'exarchos_workflow',
     consumedBy: ['workflow-state@v1'],
   },
-  // THE ONE UNRECONCILED REGISTRATION — see {@link UNRECONCILED_REGISTRATIONS}. Annotated on the
-  // evidence (two real consumer folds, appended through the `exarchos_event` seam), which derives
-  // `'auto'` and therefore disagrees with the registry's `'hook'`. Left visible rather than
-  // hidden behind an invented reconciler id.
+  // Task 010's ONE unreconciled registration, reconciled by task 011. Annotated on the evidence
+  // (two real consumer folds, appended through the `exarchos_event` seam), which derives `'auto'`
+  // where the hand-written registry column declared `'hook'`. Deriving the registry from this
+  // table is what settled the disagreement in favour of the measurement; nothing was bent to make
+  // a number come out even, and no reconciler id was invented for it.
   'benchmark.completed': {
     lifecycle: 'active',
     tier: 'capability',
@@ -844,63 +859,39 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
 // ─── The port implementation (task 008's substitution point) ────────────────
 
 /**
- * The DR-2 annotations as an {@link EventAnnotationSource}.
+ * The DR-2 annotations as the annotation SOURCE task 008's bridge consumes (the
+ * `EventAnnotationSource` port declared in `event-declarations.ts`, which proves this value
+ * conforms — see the import-block note at the top of this file for why the proof lives there).
  *
  * Pass this to `eventDeclarations` / `openEventDeclarationSeam` and every annotated type's
  * declaration flips from the `EventEmissionSubject` arm to the {@link EventRegistration} arm — a
  * change of VALUES flowing through the type task 008 already shipped. `undefined` for a
  * runtime-registered custom type, which is honest: nothing in this task annotated it.
  */
-export const ANNOTATED_EVENTS: EventAnnotationSource = Object.freeze({
+export const ANNOTATED_EVENTS: {
+  readonly registrationOf: (eventType: string) => EventRegistration | undefined;
+} = Object.freeze({
   registrationOf: (eventType: string): EventRegistration | undefined => EVENT_ANNOTATIONS[eventType],
 });
 
-// ─── The one registration this task could not reconcile ─────────────────────
-
-/** A registration whose annotation and whose declared emission source do not agree. */
-export interface UnreconciledRegistration {
-  readonly eventType: string;
-  /** Why the measured annotation could not be bent to match the declared source. */
-  readonly reason: string;
-  /** The task that must dispose of it. */
-  readonly owner: string;
-}
-
-/**
- * `benchmark.completed`, and nothing else.
- *
- * **The verdict, measured.** It is NOT an observation, so task 009's `observation: 'hook'` gets no
- * validation from the only `'hook'` registration in the catalog:
- *
- *   • It names none of DR-11's three reconciler subjects (`worktree` / `branch` / `pr`) and
- *     reconciles nothing against projected state. Its payload compares a measured `value` to a
- *     `baseline`, which is diff-SHAPED, but the subject is an eval-harness operation, not a
- *     resource whose ground truth a reconciler senses.
- *   • It has NO emitter. Not in `src/`, not in `hooks/`, not in `.claude-plugin/`. The only
- *     non-test references in the whole tree are two consumer folds.
- *   • `'hook'` is not a coupling class in this codebase, it is a vestigial authorship label. The
- *     two events that a Claude Code hook actually fires — `subagent.tokens_used` and
- *     `turn.completed` — are both registered `auto`, because an exarchos handler owns the append.
- *     `benchmark.completed` is the only registration that did not get that treatment.
- *
- * So it is annotated on its evidence — two real consumer folds, appended through the
- * `exarchos_event` seam — which derives `'auto'` and disagrees with the declared `'hook'`. The
- * alternative was inventing a fourth `ReconcilerId` for a reconciler task 032 has no plan to
- * build, purely to make a number come out even. This list is the honest form of that choice: one
- * named entry, with an owner, that a test asserts STILL disagrees — so it cannot become stale
- * cover — and that may only shrink.
- *
- * Task 011 disposes of it by deriving the registry from the tier, which flips the stored value.
- */
-export const UNRECONCILED_REGISTRATIONS: readonly UnreconciledRegistration[] = Object.freeze([
-  Object.freeze({
-    eventType: 'benchmark.completed',
-    reason:
-      "declared 'hook' but has no emitter anywhere in the tree and is not a reconciler event; " +
-      "annotated on its measured coupling (capability, two consumer folds), which derives 'auto'",
-    owner: 'task 011 (derive EventEmissionSource from tier)',
-  }),
-]);
+// ─── Disposed: the one registration task 010 could not reconcile ────────────
+//
+// Task 010 left exactly one entry here — `benchmark.completed`, which the registry declared
+// `'hook'` while its measured coupling (capability tier, two real consumer folds, no emitter
+// anywhere in `src/`, `hooks/` or `.claude-plugin/`) derives `'auto'` — as a named,
+// owner-carrying, shrink-only list whose owner was recorded as task 011.
+//
+// **Task 011 disposed of the entry AND of the list.** `EVENT_EMISSION_REGISTRY` no longer
+// declares a source for any built-in type; it derives one from this table. A tier<->source
+// disagreement is therefore not a state the live catalog can hold and a census must report — it
+// is a state the catalog has no form for. A shrink-only list of a population that cannot be
+// constructed is a declaration that exists, is enforced, and cannot fail, which is exactly the
+// class this program removes rather than keeps as cover.
+//
+// The claim now rests on what CAN still fail: {@link tierSourceDisagreements} takes its
+// declared-source map as a PARAMETER, so `EventAnnotations_SeededTierSourceDisagreement_IsReported`
+// seeds a contradiction and requires it to be reported by name. The falsifier survived the
+// disposal; only the standing exception did not.
 
 // ─── The censuses tasks 011/012/013 read ────────────────────────────────────
 //
@@ -916,7 +907,7 @@ export const UNRECONCILED_REGISTRATIONS: readonly UnreconciledRegistration[] = O
  */
 export function unannotatedEventTypes(
   registeredTypes: Iterable<string>,
-  annotations: EventAnnotationSource = ANNOTATED_EVENTS,
+  annotations: typeof ANNOTATED_EVENTS = ANNOTATED_EVENTS,
 ): readonly string[] {
   const missing: string[] = [];
   for (const eventType of registeredTypes) {
@@ -950,7 +941,7 @@ export function unregisteredAnnotations(
  */
 export function reportCoupledEventTypes(
   registeredTypes: Iterable<string>,
-  annotations: EventAnnotationSource = ANNOTATED_EVENTS,
+  annotations: typeof ANNOTATED_EVENTS = ANNOTATED_EVENTS,
 ): readonly string[] {
   const coupled: string[] = [];
   for (const eventType of registeredTypes) {
@@ -976,7 +967,7 @@ export interface AnnotatedDisagreement extends TierSourceDisagreement {
  */
 export function tierSourceDisagreements(
   declared: DeclaredEmissionSources,
-  annotations: EventAnnotationSource = ANNOTATED_EVENTS,
+  annotations: typeof ANNOTATED_EVENTS = ANNOTATED_EVENTS,
 ): readonly AnnotatedDisagreement[] {
   const out: AnnotatedDisagreement[] = [];
   for (const eventType of Object.keys(declared).sort()) {
@@ -1010,12 +1001,8 @@ export type _EventAnnotations_TableValues_AreRegistrations = Expect<
   Assignable<(typeof EVENT_ANNOTATIONS)[string], EventRegistration>
 >;
 
-/**
- * The module satisfies the port task 008 opened. If `EventAnnotationSource` ever changes shape,
- * this is where it is felt — not in `eventDeclarations`, which would keep compiling against the
- * default no-op source and silently carry an un-annotated catalog.
- * @proof
- */
-export type _EventAnnotations_Source_ImplementsThePort = Expect<
-  Assignable<typeof ANNOTATED_EVENTS, EventAnnotationSource>
->;
+// The port-conformance proof — "this module satisfies the `EventAnnotationSource` task 008 opened"
+// — MOVED to `event-declarations.ts` as `_EventDeclarations_AnnotatedEvents_ImplementsThePort`.
+// It is the same assertion checked by the same `tsc` run; it simply cannot be written here without
+// naming the port, and naming the port here is what would drag `contract/declaration.ts` into every
+// registration site's reachable set (see the import-block note at the top of this file).
