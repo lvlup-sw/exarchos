@@ -16,6 +16,7 @@ import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DECLARATION_KINDS } from '../contract/declaration.js';
+import { scanGovernedSources } from '../../scripts/cli-derivation-guard.js';
 import {
   AUTHORITY_TOPOLOGY,
   BOUNDARY_DERIVATIONS,
@@ -365,12 +366,29 @@ describe('authority topology — the rows', () => {
   it('AuthorityTopology_CliSurfaceRow_RecordsTheHandWrittenLiteralsAsASecondAuthority', () => {
     const row = AUTHORITY_TOPOLOGY['cli-surface'];
     expect(row.authority.kind).toBe('contested');
-    // The 11 literals are not merely "unbound" — nothing derives them AND
-    // nothing derives from them, so they are a second authoritative
+    // The hand-written literals are not merely "unbound" — nothing derives them
+    // AND nothing derives from them, so they are a second authoritative
     // representation. That distinction is what makes the row contested rather
     // than a single authority with a loose end.
     expect(authoritativeRepresentations(row).length).toBe(2);
-    expect(row.measured).toContain('11');
+
+    // The row's `measured` note must state a COUNT, and that count must agree
+    // with the count baked into the second authority's representation id. The
+    // magnitude itself is not pinned here: it was 11 until task 076 deleted the
+    // `merge-orchestrate` literal and became 10, and DR-19 drives it to 0. What
+    // must never drift is the two halves of the row disagreeing with each other,
+    // which is what a hard-coded '11' in this test would have hidden — the note
+    // could go stale while the id stayed correct, and nothing would say so.
+    const idCount = authoritativeRepresentations(row)
+      .map((r) => /\bthe (\d+) hand-written\b/.exec(r.id)?.[1])
+      .find((c) => c !== undefined);
+    expect(idCount, 'the second authority id states a literal count').toBeDefined();
+    expect(row.measured).toContain(idCount as string);
+
+    // …and both agree with the LIVE tree. `authority-live-proof.test.ts` owns the
+    // full live measurement; this is the cheap consistency tooth that keeps the
+    // committed row from drifting away from it silently.
+    expect(Number(idCount)).toBe(scanGovernedSources().literals.length);
   });
 
   it('AuthorityTopology_EffectEventRow_RecordsNoAuthority', () => {

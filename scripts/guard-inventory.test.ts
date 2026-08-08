@@ -172,30 +172,60 @@ describe('Wave-1 guard inventory — CI reachability proof (DR-24, task 063)', (
       expect(artifacts, `${named} is missing from the inventory`).toContain(named);
     }
 
-    // Task 020's guard is the ONE recorded exception, and it is recorded as
-    // unreachable rather than quietly re-classified as fine.
+    // Task 020's guard was the ONE recorded exception for all of Wave 1. Task
+    // 076 DISCHARGED it: deleting the hand-written `merge-orchestrate` promotion
+    // let the derivation entrypoint go green on a clean tree, so it is now wired
+    // direct and blocking on the unfiltered `grep-gates` deps tail, and its
+    // exemption entry was deleted rather than re-dated.
+    //
+    // All three properties are asserted, because "blocks" alone would be
+    // satisfied by a path-filtered host that skips-as-passed on the PRs it
+    // polices — #1711, the failure this whole DR exists for.
     const cliDerivation = liveInventory.guards.find(
       (g) => g.artifact === 'servers/exarchos-mcp/scripts/cli-derivation-guard.ts',
     );
-    expect(cliDerivation?.enforcement).toBe('unreachable');
-    expect(GUARD_EXEMPTIONS.map((e) => e.artifact)).toContain(
+    expect(cliDerivation?.enforcement).toBe('blocks');
+    expect(cliDerivation?.pathFilteredOnly).toBe(false);
+    expect(cliDerivation?.hosts.some((h) => h.via === 'direct')).toBe(true);
+    expect(GUARD_EXEMPTIONS.map((e) => e.artifact)).not.toContain(
       'servers/exarchos-mcp/scripts/cli-derivation-guard.ts',
     );
   });
 
   it('GuardInventory_SelfTestHostedGateWithNoDirectExecution_ReadsAsUnreachable', () => {
-    // The distinction that decides whether this instrument works at all.
-    // `cli-derivation-guard`'s co-located self-test DOES run on every MCP-touching
-    // PR. Its GATE does not. If a hosted self-test counted as a wired guard, the
-    // single guard this task was dispatched to find would report green.
+    // The distinction that decides whether this instrument works at all: a
+    // guard whose SELF-TEST is hosted but whose GATE is never executed must read
+    // `unreachable`, not green. If a hosted self-test counted as a wired guard,
+    // an unwired gate would report as enforced.
+    //
+    // `cli-derivation-guard` was this claim's live subject for all of Wave 1.
+    // Task 076 wired it direct-and-blocking, which REMOVED the subject — so the
+    // claim is re-seeded synthetically here rather than deleted with the
+    // remediation, exactly as task 021's kill fixture was. A guarantee must not
+    // lapse because the defect it describes got fixed.
+    const selfTestOnly = guard({
+      artifact: 'servers/exarchos-mcp/scripts/example-gate.ts',
+      runnable: true,
+      hosts: [{ job: 'test-mcp', via: 'self-test', pathFiltered: false }],
+      enforcement: 'unreachable',
+    });
+    expect(selfTestOnly.hosts.length, 'its self-test really is hosted').toBeGreaterThan(0);
+    expect(selfTestOnly.hosts.every((h) => h.via === 'self-test')).toBe(true);
+    const audit = auditGuardInventory(inventoryOf([selfTestOnly]), { exemptions: [] });
+    expect(audit.ok, 'a self-test-only host must NOT read as reachable').toBe(false);
+    expect(audit.violations.join('\n')).toContain('unwired-guard');
+
+    // And on the LIVE tree, the discharged guard is wired by a DIRECT execution
+    // — not merely re-classified because its self-test is hosted. Both host
+    // kinds are present, and it is the `direct` one that earns `blocks`.
     const record = liveInventory.guards.find(
       (g) => g.artifact === 'servers/exarchos-mcp/scripts/cli-derivation-guard.ts',
     );
     expect(record).toBeDefined();
     expect(record?.runnable).toBe(true);
-    expect(record?.hosts.length, 'its self-test really is hosted').toBeGreaterThan(0);
-    expect(record?.hosts.every((h) => h.via === 'self-test')).toBe(true);
-    expect(record?.enforcement).toBe('unreachable');
+    expect(record?.hosts.some((h) => h.via === 'self-test')).toBe(true);
+    expect(record?.hosts.some((h) => h.via === 'direct')).toBe(true);
+    expect(record?.enforcement).toBe('blocks');
   });
 
   it('GuardInventory_SeededUnwiredGuard_FailsTheReachabilityProof', () => {
@@ -912,12 +942,34 @@ describe('The live chain this task was dispatched against', () => {
   });
 
   it('GuardInventory_IndirectionDidNotMakeEverythingReachable', () => {
-    // The whole-inventory form of kill-fixture direction 2. If the new channel had
-    // over-reached, this set would have emptied and the suite would still be green.
+    // The whole-inventory form of kill-fixture direction 2 — that the shell
+    // indirection channel resolves real wiring rather than blessing everything
+    // it walks.
+    //
+    // This test used to hold `cli-derivation-guard` as its live unreachable
+    // subject: if indirection had over-reached, the set would have emptied and
+    // the suite would still be green. Task 076 wired that guard, so the set IS
+    // empty now — Wave 1's last unwired guard is discharged. An empty set is the
+    // GOAL, but it is also indistinguishable from a resolver that says
+    // "reachable" to everything, which is precisely what this test existed to
+    // rule out. So the falsifier is re-seeded rather than retired.
     const unreachable = liveInventory.guards.filter((g) => g.enforcement === 'unreachable');
-    expect(unreachable.map((g) => g.artifact)).toEqual([
-      'servers/exarchos-mcp/scripts/cli-derivation-guard.ts',
-    ]);
+    expect(
+      unreachable.map((g) => g.artifact),
+      'Wave 1 exit: no guard is unreachable — see GUARD_EXEMPTIONS for the discharge record',
+    ).toEqual([]);
+
+    // The seeded proof that "empty" means "checked": an unwired guard added to
+    // the LIVE inventory still reads unreachable and still fails the audit. The
+    // resolver has not learned to say yes to everything.
+    const seeded = guard({ artifact: 'servers/exarchos-mcp/scripts/never-wired.ts', runnable: true });
+    const seededAudit = auditGuardInventory(
+      inventoryOf([...liveInventory.guards, seeded], liveInventory.indirection),
+      { manifestJson: liveManifest, filterGlobs: liveFilterGlobs, exemptions: [] },
+    );
+    expect(seededAudit.ok).toBe(false);
+    expect(seededAudit.violations.join('\n')).toContain('servers/exarchos-mcp/scripts/never-wired.ts');
+    expect(seededAudit.violations.join('\n')).toContain('unwired-guard');
   });
 });
 

@@ -452,7 +452,7 @@ export const AUTHORITY_TOPOLOGY: Readonly<Record<ContractBoundaryId, AuthorityTo
           'commands are projected from the registry descriptors + CLI hints, so a registry change moves them',
         ),
         authoritative(
-          "the 11 hand-written `.command('…')` literals in `adapters/cli.ts`",
+          "the 10 hand-written `.command('…')` literals in `adapters/cli.ts`",
         ),
       ]),
       enforceFrom: Object.freeze({
@@ -462,10 +462,15 @@ export const AUTHORITY_TOPOLOGY: Readonly<Record<ContractBoundaryId, AuthorityTo
       }),
       provenance: Object.freeze({ kind: 'derived', from: 'declaration-kinds' }),
       measured:
-        'Re-measured 2026-08-07: exactly 11 `.command(\'…\')` literals in `adapters/cli.ts` — doctor, ' +
-        'version, feedback, schema, topology, emissions, mcp, onboard, init, merge-orchestrate, ' +
-        'install-skills. Matches the spec table. They are a SECOND authoritative representation: ' +
-        'nothing derives them from the registry, and the registry does not derive them.',
+        'Re-measured 2026-08-08 (task 076): exactly 10 `.command(\'…\')` literals in ' +
+        '`adapters/cli.ts` — doctor, version, feedback, schema, topology, emissions, mcp, onboard, ' +
+        'init, install-skills. Was ELEVEN until task 076 deleted the hand-written ' +
+        '`merge-orchestrate` promotion and moved it onto the registry\'s `cli.topLevel` hint, ' +
+        'where it is now a BOUND representation rather than a second authoritative one. The row ' +
+        'stays CONTESTED: ten literals remain, each tracked debt with an owner and an enforced ' +
+        'expiry under G1\'s allowlist. They are a SECOND authoritative representation: nothing ' +
+        'derives them from the registry, and the registry does not derive them. DR-19 retires the ' +
+        'last of them, at which point this row goes single-authority.',
     }),
 
     'response-shape': Object.freeze({

@@ -298,17 +298,23 @@ describe('G1 self-test: a clean-vocabulary hand-written command still fails (DR-
     const cliSource = readFileSync(path.join(REPO_ROOT, rel), 'utf8');
 
     const baseline = scanSourceForCommandSites(cliSource, rel);
-    expect(baseline.literals).toHaveLength(11);
-    expect(baseline.derived).toHaveLength(3);
-    // The baseline violation count is DERIVED, never written down. Task 022
-    // pinned it at 11 (the allowlist was empty); task 023 populated the
-    // allowlist with the ten allowlistable literals and the number became 1 —
-    // a CORRECT change breaking a hard-coded count, which is the fifth
-    // occurrence of that failure in this wave. What this test actually needs is
-    // that the seeded command MOVES the number, so the baseline is measured and
-    // every assertion below is relative to it.
+    // EVERY count here is DERIVED, never written down. The history of this block
+    // is the history of that lesson: task 022 pinned the literals at 11 with an
+    // empty allowlist; task 023 populated it and the VIOLATION count became 1;
+    // task 076 deleted the `merge-orchestrate` literal and the LITERAL count
+    // became 10 while violations became 0. Three correct changes, and each one
+    // would have broken a hard-coded number here. The claim this test makes is
+    // not any magnitude — it is that seeding a hand-written command MOVES the
+    // count by exactly one. So the baseline is measured, and every assertion
+    // below is relative to it.
+    expect(baseline.literals.length).toBeGreaterThan(0);
+    expect(baseline.derived.length).toBeGreaterThan(0);
+    expect(baseline.indeterminate).toHaveLength(0);
+
     const baselineViolations = findDerivationViolations(baseline, readAllowlist());
-    expect(baselineViolations.length).toBeGreaterThan(0);
+    // Zero as of task 076: the live tree is clean, which is why G1 could finally
+    // be wired blocking. Not asserted as `> 0` — that would demand the tree stay
+    // dirty. The delta below is what carries the claim.
     expect(baselineViolations.map((v) => v.name)).not.toContain(SELF_TEST_COMMAND_NAME);
 
     const handWrittenCall = `.command('${SELF_TEST_COMMAND_NAME}')`;
@@ -320,8 +326,8 @@ describe('G1 self-test: a clean-vocabulary hand-written command still fails (DR-
       `  .option('${forceFlag}', 'Bypass the confirmation guard');\n`;
 
     const seededScan = scanSourceForCommandSites(seeded, rel);
-    expect(seededScan.literals).toHaveLength(12);
-    expect(seededScan.derived).toHaveLength(3);
+    expect(seededScan.literals).toHaveLength(baseline.literals.length + 1);
+    expect(seededScan.derived).toHaveLength(baseline.derived.length);
 
     const seededViolations = findDerivationViolations(seededScan, readAllowlist());
     expect(seededViolations).toHaveLength(baselineViolations.length + 1);
@@ -342,9 +348,12 @@ describe('G1 self-test: a clean-vocabulary hand-written command still fails (DR-
     expect(derivedVariant).not.toBe(seeded);
 
     const derivedScan = scanSourceForCommandSites(derivedVariant, rel);
+    // The rewrite moves exactly ONE site from `literal` to `derived` and changes
+    // nothing else — stated relative to the seeded scan, not as transcribed
+    // totals, for the same reason as every other count in this block.
     expect(derivedScan.sites).toHaveLength(seededScan.sites.length);
-    expect(derivedScan.literals).toHaveLength(11);
-    expect(derivedScan.derived).toHaveLength(4);
+    expect(derivedScan.literals).toHaveLength(seededScan.literals.length - 1);
+    expect(derivedScan.derived).toHaveLength(seededScan.derived.length + 1);
     const derivedViolations = findDerivationViolations(derivedScan, readAllowlist());
     expect(derivedViolations).toHaveLength(baselineViolations.length);
     expect(derivedViolations.map((v) => v.name)).not.toContain(SELF_TEST_COMMAND_NAME);

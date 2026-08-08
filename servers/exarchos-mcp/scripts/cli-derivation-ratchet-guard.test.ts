@@ -130,15 +130,27 @@ function reDated(expires: string): Readonly<Record<string, CliWaiverEntry>> {
 describe('DR-5: the CLI-derivation allowlist is seeded from the live parse', () => {
   it('CliRatchet_SeededAllowlist_CoversEveryLiteralExceptTheKillFixture', () => {
     // The subject list is DERIVED here, not transcribed. The spec's task-023
-    // prose named eight verbs AND included `merge-orchestrate`; the parse says
-    // eleven literals of which one is the kill fixture, so the allowlist is TEN.
-    // Nothing below states 10 or 11 as a literal — both sides come from the tree.
+    // prose named eight verbs AND included `merge-orchestrate`; the parse said
+    // eleven literals of which one was the kill fixture, so the allowlist was
+    // TEN. Task 076 then DELETED the kill fixture's hand-written call, so the
+    // live parse is ten literals of which none is a kill fixture — and the
+    // allowlist is still ten. Nothing below states any of those numbers as a
+    // literal; both sides come from the tree, which is why a correct paydown
+    // moves them together instead of reddening this test.
     const literalNames = [...new Set(LIVE_SCAN.literals.map((s) => s.name))].sort();
     const killFixtures = literalNames.filter(isKillFixture);
     const allowlistable = literalNames.filter((n) => !isKillFixture(n));
 
     expect(literalNames.length).toBeGreaterThan(0);
-    expect(killFixtures).toEqual([...KILL_FIXTURE_COMMANDS].sort());
+
+    // No kill fixture survives in the live composition root (task 076). This is
+    // the DR-5 exit for `merge-orchestrate`: not exempted, deleted. Policy is
+    // still declared — an empty KILL_FIXTURE_COMMANDS would make the exclusion
+    // below vacuous, so the declaration is asserted separately from the live
+    // population it currently matches nothing in.
+    expect(killFixtures).toEqual([]);
+    expect(KILL_FIXTURE_COMMANDS.length).toBeGreaterThan(0);
+
     expect(Object.keys(LIVE_POLICY.allowed).sort()).toEqual(allowlistable);
     expect(Object.keys(LIVE_POLICY.allowed).length).toBe(literalNames.length - killFixtures.length);
 
@@ -348,14 +360,45 @@ describe('DR-5: membership is checked in BOTH directions', () => {
     // not have one. `merge-orchestrate` is a standing REJECTION (reported
     // unconditionally by the derivation policy), never tracked debt — so it is
     // excluded from both sides of the membership comparison.
+    //
+    // Task 076 deleted its hand-written call, so the LIVE tree no longer carries
+    // the subject. The live half below therefore asserts only what the live tree
+    // can still show; the mechanism itself is re-proved against a RE-SEEDED
+    // parse, because "the ratchet does not demand an entry for it" is a claim
+    // about a scan that CONTAINS it, and a scan that does not contain it cannot
+    // distinguish a working exclusion from an absent subject.
     const membership = auditCliAllowlistMembership(LIVE_SCAN, LIVE_POLICY);
     expect(membership.ok).toBe(true);
     for (const killFixture of KILL_FIXTURE_COMMANDS) {
-      expect(LIVE_SCAN.literals.map((s) => s.name)).toContain(killFixture);
+      expect(LIVE_SCAN.literals.map((s) => s.name)).not.toContain(killFixture);
       expect(membership.literals).not.toContain(killFixture);
       expect(membership.untracked).not.toContain(killFixture);
       expect(Object.keys(LIVE_POLICY.allowed)).not.toContain(killFixture);
+      expect(Object.keys(LIVE_POLICY.retired)).not.toContain(killFixture);
     }
+
+    // ── Re-seeded: the exclusion still holds when the subject IS present ──────
+    const governed = GOVERNED_SOURCES[0];
+    if (governed === undefined) throw new Error('GOVERNED_SOURCES is empty');
+    const seededName = KILL_FIXTURE_COMMANDS[0];
+    if (seededName === undefined) throw new Error('KILL_FIXTURE_COMMANDS is empty');
+    const reseeded = scanSourceForCommandSites(
+      `${readFileSync(path.join(REPO_ROOT, governed), 'utf8')}\n` +
+        `const __killFixture = program.command('${seededName}').description('x');\n`,
+      governed,
+    );
+    const reseededMembership = auditCliAllowlistMembership(reseeded, LIVE_POLICY);
+    for (const killFixture of KILL_FIXTURE_COMMANDS) {
+      // The subject is genuinely back in the parse…
+      expect(reseeded.literals.map((s) => s.name)).toContain(killFixture);
+      // …and the ratchet still does not ask for an allowlist entry for it.
+      expect(reseededMembership.literals).not.toContain(killFixture);
+      expect(reseededMembership.untracked).not.toContain(killFixture);
+    }
+    // Membership stays GREEN with the kill fixture present and unallowlisted —
+    // rejecting it is the derivation policy's job, not the membership ratchet's.
+    // (The derivation guard's own test proves it is rejected there.)
+    expect(reseededMembership.ok).toBe(true);
   });
 });
 

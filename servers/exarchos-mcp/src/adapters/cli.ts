@@ -27,7 +27,6 @@ import {
   buildInvalidInput,
   VALIDATION_ERROR_CODE,
 } from './schema-to-flags.js';
-import { HandleMergeOrchestrateArgsSchema } from '../orchestrate/merge-orchestrate.js';
 import { TIER1_HARNESSES } from '../launcher/harness-registry.js';
 import { runLauncherVerb, renderDryRunPlan, isDryRunPlan } from '../launcher/verb.js';
 import {
@@ -52,8 +51,8 @@ import { prettyPrint, printError, toCliResult } from './cli-format.js';
 // ─── DR-25: contract-derived action addressing ──────────────────────────────
 
 /**
- * The four hard-wired top-level promotions' contract ActionIds. Each is the
- * literal id its `program.command(...)` action callback below hands to
+ * The hard-wired top-level promotions' contract ActionIds. Each is the literal
+ * id its `program.command(...)` action callback below hands to
  * `invokeContractAction`; every OTHER api-action command derives its id from
  * the registry inside `registerActionCommand` (`<tool>.<action>`).
  *
@@ -62,12 +61,19 @@ import { prettyPrint, printError, toCliResult } from './cli-format.js';
  * exists in `deriveCliSurface(compileForCli())` — a renamed or removed action
  * reddens the build here instead of surfacing as a runtime
  * `UnknownContractActionError`.
+ *
+ * This table SHRINKS as DR-5 pays the hand-written promotions down. Task 076
+ * removed `mergeOrchestrate` from it: `merge_orchestrate` is now hoisted from
+ * its registry `cli.topLevel` hint, so its ActionId is derived inside
+ * `registerActionCommand` like every other action's and has no hard-wired
+ * entry to keep in sync. The remaining three are the still-hand-written
+ * promotions. Nothing reads this table's SIZE — the conformance test iterates
+ * whatever is here — so a paydown that empties an entry cannot break it.
  */
 export const CLI_PROMOTED_ACTION_IDS = Object.freeze({
   doctor: 'exarchos_orchestrate.doctor',
   feedback: 'exarchos_workflow.feedback',
   onboard: 'exarchos_orchestrate.onboard',
-  mergeOrchestrate: 'exarchos_orchestrate.merge_orchestrate',
 } as const);
 
 // ─── Exit-Code Contract (DR-3: CLI/MCP Parity) ──────────────────────────────
@@ -753,78 +759,36 @@ export function buildCli(ctx: DispatchContext, options?: BuildCliOptions): Comma
       process.exitCode = CLI_EXIT_CODES.HANDLER_ERROR;
     });
 
-  // ─── Top-level `exarchos merge-orchestrate` command (T21, DR-MO-1) ──────
+  // ─── `exarchos merge-orchestrate` — hoisted, not hand-written (DR-5) ────
   //
-  // Promoted to a top-level verb (like `doctor` and `init`) so an operator
-  // types `exarchos merge-orchestrate ...` instead of
-  // `exarchos orch merge-orchestrate ...`. Under the hood it dispatches
-  // through `exarchos_orchestrate` so the CLI and MCP paths share one
-  // handler (`handleMergeOrchestrate`) and one validation gate.
+  // The hand-written top-level `merge-orchestrate` block that used to sit here
+  // was DELETED by task 076. `merge_orchestrate` was declared twice — once as a
+  // registry action carrying `posture: 'shared-mutating'`, and once by hand
+  // here — and that duplication is exactly the multiply-owned representation
+  // DR-5 exists to eliminate. G1's kill fixture refuses to exempt the name, so
+  // deletion was the only remedy the guard accepts.
   //
-  // The flag set is auto-generated from `HandleMergeOrchestrateArgsSchema`
-  // (the same schema imported by the MCP action registration in T20), so
-  // CLI/MCP arg parity is preserved by construction — no hand-written
-  // duplicate flag table to drift.
+  // NOTE TO FUTURE AUTHORS: this comment deliberately does NOT write the
+  // deleted call's syntax out. The guard parses rather than greps, so prose
+  // would not fool IT — but `cli-derivation-guard.test.ts` pins the gap between
+  // a naive text scan and the parse (exactly ONE prose occurrence of the call
+  // form, in the `CLI_PROMOTED_ACTION_IDS` docblock), and a second one here
+  // reddens that assertion. Describe the deleted call; do not transcribe it.
   //
-  // Exit-code mapping (DR-MO-1 / design CLI surface):
-  //   - Success                  → SUCCESS (exit 0)
-  //   - Zod validation at CLI    → INVALID_INPUT (exit 1)
-  //   - Handler error (PREFLIGHT_FAILED, MERGE_ROLLED_BACK, etc.)
-  //                              → HANDLER_ERROR (exit 2)
-  //   - Uncaught throw           → UNCAUGHT_EXCEPTION (exit 3)
-  const mergeOrchestrateCmd = program
-    .command('merge-orchestrate')
-    .description('Run the autonomous merge orchestrator: preflight, optional execute, rollback on failure.');
-  addFlagsFromSchema(mergeOrchestrateCmd, HandleMergeOrchestrateArgsSchema);
-
-  mergeOrchestrateCmd.action(async (opts: Record<string, unknown>) => {
-    const { json, ...flagOpts } = opts;
-    const isJson = Boolean(json);
-
-    // ─── INVALID_INPUT (exit 1): Zod validation at CLI layer ────────────
-    const coerced = coerceFlags(flagOpts, HandleMergeOrchestrateArgsSchema);
-    const parsed = HandleMergeOrchestrateArgsSchema.safeParse(coerced);
-    if (!parsed.success) {
-      const err = formatValidationError(
-        parsed.error,
-        'exarchos_orchestrate/merge_orchestrate',
-      );
-      emitResult({ success: false, error: err }, isJson);
-      process.exitCode = CLI_EXIT_CODES.INVALID_INPUT;
-      return;
-    }
-
-    // ─── Dispatch ────────────────────────────────────────────────────────
-    let result: ToolResult;
-    try {
-      result = await invokeContractAction(
-        CLI_PROMOTED_ACTION_IDS.mergeOrchestrate,
-        parsed.data,
-        ctx,
-      );
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      emitResult(
-        { success: false, error: { code: 'UNCAUGHT_EXCEPTION', message } },
-        isJson,
-      );
-      process.exitCode = CLI_EXIT_CODES.UNCAUGHT_EXCEPTION;
-      return;
-    }
-
-    emitResult(result, isJson);
-
-    // Preserve INVALID_INPUT for handler-reported validation failures so a
-    // bad arg that slips past CLI Zod but is caught by the handler still
-    // reports exit 1 (parity with the doctor/init pattern).
-    if (result.success) {
-      process.exitCode = CLI_EXIT_CODES.SUCCESS;
-    } else if (result.error?.code === VALIDATION_ERROR_CODE) {
-      process.exitCode = CLI_EXIT_CODES.INVALID_INPUT;
-    } else {
-      process.exitCode = CLI_EXIT_CODES.HANDLER_ERROR;
-    }
-  });
+  // The verb did NOT go away. `merge_orchestrate` now carries
+  // `cli: { topLevel: 'merge-orchestrate' }` in the registry, and the DR-7
+  // hoist loop at the bottom of `buildCli` registers it through
+  // `registerActionCommand` — the same schema, handler, flag generation and
+  // exit-code ladder the old block reimplemented by hand. `exarchos
+  // merge-orchestrate …` is byte-for-byte the same operator surface, so no
+  // rename stub is owed here (contrast `init`, immediately above, which really
+  // was renamed).
+  //
+  // Exit-code mapping is now `resolveExitCode`'s registry-backed ladder rather
+  // than the local three-arm copy: success → 0, VALIDATION_ERROR → 1, every
+  // handler code the orchestrator actually returns (PREFLIGHT_FAILED,
+  // MERGE_ROLLED_BACK, …) → 2 via the generic fallback. Identical for every
+  // reachable outcome; see `resolveExitCode`'s note on the superset property.
 
   // ─── Top-level `exarchos install-skills` command (DR-5, task 018) ───────
   //

@@ -313,8 +313,31 @@ async function runSweep(binaryPath: string): Promise<SweepResult> {
     .map((o) => ({ label: o.plan.actionId, code: o.code, exit: o.exit }));
 
   // ── Top-level promoted verbs (host commands). ──────────────────────────────
+  //
+  // DERIVED from the registry's `cli.topLevel` hints, not written out. The list
+  // was hard-coded as ['ps','wait','describe','export'] until task 076 promoted
+  // `merge-orchestrate` through the same mechanism — at which point the packaged
+  // denominator grew but the exercise ledger did not, and the coverage ratchet
+  // reported a new gap for a verb that is in fact perfectly reachable. A hand-
+  // written driver list silently under-covers every promotion added after it;
+  // deriving it means a new `cli.topLevel` is exercised the moment it is
+  // declared.
+  //
+  // Each verb is invoked with NO arguments. For the read-only verbs that yields
+  // a result envelope; for a mutating verb like `merge-orchestrate` it yields an
+  // INVALID_INPUT envelope from the missing required flags. Either way the
+  // binary is proven to route the verb through the contract envelope, which is
+  // what this dimension claims — and the no-args form means a `shared-mutating`
+  // verb is exercised without performing its effect.
+  const promotedVerbs = [
+    ...new Set(
+      derivePackagedCliPlan()
+        .filter((p) => p.topLevel !== null)
+        .map((p) => p.topLevel as string),
+    ),
+  ].sort();
   const topLevelDriven: string[] = [];
-  for (const verb of ['ps', 'wait', 'describe', 'export']) {
+  for (const verb of promotedVerbs) {
     const stateDir = await mkTmp('exq-proof-top-');
     const cwd = await mkTmp('exq-proof-topcwd-');
     try {

@@ -1749,30 +1749,31 @@ export const GUARD_EXEMPTIONS: readonly GuardExemption[] = Object.freeze([
   //   the `init` / `install-skills` precedent says needs a rename stub, i.e. a
   //   decision rather than a guard task.
   //
-  // So the derivation entrypoint stays unwired, and this entry now names the
-  // edit that actually unblocks it.
-  Object.freeze({
-    artifact: 'servers/exarchos-mcp/scripts/cli-derivation-guard.ts',
-    excuses: 'unreachable',
-    reason:
-      'Exits 1 on the landing branch BY DESIGN, and after task 023 for exactly ONE reason: ' +
-      'the hand-written `.command(\'merge-orchestrate\')` call is still present in the CLI ' +
-      'composition root. It is the DR-5 kill fixture and is deliberately NOT allowlistable, so ' +
-      'the derivation entrypoint cannot go green until the call is deleted, and wiring it ' +
-      'blocking today would red-line every PR. The RATCHET half — shrink-only allowlist, ' +
-      'per-entry owner and enforced expiry — is wired blocking and unfiltered as ' +
-      '`servers/exarchos-mcp/scripts/cli-derivation-ratchet-guard.ts`; this entry covers only ' +
-      'the derivation verdict. Note the co-located self-test DOES run on every MCP-touching PR ' +
-      'AND on the unfiltered grep-gates tail, and it asserts that the kill fixture is still ' +
-      'rejected — so "the self-test is hosted" must still not be read as "the gate is wired". ' +
-      'Host class when it is wired (docs/guides/ci-gate-hosting.md): the DEPS TAIL of the ' +
-      'unfiltered `grep-gates` job — it needs `typescript` resolvable, so it cannot ride the ' +
-      'zero-dep prefix.',
-    blockedBy:
-      "DR-5 remediation — delete the hand-written `.command('merge-orchestrate')` from " +
-      'servers/exarchos-mcp/src/adapters/cli.ts (unowned by any Wave-1 task; reported by task 023)',
-    expires: '2026-11-05',
-  }),
+  // DISCHARGED by task 076 — entry removed rather than re-dated.
+  //
+  // The entry above recorded that the derivation entrypoint stayed unwired
+  // because ONE violation survived task 023's paydown: `merge-orchestrate` was
+  // declared both as a registry action and by hand in the composition root, and
+  // as the DR-5 kill fixture it could not be allowlisted around. It named the
+  // unblocking edit ("delete the hand-written call") and noted the edit was
+  // unowned by any Wave-1 task.
+  //
+  // Task 076 made that edit, and the resolution was cheaper than the entry
+  // assumed. The entry reasoned that deleting a promoted top-level verb is a
+  // user-visible surface change needing an `init`-style rename stub — a decision
+  // rather than a guard task. That premise was WRONG, and the correction is
+  // recorded here rather than lost with the entry: DR-7 had already shipped
+  // `CliActionHints.topLevel`, a registry hint whose hoist loop registers a
+  // top-level command through `registerActionCommand`. Moving the promotion onto
+  // that hint deletes the hand-written literal while keeping `exarchos
+  // merge-orchestrate …` byte-identical for operators. No rename stub was owed,
+  // because nothing was renamed — only the place the name is DECLARED moved.
+  //
+  // The derivation entrypoint is now wired direct and blocking on the unfiltered
+  // `grep-gates` deps tail (the host class this entry itself specified), so it
+  // no longer exhibits `unreachable` and `auditGuardInventory` would flag a
+  // surviving entry as `[stale-exemption]`. That tooth is what forced this
+  // deletion, and it is the mechanism working as designed.
   Object.freeze({
     artifact: 'scripts/lint-inv6.mjs',
     excuses: 'filtered-implementation-surface',

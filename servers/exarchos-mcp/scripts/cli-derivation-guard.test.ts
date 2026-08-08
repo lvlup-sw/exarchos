@@ -85,9 +85,16 @@ function messageOf(fn: () => unknown): string {
 }
 
 /**
- * The kill fixture: the hand-written literals present on the landing branch,
- * transcribed from the task-020 specification. This is the SECOND authority —
- * written by a human from the spec, not read out of the parser.
+ * The hand-written literals present in the composition root, transcribed from
+ * the task-020 specification. This is the SECOND authority — written by a human
+ * from the spec, not read out of the parser.
+ *
+ * `merge-orchestrate` was on this list until task 076 deleted the hand-written
+ * `.command('merge-orchestrate')` call and moved the promotion to the registry's
+ * `cli.topLevel` hint (DR-5's stated remediation — deletion, never exemption).
+ * It is GONE from the live composition root, which is why it is gone from here;
+ * the guard's proof that it would still be rejected now runs against
+ * {@link KILL_FIXTURE_SOURCE} instead of the live file.
  */
 const EXPECTED_HAND_WRITTEN_LITERALS: readonly string[] = [
   'doctor',
@@ -96,12 +103,32 @@ const EXPECTED_HAND_WRITTEN_LITERALS: readonly string[] = [
   'init',
   'install-skills',
   'mcp',
-  'merge-orchestrate',
   'onboard',
   'schema',
   'topology',
   'version',
 ];
+
+/**
+ * The re-seeded DR-5 kill fixture (task 021, preserved by task 076).
+ *
+ * Task 021's proof was "the guard rejects a hand-written `merge-orchestrate`
+ * definition", and its subject was the live composition root. Task 076 removed
+ * that subject by fixing the defect — so the proof is re-seeded HERE rather than
+ * deleted with the code. Deleting the test alongside the remediation would
+ * retire the guarantee at the exact moment it starts being load-bearing: nothing
+ * would then stop a future author from re-adding the hand-written promotion.
+ *
+ * Shaped like the block task 076 deleted (chained `program.command(...)` with a
+ * `.description(...)`), so the parser sees the same construct it used to see in
+ * `cli.ts`.
+ */
+const KILL_FIXTURE_SOURCE = [
+  "const mergeOrchestrateCmd = program",
+  "  .command('merge-orchestrate')",
+  "  .description('Run the autonomous merge orchestrator.');",
+  'mergeOrchestrateCmd.action(async () => {});',
+].join('\n');
 
 /** The three derivation helpers that take their name from a registry declaration. */
 const EXPECTED_DERIVED_EXPRESSIONS: readonly string[] = ['cliName', 'commandName', 'harness'];
@@ -113,13 +140,19 @@ function governedSourcePath(): string {
 }
 
 describe('cli-derivation-guard (DR-5 / G1)', () => {
-  it('CliDerivationGuard_LandingBranch_ReportsElevenHandWrittenLiterals', () => {
+  it('CliDerivationGuard_CompositionRoot_ReportsOnlyAllowlistedHandWrittenLiterals', () => {
     const scan = scanGovernedSources();
 
     // The population under policy: names baked into the composition root.
     const names = scan.literals.map((s) => s.name).sort();
     expect(names).toEqual([...EXPECTED_HAND_WRITTEN_LITERALS].sort());
-    expect(scan.literals).toHaveLength(11);
+    expect(scan.literals).toHaveLength(EXPECTED_HAND_WRITTEN_LITERALS.length);
+
+    // Task 076's remediation, asserted on the live tree: the hand-written
+    // `merge-orchestrate` promotion is GONE from the composition root. This is
+    // the positive half of the kill fixture — the negative half (that the guard
+    // would still reject it) is re-seeded below against KILL_FIXTURE_SOURCE.
+    expect(names).not.toContain('merge-orchestrate');
 
     // The three derivation loops — these are the compliant sites, and the guard
     // must NOT report them. A guard that flagged these would be unusable.
@@ -130,9 +163,18 @@ describe('cli-derivation-guard (DR-5 / G1)', () => {
     // Fail-closed classification: nothing unclassifiable.
     expect(scan.indeterminate).toHaveLength(0);
 
-    // 14 total = 3 derivation loops + 11 hand-written literals. NOT 15, and NOT
-    // "14 hand-written" — both are numbers a careless measurement produces here.
-    expect(scan.sites).toHaveLength(14);
+    // Total = derivation loops + hand-written literals, DERIVED from the two
+    // populations rather than written as a number. A literal total here is what
+    // broke four assertions in this wave: task 076's correct paydown moves it,
+    // and a hard-coded 14 would have reddened on a change that is the whole
+    // point of the guard. The claim is the PARTITION (every site is one or the
+    // other, nothing unclassified), not the magnitude.
+    expect(scan.sites).toHaveLength(
+      scan.literals.length + scan.derived.length + scan.indeterminate.length,
+    );
+    expect(scan.sites).toHaveLength(
+      EXPECTED_HAND_WRITTEN_LITERALS.length + EXPECTED_DERIVED_EXPRESSIONS.length,
+    );
 
     // ── What the shipped allowlist blesses, and what it cannot ───────────────
     // Task 020 shipped this file EMPTY and asserted `size === 0`, so the guard's
@@ -147,50 +189,81 @@ describe('cli-derivation-guard (DR-5 / G1)', () => {
     // assertions in this wave broke.
     const allowlistable = EXPECTED_HAND_WRITTEN_LITERALS.filter((n) => !isKillFixture(n));
     expect([...readAllowlist()].sort()).toEqual([...allowlistable].sort());
-    expect(readAllowlist().size).toBe(EXPECTED_HAND_WRITTEN_LITERALS.length - KILL_FIXTURE_COMMANDS.length);
+    expect(readAllowlist().size).toBe(allowlistable.length);
 
-    // The guard therefore reports exactly the kill fixtures — not zero. DR-5's
-    // remediation for `merge-orchestrate` is DELETION of the hand-written call,
-    // and until that lands this is the guard working, not the guard broken.
+    // No kill fixture survives in the live population — task 076 deleted the
+    // only one. Stated as a derived predicate so declaring a NEW kill fixture
+    // that is still hand-written reddens here rather than passing quietly.
+    expect(EXPECTED_HAND_WRITTEN_LITERALS.filter(isKillFixture)).toEqual([]);
+
+    // The guard therefore reports ZERO violations on the live tree. Task 023
+    // allowlisted the ten tolerated literals and task 076 deleted the eleventh
+    // (the kill fixture, which `readPolicy` refuses to exempt), so G1 is
+    // green-on-clean and can finally be wired direct-and-blocking. An empty
+    // violation list is only meaningful because the seeded-violation tests
+    // below show the guard still bites.
     const violations = findDerivationViolations(scan, readAllowlist());
-    expect(violations.map((v) => v.name).sort()).toEqual([...KILL_FIXTURE_COMMANDS].sort());
+    expect(violations).toEqual([]);
 
     // ── Comment blanking, demonstrated rather than asserted in prose ─────────
-    // A naive text scan counts one MORE site than the parser, because a JSDoc
-    // block writes `program.command(...)` in prose. The parser classifies that
-    // as trivia so it never becomes a CallExpression. This is the measure-the-
-    // text-instead-of-the-structure failure this guard exists to avoid, pinned
-    // as an executable fact.
+    // A naive text scan counts MORE sites than the parser, because doc comments
+    // write the call form out in prose. The parser classifies those as trivia so
+    // they never become CallExpressions. This is the measure-the-text-instead-
+    // of-the-structure failure this guard exists to avoid, pinned as an
+    // executable fact.
+    //
+    // The comment lines are LOCATED, not transcribed. An earlier revision
+    // anchored on a verbatim sentence fragment, and rewording that docblock (in
+    // task 076, for an unrelated reason) broke the anchor while the property it
+    // guarded still held — a test pinned to prose rather than to structure.
     const raw = readFileSync(governedSourcePath(), 'utf8');
+    const lines = raw.split('\n');
     const naiveTextMatches = raw.match(/\.command\(/g) ?? [];
-    expect(naiveTextMatches).toHaveLength(15);
-    expect(scan.sites.length).toBe(naiveTextMatches.length - 1);
 
-    // The prose occurrence is inside a comment, and no reported site sits on it.
-    const proseLine = raw.split('\n').findIndex((l) => l.includes('* literal id its `program.command(...)`')) + 1;
-    expect(proseLine).toBeGreaterThan(0);
-    expect(scan.sites.map((s) => s.line)).not.toContain(proseLine);
+    // Comment lines carrying the call form, by shape: a JSDoc continuation or a
+    // line comment. These are the entire gap between the text scan and the parse.
+    const proseLines = lines
+      .map((line, i) => ({ line, number: i + 1 }))
+      .filter(({ line }) => /^\s*(\*|\/\/)/.test(line) && line.includes('.command('));
+
+    expect(proseLines.length).toBeGreaterThan(0);
+    expect(scan.sites.length).toBe(naiveTextMatches.length - proseLines.length);
+
+    // No reported site sits on any of them.
+    const siteLines = new Set(scan.sites.map((s) => s.line));
+    for (const { number } of proseLines) {
+      expect(siteLines.has(number)).toBe(false);
+    }
   });
 
-  it('CliDerivationGuard_TwelfthLiteralSeeded_Fails', () => {
+  it('CliDerivationGuard_OneMoreLiteralSeeded_Fails', () => {
     const raw = readFileSync(governedSourcePath(), 'utf8');
 
-    // Baseline: the unmodified composition root reports 11.
+    // Baseline: the unmodified composition root, measured rather than asserted
+    // at a magnitude. With NO allowlist passed, every hand-written literal is a
+    // violation — that is the un-exempted population the seed has to move.
     const before = scanSourceForCommandSites(raw, 'cli.ts');
-    expect(findDerivationViolations(before)).toHaveLength(11);
+    expect(findDerivationViolations(before)).toHaveLength(
+      EXPECTED_HAND_WRITTEN_LITERALS.length,
+    );
 
-    // Seed a 12th hand-written literal into the real source.
-    const seeded = `${raw}\nconst __seededTwelfth = program.command('seeded-twelfth').description('x');\n`;
+    // Seed one more hand-written literal into the real source.
+    const seeded = `${raw}\nconst __seededExtra = program.command('seeded-extra').description('x');\n`;
     const after = scanSourceForCommandSites(seeded, 'cli.ts');
 
-    expect(after.literals).toHaveLength(12);
     const violations = findDerivationViolations(after);
-    expect(violations).toHaveLength(12);
-    expect(violations.map((v) => v.name)).toContain('seeded-twelfth');
+    expect(violations.map((v) => v.name)).toContain('seeded-extra');
 
-    // Detection alone is not the claim — the guard must move from 11 to 12, so a
-    // NEW literal is distinguishable from the tolerated landing-branch debt.
+    // Detection alone is not the claim — the guard must move by exactly one, so
+    // a NEW literal is distinguishable from the tolerated tracked debt.
     expect(after.literals.length).toBe(before.literals.length + 1);
+    expect(violations.length).toBe(findDerivationViolations(before).length + 1);
+
+    // And it must survive the SHIPPED allowlist: the live tree is clean now, so
+    // a seeded literal is the only thing that can redden G1 — this is the
+    // assertion that keeps "green" meaning "checked" rather than "empty".
+    const underShippedPolicy = findDerivationViolations(after, readAllowlist());
+    expect(underShippedPolicy.map((v) => v.name)).toEqual(['seeded-extra']);
   });
 
   it('CliDerivationGuard_ZeroCommandSitesParsed_FailsClosed', () => {
@@ -234,9 +307,29 @@ describe('cli-derivation-guard (DR-5 / G1)', () => {
   // present subject.
 
   it('CliDerivationGuard_MergeOrchestrateLiteral_IsRejected', () => {
-    // The LIVE composition root on disk — not a synthetic fixture. Anything
-    // proven here is proven about the shipped `cli.ts`.
-    const scan = scanGovernedSources();
+    // ── The remediation actually happened ────────────────────────────────────
+    // First, on the LIVE composition root: the hand-written promotion task 021
+    // proved rejectable is gone, and the verb's name now comes from the registry
+    // declaration. If someone re-adds it, this half goes red before the seeded
+    // half below even runs.
+    // Asserted STRUCTURALLY, off the parse — not as a raw-text `not.toContain`.
+    // A text check would fail on the explanatory comment `cli.ts` now carries
+    // about the deletion, which is the very measure-the-text-instead-of-the-
+    // structure mistake this guard exists to avoid. The parser blanks trivia,
+    // so this claim is about registered commands and nothing else.
+    const live = scanGovernedSources();
+    expect(live.literals.map((s) => s.name)).not.toContain('merge-orchestrate');
+
+    // ── The guarantee survives its subject (task 076) ────────────────────────
+    // Task 021's proof needs a subject, and fixing the defect removed the live
+    // one. Re-seed it: splice the deleted block back into the real composition
+    // root and re-run the SAME guard. Deleting this test with the code would
+    // have retired the guarantee exactly when it became load-bearing.
+    const seededSource = `${readFileSync(governedSourcePath(), 'utf8')}\n${KILL_FIXTURE_SOURCE}\n`;
+    const scan = scanSourceForCommandSites(
+      seededSource,
+      'servers/exarchos-mcp/src/adapters/cli.ts',
+    );
 
     const sites = scan.literals.filter((s) => s.name === 'merge-orchestrate');
     expect(sites).toHaveLength(1);
@@ -247,38 +340,26 @@ describe('cli-derivation-guard (DR-5 / G1)', () => {
     expect(site.expression).toBe("'merge-orchestrate'");
     expect(site.file).toBe('servers/exarchos-mcp/src/adapters/cli.ts');
 
-    // Anchor the parser's report to the live TEXT: the hand-written call is
-    // still physically present. This doubles as the standing proof that DR-5's
-    // remediation (deleting it) has NOT happened yet — the guard therefore has
-    // a real failing subject rather than a hypothetical one.
-    const lines = readFileSync(governedSourcePath(), 'utf8').split('\n');
-    const literalLine = lines.findIndex((l) => l.includes(".command('merge-orchestrate')")) + 1;
-    expect(literalLine).toBeGreaterThan(0);
-    // The reported line anchors the head of the chained call (`program`), which
-    // may sit above the `.command(...)` continuation line — hence `<=`, not `===`.
-    expect(site.line).toBeLessThanOrEqual(literalLine);
-
     // Rejected under the shipped allowlist.
     const reported = findDerivationViolations(scan, readAllowlist());
     expect(reported.map((v) => v.name)).toContain('merge-orchestrate');
 
-    // THE DECISIVE ASSERTION. Today the allowlist is empty, so "is rejected"
-    // would hold for any name at all — a vacuous pass. Bless the other ten
-    // literals (the tracked debt this allowlist exists to carry) and the kill
-    // fixture must be the ONLY survivor. This is what distinguishes a real
-    // exclusion from an accident of the allowlist being empty right now, and it
-    // is the assertion that goes red if a later wave populates the allowlist
-    // and quietly includes `merge-orchestrate`.
-    const otherTen = new Set(
-      EXPECTED_HAND_WRITTEN_LITERALS.filter((n) => n !== 'merge-orchestrate'),
-    );
-    expect(otherTen.size).toBe(10);
-    const survivors = findDerivationViolations(scan, otherTen);
+    // THE DECISIVE ASSERTION. "Is rejected" would hold vacuously for any name
+    // the allowlist happens not to cover. Bless every OTHER literal (the tracked
+    // debt the allowlist exists to carry) and the kill fixture must be the ONLY
+    // survivor. This is the assertion that goes red if a later wave populates
+    // the allowlist and quietly includes `merge-orchestrate`.
+    const everyOtherLiteral = new Set(EXPECTED_HAND_WRITTEN_LITERALS);
+    expect(everyOtherLiteral.has('merge-orchestrate')).toBe(false);
+    const survivors = findDerivationViolations(scan, everyOtherLiteral);
     expect(survivors.map((v) => v.name)).toEqual(['merge-orchestrate']);
 
     // And the exclusion is a MECHANISM, not data: handing the guard an
     // allowlist that names the kill fixture does not suppress it.
-    const withKillFixtureAllowed = new Set([...otherTen, 'merge-orchestrate']);
+    const withKillFixtureAllowed = new Set([
+      ...everyOtherLiteral,
+      'merge-orchestrate',
+    ]);
     const stillRejected = findDerivationViolations(scan, withKillFixtureAllowed);
     expect(stillRejected.map((v) => v.name)).toEqual(['merge-orchestrate']);
 

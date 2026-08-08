@@ -1194,12 +1194,10 @@ jobs:
       # working, and the repair is registering verbs through a derivation helper,
       # never re-dating the horizon.
       #
-      # Note this is the RATCHET entrypoint, not `cli-derivation-guard.ts`. That
-      # sibling states the DERIVATION policy ("no literal `.command(` at all"),
-      # whose live failing subject `merge-orchestrate` is the DR-5 kill fixture
-      # and is deliberately not allowlistable — so it exits 1 by design until the
-      # hand-written call is deleted, and keeps its GUARD_EXEMPTIONS entry. The
-      # ratchet is the half that is enforceable today.
+      # This is the RATCHET entrypoint; its DERIVATION sibling is wired directly
+      # below. The ratchet states the SHRINK-ONLY policy over the tolerated set;
+      # the sibling states the DERIVATION policy ("no un-allowlisted literal
+      # `.command(` at all"). Both are blocking as of task 076.
       #
       # Rides the deps tail (needs `tsx` + `typescript`; it parses the source and
       # never resolves `buildCli`, so unlike the sibling `cli-vocab-guard` it
@@ -1210,14 +1208,35 @@ jobs:
       - name: CLI derivation allowlist ratchet — G1 shrink-only + enforced expiry (DR-5, task 023)
         run: npx --no-install tsx servers/exarchos-mcp/scripts/cli-derivation-ratchet-guard.ts
 
+      # G1 DERIVATION entrypoint — direct and BLOCKING as of task 076 (DR-5).
+      #
+      # This gate spent Wave 1 in GUARD_EXEMPTIONS as `unreachable`: it exited 1
+      # by design, because `merge-orchestrate` was declared twice (registry action
+      # + a hand-written command in the composition root) and — being the kill
+      # fixture — could not be allowlisted around. Task 023 paid the other ten
+      # literals down to tracked debt; task 076 deleted the eleventh by moving the
+      # promotion onto the registry's `cli.topLevel` hint, which is what let this
+      # entrypoint go green on a clean tree. The exemption entry is REMOVED, not
+      # re-dated, so `guard-inventory` now reports it `enforcement: blocks`,
+      # `pathFilteredOnly: false`, `via=direct`.
+      #
+      # Invoked DIRECTLY (no `npm run` wrapper) so the inventory's indirection
+      # resolver records `via=direct` rather than walking a shell shim. Same host
+      # class as the ratchet above: deps tail, unfiltered, for the same reason.
+      - name: CLI derivation guard — G1 no un-allowlisted literal commands (DR-5, task 076)
+        run: npx --no-install tsx servers/exarchos-mcp/scripts/cli-derivation-guard.ts
+
       # Its self-tests, plus the DERIVATION guard's, on the SAME host (DR-24:
       # "each guard's self-test runs in the same CI job as the guard"). These
       # carry task 023's kill probes — a seeded eleventh entry, an in-place swap,
       # a paydown recorded as a deletion, the live seed carried one day past its
       # horizon, the blanket "bump every date" renewal and an emptied allowlist —
-      # and task 021/022's kill fixture, which asserts against the LIVE
-      # composition root that `merge-orchestrate` is still rejected and still
-      # absent from both policy maps. Hosting them here closes their
+      # and task 021/022's kill fixture — RE-SEEDED by task 076, which deleted
+      # the live subject by fixing the defect: the proof now splices the deleted
+      # command back into the real composition root and re-runs the same guard,
+      # while a separate assertion pins that the LIVE tree no longer carries it.
+      # Both `merge-orchestrate` policy-map exclusions still assert. Hosting them
+      # here closes their
       # implementation-surface half: their only other host is the `mcp`-filtered
       # `test-mcp`, and `changes.mcp` does not arm on a workflow-only PR.
       - name: CLI derivation guard + ratchet self-tests re-assert (DR-5/DR-24, unfiltered)

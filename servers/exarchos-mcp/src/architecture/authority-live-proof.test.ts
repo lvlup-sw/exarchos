@@ -166,23 +166,30 @@ describe('authority census — the CLI-surface row, live', () => {
     // Commander tree — `program.command('doctor')` and `program.command(cliName)`
     // produce byte-identical nodes — which is why this is measured in SOURCE.
     const scan = scanGovernedSources();
-    expect(scan.sites).toHaveLength(14);
-    expect(scan.derived).toHaveLength(3);
-    expect(scan.literals).toHaveLength(11);
-    expect(scan.indeterminate).toHaveLength(0);
-    expect(scan.literals.map((s) => s.name).sort()).toEqual([
+    // The names are the claim; the counts follow from them. `merge-orchestrate`
+    // left this list in task 076, which deleted its hand-written promotion and
+    // moved it onto the registry's `cli.topLevel` hint — so the population is
+    // ten, and the row below says ten. The totals are DERIVED from the name list
+    // rather than written beside it, because a correct paydown moves them all
+    // together and a transcribed total would redden on exactly the change this
+    // census exists to encourage.
+    const expectedLiterals = [
       'doctor',
       'emissions',
       'feedback',
       'init',
       'install-skills',
       'mcp',
-      'merge-orchestrate',
       'onboard',
       'schema',
       'topology',
       'version',
-    ]);
+    ];
+    expect(scan.literals.map((s) => s.name).sort()).toEqual(expectedLiterals);
+    expect(scan.literals).toHaveLength(expectedLiterals.length);
+    expect(scan.derived).toHaveLength(3);
+    expect(scan.indeterminate).toHaveLength(0);
+    expect(scan.sites).toHaveLength(scan.literals.length + scan.derived.length);
 
     // ── 2. The row, BUILT from that measurement ──────────────────────────────
     // The authority arm is computed from the count of authoritative
@@ -197,7 +204,7 @@ describe('authority census — the CLI-surface row, live', () => {
       cli.representations.filter((r) => r.binding.kind === 'authoritative').map((r) => r.id),
     ).toEqual([
       'registry action descriptor (TOOL_REGISTRY)',
-      "the 11 hand-written `.command('…')` literals in `adapters/cli.ts`",
+      "the 10 hand-written `.command('…')` literals in `adapters/cli.ts`",
     ]);
     // The derived loops are NOT reported as a second authority — they are bound
     // to the registry, which is what makes the finding narrow rather than a
@@ -240,9 +247,12 @@ describe('authority census — the CLI-surface row, live', () => {
     expect(derivedEverywhere).not.toBe(cliSource);
 
     const afterScan = scanSourceForCommandSites(derivedEverywhere, GOVERNED_SOURCES[0] ?? 'cli.ts');
-    expect(afterScan.sites).toHaveLength(14);
+    // The counterfactual PRESERVES the site count and moves every one of them
+    // from `literal` to `derived` — stated against the live scan rather than a
+    // transcribed total, so paying a literal down does not redden the control.
+    expect(afterScan.sites).toHaveLength(scan.sites.length);
     expect(afterScan.literals).toHaveLength(0);
-    expect(afterScan.derived).toHaveLength(14);
+    expect(afterScan.derived).toHaveLength(scan.sites.length);
 
     const remediated = measureCliSurface(afterScan);
     expect(remediated.authority).toEqual({ kind: 'single', authority: 'registry' });
