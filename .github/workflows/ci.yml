@@ -1266,6 +1266,30 @@ jobs:
         working-directory: servers/exarchos-mcp
         run: npx --no-install vitest run src/architecture/report-coupling-census.test.ts
 
+      # G4 effect-ledger bijection (DR-7) and G5 authority-topology census (DR-6),
+      # hosted UNFILTERED — added by task 027 at the Wave-1 exit.
+      #
+      # Both guards were `pathFilteredOnly: true` until now: their only hosts were
+      # `test-mcp` and `test-windows`, which are filtered on `mcp`. That is the
+      # #1711 shape exactly — the gate is skipped-as-passed on the PRs it polices,
+      # and `guard-inventory` reports the condition rather than accepting it. The
+      # Wave-1 exit proof (`wave1-exit.test.ts`) asserts every declared Wave-1
+      # guard has at least one unfiltered host, and these two were the only
+      # members failing it.
+      #
+      # This wires HOSTING, not enforcement severity. G5 remains observe-then-
+      # enforce PER ROW via each authority-topology row's `enforceFrom` field
+      # (§3a, reconciled in rev 3) — flipping it wholesale here would red-line CI
+      # for four waves, which is the contradiction rev 3 was written to remove.
+      # What changes is that the guard now RUNS on every PR instead of only on
+      # `mcp`-touching ones.
+      - name: G4 effect-ledger + G5 authority census self-tests (DR-6/DR-7/DR-24, unfiltered)
+        working-directory: servers/exarchos-mcp
+        run: >-
+          npx --no-install vitest run
+          src/architecture/effect-ledger.test.ts
+          src/architecture/authority-census.test.ts
+
       # DR-3 event-name grammar census + two-way ratchet (task 015). Enumerates
       # the LIVE registry at runtime — `getValidEventTypes()`, so custom
       # `registerEventType` names are in the denominator, which is the population

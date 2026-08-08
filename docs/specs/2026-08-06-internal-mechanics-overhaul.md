@@ -1,6 +1,6 @@
 # Spec: Internal mechanics overhaul — one authority per contract, bound mechanically, IR-shaped
 
-**Date:** 2026-08-06 · **Revised:** 2026-08-07 (rev 4.18) · **Feature:** `internal-mechanics-overhaul` · **Depth:** deep
+**Date:** 2026-08-06 · **Revised:** 2026-08-07 (rev 4.19) · **Feature:** `internal-mechanics-overhaul` · **Depth:** deep
 **Method:** `proof-driven-development` (Design mode) — `~/.agents/skills/proof-driven-development`
 **Baseline:** rebased onto `origin/main`; **every count below is re-derived from the landing branch.**
 
@@ -1075,7 +1075,20 @@ The second half is the sharper one. The action declares `outputSchema: vacuityWa
 - `Wave1Exit_EachGuardSelfTest_RunsInSameCiJob` — guard-execution failure cannot pass as success
 - `Wave1Exit_AllGuardsOnUnfilteredPaths` — #1711: a path-filtered gate is skipped-as-passed on the PRs it polices
 **Verification:** high — integration suite + `check_test_adequacy`.
-**Dependencies:** 013, 015, 017, 023, 026, 046, 047 · **Parallelizable:** No
+**Dependencies:** 013, 015, 017, 023, 026, 046, 047, **076** · **Parallelizable:** No
+
+**Landed (rev 4.19)** at `servers/exarchos-mcp/src/architecture/__tests__/wave1-exit.test.ts`. *(The Files list above names `authority-topology.data.ts`, which does not exist — the rows live in `authority-topology.ts`. Recorded, not silently substituted.)*
+
+**The choice, made and stated: OPTION 2, the delta-pinned exit.** Option 1 was preferred by the restatement, and it is not what Wave 1 can close on — remediating the four `binding` findings means binding the wrapper type to the handler payload, the runtime payload to `outputSchema`, `PHASE_EXPECTED_EVENTS` to the phase machine, and Markdown playbooks to something mechanical. Each is a DR in its own right. The fifth, `action-contract`'s `stale-exception`, is the spec's own "real work, not a data edit". **The forbidden third path was not taken:** `action-contract` still declares `enforceFrom: already-enforced` and its finding is still in the pinned baseline, visible.
+
+The baseline is pinned as a **multiset of `boundary | hop | kind` tuples**, so it fails in BOTH directions — a sixth blocking finding reddens it, and so does remediating one of the five without recording it. Both directions are kill-probed: dropping a baseline entry reddens, and a seeded unbound representation on a wave-1-due row must add **exactly one** finding attributable to the seed. A fourth arm shrinks the population by binding a live unbound representation, so the pin is not a one-way ratchet.
+
+Four findings:
+
+1. **"Flip five guards from observe to enforce" was already done — by the tasks that shipped them.** Measured at the exit, all five report `enforcement: blocks`; tasks 013, 017, 023, 063 and 076 wired each one as it landed, which is what "observe-then-enforce within the same wave" is supposed to produce. What remained was not severity but **hosting**.
+2. **G4 and G5 were `pathFilteredOnly` — live #1711, not hypothetical.** `effect-ledger.ts` and `authority-census.ts` were hosted only by `test-mcp`/`test-windows`, both filtered on `mcp`, so they were **skipped-as-passed on every workflow-only or scripts-only PR**. Task 027 gave both an unfiltered `grep-gates` host. The kill probe removes it and the exit test names the guard.
+3. **The task's "all five" framing contradicts §3a's own reconciled schedule.** Line 297 sequences **G4 into Wave 2**, and rev 3 reconciled G5 to flip **per row** via `enforceFrom`. So "flip all five to enforce at Wave 1 exit" restates the contradiction rev 3 was written to remove. Resolved by separating the two axes the phrase conflates: **hosting** is flipped for all five now; **severity** stays on each row's declared `enforceFrom`, and G5's census remains observe-per-row.
+4. **`Wave1Exit_NoGuardIsUnreachable` was added beyond the three declared tests.** DR-24's promise is over *every* guard, not the five headliners; a wave that wires its headline guards while leaving others dark has not closed it. The whole-inventory unreachable set is **empty** as of task 076.
 
 **Wave 1f — DR-25: bind the dispatch shape to the declared posture**
 
