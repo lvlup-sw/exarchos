@@ -201,14 +201,13 @@ invariants:
         resource, rather than by convention? STATE authority is enforced in the
         dispatch/MCP handler — a read-only agent must be unable to invoke a
         mutating action. PROCESS LIFECYCLE and top-level worktree placement are
-        enforced by the spawn-bounded launcher. SPATIAL write confinement is
-        NOT launcher-owned: it is a per-harness capability that must be
-        reported as prevention | detection | advisory | unavailable, and must
-        never be inferred from the launcher's cwd or worktree ownership. Flag a
-        posture asserted in prose but not enforced at a capability boundary,
-        and flag any claim that a task-isolated agent CANNOT write outside its
-        worktree where the harness's declared spatial posture is advisory or
-        unavailable.
+        enforced by the spawn-bounded launcher. SPATIAL write confinement is NOT
+        launcher-owned: it is a per-harness capability that must be reported as
+        prevention | detection | advisory | unavailable, and must never be
+        inferred from the launcher's cwd or worktree ownership. Flag a posture
+        asserted in prose but not enforced at a capability boundary, and flag
+        any claim that a task-isolated agent CANNOT write outside its worktree
+        where the harness's declared spatial posture is advisory or unavailable.
     axis: substrate
     cost-of-load: always-load
     applies-to:
@@ -479,17 +478,16 @@ invariants:
       surfaces equal. The shipped `adapters/cli.ts` meets this framing for
       dispatch ADDRESSING: every api-action call site addresses its action by
       contract ActionId through the generated client
-      (`contract/cli/generated-client.ts`, a contract projection) which
-      verifies the id against the compiled surface before dispatching, so an
-      action the contract does not compile cannot be addressed and the adapter
-      imports no runtime `dispatch` value; the Commander tree it keeps is
-      hand-authored presentation. The DR-25 deviation that previously covered
-      the adapter's hand-assembled direct dispatch path
-      (`cli-direct-dispatch`) is RETIRED and CLI_CONTRACT_DEVIATIONS is empty;
-      the census machinery stays armed, so any future direct route to the
-      dispatch core must be a contract projection or record a new governed,
-      owned, expiring deviation — an acknowledged, expiring debt AGAINST this
-      invariant, never a weakening OF it.
+      (`contract/cli/generated-client.ts`, a contract projection) which verifies
+      the id against the compiled surface before dispatching, so an action the
+      contract does not compile cannot be addressed and the adapter imports no
+      runtime `dispatch` value; the Commander tree it keeps is hand-authored
+      presentation. The DR-25 deviation that previously covered the adapter's
+      hand-assembled direct dispatch path (`cli-direct-dispatch`) is RETIRED and
+      CLI_CONTRACT_DEVIATIONS is empty; the census machinery stays armed, so any
+      future direct route to the dispatch core must be a contract projection or
+      record a new governed, owned, expiring deviation — an acknowledged,
+      expiring debt AGAINST this invariant, never a weakening OF it.
     citations:
       - "Alistair Cockburn, *Hexagonal Architecture (Ports & Adapters)* (2005):
         https://alistair.cockburn.us/hexagonal-architecture/"
@@ -871,13 +869,13 @@ invariants:
       of the canonical response contract — declared in the registry descriptor,
       enforced in the shared core, rendered through a presentation seam — never
       special-cased in one facade. This is downstream of the GOVERNING INV-2
-      (the CLI is a client of the compiled contract, equivalence by
-      construction — re-approved under DR-26, superseding the #1608 pending
-      note) and of the facade-codegen direction (system-design 05):
-      the registered outputSchema must be total over every emittable shape
-      (baseline + capped + degraded), the precondition that makes facade
-      equivalence hold by construction. INV-17 is the response-economy
-      specialization of that output-contract totality obligation."
+      (the CLI is a client of the compiled contract, equivalence by construction
+      — re-approved under DR-26, superseding the #1608 pending note) and of the
+      facade-codegen direction (system-design 05): the registered outputSchema
+      must be total over every emittable shape (baseline + capped + degraded),
+      the precondition that makes facade equivalence hold by construction.
+      INV-17 is the response-economy specialization of that output-contract
+      totality obligation."
     references:
       - servers/exarchos-mcp/src/registry.ts
       - servers/exarchos-mcp/src/core/dispatch.ts
@@ -902,22 +900,59 @@ invariants:
       - oneshot
     enforcement:
       mode: audit
-      audit-prompt: Does every action declare (or inherit) a response-economy budget,
-        with unbounded output gated behind an explicit schema-typed escape hatch
+      audit-prompt: >-
+        Does every action declare (or inherit) a response-economy budget, with
+        unbounded output gated behind an explicit schema-typed escape hatch
         (detail/limit/fields)? The mechanical backstops are the
         registry-enumeration budget snapshot test (pins every action's effective
         budget; an invalid budget fails the test) and the dispatch-core economy
         guard (caps only data, stamps _meta.truncated, fails open with
         _meta.economyDegraded), plus the economy-seam no-bypass gate
-        (dispatch.economy-seam.test.ts — asserts, by source structure, that every
-        result-producing branch of dispatch() and the withTelemetry seam route the
-        raw handler payload through enforceResponseEconomy, so a new execution mode
-        cannot silently ship an un-capped branch; this is the Axis-2 /
-        enforcement-application backstop the coverage-axis snapshot tests do not
-        provide). Flag any new action shipping unbounded output
+        (dispatch.economy-seam.test.ts — asserts, by source structure, that
+        every result-producing branch of dispatch() and the withTelemetry seam
+        route the raw handler payload through enforceResponseEconomy, so a new
+        execution mode cannot silently ship an un-capped branch; this is the
+        Axis-2 / enforcement-application backstop the coverage-axis snapshot
+        tests do not provide). Flag any new action shipping unbounded output
         without a declared budget or a schema-typed escape hatch, and any
         capped/summary response shape absent from the action's registered
         outputSchema.
+
+
+        **Vacuity is a violation, not a pass.** INV-17 names `outputSchema`
+        totality as the precondition that makes facade equivalence hold by
+        construction. A schema total *because it constrains nothing* is total
+        over wrong shapes as well as right ones, so "schema-checked" degrades to
+        a tautology. Treat a vacuous declaration at the same severity as a
+        missing one.
+
+
+        **Decide vacuity by reading the declaration, not its name.** Vacuous iff
+        `data` is unconstrained, regardless of binding name or wrapper depth:
+        (a) literal `EnvelopeSchema(z.unknown())`; (b) a *named* binding whose
+        definition is that literal — `WorkflowUpdateOutputSchema` **is**
+        `EnvelopeSchema(z.unknown())`; (c) a wrapper/intersection constraining
+        only `_meta`/`_perf`/deprecation while `data` stays `z.unknown()` —
+        `WorkflowTransitionOutputSchema`; (d) any `vacuityWaiver(...)` entry,
+        which records vacuity *tolerated*, never *satisfied*.
+
+
+        **Operable test: name one wrong response shape this schema rejects.** If
+        you cannot, it is vacuous. A name, a wrapper, or a constrained `_meta`
+        is presence; only a constrained `data` is substance. (An earlier
+        revision of DR-4 classified two declarations as typed *because they had
+        names*; measurement showed both vacuous.)
+
+
+        Report each vacuous declaration by action + file:line. The live baseline
+        is enumerated by
+        `servers/exarchos-mcp/src/architecture/output-schema-census.ts` — read
+        it rather than quoting a count — and pinned shrink-only by the allowlist
+        in `servers/exarchos-mcp/src/output-schema-vacuity-allowlist.ts`, whose
+        key set is frozen in
+        `servers/exarchos-mcp/src/output-schema-seed-pin.ts`. A diff adding a
+        vacuous declaration, or moving an allowlist entry sideways rather than
+        off, is a violation.
     severity:
       default: advisory
     integrity-class: substrate

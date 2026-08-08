@@ -1,8 +1,8 @@
 {
   "lockVersion": 1,
   "approved": true,
-  "approvedBy": "wiring-closure (DR-25 primary resolution)",
-  "note": "PROGRAM-03 contract authority freeze (P03-01, extended by P03-02 with the closed `contract-surface` authority; re-approved by T-35 / DR-26 after the invariant catalog was re-pointed to the GOVERNING framing of INV-2 (contract-client equivalence by construction), INV-4 (standards-conformance plus thin shims), INV-7 (closed cross-process serialization claim, EFF-001) and INV-11 (lifecycle/placement by construction; spatial write confinement excluded and declared per-harness); re-approved again after the DR-25 PRIMARY resolution landed — the CLI now addresses actions through the generated client `contract/cli/generated-client.ts`, the `cli-direct-dispatch` deviation is retired, and the catalog records the retirement). Regenerate with `npx tsx src/contract/authority-lock-cli.ts` after reviewing and approving the new authority digests, then commit this file.",
+  "approvedBy": "internal-mechanics-overhaul (DR-4 INV-17 vacuity amendment)",
+  "note": "PROGRAM-03 contract authority freeze (P03-01, extended by P03-02 with the closed `contract-surface` authority; re-approved by T-35 / DR-26 after the invariant catalog was re-pointed to the GOVERNING framing of INV-2 (contract-client equivalence by construction), INV-4 (standards-conformance plus thin shims), INV-7 (closed cross-process serialization claim, EFF-001) and INV-11 (lifecycle/placement by construction; spatial write confinement excluded and declared per-harness); re-approved again after the DR-25 PRIMARY resolution landed — the CLI now addresses actions through the generated client `contract/cli/generated-client.ts`, the `cli-direct-dispatch` deviation is retired, and the catalog records the retirement; re-approved again under DR-4 after INV-17 was amended to treat a VACUOUS `outputSchema` as a violation rather than a pass — the catalog wording is the frozen input, so the amendment re-enters the freeze through this gesture). Regenerate with `npx tsx src/contract/authority-lock-cli.ts` after reviewing and approving the new authority digests, then commit this file.",
   "authorities": {
     "strategos-contracts": {
       "kind": "schema",
@@ -48,7 +48,7 @@
       "kind": "catalog",
       "version": "3",
       "versionSpec": "3",
-      "digest": "sha256:1c367e2a18cd0884686f25c703b550fbef1e8ee809c566065177e1e94f4109c5",
+      "digest": "sha256:12c1a8a30aceb9c3d6272dd8f910e957483b50ece9c0d5a67dc4badc42604883",
       "source": ".exarchos/invariants.md pinned at frontmatter schema-version",
       "approved": true
     },
