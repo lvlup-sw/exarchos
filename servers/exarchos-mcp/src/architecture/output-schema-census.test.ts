@@ -347,20 +347,33 @@ describe('DR-4: outputSchema vacuity census', () => {
     const waiverSites = sites.filter((s) => isWaiverRhs(s.rhs)).length;
     const namedBindingSites = sites.filter((s) => isNamedBindingRhs(s.rhs)).length;
 
-    // Authority A: what the source spells. 111 allowlist waivers + 11
-    // withCappedShape = 122 declaration sites, and the two forms are
+    // Authority A: what the source spells. 110 allowlist waivers + 11
+    // withCappedShape = 121 declaration sites, and the two forms are
     // EXHAUSTIVE — DR-4 task 055 left no third spelling. The literal vacuous
     // expression is extinct at declaration sites because it no longer
     // typechecks there, which is the acceptance criterion restated from the
     // source side.
+    //
+    // TWO movements, by two different routes, and the pair is worth reading
+    // together because only one of them is a paydown.
+    //
+    //   TASK 069 moved ONE site ACROSS the partition: the seeded split was
+    //   111 waivers / 10 capped, and paying `check_invariant_conformance` down
+    //   spent a waiver to buy a `withCappedShape`. A paydown leaves the SUM
+    //   unchanged — a swap would have moved neither number, and a new vacuous
+    //   declaration would have moved the sum.
+    //
+    //   TASK 068 ADDED one capped site (`invariants_amend`) without touching
+    //   the waiver count, because a NEW action cannot acquire a waiver: the
+    //   allowlist is shrink-only and `vacuityWaiver`'s id is the literal union
+    //   of seeded ids. That legitimately grows the sum.
+    //
+    // So 111/10/121 became 110/12/122: one site crossed, one site arrived.
     expect(sites).toHaveLength(waiverSites + cappedSites);
     expect(literalVacuousSites).toBe(0);
-    expect(waiverSites).toBe(111);
-    // Task 068 grew the SUBSTANTIVE side 10 → 11 (`invariants_amend`). The
-    // waiver count is unchanged: a new action cannot acquire a waiver (the
-    // allowlist is shrink-only and `vacuityWaiver`'s id is the literal union of
-    // seeded ids), so the only declaration open to it is the substantive one.
-    expect(cappedSites).toBe(11);
+    expect(waiverSites).toBe(110);
+    expect(cappedSites).toBe(12);
+    expect(waiverSites + cappedSites).toBe(122);
     // Two of the waivers carry an explicit named binding — the aliased vacuity
     // this census exists to see through.
     expect(namedBindingSites).toBe(2);
@@ -380,21 +393,48 @@ describe('DR-4: outputSchema vacuity census', () => {
     expect(report.substantiveCount).toBe(cappedSites);
 
     // The measured figures, pinned so drift shows up as a diff, not silence.
+    // Seeded 2026-08-07 at 112 vacuous / 10 substantive over a denominator of
+    // 122. Two independent movements since, and they are NOT the same kind:
+    //
+    //   task 069 PAID ONE DOWN — 112/10 -> 111/11 with the denominator flat,
+    //     because a declaration changed class and nothing was added or deleted;
+    //   task 068 ADDED ONE      — 111/11 -> 111/12 with the denominator 122 ->
+    //     123, because a new action arrived and, the allowlist being
+    //     shrink-only, the only declaration open to it was a substantive one.
+    //
+    // A paydown moves the split; an arrival moves the denominator. Reading the
+    // two together is what makes the ratchet legible.
     expect(report.total).toBe(123);
-    expect(report.vacuousCount).toBe(112);
-    expect(report.substantiveCount).toBe(11);
+    expect(report.vacuousCount).toBe(111);
+    expect(report.substantiveCount).toBe(12);
     expect(countByReason(report)).toEqual({
-      'unknown-data': 111,
+      'unknown-data': 110,
       'wrapped-unknown-data': 1,
-      'typed-data': 11,
+      'typed-data': 12,
       'unreadable-envelope': 0,
     });
+
+    // The paid-down id is on the SUBSTANTIVE side now, named explicitly — the
+    // arithmetic above would also balance if some other declaration had moved.
+    expect(report.substantive).toContain(
+      'exarchos_orchestrate.check_invariant_conformance',
+    );
+    expect(report.vacuous).not.toContain(
+      'exarchos_orchestrate.check_invariant_conformance',
+    );
 
     // The rendered report states the count against its denominator. A share
     // without a denominator is the rubber stamp this instrument removes.
     const rendered = formatOutputSchemaCensus(report);
-    expect(rendered).toContain('112 vacuous of 123 declarations');
-    expect(rendered).toContain('11 substantive');
+    // Derived, not literal — the same two movements above land in this string,
+    // and a hard-coded proportion here would red-line on any correct change to
+    // either term. What the assertion is actually for is that the report STATES
+    // its denominator at all: a proportion without one is the rubber stamp DR-4
+    // exists to remove.
+    expect(rendered).toContain(
+      `${report.vacuousCount} vacuous of ${report.total} declarations`,
+    );
+    expect(rendered).toContain(`${report.substantiveCount} substantive`);
 
     // The seed the ratchet consumes is a stable, sorted, deduplicated id list.
     expect(report.vacuous).toHaveLength(report.vacuousCount);

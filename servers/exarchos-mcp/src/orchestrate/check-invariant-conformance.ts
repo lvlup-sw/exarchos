@@ -13,10 +13,26 @@
 //   2. evaluates every `enforcement.mode === 'check'` invariant's combinator
 //      tree against the diff (deterministic) → findings;
 //   3. renders every applicable `mode:'audit'` invariant into a prompt via
-//      renderAuditPrompt → the review subagent's answers re-enter as
+//      projectAuditPrompt → the review subagent's answers re-enter as
 //      pluginFindings;
 //   4. folds both into the check_review_verdict severity-merge path using each
 //      invariant's context-resolved `severity`.
+//
+// TASK 069 — step 3's round trip is now WIRED, and its contract is TYPED.
+// Before: `auditPrompt` was computed and returned, `findings[]` came only from
+// check-mode trees, and the field occurred in exactly five files repo-wide (this
+// one plus four of its own tests). No skill, command, rule or doc told anybody to
+// read it, and the action declared `outputSchema: vacuityWaiver(...)`, so the
+// field crossed the boundary through a schema that constrained nothing. Three
+// things changed:
+//   • `auditInvariantIds` accompanies the prompt — the reader's enumerable
+//     checklist, so "I read it" and "I answered all of it" are distinguishable;
+//   • `skills-src/review/SKILL.md` carries the instruction to judge each id and
+//     re-enter violations as `pluginFindings` on `check_review_verdict`, and
+//     `architecture/audit-delivery-closure.ts` holds that pairing to its declared
+//     obligation against the LIVE outputSchema;
+//   • the waiver is retired: the action declares a substantive schema built with
+//     `withCappedShape` (`check-invariant-conformance-schema.ts`).
 //
 // Stays within the 4 visible composite tools (INV-5d) — this is a new ACTION on
 // `exarchos_orchestrate`, NOT a new tool. Same DispatchContext+args ⇒ identical
@@ -36,7 +52,12 @@ import {
   type ResolveEffectiveCatalogResult,
 } from '../architecture/resolve-effective-catalog.js';
 import { evaluateTree } from '../architecture/check-evaluator.js';
-import { renderAuditPrompt } from '../architecture/audit-prompt.js';
+import {
+  projectAuditPrompt,
+  EmptyAuditProjectionError,
+  type AuditProjection,
+} from '../architecture/audit-prompt.js';
+import { AUDIT_DELIVERY_OBLIGATIONS } from '../architecture/audit-delivery-closure.data.js';
 import {
   computeVerdict,
   generateVerdictReport,
@@ -112,6 +133,15 @@ export interface CheckInvariantConformanceArgs {
   readonly resolveEffectiveCatalogFn?: ResolveEffectiveCatalogFn;
 }
 
+/**
+ * The gate's success payload.
+ *
+ * Kept structurally in step with `CheckInvariantConformanceData`
+ * (`check-invariant-conformance-schema.ts`), which is what the registry
+ * advertises and what the MCP adapter's D.5 validator enforces on the way out.
+ * Task 069 paid down this action's `vacuityWaiver`, so the boundary type is no
+ * longer `unknown` and a consumer can rely on these fields.
+ */
 interface CheckInvariantConformanceResult {
   readonly verdict: 'APPROVED' | 'NEEDS_FIXES' | 'BLOCKED';
   readonly high: number;
@@ -120,6 +150,23 @@ interface CheckInvariantConformanceResult {
   readonly findings: readonly PluginFinding[];
   /** Audit-mode prompt block for the review subagent (DR-4). May be empty. */
   readonly auditPrompt: string;
+  /**
+   * Every invariant id rendered into {@link auditPrompt}, ascending — the
+   * reader's enumerable checklist. `skills-src/review/SKILL.md` instructs the
+   * reviewer to return a judgment for each of these and to re-enter violations
+   * as `pluginFindings` on `check_review_verdict`; `audit-delivery-closure.ts`
+   * holds that pairing to its declared obligation.
+   */
+  readonly auditInvariantIds: readonly string[];
+  /**
+   * Why {@link auditPrompt} holds what it holds. `''` used to mean BOTH "no
+   * audit-mode invariant applied" and "the projection resolved nothing at all",
+   * and those demand opposite reactions — the second is a lost subject, not a
+   * clean audit.
+   */
+  readonly auditProjection: 'rendered' | 'no-audit-entries' | 'no-subject';
+  /** Size of the projected catalog slice — the audit's denominator. */
+  readonly applicableCount: number;
   readonly report: string;
 }
 
@@ -307,7 +354,34 @@ export async function handleCheckInvariantConformance(
     }
   }
 
-  const auditPrompt = renderAuditPrompt(applicable);
+  // 3b. Project the applicable slice into the reviewer's audit prompt.
+  //
+  // NON-EMPTY DENOMINATOR (task 069). `projectAuditPrompt` THROWS when the slice
+  // is empty rather than returning `''`: an empty prompt from an empty
+  // denominator is indistinguishable from a clean audit, so the quietest success
+  // and the loudest failure would print the same thing. The gate does not
+  // propagate that throw (INV-1: a degradation is surfaced, never fatal) — it
+  // records `auditProjection: 'no-subject'` and pushes a LOW advisory so the
+  // condition is IMPOSSIBLE to read as "audited, nothing found". LOW does not
+  // gate, so a legitimately unregistered catalog still merges; it just no longer
+  // merges silently.
+  let projection: AuditProjection | undefined;
+  try {
+    projection = projectAuditPrompt(applicable);
+  } catch (err) {
+    if (!(err instanceof EmptyAuditProjectionError)) throw err;
+    findings.push({
+      source: 'invariant-audit',
+      severity: 'LOW',
+      message:
+        `No invariant was audited: ${err.message} Reported rather than rendered ` +
+        `as an empty prompt.`,
+    });
+  }
+
+  const auditPrompt = projection?.prompt ?? '';
+  const auditInvariantIds = projection?.invariantIds ?? [];
+  const auditProjection = projection?.status ?? 'no-subject';
 
   // 4. Fold both the evaluator findings and any audit findings the subagent
   //    re-enters into the check_review_verdict severity-merge path. We reuse
@@ -339,7 +413,9 @@ export async function handleCheckInvariantConformance(
     enforcementReview === 'advisory'
       ? computeVerdict({ high: 0, medium: 0, low: 0 })
       : computeVerdict(counts);
-  const report = generateVerdictReport(verdict, counts);
+  const report =
+    generateVerdictReport(verdict, counts) +
+    renderAuditDirective(auditInvariantIds);
 
   // STILL emit gate.executed even when the applicable catalog is empty
   // (fire-and-forget: emission failure must not break the gate check).
@@ -358,6 +434,8 @@ export async function handleCheckInvariantConformance(
         medium,
         low,
         applicableCount: applicable.length,
+        auditProjection,
+        auditInvariantCount: auditInvariantIds.length,
       },
     );
   } catch { /* fire-and-forget */ }
@@ -369,8 +447,42 @@ export async function handleCheckInvariantConformance(
     low,
     findings,
     auditPrompt,
+    auditInvariantIds,
+    auditProjection,
+    applicableCount: applicable.length,
     report,
   };
 
   return { success: true, data: result };
+}
+
+// ─── The audit directive (DR-4, task 069) ───────────────────────────────────
+
+/**
+ * Append the audit-mode obligation to the human/agent-readable `report`.
+ *
+ * Every noun in this block is read from `AUDIT_DELIVERY_OBLIGATIONS` — the same
+ * record `audit-delivery-closure.ts` checks `skills-src/review/SKILL.md`
+ * against — so the runtime directive and the skill step are two representations
+ * bound to ONE authority rather than two hand-maintained copies of a rule.
+ * Renaming the re-entry seam in the data file changes both, and leaves neither
+ * silently stale.
+ *
+ * This is a COMPLEMENT to the skill step, not a substitute for it: text on a
+ * returned object is exactly the proxy task 069 was written to stop settling
+ * for. It exists so the obligation still travels to a consumer that reached the
+ * action without the skill.
+ */
+function renderAuditDirective(auditInvariantIds: readonly string[]): string {
+  if (auditInvariantIds.length === 0) return '';
+  const obligation = AUDIT_DELIVERY_OBLIGATIONS.find(
+    (o) => o.declarationId === 'exarchos_orchestrate.check_invariant_conformance',
+  );
+  if (obligation === undefined) return '';
+  return (
+    `\n\n${auditInvariantIds.length} audit-mode invariant(s) require reviewer ` +
+    `judgment and are NOT decided by this gate: ${auditInvariantIds.join(', ')}. ` +
+    `Read \`${obligation.field}\`, then ${obligation.expectation}. ` +
+    `An unanswered audit-mode invariant is not a pass.`
+  );
 }

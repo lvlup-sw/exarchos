@@ -22,6 +22,7 @@ import { EventStore } from '../event-store/store.js';
 import type { InvariantEntry } from '../architecture/invariants-loader.js';
 import type { ExarchosConfig } from '../config/exarchos-config-schema.js';
 import { handleCheckInvariantConformance } from './check-invariant-conformance.js';
+import { CheckInvariantConformanceData } from './check-invariant-conformance-schema.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
@@ -143,7 +144,17 @@ const CONSOLE_LOG_DIFF = [
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
-  it('CheckInvariantConformance_EmptyCatalog_ApprovedZeroFindings', async () => {
+  /**
+   * NON-EMPTY DENOMINATOR (DR-4, task 069). This case used to return
+   * `{ verdict: 'APPROVED', findings: [], auditPrompt: '' }` — byte-identical to
+   * a real, clean audit over a real catalog. The condition it actually describes
+   * is that the projection resolved NOTHING, so nothing was audited at all.
+   *
+   * It must still MERGE (an unregistered catalog is a legitimate state, and INV-1
+   * says a degradation is surfaced rather than fatal), so the verdict stays
+   * APPROVED and the advisory is LOW. What it must no longer do is read clean.
+   */
+  it('CheckInvariantConformance_EmptyCatalog_ReportsNoSubjectRatherThanCleanAudit', async () => {
     const arm = await createArm('inv-conformance-empty-');
     try {
       const result = await handleCheckInvariantConformance(
@@ -160,14 +171,32 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
       expect(result.success).toBe(true);
       const data = result.data as {
         verdict: string;
-        findings: unknown[];
+        findings: ReadonlyArray<{ source: string; severity: string; message: string }>;
         high: number;
         medium: number;
         low: number;
+        auditPrompt: string;
+        auditInvariantIds: readonly string[];
+        auditProjection: string;
+        applicableCount: number;
       };
+
+      // The lost subject is NAMED, not inferred from an empty string.
+      expect(data.auditProjection).toBe('no-subject');
+      expect(data.applicableCount).toBe(0);
+      expect(data.auditPrompt).toBe('');
+      expect(data.auditInvariantIds).toEqual([]);
+
+      // …and it is impossible to read as "audited, nothing found".
+      const advisory = data.findings.filter((f) => f.source === 'invariant-audit');
+      expect(advisory).toHaveLength(1);
+      expect(advisory[0]?.severity).toBe('LOW');
+      expect(advisory[0]?.message).toMatch(/No invariant was audited/);
+
+      // Still merges: LOW does not gate, and an unregistered catalog is legal.
       expect(data.verdict).toBe('APPROVED');
-      expect(data.findings).toEqual([]);
       expect(data.high).toBe(0);
+      expect(data.low).toBe(1);
 
       // STILL emits gate.executed even for an empty applicable catalog.
       const gates = await gateEvents(arm.eventStore, 'feat-empty');
@@ -355,9 +384,86 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
       );
 
       expect(result.success).toBe(true);
-      const data = result.data as { auditPrompt: string };
+      const data = result.data as {
+        auditPrompt: string;
+        auditInvariantIds: readonly string[];
+        auditProjection: string;
+        report: string;
+      };
       expect(data.auditPrompt).toContain('USER-AUDIT');
       expect(data.auditPrompt).toContain('Assess whether the public API reads ergonomically.');
+
+      // TASK 069 — the prompt now travels with its enumerable checklist and a
+      // status a consumer can branch on. Without the enumerator, "I read the
+      // prompt" and "I answered all of it" are indistinguishable.
+      expect(data.auditProjection).toBe('rendered');
+      expect([...data.auditInvariantIds]).toEqual(['USER-AUDIT']);
+
+      // …and the directive travels with the payload for a consumer that reached
+      // the action without the skill. Every noun in it is read from
+      // AUDIT_DELIVERY_OBLIGATIONS, so it cannot drift from what the closure
+      // guard checks `skills-src/review/SKILL.md` against.
+      expect(data.report).toContain('USER-AUDIT');
+      expect(data.report).toContain('auditPrompt');
+      expect(data.report).toContain('check_review_verdict');
+      expect(data.report).toContain('An unanswered audit-mode invariant is not a pass.');
+    } finally {
+      await rmrfAsync(arm.stateDir);
+    }
+  });
+
+  /**
+   * The contract half of task 069, proven against the REAL emission rather than
+   * against a fixture: the schema the registry now advertises must be TOTAL over
+   * what the handler actually returns. If it is not, the MCP adapter's D.5
+   * validator replaces a correct response with an INTERNAL_ERROR — a typed
+   * schema that rejects its own producer is worse than the vacuous one it
+   * replaced.
+   */
+  it('CheckInvariantConformance_DeclaredOutputSchema_AcceptsTheRealPayload', async () => {
+    const arm = await createArm('inv-conformance-schema-');
+    try {
+      const entries = [
+        makeEntry({
+          id: 'USER-AUDIT',
+          enforcement: { mode: 'audit', 'audit-prompt': 'Judge it.' },
+        }),
+        makeEntry({
+          id: 'USER-CHECK',
+          severity: { default: 'blocking' },
+          enforcement: {
+            mode: 'check',
+            check: { kind: 'grep', pattern: 'console\\.log', fileGlob: '*.ts' },
+          },
+        }),
+      ];
+
+      const result = await handleCheckInvariantConformance(
+        {
+          featureId: 'feat-schema',
+          workflowType: 'feature',
+          diffContent: CONSOLE_LOG_DIFF,
+          loadInvariantsFn: () => entries,
+        },
+        arm.stateDir,
+        arm.eventStore,
+      );
+
+      expect(result.success).toBe(true);
+      const parsed = CheckInvariantConformanceData.safeParse(result.data);
+      expect(parsed.error?.message ?? 'ok').toBe('ok');
+      expect(parsed.success).toBe(true);
+
+      // The schema is not vacuous — it REJECTS a payload missing the delivery
+      // pair. Without this, the parse above would pass for any object at all,
+      // which is exactly the state the waiver left the boundary in.
+      const { auditPrompt: _p, auditInvariantIds: _i, ...stripped } =
+        result.data as Record<string, unknown> & {
+          auditPrompt: unknown;
+          auditInvariantIds: unknown;
+        };
+      expect(CheckInvariantConformanceData.safeParse(stripped).success).toBe(false);
+      expect(CheckInvariantConformanceData.safeParse({}).success).toBe(false);
     } finally {
       await rmrfAsync(arm.stateDir);
     }

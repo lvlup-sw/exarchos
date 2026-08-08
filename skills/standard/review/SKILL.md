@@ -69,6 +69,32 @@ Run the quality-evaluation gates via runbook — `exarchos_orchestrate({ action:
 
 > **mutation-adequacy (HIGH tier only):** a **separate required dimension** that gates the HIGH risk tier at the `/review` boundary — see `@skills/mutation-adequacy/SKILL.md`. Do not run mutation testing in this skill; the closest in-scope proxy is the **Specific** test-desiderata property plus the delegation-time `check_test_adequacy` gate.
 
+### Invariant conformance — audit-mode judgment is YOURS
+
+Run `check_invariant_conformance` over the diff whenever a catalog is registered under `.exarchos.yml: invariants.catalogs`. It decides `mode: check` invariants mechanically and folds them into `findings`. It **cannot decide `mode: audit` invariants at all** — those need a reviewer's judgment, which is you.
+
+```typescript
+exarchos_orchestrate({
+  action: "check_invariant_conformance",
+  featureId: "<id>",
+  phase: "review",
+  diff: "<integrated diff>"
+})
+```
+
+The response carries the audit-mode delivery pair:
+
+- `auditPrompt` — the rendered judgment questions, one block per applicable audit-mode invariant.
+- `auditInvariantIds` — the ids in that prompt. This is your **checklist**, and it is the denominator you are accountable for.
+- `auditProjection` — `rendered`, `no-audit-entries`, or `no-subject`. **`no-subject` is not a clean audit**: the projection resolved zero applicable entries, so nothing was evaluated. Treat it as an unresolved gate (catalog unregistered, projection over-narrowed) and say so in the verdict — never as a pass.
+
+**Answer every id in `auditInvariantIds`.** For each one, read its block in `auditPrompt`, judge the diff against it, and:
+
+- **Violated** → emit a finding and pass it in `pluginFindings` on `check_review_verdict`, with `dimension` set to the invariant id and `severity` from the invariant's own severity (`blocking` → `HIGH`, `advisory` → `MEDIUM`).
+- **Satisfied** → record it in the verdict summary so the id is visibly accounted for.
+
+An audit-mode invariant you did not answer is **not** a passing invariant — it is an unrun check. Leaving `auditPrompt` unread makes the whole audit-mode half of the catalog decorative, which is the exact failure the catalog exists to prevent.
+
 ## Verdict & fix loop
 
 Compute the verdict once over the merged finding set. Route it via the decision runbook — `exarchos_orchestrate({ action: "runbook", id: "review-escalation" })`. See `references/convergence-and-verdict.md`.
@@ -148,6 +174,7 @@ All transitions are automatic — this is not a human checkpoint. See `reference
 |-------|-----------|
 | Confirm what's right | Hunt for what's wrong (adversarial posture) |
 | Approve without the kill-probe | Run `check_test_adequacy` — a test that can't fail is not coverage |
+| Treat an unanswered audit-mode invariant as a pass | Answer every id in `auditInvariantIds`; an unrun check is not a clean one |
 | Rubber-stamp on a rationalization | Consult `references/rationalization-refutation.md` |
 | Let scope creep pass | Flag intended-vs-delivered drift as a `spec` issue |
 | Block on LOW-priority nits | Record and track; reserve blocking for HIGH |
@@ -155,4 +182,4 @@ All transitions are automatic — this is not a human checkpoint. See `reference
 ## Schema discovery
 
 Use `exarchos_workflow({ action: "describe", actions: ["update"] })` and
-`exarchos_orchestrate({ action: "describe", actions: ["check_static_analysis", "check_security_scan", "check_test_adequacy", "check_review_verdict", "prepare_review"] })` for current parameter schemas.
+`exarchos_orchestrate({ action: "describe", actions: ["check_static_analysis", "check_security_scan", "check_test_adequacy", "check_review_verdict", "check_invariant_conformance", "prepare_review"] })` for current parameter schemas.
