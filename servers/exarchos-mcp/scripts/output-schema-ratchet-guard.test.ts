@@ -379,9 +379,14 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
     // redden if a hand-edited entry ever lost its owner or its date, with a real
     // denominator rather than an empty `every()`.
     const liveWellFormed = auditVacuityExpiry(SEEDED_ON);
-    // 111 since task 069 retired the first entry; 112 were seeded.
-    expect(liveWellFormed.entryCount).toBe(111);
+    // DERIVED, not literal (task 018). This line carried `toBe(111)` beside the
+    // derived assertion below — a trip-wire that says nothing the next line does
+    // not already say, and that reddens on the next legitimate paydown. The
+    // literal has already broken twice in this wave (068 grew the denominator,
+    // 069 shrank the numerator); `toBeGreaterThan(0)` keeps the non-empty
+    // denominator the assertion actually needs.
     expect(liveWellFormed.entryCount).toBe(VACUITY_ALLOWLIST_IDS.length);
+    expect(liveWellFormed.entryCount).toBeGreaterThan(0);
     expect(liveWellFormed.malformed).toEqual([]);
   });
 
@@ -444,8 +449,12 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
     // the other two behind whichever repair came first.
     const whole = auditVacuityRatchetAsOf(SEEDED_ON);
     expect(whole.expiry).toBeDefined();
-    // 111 since task 069's paydown; 112 were seeded.
-    expect(whole.expiry?.entryCount).toBe(111);
+    // DERIVED, not literal (task 018) — same trip-wire as above. What this
+    // assertion is for is that the expiry half really was CARRIED into the
+    // composition over the live seed, which the derived comparison states and a
+    // hard-coded 111 only obscured.
+    expect(whole.expiry?.entryCount).toBe(VACUITY_ALLOWLIST_IDS.length);
+    expect(whole.expiry?.entryCount).toBeGreaterThan(0);
     expect(whole.ok).toBe(true);
     expect(whole.findings).toEqual([]);
 

@@ -1159,12 +1159,22 @@ jobs:
       # commit" renewal — both of which must be RED. Hosting the census and
       # allowlist suites here too closes their implementation-surface half: their
       # only other host is the `mcp`-filtered `test-mcp`.
+      #
+      # `output-schema-census.selftest.test.ts` (task 018) is the fourth file and
+      # covers what the other three structurally cannot: they all call
+      # `runGuard()` in-process and read its RETURN VALUE, so DR-4's entrypoint
+      # tail — the `isDirectRun` predicate and the `process.exit` that consumes
+      # it — was executed by nothing. It spawns the step ABOVE as a real process.
+      # It must be hosted HERE and not only on the `mcp`-filtered `test-mcp`: a
+      # self-test for an unfiltered gate that is itself path-filtered is #1711's
+      # skipped-as-passed on exactly the PR that breaks the gate.
       - name: outputSchema ratchet self-tests re-assert (DR-4/DR-24, unfiltered)
         working-directory: servers/exarchos-mcp
         run: >-
           npx --no-install vitest run
           scripts/output-schema-ratchet-guard.test.ts
           src/architecture/output-schema-census.test.ts
+          src/architecture/output-schema-census.selftest.test.ts
           src/output-schema-vacuity-allowlist.test.ts
 
       # G3 report-coupled ratchet (DR-2, task 013). Enumerates the live event
