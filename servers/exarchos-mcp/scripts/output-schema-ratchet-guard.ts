@@ -57,6 +57,9 @@
 //
 // Implements: DR-4 (task 017).
 
+import { realpathSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   auditVacuityAllowlist,
   auditVacuityExpiry,
@@ -175,11 +178,57 @@ export function runGuard(options: GuardOptions = {}): number {
   return 1;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// THE ENTRYPOINT TAIL — and why it is not a filename comparison (task 018)
+//
+// These are the two lines that turn a verdict into a merge block, and until task
+// 018 they were the only lines in DR-4's mechanism that nothing executed: every
+// assertion task 017 shipped calls `runGuard()` DIRECTLY and reads its RETURN
+// VALUE, so the `isDirectRun` predicate and the `process.exit` that consumes it
+// were never run by any test.
+//
+// They were also wrong. The predicate used to be
+// `process.argv[1].endsWith('output-schema-ratchet-guard.ts')`, which couples
+// self-execution to the FILE'S NAME. Renaming the file — and updating the
+// `run:` step in ci.yml to match, which is what a rename means — leaves a CI
+// step that still exists, still runs, still resolves, prints NOTHING and exits
+// 0. Measured on the landing branch: a byte-identical copy under any other name
+// produced 0 bytes on stdout, 0 bytes on stderr, exit 0. That is precisely
+// "guard-execution failure passes as success", in the guard whose own self-test
+// exists to make that impossible.
+//
+// The repo already had the correct idiom in two places (`scripts/
+// validate-plugin.mjs`, `scripts/run-validate.mjs`): compare the RESOLVED PATH
+// of the process entrypoint against this module's own URL. That is rename-proof
+// by construction, because both sides move together. {@link canonicalPath}
+// additionally resolves symlinks, because Node reports the main module's
+// realpath while `argv[1]` keeps the link — comparing the two unresolved would
+// trade a filename-shaped silent no-op for a symlink-shaped one.
+//
+// NOTE FOR ANYONE EDITING BELOW: `process.exit` must stay a TOP-LEVEL call.
+// `scripts/guard-inventory.ts` classifies a module as a runnable gate by finding
+// exactly that (`hasDirectRunExit`, an AST walk that rejects a `process.exit`
+// nested inside a function), and a gate it cannot see drops out of DR-24's
+// CI-reachability proof.
+
+/**
+ * A canonical absolute path for comparison: symlinks resolved where possible,
+ * falling back to plain resolution for a path that does not exist on disk (so
+ * an exotic `argv[1]` degrades to "not the entrypoint" rather than throwing).
+ */
+function canonicalPath(candidate: string): string {
+  const absolute = resolve(candidate);
+  try {
+    return realpathSync(absolute);
+  } catch {
+    return absolute;
+  }
+}
+
 const isDirectRun =
   typeof process !== 'undefined' &&
   typeof process.argv[1] === 'string' &&
-  (process.argv[1].endsWith('output-schema-ratchet-guard.ts') ||
-    process.argv[1].endsWith('output-schema-ratchet-guard.js'));
+  canonicalPath(process.argv[1]) === canonicalPath(fileURLToPath(import.meta.url));
 
 if (isDirectRun) {
   process.exit(runGuard());
