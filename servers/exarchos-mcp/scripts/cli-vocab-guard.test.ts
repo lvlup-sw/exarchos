@@ -300,8 +300,15 @@ describe('G1 self-test: a clean-vocabulary hand-written command still fails (DR-
     const baseline = scanSourceForCommandSites(cliSource, rel);
     expect(baseline.literals).toHaveLength(11);
     expect(baseline.derived).toHaveLength(3);
+    // The baseline violation count is DERIVED, never written down. Task 022
+    // pinned it at 11 (the allowlist was empty); task 023 populated the
+    // allowlist with the ten allowlistable literals and the number became 1 —
+    // a CORRECT change breaking a hard-coded count, which is the fifth
+    // occurrence of that failure in this wave. What this test actually needs is
+    // that the seeded command MOVES the number, so the baseline is measured and
+    // every assertion below is relative to it.
     const baselineViolations = findDerivationViolations(baseline, readAllowlist());
-    expect(baselineViolations).toHaveLength(11);
+    expect(baselineViolations.length).toBeGreaterThan(0);
     expect(baselineViolations.map((v) => v.name)).not.toContain(SELF_TEST_COMMAND_NAME);
 
     const handWrittenCall = `.command('${SELF_TEST_COMMAND_NAME}')`;
@@ -317,7 +324,7 @@ describe('G1 self-test: a clean-vocabulary hand-written command still fails (DR-
     expect(seededScan.derived).toHaveLength(3);
 
     const seededViolations = findDerivationViolations(seededScan, readAllowlist());
-    expect(seededViolations).toHaveLength(12);
+    expect(seededViolations).toHaveLength(baselineViolations.length + 1);
     const reported = seededViolations.filter((v) => v.name === SELF_TEST_COMMAND_NAME);
     expect(reported).toHaveLength(1);
     expect(reported[0]?.kind).toBe('literal');
@@ -339,7 +346,7 @@ describe('G1 self-test: a clean-vocabulary hand-written command still fails (DR-
     expect(derivedScan.literals).toHaveLength(11);
     expect(derivedScan.derived).toHaveLength(4);
     const derivedViolations = findDerivationViolations(derivedScan, readAllowlist());
-    expect(derivedViolations).toHaveLength(11);
+    expect(derivedViolations).toHaveLength(baselineViolations.length);
     expect(derivedViolations.map((v) => v.name)).not.toContain(SELF_TEST_COMMAND_NAME);
 
     // ── 7. And the vocabulary guard is unmoved by that same rewrite ──────────
