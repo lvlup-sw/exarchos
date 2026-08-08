@@ -90,6 +90,57 @@
 // The union is deduplicated by repo-relative path.
 //
 // ─────────────────────────────────────────────────────────────────────────────
+// INDIRECT HOSTING: A GUARD RUN BY A SHELL SCRIPT THAT A RUN-STEP RUNS (task 070)
+//
+// Task 063's resolver matched a guard's path as TEXT inside a run-step's command.
+// That model cannot see one level of indirection, and the tree is full of it:
+// `ci.yml` runs `bash scripts/validate-no-legacy.sh`, and THAT script runs
+// `knip-diff.ts`. The guard's path never appears in the workflow at all, so it
+// read as `[unwired-guard]` while running on every PR. Same shape for
+// `validate-plugin.sh`, which is now a thin `exec node …/validate-plugin.mjs`.
+//
+// Two properties of that chain decide how it must be measured, and both defeat
+// the obvious implementation:
+//
+//   1. THE PATH IS NEVER WRITTEN AS A LITERAL AT THE CALL SITE. The script says
+//      `KNIP_DIFF="$SCRIPT_DIR/audit/knip-diff.ts"` and then `"$TSX_BIN"
+//      "$KNIP_DIFF"`. Resolving it means resolving shell VARIABLES, plus the two
+//      directory anchors this repo's scripts use (`$(cd "$(dirname
+//      "${BASH_SOURCE[0]}")" && pwd)` and `$(cd "$X/.." && pwd)`).
+//   2. THE LITERAL PATH *DOES* APPEAR — IN TWO COMMENTS. `validate-no-legacy.sh`
+//      names `scripts/audit/knip-diff.ts` in prose on two lines and nowhere else.
+//      So a substring scan of the raw text answers "reachable" for a reason that
+//      is not an invocation, and a substring scan of the COMMENT-STRIPPED text
+//      answers "unreachable" even though the guard runs. Text-matching and real
+//      invocation disagree here in BOTH directions, in-tree, today. That is why
+//      this is a parse: words are split quote-aware, comments are removed, and
+//      variables are resolved against the assignments in force at that line.
+//
+// What is deliberately NOT counted as an invocation:
+//   - a path in a comment (removed before anything else looks at the text);
+//   - a path merely ASSIGNED to a variable and never used in a command line —
+//     assignment is not execution, and a wrapper that names a guard without
+//     running it must still read as unwired;
+//   - a word that is not in command position and not an argument of an
+//     INTERPRETER ({@link SHELL_INTERPRETERS}). `[[ -x "$TSX_BIN" ]]` names a
+//     real file in a test, not an execution.
+//
+// BOUND — stated rather than left to inference. The walk is bounded by LANGUAGE,
+// not by depth: it follows `.sh` wrappers transitively (terminating on a `seen`
+// set, exactly as {@link expandNpmScripts} does for npm chains), but it does not
+// enter a NON-shell wrapper. Concretely it misses:
+//   - a guard spawned by a `.mjs`/`.ts` runner. `scripts/run-validate.mjs` is the
+//     live example: it reads its step table from `scripts/validate-manifest.json`
+//     and `spawnSync`s each entry. Following it is not merely unimplemented, it
+//     would be WRONG TODAY — `ci.yml` invokes it as `--list`, which prints the
+//     table and executes nothing, so treating the manifest's entries as executed
+//     would manufacture reachability CI does not provide.
+//   - a path computed at run time from command-substitution output other than the
+//     two `cd`/`dirname` anchors above, or assembled by `find -exec`/`xargs`.
+// Both directions of that bound fail toward "unreachable" — the direction that
+// REPORTS a wiring hole rather than hiding one.
+//
+// ─────────────────────────────────────────────────────────────────────────────
 // KNOWN BLIND SPOT, REPORTED RATHER THAN CLOSED
 //
 // `scripts/audit/` is scanned by neither the enforcer manifest nor channel 3, and
@@ -270,6 +321,468 @@ export function expandNpmScripts(command: string, pkg: PackageScripts, seen = ne
   return out;
 }
 
+// ─── Shell-wrapper indirection (task 070) ────────────────────────────────────
+
+/**
+ * Interpreters that take the program they run as a path ARGUMENT rather than in
+ * command position, so `bash x.sh` / `node x.mjs` / `tsx x.ts` all execute `x`.
+ *
+ * A hand-written set, and the only one in this module — justified by which way it
+ * fails. An interpreter MISSING here makes a real invocation read as unreachable,
+ * i.e. the inventory reports a wiring hole that is not there. The opposite error
+ * (silently blessing an execution that never happens) is the one that would let a
+ * dead guard pass, and no omission here can cause it.
+ */
+export const SHELL_INTERPRETERS: readonly string[] = Object.freeze([
+  'bash',
+  'sh',
+  'zsh',
+  'dash',
+  'node',
+  'npx',
+  'tsx',
+  'bun',
+  'deno',
+  'python',
+  'python3',
+]);
+
+/** Words that delegate to the command following them, so the real head is later. */
+const COMMAND_PREFIXES: ReadonlySet<string> = new Set([
+  'exec',
+  'command',
+  'env',
+  'time',
+  'nohup',
+  'sudo',
+  'builtin',
+]);
+
+/** Repo root as a path segment. Kept as `.` so an anchor can prefix a relative path. */
+const ROOT_ANCHOR = '.';
+
+/**
+ * `#` comments removed, quote-aware.
+ *
+ * Removing them is the FIRST thing that happens to a wrapper script, because
+ * `validate-no-legacy.sh` names `scripts/audit/knip-diff.ts` in two comments and
+ * never as a literal in a command. Any scan that runs before this one answers a
+ * question about prose.
+ *
+ * A `#` opens a comment only at the start of a word — so `${x#y}` and `$#` stay
+ * intact — and never inside quotes.
+ */
+export function stripShellComments(source: string): string {
+  let out = '';
+  let quote: string | null = null;
+  let escaped = false;
+  let inComment = false;
+  let prev = '\n';
+  for (const ch of source) {
+    if (inComment) {
+      if (ch === '\n') {
+        inComment = false;
+        out += ch;
+        prev = '\n';
+      }
+      continue;
+    }
+    if (escaped) {
+      out += ch;
+      escaped = false;
+      prev = ch;
+      continue;
+    }
+    if (quote === null && ch === '\\') {
+      out += ch;
+      escaped = true;
+      prev = ch;
+      continue;
+    }
+    if (quote !== null) {
+      out += ch;
+      if (ch === quote) quote = null;
+      prev = ch;
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+      out += ch;
+      prev = ch;
+      continue;
+    }
+    if (ch === '#' && /[\s;(&|]/.test(prev)) {
+      inComment = true;
+      continue;
+    }
+    out += ch;
+    prev = ch;
+  }
+  return out;
+}
+
+/**
+ * Join backslash line-continuations into one logical line.
+ *
+ * Not cosmetic. `validate-no-legacy.test.sh` writes
+ * `AGENTS_BUNDLED_HITS=$(grep -inE "…" \` / `  "$REPO_ROOT/AGENTS.md" …)`, and
+ * reading the second physical line on its own puts `AGENTS.md` in COMMAND
+ * position — so the resolver reports the repo's agent guide as an executed
+ * program. Continuations are joined before anything is classified.
+ */
+export function joinShellContinuations(source: string): string {
+  return source.replace(/\\\n/g, ' ');
+}
+
+/**
+ * Split a logical line into command segments on unquoted `;`, `&&`, `||`, `|`, `&`.
+ *
+ * Each segment has its own command head, which is what decides whether a path
+ * argument is executed. Without this, `grep -q x file | node gate.mjs` presents a
+ * single head (`grep`) and the pipeline's real invocation disappears.
+ */
+export function shellCommandSegments(line: string): string[] {
+  const segments: string[] = [];
+  let current = '';
+  let quote: string | null = null;
+  let escaped = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i] ?? '';
+    if (escaped) {
+      current += ch;
+      escaped = false;
+      continue;
+    }
+    if (quote === null && ch === '\\') {
+      current += ch;
+      escaped = true;
+      continue;
+    }
+    if (quote !== null) {
+      current += ch;
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+      current += ch;
+      continue;
+    }
+    if (ch === ';' || ch === '|' || ch === '&') {
+      segments.push(current);
+      current = '';
+      // Consume a doubled operator (`&&`, `||`) as one separator.
+      if (line[i + 1] === ch) i += 1;
+      continue;
+    }
+    current += ch;
+  }
+  segments.push(current);
+  return segments.filter((segment) => segment.trim() !== '');
+}
+
+/**
+ * Split one shell line into words, quote-aware, dropping operators.
+ *
+ * Quotes are removed but `$NAME` is preserved, because expansion happens after
+ * splitting — `"$KNIP_DIFF"` must survive as the single word `$KNIP_DIFF`, not as
+ * a literal to be matched.
+ */
+export function shellWords(line: string): string[] {
+  const words: string[] = [];
+  let current = '';
+  let started = false;
+  let quote: string | null = null;
+  let escaped = false;
+  const push = (): void => {
+    if (started) {
+      words.push(current);
+      current = '';
+      started = false;
+    }
+  };
+  for (const ch of line) {
+    if (escaped) {
+      current += ch;
+      started = true;
+      escaped = false;
+      continue;
+    }
+    if (quote === null && ch === '\\') {
+      escaped = true;
+      continue;
+    }
+    if (quote !== null) {
+      if (ch === quote) quote = null;
+      else {
+        current += ch;
+        started = true;
+      }
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+      started = true;
+      continue;
+    }
+    if (/\s/.test(ch) || /[;&|()<>]/.test(ch)) {
+      push();
+      continue;
+    }
+    current += ch;
+    started = true;
+  }
+  push();
+  return words;
+}
+
+/**
+ * Substitute `$NAME` / `${NAME}` from `table`.
+ *
+ * Returns `null` when any reference cannot be resolved — an unresolvable word is
+ * NOT treated as a literal, because `"$UNKNOWN/knip-diff.ts"` is not evidence that
+ * `knip-diff.ts` ran. Bounded recursion terminates on values that expand to
+ * further `$` text (including shapes this resolver does not model, like
+ * `${BASH_SOURCE[0]}`).
+ */
+function expandShellVars(text: string, table: ReadonlyMap<string, string>, depth = 0): string | null {
+  if (depth > 8) return null;
+  const pattern = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g;
+  let out = '';
+  let last = 0;
+  let matched = false;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(text)) !== null) {
+    const name = match[1] ?? match[2];
+    if (name === undefined) continue;
+    const value = table.get(name);
+    if (value === undefined) return null;
+    out += text.slice(last, match.index) + value;
+    last = match.index + match[0].length;
+    matched = true;
+  }
+  out += text.slice(last);
+  if (!matched) return text.includes('$') ? null : text;
+  return out.includes('$') ? expandShellVars(out, table, depth + 1) : out;
+}
+
+/**
+ * Normalize an expanded word to a repo-relative path, or `null` when it does not
+ * denote one (absolute, or escaping the repo root).
+ */
+function normalizeRepoPath(value: string): string | null {
+  if (value === '' || value.startsWith('/')) return null;
+  const normalized = posix.normalize(value);
+  if (normalized === '.' || normalized === './') return '';
+  if (normalized === '..' || normalized.startsWith('../')) return null;
+  return normalized.replace(/^\.\//, '').replace(/\/+$/, '');
+}
+
+/** `NAME=VALUE` split for a word already stripped of quotes. */
+function assignmentWord(word: string): { name: string; value: string } | null {
+  const match = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(word);
+  const name = match?.[1];
+  if (match === null || name === undefined) return null;
+  return { name, value: match[2] ?? '' };
+}
+
+/**
+ * Resolve an assignment whose value is a whole command substitution, for the two
+ * directory anchors this repo's scripts actually use. Anything else is `null` —
+ * an unmodelled `$(…)` must not become a guessed path.
+ */
+function resolveCommandSubstitution(
+  raw: string,
+  table: ReadonlyMap<string, string>,
+  scriptDir: string,
+): string | null {
+  const match = /^"?\$\((.*)\)"?$/s.exec(raw.trim());
+  const inner = match?.[1];
+  if (inner === undefined) return null;
+  // `$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)` — the script's own directory.
+  if (/\bdirname\b/.test(inner) && /BASH_SOURCE|\$0/.test(inner)) return scriptDir;
+  // `$(cd <dir> && pwd)` — that directory, normalized.
+  const cd = /^cd\s+(.+?)\s*&&\s*pwd$/.exec(inner.trim());
+  const target = cd?.[1];
+  if (target === undefined) return null;
+  const expanded = expandShellVars(target.replace(/^["']|["']$/g, ''), table);
+  if (expanded === null) return null;
+  const normalized = normalizeRepoPath(expanded);
+  return normalized === null ? null : normalized === '' ? ROOT_ANCHOR : normalized;
+}
+
+/** One file a CI run-step reaches through one or more shell wrappers. */
+export interface ShellExecution {
+  /** Repo-relative path of the executed file. */
+  readonly target: string;
+  /** The wrapper chain from the run-step to `target`, outermost first. */
+  readonly through: readonly string[];
+  /** True when EVERY invocation line of `target` swallows its exit code. */
+  readonly exitSwallowed: boolean;
+}
+
+export interface ShellWalk {
+  readonly executions: readonly ShellExecution[];
+  /** Wrapper scripts actually read during the walk — the non-empty-denominator input. */
+  readonly scriptsWalked: readonly string[];
+  /** Invocation words naming an unresolvable variable, reported rather than guessed. */
+  readonly unresolved: readonly string[];
+}
+
+/**
+ * Everything `entryScript` executes, transitively through further `.sh` wrappers.
+ *
+ * Cycles terminate on `seen`. A script that cannot be read contributes nothing
+ * rather than throwing: an entry point naming a file outside the repo (or a
+ * generated one) is normal, and the non-empty-denominator check in
+ * {@link auditGuardInventory} is what catches a walk that finds nothing at all.
+ */
+export function resolveShellExecutions(entryScript: string, read: (path: string) => string | null): ShellWalk {
+  /** target → chain + whether every invocation of it swallowed the exit code. */
+  const found = new Map<string, { through: string[]; swallowed: boolean }>();
+  const scriptsWalked: string[] = [];
+  const unresolved = new Set<string>();
+  const seen = new Set<string>();
+
+  const record = (target: string, through: string[], swallowed: boolean): void => {
+    const prior = found.get(target);
+    if (prior === undefined) found.set(target, { through, swallowed });
+    else prior.swallowed = prior.swallowed && swallowed;
+  };
+
+  const walk = (script: string, chain: string[]): void => {
+    if (seen.has(script)) return;
+    seen.add(script);
+    const source = read(script);
+    if (source === null) return;
+    scriptsWalked.push(script);
+
+    const scriptDir = posix.dirname(script) === '.' ? ROOT_ANCHOR : posix.dirname(script);
+    const table = new Map<string, string>([
+      // The one GitHub-defined anchor the workflows use: `$GITHUB_WORKSPACE` is
+      // the checkout root, which in this model is the repo root.
+      ['GITHUB_WORKSPACE', ROOT_ANCHOR],
+    ]);
+    /** Targets invoked BY THIS script — the only ones whose chain is `chain`. */
+    const invokedHere = new Set<string>();
+
+    const toRepoPath = (word: string): string | null => {
+      const expanded = expandShellVars(word, table);
+      if (expanded === null) {
+        if (word.includes('$')) unresolved.add(`${script}: ${word}`);
+        return null;
+      }
+      const normalized = normalizeRepoPath(expanded);
+      if (normalized === null || normalized === '') return null;
+      // A readable regular FILE. `read` returns null for a directory, which is
+      // what keeps `scripts/audit` (named as a bare argument by a portability
+      // test) out of a list of executed programs.
+      return read(normalized) === null ? null : normalized;
+    };
+
+    /** Classify one command segment and record whatever it executes. */
+    const scanSegment = (segment: string, swallowed: boolean): void => {
+      let words = shellWords(segment);
+      // Peel leading `NAME=VALUE` env prefixes. `FOO=1 bash x.sh` both assigns and
+      // invokes, so this cannot simply classify the segment as an assignment.
+      while (words.length > 0) {
+        const first = words[0];
+        if (first === undefined) break;
+        const assignment = assignmentWord(first);
+        if (assignment === null) break;
+        const expanded = expandShellVars(assignment.value, table);
+        if (expanded !== null) table.set(assignment.name, expanded);
+        words = words.slice(1);
+      }
+      // Assignment ONLY: nothing was executed. `KNIP_DIFF="$SCRIPT_DIR/…"` names a
+      // guard without running it, and must not read as an invocation.
+      if (words.length === 0) return;
+
+      while (words.length > 0) {
+        const prefix = words[0];
+        if (prefix === undefined || !COMMAND_PREFIXES.has(prefix)) break;
+        words = words.slice(1);
+      }
+      const head = words[0];
+      if (head === undefined) return;
+
+      const invoke = (word: string): void => {
+        const path = toRepoPath(word);
+        if (path === null) return;
+        record(path, chain, swallowed);
+        invokedHere.add(path);
+      };
+
+      // Command position: `./scripts/x.sh` or `"$SCRIPT_DIR/x.sh"`.
+      invoke(head);
+
+      // Interpreter arguments: `bash x.sh`, `node x.mjs`, `"$TSX_BIN" "$KNIP_DIFF"`.
+      //
+      // Only the PROGRAM argument counts — the first non-flag word — and then the
+      // scan stops. Everything after it belongs to that program, not to the shell.
+      // Taking every argument instead reports `npx eslint --print-config
+      // composite.ts` as EXECUTING `composite.ts`, which is a source file eslint
+      // reads. Interpreters chain (`npx … tsx x.ts`), so an argument that is
+      // itself an interpreter name advances the search rather than ending it.
+      const basenameOf = (word: string): string => posix.basename(expandShellVars(word, table) ?? word);
+      if (SHELL_INTERPRETERS.includes(basenameOf(head))) {
+        for (const word of words.slice(1)) {
+          if (word.startsWith('-')) continue;
+          if (SHELL_INTERPRETERS.includes(basenameOf(word))) continue;
+          invoke(word);
+          break;
+        }
+      }
+    };
+
+    for (const rawLine of joinShellContinuations(stripShellComments(source)).split('\n')) {
+      const line = rawLine.trim();
+      if (line === '') continue;
+      const swallowed = /\|\|\s*(true|:)\s*$/.test(line) || /\|\|\s*(true|:)\)/.test(line);
+
+      // An assignment whose value is a whole command substitution must be read
+      // before word-splitting, because `$( … )` contains the very characters the
+      // splitter treats as operators.
+      const wholeLine =
+        /^(?:export\s+|readonly\s+|local\s+|declare\s+(?:-\w+\s+)?)?([A-Za-z_][A-Za-z0-9_]*)=("?\$\(.*\)"?)$/.exec(line);
+      const wholeName = wholeLine?.[1];
+      const wholeValue = wholeLine?.[2];
+      if (wholeName !== undefined && wholeValue !== undefined) {
+        const resolved = resolveCommandSubstitution(wholeValue, table, scriptDir);
+        if (resolved !== null) {
+          // One of the two directory anchors: a value, not an invocation.
+          table.set(wholeName, resolved);
+          continue;
+        }
+        // Any other `$(…)` IS a command and may invoke a guard (`OUT=$(node
+        // gate.mjs)`), so its interior is scanned — but it yields no variable
+        // value, because this resolver cannot know what the command printed.
+        const inner = /^"?\$\((.*)\)"?$/s.exec(wholeValue)?.[1];
+        if (inner !== undefined) {
+          for (const segment of shellCommandSegments(inner)) scanSegment(segment, swallowed);
+        }
+        continue;
+      }
+
+      for (const segment of shellCommandSegments(line)) scanSegment(segment, swallowed);
+    }
+
+    for (const target of invokedHere) {
+      if (target.endsWith('.sh')) walk(target, [...chain, target]);
+    }
+  };
+
+  walk(entryScript, [entryScript]);
+
+  return {
+    executions: [...found.entries()]
+      .map(([target, entry]) => ({ target, through: entry.through, exitSwallowed: entry.swallowed }))
+      .sort((a, b) => a.target.localeCompare(b.target)),
+    scriptsWalked,
+    unresolved: [...unresolved].sort(),
+  };
+}
+
 // ─── Guard population ────────────────────────────────────────────────────────
 
 export type GuardChannel = 'enforcer-manifest' | 'wave1-spec' | 'mcp-scripts-gate';
@@ -297,6 +810,16 @@ export interface GuardHost {
   readonly workflow: string;
   readonly job: string;
   readonly via: HostingVia;
+  /**
+   * The wrapper-script chain between the run-step and the guard, outermost first.
+   * Empty for a step that names the guard itself.
+   *
+   * Carrying the chain rather than a boolean is the difference between a verdict
+   * that says "reachable" and one that says HOW: `knip-diff.ts` is reachable
+   * because `validate-no-legacy` runs `scripts/validate-no-legacy.sh`, and that
+   * sentence is the reviewable claim. A bare "reachable" cannot be checked.
+   */
+  readonly through: readonly string[];
   /** `changes.outputs.*` keys gating the job; empty means unfiltered. */
   readonly pathFilterKeys: readonly string[];
   /** True when the step (or job) swallows the exit code. */
@@ -378,6 +901,14 @@ export interface GuardInventory {
    * tasks legitimately name files their own task has not landed yet.
    */
   readonly unresolvedSpecArtifacts: readonly string[];
+  /**
+   * What the wrapper-script walk actually examined. Present so the indirection
+   * resolver is subject to the same non-empty-denominator rule as the inventory:
+   * a resolver that walked zero run-steps or zero wrappers would silently report
+   * every indirectly-hosted guard as unwired, which is the failure task 070 was
+   * dispatched to fix — reintroduced quietly.
+   */
+  readonly indirection: ShellIndirectionIndex;
 }
 
 // ─── Channel 1: enforcer-manifest primaries ──────────────────────────────────
@@ -771,6 +1302,32 @@ export interface ResolutionContext {
   readonly suites: readonly SuiteConfig[];
   /** `true` for every repo-relative path that exists on disk. */
   readonly exists: (path: string) => boolean;
+  /**
+   * Source of a repo-relative shell script, or `null` when it is not a readable
+   * file. Absent means indirection is NOT followed — which
+   * {@link auditGuardInventory} then reports as `[empty-indirection-walk]` rather
+   * than letting a resolver that walked nothing pass as clean.
+   */
+  readonly readScript?: (path: string) => string | null;
+  /** Precomputed wrapper-script reach, per run-step. See {@link indexShellIndirection}. */
+  readonly shellIndex?: ShellIndirectionIndex;
+}
+
+/**
+ * Wrapper-script reach for every `run:` step in the workflow set, computed once.
+ *
+ * Keyed by the parsed step OBJECT rather than by a synthesized string id, so the
+ * index and {@link resolveHosts} cannot disagree about which step they are
+ * talking about — they iterate the same parsed documents.
+ */
+export interface ShellIndirectionIndex {
+  readonly byStep: ReadonlyMap<WorkflowStep, readonly ShellExecution[]>;
+  /** Every `run:` step examined — zero means the resolver walked nothing. */
+  readonly runStepsWalked: number;
+  /** Distinct wrapper scripts actually read. */
+  readonly wrapperScriptsWalked: readonly string[];
+  /** Invocation words whose variables could not be resolved. */
+  readonly unresolvedInvocations: readonly string[];
 }
 
 /**
@@ -854,6 +1411,67 @@ function jobRunsSuiteFor(
   return { runs: false, swallowed: false };
 }
 
+/**
+ * Walk every `run:` step once and record what it reaches through shell wrappers.
+ *
+ * Done as ONE pass over the workflow set rather than per-guard, so the
+ * non-empty-denominator numbers ({@link ShellIndirectionIndex.runStepsWalked},
+ * `wrapperScriptsWalked`) describe the resolver itself and not whichever guard
+ * happened to be asked about last.
+ */
+export function indexShellIndirection(ctx: ResolutionContext): ShellIndirectionIndex {
+  const byStep = new Map<WorkflowStep, readonly ShellExecution[]>();
+  const wrapperScripts = new Set<string>();
+  const unresolved = new Set<string>();
+  let runStepsWalked = 0;
+  const read = ctx.readScript;
+
+  for (const { doc } of ctx.workflows) {
+    for (const job of Object.values(doc.jobs ?? {})) {
+      for (const step of job.steps ?? []) {
+        if (typeof step.run !== 'string') continue;
+        runStepsWalked += 1;
+        if (read === undefined) continue;
+        const workingDir = stepWorkingDirectory(job, step);
+        const pkg = workingDir === 'servers/exarchos-mcp' ? ctx.mcpPkg : ctx.rootPkg;
+        const expanded = expandNpmScripts(step.run, pkg);
+        const executions: ShellExecution[] = [];
+        // The step's own text is scanned for the wrapper scripts it launches; the
+        // wrappers' contents are what the walk then resolves.
+        // `$GITHUB_WORKSPACE` is the checkout root — the one anchor the workflow
+        // steps themselves use (`bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"`).
+        const stepVars = new Map<string, string>([['GITHUB_WORKSPACE', ROOT_ANCHOR]]);
+        for (const line of expanded.split('\n')) {
+          for (const rawWord of shellWords(line)) {
+            if (!rawWord.endsWith('.sh')) continue;
+            const resolved = rawWord.includes('$') ? expandShellVars(rawWord, stepVars) : rawWord;
+            if (resolved === null) continue;
+            const word = normalizeRepoPath(resolved);
+            if (word === null || word === '') continue;
+            const candidates = [word];
+            if (workingDir !== '') candidates.push(`${workingDir}/${word}`);
+            for (const candidate of candidates) {
+              if (read(candidate) === null) continue;
+              const walk = resolveShellExecutions(candidate, read);
+              for (const script of walk.scriptsWalked) wrapperScripts.add(script);
+              for (const item of walk.unresolved) unresolved.add(item);
+              for (const execution of walk.executions) executions.push(execution);
+            }
+          }
+        }
+        if (executions.length > 0) byStep.set(step, executions);
+      }
+    }
+  }
+
+  return {
+    byStep,
+    runStepsWalked,
+    wrapperScriptsWalked: [...wrapperScripts].sort(),
+    unresolvedInvocations: [...unresolved].sort(),
+  };
+}
+
 /** Resolve every CI host of one guard artifact. */
 export function resolveHosts(artifact: string, ctx: ResolutionContext): GuardHost[] {
   const hosts: GuardHost[] = [];
@@ -868,7 +1486,7 @@ export function resolveHosts(artifact: string, ctx: ResolutionContext): GuardHos
       if (jobName === AGGREGATOR_JOB) continue;
       const keys = pathFilterKeys(job);
 
-      const record = (via: HostingVia, exitSwallowed: boolean): void => {
+      const record = (via: HostingVia, exitSwallowed: boolean, through: readonly string[] = []): void => {
         const blocking = isCi
           ? aggregatorNeeds.has(jobName) && !exitSwallowed
           : onPullRequest && !exitSwallowed;
@@ -876,6 +1494,7 @@ export function resolveHosts(artifact: string, ctx: ResolutionContext): GuardHos
           workflow: workflowPath,
           job: jobName,
           via,
+          through,
           pathFilterKeys: keys,
           exitSwallowed,
           onPullRequest,
@@ -891,6 +1510,24 @@ export function resolveHosts(artifact: string, ctx: ResolutionContext): GuardHos
       //     `.test.sh` re-asserts that ride the unfiltered grep-gates host so a
       //     scripts-only PR still proves the gate is failable.
       let selfTestSwallowed: boolean | null = null;
+      // (a2) INDIRECT execution: a step runs a shell wrapper that runs the guard.
+      //      Tracked separately from (a) so the chain survives into the verdict.
+      const indirect = new Map<string, { through: readonly string[]; swallowed: boolean }>();
+      const noteIndirect = (execution: ShellExecution, stepSwallowed: boolean): void => {
+        const key = execution.through.join(' → ');
+        const swallowed = stepSwallowed || execution.exitSwallowed;
+        const prior = indirect.get(key);
+        if (prior === undefined) indirect.set(key, { through: execution.through, swallowed });
+        else indirect.set(key, { through: prior.through, swallowed: prior.swallowed && swallowed });
+      };
+      /**
+       * A guard run BY ITS OWN `.test.sh` is executing against seeded fixtures, not
+       * policing the repo — so that chain stays `self-test` and cannot make an
+       * unwired gate read as wired. Collapsing this into `direct` would re-open the
+       * exact hole {@link isEnforcingHost} exists to keep shut.
+       */
+      const viaFor = (through: readonly string[]): HostingVia =>
+        through.some((script) => selfTests.includes(script)) ? 'self-test' : 'direct';
       for (const step of job.steps ?? []) {
         if (typeof step.run !== 'string') continue;
         const workingDir = stepWorkingDirectory(job, step);
@@ -907,9 +1544,19 @@ export function resolveHosts(artifact: string, ctx: ResolutionContext): GuardHos
         if (commandExecutes(expanded, artifact, workingDir)) {
           directSwallowed = directSwallowed === null ? swallowed : directSwallowed && swallowed;
         }
+        for (const execution of ctx.shellIndex?.byStep.get(step) ?? []) {
+          if (execution.target === artifact) noteIndirect(execution, swallowed);
+          else if (selfTests.includes(execution.target)) {
+            selfTestSwallowed =
+              selfTestSwallowed === null
+                ? swallowed || execution.exitSwallowed
+                : selfTestSwallowed && (swallowed || execution.exitSwallowed);
+          }
+        }
       }
       if (directSwallowed !== null) record('direct', directSwallowed);
       if (selfTestSwallowed !== null) record('self-test', selfTestSwallowed);
+      for (const { through, swallowed } of indirect.values()) record(viaFor(through), swallowed, through);
 
       // (c) execution through a co-located self-test collected by a vitest suite
       //     the job runs.
@@ -1140,13 +1787,24 @@ export function buildGuardInventory(options: BuildOptions = {}): GuardInventory 
     options.manifestJson ?? JSON.parse(readFileSync(join(repoRoot, MANIFEST_PATH), 'utf8'));
   const workflows = options.workflows ?? loadWorkflows(repoRoot);
 
-  const ctx: ResolutionContext = {
+  /** `null` for anything that is not a readable regular file (a directory throws). */
+  const readScript = (path: string): string | null => {
+    try {
+      return readFileSync(join(repoRoot, path), 'utf8');
+    } catch {
+      return null;
+    }
+  };
+
+  const base: ResolutionContext = {
     workflows,
     rootPkg: readPackageScripts(repoRoot, ''),
     mcpPkg: readPackageScripts(repoRoot, 'servers/exarchos-mcp'),
     suites: loadSuiteConfigs(repoRoot),
     exists: (path) => existsSync(join(repoRoot, path)),
+    readScript,
   };
+  const ctx: ResolutionContext = { ...base, shellIndex: indexShellIndirection(base) };
 
   const channels = new Map<string, Set<GuardChannel>>();
   const tasksByArtifact = new Map<string, Set<string>>();
@@ -1231,6 +1889,7 @@ export function buildGuardInventory(options: BuildOptions = {}): GuardInventory 
     runnableWithoutSelfTest: mcpScan.runnableWithoutSelfTest,
     compileTimeOnlyArtifacts: [...new Set(compileTimeOnlyArtifacts)].sort(),
     unresolvedSpecArtifacts: [...new Set(unresolvedSpecArtifacts)].sort(),
+    indirection: ctx.shellIndex ?? { byStep: new Map(), runStepsWalked: 0, wrapperScriptsWalked: [], unresolvedInvocations: [] },
   };
 }
 
@@ -1284,6 +1943,24 @@ export function auditGuardInventory(
     violations.push(
       '[empty-inventory]  the inventory resolved zero guards — a run that finds nothing ' +
         'fails rather than passing clean (DR-24 non-empty denominator)',
+    );
+  }
+
+  // The same rule applied to the indirection resolver itself. A walk that
+  // examined no run-step, or found no wrapper script, reports every
+  // wrapper-hosted guard as unwired while looking exactly like a clean run —
+  // task 070's own failure, silently reintroduced.
+  if (inventory.indirection.runStepsWalked === 0) {
+    violations.push(
+      '[empty-indirection-walk]  the wrapper-script resolver walked ZERO `run:` steps — ' +
+        'indirect hosting cannot have been resolved, so a clean result proves nothing',
+    );
+  } else if (inventory.indirection.wrapperScriptsWalked.length === 0) {
+    violations.push(
+      `[empty-indirection-walk]  the resolver walked ${inventory.indirection.runStepsWalked} ` +
+        '`run:` step(s) but read ZERO wrapper scripts — either no CI step invokes a shell ' +
+        'script (it does) or the walk is broken; a guard hosted only through a wrapper would ' +
+        'read as unwired',
     );
   }
 
@@ -1392,8 +2069,16 @@ export function auditGuardInventory(
  *
  * The job column names the ENFORCING hosts; a self-test-only host is suffixed so
  * "its tests run" is never mistaken for "its policy runs" (see
- * {@link isEnforcingHost}).
+ * {@link isEnforcingHost}). An INDIRECT host renders the whole chain
+ * (`job → wrapper.sh`), because "reachable" without "how" is a claim a reviewer
+ * cannot check — and this inventory reported the opposite verdict for exactly one
+ * missing hop until task 070.
  */
+export function describeHost(host: GuardHost): string {
+  const chain = host.through.length === 0 ? '' : ` → ${host.through.join(' → ')}`;
+  return `${host.job}${chain}${host.via === 'self-test' ? ' (via self-test)' : ''}`;
+}
+
 export function renderInventoryTable(inventory: GuardInventory): string {
   const rows = [
     '| Guard | CI job(s) | Path-filtered? | Blocks / observes | Prod caller? |',
@@ -1406,7 +2091,7 @@ export function renderInventoryTable(inventory: GuardInventory): string {
         ? guard.hosts.length === 0
           ? '— (none)'
           : `— (self-test only: ${[...new Set(guard.hosts.map((h) => h.job))].join(', ')})`
-        : [...new Set(enforcing.map((h) => `${h.job}${h.via === 'self-test' ? ' (via self-test)' : ''}`))].join(', ');
+        : [...new Set(enforcing.map((h) => describeHost(h)))].join(', ');
     const filtered =
       enforcing.length === 0
         ? '—'

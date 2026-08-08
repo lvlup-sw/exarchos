@@ -26,12 +26,17 @@ import {
   MANIFEST_PATH,
   CI_WORKFLOW,
   GUARD_EXEMPTIONS,
+  SHELL_INTERPRETERS,
   auditGuardInventory,
   buildGuardInventory,
   collectImportSpecifiers,
+  describeHost,
   globMatches,
   hasDirectRunExit,
+  indexShellIndirection,
+  isEnforcingHost,
   isPathShaped,
+  joinShellContinuations,
   loadSuiteConfigs,
   loadWorkflows,
   manifestPrimaries,
@@ -40,15 +45,21 @@ import {
   parseVitestProjects,
   pathFilterGlobs,
   resolveHosts,
+  resolveShellExecutions,
   renderInventoryTable,
   scanMcpScriptGates,
+  shellCommandSegments,
+  shellWords,
+  stripShellComments,
   suiteForTest,
   vitestPathOperands,
   vitestProjectSelectors,
   wave1Tasks,
   type GuardInventory,
   type GuardRecord,
+  type LoadedWorkflow,
   type ResolutionContext,
+  type ShellIndirectionIndex,
 } from './guard-inventory.js';
 
 // ─── Shared live fixtures (built once — the scan walks both source trees) ────
@@ -77,13 +88,67 @@ function guard(overrides: Partial<GuardRecord> & { artifact: string }): GuardRec
   };
 }
 
-function inventoryOf(guards: readonly GuardRecord[]): GuardInventory {
+/**
+ * A walk that examined something, so a fixture varying an unrelated field does not
+ * also trip `[empty-indirection-walk]`. The zero cases are asserted explicitly by
+ * `GuardInventory_IndirectionWalkThatWalkedNothing_FailsClosed`.
+ */
+function walkedSomething(overrides: Partial<ShellIndirectionIndex> = {}): ShellIndirectionIndex {
+  return {
+    byStep: new Map(),
+    runStepsWalked: 12,
+    wrapperScriptsWalked: ['scripts/wrapper.sh'],
+    unresolvedInvocations: [],
+    ...overrides,
+  };
+}
+
+function inventoryOf(
+  guards: readonly GuardRecord[],
+  indirection: ShellIndirectionIndex = walkedSomething(),
+): GuardInventory {
   return {
     guards,
     runnableWithoutSelfTest: [],
     compileTimeOnlyArtifacts: [],
     unresolvedSpecArtifacts: [],
+    indirection,
   };
+}
+
+/** A resolution context over an in-memory file set, with the shell index built. */
+function contextOf(
+  workflow: LoadedWorkflow,
+  files: Readonly<Record<string, string>>,
+  scripts: Readonly<Record<string, string>> = {},
+): ResolutionContext {
+  const base: ResolutionContext = {
+    workflows: [workflow],
+    rootPkg: { dir: '', scripts },
+    mcpPkg: { dir: 'servers/exarchos-mcp', scripts: {} },
+    suites: loadSuiteConfigs(),
+    exists: (path) => Object.hasOwn(files, path),
+    readScript: (path) => files[path] ?? null,
+  };
+  return { ...base, shellIndex: indexShellIndirection(base) };
+}
+
+/** A one-job `ci.yml` whose single step is `run`. */
+function workflowRunning(command: string): LoadedWorkflow {
+  return parseWorkflow(
+    CI_WORKFLOW,
+    [
+      'on: [pull_request]',
+      'jobs:',
+      '  ci-gate:',
+      '    needs: [gates]',
+      '    steps:',
+      '      - run: echo aggregate',
+      '  gates:',
+      '    steps:',
+      `      - run: ${command}`,
+    ].join('\n'),
+  );
 }
 
 // ─── 1. Every Wave-1 guard is reachable from a CI job ───────────────────────
@@ -169,6 +234,7 @@ describe('Wave-1 guard inventory — CI reachability proof (DR-24, task 063)', (
               workflow: CI_WORKFLOW,
               job: 'grep-gates',
               via: 'direct',
+              through: [],
               pathFilterKeys: [],
               exitSwallowed: false,
               onPullRequest: true,
@@ -272,6 +338,7 @@ describe('Path-filtered hosting (#1711 skipped-as-passed)', () => {
               workflow: CI_WORKFLOW,
               job: 'test-root',
               via: 'direct',
+              through: [],
               pathFilterKeys: ['root'],
               exitSwallowed: false,
               onPullRequest: true,
@@ -301,6 +368,7 @@ describe('Path-filtered hosting (#1711 skipped-as-passed)', () => {
               workflow: CI_WORKFLOW,
               job: 'test-mcp',
               via: 'direct',
+              through: [],
               pathFilterKeys: ['mcp'],
               exitSwallowed: false,
               onPullRequest: true,
@@ -310,6 +378,7 @@ describe('Path-filtered hosting (#1711 skipped-as-passed)', () => {
               workflow: CI_WORKFLOW,
               job: 'grep-gates',
               via: 'self-test',
+              through: [],
               pathFilterKeys: [],
               exitSwallowed: false,
               onPullRequest: true,
@@ -339,6 +408,7 @@ describe('Path-filtered hosting (#1711 skipped-as-passed)', () => {
               workflow: CI_WORKFLOW,
               job: 'test-root',
               via: 'direct',
+              through: [],
               pathFilterKeys: ['root'],
               exitSwallowed: false,
               onPullRequest: true,
@@ -348,6 +418,7 @@ describe('Path-filtered hosting (#1711 skipped-as-passed)', () => {
               workflow: '.github/workflows/release.yml',
               job: 'release',
               via: 'self-test',
+              through: [],
               pathFilterKeys: [],
               exitSwallowed: false,
               onPullRequest: false,
@@ -601,5 +672,294 @@ describe('Exclusions stay reviewable', () => {
     // The population assertion below stays, so the set cannot silently empty.
     expect(liveAudit.noProductionCaller.length).toBeGreaterThan(0);
     expect(liveAudit.noProductionCaller).toContain('scripts/guard-inventory.ts');
+  });
+});
+
+// ─── Indirect hosting: a guard run by a wrapper a run-step runs (task 070) ───
+//
+// Both kill-fixture directions are required and both are asserted here. An
+// indirection rule that answers "reachable" for everything is vacuous, and it is
+// the single most likely way to get this wrong — so every case that proves a
+// guard IS reachable is paired with one proving a guard is NOT.
+
+describe('Indirect hosting through a wrapper script (DR-24, task 070)', () => {
+  const GATE = 'scripts/check-wrapped.mjs';
+
+  it('HostResolution_GuardRunByAWrapperScript_IsReachableAndNamesTheChain', () => {
+    // Direction 1 of the kill fixture: hosted ONLY through a wrapper.
+    const ctx = contextOf(workflowRunning('bash scripts/wrapper.sh'), {
+      'scripts/wrapper.sh': ['set -euo pipefail', `node ${GATE}`].join('\n'),
+      [GATE]: 'process.exit(0);\n',
+    });
+    const hosts = resolveHosts(GATE, ctx);
+    expect(hosts).toHaveLength(1);
+    expect(hosts[0]?.via).toBe('direct');
+    expect(hosts[0]?.blocking).toBe(true);
+    // The verdict names HOW, not merely THAT.
+    expect(hosts[0]?.through).toEqual(['scripts/wrapper.sh']);
+    expect(hosts.map((h) => describeHost(h))).toEqual(['gates → scripts/wrapper.sh']);
+  });
+
+  it('HostResolution_GuardNoWrapperInvokes_IsStillUnreachable', () => {
+    // Direction 2, and the one that keeps the rule from being vacuous: the SAME
+    // wrapper, the same CI step, a guard it simply does not run.
+    const ctx = contextOf(workflowRunning('bash scripts/wrapper.sh'), {
+      'scripts/wrapper.sh': ['set -euo pipefail', 'node scripts/check-other.mjs'].join('\n'),
+      [GATE]: 'process.exit(0);\n',
+      'scripts/check-other.mjs': 'process.exit(0);\n',
+    });
+    expect(resolveHosts(GATE, ctx)).toEqual([]);
+    // …while the guard the wrapper DOES run is found, so the walk really ran.
+    expect(resolveHosts('scripts/check-other.mjs', ctx)).toHaveLength(1);
+  });
+
+  it('HostResolution_PathNamedOnlyInAComment_IsNotAnInvocation', () => {
+    // The measure-the-wrong-property trap, and it is LIVE rather than synthetic:
+    // `validate-no-legacy.sh` writes `scripts/audit/knip-diff.ts` in two comments
+    // and never as a literal in a command. Both numbers are asserted, because the
+    // whole point is that text-matching and real invocation DISAGREE.
+    const wrapper = readFileSync(join(REPO_ROOT, 'scripts/validate-no-legacy.sh'), 'utf8');
+    expect(wrapper.includes('scripts/audit/knip-diff.ts'), 'raw text names the guard').toBe(true);
+    expect(
+      stripShellComments(wrapper).includes('scripts/audit/knip-diff.ts'),
+      'and does so ONLY in comments — so a text scan measures prose, not wiring',
+    ).toBe(false);
+
+    // A wrapper whose only mention is a comment must report the guard unwired.
+    // The fixture carries a `;` INSIDE the comment on purpose. A plain prose
+    // mention is not discriminating — the comment's first word is `#`, which is
+    // not a command — so a resolver that skipped comment-stripping entirely would
+    // still pass it. Split on the `;` the comment becomes a segment whose head is
+    // a real interpreter, which is the shape that actually tells the two apart.
+    const ctx = contextOf(workflowRunning('bash scripts/wrapper.sh'), {
+      'scripts/wrapper.sh': [`# example: cd repo; node ${GATE} --strict`, 'echo done'].join('\n'),
+      [GATE]: 'process.exit(0);\n',
+    });
+    expect(resolveHosts(GATE, ctx)).toEqual([]);
+  });
+
+  it('HostResolution_PathAssignedToAVariableButNeverRun_IsNotAnInvocation', () => {
+    // Assignment is not execution. Without this, any wrapper that merely names a
+    // guard in a variable would launder it into "reachable".
+    const assignedOnly = contextOf(workflowRunning('bash scripts/wrapper.sh'), {
+      'scripts/wrapper.sh': ['SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"', 'GATE="$SCRIPT_DIR/check-wrapped.mjs"', 'echo skipping'].join('\n'),
+      [GATE]: 'process.exit(0);\n',
+    });
+    expect(resolveHosts(GATE, assignedOnly)).toEqual([]);
+
+    // Same assignment, now actually invoked through the variable — the real
+    // `KNIP_DIFF` shape. This is the pair that proves the rule discriminates.
+    const invoked = contextOf(workflowRunning('bash scripts/wrapper.sh'), {
+      'scripts/wrapper.sh': ['SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"', 'GATE="$SCRIPT_DIR/check-wrapped.mjs"', 'node "$GATE" --strict'].join('\n'),
+      [GATE]: 'process.exit(0);\n',
+    });
+    expect(resolveHosts(GATE, invoked).map((h) => h.through)).toEqual([['scripts/wrapper.sh']]);
+  });
+
+  it('HostResolution_WrapperChain_IsWalkedTransitivelyAndReportedInOrder', () => {
+    // The bound is on LANGUAGE, not depth: `.sh` wrappers are followed as far as
+    // they go, terminating on the `seen` set.
+    const ctx = contextOf(workflowRunning('bash scripts/outer.sh'), {
+      'scripts/outer.sh': 'bash scripts/inner.sh\n',
+      'scripts/inner.sh': `node ${GATE}\n`,
+      [GATE]: 'process.exit(0);\n',
+    });
+    expect(resolveHosts(GATE, ctx).map((h) => h.through)).toEqual([['scripts/outer.sh', 'scripts/inner.sh']]);
+  });
+
+  it('HostResolution_MutuallyRecursiveWrappers_Terminate', () => {
+    const walk = resolveShellExecutions('scripts/a.sh', (path) =>
+      ({
+        'scripts/a.sh': 'bash scripts/b.sh\n',
+        'scripts/b.sh': `bash scripts/a.sh\nnode ${GATE}\n`,
+        [GATE]: 'process.exit(0);\n',
+      })[path] ?? null,
+    );
+    expect(walk.scriptsWalked).toEqual(['scripts/a.sh', 'scripts/b.sh']);
+    expect(walk.executions.map((e) => e.target)).toContain(GATE);
+  });
+
+  it('HostResolution_DataArgumentOfAnInterpretedTool_IsNotAnExecutedProgram', () => {
+    // `npx eslint --print-config <file>` READS the file. Counting every argument
+    // of an interpreter as a program reported `orchestrate/composite.ts` as an
+    // executed guard — a false "reachable" found while building this resolver.
+    const walk = resolveShellExecutions('scripts/wrapper.sh', (path) =>
+      ({
+        'scripts/wrapper.sh': `npx --no-install eslint --print-config ${GATE}\n`,
+        [GATE]: 'process.exit(0);\n',
+      })[path] ?? null,
+    );
+    expect(walk.executions.map((e) => e.target)).toEqual([]);
+
+    // …but a genuine interpreter chain still resolves its program.
+    const chained = resolveShellExecutions('scripts/wrapper.sh', (path) =>
+      ({
+        'scripts/wrapper.sh': 'npx --no-install tsx scripts/gate.ts\n',
+        'scripts/gate.ts': 'process.exit(0);\n',
+      })[path] ?? null,
+    );
+    expect(chained.executions.map((e) => e.target)).toEqual(['scripts/gate.ts']);
+  });
+
+  it('HostResolution_ContinuationLineArgument_IsNotACommandHead', () => {
+    // A defect found by running this resolver over the real tree: without joining
+    // `\`-continuations, the second physical line of a wrapped `grep` puts its
+    // operand in command position, and `AGENTS.md` reported as an executed program.
+    const joined = joinShellContinuations('grep -q x \\\n  AGENTS.md\n').trimEnd();
+    expect(joined.split('\n'), 'the two physical lines become one logical line').toHaveLength(1);
+    expect(shellWords(joined)).toEqual(['grep', '-q', 'x', 'AGENTS.md']);
+    const walk = resolveShellExecutions('scripts/wrapper.sh', (path) =>
+      ({
+        'scripts/wrapper.sh': `HITS=$(grep -inE "x" \\\n  ${GATE} 2>/dev/null || true)\n`,
+        [GATE]: 'process.exit(0);\n',
+      })[path] ?? null,
+    );
+    expect(walk.executions.map((e) => e.target)).toEqual([]);
+  });
+
+  it('HostResolution_GuardRunByItsOwnSelfTestWrapper_StaysSelfTestNotDirect', () => {
+    // Task 063's load-bearing distinction, preserved across the new channel. A
+    // gate executed by its own `.test.sh` runs against seeded fixtures, not the
+    // repo — so it must NOT be promoted to `direct`, or an unwired gate whose
+    // self-test happens to invoke it would report as wired.
+    const ctx = contextOf(workflowRunning('bash scripts/check-wrapped.test.sh'), {
+      'scripts/check-wrapped.test.sh': `node ${GATE} || true\n`,
+      [GATE]: 'process.exit(0);\n',
+    });
+    const hosts = resolveHosts(GATE, ctx);
+    expect(hosts.length).toBeGreaterThan(0);
+    expect(hosts.map((h) => h.via), 'no host may be promoted to `direct`').not.toContain('direct');
+    // …so the gate reads as UNREACHABLE, exactly as it did before task 070.
+    expect(hosts.every((h) => !isEnforcingHost(h, true))).toBe(true);
+  });
+});
+
+describe('The indirection resolver is itself measured (non-empty denominator)', () => {
+  it('GuardInventory_IndirectionWalkThatWalkedNothing_FailsClosed', () => {
+    const noSteps = auditGuardInventory(
+      inventoryOf([guard({ artifact: 'scripts/check-a.mjs', enforcement: 'blocks' })], walkedSomething({ runStepsWalked: 0 })),
+      { exemptions: [] },
+    );
+    expect(noSteps.ok).toBe(false);
+    expect(noSteps.violations.join('\n')).toContain('[empty-indirection-walk]');
+    expect(noSteps.violations.join('\n')).toContain('ZERO `run:` steps');
+
+    const noWrappers = auditGuardInventory(
+      inventoryOf([guard({ artifact: 'scripts/check-a.mjs', enforcement: 'blocks' })], walkedSomething({ wrapperScriptsWalked: [] })),
+      { exemptions: [] },
+    );
+    expect(noWrappers.ok).toBe(false);
+    expect(noWrappers.violations.join('\n')).toContain('ZERO wrapper scripts');
+  });
+
+  it('GuardInventory_LiveIndirectionWalk_IsGenuinelyNonEmpty', () => {
+    // The criterion above is not satisfied by a walk that happens to find nothing.
+    expect(liveInventory.indirection.runStepsWalked).toBeGreaterThan(50);
+    expect(liveInventory.indirection.wrapperScriptsWalked.length).toBeGreaterThan(5);
+    expect(liveInventory.indirection.wrapperScriptsWalked).toContain('scripts/validate-no-legacy.sh');
+  });
+
+  it('GuardInventory_ContextWithoutAScriptReader_ResolvesNoIndirectionAtAll', () => {
+    // The fail-closed shape: no reader means the walk cannot happen, and the audit
+    // says so rather than reporting a clean inventory built on an unwalked tree.
+    const index = indexShellIndirection({
+      workflows: [workflowRunning('bash scripts/wrapper.sh')],
+      rootPkg: { dir: '', scripts: {} },
+      mcpPkg: { dir: 'servers/exarchos-mcp', scripts: {} },
+      suites: loadSuiteConfigs(),
+      exists: () => true,
+    });
+    expect(index.runStepsWalked).toBeGreaterThan(0);
+    expect(index.wrapperScriptsWalked).toEqual([]);
+  });
+});
+
+describe('The live chain this task was dispatched against', () => {
+  it('GuardInventory_KnipDiff_IsReachableThroughValidateNoLegacy', () => {
+    const record = liveInventory.guards.find((g) => g.artifact === 'scripts/audit/knip-diff.ts');
+    expect(record, 'knip-diff.ts must stay IN the inventory — the denominator was not narrowed').toBeDefined();
+    expect(record?.channels, 'still discovered by the spec `**Files:**` channel').toContain('wave1-spec');
+    expect(record?.enforcement).toBe('blocks');
+
+    // The verdict names the real chain: job → wrapper → guard.
+    const enforcing = (record?.hosts ?? []).filter((h) => h.via === 'direct');
+    expect(enforcing.map((h) => describeHost(h))).toEqual([
+      'validate-no-legacy → scripts/validate-no-legacy.sh',
+    ]);
+
+    // …and it is NOT excused by an exemption, which would have been a wiring lie.
+    expect(GUARD_EXEMPTIONS.map((e) => e.artifact)).not.toContain('scripts/audit/knip-diff.ts');
+  });
+
+  it('GuardInventory_ManifestDrivenRunner_IsNotTreatedAsAHost', () => {
+    // The header claims following `run-validate.mjs` would be WRONG rather than
+    // merely unimplemented, because `ci.yml` invokes it as `--list`. That claim is
+    // checked here instead of asserted in prose (task 066's lesson: a claim no
+    // instrument reads is a claim that can be false).
+    const ciText = readFileSync(join(REPO_ROOT, CI_WORKFLOW), 'utf8');
+    const invocations = ciText.split('\n').filter((line) => line.includes('run-validate.mjs'));
+    expect(invocations.length).toBeGreaterThan(0);
+    expect(invocations.every((line) => line.includes('--list'))).toBe(true);
+
+    // So no guard may claim reachability through the manifest runner.
+    for (const record of liveInventory.guards) {
+      for (const host of record.hosts) {
+        expect(host.through, `${record.artifact} claims a host through the manifest runner`).not.toContain(
+          'scripts/run-validate.mjs',
+        );
+      }
+    }
+  });
+
+  it('GuardInventory_IndirectionDidNotMakeEverythingReachable', () => {
+    // The whole-inventory form of kill-fixture direction 2. If the new channel had
+    // over-reached, this set would have emptied and the suite would still be green.
+    const unreachable = liveInventory.guards.filter((g) => g.enforcement === 'unreachable');
+    expect(unreachable.map((g) => g.artifact)).toEqual([
+      'servers/exarchos-mcp/scripts/cli-derivation-guard.ts',
+    ]);
+  });
+});
+
+describe('Shell parsing units the indirection rests on', () => {
+  it('ShellComments_HashInsideQuotesOrAParameterExpansion_IsNotAComment', () => {
+    expect(stripShellComments('echo hi # trailing\n').trim()).toBe('echo hi');
+    expect(stripShellComments('echo "a # b"\n').trim()).toBe('echo "a # b"');
+    expect(stripShellComments('echo "${x#pre}"\n').trim()).toBe('echo "${x#pre}"');
+    expect(stripShellComments('echo $#\n').trim()).toBe('echo $#');
+  });
+
+  it('ShellWords_QuotesAreRemovedButVariablesSurvive', () => {
+    expect(shellWords('"$TSX_BIN" "$KNIP_DIFF" --include "a,b"')).toEqual([
+      '$TSX_BIN',
+      '$KNIP_DIFF',
+      '--include',
+      'a,b',
+    ]);
+  });
+
+  it('ShellSegments_PipelinesAndAndListsSplitIntoCommands', () => {
+    expect(shellCommandSegments('grep -q x f | node gate.mjs').map((s) => s.trim())).toEqual([
+      'grep -q x f',
+      'node gate.mjs',
+    ]);
+    expect(shellCommandSegments('a && b || c ; d').map((s) => s.trim())).toEqual(['a', 'b', 'c', 'd']);
+    expect(shellCommandSegments('echo "a && b"').map((s) => s.trim())).toEqual(['echo "a && b"']);
+  });
+
+  it('ShellInterpreters_MissingEntryFailsTowardUnreachable', () => {
+    // The one hand-written list in this module. It is safe only because an
+    // omission causes a FALSE UNREACHABLE (a reported hole) and never a false
+    // reachable, so this pins the direction rather than the membership.
+    expect(SHELL_INTERPRETERS).toContain('bash');
+    expect(SHELL_INTERPRETERS).toContain('node');
+    expect(SHELL_INTERPRETERS).not.toContain('grep');
+    const walk = resolveShellExecutions('scripts/wrapper.sh', (path) =>
+      ({
+        'scripts/wrapper.sh': 'perl scripts/gate.mjs\n',
+        'scripts/gate.mjs': 'process.exit(0);\n',
+      })[path] ?? null,
+    );
+    expect(walk.executions.map((e) => e.target), 'an unlisted interpreter hides the call').toEqual([]);
   });
 });
