@@ -90,10 +90,16 @@
 // co-located test still declares its two authorities, but nothing currently
 // enforces that declaration at this path.
 
+import { createHash } from 'node:crypto';
 import { readFileSync, existsSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
+import {
+  CLI_DERIVATION_EXPIRY_HORIZON,
+  CLI_DERIVATION_SEED_DIGEST_ALGORITHM,
+  CLI_DERIVATION_SEED_KEY_SET_DIGEST,
+} from './cli-derivation-seed-pin.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 /** Repository root — `<repo>/servers/exarchos-mcp/scripts` → `<repo>`. */
@@ -509,24 +515,113 @@ function readCommentText(parsed: unknown): string {
   return '';
 }
 
-// ─── Allowlist ───────────────────────────────────────────────────────────────
+// ─── Allowlist: the waiver ledger ────────────────────────────────────────────
+//
+// Task 023 populated this policy file and made it a RATCHET. The shape follows
+// the two waiver ledgers this repository already ships — DR-4's
+// `src/output-schema-vacuity-allowlist.ts` and DR-2's
+// `src/architecture/report-coupling-seed.ts` — deliberately and to the letter:
+//
+//   • an entry is `{ owner, expires }`, keyed by the thing being waived;
+//   • a paid-down entry MOVES to a `retired` graveyard as `{ owner, retiredAt }`;
+//   • `expires` is capped by ONE pinned horizon, so no entry can renew itself;
+//   • the digest of `allowed ∪ retired` is pinned, so the list cannot grow or
+//     be swapped in place;
+//   • the finding codes are the same words.
+//
+// That sameness is the point. Three subjects under one rule is one authority;
+// three subjects each with their own field names, their own notion of "expired"
+// and their own repair advice would be three authorities for one policy, which
+// is the multiple-authority defect DR-6 exists to detect. The primitives are
+// still COPIED rather than shared across the three — recorded as a finding in
+// task 023's report, with the extraction that would collapse them.
+
+/** One tolerated hand-written verb: who owns removing it, and by when. */
+export interface CliWaiverEntry {
+  /** Subsystem accountable for registering the verb through a derivation helper. */
+  readonly owner: string;
+  /**
+   * ISO date (YYYY-MM-DD) after which the waiver is expired — live THROUGH this
+   * day and dead the next. ENFORCED by {@link auditCliDerivationExpiry}, and
+   * capped by `CLI_DERIVATION_EXPIRY_HORIZON`: a date later than the horizon
+   * fails, so an entry cannot buy itself more time. Bringing a date FORWARD is
+   * always legal — it only shortens the debt's life.
+   */
+  readonly expires: string;
+}
 
 /**
- * Names tolerated as literals, read from {@link ALLOWLIST_PATH}.
+ * One PAID-DOWN verb.
  *
- * The file exists and is READ from day one so the policy seam is real, but it
- * ships EMPTY: on introduction this guard reports all 11 hand-written literals
- * rather than blessing them. Populating it — and making it shrink-only, so an
- * entry can leave but never arrive — is a separate deliverable and is
- * deliberately NOT implemented here.
+ * The graveyard exists for one reason: it keeps the SEED KEY SET invariant. The
+ * pinned digest is taken over `keys(allowed) ∪ keys(retired)`, so a legal
+ * paydown is a MOVE (digest unchanged) and an illegal addition is a GROWTH
+ * (digest changed). That is the whole difference between "the list shrank" and
+ * "the list was swapped", and it is not derivable from today's parse alone.
+ *
+ * It is not a suppression list. A retired verb that is STILL a hand-written
+ * literal is not waived — {@link auditCliAllowlistMembership} reports it as
+ * `RETIRED_BUT_LIVE`, so moving an entry here without doing the work fails
+ * louder than leaving it alone.
+ */
+export interface CliRetiredEntry {
+  /** Subsystem that owned the paydown. Carried over from the waiver. */
+  readonly owner: string;
+  /** ISO date (YYYY-MM-DD) on which the entry left `allowed`. */
+  readonly retiredAt: string;
+}
+
+export interface CliDerivationPolicy {
+  readonly allowed: Readonly<Record<string, CliWaiverEntry>>;
+  readonly retired: Readonly<Record<string, CliRetiredEntry>>;
+}
+
+/**
+ * Read one plain-object field off parsed JSON, without a type assertion.
+ *
+ * `Reflect.get` into a local `unknown` narrowed by real runtime checks keeps
+ * this inside the wave's cast budget (`as const` counts, so does `as X`) and —
+ * more importantly — means a policy file of the wrong SHAPE is refused rather
+ * than reinterpreted. An array is rejected explicitly: `typeof [] === 'object'`,
+ * so the obvious check admits the pre-task-023 `"allowed": []` shape and would
+ * silently resolve zero waivers from it.
+ */
+function readObjectField(
+  parsed: unknown,
+  field: string,
+): Readonly<Record<string, unknown>> | undefined {
+  const raw: unknown =
+    typeof parsed === 'object' && parsed !== null ? Reflect.get(parsed, field) : undefined;
+  if (raw === undefined) return undefined;
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return undefined;
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(raw)) out[key] = Reflect.get(raw, key);
+  return out;
+}
+
+/** The string at `value[field]`, or `undefined` if it is absent or not a string. */
+function readStringField(value: unknown, field: string): string | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const raw: unknown = Reflect.get(value, field);
+  return typeof raw === 'string' ? raw : undefined;
+}
+
+/**
+ * The whole policy — waivers and graveyard — read from {@link ALLOWLIST_PATH}.
  *
  * Fails closed on a missing or malformed file: a guard that silently treats an
  * unreadable allowlist as "allow nothing" would be fine, but one that treats it
  * as "allow everything" would not, and an unreadable policy file is a broken
  * gate either way. It also fails closed on a policy file whose `$comment` names
  * a file that does not exist — see {@link findPolicyReferenceProblems}.
+ *
+ * SHAPE is enforced here; CONTENT is enforced by the audits. An entry missing
+ * `owner` or `expires` entirely is a broken file (the JSON has no type system to
+ * catch it, which is what DR-4 gets for free from a `.ts` seed); an entry with
+ * an EMPTY owner or an unparseable date is a finding, so the expiry audit can be
+ * driven with those cases directly instead of only through a file on disk.
  */
-export function readAllowlist(repoRoot: string = REPO_ROOT): ReadonlySet<string> {
+export function readPolicy(repoRoot: string = REPO_ROOT): CliDerivationPolicy {
   const abs = path.join(repoRoot, ALLOWLIST_PATH);
   if (!existsSync(abs)) {
     throw new Error(
@@ -535,22 +630,64 @@ export function readAllowlist(repoRoot: string = REPO_ROOT): ReadonlySet<string>
     );
   }
   const parsed: unknown = JSON.parse(readFileSync(abs, 'utf8'));
-  const allowed: unknown =
-    typeof parsed === 'object' && parsed !== null ? Reflect.get(parsed, 'allowed') : undefined;
-  if (!Array.isArray(allowed) || !allowed.every((v) => typeof v === 'string')) {
+
+  const allowedRaw = readObjectField(parsed, 'allowed');
+  if (allowedRaw === undefined) {
     throw new Error(
-      `cli-derivation-guard: allowlist at ${ALLOWLIST_PATH} must have an "allowed" array of ` +
-        'strings. Refusing to run against a policy file whose shape it cannot verify.',
+      `cli-derivation-guard: allowlist at ${ALLOWLIST_PATH} must have an "allowed" OBJECT ` +
+        'mapping each tolerated command name to `{ "owner": "…", "expires": "YYYY-MM-DD" }`. ' +
+        'Refusing to run against a policy file whose shape it cannot verify. (The pre-ratchet ' +
+        'shape was a bare array of names, which carried neither an owner nor a deadline.)',
     );
   }
-  const names: string[] = [];
-  for (const v of allowed) if (typeof v === 'string') names.push(v);
+  const retiredRaw = readObjectField(parsed, 'retired');
+  if (retiredRaw === undefined) {
+    throw new Error(
+      `cli-derivation-guard: allowlist at ${ALLOWLIST_PATH} must have a "retired" OBJECT ` +
+        'mapping each paid-down command name to `{ "owner": "…", "retiredAt": "YYYY-MM-DD" }`. ' +
+        'It may be empty, but it may not be ABSENT: the graveyard is half of the pinned seed ' +
+        'key set, and a missing one silently shrinks the set the digest is taken over.',
+    );
+  }
 
-  // The kill fixture is not exemptible. Refusing the FILE (rather than quietly
-  // dropping the entry) is deliberate: a silently-ignored allowlist line reads
-  // to its author as granted, and the whole failure mode being guarded against
-  // here is an exemption that nobody noticed was load-bearing.
-  const exempted = names.filter(isKillFixture);
+  const allowed: Record<string, CliWaiverEntry> = {};
+  for (const name of Object.keys(allowedRaw)) {
+    const value = allowedRaw[name];
+    const owner = readStringField(value, 'owner');
+    const expires = readStringField(value, 'expires');
+    if (owner === undefined || expires === undefined) {
+      throw new Error(
+        `cli-derivation-guard: "${name}" in ${ALLOWLIST_PATH} "allowed" must carry a string ` +
+          '"owner" and a string "expires". A waiver without an owner has nobody the debt comes ' +
+          'due for, and one without a deadline is a permanent exemption wearing a name.',
+      );
+    }
+    allowed[name] = { owner, expires };
+  }
+
+  const retired: Record<string, CliRetiredEntry> = {};
+  for (const name of Object.keys(retiredRaw)) {
+    const value = retiredRaw[name];
+    const owner = readStringField(value, 'owner');
+    const retiredAt = readStringField(value, 'retiredAt');
+    if (owner === undefined || retiredAt === undefined) {
+      throw new Error(
+        `cli-derivation-guard: "${name}" in ${ALLOWLIST_PATH} "retired" must carry a string ` +
+          '"owner" and a string "retiredAt". The graveyard records who paid the debt down and ' +
+          'when; an entry without them is not a record of anything.',
+      );
+    }
+    retired[name] = { owner, retiredAt };
+  }
+
+  // The kill fixture is not exemptible, in EITHER map. Refusing the FILE (rather
+  // than quietly dropping the entry) is deliberate: a silently-ignored allowlist
+  // line reads to its author as granted, and the whole failure mode being
+  // guarded against here is an exemption that nobody noticed was load-bearing.
+  // `retired` is covered too because "retire it without doing the work" is the
+  // same act one map over — and the digest would reject it anyway, with a
+  // message about hashes rather than about DR-5.
+  const exempted = [...Object.keys(allowed), ...Object.keys(retired)].filter(isKillFixture);
   if (exempted.length > 0) {
     throw new Error(
       `cli-derivation-guard: ${ALLOWLIST_PATH} allowlists the kill fixture ` +
@@ -576,7 +713,19 @@ export function readAllowlist(repoRoot: string = REPO_ROOT): ReadonlySet<string>
     );
   }
 
-  return new Set(names);
+  return Object.freeze({ allowed: Object.freeze(allowed), retired: Object.freeze(retired) });
+}
+
+/**
+ * Names tolerated as literals — the key set of {@link readPolicy}'s `allowed`.
+ *
+ * Kept as a distinct, set-shaped view because that is what
+ * {@link findDerivationViolations} consumes: the DERIVATION policy only asks
+ * whether a name is tracked, and giving it the whole ledger would let a future
+ * edit make the derivation verdict depend on an owner or a date.
+ */
+export function readAllowlist(repoRoot: string = REPO_ROOT): ReadonlySet<string> {
+  return new Set(Object.keys(readPolicy(repoRoot).allowed));
 }
 
 // ─── Violations ──────────────────────────────────────────────────────────────
@@ -648,16 +797,557 @@ export function formatViolation(v: DerivationViolation): string {
   return `  ✗ ${label} at ${at}\n      ${v.detail}`;
 }
 
+// ═══ THE RATCHET (task 023) ══════════════════════════════════════════════════
+//
+// Everything above answers "is this command name derived?". Everything below
+// answers a different question — "may this tolerated set change, and how?" —
+// and the two verdicts are deliberately separate because only ONE of them can
+// be green today. `merge-orchestrate` is still hand-written in the composition
+// root and is not allowlistable, so the derivation policy has a live failing
+// subject BY DESIGN until DR-19 deletes it. The ratchet below is green now and
+// is the part wired blocking into CI, through
+// `servers/exarchos-mcp/scripts/cli-derivation-ratchet-guard.ts`.
+//
+// Three teeth, plus the non-empty denominators:
+//   1. MEMBERSHIP, both directions. An untracked literal fails; a tracked name
+//      that is no longer a literal goes STALE and must be deleted. There is no
+//      way to park a paid-down entry.
+//   2. SEED KEY-SET INTEGRITY. Tooth 1 compares the policy against TODAY, and
+//      therefore cannot see an in-place swap. The pinned digest can.
+//   3. EXPIRY, enforced rather than advisory, capped by one pinned horizon so a
+//      waiver cannot renew itself.
+
+// ─── Dates ───────────────────────────────────────────────────────────────────
+//
+// Dates are compared as ISO `YYYY-MM-DD` STRINGS, never as `Date` values.
+// Lexicographic order on that format is calendar order, so the comparison has
+// no timezone, no DST, no leap-second and no millisecond component — a guard
+// whose verdict depended on which side of midnight UTC the runner started would
+// be its own flake class.
+
+const ISO_DAY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
+const MS_PER_DAY = 86_400_000;
+
+/**
+ * Is `value` a real calendar day written `YYYY-MM-DD`?
+ *
+ * The pattern alone is not enough: `2027-02-31` and `2027-13-01` both match it
+ * and neither exists. Both would compare cheerfully under `<` and produce a
+ * confident, wrong verdict — so the value is round-tripped through `Date.UTC`
+ * and rejected unless every component survives. A guard that accepts an
+ * impossible deadline has an impossible deadline.
+ */
+export function isIsoDay(value: string): boolean {
+  const match = ISO_DAY_PATTERN.exec(value);
+  if (match === null) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const utc = Date.UTC(year, month - 1, day);
+  if (Number.isNaN(utc)) return false;
+  const round = new Date(utc);
+  return (
+    round.getUTCFullYear() === year && round.getUTCMonth() + 1 === month && round.getUTCDate() === day
+  );
+}
+
+/**
+ * The UTC calendar day of an instant, as `YYYY-MM-DD`.
+ *
+ * UTC and not local time on purpose: a CI runner, a developer laptop and a
+ * reviewer in another timezone must agree on whether a waiver is past due, or
+ * "expired" becomes a property of who ran the guard. An invalid `Date` yields
+ * the empty string, which {@link auditCliDerivationExpiry} reports as
+ * `UNREADABLE_CLOCK` rather than silently treating as "long ago".
+ */
+export function isoDayUtc(now: Date): string {
+  const ms = now.getTime();
+  if (Number.isNaN(ms)) return '';
+  const year = String(now.getUTCFullYear()).padStart(4, '0');
+  const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(now.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/** Whole days between two ISO days. Both must be well-formed; otherwise `0`. */
+function daysBetween(from: string, to: string): number {
+  if (!isIsoDay(from) || !isIsoDay(to)) return 0;
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / MS_PER_DAY);
+}
+
+// ─── Tooth 1: membership, in both directions ─────────────────────────────────
+
+/** A disagreement between the tracked set and the live parse. */
+export type CliMembershipFinding =
+  | { readonly code: 'UNTRACKED_LITERAL'; readonly name: string; readonly message: string }
+  | { readonly code: 'STALE_WAIVER'; readonly name: string; readonly message: string }
+  | { readonly code: 'RETIRED_BUT_LIVE'; readonly name: string; readonly message: string };
+
+export interface CliMembershipAudit {
+  readonly ok: boolean;
+  /** Literal command names in the live parse, EXCLUDING kill fixtures. Zero is a failure upstream. */
+  readonly literals: readonly string[];
+  /** Names tracked as tolerated debt. */
+  readonly tracked: readonly string[];
+  readonly untracked: readonly string[];
+  readonly stale: readonly string[];
+  readonly retiredButLive: readonly string[];
+  readonly findings: readonly CliMembershipFinding[];
+}
+
+/**
+ * Pin the policy against the live parse, in BOTH directions.
+ *
+ * The count this guard reports is DERIVED from the scan on every run and is
+ * written down nowhere: a census whose subject count is a literal reports the
+ * same number after the composition root is renamed, emptied, or fails to
+ * parse. `scanSourceForCommandSites` already refuses a zero-site parse, so the
+ * denominator here cannot be empty for the reason that matters.
+ *
+ * Kill fixtures are excluded from BOTH sides. They are not tracked debt — they
+ * are a standing rejection, reported unconditionally by
+ * {@link findDerivationViolations}, and folding them in here would make the
+ * ratchet demand an allowlist entry for exactly the name that may not have one.
+ */
+export function auditCliAllowlistMembership(
+  scan: DerivationScan,
+  policy: CliDerivationPolicy,
+): CliMembershipAudit {
+  const findings: CliMembershipFinding[] = [];
+  const literals = [...new Set(scan.literals.map((s) => s.name).filter((n) => !isKillFixture(n)))].sort();
+  const liveSet = new Set(literals);
+  const tracked = Object.keys(policy.allowed).sort();
+  const trackedSet = new Set(tracked);
+  const retiredNames = Object.keys(policy.retired).sort();
+
+  const untracked = literals.filter((n) => !trackedSet.has(n));
+  for (const name of untracked) {
+    findings.push({
+      code: 'UNTRACKED_LITERAL',
+      name,
+      message:
+        `'${name}' is a hand-written \`.command('${name}')\` literal in the composition root ` +
+        'that no allowlist entry tracks. Register it through a derivation helper so its name ' +
+        'comes from a registry declaration. Adding an entry is NOT the repair — the seed key ' +
+        'set is pinned, so a new entry fails with SEED_KEY_SET_DRIFT.',
+    });
+  }
+
+  const stale = tracked.filter((n) => !liveSet.has(n));
+  for (const name of stale) {
+    findings.push({
+      code: 'STALE_WAIVER',
+      name,
+      message:
+        `'${name}' holds a waiver but is no longer a hand-written literal in the composition ` +
+        'root. If it was paid down, MOVE its entry to "retired" with a `retiredAt` date — the ' +
+        'seed key set is the union of both maps, so a move keeps the pin valid and a deletion ' +
+        'does not. There is deliberately no way to park a paid-down entry here.',
+    });
+  }
+
+  const retiredButLive = retiredNames.filter((n) => liveSet.has(n));
+  for (const name of retiredButLive) {
+    findings.push({
+      code: 'RETIRED_BUT_LIVE',
+      name,
+      message:
+        `'${name}' is recorded as retired but is STILL a hand-written literal in the ` +
+        'composition root. Retiring an entry without doing the work fails louder than leaving ' +
+        'it alone, which is the point: the graveyard is a record of paydowns, not a ' +
+        'suppression list.',
+    });
+  }
+
+  return Object.freeze({
+    ok: findings.length === 0,
+    literals: Object.freeze(literals),
+    tracked: Object.freeze(tracked),
+    untracked: Object.freeze(untracked),
+    stale: Object.freeze(stale),
+    retiredButLive: Object.freeze(retiredButLive),
+    findings: Object.freeze(findings),
+  });
+}
+
+/** Render the membership audit for a human or an agent. */
+export function formatCliMembershipAudit(audit: CliMembershipAudit): string {
+  const lines: string[] = [
+    `CLI derivation membership: ${audit.tracked.length} tracked waiver(s) against ` +
+      `${audit.literals.length} live hand-written literal(s) — ${audit.ok ? 'OK' : 'FAILED'}.`,
+  ];
+  if (audit.findings.length > 0) {
+    lines.push(`  ${audit.findings.length} finding(s):`);
+    for (const finding of audit.findings) {
+      lines.push(`    [${finding.code}] ${finding.name}: ${finding.message}`);
+    }
+  }
+  return lines.join('\n');
+}
+
+// ─── Tooth 2: the seed key set is pinned ─────────────────────────────────────
+
+/** A condition that means the SEED's key set is no longer the one that was pinned. */
+export type CliSeedFinding =
+  | { readonly code: 'SEED_KEY_SET_DRIFT'; readonly message: string }
+  | { readonly code: 'RETIRED_AND_WAIVED'; readonly name: string; readonly message: string };
+
+export interface CliSeedIntegrityAudit {
+  /** True when the live key set hashes to the pinned digest and the maps are disjoint. */
+  readonly ok: boolean;
+  /** `|allowed ∪ retired|` — the seed's size, which legal edits do not change. */
+  readonly keySetSize: number;
+  readonly digest: string;
+  readonly pinnedDigest: string;
+  /** Names present in BOTH maps. A paydown is a MOVE, never a copy. */
+  readonly overlapping: readonly string[];
+  readonly findings: readonly CliSeedFinding[];
+}
+
+/**
+ * The seed key set's digest: `sha256` over the sorted, deduplicated names
+ * joined by newlines.
+ *
+ * Order- and duplicate-insensitive on purpose — the pinned quantity is a SET,
+ * so re-sorting the policy file or writing a name twice must not move the
+ * digest. Only membership does.
+ */
+export function cliDerivationSeedDigest(names: readonly string[]): string {
+  const canonical = [...new Set(names)].sort().join('\n');
+  return createHash(CLI_DERIVATION_SEED_DIGEST_ALGORITHM).update(canonical, 'utf8').digest('hex');
+}
+
+/**
+ * Audit the seed's key set against its frozen pin.
+ *
+ * All three inputs are injectable for the same reason the scanner is pure: a
+ * self-test has to pose an in-place swap, and a swap cannot be posed against
+ * the real policy file without editing the real policy file.
+ */
+export function auditCliDerivationSeedIntegrity(
+  waived: readonly string[],
+  retired: readonly string[],
+  pinnedDigest: string = CLI_DERIVATION_SEED_KEY_SET_DIGEST,
+): CliSeedIntegrityAudit {
+  const findings: CliSeedFinding[] = [];
+  const waivedSet = new Set(waived);
+  const overlapping = [...new Set(retired)].filter((n) => waivedSet.has(n)).sort();
+  const keySet = [...new Set([...waived, ...retired])].sort();
+  const digest = cliDerivationSeedDigest(keySet);
+
+  if (digest !== pinnedDigest) {
+    findings.push({
+      code: 'SEED_KEY_SET_DRIFT',
+      message:
+        `The CLI-derivation seed's key set no longer matches its frozen pin: ${keySet.length} ` +
+        `name(s) hash to ${digest}, pinned ${pinnedDigest}. The seed key set is ` +
+        'ALLOWED ∪ RETIRED, and it is invariant under every legal edit — paying a verb down ' +
+        'MOVES its entry from "allowed" to "retired", it does not delete it. A drift therefore ' +
+        'means a name was ADDED (a new hand-written verb smuggled in as a swap, which no ' +
+        'comparison against the live parse can see) or DELETED (a paydown recorded as a ' +
+        'deletion, which destroys the prior state this tooth is made of). Do NOT regenerate ' +
+        'the pin to go green.',
+    });
+  }
+
+  for (const name of overlapping) {
+    findings.push({
+      code: 'RETIRED_AND_WAIVED',
+      name,
+      message:
+        `'${name}' is in BOTH the allowlist and the retirement record. A paydown is a MOVE, ` +
+        'not a copy — delete the "allowed" entry. Left as is, the verb reads as retired while ' +
+        'still holding a live waiver.',
+    });
+  }
+
+  return Object.freeze({
+    ok: findings.length === 0,
+    keySetSize: keySet.length,
+    digest,
+    pinnedDigest,
+    overlapping: Object.freeze(overlapping),
+    findings: Object.freeze(findings),
+  });
+}
+
+/** Render the seed-integrity audit for a human or an agent. */
+export function formatCliSeedIntegrityAudit(audit: CliSeedIntegrityAudit): string {
+  const lines: string[] = [
+    `CLI derivation seed integrity: ${audit.keySetSize} name(s), digest ${audit.digest} ` +
+      `against pin ${audit.pinnedDigest} — ${audit.ok ? 'OK' : 'FAILED'}.`,
+  ];
+  if (audit.findings.length > 0) {
+    lines.push(`  ${audit.findings.length} finding(s):`);
+    for (const finding of audit.findings) {
+      const subject = 'name' in finding ? ` ${finding.name}:` : '';
+      lines.push(`    [${finding.code}]${subject} ${finding.message}`);
+    }
+  }
+  return lines.join('\n');
+}
+
+// ─── Tooth 3: the expiry is ENFORCED, not advisory ───────────────────────────
+//
+// This tooth is deliberately separate from the two above because it is the only
+// one that is a function of TIME:
+//
+//   • membership and seed integrity are STRUCTURAL — same verdict forever, for
+//     a fixed pair of inputs. They belong in the unit suite, and they are there.
+//   • expiry is TEMPORAL — the same repository is green today and red in March
+//     2027, which is the entire point of a deadline. A wall-clock read inside
+//     the unit suite would turn "the debt came due" into "the test suite stopped
+//     working", and a developer who cannot run tests fixes the CLOCK, not the
+//     debt. So NOTHING in this module reads `new Date()`: `today` is a required
+//     first parameter, and the single production clock read lives at the gate
+//     entrypoint (`servers/exarchos-mcp/scripts/cli-derivation-ratchet-guard.ts`),
+//     which is the artifact that blocks the merge.
+
+/** A condition that makes an allowlist entry's deadline invalid or past due. */
+export type CliExpiryFinding =
+  | { readonly code: 'EMPTY_ALLOWLIST'; readonly message: string }
+  | { readonly code: 'UNREADABLE_CLOCK'; readonly message: string }
+  | { readonly code: 'MALFORMED_HORIZON'; readonly message: string }
+  | { readonly code: 'MALFORMED_WAIVER'; readonly name: string; readonly message: string }
+  | { readonly code: 'WAIVER_BEYOND_HORIZON'; readonly name: string; readonly message: string }
+  | { readonly code: 'EXPIRED_WAIVER'; readonly name: string; readonly message: string };
+
+export interface CliExpiryAudit {
+  /** True when every entry is well-formed, within the horizon, and not past due. */
+  readonly ok: boolean;
+  /** The instant the verdict was taken at, echoed so a report is self-describing. */
+  readonly today: string;
+  readonly horizon: string;
+  /** Entries examined. Zero is a failure, never a clean run. */
+  readonly entryCount: number;
+  /** Names whose `expires` is strictly before `today`. The deadline, bitten. */
+  readonly expired: readonly string[];
+  /** Names whose `expires` is later than the pinned horizon — a self-granted renewal. */
+  readonly beyondHorizon: readonly string[];
+  /** Names with an empty owner or an unparseable `expires`. Fails closed. */
+  readonly malformed: readonly string[];
+  /** Whole days from `today` to `horizon`; negative once the horizon itself is past. */
+  readonly daysToHorizon: number;
+  readonly findings: readonly CliExpiryFinding[];
+}
+
+/**
+ * Audit every allowlist entry's deadline as of a NAMED day.
+ *
+ * `today` is required and has no default — see the section header. The
+ * production call is `auditCliDerivationExpiry(isoDayUtc(new Date()), …)`, made
+ * once, at the gate entrypoint.
+ *
+ * Four teeth:
+ *   1. NON-EMPTY DENOMINATOR. An allowlist that resolves to zero entries makes
+ *      "no expired waiver" true for the worst possible reason — a moved file, a
+ *      broken parse, a renamed field. It FAILS. The legitimate zero state exists
+ *      (DR-19, the debt fully paid), and it is not this: reaching zero deletes
+ *      the policy file, the pin and this audit in one commit.
+ *   2. WELL-FORMEDNESS. An empty owner or an `expires` that is not a real
+ *      calendar day fails closed. An unowned waiver has nobody to come due for,
+ *      and an unparseable date cannot be compared — neither may read as "fine".
+ *   3. HORIZON. `expires` later than `CLI_DERIVATION_EXPIRY_HORIZON` fails. This
+ *      is what stops a waiver from renewing itself: the entry cannot name a date
+ *      of its own choosing, so extending the debt means moving ONE pinned
+ *      constant in a file of frozen values, not ten lines in a policy file.
+ *   4. EXPIRY. `expires` strictly before `today` fails. Inclusive of the expiry
+ *      day itself — an entry marked `2027-02-28` is live THROUGH 2027-02-28 and
+ *      dead on 2027-03-01, matching the field's documented meaning.
+ */
+export function auditCliDerivationExpiry(
+  today: string,
+  entries: Readonly<Record<string, CliWaiverEntry>>,
+  horizon: string = CLI_DERIVATION_EXPIRY_HORIZON,
+): CliExpiryAudit {
+  const findings: CliExpiryFinding[] = [];
+  const names = Object.keys(entries).sort();
+  const clockOk = isIsoDay(today);
+  const horizonOk = isIsoDay(horizon);
+
+  if (!clockOk) {
+    findings.push({
+      code: 'UNREADABLE_CLOCK',
+      message:
+        `The expiry audit was handed '${today}' as the current day, which is not a real ` +
+        'calendar date in YYYY-MM-DD form. Every deadline comparison below would be ' +
+        'meaningless, so the audit fails rather than reporting the waivers live.',
+    });
+  }
+  if (!horizonOk) {
+    findings.push({
+      code: 'MALFORMED_HORIZON',
+      message:
+        `The pinned expiry horizon '${horizon}' is not a real calendar date in YYYY-MM-DD ` +
+        'form. CLI_DERIVATION_EXPIRY_HORIZON in ' +
+        'servers/exarchos-mcp/scripts/cli-derivation-seed-pin.ts is the one deadline every ' +
+        'waiver is measured against; an unreadable horizon disables the tooth that stops a ' +
+        'waiver renewing itself, so it fails closed.',
+    });
+  }
+  if (names.length === 0) {
+    findings.push({
+      code: 'EMPTY_ALLOWLIST',
+      message:
+        'The CLI-derivation allowlist resolved ZERO entries, so the expiry audit has an empty ' +
+        'denominator and proves nothing — "no expired waiver" is trivially true over no ' +
+        'waivers. That is what a moved policy file or a renamed field looks like, so it fails ' +
+        'rather than reporting clean. If the debt really did reach zero at DR-19, the policy ' +
+        'file, its pin and this audit are DELETED in the same commit.',
+    });
+  }
+
+  const expired: string[] = [];
+  const beyondHorizon: string[] = [];
+  const malformed: string[] = [];
+
+  for (const name of names) {
+    const entry = entries[name];
+    if (entry === undefined) continue;
+
+    if (entry.owner.trim().length === 0 || !isIsoDay(entry.expires)) {
+      malformed.push(name);
+      findings.push({
+        code: 'MALFORMED_WAIVER',
+        name,
+        message:
+          `'${name}' carries owner '${entry.owner}' and expires '${entry.expires}'. A waiver ` +
+          'needs a non-empty owner (someone the debt comes due for) and a real calendar date ' +
+          'in YYYY-MM-DD form (something the deadline can be compared against). Neither can be ' +
+          'inferred, so the entry fails closed.',
+      });
+      continue;
+    }
+
+    if (horizonOk && entry.expires > horizon) {
+      beyondHorizon.push(name);
+      findings.push({
+        code: 'WAIVER_BEYOND_HORIZON',
+        name,
+        message:
+          `'${name}' expires ${entry.expires}, later than the pinned horizon ${horizon}. A ` +
+          'waiver may not name its own deadline — that is renewal without a decision. Pay the ' +
+          'verb down (register it through a derivation helper and MOVE its entry to "retired"), ' +
+          'or move CLI_DERIVATION_EXPIRY_HORIZON in ' +
+          'servers/exarchos-mcp/scripts/cli-derivation-seed-pin.ts as a deliberate, isolated ' +
+          'commit that re-dates the WHOLE outstanding debt.',
+      });
+    }
+
+    if (clockOk && entry.expires < today) {
+      expired.push(name);
+      findings.push({
+        code: 'EXPIRED_WAIVER',
+        name,
+        message:
+          `'${name}' (owner: ${entry.owner}) expired on ${entry.expires}; today is ${today}. ` +
+          'DR-5: the expiry is ENFORCED, not advisory. Register the verb through a derivation ' +
+          'helper and MOVE its entry to "retired". Bumping the date is not the fix — the entry ' +
+          `cannot exceed the pinned horizon ${horizon}.`,
+      });
+    }
+  }
+
+  return Object.freeze({
+    ok: findings.length === 0,
+    today,
+    horizon,
+    entryCount: names.length,
+    expired: Object.freeze(expired),
+    beyondHorizon: Object.freeze(beyondHorizon),
+    malformed: Object.freeze(malformed),
+    daysToHorizon: daysBetween(today, horizon),
+    findings: Object.freeze(findings),
+  });
+}
+
+/** Render the expiry audit for a human or an agent. */
+export function formatCliExpiryAudit(audit: CliExpiryAudit): string {
+  const lines: string[] = [
+    `CLI derivation waiver expiry: ${audit.entryCount} waiver(s) as of ${audit.today}, ` +
+      `horizon ${audit.horizon} (${audit.daysToHorizon} day(s)) — ${audit.ok ? 'OK' : 'FAILED'}.`,
+  ];
+  if (audit.findings.length > 0) {
+    lines.push(`  ${audit.findings.length} finding(s):`);
+    for (const finding of audit.findings) {
+      const subject = 'name' in finding ? ` ${finding.name}:` : '';
+      lines.push(`    [${finding.code}]${subject} ${finding.message}`);
+    }
+  }
+  return lines.join('\n');
+}
+
+// ─── The composed ratchet verdict ────────────────────────────────────────────
+
+export interface CliRatchetVerdict {
+  readonly ok: boolean;
+  readonly membership: CliMembershipAudit;
+  readonly seed: CliSeedIntegrityAudit;
+  readonly expiry: CliExpiryAudit;
+  /** Every finding code raised, across all three teeth, in tooth order. */
+  readonly findings: readonly string[];
+}
+
+/**
+ * Compose the three teeth into one verdict at a NAMED day.
+ *
+ * Separate from the audits so each stays independently drivable, and separate
+ * from the gate entrypoint so the composition itself is testable without a
+ * clock. `ok` is the conjunction — a ratchet that passed while one tooth failed
+ * would be the presence-not-substance defect this program keeps removing.
+ */
+export function auditCliRatchetAsOf(
+  today: string,
+  scan: DerivationScan,
+  policy: CliDerivationPolicy,
+  pinnedDigest: string = CLI_DERIVATION_SEED_KEY_SET_DIGEST,
+  horizon: string = CLI_DERIVATION_EXPIRY_HORIZON,
+): CliRatchetVerdict {
+  const membership = auditCliAllowlistMembership(scan, policy);
+  const seed = auditCliDerivationSeedIntegrity(
+    Object.keys(policy.allowed),
+    Object.keys(policy.retired),
+    pinnedDigest,
+  );
+  const expiry = auditCliDerivationExpiry(today, policy.allowed, horizon);
+  return Object.freeze({
+    ok: membership.ok && seed.ok && expiry.ok,
+    membership,
+    seed,
+    expiry,
+    findings: Object.freeze([
+      ...membership.findings.map((f) => f.code),
+      ...seed.findings.map((f) => f.code),
+      ...expiry.findings.map((f) => f.code),
+    ]),
+  });
+}
+
 // ─── CLI entrypoint ──────────────────────────────────────────────────────────
 //
-// Runnable so the policy can be executed as a gate, not only imported by its
-// co-located test. NOT yet wired into `ci.yml`: on the landing branch it
-// reports all 11 literals and would fail the build, which is the accurate
-// report but not yet an enforceable budget. Host-class note for whoever wires
-// it (see `docs/guides/ci-gate-hosting.md`): this needs `typescript` resolvable,
-// so it belongs in the DEPS TAIL of the unfiltered `grep-gates` job, NOT the
-// zero-dep prefix. It needs neither Bun nor `bun:sqlite`, unlike the sibling
-// `cli-vocab-guard`.
+// Runnable so the DERIVATION policy can be executed, not only imported. It is
+// still NOT wired into `.github/workflows/ci.yml`, and after task 023 that is a
+// narrower and more precise statement than it was before:
+//
+//   Before, it exited 1 on all ELEVEN hand-written literals, because the
+//   allowlist was empty. Now ten of the eleven are tracked debt with an owner
+//   and an enforced deadline, and the ONE remaining violation is
+//   `merge-orchestrate` — the kill fixture, which is not allowlistable and must
+//   stay rejected. DR-5's own remediation for it is DELETION of the hand-written
+//   `.command('merge-orchestrate')` call, and no Wave-1 task owns that edit (see
+//   task 023's report). Until it lands, this entrypoint reports exactly one
+//   violation and exits 1 — which is the guard working, not the guard broken.
+//
+// The RATCHET half — the part that is green today and enforceable now — has its
+// own entrypoint at `servers/exarchos-mcp/scripts/cli-derivation-ratchet-guard.ts`,
+// which is wired blocking and unfiltered. This mirrors DR-4's split between the
+// census library and `servers/exarchos-mcp/scripts/output-schema-ratchet-guard.ts`.
+//
+// Host-class note for whoever wires THIS entrypoint once the kill fixture is
+// deleted (see `docs/guides/ci-gate-hosting.md`): it needs `typescript`
+// resolvable, so it belongs in the DEPS TAIL of the unfiltered `grep-gates` job,
+// NOT the zero-dep prefix. It needs neither Bun nor `bun:sqlite`, unlike the
+// sibling `cli-vocab-guard`.
 
 export function runGuard(): number {
   const scan = scanGovernedSources();
