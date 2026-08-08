@@ -1,6 +1,6 @@
 # Spec: Internal mechanics overhaul — one authority per contract, bound mechanically, IR-shaped
 
-**Date:** 2026-08-06 · **Revised:** 2026-08-07 (rev 4.16) · **Feature:** `internal-mechanics-overhaul` · **Depth:** deep
+**Date:** 2026-08-06 · **Revised:** 2026-08-07 (rev 4.17) · **Feature:** `internal-mechanics-overhaul` · **Depth:** deep
 **Method:** `proof-driven-development` (Design mode) — `~/.agents/skills/proof-driven-development`
 **Baseline:** rebased onto `origin/main`; **every count below is re-derived from the landing branch.**
 
@@ -726,9 +726,9 @@ Research pre-pass: discovery workflow **`mcp-spec-2026-07-28-migration`** (gathe
 
 ### Scope
 
-**Target:** Partial — **Wave 0 and Wave 1 decomposed to task granularity (tasks 001–027, 046–075).** Waves 2–5 carry one anchor task per DR (028–045) for provenance, to be re-planned after Wave 1 exit.
+**Target:** Partial — **Wave 0 and Wave 1 decomposed to task granularity (tasks 001–027, 046–077).** Waves 2–5 carry one anchor task per DR (028–045) for provenance, to be re-planned after Wave 1 exit.
 
-> **Task-ID ranges, since three appends have now widened this.** 001–004 retired (rev 2). 005–027 = the rev-1/rev-3 Wave 1 body, 027 the join point. 028–045 = Waves 2–5 anchors. 046–050 = rev-4 additions (DR-25, DR-0 remainder). 051–075 = tasks *derived from running Wave 1*, each one a defect a shipped task found and reported rather than worked around. That third range is the program working as designed, not scope creep — but it means **the task count is not fixed at plan time**, and any statement of the form "N of M tasks complete" must re-derive M.
+> **Task-ID ranges, since three appends have now widened this.** 001–004 retired (rev 2). 005–027 = the rev-1/rev-3 Wave 1 body, 027 the join point. 028–045 = Waves 2–5 anchors. 046–050 = rev-4 additions (DR-25, DR-0 remainder). 051–077 = tasks *derived from running Wave 1*, each one a defect a shipped task found and reported rather than worked around. That third range is the program working as designed, not scope creep — but it means **the task count is not fixed at plan time**, and any statement of the form "N of M tasks complete" must re-derive M.
 
 **Excluded, with rationale:** Waves 2–5 are *deliberately* not decomposed in this pass. **DR-6's authority-topology census is the instrument that enumerates the real remediation subjects** — which boundaries have unbound representations, which events lack a consumer hop, which effects lack a coupling. Decomposing Waves 2–5 before that census has run would be fabricating a subject list rather than deriving one, which is precisely the precision-manufacturing PDD warns against ("do not add abstractions, manifests, generators, or test layers without a concrete correctness obligation").
 
@@ -746,7 +746,7 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 | DR-2 | Tiered, coupling-typed event registration | 009, 010, 011, 012, 013 |
 | DR-3 | Compile-time event-name grammar | 014, 015, 075 |
 | DR-4 | `outputSchema` non-vacuity | 016, 017, 018, 019, 055, 060, 069 |
-| DR-5 | CLI derivation guard | 020, 021, 022, 023 |
+| DR-5 | CLI derivation guard | 020, 021, 022, 023, 076 |
 | DR-6 | Authority-topology census | 024, 025, 026, 027, 066 |
 | DR-7 | Effect ledger | 028 *(anchor)* |
 | DR-8 | Fourth envelope state | 029 *(anchor)* |
@@ -765,7 +765,7 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 | DR-21 | Replay and compatibility | 042 *(anchor)* |
 | DR-22 | MCP era cutover + Tasks re-platform | 043 *(anchor)* |
 | DR-23 | Invariant amendments | 044 *(anchor)*, 068, 073 |
-| DR-24 | Wave sequencing / anti-inertness | 045 *(anchor)*, 057, 058, 063, 064, 066, 067, 068, 069, 070, 071, 074 |
+| DR-24 | Wave sequencing / anti-inertness | 045 *(anchor)*, 057, 058, 063, 064, 066, 067, 068, 069, 070, 071, 074, 077 |
 | DR-25 | Dispatch shape belongs to the provisioning contract | 046, 047, 048, 056, 059 |
 | DR-26 | SDK generation seam *(rev 4)* | 052, 053, 062, 065, 072 |
 | DR-27 | Measured-premise binding *(rev 4)* | 054, 061 |
@@ -1370,6 +1370,48 @@ So the two disagree in **both** directions, and the runtime half is the permissi
 
 **Verification:** high — scoped tests + `check_test_adequacy` + integration over the registration seam and a replay of persisted streams.
 **Dependencies:** 014, 015 · **Parallelizable:** Yes
+
+### Task 076: DR-5's remediation is unowned — delete `merge-orchestrate`'s hand-written command
+**Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-5
+**Files:** `servers/exarchos-mcp/src/adapters/cli.ts`, a rename-stub release note
+**Detail:** **This blocks task 027's G1 flip.** Found by task 023 while seeding the allowlist.
+
+G1's Exceptions row says `merge-orchestrate`'s hand-written command "is deleted in DR-5, not exempted", and DR-5's criteria call the registry declaration "the single remaining definition". **No Wave-1 task owns that edit.** Task 023's Files list excludes `cli.ts`, and the shipped `readPolicy` refuses a `merge-orchestrate` allowlist entry outright — so following task 023's own Detail line verbatim (which named `merge-orchestrate` among 8 verbs) would have produced a policy file the mechanism rejects. 023 measured this, declined to widen its scope, and reported it.
+
+**Consequence, stated plainly:** `cli-derivation-guard.ts` still exits 1 — on 1 violation now rather than 11 — so **it cannot be wired direct-and-blocking**, and `GUARD_EXEMPTIONS` still carries an entry for it. 023 narrowed that entry to name this deletion as the blocker rather than leaving it pointing at itself. Task 027 cannot flip G1 to enforce until this lands.
+
+**Why it is a decision, not a guard task.** Removing a promoted top-level verb is user-visible. The repo's own precedent for this (`init` / `install-skills`) is a one-release rename stub, so the shape is known — but choosing to spend it, and writing the note, is a judgement call that does not belong inside a ratchet task.
+
+**Acceptance criteria:**
+- The hand-written `.command('merge-orchestrate')` literal is gone from `cli.ts`; the registry declaration survives, preserving `posture: 'shared-mutating'` on the single remaining definition.
+- A rename stub or deprecation path following the `init`/`install-skills` precedent, with the release note saying what users type instead.
+- `cli-derivation-guard.ts` exits **0** on the live tree, its `GUARD_EXEMPTIONS` entry is **removed** (not re-dated), and `guard-inventory` reports it `enforcement: blocks`, `pathFilteredOnly: false`, `via=direct`.
+- **Kill fixture survives:** task 021's proof that the guard rejects a hand-written `merge-orchestrate` definition must still have a subject — re-seed it as a fixture rather than deleting the test with the code.
+- **Non-empty denominator:** the guard must still fail if it resolves zero command sites (task 022 pushed that tooth into the pure scanner; do not route around it).
+
+**Verification:** high — scoped tests + `check_test_adequacy` + CLI parity over the removed verb.
+**Dependencies:** 020, 021, 022, 023 · **Blocks:** 027 · **Parallelizable:** No
+
+### Task 077: The waiver-ledger idiom is triplicated
+**Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-6, DR-24
+**Files:** a new dependency-free `waiver-ledger` module; `servers/exarchos-mcp/src/architecture/output-schema-census.ts`, `report-coupling-census.ts`, `servers/exarchos-mcp/scripts/cli-derivation-ratchet-guard.ts`
+**Detail:** Reported by task 023 against its own work, having just written the third copy.
+
+`isIsoDay` / `isoDayUtc` / `daysBetween` / the key-set digest now exist **independently three times** — DR-4's `output-schema-census.ts` (task 017), DR-2's `report-coupling-census.ts` (task 013), and DR-5's `cli-derivation-ratchet-guard.ts` (task 023). The vocabulary is identical by deliberate discipline, which is why nothing has diverged yet; three copies of one rule is nonetheless exactly the multiply-owned-representation defect DR-6's census exists to detect, and this program should not be accumulating instances of it.
+
+**One copy is already weaker than the others:** DR-2's rolls its own `isExpired` and has **no horizon pin**, so per-entry renewal is possible there in a way tasks 017 and 023 both deliberately made impossible.
+
+023 declined to extract, with a reason worth preserving: `output-schema-census.ts` imports `TOOL_REGISTRY`, and pulling it into the CLI guard would destroy that guard's load-bearing property of not reaching `bun:sqlite`. So the extraction must go the other way — a dependency-free module the three delegate to.
+
+**Acceptance criteria:**
+- One `waiver-ledger` module, importing nothing, taking an **injected subject descriptor** so each census supplies its own population and finding vocabulary. All three delegate; no copy retains its own date arithmetic or digest.
+- **DR-2 gains a horizon pin** in the process — the extraction is the moment to close that gap, not to preserve it.
+- **Kill fixture per consumer:** each census's existing expiry and shrink-only tests must still bite after delegation. Prove it by mutation, not by the suite merely staying green.
+- The CLI guard's no-`bun:sqlite` property is preserved and asserted, since that is why the extraction has this shape.
+- **Non-empty denominator** in the shared module: a ledger resolving zero entries fails rather than passing clean.
+
+**Verification:** medium — scoped tests + per-consumer kill-probe.
+**Dependencies:** 013, 017, 023 · **Parallelizable:** Yes
 
 ### Task 063: Inventory every Wave-1 guard and prove it is reachable from CI
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-24
