@@ -1,6 +1,6 @@
 # Spec: Internal mechanics overhaul — one authority per contract, bound mechanically, IR-shaped
 
-**Date:** 2026-08-06 · **Revised:** 2026-08-07 (rev 4.14) · **Feature:** `internal-mechanics-overhaul` · **Depth:** deep
+**Date:** 2026-08-06 · **Revised:** 2026-08-07 (rev 4.15) · **Feature:** `internal-mechanics-overhaul` · **Depth:** deep
 **Method:** `proof-driven-development` (Design mode) — `~/.agents/skills/proof-driven-development`
 **Baseline:** rebased onto `origin/main`; **every count below is re-derived from the landing branch.**
 
@@ -726,9 +726,9 @@ Research pre-pass: discovery workflow **`mcp-spec-2026-07-28-migration`** (gathe
 
 ### Scope
 
-**Target:** Partial — **Wave 0 and Wave 1 decomposed to task granularity (tasks 001–027, 046–073).** Waves 2–5 carry one anchor task per DR (028–045) for provenance, to be re-planned after Wave 1 exit.
+**Target:** Partial — **Wave 0 and Wave 1 decomposed to task granularity (tasks 001–027, 046–074).** Waves 2–5 carry one anchor task per DR (028–045) for provenance, to be re-planned after Wave 1 exit.
 
-> **Task-ID ranges, since three appends have now widened this.** 001–004 retired (rev 2). 005–027 = the rev-1/rev-3 Wave 1 body, 027 the join point. 028–045 = Waves 2–5 anchors. 046–050 = rev-4 additions (DR-25, DR-0 remainder). 051–073 = tasks *derived from running Wave 1*, each one a defect a shipped task found and reported rather than worked around. That third range is the program working as designed, not scope creep — but it means **the task count is not fixed at plan time**, and any statement of the form "N of M tasks complete" must re-derive M.
+> **Task-ID ranges, since three appends have now widened this.** 001–004 retired (rev 2). 005–027 = the rev-1/rev-3 Wave 1 body, 027 the join point. 028–045 = Waves 2–5 anchors. 046–050 = rev-4 additions (DR-25, DR-0 remainder). 051–074 = tasks *derived from running Wave 1*, each one a defect a shipped task found and reported rather than worked around. That third range is the program working as designed, not scope creep — but it means **the task count is not fixed at plan time**, and any statement of the form "N of M tasks complete" must re-derive M.
 
 **Excluded, with rationale:** Waves 2–5 are *deliberately* not decomposed in this pass. **DR-6's authority-topology census is the instrument that enumerates the real remediation subjects** — which boundaries have unbound representations, which events lack a consumer hop, which effects lack a coupling. Decomposing Waves 2–5 before that census has run would be fabricating a subject list rather than deriving one, which is precisely the precision-manufacturing PDD warns against ("do not add abstractions, manifests, generators, or test layers without a concrete correctness obligation").
 
@@ -765,7 +765,7 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 | DR-21 | Replay and compatibility | 042 *(anchor)* |
 | DR-22 | MCP era cutover + Tasks re-platform | 043 *(anchor)* |
 | DR-23 | Invariant amendments | 044 *(anchor)*, 068, 073 |
-| DR-24 | Wave sequencing / anti-inertness | 045 *(anchor)*, 057, 058, 063, 064, 066, 067, 068, 069, 070, 071 |
+| DR-24 | Wave sequencing / anti-inertness | 045 *(anchor)*, 057, 058, 063, 064, 066, 067, 068, 069, 070, 071, 074 |
 | DR-25 | Dispatch shape belongs to the provisioning contract | 046, 047, 048, 056, 059 |
 | DR-26 | SDK generation seam *(rev 4)* | 052, 053, 062, 065, 072 |
 | DR-27 | Measured-premise binding *(rev 4)* | 054, 061 |
@@ -1315,6 +1315,32 @@ Each is an **eighth-occurrence candidate** of the measure-the-wrong-property pat
 
 **Verification:** medium — scoped tests + kill-probe on the raw-text diff.
 **Dependencies:** 068 · **Parallelizable:** Yes
+
+### Task 074: Filename-coupled entrypoint predicates — a silent no-op on rename
+**Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-24
+**Files:** `servers/exarchos-mcp/scripts/cli-derivation-guard.ts`, `servers/exarchos-mcp/scripts/cli-vocab-guard.ts`, `servers/exarchos-mcp/scripts/generate-docs.ts`
+**Detail:** Found and measured by task 018 while fixing the fourth instance.
+
+A guard that self-executes via `process.argv[1].endsWith('<its own filename>')` couples **whether it runs** to **what it is called**. Task 018 measured the consequence on `output-schema-ratchet-guard.ts`: a byte-identical copy under any other name printed **0 bytes on stdout, 0 on stderr, and exited 0**. So renaming the guard and updating its `ci.yml` `run:` step — the ordinary meaning of "rename a file" — leaves CI with a step that exists, runs, resolves, and **enforces nothing**.
+
+It is invisible to everything that would otherwise catch it. `guard-inventory` still reports the host as direct and unfiltered; the guard's own unit suite never spawns a process, so it reads the return value of a function that CI never reaches. This is R-11 with the mechanism *present and invoked* — the caller exists and still gets nothing.
+
+018 fixed its own instance using the idiom the repo already has in `scripts/validate-plugin.mjs` and `scripts/run-validate.mjs` (resolved `argv[1]` vs `fileURLToPath(import.meta.url)`, plus `realpathSync` so a filename-shaped no-op is not traded for a symlink-shaped one), and left the other three, correctly, as out of scope.
+
+**The three remaining, with their live exposure:**
+- `cli-derivation-guard.ts` — currently `unreachable` with a `GUARD_EXEMPTIONS` entry, so **the hole goes live the moment task 020's guard is wired**. This is the one that matters.
+- `cli-vocab-guard.ts` — reached only via `npm run cli:vocab-guard`. **Runs under `bun`**, whose `import.meta.url` / `argv` semantics 018 could not verify and neither should you assume; check them.
+- `generate-docs.ts` — a build script, lowest exposure.
+
+**Acceptance criteria:**
+- All three use the resolved-path idiom. **The repair is the same four lines each** — the value is in closing the class, not in the individual edits.
+- **Kill fixture per site:** a byte-identical copy under a different name must still enforce. 018's `LegacyFilenamePredicate_GoesSilentlyGreen` is the shape to follow, including its refusal to pass when the mutation cannot be applied (a mutation that silently produces an unmutated copy must FAIL, not pass).
+- Verify the `bun` case empirically rather than by analogy with Node.
+- **Non-empty denominator:** a self-test that spawns zero processes, or resolves zero guard files, fails rather than passing clean.
+- Consider whether `guard-inventory` can detect the class structurally — a guard whose `hasDirectRunExit` is satisfied but whose predicate tests a filename is exactly the "declared, enforced, cannot fail" shape this program removes. If it can, that is worth more than the three edits.
+
+**Verification:** medium — scoped tests + per-site kill-probe.
+**Dependencies:** None *(coordinate with 020/023 on `cli-derivation-guard.ts`)* · **Parallelizable:** Yes
 
 ### Task 063: Inventory every Wave-1 guard and prove it is reachable from CI
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-24
