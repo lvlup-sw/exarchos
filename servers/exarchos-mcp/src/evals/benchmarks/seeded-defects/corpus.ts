@@ -46,17 +46,20 @@ import {
   deriveBoundaryTouching,
   type RiskTier,
 } from '../../../orchestrate/prepare-delegation.js';
+import type { MechanicalGateClass } from '../../../orchestrate/gate-provider-registry.js';
 
 // ─── Gate-class taxonomy ──────────────────────────────────────────────────────
 
-/** The six seeded-defect classes (five gate-targeting + one hidden-oracle). */
-export type GateClass =
-  | 'test-adequacy'
-  | 'contract-drift'
-  | 'mock-boundary'
-  | 'static-analysis'
-  | 'integration-suite'
-  | 'dropped-edge-case';
+/**
+ * The six seeded-defect classes (five gate-targeting + one hidden-oracle).
+ *
+ * The five mechanical classes are NOT restated here — they are the production vocabulary owned by
+ * `orchestrate/gate-provider-registry.ts`, the module that resolves a provider for each. Task 011
+ * inverted this: production used to import the taxonomy from this eval corpus, which made an eval
+ * fixture loader (and everything it imports) reachable from production. The corpus adds its
+ * hidden-oracle class on top instead, so the two taxonomies still cannot drift.
+ */
+export type GateClass = MechanicalGateClass | 'dropped-edge-case';
 
 /** The five mechanical gate classes, in stable table order. */
 export const MECHANICAL_GATE_CLASSES: readonly GateClass[] = [

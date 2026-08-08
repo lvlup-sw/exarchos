@@ -1,22 +1,43 @@
-import type { GateClass } from '../evals/benchmarks/seeded-defects/corpus.js';
 import {
   ProviderRefSchema,
   type ProviderRef,
 } from '../workflow/admission/types.js';
 
 /**
- * The shared seeded-defect taxonomy includes one hidden-oracle class that is
- * deliberately ungated. Providers own every mechanical class plus the phase
- * outcome producers migrated onto the durable runner.
+ * The five mechanical gate classes — the production vocabulary, declared HERE because this is the
+ * module that resolves a provider for each one.
+ *
+ * **Direction corrected by task 011 (DR-2).** This union used to be imported as `GateClass` from
+ * `evals/benchmarks/seeded-defects/corpus.ts`, so a production module took its gate vocabulary
+ * from an eval fixture loader — which in turn imports `orchestrate/prepare-delegation.ts` and
+ * therefore the whole legacy guard graph. The taxonomy is still SHARED and still has exactly one
+ * authority; only the direction changed. `corpus.ts` now extends this union with its hidden-oracle
+ * class (`dropped-edge-case`) instead of owning it, so neither side can drift.
+ *
+ * The measurement that forced it: with the old edge in place, the module set reachable from the
+ * shared workflow IR was 189 modules and included three legacy guard modules
+ * (`built-in-workflow-ir.structure.test.ts`, exit-proof b); with the edge inverted it is 38 and
+ * includes none. That edge was the sole reason `event-store/schemas.ts` could not name the DR-2
+ * registration types.
+ */
+export type MechanicalGateClass =
+  | 'test-adequacy'
+  | 'contract-drift'
+  | 'mock-boundary'
+  | 'static-analysis'
+  | 'integration-suite';
+
+/**
+ * Providers own every mechanical class plus the phase outcome producers migrated onto the durable
+ * runner. The seeded-defect corpus's one hidden-oracle class is deliberately ungated and is
+ * therefore absent here — it is added by `corpus.ts`, not subtracted here.
  */
 export type PhaseGateClass =
   | 'plan-coverage'
   | 'provenance-chain'
   | 'review-verdict'
   | 'prepare-synthesis';
-export type SupportedGateClass =
-  | Exclude<GateClass, 'dropped-edge-case'>
-  | PhaseGateClass;
+export type SupportedGateClass = MechanicalGateClass | PhaseGateClass;
 
 export interface GateProviderRegistration {
   readonly gateClass: string;
