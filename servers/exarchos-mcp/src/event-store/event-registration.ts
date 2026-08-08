@@ -466,6 +466,24 @@ export const EMISSION_SOURCE_BY_TIER: Readonly<Record<EventTier, EmissionSource>
 );
 
 /**
+ * The two axes WITHOUT the weld — precisely the inputs {@link resolveEmissionSource} reads.
+ *
+ * Stated as its own type so a static analyser can hand the derivation a pair it parsed out of
+ * source text (`scripts/authority-live-proof.ts` does exactly this) instead of re-implementing
+ * the lifecycle-first composition, which would install a second authority for the one rule this
+ * module exists to own. {@link EventRegistration} is assignable to it, so every existing caller
+ * is unaffected.
+ *
+ * This is NOT a weakening of `_EventRegistration_ReportCoupledVariant_HasNoConstructibleForm`:
+ * that proof is about what inhabits {@link EventRegistration}, and a weldless pair still does
+ * not. It is only what this one pure function needs to look at.
+ */
+export interface EmissionAxes {
+  readonly lifecycle: EventLifecycle;
+  readonly tier: EventTier;
+}
+
+/**
  * Resolve the registry's `EventEmissionSource` from a registration, LIFECYCLE FIRST.
  *
  * A non-`active` lifecycle IS the source: `planned` and `retired` describe whether the event is
@@ -476,11 +494,72 @@ export const EMISSION_SOURCE_BY_TIER: Readonly<Record<EventTier, EmissionSource>
  * `_EventRegistration_TwoAxes_ReproduceEventEmissionSource` proves the codomain is exactly the
  * shipped union.
  */
-export function resolveEmissionSource(registration: EventRegistration): EventEmissionSource {
+export function resolveEmissionSource(registration: EmissionAxes): EventEmissionSource {
   const { lifecycle } = registration;
   // Narrowed to 'planned' | 'retired', both members of EventEmissionSource. No assertion.
   if (lifecycle !== 'active') return lifecycle;
   return EMISSION_SOURCE_BY_TIER[registration.tier];
+}
+
+/**
+ * Build the emission registry for a population of event types by DERIVING each source from that
+ * type's registration. Task 011's mechanism: this is what replaced `EVENT_EMISSION_REGISTRY`'s
+ * 170 hand-written source literals, so there is no longer a site at which a source can be
+ * authored to disagree with the tier.
+ *
+ * Two fail-closed conditions, both of which exist because a census that resolves nothing must
+ * never read as a clean run:
+ *
+ *   • **Empty population.** A moved, renamed or mis-imported catalog yields an empty
+ *     `eventTypes`, which would otherwise produce an empty registry that every consumer reads as
+ *     "no event has a source". That throws instead.
+ *   • **Unannotated type.** A registered type the annotations do not cover has no tier and
+ *     therefore no derivable source. Rather than defaulting it — the guess that let the old
+ *     hand-written column drift — this throws at load and names every offender.
+ *
+ * `registrationOf` is a parameter rather than an import so this module keeps zero runtime import
+ * edges, and so a caller (a test, a kill probe) can derive over a SEEDED population without
+ * touching the live annotation table.
+ *
+ * The return type is keyed by `string` rather than a generic key: the caller supplies the concrete
+ * key type by annotating the binding (`Record<EventType, EventEmissionSource>`), which TypeScript
+ * accepts from a string-indexed record without an assertion.
+ */
+export function deriveEmissionRegistry(
+  eventTypes: Iterable<string>,
+  registrationOf: (eventType: string) => EventRegistration | undefined,
+): Record<string, EventEmissionSource> {
+  const derived: Record<string, EventEmissionSource> = {};
+  const unannotated: string[] = [];
+  let population = 0;
+
+  for (const eventType of eventTypes) {
+    population += 1;
+    const registration = registrationOf(eventType);
+    if (registration === undefined) {
+      unannotated.push(eventType);
+      continue;
+    }
+    derived[eventType] = resolveEmissionSource(registration);
+  }
+
+  if (population === 0) {
+    throw new Error(
+      'deriveEmissionRegistry: refusing to build an emission registry from an empty event-type ' +
+        'population. An empty registry reads to every consumer as "no event has a source", so a ' +
+        'moved or renamed catalog must fail here rather than pass clean.',
+    );
+  }
+  if (unannotated.length > 0) {
+    throw new Error(
+      `deriveEmissionRegistry: ${unannotated.length} registered event type(s) carry no DR-2 ` +
+        `registration, so no emission source can be derived for them: ${unannotated.sort().join(', ')}. ` +
+        'Source is derived from tier and lifecycle — annotate the type rather than declaring a source ' +
+        'for it.',
+    );
+  }
+
+  return derived;
 }
 
 /** A declared `source` that the registration's own tier and lifecycle do not produce. */

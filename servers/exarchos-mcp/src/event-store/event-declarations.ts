@@ -70,6 +70,10 @@ import {
   EventTypes,
   type EventEmissionSource,
 } from './schemas.js';
+// Type-only, and solely for `_EventDeclarations_AnnotatedEvents_ImplementsThePort` below: the port
+// names its implementation so the implementation need not name the port. Erased at compile time,
+// so it adds no runtime edge and no cycle (`schemas.ts` -> `event-annotations.ts` is the live one).
+import type { ANNOTATED_EVENTS } from './event-annotations.js';
 import {
   EVENT_LIFECYCLES,
   EVENT_TIERS,
@@ -436,4 +440,21 @@ export type _EventDeclarations_EmissionSubjectIsNotARegistration = Expect<
  */
 export type _EventDeclarations_EverySourceIsCarryable = Expect<
   Assignable<{ readonly source: EventEmissionSource }, EventSubject>
+>;
+
+/**
+ * The shipped annotation table satisfies the port task 008 opened. If {@link EventAnnotationSource}
+ * ever changes shape this is where it is felt — not in {@link eventDeclarations}, which would keep
+ * compiling against {@link UNANNOTATED_EVENTS} and silently carry an un-annotated catalog.
+ *
+ * **Lives here rather than in `event-annotations.ts` (task 011).** It is the same assertion checked
+ * by the same `tsc` run, but writing it there would require that module to NAME this one — and
+ * `schemas.ts` imports `event-annotations.ts` to derive `EVENT_EMISSION_REGISTRY`, so the type-only
+ * specifier would make `contract/declaration.ts` statically reachable from every registration site
+ * and falsify DR-1's claim that the two can genuinely disagree. The dependency runs the correct way
+ * around here: the port's module names its implementation, and `import type` keeps the edge off the
+ * runtime graph.
+ */
+export type _EventDeclarations_AnnotatedEvents_ImplementsThePort = Expect<
+  Assignable<typeof ANNOTATED_EVENTS, EventAnnotationSource>
 >;

@@ -2,14 +2,18 @@
 //
 // @oracle-sources: ./schemas.ts, the emission-site and consumer-fold measurement recorded in event-annotations
 //
-// The two authorities, and why they are two. `event-store/schemas.ts` owns the event UNIVERSE and
-// the DECLARED emission source — 170 entries accreted over dozens of prior PRs, each written by
-// whoever added the event. The second authority is the tier/lifecycle judgment in
-// `event-annotations.ts`, derived from a different pair of populations entirely: which code
-// APPENDS each event (the handler tree) and which reducer or view FOLDS it (every
-// `ViewProjection`/`ProjectionReducer` in the tree). Neither was read off the other — the registry's
-// `source` column is what the annotation is CHECKED against here, so using it as an input would
-// have made every assertion below self-consistent by construction.
+// The authorities, and what task 011 did to them. `event-store/schemas.ts` owns the event
+// UNIVERSE. It used to own the DECLARED emission source as well — 170 hand-written entries
+// accreted over dozens of prior PRs — and task 010's assertions here were a genuine two-authority
+// comparison: the tier/lifecycle judgment in `event-annotations.ts` was derived from a different
+// pair of populations entirely (which code APPENDS each event, and which reducer or view FOLDS
+// it), and neither was read off the other.
+//
+// **Task 011 collapsed the two into one, on purpose.** `EVENT_EMISSION_REGISTRY` is now DERIVED
+// from these annotations, so "the registry agrees with the tier" is true by construction and is no
+// longer a thing this file can meaningfully assert. Where an assertion below would now be
+// self-consistent by construction it says so, and the falsifying weight moves to the SEEDED cases,
+// which take their declared-source map as a parameter and can still come out wrong.
 //
 // The second authority is declared as a label rather than a module path on purpose. DR-30's
 // derivation check is a static MODULE-REACHABILITY walk (see `suite-invariants/LIMITATIONS.md`:
@@ -38,7 +42,6 @@ import { eventDeclarations, isEventRegistration } from './event-declarations.js'
 import {
   ANNOTATED_EVENTS,
   EVENT_ANNOTATIONS,
-  UNRECONCILED_REGISTRATIONS,
   reportCoupledEventTypes,
   tierSourceDisagreements,
   unannotatedEventTypes,
@@ -135,26 +138,36 @@ describe('EventAnnotations — the DR-2 tier and lifecycle assignment for the ev
     const misdeclaredRetired = tierSourceDisagreements(registryWith({ 'merge.rollback': 'auto' }));
     expect(misdeclaredRetired.map((d) => d.eventType)).toContain('merge.rollback');
 
-    // THE LIVE CATALOG. Exactly the registrations task 010 could not reconcile disagree, and no
-    // others. `UNRECONCILED_REGISTRATIONS` is a named, owner-carrying, shrink-only list — not a
-    // suppression: the assertion below requires each declared entry to STILL disagree, so a stale
-    // entry that has been fixed elsewhere turns this red instead of silently excusing nothing.
+    // THE LIVE CATALOG, after task 011. Zero disagreements — not because the exceptions were
+    // excused but because the registry is now DERIVED from these annotations, so a built-in type
+    // has no independently-authored source left to disagree with. Task 010's shrink-only
+    // `UNRECONCILED_REGISTRATIONS` shrank to nothing and was deleted with the population it named.
+    //
+    // The denominator is asserted alongside it: this census skips event types it cannot resolve,
+    // so "zero disagreements" over zero compared subjects is the failure mode a moved or renamed
+    // registry would produce, and it must not read as a clean run.
+    const comparable = Object.keys(EVENT_EMISSION_REGISTRY).filter(
+      (eventType) => ANNOTATED_EVENTS.registrationOf(eventType) !== undefined,
+    );
+    expect(comparable.length).toBe(EventTypes.length);
     const live = tierSourceDisagreements(EVENT_EMISSION_REGISTRY).map((d) => d.eventType);
-    const declaredUnreconciled = UNRECONCILED_REGISTRATIONS.map((u) => u.eventType).sort();
-    expect(live.slice().sort()).toEqual(declaredUnreconciled);
-    expect(declaredUnreconciled.length).toBeGreaterThan(0);
+    expect(live).toEqual([]);
   });
 
   it('EventAnnotations_ReportCoupledCount_IsDerivedAtIntroduction', () => {
-    // AUTHORITY 1 — what the registry declares. The report-coupled population as `schemas.ts`
-    // records it: a dedicated append the model must remember to make.
+    // WHAT THE REGISTRY HOLDS. Since task 011 this is a PROJECTION of the annotations, not an
+    // independent authority, so the comparison below no longer pits two judgments against each
+    // other — it checks that the projection `schemas.ts` builds
+    // (`deriveEmissionRegistry(EventTypes, ANNOTATED_EVENTS.registrationOf)`) agrees with a second,
+    // independently-written pass over the same table. A derivation that mis-keyed, dropped or
+    // defaulted an entry still turns this red; a wrong TIER does not, and is not claimed to.
     const declaredModelEmitted = EventTypes.filter(
       (eventType) => EVENT_EMISSION_REGISTRY[eventType] === 'model',
     ).sort();
 
-    // AUTHORITY 2 — what the ANNOTATIONS derive. `resolveEmissionSource` composes the two axes;
-    // nothing here reads the registry's `source` column, so the number G3 seeds from is a
-    // consequence of the coupling claims rather than a transcription of them.
+    // The census pass: `resolveEmissionSource` composed over the two axes, walking the annotations
+    // directly rather than the registry, so the number G3 seeds from is a consequence of the
+    // coupling claims rather than a transcription of them.
     const derivedReportCoupled = reportCoupledEventTypes(EventTypes);
 
     // The seed is COMPUTED — `.length` of a list this test can also print. No cardinality literal
