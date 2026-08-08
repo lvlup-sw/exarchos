@@ -63,9 +63,22 @@ vi.mock('./mcp.js', () => ({
   })),
 }));
 
-vi.mock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
-  StdioServerTransport: vi.fn(() => ({})),
-}));
+// DR-26 (task 053): the `mcp` sub-command now draws its stdio transport from
+// the owned SDK seam, so this mock follows the production import. It is
+// PARTIAL on purpose — `adapters/mcp.ts` also imports the seam, and stubbing
+// the module wholesale would replace `createV1McpServer` too, breaking the
+// DR-25 real-handler block at the bottom of this file. Only the transport
+// constructor is stubbed, which is exactly what the superseded
+// `@modelcontextprotocol/sdk/server/stdio.js` mock stubbed.
+//
+// Re-pointed rather than deleted: the `mcp` action's transport is the one
+// thing in this suite that would seize the real stdio streams if it were ever
+// invoked, and a mock left aimed at a module the production path no longer
+// imports is stale cover — it reads as a defense and defends nothing.
+vi.mock('../sdk/seam.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../sdk/seam.js')>();
+  return { ...actual, createV1StdioServerTransport: vi.fn(() => ({})) };
+});
 
 // ─── Test Imports ────────────────────────────────────────────────────────────
 
@@ -1484,8 +1497,12 @@ describe('DR-25: generated CLI client agrees with MCP through a real handler', (
     const { EventStore } = await import('../event-store/store.js');
     const { normalize } = await import('../__tests__/parity-harness.js');
     const { makeTempDir, rmrfAsync } = await import('../test-helpers/temp-dir.js');
-    const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
-    const { InMemoryTransport } = await import('@modelcontextprotocol/sdk/inMemory.js');
+    const {
+      createV1Client,
+      createV1LinkedTransportPair,
+      connectV1Client,
+      connectV1Server,
+    } = await import('../sdk/seam.js');
 
     // ── The contract descriptor BOTH seams are driven from. The CLI command
     //    path (group + command name + required flags) and the MCP tool/action
@@ -1512,7 +1529,7 @@ describe('DR-25: generated CLI client agrees with MCP through a real handler', (
     } as unknown as DispatchContext;
 
     const savedExitCode = process.exitCode;
-    let client: InstanceType<typeof Client> | undefined;
+    let client: ReturnType<typeof createV1Client> | undefined;
     let server: ReturnType<typeof createMcpServer> | undefined;
 
     /** Drive the CLI seam exactly as the shipped binary does. */
@@ -1565,9 +1582,12 @@ describe('DR-25: generated CLI client agrees with MCP through a real handler', (
 
       // ── Stand the REAL MCP server up over a REAL transport pair.
       server = createMcpServer(realCtx);
-      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-      client = new Client({ name: 'inv2-agreement-probe', version: '0.0.0' });
-      await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+      const [clientTransport, serverTransport] = createV1LinkedTransportPair();
+      client = createV1Client({ name: 'inv2-agreement-probe', version: '0.0.0' });
+      await Promise.all([
+        connectV1Server(server, serverTransport),
+        connectV1Client(client, clientTransport),
+      ]);
 
       const callMcpSeam = async (id: string) =>
         client!.callTool({ name: mcpTool!, arguments: { action: command.action, featureId: id } });

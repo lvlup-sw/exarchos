@@ -2,6 +2,13 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 
 import { EXCLUDED_DIRS, isScannableFile, extractImportSpecifiers } from './effect-ledger.js';
+import {
+  SDK_SEAM_MODULE,
+  collectSdkImports,
+  isOwnedSeamModule,
+  type SdkGeneration,
+  type SpecifierParser,
+} from './sdk-generation-seam.js';
 
 /**
  * P07-06 — allowed-dependency layering census (structural conformance).
@@ -54,6 +61,19 @@ import { EXCLUDED_DIRS, isScannableFile, extractImportSpecifiers } from './effec
  * census above deliberately excludes root-file imports from the layer-edge set.
  * An allowance row could therefore never see the edge it needs to reject. See
  * {@link DECLARATION_SEAM}.
+ *
+ * ── Third census in this module: the SDK GENERATION SEAM (DR-26) ────────────
+ * The last section carries a third census, and it is the same rule applied to a
+ * third boundary: DR-26's requirement that `sdk/seam.ts` is the SOLE importer of
+ * either MCP SDK generation. A module reaching a `@modelcontextprotocol/*`
+ * package directly fails it. See {@link SDK_SEAM_BOUNDARY}.
+ *
+ * It is a separate census rather than a {@link LAYER_ALLOWED_IMPORTS} row for
+ * the same mechanical reason DR-1's is: the layering census resolves FIRST-PARTY
+ * edges only ({@link resolveTarget} returns `undefined` for a bare package
+ * specifier), so no allowance row can see an SDK import at all. That blind spot
+ * is not incidental — it is exactly why the coupling went unmodelled until
+ * DR-26 named it.
  */
 
 /** A resolved first-party cross-directory import edge. */
@@ -311,7 +331,19 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
       'keeps ZERO imports, so the SDK-facing surface is confined to `attach.ts`.',
   ),
   allowance('stack', ['event-store', 'views'], 'Stack renders event-store state through views.'),
-  allowance('cli', ['event-store', 'ndjson'], 'CLI surface reads event-store state and frames it as NDJSON.'),
+  allowance(
+    'cli',
+    ['event-store', 'ndjson', 'sdk', 'task-store'],
+    'CLI surface reads event-store state and frames it as NDJSON. The `sdk` and ' +
+      '`task-store` edges are DR-26 / task 053: `cli/follow-loop.ts` and ' +
+      '`cli/follow-formatter.ts` render the protocol `Task` payload and ask whether ' +
+      'a status is terminal. Both used to reach `@modelcontextprotocol/sdk` DIRECTLY, ' +
+      'so the coupling is not new — it was invisible to this census, which resolves ' +
+      'FIRST-PARTY edges only. Routing it through the owned seam is what makes it ' +
+      'visible, and a bare package import is the one form of coupling a layering ' +
+      'census structurally cannot see. `task-store` carries `isTaskTerminal` because ' +
+      'v2 deleted the SDK predicate; it is generation-neutral and imports nothing.',
+  ),
   allowance(
     'workspace',
     ['capabilities', 'event-store', 'storage'],
@@ -746,4 +778,362 @@ export const DECLARATION_SEAM: DeclarationSeamRule = Object.freeze({
         'this module\'s `DeclarationSource` with an IR read and the exemption moves with it.',
     },
   ]),
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// DR-26 — the SDK GENERATION SEAM census (task 053)
+// ════════════════════════════════════════════════════════════════════════════
+//
+// DR-26: "One owned module is the sole importer of either SDK generation."
+// {@link SDK_SEAM_MODULE} is that module. This census is the half of DR-26 that
+// rejects a bypass; `sdk/brand.ts` is the half that rejects a mis-pairing.
+//
+// ── Why the rule needs its own census, stated mechanically ──────────────────
+// The layering census at the top of this file cannot see this coupling at all.
+// {@link resolveTarget} returns `undefined` for any specifier not starting with
+// `.`, so a bare `@modelcontextprotocol/sdk/...` import produces NO edge, and no
+// row in {@link LAYER_ALLOWED_IMPORTS} could ever reject it. That is not a gap
+// to patch — a layering census is about first-party topology — but it does mean
+// the SDK boundary was structurally invisible to the instrument that looked
+// most like it should have caught it.
+//
+// ── Why the population is EVERY module, not the shipped subset ──────────────
+// {@link collectScannableFiles} (used by both censuses above) skips `__tests__`,
+// `test-helpers`, `evals` and every `*.test.ts`, because a test's import is not
+// an architectural layer edge. For DR-26 it is. The measured backlog task 053
+// migrated was 42 sites across 22 files, and TWELVE of those files were tests —
+// integration harnesses standing up a real `Client` over a real
+// `InMemoryTransport`. A test that constructs an SDK handle directly holds an
+// unbranded value from a pinned generation, which is precisely the coupling that
+// makes a generation swap a tree-wide edit. Scoping the rule to shipped source
+// would have declared the migration complete with the majority of its subjects
+// unexamined.
+//
+// ── Why the parse is a required parameter ───────────────────────────────────
+// Same reason `architecture/sdk-generation-seam.ts` inverts it (task 062): the
+// only sound specifier resolver is the TypeScript compiler, `typescript` is a
+// devDependency, and the effect ledger correctly refuses it under
+// `architecture/`. A default would have to be either a text match — the defect
+// that floored DR-26's denominator ten above zero — or a throwing stub. Both
+// are worse than making the caller name its instrument.
+//
+// ── Non-empty denominator ───────────────────────────────────────────────────
+// A rule that resolves nothing must FAIL. Once the migration completes, "no
+// bypasses" and "the scan resolved nothing" become indistinguishable in the
+// violation list, so the POPULATION is checked independently and twice over:
+// modules visited, and SDK imports resolved INSIDE the seam. A relocated `src`,
+// a renamed seam or a dead parser trips one of those rather than reporting a
+// clean tree.
+
+/**
+ * A module licensed to import an SDK package directly despite DR-26.
+ *
+ * There are none today — the list is EMPTY, and that is the deliverable: task
+ * 053 migrated all 22 measured subjects rather than exempting any. The shape
+ * exists so that a future exemption must be a dated, owned, expiring, reviewed
+ * record instead of a quiet edit to the rule, and so {@link
+ * SdkSeamBoundaryDiagnostic}'s stale/expired teeth have something to bite.
+ */
+export interface SdkSeamExemption {
+  /** Scan-root-relative, forward-slashed module path. */
+  readonly module: string;
+  /** Who owns removing it. */
+  readonly owner: string;
+  /** ISO date (`YYYY-MM-DD`) after which the exemption is itself a failure. */
+  readonly expires: string;
+  /** Why this module cannot go through the seam yet. */
+  readonly reason: string;
+}
+
+/** The declared shape of the SDK generation seam. */
+export interface SdkSeamBoundaryRule {
+  /** The one module licensed to import either generation. */
+  readonly seamModule: string;
+  /** Dated, owned, expiring bypass licences. Empty is the healthy state. */
+  readonly exemptions: readonly SdkSeamExemption[];
+}
+
+/** One module's direct SDK imports, from its source alone. */
+export interface SdkSeamUsage {
+  /** Scan-root-relative, forward-slashed module path. */
+  readonly module: string;
+  /** True when this module IS {@link SdkSeamBoundaryRule.seamModule}. */
+  readonly isSeam: boolean;
+  /** Every SDK specifier the module imports, with its generation and line. */
+  readonly imports: readonly {
+    readonly specifier: string;
+    readonly generation: SdkGeneration;
+    readonly line: number;
+  }[];
+}
+
+/** Everything the SDK-seam census needs, collected from one whole-tree walk. */
+export interface SdkSeamBoundaryScan {
+  /** Only modules that import an SDK package; the rest are irrelevant. */
+  readonly usages: readonly SdkSeamUsage[];
+  /** How many modules the walk VISITED — the population, not the hits. */
+  readonly moduleCount: number;
+  /** Whether {@link SdkSeamBoundaryRule.seamModule} exists under the scan root. */
+  readonly seamModulePresent: boolean;
+}
+
+export type SdkSeamBoundaryDiagnostic =
+  | {
+      readonly code: 'DIRECT_SDK_IMPORT';
+      readonly module: string;
+      readonly specifier: string;
+      readonly generation: SdkGeneration;
+      readonly line: number;
+      readonly message: string;
+    }
+  | {
+      readonly code: 'EMPTY_SDK_SEAM_DENOMINATOR';
+      readonly population: 'modules' | 'seam-imports';
+      readonly message: string;
+    }
+  | {
+      readonly code: 'SDK_SEAM_MODULE_ABSENT';
+      readonly module: string;
+      readonly message: string;
+    }
+  | {
+      readonly code: 'STALE_SDK_SEAM_EXEMPTION';
+      readonly module: string;
+      readonly message: string;
+    }
+  | {
+      readonly code: 'EXPIRED_SDK_SEAM_EXEMPTION';
+      readonly module: string;
+      readonly expires: string;
+      readonly message: string;
+    };
+
+export interface SdkSeamBoundaryResult {
+  readonly ok: boolean;
+  /** Modules the walk visited. Zero is a failure, never a pass. */
+  readonly moduleCount: number;
+  /** SDK imports made from inside the seam. Zero is a failure, never a pass. */
+  readonly seamImportCount: number;
+  /** Modules importing the SDK directly and not exempt — the violation set. */
+  readonly bypassModuleCount: number;
+  readonly diagnostics: readonly SdkSeamBoundaryDiagnostic[];
+}
+
+/**
+ * Classify one module's direct SDK imports. Pure, and parse-based via `parse`
+ * so a specifier inside a comment, a string or a template literal is not an
+ * import — it is absent from the syntax tree by construction rather than
+ * filtered out afterwards.
+ *
+ * Returns `undefined` for a module importing no SDK package, which after the
+ * migration is all but one of them.
+ */
+export function detectSdkSeamUsage(
+  module: string,
+  source: string,
+  parse: SpecifierParser,
+  rule: SdkSeamBoundaryRule = SDK_SEAM_BOUNDARY,
+): SdkSeamUsage | undefined {
+  const imports = collectSdkImports(source, parse, module);
+  if (imports.length === 0) return undefined;
+  const normalised = module.replaceAll('\\', '/');
+  const isSeam =
+    normalised === rule.seamModule || normalised.endsWith(`/${rule.seamModule}`);
+  return Object.freeze({ module, isSeam, imports: Object.freeze(imports) });
+}
+
+/**
+ * Pure SDK-seam verdict over an already-collected scan.
+ *
+ * `today` is injected rather than read from the clock so the expiry tooth is
+ * testable without waiting for a date to pass — the same shape the wave's other
+ * expiring allowlists use.
+ */
+export function runSdkSeamBoundaryCensus(
+  scan: SdkSeamBoundaryScan,
+  rule: SdkSeamBoundaryRule = SDK_SEAM_BOUNDARY,
+  today: string = new Date().toISOString().slice(0, 10),
+): SdkSeamBoundaryResult {
+  const exempt = new Map<string, SdkSeamExemption>();
+  for (const entry of rule.exemptions) exempt.set(entry.module, entry);
+
+  const diagnostics: SdkSeamBoundaryDiagnostic[] = [];
+  const seamImports = scan.usages
+    .filter((usage) => usage.isSeam)
+    .reduce((total, usage) => total + usage.imports.length, 0);
+
+  const bypassModules: string[] = [];
+  for (const usage of scan.usages) {
+    if (usage.isSeam) continue;
+    if (exempt.has(usage.module)) continue;
+    bypassModules.push(usage.module);
+    for (const imported of usage.imports) {
+      diagnostics.push({
+        code: 'DIRECT_SDK_IMPORT',
+        module: usage.module,
+        specifier: imported.specifier,
+        generation: imported.generation,
+        line: imported.line,
+        message:
+          `Direct MCP SDK import: "${usage.module}:${imported.line}" imports ` +
+          `"${imported.specifier}" (generation ${imported.generation}). DR-26 makes ` +
+          `"${rule.seamModule}" the SOLE importer of either generation, so this ` +
+          `bypasses the seam: the value it yields carries no generation brand, and ` +
+          `an unbranded value is admitted by either generation's position — which ` +
+          `is how a cross-generation pair compiles clean and then exchanges no ` +
+          `messages at runtime. Re-point the import at "${rule.seamModule}". If the ` +
+          `seam does not re-export the surface you need, ADD it there; a surface ` +
+          `the tree uses and the seam lacks is a seam with a hole, not a case for ` +
+          `an exemption.`,
+      });
+    }
+  }
+
+  if (scan.moduleCount <= 0) {
+    diagnostics.push({
+      code: 'EMPTY_SDK_SEAM_DENOMINATOR',
+      population: 'modules',
+      message:
+        'The SDK-seam rule visited ZERO modules, so "no direct imports" is true ' +
+        'for a reason that has nothing to do with the tree — a moved scan root, a ' +
+        'renamed package directory or a broken walker all present this way, and ' +
+        'all three read as a fully migrated tree. Reported as a failure rather ' +
+        'than a pass (DR-26 non-empty denominator).',
+    });
+  }
+
+  if (scan.seamModulePresent && seamImports === 0) {
+    diagnostics.push({
+      code: 'EMPTY_SDK_SEAM_DENOMINATOR',
+      population: 'seam-imports',
+      message:
+        `"${rule.seamModule}" exists but the scan resolved ZERO SDK imports inside ` +
+        'it. Both generations are declared dependencies, so a seam drawing from ' +
+        'neither brands nothing and every consumer of it is unprotected — and a ' +
+        'specifier parser that has stopped matching presents exactly this way, ' +
+        'while every bypass check below silently reports clean.',
+    });
+  }
+
+  if (!scan.seamModulePresent) {
+    diagnostics.push({
+      code: 'SDK_SEAM_MODULE_ABSENT',
+      module: rule.seamModule,
+      message:
+        `The owned SDK seam "${rule.seamModule}" is absent from the scanned tree. ` +
+        'With no seam there is nothing for consumers to import through, so every ' +
+        'module is a bypass by definition — restore it or repoint ' +
+        'SDK_SEAM_BOUNDARY.seamModule.',
+    });
+  }
+
+  for (const entry of rule.exemptions) {
+    const usage = scan.usages.find((candidate) => candidate.module === entry.module);
+    if (usage === undefined || usage.imports.length === 0) {
+      diagnostics.push({
+        code: 'STALE_SDK_SEAM_EXEMPTION',
+        module: entry.module,
+        message:
+          `Declared SDK-seam exemption "${entry.module}" imports no SDK package — ` +
+          'stale cover. An exemption nothing exercises is a hole waiting for a ' +
+          'violation to fall through it. Remove it from SDK_SEAM_BOUNDARY.exemptions.',
+      });
+      continue;
+    }
+    if (entry.expires < today) {
+      diagnostics.push({
+        code: 'EXPIRED_SDK_SEAM_EXEMPTION',
+        module: entry.module,
+        expires: entry.expires,
+        message:
+          `SDK-seam exemption "${entry.module}" expired on ${entry.expires} (owner: ` +
+          `${entry.owner}). Migrate the module onto "${rule.seamModule}" or record a ` +
+          'new, reviewed expiry — an exemption without an end date is a permanent ' +
+          'bypass wearing a deadline.',
+      });
+    }
+  }
+
+  return Object.freeze({
+    ok: diagnostics.length === 0,
+    moduleCount: scan.moduleCount,
+    seamImportCount: seamImports,
+    bypassModuleCount: bypassModules.length,
+    diagnostics,
+  });
+}
+
+/**
+ * Every `.ts` module under `root`, EXCLUDING only `node_modules` and `dist`.
+ *
+ * Deliberately NOT {@link collectScannableFiles}: that walk drops tests, evals
+ * and `test-helpers`, which between them held 12 of the 22 modules DR-26
+ * measured. See the section header for why a test's SDK import is in scope for
+ * this rule and out of scope for the layering one. The exclusions kept are the
+ * two that are not source at all.
+ */
+async function collectAllModuleFiles(root: string): Promise<string[]> {
+  const files: string[] = [];
+  const walk = async (dir: string): Promise<void> => {
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        if (entry.name === 'node_modules' || entry.name === 'dist') continue;
+        await walk(join(dir, entry.name));
+      } else if (entry.isFile() && entry.name.endsWith('.ts')) {
+        files.push(join(dir, entry.name));
+      }
+    }
+  };
+  await walk(root);
+  return files.sort();
+}
+
+/** Walk `sourceRoot` and collect every module's direct SDK imports. */
+export async function scanSdkSeamBoundary(
+  sourceRoot: string,
+  parse: SpecifierParser,
+  rule: SdkSeamBoundaryRule = SDK_SEAM_BOUNDARY,
+): Promise<SdkSeamBoundaryScan> {
+  const files = await collectAllModuleFiles(sourceRoot);
+  const usages: SdkSeamUsage[] = [];
+  let seamModulePresent = false;
+
+  for (const file of files) {
+    const module = relative(sourceRoot, file).replaceAll('\\', '/');
+    if (isOwnedSeamModule(module)) seamModulePresent = true;
+    const usage = detectSdkSeamUsage(module, await readFile(file, 'utf8'), parse, rule);
+    if (usage !== undefined) usages.push(usage);
+  }
+
+  return Object.freeze({
+    usages: Object.freeze(usages),
+    moduleCount: files.length,
+    seamModulePresent,
+  });
+}
+
+/** Scan the tree and return the SDK-seam verdict over it. */
+export async function auditSdkSeamBoundary(
+  sourceRoot: string,
+  parse: SpecifierParser,
+  rule: SdkSeamBoundaryRule = SDK_SEAM_BOUNDARY,
+): Promise<SdkSeamBoundaryResult> {
+  return runSdkSeamBoundaryCensus(await scanSdkSeamBoundary(sourceRoot, parse, rule), rule);
+}
+
+// ─── The declared SDK generation seam ───────────────────────────────────────
+//
+// POLICY IS DATA. The seam module is not restated here — it is imported from
+// `architecture/sdk-generation-seam.ts`, which already owns that identity for
+// the mixing lint and the census. Two literals for one module path is the
+// second-authority defect this program exists to remove, and it would let the
+// lint and this rule disagree about which file is the seam.
+
+export const SDK_SEAM_BOUNDARY: SdkSeamBoundaryRule = Object.freeze({
+  seamModule: SDK_SEAM_MODULE,
+
+  // EMPTY, and that is the point. Task 053 migrated all 22 measured modules
+  // instead of licensing any of them. The teeth above (STALE / EXPIRED) mean an
+  // entry added here cannot quietly become permanent cover.
+  exemptions: Object.freeze([]),
 });

@@ -20,8 +20,14 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { z } from 'zod';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import {
+  createV1Client,
+  createV1LinkedTransportPair,
+  connectV1Client,
+  connectV1Server,
+  type V1Client,
+  type V1InMemoryTransport,
+} from '../../sdk/seam.js';
 import { createMcpServer } from '../../adapters/mcp.js';
 import { EventStore } from '../../event-store/store.js';
 import { EnvelopeSchema } from '../../schemas/envelope.js';
@@ -58,9 +64,9 @@ const READ_ONLY_PROBES: readonly ReadOnlyProbe[] = [
 
 describe('F.2 — tools/call carrier round-trip (Wave 0 §7)', () => {
   let tmpDir: string;
-  let client: Client;
-  let serverTransport: InMemoryTransport;
-  let clientTransport: InMemoryTransport;
+  let client: V1Client;
+  let serverTransport: V1InMemoryTransport;
+  let clientTransport: V1InMemoryTransport;
 
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tools-call-test-'));
@@ -73,14 +79,14 @@ describe('F.2 — tools/call carrier round-trip (Wave 0 §7)', () => {
     };
 
     const server = createMcpServer(ctx);
-    [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-    client = new Client(
+    [clientTransport, serverTransport] = createV1LinkedTransportPair();
+    client = createV1Client(
       { name: 'tools-call-test', version: '1.0.0' },
       { capabilities: {} },
     );
     await Promise.all([
-      server.connect(serverTransport),
-      client.connect(clientTransport),
+      connectV1Server(server, serverTransport),
+      connectV1Client(client, clientTransport),
     ]);
   });
 
