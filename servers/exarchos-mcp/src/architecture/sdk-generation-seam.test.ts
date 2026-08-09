@@ -104,12 +104,25 @@ export async function crossGenerationPair(): Promise<void> {
 `;
 
 describe('DR-0 — MCP SDK generation seam', () => {
-  it('MixedV1V2Imports_FailTypecheck', () => {
-    // ── Part 1: the gate rejects the mixed module. ──────────────────────────
+  it('MixedV1V2Imports_AreRejectedByTheGate', () => {
+    // A module importing both generations is a HIGH finding, which is what makes
+    // a partially-migrated tree fail the build rather than compile into two live
+    // copies of the protocol.
     //
-    // This is the operative assertion. A module importing both generations is
-    // a HIGH finding, which is what makes a partially-migrated tree fail the
-    // build rather than compile into two live copies of the protocol.
+    // This assertion reads the fixture as TEXT, through the specifier lexer, so
+    // it stands whether or not either package is installed.
+    //
+    // A second part used to live here: it compiled this same fixture and recorded
+    // that `tsc` ACCEPTED the mix — the measured premise justifying why the lint
+    // must exist at all, since v1's `Transport` was structurally assignable to
+    // v2's and TypeScript has no notion of nominal package identity. That premise
+    // is no longer constructible. v1 is gone from the manifests and the lockfile,
+    // so on a clean install the fixture's v1 specifier does not resolve and `tsc`
+    // fails for a RESOLUTION reason, not a brand one. Keeping the check would have
+    // pinned a true-looking assertion to a false cause; re-adding v1 as a test-only
+    // dependency to keep measuring it would undo the removal. The rung-2 guarantee
+    // now rests on the cross-generation vs same-generation brand fixtures below,
+    // which are the stronger proof and do not depend on v1 existing.
     const findings = lintSdkGenerationMixing(
       'src/adapters/mcp.ts',
       MIXED_IMPORT_FIXTURE,
@@ -125,59 +138,7 @@ describe('DR-0 — MCP SDK generation seam', () => {
     expect(findings[0]!.message).toContain('@modelcontextprotocol/sdk/inMemory.js');
     expect(findings[0]!.message).toContain('@modelcontextprotocol/server');
 
-    // ── Part 2: prove the gate is load-bearing. ─────────────────────────────
-    //
-    // The plan assumed `tsc` would reject this on its own. It does not — v1's
-    // Transport is structurally assignable to v2's, and TypeScript has no
-    // notion of nominal package identity. We compile the exact same fixture
-    // under the package's own strict settings and record that it is accepted.
-    //
-    // If a future SDK release ever DOES make the two nominally incompatible,
-    // this expectation flips and the failure is a welcome signal: the lint
-    // could then be retired in favour of the compiler. Pinning the measured
-    // reality is what keeps that decision evidence-based instead of assumed.
-    const tmpDir = fs.mkdtempSync(path.join(packageRoot, '.tmp-sdk-seam-'));
-    const fixturePath = path.join(tmpDir, 'mixed-imports.ts');
-    try {
-      fs.writeFileSync(fixturePath, MIXED_IMPORT_FIXTURE, 'utf8');
-
-      let tscAccepted: boolean;
-      try {
-        execFileSync(
-          process.execPath,
-          [
-            path.join(packageRoot, 'node_modules', 'typescript', 'bin', 'tsc'),
-            '--noEmit',
-            '--strict',
-            '--module',
-            'NodeNext',
-            '--moduleResolution',
-            'NodeNext',
-            '--target',
-            'ES2022',
-            '--lib',
-            'ES2022',
-            '--skipLibCheck',
-            fixturePath,
-          ],
-          { cwd: packageRoot, stdio: 'pipe' },
-        );
-        tscAccepted = true;
-      } catch {
-        tscAccepted = false;
-      }
-
-      expect(
-        tscAccepted,
-        'Measured DR-0 finding: `tsc` accepts cross-generation MCP SDK mixing, ' +
-          'which is precisely why lintSdkGenerationMixing must exist. If this ' +
-          'now fails, the compiler rejects the mix on its own and the lint may ' +
-          'be reconsidered.',
-      ).toBe(true);
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    }
-  }, 120_000);
+  });
 
   it('ClassifySdkImport_EachGenerationRoot_ResolvesToItsGeneration', () => {
     // v1 root + subpaths.

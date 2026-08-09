@@ -35,6 +35,7 @@ import { handleAdd } from './add.js';
 import { readCatalogIds } from './catalog-file.js';
 import type { ScaffoldDeps } from './scaffold.js';
 import { EXARCHOS_PACKAGE_NAME } from './reserved-tier-guard.js';
+import { toPosix } from '../../utils/paths.js';
 import {
   findDuplicateInvariantId,
   duplicateInvariantIdMessage,
@@ -47,26 +48,35 @@ function makeFakeFs(seed: Record<string, string>): {
   deps: ScaffoldDeps;
   writes: Array<{ path: string; contents: string }>;
 } {
-  const files = new Map<string, string>(Object.entries(seed));
+  // Key every path through `toPosix`, because that is what production does:
+  // `reserved-tier-guard` looks up `toPosix(path.join(repoRoot, 'package.json'))`.
+  // On Windows `REPO_ROOT` carries backslashes, so a template-built seed key like
+  // `${REPO_ROOT}/package.json` is mixed-separator and can never match the guard's
+  // all-forward-slash lookup. A real filesystem does not care which separator the
+  // caller used; a Map keyed on the raw string does, and that difference made the
+  // guard read "not an exarchos repo" on Windows only.
+  const files = new Map<string, string>(
+    Object.entries(seed).map(([p, contents]) => [toPosix(p), contents]),
+  );
   // These fixtures author at `tier: 'dev'` (the INV-N namespace INV-17 lives
   // in), so the reserved-tier guard (#1489) must see an exarchos repo or it
   // short-circuits with RESERVED_TIER before the id check is ever reached.
   files.set(
-    `${REPO_ROOT}/package.json`,
+    toPosix(`${REPO_ROOT}/package.json`),
     JSON.stringify({ name: EXARCHOS_PACKAGE_NAME }),
   );
   const writes: Array<{ path: string; contents: string }> = [];
   return {
     writes,
     deps: {
-      exists: (p) => files.has(p),
+      exists: (p) => files.has(toPosix(p)),
       read: (p) => {
-        const c = files.get(p);
+        const c = files.get(toPosix(p));
         if (c === undefined) throw new Error(`ENOENT: ${p}`);
         return c;
       },
       write: (p, contents) => {
-        files.set(p, contents);
+        files.set(toPosix(p), contents);
         writes.push({ path: p, contents });
       },
     },
