@@ -34,6 +34,10 @@
 #   (c) vitest test suite — `**/*.test.ts` and `**/*.bench.ts` are
 #       whitelisted en masse because vitest discovers them by filename
 #       convention, not by import.
+#   (d) a fixture a test spawns by path rather than imports (the mock MCP
+#       server). Its `project` glob has to name the extension too — the
+#       root globs were `.ts`-only, so an `.mjs` fixture was unscanned and
+#       every dependency only it imported read as unused.
 #
 # When adding a new entry:
 #   1. Grep the repo first. If nothing imports the file AND it has no

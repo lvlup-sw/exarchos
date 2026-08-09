@@ -2835,6 +2835,21 @@ const orchestrateActions: readonly BuiltinToolAction[] = [
       planFile: z.string().min(1),
       repoRoot: z.string().min(1),
       skipRun: z.boolean().optional(),
+      // WFQ-010. Declared here or the parameter cannot reach the handler at all:
+      // dispatch forwards only schema-parsed args and Zod strips unknown keys, so
+      // an undeclared field left `runPlanSyntaxCheck` unreachable and applied
+      // post-implementation semantics in the plan phases this action is bound to.
+      // The handler's default stays `post-implementation` for back-compat; plan-time
+      // callers pass `coveragePhase: 'plan'` so a declared-but-uncreated test file
+      // reads as a forward declaration rather than a failure.
+      //
+      // NOT named `phase`: `buildRegistrationSchema` flattens field names across
+      // every action, and `check_test_adequacy` already declares a free-form
+      // `phase: z.string()` legacy workflow-phase carrier. Two different meanings
+      // under one name is a hard collision (base types differ, string vs enum) that
+      // throws at server construction — and widening this one to `string` to match
+      // would trade a schema-level constraint for a prose one, which INV-5a forbids.
+      coveragePhase: z.enum(['plan', 'post-implementation']).optional(),
     }),
     phases: PLAN_PHASES,
     roles: ROLE_LEAD,

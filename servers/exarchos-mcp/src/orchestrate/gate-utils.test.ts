@@ -1,12 +1,17 @@
 // ─── Gate Utils Tests ─────────────────────────────────────────────────────────
 
 import { describe, it, expect, vi } from 'vitest';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import {
   emitGateEvent,
   resolveRepoRoot,
   AUTO_REPO_ROOT,
   resolvePolicySkip,
   resolvePhaseMode,
+  getDiff,
 } from './gate-utils.js';
 import type { EventStore } from '../event-store/store.js';
 import { resolveConfig } from '../config/resolve.js';
@@ -370,5 +375,59 @@ describe('resolvePhaseMode', () => {
     // GATHER carries no gates; enforce is the safe default (never silently
     // downgrade an unexpected kind).
     expect(resolvePhaseMode('GATHER', 'feature')).toBe('enforce');
+  });
+});
+
+describe('getDiff', () => {
+  /** Build a throwaway repo whose `main...HEAD` diff exceeds `approxBytes`. */
+  function repoWithDiffOfAtLeast(approxBytes: number): string {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-utils-diff-'));
+    const git = (...args: string[]): void => {
+      execFileSync('git', args, { cwd: root, stdio: ['pipe', 'pipe', 'pipe'] });
+    };
+    git('init', '-b', 'main');
+    git('config', 'user.email', 'test@example.com');
+    git('config', 'user.name', 'test');
+    fs.writeFileSync(path.join(root, 'seed.txt'), 'seed\n');
+    git('add', '.');
+    git('commit', '-m', 'seed');
+
+    git('checkout', '-b', 'feature');
+    // One added line per row keeps every byte inside the unified diff body.
+    const line = `${'x'.repeat(99)}\n`;
+    fs.writeFileSync(path.join(root, 'big.txt'), line.repeat(Math.ceil(approxBytes / line.length)));
+    git('add', '.');
+    git('commit', '-m', 'big');
+    return root;
+  }
+
+  it('getDiff_DiffLargerThanNodeDefaultMaxBuffer_ReturnsTheDiff', () => {
+    // Node caps execFileSync output at 1 MiB by default and raises ENOBUFS past
+    // it. getDiff caught that as "git unavailable" and returned null, which its
+    // three callers render as a generic DIFF_ERROR — so context-economy,
+    // operational-resilience and workflow-determinism all failed closed on any
+    // review-sized change. Two MiB is comfortably over the default and far under
+    // the ceiling getDiff now sets.
+    const root = repoWithDiffOfAtLeast(2 * 1024 * 1024);
+    try {
+      const diff = getDiff(root, 'main');
+      expect(diff).not.toBeNull();
+      expect(diff!.length).toBeGreaterThan(1024 * 1024);
+      expect(diff).toContain('big.txt');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('getDiff_UnresolvableBaseRef_ReturnsNull', () => {
+    // The null arm still has to mean "could not produce a diff" — the negative
+    // control that keeps the test above from passing on a getDiff that never
+    // fails at all.
+    const root = repoWithDiffOfAtLeast(1024);
+    try {
+      expect(getDiff(root, 'no-such-base-ref')).toBeNull();
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });

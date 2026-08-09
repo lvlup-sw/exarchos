@@ -80,9 +80,34 @@ The no-digits clause is **re-examined against evidence before adoption**. Task 0
 
 `isIsoDay` / `isoDayUtc` / `daysBetween` / the key-set digest exist independently three times. The vocabulary is identical by deliberate discipline, which is why nothing has diverged yet — and three copies of one rule is still the defect the DR-6 census exists to detect. One dependency-free module, an injected subject descriptor so each census supplies its own population and finding vocabulary, all three delegating. DR-2's copy gains the horizon pin it currently lacks in the process.
 
+### DR-7: A gate's verdict is the gate's own verdict **[new — from the 2026-08-08 review]**
+
+A step that reports GAPS, SKIP or "did not run" must not be aggregated, folded or defaulted into a
+PASS. SDLC-3 already says this; the review found four independent places where the aggregation says
+otherwise, which makes it a shape rather than an incident. The repair is per-site, but the property
+is one: **the verdict a reader sees must be the verdict the step computed.**
+
+### DR-8: A guard's scan root and its floor are both part of its claim **[new — from the 2026-08-08 review]**
+
+Third recurrence. A guard that claims a repository-wide property while walking one subtree, or whose
+non-empty-denominator tooth is a bare integer far below the real population, is green for reasons
+unrelated to the tree being clean. Roots exclude by PROPERTY (`node_modules`, `dist`, dot-dirs), never
+by naming subtrees; denominators are DERIVED against an independent count, never floored.
+(The DR-26 seam audit and `check-measured-premises` were repaired inline; the rest are below.)
+
+### DR-9: The guard inventory's denominator must include the guards **[new — from the 2026-08-08 review]**
+
+DR-24's whole-inventory reachability proof only ranges over what `buildGuardInventory` discovers, and
+discovery has three channels that between them miss the `src/architecture/**` census/seam modules this
+programme shipped. A guard invisible to the inventory is not proven reachable — it is unexamined, and
+the proof that says otherwise is measuring a smaller set than it claims.
+
 ## Decomposition
 
-Ordering below is by **risk and exposure**, not dependency — all six are independently dispatchable.
+Ordering below is by **risk and exposure**, not dependency.
+Tasks 071-077 came from the overhaul's own residue; **078-087 were added by the 2026-08-08 review**
+of `internal-mechanics-overhaul` — its nine HIGH findings were fixed inline on that branch, and these
+are the MEDIUM/LOW remainder, grouped by defect class rather than transcribed one per finding.
 
 ### Task 074: Filename-coupled entrypoint predicates — a silent no-op on rename
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-4
@@ -183,11 +208,183 @@ This is task 068's defect one layer down — a schema that exists, is enforced o
 **Verification:** high — scoped tests + `check_test_adequacy` + integration over the registration seam and a replay of persisted streams.
 **Dependencies:** none (014, 015 landed) · **Parallelizable:** yes, but see D1
 
+### Task 078: Verdict fidelity — four places a non-pass reads as a pass
+**Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-7
+**Files:** `servers/exarchos-mcp/src/orchestrate/gate-utils.ts` (`normalizeGateVerdict`), `scripts/check-measured-premises.mjs` + the `npm run validate` aggregator, `scripts/installer-verify.test.ts`, `servers/exarchos-mcp/src/ctk/cross-runtime.test.ts`
+**Detail:** Four independent sites, one shape.
+1. `normalizeGateVerdict` returns `'pass'` for the advisory-skip carrier `{ passed: true, skipped: true }` — the `skipped && passed !== true` guard never fires because `passed` IS true. Three gates now emit that carrier through `runDurableGateProducer`, so the durable `admission.evidence-recorded` row records `verdict: 'pass'` and `gate.executed` is minted `passed: true` for a gate that never ran. It is also an observability regression: the retired `emitPolicySkipIfNeeded` carried `details.skipped` + `discriminant`; the runner-minted row carries neither.
+2. `check-measured-premises.mjs` prints `VERDICT: GAPS` and the words *"reportable, NOT a pass"* with 11 of 13 proof rungs unprobed — and `npm run validate` records it as `PASS measured-premises`, 9/9, exit 0.
+3. `scripts/installer-verify.test.ts` drops 11 tests per shell via `describe.skipIf(BASH/PWSH === undefined)` with no fail-closed assertion, no issue, no expiry. `pwsh` is absent on at least one dev host, so the entire PowerShell half of the DR-20 acceptance suite reports success without running.
+4. `ctk/cross-runtime.test.ts:97` skips the only cross-runtime leg on `BUN_EXECUTABLE === null`, falling back to a Node-only test that proves `corpusDigest(x) === corpusDigest(x)`. `bun` is a documented build prerequisite, so its absence is an environment defect, not a reason to skip.
+
+**Acceptance criteria:**
+- An explicitly-skipped carrier maps to `indeterminate` (or a first-class `skipped`) regardless of `passed`, and `skipped`/`discriminant` survive into `appendGateExecutedSignal`'s `details`.
+- A step whose own verdict is GAPS cannot be aggregated as PASS: either it fails the chain, or the aggregate renders its real verdict and the exit code reflects the configured severity.
+- Both installer shells asserted present under CI; `pwsh` installed on the lane that owns DR-20 acceptance.
+- Every remaining tolerated skip carries an issue reference and an expiry. `skipIf(win32)` (#1641) is exempt.
+- **Kill fixture per site:** a gate that did not run must be demonstrably distinguishable from one that passed.
+
+**Verification:** high — scoped tests + `check_test_adequacy` + a probe that a skipped gate never reads as evidence.
+**Dependencies:** none · **Parallelizable:** yes
+
+### Task 079: Loose floors and narrow roots across the guard set
+**Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-8
+**Files:** `servers/exarchos-mcp/src/sdk/seam.test.ts`, `servers/exarchos-mcp/src/architecture/effect-ledger.test.ts`, `servers/exarchos-mcp/src/contract/governing-catalog.test.ts`, `servers/exarchos-mcp/src/architecture/vcs-ownership.ts`, `servers/exarchos-mcp/src/architecture/effect-ledger.ts`, `servers/exarchos-mcp/src/architecture/delivery-safety.ts`, `servers/exarchos-mcp/src/architecture/import-cycles.ts`, `scripts/check-module-intent.mjs`, `src/skills-catalog-gating.test.ts`
+**Detail:** Measured floors against measured populations: `seam.test.ts:364` asserts `moduleCount > 50` where the scanned root holds **1545** modules — 30× loose, and the floor is what DR-26's sole-importer conclusion rested on. Same class at `effect-ledger.test.ts` (`> 100` twice, `files.length > 100`), `governing-catalog.test.ts:282` (`>= 300`). Narrow roots: `vcs-ownership` and `effect-ledger` take `sourceRoot` but every live caller passes `servers/exarchos-mcp/src` while their headers claim "the shipped source"; `check-module-intent.mjs`'s default root is the MCP package, so root `src/` (which now holds `advisory-registry`, `shim-registry`, `projection-containment`, `friction-signal`) is outside the gate entirely. Transcribed populations: `delivery-safety.ts:188` hard-codes a two-element `REQUIRED_DELIVERY_MODULES` (of four modules under `channel/`) with no non-empty-denominator tooth, and its test asserts the constant contains what the constant declares — a comparison with itself. `import-cycles.ts:97` returns `[]` for a prefix that matches nothing, indistinguishable from acyclic, and its blocking CI consumer prints OK and exits 0. `src/skills-catalog-gating.test.ts:33` scans a hand-transcribed nine-file list against a 106-file `skills-src/` tree.
+
+**Acceptance criteria:**
+- Every floor is derived from an independently computed population (the pattern landed in `layer-boundaries-seam.test.ts`: `git ls-files` as the second authority), or expressed as a band around it. No bare integer denominators survive.
+- Every filesystem-walking guard's root either covers what its header claims, or the header is narrowed to name the root it actually walks. Prefer widening; excluding by property.
+- `detectRuntimeCycles` reports its resolved first-party node count and fails closed on zero.
+- `auditDeliverySafety` raises `EMPTY_POPULATION` on an empty module list and derives its population from a module property.
+- **Kill fixture:** for each repaired guard, a narrowed root or emptied population must FAIL, not pass.
+
+**Verification:** medium — scoped tests + per-guard kill-probe.
+**Dependencies:** none · **Parallelizable:** yes
+
+### Task 080: The guard inventory cannot see the guards this wave shipped
+**Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-9
+**Files:** `scripts/guard-inventory.ts`, `scripts/enforcer-wiring-manifest.json`, `scripts/check-enforcer-wiring.mjs`, `scripts/check-module-intent.mjs`, `src/friction-signal.ts`, `servers/exarchos-mcp/src/orchestrate/pure/gate-preflight.ts`
+**Detail:** `buildGuardInventory` discovers through three channels (root `scripts/` manifest primaries, Wave-1 spec task `**Files:**` entries, and `servers/exarchos-mcp/scripts` gates with a SIBLING self-test). Absent from the inventory entirely: `adapter-ownership-seam.ts`, `effect-port-seam.ts`, `audit-delivery-closure.ts`, `delivery-safety.ts`, `import-cycles.ts` — so `Wave1Exit_NoGuardIsUnreachable`, asserted "over the FULL inventory" precisely so a wave cannot wire its headline guards while leaving others dark, does not range over them. `servers/exarchos-mcp/scripts/authority-live-proof.ts` (42 KB) is dropped because its self-test lives at `src/architecture/authority-live-proof.test.ts` rather than beside it. `unresolvedSpecArtifacts` computes the promised-but-absent list and `auditGuardInventory` never raises a violation for it, so a task whose declared artifact never landed passes the DR-24 proof unremarked. Adjacent: `unfilteredCiPath` is declared by zero of 24 manifest primaries (the adjudication is fixture-only), `emitPolicySkipIfNeeded` is dead production code kept alive by its own test, and `src/friction-signal.ts` is a 245-line module with no production importer whose header states it was placed in root `src/` *because* the MCP-side module-intent gate would have flagged it — relocating out of a gate's reach is not satisfying it.
+
+**Acceptance criteria:**
+- A fourth discovery channel enumerates `servers/exarchos-mcp/src/architecture/*.ts` census/seam modules; `Wave1Exit_NoGuardIsUnreachable` demonstrably ranges over them.
+- `selfTestCandidates` also resolves `src/**/<name>.test.ts`, so `authority-live-proof.ts` is visible.
+- `unresolvedSpecArtifacts` becomes a violation with an explicit, expiring waiver channel.
+- `check-module-intent.mjs` covers root `src/`, and each dead-in-prod module there carries a declared class with an owner and a rationale (the blanket `/-seam\.ts$/` filename rule is replaced by per-module entries).
+- `unfilteredCiPath` claims recorded on the grep-gates primaries, so the adjudication has a live subject.
+- **Non-empty denominator:** an inventory resolving zero guards fails closed (already true — keep it).
+
+**Verification:** medium — scoped tests + kill-probe that an unwired guard fails the reachability proof.
+**Dependencies:** none · **Parallelizable:** yes
+
+### Task 081: Detectors that match spelling instead of meaning
+**Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-8
+**Files:** `servers/exarchos-mcp/src/orchestrate/gate-ownership-census.ts`, `scripts/check-windows-portability.mjs`, `scripts/lint-envelopes.mjs`, `servers/exarchos-mcp/src/contract/governing-catalog.test.ts`, `servers/exarchos-mcp/src/contract/cli/cli-contract-seam.ts`
+**Detail:** Same class as the DR-4 vacuity hole repaired inline (`acceptsEveryValue` tested the outermost node, not what the schema admits). Remaining instances: `gate-ownership-census.ts:162` detects an alternate evidence emitter only via a RAW STRING LITERAL inside `.append(...)`, while the codebase's own idiom is the exported `ADMISSION_EVENT_TYPES.EVIDENCE_RECORDED` constant or a hoisted event object — so a rogue emitter written the way every existing emitter is written is invisible. `check-windows-portability.mjs`'s `SPAWN_RE` matches only `execFile(Sync)('npm'|'npx'|…)` and its `DYNAMIC_SPAWN_RE` requires an identifier first argument, so `lint-envelopes.mjs:94`'s literal `spawnSync('npx', …)` falls through both — and the gate's default `--src-root` is the MCP package, so root `scripts/**` is never scanned at all (that spawn fails on every Windows host post-CVE-2024-27980). `governing-catalog.test.ts:241` greps `/INV-2\s+parity/i` over whole-file source, so an innocuous comment reddens the build — brittle enough that the test splits the literal in its own fixture to avoid self-matching. `cli-contract-seam.ts:323` excludes by directory NAME, and three of the six names (`evals`, `benchmarks`, `test-helpers`) are compiled and emitted to `dist/`.
+
+**Acceptance criteria:**
+- Discriminant detectors resolve symbolically (accept the constant and an identifier traced to its object literal) or use a checker-based scan; regex-over-source is not sufficient for a code claim.
+- Portability scan covers root `scripts/**` and root `src/**`, and matches `spawn(Sync)` with a literal shim name.
+- Prose sweeps restrict to comment text or a stricter shape.
+- Directory exclusions derive from a property (build output, test suffix), not a name list.
+- **Kill fixture per detector:** the evaded form must trip it.
+
+**Verification:** medium — scoped tests + per-detector kill-probe.
+**Dependencies:** none · **Parallelizable:** yes
+
+### Task 082: `no-handler-throw`'s census is a hand-maintained closed set
+**Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-9
+**Files:** `eslint-rules/no-handler-throw.js`, `servers/exarchos-mcp/src/orchestrate/composite.ts`, `servers/exarchos-mcp/src/orchestrate/invariants/amend.ts`
+**Detail:** `SPECIAL_BRANCH_ACTIONS` lists six handler names; this same wave added a seventh special-cased branch (`invariants_amend` → `handleAmend`, composite.ts:846-853). It is not in the map, so the rule never scans it — and unlike an `ACTION_HANDLERS` entry, where an unresolvable value is FAIL-LOUD `unresolvedHandler` precisely because "an unscannable entry is a gate hole", the special-branch path returns silently (`if (!actionName) return;`, `if (!fnNode) return;`). `handleAmend` is not throw-free either: its commit path calls `replaceEntryInCatalog` (which throws) outside any try/catch, so an escaping throw is flattened to a generic `INTERNAL_ERROR`, discarding the coded envelope the handler builds everywhere else. Two reviewers found this independently.
+**Note:** the rule's 18-case self-test now runs on the unfiltered grep-gates lane (fixed inline), so a repair here is actually observed by CI.
+
+**Acceptance criteria:**
+- The special-branch census DERIVES from the dispatch branches rather than a hand-written map, so the next special-branch verb cannot fall off it. A hand-maintained list is acceptable only with a two-way conformance assertion against live `composite.ts`.
+- The special-branch resolver reports `unresolvedHandler` instead of returning silently.
+- `handleAmend`'s catalog-write path returns a coded envelope.
+- **Kill fixture:** a throw added to a special-branch handler must be reported.
+
+**Verification:** medium — scoped tests + kill-probe.
+**Dependencies:** none · **Parallelizable:** yes
+
+### Task 083: Two new verbs shipped vacuous `outputSchema`s
+**Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-6
+**Files:** `servers/exarchos-mcp/src/registry.ts`, `servers/exarchos-mcp/src/output-schema-vacuity-allowlist.ts`, `servers/exarchos-mcp/src/orchestrate/cutover-readiness.ts`
+**Detail:** `cutover_readiness` and `cutover_decide` are new on this branch and both declare `vacuityWaiver(...)`, seeded into the allowlist in the same change — while DR-4's stated tooth #1 is that a NEW action cannot declare a vacuous `outputSchema` at all. `invariants/amend.ts` held itself to the opposite rule in the same PR ("the verb is new, so it has no seeded vacuityWaiver entry to inherit — and the waiver allowlist is shrink-only") and declared a substantive `AmendInvariantData`. Both handlers return fully typed shapes (`CutoverGateReport` already exists), so the schemas are writable today.
+**Note:** the construction path is now closed (`withCappedShape` refuses a vacuous base) and `acceptsEveryValue` sees through wrappers, so this is the remaining DEBT, not a live hole.
+
+**Acceptance criteria:**
+- Both verbs declare substantive `data` schemas; both rows drop off the waiver seed (off, not sideways).
+- The seed digest moves in the open, with the shrink recorded.
+- Or: an explicit, owned, expiring statement of why two new verbs are exempt from the rule the third new verb met.
+
+**Verification:** medium — scoped tests; the DR-4 census already ratchets.
+**Dependencies:** none · **Parallelizable:** yes
+
+### Task 084: Count-as-literal sweep — the release path and the authority census
+**Risk Tier:** medium · **Boundary Touching:** false · **Implements:** DR-8
+**Files:** `.github/workflows/release.yml`, `scripts/release-workflow.test.ts`, `servers/exarchos-mcp/src/architecture/authority-live-proof.test.ts`, `servers/exarchos-mcp/src/architecture/authority-census.test.ts`, `servers/exarchos-mcp/src/adapters/cli.test.ts`, `scripts/audit/knip-diff.ts`
+**Detail:** The dominant defect class of this programme, still present in six places. Worst is the release path: `release.yml:303` `expected=10` and `:333` `expected=11` denominate the cross-compile TARGETS population (5 targets × {binary, .sha512} + 1 manifest) and are not derived from `TARGETS`; the contract test that should catch drift hard-codes the same 11-element list, so **both sides are literals and the test is green by construction**. `ci-binary-matrix.test.ts` next door DERIVES its expectation from `TARGETS` — so adding a target updates `ci.yml` under a derived gate, leaves `release.yml` and its test green, and breaks the release at tag-push time. Also: `authority-live-proof.test.ts:233/342` and `authority-census.test.ts:827-830` transcribe 8/8/24/15 beside assertions that already pin the same facts in derived form; `cli.test.ts:1391` says "four hard-wired top-level promotions" where there are three since task 076; `knip-diff.ts:32` states "There are 84 of them" where the live measurement prints 94.
+
+**Acceptance criteria:**
+- Both release counts and `release-workflow.test.ts`'s asset set derive from `TARGETS`; adding a target reddens the PR, not the tag push.
+- The authority denominators are derived from the topology data or dropped in favour of the existing derived assertions.
+- Prose counts are removed or restated as dated measurements.
+- **Kill fixture:** adding a sixth target must fail on the PR.
+
+**Verification:** medium — scoped tests + kill-probe on the target list.
+**Dependencies:** none · **Parallelizable:** yes
+
+### Task 085: Correctness and robustness residue
+**Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-7
+**Files:** `servers/exarchos-mcp/src/adapters/cli.ts`, `src/operations/atomic-json.ts`, `servers/exarchos-mcp/src/architecture/report-coupling-census.ts`, `servers/exarchos-mcp/src/runbooks/drift.test.ts`, `servers/exarchos-mcp/src/__tests__/sdk-patch-policy.test.ts`, `servers/exarchos-mcp/src/contract/cli/generated-client.test.ts`, `scripts/validate-plugin.mjs`, `servers/exarchos-mcp/src/contract/cli/differential-fixtures.test.ts`
+**Detail:** Seven independent defects with real failure modes.
+1. **`resolveExitCode` regressed the failure floor.** A `ToolResult` with `success: false` and no `error` now exits **0** (`exitCodeForError(undefined)` → SUCCESS). `ToolResult` is not a discriminated union, so the shape is type-legal for any of the 123 handlers, and the MCP wire renders the same value as `isError: true` — the two surfaces disagree. `DIFFERENTIAL_CASES` has no error-less case, so the differential proof is blind to it. The deleted body fell through to `HANDLER_ERROR`.
+2. **`atomic-json` does not guarantee what its header claims.** The "validate the serialized bytes by parsing them back" step parses an in-memory string that `JSON.stringify` just produced — it cannot fail. Meanwhile the real risk is unchecked: the `nodeFs` adapter discards `fs.writeSync`'s return value, so a short write is `fsync`ed and `rename`d over the target, destroying the previous contents. No directory `fsync` after `rename` either. Both `writeConfig` and `~/.claude.json` route through it.
+3. **G3's expiry tooth reads the wall clock inside the library** (`auditReportCouplingSeed(..., now = new Date())`), against the discipline the sibling ratchets follow (`today` a required ISO-day parameter). Its guard IS its co-located vitest, so the whole unit suite goes red on every developer's machine on 2027-03-01.
+4. **The runbook `autoEmits` bijection was deleted** with `compute.ts`; only one-directional containment survives, so a runbook declaring an event no step emits is caught nowhere.
+5. **`sdk-patch-policy.test.ts` mandates dead tooling on a false premise** — it requires `patch-package` to stay a RUNTIME dependency and `postinstall` to keep invoking it, asserting "patches/ exists" when the directory does not exist and v1 is gone.
+6. **The packaged-binary ENOENT guard lost its subject** — it exercises `compileForCliAddressing()`, which has zero production callers, while the real dispatch path (`invokeContractAction` → `contractActionIds`) never runs under the fs mock. Three module headers still describe the retired lazy-compile mechanism.
+7. **`validate-plugin.mjs` reads its policy with no key validation** — a mistyped top-level key silently produces zero checks for that whole family, and the non-empty tooth only fires when ALL families vanish. Measured: three declared families dropped and the gate still exits 0.
+Plus: `differential-fixtures.test.ts:54/107` compares two functions with byte-identical bodies delegating to the same helper — one authority wearing two names, and the fixture module's own docblock concedes it.
+
+**Acceptance criteria:**
+- `resolveExitCode` has an explicit failure floor; `DIFFERENTIAL_CASES` gains the error-less case.
+- `atomic-json` loops on the byte count (or throws on a short write), re-reads before `rename` if the promotion claim is kept, and the header describes what is enforced.
+- `today` is a required parameter on the G3 ratchet; the clock read moves to a `scripts/` entrypoint.
+- The `autoEmits` bijection is re-homed rather than dropped.
+- `sdk-patch-policy` conditions on `readPatchFilenames().length > 0`; `patch-package` leaves `dependencies`.
+- The ENOENT guard exercises the live dispatch path; the three stale headers are corrected.
+- `validate-plugin` validates its policy against a strict schema and pushes `[policy-unknown-key]`.
+- **Kill fixture** for 1, 2 and 7 specifically — each is a silent-wrong-answer, not a loud failure.
+
+**Verification:** high — scoped tests + `check_test_adequacy` + integration across the CLI/MCP surfaces.
+**Dependencies:** none · **Parallelizable:** yes
+
+### Task 086: INV-4 fires on every conforming `build:skills` commit
+**Risk Tier:** low · **Boundary Touching:** false · **Implements:** DR-7
+**Files:** `.exarchos/invariants.md` (INV-4 enforcement block)
+**Detail:** INV-4's `mode: check` predicate scopes to `skills/**` and greps `@@`, so ANY touched generated skill file is a blocking finding — but CLAUDE.md requires committing the regenerated `skills/` tree alongside its source, and `skills:guard` already proves the tree matches `skills-src/`. The predicate cannot distinguish regenerated output from a hand edit, so it fires on exactly the commits the convention mandates (73 files on this branch alone). A blocking invariant that a conforming change cannot satisfy trains reviewers to ignore it.
+**Acceptance criteria:** the check consults `skills:guard`'s verdict (or a render-equivalence probe) so a regenerated tree passes and a HAND-EDITED one still fails. Kill fixture: a hand edit to `skills/**` that `skills-src/` does not produce must fail.
+**Verification:** low — static + the existing guard.
+**Dependencies:** none · **Parallelizable:** yes
+
+### Task 087: INV-11's STATE-authority claim is not enforced at the chokepoint it names
+**Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-7
+**Files:** `.exarchos/invariants.md` (INV-11), `servers/exarchos-mcp/src/index.ts`, `servers/exarchos-mcp/src/core/context.ts`, `servers/exarchos-mcp/src/capabilities/`
+**Detail:** INV-11 states STATE authority is enforced "in the dispatch/MCP handler — a read-only agent cannot invoke a mutating action". Production builds the resolver as `createInMemoryResolver([])` / `createInMemoryResolver([ANTHROPIC_NATIVE_CACHING])` — a response-cache flag, not a posture — so no agent posture ever reaches the dispatch resolver. The posture→capability mapping (`posture-mapping.ts`) is well-formed and its output goes nowhere near dispatch; enforcement in practice rests on render-time tool-surface selection and the harness's own tool allowlist. The `shared-mutating` gate deletion (d6685d47c) was correct and well-argued — this is the OTHER half, which that commit's own reasoning notes ("agent postures do matter, but at RENDER time").
+**Acceptance criteria:** either postures reach the dispatch resolver and a read-only caller is denied a mutating action by construction, or INV-11's text is amended to name render-time selection as the actual chokepoint. Asserting the stronger claim while the weaker one holds is the overclaim INV-11 elsewhere refuses to make. Kill fixture: a read-only posture invoking a mutating action.
+**Verification:** medium — scoped tests + kill-probe at the resolved chokepoint.
+**Dependencies:** none · **Parallelizable:** yes
+
+### Task 088: `prepare_synthesis` measures the directory it was launched in
+**Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-8
+**Files:** `servers/exarchos-mcp/src/orchestrate/prepare-synthesis.ts`, `servers/exarchos-mcp/src/orchestrate/prepare-synthesis.test.ts`
+**Detail:** DR-8's scan-root defect on a BLOCKING gate rather than a guard. `runTestSuite`, `runTypecheck`, `verifyStack` and `changedFilesAgainstBase` each shell out with no `cwd` option, so all four legs measure `process.cwd()` — whatever directory the MCP server happened to be launched in — while the readiness verdict is reported as the workflow's. The handler's second positional argument is `stateDir`, not a repo root, so there is currently nothing to thread: the gate has no way to name the tree it is judging. Two consequences. In production, a server launched anywhere but the workflow's repo returns a readiness verdict for an unrelated tree, and `testsPass`/`typecheckPass` are then folded into `ready`. In test, the legs run for real: the one `phase-gate-evidence.test.ts` case that clears the task-completion short-circuit re-entered the whole `vitest run` from inside a test and waited out both subprocess timeouts (120s + 60s = the 180s observed under load). That test was repaired inline by stubbing `node:child_process`, matching `prepare-synthesis.test.ts`; the production hole is untouched.
+**Acceptance criteria:**
+- The gate takes an explicit repo root and every subprocess leg passes it as `cwd`; no leg reads ambient `process.cwd()`.
+- A verdict computed against a directory that is not the workflow's repo is a structural impossibility, not a convention.
+- **Kill fixture:** run the gate with a repo root that differs from `process.cwd()` and assert the legs ran against the root — this must fail before the change.
+
+**Verification:** medium — scoped tests + kill-probe on the cwd argument.
+**Dependencies:** none · **Parallelizable:** yes
+
 ## Exit condition
 
-All six merged, with:
+All eighteen merged (071-077 from the overhaul's residue, 078-088 from the review), with:
 - root suite green and MCP at the known-red merge-orchestrate + `store.race` baseline, member-for-member;
 - `npm run validate` 9/9 and `validate-no-legacy` at 0 unallowlisted;
 - every kill fixture above demonstrated by mutation, not by a green suite;
 - 075's migration note landed in `docs/`;
 - the DR-14 cast floor re-baselined in the open if any task moves it.
+
+**Two exit criteria the review added, because both were previously satisfiable while false:**
+- `npm run validate` exiting 0 is NOT sufficient on its own — no step may report a non-pass verdict
+  that the aggregate records as PASS (DR-7). Read the step verdicts, not just the exit code.
+- No guard may be green because of what it does not look at (DR-8). For every guard this spec
+  touches, the scan root and the denominator are stated in its own test, and a narrowed root fails.
+
+**Sequencing note.** 078 and 085 carry the silent-wrong-answer defects (a skipped gate reading as
+evidence; a failure envelope exiting 0; a short write promoted over good data). Take those first —
+the rest are guards that under-report, which is a slower harm than a gate that misreports.

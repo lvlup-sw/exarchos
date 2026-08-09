@@ -952,6 +952,36 @@ jobs:
       - name: Error-envelope lint self-test (#1706 DR-2)
         run: bash scripts/lint-envelopes.test.sh
 
+      # The RULE's own self-test, as distinct from the wrapper's. `lint-envelopes.test.sh`
+      # above covers the wrapper's exit codes against one violating fixture; these 18
+      # cases cover the rule's handler resolution (adaptXxx unwrap, zero-arg factory,
+      # cast, inline literal, the fail-loud `unresolvedHandler` path) and its three
+      # exemption classes. They were executed by NOTHING: it is a `node:test` file with
+      # a `.js` extension, and the root vitest `include` list is all `*.test.ts` under
+      # src/benchmarks/scripts/hooks/test/docs — no `eslint-rules/**`, no `.js` pattern.
+      # A blocking lint rule whose resolution logic is unproven is the DR-24 shape the
+      # rest of this lane exists to prevent.
+      - name: Error-envelope RULE self-test (18 cases)
+        run: node eslint-rules/no-handler-throw.test.js
+
+      # `eslint-rules/tsconfig.json` exists solely to typecheck `__fixtures__/**/*.ts`
+      # and was compiled by nothing either — root `tsconfig.json` includes `src/**/*`
+      # and `tsconfig.scripts.json` includes `scripts/**/*.ts`; neither covers this tree.
+      - name: Typecheck eslint-rules/
+        run: npx --no-install tsc -p eslint-rules/tsconfig.json
+
+      # DR-15/DR-24 ratchets re-asserted UNFILTERED. Both live in root `src/` and were
+      # hosted only by the `root`-path-filtered test-root lane, while the surfaces they
+      # SCAN sit outside that filter: `advisory-registry` walks `scripts/**` plus
+      # `.github/workflows/**`, and `shim-registry` walks
+      # `servers/exarchos-mcp/src/runtime/**` (the filter names only
+      # `servers/exarchos-mcp/src/agents/**` from that tree). So a PR editing exactly
+      # what they police did not arm the job that runs them — skipped-as-passed, which
+      # is the failure mode these ratchets were written to close. Hosting them here
+      # makes each fire on every PR regardless of the paths touched.
+      - name: Advisory + shim ratchets (DR-15/DR-24, unfiltered)
+        run: npx --no-install vitest run src/advisory-registry.test.ts src/shim-registry.test.ts
+
       # DR-2 CI-topology conformance test on the UNFILTERED host: a root-suite
       # vitest that parses ci.yml and asserts the ci-gate aggregator's
       # completeness / evaluate-coverage / skip-guard coverage. Running it here

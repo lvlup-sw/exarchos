@@ -1040,14 +1040,24 @@ export function runSdkSeamBoundaryCensus(
   });
 }
 
+/** Module extensions an SDK import can hide in. */
+const MODULE_EXTENSIONS: readonly string[] = ['.ts', '.mts', '.cts', '.js', '.mjs', '.cjs'];
+
 /**
- * Every `.ts` module under `root`, EXCLUDING only `node_modules` and `dist`.
+ * Every module under `root`, EXCLUDING only what is not source at all.
  *
  * Deliberately NOT {@link collectScannableFiles}: that walk drops tests, evals
  * and `test-helpers`, which between them held 12 of the 22 modules DR-26
  * measured. See the section header for why a test's SDK import is in scope for
- * this rule and out of scope for the layering one. The exclusions kept are the
- * two that are not source at all.
+ * this rule and out of scope for the layering one.
+ *
+ * Exclusion is by PROPERTY, never by naming subtrees: `node_modules` and `dist`
+ * are build/vendor output, and dot-directories are tooling state — which also
+ * keeps a repo-root scan out of `.claude/worktrees/`, where sibling checkouts of
+ * this same repository would otherwise be walked as if they were source.
+ *
+ * `.mjs`/`.js` are collected, not just `.ts`: the last live v1 import in the
+ * repository sat in a `.mjs` test helper, invisible to a TypeScript-only walk.
  */
 async function collectAllModuleFiles(root: string): Promise<string[]> {
   const files: string[] = [];
@@ -1055,8 +1065,9 @@ async function collectAllModuleFiles(root: string): Promise<string[]> {
     for (const entry of await readdir(dir, { withFileTypes: true })) {
       if (entry.isDirectory()) {
         if (entry.name === 'node_modules' || entry.name === 'dist') continue;
+        if (entry.name.startsWith('.')) continue;
         await walk(join(dir, entry.name));
-      } else if (entry.isFile() && entry.name.endsWith('.ts')) {
+      } else if (entry.isFile() && MODULE_EXTENSIONS.some((ext) => entry.name.endsWith(ext))) {
         files.push(join(dir, entry.name));
       }
     }
@@ -1101,8 +1112,41 @@ export async function auditSdkSeamBoundary(
 export const SDK_SEAM_BOUNDARY: SdkSeamBoundaryRule = Object.freeze({
   seamModule: SDK_SEAM_MODULE,
 
-  // EMPTY, and that is the point. Task 053 migrated all 22 measured modules
-  // instead of licensing any of them. The teeth above (STALE / EXPIRED) mean an
-  // entry added here cannot quietly become permanent cover.
-  exemptions: Object.freeze([]),
+  // Task 053 migrated all 22 measured modules instead of licensing any of them,
+  // and the production tree still licenses NONE. The three entries below are
+  // process-level test harnesses that drive a real MCP server over stdio: they
+  // need a real client, and the seam is a production module a root-package test
+  // fixture must not reach into. They are recorded rather than hidden because the
+  // alternative was the scan root itself — the audit used to run only at
+  // `servers/exarchos-mcp/src`, so these modules were not exempt, they were
+  // INVISIBLE, and the rule's "SOLE importer" claim was simply false outside the
+  // subtree it measured. An exemption is a debt with an owner and a date; a narrow
+  // scan root is a debt nobody can see.
+  exemptions: Object.freeze([
+    {
+      module: 'test/fixtures/mcp-client.ts',
+      owner: 'exarchos-core',
+      expires: '2027-02-28',
+      reason:
+        'Root-package process fixture: spawns the shipped binary over stdio and drives it ' +
+        'with a real client. Cannot route through the MCP package’s production seam without ' +
+        'the root test tree importing server internals. Migrated v1 → v2 (DR-0/DR-26).',
+    },
+    {
+      module: 'test/fixtures/__helpers__/mock-mcp-server.mjs',
+      owner: 'exarchos-core',
+      expires: '2027-02-28',
+      reason:
+        'The mock stdio SERVER the fixture above connects to; both ends must be the same ' +
+        'generation or the pair hangs rather than erroring. Same rationale as its client.',
+    },
+    {
+      module: 'servers/exarchos-mcp/test/process/_helpers.ts',
+      owner: 'exarchos-core',
+      expires: '2027-02-28',
+      reason:
+        'Packaged-binary process tests: exercise the real transport end-to-end, which is ' +
+        'precisely what the seam abstracts away, so the seam cannot stand in for it here.',
+    },
+  ]),
 });

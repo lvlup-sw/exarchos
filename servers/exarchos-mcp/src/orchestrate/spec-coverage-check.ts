@@ -27,7 +27,13 @@ export interface SpecCoverageCheckArgs {
   readonly planFile: string;
   readonly repoRoot: string;
   readonly skipRun?: boolean;
-  readonly phase?: SpecCoveragePhase;
+  /**
+   * Which semantics to apply (WFQ-010). Named `coveragePhase`, not `phase`:
+   * the registration schema flattens field names across every action and
+   * `check_test_adequacy` already owns a free-form `phase: z.string()`, so the
+   * two collide on base type at server construction. See the registry entry.
+   */
+  readonly coveragePhase?: SpecCoveragePhase;
 }
 
 interface CheckEntry {
@@ -216,7 +222,7 @@ function generateReport(
 // ─── Handler ────────────────────────────────────────────────────────────────
 
 export function handleSpecCoverageCheck(args: SpecCoverageCheckArgs): ToolResult {
-  const { planFile, repoRoot, skipRun = false, phase = 'post-implementation' } = args;
+  const { planFile, repoRoot, skipRun = false, coveragePhase: phase = 'post-implementation' } = args;
 
   // Validate inputs
   if (!existsSync(planFile)) {

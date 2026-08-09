@@ -17,12 +17,14 @@
         "scripts/audit/knip-diff.ts",
         "scripts/measured-premises-derive.ts",
         "scripts/**/*.test.ts",
-        "test/**/*.test.ts"
+        "test/**/*.test.ts",
+        "test/fixtures/__helpers__/mock-mcp-server.mjs"
       ],
       "project": [
         "src/**/*.ts",
         "scripts/**/*.ts",
-        "test/**/*.ts"
+        "test/**/*.ts",
+        "test/**/*.mjs"
       ]
     },
     "servers/exarchos-mcp": {

@@ -50,6 +50,7 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { TOOL_REGISTRY } from '../registry.js';
 import { extractEnvelopeDataSchema } from '../orchestrate/worktree/schemas.js';
+import { acceptsEveryValue } from '../schemas/schema-totality.js';
 import {
   VACUITY_ALLOWLIST,
   VACUITY_ALLOWLIST_IDS,
@@ -157,15 +158,12 @@ export interface OutputSchemaCensusReport {
 /**
  * Does this sub-schema accept every value?
  *
- * `z.unknown()` and `z.any()` are the two structural escape hatches — BOTH
- * admit an arbitrary payload, so either one makes the surrounding envelope
- * total over wrong shapes. Mirrors the predicate `envelopeDataSchemaIsTyped`
- * already applies to the worktree surface; kept here so the census owns one
- * explicit definition of "accepts everything".
+ * Re-exported from the leaf module so the census keeps owning one explicit
+ * definition of "accepts everything" for its consumers, while `withCappedShape`
+ * — which cannot import this module without closing an import cycle — shares the
+ * same predicate rather than a second copy of it.
  */
-export function acceptsEveryValue(schema: z.ZodType): boolean {
-  return schema instanceof z.ZodUnknown || schema instanceof z.ZodAny;
-}
+export { acceptsEveryValue };
 
 /** What {@link readEnvelopeData} recovered from a declared `outputSchema`. */
 interface EnvelopeData {

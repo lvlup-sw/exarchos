@@ -33,6 +33,7 @@ import {
 import { lexModule } from '../test-helpers/module-lexer.js';
 
 import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { classifySdkImport } from './sdk-generation-seam.js';
 import { parseModuleSpecifiers } from '../test-helpers/module-specifier-parser.js';
 
@@ -56,6 +57,29 @@ import { parseModuleSpecifiers } from '../test-helpers/module-specifier-parser.j
  */
 
 const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+
+/** The repository root — `servers/exarchos-mcp/src` is three levels down. */
+const REPO_ROOT = join(SRC_ROOT, '..', '..', '..');
+
+/**
+ * Modules git tracks under `root`, counted independently of the walker.
+ *
+ * The second authority for the denominator: `git ls-files` knows nothing about
+ * the scan's exclusions or its recursion, so agreement between the two is
+ * evidence the walk reached the tree rather than a restatement of it.
+ */
+function countTrackedModules(root: string): number {
+  const out = execFileSync(
+    'git',
+    ['ls-files', '--', '*.ts', '*.mts', '*.cts', '*.js', '*.mjs', '*.cjs'],
+    { cwd: root, encoding: 'utf-8', maxBuffer: 64 * 1024 * 1024 },
+  );
+  return out
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.includes('/dist/') && !line.startsWith('dist/'))
+    .length;
+}
 
 describe('resolveTarget', () => {
   it('resolves a sibling-directory specifier to a .ts module', () => {
@@ -582,7 +606,7 @@ describe('DR-26 — SDK generation seam: a direct SDK import fails the rule', ()
     // Injected into the LIVE scan, exactly as DR-1's violator probe is: the
     // claim is that the rule as it actually runs against this tree would have
     // rejected the module, not that a hand-built scan can be made to fail.
-    const live = await scanSdkSeamBoundary(SRC_ROOT, parseModuleSpecifiers);
+    const live = await scanSdkSeamBoundary(REPO_ROOT, parseModuleSpecifiers);
     const result = runSdkSeamBoundaryCensus({
       ...live,
       usages: [...live.usages, seeded],
@@ -617,7 +641,7 @@ describe('DR-26 — SDK generation seam: a direct SDK import fails the rule', ()
 
     expect(detectSdkSeamUsage(ROGUE_MODULE, throughSeam, parseModuleSpecifiers)).toBeUndefined();
 
-    const live = await scanSdkSeamBoundary(SRC_ROOT, parseModuleSpecifiers);
+    const live = await scanSdkSeamBoundary(REPO_ROOT, parseModuleSpecifiers);
     expect(runSdkSeamBoundaryCensus(live).ok).toBe(true);
   });
 
@@ -644,26 +668,45 @@ describe('DR-26 — SDK generation seam: a direct SDK import fails the rule', ()
     // The subject list is walked out of the tree, never enumerated here: a list
     // written into a test is a second authority that goes stale the moment a
     // module moves, which is the defect class this program exists to close.
-    const scan = await scanSdkSeamBoundary(SRC_ROOT, parseModuleSpecifiers);
+    // SCANNED AT THE REPO ROOT. The claim is about the repository — "the SOLE
+    // importer of either generation" — so it has to be measured over the
+    // repository. Rooted at `servers/exarchos-mcp/src` it read green while a live
+    // v1 client sat in the root package's `test/fixtures/` with a dozen importers,
+    // and a v2 client bypassed the seam in the MCP package's own `test/process/`.
+    // Neither was exempt; both were out of frame. A guard's scan root is part of
+    // its claim.
+    const scan = await scanSdkSeamBoundary(REPO_ROOT, parseModuleSpecifiers);
 
-    // NON-EMPTY DENOMINATOR, checked on two axes that are both independent of
-    // the violation count. After a completed migration the violation list is
-    // empty either because the tree is clean or because the instrument died,
-    // and only these can tell those apart.
+    // NON-EMPTY DENOMINATOR, DERIVED rather than floored. A bare `> 50` cannot
+    // fail here: `servers/exarchos-mcp/src` alone holds ~1545 modules, so a scan
+    // that lost 96% of the tree still cleared it — the same loose-floor shape that
+    // let a src-only walk pass for a package-wide claim. Pinning against an
+    // independently counted population means a narrowed root fails instead.
+    const trackedModules = countTrackedModules(REPO_ROOT);
     expect(
       scan.moduleCount,
-      'the walk resolved almost no modules — scan root moved, or the walker broke',
-    ).toBeGreaterThan(50);
+      'the walk resolved far fewer modules than the repository tracks — scan root ' +
+        'moved, an exclusion widened, or the walker broke',
+    ).toBeGreaterThan(trackedModules * 0.8);
     expect(scan.seamModulePresent).toBe(true);
 
-    const importers = scan.usages.map((u) => u.module).sort();
+    // Split by the scan's OWN seam classification rather than by re-deriving the
+    // path: at repo-root scope every module is repo-root-relative, so the bare
+    // `seamModule` name would not match and re-spelling it here would plant a
+    // second authority for where the seam lives.
+    const seamImporters = scan.usages.filter((u) => u.isSeam).map((u) => u.module);
+    const bypassImporters = scan.usages.filter((u) => !u.isSeam).map((u) => u.module).sort();
+
+    expect(seamImporters, 'exactly one module is the owned seam').toHaveLength(1);
+    expect(seamImporters[0]).toMatch(/(^|\/)sdk\/seam\.ts$/);
+
     expect(
-      importers,
-      'EVERY module importing an MCP SDK package must be the owned seam. Any ' +
-        'other name here is a module that reaches a generation directly, which ' +
-        'is what DR-26 forbids and what task 053 migrated 42 sites across 22 ' +
-        'files to eliminate.',
-    ).toEqual([SDK_SEAM_BOUNDARY.seamModule]);
+      bypassImporters,
+      'EVERY module importing an MCP SDK package must be the owned seam or carry a ' +
+        'dated, owned, expiring exemption. Any other name here is a module that ' +
+        'reaches a generation directly, which is what DR-26 forbids and what task ' +
+        '053 migrated 42 sites across 22 files to eliminate.',
+    ).toEqual([...SDK_SEAM_BOUNDARY.exemptions.map((e) => e.module)].sort());
 
     const result = runSdkSeamBoundaryCensus(scan);
     expect(result.diagnostics).toEqual([]);
@@ -703,13 +746,23 @@ describe('DR-26 — SDK generation seam: a direct SDK import fails the rule', ()
   it('SdkSeam_AuditOverLiveTree_IsGreen', async () => {
     // The shipped entry point, end to end — `scanSdkSeamBoundary` +
     // `runSdkSeamBoundaryCensus` composed exactly as a caller would use them.
-    const result = await auditSdkSeamBoundary(SRC_ROOT, parseModuleSpecifiers);
+    const result = await auditSdkSeamBoundary(REPO_ROOT, parseModuleSpecifiers);
     expect(result.diagnostics).toEqual([]);
     expect(result.ok).toBe(true);
   });
 });
 
 describe('DR-26 — SDK seam rule: fail-closed teeth', () => {
+  // These cases exercise the CENSUS MECHANICS against synthetic scans, so they
+  // carry their own rule with no exemptions. Reading the shipped roster here
+  // would couple every mechanic assertion to the live licence list: each shipped
+  // exemption names a module absent from a synthetic scan, which the STALE tooth
+  // correctly reports — the tooth firing, not the mechanic breaking. The shipped
+  // roster has its own assertion at the end of this block.
+  const SYNTHETIC_RULE: SdkSeamBoundaryRule = {
+    seamModule: SDK_SEAM_BOUNDARY.seamModule,
+    exemptions: [],
+  };
   const seamUsage: SdkSeamUsage = {
     module: SDK_SEAM_BOUNDARY.seamModule,
     isSeam: true,
@@ -732,7 +785,7 @@ describe('DR-26 — SDK seam rule: fail-closed teeth', () => {
   it('SdkSeamRule_HealthyScan_IsGreen', () => {
     // POSITIVE CONTROL. Without it, every rejection below would be consistent
     // with a census that fails on everything.
-    expect(runSdkSeamBoundaryCensus(healthy).ok).toBe(true);
+    expect(runSdkSeamBoundaryCensus(healthy, SYNTHETIC_RULE).ok).toBe(true);
   });
 
   it('SdkSeamRule_ZeroModulesVisited_FailsClosed', () => {
@@ -807,11 +860,32 @@ describe('DR-26 — SDK seam rule: fail-closed teeth', () => {
     expect(result.diagnostics.map((d) => d.code)).toContain('EXPIRED_SDK_SEAM_EXEMPTION');
   });
 
-  it('SdkSeamRule_ShippedExemptionList_IsEmpty', () => {
-    // The migration's own claim, asserted rather than described: task 053
-    // MOVED its 22 subjects instead of licensing any of them. A future entry
-    // here is a deliberate, reviewed act that this assertion forces into the
-    // diff.
-    expect(SDK_SEAM_BOUNDARY.exemptions).toEqual([]);
+  it('SdkSeamRule_ShippedExemptions_AreProcessHarnessesOnly_AndFullyGoverned', () => {
+    // Was `toEqual([])`. That assertion did its job — widening the audit to the
+    // repository surfaced three process-level test harnesses that drive a real
+    // server over stdio, and licensing them had to arrive as a reviewed diff
+    // rather than a quiet edit. It is replaced, not deleted: the roster is still
+    // pinned, and every entry must still be fully governed.
+    //
+    // The PRODUCTION tree licenses none of these — that is the claim task 053
+    // earned and this keeps. Each entry is a test harness that needs the real
+    // transport, which is exactly what the seam abstracts away.
+    expect(SDK_SEAM_BOUNDARY.exemptions.map((e) => e.module).sort()).toEqual([
+      'servers/exarchos-mcp/test/process/_helpers.ts',
+      'test/fixtures/__helpers__/mock-mcp-server.mjs',
+      'test/fixtures/mcp-client.ts',
+    ]);
+
+    for (const entry of SDK_SEAM_BOUNDARY.exemptions) {
+      // No production module may be licensed — the moment one appears here the
+      // exemption list has stopped being a test-harness carve-out.
+      expect(entry.module).toMatch(/(^|\/)test\//);
+      expect(entry.owner.length).toBeGreaterThan(0);
+      expect(entry.reason.length).toBeGreaterThan(0);
+      expect(entry.expires).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      // An already-expired entry would be shipped debt the EXPIRED tooth reports
+      // on every run; the roster must be live when it lands.
+      expect(entry.expires > new Date().toISOString().slice(0, 10)).toBe(true);
+    }
   });
 });

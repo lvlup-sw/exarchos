@@ -183,18 +183,24 @@ exarchos_orchestrate({
 
 **Advisory:** This gate verifies task structure quality but does not block plan approval. Findings are recorded for convergence tracking.
 
-**5b. Spec coverage check** — verify planned test files exist and pass:
+**5b. Spec coverage check** — validate the planned test paths as declarations:
 
 ```typescript
 exarchos_orchestrate({
   action: "spec_coverage_check",
   planFile: "docs/specs/<date>-<feature>.md",
-  repoRoot: "."
+  repoRoot: ".",
+  coveragePhase: "plan"
 })
 ```
 
-- **`passed: true`** — All planned tests found and passing; plan verification complete
-- **`passed: false`** — Missing test files or test failures; create missing tests or fix failures
+Pass `coveragePhase: "plan"` here. At planning time a declared test file does not exist yet, so the
+check validates the path is a well-formed test-path declaration rather than requiring it on
+disk. Omitting the parameter falls back to `post-implementation`, which demands every declared
+file exist and its tests run — a bar no plan can clear.
+
+- **`passed: true`** — Every declared test path is a valid forward declaration; plan verification complete
+- **`passed: false`** — A declared path is not a well-formed test path; fix the paths in the plan
 
 For reference, consult `references/spec-tracing-guide.md` for the underlying methodology.
 

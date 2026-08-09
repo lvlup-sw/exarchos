@@ -68,6 +68,7 @@
 import { z } from 'zod';
 import { EnvelopeSchema } from './schemas/envelope.js';
 import { extractEnvelopeDataSchema } from './orchestrate/worktree/schemas.js';
+import { acceptsEveryValue } from './schemas/schema-totality.js';
 import type { VacuityWaiverId } from './output-schema-vacuity-allowlist.js';
 
 /**
@@ -209,6 +210,23 @@ export const CappedDataSchema = z
 export function withCappedShape(outputSchema: z.ZodType): DeclaredOutputSchema {
   const baseData = extractEnvelopeDataSchema(outputSchema);
   if (baseData === undefined) return declareOutputSchema(outputSchema);
+
+  // Refuse a base that already accepts everything. Widening a total `data` into
+  // `z.union([total, capped])` leaves it total while changing its outermost node
+  // from `ZodUnknown` to `ZodUnion` — which is precisely how a vacuous schema
+  // used to acquire a "substantive" classification and a valid brand in one call,
+  // clearing both DR-4 teeth without constraining a single response. Failing here
+  // keeps the compile-time half and the census half answering the same question:
+  // this constructor mints substance, so it must refuse to mint it out of nothing.
+  if (acceptsEveryValue(baseData)) {
+    throw new Error(
+      'withCappedShape: refusing a base whose `data` already accepts every value. ' +
+        'Capping it would produce a union that is still total but classifies as ' +
+        'substantive. Declare a real `data` shape, or record the debt with ' +
+        'vacuityWaiver(<id>) so it stays on the shrink-only allowlist.',
+    );
+  }
+
   return declareOutputSchema(EnvelopeSchema(z.union([baseData, CappedDataSchema])));
 }
 

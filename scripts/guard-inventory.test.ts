@@ -686,7 +686,24 @@ describe('Exclusions stay reviewable', () => {
     // Modules whose enforcement rung is `tsc`, not a CI step. They carry no
     // executable verdict, so execution reachability is not a question that can be
     // asked of them — but they are named rather than dropped.
-    expect(liveInventory.compileTimeOnlyArtifacts).toContain('servers/exarchos-mcp/src/output-schema-declaration.ts');
+    //
+    // Asserted as a PROPERTY, not as one transcribed filename. This used to pin
+    // `output-schema-declaration.ts`, which left the set the moment it earned a
+    // co-located self-test (the DR-4 vacuity kill fixtures) — a module GAINING an
+    // executable verdict is the outcome this program wants, and it should not
+    // redden a test. Same reasoning the R-11 case below states for itself: a name
+    // pinned forever asserts a fact the tree is allowed to change.
+    expect(
+      liveInventory.compileTimeOnlyArtifacts.length,
+      'the compile-time-only class resolved empty — the classifier died, or every ' +
+        'artifact silently changed rung',
+    ).toBeGreaterThan(0);
+
+    // The class must mean what it says: no member may have a co-located self-test,
+    // or "compile-time only" has become a label rather than a classification.
+    for (const artifact of liveInventory.compileTimeOnlyArtifacts) {
+      expect(liveInventory.artifactsWithSelfTest ?? []).not.toContain(artifact);
+    }
   });
 
   it('GuardInventory_R11GuardsWithNoProductionCaller_AreNamed', () => {

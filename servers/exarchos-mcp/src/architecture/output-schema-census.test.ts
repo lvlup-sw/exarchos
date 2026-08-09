@@ -443,3 +443,67 @@ describe('DR-4: outputSchema vacuity census', () => {
     expect([...report.substantive]).toEqual([...report.substantive].sort());
   });
 });
+
+describe('acceptsEveryValue — totality is semantic, not spelling', () => {
+  // The predicate used to be `instanceof ZodUnknown || instanceof ZodAny`, which
+  // answered a question about the OUTERMOST NODE rather than about what the schema
+  // admits. `withCappedShape` rewrites `data` to `z.union([base, capped])`, so
+  // `withCappedShape(EnvelopeSchema(z.unknown()))` handed the census a ZodUnion —
+  // neither of the two classes — and it read `substantive` while accepting every
+  // payload, clearing the compile-time brand AND the allowlist audit in one call.
+  //
+  // The oracle here is REALITY, not a second opinion: each schema is parsed against
+  // a probe set, and the predicate must agree with what the schema actually did.
+  const PROBES: readonly unknown[] = [{ a: 1 }, 'str', 42, null, [1, 2], true, undefined];
+  const admitsEveryProbe = (schema: z.ZodType): boolean =>
+    PROBES.every((probe) => schema.safeParse(probe).success);
+
+  const TOTAL_FORMS: ReadonlyArray<readonly [string, z.ZodType]> = [
+    ['bare unknown', z.unknown()],
+    ['bare any', z.any()],
+    ['union carrying unknown (the withCappedShape shape)', z.union([z.unknown(), z.object({ truncated: z.boolean() })])],
+    ['union carrying unknown beside a typed member', z.union([z.unknown(), z.string()])],
+    ['optional unknown', z.unknown().optional()],
+    ['nullable any', z.any().nullable()],
+    ['readonly unknown', z.unknown().readonly()],
+    ['defaulted unknown', z.unknown().default(1)],
+    // A catch swallows every failure and yields its fallback, so even a tightly
+    // typed inner schema accepts everything once wrapped.
+    ['caught string', z.string().catch('x')],
+  ];
+
+  const CONSTRAINED_FORMS: ReadonlyArray<readonly [string, z.ZodType]> = [
+    ['string', z.string()],
+    ['object with a typed field', z.object({ a: z.string() })],
+    ['union of typed members', z.union([z.string(), z.number()])],
+    // An intersection must satisfy BOTH sides, so one open side does not widen it.
+    ['intersection of unknown and string', z.intersection(z.unknown(), z.string())],
+  ];
+
+  it.each(TOTAL_FORMS)('acceptsEveryValue_%s_IsTotal', (_label, schema) => {
+    expect(admitsEveryProbe(schema)).toBe(true); // the oracle
+    expect(acceptsEveryValue(schema)).toBe(true); // the predicate must agree
+  });
+
+  it.each(CONSTRAINED_FORMS)('acceptsEveryValue_%s_IsNotTotal', (_label, schema) => {
+    expect(admitsEveryProbe(schema)).toBe(false);
+    expect(acceptsEveryValue(schema)).toBe(false);
+  });
+
+  it('classifyOutputSchema_EnvelopeOverATotalUnion_IsVacuous', () => {
+    // The end-to-end shape of the laundering, built by hand so the assertion does
+    // not depend on `withCappedShape` still being willing to construct it.
+    const laundered = EnvelopeSchema(
+      z.union([z.unknown(), z.object({ truncated: z.boolean() })]),
+    );
+    expect(classifyOutputSchema(laundered)).toMatchObject({ classification: 'vacuous' });
+  });
+
+  it('acceptsEveryValue_DeeplyNestedTotalBranch_TerminatesAndIsTotal', () => {
+    // Depth guard sanity: wrappers stack without tripping the ceiling, and the
+    // open branch is still found underneath them.
+    const nested = z.union([z.unknown().optional().nullable().readonly(), z.string()]);
+    expect(admitsEveryProbe(nested)).toBe(true);
+    expect(acceptsEveryValue(nested)).toBe(true);
+  });
+});

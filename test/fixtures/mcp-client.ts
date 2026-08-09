@@ -1,6 +1,13 @@
 import type { ChildProcess } from 'node:child_process';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+// SDK v2 (DR-0/DR-26). These were the last live `@modelcontextprotocol/sdk`
+// (v1) imports in the repository, and the package they resolved was EXTRANEOUS —
+// declared by no manifest and absent from package-lock.json — so the suite passed
+// only against a stale pre-migration `node_modules` and would not survive
+// `npm ci`. The generation matters beyond resolution: a v1 client paired with a
+// v2 server presents as a HANG rather than an error, so a cross-generation
+// fixture is a latent trap, not a loud one.
+import { Client } from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import * as processTracker from './process-tracker.js';
 
 /**
@@ -163,7 +170,7 @@ export async function spawnMcpClient(
 
   // Reach into the transport for the ChildProcess reference. The SDK does
   // not expose it publicly, but we need it for lifecycle management and
-  // leak detection. Verified against @modelcontextprotocol/sdk 1.29.
+  // leak detection. Verified against @modelcontextprotocol/client 2.0.0.
   const transportInternals = transport as unknown as { _process?: unknown };
   const candidate = transportInternals._process;
   if (
@@ -174,7 +181,7 @@ export async function spawnMcpClient(
   ) {
     throw new Error(
       "spawnMcpClient: transport did not expose a ChildProcess after start() — " +
-        "@modelcontextprotocol/sdk internals may have changed (verified against 1.29)",
+        "@modelcontextprotocol/client internals may have changed (verified against 2.0.0)",
     );
   }
   const child = candidate as ChildProcess;
