@@ -17,7 +17,13 @@
     "",
     "Adding a gate to `validate` means adding an entry here. `command` + `args`",
     "are exec'd directly — no shell, so no `&&`, no quoting, and no way to write a",
-    "step whose failure is swallowed by a `|| true` nobody notices."
+    "step whose failure is swallowed by a `|| true` nobody notices.",
+    "",
+    "`outcomes` (DR-7, task 078) maps a step's non-zero exit codes to the verdict",
+    "the step actually computed. Without it every non-zero code is a failure and",
+    "exit 0 is a pass — which is right until a gate has a THIRD answer. Exit 0 is",
+    "not declarable, `advisory` requires an issue and an expiry, and an expired",
+    "advisory fails. A step may not rename its own pass."
   ],
   "steps": [
     {
@@ -72,7 +78,16 @@
       "id": "measured-premises",
       "command": "node",
       "args": ["scripts/check-measured-premises.mjs"],
-      "why": "DR-27 — every annotated numeric claim in the wave spec is re-derived from the artifact that produces it. Exits 0 with `VERDICT: GAPS` while rungs are unprobed; that is a reportable gap, not a failure."
+      "why": "DR-27 — every annotated numeric claim in the wave spec is re-derived from the artifact that produces it.",
+      "outcomes": {
+        "3": {
+          "verdict": "gaps",
+          "severity": "advisory",
+          "issue": "#1789",
+          "expires": "2026-11-30",
+          "why": "Unprobed obligation rungs (11 of 13 at task 078). The gate used to exit 0 here, so this aggregate recorded `PASS measured-premises` for a step that printed `VERDICT: GAPS` — DR-7's exact shape. The gaps are real work, not a defect in the gate, so the step is tolerated rather than red; the toleration is dated and tracked so it cannot quietly become permanent. Probing the rungs deletes this block."
+        }
+      }
     }
   ]
 }

@@ -290,7 +290,35 @@ describe('check-measured-premises (task 054, DR-27)', () => {
       failOnGap: true,
     }) as Report;
     expect(strict.exitCode).toBe(1);
+
+    // DR-7 (task 078) — and the verdict survives the PROCESS boundary. The
+    // report said `gaps` all along; `exitCode` said 0, which is the only thing
+    // a runner reads, so `npm run validate` recorded PASS for it. Each verdict
+    // now owns a code: pass 0, fail 1, gaps 3.
+    expect(report.exitCode).toBe(3);
+    expect(report.exitCode).not.toBe(0);
   });
+
+  it('MeasuredPremises_GapsVerdict_ExitsDistinctFromPass', () => {
+    // Asserted against the REAL CLI on the REAL DR-27 scope, because the defect
+    // was in what the process returned, not in what the pure function computed.
+    // Whichever verdict today's tree produces, the code must identify it — and
+    // `gaps` must never share a code with `pass`.
+    const { status, report } = runCli([]);
+    expect(['pass', 'gaps', 'fail']).toContain(report.verdict);
+    expect(status).toBe(report.exitCode);
+    if (report.verdict === 'gaps') {
+      expect(status).toBe(3);
+      expect(status).not.toBe(0);
+    } else if (report.verdict === 'pass') {
+      expect(status).toBe(0);
+    } else {
+      expect(status).toBe(1);
+    }
+    // The codes are pairwise distinct by construction — a reader can always
+    // tell the three apart without parsing prose.
+    expect(new Set([0, 1, 3]).size).toBe(3);
+  }, 300_000);
 
   it('MeasuredPremises_UnregisteredDerivationName_FailsRatherThanSkips', () => {
     // An annotation naming a derivation nobody implements would otherwise be a

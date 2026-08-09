@@ -52,13 +52,22 @@
  *
  * ── Verdicts and exit codes ─────────────────────────────────────────────────
  *   pass  → exit 0. Every claim agrees; every obligation row is probed.
- *   gaps  → exit 0 (exit 1 under `--fail-on-gap`). No drift, but one or more
+ *   gaps  → exit 3 (exit 1 under `--fail-on-gap`). No drift, but one or more
  *           rungs are unprobed. Deliberately NOT reported as a pass.
  *   fail  → exit 1. Drift, an empty denominator, an unknown derivation, a
  *           malformed literal, or an obligation row with no probe annotation.
  *   usage → exit 2. Bad flags, unreadable document, derivation subprocess
  *           failure. Fail-closed: a gate that no-ops on a tooling error is a
  *           gate that isn't there.
+ *
+ * DR-7 — `gaps` used to exit 0. The report said `VERDICT: GAPS` and the words
+ * "reportable, NOT a pass" with 11 of 13 rungs unprobed, and every machine
+ * reading it saw the pass code: `npm run validate` recorded `PASS
+ * measured-premises` 9/9 exit 0, and the CI lane went green. A verdict that
+ * only a human can see is not a verdict the pipeline has. Exit 0 now means
+ * `pass` and nothing else; a runner that wants to tolerate gaps must say so,
+ * and `scripts/validate-manifest.json` is where that toleration is declared,
+ * dated and issue-referenced.
  *
  * ── Scope ───────────────────────────────────────────────────────────────────
  * `docs/specs/2026-08-06-internal-mechanics-overhaul.md` plus
@@ -121,6 +130,12 @@ export const DEFAULT_DOCUMENTS = Object.freeze([
 const EXIT_PASS = 0;
 const EXIT_FAIL = 1;
 const EXIT_USAGE = 2;
+/**
+ * `gaps` — distinct from BOTH pass and fail so the verdict survives the process
+ * boundary. Exported so the aggregating runner's manifest and this gate cannot
+ * drift on the number.
+ */
+export const EXIT_GAPS = 3;
 
 // ─── Annotation grammar ─────────────────────────────────────────────────────
 
@@ -466,8 +481,14 @@ export function checkMeasuredPremises(options) {
 
   const gapCount = rungs.filter((r) => r.verdict === 'gap').length;
   const verdict = failures.length > 0 ? 'fail' : gapCount > 0 ? 'gaps' : 'pass';
+  // DR-7: each verdict gets its OWN code. `gaps` sharing the pass code is how a
+  // step that reported GAPS was aggregated as PASS.
   const exitCode =
-    verdict === 'fail' || (verdict === 'gaps' && failOnGap) ? EXIT_FAIL : EXIT_PASS;
+    verdict === 'fail'
+      ? EXIT_FAIL
+      : verdict === 'gaps'
+        ? (failOnGap ? EXIT_FAIL : EXIT_GAPS)
+        : EXIT_PASS;
 
   return {
     verdict,
@@ -1093,7 +1114,8 @@ function printHelp() {
       '  --json             Emit the machine-readable report.',
       '  --help             Show this message.',
       '',
-      'Exit codes: 0 pass/gaps, 1 fail (or gaps under --fail-on-gap), 2 usage/env error.',
+      'Exit codes: 0 pass, 1 fail (or gaps under --fail-on-gap), 2 usage/env error,',
+      '            3 gaps (unprobed rungs — reportable, and never a pass).',
       '',
     ].join('\n'),
   );
