@@ -383,9 +383,21 @@ Plus: `differential-fixtures.test.ts:54/107` compares two functions with byte-id
 **Verification:** medium — scoped tests + one real diff-scoped run whose carrier is non-empty.
 **Dependencies:** none · **Parallelizable:** yes
 
+### Task 090: `transition` silently ignores `dryRun` and performs the real transition
+**Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-7
+**Files:** `servers/exarchos-mcp/src/registry.ts` (the `transition` action schema), `servers/exarchos-mcp/src/workflow/tools.ts`, `servers/exarchos-mcp/src/workflow/tools.test.ts`
+**Detail:** H7's defect class on a MUTATING verb. `exarchos_workflow`'s composite input schema carries `dryRun`, and five actions declare it (`cancel`, `cleanup`, `prune_stale_workflows`, `invariants_add`, `invariants_amend`, plus `merge_orchestrate` on the sibling tool) — but `transition` does not. Zod strips what the action never declared, so `{action:'transition', target:'synthesize', dryRun:true}` is accepted, reports success, and **performs the transition**. The caller asked to test a guard and moved the workflow. Found live: a dry-run probe of `review → synthesize` on `internal-mechanics-overhaul` advanced the phase for real. The failure is silent in the worst direction — a parameter whose entire purpose is "do not mutate" reads as honoured. A caller cannot distinguish "dry run succeeded" from "the thing happened".
+**Acceptance criteria:**
+- Either `transition` implements `dryRun` (evaluate guards, return the would-be phase, append nothing), or it REJECTS `dryRun` as an unknown parameter — silently accepting and ignoring it is the one option ruled out.
+- A composite-level audit: every action reachable through a shared input schema either declares each parameter it is passed or rejects it. This is H7's mechanism, so the sweep should look for other instances rather than fix this one site.
+- **Kill fixture:** a `dryRun:true` transition must leave the projected phase unchanged, asserted against the event stream — not merely against the return value.
+
+**Verification:** medium — scoped tests + a kill-probe asserting no event was appended.
+**Dependencies:** none · **Parallelizable:** yes
+
 ## Exit condition
 
-All nineteen merged (071-077 from the overhaul's residue, 078-089 from the review), with:
+All twenty merged (071-077 from the overhaul's residue, 078-090 from the review), with:
 - root suite green and MCP at the known-red merge-orchestrate + `store.race` baseline, member-for-member;
 - `npm run validate` 9/9 and `validate-no-legacy` at 0 unallowlisted;
 - every kill fixture above demonstrated by mutation, not by a green suite;
