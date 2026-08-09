@@ -22,7 +22,32 @@ import { z } from 'zod';
 import { withCappedShape, isDeclaredOutputSchema } from './output-schema-declaration.js';
 import { EnvelopeSchema } from './schemas/envelope.js';
 
-describe('withCappedShape — refuses a vacuous base', () => {
+describe('withCappedShape — refuses a vacuity only on the envelope-shaped path (task 092)', () => {
+  // The H1 repair above reached its `acceptsEveryValue` throw only through
+  // `baseData`, which `extractEnvelopeDataSchema` returns `undefined` for on
+  // any non-envelope schema — so the early return above it branded a bare
+  // `z.unknown()` / `z.any()` UNCHECKED while the two envelope-wrapped
+  // equivalents below were correctly refused. Same defect class as DR-8, one
+  // layer in: the guard's subject (the envelope's `data` branch) was narrower
+  // than its claim (the whole `outputSchema`). Task 092 closes it by making
+  // the non-envelope branch fail loudly instead of branding.
+  it('withCappedShape_BareUnknown_Throws', () => {
+    expect(() => withCappedShape(z.unknown())).toThrow(/non-envelope/i);
+  });
+
+  it('withCappedShape_BareAny_Throws', () => {
+    expect(() => withCappedShape(z.any())).toThrow(/non-envelope/i);
+  });
+
+  it('withCappedShape_BareTypedObject_Throws', () => {
+    // Not just the two total forms — ANY non-envelope schema is rejected,
+    // total or not, because this constructor cannot do its job (widening a
+    // `data` branch that does not exist) on a schema that never had one.
+    expect(() => withCappedShape(z.object({ items: z.array(z.string()) }))).toThrow(
+      /non-envelope/i,
+    );
+  });
+
   it('withCappedShape_UnknownDataBase_Throws', () => {
     expect(() => withCappedShape(EnvelopeSchema(z.unknown()))).toThrow(
       /accepts every value/i,
