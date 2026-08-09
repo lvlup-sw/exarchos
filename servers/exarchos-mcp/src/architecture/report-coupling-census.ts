@@ -1,7 +1,8 @@
 // RESERVED(issue: #1473, owner: exarchos, expires: 2027-02-28) — G3, the DR-2 report-coupled
-// ratchet. Its verdict is stated by the co-located vitest, which `ci.yml` runs on the UNFILTERED
-// `grep-gates` deps tail; it has no production importer by design, because it governs the registry
-// rather than participating in it. Deleted when the seed reaches its DR-20 floor.
+// ratchet. Its verdict is executed by `scripts/report-coupling-ratchet-guard.ts` and its kill
+// fixtures by the co-located vitest, both on the UNFILTERED `grep-gates` deps tail; it has no
+// production importer by design, because it governs the registry rather than participating in it.
+// Deleted when the seed reaches its DR-20 floor.
 //
 /**
  * G3 — the report-coupling census and ratchet (DR-2, task 013).
@@ -59,6 +60,11 @@ import {
 } from '../event-store/event-annotations.js';
 import { resolveEmissionSource } from '../event-store/event-registration.js';
 import type { EventAnnotationSource } from '../event-store/event-declarations.js';
+// The DR-3 grammar ratchet already owns `isIsoDay` under the same discipline this
+// module now adopts. Imported rather than restated — that module reads the event
+// registry too, so it costs nothing here, and a fourth private copy of the day
+// rule is exactly what DR-6's ledger consolidation exists to remove.
+import { isIsoDay } from './event-grammar-census.js';
 import {
   REPORT_COUPLING_SEED,
   REPORT_COUPLING_SEED_IDS,
@@ -294,6 +300,7 @@ export function formatReportCouplingCensus(report: ReportCouplingCensusReport): 
 
 /** A condition that makes the seed and the live census disagree. */
 export type ReportCouplingSeedFinding =
+  | { readonly code: 'UNREADABLE_CLOCK'; readonly message: string }
   | { readonly code: 'EMPTY_CENSUS'; readonly message: string }
   | { readonly code: 'UNTRUSTWORTHY_CENSUS'; readonly message: string }
   | {
@@ -325,12 +332,24 @@ export interface ReportCouplingSeedAudit {
 /**
  * Audit the shrink-only seed against the live census.
  *
- * Every input defaults to the live value, so the production call is `auditReportCouplingSeed()`.
- * They are injectable for the same reason the census takes `registeredTypes`: the co-located vitest
- * has to drive compositions the live tree cannot produce (an emptied subject, a seeded 26th type, a
- * lapsed expiry) without touching the real registry or the real seed.
+ * `today` is REQUIRED and has no default. Nothing in this module reads the wall clock: a library
+ * that does turns "the debt came due" into "the test suite stopped working", and a developer who
+ * cannot run tests fixes the CLOCK rather than the debt. This module's guard IS its co-located
+ * vitest, so an ambient `new Date()` here would have reddened every developer's unit suite on
+ * 2027-03-01 for a reason unrelated to their change. The single production clock read lives at
+ * `scripts/report-coupling-ratchet-guard.ts`, the entrypoint that blocks the merge. Dates are
+ * compared as ISO `YYYY-MM-DD` STRINGS, never as `Date` values — lexicographic order on that format
+ * IS calendar order, so the verdict has no timezone, no DST and no millisecond component to flip on.
  *
- * Four teeth:
+ * Every OTHER input defaults to the live value, so the production call is
+ * `auditReportCouplingSeed(isoDayUtc(new Date()))`. They are injectable for the same reason the
+ * census takes `registeredTypes`: the co-located vitest has to drive compositions the live tree
+ * cannot produce (an emptied subject, a seeded 26th type, a lapsed expiry) without touching the real
+ * registry or the real seed.
+ *
+ * Five teeth:
+ *   0. READABLE CLOCK. A `today` that is not a real calendar day makes every comparison below
+ *      meaningless, so the audit FAILS rather than reporting the seed live against a nonsense date.
  *   1. NON-EMPTY DENOMINATOR. A census over zero registrations proves nothing; it is what a moved
  *      module or a broken import looks like. It FAILS rather than reporting "0 unseeded — clean".
  *   2. UNSEEDED_REPORT_COUPLING. An event that is report-coupled today and not on the list. This is
@@ -346,11 +365,22 @@ export interface ReportCouplingSeedAudit {
  *      rather than a decoration.
  */
 export function auditReportCouplingSeed(
+  today: string,
   report: ReportCouplingCensusReport = censusReportCoupling(),
   seed: Readonly<Record<string, ReportCouplingSeedEntry>> = REPORT_COUPLING_SEED,
-  now: Date = new Date(),
 ): ReportCouplingSeedAudit {
   const findings: ReportCouplingSeedFinding[] = [];
+
+  const clockOk = isIsoDay(today);
+  if (!clockOk) {
+    findings.push({
+      code: 'UNREADABLE_CLOCK',
+      message:
+        `The report-coupling ratchet was handed '${today}' as the current day, which is not a real ` +
+        'calendar date in YYYY-MM-DD form. Every expiry comparison below would be meaningless, so ' +
+        'the audit fails rather than reporting the seed live.',
+    });
+  }
 
   if (report.total === 0) {
     findings.push({
@@ -408,7 +438,7 @@ export function auditReportCouplingSeed(
   for (const eventType of seeded) {
     const entry = seed[eventType];
     if (entry === undefined) continue;
-    if (!isExpired(entry.expires, now)) continue;
+    if (!clockOk || !isExpired(entry.expires, today)) continue;
     findings.push({
       code: 'EXPIRED_SEED_ENTRY',
       eventType,
@@ -435,14 +465,15 @@ export function auditReportCouplingSeed(
 }
 
 /**
- * Is `expires` strictly before `now`, by calendar date?
+ * Is `expires` strictly before `today`, by calendar date?
  *
- * Compared as an ISO day string rather than as a `Date`, so the verdict does not depend on the
+ * Both sides are ISO day STRINGS, never `Date` values, so the verdict does not depend on the
  * runner's timezone: `new Date('2027-02-28')` is midnight UTC, which is still 2027-02-27 in any
- * negative offset, and a guard that flips on the machine it runs on is not a guard.
+ * negative offset, and a guard that flips on the machine it runs on is not a guard. Lexicographic
+ * order on `YYYY-MM-DD` is calendar order, so `<` is the whole comparison.
  */
-function isExpired(expires: string, now: Date): boolean {
-  return expires < now.toISOString().slice(0, 10);
+function isExpired(expires: string, today: string): boolean {
+  return expires < today;
 }
 
 // ─── G3's third tooth: the seed key set is pinned ───────────────────────────
@@ -563,7 +594,10 @@ export interface ReportCouplingRatchetVerdict {
 
 /**
  * G3's ratchet, whole: membership + expiry against today, PLUS the seed key set against its pin.
- * Defaults to the live pair, so the production call is `auditReportCouplingRatchet()`.
+ *
+ * `today` is REQUIRED here for the same reason it is required on the membership half — see
+ * {@link auditReportCouplingSeed}. Everything else defaults to the live artifact, so the production
+ * call is `auditReportCouplingRatchet(isoDayUtc(new Date()))`.
  *
  * The two halves are complementary, and neither is sufficient:
  *   • membership alone is blind to a swap that edits the seed;
@@ -571,7 +605,8 @@ export interface ReportCouplingRatchetVerdict {
  * Together the only green path is: re-couple the event, then move the entry.
  */
 export function auditReportCouplingRatchet(
-  membership: ReportCouplingSeedAudit = auditReportCouplingSeed(),
+  today: string,
+  membership: ReportCouplingSeedAudit = auditReportCouplingSeed(today),
   pin: ReportCouplingPinAudit = auditReportCouplingSeedIntegrity(),
 ): ReportCouplingRatchetVerdict {
   const findings: ReportCouplingRatchetFinding[] = [...membership.findings, ...pin.findings];
