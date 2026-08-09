@@ -370,9 +370,22 @@ Plus: `differential-fixtures.test.ts:54/107` compares two functions with byte-id
 **Verification:** medium — scoped tests + kill-probe on the cwd argument.
 **Dependencies:** none · **Parallelizable:** yes
 
+### Task 089: The mutation runner still never runs where its config lives
+**Risk Tier:** medium · **Boundary Touching:** false · **Implements:** DR-8
+**Files:** `servers/exarchos-mcp/src/orchestrate/mutation-adequacy.ts`, `servers/exarchos-mcp/src/orchestrate/mutation-adequacy.test.ts`
+**Detail:** The second half of the review's H4. That finding had two required fixes — stop treating `total: 0` as adequacy, and resolve the runner at the package that owns `stryker.conf.mjs`. Only the first landed: the gate now degrades with a reason instead of trivial-passing, so the vacuous verdict is gone. But the command still executes with `cwd: args.repoRoot` (the single `cwd` in the module), and `stryker.conf.mjs` plus the Stryker 9.6.1 devDependency live under `servers/exarchos-mcp`, which is not a workspace of the root (`workspaces: packages/*`) and puts no `stryker` on the root `.bin`. So the gate is now honestly reporting that it cannot run, rather than dishonestly reporting that it passed — an improvement, and still not a mutation score. **No mutation score has ever been measured for this branch's diff.** The dimension is advisory by default, so this blocks nothing; it does mean the R5 backstop is unexercised and the NoCoverage axis has nothing to enforce against.
+**Acceptance criteria:**
+- The resolved mutation command runs in the package that owns the mutation config, discovered from the config's location rather than named in a list.
+- A real carrier comes back for a diff touching MCP source: non-zero `total`, with `killed`/`survived`/`noCoverage` populated.
+- The degrade path added by H4 stays reachable and keeps its reason — this task must not restore a trivial pass.
+- **Kill fixture:** move the mutation config and the gate must degrade, not silently pass.
+
+**Verification:** medium — scoped tests + one real diff-scoped run whose carrier is non-empty.
+**Dependencies:** none · **Parallelizable:** yes
+
 ## Exit condition
 
-All eighteen merged (071-077 from the overhaul's residue, 078-088 from the review), with:
+All nineteen merged (071-077 from the overhaul's residue, 078-089 from the review), with:
 - root suite green and MCP at the known-red merge-orchestrate + `store.race` baseline, member-for-member;
 - `npm run validate` 9/9 and `validate-no-legacy` at 0 unallowlisted;
 - every kill fixture above demonstrated by mutation, not by a green suite;
