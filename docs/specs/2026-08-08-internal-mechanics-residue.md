@@ -2,7 +2,8 @@
 
 **Date:** 2026-08-08 · **Feature:** `internal-mechanics-residue` · **Depth:** standard · **Workflow:** `refactor` · **Track:** overhaul
 **Parent:** [`2026-08-06-internal-mechanics-overhaul.md`](2026-08-06-internal-mechanics-overhaul.md) (rev 4.19) — tasks 071–077 were filed there and never dispatched.
-**Status:** authored, **not instantiated**. No workflow exists for this spec yet.
+**Status:** rev 2 — **instantiated 2026-08-09** as workflow `internal-mechanics-residue`. Epic [#1764](https://github.com/lvlup-sw/exarchos/issues/1764).
+**Rev 2 changes:** the parent shipped (PR #1755, squash `f0bac4a89`), so the baseline moved to `main`; a post-merge audit added tasks 091–093 and DR-10; task **087 was relocated** to the anchor epic. See *Rev 2 — what changed and why* below.
 
 ## Why this is its own spec
 
@@ -12,16 +13,18 @@ They belong together because they are one defect wearing six faces, and it is th
 
 None of these is a bug report from a user. Every one was produced by a guard doing its job, which is the parent program working — and then filed rather than fixed, which is the part this spec closes.
 
-Task **076 is already done** (`953d2d929`); it is excluded. The six here are 071, 072, 073, 074, 075, 077.
+Task **076 is already done** (`953d2d929`); it is excluded. The original six are 071, 072, 073, 074, 075, 077.
+
+**Rev 2 scope:** the 2026-08-08 review of the parent added 078-086 and 088-090, and the 2026-08-09 post-merge audit added 091-093. With 087 relocated (D6), this spec now carries **21 tasks** and is the closeout plan for epic #1764. The "one defect wearing six faces" framing above still holds — the later tasks are the same defect wearing fifteen more.
 
 ## Constraints
 
 - **Existing code only.** This is a refactor: no new capability, no new user-visible feature. 075 is the one behaviour change, and it is a *removal* of an inconsistency, not an addition.
-- **Every dependency has landed.** 013, 014, 015, 017, 023, 065 and 068 are all merged, so all six tasks are dispatchable immediately and in parallel. There is no internal ordering constraint — the sequence in Decomposition is a risk ordering, not a dependency graph.
+- **Every dependency has landed.** 013, 014, 015, 017, 023, 065 and 068 are all merged — and as of rev 2 the whole parent wave is on `main`. All 21 tasks are dispatchable immediately and in parallel. There is no internal ordering constraint — the waves in Decomposition are a risk ordering, not a dependency graph.
 - **Non-empty denominator on every scan.** A census that resolves zero items fails rather than passing clean. This is the parent program's standing rule and it applies unchanged.
 - **Derive counts; never write them.** Bare integers in assertions were the dominant integration defect of the parent program (five occurrences in task 076 alone). Denominators are computed.
 - **No cast-budget spend.** The DR-14 floor is at 1777 with the wave delta restored to 5 of 5. A task that must spend from it says so in its report.
-- **Baseline is `feat/internal-mechanics-overhaul` @ `f7daf86aa`**, not `main`. Re-derive every count in this document against the branch tip before acting — the parent spec was refuted 3/3 on unre-derived premises, twice.
+- **Baseline is `main` @ `f0bac4a89`** (rev 2). The parent branch `feat/internal-mechanics-overhaul` was squash-merged and **deleted**; the rev-1 baseline `f7daf86aa` no longer resolves. Re-derive every count in this document against `main` before acting — the parent spec was refuted 3/3 on unre-derived premises, twice, and rev 1's own baseline went stale within a day of being written.
 
 ## Design & Rationale
 
@@ -47,6 +50,16 @@ Three of the six (072, 074, 077) are the *same shape of fix already performed on
 - **D3 — do not migrate the six malformed events in 071.** They are immutable history and the record of the defect. Determine instead whether any projection reads `evidence` and would break on the string form, and report what is found.
 - **D4 — 077's extraction goes toward a dependency-free module, not toward the existing census.** Task 023 declined to extract for a good reason: `output-schema-census.ts` imports `TOOL_REGISTRY`, and pulling it into the CLI guard would destroy that guard's load-bearing property of never reaching `bun:sqlite`. The shared module must import nothing.
 - **D5 — 072 may legitimately conclude "leave it alone" at a site.** If a site genuinely has no input on which the heuristic and the parse disagree, saying so with evidence is a real outcome, not a failure. What is not acceptable is a kill fixture on which the two instruments never differ, quietly leaving the port unmotivated.
+
+### Rev 2 — what changed and why (2026-08-09)
+
+The parent shipped as PR #1755 and a post-merge adversarial audit ran against the merged tree, scoped to exclude both the anchors and the residue already filed here. It returned **CONDITIONAL, no HIGH** — the wave's headline mechanisms are genuinely wired — and produced three items, now tasks **091–093**. Two facts from that audit are load-bearing for this spec and are recorded here rather than left in the issue tracker:
+
+1. **The parent's guards are real.** `grep-gates` hosts all 59 guard and self-test steps and is genuinely unfiltered; `declareOutputSchema` is module-private so the DR-4 brand really is two-constructor; all 38 `measured:` markers re-derive. This matters because several tasks below assume those mechanisms work and only their *scope* is wrong. That assumption is now measured, not inherited.
+2. **The dominant defect class survived inside its own repair.** Task 092 is the H1 vacuity fix guarding the named case and missing the class: `withCappedShape(EnvelopeSchema(z.unknown()))` is refused, `withCappedShape(z.unknown())` is accepted and branded while still total. Same shape as DR-8, one layer in.
+
+- **D6 — task 087 is relocated to the anchor epic, not deferred.** 087's acceptance criteria offer two routes, and its second — *amend INV-11's text to name render-time selection as the chokepoint* — is verbatim anchor 044's scope (#1781, "Invariant amendments (INV-2, 5b, 11, 17)"). Two epics owning one invariant amendment is the multiply-owned-representation defect this programme exists to detect, committed by the programme's own issue tracker. 087 moves to #1763 where 044 already owns INV-11; **#1764 closes on the remaining 21 tasks.** The cost is explicit: INV-11's STATE-authority overclaim stays live until 044 lands behind 043, and that is a known-open invariant, not a closed one.
+- **D7 — closeout is risk-ordered, not dependency-ordered.** Every dependency has landed, so all 21 are dispatchable; ordering is therefore a pure risk choice. **078 and 085 go first** because they are the silent-wrong-answer defects — a skipped gate reading as evidence, a failure envelope exiting 0, a short write promoted over good data. **092 joins that first wave**: it is the same class (a totality predicate that does not run on every path) and it is cheap. Everything after is a guard that under-reports, which is a slower harm.
 
 ## Requirements
 
@@ -102,12 +115,52 @@ discovery has three channels that between them miss the `src/architecture/**` ce
 programme shipped. A guard invisible to the inventory is not proven reachable — it is unexamined, and
 the proof that says otherwise is measuring a smaller set than it claims.
 
+### DR-10: A lane's execution is not optional **[new — from the 2026-08-09 post-merge audit]**
+
+Every requirement above concerns a guard that runs but measures the wrong thing. DR-10 is the layer
+underneath: **whether the guard runs at all must itself be asserted, not assumed.**
+
+`ci-gate` aggregates eight lanes. Four carry an explicit `result == 'skipped'` fail-closed arm — added
+by the wave-S DR-3 work and commented in-file as closing the *"skipped-as-passed hole"*. The other
+four, including `grep-gates`, are tested only against `failure|cancelled`, and the job's last line is
+`echo "All checks passed (skipped jobs are OK)"`. `grep-gates` is now the single host for this
+programme's entire enforcement substrate: G1–G5 and their self-tests, the DR-4 vacuity ratchet and its
+enforced expiry, the DR-5 derivation guard and ratchet, DR-27 measured-premise drift, the cast and
+type-debt ratchets, and the 18-case `no-handler-throw` self-test. They were moved there *precisely
+because* the lane is unfiltered.
+
+The hole is **latent, not live** — `grep-gates` has no path filter today, so it cannot skip on an
+in-repo PR. That is exactly the objection DR-4 already answered once: a constructor restriction was
+chosen over a counting ratchet because *"nothing currently constructs one"* is not enforcement. The
+same reasoning applies to a lane whose mandatory execution rests on the continued absence of a path
+filter — a convention, sitting twenty lines from the same guarantee asserted structurally for the
+test lanes.
+
+**The general property:** for any lane the aggregator gates, either the lane has a declared legitimate
+skip condition and the aggregator asserts that skips only occur under it, or the lane has none and a
+skip is a hard failure. A lane that can silently not-run is a guard that cannot fail.
+
 ## Decomposition
 
 Ordering below is by **risk and exposure**, not dependency.
 Tasks 071-077 came from the overhaul's own residue; **078-087 were added by the 2026-08-08 review**
 of `internal-mechanics-overhaul` — its nine HIGH findings were fixed inline on that branch, and these
 are the MEDIUM/LOW remainder, grouped by defect class rather than transcribed one per finding.
+**091-093 were added by the 2026-08-09 post-merge audit** of the shipped result (verdict CONDITIONAL,
+no HIGH). **076 shipped in Wave 1** and **087 was relocated** to the anchor epic (D6), so this spec
+carries **21 tasks**: 071-075, 077-086, 088-093.
+
+### Closeout waves (D7 — risk-ordered; every dependency has landed, so this is a risk choice, not a DAG)
+
+| Wave | Tasks | Why this wave |
+|---|---|---|
+| **1 — silent wrong answers** | 078, 085, 092 | Something incorrect currently reads as correct: a skipped gate recorded as evidence, a failure envelope exiting 0, a short write promoted over good data, a totality predicate that does not run on every path. Two are HIGH tier. Nothing else should start until these land. |
+| **2 — the guard set's own claims** | 079, 080, 081, 091 | Loose floors, narrow roots, spelling-not-meaning detectors, and the lane whose execution is unasserted. These decide whether the *remaining* measurements can be trusted, so they precede the work that relies on them. |
+| **3 — one authority per rule** | 071, 072, 077, 082, 084 | The multiply-owned-representation cluster: two validators, four lexers, three waiver ledgers, a hand-maintained census, transcribed counts. Mechanical, highly parallel, and the shape already performed once elsewhere in the tree. |
+| **4 — contract debt** | 073, 083, 086, 093 | Field-scoped amendment, the two vacuous `outputSchema`s, INV-4's false-positive, the waiver horizon. Lower blast radius; several are judgement calls needing an owner's sign-off rather than code. |
+| **5 — the behaviour change, alone** | 075 | Per D1: a public runtime seam changes and real user configs can break at load. Lands last, in its own PR, with the migration note. |
+
+Waves 1-4 are internally parallel. **088, 089, 090** are already filed as their own issues (#1756, #1757, #1758) and slot into Wave 2 (088 — a blocking gate measuring the wrong tree), Wave 3 (089 — the mutation runner's package resolution) and Wave 2 (090 — a mutating verb ignoring `dryRun`).
 
 ### Task 074: Filename-coupled entrypoint predicates — a silent no-op on rename
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-4
@@ -128,7 +181,8 @@ are the MEDIUM/LOW remainder, grouped by defect class rather than transcribed on
 
 ### Task 071: `batch_append` does not validate event data; `append` does
 **Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-1
-**Files:** `servers/exarchos-mcp/src/event-store/`, the `exarchos_event` handlers
+**Files:** `servers/exarchos-mcp/src/event-store/append.ts`, `servers/exarchos-mcp/src/event-store/batch-append.ts`, `servers/exarchos-mcp/src/event-store/event-validation.ts` (the shared validator this task introduces), `servers/exarchos-mcp/src/events/tools.ts`, `servers/exarchos-mcp/src/event-store/batch-append.test.ts`
+**Tests:** `BatchAppend_EventWithSchemaViolatingData_IsRejected`, `BatchAppend_OneInvalidEventInBatch_RejectsPerDeclaredAtomicity`, `AppendAndBatchAppend_IdenticalPayload_AgreeOnValidity`
 **Detail:** Measured 2026-08-07 against the live store. `task.completed` registers `evidence` as an object (`{type, output, passed}`, `additionalProperties: false`). Emitting it through `append` with a string `evidence` is correctly rejected with `VALIDATION_ERROR`. The identical payload through `batch_append` **succeeds**. Six such events sit on the `internal-mechanics-overhaul` stream at sequences 152–157; querying them back confirms the malformed value is what was stored, not a rendering artifact.
 
 This is task 068's defect one layer down — a schema that exists, is enforced on one write path, and is bypassed by choosing the other door. It is worse than 068's: that one is caught later by the reader, so the damage surfaces. Here the event store is authoritative, events are immutable, and nothing downstream re-validates, so malformed data is permanent and silent.
@@ -211,6 +265,7 @@ This is task 068's defect one layer down — a schema that exists, is enforced o
 ### Task 078: Verdict fidelity — four places a non-pass reads as a pass
 **Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-7
 **Files:** `servers/exarchos-mcp/src/orchestrate/gate-utils.ts` (`normalizeGateVerdict`), `scripts/check-measured-premises.mjs` + the `npm run validate` aggregator, `scripts/installer-verify.test.ts`, `servers/exarchos-mcp/src/ctk/cross-runtime.test.ts`
+**Tests:** `NormalizeGateVerdict_SkippedCarrierWithPassedTrue_IsIndeterminate`, `AppendGateExecutedSignal_SkippedGate_PreservesSkippedAndDiscriminant`, `ValidateAggregator_StepReportingGaps_IsNotRecordedAsPass`, `InstallerVerify_ShellAbsent_FailsClosedRatherThanSkipping`
 **Detail:** Four independent sites, one shape.
 1. `normalizeGateVerdict` returns `'pass'` for the advisory-skip carrier `{ passed: true, skipped: true }` — the `skipped && passed !== true` guard never fires because `passed` IS true. Three gates now emit that carrier through `runDurableGateProducer`, so the durable `admission.evidence-recorded` row records `verdict: 'pass'` and `gate.executed` is minted `passed: true` for a gate that never ran. It is also an observability regression: the retired `emitPolicySkipIfNeeded` carried `details.skipped` + `discriminant`; the runner-minted row carries neither.
 2. `check-measured-premises.mjs` prints `VERDICT: GAPS` and the words *"reportable, NOT a pass"* with 11 of 13 proof rungs unprobed — and `npm run validate` records it as `PASS measured-premises`, 9/9, exit 0.
@@ -319,6 +374,7 @@ This is task 068's defect one layer down — a schema that exists, is enforced o
 ### Task 085: Correctness and robustness residue
 **Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-7
 **Files:** `servers/exarchos-mcp/src/adapters/cli.ts`, `src/operations/atomic-json.ts`, `servers/exarchos-mcp/src/architecture/report-coupling-census.ts`, `servers/exarchos-mcp/src/runbooks/drift.test.ts`, `servers/exarchos-mcp/src/__tests__/sdk-patch-policy.test.ts`, `servers/exarchos-mcp/src/contract/cli/generated-client.test.ts`, `scripts/validate-plugin.mjs`, `servers/exarchos-mcp/src/contract/cli/differential-fixtures.test.ts`
+**Tests:** `ResolveExitCode_FailureResultWithoutError_DoesNotExitZero`, `AtomicJson_ShortWrite_FailsRatherThanPromotingPartialContents`, `AuditReportCouplingSeed_TodayParameter_IsRequiredNotAmbient`, `ValidatePluginPolicy_UnknownTopLevelKey_IsReportedAsFinding`, `RunbookAutoEmits_EventDeclaredButNoStepEmits_FailsBijection`
 **Detail:** Seven independent defects with real failure modes.
 1. **`resolveExitCode` regressed the failure floor.** A `ToolResult` with `success: false` and no `error` now exits **0** (`exitCodeForError(undefined)` → SUCCESS). `ToolResult` is not a discriminated union, so the shape is type-legal for any of the 123 handlers, and the MCP wire renders the same value as `isError: true` — the two surfaces disagree. `DIFFERENTIAL_CASES` has no error-less case, so the differential proof is blind to it. The deleted body fell through to `HANDLER_ERROR`.
 2. **`atomic-json` does not guarantee what its header claims.** The "validate the serialized bytes by parsing them back" step parses an in-memory string that `JSON.stringify` just produced — it cannot fail. Meanwhile the real risk is unchecked: the `nodeFs` adapter discards `fs.writeSync`'s return value, so a short write is `fsync`ed and `rename`d over the target, destroying the previous contents. No directory `fsync` after `rename` either. Both `writeConfig` and `~/.claude.json` route through it.
@@ -350,13 +406,11 @@ Plus: `differential-fixtures.test.ts:54/107` compares two functions with byte-id
 **Verification:** low — static + the existing guard.
 **Dependencies:** none · **Parallelizable:** yes
 
-### Task 087: INV-11's STATE-authority claim is not enforced at the chokepoint it names
-**Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-7
-**Files:** `.exarchos/invariants.md` (INV-11), `servers/exarchos-mcp/src/index.ts`, `servers/exarchos-mcp/src/core/context.ts`, `servers/exarchos-mcp/src/capabilities/`
-**Detail:** INV-11 states STATE authority is enforced "in the dispatch/MCP handler — a read-only agent cannot invoke a mutating action". Production builds the resolver as `createInMemoryResolver([])` / `createInMemoryResolver([ANTHROPIC_NATIVE_CACHING])` — a response-cache flag, not a posture — so no agent posture ever reaches the dispatch resolver. The posture→capability mapping (`posture-mapping.ts`) is well-formed and its output goes nowhere near dispatch; enforcement in practice rests on render-time tool-surface selection and the harness's own tool allowlist. The `shared-mutating` gate deletion (d6685d47c) was correct and well-argued — this is the OTHER half, which that commit's own reasoning notes ("agent postures do matter, but at RENDER time").
-**Acceptance criteria:** either postures reach the dispatch resolver and a read-only caller is denied a mutating action by construction, or INV-11's text is amended to name render-time selection as the actual chokepoint. Asserting the stronger claim while the weaker one holds is the overclaim INV-11 elsewhere refuses to make. Kill fixture: a read-only posture invoking a mutating action.
-**Verification:** medium — scoped tests + kill-probe at the resolved chokepoint.
-**Dependencies:** none · **Parallelizable:** yes
+> **Task 087 (INV-11 STATE-authority) was RELOCATED to the anchor epic on 2026-08-09 — see D6.**
+> Its text now lives on [#1798](https://github.com/lvlup-sw/exarchos/issues/1798) under epic
+> [#1763](https://github.com/lvlup-sw/exarchos/issues/1763), alongside anchor 044 which already owns
+> the INV-11 amendment. It is deliberately absent from this spec's task set so plan-coverage and
+> provenance measure the 21 tasks this epic actually closes. The id **087 is retired, not reused.**
 
 ### Task 088: `prepare_synthesis` measures the directory it was launched in
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-8
@@ -413,3 +467,47 @@ All twenty merged (071-077 from the overhaul's residue, 078-090 from the review)
 **Sequencing note.** 078 and 085 carry the silent-wrong-answer defects (a skipped gate reading as
 evidence; a failure envelope exiting 0; a short write promoted over good data). Take those first —
 the rest are guards that under-report, which is a slower harm than a gate that misreports.
+
+### Task 091: A gated CI lane can silently not-run
+**Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-10
+**Files:** `.github/workflows/ci.yml` (`ci-gate`), `servers/exarchos-mcp/src/architecture/ci-topology.test.ts`
+**Detail:** `ci-gate` aggregates eight lanes. `test-root`, `test-mcp`, `test-windows` and `test-windows-root` each carry an explicit `result == 'skipped'` fail-closed arm, added by the wave-S DR-3 work and commented in-file as closing the *"skipped-as-passed hole"*. `grep-gates`, `manifest-gate`, `outcome-tests` and `validate-no-legacy` are tested only against `failure|cancelled`; the job's final line is `echo "All checks passed (skipped jobs are OK)"`. `grep-gates` is the single host for this programme's entire enforcement substrate — 59 steps covering G1-G5 and their self-tests, the DR-4 vacuity ratchet and enforced expiry, the DR-5 derivation guard and ratchet, DR-27 measured-premise drift, the cast/type-debt ratchets, and the 18-case `no-handler-throw` self-test — and they were moved there precisely because the lane is unfiltered.
+
+**Latent, not live.** `grep-gates` has no `needs: changes` and no path filter, so it cannot skip on an in-repo PR today; the fork arm skips `ci-gate` too. The defect is that mandatory execution rests on the continued *absence* of a path filter. DR-4 already rejected that reasoning once — it chose a constructor restriction over a counting ratchet because "nothing currently constructs one" is not enforcement. Adding a path filter to a 59-step lane that installs both dependency trees is an obvious future optimisation, and it would convert every guard above to skipped-as-passed while CI Gate prints success.
+
+**Acceptance criteria:**
+- `grep-gates`, `manifest-gate` and `outcome-tests` gain an unconditional `result == 'skipped'` fail-closed arm — these lanes have no declared legitimate skip, so no `changes.outputs.*` predicate is owed.
+- `validate-no-legacy` gains the same, predicated on its path filter if it declares one.
+- The rule is expressed once and derived, not transcribed per lane: the aggregator's lane list and its skip policy come from one place, so a lane added to `needs:` cannot be omitted from the policy.
+- **Kill fixture:** add a path filter to `grep-gates` that excludes the PR's changed files; `CI Gate` must redden. Reverting the fail-closed arm must make that fixture pass again.
+
+**Verification:** medium — CI-topology conformance test + the kill fixture.
+**Dependencies:** none · **Parallelizable:** yes
+
+### Task 092: `withCappedShape` refuses vacuity only on the envelope-shaped path
+**Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-8
+**Files:** `servers/exarchos-mcp/src/output-schema-declaration.ts`, `servers/exarchos-mcp/src/output-schema-declaration.test.ts`
+**Detail:** The 2026-08-08 review's H1 repair added an `acceptsEveryValue(baseData)` throw, but the line above it returns the brand before that check is reached whenever the input is not envelope-shaped: `const baseData = extractEnvelopeDataSchema(outputSchema); if (baseData === undefined) return declareOutputSchema(outputSchema);`. Measured on the merged tree by direct import: `withCappedShape(EnvelopeSchema(z.unknown()))` and `withCappedShape(EnvelopeSchema(z.any()))` are correctly REFUSED, while `withCappedShape(z.unknown())` and `withCappedShape(z.any())` are both ACCEPTED and return a branded `DeclaredOutputSchema` for which `acceptsEveryValue(...)` is `true`. The module's own comment — *"this constructor mints substance, so it must refuse to mint it out of nothing"* — is false for that path.
+
+**One tooth of two, backstop intact.** `classifyOutputSchema` fails closed: both the branded and the bare form classify `{ vacuous, unreadable-envelope }` (measured), so the DR-4 census and its shrink-only ratchet still catch a new action declared this way. This is debt in the repair, not a live hole — and it is DR-8's shape (the guard's subject is narrower than its claim) occurring inside the fix for the previous instance.
+
+**Acceptance criteria:**
+- The totality check runs on every construction path: either hoist it above the early return so a non-envelope schema is tested directly, or make the non-envelope branch fail loudly rather than brand.
+- The choice is stated: a non-envelope `outputSchema` is either legal-and-checked or rejected outright. Branding it unchecked is the one option ruled out.
+- **Kill fixture:** `withCappedShape(z.unknown())` must throw; the two envelope-wrapped cases must keep throwing; a genuinely typed envelope must still succeed.
+
+**Verification:** medium — scoped tests + kill-probe on each of the three input shapes.
+**Dependencies:** none · **Parallelizable:** yes
+
+### Task 093: The DR-4 waiver horizon is one cliff for all 111 entries
+**Risk Tier:** low · **Boundary Touching:** false · **Implements:** DR-7
+**Files:** `servers/exarchos-mcp/src/output-schema-vacuity-allowlist.ts`, `servers/exarchos-mcp/src/output-schema-seed-pin.ts`, `servers/exarchos-mcp/scripts/output-schema-ratchet-guard.ts`
+**Detail:** All 111 live waivers carry `expires: '2027-02-28'`, the single pinned `VACUITY_EXPIRY_HORIZON`, across four owners (`orchestration` 75, `views` 21, `workflow-platform` 12, `event-store` 4). The mechanism is sound and deliberate: an entry cannot re-date itself, a re-date is one constant in a dedicated file, and the clock is read at the CI entrypoint rather than inside the unit suite — correctly avoiding the wall-clock-in-library shape task 085 flags for G3. The gap is incentive, not mechanism. Nothing applies pressure before the horizon, so the modelled outcome is 111 simultaneous failures on 2027-03-01 resolved by a single horizon bump — which is the "permanent exemption wearing a date" the file's own header says task 017 set out to end, deferred by eighteen months rather than removed.
+
+**Acceptance criteria:**
+- Either the horizon is staggered per owner (four dates derived from the owner set, not transcribed) so paydown pressure arrives incrementally and one bump cannot renew all 111, or an explicit, owned, dated statement records that a single cliff is intended and who reviews it before it lands.
+- The ratchet reports waiver count by owner, so the trend is visible per PR rather than only at the cliff.
+- **Kill fixture:** if staggering is chosen, an entry re-dated past its owner's horizon must fail.
+
+**Verification:** low — static; the existing ratchet already enforces the record shape.
+**Dependencies:** none · **Parallelizable:** yes
