@@ -58,9 +58,11 @@ import {
   TOOL_REGISTRY,
   validateAction,
   type CompositeTool,
+  type ExtensionToolAction,
   type ToolAction,
 } from '../../registry.js';
 import { EnvelopeSchema } from '../../schemas/envelope.js';
+import { unregisteredActionOutputSchema } from '../../output-schema-declaration.js';
 import { toEnvelope, wrap, wrapError, type ToolResult } from '../../format.js';
 import {
   buildBindingTable,
@@ -658,15 +660,25 @@ const enforcingRealHandler: CompositeHandler = async (): Promise<ToolResult> => 
 const skippingRealHandler: CompositeHandler = async (): Promise<ToolResult> =>
   toEnvelope({ success: true, data: { guarded: true } }) as unknown as ToolResult;
 
-/** Build the real `ToolAction`, running it through the registry's own validator. */
-function buildRealProbeAction(): ToolAction {
-  const action: ToolAction = {
+/** Build the real probe action, running it through the registry's own validator. */
+function buildRealProbeAction(): ExtensionToolAction {
+  const action: ExtensionToolAction = {
     name: REAL_REGISTRY_PROBE_ACTION,
     description: 'Oracle authorization probe — a real read guarded by the trusted-caller boundary.',
     schema: z.object({}).strict(),
     phases: new Set(['delegate']),
     roles: new Set([REAL_REGISTRY_PROBE_ROLE]),
-    outputSchema: EnvelopeSchema(z.unknown()),
+    // DR-4 (task 055): the probe is a FIXTURE action, deliberately absent from
+    // the built-in registry the vacuity census enumerates, so it has no
+    // allowlist id to waive. The bounded out-of-registry escape keeps it
+    // constructible without reopening the vacuous form on `ToolAction`.
+    //
+    // Task 060: that escape now mints the distinct `ExtensionOutputSchema`
+    // brand, which is why this declaration is typed `ExtensionToolAction`. The
+    // probe stays a REAL registration — `validateAction` below is the same call
+    // `registry.ts` makes — while being nominally incapable of appearing in
+    // `TOOL_REGISTRY`.
+    outputSchema: unregisteredActionOutputSchema(),
     annotations: {
       safety: 'read-only',
       readOnly: true,

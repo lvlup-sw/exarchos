@@ -48,6 +48,7 @@ import {
   MAX_REPORTED_MODIFIED_PATHS,
   RELEASE_MANIFEST_FILENAME,
   SOURCE_TREE_ROOTS,
+  buildIdentityBanner,
   collectSourceState,
   extractEmbeddedBuildIdentity,
   renderSourceStateReport,
@@ -603,6 +604,56 @@ describe('DR-20 release manifest producer', () => {
 
     // The state travels in the artifact's raw bytes, not just in our parse.
     expect(artifactBytes.toString('latin1')).toContain(`"sourceState":"${id.sourceState}"`);
+  });
+
+  it('ExtractEmbeddedBuildIdentity_NonAsciiPayload_RoundTripsThroughRealBinaryBytes', () => {
+    // ── WHY THIS EXISTS SEPARATELY FROM THE ARTIFACT TEST ────────────────────
+    // `BuildBinary_EmbedsSourceAndContractIdentity` DID catch this bug — but
+    // only by luck of wording: it compares a real `approvedBy`, and that field
+    // happened to acquire an em dash and an arrow in task 049. Reword it back
+    // to plain ASCII and the encoding defect returns, silently, with every
+    // assertion still green. A property that only holds while a prose string
+    // keeps its punctuation is not pinned at all, so it is pinned here — on
+    // the extractor directly, with non-ASCII supplied on purpose.
+    const identity: EmbeddedBuildIdentity = {
+      marker: BUILD_IDENTITY_MARKER,
+      version: '9.9.9',
+      source: {
+        commit: 'f'.repeat(40),
+        treeDigest: `sha256:${'a'.repeat(64)}`,
+      },
+      sourceState: 'clean',
+      modifiedPaths: [],
+      modifiedCount: 0,
+      contract: {
+        digest: `sha256:${'b'.repeat(64)}`,
+        authorityCount: AUTHORITY_IDS.length,
+        // Every class the latin1-parse mangles: an em dash (3 UTF-8 bytes), an
+        // arrow (3), an accented latin letter (2), and a non-BMP codepoint (4,
+        // a surrogate pair in JS) — so a fix that merely widened the decode to
+        // 2-byte sequences would still fail here.
+        approvedBy: 'v1→v2 — café — 🧪',
+      },
+    } as EmbeddedBuildIdentity;
+
+    // Embed the banner in a buffer that also carries RAW BINARY on both sides,
+    // because that is the condition the latin1 scan exists for: the extractor
+    // must stay byte-synchronised through bytes that are not valid UTF-8 at
+    // all. A test over a pure-text buffer would not exercise the reason the
+    // two encodings differ.
+    const binaryNoise = Buffer.from([0x00, 0xff, 0xfe, 0x80, 0x81, 0xc0, 0xc1]);
+    const artifact = Buffer.concat([
+      binaryNoise,
+      Buffer.from(buildIdentityBanner(identity), 'utf8'),
+      binaryNoise,
+    ]);
+
+    const recovered = extractEmbeddedBuildIdentity(artifact);
+    expect(recovered, 'identity must survive extraction from binary-flanked bytes').toBeDefined();
+    // The whole object round-trips, not merely the field under suspicion.
+    expect(recovered).toEqual(identity);
+    // Stated pointedly, so a regression names the encoding rather than the field.
+    expect(recovered?.contract.approvedBy).toBe('v1→v2 — café — 🧪');
   });
 
   it('SourceStateReport_ModifiedTree_RendersNamedActionableWarning', () => {

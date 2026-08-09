@@ -22,8 +22,13 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import {
+  createV2Client,
+  createV2LinkedTransportPair,
+  connectV2Client,
+  connectV2Server,
+  type V2Client,
+} from '../../sdk/seam.js';
 import { createMcpServer } from '../../adapters/mcp.js';
 import { EventStore } from '../../event-store/store.js';
 import type { DispatchContext } from '../../core/dispatch.js';
@@ -35,7 +40,7 @@ const MEDIAN_BUDGET_MS = 75;
 
 describe('F.6 — output validation overhead', () => {
   let tmpDir: string;
-  let client: Client;
+  let client: V2Client;
 
   beforeAll(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'perf-validation-test-'));
@@ -47,14 +52,14 @@ describe('F.6 — output validation overhead', () => {
       enableTelemetry: false,
     };
     const server = createMcpServer(ctx);
-    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-    client = new Client(
+    const [clientTransport, serverTransport] = createV2LinkedTransportPair();
+    client = createV2Client(
       { name: 'perf-validation-test', version: '1.0.0' },
       { capabilities: {} },
     );
     await Promise.all([
-      server.connect(serverTransport),
-      client.connect(clientTransport),
+      connectV2Server(server, serverTransport),
+      connectV2Client(client, clientTransport),
     ]);
   });
 

@@ -65,7 +65,7 @@ exarchos_orchestrate({ action: "check_plan_coverage", ... })
 → passed: true — All design sections covered
 ```
 
-Agent runs `exarchos_orchestrate({ action: "spec_coverage_check", planFile: "docs/specs/2026-02-20-stream-compaction.md", repoRoot: "." })` -- passed: true (no pre-existing tests expected at planning time).
+Agent runs `exarchos_orchestrate({ action: "spec_coverage_check", planFile: "docs/specs/2026-02-20-stream-compaction.md", repoRoot: ".", coveragePhase: "plan" })` -- passed: true (no pre-existing tests expected at planning time; `coveragePhase: "plan"` is what makes a declared-but-uncreated path a forward declaration rather than a failure).
 
 ## Output
 

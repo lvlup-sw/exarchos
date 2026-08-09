@@ -10,8 +10,10 @@
  * `{ command: 'node', args: ['test/fixtures/__helpers__/mock-mcp-server.mjs'] }`.
  */
 
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+// SDK v2 (DR-0/DR-26) — see the note in ../mcp-client.ts. This mock is driven by
+// that client, so both ends must be the same generation or the pair hangs.
+import { McpServer } from '@modelcontextprotocol/server';
+import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import { z } from 'zod';
 
 const server = new McpServer(

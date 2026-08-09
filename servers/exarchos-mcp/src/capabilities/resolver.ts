@@ -399,100 +399,9 @@ export function resolveEffectiveCapabilities(
   return freezeSet(effective);
 }
 
-// ─── DR-4 / INV-11: shared-mutating posture gate ───────────────────────────
-//
-// The resolver-seam companion to `enforceReadonlyGate` (core/dispatch.ts). An
-// action declaring `posture: 'shared-mutating'` (merge_orchestrate,
-// serialize_merge, prune_worktrees) mutates SHARED, un-isolated state — the
-// integration branch, the main working tree, the singleton `worktrees` event
-// stream — from the main worktree with NO worktree isolation. Two caller tiers
-// are structurally incompatible and MUST be rejected BEFORE the handler runs:
-//
-//   - task-isolated: carries `isolation:worktree`. Its whole contract is that
-//     the worktree boundary contains its blast radius, so it cannot legally
-//     mutate the shared integration ref. The readonly allowlist cannot express
-//     this rejection — a task-isolated caller holds full `mcp:exarchos`, which
-//     passes `enforceReadonlyGate`. This gate closes that hole.
-//   - read-only: lacks `fs:write` (only `mcp:exarchos:readonly`). Cannot mutate
-//     at all. `enforceReadonlyGate` already rejects it for these verbs (they are
-//     absent from READ_ONLY_ACTIONS); this branch is defence-in-depth so the
-//     posture gate is self-consistent even for a hypothetical shared-mutating
-//     verb that WAS allowlisted.
-//
-// Only a shared-mutating caller ({fs:read, fs:write, shell:exec}, no
-// isolation:worktree) satisfies the tier and proceeds. Rejection is a
-// structured CAPABILITY_DENIED envelope carrying tool + action so the caller
-// can correlate; because the gate returns before the composite handler is
-// constructed/invoked, no handler runs and no event is emitted.
-
-/**
- * The single capability that distinguishes a task-isolated caller: presence of
- * `isolation:worktree` means the caller is confined to a worktree and must not
- * mutate shared state.
- */
-const WORKTREE_ISOLATION_CAPABILITY = 'isolation:worktree' as const;
-
-/** The write capability every mutating tier holds; its absence marks read-only. */
-const WRITE_CAPABILITY = 'fs:write' as const;
-
-function sharedMutatingDenial(
-  tool: string,
-  action: string,
-  reason: string,
-): ToolResult {
-  return {
-    success: false,
-    error: {
-      code: 'CAPABILITY_DENIED',
-      message:
-        `Action "${action}" on tool "${tool}" declares the shared-mutating trust tier: ${reason}.`,
-      tool,
-      action,
-    },
-  };
-}
-
-/**
- * Enforce the shared-mutating posture gate. Returns a structured
- * CAPABILITY_DENIED {@link ToolResult} when the caller's effective capabilities
- * are incompatible with a `shared-mutating` action, or `null` when the call may
- * proceed.
- *
- * Fires only when the action declares `posture: 'shared-mutating'` AND a
- * resolver is wired (the MCP handshake path). Direct CLI / in-process callers
- * without a resolver are not gated — parity with `enforceReadonlyGate`, which
- * treats an absent resolver as "not gated" because those callers have no
- * handshake to snapshot.
- */
-export function enforceSharedMutatingGate(
-  tool: string,
-  action: string,
-  posture: AgentPosture | undefined,
-  resolver: CapabilityResolver | undefined,
-): ToolResult | null {
-  if (posture !== 'shared-mutating') return null;
-  if (!resolver) return null;
-
-  // task-isolated: worktree-confined caller cannot mutate the shared ref.
-  if (resolver.has(WORKTREE_ISOLATION_CAPABILITY)) {
-    return sharedMutatingDenial(
-      tool,
-      action,
-      'a task-isolated (isolation:worktree) caller cannot mutate shared, un-isolated state',
-    );
-  }
-
-  // read-only tier / any caller lacking fs:write cannot mutate shared state.
-  if (!resolver.has(WRITE_CAPABILITY)) {
-    return sharedMutatingDenial(
-      tool,
-      action,
-      'a read-only caller (no fs:write) cannot mutate shared, un-isolated state',
-    );
-  }
-
-  return null;
-}
+// `enforceSharedMutatingGate` lived here until INV-11 retired it. Rationale in
+// `shared-mutating-gate.test.ts`. `enforceReadonlyGate` (core/dispatch.ts) is
+// untouched — state authority is dispatch-owned; confinement is not.
 
 // ─── T33 / DR-6: posture-driven resolution ────────────────────────────────
 
@@ -658,21 +567,30 @@ export function requireMutationCapabilities(
 type Expect<T extends true> = T;
 type IsNotAssignable<A, B> = A extends B ? false : true;
 
-/** REVIEW (read-only) bundles must NOT satisfy a mutating consumer. */
+/**
+ * REVIEW (read-only) bundles must NOT satisfy a mutating consumer.
+ * @proof
+ */
 export type _PolaReviewBundleNotMutating = Expect<
   IsNotAssignable<
     CapabilityBundle<(typeof KIND_OBLIGATIONS)['REVIEW']['posture']>,
     CapabilityBundle<MutatingPosture>
   >
 >;
-/** PLAN (read-only) bundles must NOT satisfy a mutating consumer. */
+/**
+ * PLAN (read-only) bundles must NOT satisfy a mutating consumer.
+ * @proof
+ */
 export type _PolaPlanBundleNotMutating = Expect<
   IsNotAssignable<
     CapabilityBundle<(typeof KIND_OBLIGATIONS)['PLAN']['posture']>,
     CapabilityBundle<MutatingPosture>
   >
 >;
-/** IMPLEMENT (task-isolated) bundles MUST satisfy a mutating consumer. */
+/**
+ * IMPLEMENT (task-isolated) bundles MUST satisfy a mutating consumer.
+ * @proof
+ */
 export type _PolaImplementBundleMutating = Expect<
   CapabilityBundle<(typeof KIND_OBLIGATIONS)['IMPLEMENT']['posture']> extends CapabilityBundle<MutatingPosture>
     ? true

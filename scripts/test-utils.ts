@@ -9,7 +9,7 @@
  * `REPO_ROOT` / prefix, so call sites stay unchanged.
  */
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -53,4 +53,36 @@ export function makeFixtureSrc(prefix: string, files: Record<string, string>): F
     writeFileSync(fullPath, content, 'utf8');
   }
   return { srcRoot: dir, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+}
+
+/**
+ * Every command line declared by `scripts/validate-manifest.json`, newline
+ * joined so a gate's `Validate_ChainedIntoNpmValidate` case can ask "am I a
+ * declared step of `npm run validate`?" with one `toContain`.
+ *
+ * It used to ask that of `pkg.scripts.validate`, which was an inline `&&`
+ * chain. Task 064 (DR-24) replaced the chain with an aggregating runner because
+ * a red early step made every later gate skipped-as-passed — measured
+ * 2026-08-07, 1 of 9 declared steps executed. The steps moved to data, so the
+ * question has to be put to the data; a substring check on the npm script now
+ * only proves the runner is invoked, not which gates it reaches.
+ *
+ * THROWS on an empty manifest rather than returning `''`. A gate asking "am I
+ * wired?" of a manifest that declares nothing would get a clean `not.toContain`
+ * either way, and a silent empty denominator is the exact defect task 064 exists
+ * to remove.
+ */
+export function validateManifestCommands(repoRoot: string): string {
+  const manifestPath = path.join(repoRoot, 'scripts', 'validate-manifest.json');
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+    steps?: { command?: string; args?: string[] }[];
+  };
+  const steps = manifest.steps ?? [];
+  if (steps.length === 0) {
+    throw new Error(
+      'scripts/validate-manifest.json declares 0 steps — refusing to answer ' +
+        '"is this gate wired into validate?" from an empty denominator (task 064, DR-24)',
+    );
+  }
+  return steps.map((s) => [s.command ?? '', ...(s.args ?? [])].join(' ')).join('\n');
 }

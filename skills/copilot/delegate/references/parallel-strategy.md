@@ -28,6 +28,58 @@ task --agent implementer 'Task 002: <full context for Task 002>'
 // WRONG: Separate messages = sequential
 ```
 
+## Dispatch Shape by Posture
+
+The launch shape is chosen by **what the agent is allowed to touch**, not by convenience.
+Each provisioning verb emits a `dispatch` field next to `posture` that binds the shape
+(DR-25) — `prepare_delegation` for a mutating wave, `prepare_review` for a reviewer or
+plan-review panel. **Read the shape off that emitted field**, which carries its own
+`requires` and `fallback` so a host can resolve it against the runtime it is actually
+launching on. Nothing in this file is a second source of truth: where prose and an emitted
+`dispatch` disagree, the emitted field wins.
+
+
+The shapes you will see emitted:
+
+| Posture | Emitted launch shape | At the call site |
+|---------|----------------------|------------------|
+| `read-only` | `subagent: true`, `naming: "anonymous"`, `workspace: "inherited"` | Anonymous async subagent. **Omit `name`.** No worktree — nothing is mutated. |
+| `task-isolated` | `subagent: true`, `naming: "named"`, `workspace: "worktree"` | Named **and** worktree-isolated. Both, never one. |
+| `shared-mutating` | `subagent: false`, `naming: "anonymous"`, `workspace: "main-worktree"` | Not a subagent at all — run it in the main worktree. |
+
+### Read-Only Dispatch: Never Name It
+
+Reviewers, plan-review panels, and researchers are `read-only`. Worktree isolation buys
+nothing (they write nothing), so the shape is a plain anonymous async subagent — and
+`naming: "anonymous"` is a prohibition, not a default:
+
+```typescript
+// CORRECT — anonymous fan-out of a read-only panel, no name on any spawn
+task --agent reviewer 'Plan review voter 1: <provisioned review prompt>'
+task --agent reviewer 'Plan review voter 2: <provisioned review prompt>'
+
+// WRONG — a name with no isolation. The spawn reports success and the agent
+// never runs the prompt. Only a fresh anonymous dispatch does the work.
+```
+
+That WRONG form is the one failure in this file you cannot detect by watching: the spawn
+succeeds, the agent looks alive, and nothing runs. A plan-review panel dispatched that way
+produced phantom agents and **zero verdicts**.
+
+Verify a read-only wave by its verdicts, never by its liveness — see
+`references/workflow-steps.md` Step 5 for the full recognition checklist.
+
+A `task-isolated` wave is the opposite case, and the reason the two shapes must not be
+blended: it carries a name **because** it is worktree-isolated and must be addressed for
+merge. A name buys nothing without a worktree, and costs you the entire dispatch.
+
+When a runtime does not natively support subagent spawn, the emitted `dispatch` resolves
+to its declared `fallback` rather than being improvised: read-only work runs inline in the
+caller's own context (degraded — no longer fresh-context, which the caller must surface),
+and a `task-isolated` wave falls back to an **anonymous** dispatch into the shared
+checkout, serialized by the caller. Deliberately not named-without-isolation: a fallback
+must still run the prompt.
+
 
 
 ## Dispatch Properties

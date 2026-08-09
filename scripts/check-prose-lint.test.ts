@@ -33,6 +33,7 @@ import {
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { validateManifestCommands } from './test-utils.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..');
@@ -120,15 +121,17 @@ describe('check-prose-lint CLI (T049, DR-13)', () => {
 
   it('Validate_ChainedIntoNpmValidate', () => {
     // The whole point of T049 is wiring the lint into `npm run validate`.
-    // Parse the root package.json directly and assert the chain references
-    // the wrapper. This is intentionally a string-level check rather than
-    // executing `npm run validate` (which is covered by the integration
-    // run in the verification step) — failing here gives the clearest
-    // diagnostic when someone removes the chain entry.
+    // Task 064 (DR-24) moved the declared steps out of an inline `&&` chain and
+    // into scripts/validate-manifest.json, because the chain died at step 1 and
+    // made every later gate read as skipped-as-passed. So the wiring question is
+    // now put to the manifest; the npm script itself only shows the runner.
+    // Still deliberately a data-level check rather than executing `npm run
+    // validate` — failing here gives the clearest diagnostic when someone drops
+    // the step.
     const pkg = JSON.parse(readFileSync(ROOT_PACKAGE_JSON, 'utf8')) as {
       scripts?: Record<string, string>;
     };
-    const validate = pkg.scripts?.validate ?? '';
-    expect(validate).toContain('check-prose-lint.mjs');
+    expect(pkg.scripts?.validate ?? '').toContain('run-validate.mjs');
+    expect(validateManifestCommands(REPO_ROOT)).toContain('check-prose-lint.mjs');
   });
 });

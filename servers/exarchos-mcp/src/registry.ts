@@ -45,8 +45,30 @@ import {
   PsOutputSchema,
   WaitOutputSchema,
   WorktreesOutputSchema,
-  extractEnvelopeDataSchema,
 } from './orchestrate/worktree/schemas.js';
+import { AmendInvariantOutputSchema } from './orchestrate/invariants/amend.js';
+// DR-4 (task 069) — the invariant-conformance gate's response contract, paid
+// down from `vacuityWaiver` to a real `data` schema. Held in its own module so
+// the registry does not pull the handler's import closure (event store, config
+// loader, catalog resolver) in behind it.
+import { CheckInvariantConformanceOutputSchema } from './orchestrate/check-invariant-conformance-schema.js';
+// DR-4 (task 055) — the closed `outputSchema` declaration surface. `ToolAction.
+// outputSchema` accepts only what these two constructors mint, so the vacuous
+// form (`EnvelopeSchema(z.unknown())`) is not merely discouraged here, it does
+// not typecheck. See `output-schema-declaration.ts` for the mechanism and
+// `output-schema-vacuity-allowlist.ts` for the shrink-only seed.
+import { withCappedShape, vacuityWaiver } from './output-schema-declaration.js';
+// NOTE (task 060): `unregisteredActionOutputSchema` is deliberately NOT imported
+// here. It is the out-of-registry escape, and this file is the registry. Its
+// absence from this import list is checked textually by
+// `output-schema-vacuity-allowlist.test.ts`; its unusability here is checked by
+// `tsc` via `_OutputSchemaRegistryActionUsingExtensionEscapeFailsCompile` below.
+import type {
+  DeclaredOutputSchema,
+  ExtensionOutputSchema,
+  RegisteredOutputSchema,
+} from './output-schema-declaration.js';
+import type { VacuityWaiverId } from './output-schema-vacuity-allowlist.js';
 // Lifecycle verbs (worktree-lifecycle-verbs) — task-019 shared field shapes +
 // task-008 `inspect` typed output schema. Import shapes from the SoT module so
 // the flattened `exarchos_view` registration cannot drift a shared field's base
@@ -593,19 +615,44 @@ export interface ToolAction {
   readonly posture?: AgentPosture;
   /**
    * Typed Zod schema describing the action's response envelope (Wave 0
-   * task E.1-E.5, DR-11, design §2.1). All actions in the built-in
-   * registry MUST declare an `outputSchema` — most attach
-   * `EnvelopeSchema(z.unknown())` (the LCD envelope shape with
-   * `data: unknown`) while a small set of HSM actions (workflow.set/
-   * transition/update) attach typed sub-shapes that register the
-   * `_meta.deprecation` slot. Per-action data-shape tightening is
-   * incremental follow-up work (design §10, out of scope for Wave 0).
+   * task E.1-E.5, DR-11, design §2.1).
+   *
+   * DR-4 (task 055) narrowed this field from `z.ZodType` to
+   * {@link DeclaredOutputSchema}. Under the old type the field recorded
+   * PRESENCE, not SUBSTANCE: the cheapest satisfying expression was
+   * `EnvelopeSchema(z.unknown())`, whose success-branch `data` accepts every
+   * payload, and 112 of 122 declarations wrote exactly that. A schema total
+   * over every shape satisfies INV-17's totality precondition trivially, so
+   * INV-2's "schema-checked in addition to byte-checked" collapsed into
+   * byte-checked plus a tautology for 92% of the surface.
+   *
+   * There are now exactly two ways to produce a value of this type:
+   *   • `withCappedShape(<typed envelope>)` — the sole constructor of a
+   *     SUBSTANTIVE schema;
+   *   • `vacuityWaiver('<tool>.<action>')` — the explicit allowlist escape,
+   *     whose id parameter is the literal union of the ids seeded in
+   *     `output-schema-vacuity-allowlist.ts`.
+   * A new action therefore cannot declare a vacuous `outputSchema`: the bare
+   * expression is unbranded, and the waiver rejects an unseeded id. See
+   * `_OutputSchema*` below for the machine-checked statement of that.
+   *
+   * TASK 060 widened THIS field — the CONSUMER-facing one — to
+   * {@link RegisteredOutputSchema}, the union of the registry brand and the
+   * out-of-registry extension brand, so dispatch / the MCP adapter / the CLI
+   * adapter / `describe` keep seeing one action type across built-in and
+   * `.exarchos.yml` tools. The narrowing that closes DR-4's first hole moved to
+   * the DECLARATION types: {@link BuiltinToolAction} (what {@link TOOL_REGISTRY}
+   * is declared with) accepts `DeclaredOutputSchema` only, and
+   * {@link ExtensionToolAction} accepts `ExtensionOutputSchema` only. Widening
+   * here is not a loosening of the tooth: nothing can be constructed for this
+   * union that could not already be constructed for one of its members, and no
+   * value of this union type can reach `TOOL_REGISTRY`.
    *
    * The field is required at the interface boundary; the registration-
    * time validator (`validateAction`) also enforces presence at module
    * load so a malformed declaration fails the import (DIM-3 fail-closed).
    */
-  readonly outputSchema: z.ZodType;
+  readonly outputSchema: RegisteredOutputSchema;
   /**
    * DR-1 structural marker for the worktree "DR-10 surface" actions
    * (acquire_worktree, release_worktree, prune_worktrees, serialize_merge, ps,
@@ -638,6 +685,168 @@ export interface CompositeTool {
   /** One-line summary for slim MCP registration. Used when slimRegistration is enabled. */
   readonly slimDescription?: string;
 }
+
+// ─── DR-4 (task 060): the two DECLARATION paths, told apart nominally ────────
+//
+// `ToolAction` / `CompositeTool` above are the CONSUMER types — what dispatch,
+// the adapters and `describe` read. The two types below are the DECLARATION
+// types, and they are the ones that carry DR-4's compile-time tooth.
+//
+// Task 055 closed `outputSchema` vacuity for the built-in registry and then
+// reported the residual: `unregisteredActionOutputSchema()` — the bounded escape
+// for actions whose name is not a compile-time literal — minted the same brand
+// as the two registry constructors, so a NEW registry action could call it and
+// compile. The audit still reported it (`UNWAIVED_VACUITY`), but at run time,
+// while DR-4 claims compile time.
+//
+// The fix is nominal, not a deletion: `.exarchos.yml` custom tools are a
+// SUPPORTED surface and must keep working. The escape now mints
+// `ExtensionOutputSchema`, `ExtensionToolAction` is the type the two extension
+// sites build, and `TOOL_REGISTRY` is declared `readonly BuiltinCompositeTool[]`
+// — so the escape is not merely discouraged in this file, it does not typecheck
+// in it, and the door is the registry constant rather than any single array's
+// annotation (adding a sixth `readonly ToolAction[]` array to TOOL_REGISTRY is
+// itself a compile error).
+
+/**
+ * An action DECLARED in {@link TOOL_REGISTRY}.
+ *
+ * Identical to {@link ToolAction} except that `outputSchema` is narrowed to
+ * {@link DeclaredOutputSchema} — the brand minted only by `withCappedShape`
+ * (substantive) and `vacuityWaiver` (allowlisted). The out-of-registry escape
+ * mints the other brand and is therefore not assignable here.
+ */
+export interface BuiltinToolAction extends ToolAction {
+  readonly outputSchema: DeclaredOutputSchema;
+}
+
+/** A composite tool whose actions are all built-in declarations. */
+export interface BuiltinCompositeTool extends CompositeTool {
+  readonly actions: readonly BuiltinToolAction[];
+}
+
+/**
+ * An action declared OUTSIDE the built-in registry: a `.exarchos.yml` custom
+ * tool (`config/register.ts`) or the oracle registration probe
+ * (`contract/oracle/fixtures.ts`). Its name is a runtime string, so it has no
+ * census id to waive and no compile-time literal to match against the allowlist
+ * union — which is exactly why it needs its own nominal type rather than a
+ * shared escape.
+ *
+ * Assignable to {@link ToolAction}, so an extension action is dispatchable,
+ * registrable and describable exactly like a built-in one. NOT assignable to
+ * {@link BuiltinToolAction}, which is the whole point.
+ */
+export interface ExtensionToolAction extends ToolAction {
+  readonly outputSchema: ExtensionOutputSchema;
+}
+
+/** A composite tool assembled from extension-declared actions. */
+export interface ExtensionCompositeTool extends CompositeTool {
+  readonly actions: readonly ExtensionToolAction[];
+}
+
+// ─── DR-4: vacuity is unconstructible at the ToolAction boundary ─────────────
+//
+// `OutputSchema_NewActionDeclaringVacuous_FailsCompile`, stated where it is
+// enforced. These aliases live in a NON-TEST source file deliberately: the
+// package tsconfig excludes `*.test.ts`, so the same claim written as a
+// `@ts-expect-error` in a spec would never be checked by `npm run typecheck`.
+// The `_Pola*` aliases in `capabilities/resolver.ts` are the precedent.
+// `Expect<T extends true>` is a compile error unless T is exactly `true`.
+type ExpectTrue<T extends true> = T;
+type NotAssignableTo<A, B> = A extends B ? false : true;
+
+/**
+ * THE ACCEPTANCE CRITERION. `EnvelopeSchema(z.unknown())` — the expression 109
+ * declaration sites used to write — cannot be assigned to the field. A new
+ * action that reaches for it does not compile.
+ * @proof
+ */
+export type _OutputSchemaNewActionDeclaringVacuousFailsCompile = ExpectTrue<
+  NotAssignableTo<ReturnType<typeof EnvelopeSchema<z.ZodUnknown>>, BuiltinToolAction['outputSchema']>
+>;
+/**
+ * …and it is not assignable to the CONSUMER union either, so nothing widened.
+ * @proof
+ */
+export type _OutputSchemaNewActionDeclaringVacuousIsNotRegistered = ExpectTrue<
+  NotAssignableTo<ReturnType<typeof EnvelopeSchema<z.ZodUnknown>>, ToolAction['outputSchema']>
+>;
+/**
+ * The escape is closed too: an id that is not already seeded in the shrink-only
+ * allowlist is not a `VacuityWaiverId`, so `vacuityWaiver('<new id>')` is also
+ * a compile error. Waiving a NEW declaration requires editing the generated
+ * seed file, which is exactly the reviewable act DR-4 wants it to be.
+ * @proof
+ */
+export type _OutputSchemaNewActionCannotBeWaived = ExpectTrue<
+  NotAssignableTo<'exarchos_view.a_brand_new_action', VacuityWaiverId>
+>;
+/**
+ * TASK 060, HOLE 1 — THE ACCEPTANCE CRITERION.
+ * `OutputSchema_RegistryActionUsingExtensionEscape_FailsCompile`, stated where
+ * it is enforced. The out-of-registry escape returns `ExtensionOutputSchema`
+ * (proved in `output-schema-declaration.ts`), and that type does not satisfy a
+ * built-in declaration's `outputSchema`. A new action in this file that reaches
+ * for `unregisteredActionOutputSchema()` does not compile — it no longer merely
+ * reddens the runtime audit.
+ * @proof
+ */
+export type _OutputSchemaRegistryActionUsingExtensionEscapeFailsCompile = ExpectTrue<
+  NotAssignableTo<ExtensionOutputSchema, BuiltinToolAction['outputSchema']>
+>;
+/**
+ * The same claim one level up: an extension action is not a registry declaration.
+ * @proof
+ */
+export type _OutputSchemaExtensionActionIsNotABuiltinDeclaration = ExpectTrue<
+  NotAssignableTo<ExtensionToolAction, BuiltinToolAction>
+>;
+/**
+ * …and the DOOR is the registry constant, not a per-array annotation: a plain
+ * `CompositeTool` (whose actions carry the consumer-facing union) is not a legal
+ * `TOOL_REGISTRY` entry, so a new `readonly ToolAction[]` array cannot be
+ * smuggled in beside the five that exist.
+ * @proof
+ */
+export type _OutputSchemaRegistryDoorRejectsUnnarrowedTools = ExpectTrue<
+  NotAssignableTo<CompositeTool, BuiltinCompositeTool>
+>;
+/**
+ * And the guarantee is not vacuous — the two blessed constructors DO satisfy
+ * a built-in declaration's field, and the escape DOES satisfy an extension
+ * declaration's. Without these lines the aliases above would still pass if a
+ * field had been narrowed to something nothing at all can produce, and the
+ * `.exarchos.yml` surface could have been "closed" by breaking it.
+ * @proof
+ */
+export type _OutputSchemaCappedShapeSatisfiesTheField = ExpectTrue<
+  ReturnType<typeof withCappedShape> extends BuiltinToolAction['outputSchema'] ? true : false
+>;
+/** @proof */
+export type _OutputSchemaWaiverSatisfiesTheField = ExpectTrue<
+  ReturnType<typeof vacuityWaiver> extends BuiltinToolAction['outputSchema'] ? true : false
+>;
+/** @proof */
+export type _OutputSchemaExtensionEscapeSatisfiesTheExtensionField = ExpectTrue<
+  ExtensionOutputSchema extends ExtensionToolAction['outputSchema'] ? true : false
+>;
+/**
+ * Both declaration types remain consumable as plain `ToolAction`s.
+ * @proof
+ */
+export type _OutputSchemaBuiltinActionIsAToolAction = ExpectTrue<
+  BuiltinToolAction extends ToolAction ? true : false
+>;
+/** @proof */
+export type _OutputSchemaExtensionActionIsAToolAction = ExpectTrue<
+  ExtensionToolAction extends ToolAction ? true : false
+>;
+/** @proof */
+export type _OutputSchemaExtensionToolIsACompositeTool = ExpectTrue<
+  ExtensionCompositeTool extends CompositeTool ? true : false
+>;
 
 // ─── Schema Generation ──────────────────────────────────────────────────────
 
@@ -1030,7 +1239,7 @@ const describeSchema = z.object({
 });
 
 /** Creates a shared describe action definition for composite tools. */
-function makeDescribeAction(): ToolAction {
+function makeDescribeAction(waiverId: VacuityWaiverId): BuiltinToolAction {
   return {
     name: 'describe',
     description: 'Return full schemas, descriptions, gate metadata, and phase/role info for specific actions',
@@ -1039,7 +1248,7 @@ function makeDescribeAction(): ToolAction {
     roles: ROLE_ANY,
     // DR-1: verbose-by-design detail path — full per-action JSON schemas.
     economy: { budgetTokens: DESCRIBE_ECONOMY_BUDGET_TOKENS },
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver(waiverId),
     annotations: READ_ONLY_LOCAL,
   };
 }
@@ -1061,7 +1270,7 @@ const workflowDescribeSchema = z.object({
 });
 
 /** Creates a workflow-specific describe action with topology, playbook, and config support. */
-function makeWorkflowDescribeAction(): ToolAction {
+function makeWorkflowDescribeAction(waiverId: VacuityWaiverId): BuiltinToolAction {
   return {
     name: 'describe',
     description: 'Return full schemas, descriptions, gate metadata, and phase/role info for specific actions. Optionally return HSM topology, phase playbooks, or annotated project config.',
@@ -1070,7 +1279,7 @@ function makeWorkflowDescribeAction(): ToolAction {
     roles: ROLE_ANY,
     // DR-1: verbose-by-design detail path — schemas + topology/playbooks/config.
     economy: { budgetTokens: DESCRIBE_ECONOMY_BUDGET_TOKENS },
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver(waiverId),
     annotations: READ_ONLY_LOCAL,
   };
 }
@@ -1087,7 +1296,7 @@ const eventDescribeSchema = z.object({
 });
 
 /** Creates a describe action for the event tool that supports both actions, eventTypes, and emissionGuide. */
-function makeEventDescribeAction(): ToolAction {
+function makeEventDescribeAction(waiverId: VacuityWaiverId): BuiltinToolAction {
   return {
     name: 'describe',
     description: 'Return schemas for actions and/or event types, or the emission guide. At least one of actions, eventTypes, or emissionGuide must be provided.',
@@ -1098,7 +1307,7 @@ function makeEventDescribeAction(): ToolAction {
     // `emissionGuide` param path (the full event catalog), which is a param
     // of this one describe action — not a separate action.
     economy: { budgetTokens: EVENT_DESCRIBE_ECONOMY_BUDGET_TOKENS },
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver(waiverId),
     annotations: READ_ONLY_LOCAL,
   };
 }
@@ -1269,61 +1478,18 @@ export const TelemetryViewOutputSchema = EnvelopeSchema(TelemetryViewDataSchema)
 
 // ─── Capped-shape outputSchema union (DR-1/DR-3/DR-8, Task 022) ───────────────
 //
-// outputSchema honesty (contract-canonical): the registered `outputSchema` IS
-// the canonical response contract (system-design "one contract, one core"), so
-// a capped/summary response whose shape the schema does not declare violates the
-// contract itself — regardless of which facade renders it. The MCP adapter's
-// D.5 validator (`adapters/mcp.ts:245`, `validateAgainstActionSchema`) enforces
-// that contract today by replacing a non-conforming envelope with an
-// INTERNAL_ERROR. So every action carrying a TYPED `data` outputSchema must have
-// its schema made TOTAL over its emittable shapes (baseline + capped) BEFORE the
-// dispatch-core economy enforcement (Task 003) can emit a capped response —
-// this is also the §05 output-codegen precondition (you cannot generate a
-// presentation client from a schema that does not enumerate the response shapes).
-
-/**
- * The generic capped-fallback `data` shape the dispatch-core economy seam
- * (Task 003) emits when an over-budget response has no declared summarizer:
- * a `summary` (human-readable message or a structured roll-up), counts-by-group
- * `counts`, and a `firstPage` preview of the first items.
- *
- * Declared ONCE and unioned into every typed-`data` outputSchema via
- * {@link withCappedShape}. `.passthrough()` tolerates the extra capped-envelope
- * decorators a summarizer may attach (`total`, `truncated`, `page`, …) without
- * re-cutting the fragment — the same "do NOT over-constrain" discipline the
- * per-action data schemas already follow (a stricter schema would make the D.5
- * validator replace a real capped response with an INTERNAL_ERROR).
- */
-export const CappedDataSchema = z
-  .object({
-    summary: z.union([z.string(), z.record(z.string(), z.unknown())]),
-    counts: z.record(z.string(), z.number()),
-    firstPage: z.array(z.unknown()),
-  })
-  .passthrough();
-
-/**
- * Union {@link CappedDataSchema} into an existing typed-`data`
- * `EnvelopeSchema(...)` output schema, keeping the result a single
- * `success`-discriminated envelope union whose `data` branch is
- * `z.union([<baseData>, CappedDataSchema])`. Unioning at the `data` level (not
- * the envelope level) preserves the discriminated-union shape that
- * {@link extractEnvelopeDataSchema} / `envelopeDataSchemaIsTyped` rely on, so
- * the action stays a "typed output" after the widening.
- *
- * No-op passthrough for a schema whose success-branch `data` cannot be extracted
- * (e.g. the `EnvelopeSchema(z.unknown()).and(...)` intersection wrappers) —
- * those already accept the capped shape because their `data` is `z.unknown()`.
- */
-export function withCappedShape(outputSchema: z.ZodType): z.ZodType {
-  const baseData = extractEnvelopeDataSchema(outputSchema);
-  if (baseData === undefined) return outputSchema;
-  return EnvelopeSchema(z.union([baseData, CappedDataSchema]));
-}
+// DR-4 (task 055) moved `CappedDataSchema` and `withCappedShape` into
+// `output-schema-declaration.ts`, where the `DeclaredOutputSchema` brand they
+// mint is defined. The brand's minting function is module-private there, which
+// is what makes `withCappedShape` the SOLE constructor of a substantive
+// `outputSchema` instead of merely the conventional one. Both are re-exported
+// from this module so their long-standing import path (`./registry.js`) keeps
+// working for the economy-enforcement and contract-compiler consumers.
+export { CappedDataSchema, withCappedShape } from './output-schema-declaration.js';
 
 // ─── Composite Tool: exarchos_workflow ───────────────────────────────────────
 
-const workflowActions: readonly ToolAction[] = [
+const workflowActions: readonly BuiltinToolAction[] = [
   {
     name: 'init',
     description: 'Initialize a new workflow. Auto-emits workflow.started event. For workflowType=oneshot, an optional synthesisPolicy (always | never | on-request) seeds state.oneshot.synthesisPolicy; silently ignored for other workflow types.',
@@ -1344,7 +1510,7 @@ const workflowActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'workflow.started', condition: 'always' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_workflow.init'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -1370,7 +1536,7 @@ const workflowActions: readonly ToolAction[] = [
         'exarchos wf status -f my-feature --as-of \'{"untilSequence":3}\'',
       ],
     },
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_workflow.get'),
     annotations: READ_ONLY_LOCAL,
   },
   {
@@ -1389,7 +1555,7 @@ const workflowActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'workflow.transition', condition: 'always' },
     ],
-    outputSchema: WorkflowTransitionOutputSchema,
+    outputSchema: vacuityWaiver('exarchos_workflow.transition', WorkflowTransitionOutputSchema),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -1442,7 +1608,7 @@ const workflowActions: readonly ToolAction[] = [
     // `describe/handler.ts` exposes the schema via `outputSchema` in
     // action descriptions; callers reach it through
     // `exarchos_workflow.describe({actions: ['update']})`.
-    outputSchema: WorkflowUpdateOutputSchema,
+    outputSchema: vacuityWaiver('exarchos_workflow.update', WorkflowUpdateOutputSchema),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -1458,7 +1624,7 @@ const workflowActions: readonly ToolAction[] = [
       { event: 'workflow.cancel', condition: 'always' },
       { event: 'workflow.compensation', condition: 'conditional', description: 'Per compensation action' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_workflow.cancel'),
     annotations: COMPENSABLE_LOCAL,
   },
   {
@@ -1482,7 +1648,7 @@ const workflowActions: readonly ToolAction[] = [
     // from Tasks-augmented dispatch. The annotation is advisory — the
     // binding opt-in gate stays at `core/dispatch.ts:927-954`.
     dispatch: { taskSuitable: true, taskTtlSuggestionMs: 60_000 },
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_workflow.cleanup'),
     annotations: COMPENSABLE_LOCAL,
   },
   {
@@ -1493,7 +1659,7 @@ const workflowActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_workflow.reconcile'),
     annotations: LOCAL_MUTATION_IDEMPOTENT,
   },
   {
@@ -1524,7 +1690,7 @@ const workflowActions: readonly ToolAction[] = [
     // that benefits from Tasks-augmented dispatch. Advisory — the
     // binding opt-in gate stays at `core/dispatch.ts:927-954`.
     dispatch: { taskSuitable: true, taskTtlSuggestionMs: 60_000 },
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_workflow.rehydrate'),
     annotations: LOCAL_MUTATION_IDEMPOTENT,
   },
   {
@@ -1556,7 +1722,7 @@ const workflowActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'workflow.checkpoint', condition: 'always' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_workflow.checkpoint'),
     annotations: LOCAL_MUTATION_IDEMPOTENT,
   },
   {
@@ -1598,15 +1764,15 @@ const workflowActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'feedback.recorded', condition: 'always' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_workflow.feedback'),
     annotations: LOCAL_MUTATION,
   },
-  makeWorkflowDescribeAction(),
+  makeWorkflowDescribeAction('exarchos_workflow.describe'),
 ];
 
 // ─── Composite Tool: exarchos_event ─────────────────────────────────────────
 
-const eventActions: readonly ToolAction[] = [
+const eventActions: readonly BuiltinToolAction[] = [
   {
     name: 'append',
     description: 'Append an event to a stream',
@@ -1621,7 +1787,7 @@ const eventActions: readonly ToolAction[] = [
     cli: {
       examples: ['exarchos ev append --stream my-feature --event \'{"type":"task.completed","data":{"taskId":"t1"}}\''],
     },
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_event.append'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -1636,7 +1802,7 @@ const eventActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_event.query'),
     annotations: READ_ONLY_LOCAL,
   },
   {
@@ -1648,29 +1814,35 @@ const eventActions: readonly ToolAction[] = [
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_event.batch_append'),
     annotations: LOCAL_MUTATION,
   },
-  makeEventDescribeAction(),
+  makeEventDescribeAction('exarchos_event.describe'),
 ];
 
 // ─── Composite Tool: exarchos_orchestrate ───────────────────────────────────
 
-const orchestrateActions: readonly ToolAction[] = [
+const orchestrateActions: readonly BuiltinToolAction[] = [
   {
     name: 'task_claim',
     description: 'Claim a task for execution',
     schema: z.object({
       taskId: z.string().min(1),
       agentId: z.string().min(1),
-      streamId: z.string().min(1),
+      // DR-6: `streamId` IS the bare featureId. Both spellings are accepted
+      // and exactly one is required (`resolveStreamIdentity` in
+      // `tasks/tools.ts` is the single resolver). Requiring only the
+      // internal spelling made agents ASK the operator for a value they
+      // already held under the name every workflow surface uses.
+      streamId: z.string().min(1).optional(),
+      featureId: z.string().min(1).optional(),
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_TEAMMATE,
     autoEmits: [
       { event: 'task.claimed', condition: 'always' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.task_claim'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -1684,14 +1856,20 @@ const orchestrateActions: readonly ToolAction[] = [
         output: z.string(),
         passed: z.boolean(),
       }).optional(),
-      streamId: z.string().min(1),
+      // DR-6: `streamId` IS the bare featureId. Both spellings are accepted
+      // and exactly one is required (`resolveStreamIdentity` in
+      // `tasks/tools.ts` is the single resolver). Requiring only the
+      // internal spelling made agents ASK the operator for a value they
+      // already held under the name every workflow surface uses.
+      streamId: z.string().min(1).optional(),
+      featureId: z.string().min(1).optional(),
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_TEAMMATE,
     autoEmits: [
       { event: 'task.completed', condition: 'always' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.task_complete'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -1701,14 +1879,20 @@ const orchestrateActions: readonly ToolAction[] = [
       taskId: z.string().min(1),
       error: z.string().min(1),
       diagnostics: coercedRecord().optional(),
-      streamId: z.string().min(1),
+      // DR-6: `streamId` IS the bare featureId. Both spellings are accepted
+      // and exactly one is required (`resolveStreamIdentity` in
+      // `tasks/tools.ts` is the single resolver). Requiring only the
+      // internal spelling made agents ASK the operator for a value they
+      // already held under the name every workflow surface uses.
+      streamId: z.string().min(1).optional(),
+      featureId: z.string().min(1).optional(),
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_TEAMMATE,
     autoEmits: [
       { event: 'task.failed', condition: 'always' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.task_fail'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -1728,7 +1912,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.review_triage'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -1780,7 +1964,7 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'quality.hint.generated', condition: 'conditional', description: 'When hints exist' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.prepare_delegation'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -1798,7 +1982,7 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.prepare_synthesis'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -1826,7 +2010,7 @@ const orchestrateActions: readonly ToolAction[] = [
       { event: 'shepherd.completed', condition: 'conditional', description: 'When PR merged' },
       { event: 'gate.executed', condition: 'always' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.assess_stack'),
     // sentry LOW on PR #1369: `assess_stack` reads GitHub PR state but
     // also emits 3 shepherd lifecycle events + gate.executed on every
     // call. `readOnly: true` would mislead clients that gate on the
@@ -1867,7 +2051,7 @@ const orchestrateActions: readonly ToolAction[] = [
       { event: 'admission.evidence-recorded', condition: 'always' },
       { event: 'gate.executed', condition: 'always' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.check_static_analysis'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -1903,7 +2087,7 @@ const orchestrateActions: readonly ToolAction[] = [
       { event: 'admission.evidence-recorded', condition: 'always' },
       { event: 'gate.executed', condition: 'always' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.check_integration_suite'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -1919,7 +2103,7 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.check_security_scan'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -1936,7 +2120,7 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.check_context_economy'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -1953,7 +2137,7 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.check_operational_resilience'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -1970,7 +2154,7 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.check_workflow_determinism'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -2008,7 +2192,7 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.check_review_verdict'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -2024,7 +2208,7 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.check_convergence'),
     // sentry HIGH on PR #1369: although `check_convergence` reads
     // existing gate state, the handler `emitGateEvent`s on every call,
     // so the action is not readOnly — annotating it as such would let
@@ -2047,7 +2231,7 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.check_provenance_chain'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -2074,7 +2258,7 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.check_design_completeness'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -2091,7 +2275,7 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.check_plan_coverage'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -2127,7 +2311,7 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.check_exploration_depth'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -2176,7 +2360,7 @@ const orchestrateActions: readonly ToolAction[] = [
       { event: 'admission.evidence-recorded', condition: 'always' },
       { event: 'gate.executed', condition: 'always' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.check_test_adequacy'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -2218,7 +2402,7 @@ const orchestrateActions: readonly ToolAction[] = [
       { event: 'admission.evidence-recorded', condition: 'always' },
       { event: 'gate.executed', condition: 'always' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.check_contract_drift'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -2267,7 +2451,7 @@ const orchestrateActions: readonly ToolAction[] = [
       { event: 'admission.evidence-recorded', condition: 'always' },
       { event: 'gate.executed', condition: 'always' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.check_mock_boundary'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -2326,7 +2510,7 @@ const orchestrateActions: readonly ToolAction[] = [
       { event: 'mutation.executed', condition: 'always' },
       { event: 'gate.executed', condition: 'always' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.mutation-adequacy'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -2343,7 +2527,7 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.check_post_merge'),
     annotations: LOCAL_MUTATION,
   },
   // ─── Merge Orchestrator (DR-MO-1) ─────────────────────────────────────────
@@ -2391,12 +2575,26 @@ const orchestrateActions: readonly ToolAction[] = [
     // dispatch. Advisory — the binding opt-in gate stays at
     // `core/dispatch.ts:927-954`.
     dispatch: { taskSuitable: true, taskTtlSuggestionMs: 60_000 },
+    // DR-5 (task 076): `merge-orchestrate` is promoted to a top-level verb from
+    // HERE, the registry declaration — not by a hand-written
+    // `.command('merge-orchestrate')` in the composition root. Task 023 found
+    // that duplicate declaration while seeding G1's allowlist: the verb was
+    // declared twice (registry action + composition root), which is the
+    // multiply-owned-representation defect DR-5 exists to eliminate, and the
+    // guard's kill fixture refuses to exempt it. The DR-7 hoist loop reads this
+    // hint and routes the top-level command through `registerActionCommand` —
+    // the same schema, handler and exit-code ladder as the `orch
+    // merge-orchestrate` subcommand form. The operator-visible surface is
+    // UNCHANGED (`exarchos merge-orchestrate …` still works), so no rename stub
+    // or deprecation window is spent: this is a change of WHERE the name is
+    // declared, not WHETHER the verb exists.
+    cli: { topLevel: 'merge-orchestrate' },
     // #1305 T13: merge_orchestrate mutates shared state (the integration
     // branch, the working tree, the event store) from the main worktree with
     // no worktree isolation — the strictest mutating trust tier. The resolver
     // mints fs:write + shell:exec from this posture.
     posture: 'shared-mutating',
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.merge_orchestrate'),
     annotations: COMPENSABLE_REMOTE,
   },
   {
@@ -2412,7 +2610,7 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.check_task_decomposition'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -2427,7 +2625,7 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.check_event_emissions'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -2439,7 +2637,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.extract_task'),
     annotations: READ_ONLY_LOCAL,
   },
   {
@@ -2451,7 +2649,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.review_diff'),
     annotations: READ_ONLY_LOCAL,
   },
   {
@@ -2462,7 +2660,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_ANY,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.verify_worktree'),
     annotations: READ_ONLY_LOCAL,
   },
   {
@@ -2478,7 +2676,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: new Set<string>(['investigate']),
     roles: ROLE_LEAD,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.select_debug_track'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -2495,7 +2693,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: new Set<string>(['investigate']),
     roles: ROLE_LEAD,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.investigation_timer'),
     annotations: READ_ONLY_LOCAL,
   },
   {
@@ -2510,7 +2708,7 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
     gate: { blocking: false, dimension: 'D3' },
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.check_coverage_thresholds'),
     annotations: READ_ONLY_LOCAL,
   },
   {
@@ -2526,7 +2724,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: new Set<string>(['explore', 'brief']),
     roles: ROLE_LEAD,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.assess_refactor_scope'),
     annotations: READ_ONLY_LOCAL,
   },
   {
@@ -2538,7 +2736,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: SYNTHESIS_REVIEW_PHASES,
     roles: ROLE_LEAD,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.check_pr_comments'),
     annotations: READ_ONLY_REMOTE,
   },
   {
@@ -2555,7 +2753,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: SYNTHESIS_REVIEW_PHASES,
     roles: ROLE_LEAD,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.validate_pr_body'),
     annotations: READ_ONLY_LOCAL,
   },
   {
@@ -2567,7 +2765,7 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: new Set<string>(['synthesize']),
     roles: ROLE_LEAD,
     gate: { blocking: true },
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.validate_pr_stack'),
     annotations: READ_ONLY_LOCAL,
   },
   {
@@ -2581,7 +2779,7 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: new Set<string>(['debug-review']),
     roles: ROLE_LEAD,
     gate: { blocking: true },
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.debug_review_gate'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -2599,7 +2797,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.extract_fix_tasks'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -2614,7 +2812,7 @@ const orchestrateActions: readonly ToolAction[] = [
     // at runtime (#1161 / Sentry bug prediction).
     phases: SYNTHESIS_REVIEW_PHASES,
     roles: ROLE_LEAD,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.classify_review_items'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -2627,7 +2825,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: PLAN_PHASES,
     roles: ROLE_LEAD,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.generate_traceability'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -2637,11 +2835,26 @@ const orchestrateActions: readonly ToolAction[] = [
       planFile: z.string().min(1),
       repoRoot: z.string().min(1),
       skipRun: z.boolean().optional(),
+      // WFQ-010. Declared here or the parameter cannot reach the handler at all:
+      // dispatch forwards only schema-parsed args and Zod strips unknown keys, so
+      // an undeclared field left `runPlanSyntaxCheck` unreachable and applied
+      // post-implementation semantics in the plan phases this action is bound to.
+      // The handler's default stays `post-implementation` for back-compat; plan-time
+      // callers pass `coveragePhase: 'plan'` so a declared-but-uncreated test file
+      // reads as a forward declaration rather than a failure.
+      //
+      // NOT named `phase`: `buildRegistrationSchema` flattens field names across
+      // every action, and `check_test_adequacy` already declares a free-form
+      // `phase: z.string()` legacy workflow-phase carrier. Two different meanings
+      // under one name is a hard collision (base types differ, string vs enum) that
+      // throws at server construction — and widening this one to `string` to match
+      // would trade a schema-level constraint for a prose one, which INV-5a forbids.
+      coveragePhase: z.enum(['plan', 'post-implementation']).optional(),
     }),
     phases: PLAN_PHASES,
     roles: ROLE_LEAD,
     gate: { blocking: false, dimension: 'D1' },
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.spec_coverage_check'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -2652,7 +2865,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_ANY,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.verify_worktree_baseline'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -2673,7 +2886,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.setup_worktree'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -2685,7 +2898,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.verify_delegation_saga'),
     annotations: READ_ONLY_LOCAL,
   },
   {
@@ -2706,7 +2919,7 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.post_delegation_check'),
     annotations: COMPENSABLE_LOCAL,
   },
   {
@@ -2719,7 +2932,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.reconcile_state'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -2746,7 +2959,7 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.pre_synthesis_check'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -2761,7 +2974,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.check_coderabbit'),
     annotations: READ_ONLY_REMOTE,
   },
   {
@@ -2773,7 +2986,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.check_polish_scope'),
     annotations: READ_ONLY_LOCAL,
   },
   {
@@ -2786,7 +2999,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.needs_schema_sync'),
     annotations: READ_ONLY_LOCAL,
   },
   {
@@ -2798,7 +3011,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.verify_doc_links'),
     annotations: READ_ONLY_LOCAL,
   },
   {
@@ -2815,7 +3028,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.verify_review_triage'),
     annotations: READ_ONLY_LOCAL,
   },
   {
@@ -2845,7 +3058,17 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'gate.executed', condition: 'always' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    // DR-4 / task 069: PAID DOWN. This gate governs conformance to the catalog
+    // that contains the anti-vacuity invariant, and it used to advertise
+    // `EnvelopeSchema(z.unknown())` — total over every payload shape, including
+    // the wrong ones. `auditPrompt` is the one field the audit-mode path exists
+    // to deliver, so a consumer instructed to act on it needs the contract to
+    // guarantee its presence and its name; `auditInvariantIds` is its enumerable
+    // checklist. Both are declared REQUIRED, and
+    // `architecture/audit-delivery-closure.ts` reddens if either stops being so.
+    // Its allowlist entry MOVED to `VACUITY_RETIRED` — a shrink, which leaves the
+    // pinned seed digest unchanged.
+    outputSchema: withCappedShape(CheckInvariantConformanceOutputSchema),
     // The gate reads the catalog and computes a verdict, but `emitGateEvent`s
     // on every call — so it is NOT readOnly. Annotating it read-only would let
     // readonly-capability clients mutate the event store. LOCAL_MUTATION
@@ -2872,7 +3095,7 @@ const orchestrateActions: readonly ToolAction[] = [
     phases: PREPARE_REVIEW_PHASES,
     roles: ROLE_LEAD,
     gate: { blocking: false },
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.prepare_review'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -2895,7 +3118,7 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'state.patched', condition: 'conditional', description: 'On confirm:true — records the discover-bridge link, stitched by correlationId' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.discover_bridge'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -2940,7 +3163,7 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'workflow.pruned', condition: 'conditional', description: 'Per pruned workflow when dryRun is false' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.prune_stale_workflows'),
     annotations: COMPENSABLE_LOCAL,
   },
   {
@@ -2968,7 +3191,7 @@ const orchestrateActions: readonly ToolAction[] = [
     // dispatch. Advisory — the binding opt-in gate stays at
     // `core/dispatch.ts:927-954`.
     dispatch: { taskSuitable: true, taskTtlSuggestionMs: 60_000 },
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.request_synthesize'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -2979,7 +3202,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: new Set<string>(['implementing']),
     roles: ROLE_LEAD,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.finalize_oneshot'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -2993,7 +3216,7 @@ const orchestrateActions: readonly ToolAction[] = [
     roles: ROLE_ANY,
     // DR-1: verbose-by-design detail path — a resolved runbook with step schemas.
     economy: { budgetTokens: RUNBOOK_ECONOMY_BUDGET_TOKENS },
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.runbook'),
     annotations: READ_ONLY_LOCAL,
   },
   {
@@ -3002,7 +3225,7 @@ const orchestrateActions: readonly ToolAction[] = [
     schema: agentSpecSchemaForRegistry,
     phases: ALL_PHASES,
     roles: ROLE_ANY,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.agent_spec'),
     annotations: READ_ONLY_LOCAL,
   },
   {
@@ -3022,7 +3245,7 @@ const orchestrateActions: readonly ToolAction[] = [
       { event: 'onboard.requested', condition: 'conditional', description: 'Under --fix (shared reconciler intent)' },
       { event: 'onboard.executed', condition: 'conditional', description: 'Under --fix (shared reconciler result)' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.doctor'),
     // sentry HIGH on PR #1369: `doctor` emits `diagnostic.executed` on
     // every invocation (see `autoEmits` above and
     // `orchestrate/doctor/index.ts:204`). The advisory annotation must
@@ -3052,7 +3275,7 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'pr.created', condition: 'always' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.create_pr'),
     annotations: COMPENSABLE_REMOTE,
   },
   {
@@ -3067,7 +3290,7 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'pr.merged', condition: 'conditional', description: 'When merge succeeds' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.merge_pr'),
     annotations: COMPENSABLE_REMOTE,
   },
   {
@@ -3078,7 +3301,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.check_ci'),
     annotations: READ_ONLY_REMOTE,
   },
   {
@@ -3091,7 +3314,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.list_prs'),
     annotations: READ_ONLY_REMOTE,
   },
   {
@@ -3109,7 +3332,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.get_pr_comments'),
     annotations: READ_ONLY_REMOTE,
   },
   {
@@ -3125,7 +3348,7 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'pr.commented', condition: 'always' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.add_pr_comment'),
     annotations: COMPENSABLE_REMOTE,
   },
   {
@@ -3141,7 +3364,7 @@ const orchestrateActions: readonly ToolAction[] = [
     autoEmits: [
       { event: 'issue.created', condition: 'always' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.create_issue'),
     annotations: COMPENSABLE_REMOTE,
   },
   // ─── Onboard Action (DR-2/DR-5, task 011) ─────────────────────────────────
@@ -3188,7 +3411,7 @@ const orchestrateActions: readonly ToolAction[] = [
       { event: 'onboard.requested', condition: 'always' },
       { event: 'onboard.executed', condition: 'conditional', description: 'On a non-dry-run that applies the plan' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.onboard'),
     annotations: LOCAL_MUTATION,
   },
   // ─── Init Action ──────────────────────────────────────────────────────────
@@ -3220,7 +3443,7 @@ const orchestrateActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.invariants_scaffold'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -3259,7 +3482,52 @@ const orchestrateActions: readonly ToolAction[] = [
       { event: 'invariant.authored', condition: 'conditional', description: 'On commit (dryRun:false)' },
       { event: 'catalog.registered', condition: 'conditional', description: 'On first registration of the target catalog' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.invariants_add'),
+    annotations: LOCAL_MUTATION,
+  },
+  {
+    // Task 068 / DR-23: the catalog had no sanctioned amend path. `invariants_add`
+    // is append-only and the `/exarchos:invariants` skill forbids hand-writing
+    // catalog YAML, so entries were effectively IMMUTABLE once committed —
+    // every correction to a shipped invariant was unreachable.
+    //
+    // This verb is id-targeted and field-scoped: `id` names an existing entry
+    // (identity is NOT patchable), `patch` names the top-level fields to
+    // replace, and every field the patch omits survives verbatim. Amending is
+    // not re-scaffolding. `dryRun` defaults true (INV-5c); a commit emits
+    // `invariant.amended`. INV-5d: ACTION, not a fifth visible tool.
+    //
+    // Field-name contract (`buildRegistrationSchema`): `id` / `catalog` /
+    // `tier` / `dryRun` / `repoRoot` / `allowReservedTier` reuse the exact base
+    // types `invariants_add` already declares. The patch field is named `patch`
+    // rather than the more obvious `fields` BECAUSE `fields` is already
+    // declared on this tool as `coercedStringArray()` (an array) — a record
+    // there would be a base-type collision and would throw at registration.
+    name: 'invariants_amend',
+    description:
+      "Amend one EXISTING invariant entry in a registered catalog, in place. `id` names the entry to correct and is not itself patchable; `patch` names the top-level fields to replace, and any field the patch omits is carried through unchanged. The merged entry is re-validated against the full v3 schema (including the sandbox-safe .strict() enforcement DSL). Defaults to dryRun:true — returns the amended YAML entry + a before/after diff without writing; pass dryRun:false to commit (emits invariant.amended). Use this, NOT invariants_add, to correct a shipped invariant: invariants_add only appends, and re-using an existing id there is rejected. Do not hand-edit catalog YAML. After committing, run doctor and inspect the result via the invariants_effective view.",
+    schema: z.object({
+      id: z.string(),
+      patch: z.record(z.string(), z.unknown()),
+      catalog: z.string().optional(),
+      tier: z.enum(['dev', 'user']).optional(),
+      // INV-5c: dry-run default lives at the handler/dispatch boundary, not as
+      // a Zod `.default(true)` — see the note on `invariants_add.dryRun`.
+      dryRun: z.boolean().optional(),
+      repoRoot: z.string().optional(),
+      allowReservedTier: z.boolean().optional(),
+    }),
+    phases: ALL_PHASES,
+    roles: ROLE_ANY,
+    autoEmits: [
+      { event: 'invariant.amended', condition: 'conditional', description: 'On commit (dryRun:false)' },
+    ],
+    // DR-4: declared SUBSTANTIVELY via the sole substantive constructor. A new
+    // action has no seeded `vacuityWaiver` entry, and the waiver allowlist is
+    // shrink-only — acquiring one would be a ratchet violation, so the shape is
+    // stated instead. (`vacuityWaiver`'s `id` is typed as the literal union of
+    // seeded ids, so this is enforced at compile time, not by convention.)
+    outputSchema: withCappedShape(AmendInvariantOutputSchema),
     annotations: LOCAL_MUTATION,
   },
   // ─── Worktree-lifecycle Actions (WLM foundation, task 008) ────────────────
@@ -3425,7 +3693,7 @@ const orchestrateActions: readonly ToolAction[] = [
     schema: z.object({}),
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.cutover_readiness'),
     annotations: READ_ONLY_LOCAL,
   },
   {
@@ -3443,15 +3711,15 @@ const orchestrateActions: readonly ToolAction[] = [
       { event: 'admission.rollout-decision', condition: 'always' },
       { event: 'admission.enforcement-enabled', condition: 'conditional', description: 'Only when every cutover-gate condition is satisfied' },
     ],
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_orchestrate.cutover_decide'),
     annotations: LOCAL_MUTATION,
   },
-  makeDescribeAction(),
+  makeDescribeAction('exarchos_orchestrate.describe'),
 ];
 
 // ─── Composite Tool: exarchos_view ──────────────────────────────────────────
 
-const viewActions: readonly ToolAction[] = [
+const viewActions: readonly BuiltinToolAction[] = [
   {
     name: 'pipeline',
     description: "Aggregated view of active workflows with stack positions, repo-scoped by default to the caller's repo (excludes completed/cancelled unless includeCompleted=true). Returns ≤ 10 compact entries; data.page carries {total, offset, limit, hasMore} and data.scope/data.unscopedTotal report the effective scope and the pre-scope count so hidden rows are perceivable. Pass scope='all' to span every repo, an explicit repoRoot to scope to another repo, or detail=true for the full per-task map.",
@@ -3482,7 +3750,7 @@ const viewActions: readonly ToolAction[] = [
       alias: 'ls',
       examples: ['exarchos vw ls'],
     },
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_view.pipeline'),
     annotations: READ_ONLY_LOCAL,
   },
   {
@@ -3505,7 +3773,7 @@ const viewActions: readonly ToolAction[] = [
       flags: { workflowId: { alias: 'w' }, limit: { alias: 'l' } },
       examples: ['exarchos vw tasks -w my-feature'],
     },
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_view.tasks'),
     annotations: READ_ONLY_LOCAL,
   },
   {
@@ -3536,7 +3804,7 @@ const viewActions: readonly ToolAction[] = [
         'exarchos vw workflow_status -w my-feature --as-of \'{"untilSequence":3}\'',
       ],
     },
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_view.workflow_status'),
     annotations: READ_ONLY_LOCAL,
   },
   {
@@ -3551,7 +3819,7 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: STACK_PHASES,
     roles: ROLE_ANY,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_view.stack_status'),
     annotations: READ_ONLY_LOCAL,
   },
   {
@@ -3566,7 +3834,7 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: STACK_PHASES,
     roles: ROLE_ANY,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_view.stack_place'),
     annotations: LOCAL_MUTATION,
   },
   {
@@ -3611,7 +3879,7 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_view.team_performance'),
     annotations: READ_ONLY_LOCAL,
   },
   {
@@ -3629,7 +3897,7 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_view.delegation_timeline'),
     annotations: READ_ONLY_LOCAL,
   },
   {
@@ -3650,7 +3918,7 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_view.code_quality'),
     annotations: READ_ONLY_LOCAL,
   },
   // Wave 5 (#1437) — Group B telemetry view actions. These actions were
@@ -3676,7 +3944,7 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_view.eval_results'),
     annotations: READ_ONLY_LOCAL,
   },
   {
@@ -3696,7 +3964,7 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_view.quality_correlation'),
     annotations: READ_ONLY_LOCAL,
   },
   {
@@ -3723,7 +3991,7 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_view.quality_attribution'),
     annotations: READ_ONLY_LOCAL,
   },
   {
@@ -3738,7 +4006,7 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_view.delegation_readiness'),
     annotations: READ_ONLY_LOCAL,
   },
   // T1 (#1446 residue) — three view actions dispatched through
@@ -3762,7 +4030,7 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_view.session_provenance'),
     annotations: READ_ONLY_LOCAL,
   },
   {
@@ -3779,7 +4047,7 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_view.provenance'),
     annotations: READ_ONLY_LOCAL,
   },
   {
@@ -3790,7 +4058,7 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_view.synthesis_readiness'),
     annotations: READ_ONLY_LOCAL,
   },
   {
@@ -3801,7 +4069,7 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_view.shepherd_status'),
     annotations: READ_ONLY_LOCAL,
   },
   {
@@ -3817,7 +4085,7 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_view.convergence'),
     annotations: READ_ONLY_LOCAL,
   },
   {
@@ -3830,7 +4098,7 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_view.gate_reliability'),
     annotations: READ_ONLY_LOCAL,
   },
   {
@@ -3842,7 +4110,7 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_view.quality_hints'),
     annotations: READ_ONLY_LOCAL,
   },
   // DR-7 (T-20) — effective invariant catalog export. Surfaces the merged +
@@ -3871,7 +4139,7 @@ const viewActions: readonly ToolAction[] = [
     }),
     phases: ALL_PHASES,
     roles: ROLE_ANY,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_view.invariants_effective'),
     annotations: READ_ONLY_LOCAL,
   },
   // ─── Worktree-lifecycle view (WLM foundation, task 008) ───────────────────
@@ -4086,26 +4354,32 @@ const viewActions: readonly ToolAction[] = [
     // openWorldHint: true — writes a file outside the managed store.
     annotations: LOCAL_MUTATION_OPEN_WORLD,
   },
-  makeDescribeAction(),
+  makeDescribeAction('exarchos_view.describe'),
 ];
 
 // ─── Composite Tool: exarchos_sync ──────────────────────────────────────────
 
-const syncActions: readonly ToolAction[] = [
+const syncActions: readonly BuiltinToolAction[] = [
   {
     name: 'now',
     description: 'Trigger immediate sync with remote',
     schema: z.object({}),
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
-    outputSchema: EnvelopeSchema(z.unknown()),
+    outputSchema: vacuityWaiver('exarchos_sync.now'),
     annotations: LOCAL_MUTATION_IDEMPOTENT,
   },
 ];
 
 // ─── Tool Registry ──────────────────────────────────────────────────────────
 
-export const TOOL_REGISTRY: readonly CompositeTool[] = [
+// DR-4 (task 060) — the type on THIS constant is the registry's door. Declared
+// `readonly BuiltinCompositeTool[]`, so every action reaching the registry must
+// carry a `DeclaredOutputSchema`: the out-of-registry escape does not typecheck
+// here, and neither does a `readonly ToolAction[]` array smuggled in beside the
+// five below. It stays assignable to `readonly CompositeTool[]`, so no consumer
+// changed.
+export const TOOL_REGISTRY: readonly BuiltinCompositeTool[] = [
   {
     name: 'exarchos_workflow',
     description: 'Workflow lifecycle management — init, read, update, cancel, cleanup, checkpoint, reconcile, and rehydrate workflows',

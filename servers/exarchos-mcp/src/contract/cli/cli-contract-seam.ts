@@ -272,7 +272,10 @@ export const PRESENTATION_ALIASES: readonly string[] = Object.freeze([
   'doctor',
   'feedback',
   'onboard',
-  'merge-orchestrate',
+  // `merge-orchestrate` was here until task 076 (DR-5). It is now a registry
+  // `cli.topLevel` promotion, so it IS derivable and declaring it here would be
+  // a STALE_PRESENTATION_ALIAS — this list is only for promotions the registry
+  // cannot express. The stale-rule ratchet is what forced the removal.
 ]);
 
 export type CliCensusDiagnostic =

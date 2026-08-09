@@ -17,8 +17,13 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import {
+  createV2Client,
+  createV2LinkedTransportPair,
+  connectV2Client,
+  connectV2Server,
+  type V2Client,
+} from '../../sdk/seam.js';
 import { createMcpServer } from '../../adapters/mcp.js';
 import { buildCli } from '../../adapters/cli.js';
 import { EventStore } from '../../event-store/store.js';
@@ -55,7 +60,7 @@ function maskNondeterministic(value: unknown): unknown {
 
 describe('F.3 — CLI ↔ MCP parity (Wave 0 §7)', () => {
   let tmpDir: string;
-  let client: Client;
+  let client: V2Client;
   let ctx: DispatchContext;
 
   beforeEach(async () => {
@@ -65,14 +70,14 @@ describe('F.3 — CLI ↔ MCP parity (Wave 0 §7)', () => {
     ctx = { stateDir: tmpDir, eventStore, enableTelemetry: false };
 
     const server = createMcpServer(ctx);
-    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-    client = new Client(
+    const [clientTransport, serverTransport] = createV2LinkedTransportPair();
+    client = createV2Client(
       { name: 'cli-parity-test', version: '1.0.0' },
       { capabilities: {} },
     );
     await Promise.all([
-      server.connect(serverTransport),
-      client.connect(clientTransport),
+      connectV2Server(server, serverTransport),
+      connectV2Client(client, clientTransport),
     ]);
   });
 

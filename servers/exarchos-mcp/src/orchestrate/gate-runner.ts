@@ -37,6 +37,7 @@ import {
   type GateProvider,
   type GateProviderRegistry,
 } from './gate-provider-registry.js';
+import { resolveActivePhaseAttemptId } from './active-phase-attempt.js';
 import { resolveWorkflowState } from './resolve-state.js';
 import {
   attachGateEvidence,
@@ -530,8 +531,14 @@ export async function runPhaseGateWithEvidence(
   });
   if ('error' in resolved) return resolved.error;
 
+  // Backfills the pre-v2.12 attempt rather than hard-failing. A bare
+  // `resolved.state.phaseAttemptId` here answered EVIDENCE_SCOPE_UNAVAILABLE for
+  // every workflow that predates the stamp, wedging it out of all four migrated
+  // phase gates — `prepare_synthesis` among them, and that one blocks — while the
+  // sibling durable-gate adapter derived an attempt for the same state. One
+  // resolver now serves both so they cannot answer differently again.
   const parsedAttempt = PhaseAttemptIdSchema.safeParse(
-    resolved.state.phaseAttemptId,
+    resolveActivePhaseAttemptId(request.streamId, resolved.state),
   );
   if (!parsedAttempt.success) {
     return {

@@ -20,6 +20,32 @@ import {
   WaiverIdSchema,
   WaiverProvenanceV1Schema,
 } from '../workflow/admission/types.js';
+import { ANNOTATED_EVENTS } from './event-annotations.js';
+import { deriveEmissionRegistry } from './event-registration.js';
+import {
+  RemediationAttemptedDataSchema,
+  RemediationSucceededDataSchema,
+  ReviewCompletedData,
+  ReviewEscalatedData,
+  ReviewFindingData,
+  TestResultData,
+  TypecheckResultData,
+} from './judgment-content-schemas.js';
+
+// The DR-2 `judgment` content schemas moved to a leaf module so `event-annotations.ts` could stop
+// importing runtime values from THIS module — which is what lets this module import the
+// annotations below without closing a runtime cycle. Re-exported here so every existing
+// `from './schemas.js'` import resolves to the same objects. See
+// `judgment-content-schemas.ts` for the measurement behind the move.
+export {
+  RemediationAttemptedDataSchema,
+  RemediationSucceededDataSchema,
+  ReviewCompletedData,
+  ReviewEscalatedData,
+  ReviewFindingData,
+  TestResultData,
+  TypecheckResultData,
+};
 
 // ─── Event Type Discriminated Union ─────────────────────────────────────────
 
@@ -383,6 +409,12 @@ export const EventTypes = [
   // (by `invariants_add`). Both are server-deterministic (auto) — the handler
   // owns the write, the model is never nagged to hand-emit them.
   'invariant.authored',
+  // `invariant.amended` is appended by the `invariants_amend` composite handler
+  // on commit (task 068). Distinct from `invariant.authored` on purpose: an
+  // amendment is not an authoring, and an audit trail that recorded a
+  // correction as a fresh authoring would be a record that does not mean what
+  // it says. Carries the field names the patch replaced.
+  'invariant.amended',
   'catalog.registered',
   // verification-ladder slice 1 (task 020) — mutation-run liveness (INV-10).
   // `mutation.executing_started` lands at the start of a (non-dry-run) mutation
@@ -480,8 +512,21 @@ export type EventType = typeof EventTypes[number];
 const BUILT_IN_EVENT_TYPES = new Set<string>(EventTypes);
 const customEventTypes = new Set<string>();
 
-/** Name format: lowercase with hyphens, must contain at least one dot separator. */
-const EVENT_NAME_PATTERN = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$/;
+/**
+ * Name format: lowercase with hyphens, must contain at least one dot separator.
+ *
+ * EXPORTED FOR MEASUREMENT ONLY (DR-3, task 015) — its behaviour is unchanged, and
+ * {@link registerEventType} below is still its only consumer inside this module.
+ *
+ * `architecture/event-grammar-census.ts` reads this binding to measure how far it diverges from
+ * the DR-3 grammar over the LIVE catalog. It reads THIS regex rather than transcribing the
+ * character classes into the census, because a copy would be a third authority for the event-name
+ * vocabulary in a task whose whole purpose is to have one. Exporting it is what makes the pattern
+ * REACHABLE from the built-in corpus for the first time; the divergence that reachability exposes
+ * is recorded (owned, dated, shrink-only) by the census, deliberately NOT reconciled here — see
+ * the FINDING header in `event-store/event-name.ts`.
+ */
+export const EVENT_NAME_PATTERN = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$/;
 
 /**
  * Register a custom event type at runtime.
@@ -563,375 +608,39 @@ export function isBuiltInEventType(name: string): boolean {
 // `autoEmits` (the RegistryDrift test enforces `autoEmits ⊆ auto`).
 export type EventEmissionSource = 'auto' | 'model' | 'hook' | 'planned' | 'retired';
 
-export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> = {
-  // auto — emitted by MCP server handlers (deterministic)
-  'workflow.started': 'auto',
-  'workflow.transition': 'auto',
-  'workflow.fix-cycle': 'auto',
-  'workflow.plan-revision': 'auto',
-  // WLM-6 (DR-2) — emitted deterministically by the `prepare_review scope:plan`
-  // handler, never hand-written by the model.
-  'workflow.plan-review-dispatched': 'auto',
-  'workflow.guard-failed': 'auto',
-  'workflow.checkpoint': 'auto',
-  // #1242 — emitted by a summarizer subagent via event.append (agent-driven,
-  // not a deterministic server handler), hence 'model'.
-  'workflow.handoff_summarized': 'model',
-  'workflow.compound-entry': 'auto',
-  'workflow.compound-exit': 'auto',
-  'workflow.cancel': 'auto',
-  'workflow.cleanup': 'auto',
-  'workflow.compensation': 'auto',
-  'cancel.requested': 'auto',
-  'cancel.ownership-acquired': 'auto',
-  'cancel.compensation-requested': 'auto',
-  'cancel.compensation-completed': 'auto',
-  'cancel.compensation-failed': 'auto',
-  'cancel.compensation-retry-scheduled': 'auto',
-  'cancel.manual-intervention-required': 'auto',
-  'cancel.ready': 'auto',
-  'workflow.circuit-open': 'auto',
-  'workflow.cas-failed': 'auto',
-  'workflow.pruned': 'auto',
-  'workflow.checkpoint_requested': 'auto',
-  'workflow.checkpoint_written': 'auto',
-  'workflow.checkpoint_superseded': 'auto',
-  'workflow.rehydrated': 'auto',
-  'workflow.snapshot_taken': 'auto',
-  'workflow.projection_degraded': 'auto',
-  'synthesize.requested': 'auto',
-  'task.claimed': 'auto',
-  'task.completed': 'auto',
-  'task.failed': 'auto',
-  'gate.executed': 'auto',
-  'state.patched': 'auto',
-  'tool.invoked': 'auto',
-  'tool.completed': 'auto',
-  'tool.errored': 'auto',
-  // PR3/T7 (#1364) — see EventTypes registration above.
-  'tool.action_errored': 'auto',
-  // #1262 — auto-emitted by telemetry middleware on agent-turn boundary.
-  'turn.completed': 'auto',
-  // #1525 — hook-owned append (the SubagentStop handler emits it), like turn.completed.
-  'subagent.tokens_used': 'auto',
-  'quality.hint.generated': 'auto',
-  'quality.refinement.suggested': 'auto',
-  'stack.position-filled': 'auto',
-  'stack.restacked': 'auto',
-  'stack.enqueued': 'auto',
-  'eval.judge.calibrated': 'auto',
-
-  // auto — RC2 (#1395): migrated from 'model'. The runtime emits these
-  // deterministically from a dispatch-core handler, so the model must no
-  // longer be nagged via _eventHints.missing to hand-maintain them (INV-1
-  // event-sourcing integrity, INV-12 trust boundary):
-  //   • review.routed       — review/tools.ts:60 (handleReviewTriage),
-  //                            idempotency key ${featureId}:review.routed:${pr}
-  //   • ci.status           — orchestrate/assess-stack.ts:313 (assess_stack),
-  //                            idempotency key …:ci.status:${pr}:iter-${n}
-  //   • quality.regression  — quality/regression-detector.ts:89, emitted from
-  //                            handleViewCodeQuality (views/tools.ts:724),
-  //                            deduped against existing regression events
-  'review.routed': 'auto',
-  'ci.status': 'auto',
-  'quality.regression': 'auto',
-
-  // auto — emitted by the dispatch-core interceptor on the first non-rehydrate
-  // handler invocation after a workflow.rehydrated event lands (T-12). Marks
-  // "the rehydrated agent has consumed the phase machinery and started doing
-  // real work" — useful for v2.12 lifecycle alignment (ps, wait --condition).
-  // Registration only; emission wired by T-12.
-  'session.machinery_consumed': 'auto',
-
-  // model — must be emitted explicitly by the model via exarchos_event.
-  //
-  // Category-C note (#1395): team.spawned / team.disbanded / shepherd.iteration
-  // are runtime-determined transitions that STAY model-emitted because their
-  // transition site is a model-walked runbook step bracketing a `native:`
-  // harness tool (runbooks/definitions.ts) — there is no in-process handler
-  // seam to move the append into yet. Auto-emitting them requires a
-  // runbook-executor seam (feature-shaped, deferred to v2.11 / #1258); until
-  // then the _eventHints.missing nag for them is intentional, not a defect.
-  'team.spawned': 'model',
-  'team.task.assigned': 'model',
-  'team.task.completed': 'model',
-  'team.task.failed': 'model',
-  'team.disbanded': 'model',
-  'team.task.planned': 'model',
-  'team.teammate.dispatched': 'model',
-  // review.completed / review.finding / review.escalated stay model: they are
-  // qualitative model outputs (verdict, finding text, escalation reason). The
-  // finding/escalation emitters exist but are dormant (no wired caller), so
-  // they are not demonstrably handler-emitted (#1395 audit, Category B).
-  'review.completed': 'model',
-  'review.finding': 'model',
-  'review.escalated': 'model',
-  'remediation.attempted': 'model',
-  'remediation.succeeded': 'model',
-  'session.tagged': 'model',
-  'worktree.created': 'model',
-  'worktree.baseline': 'model',
-  'test.result': 'model',
-  'typecheck.result': 'model',
-  'stack.submitted': 'model',
-  'comment.posted': 'model',
-  'comment.resolved': 'model',
-  'shepherd.iteration': 'model',
-  'task.assigned': 'model',
-  'task.progressed': 'model',
-
-  // auto — emitted by exarchos doctor composite
-  'diagnostic.executed': 'auto',
-
-  // auto — emitted by the exarchos onboard composite (DR-7, two-event split)
-  'onboard.requested': 'auto',
-  'onboard.executed': 'auto',
-
-  // hook — emitted by Claude Code hooks
-  'benchmark.completed': 'hook',
-
-  // auto — emitted by assess-stack orchestration
-  'shepherd.started': 'auto',
-  'shepherd.approval_requested': 'auto',
-  // auto — emitted by assess-stack on the bound-hit escalate path (DR-3, #1595):
-  // a structured terminal escalation (NOT a hang), surfaced via shepherd_status/ps.
-  'shepherd.escalated': 'auto',
-  'shepherd.completed': 'auto',
-
-  // auto — emitted by VCS orchestration handlers
-  'pr.created': 'auto',
-  'pr.merged': 'auto',
-  'pr.commented': 'auto',
-  'issue.created': 'auto',
-
-  // auto — emitted by checkpoint enforcement gate
-  'checkpoint.enforced': 'auto',
-  'checkpoint.state_missing': 'auto',
-  'preflight.executed': 'auto',
-  'preflight.blocked': 'auto',
-
-  // auto — emitted by assess_stack when a review provider adapter
-  // encounters an unrecognised severity tier (#1159).
-  'provider.unknown-tier': 'auto',
-
-  // auto — emitted by assess_stack when adapter.parse throws; the batch
-  // continues, but we record the failure so observability catches
-  // adapter regressions instead of them being silently swallowed (#1161).
-  'provider.parse-error': 'auto',
-
-  // auto — emitted by classify_review_items per invocation, capturing
-  // the per-group dispatch decisions for downstream observability (#1159).
-  'dispatch.classified': 'auto',
-
-  // planned — schema exists, not yet emitted in production
-  'eval.run.started': 'planned',
-  'eval.case.completed': 'planned',
-  'eval.run.completed': 'planned',
-
-  // auto — emitted by the merge_orchestrate composite action (DR-MO-1).
-  // Preflight failures DO NOT route through merge.rollback — they surface
-  // as `phase: 'aborted'` with `abortReason: 'preflight-failed'`.
-  'merge.preflight': 'auto',
-  // model — emitted by Wave 4's `decide` closure as the durable intent before
-  // the non-idempotent GitHub merge call (audit §F1.2 two-event split). Lives
-  // in the model-emitted family because the closure that produces it is part
-  // of the workflow-author's command logic, not server-deterministic plumbing.
-  'merge.requested': 'model',
-  'merge.executed': 'auto',
-  // DR-2 (task 006) — the `merge.rollback` WRITE path is RETIRED. The recovery
-  // path in `orchestrate/execute-merge.ts` now emits ONLY the canonical
-  // `merge.recovered`. `merge.rollback` stays read-tolerant (its data schema +
-  // type-map entry below are KEPT so legacy logs replay identically, INV-1) but
-  // is NON-EMITTABLE — hence `retired`, not `auto`.
-  'merge.rollback': 'retired',
-  // #1306 successor — the sole emitted recovery terminal after DR-2.
-  'merge.recovered': 'auto',
-  // #1308 — emitted by the merge executor's retry loop (server-deterministic
-  // plumbing), so it lives in the auto family alongside the other merge events.
-  'merge.retry_attempt': 'auto',
-  // auto — emitted by `handleExecuteMerge` immediately after `merge.executed`
-  // succeeds, as the projection's terminal lifecycle marker (#1304 / INV-10).
-  'merge.completed': 'auto',
-  // #1309 — emitted by `handleExecuteMerge` (server-deterministic plumbing)
-  // before the first vcsMerge, so it lives in the auto family alongside the
-  // other merge-executor events.
-  'merge.executing_started': 'auto',
-
-  // auto — emitted by the test/typecheck/install runtime resolver (#1199 T15).
-  // Audit-only: records where each command resolution came from so downstream
-  // graceful-skip semantics can distinguish a configured null from an
-  // unresolved command for which we should bail with remediation guidance.
-  'command.resolved': 'auto',
-
-  // auto — emitted by the HSM API single-path migration (#1259 T02 / DR-4).
-  // Each invocation of a deprecated action (e.g., `workflow.set({phase})`)
-  // emits this event so the migration window can be measured before the
-  // legacy path is removed.
-  'hsm.deprecated_action_invoked': 'auto',
-
-  // auto — emitted during spec validation when a spec uses the legacy
-  // `capabilities[]` array shape (#1259 T03 / DR-6). Drives the
-  // capability-posture migration telemetry.
-  'spec.legacy_capabilities_array': 'auto',
-
-  // auto — emitted once at lifecycle start per phase that lacks a typed
-  // contract (#1259 T03 / DR-7). Drives the phase-contract migration
-  // telemetry.
-  'phase.contract_missing': 'auto',
-
-  // auto — emitted by the wave-dispatch boundary (DR-7, epic #1546) when the
-  // IMPLEMENT-kind gate-set resolver throws; the dispatch fails closed.
-  'phase.blocked': 'auto',
-
-  // auto — appended by the executeTransition boundary (DR-13, epic #1546) as
-  // resolve-then-freeze: `phase.entered` freezes the resolved obligation,
-  // `phase.exited` records the aggregate gate status on advance.
-  'phase.entered': 'auto',
-  'phase.exited': 'auto',
-
-  // auto — emitted by the JSONL→SQLite migration importer (#1259 T04 / DR-9).
-  // Per-file completion event during the import; the `migration.completed`
-  // aggregate event closes the run; `migration.failed` records a failure
-  // with partial-progress counters for resume/retry.
-  'migration.legacy_jsonl_imported': 'auto',
-  'migration.completed': 'auto',
-  'migration.failed': 'auto',
-  'migration.workflow_type_unknown': 'auto',
-  'migration.correlation_backfill_progress': 'auto',
-
-  // Wave B (#1342) two-event split — VCS side-effect handlers.
-  // *.requested is emitted by the handler BEFORE invoking the side effect
-  // (auto, deterministic plumbing). *.executed is emitted AFTER success.
-  'pr.create.requested': 'auto',
-  'pr.create.executed': 'auto',
-  'pr.comment.requested': 'auto',
-  'pr.comment.executed': 'auto',
-  'issue.create.requested': 'auto',
-  'issue.create.executed': 'auto',
-  'branch.delete.requested': 'auto',
-  'branch.delete.executed': 'auto',
-  'worktree.remove.requested': 'auto',
-  'worktree.remove.executed': 'auto',
-
-  // WLM foundation — worktree lifecycle events. Auto-emitted by the worktree
-  // lifecycle manager as deterministic plumbing (adopt/reserve/release/heal on
-  // the lease path). `worktree.orphan_detected` is registered + folded now (so
-  // WLM-3's on-demand probe emits it without a schema migration), but its
-  // EMITTER is deferred to WLM-3 (DR-4/5 on-demand ground-truth probe) — the
-  // foundation GC reclaims orphans structurally via the prune ladder instead.
-  // See EventTypes above and docs/specs/2026-06-25-wlm-foundation.md (DR-6).
-  'worktree.adopted': 'auto',
-  'worktree.reserved': 'auto',
-  'worktree.released': 'auto',
-  'worktree.orphan_detected': 'auto',
-
-  // WLM operational-core (DR-4 / DR-7) — serialized-merge lease pair. Both are
-  // `auto`: the CLAIM is appended deterministically by the merge orchestrator
-  // via the event-store `decide` seam, and the RELEASE is a deterministic
-  // keyed append on the terminal outcome — neither is model-authored.
-  'worktree.merge_requested': 'auto',
-  'worktree.merge_executed': 'auto',
-
-  // harness-launcher (DR-2) — top-level worktree create pair + child liveness
-  // pair. All four are `auto` deterministic plumbing: the create intent/terminal
-  // are appended around the launcher's `git worktree add`, and the liveness pair
-  // is emitted around the spawned child process — none is model-authored.
-  'worktree.create.requested': 'auto',
-  'worktree.create.executed': 'auto',
-  'launch.executing_started': 'auto',
-  'launch.executed': 'auto',
-
-  // #1290 — auto-emitted by the workspace discovery resolver on the
-  // dispatch boundary. See EventTypes registration above.
-  'workspace.resolved': 'auto',
-  // #1274 — dispatch elicitation hand-off. Auto-emitted by the dispatch
-  // boundary on the per-operation pseudo-stream.
-  'elicitation.requested': 'auto',
-  'elicitation.fulfilled': 'auto',
-  'elicitation.declined': 'auto',
-
-  // #1272 — EventSourcedTaskStore lifecycle. Auto-emitted by the store
-  // on each protocol-level operation (createTask/getTask/getTaskResult/
-  // cancelTask). See EventTypes registration above.
-  'task.created': 'auto',
-  'task.polled': 'auto',
-  'task.result': 'auto',
-  'task.cancelled': 'auto',
-  // #1261 — dispatch-guard preflight observability. Auto-emitted by
-  // `orchestrate/dispatch-guard.ts` once per dispatch (preflight
-  // outcome) and on demand when shared-stash collision is observed
-  // in the worktree under dispatch.
-  'dispatch.preflight': 'auto',
-  'stash.detected': 'auto',
-
-  // auto — emitted by the invariant-authoring composite handlers
-  // (invariants-catalog-wizard, P2). `invariant.authored` lands on commit
-  // (`invariants_add` dryRun:false); `catalog.registered` lands on the first
-  // registration of a catalog file in `.exarchos.yml`. Server-deterministic:
-  // the handler owns the append, so they are never model-emitted hints.
-  'invariant.authored': 'auto',
-  'catalog.registered': 'auto',
-
-  // auto — emitted by the `mutation-adequacy` gate handler
-  // (`orchestrate/mutation-adequacy.ts`) on the execution path (verification-
-  // ladder slice 1, task 020). The handler owns both appends (started at entry,
-  // executed at exit), so the model is never asked to hand-emit the liveness
-  // pair.
-  'mutation.executing_started': 'auto',
-  'mutation.executed': 'auto',
-  // #1319 — the `exarchos_workflow.feedback` handler owns the write
-  // deterministically when the action is invoked, so the model is never
-  // separately nagged to hand-emit it. ('auto', not 'model'.)
-  'feedback.recorded': 'auto',
-
-  // WLM slice 3 (DR-3) — prune-run liveness pair. Both `auto`: the
-  // WorktreeManager owns both appends deterministically around the prune pass,
-  // so the model is never asked to hand-emit them.
-  'prune.executing_started': 'auto',
-  'prune.executed': 'auto',
-
-  // DR-4 (wiring-closure T-06) — durable projection-health state. Both `auto`:
-  // `publishProjectionFreshness` (projections/freshness.ts) owns both appends
-  // deterministically off a real cursor/tail comparison, so the model is never
-  // asked to hand-emit them.
-  'projection.degraded': 'auto',
-  'projection.recovered': 'auto',
-
-  // DR-6 (lifecycle-verbs, task 012) — the two-event `export` contract. Both
-  // `auto`: the `export` composite handler owns both appends deterministically
-  // (task 013 — `export.requested` before the zip write, `export.executed`
-  // after), so the model is never nagged to hand-emit them.
-  'export.requested': 'auto',
-  'export.executed': 'auto',
-
-  // Phase-gate v2.12 proof substrate. Evidence is now written by the canonical
-  // audit/shadow runner; the remaining records stay reserved for later slices.
-  // Nothing in this registration makes these model-emittable or changes
-  // transition admission.
-  'admission.requirement-resolved': 'planned',
-  // Canonical gate producers append this automatically in v2.12 audit/shadow
-  // mode; callers never model-emit proof records.
-  'admission.evidence-recorded': 'auto',
-  'admission.transition-decided': 'planned',
-  'admission.waiver-recorded': 'planned',
-  'admission.contradiction-recorded': 'planned',
-  'admission.reassessment-requested': 'planned',
-  'admission.reassessment-completed': 'planned',
-  // DR-23 / T-31: the live shadow observer appends both automatically on every
-  // guarded transition (`workflow/admission/live-shadow-observer.ts`); callers
-  // never model-emit shadow evidence.
-  'admission.shadow-attempt': 'auto',
-  'admission.disagreement-disposition': 'auto',
-  // Cutover promotion path (#1739): the `cutover_decide` typed handler
-  // (`orchestrate/cutover-readiness.ts`) owns both appends deterministically —
-  // the rollout decision is always recorded; the enablement fact is appended
-  // ONLY behind a satisfied gate (the module refuses to build it otherwise).
-  'admission.rollout-decision': 'auto',
-  'admission.enforcement-enabled': 'auto',
-  // #1739: the observer's durable-append success hook owns this append
-  // deterministically (first-time readiness export); never model-emitted.
-  'admission.cutover-ready': 'auto',
-};
+/**
+ * The emission source every registered event type carries.
+ *
+ * **DERIVED, never independently authored (DR-2, task 011).** Until this task this binding was a
+ * 370-line object literal of 170 hand-written string literals — a SECOND authority for a fact the DR-2 coupling
+ * annotation already fixes, and the reason `benchmark.completed` could sit in the catalog
+ * declaring `'hook'` while its measured coupling derived `'auto'`. Authoring a source that
+ * disagrees with the tier is no longer detected-and-reported: there is no per-event source to
+ * author, so the disagreement has no form to take. That is the same move DR-2 makes for
+ * report-coupling ("there is no variant to construct"), applied to the emission axis.
+ *
+ * The two axes and the total tier -> source map are `event-registration.ts`
+ * (`EMISSION_SOURCE_BY_TIER`, `resolveEmissionSource`); the per-event coupling claims, with the
+ * emission-site and consumer-fold evidence behind each one, are `event-annotations.ts`. The
+ * per-entry prose that used to live here documented the value this expression now computes; it
+ * is preserved in git history at the task-011 commit and superseded by the annotation table,
+ * which records WHY each event is welded where it is rather than only what it emits.
+ *
+ * **Totality is now by construction, which is strictly stronger than the literal it replaces.**
+ * The old table was total over `EventType` because `tsc` required a key for every member of the
+ * union — a hand-written list that happened to be complete. The registry is now BUILT FROM
+ * `EventTypes` itself, so its key set cannot differ from the catalog's. {@link
+ * deriveEmissionRegistry} additionally fails closed at load on an empty population (a moved or
+ * renamed catalog must not read as a clean empty registry) and on any registered type the
+ * annotations do not cover.
+ *
+ * Runtime-registered custom types are added by {@link registerEventType}, which is the only
+ * remaining surface on which a source is supplied rather than derived — deliberately, because
+ * `ExarchosConfig.events` lets a user declare `{ source: 'auto' | 'model' | 'hook' }` for an
+ * event this repo knows nothing about and therefore cannot tier.
+ */
+export const EVENT_EMISSION_REGISTRY: Record<EventType, EventEmissionSource> =
+  deriveEmissionRegistry(EventTypes, ANNOTATED_EVENTS.registrationOf);
 
 // ─── Base Event Schema ──────────────────────────────────────────────────────
 
@@ -1488,30 +1197,11 @@ export const ReviewRoutedData = z.object({
   semanticAugmented: z.boolean().describe('Whether semantic analysis augmented the routing'),
 });
 
-export const ReviewFindingData = z.object({
-  pr: z.number().int().describe('Pull request where finding was detected'),
-  source: z.enum(['coderabbit', 'self-hosted']).describe('Review tool that produced the finding'),
-  severity: z.enum(['critical', 'major', 'minor', 'suggestion']).describe('Finding severity level'),
-  filePath: z.string().describe('File path where the finding was detected'),
-  lineRange: z.tuple([z.number().int(), z.number().int()]).optional().describe('Start and end line numbers of the finding'),
-  message: z.string().describe('Description of the review finding'),
-  rule: z.string().optional().describe('Lint or analysis rule that triggered the finding'),
-});
-
-export const ReviewEscalatedData = z.object({
-  pr: z.number().int().describe('Pull request being escalated'),
-  reason: z.string().describe('Why the review was escalated'),
-  originalScore: z.number().min(0).max(1).describe('Risk score before escalation'),
-  triggeringFinding: z.string().describe('The finding that triggered escalation'),
-});
-
-export const ReviewCompletedData = z.object({
-  // 'review' is the single dimension; 'spec-review'/'quality-review' retained for historical events.
-  stage: z.enum(['review', 'spec-review', 'quality-review', 'security-review']).describe('Review stage that completed'),
-  verdict: z.enum(['pass', 'fail', 'blocked']).describe('Review verdict: pass, fail, or blocked'),
-  findingsCount: z.number().int().nonnegative().describe('Number of findings from the review'),
-  summary: z.string().describe('Human-readable summary of review results'),
-});
+// `ReviewFindingData`, `ReviewEscalatedData` and `ReviewCompletedData` are DR-2 `judgment`
+// content schemas and now live in `judgment-content-schemas.ts` (re-exported above, so
+// `import { ReviewFindingData } from './schemas.js'` is unchanged). See that module's header for
+// the measured reason: they were the last runtime values `event-annotations.ts` took from here,
+// and this module now imports the annotations to derive `EVENT_EMISSION_REGISTRY`.
 
 // ─── Telemetry Event Data ──────────────────────────────────────────────────
 
@@ -1803,6 +1493,23 @@ export const InvariantAuthoredDataSchema = z.object({
 });
 
 /**
+ * `invariant.amended` — emitted by `invariants_amend` on commit (task 068).
+ * Records which entry was corrected, in which catalog, and WHICH FIELDS the
+ * amendment replaced, so the audit trail can reconstruct not just that an
+ * entry changed but what part of it did (INV-1 event-sourcing integrity).
+ *
+ * Separate from `invariant.authored` deliberately: amending is not authoring,
+ * and folding the two would make the history unable to distinguish a new rule
+ * from a correction to an existing one.
+ */
+export const InvariantAmendedDataSchema = z.object({
+  id: z.string().min(1),
+  catalog: z.string().min(1),
+  tier: z.enum(['dev', 'user']),
+  /** Top-level entry fields the patch replaced. Never empty. */
+  fields: z.array(z.string().min(1)).min(1),
+});
+/**
  * `catalog.registered` — emitted on the first registration of a catalog file
  * in `.exarchos.yml` (by `invariants_add`). Records the registered path + tier.
  */
@@ -1856,22 +1563,9 @@ export const OnboardExecutedDataSchema = z.object({
 });
 
 // ─── Remediation Event Data ─────────────────────────────────────────────────
-
-export const RemediationAttemptedDataSchema = z.object({
-  taskId: z.string().min(1).describe('Task being remediated'),
-  skill: z.string().min(1).describe('Skill context for the remediation'),
-  gateName: z.string().min(1).describe('Gate that failed and triggered remediation'),
-  attemptNumber: z.number().int().min(1).describe('Sequential attempt number (1-based)'),
-  strategy: z.string().describe('Remediation strategy being applied'),
-});
-
-export const RemediationSucceededDataSchema = z.object({
-  taskId: z.string().min(1).describe('Task that was successfully remediated'),
-  skill: z.string().min(1).describe('Skill context for the remediation'),
-  gateName: z.string().min(1).describe('Gate that now passes after remediation'),
-  totalAttempts: z.number().int().min(1).describe('Total attempts before success'),
-  finalStrategy: z.string().describe('Strategy that ultimately succeeded'),
-});
+//
+// `RemediationAttemptedDataSchema` / `RemediationSucceededDataSchema` are DR-2 `judgment`
+// content schemas and live in `judgment-content-schemas.ts` (re-exported above).
 
 export const SessionTaggedData = z.object({
   tag: z.string().min(1).max(100).describe('Tag label for the session (e.g., feature name)'),
@@ -1933,19 +1627,8 @@ export const WorktreeBaselineData = z.object({
   output: z.string().optional().describe('Test runner output from the baseline run'),
 });
 
-export const TestResultData = z.object({
-  passed: z.boolean().describe('Whether the overall test suite passed'),
-  passCount: z.number().int().nonnegative().describe('Number of passing tests'),
-  failCount: z.number().int().nonnegative().describe('Number of failing tests'),
-  coveragePercent: z.number().min(0).max(100).optional().describe('Code coverage percentage (0-100)'),
-  output: z.string().optional().describe('Raw test runner output'),
-});
-
-export const TypecheckResultData = z.object({
-  passed: z.boolean().describe('Whether TypeScript compilation succeeded'),
-  errorCount: z.number().int().nonnegative().describe('Number of type errors found'),
-  errors: z.array(z.string()).optional().describe('Individual type error messages'),
-});
+// `TestResultData` / `TypecheckResultData` are DR-2 `judgment` content schemas and live in
+// `judgment-content-schemas.ts` (re-exported above).
 
 export const StackSubmittedData = z.object({
   branches: z.array(z.string()).describe('Branch names in the submitted stack'),
@@ -3852,6 +3535,7 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
 
   // Invariant authoring (invariants-catalog-wizard, P2)
   'invariant.authored': InvariantAuthoredDataSchema,
+  'invariant.amended': InvariantAmendedDataSchema,
   'catalog.registered': CatalogRegisteredDataSchema,
 
   // Mutation-run liveness (verification-ladder slice 1, task 020 / INV-10)
@@ -4072,6 +3756,7 @@ export type OnboardRequested = z.infer<typeof OnboardRequestedDataSchema>;
 export type OnboardExecuted = z.infer<typeof OnboardExecutedDataSchema>;
 // invariants-catalog-wizard (P2) — authoring lifecycle event payloads.
 export type InvariantAuthored = z.infer<typeof InvariantAuthoredDataSchema>;
+export type InvariantAmended = z.infer<typeof InvariantAmendedDataSchema>;
 export type CatalogRegistered = z.infer<typeof CatalogRegisteredDataSchema>;
 export type MergePreflight = z.infer<typeof MergePreflightData>;
 export type MergeRequested = z.infer<typeof MergeRequestedData>;
@@ -4233,6 +3918,7 @@ export type EventDataMap = {
   'onboard.executed': OnboardExecuted;
   // invariants-catalog-wizard (P2) — authoring lifecycle events.
   'invariant.authored': InvariantAuthored;
+  'invariant.amended': InvariantAmended;
   'catalog.registered': CatalogRegistered;
   'merge.preflight': MergePreflight;
   'merge.requested': MergeRequested;

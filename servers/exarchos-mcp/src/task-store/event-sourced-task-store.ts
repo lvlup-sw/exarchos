@@ -1,18 +1,40 @@
 /**
- * EventSourcedTaskStore — SDK `TaskStore` as an event-sourced projection (#1272).
+ * EventSourcedTaskStore — the owned `TaskStorePort` as an event-sourced
+ * projection (#1272).
  *
- * Implements the MCP SDK `TaskStore` interface
- * (`@modelcontextprotocol/sdk/experimental/tasks/interfaces`) by emitting
- * the four `task.*` lifecycle events
+ * Implements `./port.ts`'s {@link TaskStorePort} by emitting the four `task.*`
+ * lifecycle events
  * (`task.created`/`task.polled`/`task.result`/`task.cancelled`) to the
  * event store on every state-mutating call and reconstructing per-task
  * state by folding those events on read.
  *
- * ## Why
+ * ## Why the contract moved (DR-0, task 051)
+ *
+ * This class used to declare itself against the MCP SDK's experimental
+ * `TaskStore` interface. `@modelcontextprotocol/{core,server}@2.0.0`
+ * DELETED that interface — along with `CreateTaskOptions`, `isTerminal`,
+ * `ServerOptions.taskStore` and the whole server-side Tasks runtime — so
+ * the declaration had no v2 counterpart and the migration was blocked on
+ * it.
+ *
+ * The re-parenting is deliberately narrow: only the three DELETED symbols
+ * moved to `./port.ts`. The payload types (`Task`, `Request`, `Result`,
+ * `RequestId`) survive in both generations and are still imported from v1
+ * below — re-pointing those at the owned SDK seam is task 053's job, and
+ * doing it here would have coupled two migrations that fail for different
+ * reasons.
+ *
+ * Nothing about the *behaviour* changed, because nothing about the
+ * behaviour was ever the SDK's: the durability guarantee comes from
+ * `EventStore`, and what v1 supplied was a type plus a constructor option
+ * that wired the `tasks/*` wire methods. That wire half is v2's real
+ * casualty and is accounted for in `./attach.ts`, not here.
+ *
+ * ## Why event-sourced at all
  *
  * The SDK's `InMemoryTaskStore` is explicitly demo-only ("not suitable
  * for production use as all data is lost on restart"). Exarchos already
- * has a durable event store; making the TaskStore a projection over it
+ * has a durable event store; making the task store a projection over it
  * is the natural canonical wiring — INV-1 (event-sourcing integrity):
  * state derives from events, not the other way around. The REPLAY
  * acceptance test in `event-sourced-task-store.test.ts` is the
@@ -95,16 +117,13 @@
  */
 import { randomBytes } from 'node:crypto';
 import type {
-  Task,
-  RequestId,
-  Result,
-  Request,
-} from '@modelcontextprotocol/sdk/types.js';
-import type {
-  TaskStore,
-  CreateTaskOptions,
-} from '@modelcontextprotocol/sdk/experimental/tasks/interfaces.js';
-import { isTerminal } from '@modelcontextprotocol/sdk/experimental/tasks/interfaces.js';
+  V2Task as Task,
+  V2RequestId as RequestId,
+  V2Result as Result,
+  V2Request as Request,
+} from '../sdk/seam.js';
+import type { TaskStorePort, CreateTaskParams } from './port.js';
+import { isTaskTerminal } from './port.js';
 
 import { EventStore, SequenceConflictError } from '../event-store/store.js';
 import type { WorkflowEvent } from '../event-store/schemas.js';
@@ -288,7 +307,9 @@ export interface EventSourcedTaskStoreOptions {
   clock?: () => number;
 }
 
-export class EventSourcedTaskStore implements TaskStore {
+export class EventSourcedTaskStore
+  implements TaskStorePort<Task, Request, Result, RequestId>
+{
   private readonly store: EventStore;
 
   /**
@@ -326,10 +347,10 @@ export class EventSourcedTaskStore implements TaskStore {
     this.nowMs = options?.clock ?? Date.now.bind(Date);
   }
 
-  // ─── SDK TaskStore interface ────────────────────────────────────────────
+  // ─── Owned TaskStorePort surface ────────────────────────────────────────
 
   async createTask(
-    taskParams: CreateTaskOptions,
+    taskParams: CreateTaskParams,
     requestId: RequestId,
     request: Request,
     _sessionId?: string,
@@ -496,7 +517,7 @@ export class EventSourcedTaskStore implements TaskStore {
     // refolded projection (a concurrent winner's `task.result` /
     // `task.cancelled` becomes visible on the next attempt).
     return this.commitWithOcc(taskId, 'storeTaskResult', async (stored) => {
-      if (isTerminal(stored.task.status)) {
+      if (isTaskTerminal(stored.task.status)) {
         throw new Error(
           `Cannot store result for task ${taskId} in terminal status '${stored.task.status}'. Task results can only be stored once.`,
         );
@@ -590,7 +611,7 @@ export class EventSourcedTaskStore implements TaskStore {
     // see the inline note on `commitWithOcc` for why this asymmetry is
     // intentional (no durable event ⇒ no `expectedSequence` to enforce).
     return this.commitWithOcc(taskId, 'updateTaskStatus', async (stored) => {
-      if (isTerminal(stored.task.status)) {
+      if (isTaskTerminal(stored.task.status)) {
         throw new Error(
           `Cannot update task ${taskId} from terminal status '${stored.task.status}' to '${status}'. Terminal states (completed, failed, cancelled) cannot transition to other states.`,
         );
@@ -619,7 +640,7 @@ export class EventSourcedTaskStore implements TaskStore {
         };
         // See `storeTaskResult` for why this binds to the event ISO
         // timestamp rather than `Date.now()`.
-        if (isTerminal(status) && s.task.ttl !== null) {
+        if (isTaskTerminal(status) && s.task.ttl !== null) {
           s.expiresAt = Date.parse(now) + s.task.ttl;
         }
       };

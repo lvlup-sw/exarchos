@@ -75,7 +75,7 @@ describe('createMcpServer', () => {
   });
 
   it('MCPHandler_ThreadsResolverAuthoritativeCallerSnapshot', async () => {
-    const { McpServer } = await import('@modelcontextprotocol/sdk/server/mcp.js');
+    const { V2_MCP_SERVER_CLASS: McpServer } = await import('../sdk/seam.js');
     const {
       clearCustomTools,
       registerCustomTool,
@@ -510,7 +510,7 @@ describe('createMcpServer', () => {
   it('MCPHandler_DispatchResultMatchesPerActionSchema_PassesThrough', async () => {
     // Arrange — spy on registerTool to capture the per-tool handler so we
     // can invoke it directly without standing up an MCP transport.
-    const { McpServer } = await import('@modelcontextprotocol/sdk/server/mcp.js');
+    const { V2_MCP_SERVER_CLASS: McpServer } = await import('../sdk/seam.js');
     const spy = vi.spyOn(McpServer.prototype, 'registerTool');
     try {
       const { createMcpServer } = await import('./mcp.js');
@@ -587,7 +587,7 @@ describe('createMcpServer', () => {
         data: { wrongField: 'oops' },
       }));
 
-      const { McpServer } = await import('@modelcontextprotocol/sdk/server/mcp.js');
+      const { V2_MCP_SERVER_CLASS: McpServer } = await import('../sdk/seam.js');
       const spy = vi.spyOn(McpServer.prototype, 'registerTool');
       const { createMcpServer } = await import('./mcp.js');
       createMcpServer(ctx);
@@ -631,7 +631,7 @@ describe('createMcpServer', () => {
   // the typed envelope and revert to the legacy text-only carrier.
   it('MCPHandler_OutputShape_ContainsStructuredContent_NotTextOnly', async () => {
     // Arrange
-    const { McpServer } = await import('@modelcontextprotocol/sdk/server/mcp.js');
+    const { V2_MCP_SERVER_CLASS: McpServer } = await import('../sdk/seam.js');
     const spy = vi.spyOn(McpServer.prototype, 'registerTool');
     const { createMcpServer } = await import('./mcp.js');
     createMcpServer(ctx);
@@ -669,7 +669,7 @@ describe('createMcpServer', () => {
     // Arrange — spy on McpServer.prototype.registerTool to capture per-tool
     // options without intercepting actual registration (so server setup
     // remains exercised).
-    const { McpServer } = await import('@modelcontextprotocol/sdk/server/mcp.js');
+    const { V2_MCP_SERVER_CLASS: McpServer } = await import('../sdk/seam.js');
     const spy = vi.spyOn(McpServer.prototype, 'registerTool');
 
     // Act
@@ -732,7 +732,7 @@ describe('createMcpServer', () => {
   // surface safety affordances without scraping per-action telemetry.
   it('MCPServer_ToolsListAnnotations_AggregatesActionAnnotationsPerTool', async () => {
     // Arrange — capture every registerTool call's options.annotations.
-    const { McpServer } = await import('@modelcontextprotocol/sdk/server/mcp.js');
+    const { V2_MCP_SERVER_CLASS: McpServer } = await import('../sdk/seam.js');
     const spy = vi.spyOn(McpServer.prototype, 'registerTool');
     const { createMcpServer } = await import('./mcp.js');
     createMcpServer(ctx);
@@ -808,19 +808,33 @@ describe('createMcpServer', () => {
     // registered. Spy on the underlying Server's setNotificationHandler
     // call pattern via a Server.prototype intercept so a fresh
     // createMcpServer call surfaces the registration.
-    const { Server } = await import('@modelcontextprotocol/sdk/server/index.js');
+    const { V2_SERVER_CLASS: Server, V2_ROOTS_LIST_CHANGED_NOTIFICATION_METHOD } =
+      await import('../sdk/seam.js');
     const setNotifSpy = vi.spyOn(Server.prototype, 'setNotificationHandler');
     try {
       const { createMcpServer } = await import('./mcp.js');
       const resolver = createInMemoryResolver(['mcp:exarchos:readonly']);
       createMcpServer({ ...ctx, capabilityResolver: resolver });
-      // At least one setNotificationHandler call must reference the
-      // roots/list_changed schema — the registration anchor.
-      const calledWithRootsListChanged = setNotifSpy.mock.calls.some((call) => {
-        const schema = call[0] as { shape?: { method?: { value?: string } } };
-        return schema?.shape?.method?.value === 'notifications/roots/list_changed';
-      });
-      expect(calledWithRootsListChanged).toBe(true);
+      // At least one setNotificationHandler call must name the
+      // roots/list_changed METHOD — the registration anchor.
+      //
+      // The anchor moved with the SDK, not with this test's intent (task 049):
+      // v1 discriminated handlers by a Zod schema, so the assertion reached
+      // into `schema.shape.method.value`; v2 takes the method string directly.
+      // Reading the argument as a plain string is what the API now hands over,
+      // and it is also why the old form silently returned `false` rather than
+      // erroring — an optional-chained probe into a string finds no `.shape`
+      // and reports "not registered" for a handler that was registered fine.
+      const calledWithRootsListChanged = setNotifSpy.mock.calls.some(
+        (call) => call[0] === V2_ROOTS_LIST_CHANGED_NOTIFICATION_METHOD,
+      );
+      expect(
+        calledWithRootsListChanged,
+        'no setNotificationHandler call named ' +
+          `"${V2_ROOTS_LIST_CHANGED_NOTIFICATION_METHOD}" — the roots cache ` +
+          'will go stale silently, which is the #1423 regression this pins. ' +
+          `Calls seen: ${JSON.stringify(setNotifSpy.mock.calls.map((c) => c[0]))}`,
+      ).toBe(true);
     } finally {
       setNotifSpy.mockRestore();
     }

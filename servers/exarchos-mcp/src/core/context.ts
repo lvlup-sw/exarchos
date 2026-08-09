@@ -23,6 +23,7 @@ import { configureCutoverAutoExport } from '../workflow/admission/cutover-auto-e
 import { configureCleanupSnapshotStore } from '../workflow/cleanup.js';
 import { configureStateStoreBackend } from '../workflow/state-store.js';
 import { loadTopology } from '../topology/loader.js';
+import { assertRegistrationWeldsAtStartup } from '../event-store/registration-validate.js';
 
 // ─── Config Detection ──────────────────────────────────────────────────────
 
@@ -96,6 +97,17 @@ export async function initializeContext(
   stateDir: string,
   options?: InitializeContextOptions,
 ): Promise<DispatchContext> {
+  // ─── DR-2 (task 012) — boot-time weld resolution gate ─────────────────────
+  // A `capability` event registration naming an unresolvable `EffectProviderId`
+  // THROWS here, before an EventStore exists and before a single event can be
+  // appended. This is the FIRST statement on purpose: it is the shared boot of
+  // both facades (`index.ts` main() → initializeContext, for `exarchos mcp` and
+  // for every stateful CLI verb alike), so the failure cannot be facade-specific.
+  // Same posture as `contract/bindings/verify-bindings.ts::assertBindingsAtStartup`
+  // — a declaration whose reference does not resolve halts startup rather than
+  // surfacing at a caller's first tool invocation.
+  assertRegistrationWeldsAtStartup();
+
   const backend = options?.backend;
 
   // Configure the module-level storage backend for state operations

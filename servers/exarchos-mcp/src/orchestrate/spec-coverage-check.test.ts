@@ -413,7 +413,7 @@ describe('handleSpecCoverageCheck — plan-syntax phase (WFQ-010)', () => {
     const result = handleSpecCoverageCheck({
       planFile: '/repo/plan.md',
       repoRoot: '/repo',
-      phase: 'plan',
+      coveragePhase: 'plan',
     });
 
     expect(result.success).toBe(true);
@@ -449,7 +449,7 @@ describe('handleSpecCoverageCheck — plan-syntax phase (WFQ-010)', () => {
     handleSpecCoverageCheck({
       planFile: '/repo/plan.md',
       repoRoot: '/repo',
-      phase: 'plan',
+      coveragePhase: 'plan',
     });
 
     expect(probed).toContain('/repo/plan.md');
@@ -466,7 +466,7 @@ describe('handleSpecCoverageCheck — plan-syntax phase (WFQ-010)', () => {
     const result = handleSpecCoverageCheck({
       planFile: '/repo/plan.md',
       repoRoot: '/does/not/exist',
-      phase: 'plan',
+      coveragePhase: 'plan',
     });
 
     expect(result.success).toBe(true);
@@ -484,7 +484,7 @@ describe('handleSpecCoverageCheck — plan-syntax phase (WFQ-010)', () => {
     const result = handleSpecCoverageCheck({
       planFile: '/repo/plan.md',
       repoRoot: '/repo',
-      phase: 'plan',
+      coveragePhase: 'plan',
     });
 
     expect(result.success).toBe(true);
@@ -500,7 +500,7 @@ describe('handleSpecCoverageCheck — plan-syntax phase (WFQ-010)', () => {
     const result = handleSpecCoverageCheck({
       planFile: '/repo/plan.md',
       repoRoot: '/repo',
-      phase: 'plan',
+      coveragePhase: 'plan',
     });
 
     expect(result.success).toBe(true);
@@ -530,7 +530,7 @@ describe('handleSpecCoverageCheck — post-implementation phase (WFQ-010)', () =
     const result = handleSpecCoverageCheck({
       planFile: '/repo/plan.md',
       repoRoot: '/repo',
-      phase: 'post-implementation',
+      coveragePhase: 'post-implementation',
     });
 
     expect(result.success).toBe(true);
@@ -563,7 +563,7 @@ describe('handleSpecCoverageCheck — post-implementation phase (WFQ-010)', () =
     const result = handleSpecCoverageCheck({
       planFile: '/repo/plan.md',
       repoRoot: '/repo',
-      phase: 'post-implementation',
+      coveragePhase: 'post-implementation',
     });
 
     expect(result.success).toBe(true);
@@ -595,7 +595,7 @@ describe('handleSpecCoverageCheck — post-implementation phase (WFQ-010)', () =
     const result = handleSpecCoverageCheck({
       planFile: '/repo/plan.md',
       repoRoot: '/repo',
-      phase: 'post-implementation',
+      coveragePhase: 'post-implementation',
     });
 
     expect(result.success).toBe(true);

@@ -116,8 +116,11 @@ async function enumerateMcpRegisteredActions(): Promise<Map<string, Set<string>>
   await eventStore.initialize();
   const ctx: DispatchContext = { stateDir: tmpDir, eventStore, enableTelemetry: false };
 
-  const { McpServer } = await import('@modelcontextprotocol/sdk/server/mcp.js');
-  const spy = vi.spyOn(McpServer.prototype, 'registerTool');
+  // DR-26 (task 053): the SDK class is drawn through the owned seam. The spy
+  // needs the CONSTRUCTOR IDENTITY the production path calls through, which a
+  // factory cannot supply — see `V2_MCP_SERVER_CLASS`.
+  const { V2_MCP_SERVER_CLASS } = await import('./sdk/seam.js');
+  const spy = vi.spyOn(V2_MCP_SERVER_CLASS.prototype, 'registerTool');
   const out = new Map<string, Set<string>>();
   try {
     const { createMcpServer } = await import('./adapters/mcp.js');

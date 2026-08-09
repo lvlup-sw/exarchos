@@ -55,7 +55,8 @@
     "typecheck": "tsc --noEmit",
     "version:sync": "bash scripts/sync-versions.sh",
     "version:check": "bash scripts/sync-versions.sh --check",
-    "validate": "bash scripts/validate-plugin.sh && node scripts/check-prefix-fingerprint.mjs && node scripts/check-prose-lint.mjs && node scripts/check-event-store-composition-root.mjs && node scripts/check-query-upcast-choke-point.mjs && node scripts/check-no-state-json.mjs && node scripts/check-single-workflow-fold.mjs && node scripts/check-gate-runner-ownership.mjs",
+    "validate": "node scripts/run-validate.mjs",
+    "validate:list": "node scripts/run-validate.mjs --list",
     "docs:dev": "cd documentation && npm run docs:dev",
     "docs:build": "cd documentation && npm run docs:build",
     "docs:preview": "cd documentation && npm run docs:preview",
@@ -85,7 +86,8 @@
     "url": "https://github.com/lvlup-sw/exarchos/issues"
   },
   "devDependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/client": "2.0.0",
+    "@modelcontextprotocol/server": "2.0.0",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.0.0",
     "dependency-cruiser": "^17.4.3",

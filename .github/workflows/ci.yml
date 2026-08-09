@@ -833,6 +833,36 @@ jobs:
       - name: Enforcer-wiring gate self-test (DR-8, task 015)
         run: bash scripts/check-enforcer-wiring.test.sh
 
+      # Plugin-packaging gate (task 064, DR-24). Previously reachable ONLY as
+      # step 1 of the `npm run validate` && chain, which no workflow invokes
+      # (class-2 unreachable) — and it was itself RED, so the 8 gates after it
+      # never executed locally either. Measured 2026-08-07: 1 of 9 declared
+      # steps ran. Its expectations now live in
+      # `.claude-plugin/packaging-policy.json`, read at runtime, and the gate is
+      # zero-dependency node (the old bash+jq implementation is a thin wrapper),
+      # so it rides this unfiltered zero-dep prefix and fires on every PR.
+      - name: Plugin-packaging gate (DR-24, task 064)
+        run: bash scripts/validate-plugin.sh
+
+      # DR-10 re-assert for the gate above. Its `.test.ts` runs only in the
+      # path-filtered `test-root` job (which excludes `scripts/**`), so a
+      # scripts-only PR would skip the case that proves the gate can still fail.
+      # This `.test.sh` asserts the fail-closed + non-empty-denominator paths on
+      # THIS unfiltered host. See docs/guides/ci-gate-hosting.md.
+      - name: Plugin-packaging gate self-test (DR-10, task 064)
+        run: bash scripts/validate-plugin.test.sh
+
+      # The aggregating `npm run validate` runner (task 064, DR-24). Runs every
+      # step declared in scripts/validate-manifest.json instead of
+      # short-circuiting, so a red early gate can no longer render the later
+      # ones as skipped-as-passed. `--list` is the cheap reachability proof for
+      # THIS host: it fails when the manifest declares zero steps, which is the
+      # non-empty-denominator tooth. The steps themselves are each wired
+      # individually elsewhere in this job (and in the tsx tail), so running the
+      # whole chain here would only duplicate them.
+      - name: Validate manifest declares a non-empty step list (DR-24, task 064)
+        run: node scripts/run-validate.mjs --list
+
       - name: npm-ci-retry helper tests
         run: bash scripts/npm-ci-retry.test.sh
 
@@ -922,6 +952,36 @@ jobs:
       - name: Error-envelope lint self-test (#1706 DR-2)
         run: bash scripts/lint-envelopes.test.sh
 
+      # The RULE's own self-test, as distinct from the wrapper's. `lint-envelopes.test.sh`
+      # above covers the wrapper's exit codes against one violating fixture; these 18
+      # cases cover the rule's handler resolution (adaptXxx unwrap, zero-arg factory,
+      # cast, inline literal, the fail-loud `unresolvedHandler` path) and its three
+      # exemption classes. They were executed by NOTHING: it is a `node:test` file with
+      # a `.js` extension, and the root vitest `include` list is all `*.test.ts` under
+      # src/benchmarks/scripts/hooks/test/docs — no `eslint-rules/**`, no `.js` pattern.
+      # A blocking lint rule whose resolution logic is unproven is the DR-24 shape the
+      # rest of this lane exists to prevent.
+      - name: Error-envelope RULE self-test (18 cases)
+        run: node eslint-rules/no-handler-throw.test.js
+
+      # `eslint-rules/tsconfig.json` exists solely to typecheck `__fixtures__/**/*.ts`
+      # and was compiled by nothing either — root `tsconfig.json` includes `src/**/*`
+      # and `tsconfig.scripts.json` includes `scripts/**/*.ts`; neither covers this tree.
+      - name: Typecheck eslint-rules/
+        run: npx --no-install tsc -p eslint-rules/tsconfig.json
+
+      # DR-15/DR-24 ratchets re-asserted UNFILTERED. Both live in root `src/` and were
+      # hosted only by the `root`-path-filtered test-root lane, while the surfaces they
+      # SCAN sit outside that filter: `advisory-registry` walks `scripts/**` plus
+      # `.github/workflows/**`, and `shim-registry` walks
+      # `servers/exarchos-mcp/src/runtime/**` (the filter names only
+      # `servers/exarchos-mcp/src/agents/**` from that tree). So a PR editing exactly
+      # what they police did not arm the job that runs them — skipped-as-passed, which
+      # is the failure mode these ratchets were written to close. Hosting them here
+      # makes each fire on every PR regardless of the paths touched.
+      - name: Advisory + shim ratchets (DR-15/DR-24, unfiltered)
+        run: npx --no-install vitest run src/advisory-registry.test.ts src/shim-registry.test.ts
+
       # DR-2 CI-topology conformance test on the UNFILTERED host: a root-suite
       # vitest that parses ci.yml and asserts the ci-gate aggregator's
       # completeness / evaluate-coverage / skip-guard coverage. Running it here
@@ -931,6 +991,48 @@ jobs:
       # unfiltered.
       - name: CI-topology conformance test (DR-2)
         run: npx --no-install vitest run scripts/ci-topology.test.ts
+
+      # ── `scripts/` typechecks (task 066, DR-24) ────────────────────────────
+      # Both `scripts/` trees were compiled by NOTHING: `tsconfig.json` and
+      # `servers/exarchos-mcp/tsconfig.json` both `include: ["src/**/*"]`, so
+      # the guards living there — cli-derivation-guard.ts, authority-live-proof.ts,
+      # cli-vocab-guard.ts, guard-inventory.ts, scripts/audit/* — were never
+      # typechecked. Three separate tasks (020, 021, 026) each discovered this
+      # independently and each hand-ran a standalone `tsc --noEmit` over their own
+      # files; widening the tree at once surfaced 12 real errors (9 of them in
+      # scripts/audit/), all fixed by narrowing/widening rather than by a cast.
+      #
+      # Hosted HERE and not in test-root/test-mcp, deliberately. The scan surface
+      # of the root scripts project is `scripts/**` PLUS the MCP `src/` modules its
+      # guards import, and `changes.root` covers neither (this file already notes
+      # at the enforcer-wiring self-test above that the root filter excludes
+      # `scripts/**`, so a scripts-only PR skips test-root entirely). An unfiltered
+      # host makes the two-surface subset rule hold trivially. DR-1 host class:
+      # deps tail, unfiltered — both dep trees are installed above. See
+      # docs/guides/ci-gate-hosting.md.
+      - name: Typecheck the root `scripts/` tree (task 066, DR-24)
+        run: npx tsc -p tsconfig.scripts.json
+
+      - name: Typecheck the MCP `scripts/` tree (task 066, DR-24)
+        working-directory: servers/exarchos-mcp
+        run: npx tsc -p tsconfig.scripts.json
+
+      # The guard's own self-test on the same host (DR-24: "each guard's
+      # self-test runs in the same CI job as the guard"). `tsc -p` already fails
+      # on a config resolving ZERO files (TS18003), but it exits 0 over a config
+      # that quietly stopped covering the guards it exists to cover — so this
+      # asserts the resolved file set against a stated coverage floor, and
+      # carries the zero-file kill fixture.
+      - name: scripts/ typecheck coverage self-test (task 066, DR-24)
+        run: npx --no-install vitest run scripts/tsconfig-scripts-coverage.test.ts
+
+      # DR-14 cast-census scope (task 022's finding, folded into task 066): the
+      # census roots must cover every tree the tsconfig projects compile, so a
+      # directory cannot be typechecked by one gate and un-censused by the other.
+      # Runs unfiltered for the same reason as the typechecks above — the roots
+      # span both packages, and `changes.root` covers neither `scripts/` tree.
+      - name: Cast-census scope + budget ratchet (DR-14, task 066)
+        run: npx --no-install vitest run src/tsconfig-strictness.test.ts
 
       # DR-10 .test.sh re-assert for check-mutation-gate (task-015 pattern,
       # unfiltered — every check script's self-test runs on every PR). Its
@@ -951,6 +1053,24 @@ jobs:
 
       - name: Prose-lint gate — rehydration prose slop (DR-13)
         run: node scripts/check-prose-lint.mjs
+
+      # Measured-premise drift gate (task 054, DR-27). Binds every annotated
+      # numeric claim in the internal-mechanics-overhaul spec (+ the invariants
+      # catalog) to the artifact that produces it, so the document cannot assert
+      # a number nothing derives. The `outputSchema` census and `EventTypes`
+      # derivations shell out to `tsx` over the MCP source, so this rides the
+      # deps tail rather than the zero-dep prefix. Unfiltered on purpose: the
+      # premises drift when the CODE changes, which is precisely the PR a
+      # docs-path filter would skip.
+      - name: Measured-premise drift gate (DR-27)
+        run: node scripts/check-measured-premises.mjs
+
+      # Its own self-test on the same host (DR-24: "each guard's self-test runs
+      # in the same CI job as the guard", so guard-execution failure cannot pass
+      # as success). Includes the rev-3 kill fixture — a document already proven
+      # wrong, which the checker must still report as drifted.
+      - name: Measured-premise gate self-test (DR-27)
+        run: npx --no-install vitest run scripts/check-measured-premises.test.ts
 
       # No-circular runtime import-cycle ratchet (task 010, DR-4/DR-8). Runs the
       # ROOT-hoisted dependency-cruiser over servers/exarchos-mcp/src, computes
@@ -1002,6 +1122,256 @@ jobs:
       # node, no install.
       - name: Module-intent gate self-test (DR-8, task 015)
         run: bash scripts/check-module-intent.test.sh
+
+      # Wave-1 guard inventory + CI-reachability proof (DR-24, task 063). Parses
+      # this workflow, both package.json script tables, both vitest configs and
+      # the enforcer-wiring manifest, then proves every guard Wave 1 shipped is
+      # executed by some CI job — or carries a recorded, EXPIRING reason why not.
+      # Also reports path-filtered hosting rather than accepting it (#1711's
+      # skipped-as-passed failure), and fails closed on a zero-guard resolution.
+      # This step IS the guard: the module is a library, its assertions live in
+      # the test, so hosting the test here satisfies DR-24's "each guard's
+      # self-test runs in the same CI job as the guard" for free. Must be
+      # UNFILTERED — `scripts/**` is outside the `root` path filter, so the
+      # filtered `test-root` job skips-as-passed on exactly the PR that edits this
+      # inventory. Rides the deps tail (needs vitest + typescript + js-yaml from
+      # the root install above), not the zero-dep prefix.
+      # See docs/guides/ci-gate-hosting.md.
+      - name: Wave-1 guard-inventory reachability proof (DR-24, task 063)
+        run: npx --no-install vitest run scripts/guard-inventory.test.ts
+
+      # Cast-census self-test re-assert (DR-24, task 063 finding). The DR-14 cast
+      # budget is the constraint every task in this wave is judged against, and
+      # its census (`scripts/tsconfig-strictness/count-casts.ts`) was hosted ONLY
+      # by the `root`-filtered `test-root` job — while its own source sits under
+      # `scripts/**`, which the `root` filter excludes. A PR that weakened the
+      # census therefore never armed the only job that runs it: the two-surface
+      # subset rule violated, found by the inventory above. This re-assert closes
+      # the implementation-surface half on the unfiltered host. It is the
+      # fixture-driven SELF-TEST only (tmpdir + string inputs); the repo-wide
+      # ratchet stays in `src/tsconfig-strictness.test.ts` on `test-root`, so this
+      # step adds no new repo-wide assertion. Same DR-10 pattern as the
+      # `.test.sh` re-asserts above.
+      - name: Cast-census self-test re-assert (DR-24, unfiltered)
+        run: npx --no-install vitest run scripts/tsconfig-strictness/count-casts.test.ts
+
+      # G2 `outputSchema` vacuity ratchet (DR-4, task 017). Runs all four teeth
+      # against the live triple: membership (allowlist vs census, both
+      # directions), seed key-set integrity (vs the frozen digest), and — new in
+      # task 017 — the per-entry EXPIRY, enforced rather than advisory. Tasks 055
+      # and 060 shipped the first three but wired NONE of them to an executable
+      # gate: the whole `auditVacuity*` family was driven only by its co-located
+      # vitest in the `mcp`-PATH-FILTERED `test-mcp` job, which
+      # scripts/guard-inventory.ts names as an R-11 instance and #1711 names as
+      # skipped-as-passed on exactly the PRs it polices. This step is the gate.
+      #
+      # This is ALSO the one place DR-4's mechanism reads the wall clock: the
+      # library takes `today` as a required argument so its unit tests are
+      # deterministic, and the deadline reddens the MERGE rather than a
+      # developer's local `vitest run`. Expect it to go red of its own accord
+      # after VACUITY_EXPIRY_HORIZON (2027-02-28) — that is the deadline working,
+      # and the repair is paying declarations down, never re-dating the horizon.
+      #
+      # Rides the deps tail (needs `tsx` + the MCP node_modules to resolve the
+      # registry's Zod objects — a named binding launders a source-text grep, so
+      # the schema OBJECT must be walked), not the zero-dep prefix. Must be
+      # UNFILTERED: the allowlist, the pin and this guard all live under
+      # `servers/exarchos-mcp/**`, but the ratchet governs a repo-wide contract
+      # and a `mcp`-filtered host skips-as-passed on any PR outside it.
+      # See docs/guides/ci-gate-hosting.md.
+      - name: outputSchema vacuity ratchet — G2 + enforced expiry (DR-4, task 017)
+        run: npx --no-install tsx servers/exarchos-mcp/scripts/output-schema-ratchet-guard.ts
+
+      # Its self-tests on the SAME host (DR-24: "each guard's self-test runs in
+      # the same CI job as the guard", so guard-execution failure cannot pass as
+      # success). Includes task 017's kill fixtures — the live 112-entry seed
+      # carried one day past its horizon, and the blanket "bump every date in one
+      # commit" renewal — both of which must be RED. Hosting the census and
+      # allowlist suites here too closes their implementation-surface half: their
+      # only other host is the `mcp`-filtered `test-mcp`.
+      #
+      # `output-schema-census.selftest.test.ts` (task 018) is the fourth file and
+      # covers what the other three structurally cannot: they all call
+      # `runGuard()` in-process and read its RETURN VALUE, so DR-4's entrypoint
+      # tail — the `isDirectRun` predicate and the `process.exit` that consumes
+      # it — was executed by nothing. It spawns the step ABOVE as a real process.
+      # It must be hosted HERE and not only on the `mcp`-filtered `test-mcp`: a
+      # self-test for an unfiltered gate that is itself path-filtered is #1711's
+      # skipped-as-passed on exactly the PR that breaks the gate.
+      - name: outputSchema ratchet self-tests re-assert (DR-4/DR-24, unfiltered)
+        working-directory: servers/exarchos-mcp
+        run: >-
+          npx --no-install vitest run
+          scripts/output-schema-ratchet-guard.test.ts
+          src/architecture/output-schema-census.test.ts
+          src/architecture/output-schema-census.selftest.test.ts
+          src/output-schema-vacuity-allowlist.test.ts
+
+      # G1 CLI-derivation allowlist ratchet (DR-5, task 023). Parses the CLI
+      # composition root, derives the hand-written-literal population from that
+      # parse, and holds it to a shrink-only allowlist: membership in BOTH
+      # directions (an untracked literal fails; a tracked name that is no longer a
+      # literal goes stale), a frozen key-set pin over `allowed ∪ retired` that
+      # catches an in-place swap no count and no comparison-against-today can see,
+      # and a per-entry ISO expiry that is ENFORCED and capped by one pinned
+      # horizon so a waiver cannot renew itself.
+      #
+      # This is ALSO the one place DR-5's mechanism reads the wall clock: the
+      # library takes `today` as a required argument so its unit tests are
+      # deterministic, and the deadline reddens the MERGE rather than a
+      # developer's local `vitest run`. Expect it to go red of its own accord
+      # after CLI_DERIVATION_EXPIRY_HORIZON (2027-02-28) — that is the deadline
+      # working, and the repair is registering verbs through a derivation helper,
+      # never re-dating the horizon.
+      #
+      # This is the RATCHET entrypoint; its DERIVATION sibling is wired directly
+      # below. The ratchet states the SHRINK-ONLY policy over the tolerated set;
+      # the sibling states the DERIVATION policy ("no un-allowlisted literal
+      # `.command(` at all"). Both are blocking as of task 076.
+      #
+      # Rides the deps tail (needs `tsx` + `typescript`; it parses the source and
+      # never resolves `buildCli`, so unlike the sibling `cli-vocab-guard` it
+      # needs neither Bun nor `bun:sqlite`), not the zero-dep prefix. Must be
+      # UNFILTERED: the policy file, the pin and this guard all live under
+      # `servers/exarchos-mcp/**`, but a `mcp`-filtered host skips-as-passed on
+      # any PR outside it. See docs/guides/ci-gate-hosting.md.
+      - name: CLI derivation allowlist ratchet — G1 shrink-only + enforced expiry (DR-5, task 023)
+        run: npx --no-install tsx servers/exarchos-mcp/scripts/cli-derivation-ratchet-guard.ts
+
+      # G1 DERIVATION entrypoint — direct and BLOCKING as of task 076 (DR-5).
+      #
+      # This gate spent Wave 1 in GUARD_EXEMPTIONS as `unreachable`: it exited 1
+      # by design, because `merge-orchestrate` was declared twice (registry action
+      # + a hand-written command in the composition root) and — being the kill
+      # fixture — could not be allowlisted around. Task 023 paid the other ten
+      # literals down to tracked debt; task 076 deleted the eleventh by moving the
+      # promotion onto the registry's `cli.topLevel` hint, which is what let this
+      # entrypoint go green on a clean tree. The exemption entry is REMOVED, not
+      # re-dated, so `guard-inventory` now reports it `enforcement: blocks`,
+      # `pathFilteredOnly: false`, `via=direct`.
+      #
+      # Invoked DIRECTLY (no `npm run` wrapper) so the inventory's indirection
+      # resolver records `via=direct` rather than walking a shell shim. Same host
+      # class as the ratchet above: deps tail, unfiltered, for the same reason.
+      - name: CLI derivation guard — G1 no un-allowlisted literal commands (DR-5, task 076)
+        run: npx --no-install tsx servers/exarchos-mcp/scripts/cli-derivation-guard.ts
+
+      # Its self-tests, plus the DERIVATION guard's, on the SAME host (DR-24:
+      # "each guard's self-test runs in the same CI job as the guard"). These
+      # carry task 023's kill probes — a seeded eleventh entry, an in-place swap,
+      # a paydown recorded as a deletion, the live seed carried one day past its
+      # horizon, the blanket "bump every date" renewal and an emptied allowlist —
+      # and task 021/022's kill fixture — RE-SEEDED by task 076, which deleted
+      # the live subject by fixing the defect: the proof now splices the deleted
+      # command back into the real composition root and re-runs the same guard,
+      # while a separate assertion pins that the LIVE tree no longer carries it.
+      # Both `merge-orchestrate` policy-map exclusions still assert. Hosting them
+      # here closes their
+      # implementation-surface half: their only other host is the `mcp`-filtered
+      # `test-mcp`, and `changes.mcp` does not arm on a workflow-only PR.
+      - name: CLI derivation guard + ratchet self-tests re-assert (DR-5/DR-24, unfiltered)
+        working-directory: servers/exarchos-mcp
+        run: >-
+          npx --no-install vitest run
+          scripts/cli-derivation-ratchet-guard.test.ts
+          scripts/cli-derivation-guard.test.ts
+          scripts/cli-vocab-guard.test.ts
+
+      # G3 report-coupled ratchet (DR-2, task 013). Enumerates the live event
+      # registry, derives each registration's coupling through the DR-2 tier
+      # union, and holds the report-coupled population to a shrink-only seed
+      # (membership + ISO expiry + a frozen key-set pin against in-place swaps).
+      # The census module is a pure library, so this test file IS the guard — and
+      # it carries the kill fixtures (a seeded 26th report-coupled registration,
+      # an emptied denominator, a seeded tier/source disagreement), which
+      # satisfies DR-24's "each guard's self-test runs in the same CI job as the
+      # guard" for free: guard-execution failure exits non-zero here rather than
+      # passing as success. Must be UNFILTERED — the co-located test would
+      # otherwise be hosted only by `test-mcp`, which is filtered on `mcp` and
+      # skips-as-passed on exactly the PRs #1711 describes. Rides the deps tail,
+      # not the zero-dep prefix: it resolves the MCP TypeScript source through
+      # the MCP vitest installed by the two steps above.
+      # See docs/guides/ci-gate-hosting.md.
+      - name: G3 report-coupled ratchet (DR-2, task 013)
+        working-directory: servers/exarchos-mcp
+        run: npx --no-install vitest run src/architecture/report-coupling-census.test.ts
+
+      # G4 effect-ledger bijection (DR-7) and G5 authority-topology census (DR-6),
+      # hosted UNFILTERED — added by task 027 at the Wave-1 exit.
+      #
+      # Both guards were `pathFilteredOnly: true` until now: their only hosts were
+      # `test-mcp` and `test-windows`, which are filtered on `mcp`. That is the
+      # #1711 shape exactly — the gate is skipped-as-passed on the PRs it polices,
+      # and `guard-inventory` reports the condition rather than accepting it. The
+      # Wave-1 exit proof (`wave1-exit.test.ts`) asserts every declared Wave-1
+      # guard has at least one unfiltered host, and these two were the only
+      # members failing it.
+      #
+      # This wires HOSTING, not enforcement severity. G5 remains observe-then-
+      # enforce PER ROW via each authority-topology row's `enforceFrom` field
+      # (§3a, reconciled in rev 3) — flipping it wholesale here would red-line CI
+      # for four waves, which is the contradiction rev 3 was written to remove.
+      # What changes is that the guard now RUNS on every PR instead of only on
+      # `mcp`-touching ones.
+      - name: G4 effect-ledger + G5 authority census self-tests (DR-6/DR-7/DR-24, unfiltered)
+        working-directory: servers/exarchos-mcp
+        run: >-
+          npx --no-install vitest run
+          src/architecture/effect-ledger.test.ts
+          src/architecture/authority-census.test.ts
+
+      # DR-3 event-name grammar census + two-way ratchet (task 015). Enumerates
+      # the LIVE registry at runtime — `getValidEventTypes()`, so custom
+      # `registerEventType` names are in the denominator, which is the population
+      # no compile-time proof over `EventType` can see — decides every name
+      # against task 014's grammar, and holds the recorded grammar concessions to
+      # a two-way ratchet: a registered name the grammar rejects fails, and a
+      # recorded concession no live name exercises fails as stale cover. The
+      # census module is a pure library, so this test file IS the guard, and it
+      # carries the kill fixtures (a REAL malformed custom registration that
+      # `registerEventType` accepts today, an emptied denominator, an emptied
+      # concession table, a repaired EVENT_NAME_PATTERN, a lapsed expiry) — which
+      # satisfies DR-24's "each guard's self-test runs in the same CI job as the
+      # guard" for free.
+      #
+      # This is also where DR-3's mechanism reads the wall clock: the library
+      # takes `today` as a required argument so its unit cases are deterministic,
+      # and the concession deadline reddens the MERGE. Expect it to go red of its
+      # own accord after the seeded expiry (2027-02-28) — that is the deadline
+      # working, and the repair is retiring the concession, never re-dating it.
+      #
+      # Must be UNFILTERED: the census lives under `servers/exarchos-mcp/**` but
+      # governs a repo-wide naming contract, and an `mcp`-filtered host
+      # skips-as-passed on exactly the PRs #1711 describes. Rides the deps tail,
+      # not the zero-dep prefix — it resolves the MCP TypeScript source through
+      # the MCP vitest installed by the two steps above.
+      # See docs/guides/ci-gate-hosting.md.
+      - name: DR-3 event-name grammar ratchet (task 015)
+        working-directory: servers/exarchos-mcp
+        run: npx --no-install vitest run src/architecture/event-grammar-census.test.ts
+
+      # Audit-delivery closure (DR-4/DR-24, task 069). Holds every declared
+      # delivery obligation to BOTH halves: the producing action's live
+      # `outputSchema` must declare the delivered field and its enumerator as
+      # required typed properties, and a declared reader document must carry the
+      # whole instruction inside one section. It exists because
+      # `check_invariant_conformance` computed `auditPrompt` and returned it
+      # through a `vacuityWaiver` schema while NO skill, command, rule or doc told
+      # anybody to read it — the field occurred in exactly five files repo-wide,
+      # four of them its own tests. The module is a pure library, so this test file
+      # IS the guard, and it carries the kill fixtures (the pre-069 vacuous
+      # contract, a reader that only invokes the gate, scattered non-co-located
+      # mentions, an emptied obligation list) — which satisfies DR-24's "each
+      # guard's self-test runs in the same CI job as the guard" for free.
+      #
+      # Must be UNFILTERED: the obligation binds a file under
+      # `servers/exarchos-mcp/**` to one under `skills-src/**`, so EITHER path
+      # filter would skip-as-passed on exactly the PR that breaks the binding
+      # from the other side. Rides the deps tail — it walks live Zod objects.
+      # See docs/guides/ci-gate-hosting.md.
+      - name: Audit-delivery closure (DR-4/DR-24, task 069)
+        working-directory: servers/exarchos-mcp
+        run: npx --no-install vitest run src/architecture/audit-delivery-closure.test.ts
 
   # ─────────────────────────────────────────────────────────────────────
   # e2e-process

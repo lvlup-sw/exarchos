@@ -109,13 +109,58 @@ import { join, relative } from 'node:path';
  *     is undecidable in general; the shorthand is excluded on purpose because a
  *     bare `fetch` identifier rule false-positives on ordinary property keys and
  *     interface members.
- *   - TEMPLATE-LITERAL INTERPOLATION. {@link maskNonCode} masks a template
- *     literal whole, so an ambient-global call written inside `${…}` is masked
- *     with it. Import-shape rules 1–4 are unaffected (they read the import
- *     surface, not masked text).
  *
  * Everything above is a FALSE-NEGATIVE boundary, never a false positive: the
  * census can under-report a smuggled effect, but it never invents one.
+ *
+ * ── DR-26 / task 065: the lexical question is INVERTED to the caller ────────
+ * The sentence above was, until task 065, **false**, and a fourth carve-out
+ * ("TEMPLATE-LITERAL INTERPOLATION") claimed a false-negative the module did not
+ * actually have. Both were artefacts of the same thing: this module used to
+ * answer "what does this source import, and which of its characters are code?"
+ * with two hand-rolled lexers whose own headers admitted the regex-versus-
+ * division rule was a heuristic. Measured on the tree at task 065:
+ *
+ *   • FALSE POSITIVE. `` export const d = `outer ${ `inner from 'node:child_process' text` } end`; ``
+ *     imports nothing. The heuristic toggled on every backtick, so the NESTED
+ *     template's body read as code and it reported one `process` occurrence —
+ *     the census inventing an effect, which the paragraph above swore it could
+ *     never do.
+ *   • FALSE NEGATIVE, the dangerous direction. A regex literal containing a
+ *     backtick in a position the heuristic scored as division
+ *     (`return /` + backtick + `/.test(s);`) opened a phantom template literal
+ *     that ran to EOF, so a following real `import { readFile } from 'node:fs'`
+ *     was invisible and the module scanned as effect-free. That is exactly the
+ *     evasion DR-13's closed-world rule exists to prevent, reachable by
+ *     accident rather than by malice.
+ *
+ * The sound answer is to parse: a specifier inside a comment, a string or a
+ * template is not an import NODE, and a `${…}` substitution IS code, so both
+ * follow by construction rather than by another filter. But the only instrument
+ * that cannot disagree with the compiler about TypeScript's grammar is the
+ * compiler, and `typescript` is a devDependency while this is shipped `src/`.
+ * Task 062 measured the consequence directly: adding `import ts from 'typescript'`
+ * to a module under `architecture/` fails this very census with one
+ * `INDETERMINATE_OWNER`, because `typescript` is not in {@link
+ * INERT_DEPENDENCIES}; and vetting it inert would be FALSE at the granularity
+ * this list vets, since `import ts` puts `ts.sys` — full filesystem and process
+ * access — one property access away.
+ *
+ * So the lexer is a REQUIRED PORT ({@link ModuleLexer}), exactly as the
+ * filesystem walk already is and exactly as `architecture/import-cycles.ts`
+ * takes dependency-cruiser JSON rather than running it. This module keeps the
+ * POLICY — which specifier is an effect, which shape is an ambient global, who
+ * owns what — and owns no lexing mechanism at all. The implementation is
+ * `test-helpers/module-lexer.ts`, the one directory both skipped by {@link
+ * EXCLUDED_DIRS} and inside `tsconfig.json`'s `include`, so it is still
+ * typechecked. The superseded heuristic is retained ONLY as
+ * `test-helpers/superseded-source-lexer.ts`, so the kill fixture can assert both
+ * numbers rather than asking a reader to take the gap on faith.
+ *
+ * The port is REQUIRED everywhere it appears. A default would have to be either
+ * the retired heuristic (the defect, retained) or a throwing stub (a runtime
+ * failure where the checker could have spoken), and an optional lexer is exactly
+ * how a caller silently gets the old answers back.
  */
 
 /** The three statically-detectable effect primitives. */
@@ -159,12 +204,43 @@ export type EffectLedgerDiagnostic =
       readonly match: string;
       readonly owner: string;
       readonly message: string;
+    }
+  | {
+      readonly code: 'EMPTY_MODULE_POPULATION';
+      readonly message: string;
+    }
+  | {
+      readonly code: 'EMPTY_SPECIFIER_DENOMINATOR';
+      readonly message: string;
     };
 
 export interface EffectLedgerResult {
   readonly ok: boolean;
+  /** Modules the scan visited — the population. Zero is a failure, never a pass. */
+  readonly moduleCount: number;
+  /**
+   * Module specifiers the lexer resolved across the whole population — the
+   * denominator. Zero over a non-empty population is a failure, never a pass.
+   */
+  readonly specifierCount: number;
   readonly occurrenceCount: number;
   readonly diagnostics: readonly EffectLedgerDiagnostic[];
+}
+
+/**
+ * An already-collected effect scan: the occurrences plus the two denominators
+ * that say whether the numbers underneath them mean anything.
+ *
+ * Both counts are REQUIRED, never optional or derived. `occurrences` alone
+ * cannot distinguish "the tree performs no unowned effect" (the success state)
+ * from "the walk resolved no modules" or "the lexer resolved no specifiers"
+ * (a broken instrument), and all three present as an empty array. An optional
+ * field defaulting to "unknown" would hand every caller the vacuity back.
+ */
+export interface EffectScan {
+  readonly occurrences: readonly EffectOccurrence[];
+  readonly moduleCount: number;
+  readonly specifierCount: number;
 }
 
 // ─── Detection ──────────────────────────────────────────────────────────────
@@ -258,12 +334,51 @@ const THIRD_PARTY_NETWORK_CLIENTS: ReadonlySet<string> = new Set([
  * This IS an exact-specifier list, but it grows in the SAFE direction: a
  * forgotten entry fails the census (loud), whereas a forgotten entry in the old
  * client denylist silently passed it. Match is on the PACKAGE name, so every
- * subpath of a listed package (`@modelcontextprotocol/sdk/server/mcp.js`) is
+ * subpath of a listed package (`@modelcontextprotocol/server/stdio`) is
  * covered by one entry.
  *
- *   - `@modelcontextprotocol/sdk` — the MCP protocol SDK. It DOES own transport
- *     I/O, but only over the stdio/in-memory transports this server constructs;
- *     the server never gives it a network transport. Vetted, not ignored.
+ *   (`@modelcontextprotocol/sdk` — the v1 SDK — was REMOVED from this list by
+ *   task 049 along with the dependency itself. It was a declared owner with no
+ *   live import site, which is precisely the stale-cover condition the census
+ *   fails on; leaving it would have been an allowlist entry vouching for a
+ *   package that is not installed.)
+ *
+ *   - `@modelcontextprotocol/client` — the v2 MCP client package, added by task
+ *     049 so the integration proofs could drive a v2 server without a
+ *     cross-generation transport pair. The judgement is the same shape as the
+ *     `server` entry and just as checkable: the seam draws exactly `Client` and
+ *     `StdioClientTransport`, and `connectV2Client` accepts only a branded
+ *     `V2Transport`, of which the seam constructs only stdio and in-memory
+ *     halves. The package's network-capable surface —
+ *     `SSEClientTransport`, `StreamableHTTPClientTransport`, `withOAuth`,
+ *     `auth`, `createFetchWithInit` and the OAuth discovery/token helpers — is
+ *     not re-exported and therefore unreachable from shipped code. Re-exporting
+ *     any of those invalidates this entry and requires an `EFFECT_OWNERSHIP`
+ *     rule naming the owner.
+ *   - `@modelcontextprotocol/server` — the v2 MCP server package, reached ONLY
+ *     through the owned SDK seam (`sdk/seam.ts`, DR-26). The same judgement as
+ *     v1 applies, and here it is narrower and checkable: the seam re-exports
+ *     `McpServer`, `Server`, `InMemoryTransport` and `StdioServerTransport` and
+ *     nothing else. The package's network-capable surface —
+ *     `WebStandardStreamableHTTPServerTransport`,
+ *     `PerRequestHTTPServerTransport`, `createMcpHandler`, `requireBearerAuth`,
+ *     `createFetchWithInit` and the OAuth-metadata helpers — is not re-exported
+ *     and therefore unreachable from shipped code. If the seam ever re-exports
+ *     one of those, this entry stops being true and must be replaced by an
+ *     `EFFECT_OWNERSHIP` rule naming the owner.
+ *   - `@modelcontextprotocol/core` — VETTED by DR-0 / task 051, which is the
+ *     first shipped import of it. The list's prior note said core was omitted
+ *     because nothing imported it, and that the census would fail loudly on the
+ *     first import; it did exactly that, and this entry is the human vetting act
+ *     it demanded rather than a silencing of it.
+ *     The judgement is narrower than the `server` entry, and checkable the same
+ *     way: `sdk/seam.ts` draws exactly ONE symbol from core — `TaskStatusSchema`,
+ *     a Zod enum of five string literals, read once at module scope for
+ *     `V2_TASK_STATUS_VALUES`. Core's network-capable surface (`createFetchWithInit`,
+ *     the OAuth client/metadata helpers, `SdkHttpError`) is not imported and not
+ *     re-exported, so it is unreachable from shipped code. Widening that single
+ *     import invalidates this entry and requires an `EFFECT_OWNERSHIP` rule
+ *     naming the owner.
  *   - `better-sqlite3` — embedded file-backed SQLite driver; the filesystem
  *     effect it performs is already owned at `storage/` granularity. (The
  *     `bun:sqlite` sibling needs no entry: it carries a builtin SCHEME and is
@@ -277,7 +392,9 @@ const THIRD_PARTY_NETWORK_CLIENTS: ReadonlySet<string> = new Set([
  *                    validator. All pure data transforms.
  */
 export const INERT_DEPENDENCIES: ReadonlySet<string> = new Set([
-  '@modelcontextprotocol/sdk',
+  '@modelcontextprotocol/client',
+  '@modelcontextprotocol/core',
+  '@modelcontextprotocol/server',
   'better-sqlite3',
   'commander',
   'gray-matter',
@@ -340,353 +457,91 @@ export function classifySpecifier(
   return network(`unvetted-dependency:${pkg}`);
 }
 
-const IDENT_CHAR = /[A-Za-z0-9_$]/;
-const isIdentChar = (c: string | undefined): boolean => c !== undefined && IDENT_CHAR.test(c);
-const isSpace = (c: string | undefined): boolean => c !== undefined && /\s/.test(c);
-
 /** One import/export specifier occurrence at code position. */
 export interface ImportRef {
   /** The literal specifier text (`node:fs`, `./x.js`, `axios`). */
   readonly specifier: string;
   /**
-   * True for `import type … from '…'` / `export type … from '…'`. Type-only
-   * statements are fully erased at compile time and carry NO runtime binding,
-   * so they perform no effect — `import type { Server } from 'node:http'` is
-   * not a network site.
+   * True for `import type … from '…'`, `export type … from '…'`,
+   * `import T = require('…')` in type position, and an `import('…')` TYPE QUERY.
+   * All are fully erased at compile time and carry NO runtime binding, so they
+   * perform no effect — `import type { Server } from 'node:http'` is not a
+   * network site.
+   *
+   * A per-specifier `type` modifier (`import { type A, connect } from '…'`) does
+   * NOT set this: the statement still emits, so it is charged as a value import.
+   * That is the fail-closed direction.
    */
   readonly typeOnly: boolean;
 }
 
 /**
- * Extract every module specifier introduced by `from '…'`, `import '…'`,
- * `import('…')` or `require('…')` at CODE position, tagged with whether the
- * statement is type-only. A comment/string aware walk so a `from 'node:fs'`
- * that appears *inside* a string literal or comment (e.g. a lint pattern or doc
- * example) is not mistaken for a real import.
- *
- * Two lexer details matter for correctness, and both were WRONG in this walk
- * before DR-13 (the same defect the DR-12 widening found in
- * `vcs-ownership.stripComments`, which exists here as a near-duplicate copy):
- *
- *   - REGEX LITERALS. A regex such as `/(['"`])x\1/` contains quote characters
- *     that are NOT string delimiters. Without regex awareness the walk enters a
- *     phantom string at the `'`, and from there `//` stops being recognised as a
- *     comment — so commented-out prose leaks in and a documented
- *     `from 'node:http'` counts as a real import (false POSITIVE), while any
- *     genuine import swallowed by the phantom string is missed (false NEGATIVE).
- *     The `/`-in-operand-position heuristic is deliberately CONSERVATIVE: when
- *     in doubt it treats `/` as division, which merely restores the old
- *     behaviour instead of swallowing real code.
- *   - LINE-BOUNDED QUOTES. `'`/`"` strings cannot span a raw newline in JS.
- *     Terminating them at end-of-line caps any residual desync at one line
- *     instead of letting it run to EOF. Template literals are exempt.
+ * Everything about ONE module's lexical structure that this census needs and
+ * that only a real parse can answer.
  */
-export function extractImports(source: string): ImportRef[] {
-  const refs: ImportRef[] = [];
-  const n = source.length;
-  let i = 0;
-  let quote: string | null = null;
-  let lineComment = false;
-  let blockComment = false;
-  let regex = false;
-  let regexClass = false;
-  /** Last significant CODE character — decides regex-vs-division for `/`. */
-  let lastSignificant = '';
-  /** True while the current import/export statement carries a `type` modifier. */
-  let pendingTypeOnly = false;
-
-  const startsRegex = (): boolean =>
-    lastSignificant === '' || !/[A-Za-z0-9_$)\]]/.test(lastSignificant);
-
-  const readStringAt = (start: number): { value: string; end: number } | undefined => {
-    const q = source[start];
-    if (q !== '"' && q !== "'" && q !== '`') return undefined;
-    let j = start + 1;
-    let val = '';
-    while (j < n) {
-      const c = source[j] ?? '';
-      if (c === '\\') {
-        j += 2;
-        continue;
-      }
-      // A specifier literal never spans a raw newline; bail rather than run away.
-      if (c === '\n' && q !== '`') return undefined;
-      if (c === q) return { value: val, end: j };
-      val += c;
-      j += 1;
-    }
-    return undefined;
-  };
-
-  const record = (specifier: string): void => {
-    refs.push({ specifier, typeOnly: pendingTypeOnly });
-    pendingTypeOnly = false;
-  };
-
-  while (i < n) {
-    const ch = source[i];
-    const next = source[i + 1];
-    if (lineComment) {
-      if (ch === '\n') lineComment = false;
-      i += 1;
-      continue;
-    }
-    if (blockComment) {
-      if (ch === '*' && next === '/') {
-        blockComment = false;
-        i += 2;
-        continue;
-      }
-      i += 1;
-      continue;
-    }
-    if (regex) {
-      if (ch === '\\') {
-        i += 2;
-        continue;
-      }
-      // A raw newline cannot appear in a regex literal — bail out rather than
-      // run away, so a misjudged `/` costs at most one line.
-      if (ch === '\n') regex = false;
-      else if (ch === '[') regexClass = true;
-      else if (ch === ']') regexClass = false;
-      else if (ch === '/' && !regexClass) regex = false;
-      i += 1;
-      continue;
-    }
-    if (quote !== null) {
-      // `'`/`"` are line-bounded in JS; a newline means the lexer desynced, so
-      // resynchronise instead of consuming the rest of the file as string body.
-      if (ch === '\n' && quote !== '`') {
-        quote = null;
-        i += 1;
-        continue;
-      }
-      if (ch === '\\') {
-        i += 2;
-        continue;
-      }
-      if (ch === quote) quote = null;
-      i += 1;
-      continue;
-    }
-    if (ch === '/' && next === '/') {
-      lineComment = true;
-      i += 2;
-      continue;
-    }
-    if (ch === '/' && next === '*') {
-      blockComment = true;
-      i += 2;
-      continue;
-    }
-    if (ch === '/' && startsRegex()) {
-      regex = true;
-      regexClass = false;
-      lastSignificant = ch;
-      i += 1;
-      continue;
-    }
-    if (ch === '"' || ch === "'" || ch === '`') {
-      quote = ch;
-      lastSignificant = ch;
-      i += 1;
-      continue;
-    }
-
-    // Code position: a keyword that introduces a specifier, at a word boundary.
-    if (!isIdentChar(source[i - 1])) {
-      const isImport = source.startsWith('import', i) && !isIdentChar(source[i + 6]);
-      const isExport = source.startsWith('export', i) && !isIdentChar(source[i + 6]);
-      if (isImport || isExport) {
-        // A fresh import/export statement — re-derive its type-only status so a
-        // prior `export type X = Y;` never leaks into the next `from`.
-        pendingTypeOnly = false;
-        let p = i + 'import'.length;
-        while (isSpace(source[p])) p += 1;
-        if (source.startsWith('type', p) && !isIdentChar(source[p + 4])) pendingTypeOnly = true;
-
-        if (isImport) {
-          // Side-effect `import '…'` or dynamic `import('…')` — a value import.
-          let j = i + 'import'.length;
-          while (isSpace(source[j])) j += 1;
-          if (source[j] === '(') {
-            j += 1;
-            while (isSpace(source[j])) j += 1;
-          }
-          const str = readStringAt(j);
-          if (str !== undefined) {
-            record(str.value);
-            i = str.end + 1;
-            lastSignificant = source[i - 1] ?? '';
-            continue;
-          }
-        }
-        i += 'import'.length;
-        lastSignificant = 't';
-        continue;
-      }
-
-      let kw: 'from' | 'require' | null = null;
-      if (source.startsWith('from', i) && !isIdentChar(source[i + 4])) kw = 'from';
-      else if (source.startsWith('require', i) && !isIdentChar(source[i + 7])) kw = 'require';
-
-      if (kw !== null) {
-        let j = i + kw.length;
-        while (isSpace(source[j])) j += 1;
-        if (kw === 'require' && source[j] === '(') {
-          j += 1;
-          while (isSpace(source[j])) j += 1;
-        }
-        const str = readStringAt(j);
-        if (str !== undefined) {
-          record(str.value);
-          i = str.end + 1;
-          lastSignificant = source[i - 1] ?? '';
-          continue;
-        }
-      }
-    }
-    if (ch !== undefined && !/\s/.test(ch)) lastSignificant = ch;
-    i += 1;
-  }
-  return refs;
+export interface LexedModule {
+  /**
+   * Every module specifier the module actually imports or re-exports, in source
+   * order. A specifier inside a comment, a string or a template literal is not
+   * an import NODE, so it is absent BY CONSTRUCTION rather than by filtering.
+   */
+  readonly imports: readonly ImportRef[];
+  /**
+   * `source` with every comment, string literal, template-literal TEXT part and
+   * regex literal blanked to spaces (newlines preserved, offsets aligned), so
+   * the ambient-shape rules see only real code.
+   *
+   * A `${…}` substitution IS code and is deliberately not blanked. That is the
+   * one place the retired heuristic's "mask the template whole" rule was both
+   * wrong — it un-masked the body of a NESTED template, which is the false
+   * positive recorded in the module header — and needlessly blind.
+   */
+  readonly maskedSource: string;
 }
 
 /**
- * Every module specifier at code position, type-only ones included. Kept as the
- * pre-DR-13 signature because `layer-boundaries-seam.ts` depends on the full
- * import surface (a type-only cross-layer import is still a layer edge); the
- * effect scan filters to value imports itself via {@link extractImports}.
+ * The lexer port. See the module header for why this is a REQUIRED parameter
+ * everywhere it appears rather than something this module does for itself, and
+ * for the two measured defects that made the inversion necessary.
+ *
+ * `fileName` reaches the implementation's diagnostics only; it has no effect on
+ * the answer.
  */
-export function extractImportSpecifiers(source: string): string[] {
-  return extractImports(source).map((ref) => ref.specifier);
+export type ModuleLexer = (source: string, fileName?: string) => LexedModule;
+
+/**
+ * The specifiers `lex` resolved for `source`.
+ *
+ * An ACCESSOR, not a lexer: it holds no knowledge of TypeScript's grammar and
+ * must never re-acquire any. Retained under its pre-065 name because that is
+ * what the DR-13 pins and the sibling censuses bind to.
+ */
+export function extractImports(source: string, lex: ModuleLexer): readonly ImportRef[] {
+  return lex(source).imports;
 }
 
 /**
- * Replace every string, template, comment and REGEX-LITERAL span with spaces
- * (newlines kept) so the ambient-global rules below see only real code while
- * offsets stay aligned to the original source.
+ * Every module specifier at code position, type-only ones included.
  *
- * A local copy rather than `delivery-safety.maskLiteralsAndComments` because
- * that copy has no regex-literal awareness, and the ambient rules need it in
- * both directions:
- *
- *   - a regex BODY must be masked, or this very module self-matches: it
- *     contains `const AMBIENT_… = /…fetch\s*\(/` and would report itself as a
- *     network effect under `architecture/`, which owns no network rule;
- *   - a quote INSIDE a regex is not a string delimiter, so without regex
- *     awareness the mask desyncs, `//` stops being a comment, and comment prose
- *     leaks into the scan unmasked.
- *
- * The regex-vs-division judgement is the same conservative one as
- * {@link extractImports}: ambiguity resolves toward division, which can only
- * under-mask (restoring the old behaviour), never swallow real code.
- *
- * Extracting the three near-duplicate lexers in this package into one shared
- * module is a known follow-up, deliberately NOT done here (it would touch
- * modules outside this change's blast radius).
+ * `layer-boundaries-seam.ts` depends on the full import surface — a type-only
+ * cross-layer import is still a layer edge, and so is an `import('…')` type
+ * query. The effect scan filters to value imports itself.
  */
-export function maskNonCode(source: string): string {
-  const out: string[] = [];
-  const n = source.length;
-  let i = 0;
-  let quote: string | null = null;
-  let lineComment = false;
-  let blockComment = false;
-  let regex = false;
-  let regexClass = false;
-  let lastSignificant = '';
+export function extractImportSpecifiers(source: string, lex: ModuleLexer): string[] {
+  return lex(source).imports.map((ref) => ref.specifier);
+}
 
-  const blank = (ch: string | undefined): void => {
-    out.push(ch === '\n' ? '\n' : ' ');
-  };
-  const startsRegex = (): boolean =>
-    lastSignificant === '' || !/[A-Za-z0-9_$)\]]/.test(lastSignificant);
-
-  while (i < n) {
-    const ch = source[i] ?? '';
-    const next = source[i + 1];
-    if (lineComment) {
-      if (ch === '\n') lineComment = false;
-      blank(ch);
-      i += 1;
-      continue;
-    }
-    if (blockComment) {
-      if (ch === '*' && next === '/') {
-        blockComment = false;
-        out.push('  ');
-        i += 2;
-        continue;
-      }
-      blank(ch);
-      i += 1;
-      continue;
-    }
-    if (regex) {
-      blank(ch);
-      if (ch === '\\') {
-        if (i + 1 < n) blank(source[i + 1]);
-        i += 2;
-        continue;
-      }
-      if (ch === '\n') regex = false;
-      else if (ch === '[') regexClass = true;
-      else if (ch === ']') regexClass = false;
-      else if (ch === '/' && !regexClass) regex = false;
-      i += 1;
-      continue;
-    }
-    if (quote !== null) {
-      if (ch === '\n' && quote !== '`') {
-        quote = null;
-        out.push('\n');
-        i += 1;
-        continue;
-      }
-      blank(ch);
-      if (ch === '\\') {
-        if (i + 1 < n) blank(source[i + 1]);
-        i += 2;
-        continue;
-      }
-      if (ch === quote) quote = null;
-      i += 1;
-      continue;
-    }
-    if (ch === '/' && next === '/') {
-      lineComment = true;
-      out.push('  ');
-      i += 2;
-      continue;
-    }
-    if (ch === '/' && next === '*') {
-      blockComment = true;
-      out.push('  ');
-      i += 2;
-      continue;
-    }
-    if (ch === '/' && startsRegex()) {
-      regex = true;
-      regexClass = false;
-      out.push(' ');
-      lastSignificant = ch;
-      i += 1;
-      continue;
-    }
-    if (ch === '"' || ch === "'" || ch === '`') {
-      quote = ch;
-      out.push(' ');
-      lastSignificant = ch;
-      i += 1;
-      continue;
-    }
-    out.push(ch);
-    if (!/\s/.test(ch)) lastSignificant = ch;
-    i += 1;
-  }
-  return out.join('');
+/**
+ * `source` with every non-code span blanked — see {@link LexedModule.maskedSource}.
+ *
+ * The same kind of accessor as {@link extractImports}, retained for the same
+ * reason. Before task 065 this was a SECOND hand-rolled lexer, a near-duplicate
+ * of the first, and the two could drift apart silently; on a nested template
+ * they were in fact wrong in the same way at the same time. One port answers
+ * both questions from one parse, so they can no longer disagree.
+ */
+export function maskNonCode(source: string, lex: ModuleLexer): string {
+  return lex(source).maskedSource;
 }
 
 /**
@@ -778,11 +633,24 @@ const AMBIENT_BUN_RULES: readonly {
  * Enumerate the distinct effect classes a single module performs. Deduped to one
  * occurrence per (module, class): ownership is per module, so a module that reads
  * fs twice is one filesystem occurrence.
+ *
+ * One `lex` call answers both halves — which specifiers are imports, and which
+ * characters are code — so the import surface and the ambient-shape surface can
+ * never be judged against two different readings of the same file.
+ *
+ * @param module Repo-relative module path, reported on the occurrence.
+ * @param source Module source text.
+ * @param lex    The lexer port. Required; see {@link ModuleLexer}.
  */
-export function detectModuleEffects(module: string, source: string): EffectOccurrence[] {
+export function detectModuleEffects(
+  module: string,
+  source: string,
+  lex: ModuleLexer,
+): EffectOccurrence[] {
   const found = new Map<EffectClass, string>();
+  const lexed = lex(source, module);
 
-  for (const ref of extractImports(source)) {
+  for (const ref of lexed.imports) {
     // Type-only imports are erased at compile time — no runtime binding, no
     // effect. `import type { Server } from 'node:http'` is not a network site.
     if (ref.typeOnly) continue;
@@ -801,7 +669,7 @@ export function detectModuleEffects(module: string, source: string): EffectOccur
     !found.has('process') ||
     !found.has('filesystem')
   ) {
-    const masked = maskNonCode(source);
+    const masked = lexed.maskedSource;
     if (!found.has('network')) {
       const ambient = AMBIENT_NETWORK_RULES.find((r) => r.re.test(masked));
       if (ambient !== undefined) found.set('network', ambient.evidence);
@@ -835,28 +703,59 @@ async function collectScannableFiles(root: string): Promise<string[]> {
   return files.sort();
 }
 
-/** Scan the shipped source under `sourceRoot` and enumerate every effect occurrence. */
-export async function scanEffectOccurrences(
+/**
+ * Scan the shipped source under `sourceRoot` and return every effect occurrence
+ * ALONGSIDE the two denominators that say whether the occurrence set means
+ * anything: how many modules the walk visited, and how many module specifiers
+ * `lex` resolved across all of them.
+ *
+ * The counts are collected here rather than derived later because this is the
+ * only place that sees the population. Downstream, an empty occurrence array is
+ * indistinguishable from a broken walk or a lexer that resolved nothing — and
+ * both of those read as "the tree performs no unowned effect", which is a pass.
+ */
+export async function scanEffectTree(
   sourceRoot: string,
-): Promise<readonly EffectOccurrence[]> {
+  lex: ModuleLexer,
+): Promise<EffectScan> {
   const files = await collectScannableFiles(sourceRoot);
   const perFile = await Promise.all(
     files.map(async (file) => {
       const module = relative(sourceRoot, file).replaceAll('\\', '/');
-      return detectModuleEffects(module, await readFile(file, 'utf8'));
+      const source = await readFile(file, 'utf8');
+      return {
+        occurrences: detectModuleEffects(module, source, lex),
+        specifierCount: lex(source, module).imports.length,
+      };
     }),
   );
-  return Object.freeze(
-    perFile.flat().sort((a, b) =>
-      a.module === b.module
-        ? a.effectClass < b.effectClass
-          ? -1
-          : 1
-        : a.module < b.module
-          ? -1
-          : 1,
+  return Object.freeze({
+    occurrences: Object.freeze(
+      perFile.flatMap((entry) => entry.occurrences).sort((a, b) =>
+        a.module === b.module
+          ? a.effectClass < b.effectClass
+            ? -1
+            : 1
+          : a.module < b.module
+            ? -1
+            : 1,
+      ),
     ),
-  );
+    moduleCount: files.length,
+    specifierCount: perFile.reduce((sum, entry) => sum + entry.specifierCount, 0),
+  });
+}
+
+/**
+ * Just the occurrences from {@link scanEffectTree}, for the sibling censuses
+ * (`effect-port-seam`, `adapter-ownership-seam`) whose own verdicts range over
+ * occurrences and carry their own denominators.
+ */
+export async function scanEffectOccurrences(
+  sourceRoot: string,
+  lex: ModuleLexer,
+): Promise<readonly EffectOccurrence[]> {
+  return (await scanEffectTree(sourceRoot, lex)).occurrences;
 }
 
 // ─── Ownership model ────────────────────────────────────────────────────────
@@ -869,17 +768,56 @@ export function ruleClaims(rule: EffectOwnershipRule, occurrence: EffectOccurren
 }
 
 /**
- * Pure census verdict over an already-collected occurrence set and rule set.
+ * Pure census verdict over an already-collected scan and rule set.
  *
- * Two independent, complementary checks, each with its own diagnostic:
- *   - INDETERMINATE_OWNER — an occurrence no rule claims;
- *   - STALE_OWNERSHIP     — a rule that claims no occurrence (phantom cover).
+ * Four independent, complementary checks, each with its own diagnostic:
+ *   - INDETERMINATE_OWNER        — an occurrence no rule claims;
+ *   - STALE_OWNERSHIP            — a rule that claims no occurrence (phantom cover);
+ *   - EMPTY_MODULE_POPULATION    — the walk visited no modules at all, so every
+ *     count below it is zero for a reason that has nothing to do with the tree
+ *     (moved scan root, renamed package directory, broken walker);
+ *   - EMPTY_SPECIFIER_DENOMINATOR — modules were visited but the lexer resolved
+ *     no module specifier in ANY of them. Since task 065 the lexer is a
+ *     caller-supplied port ({@link ModuleLexer}), so a caller can pass one that
+ *     silently answers nothing; the import half of the detector would then see
+ *     an empty surface everywhere and the ambient half would carry the census
+ *     alone. No real source tree imports nothing.
+ *
+ * The last two are the non-empty-denominator teeth. They exist because the
+ * SUCCESS state of this census is "no diagnostics", which is also what a
+ * completely broken instrument produces. The `STALE_OWNERSHIP` tooth happens to
+ * cover the live tree today (40-odd rules would all go stale), but only because
+ * the live rule set is non-empty — it is coincidental cover, not a denominator.
  */
 export function runEffectLedgerCensus(
-  occurrences: readonly EffectOccurrence[],
+  scan: EffectScan,
   rules: readonly EffectOwnershipRule[] = EFFECT_OWNERSHIP,
 ): EffectLedgerResult {
   const diagnostics: EffectLedgerDiagnostic[] = [];
+  const occurrences = scan.occurrences;
+
+  if (scan.moduleCount <= 0) {
+    diagnostics.push({
+      code: 'EMPTY_MODULE_POPULATION',
+      message:
+        'The effect ledger census visited ZERO modules. Every count it reports is ' +
+        'therefore zero for a reason unrelated to the tree — a moved scan root, a ' +
+        'renamed package directory or a broken walker all present this way, and all ' +
+        'three read as "no unowned effect", which is a pass. Reported as a failure ' +
+        'instead (DR-26 non-empty denominator).',
+    });
+  } else if (scan.specifierCount <= 0) {
+    diagnostics.push({
+      code: 'EMPTY_SPECIFIER_DENOMINATOR',
+      message:
+        `The effect ledger census visited ${scan.moduleCount} module(s) but the lexer ` +
+        'resolved ZERO module specifiers across all of them. Import-shape rules 1–4 ' +
+        'therefore ranged over nothing, so the only evidence still reaching the verdict ' +
+        'is the ambient-shape half. A lexer that answers nothing looks exactly like a ' +
+        'tree that imports nothing, and no real source tree imports nothing. Reported ' +
+        'as a failure rather than a clean scan (DR-26 non-empty denominator).',
+    });
+  }
 
   for (const occurrence of occurrences) {
     const owned = rules.some((rule) => ruleClaims(rule, occurrence));
@@ -914,18 +852,26 @@ export function runEffectLedgerCensus(
 
   return Object.freeze({
     ok: diagnostics.length === 0,
+    moduleCount: scan.moduleCount,
+    specifierCount: scan.specifierCount,
     occurrenceCount: occurrences.length,
     diagnostics,
   });
 }
 
-/** Collect the live occurrences and return the census verdict over the real tree. */
+/**
+ * Collect the live scan and return the census verdict over the real tree.
+ *
+ * @param sourceRoot Directory to walk.
+ * @param lex        The lexer port. Required; see {@link ModuleLexer}.
+ * @param rules      Ownership rules; defaults to the declared ledger.
+ */
 export async function auditEffectOwnership(
   sourceRoot: string,
+  lex: ModuleLexer,
   rules: readonly EffectOwnershipRule[] = EFFECT_OWNERSHIP,
 ): Promise<EffectLedgerResult> {
-  const occurrences = await scanEffectOccurrences(sourceRoot);
-  return runEffectLedgerCensus(occurrences, rules);
+  return runEffectLedgerCensus(await scanEffectTree(sourceRoot, lex), rules);
 }
 
 // ─── The declared effect ledger ─────────────────────────────────────────────

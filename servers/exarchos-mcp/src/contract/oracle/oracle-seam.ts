@@ -77,7 +77,11 @@ import { zodToJsonSchema } from '../../adapters/json-schema.js';
 import { layerCodes } from '../error-families.js';
 import { OUTPUT_KINDS } from '../envelope.js';
 import { classifyVersionChange, type CompatibilityClass } from '../compatibility.js';
-import { detectModuleEffects, type EffectClass } from '../../architecture/effect-ledger.js';
+import {
+  detectModuleEffects,
+  type EffectClass,
+  type ModuleLexer,
+} from '../../architecture/effect-ledger.js';
 
 // ─── The five detection axes ─────────────────────────────────────────────────
 
@@ -292,8 +296,23 @@ export interface OracleSubject {
   /**
    * Optional handler source for the COMPLEMENTARY static effect scan (P04-01).
    * Runtime effect recording is the primary signal; this cross-checks it.
+   *
+   * The source and the lexer that reads it are ONE optional field rather than
+   * two, so a caller cannot supply the subject without also supplying the
+   * instrument. `detectModuleEffects` needs a {@link ModuleLexer} port since
+   * DR-26 / task 065 — the effect ledger is shipped source and cannot import the
+   * TypeScript compiler — and a separate optional lexer would let this branch
+   * silently not run while looking configured.
+   *
+   * **R-11, recorded rather than fixed (task 065).** Nothing in the tree sets
+   * this field: the static-effect branch below is unreachable in practice and
+   * `staticEffects` is always `[]`. It is not this task's to wire, but a reader
+   * should not mistake it for a live cross-check.
    */
-  readonly handlerSource?: string;
+  readonly handlerSource?: {
+    readonly source: string;
+    readonly lex: ModuleLexer;
+  };
 }
 
 // ─── Observation ─────────────────────────────────────────────────────────────
@@ -514,7 +533,11 @@ export async function observeBehavior(subject: OracleSubject): Promise<Observati
   }
 
   const staticEffects = subject.handlerSource !== undefined
-    ? detectModuleEffects(declaration.actionId, subject.handlerSource).map((e) => e.effectClass)
+    ? detectModuleEffects(
+        declaration.actionId,
+        subject.handlerSource.source,
+        subject.handlerSource.lex,
+      ).map((e) => e.effectClass)
     : [];
 
   const mask = maskVolatileCarriers(output, outputRepeat, subject.volatileCarriers ?? []);

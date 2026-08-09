@@ -589,10 +589,12 @@ function findComposite(name: string) {
   return TOOL_REGISTRY.find((c) => c.name === name);
 }
 
-function findAction(compositeName: string, actionName: string) {
-  const composite = findComposite(compositeName);
-  return composite?.actions.find((a) => a.name === actionName);
-}
+  function findAction(toolName: string, actionName: string): ToolAction {
+    const tool = TOOL_REGISTRY.find((t) => t.name === toolName);
+    const action = tool?.actions.find((a) => a.name === actionName);
+    if (action === undefined) throw new Error(`action '${toolName}.${actionName}' not registered`);
+    return action;
+  }
 
 describe('TOOL_REGISTRY', () => {
   it('should have exactly 5 composites', () => {
@@ -727,7 +729,11 @@ describe('TOOL_REGISTRY', () => {
       // six-condition gate report) and `cutover_decide` (operator-gated
       // event-sourced rollout decision) onto exarchos_orchestrate — INV-5d,
       // no new visible tool: 77 → 79.
-      expect(composite!.actions).toHaveLength(79);
+      // Task 068 (DR-23) added `invariants_amend` — the id-targeted,
+      // field-scoped amend path the invariant catalog previously lacked
+      // entirely (invariants_add is append-only, so entries were effectively
+      // immutable once committed). INV-5d, no new visible tool: 79 → 80.
+      expect(composite!.actions).toHaveLength(80);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -857,6 +863,12 @@ describe('TOOL_REGISTRY', () => {
       'doctor',
       'invariants_scaffold',
       'invariants_add',
+      // Task 068 — the amend path the catalog previously lacked. Like the two
+      // above it dispatches through an explicit composite branch rather than
+      // ACTION_HANDLERS, so it is skipped here and ENFORCED by the routing
+      // assertion below (which is what would catch a registration with no
+      // branch — the UNKNOWN_ACTION hazard).
+      'invariants_amend',
     ]);
 
     // The full set of explicit composite dispatch branches — SPECIAL_ACTIONS plus
@@ -931,6 +943,13 @@ describe('TOOL_REGISTRY', () => {
           action: 'invariants_add',
           repoRoot: base,
           entry: { dimension: 'x', summary: 'y' },
+          dryRun: true,
+        },
+        invariants_amend: {
+          action: 'invariants_amend',
+          repoRoot: base,
+          id: 'U-1',
+          patch: { summary: 'y' },
           dryRun: true,
         },
       };
@@ -2078,9 +2097,11 @@ describe('#1499 state-source migration schema (regression guard)', () => {
 // more release as a historical marker (v2.12 drops the slot itself), so
 // this test is narrowed to cover only the canonical action.
 describe('Registry_OutputSchema (T40, DR-11)', () => {
-  function findAction(toolName: string, actionName: string) {
+  function findAction(toolName: string, actionName: string): ToolAction {
     const tool = TOOL_REGISTRY.find((t) => t.name === toolName);
-    return tool?.actions.find((a) => a.name === actionName);
+    const action = tool?.actions.find((a) => a.name === actionName);
+    if (action === undefined) throw new Error(`action '${toolName}.${actionName}' not registered`);
+    return action;
   }
 
   it('Registry_OutputSchema_RegistersMetaDeprecationOnAffectedActions', () => {
@@ -2968,6 +2989,7 @@ const EXPECTED_EFFECTIVE_BUDGETS: Readonly<Record<string, number>> = {
   'exarchos_orchestrate.onboard': 2000,
   'exarchos_orchestrate.invariants_scaffold': 2000,
   'exarchos_orchestrate.invariants_add': 2000,
+  'exarchos_orchestrate.invariants_amend': 2000,
   'exarchos_orchestrate.acquire_worktree': 2000,
   'exarchos_orchestrate.release_worktree': 2000,
   'exarchos_orchestrate.prune_worktrees': 2000,
@@ -3200,6 +3222,26 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
     'exarchos_view.export': {
       featureId: 'f', workflowExists: false, exported: false,
     },
+    // `invariants_amend` (task 068). The dry-run branch is the minimal valid
+    // baseline: `renderedEntry`/`diff` are dry-run-only and `events` is
+    // commit-only, so all three are optional and the floor is the required
+    // core plus a non-empty `patchedFields`.
+    'exarchos_orchestrate.invariants_amend': {
+      committed: false, id: 'INV-17', tier: 'dev',
+      catalog: '.exarchos/invariants.md', patchedFields: ['summary'],
+      next_actions: [],
+    },
+    // DR-4 / task 069: the invariant-conformance gate, paid down from
+    // `vacuityWaiver` to a real schema. The baseline is its minimal emittable
+    // shape — every declared field is required, including the audit-mode
+    // delivery pair (`auditPrompt` + `auditInvariantIds`) a reader is now
+    // instructed to act on. Their being required is the point: an optional field
+    // is not something a reader can be told to iterate.
+    'exarchos_orchestrate.check_invariant_conformance': {
+      verdict: 'APPROVED', high: 0, medium: 0, low: 0, findings: [],
+      auditPrompt: '', auditInvariantIds: [], auditProjection: 'no-audit-entries',
+      applicableCount: 0, report: 'PASS',
+    },
   };
   function baselineEnvelope(data: Record<string, unknown>): Record<string, unknown> {
     return {
@@ -3350,7 +3392,14 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       // exarchos_workflow LCD schemas wrap EnvelopeSchema(z.unknown()) and are
       // NOT typed). The worktree-lifecycle `inspect` verb (DR-4) added a 9th
       // typed-output view action; the `export` verb (DR-6) adds the 10th.
-      expect(actions.length).toBe(10);
+      //
+      // The 11th and 12th arrived by DIFFERENT routes, and the distinction is
+      // the interesting part: `invariants_amend` (task 068) is a NEW action
+      // declared substantively because a new action cannot acquire a shrink-only
+      // vacuity waiver, while `check_invariant_conformance` (task 069) is the
+      // first entry to LEAVE the allowlist rather than arrive typed. One route
+      // holds the line, the other pays the debt down.
+      expect(actions.length).toBe(12);
       for (const { tool, action } of actions) {
         const parsed = action.outputSchema.safeParse(cappedEnvelope());
         expect(

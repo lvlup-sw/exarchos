@@ -19,8 +19,8 @@
  *
  * ## Termination
  *
- * The loop exits when the observed task status is terminal per the SDK
- * `isTerminal` predicate (`completed | failed | cancelled`) OR when the
+ * The loop exits when the observed task status is terminal per the owned
+ * `isTaskTerminal` predicate (`completed | failed | cancelled`) OR when the
  * provided `signal` aborts (SIGINT path, T34). Cancellation drives a
  * `taskStore.updateTaskStatus(taskId, 'cancelled', 'user-interrupt')`
  * call which emits `task.cancelled` on the namespaced stream — the
@@ -43,8 +43,13 @@
  * `action` callback after the `task.cancelled` event has been appended
  * (the store's `append` is event-store-first).
  */
-import type { Task } from '@modelcontextprotocol/sdk/types.js';
-import { isTerminal } from '@modelcontextprotocol/sdk/experimental/tasks/interfaces.js';
+import type { V2Task as Task } from '../sdk/seam.js';
+// DR-0 / task 051: v2 DELETED `isTerminal` along with the whole experimental
+// Tasks store seam, so this predicate is drawn from the OWNED port rather than
+// re-pointed at the seam. `../task-store/port.ts` imports nothing and is
+// generation-neutral by construction; `isTaskTerminal` is differentially tested
+// against the v1 oracle over v2's own status vocabulary.
+import { isTaskTerminal } from '../task-store/port.js';
 
 import {
   formatMissingTask,
@@ -194,7 +199,7 @@ export async function runFollowLoop(
       // makes this race-safe — `final.status` reflects the durable
       // post-cancel-attempt view of the world.
       const finalStatus: 'completed' | 'failed' | 'cancelled' =
-        final !== null && isTerminal(final.status)
+        final !== null && isTaskTerminal(final.status)
           ? (final.status as 'completed' | 'failed' | 'cancelled')
           : 'cancelled';
       const renderTask: Task = { ...cancelledTask, status: finalStatus };
@@ -218,7 +223,7 @@ export async function runFollowLoop(
       lastSeen = sig;
     }
 
-    if (isTerminal(task.status)) {
+    if (isTaskTerminal(task.status)) {
       return {
         terminalStatus: task.status as 'completed' | 'failed' | 'cancelled',
         transitions,

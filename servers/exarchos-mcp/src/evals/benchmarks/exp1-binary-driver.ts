@@ -35,8 +35,11 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { z } from 'zod';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import {
+  createV2Client,
+  createV2StdioClientTransport,
+  connectV2Client,
+} from '../../sdk/seam.js';
 import { parseTaskStamps } from '../../orchestrate/parse-task-stamps.js';
 import { stampProvenance, type ProvenanceStamped } from '../provenance.js';
 
@@ -480,7 +483,7 @@ export async function runArmOverCorpus(
   serverRoot: string,
 ): Promise<Map<string, SpecRunResult>> {
   const stateDir = fs.mkdtempSync(path.join(path.dirname(serverRoot), `exp1-state-${ref.label}-`));
-  const transport = new StdioClientTransport({
+  const transport = createV2StdioClientTransport({
     command: ref.binaryPath,
     args: ['mcp'],
     cwd: serverRoot,
@@ -490,13 +493,13 @@ export async function runArmOverCorpus(
       ),
     ),
   });
-  const client = new Client({ name: 'exp1-driver', version: '0.0.0' }, { capabilities: {} });
+  const client = createV2Client({ name: 'exp1-driver', version: '0.0.0' }, { capabilities: {} });
 
   const results = new Map<string, SpecRunResult>();
   try {
     // Inside the try so a handshake failure is still torn down (client.close +
     // stateDir removal) rather than orphaning the spawned `mcp` process.
-    await client.connect(transport);
+    await connectV2Client(client, transport);
     for (const spec of corpus) {
       // The event store requires streamId to match /^[a-z0-9-]+$/ — lowercase,
       // fold every other character (dots, underscores, uppercase) to a hyphen,

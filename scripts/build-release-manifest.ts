@@ -232,6 +232,28 @@ const BANNER_PREFIX = `globalThis.${BUILD_IDENTITY_GLOBAL}=`;
  * corrupt the scan), locates the banner assignment, brace-matches the object
  * literal and JSON-parses it. Returns `undefined` when the artifact carries no
  * identity at all — callers treat that as a hard failure.
+ *
+ * ── TWO ENCODINGS, DELIBERATELY ─────────────────────────────────────────────
+ * The SCAN must be latin1 and the PARSE must be UTF-8, and conflating them is
+ * a real bug this code shipped with. latin1 is right for scanning precisely
+ * because it is total: every byte maps to exactly one char, so arbitrary
+ * binary in a compiled artifact can neither raise nor produce replacement
+ * characters that would desynchronise the brace matcher's offsets. But the
+ * banner payload is UTF-8, so a latin1 char-run is that text's BYTES wearing
+ * the wrong type. `JSON.parse` on the latin1 string therefore yields mojibake
+ * for anything above U+007F — an em dash (`E2 80 94`) comes back as three
+ * characters.
+ *
+ * It stayed invisible while every embedded value happened to be ASCII (hex
+ * digests, commit shas, semver). The first non-ASCII value — task 049's
+ * `approvedBy`, which carries an em dash and an arrow — turned a
+ * round-trip-identity assertion red, and the failure named the encoding rather
+ * than the field, so it read as a manifest mismatch.
+ *
+ * The slice is taken in latin1 space where one char is exactly one byte, so
+ * re-encoding it as latin1 recovers the ORIGINAL bytes exactly; decoding those
+ * as UTF-8 is then the payload's true text. The scan keeps its totality and
+ * the parse gets its real encoding.
  */
 export function extractEmbeddedBuildIdentity(bytes: Uint8Array): EmbeddedBuildIdentity | undefined {
   const text = Buffer.from(bytes).toString('latin1');
@@ -257,7 +279,11 @@ export function extractEmbeddedBuildIdentity(bytes: Uint8Array): EmbeddedBuildId
       depth--;
       if (depth === 0) {
         const literal = text.slice(start, i + 1);
-        return JSON.parse(literal) as EmbeddedBuildIdentity;
+        // latin1 → bytes → UTF-8. See the encoding note above: the slice is
+        // byte-exact, so this recovers the payload's real text rather than its
+        // bytes reinterpreted as characters.
+        const decoded = Buffer.from(literal, 'latin1').toString('utf8');
+        return JSON.parse(decoded) as EmbeddedBuildIdentity;
       }
     }
   }

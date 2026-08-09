@@ -21,48 +21,54 @@ const {
 
 // ─── Module Mocks ────────────────────────────────────────────────────────────
 
-vi.mock('@modelcontextprotocol/sdk/server/mcp.js', () => ({
-  McpServer: vi.fn().mockImplementation(() => ({
-    tool: vi.fn(
-      (
-        name: string,
-        description: string,
-        schema: unknown,
-        handler: (...args: unknown[]) => unknown,
-      ) => {
-        toolRegistrations.set(name, { description, schema, handler });
+// ── The mock boundary is the SEAM, not the SDK (task 049) ───────────────────
+//
+// This used to mock `@modelcontextprotocol/sdk/server/{mcp,stdio}.js` directly.
+// Two things made that wrong once DR-0's migration landed: production no longer
+// imports those paths (so the mock intercepted nothing and every registration
+// assertion silently saw an empty map), and naming an SDK package outside
+// `sdk/seam.ts` is exactly what DR-26's `SDK_SEAM_BOUNDARY` rule forbids.
+//
+// Mocking the seam is also the more durable boundary on its own merits: the
+// next SDK move changes one module rather than every test that stubs it, which
+// is the whole reason the seam exists.
+vi.mock('../../sdk/seam.js', async (importOriginal) => {
+  // Constants (method names, protocol version) are pass-through: they are
+  // vocabulary, not behaviour, and stubbing them would let a typo in the real
+  // module pass here.
+  const actual = await importOriginal<typeof import('../../sdk/seam.js')>();
+  return {
+    ...actual,
+    createV2McpServer: vi.fn().mockImplementation(() => ({
+      registerTool: vi.fn(
+        (
+          name: string,
+          config: { description: string; inputSchema: unknown },
+          handler: (...args: unknown[]) => unknown,
+        ) => {
+          toolRegistrations.set(name, {
+            description: config.description,
+            schema: config.inputSchema,
+            handler,
+          });
+        },
+      ),
+      connect: vi.fn().mockResolvedValue(undefined),
+      // #1290 — createMcpServer wires `oninitialized` + `setNotificationHandler`
+      // for the roots/list_changed capability snapshot. The real McpServer
+      // exposes these via `.server` (the underlying SDK Server instance).
+      // The mock mirrors that surface so the production code path doesn't
+      // throw "Cannot set properties of undefined" when running under vitest.
+      server: {
+        oninitialized: undefined,
+        getClientCapabilities: vi.fn().mockReturnValue({}),
+        setNotificationHandler: vi.fn(),
       },
-    ),
-    registerTool: vi.fn(
-      (
-        name: string,
-        config: { description: string; inputSchema: unknown },
-        handler: (...args: unknown[]) => unknown,
-      ) => {
-        toolRegistrations.set(name, {
-          description: config.description,
-          schema: config.inputSchema,
-          handler,
-        });
-      },
-    ),
-    connect: vi.fn().mockResolvedValue(undefined),
-    // #1290 — createMcpServer wires `oninitialized` + `setNotificationHandler`
-    // for the roots/list_changed capability snapshot. The real McpServer
-    // exposes these via `.server` (the underlying SDK Server instance).
-    // The mock mirrors that surface so the production code path doesn't
-    // throw "Cannot set properties of undefined" when running under vitest.
-    server: {
-      oninitialized: undefined,
-      getClientCapabilities: vi.fn().mockReturnValue({}),
-      setNotificationHandler: vi.fn(),
-    },
-  })),
-}));
-
-vi.mock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
-  StdioServerTransport: vi.fn(),
-}));
+    })),
+    createV2StdioServerTransport: vi.fn(),
+    connectV2Server: vi.fn().mockResolvedValue(undefined),
+  };
+});
 
 // Mock composite handlers
 vi.mock('../../workflow/composite.js', () => ({

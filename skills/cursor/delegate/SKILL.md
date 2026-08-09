@@ -39,7 +39,19 @@ Rationalization patterns that violate this principle are catalogued in `referenc
 The default `subagent` mode dispatches each task using the runtime's spawn primitive: `Task`.
 
 
-Use the `recommendedModel` from `prepare_delegation` task classifications when available. If no classification exists (e.g., fixer dispatch), omit `model` to inherit the session default.
+### Model selection — a reasoning TIER, never a version
+
+Use the `recommendedModel` from `prepare_delegation` task classifications when available. If no classification exists (e.g. fixer dispatch), omit `model` to inherit the session default.
+
+`recommendedModel` is a **reasoning tier** (`haiku` | `sonnet` | `opus`), not a model version. The tier is derived from the task's `riskTier` via `agents.tier-models` (defaults `low → haiku`, `medium → sonnet`, `high → opus`; operator-overridable in `.exarchos.yml`, validated monotone so a higher risk tier can never resolve weaker).
+
+Three rules follow, and they are the whole policy:
+
+1. **Never write a model version anywhere** — not in a dispatch, an agent spec, a skill, or a prompt. No `claude-*-YYYYMMDD`, no `-latest`, no point releases. A version string pinned in content is a second model authority that outranks the operator's tier policy silently and rots on the next release. Pass the tier alias and let the harness resolve it against its own current catalog.
+2. **Strength follows RISK, not role.** The agent choice selects the *role* (implementer / fixer / reviewer / scaffolder); the ladder selects the *strength*. An agent spec that pins a model id is a defect — that is why every shipped spec declares `model: inherit`.
+3. **If you need a version, read the catalog — do not recall one.** Resolve the current tier→version mapping from the harness's own model list at dispatch time. Model recall from training data is stale by construction, and a guessed identifier fails closed at best and silently downgrades at worst.
+
+`unless otherwise specified` means an explicit operator override in `.exarchos.yml` (`agents.default-model`, `agents.models`, `agents.tier-models`) — not a judgement call at dispatch time.
 
 ### Pre-Dispatch Schema Discovery
 

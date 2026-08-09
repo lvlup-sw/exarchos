@@ -34,8 +34,20 @@
  * once per staleness window.
  */
 
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+// The client generation MUST track the server's. The binary this fixture
+// spawns is a v2 server (DR-0, task 049), so the driving client is v2 too.
+// This file drove it with a v1 `Client` until after 049 landed, and it was not
+// caught because the removal criterion was measured over `src/` while being
+// reported over the package — the guard that now covers this tree is
+// `src/__tests__/sdk-pin-policy.test.ts`. It survived that long precisely
+// because the stdio pairing is the FORGIVING one: real pipes carry JSON-RPC
+// between generations, so this read as passing rather than failing. The
+// in-memory pairing is the unforgiving one — two linked-pair implementations
+// from different packages connect to their own siblings and present as a hang
+// — which is what makes a cross-generation pair here a latent trap rather than
+// a loud error.
+import { Client } from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as os from 'node:os';

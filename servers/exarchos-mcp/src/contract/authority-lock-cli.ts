@@ -36,7 +36,15 @@ const LOCK_NOTE =
   're-approved again after the DR-25 PRIMARY resolution landed — the CLI now ' +
   'addresses actions through the generated client ' +
   '`contract/cli/generated-client.ts`, the `cli-direct-dispatch` deviation is ' +
-  'retired, and the catalog records the retirement). Regenerate with ' +
+  'retired, and the catalog records the retirement; re-approved again under ' +
+  'DR-4 after INV-17 was amended to treat a VACUOUS `outputSchema` as a ' +
+  'violation rather than a pass — the catalog wording is the frozen input, so ' +
+  'the amendment re-enters the freeze through this gesture; re-approved again ' +
+  'under DR-0 task 049, which completed the MCP SDK v1→v2 source migration and ' +
+  'removed `@modelcontextprotocol/sdk` — the `mcp-sdk` and `mcp-protocol` ' +
+  'authorities now read from `@modelcontextprotocol/server`. The protocol ' +
+  'VERSION is unchanged across that move, which is the freeze corroborating ' +
+  "DR-0's no-wire-change claim rather than merely restating it). Regenerate with " +
   '`npx tsx src/contract/authority-lock-cli.ts` after reviewing and approving ' +
   'the new authority digests, then commit this file.';
 
@@ -45,7 +53,8 @@ const LOCK_NOTE =
  * this when a new work package performs the review-and-approve gesture, so the
  * lockfile carries the provenance of the approval rather than of the tool.
  */
-export const CURRENT_APPROVER = 'wiring-closure (DR-25 primary resolution)';
+export const CURRENT_APPROVER =
+  'internal-mechanics-overhaul (DR-0 task 049 — MCP SDK v1→v2 source migration)';
 
 export function regenerateAuthorityLock(approvedBy = CURRENT_APPROVER): string {
   const paths = defaultSourcePaths();

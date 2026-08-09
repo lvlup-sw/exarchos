@@ -1,9 +1,11 @@
 /**
  * EventSourcedTaskStore — lifecycle + REPLAY (INV-1) acceptance tests (#1272).
  *
- * The store implements the SDK `TaskStore` interface
- * (`@modelcontextprotocol/sdk/experimental/tasks/interfaces`) as a
- * **projection** over the event store. The four `task.*` lifecycle
+ * The store implements the owned `TaskStorePort` (`./port.ts`) as a
+ * **projection** over the event store. That contract used to be the SDK's
+ * experimental `TaskStore`; v2 `2.0.0` deleted it, so DR-0 / task 051
+ * re-parented the declaration without changing a single behaviour — which
+ * is why every acceptance test below is untouched. The four `task.*` lifecycle
  * events (`task.created`/`task.polled`/`task.result`/`task.cancelled`)
  * are the durable substrate; the in-memory projection is a cache.
  *

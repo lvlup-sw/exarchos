@@ -51,7 +51,19 @@ On Claude Code (and any future runtime declaring \`team:agent-teams\`), an addit
 
 **Auto-detection:** tmux + \`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS\` present means \`agent-team\`. Otherwise \`subagent\`. Override with \`/exarchos:delegate --mode subagent|agent-team\`.
 
-Use the \`recommendedModel\` from \`prepare_delegation\` task classifications when available. If no classification exists (e.g., fixer dispatch), omit \`model\` to inherit the session default.
+### Model selection — a reasoning TIER, never a version
+
+Use the \`recommendedModel\` from \`prepare_delegation\` task classifications when available. If no classification exists (e.g. fixer dispatch), omit \`model\` to inherit the session default.
+
+\`recommendedModel\` is a **reasoning tier** (\`haiku\` | \`sonnet\` | \`opus\`), not a model version. The tier is derived from the task's \`riskTier\` via \`agents.tier-models\` (defaults \`low → haiku\`, \`medium → sonnet\`, \`high → opus\`; operator-overridable in \`.exarchos.yml\`, validated monotone so a higher risk tier can never resolve weaker).
+
+Three rules follow, and they are the whole policy:
+
+1. **Never write a model version anywhere** — not in a dispatch, an agent spec, a skill, or a prompt. No \`claude-*-YYYYMMDD\`, no \`-latest\`, no point releases. A version string pinned in content is a second model authority that outranks the operator's tier policy silently and rots on the next release. Pass the tier alias and let the harness resolve it against its own current catalog.
+2. **Strength follows RISK, not role.** The agent choice selects the *role* (implementer / fixer / reviewer / scaffolder); the ladder selects the *strength*. An agent spec that pins a model id is a defect — that is why every shipped spec declares \`model: inherit\`.
+3. **If you need a version, read the catalog — do not recall one.** Resolve the current tier→version mapping from the harness's own model list at dispatch time. Model recall from training data is stale by construction, and a guessed identifier fails closed at best and silently downgrades at worst.
+
+\`unless otherwise specified\` means an explicit operator override in \`.exarchos.yml\` (\`agents.default-model\`, \`agents.models\`, \`agents.tier-models\`) — not a judgement call at dispatch time.
 
 ### Pre-Dispatch Schema Discovery
 
@@ -1047,7 +1059,19 @@ Rationalization patterns that violate this principle are catalogued in \`referen
 The default \`subagent\` mode dispatches each task using the runtime's spawn primitive: \`spawn_agent\`.
 
 
-Use the \`recommendedModel\` from \`prepare_delegation\` task classifications when available. If no classification exists (e.g., fixer dispatch), omit \`model\` to inherit the session default.
+### Model selection — a reasoning TIER, never a version
+
+Use the \`recommendedModel\` from \`prepare_delegation\` task classifications when available. If no classification exists (e.g. fixer dispatch), omit \`model\` to inherit the session default.
+
+\`recommendedModel\` is a **reasoning tier** (\`haiku\` | \`sonnet\` | \`opus\`), not a model version. The tier is derived from the task's \`riskTier\` via \`agents.tier-models\` (defaults \`low → haiku\`, \`medium → sonnet\`, \`high → opus\`; operator-overridable in \`.exarchos.yml\`, validated monotone so a higher risk tier can never resolve weaker).
+
+Three rules follow, and they are the whole policy:
+
+1. **Never write a model version anywhere** — not in a dispatch, an agent spec, a skill, or a prompt. No \`claude-*-YYYYMMDD\`, no \`-latest\`, no point releases. A version string pinned in content is a second model authority that outranks the operator's tier policy silently and rots on the next release. Pass the tier alias and let the harness resolve it against its own current catalog.
+2. **Strength follows RISK, not role.** The agent choice selects the *role* (implementer / fixer / reviewer / scaffolder); the ladder selects the *strength*. An agent spec that pins a model id is a defect — that is why every shipped spec declares \`model: inherit\`.
+3. **If you need a version, read the catalog — do not recall one.** Resolve the current tier→version mapping from the harness's own model list at dispatch time. Model recall from training data is stale by construction, and a guessed identifier fails closed at best and silently downgrades at worst.
+
+\`unless otherwise specified\` means an explicit operator override in \`.exarchos.yml\` (\`agents.default-model\`, \`agents.models\`, \`agents.tier-models\`) — not a judgement call at dispatch time.
 
 ### Pre-Dispatch Schema Discovery
 
@@ -1985,7 +2009,19 @@ Rationalization patterns that violate this principle are catalogued in \`referen
 The default \`subagent\` mode dispatches each task using the runtime's spawn primitive: \`task\`.
 
 
-Use the \`recommendedModel\` from \`prepare_delegation\` task classifications when available. If no classification exists (e.g., fixer dispatch), omit \`model\` to inherit the session default.
+### Model selection — a reasoning TIER, never a version
+
+Use the \`recommendedModel\` from \`prepare_delegation\` task classifications when available. If no classification exists (e.g. fixer dispatch), omit \`model\` to inherit the session default.
+
+\`recommendedModel\` is a **reasoning tier** (\`haiku\` | \`sonnet\` | \`opus\`), not a model version. The tier is derived from the task's \`riskTier\` via \`agents.tier-models\` (defaults \`low → haiku\`, \`medium → sonnet\`, \`high → opus\`; operator-overridable in \`.exarchos.yml\`, validated monotone so a higher risk tier can never resolve weaker).
+
+Three rules follow, and they are the whole policy:
+
+1. **Never write a model version anywhere** — not in a dispatch, an agent spec, a skill, or a prompt. No \`claude-*-YYYYMMDD\`, no \`-latest\`, no point releases. A version string pinned in content is a second model authority that outranks the operator's tier policy silently and rots on the next release. Pass the tier alias and let the harness resolve it against its own current catalog.
+2. **Strength follows RISK, not role.** The agent choice selects the *role* (implementer / fixer / reviewer / scaffolder); the ladder selects the *strength*. An agent spec that pins a model id is a defect — that is why every shipped spec declares \`model: inherit\`.
+3. **If you need a version, read the catalog — do not recall one.** Resolve the current tier→version mapping from the harness's own model list at dispatch time. Model recall from training data is stale by construction, and a guessed identifier fails closed at best and silently downgrades at worst.
+
+\`unless otherwise specified\` means an explicit operator override in \`.exarchos.yml\` (\`agents.default-model\`, \`agents.models\`, \`agents.tier-models\`) — not a judgement call at dispatch time.
 
 ### Pre-Dispatch Schema Discovery
 
@@ -2915,7 +2951,19 @@ Rationalization patterns that violate this principle are catalogued in \`referen
 The default \`subagent\` mode dispatches each task using the runtime's spawn primitive: \`Task\`.
 
 
-Use the \`recommendedModel\` from \`prepare_delegation\` task classifications when available. If no classification exists (e.g., fixer dispatch), omit \`model\` to inherit the session default.
+### Model selection — a reasoning TIER, never a version
+
+Use the \`recommendedModel\` from \`prepare_delegation\` task classifications when available. If no classification exists (e.g. fixer dispatch), omit \`model\` to inherit the session default.
+
+\`recommendedModel\` is a **reasoning tier** (\`haiku\` | \`sonnet\` | \`opus\`), not a model version. The tier is derived from the task's \`riskTier\` via \`agents.tier-models\` (defaults \`low → haiku\`, \`medium → sonnet\`, \`high → opus\`; operator-overridable in \`.exarchos.yml\`, validated monotone so a higher risk tier can never resolve weaker).
+
+Three rules follow, and they are the whole policy:
+
+1. **Never write a model version anywhere** — not in a dispatch, an agent spec, a skill, or a prompt. No \`claude-*-YYYYMMDD\`, no \`-latest\`, no point releases. A version string pinned in content is a second model authority that outranks the operator's tier policy silently and rots on the next release. Pass the tier alias and let the harness resolve it against its own current catalog.
+2. **Strength follows RISK, not role.** The agent choice selects the *role* (implementer / fixer / reviewer / scaffolder); the ladder selects the *strength*. An agent spec that pins a model id is a defect — that is why every shipped spec declares \`model: inherit\`.
+3. **If you need a version, read the catalog — do not recall one.** Resolve the current tier→version mapping from the harness's own model list at dispatch time. Model recall from training data is stale by construction, and a guessed identifier fails closed at best and silently downgrades at worst.
+
+\`unless otherwise specified\` means an explicit operator override in \`.exarchos.yml\` (\`agents.default-model\`, \`agents.models\`, \`agents.tier-models\`) — not a judgement call at dispatch time.
 
 ### Pre-Dispatch Schema Discovery
 
@@ -3855,7 +3903,19 @@ Rationalization patterns that violate this principle are catalogued in \`referen
 The default \`subagent\` mode dispatches each task using the runtime's spawn primitive: \`[sequential execution]\`.
 
 
-Use the \`recommendedModel\` from \`prepare_delegation\` task classifications when available. If no classification exists (e.g., fixer dispatch), omit \`model\` to inherit the session default.
+### Model selection — a reasoning TIER, never a version
+
+Use the \`recommendedModel\` from \`prepare_delegation\` task classifications when available. If no classification exists (e.g. fixer dispatch), omit \`model\` to inherit the session default.
+
+\`recommendedModel\` is a **reasoning tier** (\`haiku\` | \`sonnet\` | \`opus\`), not a model version. The tier is derived from the task's \`riskTier\` via \`agents.tier-models\` (defaults \`low → haiku\`, \`medium → sonnet\`, \`high → opus\`; operator-overridable in \`.exarchos.yml\`, validated monotone so a higher risk tier can never resolve weaker).
+
+Three rules follow, and they are the whole policy:
+
+1. **Never write a model version anywhere** — not in a dispatch, an agent spec, a skill, or a prompt. No \`claude-*-YYYYMMDD\`, no \`-latest\`, no point releases. A version string pinned in content is a second model authority that outranks the operator's tier policy silently and rots on the next release. Pass the tier alias and let the harness resolve it against its own current catalog.
+2. **Strength follows RISK, not role.** The agent choice selects the *role* (implementer / fixer / reviewer / scaffolder); the ladder selects the *strength*. An agent spec that pins a model id is a defect — that is why every shipped spec declares \`model: inherit\`.
+3. **If you need a version, read the catalog — do not recall one.** Resolve the current tier→version mapping from the harness's own model list at dispatch time. Model recall from training data is stale by construction, and a guessed identifier fails closed at best and silently downgrades at worst.
+
+\`unless otherwise specified\` means an explicit operator override in \`.exarchos.yml\` (\`agents.default-model\`, \`agents.models\`, \`agents.tier-models\`) — not a judgement call at dispatch time.
 
 ### Pre-Dispatch Schema Discovery
 
@@ -4766,7 +4826,19 @@ Rationalization patterns that violate this principle are catalogued in \`referen
 The default \`subagent\` mode dispatches each task using the runtime's spawn primitive: \`Task\`.
 
 
-Use the \`recommendedModel\` from \`prepare_delegation\` task classifications when available. If no classification exists (e.g., fixer dispatch), omit \`model\` to inherit the session default.
+### Model selection — a reasoning TIER, never a version
+
+Use the \`recommendedModel\` from \`prepare_delegation\` task classifications when available. If no classification exists (e.g. fixer dispatch), omit \`model\` to inherit the session default.
+
+\`recommendedModel\` is a **reasoning tier** (\`haiku\` | \`sonnet\` | \`opus\`), not a model version. The tier is derived from the task's \`riskTier\` via \`agents.tier-models\` (defaults \`low → haiku\`, \`medium → sonnet\`, \`high → opus\`; operator-overridable in \`.exarchos.yml\`, validated monotone so a higher risk tier can never resolve weaker).
+
+Three rules follow, and they are the whole policy:
+
+1. **Never write a model version anywhere** — not in a dispatch, an agent spec, a skill, or a prompt. No \`claude-*-YYYYMMDD\`, no \`-latest\`, no point releases. A version string pinned in content is a second model authority that outranks the operator's tier policy silently and rots on the next release. Pass the tier alias and let the harness resolve it against its own current catalog.
+2. **Strength follows RISK, not role.** The agent choice selects the *role* (implementer / fixer / reviewer / scaffolder); the ladder selects the *strength*. An agent spec that pins a model id is a defect — that is why every shipped spec declares \`model: inherit\`.
+3. **If you need a version, read the catalog — do not recall one.** Resolve the current tier→version mapping from the harness's own model list at dispatch time. Model recall from training data is stale by construction, and a guessed identifier fails closed at best and silently downgrades at worst.
+
+\`unless otherwise specified\` means an explicit operator override in \`.exarchos.yml\` (\`agents.default-model\`, \`agents.models\`, \`agents.tier-models\`) — not a judgement call at dispatch time.
 
 ### Pre-Dispatch Schema Discovery
 
@@ -7017,7 +7089,7 @@ For worktree cleanup:
 exports[`task 025 — per-runtime snapshot baselines > render dir: standard > Snapshots_AllSkillsAllRuntimes_MatchBaseline: skills/standard/invariants/SKILL.md > skills/standard/invariants/SKILL.md 1`] = `
 "---
 name: invariants
-description: "Guided authoring of an architectural invariant catalog entry through a 6-step interview (elicit, locate, weight, enforce, number, commit). Drives the invariants_scaffold and invariants_add orchestrate verbs — the agent supplies judgment and natural-language elicitation; the verbs own schema validation, file writing, and event emission. Defaults to mode: audit; mode: check is an advanced opt-in. Triggers: 'add an invariant', 'author an invariant', 'enforce an architectural rule', or invariants. Do NOT use for: editing workflow state, running a review, or hand-writing YAML (the verbs write it — never emit catalog YAML yourself)."
+description: "Guided authoring of an architectural invariant catalog entry through a 6-step interview (elicit, locate, weight, enforce, number, commit). Drives the invariants_scaffold, invariants_add and invariants_amend orchestrate verbs — the agent supplies judgment and natural-language elicitation; the verbs own schema validation, file writing, and event emission. Correcting an existing entry is invariants_amend (id-targeted, field-scoped), never a re-run of invariants_add. Defaults to mode: audit; mode: check is an advanced opt-in. Triggers: 'add an invariant', 'author an invariant', 'enforce an architectural rule', 'fix/correct/amend an invariant', or invariants. Do NOT use for: editing workflow state, running a review, or hand-writing YAML (the verbs write it — never emit catalog YAML yourself)."
 metadata:
   author: exarchos
   version: 1.0.0
@@ -7039,9 +7111,9 @@ The division of labor is strict and load-bearing:
 - **The agent (you) supplies judgment + natural-language elicitation.** You
   interview the author, draft prose, propose globs, and shape the entry.
 - **The verbs own validation + writing.** Every *mutation* goes through a
-  deterministic, schema-validated orchestrate action — \`invariants_scaffold\`
-  and \`invariants_add\`. **You never hand-write or append catalog YAML
-  yourself.** The verb renders it; you confirm it.
+  deterministic, schema-validated orchestrate action — \`invariants_scaffold\`,
+  \`invariants_add\`, and \`invariants_amend\`. **You never hand-write, append, or
+  edit catalog YAML yourself.** The verb renders it; you confirm it.
 
 This shape is the only one consistent with the agent-first philosophy: inputs
 are constrained at the schema level (INV-5a), mutating verbs default to
@@ -7053,6 +7125,9 @@ dry-run (INV-5c), and authoring is event-sourced (INV-1).
   (surfaced at ideate, turned into acceptance criteria at planning, audited at
   review by the \`check_invariant_conformance\` gate).
 - An author says "add an invariant", "enforce that X", "make this a rule".
+- An author wants to **correct** an already-committed entry — a wrong summary, a
+  stale glob, a weak \`audit-prompt\`. That is \`invariants_amend\`, and it is the
+  only sanctioned way to change a shipped entry (see step 7).
 
 ## When NOT to Use
 
@@ -7068,7 +7143,8 @@ dry-run (INV-5c), and authoring is event-sourced (INV-1).
 | Action (MCP) | CLI facade | What it does |
 |---|---|---|
 | \`invariants_scaffold\` | \`exarchos invariants scaffold\` | Create a starter catalog file for a tier; idempotently register it in \`.exarchos.yml\`. Never overwrites an existing file. |
-| \`invariants_add\` | \`exarchos invariants add\` | Validate ONE entry against the v3 schema (including the \`.strict()\` enforcement DSL — INV-4), then append it. **\`dryRun\` defaults to true**: returns the rendered entry + file diff, writes nothing. |
+| \`invariants_add\` | \`exarchos invariants add\` | Validate ONE **new** entry against the v3 schema (including the \`.strict()\` enforcement DSL — INV-4), then append it. **\`dryRun\` defaults to true**: returns the rendered entry + file diff, writes nothing. Append-only: a colliding \`id\` is rejected. |
+| \`invariants_amend\` | \`exarchos invariants amend\` | Correct ONE **existing** entry in place. \`id\` names the target (identity is not patchable); \`patch\` names the top-level fields to replace, and anything it omits survives verbatim. The merged entry is re-validated in full. **\`dryRun\` defaults to true**: returns the amended entry + a before/after diff, writes nothing. |
 | \`doctor\` | \`exarchos doctor\` | Reuse the existing \`invariants-catalog\` check — the validator. No new validate verb. |
 | \`invariants_effective\` | \`exarchos view invariants_effective\` | The merged, projected catalog the gate will enforce. Post-write confirmation. |
 
@@ -7175,6 +7251,41 @@ If \`invariants_add\` returns a \`CATALOG_NOT_FOUND\` error, the target catalog 
 not exist yet — run \`invariants_scaffold\` first (the error's \`suggestedFix\`
 names the call), then resume at step 6.
 
+### 7. Amend — correcting an entry that is already committed
+
+Steps 1–6 author a NEW entry. Correcting one that already exists is a different
+verb, and \`invariants_add\` is not it: it only ever **appends**, and re-running it
+with an existing \`id\` is rejected (\`DUPLICATE_INVARIANT_ID\`) precisely because
+committing that duplicate would author a catalog the loader then refuses to read.
+
+Use \`invariants_amend\`. It is **id-targeted and field-scoped**:
+
+- \`id\` names the entry to correct. It is **not** patchable — an entry's identity
+  survives an amendment, because every \`references:\` pointer and audit record
+  naming the old id would otherwise go stale. Renaming is not an amendment.
+- \`patch\` names only the top-level fields that change. **Every field the patch
+  omits is carried through verbatim** — you do not restate the whole entry, and
+  an amendment cannot silently drop a \`references\` list or an affinity the
+  author never mentioned. A named field is replaced *wholesale* (patching
+  \`enforcement\` swaps the entire enforcement block).
+- The merged entry is re-validated against the full v3 schema, so an amendment
+  can never produce an entry that would have been rejected at authoring time —
+  including the \`.strict()\` enforcement DSL (INV-4).
+
+The gate is the same as step 6: \`dryRun: true\` first (the default) → show the
+author the before/after diff verbatim → explicit confirmation → re-invoke with
+\`dryRun: false\`, which emits \`invariant.amended\` naming the changed fields →
+\`doctor\` → show the \`invariants_effective\` delta.
+
+Two refusals worth recognizing:
+
+- \`ENTRY_NOT_FOUND\` — no entry carries that id. The error's \`validTargets\` lists
+  the ids actually resolved, so pick from those or author a new entry instead.
+- \`CATALOG_EMPTY\` / \`CATALOG_UNREADABLE\` — the catalog resolved zero entries, or
+  its \`invariants:\` list could not be read at all. Neither is reported as a
+  clean "not found": a moved or renamed catalog must not look like a catalog
+  that simply lacks your entry. Check you named the right catalog.
+
 ## Tool invocations
 
 Scaffold a user catalog (idempotent; never overwrites):
@@ -7210,6 +7321,32 @@ exarchos:exarchos_orchestrate({
 })
 \`\`\`
 
+Amend an EXISTING entry — dry-run first (note: only the fields that change;
+everything else is carried through):
+
+\`\`\`ts
+exarchos:exarchos_orchestrate({
+  action: "invariants_amend",
+  tier: "user",
+  catalog: ".exarchos/invariants.md",
+  id: "U-3",
+  patch: { summary: "The corrected one-sentence rule." }
+})
+\`\`\`
+
+Commit the amendment after explicit confirmation:
+
+\`\`\`ts
+exarchos:exarchos_orchestrate({
+  action: "invariants_amend",
+  tier: "user",
+  catalog: ".exarchos/invariants.md",
+  id: "U-3",
+  patch: { summary: "The corrected one-sentence rule." },
+  dryRun: false
+})
+\`\`\`
+
 Use \`exarchos:exarchos_orchestrate({ action: "describe" })\` (or the CLI
 \`--help\`) to discover the exact schema at runtime — flags auto-emit from each
 action's Zod schema (the CLI is schema-driven; do not assume hand-added flags).
@@ -7223,7 +7360,10 @@ For one \`U-*\` entry authored end-to-end through all 6 steps, see
 
 | Don't | Do Instead |
 |-------|------------|
-| Hand-write or \`Edit\` catalog YAML | Always route mutations through \`invariants_add\` |
+| Hand-write or \`Edit\` catalog YAML | Route mutations through a verb: \`invariants_add\` to append a NEW entry, \`invariants_amend\` to correct an EXISTING one |
+| Re-run \`invariants_add\` with an existing \`id\` to "update" an entry | \`invariants_add\` only appends — a colliding \`id\` is rejected. Use \`invariants_amend\` |
+| Re-author a whole entry to change one field | \`invariants_amend\` is field-scoped: \`patch\` names only what changes, everything else survives |
+| Rename an entry's \`id\` | \`id\` is the catalog's primary key and is not patchable — every reference to the old id would go stale |
 | Declare an entry valid yourself | The verb validates; you confirm |
 | Default to \`mode: check\` | Default to \`mode: audit\`; \`check\` is opt-in (\`@references/check-mode.md\`) |
 | Skip the dry-run | \`dryRun: true\` first, ALWAYS, then explicit confirm |
@@ -8360,18 +8500,24 @@ exarchos_orchestrate({
 
 **Advisory:** This gate verifies task structure quality but does not block plan approval. Findings are recorded for convergence tracking.
 
-**5b. Spec coverage check** — verify planned test files exist and pass:
+**5b. Spec coverage check** — validate the planned test paths as declarations:
 
 \`\`\`typescript
 exarchos_orchestrate({
   action: "spec_coverage_check",
   planFile: "docs/specs/<date>-<feature>.md",
-  repoRoot: "."
+  repoRoot: ".",
+  coveragePhase: "plan"
 })
 \`\`\`
 
-- **\`passed: true\`** — All planned tests found and passing; plan verification complete
-- **\`passed: false\`** — Missing test files or test failures; create missing tests or fix failures
+Pass \`coveragePhase: "plan"\` here. At planning time a declared test file does not exist yet, so the
+check validates the path is a well-formed test-path declaration rather than requiring it on
+disk. Omitting the parameter falls back to \`post-implementation\`, which demands every declared
+file exist and its tests run — a bar no plan can clear.
+
+- **\`passed: true\`** — Every declared test path is a valid forward declaration; plan verification complete
+- **\`passed: false\`** — A declared path is not a well-formed test path; fix the paths in the plan
 
 For reference, consult \`references/spec-tracing-guide.md\` for the underlying methodology.
 
@@ -9011,6 +9157,32 @@ Run the quality-evaluation gates via runbook — \`exarchos_orchestrate({ action
 
 > **mutation-adequacy (HIGH tier only):** a **separate required dimension** that gates the HIGH risk tier at the \`/review\` boundary — see \`@skills/mutation-adequacy/SKILL.md\`. Do not run mutation testing in this skill; the closest in-scope proxy is the **Specific** test-desiderata property plus the delegation-time \`check_test_adequacy\` gate.
 
+### Invariant conformance — audit-mode judgment is YOURS
+
+Run \`check_invariant_conformance\` over the diff whenever a catalog is registered under \`.exarchos.yml: invariants.catalogs\`. It decides \`mode: check\` invariants mechanically and folds them into \`findings\`. It **cannot decide \`mode: audit\` invariants at all** — those need a reviewer's judgment, which is you.
+
+\`\`\`typescript
+exarchos_orchestrate({
+  action: "check_invariant_conformance",
+  featureId: "<id>",
+  phase: "review",
+  diff: "<integrated diff>"
+})
+\`\`\`
+
+The response carries the audit-mode delivery pair:
+
+- \`auditPrompt\` — the rendered judgment questions, one block per applicable audit-mode invariant.
+- \`auditInvariantIds\` — the ids in that prompt. This is your **checklist**, and it is the denominator you are accountable for.
+- \`auditProjection\` — \`rendered\`, \`no-audit-entries\`, or \`no-subject\`. **\`no-subject\` is not a clean audit**: the projection resolved zero applicable entries, so nothing was evaluated. Treat it as an unresolved gate (catalog unregistered, projection over-narrowed) and say so in the verdict — never as a pass.
+
+**Answer every id in \`auditInvariantIds\`.** For each one, read its block in \`auditPrompt\`, judge the diff against it, and:
+
+- **Violated** → emit a finding and pass it in \`pluginFindings\` on \`check_review_verdict\`, with \`dimension\` set to the invariant id and \`severity\` from the invariant's own severity (\`blocking\` → \`HIGH\`, \`advisory\` → \`MEDIUM\`).
+- **Satisfied** → record it in the verdict summary so the id is visibly accounted for.
+
+An audit-mode invariant you did not answer is **not** a passing invariant — it is an unrun check. Leaving \`auditPrompt\` unread makes the whole audit-mode half of the catalog decorative, which is the exact failure the catalog exists to prevent.
+
 ## Verdict & fix loop
 
 Compute the verdict once over the merged finding set. Route it via the decision runbook — \`exarchos_orchestrate({ action: "runbook", id: "review-escalation" })\`. See \`references/convergence-and-verdict.md\`.
@@ -9090,6 +9262,7 @@ All transitions are automatic — this is not a human checkpoint. See \`referenc
 |-------|-----------|
 | Confirm what's right | Hunt for what's wrong (adversarial posture) |
 | Approve without the kill-probe | Run \`check_test_adequacy\` — a test that can't fail is not coverage |
+| Treat an unanswered audit-mode invariant as a pass | Answer every id in \`auditInvariantIds\`; an unrun check is not a clean one |
 | Rubber-stamp on a rationalization | Consult \`references/rationalization-refutation.md\` |
 | Let scope creep pass | Flag intended-vs-delivered drift as a \`spec\` issue |
 | Block on LOW-priority nits | Record and track; reserve blocking for HIGH |
@@ -9097,7 +9270,7 @@ All transitions are automatic — this is not a human checkpoint. See \`referenc
 ## Schema discovery
 
 Use \`exarchos_workflow({ action: "describe", actions: ["update"] })\` and
-\`exarchos_orchestrate({ action: "describe", actions: ["check_static_analysis", "check_security_scan", "check_test_adequacy", "check_review_verdict", "prepare_review"] })\` for current parameter schemas.
+\`exarchos_orchestrate({ action: "describe", actions: ["check_static_analysis", "check_security_scan", "check_test_adequacy", "check_review_verdict", "check_invariant_conformance", "prepare_review"] })\` for current parameter schemas.
 "
 `;
 

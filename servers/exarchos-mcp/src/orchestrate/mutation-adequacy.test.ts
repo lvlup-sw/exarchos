@@ -139,6 +139,14 @@ interface DispatchOpts {
   projectConfig?: DispatchContext['projectConfig'];
   eventStore?: EventStore;
   stateDir?: string;
+  /**
+   * The diff seam. Defaults to "no files changed", which is what most cases in
+   * this suite mean when they hand the runner a report directly. It matters for
+   * the empty-mutant-surface cases: an empty report is a trivial pass ONLY when
+   * the diff also changed nothing mutatable, so leaving this to the real git
+   * would make those assertions depend on the checkout they run in.
+   */
+  runDiff?: (base: string, repoRoot: string) => readonly string[];
 }
 
 async function dispatchMutation(
@@ -162,6 +170,7 @@ async function dispatchMutation(
       // Test seams — injected through the dispatch args.
       resolve: () => runtimeWith(cmd),
       detectToolchainId: () => 'node',
+      runDiff: opts.runDiff ?? ((): readonly string[] => []),
       runMutation: (runArgs: { command: string }) => {
         opts.recordRuns?.push(runArgs.command);
         return (
@@ -1195,9 +1204,12 @@ describe('mutation-adequacy NoCoverage axis (DR-6)', () => {
   });
 
   it('Passed_EmptyMutatableSurface_TrivialPassWithMarker', async () => {
-    // total === 0 (nothing to mutate — a server-untouching diff) is a TRIVIAL
-    // PASS with an explicit marker: not a score-0 failure, not a degrade.
+    // total === 0 with a diff that changed NOTHING mutatable is a TRIVIAL PASS
+    // with an explicit marker: not a score-0 failure, not a degrade. The empty
+    // `runDiff` is what makes it a server-untouching diff rather than an
+    // assumption about the checkout.
     const { success, data } = await dispatchMutation({
+      runDiff: () => [],
       runResult: { ok: true, report: JSON.stringify({ schemaVersion: '1', files: {} }) },
     });
     expect(success).toBe(true);
@@ -1205,6 +1217,38 @@ describe('mutation-adequacy NoCoverage axis (DR-6)', () => {
     expect(data.mutationScore).toBe(0); // score guard stays 0 for a 0 denominator
     expect(data.passed).toBe(true); // …yet vacuously adequate
     expect(data.trivialPass).toBe(true); // the explicit marker
+  });
+
+  it('Passed_DocsOnlyDiff_StillTrivialPasses', async () => {
+    // The trivial pass must survive a diff that changed files no runner mutates,
+    // or every docs/spec change starts degrading the required dimension.
+    const { success, data } = await dispatchMutation({
+      runDiff: () => ['docs/specs/plan.md', 'README.md', 'src/foo.test.ts'],
+      runResult: { ok: true, report: JSON.stringify({ schemaVersion: '1', files: {} }) },
+    });
+    expect(success).toBe(true);
+    expect(data.trivialPass).toBe(true);
+    expect(data.passed).toBe(true);
+  });
+
+  it('ZeroMutants_WhileTheDiffChangedMutatableSource_DegradesInsteadOfPassing', async () => {
+    // The vacuous-pass hole. `total === 0` has two causes and they are NOT
+    // interchangeable: nothing to mutate, or nothing was mutated. The required
+    // HIGH-tier dimension reported adequacy in under 30ms over a diff touching 290
+    // production modules because it read the second as the first, and emitted no
+    // `skipped`, `reason` or `warning` to tell them apart. Corroborating the empty
+    // surface against the diff is what makes the difference observable.
+    const { success, data, warnings } = await dispatchMutation({
+      runDiff: () => ['servers/exarchos-mcp/src/orchestrate/gate-runner.ts', 'src/advisory-registry.ts'],
+      runResult: { ok: true, report: JSON.stringify({ schemaVersion: '1', files: {} }) },
+    });
+    expect(success).toBe(true); // still a degrade, never a thrown envelope
+    expect(data.trivialPass).toBeUndefined(); // NOT laundered as vacuously adequate
+    const surfaced = [...(warnings ?? []), data.warning ?? ''].join(' ');
+    expect(surfaced).toMatch(/ZERO mutants/i);
+    // The reason has to name the run, not just complain — this is the line that
+    // sends a reader to the actual cause.
+    expect(surfaced).toMatch(/mutatable file/i);
   });
 
   it('FailureMessage_NoCoverageMutants_AttributesFileAndLine', async () => {

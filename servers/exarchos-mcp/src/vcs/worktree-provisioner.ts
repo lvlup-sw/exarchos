@@ -134,7 +134,6 @@ export function createOwnerBackedWorktreeProvisioner(
       try {
         const owner = new VcsMutationOwner({
           eventStore: store,
-          capabilities: capabilitiesForPosture('shared-mutating'),
           // A dedicated stream isolates setup_worktree's fencing/idempotency
           // from other VCS mutations sharing the default stream.
           stream: 'vcs-worktree-setup',

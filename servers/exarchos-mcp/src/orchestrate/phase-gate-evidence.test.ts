@@ -1,7 +1,25 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// `prepare_synthesis` runs its test and typecheck legs by shelling out to
+// `npm run test:run` and `npm run typecheck` in the process's own cwd — which,
+// under this suite, is the MCP package. Unstubbed, the one case that gets past
+// the task-completion short-circuit re-enters the entire vitest run from inside
+// a test and then waits out both subprocess timeouts (120s + 60s). None of that
+// bears on what these cases assert, which is that the evidence scope resolves.
+// Stub the subprocess surface the way `prepare-synthesis.test.ts` does; the gate
+// path under test stays real.
+vi.mock('node:child_process', () => ({
+  execSync: vi.fn((command: string, options?: { encoding?: string }) => {
+    const text = command.includes('symbolic-ref')
+      ? 'refs/remotes/origin/main'
+      : 'Tests: 1 passed, 0 failed';
+    return options?.encoding === 'utf-8' ? text : Buffer.from(text);
+  }),
+  execFileSync: vi.fn(() => Buffer.from('')),
+}));
 
 import { createInMemoryResolver } from '../capabilities/resolver.js';
 import {
@@ -40,7 +58,12 @@ function dispatchContext() {
 
 function fakeStore(
   phase: string,
-  options: { failEvidence?: boolean; incompleteTask?: boolean } = {},
+  options: {
+    failEvidence?: boolean;
+    incompleteTask?: boolean;
+    /** Omit the v2.12 attempt stamp, i.e. a workflow that predates it. */
+    legacyNoPhaseAttempt?: boolean;
+  } = {},
 ): EventStore {
   const sourceEvents: Record<string, unknown>[] = [
     {
@@ -48,7 +71,7 @@ function fakeStore(
       timestamp: '2026-07-21T22:45:00.000Z',
       data: {
         to: phase,
-        phaseAttemptId: PHASE_ATTEMPT_ID,
+        ...(options.legacyNoPhaseAttempt ? {} : { phaseAttemptId: PHASE_ATTEMPT_ID }),
       },
     },
     ...(options.incompleteTask
@@ -135,6 +158,44 @@ describe('migrated phase gate durable evidence', () => {
       data: { passed: true, coverage: { gaps: 0 } },
     });
     expect(evidenceReference(result).subject).toMatchObject({ kind: 'artifact' });
+  });
+
+  it('PlanCoverage_WorkflowPredatingThePhaseAttemptStamp_StillRunsTheGate', async () => {
+    // The upgrade wedge. Every other case in this file hands the store a
+    // `phaseAttemptId`, so the stamp-less state a pre-v2.12 workflow actually
+    // projects was never exercised — and the phase-gate adapter answered
+    // EVIDENCE_SCOPE_UNAVAILABLE for it, locking such a workflow out of all four
+    // migrated gates while the sibling durable-gate adapter backfilled the same
+    // state happily.
+    const result = await runWithDispatchContext(dispatchContext(), () =>
+      handlePlanCoverage(
+        { featureId: 'feature-009', designPath, planPath },
+        root,
+        fakeStore('plan', { legacyNoPhaseAttempt: true }),
+      ),
+    );
+
+    expect(result).toMatchObject({ success: true, data: { passed: true } });
+    // Evidence is still bound to an attempt — the backfill must produce a real
+    // scope, not merely dodge the error.
+    expect(evidenceReference(result).subject).toMatchObject({ kind: 'artifact' });
+  });
+
+  it('PrepareSynthesis_WorkflowPredatingThePhaseAttemptStamp_IsNotWedged', async () => {
+    // `prepare_synthesis` is the BLOCKING member of the migrated four, so this is
+    // the case where the wedge cost the whole synthesize phase.
+    const result = await runWithDispatchContext(dispatchContext(), () =>
+      handlePrepareSynthesis(
+        { featureId: 'feature-009' },
+        root,
+        fakeStore('review', { legacyNoPhaseAttempt: true }),
+      ),
+    );
+
+    expect(result.success).toBe(true);
+    expect(
+      (result as { error?: { code?: string } }).error?.code,
+    ).not.toBe('EVIDENCE_SCOPE_UNAVAILABLE');
   });
 
   it('ProvenanceChain_CompatibleCarrier_AddsPlanSpecEvidence', async () => {

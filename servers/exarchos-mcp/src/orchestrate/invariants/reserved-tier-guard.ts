@@ -58,7 +58,7 @@ export interface DevTierGuardArgs {
    * re-invokable (the guard is shared across both verbs, so the caller names
    * its own action).
    */
-  readonly action: 'invariants_scaffold' | 'invariants_add';
+  readonly action: 'invariants_scaffold' | 'invariants_add' | 'invariants_amend';
 }
 
 /**

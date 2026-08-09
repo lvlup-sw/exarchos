@@ -34,6 +34,10 @@
 #   (c) vitest test suite — `**/*.test.ts` and `**/*.bench.ts` are
 #       whitelisted en masse because vitest discovers them by filename
 #       convention, not by import.
+#   (d) a fixture a test spawns by path rather than imports (the mock MCP
+#       server). Its `project` glob has to name the extension too — the
+#       root globs were `.ts`-only, so an `.mjs` fixture was unscanned and
+#       every dependency only it imported read as unused.
 #
 # When adding a new entry:
 #   1. Grep the repo first. If nothing imports the file AND it has no
@@ -51,6 +55,29 @@
 # `ignoreDependencies` is last resort. Each entry should have a tracking
 # issue for the rationale (e.g. root-level tsx is redundant with the
 # MCP server's own tsx devDep — cleanup deferred).
+#
+# ─────────────────────────────────────────────────────────────────────────
+# Exempting a CONVENTION vs exempting a FINDING (task 067)
+# ─────────────────────────────────────────────────────────────────────────
+# knip.json's `tags: ["-proof"]` exempts the repo's compile-time proof
+# aliases: exported `Expect<…>` type aliases that exist so `tsc` checks an
+# invariant the co-located test cannot, because `tsconfig.json` excludes
+# `*.test.ts` — which is exactly what makes the compiler the prover. They
+# are unreferenced BY CONSTRUCTION, so knip is right on its own terms; the
+# terms are what the tag states. Tag a new proof alias's JSDoc with
+# `@proof` and it needs no allowlist row, now or ever.
+#
+# Use knip-allowlist.json instead for a ONE-OFF invisible consumer — a CLI
+# reached by subprocess, a corpus fixture read by path. The dividing line
+# is whether the thing recurs: a convention that grows with the codebase
+# must not be tracked by a ledger someone has to append to forever.
+#
+# The exemption carries a NON-EMPTY DENOMINATOR. knip-diff.ts takes a
+# second, INVERTED knip reading (`--tags +proof`) that reports only the
+# symbols the rule exempts, and fails closed (exit 2, `vacuous-exemption`)
+# if that set is empty — which also catches a knip run that resolved no
+# files at all, since such a run cannot produce a tagged finding either.
+# The count is printed on the green path so it can be falsified.
 #
 # Scope: this rollup uses `--include files,dependencies,exports,types`
 # (task 012 widened it to add exports+types). Findings are diffed against

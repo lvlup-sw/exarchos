@@ -51,9 +51,22 @@ const SAFE_VENDOR_TOKEN = /^[A-Za-z0-9._/@-]+$/;
 function extractMap(src: string, name: string): Array<[string, string]> {
   const block = src.match(new RegExp(`export const ${name}\\b[^=]*=\\s*\\{([\\s\\S]*?)\\n\\}`));
   if (!block) throw new Error(`could not locate \`export const ${name}\` in upstream constants.ts`);
-  const pairs = [...block[1].matchAll(/'([^']+)'\s*:\s*'([^']+)'/g)].map(
-    (m): [string, string] => [m[1], m[2]],
-  );
+  // `block[1]` / `m[1]` / `m[2]` are `string | undefined` under
+  // `noUncheckedIndexedAccess`. Narrow rather than assert: this module already
+  // fails loudly on anything it did not expect from upstream, and a capture
+  // group that did not participate is exactly that case.
+  const body = block[1];
+  if (body === undefined) {
+    throw new Error(`\`export const ${name}\` matched with no body capture — upstream format changed?`);
+  }
+  const pairs: Array<[string, string]> = [];
+  for (const m of body.matchAll(/'([^']+)'\s*:\s*'([^']+)'/g)) {
+    const [, key, value] = m;
+    if (key === undefined || value === undefined) {
+      throw new Error(`malformed entry in ${name}: ${JSON.stringify(m[0])} — upstream format changed?`);
+    }
+    pairs.push([key, value]);
+  }
   if (pairs.length === 0) throw new Error(`extracted 0 entries for ${name} — upstream format changed?`);
   for (const [k, v] of pairs) {
     if (!SAFE_VENDOR_TOKEN.test(k) || !SAFE_VENDOR_TOKEN.test(v)) {

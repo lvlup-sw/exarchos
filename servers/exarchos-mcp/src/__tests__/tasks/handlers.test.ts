@@ -246,7 +246,11 @@ describe('handleTaskComplete', () => {
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');
-    expect(result.error?.message).toBe('streamId is required');
+    // The message widened when `featureId` became an accepted alias. Assert
+    // the two properties that carry the guarantee — it still REJECTS, and it
+    // names the alias — rather than an exact string, which pinned prose.
+    expect(result.error?.message).toContain('streamId is required');
+    expect(result.error?.message).toContain('featureId');
   });
 
   it('with artifacts but no duration only includes artifacts in event data', async () => {
@@ -472,7 +476,11 @@ describe('handleTaskFail', () => {
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');
-    expect(result.error?.message).toBe('streamId is required');
+    // The message widened when `featureId` became an accepted alias. Assert
+    // the two properties that carry the guarantee — it still REJECTS, and it
+    // names the alias — rather than an exact string, which pinned prose.
+    expect(result.error?.message).toContain('streamId is required');
+    expect(result.error?.message).toContain('featureId');
   });
 
   it('success returns EventAck with only streamId, sequence, type keys', async () => {

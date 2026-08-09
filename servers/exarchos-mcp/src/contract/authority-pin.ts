@@ -152,7 +152,7 @@ export interface AuthorityInputs {
   readonly strategosContractsSource: string;
   /** The MCP wire protocol version the projection targets. */
   readonly mcpProtocolVersion: string;
-  /** The RAW `@modelcontextprotocol/sdk` dependency spec (for floating detection). */
+  /** The RAW `@modelcontextprotocol/server` dependency spec (for floating detection). */
   readonly mcpSdkVersionSpec: string;
   /** The flattened `<tool>.<action>` ActionId list (order-independent). */
   readonly actionIds: readonly string[];
@@ -192,7 +192,7 @@ export function computeAuthorities(inputs: AuthorityInputs): AuthorityValue[] {
       version: inputs.mcpProtocolVersion,
       versionSpec: inputs.mcpProtocolVersion,
       digest: null,
-      source: '@modelcontextprotocol/sdk LATEST_PROTOCOL_VERSION',
+      source: '@modelcontextprotocol/server LATEST_PROTOCOL_VERSION',
     },
     {
       id: 'mcp-sdk',
@@ -200,7 +200,7 @@ export function computeAuthorities(inputs: AuthorityInputs): AuthorityValue[] {
       version: inputs.mcpSdkVersionSpec,
       versionSpec: inputs.mcpSdkVersionSpec,
       digest: null,
-      source: 'package.json dependencies["@modelcontextprotocol/sdk"]',
+      source: 'package.json dependencies["@modelcontextprotocol/server"]',
     },
     {
       id: 'action-id-registry',

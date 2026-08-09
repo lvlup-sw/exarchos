@@ -345,6 +345,36 @@ export const defaultRunDiff: RunDiff = (base, repoRoot) => {
     .filter((line) => line.length > 0);
 };
 
+/**
+ * Source extensions a mutation runner can generate mutants from.
+ *
+ * Deliberately a property of the FILE, not a list of directories: a named-subtree
+ * allowlist goes stale silently as the tree moves, and this predicate only has to
+ * answer "could a mutant have come from here", not "which runner owns it".
+ */
+const MUTATABLE_EXTENSIONS: readonly string[] = [
+  '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.java', '.py', '.rs', '.cs', '.go', '.kt',
+];
+
+/** Path segments whose contents no runner mutates (tests are the oracle, not the subject). */
+const NON_MUTATABLE_MARKERS: readonly string[] = [
+  '.test.', '.spec.', '/__tests__/', '/__mocks__/', '/__fixtures__/', '/fixtures/', '/node_modules/', '/dist/',
+];
+
+/**
+ * The changed files a mutation runner could have produced mutants from.
+ *
+ * Used to tell an empty mutant surface that is HONEST (no mutatable source
+ * changed) from one that means the run never reached the change.
+ */
+export function mutatableChangedFiles(changed: readonly string[]): readonly string[] {
+  return changed.filter((file) => {
+    const normalized = `/${file.replace(/\\/g, '/')}`;
+    if (NON_MUTATABLE_MARKERS.some((marker) => normalized.includes(marker))) return false;
+    return MUTATABLE_EXTENSIONS.some((ext) => normalized.endsWith(ext));
+  });
+}
+
 /** Context the diff-scope applier needs to resolve a `<changed>` placeholder. */
 export interface ScopeContext {
   readonly base: string;
@@ -786,12 +816,37 @@ export async function handleMutationAdequacy(
 
   // ── DR-6: pass/fail across TWO orthogonal axes ──────────────────────────────
   //
-  // A parsed report with `total === 0` (an empty mutatable surface — the diff
-  // changed no mutatable source) is a TRIVIAL PASS with an explicit marker:
-  // nothing to mutate is vacuously adequate, never a score-0 failure and never a
-  // degrade. This protects the review path from false blocks on
-  // server-untouching features.
-  const trivialPass = carrier.total === 0;
+  // A parsed report with `total === 0` is a TRIVIAL PASS only when the diff truly
+  // changed no mutatable source: nothing to mutate is vacuously adequate, never a
+  // score-0 failure and never a degrade. That protects the review path from false
+  // blocks on server-untouching features.
+  //
+  // But `total === 0` has TWO causes and they are not interchangeable. The other
+  // is a run that never happened — an unresolvable runner, a diff scope that
+  // matched nothing, a mutation config living in a package the command was not
+  // executed from. Treating that as a trivial pass is how the required HIGH-tier
+  // dimension came to report adequacy in under 30ms across a diff touching 290
+  // production modules, with no `skipped`, no `reason` and no `warning` to
+  // distinguish "nothing to mutate" from "nothing was mutated". A gate whose whole
+  // purpose is catching vacuous tests must not answer vacuously itself.
+  //
+  // So the empty surface is corroborated against the diff. Mutatable changed files
+  // present + zero mutants generated = a degrade with a reason, not a pass.
+  const changedMutatable = mutatableChangedFiles(runDiff(args.base, repoRoot));
+  const emptyMutantSurface = carrier.total === 0;
+  const trivialPass = emptyMutantSurface && changedMutatable.length === 0;
+
+  if (emptyMutantSurface && !trivialPass) {
+    const reason =
+      `mutation-adequacy: the runner produced ZERO mutants while the diff changed ` +
+      `${changedMutatable.length} mutatable file(s) (e.g. ${changedMutatable
+        .slice(0, 3)
+        .join(', ')}) — the run did not cover the change, so this is NOT evidence ` +
+      `of adequacy. Check that the resolved command (\`${scoped.command}\`) runs in ` +
+      `the package that owns the mutation config.`;
+    await emitAdvisoryGate(eventStore, args, reason);
+    return warningCarrier(reason, scoped.warning);
+  }
 
   // The SECOND axis: NoCoverage. For a *diff*-scoped run an uncovered changed
   // line is exactly the "test executes nothing" defect the gate exists for, and

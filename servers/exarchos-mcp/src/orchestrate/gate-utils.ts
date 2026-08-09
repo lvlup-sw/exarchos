@@ -4,6 +4,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { execFileSync } from 'node:child_process';
+import { orchestrateLogger } from '../logger.js';
 import type { EventStore } from '../event-store/store.js';
 import type { ToolResult } from '../format.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
@@ -17,6 +18,19 @@ import type { PhaseKind } from '../workflow/phase-kind.js';
 import type { GitExec } from './pure/execute-merge.js';
 import type { EvidenceArtifactReferenceV1 } from '../workflow/admission/evidence-artifact.js';
 import type { AdmissionEvidenceRecorded } from '../event-store/schemas.js';
+
+/**
+ * Output ceiling for the git shell-outs below.
+ *
+ * Node defaults `maxBuffer` to 1 MiB and raises ENOBUFS past it. A review-sized
+ * `git diff main...HEAD` blows through that easily — a 902-file wave measured
+ * 13.4 MB — and because ENOBUFS arrives as a thrown error it read as "git is
+ * unavailable", taking three blocking review gates (context-economy,
+ * operational-resilience, workflow-determinism) offline on exactly the large
+ * changes they exist to judge. The ceiling stays finite so a genuinely runaway
+ * command still fails rather than exhausting memory.
+ */
+const GIT_MAX_BUFFER_BYTES = 256 * 1024 * 1024;
 
 /**
  * Shared production git executor for the per-task gate handlers (FIX-4 dedupe).
@@ -34,6 +48,7 @@ export const defaultGitExec: GitExec = (repoRoot, args) => {
       cwd: repoRoot,
       timeout: 30_000,
       encoding: 'utf-8',
+      maxBuffer: GIT_MAX_BUFFER_BYTES,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     return { stdout, exitCode: 0 };
@@ -49,15 +64,30 @@ export const defaultGitExec: GitExec = (repoRoot, args) => {
 /**
  * Fetch the unified diff between baseBranch and HEAD.
  * Returns null on failure so callers can distinguish "no diff" from "error".
+ *
+ * The failure reason is logged rather than discarded: every caller collapses
+ * `null` to one generic DIFF_ERROR envelope, so a swallowed cause sent readers
+ * hunting a git problem when the real answer was an output-size ceiling.
  */
 export function getDiff(repoRoot: string, baseBranch: string): string | null {
   try {
     return execFileSync(
       'git',
       ['diff', `${baseBranch}...HEAD`],
-      { cwd: repoRoot, encoding: 'utf-8', timeout: 30_000, stdio: ['pipe', 'pipe', 'pipe'] },
+      {
+        cwd: repoRoot,
+        encoding: 'utf-8',
+        timeout: 30_000,
+        maxBuffer: GIT_MAX_BUFFER_BYTES,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      },
     );
-  } catch {
+  } catch (err) {
+    const e = err as { code?: string; status?: number; message?: string };
+    orchestrateLogger.warn(
+      { repoRoot, baseBranch, code: e.code, status: e.status, err: e.message },
+      'getDiff: git diff failed; the gate will report DIFF_ERROR',
+    );
     return null;
   }
 }

@@ -23,7 +23,6 @@ import {
   VcsMutationOwner,
   VcsStaleEpochError,
   assertVcsEpochCurrent,
-  canMutateShared,
   foldVcsLedger,
   defaultVcsGitRunner,
   worktreeRemoveForceArgs,
@@ -131,10 +130,9 @@ describe('VCS mutation owner (P04-05)', () => {
     await rmrfAsync(repo);
   });
 
-  function owner(runner?: VcsGitRunner, caps: ReadonlySet<Capability> = SHARED_MUTATING): VcsMutationOwner {
+  function owner(runner?: VcsGitRunner): VcsMutationOwner {
     return new VcsMutationOwner({
       eventStore: store,
-      capabilities: caps,
       ...(runner !== undefined ? { gitRunner: runner } : {}),
     });
   }
@@ -167,19 +165,45 @@ describe('VCS mutation owner (P04-05)', () => {
     });
   });
 
-  // ── capability gate ────────────────────────────────────────────────────────
+  // `canMutateShared` used to pick live-vs-dry-run from the caller's
+  // capabilities, and a caller that flunked got a dry-run plus a
+  // successful-looking result for a mutation that never ran. Removed under
+  // INV-11 (see `capabilities/shared-mutating-gate.test.ts`). The owner no
+  // longer takes capabilities at all, so that inference is now unwritable
+  // rather than merely unwritten — which is why there is no test here asserting
+  // "capabilities don't affect mode". There is no such input to vary.
 
-  describe('canMutateShared', () => {
-    it('admits a shared-mutating capability set', () => {
-      expect(canMutateShared(SHARED_MUTATING)).toBe(true);
+  describe('mode is requested, never inferred', () => {
+    it('VcsMutationOwner_NoModeRequested_MutatesLive', async () => {
+      const outcome = await owner().createBranch({
+        repoRoot: repo,
+        branch: 'feature/live-default',
+        base: 'main',
+        idempotencyKey: 'live-default-1',
+        epoch: 1,
+      });
+
+      // The on-disk branch is the assertion that matters: the old failure was a
+      // plausible outcome for work that never happened.
+      expect(isSuccess(outcome)).toBe(true);
+      expect(branchExists(repo, 'feature/live-default')).toBe(true);
     });
 
-    it('denies a read-only caller (no fs:write / shell:exec)', () => {
-      expect(canMutateShared(capabilitiesForPosture('read-only'))).toBe(false);
-    });
+    it('VcsMutationOwner_ExplicitDryRun_IsStillHonoured', async () => {
+      const { runner, calls } = neverRunner();
+      const outcome = await owner(runner).createBranch({
+        repoRoot: repo,
+        branch: 'feature/explicit-dry',
+        base: 'main',
+        idempotencyKey: 'explicit-dry-1',
+        epoch: 1,
+        mode: DRY_RUN,
+      });
 
-    it('denies a worktree-isolated caller even with fs:write + shell:exec', () => {
-      expect(canMutateShared(capabilitiesForPosture('task-isolated'))).toBe(false);
+      // Dry-run did not disappear; it stopped being chosen for you.
+      expect(isDryRun(outcome)).toBe(true);
+      expect(calls).toEqual([]);
+      expect(branchExists(repo, 'feature/explicit-dry')).toBe(false);
     });
   });
 
@@ -501,24 +525,9 @@ describe('VCS mutation owner (P04-05)', () => {
     expect(await ledgerEvents()).toEqual([]); // no intent, no terminal
   });
 
-  // ── capability fallback: no shared-mutating cap → dry-run ───────────────────
-
-  it('degrades to a dry-run outcome (no mutation) when the caller lacks shared-mutating capability', async () => {
-    const { runner, calls } = neverRunner();
-    const o = owner(runner, capabilitiesForPosture('read-only'));
-    const outcome = await o.createBranch({
-      repoRoot: repo,
-      branch: 'feature/no-cap',
-      base: 'main',
-      idempotencyKey: 'nocap-1',
-      epoch: 1,
-    });
-
-    expect(isDryRun(outcome)).toBe(true);
-    expect(calls).toEqual([]);
-    expect(branchExists(repo, 'feature/no-cap')).toBe(false);
-    expect(await ledgerEvents()).toEqual([]);
-  });
+  // A "degrades to dry-run when the caller lacks shared-mutating capability"
+  // case lived here. It is gone with the capability input itself — see the
+  // `mode is requested, never inferred` block above.
 });
 
 // ─── Shared git-mutation primitives (the single argv surface) ─────────────────

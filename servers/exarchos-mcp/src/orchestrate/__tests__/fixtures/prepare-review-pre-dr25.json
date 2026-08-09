@@ -1,0 +1,19 @@
+{
+  "success": true,
+  "data": {
+    "mode": "plan-review",
+    "posture": "read-only",
+    "adversarial": true,
+    "instruction": "You are a fresh-context adversarial reviewer. You did NOT write this plan and have no access to the authoring transcript — only the unified artifact and the spec it must satisfy. Default to REJECT: assume the plan is flawed and try to refute it. For every requirement in the spec, find the task(s) that satisfy it or record a HIGH gap. Surface unjustified leaps, missing edge cases, and untestable acceptance criteria as concrete, located gaps. Return a PlanReviewVerdict — \"survives\" only if no HIGH gap remains.",
+    "rung": {
+      "name": "standard",
+      "voters": 2
+    },
+    "provisionedContext": {
+      "artifact": "docs/specs/2026-08-06-internal-mechanics-overhaul.md",
+      "spec": "docs/specs/2026-08-06-internal-mechanics-overhaul.md",
+      "authoringTranscriptIncluded": false
+    },
+    "verdictFormat": "interface PlanReviewVerdict {\n  verdict: \"refuted\" | \"survives\";   // default-to-reject; \"survives\" only if no HIGH gaps remain\n  gaps: Array<{\n    claim: string;                   // the plan claim / task being refuted\n    flaw: string;                    // the concrete gap, missing case, or unjustified leap\n    location?: string;               // section / task id in the unified artifact\n    severity: \"HIGH\" | \"MEDIUM\" | \"LOW\";\n  }>;\n}"
+  }
+}
