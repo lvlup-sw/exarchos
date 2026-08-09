@@ -156,11 +156,13 @@ carries **21 tasks**: 071-075, 077-086, 088-093.
 |---|---|---|
 | **1 — silent wrong answers** | 078, 085, 092 | Something incorrect currently reads as correct: a skipped gate recorded as evidence, a failure envelope exiting 0, a short write promoted over good data, a totality predicate that does not run on every path. Two are HIGH tier. Nothing else should start until these land. |
 | **2 — the guard set's own claims** | 079, 080, 081, 091 | Loose floors, narrow roots, spelling-not-meaning detectors, and the lane whose execution is unasserted. These decide whether the *remaining* measurements can be trusted, so they precede the work that relies on them. |
-| **3 — one authority per rule** | 071, 072, 077, 082, 084 | The multiply-owned-representation cluster: two validators, four lexers, three waiver ledgers, a hand-maintained census, transcribed counts. Mechanical, highly parallel, and the shape already performed once elsewhere in the tree. |
+| **3 — one authority per rule** | 071, 072, 074, 077, 082, 084 | The multiply-owned-representation cluster: two validators, four lexers, three filename-coupled predicates, three waiver ledgers, a hand-maintained census, transcribed counts. Mechanical, highly parallel, and the shape already performed once elsewhere in the tree. |
 | **4 — contract debt** | 073, 083, 086, 093 | Field-scoped amendment, the two vacuous `outputSchema`s, INV-4's false-positive, the waiver horizon. Lower blast radius; several are judgement calls needing an owner's sign-off rather than code. |
 | **5 — the behaviour change, alone** | 075 | Per D1: a public runtime seam changes and real user configs can break at load. Lands last, in its own PR, with the migration note. |
 
 Waves 1-4 are internally parallel. **088, 089, 090** are already filed as their own issues (#1756, #1757, #1758) and slot into Wave 2 (088 — a blocking gate measuring the wrong tree), Wave 3 (089 — the mutation runner's package resolution) and Wave 2 (090 — a mutating verb ignoring `dryRun`).
+
+**074 sits in Wave 3.** Rev 2 declared 21 tasks but the table above placed only 20 — 074 had a full entry and no wave, so it would have been dropped at dispatch. Wave 3 is where it belongs on both counts: it is the third member of the same-shape cluster this document already names (072, 074, 077), and its D2 question — whether `guard-inventory` can detect the class structurally, which outranks the three edits — cannot be answered until 080 gives the inventory sight of the guards this wave shipped. 080 is Wave 2.
 
 ### Task 074: Filename-coupled entrypoint predicates — a silent no-op on rename
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-4
