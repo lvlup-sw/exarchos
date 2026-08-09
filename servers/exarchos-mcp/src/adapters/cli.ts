@@ -17,7 +17,7 @@ import type { DispatchContext } from '../core/dispatch.js';
 import { deriveLocalOperatorIdentity } from '../dispatch/caller-identity.js';
 import type { ToolResult } from '../format.js';
 import { toEnvelope } from '../format.js';
-import { exitCodeForError } from '../contract/error-families.js';
+import { exitCodeForResult } from '../contract/error-families.js';
 import {
   addFlagsFromSchema,
   coerceFlags,
@@ -134,32 +134,26 @@ export const ERROR_CODE_EXIT_CODES: Readonly<Record<string, number>> = {
  * Map a dispatched {@link ToolResult} to its process exit code.
  *
  * P03-05: the CLI is a GENERATED in-process client over the same contract, so
- * its exit codes are no longer a bespoke adapter table — they are DERIVED from
- * the frozen P03-02 exit-code authority via {@link exitCodeForError}. Both the
- * CLI and the MCP wire resolve a failure's exit code from that single registry,
- * so the two surfaces agree by construction (differential-fixtures proof).
+ * its exit codes are not a bespoke adapter table. Resolution is not restated
+ * here either — this function DELEGATES to {@link exitCodeForResult}, the
+ * contract's single authority for result → exit code. The CLI and the MCP wire
+ * therefore agree because there is one function, not because two transcriptions
+ * are kept in step.
  *
- * Resolution:
- *   1. success              → SUCCESS (0)
- *   2. otherwise            → exitCodeForError(result.error.code)
- *
- * `exitCodeForError` is a strict superset of the pre-P03-05 mapping for every
- * handler-reachable code (success 0, INVALID_INPUT 1, the wait codes 17/18, and
- * the generic HANDLER_ERROR 2 fallback for any unregistered code — matching the
- * old ERROR_CODE_EXIT_CODES/INVALID_INPUT/HANDLER_ERROR ladder). It ADDS the
- * codes the adapter previously flattened to 2: the protocol family
- * (PROTOCOL_ERROR / UNSUPPORTED_PROTOCOL_VERSION / VERSION_INCOMPATIBLE) → 1 and
- * PRESENTER_ERROR → 3. Those refinements are not reachable from the dispatch
- * failure branch in CLI mode today, so this is behaviour-preserving for live
- * flows while making the exit contract complete against the registry.
+ * The authority carries a failure floor: `success: false` never exits 0, with or
+ * without an `error`. `ToolResult` is not a discriminated union, so an error-less
+ * failure is type-legal for every handler, and the wire already renders it as
+ * `isError: true` — the floor keeps the CLI from reporting the same value as a
+ * success. The registry mapping for named codes is unchanged (INVALID_INPUT 1,
+ * the wait codes 17/18, PRESENTER_ERROR 3, HANDLER_ERROR 2 for anything
+ * unregistered).
  *
  * {@link ERROR_CODE_EXIT_CODES} is retained as the DR-7 presentation table that
  * `error-families.test.ts` and `lifecycle-verbs.parity.test.ts` pin against; its
  * two entries are now subsumed by (and cross-checked against) the registry.
  */
 export function resolveExitCode(result: ToolResult): number {
-  if (result.success) return CLI_EXIT_CODES.SUCCESS;
-  return exitCodeForError(result.error?.code);
+  return exitCodeForResult(result);
 }
 
 // ─── Error-Shape Helpers ────────────────────────────────────────────────────
