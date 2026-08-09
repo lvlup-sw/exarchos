@@ -134,6 +134,28 @@ jobs:
       # (exercised by `scripts/build-binary.test.ts`).
       - run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
         working-directory: servers/exarchos-mcp
+
+      # DR-20 acceptance needs BOTH installer shells (task 078, DR-7).
+      # `scripts/installer-verify.test.ts` drives get-exarchos.sh under bash and
+      # get-exarchos.ps1 under pwsh; each absent shell silently dropped 11 tests
+      # while the run still reported success. This lane owns that suite, so it
+      # owns the prerequisite. PowerShell ships on the ubuntu-latest runner
+      # image — installing it here would be redundant, but ASSERTING it is not:
+      # an image change that drops pwsh must fail here with a legible message
+      # rather than reappear as a suite that quietly halves. The suite's own
+      # `InstallerVerify_ShellAbsent_FailsClosedRatherThanSkipping` is the
+      # backstop; this step just fails earlier and more clearly.
+      - name: Guard — both installer shells present (DR-20 acceptance)
+        run: |
+          missing=()
+          command -v bash >/dev/null 2>&1 || missing+=("bash")
+          command -v pwsh >/dev/null 2>&1 || command -v powershell >/dev/null 2>&1 || missing+=("pwsh")
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::${missing[*]} unavailable on this lane — the DR-20 installer acceptance suite would SKIP 11 tests per missing shell and still report success. Install it (ubuntu: https://learn.microsoft.com/powershell/scripting/install/install-ubuntu) rather than widening the waiver."
+            exit 1
+          fi
+          echo "installer shells present: bash=$(command -v bash) pwsh=$(command -v pwsh || command -v powershell)"
+
       - run: npm run typecheck
 
       # Windows-portability lint (#1623): editor-first ESLint rules, also run
