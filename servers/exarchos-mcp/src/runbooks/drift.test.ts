@@ -1,8 +1,34 @@
 import { describe, it, expect } from 'vitest';
 import { zodToJsonSchema } from '../adapters/json-schema.js';
-import { ALL_RUNBOOKS } from './definitions.js';
+import { ALL_RUNBOOKS, TASK_COMPLETION } from './definitions.js';
 import { findActionInRegistry, getFullRegistry } from '../registry.js';
 import { EVENT_EMISSION_REGISTRY } from '../event-store/schemas.js';
+import type { RunbookDefinition } from './types.js';
+
+/**
+ * The events a runbook's STEPS actually cause, derived from the registry.
+ *
+ * This lived in `runbooks/compute.ts` until it was deleted as dead production
+ * code — correctly, since its only callers were tests. Deleting the module took
+ * the bijection with it, which is the part that was not dead: what survived is
+ * one-directional (every declared name is a real `'auto'` event) and that
+ * direction cannot see a runbook declaring an event no step emits. So the
+ * derivation is re-homed HERE, where its only caller lives, rather than restored
+ * as a production module with no production importer.
+ *
+ * Native steps (`native:` tools) and decision steps (`none`) are skipped: they
+ * are not MCP calls and emit nothing through the registry.
+ */
+function stepDerivedAutoEmits(runbook: RunbookDefinition): readonly string[] {
+  const events = new Set<string>();
+  for (const step of runbook.steps) {
+    if (step.tool.startsWith('native:') || step.tool === 'none') continue;
+    const action = findActionInRegistry(step.tool, step.action);
+    if (action?.autoEmits === undefined) continue;
+    for (const emission of action.autoEmits) events.add(emission.event);
+  }
+  return [...events].sort();
+}
 
 describe('Runbook drift detection', () => {
   it('RunbookDrift_EveryStepReferencesValidRegistryAction', () => {
@@ -118,5 +144,74 @@ describe('Runbook drift detection', () => {
     const ids = ALL_RUNBOOKS.map(r => r.id);
     const uniqueIds = new Set(ids);
     expect(uniqueIds.size).toBe(ids.length);
+  });
+});
+
+// ─── The bijection, re-homed (task 085) ─────────────────────────────────────
+//
+// `RunbookDrift_AutoEmitsMatchEventEmissionRegistry` above checks CONTAINMENT in
+// one direction: every declared name is a registered `'auto'` event. It says
+// nothing about whether the runbook's own steps produce that event, so a runbook
+// advertising an emission no step causes reads as correct — and `autoEmits` is
+// what an agent consults to decide it need not append the record itself.
+//
+// Both directions are asserted below, against a set DERIVED from the registry
+// rather than transcribed.
+
+describe('Runbook autoEmits ⇄ step-derived emissions (bijection)', () => {
+  it('RunbookAutoEmits_EventDeclaredButNoStepEmits_FailsBijection', () => {
+    // FORWARD: nothing is advertised that the steps do not produce. This is the
+    // direction the deletion lost.
+    for (const runbook of ALL_RUNBOOKS) {
+      const derived = new Set(stepDerivedAutoEmits(runbook));
+      const phantom = [...runbook.autoEmits].filter((event) => !derived.has(event)).sort();
+      expect(
+        phantom,
+        `Runbook '${runbook.id}' declares autoEmits ${JSON.stringify(phantom)} that no step ` +
+          'produces. An agent reads autoEmits to decide it need not append the record itself, so ' +
+          'a phantom entry means the record is never written and nobody is told.',
+      ).toEqual([]);
+    }
+
+    // The fixture proves the assertion can fail: a runbook that declares one more
+    // event than its steps produce is rejected. Built from a REAL runbook so the
+    // only difference from a passing subject is the phantom entry.
+    const phantomDeclarer: RunbookDefinition = {
+      ...TASK_COMPLETION,
+      autoEmits: [...TASK_COMPLETION.autoEmits, 'workflow.transition'],
+    };
+    const derived = new Set(stepDerivedAutoEmits(phantomDeclarer));
+    expect([...phantomDeclarer.autoEmits].filter((e) => !derived.has(e))).toEqual([
+      'workflow.transition',
+    ]);
+  });
+
+  it('RunbookAutoEmits_StepEmitsButNotDeclared_FailsBijection', () => {
+    // REVERSE: nothing the steps produce goes unadvertised. An undeclared
+    // emission is the mirror failure — the agent appends a duplicate record
+    // because the runbook did not say the tool already had.
+    for (const runbook of ALL_RUNBOOKS) {
+      const declared = new Set(runbook.autoEmits);
+      const undeclared = stepDerivedAutoEmits(runbook).filter((event) => !declared.has(event));
+      expect(
+        undeclared,
+        `Runbook '${runbook.id}' steps emit ${JSON.stringify(undeclared)} which it does not ` +
+          'declare in autoEmits.',
+      ).toEqual([]);
+    }
+
+    const underDeclarer: RunbookDefinition = { ...TASK_COMPLETION, autoEmits: [] };
+    expect(stepDerivedAutoEmits(underDeclarer).length).toBeGreaterThan(0);
+  });
+
+  it('RunbookAutoEmits_DerivationHasANonEmptySubject', () => {
+    // The denominator. Both assertions above are vacuously true if the derivation
+    // resolves nothing — a moved registry, a renamed action, a `findActionInRegistry`
+    // that started returning `undefined`. At least one runbook must actually
+    // derive emissions, and the whole set must be non-trivial.
+    const emitting = ALL_RUNBOOKS.filter((r) => stepDerivedAutoEmits(r).length > 0);
+    expect(emitting.length).toBeGreaterThan(0);
+    expect(ALL_RUNBOOKS.length).toBeGreaterThan(emitting.length);
+    expect(stepDerivedAutoEmits(TASK_COMPLETION)).toEqual([...TASK_COMPLETION.autoEmits].sort());
   });
 });
