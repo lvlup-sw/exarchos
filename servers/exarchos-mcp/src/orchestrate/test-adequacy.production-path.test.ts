@@ -216,6 +216,69 @@ describe('check_test_adequacy production path', () => {
     expect(data.report).toMatch(/NOT proof/i);
   }, 180_000);
 
+  // ── DR-7 (task 078) — the skip must survive into the DURABLE record ────────
+  //
+  // The proof above stops at the carrier. Its sibling defect lived one layer
+  // deeper: `runGate` normalized the SAME `{passed:true, skipped:true}` carrier
+  // to `verdict:'pass'`, so `admission.evidence-recorded` minted durable proof
+  // and `gate.executed` minted `passed:true` for a gate that never ran. This
+  // drives the identical production composition and reads what actually landed
+  // in the event store, because that is what every downstream reader sees.
+
+  it('ProductionPath_PolicySkippedGate_DurableRowsRecordSkipNotPass', async () => {
+    const repoRoot = sourceOnlyBranch('prodpath-durable-skip-');
+    const ctx = await makeCtx('prodpath-durable-skip-state-', 'feat-durable-skip');
+
+    const result = await dispatch(
+      'exarchos_orchestrate',
+      {
+        action: 'check_test_adequacy',
+        featureId: 'feat-durable-skip',
+        taskId: 'T-durable-skip',
+        branch: 'feature/src-only',
+        baseBranch: 'main',
+        repoRoot,
+        // Low tier + non-boundary — the resolved verification sequence excludes
+        // check_test_adequacy, so `resolvePolicySkip` routes it out. This is the
+        // live producer of `{passed:true, skipped:true, discriminant:…}`.
+        riskTier: 'low',
+        boundaryTouching: false,
+      },
+      ctx,
+    );
+
+    expect(result.success).toBe(true);
+    const data = dataOf(result);
+    // Non-blocking carrier, unchanged …
+    expect(data.passed).toBe(true);
+    expect(data.skipped).toBe(true);
+
+    // … but the DURABLE proof says nothing was proven.
+    const evidenceRows = await ctx.eventStore.query('feat-durable-skip', {
+      type: 'admission.evidence-recorded',
+    });
+    expect(evidenceRows.length).toBeGreaterThan(0);
+    const verdicts = evidenceRows.map(
+      (e) => (e.data as { evidence?: { verdict?: string } }).evidence?.verdict,
+    );
+    expect(verdicts).toContain('indeterminate');
+    expect(verdicts).not.toContain('pass');
+
+    // … and the signal `task_complete` reads agrees, with the reason attached.
+    const gateRows = await ctx.eventStore.query('feat-durable-skip', {
+      type: 'gate.executed',
+    });
+    const adequacy = gateRows
+      .map((e) => e.data as { gateName?: string; passed?: boolean; details?: Record<string, unknown> })
+      .filter((d) => d.gateName === 'test-adequacy');
+    expect(adequacy.length).toBeGreaterThan(0);
+    for (const row of adequacy) {
+      expect(row.passed).toBe(false);
+      expect(row.details).toMatchObject({ verdict: 'indeterminate', skipped: true });
+      expect(typeof row.details?.discriminant).toBe('string');
+    }
+  }, 180_000);
+
   // ── REQUIRED PROOF 3 — the gate must probe the RIGHT subject ──────────────
 
   it('ProductionPath_ColocatedTestsUnderLayoutToolchain_ResolvesNonEmptyProbedTests', async () => {
