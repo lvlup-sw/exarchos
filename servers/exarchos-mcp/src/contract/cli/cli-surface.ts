@@ -198,9 +198,17 @@ export function compileForCli(): CompiledContract {
 }
 
 /**
- * Compile the live contract for RUNTIME ADDRESSING — the generated client's
- * verify step (`generated-client.ts`) — with the generation-time AUTHORITY
- * freeze gate stubbed `ok`.
+ * Compile the live contract with the generation-time AUTHORITY freeze gate
+ * stubbed `ok` — the UNGATED twin of {@link compileForCli}.
+ *
+ * NOT ON THE DISPATCH PATH. It was, briefly: the generated client's verify step
+ * ran this compile lazily per process, until the win32 packaged proof showed
+ * that a per-process compile blows the budget when every probe spawns a fresh
+ * binary. Addressing now resolves from the static `generated/cli-action-ids.ts`
+ * module, and this function's remaining job is verification — it is the second
+ * term in `AddressingSurface_IsByteIdentical_ToTheGenerationSurface`, which is
+ * what makes "verified against the generated module" equivalent to "verified
+ * against the compiled contract".
  *
  * WHY THE STUB IS LOAD-BEARING, NOT A SHORTCUT: `verifyContractAuthority()`
  * collects its inputs by READING THE SOURCE TREE — `package.json`, the
@@ -217,8 +225,10 @@ export function compileForCli(): CompiledContract {
  * run, and the authority verdict never alters compiler OUTPUT (it only gates),
  * so the descriptors — and therefore the ActionId surface — are byte-identical
  * to {@link compileForCli}'s whenever the tree's authority is approved. The
- * regression guard in `generated-client.test.ts` pins that this path performs
- * NO filesystem reads.
+ * packaged-binary guard in `generated-client.test.ts` pins the LIVE dispatch
+ * path (`invokeContractAction` → `contractActionIds`) rather than this
+ * function; this function's own fs-independence is pinned there too, as a
+ * property of a verification helper.
  */
 export function compileForCliAddressing(): CompiledContract {
   const outcome = compile(deriveMetaModel(), {
