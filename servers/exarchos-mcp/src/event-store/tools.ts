@@ -3,6 +3,11 @@ import { EventStore, SequenceConflictError } from './store.js';
 import { EVENT_DATA_SCHEMAS, type EventType, WorkflowEventBase } from './schemas.js';
 import { pickFields, toEventAck, type EventAck, type ToolResult } from '../format.js';
 import { buildValidatedEvent } from './event-factory.js';
+import {
+  BATCH_VALIDATION_ATOMICITY,
+  resolveBatchEvents,
+  validateEventData,
+} from './event-validation.js';
 import { randomUUID, createHash } from 'node:crypto';
 import { getDispatchContext } from '../dispatch/dispatch-context.js';
 import { getReservedEventAppendRegistration } from '../registry.js';
@@ -321,10 +326,19 @@ export async function handleBatchAppend(
     };
   }
 
-  if (!args.events || args.events.length === 0) {
+  // Resolve the events this batch will actually append (intra-batch dedup by
+  // per-event idempotencyKey). A batch resolving to zero events is an error,
+  // not an empty success — see `resolveBatchEvents`.
+  const resolution = resolveBatchEvents(args.events);
+  if (!resolution.ok) {
     return {
       success: false,
-      error: { code: 'INVALID_INPUT', message: 'events array must be non-empty' },
+      error: {
+        code: 'INVALID_INPUT',
+        message: resolution.reason === 'empty-input'
+          ? 'events array must be non-empty'
+          : 'batch resolved to zero appendable events after intra-batch deduplication',
+      },
     };
   }
 
@@ -361,23 +375,19 @@ export async function handleBatchAppend(
 
   // Pre-dedup within batch by per-event idempotencyKey (preserves the
   // single-key-dedup contract `batchAppend_IdempotencyKey_DeduplicatesAcrossBatch`
-  // exercises). The appender itself dedups across calls via the batch
-  // idempotencyKey we derive below.
-  const seenBatchKeys = new Set<string>();
-  const dedupedEvents: Array<Record<string, unknown>> = [];
-  for (const event of args.events) {
-    const key = event.idempotencyKey as string | undefined;
-    if (key !== undefined) {
-      if (seenBatchKeys.has(key)) continue;
-      seenBatchKeys.add(key);
-    }
-    dedupedEvents.push(event);
-  }
+  // exercises), carrying each survivor's original index so validation errors
+  // can name the caller's position. The appender itself dedups across calls via
+  // the batch idempotencyKey we derive below.
+  const dedupedEvents = resolution.events.map((r) => r.event);
 
-  // Validate envelope only (matches legacy EventStore.batchAppend behavior:
-  // type must be a known EventType, but the per-type data schema is enforced
-  // elsewhere — we don't tighten that contract here). Boundary misplaced-field
-  // detection already ran above. The placeholder sequence/streamId fields are
+  // Validate envelope AND per-type event data. DR-1: `validateEventData` is the
+  // same authority `append` uses via `buildValidatedEvent`, so the two write
+  // paths agree on whether a payload is valid — before this, a `task.completed`
+  // with a string `evidence` was rejected by one door and accepted by the
+  // other. Atomicity is `BATCH_VALIDATION_ATOMICITY` (all-or-nothing): the
+  // first invalid event rejects the whole batch, matching what the misplaced-
+  // field and reserved-type checks above already do. Boundary misplaced-field
+  // detection already ran. The placeholder sequence/streamId fields are
   // overwritten by AtomicAppender; they're present only because the schema
   // requires them.
   type ValidatedEvent = {
@@ -392,16 +402,21 @@ export async function handleBatchAppend(
     source?: string;
     timestamp?: string;
   };
-  let validatedEvents: ValidatedEvent[];
-  try {
-    validatedEvents = dedupedEvents.map((event) => {
+  const validatedEvents: ValidatedEvent[] = [];
+  for (const { event, index } of resolution.events) {
+    try {
       const parsed = WorkflowEventBase.parse({
         ...event,
         streamId: args.stream,
         sequence: 1, // placeholder; AtomicAppender allocates the real sequence
         timestamp: event.timestamp ?? new Date().toISOString(),
       });
-      const out: ValidatedEvent = { type: parsed.type as EventType };
+      const eventType = parsed.type as EventType;
+      // The shared per-type data check — the same authority `append` reaches
+      // through `buildValidatedEvent`.
+      validateEventData(eventType, parsed.data);
+
+      const out: ValidatedEvent = { type: eventType };
       if (parsed.data !== undefined) out.data = parsed.data;
       if (parsed.correlationId !== undefined) out.correlationId = parsed.correlationId;
       if (parsed.causationId !== undefined) out.causationId = parsed.causationId;
@@ -411,31 +426,38 @@ export async function handleBatchAppend(
       if (parsed.organizationId !== undefined) out.organizationId = parsed.organizationId;
       if (parsed.source !== undefined) out.source = parsed.source;
       if (parsed.timestamp !== undefined) out.timestamp = parsed.timestamp;
-      return out;
-    });
-  } catch (err) {
-    if (err instanceof ZodError) {
+      validatedEvents.push(out);
+    } catch (err) {
+      if (err instanceof ZodError) {
+        return {
+          success: false,
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: `Batch validation failed at events[${index}] (atomicity: ${BATCH_VALIDATION_ATOMICITY} — no event in this batch was appended): ${err.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ')}`,
+          },
+        };
+      }
       return {
         success: false,
         error: {
-          code: 'VALIDATION_ERROR',
-          message: `Batch validation failed: ${err.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ')}`,
+          code: 'BATCH_APPEND_FAILED',
+          message: err instanceof Error ? err.message : String(err),
         },
       };
     }
+  }
+
+  // `resolveBatchEvents` already rejected the empty cases, so an empty
+  // validated set here means the loop above silently dropped every event.
+  // That would append nothing while acking success — fail instead.
+  if (validatedEvents.length === 0) {
     return {
       success: false,
       error: {
         code: 'BATCH_APPEND_FAILED',
-        message: err instanceof Error ? err.message : String(err),
+        message: 'batch validation produced zero events from a non-empty resolution',
       },
     };
-  }
-
-  // If dedup pruned everything (all events shared a key already in flight), the
-  // legacy contract returns success with empty data. Match that for byte-compat.
-  if (validatedEvents.length === 0) {
-    return { success: true, data: [] };
   }
 
   // Derive the batch idempotencyKey:
