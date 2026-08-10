@@ -29,6 +29,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { loadInvariants, type InvariantEntry } from '../architecture/invariants-loader.js';
+import {
+  extractCommentProse,
+  isQuotedMention,
+  sentenceBefore,
+} from '../test-helpers/comment-prose.js';
 import { defaultSourcePaths, loadAuthorityLock } from './authority-collector.js';
 import { digestText } from './authority-digest.js';
 import { CLI_CONTRACT_DEVIATIONS } from './cli/cli-contract-seam.js';
@@ -237,14 +242,58 @@ const REPOINTED_CITATION_SITES: readonly string[] = Object.freeze([
   'contract/cli/cli-contract-seam.ts',
 ]);
 
-/** The retired framing: INV-2 cited AS byte-parity between two peer facades. */
-function citesRetiredParityFraming(text: string): boolean {
-  return /INV-2\s+parity/i.test(text);
+/**
+ * The retired framing: INV-2 cited AS byte-parity between two peer facades.
+ *
+ * Two things separate a CITATION from the mere characters, and the earlier
+ * `/INV-2\s+parity/i` over raw file text had neither:
+ *
+ *   1. **It must be prose.** A `describe(...)` title, a failure message, a regex
+ *      source or an identifier that contains the phrase is code, not a claim the
+ *      tree makes. This module's own sweep name and error string both contain
+ *      it; so does the line that used to hold the pattern.
+ *   2. **It must not be a mention.** Prose that names the framing in order to
+ *      say it is gone, or that puts the words in quotes to talk ABOUT them, is
+ *      not asserting them. The old detector could not tell either apart from a
+ *      live citation, which is why this file's fixture had to be written as
+ *      `'INV-2' + ' parity'` — a test evading its own detector is the detector
+ *      admitting it matches spelling rather than meaning.
+ *
+ * So the phrase counts only when it appears in comment prose, unquoted, and its
+ * own sentence does not qualify it as retired. {@link citesRetiredParityFramingIn}
+ * applies (1); this function applies (2) to text already known to be prose.
+ */
+const RETIRED_PARITY_RE = /INV-2\s+(?:byte-)?parity/gi;
+
+/**
+ * Words that turn "INV-2 parity" from a claim into a description of one. Read
+ * within the phrase's own sentence, so a qualifier wrapped onto the previous
+ * comment line still governs it and one from an unrelated sentence does not.
+ */
+const RETIREMENT_QUALIFIER_RE =
+  /\b(?:retired|retiring|former|formerly|superseded|supersedes|deprecated|stale|obsolete|no longer|not|never|instead of|rather than|was|used to)\b/i;
+
+function citesRetiredParityFraming(prose: string): boolean {
+  for (const match of prose.matchAll(RETIRED_PARITY_RE)) {
+    if (isQuotedMention(prose, match.index)) continue;
+    if (!RETIREMENT_QUALIFIER_RE.test(sentenceBefore(prose, match.index))) return true;
+  }
+  return false;
+}
+
+/** {@link citesRetiredParityFraming} over the comment prose of a source file. */
+function citesRetiredParityFramingIn(source: string): boolean {
+  return citesRetiredParityFraming(extractCommentProse(source));
 }
 
 /** The governing framing: INV-2 as the contract every client is derived from. */
 function citesGoverningFraming(text: string): boolean {
   return /governing\s+INV-2/i.test(text);
+}
+
+/** {@link citesGoverningFraming} over the comment prose of a source file. */
+function citesGoverningFramingIn(source: string): boolean {
+  return citesGoverningFraming(extractCommentProse(source));
 }
 
 function walkTsFiles(dir: string, out: string[] = []): string[] {
@@ -268,12 +317,73 @@ describe('DR-26 — the retired INV-2 parity citations are re-pointed', () => {
   it('RetiredParityDetector_FiresOnStaleCitation_AndNotOnGoverningOne', () => {
     // A sweep that reports zero offenders is only meaningful if the detector
     // that produced the zero can produce a one.
-    const stale = '// shape the MCP arm receives (INV-2' + ' parity; #1127).';
+    //
+    // The literal is written WHOLE here. Under the retired detector it had to be
+    // split (`'INV-2' + ' parity'`) so this file would not match its own sweep —
+    // a workaround that only exists when a detector reads characters instead of
+    // claims, and its disappearance is part of what this repair buys.
+    const stale = '// shape the MCP arm receives (INV-2 parity; #1127).';
     const repointed = '// one registered schema (governing INV-2 — by construction).';
-    expect(citesRetiredParityFraming(stale)).toBe(true);
-    expect(citesRetiredParityFraming(repointed)).toBe(false);
-    expect(citesGoverningFraming(repointed)).toBe(true);
-    expect(citesGoverningFraming(stale)).toBe(false);
+    expect(citesRetiredParityFramingIn(stale)).toBe(true);
+    expect(citesRetiredParityFramingIn(repointed)).toBe(false);
+    expect(citesGoverningFramingIn(repointed)).toBe(true);
+    expect(citesGoverningFramingIn(stale)).toBe(false);
+  });
+
+  // ─── Kill fixtures: the innocuous forms that used to red the build ────────
+
+  it('RetiredParityDetector_PhraseInCode_IsNotAProseCitation', () => {
+    // A title, a message and a regex source all contain the characters and none
+    // of them is the tree claiming byte-parity. This module has all three, which
+    // is why the sweep never dared read its own directory honestly.
+    const asTitle = `describe('the retired INV-2 parity citations are re-pointed', () => {});`;
+    const asMessage = `const why = 'shipped source still cites the retired INV-2 parity framing';`;
+    const asPattern = 'const RE = /INV-2 parity/i;';
+    expect(citesRetiredParityFramingIn(asTitle)).toBe(false);
+    expect(citesRetiredParityFramingIn(asMessage)).toBe(false);
+    expect(citesRetiredParityFramingIn(asPattern)).toBe(false);
+  });
+
+  it('RetiredParityDetector_ProseNamingTheFramingAsRetired_IsNotACitation', () => {
+    const naming = '// The retired INV-2 parity framing has no citation left here.';
+    const wrapped =
+      '/**\n * ...for the four invariants DR-26 names, and the retired\n' +
+      ' * INV-2 parity framing must have no citation left in shipped source.\n */';
+    const contrasted = '// One registered schema, not INV-2 parity between peers.';
+    expect(citesRetiredParityFramingIn(naming)).toBe(false);
+    expect(citesRetiredParityFramingIn(wrapped)).toBe(false);
+    expect(citesRetiredParityFramingIn(contrasted)).toBe(false);
+  });
+
+  it('RetiredParityDetector_QuotedPhraseIsMentionedNotAsserted', () => {
+    // The use–mention distinction. A document that defines, quotes or retires a
+    // framing has to spell it; only bare prose asserts it. Without this the sole
+    // way to write about the framing is to avoid writing it, which is the
+    // workaround this repair deletes.
+    const mentioned = '// Words that turn "INV-2 parity" into a claim about one.';
+    const asserted = '// Words that turn the MCP arm into INV-2 parity with the CLI.';
+    expect(citesRetiredParityFramingIn(mentioned)).toBe(false);
+    expect(citesRetiredParityFramingIn(asserted)).toBe(true);
+  });
+
+  it('RetiredParityDetector_QualifierFromAnotherSentence_DoesNotExcuseACitation', () => {
+    // The qualifier has to govern THIS phrase. A "retired" belonging to the
+    // previous sentence must not launder a live citation in the next one — the
+    // failure mode a fixed look-back window would have.
+    const source =
+      '// The old wording is retired. The MCP arm receives INV-2 parity with the CLI.';
+    expect(citesRetiredParityFramingIn(source)).toBe(true);
+  });
+
+  it('RetiredParityDetector_ReadsThisVeryFile_AsClean', () => {
+    // The sharpest available fixture: this module names the retired framing in
+    // its header, its describe title, its failure message and every comment
+    // above — and cites it nowhere. Under the retired detector it was an
+    // offender by its own rule, which is exactly why it excluded itself.
+    const self = fs.readFileSync(fileURLToPath(import.meta.url), 'utf8');
+    expect(citesRetiredParityFramingIn(self)).toBe(false);
+    // ...and the sweep is still capable of firing on the same corpus.
+    expect(citesRetiredParityFramingIn(`${self}\n// per INV-2 parity, #1127.`)).toBe(true);
   });
 
   it('ShippedSource_CitesNoRetiredInv2ParityFraming', () => {
@@ -282,7 +392,7 @@ describe('DR-26 — the retired INV-2 parity citations are re-pointed', () => {
     expect(files.length).toBeGreaterThanOrEqual(300);
 
     const offenders = files
-      .filter((f) => citesRetiredParityFraming(fs.readFileSync(f, 'utf8')))
+      .filter((f) => citesRetiredParityFramingIn(fs.readFileSync(f, 'utf8')))
       .map((f) => path.relative(SHIPPED_SRC_ROOT, f).split(path.sep).join('/'));
 
     expect(
@@ -296,10 +406,10 @@ describe('DR-26 — the retired INV-2 parity citations are re-pointed', () => {
       const abs = path.join(SHIPPED_SRC_ROOT, rel);
       expect(fs.existsSync(abs), `${rel} must exist`).toBe(true);
       const text = fs.readFileSync(abs, 'utf8');
-      expect(citesGoverningFraming(text), `${rel} must cite the governing INV-2`).toBe(
+      expect(citesGoverningFramingIn(text), `${rel} must cite the governing INV-2`).toBe(
         true,
       );
-      expect(citesRetiredParityFraming(text), `${rel} must not cite the retired one`).toBe(
+      expect(citesRetiredParityFramingIn(text), `${rel} must not cite the retired one`).toBe(
         false,
       );
     }
