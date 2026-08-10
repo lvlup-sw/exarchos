@@ -3,11 +3,17 @@
 // Mirrors composite.ts's real registration-set shapes in miniature — the
 // ACTION_HANDLERS map (adaptXxx(handleYyy) wrapping AND a raw inline-arrow
 // value, composite.ts's `create_issue` shape), and the
-// `envelopeWrap(await handleXxx(...), startedAt)` call shape the six
-// special-cased branches use (composite.ts:639-715, dispatched at :748) — so
-// the rule's registration-set resolution + throw classification is exercised
-// the same way it runs over the real orchestrate/** tree, without this
-// fixture depending on that tree.
+// `if (action === '<verb>') return envelopeWrap(await handleXxx(...), startedAt);`
+// branch shape the special-cased actions use — so the rule's
+// registration-set resolution + throw classification is exercised the same
+// way it runs over the real orchestrate/** tree, without this fixture
+// depending on that tree.
+//
+// The dispatcher below carries the branch shape deliberately: the
+// special-branch census is DERIVED from it (the action name comes from the
+// branch's own literal), so a fixture that dispatched a bare
+// `envelopeWrap(await handleXxx(...))` with no selecting branch would be
+// testing a shape the real dispatcher does not have.
 
 type ToolResult =
   | { success: true; data?: unknown }
@@ -60,11 +66,10 @@ async function handleCatchRethrow(args: { id?: string }): Promise<ToolResult> {
   }
 }
 
-// Case 3: one of composite.ts's six special-cased branch handlers — matched
-// by name (handleDoctor), invoked directly via the
-// `envelopeWrap(await handleXxx(...), startedAt)` shape, never registered
-// through ACTION_HANDLERS. Stand-in name/body; only the call shape matters
-// to the rule's resolution.
+// Case 3: a special-cased branch handler — dispatched from its own
+// `if (action === 'doctor')` branch, never registered through
+// ACTION_HANDLERS. Stand-in name/body; only the dispatch shape matters to the
+// rule's resolution.
 async function handleDoctor(args: { report?: string }): Promise<ToolResult> {
   if (!args.report) {
     throw new Error('report is required'); // VIOLATION: top-level throw
@@ -72,9 +77,30 @@ async function handleDoctor(args: { report?: string }): Promise<ToolResult> {
   return { success: true, data: { report: args.report } };
 }
 
-async function dispatchSpecialBranch(rest: Record<string, unknown>): Promise<ToolResult> {
+// Case 8 (KILL FIXTURE for the derived census): a special-cased branch whose
+// handler name appears in NO hand-written roster — this is the shape
+// `invariants_amend` → `handleAmend` had when it shipped unscanned. With the
+// census derived from the dispatch branch it is scanned like any other, so
+// this throw is reported; with a hand-maintained handler list it is invisible.
+async function handleAmend(args: { id?: string }): Promise<ToolResult> {
+  if (!args.id) {
+    throw new Error('id is required'); // VIOLATION: found only via the DERIVED census
+  }
+  return { success: true };
+}
+
+async function dispatchSpecialBranch(
+  action: string,
+  rest: Record<string, unknown>,
+): Promise<ToolResult> {
   const startedAt = Date.now();
-  return envelopeWrap(await handleDoctor(rest as { report?: string }), startedAt);
+  if (action === 'doctor') {
+    return envelopeWrap(await handleDoctor(rest as { report?: string }), startedAt);
+  }
+  if (action === 'invariants_amend') {
+    return envelopeWrap(await handleAmend(rest as { id?: string }), startedAt);
+  }
+  return { success: false, error: { code: 'UNKNOWN_ACTION', message: action } };
 }
 
 // Case 5: a zero-arg factory shape (composite.ts's real `setup_worktree:

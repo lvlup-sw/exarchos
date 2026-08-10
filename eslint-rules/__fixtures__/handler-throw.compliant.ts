@@ -102,9 +102,8 @@ async function handleWithAbortSupport(args: { id?: string }): Promise<ToolResult
   }
 }
 
-// A compliant special-cased branch handler (handleOnboard is one of
-// composite.ts's six — see handleOrchestrate's
-// `envelopeWrap(await handleXxx(...), startedAt)` shape). No throw at all.
+// A compliant special-cased branch handler, dispatched from its own
+// `if (action === 'onboard')` branch. No throw at all.
 async function handleOnboard(args: { report?: string }): Promise<ToolResult> {
   if (!args.report) {
     return { success: false, error: { code: 'INVALID_INPUT', message: 'report is required' } };
@@ -112,9 +111,28 @@ async function handleOnboard(args: { report?: string }): Promise<ToolResult> {
   return { success: true, data: { report: args.report } };
 }
 
-async function dispatchSpecialBranch(rest: Record<string, unknown>): Promise<ToolResult> {
+/**
+ * Mirrors composite.ts's `handleOrchestrate` tail: special branches first,
+ * then the ACTION_HANDLERS table dispatch through a function-local `handler`
+ * const. That last `envelopeWrap` is an INDIRECTION, not a named handler — its
+ * census is the map walk — so the derived special-branch census must leave it
+ * alone rather than report it as an unattributed dispatch. This is the shape
+ * that keeps the derivation from over-selecting.
+ */
+async function dispatchSpecialBranch(
+  action: string,
+  rest: Record<string, unknown>,
+  stateDir: string,
+): Promise<ToolResult> {
   const startedAt = Date.now();
-  return envelopeWrap(await handleOnboard(rest as { report?: string }), startedAt);
+  if (action === 'onboard') {
+    return envelopeWrap(await handleOnboard(rest as { report?: string }), startedAt);
+  }
+  const handler: ActionHandler | undefined = ACTION_HANDLERS[action];
+  if (!handler) {
+    return { success: false, error: { code: 'UNKNOWN_ACTION', message: action } };
+  }
+  return envelopeWrap(await handler(rest, stateDir), startedAt);
 }
 
 // Compliant zero-arg factory shape (composite.ts's real `setup_worktree:
