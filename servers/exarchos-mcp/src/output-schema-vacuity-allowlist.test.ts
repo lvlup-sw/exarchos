@@ -341,13 +341,13 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
     // across all three, which is the property the whole design rests on. A
     // paydown MOVES an id between the two maps; the union, and therefore the
     // pin, is invariant.
-    const paidDown: readonly string[] = [
+    const retiredIds: readonly string[] = [
       'exarchos_orchestrate.check_invariant_conformance',
       'exarchos_orchestrate.cutover_decide',
       'exarchos_orchestrate.cutover_readiness',
     ];
-    expect([...Object.keys(VACUITY_RETIRED)].sort()).toEqual([...paidDown].sort());
-    for (const id of paidDown) {
+    expect([...Object.keys(VACUITY_RETIRED)].sort()).toEqual([...retiredIds].sort());
+    for (const id of retiredIds) {
       expect(VACUITY_ALLOWLIST_IDS).not.toContain(id);
       // …and each retired id is genuinely paid down, not parked: the membership
       // half would report it `UNWAIVED_VACUITY` if its schema were still vacuous.
