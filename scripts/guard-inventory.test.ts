@@ -27,12 +27,14 @@ import {
   CI_WORKFLOW,
   GUARD_EXEMPTIONS,
   SHELL_INTERPRETERS,
+  SPEC_ARTIFACT_WAIVERS,
   auditGuardInventory,
   buildGuardInventory,
   collectImportSpecifiers,
   describeHost,
   globMatches,
   hasDirectRunExit,
+  indexMirroredSelfTests,
   indexShellIndirection,
   isEnforcingHost,
   isPathShaped,
@@ -46,8 +48,11 @@ import {
   pathFilterGlobs,
   resolveHosts,
   resolveShellExecutions,
+  resolveSpecArtifact,
   renderInventoryTable,
+  scanArchitectureModules,
   scanMcpScriptGates,
+  selfTestCandidates,
   shellCommandSegments,
   shellWords,
   stripShellComments,
@@ -60,7 +65,9 @@ import {
   type LoadedWorkflow,
   type ResolutionContext,
   type ShellIndirectionIndex,
+  type SpecArtifactWaiver,
 } from './guard-inventory.js';
+import { makeFixtureSrc } from './test-utils.js';
 
 // ─── Shared live fixtures (built once — the scan walks both source trees) ────
 
@@ -106,14 +113,29 @@ function walkedSomething(overrides: Partial<ShellIndirectionIndex> = {}): ShellI
 function inventoryOf(
   guards: readonly GuardRecord[],
   indirection: ShellIndirectionIndex = walkedSomething(),
+  unresolvedSpecArtifacts: readonly string[] = [],
 ): GuardInventory {
   return {
     guards,
     runnableWithoutSelfTest: [],
+    architectureModulesWithoutSelfTest: [],
     compileTimeOnlyArtifacts: [],
-    unresolvedSpecArtifacts: [],
+    unresolvedSpecArtifacts,
     indirection,
   };
+}
+
+/**
+ * Audit a SYNTHETIC inventory: both hand-maintained registers default to empty,
+ * so a fixture varying one field cannot also trip the LIVE registers' staleness
+ * teeth. The live registers are exercised by `liveAudit` and by the named
+ * spec-waiver cases, which pass them explicitly.
+ */
+function auditSynthetic(
+  inventory: GuardInventory,
+  options: Parameters<typeof auditGuardInventory>[1] = {},
+): ReturnType<typeof auditGuardInventory> {
+  return auditGuardInventory(inventory, { exemptions: [], specArtifactWaivers: [], ...options });
 }
 
 /** A resolution context over an in-memory file set, with the shell index built. */
@@ -155,7 +177,7 @@ function workflowRunning(command: string): LoadedWorkflow {
 
 describe('Wave-1 guard inventory — CI reachability proof (DR-24, task 063)', () => {
   it('GuardInventory_EveryWave1Guard_IsReachableFromACiJob', () => {
-    // The live proof. Every guard the three discovery channels resolve must be
+    // The live proof. Every guard the four discovery channels resolve must be
     // executed by some CI job, or carry a recorded, EXPIRING reason why not.
     expect(liveAudit.violations, liveAudit.violations.join('\n')).toEqual([]);
     expect(liveAudit.ok).toBe(true);
@@ -211,7 +233,7 @@ describe('Wave-1 guard inventory — CI reachability proof (DR-24, task 063)', (
     });
     expect(selfTestOnly.hosts.length, 'its self-test really is hosted').toBeGreaterThan(0);
     expect(selfTestOnly.hosts.every((h) => h.via === 'self-test')).toBe(true);
-    const audit = auditGuardInventory(inventoryOf([selfTestOnly]), { exemptions: [] });
+    const audit = auditSynthetic(inventoryOf([selfTestOnly]), { exemptions: [] });
     expect(audit.ok, 'a self-test-only host must NOT read as reachable').toBe(false);
     expect(audit.violations.join('\n')).toContain('unwired-guard');
 
@@ -229,7 +251,7 @@ describe('Wave-1 guard inventory — CI reachability proof (DR-24, task 063)', (
   });
 
   it('GuardInventory_SeededUnwiredGuard_FailsTheReachabilityProof', () => {
-    const audit = auditGuardInventory(inventoryOf([guard({ artifact: 'scripts/check-seeded.mjs' })]), {
+    const audit = auditSynthetic(inventoryOf([guard({ artifact: 'scripts/check-seeded.mjs' })]), {
       exemptions: [],
     });
     expect(audit.ok).toBe(false);
@@ -237,7 +259,7 @@ describe('Wave-1 guard inventory — CI reachability proof (DR-24, task 063)', (
   });
 
   it('GuardInventory_ExemptionPastItsExpiry_Fails', () => {
-    const audit = auditGuardInventory(inventoryOf([guard({ artifact: 'scripts/check-seeded.mjs' })]), {
+    const audit = auditSynthetic(inventoryOf([guard({ artifact: 'scripts/check-seeded.mjs' })]), {
       now: new Date('2027-01-01T00:00:00Z'),
       exemptions: [
         {
@@ -254,7 +276,7 @@ describe('Wave-1 guard inventory — CI reachability proof (DR-24, task 063)', (
   });
 
   it('GuardInventory_ExemptionForAGuardThatIsNowWired_FailsAsStale', () => {
-    const audit = auditGuardInventory(
+    const audit = auditSynthetic(
       inventoryOf([
         guard({
           artifact: 'scripts/check-seeded.mjs',
@@ -291,7 +313,7 @@ describe('Wave-1 guard inventory — CI reachability proof (DR-24, task 063)', (
   });
 
   it('GuardInventory_ExemptionNamingAGuardOutsideTheInventory_FailsAsOrphan', () => {
-    const audit = auditGuardInventory(inventoryOf([guard({ artifact: 'scripts/check-a.mjs' })]), {
+    const audit = auditSynthetic(inventoryOf([guard({ artifact: 'scripts/check-a.mjs' })]), {
       now: new Date('2026-01-01T00:00:00Z'),
       exemptions: [
         {
@@ -318,7 +340,7 @@ describe('Wave-1 guard inventory — CI reachability proof (DR-24, task 063)', (
     // The anti-omission tooth: the inventory's denominator can never fall below
     // the enforcer manifest's, so a new scripts/check-* gate enters this
     // inventory whether or not its author remembers to say so.
-    const audit = auditGuardInventory(inventoryOf([guard({ artifact: 'scripts/check-a.mjs', enforcement: 'blocks' })]), {
+    const audit = auditSynthetic(inventoryOf([guard({ artifact: 'scripts/check-a.mjs', enforcement: 'blocks' })]), {
       exemptions: [],
       manifestJson: {
         primaries: [
@@ -357,7 +379,7 @@ describe('Path-filtered hosting (#1711 skipped-as-passed)', () => {
     // Not silently accepted: the same condition, with the guard's own source
     // outside the filter and no unfiltered pull_request host re-asserting it,
     // is a VIOLATION rather than an entry in a list nobody reads.
-    const audit = auditGuardInventory(
+    const audit = auditSynthetic(
       inventoryOf([
         guard({
           artifact: 'scripts/check-outside-the-filter.mjs',
@@ -387,7 +409,7 @@ describe('Path-filtered hosting (#1711 skipped-as-passed)', () => {
     // The DR-10 `.test.sh` re-assert pattern: enforced from a filtered job, but
     // re-asserted unfiltered, so a PR touching the guard's own source still arms
     // a job that runs it. That is the two-surface rule SATISFIED, not evaded.
-    const audit = auditGuardInventory(
+    const audit = auditSynthetic(
       inventoryOf([
         guard({
           artifact: 'scripts/check-reasserted.mjs',
@@ -427,7 +449,7 @@ describe('Path-filtered hosting (#1711 skipped-as-passed)', () => {
     // `release.yml` runs the whole root suite, unfiltered — but on a tag push,
     // after the merge that would have introduced the regression. Letting it clear
     // the two-surface finding would launder post-merge execution as a PR gate.
-    const audit = auditGuardInventory(
+    const audit = auditSynthetic(
       inventoryOf([
         guard({
           artifact: 'scripts/check-outside-the-filter.mjs',
@@ -467,7 +489,7 @@ describe('Path-filtered hosting (#1711 skipped-as-passed)', () => {
 
 describe('Non-empty denominator', () => {
   it('GuardInventory_ZeroGuardsResolved_FailsClosed', () => {
-    const audit = auditGuardInventory(inventoryOf([]), { exemptions: [] });
+    const audit = auditSynthetic(inventoryOf([]), { exemptions: [] });
     expect(audit.ok).toBe(false);
     expect(audit.violations.join('\n')).toContain('[empty-inventory]');
 
@@ -489,6 +511,293 @@ describe('Non-empty denominator', () => {
     const table = renderInventoryTable(liveInventory);
     expect(table.split('\n').length).toBe(liveInventory.guards.length + 2);
     expect(table).toContain('| Guard | CI job(s) | Path-filtered? | Blocks / observes | Prod caller? |');
+  });
+
+  it('GuardInventory_ArchitectureScanRootThatCannotBeRead_ThrowsRatherThanContributingZero', () => {
+    // Channel 4 inherits channel 3's fail-closed rule. An unreadable scan root
+    // that returned `[]` would silently empty the denominator DR-9 exists to
+    // fill, and the whole-inventory proof would go green over nothing.
+    expect(() => scanArchitectureModules(join(REPO_ROOT, 'no-such-repo-root'))).toThrow(
+      /cannot enumerate/,
+    );
+  });
+});
+
+// ─── DR-9: the denominator includes the guards ──────────────────────────────
+
+describe('DR-9 — the guard inventory can see the guards this programme shipped', () => {
+  /**
+   * The five `src/architecture/**` modules that were absent from the inventory
+   * ENTIRELY, transcribed from DR-9. Three of them carry neither a `-census` nor
+   * a `-seam` suffix, which is why channel 4's membership rule is structural
+   * rather than a filename match.
+   */
+  const PREVIOUSLY_DARK = [
+    'servers/exarchos-mcp/src/architecture/adapter-ownership-seam.ts',
+    'servers/exarchos-mcp/src/architecture/effect-port-seam.ts',
+    'servers/exarchos-mcp/src/architecture/audit-delivery-closure.ts',
+    'servers/exarchos-mcp/src/architecture/delivery-safety.ts',
+    'servers/exarchos-mcp/src/architecture/import-cycles.ts',
+  ] as const;
+
+  it('GuardInventory_ArchitectureCensusModules_AreInTheDenominator', () => {
+    const byArtifact = new Map(liveInventory.guards.map((g) => [g.artifact, g]));
+    for (const artifact of PREVIOUSLY_DARK) {
+      const record = byArtifact.get(artifact);
+      expect(record, `${artifact} is still invisible to the inventory`).toBeDefined();
+      // Discovered by the NEW channel specifically. If one of these ever picks
+      // up a `**Files:**` mention it would enter through channel 2 as well, and
+      // this assertion would stop proving channel 4 does anything.
+      expect(record?.channels, `${artifact} channels`).toContain('mcp-architecture-module');
+    }
+
+    // A guard the inventory cannot see is not proven reachable, so the point of
+    // the widening is that the VERDICT now ranges over them.
+    for (const artifact of PREVIOUSLY_DARK) {
+      expect(byArtifact.get(artifact)?.enforcement, artifact).not.toBe('unreachable');
+    }
+  });
+
+  it('GuardInventory_UnwiredArchitectureCensus_FailsTheWholeInventoryProof', () => {
+    // THE KILL PROBE for DR-9, run end to end over a fixture repo rather than by
+    // hand-building a record: a NEW guard module dropped into the architecture
+    // directory, with a self-test and no CI wiring at all, must be DISCOVERED
+    // and must redden the reachability proof.
+    //
+    // Building the record directly would only prove the audit rejects an
+    // unreachable record — which was already true before this task, and was
+    // exactly the reason the hole was invisible. What DR-9 is about is
+    // DISCOVERY, so discovery is what this drives.
+    const { srcRoot: fixtureRoot, cleanup } = makeFixtureSrc('guard-inventory-dr9-', {
+      'package.json': JSON.stringify({ scripts: { 'test:run': 'vitest run' } }),
+      'servers/exarchos-mcp/package.json': JSON.stringify({ scripts: { 'test:run': 'vitest run' } }),
+      'vitest.config.ts': "export default { test: { name: 'unit', include: ['src/**/*.test.ts'] } };\n",
+      'servers/exarchos-mcp/vitest.config.ts':
+        "export default { test: { name: 'unit', include: ['src/**/*.test.ts'] } };\n",
+      '.github/workflows/ci.yml': [
+        'on: [pull_request]',
+        'jobs:',
+        '  ci-gate:',
+        '    needs: [grep-gates]',
+        '    steps:',
+        '      - run: echo aggregate',
+        '  grep-gates:',
+        '    steps:',
+        '      - run: bash scripts/wrapper.sh',
+      ].join('\n'),
+      'scripts/wrapper.sh': 'node servers/exarchos-mcp/scripts/check-wired.ts\n',
+      // A wired guard, so the fixture inventory is non-empty for a reason other
+      // than the seed — the seeded failure has to be attributable.
+      'servers/exarchos-mcp/scripts/check-wired.ts': 'process.exit(0);\n',
+      'servers/exarchos-mcp/scripts/check-wired.test.ts': 'export {};\n',
+      // …and THE SEED: a census module with a self-test and no host anywhere.
+      'servers/exarchos-mcp/src/architecture/unwired-census.ts':
+        'export const auditSomething = (): string[] => [];\n',
+      'servers/exarchos-mcp/src/architecture/unwired-census.test.ts': 'export {};\n',
+    });
+    try {
+      const inventory = buildGuardInventory({
+        repoRoot: fixtureRoot,
+        specText: '',
+        manifestJson: { primaries: [] },
+      });
+
+      const seeded = inventory.guards.find(
+        (g) => g.artifact === 'servers/exarchos-mcp/src/architecture/unwired-census.ts',
+      );
+      expect(seeded, 'the seeded census must be DISCOVERED, not merely assertable').toBeDefined();
+      expect(seeded?.channels).toEqual(['mcp-architecture-module']);
+      expect(seeded?.enforcement).toBe('unreachable');
+
+      const audit = auditSynthetic(inventory);
+      expect(audit.ok, 'an unwired guard must redden the whole-inventory proof').toBe(false);
+      expect(audit.violations.join('\n')).toContain(
+        'servers/exarchos-mcp/src/architecture/unwired-census.ts',
+      );
+      expect(audit.violations.join('\n')).toContain('[unwired-guard]');
+
+      // The control: the same fixture WITHOUT the seed is clean, so the failure
+      // above is the seed and not the fixture.
+      const withoutSeed = inventoryOf(
+        inventory.guards.filter(
+          (g) => g.artifact !== 'servers/exarchos-mcp/src/architecture/unwired-census.ts',
+        ),
+        inventory.indirection,
+      );
+      expect(withoutSeed.guards.length).toBeGreaterThan(0);
+      expect(auditSynthetic(withoutSeed).ok, 'the fixture itself is clean').toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('GuardInventory_ArchitectureModuleWithoutASelfTest_IsReportedNotDropped', () => {
+    // The reviewable-exclusion half. A census that LOSES its co-located test
+    // must land in a reported bucket, not vanish from the denominator — the drop
+    // is the failure mode, and a silent one is worse than a noisy one.
+    const scan = scanArchitectureModules();
+    expect(scan.modulesWithSelfTest.length).toBeGreaterThan(20);
+    expect(scan.modulesWithoutSelfTest).toContain(
+      'servers/exarchos-mcp/src/architecture/report-coupling-seed.ts',
+    );
+    expect(liveInventory.architectureModulesWithoutSelfTest).toEqual(scan.modulesWithoutSelfTest);
+    // Every reported module is genuinely OUT of the guard population, so the two
+    // lists partition the directory rather than overlapping.
+    const guards = new Set(liveInventory.guards.map((g) => g.artifact));
+    for (const module of scan.modulesWithoutSelfTest) {
+      expect(guards.has(module), `${module} is both a guard and reported as untested`).toBe(false);
+    }
+  });
+
+  it('SelfTestCandidates_ScriptsModuleWhoseTestLivesUnderSrc_Resolves', () => {
+    // `authority-live-proof.ts` is 42 KB of live authority measurement whose
+    // self-test was filed at `src/architecture/authority-live-proof.test.ts`
+    // rather than beside it, so the co-located-only rule read the whole guard as
+    // untested and dropped it.
+    const mirror = indexMirroredSelfTests();
+    const candidates = selfTestCandidates(
+      'servers/exarchos-mcp/scripts/authority-live-proof.ts',
+      mirror,
+    );
+    expect(candidates).toContain(
+      'servers/exarchos-mcp/src/architecture/authority-live-proof.test.ts',
+    );
+    // Without the index the mirrored candidate is not offered — the parameter is
+    // load-bearing, not decorative.
+    expect(selfTestCandidates('servers/exarchos-mcp/scripts/authority-live-proof.ts')).not.toContain(
+      'servers/exarchos-mcp/src/architecture/authority-live-proof.test.ts',
+    );
+
+    // …and the live inventory now carries it, enforced through that self-test.
+    const record = liveInventory.guards.find(
+      (g) => g.artifact === 'servers/exarchos-mcp/scripts/authority-live-proof.ts',
+    );
+    expect(record, 'authority-live-proof.ts is still dropped').toBeDefined();
+    expect(record?.channels).toContain('mcp-scripts-gate');
+    expect(record?.enforcement).not.toBe('unreachable');
+  });
+
+  it('SelfTestCandidates_AmbiguousMirroredName_OffersNoMirroredCandidate', () => {
+    // Two `src/**` tests of the same basename cannot be told apart, and guessing
+    // could make an unexamined module read as covered. The tie fails toward
+    // "untested", which is the direction that produces a finding.
+    const ambiguous = {
+      byPackageAndName: new Map([
+        ['::two-places', ['src/a/two-places.test.ts', 'src/b/two-places.test.ts']],
+        ['::one-place', ['src/a/one-place.test.ts']],
+      ]),
+    };
+    expect(selfTestCandidates('scripts/two-places.ts', ambiguous)).toEqual([
+      'scripts/two-places.test.ts',
+      'scripts/two-places.test.mts',
+      'scripts/two-places.test.mjs',
+      'scripts/two-places.test.sh',
+    ]);
+    expect(selfTestCandidates('scripts/one-place.ts', ambiguous)).toContain(
+      'src/a/one-place.test.ts',
+    );
+    // The mirror applies to `scripts/` modules only: a src module must not adopt
+    // a same-named test from an unrelated directory.
+    expect(selfTestCandidates('src/c/one-place.ts', ambiguous)).not.toContain(
+      'src/a/one-place.test.ts',
+    );
+  });
+});
+
+// ─── DR-9: a promised artifact that never landed is a finding ───────────────
+
+describe('Unresolved Wave-1 spec artifacts (DR-9)', () => {
+  const waiver = (overrides: Partial<SpecArtifactWaiver> = {}): SpecArtifactWaiver => ({
+    artifact: 'servers/exarchos-mcp/src/architecture/never-landed.ts',
+    reason: 'seeded',
+    blockedBy: '#0',
+    expires: '2026-12-31',
+    ...overrides,
+  });
+
+  it('GuardInventory_PromisedArtifactWithNoWaiver_Fails', () => {
+    // Wave 1 is closed, so "the task has not landed yet" has expired as an
+    // explanation. Before this the list was COMPUTED and never judged, so a task
+    // whose declared artifact never shipped passed the DR-24 proof unremarked.
+    const audit = auditSynthetic(
+      inventoryOf([guard({ artifact: 'scripts/check-a.mjs', enforcement: 'blocks' })], undefined, [
+        'servers/exarchos-mcp/src/architecture/never-landed.ts',
+      ]),
+    );
+    expect(audit.ok).toBe(false);
+    expect(audit.violations.join('\n')).toContain('[unresolved-spec-artifact]');
+    expect(audit.violations.join('\n')).toContain('never-landed.ts');
+  });
+
+  it('GuardInventory_PromisedArtifactUnderAnUnexpiredWaiver_Passes', () => {
+    const audit = auditSynthetic(
+      inventoryOf([guard({ artifact: 'scripts/check-a.mjs', enforcement: 'blocks' })], undefined, [
+        'servers/exarchos-mcp/src/architecture/never-landed.ts',
+      ]),
+      { now: new Date('2026-01-01T00:00:00Z'), specArtifactWaivers: [waiver()] },
+    );
+    expect(audit.violations, audit.violations.join('\n')).toEqual([]);
+  });
+
+  it('GuardInventory_SpecArtifactWaiverPastItsExpiry_Fails', () => {
+    const audit = auditSynthetic(
+      inventoryOf([guard({ artifact: 'scripts/check-a.mjs', enforcement: 'blocks' })], undefined, [
+        'servers/exarchos-mcp/src/architecture/never-landed.ts',
+      ]),
+      { now: new Date('2027-06-01T00:00:00Z'), specArtifactWaivers: [waiver()] },
+    );
+    expect(audit.ok).toBe(false);
+    expect(audit.violations.join('\n')).toContain('[expired-spec-artifact-waiver]');
+  });
+
+  it('GuardInventory_SpecArtifactWaiverWhoseEntryNowResolves_FailsAsStale', () => {
+    // The same tooth GUARD_EXEMPTIONS carries. A waiver left standing after the
+    // file appears would cover its LATER disappearance silently.
+    const audit = auditSynthetic(
+      inventoryOf([guard({ artifact: 'scripts/check-a.mjs', enforcement: 'blocks' })]),
+      { now: new Date('2026-01-01T00:00:00Z'), specArtifactWaivers: [waiver()] },
+    );
+    expect(audit.ok).toBe(false);
+    expect(audit.violations.join('\n')).toContain('[stale-spec-artifact-waiver]');
+  });
+
+  it('GuardInventory_LiveWaiverRegister_CoversExactlyTheLiveDrift', () => {
+    // Both directions on the real tree: every unresolved entry is waived, and
+    // every waiver has a live subject. `liveAudit` already fails on either, so
+    // this states the population the register is answering for.
+    expect([...liveInventory.unresolvedSpecArtifacts].sort()).toEqual(
+      [...SPEC_ARTIFACT_WAIVERS.map((w) => w.artifact)].sort(),
+    );
+    expect(liveInventory.unresolvedSpecArtifacts.length).toBeGreaterThan(0);
+    for (const entry of SPEC_ARTIFACT_WAIVERS) {
+      expect(entry.expires, `${entry.artifact} expiry`).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(entry.blockedBy.length, `${entry.artifact} blockedBy`).toBeGreaterThan(0);
+    }
+  });
+
+  it('SpecArtifact_BareBasenameNamingOneRealFile_IsNotDrift', () => {
+    // Task 077's `**Files:**` line gives one path in full and then names a
+    // sibling by basename alone. Reporting that as a promised-but-absent
+    // artifact would put a permanently false row in the waiver register, whose
+    // only value is that every row is a real debt.
+    const basenames = new Map([
+      ['report-coupling-census.ts', ['servers/exarchos-mcp/src/architecture/report-coupling-census.ts']],
+      ['types.ts', ['src/manifest/types.ts', 'src/runtimes/types.ts']],
+    ]);
+    const missing = (): boolean => false;
+    expect(resolveSpecArtifact('report-coupling-census.ts', missing, basenames)).toBe(
+      'servers/exarchos-mcp/src/architecture/report-coupling-census.ts',
+    );
+    // Ambiguous, and absent, both stay drift — the resolver must not guess.
+    expect(resolveSpecArtifact('types.ts', missing, basenames)).toBeNull();
+    expect(resolveSpecArtifact('gone.ts', missing, basenames)).toBeNull();
+    // A FULL path that does not exist is drift even if the basename is unique:
+    // the spec named a location, and the location is what did not land.
+    expect(resolveSpecArtifact('src/nowhere/report-coupling-census.ts', missing, basenames)).toBeNull();
+
+    // …and on the live tree the shorthand really is resolved, so it is absent
+    // from both the drift list and the waiver register.
+    expect(liveInventory.unresolvedSpecArtifacts).not.toContain('report-coupling-census.ts');
   });
 });
 
@@ -883,7 +1192,7 @@ describe('Indirect hosting through a wrapper script (DR-24, task 070)', () => {
 
 describe('The indirection resolver is itself measured (non-empty denominator)', () => {
   it('GuardInventory_IndirectionWalkThatWalkedNothing_FailsClosed', () => {
-    const noSteps = auditGuardInventory(
+    const noSteps = auditSynthetic(
       inventoryOf([guard({ artifact: 'scripts/check-a.mjs', enforcement: 'blocks' })], walkedSomething({ runStepsWalked: 0 })),
       { exemptions: [] },
     );
@@ -891,7 +1200,7 @@ describe('The indirection resolver is itself measured (non-empty denominator)', 
     expect(noSteps.violations.join('\n')).toContain('[empty-indirection-walk]');
     expect(noSteps.violations.join('\n')).toContain('ZERO `run:` steps');
 
-    const noWrappers = auditGuardInventory(
+    const noWrappers = auditSynthetic(
       inventoryOf([guard({ artifact: 'scripts/check-a.mjs', enforcement: 'blocks' })], walkedSomething({ wrapperScriptsWalked: [] })),
       { exemptions: [] },
     );
@@ -980,7 +1289,7 @@ describe('The live chain this task was dispatched against', () => {
     // the LIVE inventory still reads unreachable and still fails the audit. The
     // resolver has not learned to say yes to everything.
     const seeded = guard({ artifact: 'servers/exarchos-mcp/scripts/never-wired.ts', runnable: true });
-    const seededAudit = auditGuardInventory(
+    const seededAudit = auditSynthetic(
       inventoryOf([...liveInventory.guards, seeded], liveInventory.indirection),
       { manifestJson: liveManifest, filterGlobs: liveFilterGlobs, exemptions: [] },
     );
