@@ -44,7 +44,14 @@ const LOCK_NOTE =
   'removed `@modelcontextprotocol/sdk` — the `mcp-sdk` and `mcp-protocol` ' +
   'authorities now read from `@modelcontextprotocol/server`. The protocol ' +
   'VERSION is unchanged across that move, which is the freeze corroborating ' +
-  "DR-0's no-wire-change claim rather than merely restating it). Regenerate with " +
+  "DR-0's no-wire-change claim rather than merely restating it; re-approved " +
+  'again under #1764 DR-7 task 086, which re-pointed INV-4 from `mode: check` ' +
+  'to `mode: audit` deferring to `skills:guard`. The old predicate greped ' +
+  '`skills/**` for `@@` and so fired on EVERY conforming regeneration — a ' +
+  'blocking invariant no conforming change could satisfy. Same shape as the ' +
+  'DR-4 INV-17 amendment above: the catalog wording is the frozen input, so ' +
+  'the amendment re-enters the freeze through this gesture rather than around ' +
+  'it). Regenerate with ' +
   '`npx tsx src/contract/authority-lock-cli.ts` after reviewing and approving ' +
   'the new authority digests, then commit this file.';
 
@@ -54,7 +61,7 @@ const LOCK_NOTE =
  * lockfile carries the provenance of the approval rather than of the tool.
  */
 export const CURRENT_APPROVER =
-  'internal-mechanics-overhaul (DR-0 task 049 — MCP SDK v1→v2 source migration)';
+  'internal-mechanics-residue (#1764 DR-7 task 086 — INV-4 check→audit, deferring to skills:guard)';
 
 export function regenerateAuthorityLock(approvedBy = CURRENT_APPROVER): string {
   const paths = defaultSourcePaths();
