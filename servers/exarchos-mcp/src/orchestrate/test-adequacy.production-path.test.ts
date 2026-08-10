@@ -34,11 +34,12 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { EventStore } from '../event-store/store.js';
+import { rmrf } from '../test-helpers/temp-dir.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { dispatch } from '../core/dispatch.js';
 import { handleOrchestrate } from './composite.js';
@@ -110,7 +111,7 @@ describe('check_test_adequacy production path', () => {
 
   async function makeCtx(prefix: string, featureId: string): Promise<DispatchContext> {
     const stateDir = mkdtempSync(path.join(os.tmpdir(), prefix));
-    cleanups.push(() => rmSync(stateDir, { recursive: true, force: true }));
+    cleanups.push(() => rmrf(stateDir));
     const eventStore = new EventStore(stateDir);
     await eventStore.initialize();
     await seedActivePhaseAttempt(eventStore, featureId);
@@ -124,7 +125,7 @@ describe('check_test_adequacy production path', () => {
   /** A task branch that changes ONLY source — nothing for the probe to kill. */
   function sourceOnlyBranch(prefix: string): string {
     const repoRoot = initRepo(prefix);
-    cleanups.push(() => rmSync(repoRoot, { recursive: true, force: true }));
+    cleanups.push(() => rmrf(repoRoot));
     writeFileSync(path.join(repoRoot, 'package.json'), '{"name":"fx","version":"1.0.0"}\n');
     mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
     writeFileSync(path.join(repoRoot, 'src', 'calc.js'), 'export const v = () => 1;\n');
@@ -291,7 +292,7 @@ describe('check_test_adequacy production path', () => {
     // came back `[]`, and the gate reported `no-new-tests` for a task that
     // plainly added a test — the gate probing the wrong subject.
     const repoRoot = initRepo('prodpath-subject-');
-    cleanups.push(() => rmSync(repoRoot, { recursive: true, force: true }));
+    cleanups.push(() => rmrf(repoRoot));
     writeFileSync(path.join(repoRoot, 'pyproject.toml'), '[project]\nname = "fx"\n');
     mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
     writeFileSync(path.join(repoRoot, 'src', 'calc.ts'), 'export const v = () => 1;\n');
