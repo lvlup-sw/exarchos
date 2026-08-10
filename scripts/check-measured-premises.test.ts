@@ -290,7 +290,102 @@ describe('check-measured-premises (task 054, DR-27)', () => {
       failOnGap: true,
     }) as Report;
     expect(strict.exitCode).toBe(1);
+
+    // DR-7 (task 078) — and the verdict survives the PROCESS boundary. The
+    // report said `gaps` all along; `exitCode` said 0, which is the only thing
+    // a runner reads, so `npm run validate` recorded PASS for it. Each verdict
+    // now owns a code: pass 0, fail 1, gaps 3.
+    expect(report.exitCode).toBe(3);
+    expect(report.exitCode).not.toBe(0);
   });
+
+  it('MeasuredPremises_GapToleration_MovesConsequenceNeverTheVerdict', () => {
+    // The CI lane tolerates gaps while the rungs are unprobed. The toleration
+    // is DATED and enforced by the gate, and — the property that matters — it
+    // can only change the exit code. `verdict` stays `gaps` in every arm, so no
+    // caller can make this report claim a pass.
+    const document = [
+      '| Property | Scope | Consequence if false | Primary proof (rung) | Proof artifact | Failure signal | Rollback |',
+      '|---|---|---|---|---|---|---|',
+      '| Unprobed | all | Bad | 2 — types<!-- rung-probe: none --> | X | Y | Z |',
+      '',
+      'One claim keeps the denominator non-empty: <!-- measured: demo -->7<!-- /measured -->.',
+      '',
+    ].join('\n');
+    const run = (extra: Record<string, unknown>): Report =>
+      checkMeasuredPremises({
+        documents: [{ path: 'synthetic.md', text: document }],
+        derive: (name: string) => (name === 'demo' ? 7 : undefined),
+        isKnownDerivation: (name: string) => name === 'demo',
+        ...extra,
+      }) as Report;
+
+    const live = run({ tolerateGapsUntil: '2026-11-30', today: '2026-08-09' });
+    expect(live.verdict).toBe('gaps');
+    expect(live.exitCode).toBe(0);
+
+    const expired = run({ tolerateGapsUntil: '2026-08-08', today: '2026-08-09' });
+    expect(expired.verdict).toBe('gaps');
+    expect(expired.exitCode).toBe(1);
+
+    // The last tolerated day is INCLUSIVE.
+    expect(run({ tolerateGapsUntil: '2026-08-09', today: '2026-08-09' }).exitCode).toBe(0);
+
+    // Untolerated is the default, and it is the distinct gaps code.
+    expect(run({ today: '2026-08-09' }).exitCode).toBe(3);
+
+    // A toleration NEVER rescues a real failure — only `gaps`.
+    const drifted = checkMeasuredPremises({
+      documents: [{ path: 'synthetic.md', text: document }],
+      derive: (name: string) => (name === 'demo' ? 999 : undefined),
+      isKnownDerivation: (name: string) => name === 'demo',
+      tolerateGapsUntil: '2099-01-01',
+      today: '2026-08-09',
+    }) as Report;
+    expect(drifted.verdict).toBe('fail');
+    expect(drifted.exitCode).toBe(1);
+  });
+
+  it('MeasuredPremises_CiLaneToleration_IsDatedAndStillLive', () => {
+    // Binds the workflow's declared date to the gate that enforces it. Without
+    // this, the lane's `--tolerate-gaps-until` could silently expire (turning
+    // the lane red) or be dropped entirely (turning gaps back into a code
+    // nobody handles) with nothing to say so.
+    const ci = readFileSync(path.join(REPO_ROOT, '.github', 'workflows', 'ci.yml'), 'utf8');
+    const invocations = ci
+      .split('\n')
+      .filter((l) => l.includes('check-measured-premises.mjs') && l.includes('run:'));
+    expect(invocations.length).toBeGreaterThan(0);
+    for (const line of invocations) {
+      const m = /--tolerate-gaps-until\s+(\d{4}-\d{2}-\d{2})/.exec(line);
+      expect(m, `CI invokes the gate without a dated gap toleration: ${line.trim()}`).not.toBeNull();
+      expect(
+        m![1] > new Date().toISOString().slice(0, 10),
+        `The CI lane's gap toleration expired on ${m![1]} — probe the obligation rungs or re-date it.`,
+      ).toBe(true);
+    }
+  });
+
+  it('MeasuredPremises_GapsVerdict_ExitsDistinctFromPass', () => {
+    // Asserted against the REAL CLI on the REAL DR-27 scope, because the defect
+    // was in what the process returned, not in what the pure function computed.
+    // Whichever verdict today's tree produces, the code must identify it — and
+    // `gaps` must never share a code with `pass`.
+    const { status, report } = runCli([]);
+    expect(['pass', 'gaps', 'fail']).toContain(report.verdict);
+    expect(status).toBe(report.exitCode);
+    if (report.verdict === 'gaps') {
+      expect(status).toBe(3);
+      expect(status).not.toBe(0);
+    } else if (report.verdict === 'pass') {
+      expect(status).toBe(0);
+    } else {
+      expect(status).toBe(1);
+    }
+    // The codes are pairwise distinct by construction — a reader can always
+    // tell the three apart without parsing prose.
+    expect(new Set([0, 1, 3]).size).toBe(3);
+  }, 300_000);
 
   it('MeasuredPremises_UnregisteredDerivationName_FailsRatherThanSkips', () => {
     // An annotation naming a derivation nobody implements would otherwise be a

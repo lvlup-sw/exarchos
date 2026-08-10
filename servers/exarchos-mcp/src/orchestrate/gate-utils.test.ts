@@ -12,7 +12,11 @@ import {
   resolvePolicySkip,
   resolvePhaseMode,
   getDiff,
+  normalizeGateVerdict,
+  readGateSkipDescriptor,
+  SKIPPED_BY_POLICY,
 } from './gate-utils.js';
+import type { ToolResult } from '../format.js';
 import type { EventStore } from '../event-store/store.js';
 import { resolveConfig } from '../config/resolve.js';
 import type { VerificationPolicyOverlay } from '../config/yaml-schema.js';
@@ -153,6 +157,77 @@ describe('resolveRepoRoot', () => {
     );
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toContain('task-9');
+  });
+});
+
+// ─── normalizeGateVerdict — DR-7 verdict fidelity (task 078) ────────────────
+//
+// THE KILL FIXTURE for site 1. The advisory-skip carrier the three ladder gates
+// actually emit is `{ passed: true, skipped: true, … }`. The pre-fix guard read
+// `skipped === true && passed !== true`, so it could never fire on that carrier
+// and the runner minted `verdict:'pass'` — durable proof for a gate that never
+// ran. Every case below distinguishes "did not run" from "ran and passed";
+// restoring the `passed !== true` qualifier reds the first two.
+
+describe('normalizeGateVerdict — an explicit skip is never proof (DR-7)', () => {
+  const carrier = (data: unknown): ToolResult => ({ success: true, data });
+
+  it('NormalizeGateVerdict_SkippedCarrierWithPassedTrue_IsIndeterminate', () => {
+    // The exact carrier `handleTestAdequacy` returns when `resolvePolicySkip`
+    // routes the gate out of the resolved sequence.
+    const policySkip = carrier({
+      passed: true,
+      skipped: true,
+      disposition: 'advisory-skip',
+      redObserved: false,
+      restoredClean: true,
+      probedTests: [],
+      discriminant: SKIPPED_BY_POLICY,
+      reason: 'skipped by verification policy — not in the resolved sequence',
+    });
+
+    expect(normalizeGateVerdict(policySkip)).toBe('indeterminate');
+    // Stated as the property, not just the value: a skip is not a pass.
+    expect(normalizeGateVerdict(policySkip)).not.toBe('pass');
+  });
+
+  it('NormalizeGateVerdict_SkippedCarrier_IsIndeterminateWhateverPassedSays', () => {
+    // `passed` is irrelevant once the carrier declares itself skipped — the
+    // gate produced neither proof nor a finding on any of these.
+    for (const passed of [true, false, undefined]) {
+      const result = carrier({ skipped: true, ...(passed === undefined ? {} : { passed }) });
+      expect(normalizeGateVerdict(result)).toBe('indeterminate');
+    }
+  });
+
+  it('NormalizeGateVerdict_RanToAVerdict_StillMapsPassAndFail', () => {
+    // The discriminating half: a gate that DID run keeps its verdict, so the
+    // fix cannot be satisfied by answering `indeterminate` to everything.
+    expect(normalizeGateVerdict(carrier({ passed: true }))).toBe('pass');
+    expect(normalizeGateVerdict(carrier({ passed: false }))).toBe('fail');
+    expect(normalizeGateVerdict(carrier({ passed: true, skipped: false }))).toBe('pass');
+    expect(normalizeGateVerdict(carrier({ ready: true }))).toBe('pass');
+    expect(normalizeGateVerdict(carrier({ verdict: 'APPROVED' }))).toBe('pass');
+    expect(normalizeGateVerdict(carrier({ verdict: 'BLOCKED' }))).toBe('fail');
+    expect(normalizeGateVerdict({ success: false, error: { code: 'X', message: 'y' } }))
+      .toBe('indeterminate');
+  });
+
+  it('ReadGateSkipDescriptor_SkipCarrier_CarriesDiscriminantAndReason', () => {
+    expect(
+      readGateSkipDescriptor(
+        carrier({ passed: true, skipped: true, discriminant: SKIPPED_BY_POLICY, reason: 'why' }),
+      ),
+    ).toEqual({ skipped: true, discriminant: SKIPPED_BY_POLICY, reason: 'why' });
+
+    // Absent/other shapes are NOT skips — the predicate must not over-claim, or
+    // every ordinary gate would be demoted to indeterminate.
+    expect(readGateSkipDescriptor(carrier({ passed: true }))).toBeUndefined();
+    expect(readGateSkipDescriptor(carrier({ skipped: 'yes' }))).toBeUndefined();
+    expect(readGateSkipDescriptor(carrier(null))).toBeUndefined();
+    expect(readGateSkipDescriptor(carrier([{ skipped: true }]))).toBeUndefined();
+    // A skip with no declared discriminant is still a skip.
+    expect(readGateSkipDescriptor(carrier({ skipped: true }))).toEqual({ skipped: true });
   });
 });
 

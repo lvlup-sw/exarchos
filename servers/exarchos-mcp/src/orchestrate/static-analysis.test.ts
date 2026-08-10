@@ -1059,14 +1059,19 @@ describe('DR-6 — a skipped constituent renders DEGRADED, never PASS', () => {
     expect(
       normalizeGateVerdict({ success: true, data: { passed: true } } as unknown as ToolResult),
     ).toBe('pass');
-    // Deliberately narrow: the established skip-PASS advisory carriers
-    // (`passed:true` + `skipped:true`) are untouched.
+    // DR-7 (task 078) REVERSES the narrow reading this assertion used to pin.
+    // The `passed:true` + `skipped:true` advisory carrier was held to be
+    // "untouched" — but that is precisely the carrier the three migrated ladder
+    // gates emit on a policy skip, so the exemption minted durable `verdict:
+    // 'pass'` proof for gates that never ran. An explicit skip is indeterminate
+    // regardless of `passed`; presence is satisfied by the row existing, not by
+    // it claiming to have passed.
     expect(
       normalizeGateVerdict({
         success: true,
         data: { passed: true, skipped: true },
       } as unknown as ToolResult),
-    ).toBe('pass');
+    ).toBe('indeterminate');
   });
 
   it('AdmissionPolicy_IndeterminateGateEvidence_BlocksExactlyAsFailDoes', async () => {

@@ -134,6 +134,28 @@ jobs:
       # (exercised by `scripts/build-binary.test.ts`).
       - run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
         working-directory: servers/exarchos-mcp
+
+      # DR-20 acceptance needs BOTH installer shells (task 078, DR-7).
+      # `scripts/installer-verify.test.ts` drives get-exarchos.sh under bash and
+      # get-exarchos.ps1 under pwsh; each absent shell silently dropped 11 tests
+      # while the run still reported success. This lane owns that suite, so it
+      # owns the prerequisite. PowerShell ships on the ubuntu-latest runner
+      # image — installing it here would be redundant, but ASSERTING it is not:
+      # an image change that drops pwsh must fail here with a legible message
+      # rather than reappear as a suite that quietly halves. The suite's own
+      # `InstallerVerify_ShellAbsent_FailsClosedRatherThanSkipping` is the
+      # backstop; this step just fails earlier and more clearly.
+      - name: Guard — both installer shells present (DR-20 acceptance)
+        run: |
+          missing=()
+          command -v bash >/dev/null 2>&1 || missing+=("bash")
+          command -v pwsh >/dev/null 2>&1 || command -v powershell >/dev/null 2>&1 || missing+=("pwsh")
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::${missing[*]} unavailable on this lane — the DR-20 installer acceptance suite would SKIP 11 tests per missing shell and still report success. Install it (ubuntu: https://learn.microsoft.com/powershell/scripting/install/install-ubuntu) rather than widening the waiver."
+            exit 1
+          fi
+          echo "installer shells present: bash=$(command -v bash) pwsh=$(command -v pwsh || command -v powershell)"
+
       - run: npm run typecheck
 
       # Windows-portability lint (#1623): editor-first ESLint rules, also run
@@ -1062,8 +1084,17 @@ jobs:
       # deps tail rather than the zero-dep prefix. Unfiltered on purpose: the
       # premises drift when the CODE changes, which is precisely the PR a
       # docs-path filter would skip.
+      #
+      # DR-7 (task 078): the gate has THREE verdicts and `gaps` now exits 3,
+      # distinct from pass (0) and fail (1) — it used to exit 0, so a run that
+      # printed `VERDICT: GAPS` was indistinguishable from a pass to this lane
+      # and to `npm run validate` alike. This lane still tolerates gaps, because
+      # 11 unprobed obligation rungs are real work rather than a broken gate —
+      # but the toleration is DECLARED, dated and enforced by the gate itself:
+      # past the date, gaps exit 1 and this step goes red. Drift, an empty
+      # denominator and an unannotated rung row still fail today, unchanged.
       - name: Measured-premise drift gate (DR-27)
-        run: node scripts/check-measured-premises.mjs
+        run: node scripts/check-measured-premises.mjs --tolerate-gaps-until 2026-11-30
 
       # Its own self-test on the same host (DR-24: "each guard's self-test runs
       # in the same CI job as the guard", so guard-execution failure cannot pass

@@ -32,7 +32,7 @@ import {
   type GateRunRequest,
   type GateRunnerDependencies,
 } from './gate-runner.js';
-import { emitGateEvent } from './gate-utils.js';
+import { emitGateEvent, SKIPPED_BY_POLICY } from './gate-utils.js';
 import { seedActivePhaseAttempt, withTrustedCaller } from '../test-helpers/trusted-context.js';
 import { dispatch, type DispatchContext as HandlerContext } from '../core/dispatch.js';
 
@@ -515,6 +515,69 @@ describe('DR-1 gate-executed signal ownership', () => {
     expect(
       await eventStore.query(featureId, { type: 'admission.evidence-recorded' }),
     ).toHaveLength(1);
+  });
+
+  // ── DR-7 (task 078): a gate that did not run is distinguishable from one
+  //    that passed, in BOTH durable rows, against a real event store.
+
+  it('AppendGateExecutedSignal_SkippedGate_PreservesSkippedAndDiscriminant', async () => {
+    // The carrier the three migrated ladder gates emit on a policy skip.
+    const policySkipProvider: GateProviderExecutor = async () => ({
+      success: true,
+      data: {
+        passed: true,
+        skipped: true,
+        disposition: 'advisory-skip',
+        discriminant: SKIPPED_BY_POLICY,
+        reason: 'skipped by verification policy — not in the resolved sequence',
+      },
+    });
+
+    await runWithDispatchContext(trusted('dr7-policy-skip'), () =>
+      runGate(taskRequest('task-dr7-skip'), deps(policySkipProvider)),
+    );
+
+    // 1. The durable PROOF records that nothing was proven.
+    const [evidence] = await eventStore.query(streamId, {
+      type: 'admission.evidence-recorded',
+    });
+    expect(AdmissionEvidenceRecordedData.parse(evidence?.data).evidence.verdict)
+      .toBe('indeterminate');
+
+    // 2. The SIGNAL agrees, and says WHY — the observability half the retired
+    //    `emitPolicySkipIfNeeded` carried and the runner had dropped.
+    const rows = await gateExecutedRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.passed).toBe(false);
+    expect(rows[0]?.details).toMatchObject({
+      verdict: 'indeterminate',
+      skipped: true,
+      discriminant: SKIPPED_BY_POLICY,
+      reason: 'skipped by verification policy — not in the resolved sequence',
+    });
+
+    // 3. The carrier the orchestrator reads is untouched, so a policy-skipped
+    //    gate still does not BLOCK its runbook chain. Only the proof changed.
+    const carrier = await runWithDispatchContext(trusted('dr7-carrier'), () =>
+      runGate(taskRequest('task-dr7-carrier'), deps(policySkipProvider)),
+    );
+    expect(carrier).toMatchObject({ success: true, data: { passed: true, skipped: true } });
+  });
+
+  it('AppendGateExecutedSignal_GateThatRan_CarriesNoSkipMarkers', async () => {
+    // The discriminating counterpart: a real pass must NOT acquire skip
+    // markers, or `details.skipped` would be noise instead of a signal. This is
+    // what makes "did not run" and "passed" distinguishable in the log.
+    await runWithDispatchContext(trusted('dr7-real-pass'), () =>
+      runGate(taskRequest('task-dr7-ran'), deps(passingProvider)),
+    );
+
+    const rows = await gateExecutedRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.passed).toBe(true);
+    expect(rows[0]?.details).toMatchObject({ verdict: 'pass' });
+    expect(rows[0]?.details).not.toHaveProperty('skipped');
+    expect(rows[0]?.details).not.toHaveProperty('discriminant');
   });
 });
 
