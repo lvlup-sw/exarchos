@@ -195,7 +195,13 @@ function jsonTypeOf(value) {
  * complete instead of stopping at the first bad key.
  */
 function entriesOf(value) {
-  return Array.isArray(value) ? value : [];
+  if (!Array.isArray(value)) return [];
+  // Drop entries that are not objects. `validatePolicyShape` has already
+  // recorded a `[policy-type]` violation for each of them, so the run fails
+  // either way — but it must fail with that violation rather than with a
+  // TypeError from `entry.path` three functions later. Accumulating every
+  // violation is the whole discipline here; crashing reports exactly one.
+  return value.filter((entry) => entry !== null && typeof entry === 'object' && !Array.isArray(entry));
 }
 
 /**
@@ -253,11 +259,22 @@ function validatePolicyShape(node, shape, where, violations) {
           );
           return;
         }
-        for (const entryKey of Object.keys(entry)) {
+        for (const [entryKey, entryValue] of Object.entries(entry)) {
           if (!spec.entryKeys.includes(entryKey)) {
             violations.push(
               `[policy-unknown-key]  \`${entryAt}.${entryKey}\` is not a key this gate ` +
                 `interprets. Known here: ${spec.entryKeys.join(', ')}.`,
+            );
+            continue;
+          }
+          // Membership alone is not shape. Every entry key this gate defines is
+          // string-valued, and `because` / `decidedIn` carry the provenance the
+          // failure message prints — a number there renders as "1" and reads
+          // like a citation nobody can follow.
+          if (typeof entryValue !== 'string') {
+            violations.push(
+              `[policy-type]  \`${entryAt}.${entryKey}\` must be string, found ` +
+                `${jsonTypeOf(entryValue)}.`,
             );
           }
         }
@@ -404,8 +421,11 @@ export function evaluatePackaging(policy, tree) {
   }
 
   // ── hooks/hooks.json ──────────────────────────────────────────────────────
+  // Same reasoning as `entriesOf`: a `hooks` that is null, an array, or a
+  // scalar has already been recorded as a `[policy-type]` violation. Reading
+  // `.path` off it here would replace that message with a stack trace.
   const hooksSpec = policy.hooks;
-  if (hooksSpec !== undefined) {
+  if (hooksSpec !== null && typeof hooksSpec === 'object' && !Array.isArray(hooksSpec)) {
     const hooksPath = hooksSpec.path;
     const expectedTypes = entriesOf(hooksSpec.expected).map((e) => e.type);
     const retiredTypes = entriesOf(hooksSpec.retired).map((e) => e.type);

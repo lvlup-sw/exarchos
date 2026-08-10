@@ -202,8 +202,39 @@ type PatchToolingCode =
   | 'ORPHAN_PATCH_INVOCATION';
 
 interface PatchToolingFinding {
-  code: PatchToolingCode;
-  message: string;
+  readonly code: PatchToolingCode;
+  readonly message: string;
+}
+
+/**
+ * True iff `script` actually RUNS `patch-package` and lets its failure surface.
+ *
+ * A substring test is not an invocation test: `echo patch-package` names it
+ * without running it, and `patch-package || true` runs it while discarding the
+ * very exit status the check exists to preserve. Both spellings satisfy
+ * `includes('patch-package')` while leaving patches unapplied or their failures
+ * swallowed — the silent-wire regression this whole policy is about.
+ *
+ * So the script is split into sequential segments and the COMMAND WORD of each
+ * is compared, after stepping over an `npx` prefix and its flags. Any `|` at all
+ * disqualifies the script: both `||` (fallback) and a plain pipe (status of the
+ * last stage) replace patch-package's exit status with something else's.
+ */
+export function invokesPatchPackage(script: unknown): boolean {
+  if (typeof script !== 'string') return false;
+  if (script.includes('|')) return false;
+  return script
+    .split(/&&|;/)
+    .map((segment) => segment.trim())
+    .some((segment) => {
+      const words = segment.split(/\s+/).filter((word) => word.length > 0);
+      let index = 0;
+      if (words[index] === 'npx') {
+        index += 1;
+        while (words[index]?.startsWith('-')) index += 1;
+      }
+      return words[index] === 'patch-package';
+    });
 }
 
 /**
@@ -224,11 +255,10 @@ export function checkPatchToolingLifetime(
   patchFilenames: readonly string[],
   dependencies: Readonly<Record<string, string>>,
   scripts: Readonly<Record<string, unknown>>,
-): PatchToolingFinding[] {
+): readonly PatchToolingFinding[] {
   const findings: PatchToolingFinding[] = [];
   const installed = dependencies['patch-package'] !== undefined;
-  const invoked =
-    typeof scripts['postinstall'] === 'string' && scripts['postinstall'].includes('patch-package');
+  const invoked = invokesPatchPackage(scripts['postinstall']);
 
   if (patchFilenames.length > 0) {
     if (!installed) {
@@ -410,6 +440,36 @@ describe('DR-0 / task 050 — SDK patch lifetime policy', () => {
       'ORPHAN_PATCH_TOOLING',
       'ORPHAN_PATCH_INVOCATION',
     ]);
+  });
+
+  it('InvokesPatchPackage_NamingItIsNotRunningIt', () => {
+    // The check used to be `includes('patch-package')`, which is satisfied by a
+    // script that never runs it and by one that runs it and throws the result
+    // away. Both leave the wire in exactly the state this policy forbids, and
+    // both read green.
+    const wired = { 'patch-package': '^8.0.1' };
+    const notInvoked = (postinstall: string): string[] =>
+      checkPatchToolingLifetime(['x+1.0.0.patch'], wired, { postinstall }).map((f) => f.code);
+
+    // Named, never executed.
+    expect(invokesPatchPackage('echo patch-package')).toBe(false);
+    expect(invokesPatchPackage('# patch-package runs here')).toBe(false);
+    expect(notInvoked('echo patch-package')).toEqual(['PATCH_TOOLING_NOT_INVOKED']);
+
+    // Executed, but its failure is discarded — the patch can fail and install
+    // still succeeds, which is the regression wearing a green tick.
+    expect(invokesPatchPackage('patch-package || true')).toBe(false);
+    expect(invokesPatchPackage('patch-package | tee log')).toBe(false);
+    expect(notInvoked('patch-package || true')).toEqual(['PATCH_TOOLING_NOT_INVOKED']);
+
+    // …and the forms that genuinely run it and let it fail still pass, so the
+    // predicate is not merely stricter than the substring test — it is right.
+    expect(invokesPatchPackage('patch-package')).toBe(true);
+    expect(invokesPatchPackage('npx patch-package')).toBe(true);
+    expect(invokesPatchPackage('npx --no-install patch-package')).toBe(true);
+    expect(invokesPatchPackage('npm run build && patch-package')).toBe(true);
+    expect(invokesPatchPackage('patch-package --error-on-fail')).toBe(true);
+    expect(invokesPatchPackage(undefined)).toBe(false);
   });
 
   it('PatchLifetime_LiveTree_CarriesNoToolingForAnEmptyPatchSet', () => {

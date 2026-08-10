@@ -1381,5 +1381,7 @@ const isDirectRun =
     process.argv[1].endsWith('cli-derivation-guard.js'));
 
 if (isDirectRun) {
-  process.exit(runGuard());
+  // `exitCode`, never `exit(…)` — see report-coupling-ratchet-guard.ts: exiting
+  // can sever stdout before the diagnostics drain.
+  process.exitCode = runGuard();
 }
