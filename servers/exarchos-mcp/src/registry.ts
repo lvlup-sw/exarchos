@@ -1613,9 +1613,17 @@ const workflowActions: readonly BuiltinToolAction[] = [
   },
   {
     name: 'cancel',
-    description: 'Cancel a workflow with saga compensation. Auto-emits workflow.cancel and compensation events',
+    description: 'Cancel a workflow with saga compensation. Optional `reason` is recorded on the workflow.cancel-requested event and in the cancel metadata. Auto-emits workflow.cancel and compensation events',
     schema: z.object({
       featureId: featureIdSchema,
+      // DR-7 (task 090): `handleCancel` reads `input.reason`, stamps it onto
+      // the `workflow.cancel-requested` payload and into the cancel metadata
+      // — and `CancelInputSchema` has always declared it. This action's
+      // schema did not, so dispatch dropped the operator's stated reason and
+      // reported a successful cancel with an unattributed audit trail. Same
+      // shape as `dryRun` on `transition`, opposite repair: the capability is
+      // real, so declare it rather than refuse it.
+      reason: z.string().optional(),
       dryRun: z.boolean().optional(),
     }),
     phases: ALL_PHASES,
