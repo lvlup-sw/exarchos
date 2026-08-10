@@ -135,8 +135,13 @@ export const DEFAULT_DOCUMENTS = Object.freeze([
   '.exarchos/invariants.md',
 ]);
 
-const EXIT_PASS = 0;
-const EXIT_FAIL = 1;
+/**
+ * The three verdict-bearing exit codes. All exported, because a test that
+ * asserts their distinctness against local literals asserts nothing — it has to
+ * read the same constants the process exits with.
+ */
+export const EXIT_PASS = 0;
+export const EXIT_FAIL = 1;
 const EXIT_USAGE = 2;
 /**
  * `gaps` — distinct from BOTH pass and fail so the verdict survives the process

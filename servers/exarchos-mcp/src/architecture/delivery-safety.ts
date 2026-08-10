@@ -1,4 +1,4 @@
-import { readdir, readFile } from 'node:fs/promises';
+import { access, readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ModuleLexer } from './effect-ledger.js';
 
@@ -213,7 +213,19 @@ export async function resolveRequiredDeliveryModules(
       return resolved === DELIVERY_CONTRACT_MODULE;
     });
 
-  const modules = new Set<string>([DELIVERY_CONTRACT_MODULE]);
+  // Seeded ONLY when the contract module is actually there. Seeding it
+  // unconditionally made the derived population impossible to empty, so the
+  // `EMPTY_POPULATION` arm was unreachable by derivation — and if the module had
+  // moved, the audit walked past the seed and threw ENOENT out of `readFile`
+  // rather than returning the fail-closed diagnostic whose own text says
+  // "channel/delivery.ts moved". The one condition the diagnostic describes was
+  // the one it could not report.
+  const modules = new Set<string>();
+  const contractExists = await access(join(sourceRoot, DELIVERY_CONTRACT_MODULE)).then(
+    () => true,
+    () => false,
+  );
+  if (contractExists) modules.add(DELIVERY_CONTRACT_MODULE);
   const walk = async (dir: string): Promise<void> => {
     for (const entry of await readdir(join(sourceRoot, dir), { withFileTypes: true })) {
       const rel = dir === '' ? entry.name : `${dir}/${entry.name}`;

@@ -23,6 +23,7 @@ import { mkdtempSync, readFileSync, readdirSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 
 import { EventStore } from '../../event-store/store.js';
 import { rmrf } from '../../test-helpers/temp-dir.js';
@@ -183,10 +184,48 @@ describe('gate-preflight (DR-10 shared helper)', () => {
       const srcRoot = path.resolve(here, '..', '..');
       const moduleFile = path.join(here, 'gate-preflight.ts');
 
-      const source = readFileSync(moduleFile, 'utf8');
-      const valueExports = [
-        ...source.matchAll(/^export\s+(?:async\s+)?(?:function|const|class)\s+(\w+)/gm),
-      ].map((m) => m[1] as string);
+      // Both halves are read off the AST rather than matched textually. The
+      // regexes this replaces saw only `export (async )?(function|const|class)`
+      // and single-quoted named imports, so `export let`, `export { … }`, a
+      // double-quoted specifier and a default or namespace import were all
+      // invisible — and every one of those blind spots hides a live export or a
+      // live importer, which is the direction that makes a dead export read as
+      // used (or a used one read as dead).
+      const parse = (file: string): ts.SourceFile =>
+        ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true);
+
+      const isExported = (node: ts.Node): boolean =>
+        ts.canHaveModifiers(node) &&
+        (ts.getModifiers(node) ?? []).some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
+
+      const valueExports: string[] = [];
+      for (const statement of parse(moduleFile).statements) {
+        if (ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement)) continue;
+        if (isExported(statement)) {
+          if (
+            (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) &&
+            statement.name !== undefined
+          ) {
+            valueExports.push(statement.name.text);
+          } else if (ts.isVariableStatement(statement)) {
+            // Every declarator, not just the first: `export const a = 1, b = 2`.
+            for (const decl of statement.declarationList.declarations) {
+              if (ts.isIdentifier(decl.name)) valueExports.push(decl.name.text);
+            }
+          } else if (ts.isEnumDeclaration(statement)) {
+            valueExports.push(statement.name.text);
+          }
+        } else if (
+          ts.isExportDeclaration(statement) &&
+          !statement.isTypeOnly &&
+          statement.exportClause !== undefined &&
+          ts.isNamedExports(statement.exportClause)
+        ) {
+          for (const element of statement.exportClause.elements) {
+            if (!element.isTypeOnly) valueExports.push(element.name.text);
+          }
+        }
+      }
       expect(valueExports.length, 'no value exports found — the scan is measuring nothing').toBeGreaterThan(0);
 
       const files: string[] = [];
@@ -205,17 +244,28 @@ describe('gate-preflight (DR-10 shared helper)', () => {
 
       const importedBindings = new Set<string>();
       let importerCount = 0;
+      let namespaceImporter = false;
       for (const file of files) {
         if (path.resolve(file) === path.resolve(moduleFile)) continue;
-        const text = readFileSync(file, 'utf8');
-        for (const match of text.matchAll(
-          /import\s*\{([^}]*)\}\s*from\s*'[^']*\/gate-preflight\.js'/g,
-        )) {
+        for (const statement of parse(file).statements) {
+          if (!ts.isImportDeclaration(statement)) continue;
+          if (!ts.isStringLiteral(statement.moduleSpecifier)) continue;
+          if (!statement.moduleSpecifier.text.endsWith('/gate-preflight.js')) continue;
+          const clause = statement.importClause;
+          if (clause === undefined || clause.isTypeOnly) continue;
           importerCount += 1;
-          for (const raw of (match[1] ?? '').split(',')) {
-            const name = raw.trim().replace(/^type\s+/, '').split(/\s+as\s+/)[0]?.trim();
-            if (name) importedBindings.add(name);
+          // `import * as x` reaches every export, so it satisfies all of them.
+          if (clause.namedBindings !== undefined && ts.isNamespaceImport(clause.namedBindings)) {
+            namespaceImporter = true;
           }
+          if (clause.namedBindings !== undefined && ts.isNamedImports(clause.namedBindings)) {
+            for (const element of clause.namedBindings.elements) {
+              if (element.isTypeOnly) continue;
+              // `propertyName` is the EXPORTED name when aliased (`a as b`).
+              importedBindings.add((element.propertyName ?? element.name).text);
+            }
+          }
+          if (clause.name !== undefined) importedBindings.add('default');
         }
       }
       // Non-empty denominator: a scan that found no importer would pass this
@@ -223,9 +273,10 @@ describe('gate-preflight (DR-10 shared helper)', () => {
       expect(importerCount, 'no production importer of gate-preflight was found').toBeGreaterThan(0);
 
       for (const name of valueExports) {
-        expect(importedBindings.has(name), `${name} is exported but no production module imports it`).toBe(
-          true,
-        );
+        expect(
+          namespaceImporter || importedBindings.has(name),
+          `${name} is exported but no production module imports it`,
+        ).toBe(true);
       }
     });
   });

@@ -313,6 +313,35 @@ describe('run-validate — verdict fidelity (task 078, DR-7)', () => {
     expect(summary.violations.join('\n')).toContain('#1789');
   });
 
+  it('ValidateAggregator_AdvisoryOnItsExpiryDate_IsStillTolerated', () => {
+    // The boundary the two halves have to agree on. `expires` is documented as
+    // the LAST tolerated day here and `--tolerate-gaps-until` is documented as
+    // inclusive in check-measured-premises.mjs, so ON the date both must still
+    // tolerate. The pair above and below this line is what makes that a
+    // property rather than a comment: one day earlier tolerates, one day later
+    // does not, and neither `<=` nor `>` can satisfy both at once.
+    const onExpiry = [gapsStep('advisory', TODAY)] as unknown as Step[];
+    const summary: Summary = summarize(
+      onExpiry,
+      runAllSteps(onExpiry, () => ({ status: 3 })),
+      TODAY,
+    );
+    expect(summary.tolerated).toBe(1);
+    expect(summary.failed).toBe(0);
+    expect(summary.ok).toBe(true);
+
+    // …and the day after is where it stops. Same inputs, one day later.
+    const dayAfter = [gapsStep('advisory', TODAY)] as unknown as Step[];
+    const expired: Summary = summarize(
+      dayAfter,
+      runAllSteps(dayAfter, () => ({ status: 3 })),
+      '2026-08-10',
+    );
+    expect(expired.tolerated).toBe(0);
+    expect(expired.failed).toBe(1);
+    expect(expired.violations.join('\n')).toContain('[expired-toleration]');
+  });
+
   it('ValidateAggregator_UndeclaredNonZeroExit_StillFails', () => {
     // Toleration is opt-in per exit code. A gate that starts exiting 4 has said
     // nothing about what 4 means, so it fails — the fail-closed default.
@@ -471,5 +500,38 @@ describe('run-validate — CLI (task 064, DR-24)', () => {
       seeded.cleanup();
     }
   }, 20000);
+
+  it('MeasuredPremisesToleration_ThreeCallSites_CarryOneDate', () => {
+    // The #1789 toleration is spelled in three places that no gate was binding:
+    // the ci.yml flag, the manifest `outcomes` entry the aggregator reads, and
+    // the installer suite's shell waiver. Re-dating one and not the others is
+    // silent — the lane keeps passing while the three disagree about when the
+    // exemption ends. Reading all three here is what makes them one date.
+    const ciYml = fs.readFileSync(path.join(REPO_ROOT, '.github/workflows/ci.yml'), 'utf8');
+    const manifest = fs.readFileSync(path.join(REPO_ROOT, DEFAULT_MANIFEST_PATH), 'utf8');
+    const installer = fs.readFileSync(path.join(SCRIPTS_DIR, 'installer-verify.test.ts'), 'utf8');
+
+    const ciDate = /--tolerate-gaps-until\s+(\d{4}-\d{2}-\d{2})/.exec(ciYml)?.[1];
+    const manifestDate = (
+      JSON.parse(manifest) as {
+        steps: { id: string; outcomes?: Record<string, { expires?: string }> }[];
+      }
+    ).steps.find((s) => s.id === 'measured-premises')?.outcomes?.['3']?.expires;
+    const waiverDate = /SHELL_SKIP_WAIVER[\s\S]{0,200}?expires:\s*'(\d{4}-\d{2}-\d{2})'/.exec(
+      installer,
+    )?.[1];
+
+    // Each must be FOUND, or the regex has gone stale and the check is vacuous.
+    for (const [name, found] of [
+      ['ci.yml --tolerate-gaps-until', ciDate],
+      ['validate-manifest.json expires', manifestDate],
+      ['installer-verify SHELL_SKIP_WAIVER.expires', waiverDate],
+    ] as const) {
+      expect(found, `${name} not located — the binding check has gone blind`).toMatch(
+        /^\d{4}-\d{2}-\d{2}$/,
+      );
+    }
+    expect(new Set([ciDate, manifestDate, waiverDate]).size).toBe(1);
+  });
 
 });

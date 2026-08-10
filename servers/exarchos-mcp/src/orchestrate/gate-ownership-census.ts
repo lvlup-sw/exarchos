@@ -125,14 +125,31 @@ export const EVIDENCE_DISCRIMINANT_CONSTANTS: ReadonlyMap<string, string> = Obje
  * SHRINK-ONLY, and mechanically so: a member that becomes resolvable is a
  * `STALE_UNRESOLVED_ACKNOWLEDGEMENT`, so the set cannot outlive the gap it
  * covers. Narrow the emitted `type` to a literal union and delete the row.
+ *
+ * It grew ONCE, in the other direction, and only because the scanner had been
+ * under-reporting: an append whose event object or `type` could not be read was
+ * DROPPED rather than recorded unresolved, and `findProperty` never implemented
+ * the spread following its own doc-comment promised. So
+ * `append(id, buildEvent(r))` and `append(id, { ...base, data })` — both
+ * ordinary — made a module look like it appended nothing at all. The six
+ * additions below are emitters this set could not previously see, not new debt;
+ * none of them references the admission evidence type. The shrink-only rule
+ * governs the set from here, and a widened DENOMINATOR is the one thing it was
+ * never protecting against.
  */
 export const ACKNOWLEDGED_UNRESOLVED_MODULES: ReadonlySet<string> = Object.freeze(
   new Set([
     'core/onboarding/event-ctx.ts',
+    'evals/run-evals-cli.ts',
+    'event-store/store.ts',
+    'event-store/tools.ts',
     'orchestrate/mutation-adequacy.ts',
+    'orchestrate/prepare-delegation.ts',
     'orchestrate/worktree/manager.ts',
+    'orchestrate/worktree/merge-serializer.ts',
     'storage/sidecar-merger.ts',
     'storage/sidecar-scheduler.ts',
+    'task-store/event-sourced-task-store.ts',
     'vcs/mutation-owner.ts',
     'workflow/cancel.ts',
   ]),

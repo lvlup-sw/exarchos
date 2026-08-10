@@ -75,6 +75,17 @@ function parseArgs(argv) {
       const value = argv[++i];
       if (!value) return { error: '--spawn-helper requires a path' };
       spawnHelper = path.resolve(value);
+    } else {
+      // An unrecognised token was silently ignored, which is the worst possible
+      // handling for THIS gate: a misspelled `--src-roots` left `roots` empty,
+      // so the scan fell back to DEFAULT_ROOTS and reported success about a
+      // tree the caller never asked about. A gate that answers a different
+      // question than the one it was asked is a gate that isn't there.
+      return {
+        error:
+          `unrecognised argument '${argv[i]}'. Known: --src-root <path>, ` +
+          '--spawn-helper <path>, --help.',
+      };
     }
   }
   return { roots: roots.length > 0 ? roots : DEFAULT_ROOTS, spawnHelper };
@@ -201,9 +212,12 @@ function* walkRoots(roots) {
  */
 function buildSpawnRe(shimNames) {
   const alternatives = shimNames.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  // `i` as well as `g`: Windows resolves shim names case-insensitively, so
+  // `spawnSync('NPM', …)` launches `npm.cmd` exactly as `'npm'` does. A
+  // case-sensitive pattern let the spelling decide whether the rule applied.
   return new RegExp(
     `\\b(?:execFile|execFileSync|spawn|spawnSync)\\s*\\(\\s*['"\`](?:${alternatives})['"\`]`,
-    'g',
+    'gi',
   );
 }
 const URL_PATHNAME_RE = /new\s+URL\s*\(\s*import\.meta\.url\s*\)\s*\.pathname/g;

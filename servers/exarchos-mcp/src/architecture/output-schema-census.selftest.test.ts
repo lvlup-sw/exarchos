@@ -31,7 +31,7 @@
 // a PROCESS. The two lines that turn a verdict into a merge block —
 //
 //     const isDirectRun = … ;
-//     if (isDirectRun) process.exit(runGuard());
+//     if (isDirectRun) process.exitCode = runGuard();
 //
 // — were, until this file, covered by nothing at all. That is not a theoretical
 // gap. Measured on the landing branch, the predicate was
@@ -101,6 +101,14 @@ const GUARD_PATH = join(MCP_ROOT, 'scripts', 'output-schema-ratchet-guard.ts');
 const SHIPPED_PREDICATE =
   'canonicalPath(process.argv[1]) === canonicalPath(fileURLToPath(import.meta.url))';
 const LEGACY_FILENAME_PREDICATE = "process.argv[1].endsWith('output-schema-ratchet-guard.ts')";
+/**
+ * The exit plumbing that turns a finding into a failed lane. Named once here
+ * because it is asserted in more than one place and it has already drifted: the
+ * guards moved off `process.exit(runGuard())` so their diagnostics survive a
+ * severed pipe, and a second copy of the old literal would have gone on
+ * describing a spelling the tree no longer contains.
+ */
+const SHIPPED_EXIT = 'process.exitCode = runGuard()';
 
 /** Relative module specifiers in the guard's source, e.g. `../src/output-schema-seed-pin.js`. */
 const RELATIVE_SPECIFIER = /from '(\.\.\/[^']+\.js)'/g;
@@ -474,15 +482,15 @@ describe('DR-4 / G2 self-test: guard-execution failure cannot pass as success', 
     // predicate is not mistaken for a use of it.
     const rewritten = codeOf(rewrittenGuardSource(guardSource));
     expect(rewritten).toContain(SHIPPED_PREDICATE);
-    expect(rewritten).toContain('process.exit(runGuard())');
+    expect(rewritten).toContain(SHIPPED_EXIT);
     expect(rewritten).not.toContain(LEGACY_FILENAME_PREDICATE);
   });
 
   it('OutputSchemaRatchetGuard_BrokenMechanism_RedensTheProcessNotJustTheLibrary', () => {
-    // `process.exit(runGuard())` is the plumbing that makes a finding block a
-    // merge, and no test had ever run it. Replace it with `runGuard();`, or with
-    // `process.exit(0)`, and every assertion task 017 shipped still passes while
-    // CI goes permanently, silently green.
+    // `process.exitCode = runGuard()` is the plumbing that makes a finding block
+    // a merge, and no test had ever run it. Replace it with a bare `runGuard();`,
+    // or pin the code to 0, and every assertion task 017 shipped still passes
+    // while CI goes permanently, silently green.
     //
     // The two red mutations below break DIFFERENT teeth — the frozen seed pin and
     // the census denominator — so what is shown is that the exit status TRACKS

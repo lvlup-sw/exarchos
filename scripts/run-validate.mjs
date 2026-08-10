@@ -304,9 +304,14 @@ export function classifyOutcome(step, outcome, today = utcToday()) {
   if (declared.severity === 'fail') {
     return { severity: FAILED, verdict: declared.verdict };
   }
-  // Advisory — live only while unexpired. `expires` is the LAST tolerated day.
+  // Advisory — live only while unexpired. `expires` is the LAST tolerated day,
+  // so the comparison is strict: on `expires` itself the toleration still
+  // holds. `check-measured-premises.mjs` reads its own `--tolerate-gaps-until`
+  // the same inclusive way (`tolerateGapsUntil >= today`), and the two must
+  // agree — a date that means "tolerated" to the gate and "expired" to the
+  // aggregator is the divergence this epic exists to remove.
   const expires = declared.expires ?? '';
-  if (expires <= today) {
+  if (expires < today) {
     return {
       severity: FAILED,
       verdict: declared.verdict,
@@ -330,7 +335,7 @@ export function classifyOutcome(step, outcome, today = utcToday()) {
  * @param {ValidateStep[]} steps
  * @param {StepOutcome[]} outcomes
  * @param {string} [today] `YYYY-MM-DD`, injectable for the advisory-expiry tooth.
- * @returns {{ ok: boolean, declared: number, executed: number, passed: number, tolerated: number, failed: number, violations: string[], classifications: Record<string, { severity: string, verdict: string, note?: string }> }}
+ * @returns {{ ok: boolean, declared: number, executed: number, passed: number, tolerated: number, failed: number, violations: string[], notices: string[], classifications: Record<string, { severity: string, verdict: string, note?: string }> }}
  */
 export function summarize(steps, outcomes, today = utcToday()) {
   const byId = new Map(steps.map((s) => [s.id, s]));

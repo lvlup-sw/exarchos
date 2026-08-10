@@ -336,6 +336,48 @@ describe('validate-plugin — the policy is validated before it is interpreted',
     expect(isClean(report)).toBe(false);
   });
 
+  it('ValidatePluginPolicy_NonStringProvenance_IsReported', () => {
+    // Key membership is not shape. `because` and `decidedIn` are what the
+    // failure message prints as the citation, so a number there renders as a
+    // provenance nobody can follow — and used to pass the entry check silently.
+    const policy = clone(shippedPolicy()) as Record<string, unknown>;
+    (policy['requiredFiles'] as Record<string, unknown>[])[0] = {
+      path: 'README.md',
+      because: 1,
+      decidedIn: null,
+    };
+    const report: Report = evaluatePackaging(policy, memoryTree(conformingFiles()));
+    const joined = report.violations.join('\n');
+    expect(joined).toContain('[policy-type]');
+    expect(joined).toContain('requiredFiles[0].because');
+    expect(joined).toContain('requiredFiles[0].decidedIn');
+    expect(isClean(report)).toBe(false);
+  });
+
+  it('ValidatePluginPolicy_MalformedFamilies_AccumulateRatherThanThrow', () => {
+    // The discipline this gate exists to keep is "report every violation", and
+    // a TypeError reports exactly one. A null entry used to reach `entry.path`
+    // and a null `hooks` used to reach `hooksSpec.path`, so the run died on the
+    // first malformed value instead of listing all of them.
+    const policy = clone(shippedPolicy()) as Record<string, unknown>;
+    policy['requiredFiles'] = [null, { path: 'README.md' }];
+    policy['hooks'] = null;
+
+    let report!: Report;
+    expect(() => {
+      report = evaluatePackaging(policy, memoryTree(conformingFiles()));
+    }).not.toThrow();
+
+    const joined = report.violations.join('\n');
+    expect(joined).toContain('requiredFiles[0]');
+    expect(joined).toContain('hooks');
+    expect(joined).toContain('[policy-type]');
+    expect(isClean(report)).toBe(false);
+    // …and the surviving well-formed entry was still interpreted, so skipping
+    // the malformed one did not quietly drop the rest of the family.
+    expect(report.checks.some((c) => c.id === 'file.README.md')).toBe(true);
+  });
+
   it('ValidatePluginPolicy_ShippedPolicy_UsesOnlyKnownKeys', () => {
     // The negative twin: the live policy raises nothing, so the rejections above
     // are attributable to the typo rather than to a schema that rejects

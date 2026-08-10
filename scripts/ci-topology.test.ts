@@ -262,6 +262,8 @@ function synthesizeNeeds(
   overrides: {
     results?: Record<string, string>;
     changesOutputs?: Record<string, string>;
+    /** Keys REMOVED from `changes.outputs` — a rename or deletion upstream. */
+    dropChangesOutputs?: readonly string[];
     extraLanes?: Record<string, string>;
   } = {},
 ): NeedsContext {
@@ -272,6 +274,9 @@ function synthesizeNeeds(
   const changes = context['changes'];
   if (changes) {
     changes.outputs = { ...changesOutputsAllTrue(workflow), ...(overrides.changesOutputs ?? {}) };
+    for (const key of overrides.dropChangesOutputs ?? []) {
+      delete changes.outputs[key];
+    }
   }
   for (const [lane, result] of Object.entries(overrides.results ?? {})) {
     context[lane] = { ...(context[lane] ?? { outputs: {} }), result };
@@ -637,6 +642,32 @@ describe('CI-gate execution policy (DR-10)', () => {
         }),
       );
       expect(run.status, `licensed skip of "${lane}" (${key}=false) was rejected:\n${run.output}`).toBe(0);
+    }
+  });
+
+  it('Aggregator_LicenceKeyNotDeclaredByChanges_Reddens', () => {
+    // THE THIRD DECLARATION SITE. A licence names a `changes` output, and
+    // `changes_output` returned the empty string both for a declared 'false'
+    // and for a key that does not exist — so renaming or deleting an entry in
+    // the `changes` `outputs:` block licensed every lane keyed on it to skip,
+    // with CI Gate reporting success. Nothing tied LICENSED_SKIPS to that block.
+    const workflow = loadWorkflow(CI_WORKFLOW_PATH);
+    const licensed = declaredLicensedSkips(evaluateStep(workflow));
+    expect(licensed.size).toBeGreaterThan(0);
+
+    for (const [lane, key] of licensed) {
+      const run = runAggregator(
+        workflow,
+        synthesizeNeeds(workflow, {
+          results: { [lane]: 'skipped' },
+          dropChangesOutputs: [key],
+        }),
+      );
+      expect(
+        run.status,
+        `skip of "${lane}" was licensed by an UNDECLARED changes output "${key}":\n${run.output}`,
+      ).not.toBe(0);
+      expect(run.output).toContain(key);
     }
   });
 
