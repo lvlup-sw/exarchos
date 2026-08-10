@@ -221,7 +221,10 @@ describe('check-module-intent CLI (DR-7/DR-8)', () => {
     }
     // …and removing it restores the clean verdict, so the failure was the probe.
     expect(runCheck().status).toBe(0);
-  });
+    // Two full-tree CLI spawns, where every sibling case spends one. A 2-core
+    // Windows runner needs ~3.4s per scan, so the default 5s budget cannot fit
+    // both — the timeout was arithmetic, not a slow gate.
+  }, 30_000);
 
   it('FrictionSignal_DeclaresIntentRatherThanEvadingTheGate', () => {
     // The specific module DR-9 names. Now that the gate reaches root `src/` it

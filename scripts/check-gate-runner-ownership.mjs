@@ -109,7 +109,6 @@ const DISPOSITIONS = Object.freeze([
     ['prepare-delegation.ts', 1],
     ['prepare-synthesis.ts', 3],
     ['provenance-chain.ts', 1],
-    ['pure/gate-preflight.ts', 1],
     ['review-verdict.ts', 3],
     ['security-scan.ts', 1],
     ['task-decomposition.ts', 1],
