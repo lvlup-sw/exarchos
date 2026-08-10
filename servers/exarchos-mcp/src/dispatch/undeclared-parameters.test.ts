@@ -23,6 +23,7 @@ import {
   buildIgnoredParameterError,
 } from './undeclared-parameters.js';
 import { getFullRegistry, type ToolAction } from '../registry.js';
+import { unregisteredActionOutputSchema } from '../output-schema-declaration.js';
 
 function action(name: string, schema: z.ZodObject<z.ZodRawShape>): ToolAction {
   return {
@@ -31,6 +32,22 @@ function action(name: string, schema: z.ZodObject<z.ZodRawShape>): ToolAction {
     schema,
     phases: new Set<string>(['plan']),
     roles: new Set<string>(['lead']),
+    // `outputSchema` and `annotations` are REQUIRED on ToolAction, and this
+    // fixture claimed the type without them — it compiled only because the MCP
+    // typecheck does not cover test sources, so the declared return type was
+    // never actually checked against the interface it names.
+    //
+    // `unregisteredActionOutputSchema()` is the sanctioned escape for an action
+    // outside the built-in registry, which is exactly what a fixture is: it has
+    // no census id, so it must not borrow a waiver that belongs to a real one.
+    outputSchema: unregisteredActionOutputSchema(),
+    annotations: {
+      safety: 'read-only',
+      readOnly: true,
+      destructive: false,
+      idempotent: true,
+      openWorld: false,
+    },
   };
 }
 

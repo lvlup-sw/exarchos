@@ -192,11 +192,22 @@ function resolveString(
   return undefined;
 }
 
-/** The initializer of `name` on an object literal, following one spread level. */
+/**
+ * The initializer of `name` on an object literal, following one spread level.
+ *
+ * The spread half was documented but never implemented, so
+ * `store.append(id, { ...baseEvent, data })` read as a module that appends
+ * nothing — an ordinary spelling, and an emitter invisible to the census.
+ * Own properties win over spread ones, matching JS evaluation order for the
+ * `{ ...base, type: 'x' }` shape; a spread AFTER an own property would override
+ * it, which is why the own-property scan runs in source order below.
+ */
 function findProperty(
   object: ts.ObjectLiteralExpression,
   name: string,
+  ctx?: ResolutionContext,
 ): ts.Expression | undefined {
+  let fromSpread: ts.Expression | undefined;
   for (const property of object.properties) {
     if (
       ts.isPropertyAssignment(property) &&
@@ -208,8 +219,30 @@ function findProperty(
     if (ts.isShorthandPropertyAssignment(property) && property.name.text === name) {
       return property.name;
     }
+    // ONE level: a spread of a spread is not followed, and a spread whose
+    // operand is not a resolvable object literal simply contributes nothing —
+    // the call site then reports UNRESOLVED rather than disappearing.
+    if (ts.isSpreadAssignment(property) && ctx !== undefined && fromSpread === undefined) {
+      const spreadObject = asEventObject(property.expression, ctx);
+      if (spreadObject !== undefined) {
+        for (const inner of spreadObject.properties) {
+          if (
+            ts.isPropertyAssignment(inner) &&
+            (ts.isIdentifier(inner.name) || ts.isStringLiteral(inner.name)) &&
+            inner.name.text === name
+          ) {
+            fromSpread = inner.initializer;
+            break;
+          }
+          if (ts.isShorthandPropertyAssignment(inner) && inner.name.text === name) {
+            fromSpread = inner.name;
+            break;
+          }
+        }
+      }
+    }
   }
-  return undefined;
+  return fromSpread;
 }
 
 /**
@@ -262,12 +295,26 @@ export const scanEvidenceEmission: EvidenceEmissionScanner = (
     ) {
       const line =
         sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
-      for (const argument of node.arguments) {
-        const object = asEventObject(argument, ctx);
-        if (object === undefined) continue;
-        const typeProperty = findProperty(object, 'type');
-        if (typeProperty === undefined) continue;
-        sites.push({ line, discriminant: resolveString(typeProperty, ctx) });
+      // An `.append(…)` whose event argument cannot be read is UNRESOLVED, not
+      // absent. Skipping it dropped the site entirely, so
+      // `store.append(id, buildEvent(record))` — a call that certainly appends —
+      // read as a module that appends nothing. Under-reporting is the dangerous
+      // direction for this census, which is the line the module header draws;
+      // the loop was not holding it. `discriminant: undefined` IS the unresolved
+      // marker the consumer already understands.
+      //
+      // Only the event argument (the second) can carry a `type`; the stream id
+      // is a string. Reporting one site per call keeps a single append from
+      // appearing twice.
+      const eventArgument = node.arguments[1] ?? node.arguments[0];
+      if (eventArgument !== undefined) {
+        const object = asEventObject(eventArgument, ctx);
+        const typeProperty =
+          object === undefined ? undefined : findProperty(object, 'type', ctx);
+        sites.push({
+          line,
+          discriminant: typeProperty === undefined ? undefined : resolveString(typeProperty, ctx),
+        });
       }
     }
     ts.forEachChild(node, visit);
