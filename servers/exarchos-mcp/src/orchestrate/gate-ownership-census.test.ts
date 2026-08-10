@@ -301,6 +301,47 @@ describe('unresolvable discriminants are reported, not assumed benign', () => {
   }, 60_000);
 });
 
+describe('discriminant precedence follows source order', () => {
+  const discriminantOf = (objectLiteral: string): string | undefined => {
+    const sites = scanEvidenceEmission(
+      `async function emit(store, streamId) {
+         await store.append(streamId, ${objectLiteral});
+       }`,
+      { knownConstants: new Map(), fileName: 'precedence-probe.ts' },
+    );
+    expect(sites).toHaveLength(1);
+    return sites[0]?.discriminant;
+  };
+
+  it('Discriminant_SpreadAfterOwnProperty_TakesTheSpread', () => {
+    // JS evaluates `{ type: 'old', ...{ type: 'new' } }` to 'new'. Returning on
+    // the first own hit reported 'old' — a confident wrong answer, which lets a
+    // rogue emitter pass the census under a borrowed name.
+    expect(discriminantOf("{ type: 'old', ...{ type: 'new' } }")).toBe('new');
+  });
+
+  it('Discriminant_SecondSpreadWins_NotTheFirst', () => {
+    expect(discriminantOf("{ ...{ type: 'first' }, ...{ type: 'second' } }")).toBe(
+      'second',
+    );
+  });
+
+  it('Discriminant_OwnPropertyAfterSpread_StillWins', () => {
+    expect(discriminantOf("{ ...{ type: 'base' }, type: 'override' }")).toBe('override');
+  });
+
+  it('Discriminant_SpreadWithoutTheKey_LeavesStandingValue', () => {
+    expect(discriminantOf("{ type: 'keep', ...{ data: 1 } }")).toBe('keep');
+  });
+
+  it('Discriminant_UnreadableSpreadAfterOwn_IsUnresolved', () => {
+    // The call MIGHT overwrite `type` and there is no way to tell statically.
+    // Under-reporting is the direction this census refuses to fail in, so the
+    // superseded value must not be handed back as if it were certain.
+    expect(discriminantOf("{ type: 'maybe-stale', ...makeBase() }")).toBeUndefined();
+  });
+});
+
 describe('real evidence emitter scan', () => {
   it('finds exactly the canonical durable runner as the sole emitter', async () => {
     const sites = await scanEvidenceEmitterSites(SRC_ROOT, scanEvidenceEmission);

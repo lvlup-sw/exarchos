@@ -718,6 +718,10 @@ describe('handlePrepareSynthesis', () => {
 
     for (const relative of ['.', '..', 'some/repo', './repo']) {
       vi.mocked(execSync).mockClear();
+      // Both spawn surfaces, not just the shell one: the changed-files leg
+      // shells out through execFileSync, so a regression that reached IT
+      // before returning would slip past an execSync-only oracle.
+      vi.mocked(execFileSync).mockClear();
       const result = await handlePrepareSynthesis(
         { featureId: 'test-feature', repoRoot: relative },
         tmpDir,
@@ -728,10 +732,34 @@ describe('handlePrepareSynthesis', () => {
       expect(result.error?.code).toBe('INVALID_INPUT');
       expect(result.error?.message).toContain('absolute');
       expect(vi.mocked(execSync)).not.toHaveBeenCalled();
+      expect(vi.mocked(execFileSync)).not.toHaveBeenCalled();
+    }
+
+    // `RegExp.test()` stringifies, so a non-string that LOOKS absolute once
+    // coerced (`['/repo']` → `/repo`) used to clear the shape check and reach a
+    // subprocess as a non-string `cwd`, returning PREPARE_SYNTHESIS_FAILED —
+    // a run-failure code for what is really malformed caller input.
+    for (const nonString of [['/repo'], 42, { path: '/repo' }, true]) {
+      vi.mocked(execSync).mockClear();
+      vi.mocked(execFileSync).mockClear();
+      const result = await handlePrepareSynthesis(
+        { featureId: 'test-feature', repoRoot: nonString } as unknown as Parameters<
+          typeof handlePrepareSynthesis
+        >[0],
+        tmpDir,
+        mockStore as unknown as EventStore,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('INVALID_INPUT');
+      expect(vi.mocked(execSync)).not.toHaveBeenCalled();
+      expect(vi.mocked(execFileSync)).not.toHaveBeenCalled();
     }
 
     // The negative twin: an absolute path is still accepted, so the guard is
-    // rejecting relativeness rather than rejecting everything.
+    // rejecting relativeness rather than rejecting everything. Asserting the
+    // CODE (not just the absence of a word in the message) keeps this from
+    // passing when the fixture fails validation for some unrelated reason.
     vi.mocked(execSync).mockClear();
     const accepted = await handlePrepareSynthesis(
       { featureId: 'test-feature', repoRoot: tmpDir },
@@ -739,6 +767,7 @@ describe('handlePrepareSynthesis', () => {
       mockStore as unknown as EventStore,
     );
     expect(accepted.error?.message ?? '').not.toContain('absolute');
+    expect(accepted.error?.code).not.toBe('INVALID_INPUT');
   });
 });
 
