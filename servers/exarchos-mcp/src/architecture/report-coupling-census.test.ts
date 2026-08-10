@@ -35,6 +35,7 @@ import {
   censusReportCoupling,
   formatReportCouplingCensus,
   formatReportCouplingRatchet,
+  formatReportCouplingSeedAudit,
   reportCouplingSeedDigest,
 } from './report-coupling-census.js';
 import {
@@ -43,8 +44,11 @@ import {
   REPORT_COUPLING_RETIRED_IDS,
   type ReportCouplingSeedEntry,
 } from './report-coupling-seed.js';
-import { REPORT_COUPLING_SEED_KEY_SET_DIGEST } from './report-coupling-seed-pin.js';
-import { isoDayUtc } from './event-grammar-census.js';
+import {
+  REPORT_COUPLING_EXPIRY_HORIZON,
+  REPORT_COUPLING_SEED_KEY_SET_DIGEST,
+} from './report-coupling-seed-pin.js';
+import { isIsoDay, isoDayUtc } from './event-grammar-census.js';
 import {
   LIVE_SUBJECT,
   resolveToday,
@@ -60,6 +64,31 @@ import {
  * say so explicitly.
  */
 const TODAY = '2026-08-09';
+
+/** The frozen half of the ratchet — the digest and, since DR-6, the horizon. */
+const PIN_SRC = fileURLToPath(new URL('./report-coupling-seed-pin.ts', import.meta.url));
+/** The policy data. Read as text only to prove it cannot see its own cap. */
+const SEED_SRC = fileURLToPath(new URL('./report-coupling-seed.ts', import.meta.url));
+
+/** Drive the shipped gate and capture its streams, so a verdict is an EXIT CODE. */
+function invokeGuard(options: Parameters<typeof runGuard>[0] = {}): {
+  code: number;
+  out: string;
+  err: string;
+} {
+  let out = '';
+  let err = '';
+  const code = runGuard({
+    ...options,
+    stdout: (chunk) => {
+      out += chunk;
+    },
+    stderr: (chunk) => {
+      err += chunk;
+    },
+  });
+  return { code, out, err };
+}
 
 // ─── Fixture helpers ────────────────────────────────────────────────────────
 //
@@ -260,6 +289,132 @@ describe('G3 kill fixtures — the ratchet must be able to go red', () => {
     // the presence of an `expires` field.
     const future = seedOver(REPORT_COUPLING_SEED_IDS, { owner: 'test', expires: '2026-08-07' });
     expect(auditReportCouplingSeed('2026-08-07', census, future).ok).toBe(true);
+  });
+
+  it('ReportCouplingSeed_SelfRenewedEntry_FailsAgainstThePinnedHorizon', () => {
+    // THE RENEWAL TOOTH — the gap DR-6 closed rather than carried forward.
+    //
+    // Before the ledger extraction this ratchet enforced `expires` and capped it
+    // with nothing. On the day the debt came due the cheapest green was a sed
+    // over the 25-line literal adding a year to every date, and that diff looks
+    // exactly like the paydown diffs the file already receives. Its two sibling
+    // ledgers were built with this tooth; this one was not.
+    const census = censusReportCoupling();
+
+    // The blanket bump, as data: every live entry re-dated far into the future.
+    // Not one is expired at any plausible `today`, and every one fails.
+    const bumped = auditReportCouplingSeed(
+      TODAY,
+      census,
+      seedOver(REPORT_COUPLING_SEED_IDS, { owner: 'test', expires: '2099-01-01' }),
+    );
+    expect(bumped.expired).toEqual([]);
+    expect(bumped.beyondHorizon).toEqual([...REPORT_COUPLING_SEED_IDS]);
+    expect(bumped.ok).toBe(false);
+    expect(bumped.findings.map((f) => f.code)).toContain('SEED_ENTRY_BEYOND_HORIZON');
+    expect(formatReportCouplingSeedAudit(bumped)).toContain('may not name its own deadline');
+    expect(formatReportCouplingSeedAudit(bumped)).toContain(
+      'REPORT_COUPLING_EXPIRY_HORIZON in report-coupling-seed-pin.ts',
+    );
+
+    // A SINGLE entry inching one day past the horizon fails just as hard — the
+    // tooth is not a "most of them moved" heuristic.
+    const oneDayOver = auditReportCouplingSeed(
+      TODAY,
+      census,
+      seedOver(REPORT_COUPLING_SEED_IDS, { owner: 'test', expires: '2027-03-01' }),
+    );
+    expect(oneDayOver.beyondHorizon).toEqual([...REPORT_COUPLING_SEED_IDS]);
+    expect(oneDayOver.ok).toBe(false);
+
+    // Pulling a date FORWARD stays legal: it only shortens the debt's life,
+    // which is the direction the ratchet wants. Without this the tooth would be
+    // "no edits", not "no renewals".
+    const earlier = auditReportCouplingSeed(
+      TODAY,
+      census,
+      seedOver(REPORT_COUPLING_SEED_IDS, { owner: 'test', expires: '2026-09-01' }),
+    );
+    expect(earlier.beyondHorizon).toEqual([]);
+    expect(earlier.ok).toBe(true);
+
+    // …and the guard — the thing CI runs — exits non-zero on the blanket bump,
+    // with the pin and the membership halves still clean, so the ONLY reason it
+    // is red is the renewal. That isolation is the claim.
+    const red = invokeGuard({
+      today: TODAY,
+      seed: seedOver(REPORT_COUPLING_SEED_IDS, { owner: 'test', expires: '2099-01-01' }),
+    });
+    expect(red.code).toBe(1);
+    expect(red.err).toContain('SEED_ENTRY_BEYOND_HORIZON');
+    expect(red.err).not.toContain('SEED_KEY_SET_DRIFT');
+    expect(red.err).not.toContain('UNSEEDED_REPORT_COUPLING');
+
+    // The horizon is the SEPARATION, so it lives somewhere the entries cannot
+    // reach. Structural facts, not prose: the pin module declares it and imports
+    // nothing, and the seed file neither declares nor imports it. Read from CODE
+    // lines only — the pin's own prose says "imports NOTHING", and a
+    // `not.toContain('import ')` over the raw text reports that sentence as an
+    // import.
+    const pinCode = readFileSync(PIN_SRC, 'utf8')
+      .split('\n')
+      .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line));
+    expect(
+      pinCode.filter((l) => l.includes('export const REPORT_COUPLING_EXPIRY_HORIZON')),
+    ).toHaveLength(1);
+    expect(pinCode.filter((l) => /^\s*import\b/.test(l))).toEqual([]);
+    expect(isIsoDay(REPORT_COUPLING_EXPIRY_HORIZON)).toBe(true);
+    expect(readFileSync(SEED_SRC, 'utf8')).not.toContain('REPORT_COUPLING_EXPIRY_HORIZON');
+
+    // Every live entry is WITHIN the horizon today, so the tooth is red for the
+    // fixtures above and green for the tree — the distinction that makes it a
+    // deadline rather than a permanently failing gate. And the shipped gate says
+    // so: a report that states its cap can be checked against the pin by a
+    // reader, which a bare "no entry past due" could not.
+    const live = auditReportCouplingSeed(TODAY, census);
+    expect(live.horizon).toBe(REPORT_COUPLING_EXPIRY_HORIZON);
+    expect(live.beyondHorizon).toEqual([]);
+    expect(live.malformed).toEqual([]);
+    expect(live.seeded.length).toBeGreaterThan(0);
+
+    const green = invokeGuard({ today: TODAY });
+    expect(green.code).toBe(0);
+    expect(green.err).toBe('');
+    expect(green.out).toContain(`within the pinned horizon ${REPORT_COUPLING_EXPIRY_HORIZON}`);
+  });
+
+  it('ReportCouplingSeed_ZeroEntriesOrMalformedEntry_FailsClosed', () => {
+    const census = censusReportCoupling();
+
+    // NON-EMPTY DENOMINATOR on the SEED, not only on the census. A seed that
+    // resolves to zero entries makes "nothing has lapsed" true for the worst
+    // possible reason, and until DR-6 nothing said so in its own voice.
+    const noEntries = auditReportCouplingSeed(TODAY, census, {});
+    expect(noEntries.ok).toBe(false);
+    expect(noEntries.findings.map((f) => f.code)).toContain('EMPTY_SEED');
+
+    // A blank owner has nobody the debt comes due for; an impossible date has no
+    // deadline at all. `2027-02-31` matches the ISO pattern and does not exist.
+    for (const entry of [
+      { owner: '   ', expires: '2027-02-28' },
+      { owner: 'test', expires: '2027-02-31' },
+      { owner: 'test', expires: 'next wave' },
+    ]) {
+      const audit = auditReportCouplingSeed(
+        TODAY,
+        census,
+        seedOver(REPORT_COUPLING_SEED_IDS, entry),
+      );
+      expect(audit.malformed, entry.expires).toEqual([...REPORT_COUPLING_SEED_IDS]);
+      expect(audit.findings.map((f) => f.code), entry.expires).toContain('MALFORMED_SEED_ENTRY');
+      expect(audit.ok, entry.expires).toBe(false);
+    }
+
+    // An unreadable HORIZON disables the renewal tooth, so it fails closed
+    // rather than reporting the seed capped by a date nobody can compare.
+    const badHorizon = auditReportCouplingSeed(TODAY, census, REPORT_COUPLING_SEED, 'eventually');
+    expect(badHorizon.ok).toBe(false);
+    expect(badHorizon.findings.map((f) => f.code)).toContain('MALFORMED_HORIZON');
   });
 
   it('ReportCouplingSeedIntegrity_InPlaceSwap_TripsThePin', () => {

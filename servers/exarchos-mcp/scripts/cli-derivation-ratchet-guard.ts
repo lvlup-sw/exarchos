@@ -75,12 +75,17 @@ import {
   formatCliExpiryAudit,
   formatCliMembershipAudit,
   formatCliSeedIntegrityAudit,
-  isoDayUtc,
   readPolicy,
   scanGovernedSources,
   type CliDerivationPolicy,
   type DerivationScan,
 } from './cli-derivation-guard.js';
+// DR-6: the clock read below is the ledger's day rule, not a third statement of
+// it. `waiver-ledger.ts` imports NOTHING, so taking it here costs this guard
+// none of the load-bearing property that made task 023 decline to extract in the
+// first place — it still reaches no `bun:sqlite` and still runs under plain
+// node. That property is asserted, not assumed; see the co-located self-test.
+import { isoDayUtc } from '../src/architecture/waiver-ledger.js';
 import {
   CLI_DERIVATION_EXPIRY_HORIZON,
   CLI_DERIVATION_SEED_KEY_SET_DIGEST,
