@@ -253,8 +253,10 @@ describe('check-module-intent CLI (DR-7/DR-8)', () => {
       /from '\.\.\/\.\.\/\.\.\/\.\.\/src\/runtimes\/embedded\.js'/,
     );
     // Its subject is therefore NOT reported, and carries no declaration either —
-    // it is answered by evidence, not by an allowlist entry.
-    const { status, stderr } = runCheck();
+    // it is answered by evidence, not by an allowlist entry. Driven with an
+    // EXPLICIT root-`src/` scan so the assertion cannot be satisfied by a gate
+    // that simply never looks there.
+    const { status, stderr } = runCheck(['--src-root', path.join(REPO_ROOT, 'src')]);
     expect(status, `stderr: ${stderr}`).toBe(0);
     expect(stderr).not.toMatch(/runtimes\/embedded\.ts/);
     const embedded = readFileSync(path.join(REPO_ROOT, 'src', 'runtimes', 'embedded.ts'), 'utf8');
@@ -270,7 +272,8 @@ describe('check-module-intent CLI (DR-7/DR-8)', () => {
       scripts?: Record<string, string>;
     };
     expect(pkg.scripts?.['hooks:guard']).toMatch(/dist\/hooks-guard\.js/);
-    const { status, stderr } = runCheck();
+    // Explicit root, same reason as the cross-root case above.
+    const { status, stderr } = runCheck(['--src-root', path.join(REPO_ROOT, 'src')]);
     expect(status, `stderr: ${stderr}`).toBe(0);
     expect(stderr).not.toMatch(/hooks-guard\.ts/);
     const guardSource = readFileSync(path.join(REPO_ROOT, 'src', 'hooks-guard.ts'), 'utf8');

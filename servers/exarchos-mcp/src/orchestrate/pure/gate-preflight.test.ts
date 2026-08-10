@@ -12,9 +12,10 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { EventStore } from '../../event-store/store.js';
 import { rmrf } from '../../test-helpers/temp-dir.js';
@@ -157,6 +158,68 @@ describe('gate-preflight (DR-10 shared helper)', () => {
       expect(outcome.ok).toBe(false);
       if (outcome.ok) return;
       expect(outcome.result.error?.code).toBe('MISWIRED_CONTEXT');
+    });
+  });
+
+  // ─── No dead exports (the residue `emitPolicySkipIfNeeded` sat in) ─────────
+
+  describe('module surface', () => {
+    it('GatePreflight_EveryValueExport_HasANonTestImporter', () => {
+      // `emitPolicySkipIfNeeded` was retired when the durable gate runner took
+      // over skip emission, and then sat here for a whole programme — because
+      // the module-intent gate is MODULE-granular. `gate-preflight.ts` has four
+      // live production importers, so the module is not dead and the gate had
+      // nothing to say about a dead EXPORT inside it. Deleting the function was
+      // a one-time cleanup; this is the part that keeps it deleted, and it is
+      // what makes the removal falsifiable rather than merely done.
+      const here = path.dirname(fileURLToPath(import.meta.url));
+      const srcRoot = path.resolve(here, '..', '..');
+      const moduleFile = path.join(here, 'gate-preflight.ts');
+
+      const source = readFileSync(moduleFile, 'utf8');
+      const valueExports = [
+        ...source.matchAll(/^export\s+(?:async\s+)?(?:function|const|class)\s+(\w+)/gm),
+      ].map((m) => m[1] as string);
+      expect(valueExports.length, 'no value exports found — the scan is measuring nothing').toBeGreaterThan(0);
+
+      const files: string[] = [];
+      const walk = (dir: string): void => {
+        for (const entry of readdirSync(dir, { withFileTypes: true })) {
+          const full = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            if (entry.name === 'node_modules' || entry.name === 'dist') continue;
+            walk(full);
+          } else if (entry.isFile() && /\.ts$/.test(entry.name) && !/\.test\.ts$/.test(entry.name)) {
+            files.push(full);
+          }
+        }
+      };
+      walk(srcRoot);
+
+      const importedBindings = new Set<string>();
+      let importerCount = 0;
+      for (const file of files) {
+        if (path.resolve(file) === path.resolve(moduleFile)) continue;
+        const text = readFileSync(file, 'utf8');
+        for (const match of text.matchAll(
+          /import\s*\{([^}]*)\}\s*from\s*'[^']*\/gate-preflight\.js'/g,
+        )) {
+          importerCount += 1;
+          for (const raw of (match[1] ?? '').split(',')) {
+            const name = raw.trim().replace(/^type\s+/, '').split(/\s+as\s+/)[0]?.trim();
+            if (name) importedBindings.add(name);
+          }
+        }
+      }
+      // Non-empty denominator: a scan that found no importer would pass this
+      // test by finding nothing, which is the failure shape it exists to catch.
+      expect(importerCount, 'no production importer of gate-preflight was found').toBeGreaterThan(0);
+
+      for (const name of valueExports) {
+        expect(importedBindings.has(name), `${name} is exported but no production module imports it`).toBe(
+          true,
+        );
+      }
     });
   });
 });
