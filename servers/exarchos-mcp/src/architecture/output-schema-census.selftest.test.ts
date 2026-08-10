@@ -287,7 +287,11 @@ const MUTATIONS: readonly Mutation[] = Object.freeze([
         [
           'pin-with-a-drifted-digest.ts',
           [
-            `export { VACUITY_EXPIRY_HORIZON, VACUITY_SEED_DIGEST_ALGORITHM } from '${pinUrl}';`,
+            // `export *` rather than a named list: the pin's export surface is
+            // not this fixture's business, and enumerating it made adding a
+            // constant to the pin a link-time crash here (task 093 added two).
+            // A local export shadows the star, so only the digest is mutated.
+            `export * from '${pinUrl}';`,
             `export const VACUITY_SEED_KEY_SET_DIGEST = '${'0'.repeat(64)}';`,
             '',
           ].join('\n'),
