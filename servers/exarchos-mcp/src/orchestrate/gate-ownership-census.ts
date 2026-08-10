@@ -35,6 +35,13 @@ import { BUILTIN_GATE_PROVIDER_REGISTRY } from './gate-provider-registry.js';
  * The census is deliberately over the *real* system — a source scan, the live
  * registry, and a behavioural probe of the real runner — so a regression trips
  * it rather than a hand-maintained mirror.
+ *
+ * The source scan asks what an append MEANS, not how it is spelled. It reads
+ * through the exported `ADMISSION_EVENT_TYPES` constant, through an aliased
+ * import of it, and through an event object hoisted into a `const` — the forms
+ * this codebase actually writes emitters in. Matching the raw string literal
+ * alone, as it once did, made the idiomatic emitter the one shape the detector
+ * could not see.
  */
 
 /** Repo-relative module that is permitted to append admission evidence. */
@@ -48,6 +55,88 @@ export interface EvidenceEmitterSite {
   /** True only for the single canonical durable runner module. */
   readonly canonical: boolean;
 }
+
+/**
+ * One `.append(...)` call site, with its event discriminant already RESOLVED.
+ *
+ * `discriminant` is the value the `type:` property evaluates to — after aliases,
+ * imported constant members and hoisted event bindings have been followed, not
+ * the characters that happen to appear at the call. `undefined` means a `type:`
+ * was present but did not reduce to a string, which is a reportable gap rather
+ * than a "no".
+ */
+export interface EvidenceAppendSite {
+  /** 1-based line of the `.append(` call in the scanned source. */
+  readonly line: number;
+  /** The resolved event-type discriminant, or `undefined` when unresolvable. */
+  readonly discriminant: string | undefined;
+}
+
+/** Inputs a scanner needs beyond the source text. */
+export interface EvidenceScanOptions {
+  /** Reported in parse diagnostics only; never affects the answer. */
+  readonly fileName?: string;
+  /**
+   * Dotted access paths (`ADMISSION_EVENT_TYPES.EVIDENCE_RECORDED`) mapped to
+   * their compile-time value, so a discriminant written as the exported constant
+   * resolves to the same answer as the raw literal.
+   */
+  readonly knownConstants: ReadonlyMap<string, string>;
+}
+
+/**
+ * The append-site scanner port.
+ *
+ * Required, not defaulted, for the reason `architecture/effect-ledger.ts` states
+ * for its own lexer port: only the compiler can be trusted about TypeScript's
+ * grammar, and `typescript` is a devDependency while this is shipped `src/`. The
+ * implementation lives in `test-helpers/evidence-emission-scanner.ts`.
+ */
+export type EvidenceEmissionScanner = (
+  source: string,
+  options: EvidenceScanOptions,
+) => readonly EvidenceAppendSite[];
+
+/**
+ * The discriminant vocabulary a scanner may need to resolve, DERIVED from the
+ * live constant table rather than transcribed. Adding an admission event type
+ * extends this automatically.
+ */
+export const EVIDENCE_DISCRIMINANT_CONSTANTS: ReadonlyMap<string, string> = Object.freeze(
+  new Map(
+    Object.entries(ADMISSION_EVENT_TYPES).map(
+      ([member, value]) => [`ADMISSION_EVENT_TYPES.${member}`, value] as const,
+    ),
+  ),
+);
+
+/**
+ * Modules that append an event whose discriminant is a RUNTIME value — a
+ * parameter, a widening cast, a property of an argument — so no static scan can
+ * say which event they produce.
+ *
+ * They are acknowledged rather than skipped: "the census could not read this"
+ * and "this is not an emitter" are different answers, and collapsing them is the
+ * defect this detector was repaired for. Each of these appends a caller-supplied
+ * type into a non-admission stream, so none is a live evidence emitter today —
+ * but that is a fact about the callers, which is exactly why it is written down
+ * instead of assumed.
+ *
+ * SHRINK-ONLY, and mechanically so: a member that becomes resolvable is a
+ * `STALE_UNRESOLVED_ACKNOWLEDGEMENT`, so the set cannot outlive the gap it
+ * covers. Narrow the emitted `type` to a literal union and delete the row.
+ */
+export const ACKNOWLEDGED_UNRESOLVED_MODULES: ReadonlySet<string> = Object.freeze(
+  new Set([
+    'core/onboarding/event-ctx.ts',
+    'orchestrate/mutation-adequacy.ts',
+    'orchestrate/worktree/manager.ts',
+    'storage/sidecar-merger.ts',
+    'storage/sidecar-scheduler.ts',
+    'vcs/mutation-owner.ts',
+    'workflow/cancel.ts',
+  ]),
+);
 
 export interface EnforceableGate {
   readonly gateClass: string;
@@ -65,11 +154,25 @@ export interface DurabilityWitness {
   readonly successCarriesDurableEvidence: boolean;
 }
 
+/** An `.append(...)` site the scan could not read, located for a human. */
+export interface UnresolvedDiscriminantSite {
+  readonly module: string;
+  readonly line: number;
+}
+
 export interface OwnershipCensusModel {
   readonly emitterSites: readonly EvidenceEmitterSite[];
   readonly enforceableGates: readonly EnforceableGate[];
   readonly registry: GateProviderRegistry;
   readonly durability: DurabilityWitness;
+  /**
+   * Append sites whose event discriminant did not reduce to a string. Omitted
+   * (not empty) by callers that did not scan for them, which also suspends the
+   * stale-acknowledgement arm — an absent scan is not evidence of a shrink.
+   */
+  readonly unresolvedDiscriminants?: readonly UnresolvedDiscriminantSite[];
+  /** Override for {@link ACKNOWLEDGED_UNRESOLVED_MODULES} (kill fixtures). */
+  readonly acknowledgedUnresolvedModules?: ReadonlySet<string>;
 }
 
 export type OwnershipCensusDiagnostic =
@@ -86,6 +189,25 @@ export type OwnershipCensusDiagnostic =
     }
   | {
       readonly code: 'SUCCESS_WITHOUT_DURABLE_EVIDENCE';
+      readonly message: string;
+    }
+  /**
+   * An `.append(...)` site whose event discriminant the scan could not reduce to
+   * a string, in a module that has not acknowledged the gap. Reported rather
+   * than skipped: an unreadable emitter is exactly the one that could be
+   * appending evidence, so silence here would be the census being green about
+   * what it cannot see.
+   */
+  | {
+      readonly code: 'UNRESOLVED_EVIDENCE_DISCRIMINANT';
+      readonly module: string;
+      readonly line: number;
+      readonly message: string;
+    }
+  /** An acknowledged module whose appends now all resolve — delete the row. */
+  | {
+      readonly code: 'STALE_UNRESOLVED_ACKNOWLEDGEMENT';
+      readonly module: string;
       readonly message: string;
     };
 
@@ -145,95 +267,79 @@ export function runOwnershipCensus(
     });
   }
 
+  const unresolved = model.unresolvedDiscriminants ?? [];
+  const acknowledged = model.acknowledgedUnresolvedModules ?? ACKNOWLEDGED_UNRESOLVED_MODULES;
+  for (const site of unresolved) {
+    if (acknowledged.has(site.module)) continue;
+    diagnostics.push({
+      code: 'UNRESOLVED_EVIDENCE_DISCRIMINANT',
+      module: site.module,
+      line: site.line,
+      message:
+        `Module "${site.module}" appends an event at line ${site.line} whose \`type\` ` +
+        `discriminant does not reduce to a string. The census cannot tell whether it ` +
+        `produces "${EVIDENCE_EVENT_TYPE}"; write the discriminant as a literal or as a ` +
+        `member of an exported constant table so ownership stays decidable.`,
+    });
+  }
+
+  // The other half of the two-way conformance: an acknowledgement that covers
+  // nothing is a claim the tree no longer supports, and keeping it would let the
+  // set survive the gap it was written for.
+  if (model.unresolvedDiscriminants !== undefined) {
+    const stillUnresolved = new Set(unresolved.map((site) => site.module));
+    for (const module of acknowledged) {
+      if (stillUnresolved.has(module)) continue;
+      diagnostics.push({
+        code: 'STALE_UNRESOLVED_ACKNOWLEDGEMENT',
+        module,
+        message:
+          `Module "${module}" is acknowledged as having an unresolvable event ` +
+          `discriminant, but every append in it now resolves. Delete the row — the ` +
+          `acknowledgement set is shrink-only.`,
+      });
+    }
+  }
+
   return Object.freeze({ ok: diagnostics.length === 0, diagnostics });
 }
 
 // ─── Static collector: evidence emission sites ──────────────────────────────
 
-function escapeRegExp(value: string): string {
-  return value.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/**
+ * True when any `.append(...)` in `source` constructs an event whose RESOLVED
+ * discriminant is the admission-evidence type.
+ *
+ * The question this asks is what the emitted event MEANS, not how the emitter
+ * spelled it. `type: 'admission.evidence-recorded'`, `type:
+ * ADMISSION_EVENT_TYPES.EVIDENCE_RECORDED` (the idiom every other admission
+ * consumer uses), an aliased import of that table, and an event object hoisted
+ * into a `const` above the call all resolve to the same answer — the earlier
+ * text match saw only the first, so an emitter written the ordinary way was
+ * invisible to the census policing it.
+ *
+ * A `.query(...)` filter that merely references the type is not an append, so it
+ * is excluded by construction rather than by a second filter.
+ */
+export function sourceEmitsEvidence(
+  source: string,
+  scan: EvidenceEmissionScanner,
+  fileName?: string,
+): boolean {
+  return scanAppendSites(source, scan, fileName).some(
+    (site) => site.discriminant === EVIDENCE_EVENT_TYPE,
+  );
 }
 
-/**
- * The event-object discriminant that an emitter constructs for the durable
- * append, e.g. `type: 'admission.evidence-recorded'`. Metadata surfaces use a
- * different key (`event: '...'`), map keys, or comparisons and are not matched.
- */
-const EVIDENCE_TYPE_LITERAL = new RegExp(
-  `type\\s*:\\s*['"\`]${escapeRegExp(EVIDENCE_EVENT_TYPE)}['"\`]`,
-);
-
-/**
- * Extract the balanced `( ... )` argument text starting at `openParen`, skipping
- * string/template/comment content so nested calls and quoted parens do not throw
- * off the depth count. Returns undefined when the parens never balance.
- */
-function balancedCall(source: string, openParen: number): string | undefined {
-  let depth = 0;
-  let quote: string | null = null;
-  let lineComment = false;
-  let blockComment = false;
-  for (let i = openParen; i < source.length; i += 1) {
-    const ch = source[i];
-    const next = source[i + 1];
-    if (lineComment) {
-      if (ch === '\n') lineComment = false;
-      continue;
-    }
-    if (blockComment) {
-      if (ch === '*' && next === '/') {
-        blockComment = false;
-        i += 1;
-      }
-      continue;
-    }
-    if (quote !== null) {
-      if (ch === '\\') {
-        i += 1;
-      } else if (ch === quote) {
-        quote = null;
-      }
-      continue;
-    }
-    if (ch === '/' && next === '/') {
-      lineComment = true;
-      i += 1;
-      continue;
-    }
-    if (ch === '/' && next === '*') {
-      blockComment = true;
-      i += 1;
-      continue;
-    }
-    if (ch === '"' || ch === "'" || ch === '`') {
-      quote = ch;
-      continue;
-    }
-    if (ch === '(') {
-      depth += 1;
-    } else if (ch === ')') {
-      depth -= 1;
-      if (depth === 0) return source.slice(openParen, i + 1);
-    }
-  }
-  return undefined;
-}
-
-/**
- * True when `source` contains an `.append(...)` call whose argument list
- * constructs an admission-evidence event object. A `.query(...)` filter that
- * merely references the same type does not count as an emission.
- */
-export function sourceEmitsEvidence(source: string): boolean {
-  const appendCall = /\.append\s*\(/g;
-  let match: RegExpExecArray | null;
-  while ((match = appendCall.exec(source)) !== null) {
-    const openParen = source.indexOf('(', match.index);
-    if (openParen === -1) continue;
-    const call = balancedCall(source, openParen);
-    if (call !== undefined && EVIDENCE_TYPE_LITERAL.test(call)) return true;
-  }
-  return false;
+function scanAppendSites(
+  source: string,
+  scan: EvidenceEmissionScanner,
+  fileName?: string,
+): readonly EvidenceAppendSite[] {
+  return scan(source, {
+    ...(fileName === undefined ? {} : { fileName }),
+    knownConstants: EVIDENCE_DISCRIMINANT_CONSTANTS,
+  });
 }
 
 async function collectTypeScriptSources(root: string): Promise<string[]> {
@@ -248,7 +354,11 @@ async function collectTypeScriptSources(root: string): Promise<string[]> {
       } else if (
         entry.isFile() &&
         entry.name.endsWith('.ts') &&
+        // The suffixes `tsconfig.json` itself excludes from the emit, plus
+        // declarations. A file the build never emits cannot be a shipped
+        // emitter, so this is a build property rather than a named subtree.
         !entry.name.endsWith('.test.ts') &&
+        !entry.name.endsWith('.bench.ts') &&
         !entry.name.endsWith('.d.ts')
       ) {
         files.push(full);
@@ -259,28 +369,56 @@ async function collectTypeScriptSources(root: string): Promise<string[]> {
   return files.sort();
 }
 
+/** What one scan of a source tree found. */
+export interface EmitterScanResult {
+  readonly sites: readonly EvidenceEmitterSite[];
+  readonly unresolvedDiscriminants: readonly UnresolvedDiscriminantSite[];
+}
+
 /**
- * Scan every non-test TypeScript module under `sourceRoot` and enumerate the
- * modules that directly append admission evidence. Exactly one — the canonical
+ * Scan every non-test TypeScript module under `sourceRoot`, enumerating the
+ * modules that directly append admission evidence and the append sites whose
+ * discriminant could not be resolved. Exactly one emitter — the canonical
  * durable runner — is expected; anything else is an alternate emitter.
  */
-export async function scanEvidenceEmitterSites(
+export async function scanEvidenceEmitters(
   sourceRoot: string,
-): Promise<readonly EvidenceEmitterSite[]> {
+  scan: EvidenceEmissionScanner,
+): Promise<EmitterScanResult> {
   const files = await collectTypeScriptSources(sourceRoot);
   const sources = await Promise.all(
     files.map(async (file) => ({ file, source: await readFile(file, 'utf8') })),
   );
   const sites: EvidenceEmitterSite[] = [];
+  const unresolved: UnresolvedDiscriminantSite[] = [];
   for (const { file, source } of sources) {
-    if (!sourceEmitsEvidence(source)) continue;
     const module = relative(sourceRoot, file).replaceAll('\\', '/');
+    const appendSites = scanAppendSites(source, scan, module);
+    for (const site of appendSites) {
+      if (site.discriminant === undefined) {
+        unresolved.push({ module, line: site.line });
+      }
+    }
+    if (!appendSites.some((site) => site.discriminant === EVIDENCE_EVENT_TYPE)) {
+      continue;
+    }
     sites.push({
       module,
       canonical: module === CANONICAL_EVIDENCE_EMITTER_MODULE,
     });
   }
-  return Object.freeze(sites);
+  return Object.freeze({
+    sites: Object.freeze(sites),
+    unresolvedDiscriminants: Object.freeze(unresolved),
+  });
+}
+
+/** {@link scanEvidenceEmitters}, emitter sites only. */
+export async function scanEvidenceEmitterSites(
+  sourceRoot: string,
+  scan: EvidenceEmissionScanner,
+): Promise<readonly EvidenceEmitterSite[]> {
+  return (await scanEvidenceEmitters(sourceRoot, scan)).sites;
 }
 
 // ─── Static collector: enforceable gates ────────────────────────────────────
@@ -415,16 +553,18 @@ export async function witnessRunnerDurability(): Promise<DurabilityWitness> {
  */
 export async function auditEvidenceOwnership(
   sourceRoot: string,
+  scan: EvidenceEmissionScanner,
   registry: GateProviderRegistry = BUILTIN_GATE_PROVIDER_REGISTRY,
 ): Promise<OwnershipCensusResult> {
-  const [emitterSites, durability] = await Promise.all([
-    scanEvidenceEmitterSites(sourceRoot),
+  const [emitters, durability] = await Promise.all([
+    scanEvidenceEmitters(sourceRoot, scan),
     witnessRunnerDurability(),
   ]);
   return runOwnershipCensus({
-    emitterSites,
+    emitterSites: emitters.sites,
     enforceableGates: collectEnforceableGates(),
     registry,
     durability,
+    unresolvedDiscriminants: emitters.unresolvedDiscriminants,
   });
 }
