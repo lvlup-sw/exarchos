@@ -1,5 +1,5 @@
 import { Database, type Statement } from 'bun:sqlite';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join, basename, resolve, relative, isAbsolute } from 'node:path';
 import type { WorkflowEvent } from '../event-store/schemas.js';
 import type { WorkflowState } from '../workflow/types.js';
@@ -508,6 +508,37 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
+ * A path in the ONE form the filesystem itself uses, for comparing two paths
+ * that may name the same file differently.
+ *
+ * `resolve()` normalises separators and `..` segments but preserves aliases: an
+ * 8.3 short name (`C:\Users\RUNNER~1\…`) and its long form
+ * (`C:\Users\runneradmin\…`) survive as different strings, as do a symlink and
+ * its target. `closeOpenUnder` decides containment by string prefix, so an alias
+ * on either side makes a contained handle look like an escapee — the sweep skips
+ * it, the handle survives into `fs.rm`, and NTFS refuses the unlink with
+ * `EBUSY … exarchos.db-shm`. That is the chronic Windows teardown failure: the
+ * runners' `os.tmpdir()` yields the short form, so any long-form normalisation
+ * anywhere in a store's construction silently defeats the containment test.
+ *
+ * Falls back progressively — the db file may not exist yet, or may already be
+ * unlinked — so this never throws and never reports a path it could not read.
+ */
+function canonicalPath(p: string): string {
+  try {
+    return realpathSync.native(p);
+  } catch {
+    // Not there (yet, or any more): canonicalise the parent instead, which is
+    // where the alias actually lives, and re-attach the leaf by name.
+    try {
+      return join(realpathSync.native(dirname(p)), basename(p));
+    } catch {
+      return resolve(p);
+    }
+  }
+}
+
+/**
  * SQLite-backed implementation of StorageBackend.
  * Uses bun:sqlite for synchronous, high-performance operations.
  * Supports WAL mode for concurrent read/write access.
@@ -543,9 +574,9 @@ export class SqliteBackend implements StorageBackend {
    * best-effort. Used by the `rmrf()` test helper before removing a temp dir.
    */
   static closeOpenUnder(dir: string): void {
-    const root = resolve(dir);
+    const root = canonicalPath(dir);
     for (const backend of [...SqliteBackend.openInstances]) {
-      const rel = relative(root, resolve(backend.dbPath));
+      const rel = relative(root, canonicalPath(backend.dbPath));
       if (rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))) {
         backend.close();
       }
