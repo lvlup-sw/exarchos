@@ -1518,6 +1518,35 @@ describe('mutation runner cwd resolution (DR-8)', () => {
     expect(resolved.reason).toMatch(/runnerDir/);
   });
 
+  it('ResolveRunnerCwd_NoConfigButProjectDeclaredCommand_RunsAtRepoRoot', () => {
+    // The refusal above is for an INFERRED command whose config cannot be
+    // located. A project that declared the command itself has already said how
+    // mutation testing runs here, and runners like mutmut, cargo-mutants at
+    // defaults, or any bespoke script carry no config file at all — refusing
+    // those failed the gate closed on the projects that configured it most
+    // explicitly. Caught by `scripts/check-mutation-gate.test.sh`, whose fixture
+    // declares `mutation:` in `.exarchos.yml` and ships no config file; the unit
+    // suite could not see it because it injects the runtime.
+    const root = makeRepoFixture({ 'src/index.ts': 'export const x = 1;\n' });
+    const resolved = resolveMutationRunnerCwd({
+      command: 'node ./run-mutants.mjs',
+      repoRoot: root,
+      projectDeclaredCommand: true,
+    });
+    expect(resolved.ok).toBe(true);
+    expect(resolved.ok && resolved.cwd).toBe(path.resolve(root));
+    expect(resolved.ok && resolved.rationale).toBe('declared-command');
+
+    // The discriminator is the declaration, not the missing config: the SAME
+    // tree with an inferred command is still a refusal, so this branch cannot
+    // be reached by simply having no config.
+    const inferred = resolveMutationRunnerCwd({
+      command: 'node ./run-mutants.mjs',
+      repoRoot: root,
+    });
+    expect(inferred.ok).toBe(false);
+  });
+
   it('ResolveRunnerCwd_DeclaredRunnerDir_WinsOverDiscovery', () => {
     // The escape hatch for a runner that needs no config file (cargo-mutants).
     const root = makeRepoFixture({

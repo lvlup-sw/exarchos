@@ -676,7 +676,9 @@ export type MutationCwdRationale =
   | 'declared-runner-dir'
   | 'config-at-repo-root'
   | 'config-owner'
-  | 'repo-root-anchored-command';
+  | 'repo-root-anchored-command'
+  /** No config discovered, but the repository declared the command itself. */
+  | 'declared-command';
 
 /** Tagged run-root resolution: a root the gate cannot justify is a degrade. */
 export type MutationCwdResult =
@@ -734,6 +736,12 @@ export function resolveMutationRunnerCwd(input: {
   readonly command: string;
   readonly repoRoot: string;
   readonly declaredRunnerDir?: string | undefined;
+  /**
+   * True when the repository declared the mutation command itself rather than
+   * the resolver inferring it. Absent reads as false — the conservative side,
+   * so an injected runtime that never states provenance still gets the refusal.
+   */
+  readonly projectDeclaredCommand?: boolean | undefined;
   readonly discover?: (repoRoot: string) => MutationConfigDiscovery;
   readonly pathExists?: (p: string) => boolean;
 }): MutationCwdResult {
@@ -756,6 +764,21 @@ export function resolveMutationRunnerCwd(input: {
 
   const discovered = (input.discover ?? discoverMutationConfig)(repoRoot);
   if (!discovered.ok) {
+    // A project that DECLARED its own mutation command has already named how
+    // mutation testing runs here, and plenty of runners (mutmut, cargo-mutants
+    // at defaults, any bespoke script) carry no config file for discovery to
+    // find. Refusing those would fail the gate closed on exactly the projects
+    // that configured it most explicitly, so the repo root — the base their
+    // command was written against — is a justified root rather than a guess.
+    // Only an INFERRED command with no locatable config is unjustified.
+    if (input.projectDeclaredCommand === true) {
+      return {
+        ok: true,
+        cwd: repoRoot,
+        configPath: null,
+        rationale: 'declared-command',
+      };
+    }
     return {
       ok: false,
       reason:
@@ -1048,6 +1071,7 @@ export async function handleMutationAdequacy(
     command: scoped.command,
     repoRoot,
     declaredRunnerDir: resolveDeclaredRunnerDir(args),
+    projectDeclaredCommand: runtime.mutationProjectDeclared,
   });
   if (!runnerCwd.ok) {
     await emitAdvisoryGate(eventStore, args, runnerCwd.reason);

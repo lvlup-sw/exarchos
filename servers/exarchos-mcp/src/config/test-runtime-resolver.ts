@@ -63,6 +63,14 @@ export interface ResolvedVerificationRuntime extends ResolvedRuntime {
   lint: string | null;
   /** Structured contract commands `{ codegen, diff }`, or null when no tool resolves. */
   contract: ContractCommands | null;
+  /**
+   * True when `mutation` came from the repository's own declaration (override,
+   * `.exarchos.yml` direct, or a user-declared toolchain) rather than from an
+   * inference (a committed task runner or built-in registry detection).
+   * Optional so an injected runtime in a test defaults to "not declared", which
+   * is the conservative reading for any consumer gating on it.
+   */
+  mutationProjectDeclared?: boolean;
 }
 
 export interface ResolveOptions {
@@ -716,11 +724,22 @@ export function resolveVerificationRuntime(
   // contributes nothing here today.
   const contract = resolveContract(rawOverride?.contract, config?.contract, userMatch?.commands.contract ?? null);
 
+  // Tiers 1-3 are the REPOSITORY speaking (an override, `.exarchos.yml` direct,
+  // a user-declared toolchain); tiers 4-5 are the resolver inferring on its
+  // behalf. A consumer that must not act on a guess — the mutation gate, which
+  // refuses to pick a run root it cannot justify — needs that apart from the
+  // command string, which looks identical either way.
+  const mutationProjectDeclared =
+    rawOverride?.mutation?.trim() !== undefined ||
+    config?.mutation !== undefined ||
+    (userMatch?.commands.mutation ?? null) !== null;
+
   return {
     ...base,
     mutation,
     lint,
     contract,
+    mutationProjectDeclared,
   };
 }
 
