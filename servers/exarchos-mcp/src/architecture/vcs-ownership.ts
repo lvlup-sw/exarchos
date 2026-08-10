@@ -210,132 +210,63 @@ export function isScannableFile(name: string): boolean {
 }
 
 /**
- * Strip `//` and block comments while PRESERVING string/template-literal
- * content. The mutation tokens are themselves string literals (`'worktree'`,
- * `'add'`, …), so — unlike `delivery-safety.maskLiteralsAndComments`, which
- * masks string bodies too — this keeps literals visible and only removes
- * comment prose (so a `git worktree add` mentioned in a JSDoc line is not
- * mistaken for a call).
+ * One module's source with comments gone and literals kept — the only lexical
+ * answer this census needs, and the one {@link LexedModule.maskedSource} does
+ * not give.
  *
- * Two lexer details matter for false-positive freedom, both learned the hard
- * way while widening the detector (DR-12):
- *
- *   - REGEX LITERALS. A regex such as `/(['"`])merge\1/` contains quote
- *     characters that are NOT string delimiters. Without regex awareness the
- *     scanner enters a phantom string at the `'`, and every `//` for the rest of
- *     the file is then treated as string content rather than a comment — so
- *     comment prose leaks into the scan and matches as if it were code. The
- *     `/`-in-operand-position heuristic below is deliberately CONSERVATIVE: when
- *     in doubt it treats `/` as division, which merely falls back to the old
- *     behaviour instead of swallowing real code (a false negative in a ratchet
- *     is the dangerous direction, so the ambiguity is resolved away from it).
- *   - LINE-BOUNDED QUOTES. `'`/`"` strings cannot span a raw newline in JS.
- *     Terminating them at end-of-line caps any residual desync at one line
- *     instead of letting it run to EOF. Template literals (backtick) may span
- *     lines and are exempt.
+ * A caller-supplied PORT, not a shape this module derives, for the reason DR-2
+ * gives: the lexer is a question about TypeScript's grammar, and the only
+ * instrument that cannot disagree with the compiler about it is the compiler.
+ * The implementation is `test-helpers/module-lexer.ts` — see
+ * `architecture/effect-ledger.ts`'s header for why it lives there and not next
+ * to the policy it serves.
  */
-export function stripComments(source: string): string {
-  let out = '';
-  const n = source.length;
-  let i = 0;
-  let quote: string | null = null;
-  let lineComment = false;
-  let blockComment = false;
-  let regex = false;
-  let regexClass = false;
-  // Last non-whitespace character emitted as CODE — decides whether a `/` opens
-  // a regex literal (operand position) or is a division operator.
-  let lastSignificant = '';
+export interface LexedComments {
+  /**
+   * `source` with every comment blanked to spaces (newlines and offsets
+   * preserved) and every string, template and regex literal kept VERBATIM.
+   *
+   * Literals stay because the tokens this census matches on ARE string literals
+   * (`'worktree'`, `'add'`, …), so masking string bodies — what
+   * `delivery-safety.ts` needs — would blank the entire subject. Comments go so
+   * that a `git worktree add` mentioned in a JSDoc line is not mistaken for a
+   * call.
+   */
+  readonly commentMaskedSource: string;
+}
 
-  const startsRegex = (): boolean =>
-    lastSignificant === '' || !/[A-Za-z0-9_$)\]]/.test(lastSignificant);
+/**
+ * The lexer port. REQUIRED wherever it appears, exactly as `effect-ledger.ts`'s
+ * {@link ModuleLexer} is and for the same reason: a default would have to be
+ * either the retired heuristic (the defect, retained) or a throwing stub, and an
+ * optional lexer is how a caller silently gets the old answers back.
+ */
+export type CommentLexer = (source: string, fileName?: string) => LexedComments;
 
-  while (i < n) {
-    const ch = source[i] ?? '';
-    const next = source[i + 1];
-    if (lineComment) {
-      if (ch === '\n') {
-        lineComment = false;
-        out += ch;
-      }
-      i += 1;
-      continue;
-    }
-    if (blockComment) {
-      if (ch === '*' && next === '/') {
-        blockComment = false;
-        i += 2;
-        continue;
-      }
-      if (ch === '\n') out += ch;
-      i += 1;
-      continue;
-    }
-    if (regex) {
-      out += ch;
-      if (ch === '\\') {
-        if (i + 1 < n) out += source[i + 1] ?? '';
-        i += 2;
-        continue;
-      }
-      // A raw newline cannot appear in a regex literal — bail out rather than
-      // run away, so a misjudged `/` costs at most one line.
-      if (ch === '\n') regex = false;
-      else if (ch === '[') regexClass = true;
-      else if (ch === ']') regexClass = false;
-      else if (ch === '/' && !regexClass) regex = false;
-      i += 1;
-      continue;
-    }
-    if (quote !== null) {
-      // `'`/`"` are line-bounded in JS; a newline means the lexer desynced, so
-      // resynchronise instead of consuming the rest of the file as string body.
-      if (ch === '\n' && quote !== '`') {
-        quote = null;
-        out += ch;
-        i += 1;
-        continue;
-      }
-      out += ch;
-      if (ch === '\\') {
-        if (i + 1 < n) out += source[i + 1] ?? '';
-        i += 2;
-        continue;
-      }
-      if (ch === quote) quote = null;
-      i += 1;
-      continue;
-    }
-    if (ch === '/' && next === '/') {
-      lineComment = true;
-      i += 2;
-      continue;
-    }
-    if (ch === '/' && next === '*') {
-      blockComment = true;
-      i += 2;
-      continue;
-    }
-    if (ch === '/' && startsRegex()) {
-      regex = true;
-      regexClass = false;
-      out += ch;
-      lastSignificant = ch;
-      i += 1;
-      continue;
-    }
-    if (ch === '"' || ch === "'" || ch === '`') {
-      quote = ch;
-      out += ch;
-      lastSignificant = ch;
-      i += 1;
-      continue;
-    }
-    out += ch;
-    if (!/\s/.test(ch)) lastSignificant = ch;
-    i += 1;
-  }
-  return out;
+/**
+ * The comment-stripped source `lex` resolved.
+ *
+ * An ACCESSOR, not a lexer: it holds no knowledge of TypeScript's grammar and
+ * must never re-acquire any. Retained under its pre-072 name because that is
+ * what this module's tests bind to.
+ *
+ * ── What it replaced, and what that cost ────────────────────────────────────
+ * Until task 072 this was a hand-rolled character walk — the third of four
+ * near-duplicates in this package — whose header claimed its
+ * `/`-in-operand-position rule was "deliberately CONSERVATIVE: when in doubt it
+ * treats `/` as division, which merely falls back to the old behaviour instead
+ * of swallowing real code". Measured on task 065's adversarial inputs, that is
+ * false in the other direction. Scoring the head of a REAL regex literal as
+ * division lets a backtick inside it open a phantom template, templates are not
+ * line-bounded, so the phantom ran to EOF and every subsequent `//` read as
+ * string body: comment prose survived the strip and this census charged the
+ * module with a `git worktree add` that only its documentation performs. The
+ * retired walk is kept verbatim in `test-helpers/superseded-site-lexers.ts` so
+ * the kill fixture asserts both answers rather than asking a reader to take the
+ * gap on faith.
+ */
+export function stripComments(source: string, lex: CommentLexer): string {
+  return lex(source).commentMaskedSource;
 }
 
 // ── Detection rules ─────────────────────────────────────────────────────────
@@ -398,8 +329,12 @@ const SWITCH_CREATE_RE = /\[\s*(['"`])switch\1\s*,\s*(['"`])-[cC]\2/;
  * Pure; comment-stripped so doc examples do not count. At most one occurrence
  * per (module, mutation-kind) — ownership is per module.
  */
-export function detectVcsMutationSites(module: string, source: string): VcsMutationSite[] {
-  const stripped = stripComments(source);
+export function detectVcsMutationSites(
+  module: string,
+  source: string,
+  lex: CommentLexer,
+): VcsMutationSite[] {
+  const stripped = stripComments(source, lex);
   const sites: VcsMutationSite[] = [];
   if (WORKTREE_ADD_RE.test(stripped)) {
     sites.push({ module, mutation: 'worktree.add', evidence: 'git worktree add' });
@@ -454,12 +389,15 @@ async function collectScannableFiles(root: string): Promise<string[]> {
  * that reached nothing — and both read as "no module bypasses the owner", which
  * is a pass (DR-8, task 079).
  */
-export async function scanVcsTree(sourceRoot: string): Promise<VcsMutationScan> {
+export async function scanVcsTree(
+  sourceRoot: string,
+  lex: CommentLexer,
+): Promise<VcsMutationScan> {
   const files = await collectScannableFiles(sourceRoot);
   const perFile = await Promise.all(
     files.map(async (file) => {
       const module = relative(sourceRoot, file).replaceAll('\\', '/');
-      return detectVcsMutationSites(module, await readFile(file, 'utf8'));
+      return detectVcsMutationSites(module, await readFile(file, 'utf8'), lex);
     }),
   );
   return Object.freeze({
@@ -481,8 +419,9 @@ export async function scanVcsTree(sourceRoot: string): Promise<VcsMutationScan> 
 /** Scan the shipped source under `sourceRoot` and enumerate every mutation site. */
 export async function scanVcsMutationSites(
   sourceRoot: string,
+  lex: CommentLexer,
 ): Promise<readonly VcsMutationSite[]> {
-  return (await scanVcsTree(sourceRoot)).sites;
+  return (await scanVcsTree(sourceRoot, lex)).sites;
 }
 
 // ─── Census ─────────────────────────────────────────────────────────────────
@@ -549,9 +488,10 @@ export function runVcsOwnershipCensus(
  */
 export async function auditVcsOwnership(
   sourceRoot: string,
+  lex: CommentLexer,
   owners: readonly string[] = VCS_MUTATION_OWNERS,
 ): Promise<VcsOwnershipResult> {
-  const scan = await scanVcsTree(sourceRoot);
+  const scan = await scanVcsTree(sourceRoot, lex);
   const verdict = runVcsOwnershipCensus(scan.sites, owners);
   if (scan.moduleCount > 0) {
     return Object.freeze({ ...verdict, moduleCount: scan.moduleCount });

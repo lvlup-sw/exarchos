@@ -27,6 +27,7 @@ import {
   type ModuleLexer,
 } from './effect-ledger.js';
 import { lexModule } from '../test-helpers/module-lexer.js';
+import { adversarialInput } from '../test-helpers/adversarial-lexer-inputs.js';
 import {
   supersededExtractImports,
   supersededMaskNonCode,
@@ -797,62 +798,49 @@ const SUPERSEDED_LEXER: ModuleLexer = (source: string) => ({
 });
 
 /**
- * The adversarial set DR-26 names for this defect class, as DATA.
+ * THIS CENSUS'S expectations over the shared adversarial inputs.
+ *
+ * The input sources moved to `test-helpers/adversarial-lexer-inputs.ts` when
+ * task 072 gave the port three more consumers: DR-2 says *"no fourth adversarial
+ * table — reuse the existing one"*, so there is now one table of inputs and each
+ * site keeps only its own two answer columns. Those cannot be shared — what the
+ * heuristic answered is a fact about THIS site's retired walk, and the three
+ * other retired walks answer differently.
  *
  * `parse` and `heuristic` are both asserted for every row, so a reader sees the
  * gap rather than taking it on faith, and so a row that stops disagreeing
  * (someone "fixing" the retired walk) fails loudly instead of quietly making the
  * kill fixture vacuous.
  */
-const ADVERSARIAL_SET: readonly {
+interface AdversarialExpectation {
   readonly name: string;
-  readonly source: string;
   readonly parse: readonly string[];
   readonly heuristic: readonly string[];
-}[] = Object.freeze([
+}
+
+const ADVERSARIAL_EXPECTATIONS: readonly AdversarialExpectation[] = Object.freeze([
   {
     name: 'a `//` comment opener inside a string literal',
-    source: [
-      "export const doc = 'note: // import x from \\'node:child_process\\'';",
-      "import { readFile } from 'node:fs';",
-      'export const read = readFile;',
-    ].join('\n'),
     parse: ['node:fs'],
     heuristic: ['node:fs'],
   },
   {
     name: 'an unbalanced `/* */` pair split across two template literals',
-    source: [
-      'export const head = `a /* b`;',
-      "export const tail = `c */ import x from 'node:child_process'`;",
-      "import { readFile } from 'node:fs';",
-      'export const read = readFile;',
-    ].join('\n'),
     parse: ['node:fs'],
     heuristic: ['node:fs'],
   },
   {
     name: "a regex literal containing a ' quote, in operand position",
-    source: [
-      "export const RE = /['\"]/;",
-      "import { readFile } from 'node:fs';",
-      'export const read = readFile;',
-    ].join('\n'),
     parse: ['node:fs'],
     heuristic: ['node:fs'],
   },
   {
-    // KILL — the dangerous direction. `return` makes the heuristic score the `/`
-    // as division, so the BACKTICK inside the regex opens a phantom template
+    // KILL — the dangerous direction. `return` makes the heuristic score the
+    // `/` as division, so the BACKTICK inside the regex opens a phantom template
     // literal. Unlike `'`/`"` a template is not line-bounded, so it runs to EOF
     // and swallows the real `node:fs` import below it. A module that performs
     // filesystem I/O scans as effect-free.
     name: 'a regex literal containing a BACKTICK, in operand position',
-    source: [
-      'export function isTick(s: string): boolean { return /`/.test(s); }',
-      "import { readFile } from 'node:fs';",
-      'export const read = readFile;',
-    ].join('\n'),
     parse: ['node:fs'],
     heuristic: [],
   },
@@ -862,12 +850,19 @@ const ADVERSARIAL_SET: readonly {
     // code and its template text is scanned for imports. The module imports
     // nothing at all; the census invents a `node:child_process` occurrence.
     name: 'a nested template literal inside a `${…}` substitution',
-    source:
-      'export const doc = `outer ${ `inner from \'node:child_process\' text` } end`;',
     parse: [],
     heuristic: ['node:child_process'],
   },
 ]);
+
+const ADVERSARIAL_SET: readonly {
+  readonly name: string;
+  readonly source: string;
+  readonly parse: readonly string[];
+  readonly heuristic: readonly string[];
+}[] = Object.freeze(
+  ADVERSARIAL_EXPECTATIONS.map((row) => ({ ...row, source: adversarialInput(row.name) })),
+);
 
 describe('DR-26 kill fixture — where the heuristic and a real parse disagree', () => {
   it('EffectLedger_AdversarialSet_ParseAndHeuristicAnswersAreBothPinned', () => {

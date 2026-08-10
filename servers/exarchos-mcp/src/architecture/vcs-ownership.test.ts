@@ -18,6 +18,7 @@ import {
 } from './vcs-ownership.js';
 import { listTrackedFiles } from '../test-helpers/tracked-population.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
+import { lexModule } from '../test-helpers/module-lexer.js';
 
 const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 /** The repository root — `servers/exarchos-mcp/src` is three levels down. */
@@ -30,6 +31,7 @@ describe('detectVcsMutationSites', () => {
       `gitRunner.run(['worktree', 'add', p, b], root);
        gitRunner.run(['worktree', 'remove', '--force', p], root);
        gitRunner.run(['branch', '-D', name], root);`,
+      lexModule,
     );
     expect(sites.map((s) => s.mutation).sort()).toEqual([
       'branch.delete',
@@ -42,6 +44,7 @@ describe('detectVcsMutationSites', () => {
     const sites = detectVcsMutationSites(
       'x/y.ts',
       `// runs ['worktree', 'add', ...] under the hood\n/* ['branch', '-D'] */\nexport const y = 1;`,
+      lexModule,
     );
     expect(sites).toHaveLength(0);
   });
@@ -51,13 +54,14 @@ describe('detectVcsMutationSites', () => {
       'x/y.ts',
       `gitRunner.run(['worktree', 'list', '--porcelain'], root);
        gitRunner.run(['branch', '--show-current'], root);`,
+      lexModule,
     );
     expect(sites).toHaveLength(0);
   });
 
   it('matches either quote style but not a mismatched pair', () => {
-    expect(detectVcsMutationSites('a.ts', `run(["worktree", "add"])`)).toHaveLength(1);
-    expect(detectVcsMutationSites('a.ts', "run(['worktree', 'add'])")).toHaveLength(1);
+    expect(detectVcsMutationSites('a.ts', `run(["worktree", "add"])`, lexModule)).toHaveLength(1);
+    expect(detectVcsMutationSites('a.ts', "run(['worktree', 'add'])", lexModule)).toHaveLength(1);
   });
 });
 
@@ -65,6 +69,7 @@ describe('stripComments', () => {
   it('removes line + block comments but preserves string-literal content', () => {
     const out = stripComments(
       `const a = 'worktree'; // 'branch', '-D'\n/* 'worktree', 'remove' */ const b = "add";`,
+      lexModule,
     );
     expect(out).toContain("'worktree'");
     expect(out).toContain('"add"');
@@ -102,7 +107,7 @@ describe('runVcsOwnershipCensus — verdict logic', () => {
 
 describe('EXIT PROOF — live VCS-ownership census', () => {
   it('(a) the live shipped source has ZERO direct bypasses and no stale owner', async () => {
-    const result = await auditVcsOwnership(SRC_ROOT);
+    const result = await auditVcsOwnership(SRC_ROOT, lexModule);
     // Surfacing the diagnostics array makes any regression self-describing.
     expect(result.diagnostics).toEqual([]);
     expect(result.ok).toBe(true);
@@ -110,7 +115,7 @@ describe('EXIT PROOF — live VCS-ownership census', () => {
   });
 
   it('(a) a planted direct bypass in a non-owner module FAILS the census against the live sites', async () => {
-    const sites = await scanVcsMutationSites(SRC_ROOT);
+    const sites = await scanVcsMutationSites(SRC_ROOT, lexModule);
     const planted: VcsMutationSite = {
       module: 'orchestrate/rogue-bypass.ts',
       mutation: 'worktree.add',
@@ -129,7 +134,7 @@ describe('EXIT PROOF — live VCS-ownership census', () => {
   });
 
   it('every declared owner corresponds to a real module path present in the scan root', async () => {
-    const sites = await scanVcsMutationSites(SRC_ROOT);
+    const sites = await scanVcsMutationSites(SRC_ROOT, lexModule);
     const liveModules = new Set(sites.map((s) => s.module));
     // Each declared owner must have at least one live mutation site — otherwise
     // the STALE_VCS_OWNER ratchet would (correctly) trip in the live audit.
@@ -211,7 +216,7 @@ describe('DR-8 — the governed root is declared, and its complement is measured
     const complementSites: VcsMutationSite[] = [];
     for (const path of ungoverned) {
       complementSites.push(
-        ...detectVcsMutationSites(path, await readFile(join(REPO_ROOT, path), 'utf8')),
+        ...detectVcsMutationSites(path, await readFile(join(REPO_ROOT, path), 'utf8'), lexModule),
       );
     }
 
@@ -245,6 +250,7 @@ describe('DR-8 — the governed root is declared, and its complement is measured
     const sites = detectVcsMutationSites(
       'src/rogue-cli.ts',
       `await run(['worktree', 'add', target, branch]);`,
+      lexModule,
     );
     expect(sites.map((s) => s.mutation)).toEqual(['worktree.add']);
   });
@@ -257,7 +263,7 @@ describe('DR-8 — the governed root is declared, and its complement is measured
     // stand on its own.
     const root = await mkdtemp(join(tmpdir(), 'exarchos-vcs-empty-'));
     try {
-      const result = await auditVcsOwnership(root, []);
+      const result = await auditVcsOwnership(root, lexModule, []);
       expect(result.ok).toBe(false);
       expect(result.moduleCount).toBe(0);
       expect(result.diagnostics.map((d) => d.code)).toEqual(['EMPTY_MODULE_POPULATION']);
@@ -267,9 +273,9 @@ describe('DR-8 — the governed root is declared, and its complement is measured
 
     // The live root, by contrast, reports a real population — so the tooth above
     // rejects emptiness rather than rejecting everything.
-    const live = await scanVcsTree(SRC_ROOT);
+    const live = await scanVcsTree(SRC_ROOT, lexModule);
     expect(live.moduleCount).toBeGreaterThan(0);
-    expect((await auditVcsOwnership(SRC_ROOT)).moduleCount).toBe(live.moduleCount);
+    expect((await auditVcsOwnership(SRC_ROOT, lexModule)).moduleCount).toBe(live.moduleCount);
   });
 });
 
