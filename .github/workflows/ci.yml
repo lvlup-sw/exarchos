@@ -1626,6 +1626,24 @@ jobs:
             ' "$1"
           }
 
+          # Whether `changes` DECLARES the output at all — which `changes_output`
+          # cannot tell you, because an undeclared key and a declared `'false'`
+          # both come back as the empty string, and the aggregator honours both
+          # as a licence. Renaming or dropping a key in the `changes` `outputs:`
+          # block would therefore license test-root, test-mcp, test-windows and
+          # test-windows-root to skip together, with CI Gate reporting success.
+          # LICENSED_SKIPS names that key; this is what ties the two together.
+          changes_declares() {
+            node -e '
+              const needs = JSON.parse(process.env.NEEDS_JSON || "{}");
+              const entry = needs.changes;
+              const outputs = entry && typeof entry === "object" && entry.outputs ? entry.outputs : {};
+              process.stdout.write(
+                Object.prototype.hasOwnProperty.call(outputs, process.argv[1]) ? "true" : "false",
+              );
+            ' "$1"
+          }
+
           # The `changes` output that licenses a skip for this lane, or empty
           # if the lane has no licensed skip.
           licensed_skip_key() {
@@ -1663,6 +1681,9 @@ jobs:
                   violations=$((violations + 1))
                 elif [ "$changes_result" != "success" ]; then
                   echo "::error::Lane '$lane' was SKIPPED and its licence rests on the 'changes' lane, which reported '$changes_result'. No skip is licensed when change detection itself did not succeed."
+                  violations=$((violations + 1))
+                elif [ "$(changes_declares "$key")" != "true" ]; then
+                  echo "::error::Lane '$lane' was SKIPPED under a licence keyed on changes.outputs.$key, but the 'changes' job declares no such output. An undeclared key reads exactly like a declared 'false', so this would otherwise license the skip silently — rename the key in LICENSED_SKIPS to match the 'changes' outputs block, or restore the output."
                   violations=$((violations + 1))
                 elif [ "$(changes_output "$key")" = "true" ]; then
                   echo "::error::Lane '$lane' was SKIPPED even though changes.outputs.$key == 'true' — a path-filter or matrix regression dropped coverage this PR required."
