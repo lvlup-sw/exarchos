@@ -247,6 +247,27 @@ describe('detectRuntimeCycles', () => {
     expect(scan.edgeCount).toBe(2);
   });
 
+  it('ScanRuntimeCycleGraph_SiblingDirectorySharingThePrefix_IsNotFirstParty', () => {
+    // `startsWith('src')` also matches `src-legacy/` and `src.bak/`, which drags
+    // modules from a tree this rule does not govern into the graph — and any
+    // cycle among them is reported against the governed tree. The boundary is
+    // the separator, so only `src/…` (and `src` itself) counts.
+    const json = graph([
+      ['src/a.ts', 'src/b.ts'],
+      ['src-legacy/x.ts', 'src-legacy/y.ts'],
+      ['src-legacy/y.ts', 'src-legacy/x.ts'],
+      ['src.bak/p.ts', 'src.bak/q.ts'],
+    ]);
+    const scan = scanRuntimeCycleGraph(json, 'src');
+    expect(scan.nodeCount).toBe(2);
+    expect(scan.edgeCount).toBe(1);
+    // …and the sibling's genuine cycle is not attributed to the governed tree.
+    expect(scan.cycles).toEqual([]);
+
+    // A trailing separator on the prefix is the same prefix.
+    expect(scanRuntimeCycleGraph(json, 'src/').nodeCount).toBe(2);
+  });
+
   it('ScanRuntimeCycleGraph_PrefixMatchingNothing_FailsClosed', () => {
     // KILL FIXTURE. The graph is well-formed and non-empty; only the prefix is
     // wrong (a relocated tree, a renamed package directory, a depcruise run

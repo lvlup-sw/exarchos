@@ -268,12 +268,44 @@ describe('enforcer-wiring gate — completeness ratchet', () => {
 });
 
 describe('enforcer-wiring gate — the unfiltered-CI-path claim has live subjects', () => {
+  /** The manifest fields this suite reads. */
+  interface ManifestPrimary {
+    readonly script: string;
+    readonly workflow?: string;
+    readonly unfilteredCiPath?: boolean;
+    readonly ciStepMatch?: string;
+  }
+
+  const isRecord = (value: unknown): value is Record<string, unknown> =>
+    typeof value === 'object' && value !== null && !Array.isArray(value);
+
+  /** Read a JSON document as `unknown` — never as the implicit `any`. */
+  const readJson = (file: string): unknown => JSON.parse(fs.readFileSync(file, 'utf8')) as unknown;
+
   /** The live manifest + workflow set, read once. */
-  function liveInputs() {
-    const manifest = JSON.parse(
-      fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'enforcer-wiring-manifest.json'), 'utf8'),
+  function liveInputs(): {
+    manifest: { primaries: ManifestPrimary[] };
+    scripts: Record<string, string>;
+    workflows: Record<string, string>;
+    primaryFiles: ReturnType<typeof enumeratePrimaryFiles>;
+  } {
+    // `JSON.parse` hands back `any`, so every field read off these documents was
+    // unchecked — a renamed key would have surfaced as `undefined` at use rather
+    // than as a failure here. Parsed as `unknown` and narrowed once, at the edge.
+    const manifest = readJson(
+      path.join(REPO_ROOT, 'scripts', 'enforcer-wiring-manifest.json'),
     );
-    const pkg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'));
+    const pkg = readJson(path.join(REPO_ROOT, 'package.json'));
+
+    const primaries = isRecord(manifest) ? manifest['primaries'] : undefined;
+    if (!Array.isArray(primaries)) {
+      throw new Error('enforcer-wiring-manifest.json has no `primaries` array');
+    }
+    const scripts = isRecord(pkg) ? pkg['scripts'] : undefined;
+    if (!isRecord(scripts)) {
+      throw new Error('package.json has no `scripts` object');
+    }
+
     const wfDir = path.join(REPO_ROOT, '.github', 'workflows');
     const workflows: Record<string, string> = {};
     for (const name of fs.readdirSync(wfDir)) {
@@ -281,11 +313,43 @@ describe('enforcer-wiring gate — the unfiltered-CI-path claim has live subject
       workflows[`.github/workflows/${name}`] = fs.readFileSync(path.join(wfDir, name), 'utf8');
     }
     return {
-      manifest,
-      scripts: pkg.scripts as Record<string, string>,
+      manifest: { primaries: primaries as ManifestPrimary[] },
+      scripts: scripts as Record<string, string>,
       workflows,
       primaryFiles: enumeratePrimaryFiles(path.join(REPO_ROOT, 'scripts')),
     };
+  }
+
+  /**
+   * The `scripts/…` files the `grep-gates` job actually runs.
+   *
+   * Read off the job block rather than transcribed, so "every grep-gates primary
+   * carries the claim" is checked against the lane instead of against a number
+   * somebody kept up to date by hand.
+   */
+  function grepGatesJobBlock(): string {
+    const ci = fs.readFileSync(path.join(REPO_ROOT, '.github', 'workflows', 'ci.yml'), 'utf8');
+    const lines = ci.split('\n');
+    const start = lines.findIndex((l) => /^ {2}grep-gates:\s*$/.test(l));
+    expect(start, 'grep-gates job not found in ci.yml').toBeGreaterThan(-1);
+    let end = lines.length;
+    for (let i = start + 1; i < lines.length; i++) {
+      // The next top-level job id ends the block.
+      if (/^ {2}[A-Za-z0-9_-]+:\s*$/.test(lines[i] ?? '')) {
+        end = i;
+        break;
+      }
+    }
+    return lines.slice(start, end).join('\n');
+  }
+
+  function scriptsReferencedByGrepGates(): Set<string> {
+    const block = grepGatesJobBlock();
+    const found = new Set<string>();
+    for (const match of block.matchAll(/\bscripts\/[A-Za-z0-9._-]+\.(?:mjs|ts|sh|js)\b/g)) {
+      found.add(match[0]);
+    }
+    return found;
   }
 
   it('UnfilteredCiPath_IsClaimedByTheGrepGatesPrimaries', () => {
@@ -297,7 +361,27 @@ describe('enforcer-wiring gate — the unfiltered-CI-path claim has live subject
     const claiming = manifest.primaries.filter(
       (p: { unfilteredCiPath?: boolean }) => p.unfilteredCiPath === true,
     );
-    expect(claiming.length, 'no primary claims an unfiltered CI path').toBeGreaterThan(10);
+    // DERIVED, not a floor. `toBeGreaterThan(10)` over sixteen claims tolerates
+    // losing five of them — including the case this test exists to catch, a
+    // grep-gates primary that quietly drops its required claim. The expected set
+    // is read off the grep-gates job itself, so the two move together or the
+    // test reddens.
+    const grepGatesBlock = grepGatesJobBlock();
+    const grepGatesScripts = scriptsReferencedByGrepGates();
+    expect(grepGatesScripts.size, 'no scripts parsed out of the grep-gates job').toBeGreaterThan(10);
+
+    // A primary is hosted by grep-gates when the job names its file, OR when it
+    // rides an `npm run` indirection the manifest records as `ciStepMatch` —
+    // the same two spellings `check-enforcer-wiring` itself resolves.
+    const expected = manifest.primaries
+      .filter((p: { script: string; ciStepMatch?: string }) =>
+        grepGatesScripts.has(p.script) ||
+        (p.ciStepMatch !== undefined && grepGatesBlock.includes(p.ciStepMatch)),
+      )
+      .map((p: { script: string }) => p.script)
+      .sort();
+    expect(claiming.map((p: { script: string }) => p.script).sort()).toEqual(expected);
+
     for (const entry of claiming) {
       expect(entry.workflow, `${entry.script} claims a path without naming a workflow`).toBe(
         '.github/workflows/ci.yml',

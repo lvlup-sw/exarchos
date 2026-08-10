@@ -190,7 +190,23 @@ export async function handleAmend(
       },
     };
   }
-  const catalogContents = deps.read(catalogAbs);
+  // `exists` and `read` are two syscalls, and the header promises a TOTAL
+  // envelope — every failure a coded result. Between the check above and this
+  // read the path can be removed, replaced by a directory, or lose read
+  // permission, and the ENOENT / EISDIR / EACCES would escape to dispatch and
+  // flatten to a generic INTERNAL_ERROR: exactly the outcome the claim says is
+  // unrepresentable. The existence check cannot be made atomic, so the read
+  // carries its own arm instead.
+  let catalogContents: string;
+  try {
+    catalogContents = deps.read(catalogAbs);
+  } catch (cause) {
+    return catalogUnreadableResult(
+      relCatalog,
+      tier,
+      `the catalog could not be read: ${cause instanceof Error ? cause.message : String(cause)}`,
+    );
+  }
 
   // ── Denominator, proven RESOLVED before anything is concluded from it ──
   const scan = readCatalogIds(catalogContents);

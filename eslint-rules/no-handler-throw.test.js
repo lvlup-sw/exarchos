@@ -259,6 +259,28 @@ test('noHandlerThrow_NamedHandlerDispatchOutsideAnyBranch_ReportsUnattributedDis
   assert.match(unattributed[0].message, /handleUnbranched/);
 });
 
+test('noHandlerThrow_UnscannableDispatchShapes_AreReportedNotExempted', () => {
+  // Two shapes that reached a real handler and were silently skipped:
+  //   1. `envelopeWrap(await handlers.handleX(…))` — a member-expression callee
+  //      the resolver could not name, which the caller read as "pre-built
+  //      envelope, nothing dispatched here";
+  //   2. `const handler = handleX` — a plain alias that satisfied the
+  //      table-dispatch exemption merely by being function-local.
+  // Either one hides a handler from the census entirely, which is the hole this
+  // rule exists to close.
+  const unscannable = lintFixture('handler-throw.unscannable.ts');
+  assert.equal(
+    unscannable.length,
+    2,
+    `expected exactly 2 diagnostics, got: ${JSON.stringify(unscannable.map(m => m.message))}`,
+  );
+  for (const message of unscannable) {
+    assert.equal(message.messageId, 'unattributedDispatch');
+  }
+  assert.match(unscannable.map(m => m.message).join('\n'), /handlers\.handleNamespaced/);
+  assert.match(unscannable.map(m => m.message).join('\n'), /handler/);
+});
+
 test('noHandlerThrow_TableDispatchThroughLocalHandlerConst_IsNotReported', () => {
   // The compliant fixture's `const handler = ACTION_HANDLERS[action]` tail —
   // an INDIRECTION whose census is the map walk, not the branch derivation.

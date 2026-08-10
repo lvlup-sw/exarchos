@@ -62,6 +62,26 @@ function toPosix(p: string): string {
 }
 
 /**
+ * "Is this module inside `srcPrefix`", anchored on a path boundary.
+ *
+ * A bare `startsWith` also matches a SIBLING whose name merely begins with the
+ * prefix — with `servers/exarchos-mcp/src`, a `…/src-legacy/` or `…/src.bak/`
+ * directory joins the graph and contributes cycles that do not exist in the
+ * tree being governed. Trailing separators are stripped so either spelling of
+ * the prefix behaves the same.
+ *
+ * One definition, because this predicate had drifted into two identical copies
+ * and a fix applied to one of them would have been invisible in the other.
+ */
+function localToPrefix(srcPrefix: string): (candidate: string) => boolean {
+  const prefix = toPosix(srcPrefix).replace(/\/+$/, '');
+  return (candidate: string): boolean => {
+    const p = toPosix(candidate);
+    return p === prefix || p.startsWith(`${prefix}/`);
+  };
+}
+
+/**
  * Build the first-party runtime adjacency from a depcruise graph.
  *
  * - Only modules whose `source` is under `srcPrefix` are nodes (first-party).
@@ -74,8 +94,7 @@ function buildAdjacency(
   output: DepcruiseOutput,
   srcPrefix: string,
 ): Map<string, Set<string>> {
-  const prefix = toPosix(srcPrefix);
-  const isLocal = (s: string): boolean => toPosix(s).startsWith(prefix);
+  const isLocal = localToPrefix(srcPrefix);
   const adj = new Map<string, Set<string>>();
 
   for (const mod of output.modules ?? []) {
@@ -386,8 +405,7 @@ export interface ForbiddenEdgeResult {
 
 /** Collect the first-party module nodes present in an already-parsed graph. */
 function nodesFromOutput(output: DepcruiseOutput, srcPrefix: string): Set<string> {
-  const prefix = toPosix(srcPrefix);
-  const isLocal = (s: string): boolean => toPosix(s).startsWith(prefix);
+  const isLocal = localToPrefix(srcPrefix);
   const nodes = new Set<string>();
   for (const mod of output.modules ?? []) {
     const from = toPosix(mod.source);

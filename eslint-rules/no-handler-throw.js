@@ -103,11 +103,17 @@ const ENVELOPE_WRAP_NAME = 'envelopeWrap';
  * genuinely nothing to scan.
  */
 function dispatchedCalleeIdentifier(argNode) {
-  if (!argNode) return undefined;
+  if (!argNode) return { kind: 'not-a-call' };
   const inner = argNode.type === 'AwaitExpression' ? argNode.argument : argNode;
-  if (!inner || inner.type !== 'CallExpression') return undefined;
-  if (inner.callee.type !== 'Identifier') return undefined;
-  return inner.callee;
+  if (!inner || inner.type !== 'CallExpression') return { kind: 'not-a-call' };
+  // A call the scanner cannot name — `handlers.handleX(…)`, `(cond ? a : b)(…)`
+  // — is NOT the same thing as a pre-built envelope. Returning `undefined` for
+  // both let the caller treat an unscannable dispatch as "nothing dispatched
+  // here", which is a gate hole wearing the shape of an exemption.
+  if (inner.callee.type !== 'Identifier') {
+    return { kind: 'unsupported-callee', node: inner.callee };
+  }
+  return { kind: 'identifier', node: inner.callee };
 }
 
 /**
@@ -188,10 +194,56 @@ function isTableDispatchCallee(identifierNode, sourceCode) {
   const variable = resolveEstreeVariable(identifierNode, sourceCode);
   if (!variable) return false;
   if (variable.scope.type === 'module' || variable.scope.type === 'global') return false;
-  return (
-    variable.defs.length > 0 &&
-    variable.defs.every(def => def.type === 'Variable' || def.type === 'Parameter')
-  );
+  if (variable.defs.length === 0) return false;
+  // Function-local-ness is not the property. Every local binding used to
+  // qualify, so a plain alias — `const handler = handleX; envelopeWrap(handler(…))`
+  // — was exempted as though it came from the table, and its handler was never
+  // scanned. The exemption exists for the ACTION_HANDLERS lookup specifically,
+  // so the INITIALIZER has to be that lookup: `ACTION_HANDLERS[action]`. A
+  // parameter is still accepted — it is the same table value passed one frame
+  // down, and there is no initializer to inspect.
+  return variable.defs.every(def => {
+    if (def.type === 'Parameter') return true;
+    if (def.type !== 'Variable') return false;
+    return initializerReadsHandlerTable(def.node?.init);
+  });
+}
+
+/**
+ * True when `node` reads `ACTION_HANDLERS[...]`, through the wrappers the real
+ * dispatcher uses.
+ *
+ * The live shape is `typeof action === 'string' ? ACTION_HANDLERS[action] :
+ * undefined`, so requiring a bare member expression would reject the one call
+ * site this exemption exists for. Guard/cast wrappers are traversed; anything
+ * else — notably a bare identifier alias — is not a table read.
+ */
+function initializerReadsHandlerTable(node) {
+  if (!node) return false;
+  switch (node.type) {
+    case 'MemberExpression':
+      return (
+        node.computed === true &&
+        node.object?.type === 'Identifier' &&
+        node.object.name === ACTION_HANDLERS_MAP_NAME
+      );
+    case 'ConditionalExpression':
+      return (
+        initializerReadsHandlerTable(node.consequent) ||
+        initializerReadsHandlerTable(node.alternate)
+      );
+    case 'LogicalExpression':
+      return (
+        initializerReadsHandlerTable(node.left) || initializerReadsHandlerTable(node.right)
+      );
+    case 'TSNonNullExpression':
+    case 'TSAsExpression':
+    case 'TSSatisfiesExpression':
+    case 'TSTypeAssertion':
+      return initializerReadsHandlerTable(node.expression);
+    default:
+      return false;
+  }
 }
 
 function resolveEstreeVariable(identifierNode, sourceCode) {
@@ -642,10 +694,21 @@ const rule = {
       },
       CallExpression(node) {
         if (node.callee.type !== 'Identifier' || node.callee.name !== ENVELOPE_WRAP_NAME) return;
-        const callee = dispatchedCalleeIdentifier(node.arguments[0]);
+        const dispatched = dispatchedCalleeIdentifier(node.arguments[0]);
         // A pre-built envelope (`envelopeWrap(invalid, startedAt)`) dispatches
         // nothing — there is no handler behind it to scan, and never was.
-        if (!callee) return;
+        if (dispatched.kind === 'not-a-call') return;
+        // A call whose callee this rule cannot resolve to a name IS a dispatch,
+        // and one the census can neither name nor scan. Reported, not skipped.
+        if (dispatched.kind === 'unsupported-callee') {
+          context.report({
+            node,
+            messageId: 'unattributedDispatch',
+            data: { handlerName: context.sourceCode.getText(dispatched.node) },
+          });
+          return;
+        }
+        const callee = dispatched.node;
 
         const actionName = deriveDispatchedAction(node, context.sourceCode);
         if (!actionName) {

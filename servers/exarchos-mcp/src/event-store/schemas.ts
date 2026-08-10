@@ -2907,6 +2907,14 @@ export const MutationExecutingStartedData = z.object({
   command: z.string().min(1),
   /** Repo root the command runs in. */
   repoRoot: z.string().min(1),
+  /**
+   * The directory the runner actually executed in, which is NOT always
+   * `repoRoot` — a package-local mutation config moves it to the package dir.
+   * Declared because the handler emits it: an undeclared field is stripped by
+   * Zod, so the one fact that distinguishes "scored the repo" from "scored one
+   * package" was being dropped on the way into the stream.
+   */
+  cwd: z.string().min(1).optional(),
   // DR-2 — canonical liveness instance key (mutation: operationId).
   ...livenessInstanceFields,
 });
@@ -2915,6 +2923,8 @@ export const MutationExecutingStartedData = z.object({
 export const MutationExecutedData = z.object({
   command: z.string().min(1),
   repoRoot: z.string().min(1),
+  /** Where the runner executed — see {@link MutationExecutingStartedData.cwd}. */
+  cwd: z.string().min(1).optional(),
   /** True when the mutation command exited 0. */
   passed: z.boolean(),
   /** The child process exit code. */

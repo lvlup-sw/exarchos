@@ -9,9 +9,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 GATE="$SCRIPT_DIR/check-windows-portability.mjs"
 TMP="$(mktemp -d)"
-# The scan-root cases plant a probe file inside the real tree; clean both up even
-# if a case exits early, so a failed run never leaves the repo dirty.
-trap 'rm -rf "$TMP" "$REPO_ROOT"/scripts/__portability_scan_probe__.mjs "$REPO_ROOT"/src/__portability_scan_probe__.mjs' EXIT
+# The scan-root cases plant a probe inside the real tree, each in its own
+# `mktemp -d` directory recorded here. The trap removes exactly those, so a case
+# that exits early never leaves the repo dirty and never deletes a path it did
+# not create — a fixed probe name would be shared by two concurrent runs.
+PROBE_DIRS=()
+cleanup() {
+  rm -rf "$TMP"
+  for dir in "${PROBE_DIRS[@]}"; do
+    [[ -n "$dir" ]] && rm -rf "$dir"
+  done
+}
+trap cleanup EXIT
 
 pass=0
 fail=0
@@ -68,6 +77,32 @@ node "$GATE" --src-root "$TMP/r1spawn" >/dev/null 2>&1
 r1spawn_exit=$?
 set -e
 check "rule 1: literal spawnSync('npx', …) is rejected" 1 "$r1spawn_exit"
+
+# Windows resolves shim names case-insensitively, so `'NPM'` launches the same
+# `npm.cmd` that `'npm'` does. The pattern carried only `g`, which let the
+# SPELLING decide whether the rule applied — a violation that behaves identically
+# at runtime and reads clean to the gate.
+mkdir -p "$TMP/r1case/src"
+cat > "$TMP/r1case/src/mixed-case-spawn.ts" <<'EOF'
+import { spawnSync } from 'node:child_process';
+export function install() { return spawnSync('NPM', ['ci']); }
+export function exec() { return spawnSync('Npx', ['--no-install', 'tsc']); }
+EOF
+set +e
+node "$GATE" --src-root "$TMP/r1case" >/dev/null 2>&1
+r1case_exit=$?
+set -e
+check "rule 1: mixed-case shim spawnSync('NPM', …) is rejected" 1 "$r1case_exit"
+
+# ── Argument handling: an unknown flag must not be silently ignored ─────────
+#
+# A misspelled `--src-roots` left the root list empty, so the gate fell back to
+# its DEFAULT roots and reported success about a tree the caller never named.
+set +e
+node "$GATE" --src-roots "$TMP/dirty" >/dev/null 2>&1
+badflag_exit=$?
+set -e
+check "unrecognised argument is a usage error, not a default-roots scan" 2 "$badflag_exit"
 
 # The shim VOCABULARY is read from `utils/process.ts`'s WINDOWS_CMD_SHIMS rather
 # than transcribed here. The retired hard-coded five (npm/npx/pnpm/yarn/corepack)
@@ -274,9 +309,14 @@ check "shipped src/servers/*/scripts/ is NOT exempt (rule 4 still checks it)" 1 
 # `scripts/lint-envelopes.mjs` unseen. Assert the default roots by OBSERVING the
 # gate report a violation planted in each, then removing it again: a scan root
 # that is merely declared is not a scan root.
+# Each probe lives in its own `mktemp -d` directory INSIDE the scan root, and
+# only that directory is removed. Writing a fixed filename into the real tree
+# means a second concurrent run — or a future source file that happens to carry
+# the name — is overwritten and then deleted by the EXIT trap.
 for subtree in scripts src; do
-  probe="$REPO_ROOT/$subtree/__portability_scan_probe__.mjs"
-  cat > "$probe" <<'EOF'
+  probe_dir="$(mktemp -d "$REPO_ROOT/$subtree/portability_probe_XXXXXX")"
+  PROBE_DIRS+=("$probe_dir")
+  cat > "$probe_dir/probe.mjs" <<'EOF'
 import * as path from 'node:path';
 export const here = path.dirname(new URL(import.meta.url).pathname);
 EOF
@@ -284,7 +324,8 @@ EOF
   node "$GATE" >/dev/null 2>&1
   probe_exit=$?
   set -e
-  rm -f "$probe"
+  rm -rf "$probe_dir"
+  PROBE_DIRS=("${PROBE_DIRS[@]/$probe_dir}")
   check "default roots include repo-root $subtree/ (planted violation is seen)" 1 "$probe_exit"
 done
 

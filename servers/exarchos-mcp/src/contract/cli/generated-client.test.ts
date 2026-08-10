@@ -109,6 +109,18 @@ describe('Runtime addressing (packaged-binary environment)', () => {
     expect(unaddressable.success).toBe(false);
     expect(unaddressable.error?.code).toBe('UNKNOWN_ACTION');
 
+    // …and a KNOWN action, which is the arm that actually reaches `dispatch`.
+    // The unaddressable one returns UNKNOWN_ACTION before dispatch is called at
+    // all, so on its own it says nothing about the path the packaged binary
+    // takes for real work — including whether THAT path reads the tree. A
+    // missing required input is the deterministic post-dispatch outcome that
+    // needs nothing on disk to produce.
+    const knownId = 'exarchos_workflow.get';
+    expect(known.has(knownId)).toBe(true);
+    const invalid = await invokeContractAction(knownId, {}, ctx);
+    expect(invalid.success).toBe(false);
+    expect(invalid.error?.code).not.toBe('UNKNOWN_ACTION');
+
     // Nothing was even ATTEMPTED. Asserting on the attempt log rather than on
     // "it did not throw" is what distinguishes "performs no reads" from
     // "performs reads and swallows the failure".

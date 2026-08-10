@@ -215,10 +215,17 @@ describe('auditDeliverySafety — live required-delivery modules', () => {
     const root = await mkdtemp(join(tmpdir(), 'exarchos-delivery-gone-'));
     try {
       await writeFile(join(root, 'unrelated.ts'), 'export const x = 1;\n');
-      const result = await auditDeliverySafety(root, lexModule, []);
+      // No explicit population: this must reach EMPTY_POPULATION through
+      // `resolveRequiredDeliveryModules` itself. Passing `[]` here only restated
+      // the test above it and left the derivation path unexercised — which is
+      // how an unconditional seed made the empty case unreachable in production
+      // while both tests stayed green.
+      const result = await auditDeliverySafety(root, lexModule);
       expect(result.ok).toBe(false);
       expect(result.diagnostics[0]?.code).toBe('EMPTY_POPULATION');
       expect(result.diagnostics[0]?.message).toContain(DELIVERY_CONTRACT_MODULE);
+      // …and it is a DIAGNOSTIC, not an ENOENT escaping from `readFile`.
+      expect(result.modules).toEqual([]);
     } finally {
       await rmrfAsync(root);
     }
