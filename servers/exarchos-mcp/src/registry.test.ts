@@ -3186,6 +3186,45 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
     };
   }
 
+  // The #1739 cutover gate report, hand-written rather than imported for the
+  // same reason `cappedData` above is: a fixture derived from the schema under
+  // test cannot disagree with it. Both disagreement tallies carry all five
+  // classes because the contract declares them exhaustively — the gate folds
+  // every tally out of a seeded `emptyTally()`, so a partial one would mean a
+  // class silently stopped being counted.
+  const emptyDisagreementTally = {
+    'agree': 0,
+    'legacy-allow-admission-deny': 0,
+    'legacy-deny-admission-allow': 0,
+    'admission-indeterminate': 0,
+    'shadow-error': 0,
+  };
+  const cutoverGateReport = {
+    satisfied: false,
+    conditions: [
+      { id: 'live-observer-health', met: false, detail: 'no attempts observed' },
+    ],
+    unmet: ['live-observer-health'],
+    unexplainedDisagreements: 0,
+    liveAttemptCount: 0,
+    comparableLiveAttemptCount: 0,
+    nonComparableLiveAttemptCount: 0,
+    liveDisagreementClasses: { ...emptyDisagreementTally },
+    durableAttemptCount: 0,
+    nonComparableDurableAttemptCount: 0,
+    durableDisagreementClasses: { ...emptyDisagreementTally },
+    observerStatus: 'unobserved',
+    coveredPhaseKinds: [],
+    missingPhaseKinds: ['IMPLEMENT'],
+    hasAllowOutcome: false,
+    hasDenyOutcome: false,
+  };
+  const cutoverDurableEvidence = {
+    featureIds: [],
+    attemptCount: 0,
+    dispositionTally: {},
+  };
+
   // A minimal VALID baseline `data` per typed-output action, shape-derived from
   // the real handler returns (orchestrate/worktree/schemas.ts,
   // TelemetryViewDataSchema). Keyed `tool.action`.
@@ -3241,6 +3280,21 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       verdict: 'APPROVED', high: 0, medium: 0, low: 0, findings: [],
       auditPrompt: '', auditInvariantIds: [], auditProjection: 'no-audit-entries',
       applicableCount: 0, report: 'PASS',
+    },
+    // DR-4 / task 083: the two #1739 cutover verbs, the second and third entries
+    // to LEAVE the allowlist. Their baselines are the cold-store emission — an
+    // unsatisfied report over an empty durable substrate, which is the floor
+    // both handlers can produce.
+    'exarchos_orchestrate.cutover_readiness': {
+      report: cutoverGateReport,
+      durableEvidence: cutoverDurableEvidence,
+    },
+    'exarchos_orchestrate.cutover_decide': {
+      outcome: 'continue-shadow',
+      rolloutDecisionId: 'rollout-decision:abc',
+      enablementId: 'enforcement-enabled:abc',
+      report: cutoverGateReport,
+      durableEvidence: cutoverDurableEvidence,
     },
   };
   function baselineEnvelope(data: Record<string, unknown>): Record<string, unknown> {
@@ -3399,7 +3453,11 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       // vacuity waiver, while `check_invariant_conformance` (task 069) is the
       // first entry to LEAVE the allowlist rather than arrive typed. One route
       // holds the line, the other pays the debt down.
-      expect(actions.length).toBe(12);
+      //
+      // The 13th and 14th (task 083) are the two #1739 cutover verbs, which took
+      // NEITHER route cleanly: they arrived new AND acquired waivers in the same
+      // change. Paying them down puts them on the second route retroactively.
+      expect(actions.length).toBe(14);
       for (const { tool, action } of actions) {
         const parsed = action.outputSchema.safeParse(cappedEnvelope());
         expect(

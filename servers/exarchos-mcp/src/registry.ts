@@ -52,6 +52,14 @@ import { AmendInvariantOutputSchema } from './orchestrate/invariants/amend.js';
 // the registry does not pull the handler's import closure (event store, config
 // loader, catalog resolver) in behind it.
 import { CheckInvariantConformanceOutputSchema } from './orchestrate/check-invariant-conformance-schema.js';
+// DR-4 (task 083) — the two #1739 cutover verbs' response contracts, paid down
+// from `vacuityWaiver` to real `data` schemas. Same split, same reason as the
+// line above: the handlers' closure (event store, dispatch context) stays out of
+// every consumer that only reads a contract.
+import {
+  CutoverDecideOutputSchema,
+  CutoverReadinessOutputSchema,
+} from './orchestrate/cutover-readiness-schema.js';
 // DR-4 (task 055) — the closed `outputSchema` declaration surface. `ToolAction.
 // outputSchema` accepts only what these two constructors mint, so the vacuous
 // form (`EnvelopeSchema(z.unknown())`) is not merely discouraged here, it does
@@ -3717,7 +3725,7 @@ const orchestrateActions: readonly BuiltinToolAction[] = [
     schema: z.object({}),
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
-    outputSchema: vacuityWaiver('exarchos_orchestrate.cutover_readiness'),
+    outputSchema: withCappedShape(CutoverReadinessOutputSchema),
     annotations: READ_ONLY_LOCAL,
   },
   {
@@ -3735,7 +3743,7 @@ const orchestrateActions: readonly BuiltinToolAction[] = [
       { event: 'admission.rollout-decision', condition: 'always' },
       { event: 'admission.enforcement-enabled', condition: 'conditional', description: 'Only when every cutover-gate condition is satisfied' },
     ],
-    outputSchema: vacuityWaiver('exarchos_orchestrate.cutover_decide'),
+    outputSchema: withCappedShape(CutoverDecideOutputSchema),
     annotations: LOCAL_MUTATION,
   },
   makeDescribeAction('exarchos_orchestrate.describe'),

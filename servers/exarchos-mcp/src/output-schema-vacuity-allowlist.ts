@@ -141,8 +141,6 @@ export const VACUITY_ALLOWLIST = Object.freeze({
   'exarchos_orchestrate.classify_review_items': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.create_issue': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.create_pr': { owner: 'orchestration', expires: '2027-02-28' },
-  'exarchos_orchestrate.cutover_decide': { owner: 'orchestration', expires: '2027-02-28' },
-  'exarchos_orchestrate.cutover_readiness': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.debug_review_gate': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.describe': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.discover_bridge': { owner: 'orchestration', expires: '2027-02-28' },
@@ -247,6 +245,24 @@ export const VACUITY_RETIRED: Readonly<Record<string, VacuityRetiredEntry>> = Ob
   'exarchos_orchestrate.check_invariant_conformance': {
     owner: 'orchestration',
     retiredAt: '2026-08-07',
+  },
+  // TASK 083 — the two #1739 cutover verbs. Both were NEW actions that shipped
+  // a `vacuityWaiver` with their rows seeded here in the same change, which is
+  // the one thing DR-4's first tooth forbids: the allowlist records INHERITED
+  // debt, and a new declaration has none to inherit. `invariants_amend` — the
+  // third new verb of that change — met the rule and wrote a real schema, so the
+  // exemption was not even uniform. Both now declare
+  // `withCappedShape(...)` over the contracts in
+  // `orchestrate/cutover-readiness-schema.ts`, and both rows MOVED here rather
+  // than being deleted, so `keys(VACUITY_ALLOWLIST) ∪ keys(VACUITY_RETIRED)` is
+  // unchanged and `VACUITY_SEED_KEY_SET_DIGEST` did NOT have to be touched.
+  'exarchos_orchestrate.cutover_decide': {
+    owner: 'orchestration',
+    retiredAt: '2026-08-10',
+  },
+  'exarchos_orchestrate.cutover_readiness': {
+    owner: 'orchestration',
+    retiredAt: '2026-08-10',
   },
 });
 
