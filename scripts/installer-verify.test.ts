@@ -420,12 +420,22 @@ describe('DR-20 — the installers consume the signed release manifest', () => {
 
     // Off CI the absence is tolerated — but the toleration expires, and the
     // expiry is asserted here so it cannot outlive its justification unnoticed.
-    expect(
-      SHELL_SKIP_WAIVER.expires > todayUtc(),
-      `The off-CI installer-shell skip waiver (${SHELL_SKIP_WAIVER.issue}) expired on ` +
-        `${SHELL_SKIP_WAIVER.expires}. Either install both shells locally, or re-justify ` +
-        `and re-date the waiver — a tolerated skip with no live expiry is a permanent one.`,
-    ).toBe(true);
+    // Only when the waiver is actually BEING USED, though: a contributor with
+    // both shells installed is skipping nothing, and handing them a red test
+    // for an exemption they never claimed teaches them to widen the date. The
+    // tooth is "a skip must not outlive its expiry", not "this date must always
+    // be in the future". Inclusive, like the other two sites that carry it:
+    // `expires` is the LAST tolerated day everywhere or it is nowhere.
+    if (missing.length > 0) {
+      expect(
+        SHELL_SKIP_WAIVER.expires >= todayUtc(),
+        `The off-CI installer-shell skip waiver (${SHELL_SKIP_WAIVER.issue}) expired on ` +
+          `${SHELL_SKIP_WAIVER.expires} and ${missing.join(' and ')} ` +
+          `${missing.length === 1 ? 'is' : 'are'} still missing. Either install both shells ` +
+          `locally, or re-justify and re-date the waiver — a tolerated skip with no live ` +
+          `expiry is a permanent one.`,
+      ).toBe(true);
+    }
 
     // Still say it out loud, so a local run cannot look like a full one.
     if (missing.length > 0) {
