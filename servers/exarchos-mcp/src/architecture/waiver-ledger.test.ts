@@ -2,20 +2,24 @@
 // extraction safe rather than merely tidy.
 //
 // ── TWO AUTHORITIES ─────────────────────────────────────────────────────────
-// Authority A is `./waiver-ledger.ts` — read BOTH as behaviour (driven as a pure
-// function of injected data: no live seed, no registry, no clock) and as SOURCE
-// TEXT off disk, which is what makes "this module imports nothing" falsifiable
-// rather than a comment. Authority B is `../../scripts/cli-derivation-guard.ts`,
-// the one surviving independent statement of the same day rule and the same
-// key-set digest. B is genuinely independent: it imports nothing from A, and A
-// imports nothing at all, so their agreement is a finding about the tree rather
-// than a restatement of one representation.
+// Authority A is `./waiver-ledger.ts` as BEHAVIOUR — driven as a pure function of
+// injected data: no live seed, no registry, no clock. Authority B is this same
+// module's SOURCE TEXT read off disk and decomposed by the TypeScript compiler's
+// own `preProcessFile`, which is what makes "this module imports nothing"
+// falsifiable rather than a comment: a module can behave correctly while its
+// bytes say something else, so the two cannot be collapsed.
+//
+// B was originally `../../scripts/cli-derivation-guard.ts`, which then held the
+// one surviving independent statement of this day rule. That copy is gone — the
+// guard now imports these names — so naming it here would declare one authority
+// wearing two names. DR-30's reachability rule caught exactly that when the
+// delegation landed, which is the rule doing its job rather than a nuisance.
 //
 // ── THE CLOCK ───────────────────────────────────────────────────────────────
 // Every verdict below is taken at a NAMED day passed in as data. Nothing here
 // reads the wall clock, so no assertion can start failing because time passed.
 //
-// @oracle-sources: ./waiver-ledger.ts, ../../scripts/cli-derivation-guard.ts
+// @oracle-sources: ./waiver-ledger.ts, this module's source text read from disk and decomposed by the TypeScript compiler's preProcessFile
 import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import * as path from 'node:path';
