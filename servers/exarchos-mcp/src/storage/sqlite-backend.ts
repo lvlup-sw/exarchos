@@ -750,18 +750,26 @@ export class SqliteBackend implements StorageBackend {
 
   close(): void {
     if (this.closed) return;
-    this.closed = true;
-    SqliteBackend.openInstances.delete(this);
-    // `db` is definite-assignment (`db!`); the try/catch also makes a double
-    // close (or a never-opened handle) a no-op rather than a driver throw.
+    // Finalize prepared statements BEFORE the connection closes, not after: a
+    // driver that refuses to close a connection with live statements throws
+    // straight into the catch below, and the old order made that failure
+    // indistinguishable from success.
+    this.queryStmtCache.clear();
+    // `db` is definite-assignment (`db!`); `?.` makes a never-opened handle a
+    // no-op, and the `closed` guard above makes a double close one.
     try {
       this.db?.close();
     } catch {
-      // already closed / never opened — close is best-effort and idempotent
+      // The close FAILED, so the OS handle is still open. Leave this instance
+      // registered and unclosed so a later `closeOpenUnder` sweep retries it.
+      // De-registering here (as this did) made a failed close permanently
+      // invisible: the registry reported no open handles while NTFS still
+      // refused to unlink the file, which is exactly how a temp-dir teardown
+      // turns into `EBUSY … exarchos.db-wal` with nothing left to blame.
+      return;
     }
-    // Prepared statements are invalid once the connection is closed; drop the
-    // cache so a stale handle can't be reused after close.
-    this.queryStmtCache.clear();
+    this.closed = true;
+    SqliteBackend.openInstances.delete(this);
   }
 
   /**
