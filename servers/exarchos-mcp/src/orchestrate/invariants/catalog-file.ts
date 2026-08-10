@@ -52,6 +52,17 @@ export function isPlainRecord(value: unknown): value is Record<string, unknown> 
 export function splitCatalog(contents: string): {
   frontmatter: string;
   body: string | undefined;
+  /**
+   * Absolute offset of `frontmatter` within `contents`.
+   *
+   * Callers that REBUILD the document from `frontmatter` + `body` cannot round
+   * trip it: this pattern drops trailing whitespace on the closing fence
+   * (`[ \t]*`) and cannot distinguish "no final newline" from "empty body",
+   * so a rebuild silently normalises both. Splicing at this offset instead
+   * carries every byte outside the replaced span through verbatim, which is
+   * what DR-3 promises — the digest moves for the amendment and nothing else.
+   */
+  frontmatterStart: number;
 } {
   // Frontmatter must open at the very start with a `---` line. Match the
   // opening fence, the frontmatter block, the closing `---` line, then the rest.
@@ -59,9 +70,14 @@ export function splitCatalog(contents: string): {
     contents,
   );
   if (match) {
-    return { frontmatter: match[1] ?? '', body: match[2] ?? '' };
+    const openingFence = /^---\r?\n/.exec(contents)?.[0] ?? '---\n';
+    return {
+      frontmatter: match[1] ?? '',
+      body: match[2] ?? '',
+      frontmatterStart: openingFence.length,
+    };
   }
-  return { frontmatter: contents, body: undefined };
+  return { frontmatter: contents, body: undefined, frontmatterStart: 0 };
 }
 
 /**
@@ -266,7 +282,7 @@ function reindentBlock(text: string, indent: number): string {
  * exactly what the refusal is for.
  */
 export function locateCatalogEntry(contents: string, id: string): CatalogEntryScan {
-  const { frontmatter, body } = splitCatalog(contents);
+  const { frontmatter, body, frontmatterStart } = splitCatalog(contents);
 
   let doc: ReturnType<typeof parseDocument>;
   try {
@@ -375,14 +391,21 @@ export function locateCatalogEntry(contents: string, id: string): CatalogEntrySc
         }
         if (eol === '\r\n') entryText = entryText.replace(/\n/g, '\r\n');
 
-        const splicedFrontmatter =
-          frontmatter.slice(0, span.start) + entryText + frontmatter.slice(span.end);
+        // Splice into `contents` at an ABSOLUTE offset rather than rebuilding
+        // the fences. Reconstruction had to re-emit the opening fence, the
+        // closing fence and the body separator from scratch, and `splitCatalog`
+        // does not preserve enough to do that losslessly: it discards trailing
+        // whitespace on the closing fence line, and a file ending at `---` with
+        // no final newline is indistinguishable from one with an empty body. So
+        // an amendment silently rewrote bytes it never named — invisible to the
+        // suite, because the one fixture shape in use is the shape that happens
+        // to survive the round trip. Slicing the original keeps every byte
+        // outside the entry's span exactly as it was found.
+        const entryStart = frontmatterStart + span.start;
+        const entryEnd = frontmatterStart + span.end;
         return {
           entryText,
-          contents:
-            body === undefined
-              ? splicedFrontmatter
-              : `---${eol}${splicedFrontmatter}${eol}---${eol}${body}`,
+          contents: contents.slice(0, entryStart) + entryText + contents.slice(entryEnd),
         };
       },
     },

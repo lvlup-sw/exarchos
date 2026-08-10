@@ -120,7 +120,40 @@ export const CutoverGateReportSchema = z
     hasAllowOutcome: z.boolean(),
     hasDenyOutcome: z.boolean(),
   })
-  .passthrough();
+  .passthrough()
+  // `unmet` and `satisfied` are DERIVABLE from `conditions`, and until now
+  // nothing checked that they agreed with it. A report could carry
+  // `satisfied: true` beside a condition with `met: false`, or an `unmet` list
+  // naming conditions that were met — each field individually valid, the
+  // document as a whole self-contradictory. The header above says the
+  // everything-is-met reading must not cross the boundary as a clean one; this
+  // is what stops it, and it makes the doc-comment on `unmet` ("Empty iff
+  // `satisfied`") enforced rather than aspirational.
+  .superRefine((report, ctx) => {
+    const derivedUnmet = report.conditions.filter((c) => !c.met).map((c) => c.id);
+    const sameSet =
+      derivedUnmet.length === report.unmet.length &&
+      [...derivedUnmet].sort().every((id, i) => id === [...report.unmet].sort()[i]);
+    if (!sameSet) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['unmet'],
+        message:
+          `unmet [${report.unmet.join(', ')}] disagrees with the conditions reporting ` +
+          `met: false [${derivedUnmet.join(', ')}] — a report that names a different ` +
+          'failure set than its own conditions cannot be acted on.',
+      });
+    }
+    if (report.satisfied !== (derivedUnmet.length === 0)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['satisfied'],
+        message:
+          `satisfied: ${String(report.satisfied)} contradicts ${derivedUnmet.length} ` +
+          'unmet condition(s). `satisfied` is true exactly when nothing is unmet.',
+      });
+    }
+  });
 
 /**
  * The durable-substrate summary both verbs attach beside the report: which

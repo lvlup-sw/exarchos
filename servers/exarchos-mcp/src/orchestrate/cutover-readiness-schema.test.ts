@@ -54,9 +54,11 @@ import {
   type LiveShadowAttempt,
 } from '../workflow/admission/cutover-gate.js';
 import type { LiveShadowHealth } from '../workflow/admission/live-shadow-observer.js';
+import { DISAGREEMENT_CLASSES } from '../workflow/admission/shadow-decision.js';
 import { extractEnvelopeDataSchema } from './worktree/schemas.js';
 import {
   CutoverDecideData,
+  CutoverGateReportSchema,
   CutoverReadinessData,
   type DurableEvidenceSummary,
 } from './cutover-readiness-schema.js';
@@ -185,6 +187,11 @@ const SATISFIED_DEPS: CutoverVerbDeps = {
 };
 
 // ─── 1. Substance ────────────────────────────────────────────────────────────
+
+/** All five disagreement classes seeded, as `emptyTally()` produces them. */
+const FULL_TALLY: Record<string, number> = Object.fromEntries(
+  DISAGREEMENT_CLASSES.map((c) => [c, 0]),
+);
 
 describe('Task 083 — the cutover verbs declare substantive outputSchemas', () => {
   it('CutoverVerbs_LiveCensus_ClassifiesBothSubstantive', () => {
@@ -406,5 +413,83 @@ describe('Task 083 — the declared contracts match the real emissions', () => {
       durableEvidence: summary,
     };
     expect(CutoverReadinessData.safeParse(partial).success).toBe(false);
+  });
+
+  it('CutoverGateReport_SelfContradictoryVerdict_IsRefused', () => {
+    // `unmet` and `satisfied` are derivable from `conditions`, and every field
+    // was individually valid while the document as a whole disagreed with
+    // itself. The header says the everything-is-met reading must not cross the
+    // boundary as a clean one — a `satisfied: true` beside a failing condition
+    // is exactly that reading.
+    const base = {
+      unexplainedDisagreements: 0,
+      liveAttemptCount: 0,
+      comparableLiveAttemptCount: 0,
+      nonComparableLiveAttemptCount: 0,
+      liveDisagreementClasses: FULL_TALLY,
+      durableAttemptCount: 0,
+      nonComparableDurableAttemptCount: 0,
+      durableDisagreementClasses: FULL_TALLY,
+      observerStatus: 'unobserved',
+      coveredPhaseKinds: [],
+      missingPhaseKinds: [],
+      hasAllowOutcome: false,
+      hasDenyOutcome: false,
+    };
+
+    // satisfied: true, but a condition failed.
+    expect(
+      CutoverGateReportSchema.safeParse({
+        ...base,
+        satisfied: true,
+        conditions: [{ id: 'live-observer-health', met: false, detail: 'x' }],
+        unmet: ['live-observer-health'],
+      }).success,
+    ).toBe(false);
+
+    // `unmet` names a condition that was MET, and omits the one that was not.
+    expect(
+      CutoverGateReportSchema.safeParse({
+        ...base,
+        satisfied: false,
+        conditions: [
+          { id: 'a', met: true, detail: 'x' },
+          { id: 'b', met: false, detail: 'x' },
+        ],
+        unmet: ['a'],
+      }).success,
+    ).toBe(false);
+
+    // satisfied: false with nothing unmet is the mirror contradiction.
+    expect(
+      CutoverGateReportSchema.safeParse({
+        ...base,
+        satisfied: false,
+        conditions: [{ id: 'a', met: true, detail: 'x' }],
+        unmet: [],
+      }).success,
+    ).toBe(false);
+
+    // …and the two CONSISTENT shapes still parse, so this rejects contradiction
+    // rather than rejecting reports.
+    expect(
+      CutoverGateReportSchema.safeParse({
+        ...base,
+        satisfied: true,
+        conditions: [{ id: 'a', met: true, detail: 'x' }],
+        unmet: [],
+      }).success,
+    ).toBe(true);
+    expect(
+      CutoverGateReportSchema.safeParse({
+        ...base,
+        satisfied: false,
+        conditions: [
+          { id: 'a', met: true, detail: 'x' },
+          { id: 'b', met: false, detail: 'x' },
+        ],
+        unmet: ['b'],
+      }).success,
+    ).toBe(true);
   });
 });
