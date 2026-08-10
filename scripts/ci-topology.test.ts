@@ -223,6 +223,22 @@ function derivedLicensedSkips(workflow: Workflow): {
   return { map, multiKeyLanes };
 }
 
+/**
+ * The conformance comparison itself, factored out so the live check and the
+ * path-filter kill fixture below exercise one implementation rather than two
+ * hand-aligned copies of the same equality.
+ */
+function licensedSkipsMatchPathFilters(workflow: Workflow, step: WorkflowStep): boolean {
+  const { map: derived, multiKeyLanes } = derivedLicensedSkips(workflow);
+  if (multiKeyLanes.length > 0) return false;
+  const flatten = (m: Map<string, string>): string =>
+    [...m.entries()]
+      .map(([lane, key]) => `${lane}=${key}`)
+      .sort()
+      .join('|');
+  return flatten(declaredLicensedSkips(step)) === flatten(derived);
+}
+
 /** A synthetic `needs` context: what GitHub hands the aggregator via `toJSON(needs)`. */
 type NeedsContext = Record<string, { result: string; outputs?: Record<string, string> }>;
 
@@ -504,6 +520,40 @@ describe('CI-gate execution policy (DR-10)', () => {
     expect(asSorted(declared), 'LICENSED_SKIPS does not match the lanes\' own if: expressions').toEqual(
       asSorted(derived),
     );
+    expect(licensedSkipsMatchPathFilters(workflow, step)).toBe(true);
+  });
+
+  it('Aggregator_LaneGainsAPathFilterWithoutALicence_Reddens', () => {
+    // The task's kill fixture in its structural form. Giving `grep-gates` a
+    // path filter is the change that would make the substrate's host lane
+    // skippable, and it must not be landable quietly: the derived mapping
+    // picks the new filter up, the declaration no longer restates it, and
+    // this conformance check goes red until someone states the licence
+    // deliberately. (A skip of the lane reddens at runtime either way — see
+    // Aggregator_GrepGatesSkipped_Reddens — so the filter can never become a
+    // silent pass; this is the earlier, louder tripwire.)
+    const workflow = loadWorkflow(CI_WORKFLOW_PATH);
+    const step = evaluateStep(workflow);
+    const grepGates = workflow.jobs['grep-gates'];
+    expect(grepGates, 'grep-gates lane not found').toBeDefined();
+    expect(pathFilterKeys(grepGates), 'grep-gates already has a path filter').toEqual([]);
+
+    const withFilter: Workflow = {
+      ...workflow,
+      jobs: {
+        ...workflow.jobs,
+        'grep-gates': {
+          ...grepGates,
+          if: `${grepGates?.if ?? ''} && needs.changes.outputs.root == 'true'`,
+        },
+      },
+    };
+
+    expect(derivedLicensedSkips(withFilter).map.get('grep-gates')).toBe('root');
+    expect(
+      licensedSkipsMatchPathFilters(withFilter, step),
+      'a path filter was added to grep-gates and the conformance check still passed',
+    ).toBe(false);
   });
 
   // ── Executable assertions: the shipped script, run for real ─────────────
