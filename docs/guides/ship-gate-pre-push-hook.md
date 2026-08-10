@@ -56,8 +56,11 @@ The hook reads three environment variables (all optional):
 Set them in your shell profile, or inline per push:
 
 ```sh
-EXARCHOS_SHIP_VERB="orch prepare_synthesis" git push
+EXARCHOS_SHIP_VERB="orch prepare_synthesis --repo-root $PWD" git push
 ```
+
+`EXARCHOS_SHIP_VERB` is word-split, so it can carry the verb's own flags — which is how a verb with required inputs beyond `--feature-id` is reachable here.
+`prepare_synthesis` needs `--repo-root`: it shells out on four legs and refuses to guess which tree they measure, so omitting it makes the verb exit `INVALID_INPUT` and the hook degrade open rather than gate anything.
 
 ## Bypass and uninstall
 

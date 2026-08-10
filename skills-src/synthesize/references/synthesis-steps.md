@@ -6,9 +6,12 @@ Call the `prepare_synthesis` composite action to validate all preconditions in a
 ```typescript
 mcp__plugin_exarchos_exarchos__exarchos_orchestrate({
   action: "prepare_synthesis",
-  featureId: "<featureId>"
+  featureId: "<featureId>",
+  repoRoot: "<absolute path of the repo under synthesis>"
 })
 ```
+
+`repoRoot` is required and names the tree being judged: every shelling leg below runs with it as `cwd`. The gate never falls back to the server's own working directory, so a missing `repoRoot` is rejected instead of answered about an unrelated repo.
 
 The composite action validates all readiness conditions:
 - All delegated tasks complete (from state file)
