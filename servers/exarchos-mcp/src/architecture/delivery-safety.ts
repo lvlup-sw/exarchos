@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 /**
@@ -23,6 +23,13 @@ import { join } from 'node:path';
  *
  * This is the same "string-aware static scan producing a typed verdict" shape as
  * `orchestrate/gate-ownership-census.ts`.
+ *
+ * ── Population (DR-8, task 079) ─────────────────────────────────────────────
+ * WHICH modules are on a required delivery path is derived from the import
+ * graph, not transcribed: see {@link resolveRequiredDeliveryModules}. The
+ * superseded hand-written array listed two of the four modules under `channel/`
+ * and missed `event-store/composite.ts` entirely, and nothing in the check could
+ * tell a correct list from a stale one.
  */
 
 export interface SwallowFinding {
@@ -181,35 +188,139 @@ export function findSilentSwallows(source: string): SwallowFinding[] {
 }
 
 /**
- * Repo-relative modules that carry a required delivery contract and therefore
- * MUST be free of silent swallows. Paths are relative to the scan `sourceRoot`,
- * forward-slashed.
+ * The module that DECLARES the required-delivery contract. Everything on a
+ * required delivery path either is this module or reaches it.
+ *
+ * Named once, here, because it is the seed of the derived population below —
+ * spelling it a second time anywhere else would reintroduce the hand-maintained
+ * list this replaces.
  */
-export const REQUIRED_DELIVERY_MODULES: readonly string[] = [
-  'channel/delivery.ts',
-  'channel/emitter.ts',
-];
+export const DELIVERY_CONTRACT_MODULE = 'channel/delivery.ts';
+
+/**
+ * Modules on a required delivery path, DERIVED from a module property rather
+ * than transcribed (DR-8, task 079).
+ *
+ * This used to be a frozen two-element array — two of the four modules under
+ * `channel/` — with no way to tell a correct list from a stale one, and its test
+ * asserted the constant contained what the constant declared: a comparison with
+ * itself, which can never disagree.
+ *
+ * The property that actually defines the population: a module is on a required
+ * delivery path iff it DECLARES the contract ({@link DELIVERY_CONTRACT_MODULE})
+ * or IMPORTS it. That is derivable from the import graph, so a new module that
+ * starts delivering is covered the day it lands rather than the day someone
+ * remembers to widen an array. It is also strictly wider than the list it
+ * replaces: `event-store/composite.ts` imports `deliver` and was never scanned.
+ *
+ * The scan is deliberately one hop, not transitive: `deliver`'s required arm
+ * throws, so the failure propagates by construction through intermediate frames.
+ * A silent swallow only discards it at a site that holds the call.
+ */
+export async function resolveRequiredDeliveryModules(sourceRoot: string): Promise<string[]> {
+  const importsContract = (source: string, fromDir: string): boolean => {
+    const masked = maskLiteralsAndComments(source);
+    // Specifiers live inside string literals, which the mask blanks — so match
+    // on the raw source and use the mask only to reject commented-out imports.
+    for (const match of source.matchAll(/(?:^|\n)\s*import[\s\S]{0,400}?from\s*['"]([^'"]+)['"]/g)) {
+      const specifier = match[1] ?? '';
+      const index = match.index ?? 0;
+      if (masked.slice(index, index + 8).trim() === '') continue;
+      const target = specifier.replace(/\.js$/, '.ts');
+      const resolved = target.startsWith('.')
+        ? join(fromDir, target).replaceAll('\\', '/')
+        : target;
+      if (resolved === DELIVERY_CONTRACT_MODULE) return true;
+    }
+    return false;
+  };
+
+  const modules = new Set<string>([DELIVERY_CONTRACT_MODULE]);
+  const walk = async (dir: string): Promise<void> => {
+    for (const entry of await readdir(join(sourceRoot, dir), { withFileTypes: true })) {
+      const rel = dir === '' ? entry.name : `${dir}/${entry.name}`;
+      if (entry.isDirectory()) {
+        if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name.startsWith('.')) {
+          continue;
+        }
+        await walk(rel);
+      } else if (
+        entry.name.endsWith('.ts') &&
+        !entry.name.endsWith('.test.ts') &&
+        !entry.name.endsWith('.d.ts')
+      ) {
+        if (importsContract(await readFile(join(sourceRoot, rel), 'utf8'), dir)) modules.add(rel);
+      }
+    }
+  };
+  await walk('');
+  return [...modules].sort();
+}
+
+export type DeliverySafetyCode = 'EMPTY_POPULATION' | 'SILENT_SWALLOW';
 
 export interface DeliverySafetyResult {
   readonly ok: boolean;
   readonly findings: readonly { readonly module: string; readonly finding: SwallowFinding }[];
+  /** The modules actually scanned — the denominator the findings are read against. */
+  readonly modules: readonly string[];
+  readonly diagnostics: readonly { readonly code: DeliverySafetyCode; readonly message: string }[];
 }
 
 /**
- * Read every {@link REQUIRED_DELIVERY_MODULES} module under `sourceRoot` and
- * return a verdict: `ok` iff none contains a silent swallow. Drives the
- * exit-proof test against the real delivery source.
+ * Read every required-delivery module under `sourceRoot` and return a verdict:
+ * `ok` iff the population is non-empty AND none of its modules contains a silent
+ * swallow.
+ *
+ * NON-EMPTY DENOMINATOR (DR-8, task 079): an empty module list produced
+ * `ok: true` with zero findings — the same verdict a clean delivery path
+ * produces. "Nothing to check" and "checked, nothing wrong" must not be the same
+ * answer, so an empty population is now an `EMPTY_POPULATION` failure.
+ *
+ * `modules` defaults to the DERIVED population; pass an explicit list to scan a
+ * fixture tree.
  */
 export async function auditDeliverySafety(
   sourceRoot: string,
-  modules: readonly string[] = REQUIRED_DELIVERY_MODULES,
+  modules?: readonly string[],
 ): Promise<DeliverySafetyResult> {
+  const scanned = modules ?? (await resolveRequiredDeliveryModules(sourceRoot));
+  if (scanned.length === 0) {
+    return Object.freeze({
+      ok: false,
+      findings: Object.freeze([]),
+      modules: Object.freeze([]),
+      diagnostics: Object.freeze([
+        {
+          code: 'EMPTY_POPULATION' as const,
+          message:
+            `No required-delivery module resolved under "${sourceRoot}". A swallow sweep over ` +
+            'an empty population reports "no silent swallow" for the same reason a clean ' +
+            `delivery path does. Either ${DELIVERY_CONTRACT_MODULE} moved, or the import-graph ` +
+            'derivation stopped resolving it.',
+        },
+      ]),
+    });
+  }
+
   const findings: { module: string; finding: SwallowFinding }[] = [];
-  for (const module of modules) {
+  for (const module of scanned) {
     const source = await readFile(join(sourceRoot, module), 'utf8');
     for (const finding of findSilentSwallows(source)) {
       findings.push({ module, finding });
     }
   }
-  return Object.freeze({ ok: findings.length === 0, findings });
+  return Object.freeze({
+    ok: findings.length === 0,
+    findings,
+    modules: Object.freeze([...scanned]),
+    diagnostics: Object.freeze(
+      findings.map((entry) => ({
+        code: 'SILENT_SWALLOW' as const,
+        message:
+          `${entry.module}:${entry.finding.line} discards a failure without a trace ` +
+          `(${entry.finding.kind}): ${entry.finding.snippet}`,
+      })),
+    ),
+  });
 }
