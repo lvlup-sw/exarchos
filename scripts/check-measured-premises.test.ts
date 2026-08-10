@@ -43,6 +43,9 @@ import {
   countWithCappedShapeDeclarations,
   resolveRungProbe,
   DERIVATIONS,
+  EXIT_PASS,
+  EXIT_FAIL,
+  EXIT_GAPS,
   // @ts-expect-error — `.mjs` gate script with JSDoc types only, deliberately not
   // compiled: `node scripts/check-measured-premises.mjs` is the failable path.
 } from './check-measured-premises.mjs';
@@ -375,16 +378,17 @@ describe('check-measured-premises (task 054, DR-27)', () => {
     expect(['pass', 'gaps', 'fail']).toContain(report.verdict);
     expect(status).toBe(report.exitCode);
     if (report.verdict === 'gaps') {
-      expect(status).toBe(3);
-      expect(status).not.toBe(0);
+      expect(status).toBe(EXIT_GAPS);
+      expect(status).not.toBe(EXIT_PASS);
     } else if (report.verdict === 'pass') {
-      expect(status).toBe(0);
+      expect(status).toBe(EXIT_PASS);
     } else {
-      expect(status).toBe(1);
+      expect(status).toBe(EXIT_FAIL);
     }
-    // The codes are pairwise distinct by construction — a reader can always
-    // tell the three apart without parsing prose.
-    expect(new Set([0, 1, 3]).size).toBe(3);
+    // Distinctness read off the PRODUCTION constants, not off local literals —
+    // `new Set([0, 1, 3])` is a statement about the test file and survives any
+    // renumbering of the codes it claims to be checking.
+    expect(new Set([EXIT_PASS, EXIT_FAIL, EXIT_GAPS]).size).toBe(3);
   }, 300_000);
 
   it('MeasuredPremises_UnregisteredDerivationName_FailsRatherThanSkips', () => {
