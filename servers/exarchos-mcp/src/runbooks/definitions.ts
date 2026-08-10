@@ -174,7 +174,14 @@ export const SYNTHESIS_FLOW: RunbookDefinition = {
   phase: 'synthesize',
   description: 'Verify readiness, create PR, submit for merge.',
   steps: [
-    { tool: 'exarchos_orchestrate', action: 'prepare_synthesis', onFail: 'stop' },
+    // DR-8 (#1756): `repoRoot` is a REQUIRED field on the action schema — the
+    // four readiness legs shell out and the gate refuses to guess which tree
+    // they measure. Fill `<repoRoot>` with the absolute path of the repo the
+    // verdict is about (the integration worktree during a stacked synthesis),
+    // not the directory the MCP server happens to be running in.
+    { tool: 'exarchos_orchestrate', action: 'prepare_synthesis', onFail: 'stop',
+      params: { repoRoot: '<repoRoot>' },
+      note: 'Fill <repoRoot> with the absolute path of the repo under synthesis; all four legs (tests, typecheck, stack, changed files) run there' },
     { tool: 'exarchos_orchestrate', action: 'validate_pr_stack', onFail: 'stop' },
     { tool: 'exarchos_orchestrate', action: 'validate_pr_body', onFail: 'stop' },
     { tool: 'native:bash', action: 'gh_pr_create', onFail: 'stop',
@@ -185,7 +192,7 @@ export const SYNTHESIS_FLOW: RunbookDefinition = {
   ],
   // T5a.1/DR-4 (v2.11): added `stream` and `event` template vars to cover
   // the new `event.append` step's required schema fields.
-  templateVars: ['featureId', 'baseBranch', 'stream', 'event'],
+  templateVars: ['featureId', 'baseBranch', 'repoRoot', 'stream', 'event'],
   // T5a.1/DR-4 (v2.11): `set` removed. The `hsm.deprecated_action_invoked`
   // emission disappeared with it; remaining auto-emits are the canonical
   // event types this synthesis flow still produces. `state.patched` is
