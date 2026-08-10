@@ -1,3 +1,17 @@
+// ── A DR-30 note on the bijection at the foot of this file ──────────────────
+//
+// The two things it compares — `runbook.autoEmits` in `./definitions.ts` and the
+// `ToolAction.autoEmits` the registry declares — are hand-written in two places,
+// but `../registry.ts` REACHES `./definitions.ts` in the static import graph, so
+// DR-30 counts them as one authority wearing two names. That is why the
+// assertions are per-element membership checks rather than
+// `expect(missingIds).toEqual([])`: a census-diff assertion claims two
+// independent oracles, and this comparison has one. Same form as the emission
+// registry containment check above, for the same reason.
+//
+// This is a real limit on what the check proves. It cannot witness that the
+// REGISTRY is right about what a tool emits — only that the runbook's summary
+// and the registry's own declaration agree.
 import { describe, it, expect } from 'vitest';
 import { zodToJsonSchema } from '../adapters/json-schema.js';
 import { ALL_RUNBOOKS, TASK_COMPLETION } from './definitions.js';
@@ -164,13 +178,14 @@ describe('Runbook autoEmits ⇄ step-derived emissions (bijection)', () => {
     // direction the deletion lost.
     for (const runbook of ALL_RUNBOOKS) {
       const derived = new Set(stepDerivedAutoEmits(runbook));
-      const phantom = [...runbook.autoEmits].filter((event) => !derived.has(event)).sort();
-      expect(
-        phantom,
-        `Runbook '${runbook.id}' declares autoEmits ${JSON.stringify(phantom)} that no step ` +
-          'produces. An agent reads autoEmits to decide it need not append the record itself, so ' +
-          'a phantom entry means the record is never written and nobody is told.',
-      ).toEqual([]);
+      for (const event of runbook.autoEmits) {
+        expect(
+          derived.has(event),
+          `Runbook '${runbook.id}' declares autoEmits '${event}' that no step produces. An agent ` +
+            'reads autoEmits to decide it need not append the record itself, so a phantom entry ' +
+            'means the record is never written and nobody is told.',
+        ).toBe(true);
+      }
     }
 
     // The fixture proves the assertion can fail: a runbook that declares one more
@@ -181,9 +196,7 @@ describe('Runbook autoEmits ⇄ step-derived emissions (bijection)', () => {
       autoEmits: [...TASK_COMPLETION.autoEmits, 'workflow.transition'],
     };
     const derived = new Set(stepDerivedAutoEmits(phantomDeclarer));
-    expect([...phantomDeclarer.autoEmits].filter((e) => !derived.has(e))).toEqual([
-      'workflow.transition',
-    ]);
+    expect(derived.has('workflow.transition')).toBe(false);
   });
 
   it('RunbookAutoEmits_StepEmitsButNotDeclared_FailsBijection', () => {
@@ -192,12 +205,12 @@ describe('Runbook autoEmits ⇄ step-derived emissions (bijection)', () => {
     // because the runbook did not say the tool already had.
     for (const runbook of ALL_RUNBOOKS) {
       const declared = new Set(runbook.autoEmits);
-      const undeclared = stepDerivedAutoEmits(runbook).filter((event) => !declared.has(event));
-      expect(
-        undeclared,
-        `Runbook '${runbook.id}' steps emit ${JSON.stringify(undeclared)} which it does not ` +
-          'declare in autoEmits.',
-      ).toEqual([]);
+      for (const event of stepDerivedAutoEmits(runbook)) {
+        expect(
+          declared.has(event),
+          `Runbook '${runbook.id}' steps emit '${event}' which it does not declare in autoEmits.`,
+        ).toBe(true);
+      }
     }
 
     const underDeclarer: RunbookDefinition = { ...TASK_COMPLETION, autoEmits: [] };
@@ -212,6 +225,11 @@ describe('Runbook autoEmits ⇄ step-derived emissions (bijection)', () => {
     const emitting = ALL_RUNBOOKS.filter((r) => stepDerivedAutoEmits(r).length > 0);
     expect(emitting.length).toBeGreaterThan(0);
     expect(ALL_RUNBOOKS.length).toBeGreaterThan(emitting.length);
-    expect(stepDerivedAutoEmits(TASK_COMPLETION)).toEqual([...TASK_COMPLETION.autoEmits].sort());
+
+    // Cardinality both ways on a concrete runbook, so "every declared entry is
+    // derived" cannot be satisfied by a derivation that returns everything.
+    const derived = stepDerivedAutoEmits(TASK_COMPLETION);
+    expect(derived.length).toBe(TASK_COMPLETION.autoEmits.length);
+    expect(derived.length).toBeGreaterThan(1);
   });
 });
