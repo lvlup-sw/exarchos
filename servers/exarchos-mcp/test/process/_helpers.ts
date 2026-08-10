@@ -52,8 +52,7 @@ import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { spawnSync } from 'node:child_process';
-import { isPidAlive, needsWindowsShell } from '../../src/utils/process.js';
+import { isPidAlive, spawnCommandSync } from '../../src/utils/process.js';
 
 // ─── Repo-root discovery ────────────────────────────────────────────────────
 
@@ -303,18 +302,12 @@ function defaultRunBuild(repoRoot: string, outDir: string): void {
   // `bun` on win32 is a `.cmd`/`.ps1` shim, which `spawnSync` cannot resolve
   // without a shell — it returns `status: null` with no stdout/stderr, which the
   // check below reported as an opaque "build-binary.ts failed (exit null)".
-  // The repo already owns this rule in `utils/process.ts`; reuse it rather than
-  // re-deriving the platform test here.
-  const useShell = needsWindowsShell('bun');
-  const result = spawnSync(
+  // `spawnCommandSync` IS that rule; calling it beats re-deriving the shell
+  // decision beside a raw spawn, which reads to any scanner as the bare form.
+  const result = spawnCommandSync(
     'bun',
     ['run', 'scripts/build-binary.ts', '--outdir', outDir],
-    {
-      cwd: repoRoot,
-      stdio: 'pipe',
-      encoding: 'utf8',
-      ...(useShell ? { shell: true } : {}),
-    },
+    { cwd: repoRoot, stdio: 'pipe', encoding: 'utf8' },
   );
   if (result.error !== undefined || result.status !== 0) {
     throw new Error(

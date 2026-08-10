@@ -27,11 +27,12 @@
  * Exit 0 — clean (ESLint reports zero errors).
  * Exit 1 — ESLint reports one or more errors (a registered handler can
  *          abnormally complete via a throw).
- * Exit 2 — fail-closed: eslint could not be spawned, or exited for a reason
- *          other than reporting lint errors (e.g. a missing/unreadable
- *          `--config` path).
+ * Exit 2 — fail-closed: eslint is not installed or could not be spawned, or
+ *          exited for a reason other than reporting lint errors (e.g. a
+ *          missing/unreadable `--config` path).
  */
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as path from 'node:path';
 import process from 'node:process';
@@ -39,6 +40,18 @@ import process from 'node:process';
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, '..');
 const DEFAULT_CONFIG = path.join(REPO_ROOT, 'eslint.envelopes.config.js');
+/**
+ * ESLint's own JS entry point. Spawned under `process.execPath` rather than
+ * shelling out to `npx`: `npx` is a `.cmd` shim on Windows and raw `spawnSync`
+ * cannot launch one since CVE-2024-27980, so `spawnSync('npx', …)` returned
+ * `status: null` on every Windows host — this wrapper's fail-closed arm then
+ * reported "could not spawn eslint" and the lane never ran the rule at all.
+ *
+ * Resolving the entry point also keeps the property `--no-install` was there
+ * for: a missing/un-installed eslint is a MISSING FILE here, so it fails closed
+ * locally with no network fallback to reason about.
+ */
+const ESLINT_CLI = path.join(REPO_ROOT, 'node_modules', 'eslint', 'bin', 'eslint.js');
 const DEFAULT_TARGET = 'servers/exarchos-mcp/src/orchestrate/**/*.ts';
 
 const EXIT_CLEAN = 0;
@@ -86,14 +99,19 @@ function parseArgs(argv) {
 function main() {
   const args = parseArgs(process.argv);
 
-  // `npx --no-install` resolves the eslint binary already declared as a
-  // devDependency without any network fallback — a missing/un-installed
-  // eslint fails closed here rather than attempting to download one.
+  if (!existsSync(ESLINT_CLI)) {
+    process.stderr.write(
+      `lint-envelopes: eslint not installed at ${ESLINT_CLI} (fail-closed). ` +
+        "Run 'npm install'.\n",
+    );
+    process.exit(EXIT_FAILCLOSED);
+  }
+
   let result;
   try {
     result = spawnSync(
-      'npx',
-      ['--no-install', 'eslint', '--config', args.config, args.target],
+      process.execPath,
+      [ESLINT_CLI, '--config', args.config, args.target],
       { cwd: REPO_ROOT, stdio: 'inherit' },
     );
   } catch (err) {

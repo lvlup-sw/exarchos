@@ -26,6 +26,7 @@
  */
 import { readFileSync } from 'node:fs';
 import process from 'node:process';
+import { fileURLToPath } from 'node:url';
 
 const LOAD_BEARING_PREFIX =
   'servers/exarchos-mcp/tests/fixtures/load-bearing/';
@@ -107,8 +108,10 @@ const invokedDirectly = (() => {
   try {
     const argv1 = process.argv[1];
     if (!argv1) return false;
-    const self = new URL(import.meta.url).pathname;
-    return argv1 === self || argv1.endsWith('/check-golden-fixture-note.mjs');
+    // `new URL(import.meta.url).pathname` yields `/D:/…` on Windows, which never
+    // equals `process.argv[1]` and doubles to `D:\D:\…` under `path.resolve`.
+    const self = fileURLToPath(import.meta.url);
+    return argv1 === self || /[/\\]check-golden-fixture-note\.mjs$/.test(argv1);
   } catch {
     return false;
   }
