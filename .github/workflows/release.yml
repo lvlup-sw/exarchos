@@ -293,6 +293,34 @@ jobs:
           echo "Derived TARGETS length: ${count}"
           echo "count=${count}" >> "$GITHUB_OUTPUT"
 
+      # The count alone cannot see a RENAME. Swap one target for another and
+      # the matrix, the `files:` list and both count checks stay green while the
+      # published asset names have changed — `release-workflow.test.ts` does
+      # check exact names, but it runs in the `release` job, which
+      # `publish-release` does not depend on, so its failure would not stop the
+      # upload. This derives the exact expected filenames from the same TARGETS
+      # tuple and puts them on the publish path itself.
+      - name: Derive expected asset names from TARGETS
+        id: target-names
+        run: |
+          set -euo pipefail
+          names=$(bun -e "
+            import('./scripts/build-binary-targets.ts').then((m) => {
+              const files = m.TARGETS.flatMap((t) => {
+                const base = \`exarchos-\${t.os}-\${t.arch}\${t.os === 'windows' ? '.exe' : ''}\`;
+                return [base, \`\${base}.sha512\`];
+              });
+              console.log(files.sort().join('\n'));
+            })
+          ")
+          echo "Expected assets:"
+          echo "${names}"
+          {
+            echo 'names<<EOF'
+            echo "${names}"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Download all binary-matrix artifacts
         uses: actions/download-artifact@v4
         with:
@@ -324,6 +352,16 @@ jobs:
           actual=$(find dist/release -maxdepth 1 -type f | wc -l)
           if [[ "$actual" -ne "$expected" ]]; then
             echo "::error::expected ${expected} matrix assets (${target_count} targets x {binary, .sha512}), found ${actual}"
+            exit 1
+          fi
+
+          # …and the exact SET, not just the size. A target renamed without a
+          # count change keeps every count check green while publishing
+          # different files than TARGETS declares.
+          printf '%s\n' '${{ steps.target-names.outputs.names }}' | sort > /tmp/expected-assets.txt
+          find dist/release -maxdepth 1 -type f -printf '%f\n' | sort > /tmp/actual-assets.txt
+          if ! diff -u /tmp/expected-assets.txt /tmp/actual-assets.txt; then
+            echo "::error::published asset names do not match the TARGETS-derived set (see diff above)"
             exit 1
           fi
 

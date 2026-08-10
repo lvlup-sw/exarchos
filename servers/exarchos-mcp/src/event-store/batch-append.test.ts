@@ -96,6 +96,79 @@ describe('batch_append event-data validation (DR-1)', () => {
     expect(storedEvents(query)).toHaveLength(0);
   });
 
+  it('BatchAppend_DiscardedDuplicate_IsNotValidated_InEitherClass', async () => {
+    // `resolveBatchEvents` defines FIRST OCCURRENCE WINS, and the two
+    // validation classes disagreed about what that means: structural checks
+    // (type / reserved / misplaced fields) ran over the raw input, so a
+    // discarded duplicate with a misplaced field rejected the batch — while the
+    // per-type data check ran over the survivors, so the same duplicate with an
+    // invalid `data` payload did not. An event that is never appended cannot
+    // reject the append; both classes now read the survivors.
+    const key = 'dup-key-1';
+    const misplacedDuplicate = await handleBatchAppend(
+      {
+        stream: 'dedup-misplaced',
+        events: [
+          { ...WELL_FORMED_EVENT, idempotencyKey: key },
+          // Same key ⇒ discarded. Its misplaced top-level field is irrelevant.
+          { ...WELL_FORMED_EVENT, idempotencyKey: key, taskId: 'at-the-wrong-level' },
+        ],
+      },
+      tempDir,
+      eventStore,
+    );
+    expect(misplacedDuplicate.success, JSON.stringify(misplacedDuplicate.error)).toBe(true);
+
+    // …and the data-invalid duplicate behaves the SAME way, which is the
+    // agreement that was missing.
+    const dataInvalidDuplicate = await handleBatchAppend(
+      {
+        stream: 'dedup-data',
+        events: [
+          { ...WELL_FORMED_EVENT, idempotencyKey: 'dup-key-2' },
+          { ...STRING_EVIDENCE_EVENT, idempotencyKey: 'dup-key-2' },
+        ],
+      },
+      tempDir,
+      eventStore,
+    );
+    expect(dataInvalidDuplicate.success, JSON.stringify(dataInvalidDuplicate.error)).toBe(true);
+
+    // Exactly one event landed on each stream — the first occurrence.
+    for (const stream of ['dedup-misplaced', 'dedup-data']) {
+      const query = await handleEventQuery({ stream }, tempDir, eventStore);
+      expect(storedEvents(query)).toHaveLength(1);
+    }
+  });
+
+  it('BatchAppend_MalformedElement_ReturnsInvalidInputRatherThanThrowing', async () => {
+    // `events: [null]` reached `null.idempotencyKey` inside `resolveBatchEvents`
+    // and threw, so the handler could never return its own envelope — an MCP
+    // caller got a crash where the contract promises a typed error.
+    for (const malformed of [null, 42, 'an event', []] as unknown[]) {
+      const result = await handleBatchAppend(
+        { stream: 'malformed', events: [malformed] as Record<string, unknown>[] },
+        tempDir,
+        eventStore,
+      );
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('INVALID_INPUT');
+      expect(result.error?.message).toContain('events[0]');
+    }
+
+    // A malformed element AFTER a valid one still names its own position.
+    const mixed = await handleBatchAppend(
+      { stream: 'malformed', events: [{ ...WELL_FORMED_EVENT }, null] as Record<string, unknown>[] },
+      tempDir,
+      eventStore,
+    );
+    expect(mixed.success).toBe(false);
+    expect(mixed.error?.message).toContain('events[1]');
+
+    const query = await handleEventQuery({ stream: 'malformed' }, tempDir, eventStore);
+    expect(storedEvents(query)).toHaveLength(0);
+  });
+
   it('AppendAndBatchAppend_IdenticalPayload_AgreeOnValidity', async () => {
     const payloads: ReadonlyArray<{ label: string; event: Record<string, unknown> }> = [
       { label: 'string-evidence', event: { ...STRING_EVIDENCE_EVENT } },

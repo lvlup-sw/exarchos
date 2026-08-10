@@ -458,7 +458,15 @@ describe('DR-4 (074): entrypoint predicates test identity, not filename', () => 
     const linkedDir = join(scratchDir, 'a-link-to-the-bun-probe-dir');
     linkOrCopy(probeDir, linkedDir, true);
 
-    const bunSite: Site = { ...SITES[1]!, runner: 'bun' };
+    // Selected by RUNNER, not by position. `SITES[1]` bound this probe to an
+    // array index, so reordering the table would have run the Bun-semantics arm
+    // under tsx and still passed — and the set assertion above cannot see it,
+    // because the table still contains both runners. That is precisely the
+    // vacuity this file exists to reject, on the one arm DR-4 asked to be
+    // measured empirically rather than assumed.
+    const bunTemplate = SITES.find((s) => s.runner === 'bun');
+    expect(bunTemplate, 'no site in SITES runs under bun — this probe measures nothing').toBeDefined();
+    const bunSite: Site = { ...bunTemplate!, runner: 'bun' };
     expect(runEntrypoint(bunSite, join(probeDir, probeName), probeDir).stdout).toBe('true');
     expect(runEntrypoint(bunSite, probeName, probeDir).stdout).toBe('true');
     expect(runEntrypoint(bunSite, join(linkedDir, probeName), probeDir).stdout).toBe('true');

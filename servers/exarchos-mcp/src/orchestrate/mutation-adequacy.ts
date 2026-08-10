@@ -750,6 +750,26 @@ export function resolveMutationRunnerCwd(input: {
 
   if (input.declaredRunnerDir !== undefined) {
     const declared = path.resolve(repoRoot, input.declaredRunnerDir);
+    // `runnerDir` is documented as repo-root-RELATIVE, and only resolution and
+    // existence were checked — so an absolute path, or one climbing out with
+    // `..`, resolved outside the repository and the mutation command then ran
+    // there. The gate would report a score for a tree that is not the one under
+    // review, and `relativeToRepo` would render the carrier's directory as a
+    // `..`-prefixed string that identifies no location in this repository.
+    // Containment is checked on the RESOLVED path, with the separator appended
+    // so a sibling like `<repoRoot>-other` cannot pass a prefix test.
+    const withinRepo =
+      declared === repoRoot || declared.startsWith(`${repoRoot}${path.sep}`);
+    if (!withinRepo) {
+      return {
+        ok: false,
+        reason:
+          `mutation-adequacy: the declared mutation runner directory ` +
+          `'${input.declaredRunnerDir}' resolves to ${declared}, which is outside ` +
+          `${repoRoot}. runnerDir is repo-root-relative; a directory outside the ` +
+          `repository would be scored in place of the one under review`,
+      };
+    }
     if (!pathExists(declared)) {
       return {
         ok: false,

@@ -455,6 +455,17 @@ export function auditReportCouplingSeed(
       case 'EXPIRED':
         perEntry.push({ code: 'EXPIRED_SEED_ENTRY', eventType, message: finding.message });
         break;
+      default: {
+        // A `switch` with no `default` compiles fine when the union grows, so a
+        // seventh ledger code would have been dropped here in silence — by a
+        // mapping whose comment claims it carries every verdict across. The
+        // `never` assignment makes that a COMPILE error instead.
+        const unmapped: never = finding.code;
+        throw new Error(
+          `report-coupling-census: unmapped waiver-ledger finding code ${String(unmapped)}. ` +
+            'Every ledger verdict must be given a G3 name, or the audit silently drops it.',
+        );
+      }
     }
   }
 

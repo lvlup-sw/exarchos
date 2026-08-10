@@ -92,7 +92,9 @@ export interface ResolvedBatchEvent {
 
 export type BatchResolution =
   | { readonly ok: true; readonly events: readonly ResolvedBatchEvent[] }
-  | { readonly ok: false; readonly reason: 'empty-input' | 'empty-after-dedup' };
+  | { readonly ok: false; readonly reason: 'empty-input' | 'empty-after-dedup' }
+  /** A non-object element — reported by position, never deduplicated. */
+  | { readonly ok: false; readonly reason: 'malformed-element'; readonly index: number };
 
 /**
  * Resolve the events a batch will actually append: drop intra-batch duplicates
@@ -114,7 +116,15 @@ export function resolveBatchEvents(
   const resolved: ResolvedBatchEvent[] = [];
   for (let index = 0; index < events.length; index++) {
     const event = events[index];
-    if (event === undefined) continue;
+    // A `null` or non-object element is MALFORMED, not deduplicable. The
+    // declared type says `Record<string, unknown>`, but this runs on MCP input:
+    // `events: [null]` reached `null.idempotencyKey` and threw, so the handler
+    // could never return its own INVALID_INPUT envelope. Reported by position
+    // and fails the batch, which is what all-or-nothing atomicity already says
+    // about any other invalid element.
+    if (event === undefined || event === null || typeof event !== 'object') {
+      return { ok: false, reason: 'malformed-element', index };
+    }
     const key = event.idempotencyKey;
     if (typeof key === 'string') {
       if (seenKeys.has(key)) continue;

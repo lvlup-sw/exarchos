@@ -337,7 +337,14 @@ export interface KeySetPin {
   readonly keySet: readonly string[];
   /** `|live ∪ retired|` — the size legal edits do not change. */
   readonly keySetSize: number;
-  /** Digest computed from the live key set. */
+  /**
+   * Digest over {@link keySet} — the UNION of live and retired, not the live
+   * keys alone. That distinction is the whole ratchet: a paydown MOVES a key
+   * from live to retired, so the union is invariant and the pin does not need
+   * regenerating. Digesting only the live set would make every paydown look
+   * like drift, and a pin that must be regenerated on every legal edit carries
+   * no information.
+   */
   readonly digest: string;
   /** Keys present in BOTH maps. A paydown is a MOVE, never a copy. */
   readonly overlapping: readonly string[];
