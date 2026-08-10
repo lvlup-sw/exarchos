@@ -133,7 +133,12 @@ describe('orchestrate action registry — longRunning metadata (DR-5)', () => {
 // required-flag footprint; centralizing them here keeps the parametrized
 // test body action-agnostic.
 const EXTRA_ARGS_PER_ACTION: Record<string, string[]> = {
-  prepare_synthesis: [],
+  // DR-8 (#1756): `repoRoot` is required on the prepare_synthesis schema — the
+  // gate refuses to guess which tree its four shelling legs measure. Without
+  // the flag the CLI's own safeParse rejects before dispatch, and this suite
+  // would "pass" on the quick-exit arm while never reaching the heartbeat path
+  // it exists to exercise.
+  prepare_synthesis: ['--repo-root', process.cwd()],
   assess_stack: ['--pr-numbers', '[1]'],
   // #1329: only requires featureId; no extra required flags.
   check_integration_suite: [],
