@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { spawnCommandSync } from '../utils/process.js';
 import {
   detectRuntimeCycles,
+  scanRuntimeCycleGraph,
+  EmptyCycleGraphError,
   runtimeEdgeExists,
   unbaselinedCycleEdges,
   phantomBaselineEntries,
@@ -222,6 +224,58 @@ describe('detectRuntimeCycles', () => {
       ['src/b.ts', 'src/c.ts'],
     ]);
     expect(detectRuntimeCycles(json, 'src')).toEqual([]);
+  });
+
+  // ── DR-8 / task 079 — "no cycle" and "nothing examined" are different ──────
+  //
+  // Cycle detection has no natural tooth of its own. "No cycle" is the healthy
+  // answer, so it is also what a scan that resolved nothing returns — and a
+  // `srcPrefix` matching nothing is an easy, silent way to get there. The
+  // blocking CI consumer printed `OK: 0 runtime cycle(s)` and exited 0 on it.
+
+  it('ScanRuntimeCycleGraph_ReportsTheFirstPartyPopulationItSearched', () => {
+    const json = graph([
+      ['src/a.ts', 'src/b.ts'],
+      ['src/b.ts', 'src/c.ts'],
+      ['src/c.ts', 'vendor/x.ts'],
+    ]);
+    const scan = scanRuntimeCycleGraph(json, 'src');
+    expect(scan.cycles).toEqual([]);
+    // Three first-party nodes; `vendor/x.ts` is not one, and neither is the edge
+    // reaching it — so the denominator counts what the rule actually governs.
+    expect(scan.nodeCount).toBe(3);
+    expect(scan.edgeCount).toBe(2);
+  });
+
+  it('ScanRuntimeCycleGraph_PrefixMatchingNothing_FailsClosed', () => {
+    // KILL FIXTURE. The graph is well-formed and non-empty; only the prefix is
+    // wrong (a relocated tree, a renamed package directory, a depcruise run
+    // scoped elsewhere). Before this arm the answer was `[]` — byte-identical to
+    // the acyclic case directly above.
+    const json = graph([
+      ['src/a.ts', 'src/b.ts'],
+      ['src/b.ts', 'src/a.ts'],
+    ]);
+    expect(() => scanRuntimeCycleGraph(json, 'servers/relocated/src')).toThrow(
+      EmptyCycleGraphError,
+    );
+    expect(() => detectRuntimeCycles(json, 'servers/relocated/src')).toThrow(
+      /indistinguishable from an acyclic tree/,
+    );
+    // The message carries both sides of the disagreement — the prefix that
+    // resolved nothing, and the module count the graph did report.
+    expect(() => detectRuntimeCycles(json, 'servers/relocated/src')).toThrow(
+      /servers\/relocated\/src/,
+    );
+    expect(() => detectRuntimeCycles(json, 'servers/relocated/src')).toThrow(/2 module\(s\)/);
+  });
+
+  it('ScanRuntimeCycleGraph_EmptyModuleList_FailsClosed', () => {
+    // The degenerate twin: depcruise emitted a valid document that found nothing
+    // at all. Also a broken surface, not a clean one.
+    expect(() => scanRuntimeCycleGraph(JSON.stringify({ modules: [] }), 'src')).toThrow(
+      EmptyCycleGraphError,
+    );
   });
 
   it('DetectRuntimeCycles_TypeOnlyBackEdge_ExcludedFromCycles', () => {

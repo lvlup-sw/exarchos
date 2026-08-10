@@ -11,6 +11,12 @@
 // The detector is deliberately pure — it takes the depcruise JSON *text*, not a
 // live depcruise run — so it is unit-testable without shelling the tool. The
 // co-located test shells the real depcruise and feeds the output here.
+//
+// NON-EMPTY DENOMINATOR (DR-8, task 079). The detector reports the first-party
+// node count it resolved and FAILS CLOSED on zero. Cycle detection has no
+// natural tooth of its own: "no cycle" is the healthy answer, so it is also the
+// answer a scan that resolved nothing gives — and `srcPrefix` matching nothing
+// is an easy, silent way to get there. See `EmptyCycleGraphError`.
 
 /** A dependency-cruiser dependency edge (the subset we consume). */
 interface DepcruiseDependency {
@@ -87,20 +93,90 @@ function buildAdjacency(
 }
 
 /**
+ * Thrown when the graph resolves ZERO first-party nodes under `srcPrefix`.
+ *
+ * Distinct from "acyclic" on purpose (DR-8, task 079). `buildAdjacency` keeps
+ * only modules whose `source` starts with `srcPrefix`, so a prefix that matches
+ * nothing — a relocated tree, a renamed package directory, a depcruise run
+ * scoped to the wrong path, a leading-`./` mismatch — produces an empty
+ * adjacency and therefore an empty cycle list. That is the exact value a clean
+ * tree produces, and the blocking CI consumer printed `OK: 0 runtime cycle(s)`
+ * and exited 0 on it. The baseline's phantom tooth does not cover the gap
+ * either: it only fires against baselined entries, and the baseline is
+ * (correctly) empty.
+ */
+export class EmptyCycleGraphError extends Error {
+  constructor(
+    readonly srcPrefix: string,
+    readonly totalModules: number,
+  ) {
+    super(
+      `No first-party module resolved under "${srcPrefix}" (the graph reported ` +
+        `${totalModules} module(s) in total). An empty node set yields an empty cycle ` +
+        'list, which is indistinguishable from an acyclic tree — so this fails closed ' +
+        'rather than reporting a clean surface. The source root moved, the prefix is ' +
+        'wrong, or depcruise was pointed somewhere else.',
+    );
+    this.name = 'EmptyCycleGraphError';
+  }
+}
+
+/** A completed graph scan: the cycles, and the population they were found in. */
+export interface RuntimeCycleScan {
+  readonly cycles: readonly RuntimeCycle[];
+  /** First-party modules resolved under `srcPrefix` — the denominator. */
+  readonly nodeCount: number;
+  /** First-party runtime edges between them. */
+  readonly edgeCount: number;
+}
+
+/**
+ * Detect the runtime import cycles in a dependency-cruiser JSON graph AND report
+ * the population they were detected in.
+ *
+ * The counts are returned rather than derived later because this is the only
+ * place that sees the graph. Downstream, an empty cycle array cannot be told
+ * apart from a scan that resolved no nodes at all.
+ *
+ * @throws {EmptyCycleGraphError} when no first-party node resolves.
+ */
+export function scanRuntimeCycleGraph(
+  depcruiseJson: string,
+  srcPrefix = 'servers/exarchos-mcp/src',
+): RuntimeCycleScan {
+  const output = JSON.parse(depcruiseJson) as DepcruiseOutput;
+  const adj = buildAdjacency(output, srcPrefix);
+  if (adj.size === 0) {
+    throw new EmptyCycleGraphError(srcPrefix, (output.modules ?? []).length);
+  }
+  let edgeCount = 0;
+  for (const targets of adj.values()) edgeCount += targets.size;
+  return {
+    cycles: detectCyclesIn(adj),
+    nodeCount: adj.size,
+    edgeCount,
+  };
+}
+
+/**
  * Detect every runtime import cycle in a dependency-cruiser JSON graph.
  *
  * @param depcruiseJson The raw `depcruise --output-type json` stdout.
  * @param srcPrefix     Repo-relative source root (default: the MCP server src).
  * @returns One {@link RuntimeCycle} per strongly-connected component with a
  *   cycle (SCCs of size > 1, plus self-loops). Empty when the graph is acyclic.
+ * @throws {EmptyCycleGraphError} when no first-party node resolves under
+ *   `srcPrefix` — an empty population is a broken scan, not a clean tree.
  */
 export function detectRuntimeCycles(
   depcruiseJson: string,
   srcPrefix = 'servers/exarchos-mcp/src',
 ): RuntimeCycle[] {
-  const output = JSON.parse(depcruiseJson) as DepcruiseOutput;
-  const adj = buildAdjacency(output, srcPrefix);
+  return [...scanRuntimeCycleGraph(depcruiseJson, srcPrefix).cycles];
+}
 
+/** Tarjan SCC over an already-built first-party adjacency. */
+function detectCyclesIn(adj: Map<string, Set<string>>): RuntimeCycle[] {
   // Tarjan's strongly-connected-components algorithm (iterative-safe recursion
   // is fine here: the module graph depth is well under the stack limit).
   let index = 0;
