@@ -19,6 +19,17 @@ function hasGpp(): boolean {
 
 const describeWithGpp = hasGpp() ? describe : describe.skip;
 
+// Every case below compiles its own fixture with g++ before it exercises the
+// sandbox, so each one carries a cold-compile cost that the default 5s vitest
+// timeout does not cover — `compiler.test.ts` records the same compile observed
+// at 5007ms and gives it a 30s envelope for exactly this reason. That fix was
+// applied there and not here, so these cases stayed on the default and passed
+// only while some earlier file happened to warm the compiler first. Under a
+// loaded Windows runner all three timed out at ~5001ms. The budget bounds the
+// TEST HARNESS; the sandbox's own `timeLimitMs` still bounds the behaviour
+// under test, so a genuinely hung sandbox still fails rather than sitting here.
+const COMPILE_BEARING_TIMEOUT_MS = 30_000;
+
 describeWithGpp('runInSandbox', () => {
   beforeAll(() => {
     mkdirSync(TEST_DIR, { recursive: true });
@@ -57,7 +68,7 @@ int main() {
     expect(result.exitCode).toBe(0);
     expect(result.timedOut).toBe(false);
     expect(result.truncated).toBe(false);
-  });
+  }, COMPILE_BEARING_TIMEOUT_MS);
 
   it('sandbox_InfiniteLoop_KilledWithinTimeout', async () => {
     const srcPath = join(TEST_DIR, 'infinite.cpp');
@@ -85,7 +96,7 @@ int main() {
     expect(result.timedOut).toBe(true);
     // Should die within 2x timeout
     expect(elapsed).toBeLessThan(timeoutMs * 2);
-  });
+  }, COMPILE_BEARING_TIMEOUT_MS);
 
   it('sandbox_LargeOutput_TruncatesAtLimit', async () => {
     const srcPath = join(TEST_DIR, 'bigout.cpp');
@@ -115,7 +126,7 @@ int main() {
 
     expect(result.truncated).toBe(true);
     expect(result.stdout.length).toBeLessThanOrEqual(maxBytes);
-  });
+  }, COMPILE_BEARING_TIMEOUT_MS);
 
   it('sandbox_NonZeroExit_CapturesExitCode', async () => {
     const srcPath = join(TEST_DIR, 'exit42.cpp');
@@ -137,5 +148,5 @@ int main() {
 
     expect(result.exitCode).toBe(42);
     expect(result.timedOut).toBe(false);
-  });
+  }, COMPILE_BEARING_TIMEOUT_MS);
 });
