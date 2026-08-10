@@ -23,12 +23,14 @@
  * kept every import in that module `import type`: the grammar must not depend on the catalog
  * booting, and this module is where the boot happens.
  *
- * The custom half is not hypothetical, and it is not weaker than the built-in half. It is
- * STRICTLY the more permissive surface: `registerEventType` validates a custom name against
- * `EVENT_NAME_PATTERN`, which admits digits and multi-word namespaces that the DR-3 grammar
- * refuses. `registerEventType('my-app.started2', …)` succeeds today and lands a name in the live
- * registry that the grammar rejects — which is exactly the subject {@link MALFORMED_EVENT_NAME}
- * has to be able to find, and exactly the kill fixture the co-located test poses.
+ * The custom half is not hypothetical. Until task 075 it was STRICTLY the more permissive surface:
+ * `registerEventType` validated a custom name against a hand-written `EVENT_NAME_PATTERN` that
+ * admitted digits and multi-word namespaces the DR-3 grammar refuses, so
+ * `registerEventType('my-app.started2', …)` succeeded and landed a name in the live registry that
+ * the grammar rejected. DR-5 closed that: the seam now calls `assertWellFormedEventName`, so the
+ * two surfaces agree and {@link MALFORMED_EVENT_NAME}'s remaining live subject is the BUILT-IN
+ * literal array, which the seam never sees. The tooth is unchanged and still fires — see the
+ * co-located test, which measures both directions of that change rather than describing it.
  *
  * ── Why the verdict is STRUCTURAL, not textual ──────────────────────────────
  * Nothing here is scanned as text. The names come from the registry as VALUES, the verdict comes
@@ -45,7 +47,8 @@
  *
  *   FORWARD  — a registered name the grammar rejects is {@link MALFORMED_EVENT_NAME}, carrying the
  *              clause it broke as task 014's own {@link EventNameDefect}. Zero today; the kill
- *              fixture registers a real malformed custom type to prove the tooth bites.
+ *              fixture injects a malformed name into the enumerated list to prove the tooth bites.
+ *              It used to REGISTER one, which the seam accepted until task 075 closed that door.
  *   STALE    — a recorded CONCESSION that no live name exercises is {@link STALE_SEED_ENTRY}.
  *              A grammar wider than the corpus it describes is cover: it declines to reject a
  *              class nothing uses, and nobody notices, because a rule that never fires looks
@@ -148,12 +151,15 @@ export interface EventGrammarCensusReport {
   /** Sorted names the DR-3 grammar rejects. Derived; the forward tooth's subject. */
   readonly malformed: readonly string[];
   /**
-   * Sorted names the two authorities disagree about — accepted by one, refused by the other.
+   * Sorted names the two forms of the grammar disagree about — accepted by one, refused by the
+   * other.
    *
-   * This is task 014's FINDING, measured on the runtime path for the first time. It is a
-   * measurement and not a diagnostic on purpose: the disagreement is real, live and 25 names wide
-   * on the landing branch, so treating it as an instrument fault would leave the census
-   * permanently untrustworthy and the ratchet permanently unreadable.
+   * This carried task 014's FINDING, which was real, live and 25 names wide when task 015 first
+   * measured it on the runtime path. It reads ZERO since task 075 derived `EVENT_NAME_PATTERN` from
+   * the grammar. It stays a measurement rather than a diagnostic for the reason it always was: a
+   * live disagreement must not make the census untrustworthy and the ratchet unreadable. What it
+   * guards now is the repair — re-author the pattern by hand and this goes non-zero again, which
+   * the ratchet's growth tooth turns into `UNSEEDED_GRAMMAR_CONCESSION`.
    */
   readonly divergent: readonly string[];
   /**

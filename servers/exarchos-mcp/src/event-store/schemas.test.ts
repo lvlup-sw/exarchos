@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { describe, it, expect, afterEach } from 'vitest';
 import { zodToJsonSchema } from '../adapters/json-schema.js';
+import { EVENT_NAME_MIGRATION_NOTE, MalformedEventNameError } from './event-name.js';
 import {
   validateAgentEvent,
   AGENT_EVENT_TYPES,
@@ -2080,6 +2081,7 @@ describe('registerEventType', () => {
     try { unregisterEventType('deploy.started'); } catch { /* ignore */ }
     try { unregisterEventType('deploy.finished'); } catch { /* ignore */ }
     try { unregisterEventType('custom.hello'); } catch { /* ignore */ }
+    try { unregisterEventType('deploy.rollback_started'); } catch { /* ignore */ }
   });
 
   it('RegisterEventType_CustomType_AddsToValidEventTypes', () => {
@@ -2104,20 +2106,52 @@ describe('registerEventType', () => {
   });
 
   it('RegisterEventType_InvalidNameFormat_Throws', () => {
-    // No dot separator
+    // DR-5 (task 075): the three rejections below used to be decided by three separate rules in
+    // this function (an empty-string guard, a `toLowerCase()` comparison and EVENT_NAME_PATTERN).
+    // They are now one — the DR-3 grammar — and each still fails, naming the clause it broke.
     expect(() =>
       registerEventType('nodot', { source: 'model' }),
-    ).toThrow(/dot separator/i);
+    ).toThrow(/MISSING_SEPARATOR/);
 
-    // Uppercase
     expect(() =>
       registerEventType('Deploy.Started', { source: 'model' }),
-    ).toThrow(/lowercase/i);
+    ).toThrow(/NON_LOWERCASE_ALPHA/);
 
-    // Empty
     expect(() =>
       registerEventType('', { source: 'model' }),
-    ).toThrow();
+    ).toThrow(/MISSING_SEPARATOR/);
+  });
+
+  it('RegisterEventType_NameTheRetiredPatternAdmitted_ThrowsNamingTheMigration', () => {
+    // THE forward kill fixture, over the PUBLIC seam rather than over the classifier. Both halves
+    // are executed: the retired regex really admitted this name, so the registration really used to
+    // succeed, and the throw is the behaviour change rather than a restatement of the grammar.
+    const retiredPattern = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$/;
+    const name = 'my-app.started2';
+    expect(retiredPattern.test(name)).toBe(true);
+
+    expect(() => registerEventType(name, { source: 'auto' })).toThrow(MalformedEventNameError);
+    // The message must NAME the migration — the user's name was legal on the previous version, so
+    // an error that only says "invalid" sends them to read a regex that no longer exists.
+    expect(() => registerEventType(name, { source: 'auto' })).toThrow(EVENT_NAME_MIGRATION_NOTE);
+    expect(getValidEventTypes()).not.toContain(name);
+  });
+
+  it('RegisterEventType_SnakeCaseNameTheRetiredPatternRefused_NowRegisters', () => {
+    // THE reverse kill fixture. `EVENT_NAME_PATTERN` had no `_` in either character class, so this
+    // shape — the shape 25 of the built-ins in this very file use — could not be registered by a
+    // user even though the catalog was full of it.
+    const retiredPattern = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$/;
+    const name = 'deploy.rollback_started';
+    expect(retiredPattern.test(name)).toBe(false);
+
+    registerEventType(name, { source: 'auto' });
+    expect(getValidEventTypes()).toContain(name);
+    // And it round-trips through the envelope schema, which is what makes it usable rather than
+    // merely present in a list: `WorkflowEventBase` refuses a type the registry does not carry.
+    expect(() =>
+      WorkflowEventBase.parse({ streamId: 'feat-x', sequence: 1, type: name }),
+    ).not.toThrow();
   });
 
   it('RegisterEventType_WithSchema_RegistersInDataSchemas', () => {

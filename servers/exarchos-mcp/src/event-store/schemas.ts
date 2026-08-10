@@ -21,6 +21,7 @@ import {
   WaiverProvenanceV1Schema,
 } from '../workflow/admission/types.js';
 import { ANNOTATED_EVENTS } from './event-annotations.js';
+import { assertWellFormedEventName } from './event-name.js';
 import { deriveEmissionRegistry } from './event-registration.js';
 import {
   RemediationAttemptedDataSchema,
@@ -513,42 +514,34 @@ const BUILT_IN_EVENT_TYPES = new Set<string>(EventTypes);
 const customEventTypes = new Set<string>();
 
 /**
- * Name format: lowercase with hyphens, must contain at least one dot separator.
+ * The DR-3 event-name grammar as a regex, re-exported under the name it has always had.
  *
- * EXPORTED FOR MEASUREMENT ONLY (DR-3, task 015) — its behaviour is unchanged, and
- * {@link registerEventType} below is still its only consumer inside this module.
+ * NOT an authority any more, and no longer authored here (DR-5). Until task 075 this binding was
+ * `/^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$/` — an independently-written second rule for what an
+ * event name may be, which rejected 25 of the built-ins in this very file and never noticed
+ * because {@link registerEventType} pointed it only at CUSTOM names. It is now built from the
+ * grammar's own alphabet and separator set by `buildEventNamePattern`, so it is a FORM of the one
+ * authority rather than a rival to it.
  *
- * `architecture/event-grammar-census.ts` reads this binding to measure how far it diverges from
- * the DR-3 grammar over the LIVE catalog. It reads THIS regex rather than transcribing the
- * character classes into the census, because a copy would be a third authority for the event-name
- * vocabulary in a task whose whole purpose is to have one. Exporting it is what makes the pattern
- * REACHABLE from the built-in corpus for the first time; the divergence that reachability exposes
- * is recorded (owned, dated, shrink-only) by the census, deliberately NOT reconciled here — see
- * the FINDING header in `event-store/event-name.ts`.
+ * It is kept (rather than deleted) because `architecture/event-grammar-census.ts` reads it as a
+ * `RegExp` object to measure the two forms against each other. That measurement reads zero today;
+ * the point of keeping the instrument is that it stops reading zero the moment anyone re-authors
+ * this pattern by hand. See `docs/migrations/2026-08-10-event-name-grammar.md`.
  */
-export const EVENT_NAME_PATTERN = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$/;
+export { EVENT_NAME_PATTERN } from './event-name.js';
 
 /**
  * Register a custom event type at runtime.
+ *
  * Built-in event types cannot be overridden and duplicate custom registrations are rejected.
+ * Well-formedness is decided by the DR-3 grammar (`event-name.ts`) — the single authority — which
+ * throws a {@link MalformedEventNameError} naming both the broken clause and the migration note.
  */
 export function registerEventType(
   name: string,
   options: { source: 'auto' | 'model' | 'hook'; schema?: z.ZodSchema },
 ): void {
-  if (!name) {
-    throw new Error('Event type name must not be empty');
-  }
-  if (name !== name.toLowerCase()) {
-    throw new Error(
-      `Invalid event type name '${name}': must be lowercase with hyphens and dot separators (e.g., 'deploy.started')`,
-    );
-  }
-  if (!EVENT_NAME_PATTERN.test(name)) {
-    throw new Error(
-      `Invalid event type name '${name}': must contain a dot separator and use lowercase with hyphens (e.g., 'deploy.started')`,
-    );
-  }
+  assertWellFormedEventName(name);
   if (BUILT_IN_EVENT_TYPES.has(name)) {
     throw new Error(
       `Cannot register '${name}': collides with built-in event type`,

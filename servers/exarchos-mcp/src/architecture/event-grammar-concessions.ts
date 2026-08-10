@@ -90,17 +90,26 @@ export const EVENT_GRAMMAR_CONCESSIONS = Object.freeze({
   'word-separator:_': {
     owner: 'exarchos/event-catalog',
     expires: '2027-02-28',
-    divergesFromShippedPattern: true,
+    // RETIRED 2026-08-10 (DR-5, task 075), not re-dated. This flag carried task 014's finding:
+    // the shipped EVENT_NAME_PATTERN had no "_" in either character class and so REJECTED the
+    // snake_case built-ins it was supposed to govern, unnoticed because registerEventType pointed
+    // it only at CUSTOM names while the built-ins were a readonly literal array never fed through
+    // it. Task 075 collapsed the two authorities: registerEventType now consumes the DR-3 grammar
+    // and EVENT_NAME_PATTERN is derived from that grammar's own vocabulary, so no live name is
+    // judged differently by the two forms. Leaving the flag at `true` after that repair trips
+    // STALE_SEED_ENTRY — the record would be cover for a finding that no longer exists — and
+    // flipping it here is the retirement the stale tooth was built to force, not a silencing of
+    // it. It cannot be flipped early: `auditEventGrammarRatchet`'s growth tooth raises
+    // UNSEEDED_GRAMMAR_CONCESSION for a `false` that understates a live divergence.
+    divergesFromShippedPattern: false,
     reason:
-      'The snake half of the same split, AND the live record of task 014\'s finding: the shipped ' +
-      'EVENT_NAME_PATTERN in event-store/schemas.ts has no "_" in either character class, so it ' +
-      'REJECTS the snake_case built-ins it is supposed to govern. It has never failed because ' +
-      'registerEventType applies it only to CUSTOM registrations while the built-ins are a ' +
-      'readonly literal array never fed through it — a validator its own authoritative corpus ' +
-      'fails, unnoticed because it was never pointed at that corpus. Recorded here rather than ' +
-      'reconciled: collapsing the two authorities means making registerEventType consume the DR-3 ' +
-      'grammar, which changes which CUSTOM names register (digits and multi-word namespaces stop ' +
-      'registering; snake_case starts), and that is a public runtime-seam change this task has no ' +
-      'standing to make silently. Retired by that change, or by the catalog converging on "-".',
+      'The snake half of the catalog\'s house-style split. The grammar admits "_" inside a ' +
+      'segment because live, emitted, replayable event names use it; removing the concession ' +
+      'would reject them, and INV-1 makes renaming an event type a log-compatibility break rather ' +
+      'than a tidy-up. Its second job — recording that the shipped EVENT_NAME_PATTERN disagreed ' +
+      'with the grammar about exactly these names — is discharged: task 075 made the grammar the ' +
+      'single registration authority and derived the pattern from it. What is left is the ' +
+      'ordinary separator concession, retired when the catalog converges on ONE word separator, ' +
+      'at which point this entry goes stale by MEASUREMENT rather than by anyone remembering.',
   },
 } satisfies Record<string, GrammarConcessionEntry>);
