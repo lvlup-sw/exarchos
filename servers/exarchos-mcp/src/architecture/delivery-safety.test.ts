@@ -1,3 +1,14 @@
+// ────────────────────────────────────────────────────────────────────────────
+// DR-30: the delivery population is derived from the import graph — the modules
+// holding a one-hop edge to `channel/delivery.ts` — and checked against the
+// audit's own verdict over that population. The two are independent: the import
+// graph does not know what the audit requires, and the audit does not choose
+// its own subjects. Task 079 replaced a transcribed two-element constant whose
+// test asserted that the constant contained what the constant declared, which
+// is a comparison with itself and cannot fail.
+// @oracle-sources: ./delivery-safety.ts, the one-hop import graph resolved from source
+// ────────────────────────────────────────────────────────────────────────────
+
 import { describe, it, expect } from 'vitest';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';

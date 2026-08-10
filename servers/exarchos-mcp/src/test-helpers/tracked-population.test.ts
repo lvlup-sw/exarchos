@@ -1,3 +1,13 @@
+// ────────────────────────────────────────────────────────────────────────────
+// DR-30: this file's assertions compare two populations that cannot observe
+// each other. `tracked-population` asks git what the repository contains; the
+// walks it corroborates ask the filesystem. A guard that walks its own tree and
+// then judges itself by that walk agrees with itself by construction — which is
+// how a `> 50` floor survived against a real population of 1549. git is the
+// second authority precisely because it is not the walker.
+// @oracle-sources: ./tracked-population.ts, the filesystem walks it is compared against
+// ────────────────────────────────────────────────────────────────────────────
+
 import { describe, it, expect } from 'vitest';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';

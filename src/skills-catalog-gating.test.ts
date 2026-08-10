@@ -1,6 +1,14 @@
 /**
  * Catalog-registration gating lint (DR-33 / T-45).
  *
+ * DR-30 — the two authorities here cannot observe each other. The population
+ * comes from `git ls-files` over `skills-src/`; the discriminant that decides
+ * whether a source is gated reads the catalog path and the Constraints step,
+ * which is independent of the registration vocabulary the assertions check.
+ * Task 079 replaced a hand-transcribed nine-file list scanned against a
+ * 106-file tree — a denominator that could not notice the files it omitted.
+ * @oracle-sources: git ls-files over skills-src/, the catalog-path + Constraints-step discriminant read from each source
+ *
  * DR-31/T-43 retired the `invariants.devCatalog` boolean in favor of
  * `invariants.catalogs` registration as the ONE AND ONLY opt-in (see
  * `servers/exarchos-mcp/src/architecture/catalog-sources.ts`). Skills-src
