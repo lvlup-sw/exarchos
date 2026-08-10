@@ -51,7 +51,6 @@
  * run. Without that tooth the instrument reads green precisely when it has stopped working, which
  * is the failure mode a census exists to prevent.
  */
-import { createHash } from 'node:crypto';
 import { EVENT_EMISSION_REGISTRY, EventTypes } from '../event-store/schemas.js';
 import {
   ANNOTATED_EVENTS,
@@ -60,11 +59,16 @@ import {
 } from '../event-store/event-annotations.js';
 import { resolveEmissionSource } from '../event-store/event-registration.js';
 import type { EventAnnotationSource } from '../event-store/event-declarations.js';
-// The DR-3 grammar ratchet already owns `isIsoDay` under the same discipline this
-// module now adopts. Imported rather than restated — that module reads the event
-// registry too, so it costs nothing here, and a fourth private copy of the day
-// rule is exactly what DR-6's ledger consolidation exists to remove.
-import { isIsoDay } from './event-grammar-census.js';
+// DR-6: the day rule, the expiry verdict and the key-set canonicalisation are one
+// authority for every ledger in this tree. This module used to roll its own
+// `isExpired` and borrow `isIsoDay` from the DR-3 census; both are the ledger's now,
+// and with them comes the horizon tooth this ratchet lacked.
+import {
+  auditWaiverLedger,
+  measureKeySetPin,
+  type WaiverLedgerSubject,
+} from './waiver-ledger.js';
+import { keySetDigest } from './waiver-ledger-digest.js';
 import {
   REPORT_COUPLING_SEED,
   REPORT_COUPLING_SEED_IDS,
@@ -72,6 +76,7 @@ import {
   type ReportCouplingSeedEntry,
 } from './report-coupling-seed.js';
 import {
+  REPORT_COUPLING_EXPIRY_HORIZON,
   REPORT_COUPLING_SEED_DIGEST_ALGORITHM,
   REPORT_COUPLING_SEED_KEY_SET_DIGEST,
 } from './report-coupling-seed-pin.js';
@@ -301,7 +306,9 @@ export function formatReportCouplingCensus(report: ReportCouplingCensusReport): 
 /** A condition that makes the seed and the live census disagree. */
 export type ReportCouplingSeedFinding =
   | { readonly code: 'UNREADABLE_CLOCK'; readonly message: string }
+  | { readonly code: 'MALFORMED_HORIZON'; readonly message: string }
   | { readonly code: 'EMPTY_CENSUS'; readonly message: string }
+  | { readonly code: 'EMPTY_SEED'; readonly message: string }
   | { readonly code: 'UNTRUSTWORTHY_CENSUS'; readonly message: string }
   | {
       readonly code: 'UNSEEDED_REPORT_COUPLING';
@@ -309,6 +316,12 @@ export type ReportCouplingSeedFinding =
       readonly message: string;
     }
   | { readonly code: 'STALE_SEED_ENTRY'; readonly eventType: string; readonly message: string }
+  | { readonly code: 'MALFORMED_SEED_ENTRY'; readonly eventType: string; readonly message: string }
+  | {
+      readonly code: 'SEED_ENTRY_BEYOND_HORIZON';
+      readonly eventType: string;
+      readonly message: string;
+    }
   | { readonly code: 'EXPIRED_SEED_ENTRY'; readonly eventType: string; readonly message: string };
 
 export interface ReportCouplingSeedAudit {
@@ -316,6 +329,8 @@ export interface ReportCouplingSeedAudit {
   readonly ok: boolean;
   /** Registrations enumerated. Zero is a failure, never a clean run. */
   readonly total: number;
+  /** The pinned horizon the entries were measured against. */
+  readonly horizon: string;
   /** Live report-coupled event types, sorted — the measurement. */
   readonly reportCoupled: readonly string[];
   /** Seeded event types, sorted — the policy. */
@@ -326,7 +341,41 @@ export interface ReportCouplingSeedAudit {
   readonly stale: readonly string[];
   /** Seed entries whose ISO expiry has passed. */
   readonly expired: readonly string[];
+  /** Seed entries dated later than the pinned horizon — a self-granted renewal. */
+  readonly beyondHorizon: readonly string[];
+  /** Seed entries with a blank owner or an unparseable `expires`. Fails closed. */
+  readonly malformed: readonly string[];
   readonly findings: readonly ReportCouplingSeedFinding[];
+}
+
+/**
+ * DR-2's nouns, handed to the shared ledger. Built per call because the
+ * `blockedBy` annotation is a function of the seed table under audit, which the
+ * co-located vitest replaces.
+ */
+function seedLedgerSubject(
+  seed: Readonly<Record<string, ReportCouplingSeedEntry>>,
+): WaiverLedgerSubject {
+  return {
+    authority: 'DR-2',
+    ledger: 'report-coupling seed',
+    entry: 'seed entry',
+    entries: 'seed entries',
+    horizonSource: 'REPORT_COUPLING_EXPIRY_HORIZON in report-coupling-seed-pin.ts',
+    paydown:
+      'An expiry that lapses quietly is a decoration, not a deadline. Give the event a ' +
+      'handler-owned append and MOVE its entry to REPORT_COUPLING_RETIRED.',
+    horizonPaydown:
+      'Re-couple the event (give it a handler-owned append and MOVE its entry to ' +
+      'REPORT_COUPLING_RETIRED)',
+    zeroState:
+      'If the debt really did reach its DR-20 floor, the seed module, its pin and this audit ' +
+      'are DELETED in the same commit.',
+    annotate: (eventType: string): string => {
+      const blockedBy = seed[eventType]?.blockedBy;
+      return blockedBy === undefined ? '' : `, blockedBy: ${blockedBy}`;
+    },
+  };
 }
 
 /**
@@ -347,11 +396,14 @@ export interface ReportCouplingSeedAudit {
  * cannot produce (an emptied subject, a seeded 26th type, a lapsed expiry) without touching the real
  * registry or the real seed.
  *
- * Five teeth:
- *   0. READABLE CLOCK. A `today` that is not a real calendar day makes every comparison below
- *      meaningless, so the audit FAILS rather than reporting the seed live against a nonsense date.
- *   1. NON-EMPTY DENOMINATOR. A census over zero registrations proves nothing; it is what a moved
- *      module or a broken import looks like. It FAILS rather than reporting "0 unseeded — clean".
+ * Seven teeth. The last two arrived with DR-6: this ratchet enforced a per-entry `expires` and
+ * capped it with nothing, so a blanket re-date was a legal-looking diff — the renewal hole its two
+ * sibling ledgers were built without. The extraction closed it rather than carrying it forward.
+ *   0. READABLE CLOCK / HORIZON. A `today` or a horizon that is not a real calendar day makes the
+ *      comparison it governs meaningless, so the audit FAILS rather than reporting the seed live
+ *      against a nonsense date.
+ *   1. NON-EMPTY DENOMINATOR, on both populations: a census over zero registrations and a seed over
+ *      zero entries each make "nothing has lapsed" true for the worst possible reason.
  *   2. UNSEEDED_REPORT_COUPLING. An event that is report-coupled today and not on the list. This is
  *      the runtime mirror of DR-2's compile-time tooth, and it is what catches coupling that
  *      entered through a path the union does not govern — a runtime-registered custom type, or an
@@ -360,7 +412,12 @@ export interface ReportCouplingSeedAudit {
  *      deleted outright. There is no way to park a paid-down entry: the moment the debt is paid,
  *      the entry MOVES to the graveyard. That is what makes the list shrink-only rather than merely
  *      bounded.
- *   4. EXPIRED_SEED_ENTRY. An entry past its ISO date. The spec rejects "wave-scoped" labels
+ *   4. MALFORMED_SEED_ENTRY. A blank owner or an `expires` that is not a real calendar day fails
+ *      closed rather than reading as "in date".
+ *   5. SEED_ENTRY_BEYOND_HORIZON. An entry dated past {@link REPORT_COUPLING_EXPIRY_HORIZON}. An
+ *      entry may not name its own deadline, so extending the debt collapses to moving ONE pinned
+ *      constant in a file of frozen values.
+ *   6. EXPIRED_SEED_ENTRY. An entry past its ISO date. The spec rejects "wave-scoped" labels
  *      because they are not mechanically evaluable; enforcing the date is what makes this an expiry
  *      rather than a decoration.
  */
@@ -368,18 +425,37 @@ export function auditReportCouplingSeed(
   today: string,
   report: ReportCouplingCensusReport = censusReportCoupling(),
   seed: Readonly<Record<string, ReportCouplingSeedEntry>> = REPORT_COUPLING_SEED,
+  horizon: string = REPORT_COUPLING_EXPIRY_HORIZON,
 ): ReportCouplingSeedAudit {
   const findings: ReportCouplingSeedFinding[] = [];
 
-  const clockOk = isIsoDay(today);
-  if (!clockOk) {
-    findings.push({
-      code: 'UNREADABLE_CLOCK',
-      message:
-        `The report-coupling ratchet was handed '${today}' as the current day, which is not a real ` +
-        'calendar date in YYYY-MM-DD form. Every expiry comparison below would be meaningless, so ' +
-        'the audit fails rather than reporting the seed live.',
-    });
+  // The ledger returns the temporal verdict; this maps it onto G3's names. The
+  // ledger-wide findings lead (they say the audit itself cannot be trusted); the
+  // per-entry ones are held back so the report still reads membership-first.
+  const ledger = auditWaiverLedger(today, seed, horizon, seedLedgerSubject(seed));
+  const perEntry: ReportCouplingSeedFinding[] = [];
+  for (const finding of ledger.findings) {
+    const eventType = finding.id ?? '';
+    switch (finding.code) {
+      case 'UNREADABLE_CLOCK':
+        findings.push({ code: 'UNREADABLE_CLOCK', message: finding.message });
+        break;
+      case 'MALFORMED_HORIZON':
+        findings.push({ code: 'MALFORMED_HORIZON', message: finding.message });
+        break;
+      case 'EMPTY_LEDGER':
+        findings.push({ code: 'EMPTY_SEED', message: finding.message });
+        break;
+      case 'MALFORMED_ENTRY':
+        perEntry.push({ code: 'MALFORMED_SEED_ENTRY', eventType, message: finding.message });
+        break;
+      case 'BEYOND_HORIZON':
+        perEntry.push({ code: 'SEED_ENTRY_BEYOND_HORIZON', eventType, message: finding.message });
+        break;
+      case 'EXPIRED':
+        perEntry.push({ code: 'EXPIRED_SEED_ENTRY', eventType, message: finding.message });
+        break;
+    }
   }
 
   if (report.total === 0) {
@@ -435,45 +511,21 @@ export function auditReportCouplingSeed(
           'registered any more. MOVE its line to REPORT_COUPLING_RETIRED with a retiredAt date.',
     });
   }
-  for (const eventType of seeded) {
-    const entry = seed[eventType];
-    if (entry === undefined) continue;
-    if (!clockOk || !isExpired(entry.expires, today)) continue;
-    findings.push({
-      code: 'EXPIRED_SEED_ENTRY',
-      eventType,
-      message:
-        `'${eventType}' has a report-coupling seed entry that expired on ${entry.expires} ` +
-        `(owner: ${entry.owner}${entry.blockedBy === undefined ? '' : `, blockedBy: ${entry.blockedBy}`}). ` +
-        'An expiry that lapses quietly is a decoration, not a deadline. Re-couple the event and ' +
-        'retire the entry — extending the date is a reviewable act, not a routine one.',
-    });
-  }
+  findings.push(...perEntry);
 
   return Object.freeze({
     ok: findings.length === 0,
     total: report.total,
+    horizon: ledger.horizon,
     reportCoupled: Object.freeze(reportCoupled),
     seeded: Object.freeze(seeded),
     unseeded: Object.freeze(unseeded),
     stale: Object.freeze(stale),
-    expired: Object.freeze(
-      findings.filter((f) => f.code === 'EXPIRED_SEED_ENTRY').map((f) => f.eventType),
-    ),
+    expired: ledger.expired,
+    beyondHorizon: ledger.beyondHorizon,
+    malformed: ledger.malformed,
     findings: Object.freeze(findings),
   });
-}
-
-/**
- * Is `expires` strictly before `today`, by calendar date?
- *
- * Both sides are ISO day STRINGS, never `Date` values, so the verdict does not depend on the
- * runner's timezone: `new Date('2027-02-28')` is midnight UTC, which is still 2027-02-27 in any
- * negative offset, and a guard that flips on the machine it runs on is not a guard. Lexicographic
- * order on `YYYY-MM-DD` is calendar order, so `<` is the whole comparison.
- */
-function isExpired(expires: string, today: string): boolean {
-  return expires < today;
 }
 
 // ─── G3's third tooth: the seed key set is pinned ───────────────────────────
@@ -512,11 +564,11 @@ export interface ReportCouplingPinAudit {
  * The seed key set's digest: `sha256` over the sorted, deduplicated ids joined by newlines.
  *
  * Order- and duplicate-insensitive on purpose — the pinned quantity is a SET, so re-sorting the
- * seed literal or writing an id twice must not move the digest. Only membership does.
+ * seed literal or writing an id twice must not move the digest. Only membership does. Both halves
+ * of that rule live in the DR-6 ledger; only the algorithm label is G3's.
  */
 export function reportCouplingSeedDigest(ids: readonly string[]): string {
-  const canonical = [...new Set(ids)].sort().join('\n');
-  return createHash(REPORT_COUPLING_SEED_DIGEST_ALGORITHM).update(canonical, 'utf8').digest('hex');
+  return keySetDigest(ids, REPORT_COUPLING_SEED_DIGEST_ALGORITHM);
 }
 
 /**
@@ -542,12 +594,10 @@ export function auditReportCouplingSeedIntegrity(
 ): ReportCouplingPinAudit {
   const findings: ReportCouplingPinFinding[] = [];
 
-  const seededSet = new Set(seeded);
-  const overlapping = [...new Set(retired)].filter((id) => seededSet.has(id)).sort();
-  const keySet = [...new Set([...seeded, ...retired])].sort();
-  const digest = reportCouplingSeedDigest(keySet);
+  const pin = measureKeySetPin(seeded, retired, pinnedDigest, reportCouplingSeedDigest);
+  const { keySet, overlapping, digest } = pin;
 
-  if (digest !== pinnedDigest) {
+  if (pin.drifted) {
     findings.push({
       code: 'SEED_KEY_SET_DRIFT',
       message:
@@ -574,10 +624,10 @@ export function auditReportCouplingSeedIntegrity(
 
   return Object.freeze({
     ok: findings.length === 0,
-    keySetSize: keySet.length,
+    keySetSize: pin.keySetSize,
     digest,
     pinnedDigest,
-    overlapping: Object.freeze(overlapping),
+    overlapping: Object.freeze([...overlapping]),
     findings: Object.freeze(findings),
   });
 }
