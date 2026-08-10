@@ -377,48 +377,24 @@ describe('DR-6 waiver ledger: the properties the extraction rests on', () => {
     expect(control.bare).toContain('bun:sqlite');
   });
 
-  it('WaiverLedger_TheOneSurvivingCopy_IsPinnedToTheLedgerNotMerelyBelievedEqual', () => {
-    // `cli-derivation-guard.ts` still states the day rule and the seed digest in
-    // its own words — it is owned by a concurrent task, so DR-6 could not reach
-    // it here. What can be closed today is the SILENCE: the two statements are
-    // compared over an adversarial corpus, so a divergence is a red build rather
-    // than a discovery made later by a wrong verdict.
-    const corpus = [
-      '2027-02-28',
-      '2028-02-29',
-      '2027-02-31',
-      '2027-13-01',
-      '2027-2-8',
-      '2027-00-01',
-      '2027-01-00',
-      '0000-01-01',
-      '9999-12-31',
-      'next wave',
-      '',
-      '2027-02-28 ',
-    ];
-    expect(corpus.length).toBeGreaterThan(0);
-    // The corpus separates the two possible answers, so agreement is a real
-    // finding rather than "both said true about everything".
-    expect(corpus.filter((day) => isIsoDay(day)).length).toBeGreaterThan(0);
-    expect(corpus.filter((day) => !isIsoDay(day)).length).toBeGreaterThan(0);
-    for (const day of corpus) {
-      expect(cliIsIsoDay(day), day).toBe(isIsoDay(day));
-    }
+  it('CliDerivationGuard_TakesTheDayRuleAndDigestFromTheLedger_NotItsOwnWords', () => {
+    // 077 could not reach `cli-derivation-guard.ts` (a concurrent task owned it)
+    // and pinned its surviving copy against this ledger instead. The copy is now
+    // gone, so that comparison would assert a function equals itself. What is
+    // worth stating is the fact that replaced it: the guard's names ARE these
+    // names, read off the module rather than argued from the import line.
+    expect(cliIsIsoDay).toBe(isIsoDay);
+    expect(cliIsoDayUtc).toBe(isoDayUtc);
 
-    const instants = [
-      new Date(Date.UTC(2027, 1, 28, 23, 59, 59)),
-      new Date(Date.UTC(2027, 2, 1, 0, 0, 0)),
-      new Date(Date.UTC(999, 0, 1)),
-      new Date(Number.NaN),
-    ];
-    for (const instant of instants) {
-      expect(cliIsoDayUtc(instant)).toBe(isoDayUtc(instant));
-    }
-
-    // The digest halves agree too: same canonical form, same algorithm label.
+    // The digest is delegated rather than restated. Identity cannot be used here
+    // (the guard binds its own algorithm constant), so the shared primitive is
+    // shown to produce the guard's answer over an order/duplicate-sensitive set.
     for (const ids of [['a', 'b'], ['b', 'a'], ['a', 'a', 'b'], [] as string[]]) {
       expect(cliDerivationSeedDigest(ids)).toBe(keySetDigest(ids, 'sha256'));
     }
+
+    // Non-empty denominator on the instrument: a digest that returned a constant
+    // would satisfy the loop above, so distinct sets must produce distinct hex.
+    expect(cliDerivationSeedDigest(['a'])).not.toBe(cliDerivationSeedDigest(['b']));
   });
 });

@@ -2221,22 +2221,6 @@ export const GUARD_EXEMPTIONS: readonly GuardExemption[] = Object.freeze([
     blockedBy: '#1717 (carries the #1699 Windows-lane constraint)',
     expires: '2026-11-05',
   }),
-  Object.freeze({
-    artifact: 'servers/exarchos-mcp/scripts/cli-derivation-ratchet-guard.ts',
-    excuses: 'filename-coupled-entrypoint',
-    reason:
-      'The FOURTH instance of the DR-4 class, and the argument for detecting it structurally: ' +
-      'task 074 was dispatched against three sites the spec had enumerated BY HAND, and the ' +
-      'classifier added by that task found this one too. It is a live exposure, not a latent ' +
-      'one — the guard is wired direct and blocking on the unfiltered `grep-gates` job, so a ' +
-      'rename plus the matching `run:` edit would leave a required check that runs and enforces ' +
-      'nothing. The repair is the same four lines the other three took; it is held only because ' +
-      'this file is owned by a concurrently-dispatched sibling task (077, the DR-6 waiver-ledger ' +
-      'extraction), and two agents editing one file is the merge hazard this programme keeps ' +
-      'paying for. The stale-exemption tooth removes this entry the moment the predicate is fixed.',
-    blockedBy: '#1764 (074 found it; the edit lands after 077 releases the file)',
-    expires: '2026-11-05',
-  }),
 ]);
 
 // ─── Spec-artifact waivers (the second hand-maintained input) ────────────────

@@ -92,7 +92,7 @@ export function isoDayUtc(now: Date): string {
 }
 
 /** Whole days between two ISO days. Both must be well-formed; otherwise `0`. */
-function daysBetween(from: string, to: string): number {
+export function daysBetween(from: string, to: string): number {
   if (!isIsoDay(from) || !isIsoDay(to)) return 0;
   return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / MS_PER_DAY);
 }
