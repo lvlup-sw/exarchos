@@ -410,15 +410,27 @@ async function executePrepareSynthesis(
     // `repoRoot: '.'` would satisfy the check above and still measure whatever
     // tree the server is sitting in. The schema rejects these at dispatch; this
     // is the same rule at the handler, for the direct (non-dispatch) callers.
-    if (!/^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(args.repoRoot)) {
+    //
+    // The `typeof` half comes first because `RegExp.test()` coerces its
+    // argument: `['/repo']` stringifies to `/repo`, clears the shape check, and
+    // reaches a subprocess as a non-string `cwd` — which surfaces as
+    // PREPARE_SYNTHESIS_FAILED, misreporting a caller's malformed input as a
+    // failure of the run.
+    if (
+      typeof args.repoRoot !== 'string' ||
+      !/^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(args.repoRoot)
+    ) {
       return {
         success: false,
         error: {
           code: 'INVALID_INPUT',
           message:
-            `repoRoot must be an absolute path, received '${args.repoRoot}'. A relative ` +
-            "path resolves against the server's own working directory, so the legs would " +
-            'measure a repository the caller never named.',
+            'repoRoot must be an absolute path, received ' +
+            (typeof args.repoRoot === 'string'
+              ? `'${args.repoRoot}'`
+              : `a ${typeof args.repoRoot}`) +
+            ". A relative path resolves against the server's own working directory, so " +
+            'the legs would measure a repository the caller never named.',
         },
       };
     }

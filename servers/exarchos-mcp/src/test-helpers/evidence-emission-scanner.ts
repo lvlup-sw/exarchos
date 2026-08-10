@@ -172,7 +172,7 @@ function resolveString(
     if (declared !== undefined && !seen.has(local)) {
       const object = unwrap(declared);
       if (ts.isObjectLiteralExpression(object)) {
-        const member = findProperty(object, expr.name.text);
+        const member = findProperty(object, expr.name.text, ctx);
         if (member !== undefined) {
           return resolveString(member, ctx, new Set([...seen, local]));
         }
@@ -193,56 +193,76 @@ function resolveString(
 }
 
 /**
- * The initializer of `name` on an object literal, following one spread level.
- *
- * The spread half was documented but never implemented, so
- * `store.append(id, { ...baseEvent, data })` read as a module that appends
- * nothing — an ordinary spelling, and an emitter invisible to the census.
- * Own properties win over spread ones, matching JS evaluation order for the
- * `{ ...base, type: 'x' }` shape; a spread AFTER an own property would override
- * it, which is why the own-property scan runs in source order below.
+ * The last own-property initializer for `name`, ignoring spreads.
  */
-function findProperty(
+function lastOwnProperty(
   object: ts.ObjectLiteralExpression,
   name: string,
-  ctx?: ResolutionContext,
 ): ts.Expression | undefined {
-  let fromSpread: ts.Expression | undefined;
+  let found: ts.Expression | undefined;
   for (const property of object.properties) {
     if (
       ts.isPropertyAssignment(property) &&
       (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)) &&
       property.name.text === name
     ) {
-      return property.initializer;
-    }
-    if (ts.isShorthandPropertyAssignment(property) && property.name.text === name) {
-      return property.name;
-    }
-    // ONE level: a spread of a spread is not followed, and a spread whose
-    // operand is not a resolvable object literal simply contributes nothing —
-    // the call site then reports UNRESOLVED rather than disappearing.
-    if (ts.isSpreadAssignment(property) && ctx !== undefined && fromSpread === undefined) {
-      const spreadObject = asEventObject(property.expression, ctx);
-      if (spreadObject !== undefined) {
-        for (const inner of spreadObject.properties) {
-          if (
-            ts.isPropertyAssignment(inner) &&
-            (ts.isIdentifier(inner.name) || ts.isStringLiteral(inner.name)) &&
-            inner.name.text === name
-          ) {
-            fromSpread = inner.initializer;
-            break;
-          }
-          if (ts.isShorthandPropertyAssignment(inner) && inner.name.text === name) {
-            fromSpread = inner.name;
-            break;
-          }
-        }
-      }
+      found = property.initializer;
+    } else if (ts.isShorthandPropertyAssignment(property) && property.name.text === name) {
+      found = property.name;
     }
   }
-  return fromSpread;
+  return found;
+}
+
+/**
+ * The initializer of `name` on an object literal, following one spread level.
+ *
+ * The spread half was documented but never implemented, so
+ * `store.append(id, { ...baseEvent, data })` read as a module that appends
+ * nothing — an ordinary spelling, and an emitter invisible to the census.
+ *
+ * Precedence is source order, the way JS evaluates it: the LAST writer of
+ * `name` wins, own property or spread alike. Returning on the first own hit
+ * read `{ type: 'old', ...{ type: 'new' } }` as `'old'` — a confident wrong
+ * answer, which for this census is worse than no answer.
+ */
+function findProperty(
+  object: ts.ObjectLiteralExpression,
+  name: string,
+  ctx?: ResolutionContext,
+): ts.Expression | undefined {
+  let candidate: ts.Expression | undefined;
+  for (const property of object.properties) {
+    if (
+      ts.isPropertyAssignment(property) &&
+      (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)) &&
+      property.name.text === name
+    ) {
+      candidate = property.initializer;
+      continue;
+    }
+    if (ts.isShorthandPropertyAssignment(property) && property.name.text === name) {
+      candidate = property.name;
+      continue;
+    }
+    if (ts.isSpreadAssignment(property)) {
+      // ONE level: a spread of a spread is not followed.
+      const spreadObject = ctx === undefined ? undefined : asEventObject(property.expression, ctx);
+      if (spreadObject === undefined) {
+        // An unreadable spread sits AFTER whatever is held, so it may or may
+        // not overwrite it — and there is no way to tell from here. Poison the
+        // candidate rather than let a superseded value win: `discriminant:
+        // undefined` is the unresolved marker, and under-reporting a rogue
+        // emitter is the direction this census refuses to fail in.
+        candidate = undefined;
+        continue;
+      }
+      // A spread that does not mention `name` leaves the standing value alone.
+      const inner = lastOwnProperty(spreadObject, name);
+      if (inner !== undefined) candidate = inner;
+    }
+  }
+  return candidate;
 }
 
 /**
