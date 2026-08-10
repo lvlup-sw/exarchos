@@ -58,7 +58,27 @@ import { buildInvalidInput, type ValidationError } from '../adapters/schema-to-f
  * `action` and `task` are NOT listed: dispatch peels both off the payload
  * before this partition runs.
  */
-const TRANSPORT_KEYS: ReadonlySet<string> = new Set(['_meta']);
+const TRANSPORT_KEYS: ReadonlySet<string> = new Set(['_meta', 'surface']);
+
+/**
+ * `surface` is adapter-injected carrier, not operator payload.
+ *
+ * The CLI adapter stamps the dispatching surface onto the `onboard` payload so
+ * the handler can decide whether to run the SessionStart install step
+ * (`ctx.surface === 'cli'`); `adapters/cli.ts` states the intent plainly —
+ * "the operator never sets it". It is therefore exempt for the same reason
+ * `_meta` is: nobody typed it, so refusing it reports a mistake the caller did
+ * not make.
+ *
+ * It is deliberately NOT declared on the `onboard` action schema instead:
+ * flags auto-emit from that schema (`addFlagsFromSchema`), so declaring it
+ * would mint an operator-facing `--surface` flag for a value the operator must
+ * not choose — trading a silent drop for a misleading surface.
+ *
+ * Found by this module's own rule the first time it ran end-to-end: the
+ * `onboard` outcome test went red with `unrecognized parameter(s): "surface"`.
+ * The mechanism worked; the exemption list was incomplete.
+ */
 
 /** Result of separating carrier and SDK noise from a caller's real parameters. */
 export interface ForwardedParameters {
