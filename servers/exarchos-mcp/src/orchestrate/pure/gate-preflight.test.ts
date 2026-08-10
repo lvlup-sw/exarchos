@@ -9,6 +9,13 @@
 // emission, and by then this file was its only caller — the tests were the only
 // thing keeping a dead export compiling. Its behaviour is now asserted where the
 // behaviour lives, against `appendGateExecutedSignal` in gate-runner.test.ts.
+//
+// DR-30 — the two authorities `GatePreflight_EveryValueExport_HasANonTestImporter`
+// compares are the module's own DECLARED export surface and the live IMPORT
+// SITES across the MCP source tree. Neither can observe the other: the module
+// does not know who imports it, and no importer enumerates what it exports, so a
+// dead export is exactly the disagreement between them.
+// @oracle-sources: ./gate-preflight.ts, the named-import bindings scanned out of every non-test module under servers/exarchos-mcp/src
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
