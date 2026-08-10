@@ -91,7 +91,7 @@
 // enforces that declaration at this path.
 
 import { createHash } from 'node:crypto';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, realpathSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
@@ -1374,11 +1374,44 @@ export function runGuard(): number {
   return 1;
 }
 
+// THE ENTRYPOINT TAIL — and why it is not a filename comparison (task 074)
+//
+// The predicate used to be `process.argv[1].endsWith('cli-derivation-guard.ts')`,
+// which couples self-execution to the FILE'S NAME. Renaming the file — and
+// updating the `run:` step in ci.yml to match, which is what a rename means —
+// leaves a CI step that still exists, still runs, still resolves, prints NOTHING
+// and exits 0. Task 018 measured that on the sibling `output-schema-ratchet-guard`
+// and this guard reproduced it: a byte-identical copy under any other name
+// produced 0 bytes on stdout, 0 bytes on stderr, exit 0.
+//
+// {@link canonicalPath} also resolves symlinks, because Node reports the main
+// module's realpath while `argv[1]` keeps the link — comparing the two unresolved
+// would trade a filename-shaped silent no-op for a symlink-shaped one.
+//
+// NOTE FOR ANYONE EDITING BELOW: `process.exit` must stay a TOP-LEVEL call.
+// `scripts/guard-inventory.ts` classifies a module as a runnable gate by finding
+// exactly that (`hasDirectRunExit`, an AST walk that rejects a `process.exit`
+// nested inside a function), and a gate it cannot see drops out of DR-24's
+// CI-reachability proof.
+
+/**
+ * A canonical absolute path for comparison: symlinks resolved where possible,
+ * falling back to plain resolution for a path that does not exist on disk (so
+ * an exotic `argv[1]` degrades to "not the entrypoint" rather than throwing).
+ */
+function canonicalPath(candidate: string): string {
+  const absolute = path.resolve(candidate);
+  try {
+    return realpathSync(absolute);
+  } catch {
+    return absolute;
+  }
+}
+
 const isDirectRun =
   typeof process !== 'undefined' &&
   typeof process.argv[1] === 'string' &&
-  (process.argv[1].endsWith('cli-derivation-guard.ts') ||
-    process.argv[1].endsWith('cli-derivation-guard.js'));
+  canonicalPath(process.argv[1]) === canonicalPath(fileURLToPath(import.meta.url));
 
 if (isDirectRun) {
   process.exit(runGuard());

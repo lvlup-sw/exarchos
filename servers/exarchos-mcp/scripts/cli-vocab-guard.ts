@@ -31,6 +31,9 @@
 // binary's runtime) or Vitest's alias shim. Bun is already a CI dependency in the
 // MCP jobs, so `bun run scripts/cli-vocab-guard.ts` is the natural invocation.
 
+import { realpathSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { buildCli } from '../src/adapters/cli.js';
 import type { DispatchContext } from '../src/core/dispatch.js';
 import type { Command } from 'commander';
@@ -315,12 +318,45 @@ export function runGuard(): number {
   return 1;
 }
 
+// THE ENTRYPOINT TAIL — and why it is not a filename comparison (task 074)
+//
+// The predicate used to be `process.argv[1].endsWith('cli-vocab-guard.ts')`,
+// which couples self-execution to the FILE'S NAME. Renaming the file — and
+// updating `cli:vocab-guard` in package.json to match, which is what a rename
+// means — leaves a CI step that still exists, still runs, still resolves, prints
+// NOTHING and exits 0. Measured: a byte-identical copy under any other name
+// produced 0 bytes on stdout, 0 bytes on stderr, exit 0.
+//
+// This guard runs under BUN, not Node, so the idiom's two halves were checked
+// against Bun rather than inferred from Node's semantics (DR-4 asked for exactly
+// that). Measured on bun 1.3.12: `process.argv[1]` is the ABSOLUTE, REALPATH'd
+// script path for an absolute invocation, a relative one, and a symlink alike,
+// and `import.meta.url` is that same path as a `file://` URL — so the comparison
+// below holds under Bun for all three. `scripts/entrypoint-predicates.selftest.test.ts`
+// re-runs that measurement rather than trusting this note. {@link canonicalPath}
+// keeps the `realpathSync` leg anyway, because Node — which the co-located test
+// and any `tsx` invocation use — reports the main module's realpath while
+// `argv[1]` keeps the link.
+
+/**
+ * A canonical absolute path for comparison: symlinks resolved where possible,
+ * falling back to plain resolution for a path that does not exist on disk (so
+ * an exotic `argv[1]` degrades to "not the entrypoint" rather than throwing).
+ */
+function canonicalPath(candidate: string): string {
+  const absolute = resolve(candidate);
+  try {
+    return realpathSync(absolute);
+  } catch {
+    return absolute;
+  }
+}
+
 // Only run when executed directly (not when imported by the test).
 const isDirectRun =
   typeof process !== 'undefined' &&
   typeof process.argv[1] === 'string' &&
-  (process.argv[1].endsWith('cli-vocab-guard.ts') ||
-    process.argv[1].endsWith('cli-vocab-guard.js'));
+  canonicalPath(process.argv[1]) === canonicalPath(fileURLToPath(import.meta.url));
 
 if (isDirectRun) {
   process.exit(runGuard());
