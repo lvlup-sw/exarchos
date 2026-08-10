@@ -41,6 +41,7 @@ import {
   renderSummary,
   DEFAULT_MANIFEST_PATH,
 } from './run-validate.mjs';
+import { EXIT_GAPS } from './check-measured-premises.mjs';
 
 const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPTS_DIR, '..');
@@ -406,7 +407,11 @@ describe('run-validate — verdict fidelity (task 078, DR-7)', () => {
     };
     const premises = steps.find((s) => s.id === 'measured-premises');
     expect(premises).toBeDefined();
-    const gaps = premises!.outcomes?.['3'];
+    // Keyed off the gate's own exported constant, not the literal `3`. JSON
+    // cannot import `EXIT_GAPS`, so this assertion is the only place the
+    // shipped manifest key and the exit code the gate emits are held together —
+    // without it the comment above claims a binding that does not exist.
+    const gaps = premises!.outcomes?.[String(EXIT_GAPS)];
     expect(gaps).toBeDefined();
     expect(gaps!.verdict).toBe('gaps');
     expect(gaps!.issue).toBeTruthy();
