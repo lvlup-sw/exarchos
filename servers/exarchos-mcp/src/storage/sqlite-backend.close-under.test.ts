@@ -73,6 +73,40 @@ describe('SqliteBackend.closeOpenUnder — containment survives path aliasing', 
     }).not.toThrow();
   });
 
+  it('Close_UnderlyingCloseThrows_StaysRegisteredForARetry', () => {
+    // A close that THREW did not close. Reporting it as closed — which the old
+    // order did, by de-registering before the attempt — makes the surviving OS
+    // handle permanently invisible: `openHandleCount()` reads zero while NTFS
+    // still refuses to unlink the file, so the sweep has nothing left to retry
+    // and teardown fails with `EBUSY … exarchos.db-wal` and no suspect.
+    const parent = scratchDir();
+    const backend = new SqliteBackend(join(parent, 'exarchos.db'));
+    backend.initialize();
+    const before = SqliteBackend.openHandleCount();
+    expect(before).toBeGreaterThan(0);
+
+    const db = (backend as unknown as { db: { close: () => void } }).db;
+    const realClose = db.close.bind(db);
+    let failNext = true;
+    db.close = (): void => {
+      if (failNext) throw new Error('driver refused to close');
+      realClose();
+    };
+
+    expect(() => {
+      backend.close();
+    }).not.toThrow();
+    expect(
+      SqliteBackend.openHandleCount(),
+      'a backend whose close threw was de-registered, so nothing can ever retry it',
+    ).toBe(before);
+
+    // …and the retry actually succeeds once the driver cooperates.
+    failNext = false;
+    backend.close();
+    expect(SqliteBackend.openHandleCount()).toBe(before - 1);
+  });
+
   it('CloseOpenUnder_HandleOutsideTheDirectory_IsLeftOpen', () => {
     // The negative twin. Without it, a sweep that closed EVERY open handle would
     // satisfy the case above while quietly killing unrelated stores.
