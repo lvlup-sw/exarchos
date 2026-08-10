@@ -543,30 +543,8 @@ invariants:
       - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
       - servers/exarchos-mcp/src/capabilities/resolver.ts
       - servers/exarchos-mcp/src/adapters/remote-mcp.ts
-
   - id: INV-4
     dimension: platform-agnosticity
-    integrity-class: substrate
-    phase-affinity: [ review ]
-    workflow-affinity: [ feature, debug, refactor, oneshot ]
-    severity:
-      default: blocking
-      by-workflow:
-        oneshot: advisory
-    enforcement:
-      # Diff-precise mode:check (issue #1466). Generated runtime variants under
-      # skills/<runtime>/** are build output of `npm run build:skills`; a diff
-      # touching any of them is a direct edit to generated output (source of
-      # truth is skills-src/). The `scope` combinator narrows the fileGlob to
-      # the generated tree; the grep fires on the hunk header so any touched
-      # generated file is flagged. skills-src/** is excluded by the glob.
-      mode: check
-      check:
-        scope:
-          fileGlob: "skills/**"
-        node:
-          kind: grep
-          pattern: "@@"
     axis: substrate
     cost-of-load: reference-only
     applies-to:
@@ -591,6 +569,10 @@ invariants:
       via <!-- requires:* --> blocks. INV-4 owns the *harness* axis; INV-6 owns
       the orthogonal *workload* axis (workflow types) and INV-16 the orthogonal
       *OS* axis — substrate guarantees hold across all three.
+    references:
+      - docs/architecture/invariants/references/INV-4-platform-agnosticity.md
+      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
+      - skills-src/SKILL_AUTHORING.md
     citations:
       - "Andrew Hunt & David Thomas, *The Pragmatic Programmer* — DRY / Single
         Source of Truth (Addison-Wesley 1999):
@@ -601,10 +583,45 @@ invariants:
         ew"
       - "Anthropic, *Model Context Protocol — Architecture* (2025):
         https://modelcontextprotocol.io/specification/2025-06-18/architecture"
-    references:
-      - docs/architecture/invariants/references/INV-4-platform-agnosticity.md
-      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
-      - skills-src/SKILL_AUTHORING.md
+    phase-affinity:
+      - review
+    workflow-affinity:
+      - feature
+      - debug
+      - refactor
+      - oneshot
+    enforcement:
+      # mode:audit, not check (task 086): the prior diff-precise check
+      # (issue #1466) fired a grep on the hunk header of ANY diff touching
+      # skills/**, so it could not distinguish a REGENERATED tree — which
+      # CLAUDE.md mandates committing alongside a skills-src/ change — from a
+      # HAND edit skills-src/ does not reproduce. That made it a blocking
+      # invariant a conforming commit could not satisfy (73 files on one
+      # branch alone), training reviewers to ignore it. Whether a skills/**
+      # diff is generated output is a whole-tree render-equivalence question
+      # the diff-grep DSL cannot see (no exec leaf kind, diff-only visibility)
+      # — the same reasoning that keeps INV-2 and INV-6 in audit mode.
+      # `npm run skills:guard` (dist/skills-guard.js) already answers it
+      # precisely: it re-renders skills-src/ via `npm run build:skills` and
+      # diffs the result against the committed tree, so it distinguishes the
+      # two cases the grep leaf could not. That render-equivalence probe is
+      # the mechanical backstop this audit defers to.
+      mode: audit
+      audit-prompt: "Does this diff touch any file under skills/**? A touched
+        generated file is ONLY a violation when it diverges from a fresh render
+        of skills-src/ -- the render-equivalence probe npm run skills:guard
+        (dist/skills-guard.js) answers this precisely: it re-renders skills-src/
+        via npm run build:skills and diffs the result against the committed
+        skills/** tree. A REGENERATED tree (skills:guard passes) is conformant
+        and CLAUDE.md-mandated -- committing skills/** alongside its skills-src/
+        source is the convention, not a violation. Flag a skills/** diff only
+        when skills:guard fails for it (or was not run before commit), never
+        merely because skills/** was touched."
+    severity:
+      default: blocking
+      by-workflow:
+        oneshot: advisory
+    integrity-class: substrate
 
   - id: INV-5a
     dimension: input-ergonomics
