@@ -1,5 +1,6 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import type { ModuleLexer } from './effect-ledger.js';
 
 /**
  * P04-01 — silent-swallow static check for required delivery paths.
@@ -39,69 +40,36 @@ export interface SwallowFinding {
 }
 
 /**
- * Replace every string, template and comment span with spaces (newlines kept)
- * so structural matching sees only real code while offsets stay aligned to the
- * original source.
+ * `source` with every string, template-TEXT and comment span replaced by spaces
+ * (newlines and offsets kept) so structural matching sees only real code.
+ *
+ * An ACCESSOR over the caller-supplied {@link ModuleLexer}, not a lexer: it
+ * holds no knowledge of TypeScript's grammar and must never re-acquire any. See
+ * `architecture/effect-ledger.ts`'s header for why the port is REQUIRED and why
+ * its only implementation lives under `test-helpers/`.
+ *
+ * ── What it replaced, and what that cost ────────────────────────────────────
+ * Until task 072 this was a hand-rolled character walk — the fourth
+ * near-duplicate in this package — with no regex-literal state at all. Measured
+ * on task 065's adversarial inputs it was wrong in both directions, and for a
+ * silent-swallow gate both matter:
+ *
+ *   • FALSE NEGATIVE, the dangerous direction. A regex literal holding a
+ *     backtick opened a phantom template that ran to EOF, so a REAL `catch {}`
+ *     below it was masked away and the module scanned clean.
+ *   • FALSE POSITIVE. The walk masked a template literal whole, which inverted
+ *     its own state on a template nested inside a `${…}` substitution and
+ *     un-masked the nested body — reporting an `empty-catch` that exists only as
+ *     template text.
+ *
+ * The retired walk is kept verbatim in `test-helpers/superseded-site-lexers.ts`
+ * so the kill fixture asserts both answers rather than asking a reader to take
+ * the gap on faith. One further difference is deliberate and inherited from the
+ * port: a `${…}` substitution IS code and is no longer masked, so a `catch {}`
+ * written inside one is now SEEN.
  */
-export function maskLiteralsAndComments(source: string): string {
-  const out: string[] = [];
-  let quote: string | null = null;
-  let lineComment = false;
-  let blockComment = false;
-  for (let i = 0; i < source.length; i += 1) {
-    const ch = source[i] ?? '';
-    const next = source[i + 1];
-    if (lineComment) {
-      if (ch === '\n') {
-        lineComment = false;
-        out.push('\n');
-      } else {
-        out.push(' ');
-      }
-      continue;
-    }
-    if (blockComment) {
-      if (ch === '*' && next === '/') {
-        blockComment = false;
-        out.push('  ');
-        i += 1;
-      } else {
-        out.push(ch === '\n' ? '\n' : ' ');
-      }
-      continue;
-    }
-    if (quote !== null) {
-      if (ch === '\\') {
-        out.push('  ');
-        i += 1;
-      } else if (ch === quote) {
-        quote = null;
-        out.push(' ');
-      } else {
-        out.push(ch === '\n' ? '\n' : ' ');
-      }
-      continue;
-    }
-    if (ch === '/' && next === '/') {
-      lineComment = true;
-      out.push('  ');
-      i += 1;
-      continue;
-    }
-    if (ch === '/' && next === '*') {
-      blockComment = true;
-      out.push('  ');
-      i += 1;
-      continue;
-    }
-    if (ch === '"' || ch === "'" || ch === '`') {
-      quote = ch;
-      out.push(' ');
-      continue;
-    }
-    out.push(ch);
-  }
-  return out.join('');
+export function maskLiteralsAndComments(source: string, lex: ModuleLexer): string {
+  return lex(source).maskedSource;
 }
 
 /** Line number (1-based) of a character offset. */
@@ -152,8 +120,8 @@ function isEmptyHandler(masked: string): boolean {
  * caller supplies the source (dependency injection for tests) or reads it from
  * disk via {@link auditDeliverySafety}.
  */
-export function findSilentSwallows(source: string): SwallowFinding[] {
-  const masked = maskLiteralsAndComments(source);
+export function findSilentSwallows(source: string, lex: ModuleLexer): SwallowFinding[] {
+  const masked = maskLiteralsAndComments(source, lex);
   const findings: SwallowFinding[] = [];
 
   // 1. Empty catch blocks.
@@ -216,24 +184,34 @@ export const DELIVERY_CONTRACT_MODULE = 'channel/delivery.ts';
  * The scan is deliberately one hop, not transitive: `deliver`'s required arm
  * throws, so the failure propagates by construction through intermediate frames.
  * A silent swallow only discards it at a site that holds the call.
+ *
+ * ── Why the port answers this too (task 072) ────────────────────────────────
+ * Deriving the population is the same lexical question as masking the code, and
+ * this function used to answer it a SECOND way: a raw-source regex requiring
+ * `import` at line start and a `from` within 400 characters, cross-checked
+ * against the mask to reject commented-out imports. Two instruments, one file,
+ * free to disagree — the shape DR-2 exists to remove. It is now the port's
+ * `imports`, which is also strictly wider: `export … from`, `import … =
+ * require(…)` and a dynamic `import(…)` of the contract are edges the regex
+ * could not see, and an edge missed here is a module never scanned for swallows.
+ *
+ * TYPE-ONLY edges are deliberately KEPT in the population. The property is "this
+ * module names the delivery contract", and a module that imports the contract's
+ * types is a module written against it; including it can only widen the sweep,
+ * which is the fail-closed direction for a safety gate.
  */
-export async function resolveRequiredDeliveryModules(sourceRoot: string): Promise<string[]> {
-  const importsContract = (source: string, fromDir: string): boolean => {
-    const masked = maskLiteralsAndComments(source);
-    // Specifiers live inside string literals, which the mask blanks — so match
-    // on the raw source and use the mask only to reject commented-out imports.
-    for (const match of source.matchAll(/(?:^|\n)\s*import[\s\S]{0,400}?from\s*['"]([^'"]+)['"]/g)) {
-      const specifier = match[1] ?? '';
-      const index = match.index ?? 0;
-      if (masked.slice(index, index + 8).trim() === '') continue;
-      const target = specifier.replace(/\.js$/, '.ts');
+export async function resolveRequiredDeliveryModules(
+  sourceRoot: string,
+  lex: ModuleLexer,
+): Promise<string[]> {
+  const importsContract = (source: string, fromDir: string, fileName: string): boolean =>
+    lex(source, fileName).imports.some((ref) => {
+      const target = ref.specifier.replace(/\.js$/, '.ts');
       const resolved = target.startsWith('.')
         ? join(fromDir, target).replaceAll('\\', '/')
         : target;
-      if (resolved === DELIVERY_CONTRACT_MODULE) return true;
-    }
-    return false;
-  };
+      return resolved === DELIVERY_CONTRACT_MODULE;
+    });
 
   const modules = new Set<string>([DELIVERY_CONTRACT_MODULE]);
   const walk = async (dir: string): Promise<void> => {
@@ -249,7 +227,9 @@ export async function resolveRequiredDeliveryModules(sourceRoot: string): Promis
         !entry.name.endsWith('.test.ts') &&
         !entry.name.endsWith('.d.ts')
       ) {
-        if (importsContract(await readFile(join(sourceRoot, rel), 'utf8'), dir)) modules.add(rel);
+        if (importsContract(await readFile(join(sourceRoot, rel), 'utf8'), dir, rel)) {
+          modules.add(rel);
+        }
       }
     }
   };
@@ -282,9 +262,10 @@ export interface DeliverySafetyResult {
  */
 export async function auditDeliverySafety(
   sourceRoot: string,
+  lex: ModuleLexer,
   modules?: readonly string[],
 ): Promise<DeliverySafetyResult> {
-  const scanned = modules ?? (await resolveRequiredDeliveryModules(sourceRoot));
+  const scanned = modules ?? (await resolveRequiredDeliveryModules(sourceRoot, lex));
   if (scanned.length === 0) {
     return Object.freeze({
       ok: false,
@@ -306,7 +287,7 @@ export async function auditDeliverySafety(
   const findings: { module: string; finding: SwallowFinding }[] = [];
   for (const module of scanned) {
     const source = await readFile(join(sourceRoot, module), 'utf8');
-    for (const finding of findSilentSwallows(source)) {
+    for (const finding of findSilentSwallows(source, lex)) {
       findings.push({ module, finding });
     }
   }
