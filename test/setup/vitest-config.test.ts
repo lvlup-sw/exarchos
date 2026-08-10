@@ -1,6 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import vitestConfig from '../../vitest.config.js';
+import vitestConfig, { WIN32_SPAWN_HEADROOM } from '../../vitest.config.js';
 import mcpVitestConfig from '../../servers/exarchos-mcp/vitest.config.js';
+
+/** The tier policy in LINUX terms; win32 scales the ROOT rungs by the headroom. */
+const BASE_UNIT = 5000;
+const BASE_PROCESS = 15000;
+const BASE_OUTCOME = 30000;
+/** Not scaled — the MCP workspace's 60s was already chosen for Windows (#1620). */
+const BASE_MCP = 60000;
 
 describe('vitest.config', () => {
   it('VitestConfig_DeclaresOutcomeProject_Exists', () => {
@@ -38,9 +45,27 @@ describe('vitest.config', () => {
         .filter((p) => typeof p.test?.name === 'string')
         .map((p) => [p.test!.name as string, p.test?.testTimeout]),
     );
-    expect(byName.get('unit')).toBe(5000);
-    expect(byName.get('process')).toBe(15000);
-    expect(byName.get('outcome')).toBe(30000);
+    expect(byName.get('unit')).toBe(BASE_UNIT * WIN32_SPAWN_HEADROOM);
+    expect(byName.get('process')).toBe(BASE_PROCESS * WIN32_SPAWN_HEADROOM);
+    expect(byName.get('outcome')).toBe(BASE_OUTCOME * WIN32_SPAWN_HEADROOM);
+  });
+
+  it('VitestConfig_Win32_ScalesTheRootTiersForSpawnCost', () => {
+    // #1699: the root tiers are calibrated on Linux, where all ten
+    // `skills-guard.test.ts` tests finish in 423ms total; two of the SAME tests
+    // take 5290ms and 10045ms each on the Windows runner. Without headroom the
+    // lane fails by lottery — a different victim every run, always a timeout,
+    // never an assertion. This pins the headroom so it cannot be quietly
+    // reverted to a bare 5000 and reopen the class.
+    if (process.platform === 'win32') {
+      expect(WIN32_SPAWN_HEADROOM).toBeGreaterThan(1);
+      // 3x slack over the worst observed victim (10045ms) at the unit tier.
+      expect(BASE_UNIT * WIN32_SPAWN_HEADROOM).toBeGreaterThanOrEqual(30000);
+    } else {
+      // Elsewhere the tight budgets stand, so a genuine hang still fails fast
+      // on the platform that runs most of the checks.
+      expect(WIN32_SPAWN_HEADROOM).toBe(1);
+    }
   });
 
   // WFQ-015 (P07-07): the nested `servers/exarchos-mcp` workspace must ALSO
@@ -91,10 +116,15 @@ describe('vitest.config', () => {
         .filter((p) => typeof p.test?.name === 'string')
         .map((p) => [p.test!.name as string, p.test?.testTimeout]),
     );
+    // Stated in LINUX terms — the declared policy. On win32 the three ROOT rungs
+    // scale uniformly by WIN32_SPAWN_HEADROOM (so their ordering is preserved),
+    // while the MCP rung is left alone because its 60s already IS the Windows
+    // allowance. Dividing the scaling back out is what keeps this a claim about
+    // the policy rather than about whichever platform happens to run it.
     const ladder = [
-      rootByName.get('unit'),
-      rootByName.get('process'),
-      rootByName.get('outcome'),
+      (rootByName.get('unit') as number) / WIN32_SPAWN_HEADROOM,
+      (rootByName.get('process') as number) / WIN32_SPAWN_HEADROOM,
+      (rootByName.get('outcome') as number) / WIN32_SPAWN_HEADROOM,
       mcp.test?.testTimeout,
     ];
     // Every rung is an explicit number.
@@ -105,6 +135,6 @@ describe('vitest.config', () => {
     for (let i = 1; i < ladder.length; i++) {
       expect(ladder[i] as number).toBeGreaterThan(ladder[i - 1] as number);
     }
-    expect(ladder).toEqual([5000, 15000, 30000, 60000]);
+    expect(ladder).toEqual([BASE_UNIT, BASE_PROCESS, BASE_OUTCOME, BASE_MCP]);
   });
 });
