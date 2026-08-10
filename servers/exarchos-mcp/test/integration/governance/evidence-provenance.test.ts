@@ -175,7 +175,16 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
    * the producer's source string.
    *
    * BLOCKING arm: a blocked (`fail`) verdict mints `passed: false`.
-   * NEGATIVE TWIN: a `pass` verdict on the same chain mints `passed: true`.
+   * NEGATIVE TWIN: a POLICY-SKIPPED run on the same chain mints an
+   * `indeterminate` signal — non-blocking in the carrier, but never proof.
+   *
+   * The twin used to assert that this arm minted `passed: true` / `verdict:
+   * 'pass'`. That was the DR-7 defect written down as the contract: the low-tier
+   * arm is a policy SKIP, the gate never ran, and it was manufacturing durable
+   * proof for it. Both arms now show the same underlying property from opposite
+   * sides — `signal.passed === (persisted.verdict === 'pass')` — across three
+   * distinct verdicts, and the twin additionally pins that a skip is
+   * DISTINGUISHABLE from a run rather than silently equal to a pass.
    */
   it('Governance_Dr2_GateSignal_MintedFromPersistedEvidenceRecord', async () => {
     const featureId = 'gov-t2-provenance';
@@ -232,8 +241,8 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
         // proof and signal agree, by construction
         expect(signal.passed).toBe(persisted.verdict === 'pass');
 
-        // ── NEGATIVE TWIN: a passing verdict on the same chain ────────────
-        const passing = await h.runAction(
+        // ── NEGATIVE TWIN: a policy-SKIPPED run on the same chain ─────────
+        const skipped = await h.runAction(
           'exarchos_orchestrate',
           'check_test_adequacy',
           {
@@ -247,15 +256,33 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
           },
           { timeoutMs: 180_000 },
         );
-        expect(data(passing).passed).toBe(true);
+        // The CARRIER stays non-blocking — the ladder does not stop for a gate
+        // its own policy excluded.
+        expect(data(skipped).passed).toBe(true);
+        expect(data(skipped).skipped).toBe(true);
 
         const twinSignals = (await h.events(featureId))
           .filter((e) => e.type === 'gate.executed')
           .map((e) => e.data as Rec)
           .filter((d) => (d.details as Rec).taskId === 'T-prov-low');
         expect(twinSignals).toHaveLength(1);
-        expect(twinSignals[0]?.passed).toBe(true);
-        expect((twinSignals[0]?.details as Rec).verdict).toBe('pass');
+        const twinDetails = twinSignals[0]?.details as Rec;
+        // …but the durable SIGNAL records that nothing was verified, and says
+        // why. This is what makes a gate that did not run distinguishable from
+        // one that passed — the property the fail arm above cannot show.
+        expect(twinSignals[0]?.passed).toBe(false);
+        expect(twinDetails.verdict).toBe('indeterminate');
+        expect(twinDetails.skipped).toBe(true);
+        expect(typeof twinDetails.discriminant).toBe('string');
+
+        // The same construction-level identity as the blocking arm, on a third
+        // verdict: the signal's `passed` is the persisted verdict, nothing else.
+        const twinRecord = (await h.events(featureId))
+          .filter((e) => e.type === 'admission.evidence-recorded')
+          .map((e) => (e.data as Rec).evidence as Rec)
+          .find((ev) => (ev.subject as Rec).taskId === 'T-prov-low');
+        expect(twinRecord?.verdict).toBe('indeterminate');
+        expect(twinSignals[0]?.passed).toBe(twinRecord?.verdict === 'pass');
       },
     );
   }, 300_000);

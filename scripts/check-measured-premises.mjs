@@ -65,9 +65,14 @@
  * reading it saw the pass code: `npm run validate` recorded `PASS
  * measured-premises` 9/9 exit 0, and the CI lane went green. A verdict that
  * only a human can see is not a verdict the pipeline has. Exit 0 now means
- * `pass` and nothing else; a runner that wants to tolerate gaps must say so,
- * and `scripts/validate-manifest.json` is where that toleration is declared,
- * dated and issue-referenced.
+ * `pass` and nothing else.
+ *
+ * A caller that wants to tolerate gaps must SAY SO, and say until when:
+ * `--tolerate-gaps-until YYYY-MM-DD` maps `gaps` back to exit 0 up to that day
+ * and to exit 1 after it. The rendered verdict is unchanged either way — the
+ * reader still sees GAPS — so the toleration adjusts consequence, never
+ * reporting. An undated toleration is not offered on purpose: "temporary"
+ * without a date is how eleven unprobed rungs became the status quo.
  *
  * ── Scope ───────────────────────────────────────────────────────────────────
  * `docs/specs/2026-08-06-internal-mechanics-overhaul.md` plus
@@ -105,6 +110,9 @@
  *   --document <path>   Scan this document instead of the default scope.
  *                       Repeatable. Paths resolve against the repo root.
  *   --fail-on-gap       Promote unprobed rungs from `gaps` to `fail`.
+ *   --tolerate-gaps-until <YYYY-MM-DD>
+ *                       Exit 0 on `gaps` up to and including that day; exit 1
+ *                       after it. The reported verdict is unaffected.
  *   --json              Emit the machine-readable report on stdout.
  *   --help              Show usage.
  */
@@ -334,6 +342,8 @@ export function resolveRungProbe(probe, opts = {}) {
  * @property {(name: string) => boolean} isKnownDerivation       Is the name bound at all?
  * @property {(probe: string) => { status: string, reason?: string }} [resolveProbe]
  * @property {boolean} [failOnGap]
+ * @property {string} [tolerateGapsUntil] `YYYY-MM-DD`, inclusive.
+ * @property {string} [today] `YYYY-MM-DD`; injected so the expiry is testable.
  */
 
 /**
@@ -349,6 +359,8 @@ export function checkMeasuredPremises(options) {
     isKnownDerivation,
     resolveProbe = (probe) => resolveRungProbe(probe),
     failOnGap = false,
+    tolerateGapsUntil,
+    today = new Date().toISOString().slice(0, 10),
   } = options;
 
   /** @type {{ document: string, line: number, name: string, literal: number | undefined, derived: number | undefined, verdict: string, detail?: string }[]} */
@@ -481,18 +493,32 @@ export function checkMeasuredPremises(options) {
 
   const gapCount = rungs.filter((r) => r.verdict === 'gap').length;
   const verdict = failures.length > 0 ? 'fail' : gapCount > 0 ? 'gaps' : 'pass';
+
   // DR-7: each verdict gets its OWN code. `gaps` sharing the pass code is how a
-  // step that reported GAPS was aggregated as PASS.
+  // run that printed `VERDICT: GAPS` was recorded as `PASS measured-premises`.
+  //
+  // The toleration only moves the CONSEQUENCE. `verdict` above is computed
+  // before any of this and is never rewritten, so no caller can make the report
+  // claim a pass — the most a toleration buys is a zero exit while the report
+  // still says GAPS.
+  const tolerationLive =
+    typeof tolerateGapsUntil === 'string' && tolerateGapsUntil >= today;
+  const gapsExit = failOnGap
+    ? EXIT_FAIL
+    : tolerateGapsUntil === undefined
+      ? EXIT_GAPS
+      : tolerationLive
+        ? EXIT_PASS
+        : EXIT_FAIL;
   const exitCode =
-    verdict === 'fail'
-      ? EXIT_FAIL
-      : verdict === 'gaps'
-        ? (failOnGap ? EXIT_FAIL : EXIT_GAPS)
-        : EXIT_PASS;
+    verdict === 'fail' ? EXIT_FAIL : verdict === 'gaps' ? gapsExit : EXIT_PASS;
 
   return {
     verdict,
     exitCode,
+    ...(tolerateGapsUntil === undefined
+      ? {}
+      : { toleration: { until: tolerateGapsUntil, live: tolerationLive } }),
     claims,
     rungs,
     failures,
@@ -1111,6 +1137,9 @@ function printHelp() {
       'Flags:',
       '  --document <path>  Scan this document (repeatable). Default: DR-27 scope.',
       '  --fail-on-gap      Treat unprobed obligation rungs as a failure.',
+      '  --tolerate-gaps-until <YYYY-MM-DD>',
+      '                     Exit 0 on `gaps` through that day; exit 1 after it.',
+      '                     The reported verdict is unchanged.',
       '  --json             Emit the machine-readable report.',
       '  --help             Show this message.',
       '',
@@ -1125,6 +1154,7 @@ function parseArgs(argv) {
   const documents = [];
   let failOnGap = false;
   let json = false;
+  let tolerateGapsUntil;
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
     const value = argv[i + 1];
@@ -1139,6 +1169,17 @@ function parseArgs(argv) {
         break;
       case '--fail-on-gap':
         failOnGap = true;
+        break;
+      case '--tolerate-gaps-until':
+        // A date is REQUIRED, and it must parse. An unreadable date would
+        // otherwise be silently ignored, leaving `gaps` on exit 3 or — worse,
+        // if the default flipped — tolerated forever.
+        if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+          printHelp();
+          fatal('--tolerate-gaps-until requires a YYYY-MM-DD date');
+        }
+        tolerateGapsUntil = value;
+        i++;
         break;
       case '--json':
         json = true;
@@ -1157,6 +1198,7 @@ function parseArgs(argv) {
     documents: documents.length > 0 ? documents : [...DEFAULT_DOCUMENTS],
     failOnGap,
     json,
+    tolerateGapsUntil,
   };
 }
 
@@ -1199,11 +1241,20 @@ function formatReport(report) {
 
   lines.push('');
   lines.push(`  VERDICT: ${report.verdict.toUpperCase()}`);
+  // The verdict line above never changes shape under a toleration — this is a
+  // separate line about CONSEQUENCE, so a reader is never told GAPS is a pass.
+  if (report.toleration !== undefined && report.verdict === 'gaps') {
+    lines.push(
+      report.toleration.live
+        ? `  (gaps tolerated by this caller until ${report.toleration.until}; still NOT a pass)`
+        : `  (the caller's gap toleration EXPIRED on ${report.toleration.until} — failing)`,
+    );
+  }
   return lines.join('\n');
 }
 
 function main() {
-  const { documents, failOnGap, json } = parseArgs(process.argv.slice(2));
+  const { documents, failOnGap, json, tolerateGapsUntil } = parseArgs(process.argv.slice(2));
 
   const loaded = documents.map((relative) => {
     const abs = path.resolve(REPO_ROOT, relative);
@@ -1217,6 +1268,7 @@ function main() {
     derive,
     isKnownDerivation,
     failOnGap,
+    ...(tolerateGapsUntil === undefined ? {} : { tolerateGapsUntil }),
   });
 
   if (json) {

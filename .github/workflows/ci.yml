@@ -1085,16 +1085,16 @@ jobs:
       # premises drift when the CODE changes, which is precisely the PR a
       # docs-path filter would skip.
       #
-      # Invoked THROUGH the aggregating runner (DR-7, task 078). The gate has
-      # three verdicts — pass, gaps, fail — and `gaps` now exits 3, so a bare
-      # `run:` here would red the lane on unprobed rungs. The severity of a
-      # `gaps` verdict is a policy decision, and it is declared ONCE, in
-      # scripts/validate-manifest.json, with a tracking issue and an expiry.
-      # Routing through `--only` means this lane and `npm run validate` read
-      # that one declaration instead of each restating it — and the step is
-      # rendered as GAPS, never as PASS.
+      # DR-7 (task 078): the gate has THREE verdicts and `gaps` now exits 3,
+      # distinct from pass (0) and fail (1) — it used to exit 0, so a run that
+      # printed `VERDICT: GAPS` was indistinguishable from a pass to this lane
+      # and to `npm run validate` alike. This lane still tolerates gaps, because
+      # 11 unprobed obligation rungs are real work rather than a broken gate —
+      # but the toleration is DECLARED, dated and enforced by the gate itself:
+      # past the date, gaps exit 1 and this step goes red. Drift, an empty
+      # denominator and an unannotated rung row still fail today, unchanged.
       - name: Measured-premise drift gate (DR-27)
-        run: node scripts/run-validate.mjs --only measured-premises
+        run: node scripts/check-measured-premises.mjs --tolerate-gaps-until 2026-11-30
 
       # Its own self-test on the same host (DR-24: "each guard's self-test runs
       # in the same CI job as the guard", so guard-execution failure cannot pass

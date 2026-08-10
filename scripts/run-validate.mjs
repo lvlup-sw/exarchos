@@ -54,7 +54,7 @@
  *     the step fails — a tolerated non-pass that nobody revisits is how "this
  *     is temporary" becomes permanent.
  *
- * Usage: run-validate.mjs [--manifest <path>] [--only <id>] [--json] [--list]
+ * Usage: run-validate.mjs [--manifest <path>] [--json] [--list]
  *
  * Exit codes:
  *   0 = every declared step executed and either passed or hit a live advisory
@@ -445,16 +445,13 @@ export function renderSummary(outcomes, summary) {
 
 // ─── CLI ────────────────────────────────────────────────────────────────────
 
-const USAGE = `Usage: run-validate.mjs [--manifest <path>] [--only <id>] [--json] [--list]
+const USAGE = `Usage: run-validate.mjs [--manifest <path>] [--json] [--list]
 
 Runs EVERY step declared in ${DEFAULT_MANIFEST_PATH}, aggregating failures
 instead of short-circuiting on the first one, and reports each step's verdict.
 
 Options:
   --manifest <path>  Manifest to run (default: ${DEFAULT_MANIFEST_PATH})
-  --only <id>        Run just this step (repeatable). A CI lane that hosts one
-                     gate uses this so the step's declared outcome severity is
-                     read from the manifest rather than restated in the workflow
   --list             Print the declared steps and exit without running them
   --json             Emit the machine-readable report on stdout
   --help             Show this message
@@ -465,13 +462,7 @@ Exit codes:
   2  Usage error, or the manifest could not be read (fail closed)`;
 
 function parseArgs(argv) {
-  const options = {
-    manifest: DEFAULT_MANIFEST_PATH,
-    only: [],
-    json: false,
-    list: false,
-    help: false,
-  };
+  const options = { manifest: DEFAULT_MANIFEST_PATH, json: false, list: false, help: false };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--help') options.help = true;
@@ -482,41 +473,9 @@ function parseArgs(argv) {
       if (value === undefined || value.startsWith('--')) throw new Error('--manifest requires a path');
       options.manifest = value;
       i += 1;
-    } else if (arg === '--only') {
-      const value = argv[i + 1];
-      if (value === undefined || value.startsWith('--')) throw new Error('--only requires a step id');
-      options.only.push(value);
-      i += 1;
     } else throw new Error(`Unknown argument '${arg}'`);
   }
   return options;
-}
-
-/**
- * Narrow the declared steps to an explicit `--only` selection.
- *
- * An id that matches nothing is a HARD error rather than an empty run: a typo'd
- * or renamed step would otherwise select zero gates and — via the non-empty
- * denominator rule — look like a different failure than the one it is.
- *
- * @param {ValidateStep[]} steps
- * @param {string[]} only
- * @returns {{ steps: ValidateStep[] } | { error: string }}
- */
-export function selectSteps(steps, only) {
-  if (only.length === 0) return { steps };
-  const known = new Set(steps.map((s) => s.id));
-  const unknown = only.filter((id) => !known.has(id));
-  if (unknown.length > 0) {
-    return {
-      error:
-        `--only named ${unknown.map((id) => JSON.stringify(id)).join(', ')}, which ` +
-        `${unknown.length === 1 ? 'is not a declared step' : 'are not declared steps'}. ` +
-        `Declared: ${steps.map((s) => s.id).join(', ')}`,
-    };
-  }
-  const wanted = new Set(only);
-  return { steps: steps.filter((s) => wanted.has(s.id)) };
 }
 
 function main(argv) {
@@ -551,12 +510,7 @@ function main(argv) {
     process.stderr.write(`Error: validate manifest ${options.manifest} is malformed — ${parsed.error}\n`);
     return 2;
   }
-  const selected = selectSteps(parsed.steps, options.only);
-  if ('error' in selected) {
-    process.stderr.write(`Error: ${selected.error}\n`);
-    return 2;
-  }
-  const { steps } = selected;
+  const { steps } = parsed;
 
   if (options.list) {
     process.stdout.write(

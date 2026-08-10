@@ -35,7 +35,6 @@ import {
   parseManifest,
   parseDeclaredOutcomes,
   classifyOutcome,
-  selectSteps,
   renderCommand,
   runAllSteps,
   summarize,
@@ -387,14 +386,6 @@ describe('run-validate — verdict fidelity (task 078, DR-7)', () => {
     expect(gaps!.expires! > new Date().toISOString().slice(0, 10)).toBe(true);
   });
 
-  it('SelectSteps_UnknownId_FailsRatherThanSelectingNothing', () => {
-    const steps: Step[] = [step('a'), step('b')];
-    expect(selectSteps(steps, []).steps).toHaveLength(2);
-    expect(selectSteps(steps, ['a']).steps.map((s: Step) => s.id)).toEqual(['a']);
-    // A typo'd `--only` must not quietly run zero gates.
-    const bad = selectSteps(steps, ['typo']) as { error?: string };
-    expect(bad.error).toContain('not a declared step');
-  });
 });
 
 describe('run-validate — CLI (task 064, DR-24)', () => {
@@ -481,9 +472,4 @@ describe('run-validate — CLI (task 064, DR-24)', () => {
     }
   }, 20000);
 
-  it('RunValidateCli_OnlyUnknownStep_ExitsTwoRatherThanRunningNothing', () => {
-    const { status, stderr } = runCli(['--only', 'no-such-step']);
-    expect(status).toBe(2);
-    expect(stderr).toContain('not a declared step');
-  }, 20000);
 });
