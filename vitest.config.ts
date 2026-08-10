@@ -11,6 +11,35 @@ import { fileURLToPath } from 'node:url';
 // by the `unit` project's explicit `docs/evals/**/*.test.ts` include below.
 const EXCLUDE = [...configDefaults.exclude, 'docs/**/runs/**'];
 
+// Windows headroom on every tier budget (#1699).
+//
+// The budgets below are calibrated on Linux, where spawning is cheap: all ten
+// tests in `src/skills-guard.test.ts` finish in 423ms TOTAL. On the 2-core
+// Windows runner two of those same tests take 5290ms and 10045ms EACH, because
+// `git` spawn there costs one to two orders of magnitude more. A budget that is
+// generous on Linux is therefore marginal on Windows, and marginal budgets fail
+// by lottery rather than by fault: #1699 records a different victim set on
+// every run — `preflight`, `compiler`, `sandbox`, `generate-legacy-skill-hashes`,
+// `skills-guard` — always a timeout, never an assertion.
+//
+// Scaling the TIER rather than patching each victim is the point. The eligible
+// population is "every test that spawns a child process", it grows with the
+// suite, and the per-file fix has already been applied twice (`sandbox.test.ts`,
+// then the #1805 case) without retiring the class. Deleting or `skipIf(win32)`-ing
+// the victims is worse than either: a test skipped on the platform that can see
+// the bug is a gate that guards nothing (#1694).
+//
+// Linux keeps the tight budgets unscaled, so a genuine hang still fails fast on
+// the platform that runs most of the checks.
+//
+// Exported so `test/setup/vitest-config.test.ts` reads the factor rather than
+// transcribing it — a second copy of this number is exactly the drifting-literal
+// class the surrounding epic exists to remove. The nested `servers/exarchos-mcp`
+// workspace is deliberately NOT scaled by it: that 60s was already chosen FOR
+// Windows (#1620), so scaling it again would double-count the same headroom.
+export const WIN32_SPAWN_HEADROOM = process.platform === 'win32' ? 6 : 1;
+const tierTimeout = (linuxBudgetMs: number): number => linuxBudgetMs * WIN32_SPAWN_HEADROOM;
+
 export default defineConfig({
   test: {
     globals: false,
@@ -34,7 +63,13 @@ export default defineConfig({
           // Windows headroom on its integration suite; both workspaces now run
           // vitest (see test-runtime-resolver bun `test:run` honoring), so each
           // honors its declared vitest timeout rather than a native runner's.
-          testTimeout: 5000,
+          //
+          // The stated tier costs are LINUX costs; `tierTimeout` scales them on
+          // win32 (see WIN32_SPAWN_HEADROOM above). Note that "fast, in-memory"
+          // describes the tier's intent, not every member: `src/skills-guard.test.ts`
+          // and `scripts/**` shell out to `git`, which is why this tier is where
+          // the Windows timeouts land.
+          testTimeout: tierTimeout(5000),
           include: [
             'src/**/*.test.ts',
             'benchmarks/**/*.test.ts',
@@ -62,7 +97,7 @@ export default defineConfig({
           name: 'process',
           include: ['test/process/**/*.test.ts'],
           exclude: EXCLUDE,
-          testTimeout: 15000,
+          testTimeout: tierTimeout(15000),
           setupFiles: ['./test/setup/global.ts'],
         },
       },
@@ -90,7 +125,7 @@ export default defineConfig({
           name: 'outcome',
           include: ['tests/outcome/**/*.test.ts'],
           exclude: EXCLUDE,
-          testTimeout: 30000,
+          testTimeout: tierTimeout(30000),
           fileParallelism: false,
           passWithNoTests: true,
         },
