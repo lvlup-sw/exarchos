@@ -1554,108 +1554,133 @@ jobs:
     needs: [changes, test-root, test-mcp, test-windows, test-windows-root, validate-no-legacy, manifest-gate, grep-gates, outcome-tests]
     if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && always()
     steps:
+      # DR-10 — a lane's execution is not optional.
+      #
+      # The lane list is deliberately NOT written out below. `NEEDS_JSON` is
+      # `toJSON(needs)`, so every lane named in this job's `needs:` above
+      # appears in it automatically, and the policy is applied to whatever that
+      # context contains. There is no second list of lane names here to fall out
+      # of step with the first — which is what let four lanes (`grep-gates`,
+      # `manifest-gate`, `outcome-tests`, `validate-no-legacy`) sit for months
+      # with a `failure|cancelled` check and no skip check at all.
+      #
+      # `LICENSED_SKIPS` names the only lanes allowed to report `skipped`, each
+      # paired with the `changes` output that must be non-'true' to license it.
+      # Every other lane — present or future — lands on the strict default arm,
+      # where a skip is a hard failure. Absence from this list is the STRICT
+      # case, so forgetting an entry can only over-constrain (loudly), never
+      # open a hole. `scripts/ci-topology.test.ts` executes this exact script
+      # over synthetic `needs` contexts and asserts the list matches the set
+      # derived from the lanes' own `if:` expressions, so the licences cannot
+      # drift from the path filters they describe.
+      #
+      # Nothing below interpolates `${{ }}`: every GitHub value arrives through
+      # `env:`. That keeps context data out of the shell's parse, and it is what
+      # lets the conformance test run the shipped script verbatim rather than
+      # re-modelling it.
       - name: Evaluate results
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+          LICENSED_SKIPS: |
+            test-root=root
+            test-mcp=mcp
+            test-windows=mcp
+            test-windows-root=root
         run: |
-          echo "changes=${{ needs.changes.result }}"
-          echo "test-root=${{ needs.test-root.result }}"
-          echo "test-mcp=${{ needs.test-mcp.result }}"
-          echo "test-windows=${{ needs.test-windows.result }}"
-          echo "test-windows-root=${{ needs.test-windows-root.result }}"
-          echo "validate-no-legacy=${{ needs.validate-no-legacy.result }}"
-          echo "manifest-gate=${{ needs.manifest-gate.result }}"
-          echo "grep-gates=${{ needs.grep-gates.result }}"
-          echo "outcome-tests=${{ needs.outcome-tests.result }}"
+          set -euo pipefail
 
-          if [[ "${{ needs.changes.result }}" =~ ^(failure|cancelled)$ ]]; then
-            echo "::error::Change detection: ${{ needs.changes.result }}"
-            exit 1
-          fi
-          if [[ "${{ needs.test-root.result }}" =~ ^(failure|cancelled)$ ]]; then
-            echo "::error::Root package tests: ${{ needs.test-root.result }}"
-            exit 1
-          fi
-          # DR-3 (wave-S skip-guard, mirrors the test-windows/test-windows-root
-          # pattern below): test-root is REQUIRED for any root-touching PR. A
-          # generic skip is OK (non-root PRs legitimately skip test-root via
-          # `changes.outputs.root`, host class: deps, filtered — see
-          # docs/guides/ci-gate-hosting.md). But if root code DID change and
-          # the lane was skipped, that's a path-filter/matrix regression
-          # silently dropping our only Linux root-package coverage
-          # (skipped-as-passed hole) — fail closed.
-          if [[ "${{ needs.changes.outputs.root }}" == 'true' \
-             && "${{ needs.test-root.result }}" == 'skipped' ]]; then
-            echo "::error::Root package tests (test-root) skipped on a root-touching PR (path-filter/matrix regression dropped required root coverage)"
-            exit 1
-          fi
-          if [[ "${{ needs.test-mcp.result }}" =~ ^(failure|cancelled)$ ]]; then
-            echo "::error::MCP server tests: ${{ needs.test-mcp.result }}"
-            exit 1
-          fi
-          # DR-3 (wave-S skip-guard, mirrors the test-windows/test-windows-root
-          # pattern below): test-mcp is REQUIRED for any MCP-touching PR. A
-          # generic skip is OK (non-MCP PRs legitimately skip test-mcp via
-          # `changes.outputs.mcp`, host class: deps, filtered — see
-          # docs/guides/ci-gate-hosting.md). But if MCP code DID change and
-          # the lane was skipped, that's a path-filter/matrix regression
-          # silently dropping our only Linux MCP-package coverage
-          # (skipped-as-passed hole) — fail closed.
-          if [[ "${{ needs.changes.outputs.mcp }}" == 'true' \
-             && "${{ needs.test-mcp.result }}" == 'skipped' ]]; then
-            echo "::error::MCP server tests (test-mcp) skipped on an MCP-touching PR (path-filter/matrix regression dropped required MCP coverage)"
-            exit 1
-          fi
-          # test-windows is BLOCKING. The Windows-portability gap (#1620) is
-          # closed — the windows-latest MCP suite is green — so a red Windows
-          # job now fails CI like any other tier, guarding against regressions.
-          if [[ "${{ needs.test-windows.result }}" =~ ^(failure|cancelled)$ ]]; then
-            echo "::error::Windows unit tests: ${{ needs.test-windows.result }}"
-            exit 1
-          fi
-          # DR-5 (WLM slice 3): the windows lane is REQUIRED for any MCP change.
-          # The aggregator treats generic skips as OK (non-MCP PRs legitimately
-          # skip test-windows via `changes.outputs.mcp`). But if MCP code DID
-          # change and the lane was skipped, that's a path-filter/matrix
-          # regression dropping our only Windows coverage — fail closed.
-          if [[ "${{ needs.changes.outputs.mcp }}" == 'true' \
-             && "${{ needs.test-windows.result }}" == 'skipped' ]]; then
-            echo "::error::Windows lane skipped on an MCP-touching PR (path-filter/matrix regression dropped required Windows coverage)"
-            exit 1
-          fi
-          # test-windows-root (task 021) is BLOCKING — same posture as
-          # test-windows. It gives the root package (installer surfaces, src/)
-          # its first Windows coverage, so a red root Windows job fails CI.
-          if [[ "${{ needs.test-windows-root.result }}" =~ ^(failure|cancelled)$ ]]; then
-            echo "::error::Windows root-package tests: ${{ needs.test-windows-root.result }}"
-            exit 1
-          fi
-          # The root Windows lane is REQUIRED for any root-source change. A
-          # generic skip is OK (non-root PRs legitimately skip test-windows-root
-          # via `changes.outputs.root`). But if root code DID change and the
-          # lane was skipped, that's a path-filter/matrix regression dropping
-          # our only Windows coverage of the root package — fail closed.
-          if [[ "${{ needs.changes.outputs.root }}" == 'true' \
-             && "${{ needs.test-windows-root.result }}" == 'skipped' ]]; then
-            echo "::error::Windows root lane skipped on a root-touching PR (path-filter/matrix regression dropped required Windows root coverage)"
-            exit 1
-          fi
-          if [[ "${{ needs.validate-no-legacy.result }}" =~ ^(failure|cancelled)$ ]]; then
-            echo "::error::Validate no legacy: ${{ needs.validate-no-legacy.result }}"
-            exit 1
-          fi
-          # manifest-gate (DR-2, Task 004) is BLOCKING. It runs on every PR and
-          # is inert unless the PR touches a consolidation pair, so it needs no
-          # path-filter skip-guard (its `if:` references no changes.outputs.*).
-          if [[ "${{ needs.manifest-gate.result }}" =~ ^(failure|cancelled)$ ]]; then
-            echo "::error::Manifest gate (textual case-preservation): ${{ needs.manifest-gate.result }}"
-            exit 1
-          fi
-          if [[ "${{ needs.grep-gates.result }}" =~ ^(failure|cancelled)$ ]]; then
-            echo "::error::Grep gates: ${{ needs.grep-gates.result }}"
-            exit 1
-          fi
-          if [[ "${{ needs.outcome-tests.result }}" =~ ^(failure|cancelled)$ ]]; then
-            echo "::error::Outcome tests: ${{ needs.outcome-tests.result }}"
+          # Lane list and per-lane result, straight from the needs context.
+          if ! lane_results="$(node -e '
+            const needs = JSON.parse(process.env.NEEDS_JSON || "");
+            if (needs === null || typeof needs !== "object" || Array.isArray(needs)) {
+              throw new Error("needs context did not parse to an object");
+            }
+            const lanes = Object.keys(needs).sort();
+            if (lanes.length === 0) throw new Error("needs context is empty");
+            for (const lane of lanes) {
+              const entry = needs[lane];
+              const result = entry && typeof entry === "object" ? entry.result : undefined;
+              const value = typeof result === "string" && result !== "" ? result : "unknown";
+              process.stdout.write(lane + "\t" + value + "\n");
+            }
+          ')"; then
+            echo "::error::CI Gate could not read the needs context, so it cannot prove any lane ran — failing closed."
             exit 1
           fi
 
-          echo "All checks passed (skipped jobs are OK)"
+          changes_result="$(node -e '
+            const needs = JSON.parse(process.env.NEEDS_JSON || "{}");
+            const entry = needs.changes;
+            const result = entry && typeof entry === "object" ? entry.result : undefined;
+            process.stdout.write(typeof result === "string" ? result : "");
+          ')"
+
+          # Value of one `changes` job output, as seen by this aggregator.
+          changes_output() {
+            node -e '
+              const needs = JSON.parse(process.env.NEEDS_JSON || "{}");
+              const entry = needs.changes;
+              const outputs = entry && typeof entry === "object" && entry.outputs ? entry.outputs : {};
+              const value = outputs[process.argv[1]];
+              process.stdout.write(value === undefined || value === null ? "" : String(value));
+            ' "$1"
+          }
+
+          # The `changes` output that licenses a skip for this lane, or empty
+          # if the lane has no licensed skip.
+          licensed_skip_key() {
+            local lane="$1" line entry
+            while IFS= read -r line; do
+              entry="${line%%#*}"
+              entry="${entry//[[:space:]]/}"
+              [ -n "$entry" ] || continue
+              if [ "${entry%%=*}" = "$lane" ]; then
+                printf '%s' "${entry#*=}"
+                return 0
+              fi
+            done <<< "${LICENSED_SKIPS:-}"
+            printf ''
+          }
+
+          violations=0
+
+          echo "Lane results (enumerated from the needs context):"
+          while IFS=$'\t' read -r lane result; do
+            [ -n "$lane" ] || continue
+            printf '  %s = %s\n' "$lane" "$result"
+
+            case "$result" in
+              success)
+                ;;
+              failure|cancelled)
+                echo "::error::Lane '$lane' reported '$result'."
+                violations=$((violations + 1))
+                ;;
+              skipped)
+                key="$(licensed_skip_key "$lane")"
+                if [ -z "$key" ]; then
+                  echo "::error::Lane '$lane' was SKIPPED but declares no legitimate skip condition. A lane that can silently not-run is a guard that cannot fail (DR-10). If this lane has genuinely gained a path filter, license it in LICENSED_SKIPS alongside the filter that justifies it."
+                  violations=$((violations + 1))
+                elif [ "$changes_result" != "success" ]; then
+                  echo "::error::Lane '$lane' was SKIPPED and its licence rests on the 'changes' lane, which reported '$changes_result'. No skip is licensed when change detection itself did not succeed."
+                  violations=$((violations + 1))
+                elif [ "$(changes_output "$key")" = "true" ]; then
+                  echo "::error::Lane '$lane' was SKIPPED even though changes.outputs.$key == 'true' — a path-filter or matrix regression dropped coverage this PR required."
+                  violations=$((violations + 1))
+                else
+                  printf '      skip licensed: changes.outputs.%s is not true\n' "$key"
+                fi
+                ;;
+              *)
+                echo "::error::Lane '$lane' reported the unrecognised result '$result'. CI Gate fails closed on anything it cannot classify."
+                violations=$((violations + 1))
+                ;;
+            esac
+          done <<< "$lane_results"
+
+          if [ "$violations" -ne 0 ]; then
+            echo "::error::CI Gate: $violations lane(s) violated the execution policy."
+            exit 1
+          fi
+
+          echo "All checks passed (every lane ran, or skipped under a licensed condition)"
