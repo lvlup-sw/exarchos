@@ -1977,9 +1977,25 @@ const orchestrateActions: readonly BuiltinToolAction[] = [
   },
   {
     name: 'prepare_synthesis',
-    description: 'Run pre-synthesis checks: tests, typecheck, stack health. Emits events for readiness views and eval flywheel.',
+    description: 'Run pre-synthesis checks: tests, typecheck, stack health. Emits events for readiness views and eval flywheel. Set repoRoot to the tree the verdict is about — every leg runs there.',
     schema: z.object({
       featureId: z.string().min(1),
+      // DR-8 (#1756): REQUIRED, unlike the `.optional()` repoRoot the review
+      // gates carry. Those gates resolve a root when one is absent; this one
+      // has nothing to resolve from and deliberately refuses to guess, so the
+      // only honest place to say so is the boundary. Declaring it here is also
+      // what makes it ARRIVE: `repoRoot` is declared by sibling actions, so
+      // tolerant dispatch's sibling-key stripper dropped it from any payload
+      // this action did not declare it on — the handler's own guard then
+      // refused every real MCP/CLI call. Required + declared means a verdict
+      // measured against the server's ambient process.cwd() is unrepresentable
+      // rather than merely discouraged.
+      // The description is deliberately action-NEUTRAL: `buildRegistrationSchema`
+      // flattens same-named fields first-wins, and this is the first `repoRoot`
+      // in the actions array, so its wording is what every repoRoot-taking
+      // sibling advertises on `tools/list`. Action-specific nuance belongs in
+      // the action description, not here.
+      repoRoot: z.string().min(1).describe('Absolute path of the repository this action operates on; subprocesses run with it as cwd rather than the server\'s own working directory'),
     }),
     phases: SYNTHESIS_REVIEW_PHASES,
     roles: ROLE_LEAD,
