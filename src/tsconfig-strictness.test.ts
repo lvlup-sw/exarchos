@@ -221,9 +221,34 @@ describe('DR-14: noUncheckedIndexedAccess ratchet (root)', () => {
   //                  symmetric floor exists to force into the open rather than
   //                  let drift silently downward.
   //
+  //   1777 -> 1776   PAYDOWN, residue task 090 (DR-7), and a note on where the
+  //                  other unit went. Measured per file rather than inferred:
+  //
+  //                    `core/dispatch.ts`                 18 -> 16  (-2, this task)
+  //                    `registry.ts`                      18 -> 18  ( 0)
+  //                    `dispatch/undeclared-parameters.ts` new,  0  ( 0)
+  //                    whole tree                       1778 -> 1776
+  //
+  //                  The two removed sites were the hand-rolled
+  //                  `(action.schema as { shape?: Record<string, unknown> })`
+  //                  reads in the sibling-key strip. Their replacement calls
+  //                  `receiving.schema.shape` on the `ToolAction` type, which
+  //                  already declares `schema: z.ZodObject<z.ZodRawShape>` —
+  //                  the assertions were narrowing to something the type
+  //                  system already knew.
+  //
+  //                  The tree this task STARTED from measured 1778, not the
+  //                  1777 recorded here: one site arrived earlier on the
+  //                  wave-2 integration branch and was riding the delta budget
+  //                  (1 of 5) rather than the floor. Re-baselining to the tree
+  //                  actually being shipped absorbs that unit into the floor as
+  //                  well, which is the window rule working as designed and is
+  //                  recorded here so the arithmetic is reconstructible rather
+  //                  than mysterious.
+  //
   // Per the window rule below this SLIDES the window down — the wave's remaining
   // delta allowance is restored to a full 5 of 5, not extended beyond it.
-  const BASELINE: CastCounts = { nonNull: 78, asCast: 1777, asAny: 0 };
+  const BASELINE: CastCounts = { nonNull: 78, asCast: 1776, asAny: 0 };
   // Declared budget = MAX escape-hatch sites maintenance work may introduce
   // before the NEXT documented re-baseline. Deliberately tighter than the
   // pre-wave nonNull budget: large additions must re-baseline in the open
