@@ -161,6 +161,28 @@ describe('auditDeliverySafety — live required-delivery modules', () => {
       expect(result.ok).toBe(false);
       expect(result.findings.map((f) => f.module)).toContain('newcomer/pusher.ts');
       expect(result.diagnostics.map((d) => d.code)).toContain('SILENT_SWALLOW');
+
+      // The DYNAMIC form reaches `deliver` the same way, so it joins the
+      // population the same way. A module importing the contract through
+      // `await import(…)` was previously not scanned at all — its swallow was
+      // invisible to the gate whose entire job is finding swallows.
+      await writeFile(
+        join(root, 'newcomer/pusher.ts'),
+        `export const push = async () => {\n` +
+          `  const { deliver } = await import('../channel/delivery.js');\n` +
+          `  try { await deliver(); } catch {}\n};\n`,
+      );
+      expect(await resolveRequiredDeliveryModules(root)).toContain('newcomer/pusher.ts');
+      const dynamic = await auditDeliverySafety(root);
+      expect(dynamic.ok).toBe(false);
+      expect(dynamic.findings.map((f) => f.module)).toContain('newcomer/pusher.ts');
+
+      // …but a COMMENTED-OUT dynamic import names nothing that runs.
+      await writeFile(
+        join(root, 'newcomer/pusher.ts'),
+        `// const m = await import('../channel/delivery.js');\nexport const push = () => {};\n`,
+      );
+      expect(await resolveRequiredDeliveryModules(root)).toEqual([DELIVERY_CONTRACT_MODULE]);
     } finally {
       await rmrfAsync(root);
     }
@@ -202,10 +224,17 @@ describe('auditDeliverySafety — live required-delivery modules', () => {
     const root = await mkdtemp(join(tmpdir(), 'exarchos-delivery-gone-'));
     try {
       await writeFile(join(root, 'unrelated.ts'), 'export const x = 1;\n');
-      const result = await auditDeliverySafety(root, []);
+      // No explicit population: this must reach EMPTY_POPULATION through
+      // `resolveRequiredDeliveryModules` itself. Passing `[]` here only restated
+      // the test above it, and left the derivation path unexercised — which is
+      // how an unconditional seed made the empty case unreachable in production
+      // while both tests stayed green.
+      const result = await auditDeliverySafety(root);
       expect(result.ok).toBe(false);
       expect(result.diagnostics[0]?.code).toBe('EMPTY_POPULATION');
       expect(result.diagnostics[0]?.message).toContain(DELIVERY_CONTRACT_MODULE);
+      // …and it is a DIAGNOSTIC, not an ENOENT escaping from `readFile`.
+      expect(result.modules).toEqual([]);
     } finally {
       await rmrfAsync(root);
     }

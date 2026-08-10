@@ -1,4 +1,4 @@
-import { readdir, readFile } from 'node:fs/promises';
+import { access, readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 /**
@@ -220,22 +220,48 @@ export const DELIVERY_CONTRACT_MODULE = 'channel/delivery.ts';
 export async function resolveRequiredDeliveryModules(sourceRoot: string): Promise<string[]> {
   const importsContract = (source: string, fromDir: string): boolean => {
     const masked = maskLiteralsAndComments(source);
-    // Specifiers live inside string literals, which the mask blanks — so match
-    // on the raw source and use the mask only to reject commented-out imports.
-    for (const match of source.matchAll(/(?:^|\n)\s*import[\s\S]{0,400}?from\s*['"]([^'"]+)['"]/g)) {
-      const specifier = match[1] ?? '';
-      const index = match.index ?? 0;
-      if (masked.slice(index, index + 8).trim() === '') continue;
+    const resolvesToContract = (specifier: string): boolean => {
       const target = specifier.replace(/\.js$/, '.ts');
       const resolved = target.startsWith('.')
         ? join(fromDir, target).replaceAll('\\', '/')
         : target;
-      if (resolved === DELIVERY_CONTRACT_MODULE) return true;
+      return resolved === DELIVERY_CONTRACT_MODULE;
+    };
+
+    // Specifiers live inside string literals, which the mask blanks — so match
+    // on the raw source and use the mask only to reject commented-out imports.
+    for (const match of source.matchAll(/(?:^|\n)\s*import[\s\S]{0,400}?from\s*['"]([^'"]+)['"]/g)) {
+      const index = match.index ?? 0;
+      if (masked.slice(index, index + 8).trim() === '') continue;
+      if (resolvesToContract(match[1] ?? '')) return true;
+    }
+
+    // …and the dynamic form. `await import('./channel/delivery.js')` reaches
+    // `deliver` exactly as a static import does, and a module that calls it that
+    // way was left out of the population entirely — not scanned, so a silent
+    // swallow there was invisible to a gate whose whole job is finding them.
+    // Only literal specifiers: a computed one names no module to resolve.
+    for (const match of source.matchAll(/\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g)) {
+      const index = match.index ?? 0;
+      if (masked.slice(index, index + 6).trim() === '') continue;
+      if (resolvesToContract(match[1] ?? '')) return true;
     }
     return false;
   };
 
-  const modules = new Set<string>([DELIVERY_CONTRACT_MODULE]);
+  // Seeded ONLY when the contract module is actually there. Seeding it
+  // unconditionally made the derived population impossible to empty, so the
+  // `EMPTY_POPULATION` arm was unreachable by derivation — and if the module had
+  // moved, the audit walked on and threw ENOENT out of `readFile`, instead of
+  // returning the fail-closed diagnostic whose own text says "channel/delivery.ts
+  // moved". The one condition the diagnostic describes was the one it could not
+  // report.
+  const modules = new Set<string>();
+  const contractExists = await access(join(sourceRoot, DELIVERY_CONTRACT_MODULE)).then(
+    () => true,
+    () => false,
+  );
+  if (contractExists) modules.add(DELIVERY_CONTRACT_MODULE);
   const walk = async (dir: string): Promise<void> => {
     for (const entry of await readdir(join(sourceRoot, dir), { withFileTypes: true })) {
       const rel = dir === '' ? entry.name : `${dir}/${entry.name}`;
