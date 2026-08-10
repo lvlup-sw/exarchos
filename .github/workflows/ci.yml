@@ -384,7 +384,10 @@ jobs:
   test-windows:
     name: Windows Unit (MCP)
     needs: changes
-    if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && needs.changes.outputs.mcp == 'true'
+    # Always on a push to main, same baseline argument as Windows Unit (Root).
+    if: >-
+      (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request')
+      && (needs.changes.outputs.mcp == 'true' || github.event_name == 'push')
     runs-on: windows-latest
     defaults:
       run:
@@ -493,7 +496,15 @@ jobs:
   test-windows-root:
     name: Windows Unit (Root)
     needs: changes
-    if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && needs.changes.outputs.root == 'true'
+    # Path-filtered on PRs, but ALWAYS on a push to main (#1699). The filter
+    # skipped this lane on 4/4 recent main runs, so it had no green baseline and
+    # every PR failure was ambiguous by construction — indistinguishable between
+    # "this PR broke Windows" and "Windows was already red". A lane whose red is
+    # unattributable gets re-run until it passes, which is how a real regression
+    # would slip through. `push` only fires on main (see `on:` above).
+    if: >-
+      (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request')
+      && (needs.changes.outputs.root == 'true' || github.event_name == 'push')
     runs-on: windows-latest
     env:
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
