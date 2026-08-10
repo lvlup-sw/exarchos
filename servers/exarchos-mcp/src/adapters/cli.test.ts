@@ -1388,7 +1388,9 @@ describe('DR-25: generated client addresses only compiled contract actions', () 
       deriveCliSurface(compileForCli()).commands.map((c) => c.actionId),
     );
 
-    // The four hard-wired top-level promotions address by these literal ids.
+    // The hard-wired top-level promotions (`CLI_PROMOTED_ACTION_IDS`) address
+    // by these literal ids — the loop iterates whatever the table holds, so
+    // its size is read from the export, never transcribed here.
     for (const actionId of Object.values(CLI_PROMOTED_ACTION_IDS)) {
       expect(surfaceIds.has(actionId), `${actionId} missing from the derived surface`).toBe(true);
     }
