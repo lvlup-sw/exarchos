@@ -502,6 +502,43 @@ invariants:
 
 // ─── Fence shapes the rebuild could not round-trip ───────────────────────────
 
+describe('invariants_amend — a CRLF checkout round-trips without corruption', () => {
+  // Raised as a HIGH-severity bug against the splice: the hypothesis was that
+  // `yaml` computes node ranges over a CRLF-normalised copy, so slicing the
+  // ORIGINAL (still-CRLF) text with those offsets would drift by one byte per
+  // preceding line and shred a Windows checkout.
+  //
+  // It does not: `parseDocument` ranges are offsets into the exact string it was
+  // handed, CRLF included, and `splitCatalog` hands it a substring of the
+  // original file. The fixture below is the proof, and it stays as a standing
+  // guard — if a future `yaml` ever did normalise, this reds instead of silently
+  // corrupting every catalog authored on Windows.
+  const crlf = (text: string): string => text.replace(/\n/g, '\r\n');
+
+  it('CatalogSplice_CrlfCatalog_MatchesTheLfWriteExactly', async () => {
+    const patch = { summary: 'Corrected summary text.' };
+    const lfRun = await amendAndRead(FOLDED_CATALOG, 'U-1', patch);
+    const crlfRun = await amendAndRead(crlf(FOLDED_CATALOG), 'U-1', patch);
+
+    expect(lfRun.result.success, JSON.stringify(lfRun.result)).toBe(true);
+    expect(crlfRun.result.success, JSON.stringify(crlfRun.result)).toBe(true);
+
+    // The whole claim in one line: line endings are the ONLY difference. This
+    // pins the amended entry's own bytes too — assertions that only fence the
+    // regions AROUND the entry pass happily while the splice shreds the middle
+    // of it, which is exactly how an offset drift would present.
+    expect(crlfRun.written).toBe(crlf(lfRun.written));
+
+    // …and the amendment actually happened, so the equality above is not two
+    // identically-failed writes agreeing with each other.
+    expect(crlfRun.written).toContain('Corrected summary text.');
+    expect(crlfRun.written).not.toContain('Original summary text');
+    expect(/[^\r]\n/.test(crlfRun.written), 'a bare LF survived in a CRLF file').toBe(
+      false,
+    );
+  });
+});
+
 describe('invariants_amend — the fence bytes survive shapes a rebuild normalises', () => {
   // The splice used to rebuild the document as `---\n<frontmatter>\n---\n<body>`,
   // which can only reproduce a file whose fences happen to match that template.
