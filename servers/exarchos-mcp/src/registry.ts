@@ -1613,11 +1613,11 @@ const workflowActions: readonly BuiltinToolAction[] = [
   },
   {
     name: 'cancel',
-    description: 'Cancel a workflow with saga compensation. Optional `reason` is recorded on the workflow.cancel-requested event and in the cancel metadata. Auto-emits workflow.cancel and compensation events',
+    description: 'Cancel a workflow with saga compensation. Optional `reason` is recorded on the cancel.requested event and in the cancel metadata. Auto-emits workflow.cancel and compensation events',
     schema: z.object({
       featureId: featureIdSchema,
       // DR-7 (task 090): `handleCancel` reads `input.reason`, stamps it onto
-      // the `workflow.cancel-requested` payload and into the cancel metadata
+      // the `cancel.requested` payload and into the cancel metadata
       // — and `CancelInputSchema` has always declared it. This action's
       // schema did not, so dispatch dropped the operator's stated reason and
       // reported a successful cancel with an unattributed audit trail. Same
@@ -1995,7 +1995,24 @@ const orchestrateActions: readonly BuiltinToolAction[] = [
       // in the actions array, so its wording is what every repoRoot-taking
       // sibling advertises on `tools/list`. Action-specific nuance belongs in
       // the action description, not here.
-      repoRoot: z.string().min(1).describe('Absolute path of the repository this action operates on; subprocesses run with it as cwd rather than the server\'s own working directory'),
+      // …and "absolute" is ENFORCED, not just advertised. `min(1)` accepted `.`
+      // and every other relative path, which the handler then hands straight to
+      // a subprocess as `cwd` — resolving against the SERVER's process.cwd()
+      // and measuring the verdict on whatever repository the server happens to
+      // be sitting in. That is the exact failure the required-and-declared
+      // design above exists to make unrepresentable.
+      //
+      // `.regex()` rather than `.refine()` on purpose: the registration-schema
+      // flattening compares base types across same-named fields, and a refine
+      // would make this a ZodEffects while its siblings stay ZodString.
+      repoRoot: z
+        .string()
+        .min(1)
+        .regex(
+          /^(?:\/|[A-Za-z]:[\\/]|\\\\)/,
+          'repoRoot must be absolute (POSIX `/…`, Windows `C:\\…`, or UNC `\\\\…`) — a relative path resolves against the server process, not the caller\'s repository',
+        )
+        .describe('Absolute path of the repository this action operates on; subprocesses run with it as cwd rather than the server\'s own working directory'),
     }),
     phases: SYNTHESIS_REVIEW_PHASES,
     roles: ROLE_LEAD,

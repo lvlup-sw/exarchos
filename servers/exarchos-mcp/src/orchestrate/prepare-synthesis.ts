@@ -404,6 +404,24 @@ async function executePrepareSynthesis(
         },
       };
     }
+    // …and present is not the same as usable. A RELATIVE `repoRoot` resolves
+    // against the server process when it reaches a subprocess as `cwd`, which
+    // is the ambient-cwd fallback this guard just refused, spelled differently:
+    // `repoRoot: '.'` would satisfy the check above and still measure whatever
+    // tree the server is sitting in. The schema rejects these at dispatch; this
+    // is the same rule at the handler, for the direct (non-dispatch) callers.
+    if (!/^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(args.repoRoot)) {
+      return {
+        success: false,
+        error: {
+          code: 'INVALID_INPUT',
+          message:
+            `repoRoot must be an absolute path, received '${args.repoRoot}'. A relative ` +
+            "path resolves against the server's own working directory, so the legs would " +
+            'measure a repository the caller never named.',
+        },
+      };
+    }
     const repoRoot = args.repoRoot;
 
     // 4. Run test suite
