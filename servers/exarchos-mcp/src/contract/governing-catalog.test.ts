@@ -32,6 +32,7 @@ import { loadInvariants, type InvariantEntry } from '../architecture/invariants-
 import { defaultSourcePaths, loadAuthorityLock } from './authority-collector.js';
 import { digestText } from './authority-digest.js';
 import { CLI_CONTRACT_DEVIATIONS } from './cli/cli-contract-seam.js';
+import { listTrackedFiles, trackedFilesMissedBy } from '../test-helpers/tracked-population.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 /** `servers/exarchos-mcp/src` — the shipped production source root. */
@@ -278,8 +279,23 @@ describe('DR-26 — the retired INV-2 parity citations are re-pointed', () => {
 
   it('ShippedSource_CitesNoRetiredInv2ParityFraming', () => {
     const files = walkTsFiles(SHIPPED_SRC_ROOT);
-    // Denominator floor: a sweep over an empty corpus is vacuously clean.
-    expect(files.length).toBeGreaterThanOrEqual(300);
+    // DERIVED denominator (task 079 / DR-8). This read `>= 300` over a corpus of
+    // ~655 — less than half the real population, so a sweep that lost most of the
+    // tree still cleared it and reported the remainder clean. The pin is now
+    // containment against `git ls-files` narrowed to this walk's own filter
+    // (non-test `.ts`), which knows nothing about the walker's recursion: every
+    // tracked module in scope must have been visited, and a shortfall names the
+    // files that were not.
+    expect(
+      trackedFilesMissedBy(
+        files.map((file) => path.relative(SHIPPED_SRC_ROOT, file).split(path.sep).join('/')),
+        listTrackedFiles(SHIPPED_SRC_ROOT, {
+          exclude: (file) => file.endsWith('.test.ts') || file.endsWith('.type-test.ts'),
+        }),
+      ),
+      'the citation sweep did not reach every tracked production module — a ' +
+        'retired-framing citation could sit in the gap',
+    ).toEqual([]);
 
     const offenders = files
       .filter((f) => citesRetiredParityFraming(fs.readFileSync(f, 'utf8')))
