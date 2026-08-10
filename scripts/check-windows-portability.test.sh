@@ -16,9 +16,14 @@ TMP="$(mktemp -d)"
 PROBE_DIRS=()
 cleanup() {
   rm -rf "$TMP"
-  for dir in "${PROBE_DIRS[@]}"; do
-    [[ -n "$dir" ]] && rm -rf "$dir"
+  # `${PROBE_DIRS[@]+…}` because an EMPTY array is an unbound expansion under
+  # `set -u`, and `return 0` because this runs from an EXIT trap: the trap's
+  # status becomes the script's, so a final falsy test here would exit 1 after
+  # every case had passed.
+  for dir in ${PROBE_DIRS[@]+"${PROBE_DIRS[@]}"}; do
+    if [[ -n "$dir" ]]; then rm -rf "$dir"; fi
   done
+  return 0
 }
 trap cleanup EXIT
 
@@ -325,7 +330,13 @@ EOF
   probe_exit=$?
   set -e
   rm -rf "$probe_dir"
-  PROBE_DIRS=("${PROBE_DIRS[@]/$probe_dir}")
+  # Rebuild without this entry. `${arr[@]/x}` is substring REPLACEMENT — it
+  # leaves an empty element behind rather than removing one.
+  remaining=()
+  for d in ${PROBE_DIRS[@]+"${PROBE_DIRS[@]}"}; do
+    if [[ "$d" != "$probe_dir" ]]; then remaining+=("$d"); fi
+  done
+  PROBE_DIRS=(${remaining[@]+"${remaining[@]}"})
   check "default roots include repo-root $subtree/ (planted violation is seen)" 1 "$probe_exit"
 done
 
