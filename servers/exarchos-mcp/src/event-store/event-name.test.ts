@@ -317,12 +317,31 @@ describe('EventName_EmptyVocabulary_FailsRatherThanValidatingNothing', () => {
     expect(() => buildEventNamePattern(LOWER_ALPHA, WORD_SEPARATORS, 3, 2)).toThrow(RangeError);
   });
 
+  it('a non-integer segment bound throws rather than degrading the quantifier to literal braces', () => {
+    // JavaScript does not read `{1.5,2}` or `{1,Infinity}` as a quantifier — the
+    // braces become LITERAL characters, so the pattern stops enforcing a segment
+    // count and starts demanding that text. A bound that silently disables the
+    // bound is the failure this guard exists for.
+    for (const [min, max] of [
+      [2.5, 3],
+      [2, 3.5],
+      [2, Infinity],
+      [Number.NaN, 3],
+    ] as const) {
+      expect(() => buildEventNamePattern(LOWER_ALPHA, WORD_SEPARATORS, min, max)).toThrow(
+        RangeError,
+      );
+    }
+  });
+
   it('escapes vocabulary characters instead of letting them mean something in the pattern', () => {
     // The builder concatenates its inputs into a regex source. A separator that is a metacharacter
     // must be a literal, or a narrowed vocabulary would silently WIDEN the pattern.
-    const dotSeparated = buildEventNamePattern(LOWER_ALPHA, ['+']);
-    expect(dotSeparated.test('workflow.plan+review')).toBe(true);
-    expect(dotSeparated.test('workflow.planreview')).toBe(true);
-    expect(dotSeparated.test('workflow.plan-review')).toBe(false);
+    // Named for the separator actually under test — it is `+`, and this is the one
+    // test whose whole subject is WHICH character gets escaped.
+    const plusSeparated = buildEventNamePattern(LOWER_ALPHA, ['+']);
+    expect(plusSeparated.test('workflow.plan+review')).toBe(true);
+    expect(plusSeparated.test('workflow.planreview')).toBe(true);
+    expect(plusSeparated.test('workflow.plan-review')).toBe(false);
   });
 });

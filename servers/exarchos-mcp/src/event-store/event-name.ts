@@ -604,6 +604,19 @@ export function buildEventNamePattern(
         `min=${String(minSegments)}, max=${String(maxSegments)}.`,
     );
   }
+  // Integrality is load-bearing, not pedantry: `{1.5,2}` and `{1,Infinity}` are
+  // not quantifiers to JavaScript — the braces degrade to LITERAL characters, so
+  // the pattern stops constraining segment count and starts demanding the text
+  // "{1.5,2}" instead. That is the same failure `EmptyGrammarVocabularyError`
+  // exists to prevent: a validator that quietly stopped validating.
+  // `Number.isInteger` rejects fractions, Infinity and NaN in one predicate.
+  if (!Number.isInteger(minSegments) || !Number.isInteger(maxSegments)) {
+    throw new RangeError(
+      `Segment bounds must be integers, or the generated quantifier degrades to ` +
+        `literal braces and stops enforcing anything; got min=${String(minSegments)}, ` +
+        `max=${String(maxSegments)}.`,
+    );
+  }
 
   const word = `[${alphabet.map(escapeLiteral).join('')}]+`;
   const segment = separators
