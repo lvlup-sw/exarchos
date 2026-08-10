@@ -111,7 +111,9 @@ jobs:
   #   3. `matrix.target`         — ci.yml binary-matrix (task 1.5 PR gate)
   #   4. `files:` list           — publish-release step below
   #      (must enumerate each target's binary + .sha512 sidecar, plus the
-  #      signed release manifest, keeping the 11-asset count deterministic)
+  #      signed release manifest; the asset counts below (list 4's shape
+  #      checks and the `publish-release` job's `expected=` totals) are
+  #      DERIVED from list 1's length, not transcribed)
   #
   # Enforcement gates:
   #   - `scripts/release-workflow.test.ts` — this file (list 2 + 4)
@@ -219,8 +221,9 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────
   # Downloads every per-target artifact produced by `binary-matrix`,
   # builds + SIGNS the DR-20 release manifest over those exact bytes, and
-  # attaches the collected 11 assets (5 binaries + 5 sha512 sidecars + the
-  # signed manifest) to the GitHub Release associated with the current tag.
+  # attaches the collected assets (one binary + one sha512 sidecar per
+  # `TARGETS` entry, plus the signed manifest) to the GitHub Release
+  # associated with the current tag.
   #
   # ── Why the manifest and not just the .sha512 sidecars ───────────────
   # A `.sha512` sidecar is UNSIGNED and self-referential: whoever can swap
@@ -274,6 +277,22 @@ jobs:
         working-directory: servers/exarchos-mcp
         run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
 
+      # DR-8: the matrix-asset counts below are DERIVED from `TARGETS`
+      # (`scripts/build-binary-targets.ts`) rather than hard-coded literals.
+      # Previously both this workflow's `expected=` values AND
+      # `scripts/release-workflow.test.ts`'s asset-set assertion were
+      # transcribed from the same population by hand, so editing `TARGETS`
+      # without also editing this file and its matrix left every check green.
+      # A target added here now diverges from a `TARGETS`-derived expectation
+      # instead of agreeing with another literal.
+      - name: Compute target count from TARGETS
+        id: target-count
+        run: |
+          set -euo pipefail
+          count=$(bun -e "import('./scripts/build-binary-targets.ts').then(m => console.log(String(m.TARGETS.length)))")
+          echo "Derived TARGETS length: ${count}"
+          echo "count=${count}" >> "$GITHUB_OUTPUT"
+
       - name: Download all binary-matrix artifacts
         uses: actions/download-artifact@v4
         with:
@@ -297,13 +316,14 @@ jobs:
           echo "Collected assets:"
           ls -l dist/release/
           # Invariant: this count is taken BEFORE the signed manifest is
-          # generated, so it is still the 10 binary+sidecar assets the
-          # matrix produced. If it is ever off, the matrix or the `files:`
-          # list drifted from TARGETS.
-          expected=10
+          # generated, so it is still the binary+sidecar assets the matrix
+          # produced (targets × {binary, .sha512}). If it is ever off, the
+          # matrix job or the `files:` list drifted from TARGETS.
+          target_count=${{ steps.target-count.outputs.count }}
+          expected=$(( target_count * 2 ))
           actual=$(find dist/release -maxdepth 1 -type f | wc -l)
           if [[ "$actual" -ne "$expected" ]]; then
-            echo "::error::expected ${expected} matrix assets (5 binaries + 5 .sha512 sidecars), found ${actual}"
+            echo "::error::expected ${expected} matrix assets (${target_count} targets x {binary, .sha512}), found ${actual}"
             exit 1
           fi
 
@@ -329,11 +349,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Adversarial shape check: 10 matrix assets + 1 signed manifest.
-          expected=11
+          # Adversarial shape check: matrix assets + 1 signed manifest, both
+          # derived from TARGETS (via the `target-count` step above) rather
+          # than a hard-coded literal.
+          target_count=${{ steps.target-count.outputs.count }}
+          expected=$(( target_count * 2 + 1 ))
           actual=$(find dist/release -maxdepth 1 -type f | wc -l)
           if [[ "$actual" -ne "$expected" ]]; then
-            echo "::error::expected ${expected} release assets (5 binaries + 5 .sha512 sidecars + 1 signed manifest), found ${actual}"
+            echo "::error::expected ${expected} release assets (${target_count} targets x {binary, .sha512} + 1 signed manifest), found ${actual}"
             exit 1
           fi
           test -s dist/release/exarchos-release-manifest.json
@@ -365,12 +388,13 @@ jobs:
 
             ## Assets
 
-            5 cross-compiled binaries with SHA-512 checksums are attached below,
-            plus `exarchos-release-manifest.json` — an Ed25519-signed manifest
-            pinning the source commit, source-tree digest, frozen contract
-            authority and the raw-byte digest of every asset.
-          # The 11-asset manifest: 5 binaries + 5 sha512 sidecars + the
-          # signed release manifest.
+            ${{ steps.target-count.outputs.count }} cross-compiled binaries with SHA-512 checksums
+            are attached below, plus `exarchos-release-manifest.json` — an
+            Ed25519-signed manifest pinning the source commit, source-tree
+            digest, frozen contract authority and the raw-byte digest of
+            every asset.
+          # The asset list below: one binary + one sha512 sidecar per
+          # `TARGETS` entry, plus the signed release manifest.
           #
           # Order is {binary, .sha512} per target, targets ordered to
           # match `TARGETS` in `scripts/build-binary.ts`. Windows uses
@@ -379,9 +403,9 @@ jobs:
           # derive it by appending `.sha512` to the binary URL).
           #
           # Adversarial shape check: the verify step above counts files
-          # in `dist/release/` and aborts if the count diverges from 11,
-          # catching drift before `softprops/action-gh-release` uploads a
-          # partial release.
+          # in `dist/release/` and aborts if the count diverges from the
+          # TARGETS-derived expectation, catching drift before
+          # `softprops/action-gh-release` uploads a partial release.
           files: |
             dist/release/exarchos-linux-x64
             dist/release/exarchos-linux-x64.sha512
