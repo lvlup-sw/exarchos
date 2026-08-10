@@ -84,6 +84,25 @@ const WAVE1_GUARDS: readonly { readonly id: string; readonly artifact: string }[
 ];
 
 /**
+ * The guards DR-9 measured as absent from `buildGuardInventory`'s denominator
+ * ENTIRELY — five `src/architecture/**` census/seam modules discovered by no
+ * channel, plus the `scripts/` guard whose self-test was filed under `src/`.
+ *
+ * Listed HERE, in the exit proof, rather than only in the inventory's own tests,
+ * because the claim they falsify is this file's: "asserted over the FULL
+ * inventory". A denominator assertion belongs beside the assertion that rests on
+ * it, or the two drift apart exactly the way they already did once.
+ */
+const DR9_PREVIOUSLY_DARK: readonly string[] = [
+  'servers/exarchos-mcp/src/architecture/adapter-ownership-seam.ts',
+  'servers/exarchos-mcp/src/architecture/effect-port-seam.ts',
+  'servers/exarchos-mcp/src/architecture/audit-delivery-closure.ts',
+  'servers/exarchos-mcp/src/architecture/delivery-safety.ts',
+  'servers/exarchos-mcp/src/architecture/import-cycles.ts',
+  'servers/exarchos-mcp/scripts/authority-live-proof.ts',
+];
+
+/**
  * The Wave-1 BLOCKING finding population, measured by task 025 and re-measured
  * at the exit. Keyed `boundary | hop | kind` — stable under rewording of a
  * finding's prose, which a full-message key is not, while still distinguishing
@@ -262,5 +281,39 @@ describe('Wave 1 exit — the five guards (task 027, DR-6 / DR-24)', () => {
     const unreachable = inventory.guards.filter((g) => g.enforcement === 'unreachable');
     expect(unreachable.map((g) => g.artifact)).toEqual([]);
     expect(inventory.guards.length).toBeGreaterThan(WAVE1_GUARDS.length);
+
+    // …and "FULL" is itself a claim about the DENOMINATOR, which is the half
+    // DR-9 found empty. This assertion was green while five `src/architecture/**`
+    // census/seam modules and a 42 KB `scripts/` guard were absent from the
+    // inventory ENTIRELY — the proof reported "no guard is unreachable" over a
+    // set that did not contain them. It ranges over them now, so the sentence
+    // means what it says.
+    const artifacts = new Set(inventory.guards.map((g) => g.artifact));
+    for (const dark of DR9_PREVIOUSLY_DARK) {
+      expect(artifacts, `${dark} is outside the set this proof ranges over`).toContain(dark);
+    }
+  });
+
+  it('Wave1Exit_UnreachableGuardOutsideTheFiveHeadlineGuards_StillFailsTheExit', () => {
+    // The kill probe for the assertion above. `Wave1Exit_NoGuardIsUnreachable`
+    // is only worth anything if a guard OUTSIDE the five headline ones can fail
+    // it — that is the whole reason it is stated over the full inventory. The
+    // subject is one of the modules DR-9 found dark, so this also proves the
+    // widened denominator is load-bearing rather than decorative.
+    const inventory = buildGuardInventory();
+    const subject = inventory.guards.find(
+      (g) => g.artifact === 'servers/exarchos-mcp/src/architecture/adapter-ownership-seam.ts',
+    );
+    expect(subject, 'the probe needs a real subject from the widened denominator').toBeDefined();
+    if (subject === undefined) return;
+    expect(WAVE1_GUARDS.map((g) => g.artifact)).not.toContain(subject.artifact);
+
+    // Unwire it — the one field the exit assertion reads — and the exit fails.
+    const unwired = inventory.guards.map((g) =>
+      g.artifact === subject.artifact ? { ...g, hosts: [], enforcement: 'unreachable' as const } : g,
+    );
+    expect(unwired.filter((g) => g.enforcement === 'unreachable').map((g) => g.artifact)).toEqual([
+      subject.artifact,
+    ]);
   });
 });

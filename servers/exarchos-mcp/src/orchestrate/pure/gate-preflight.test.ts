@@ -1,22 +1,32 @@
-// ─── gate-preflight — shared preflight + policy-skip helper (DR-10) ───────────
+// ─── gate-preflight — the shared preflight helper (DR-10) ────────────────────
 //
 // These tests pin the SHARED helper directly (the five gate handlers keep their
-// own unmodified tests). Two contracts matter:
-//   1. runGatePreflight reproduces each handler's exact fail-fast envelopes and
-//      the worktree-aware repoRoot resolution.
-//   2. emitPolicySkipIfNeeded preserves the per-gate `gate.executed` shape
-//      byte-for-byte (gateName / layer / phase parameterized, details fixed) —
-//      the dedup must NOT coalesce or re-label the emission.
+// own unmodified tests): runGatePreflight reproduces each handler's exact
+// fail-fast envelopes and the worktree-aware repoRoot resolution.
+//
+// The `emitPolicySkipIfNeeded` cases that used to sit below were deleted with
+// the helper itself. It was retired when the durable gate runner took over skip
+// emission, and by then this file was its only caller — the tests were the only
+// thing keeping a dead export compiling. Its behaviour is now asserted where the
+// behaviour lives, against `appendGateExecutedSignal` in gate-runner.test.ts.
+//
+// DR-30 — the two authorities `GatePreflight_EveryValueExport_HasANonTestImporter`
+// compares are the module's own DECLARED export surface and the live IMPORT
+// SITES across the MCP source tree. Neither can observe the other: the module
+// does not know who imports it, and no importer enumerates what it exports, so a
+// dead export is exactly the disagreement between them.
+// @oracle-sources: ./gate-preflight.ts, the named-import bindings scanned out of every non-test module under servers/exarchos-mcp/src
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { EventStore } from '../../event-store/store.js';
 import { rmrf } from '../../test-helpers/temp-dir.js';
-import { emitPolicySkipIfNeeded, runGatePreflight } from './gate-preflight.js';
+import { runGatePreflight } from './gate-preflight.js';
 
 describe('gate-preflight (DR-10 shared helper)', () => {
   const stateDirs: string[] = [];
@@ -158,163 +168,65 @@ describe('gate-preflight (DR-10 shared helper)', () => {
     });
   });
 
-  // ─── emitPolicySkipIfNeeded ────────────────────────────────────────────────
+  // ─── No dead exports (the residue `emitPolicySkipIfNeeded` sat in) ─────────
 
-  describe('emitPolicySkipIfNeeded', () => {
-    async function gateEvents(store: EventStore, featureId: string, gateName: string) {
-      const events = await store.query(featureId);
-      return events.filter(
-        (e) =>
-          e.type === 'gate.executed' && (e.data as { gateName?: string }).gateName === gateName,
-      );
-    }
+  describe('module surface', () => {
+    it('GatePreflight_EveryValueExport_HasANonTestImporter', () => {
+      // `emitPolicySkipIfNeeded` was retired when the durable gate runner took
+      // over skip emission, and then sat here for a whole programme — because
+      // the module-intent gate is MODULE-granular. `gate-preflight.ts` has four
+      // live production importers, so the module is not dead and the gate had
+      // nothing to say about a dead EXPORT inside it. Deleting the function was
+      // a one-time cleanup; this is the part that keeps it deleted, and it is
+      // what makes the removal falsifiable rather than merely done.
+      const here = path.dirname(fileURLToPath(import.meta.url));
+      const srcRoot = path.resolve(here, '..', '..');
+      const moduleFile = path.join(here, 'gate-preflight.ts');
 
-    it('unstampedProfile_ReturnsNullAndEmitsNothing', async () => {
-      // Legacy caller: no riskTier/boundaryTouching → the gate runs
-      // unconditionally (null), and NO gate.executed is emitted.
-      const store = await makeStore();
-      const skip = await emitPolicySkipIfNeeded({
-        eventStore: store,
-        featureId: 'feat-legacy',
-        taskId: 'T-1',
-        policyGateName: 'check_test_adequacy',
-        emitGateName: 'test-adequacy',
-        layer: 'testing',
-        phase: 'delegate',
-      });
-      expect(skip).toBeNull();
-      expect(await gateEvents(store, 'feat-legacy', 'test-adequacy')).toHaveLength(0);
-    });
+      const source = readFileSync(moduleFile, 'utf8');
+      const valueExports = [
+        ...source.matchAll(/^export\s+(?:async\s+)?(?:function|const|class)\s+(\w+)/gm),
+      ].map((m) => m[1] as string);
+      expect(valueExports.length, 'no value exports found — the scan is measuring nothing').toBeGreaterThan(0);
 
-    it('gateInResolvedSequence_ReturnsNullAndEmitsNothing', async () => {
-      // medium tier → [check_static_analysis, check_test_adequacy]: the gate IS
-      // in the sequence, so no skip.
-      const store = await makeStore();
-      const skip = await emitPolicySkipIfNeeded({
-        eventStore: store,
-        featureId: 'feat-med',
-        taskId: 'T-1',
-        riskTier: 'medium',
-        boundaryTouching: false,
-        policyGateName: 'check_test_adequacy',
-        emitGateName: 'test-adequacy',
-        layer: 'testing',
-        phase: 'delegate',
-      });
-      expect(skip).toBeNull();
-      expect(await gateEvents(store, 'feat-med', 'test-adequacy')).toHaveLength(0);
-    });
-
-    it('gateNotInSequence_ReturnsReasonAndEmitsSkipEvent_TestAdequacyShape', async () => {
-      // low tier → [check_static_analysis]: check_test_adequacy is NOT in it.
-      const store = await makeStore();
-      const skip = await emitPolicySkipIfNeeded({
-        eventStore: store,
-        featureId: 'feat-low',
-        taskId: 'T-low',
-        branch: 'feat/x',
-        riskTier: 'low',
-        boundaryTouching: false,
-        policyGateName: 'check_test_adequacy',
-        emitGateName: 'test-adequacy',
-        layer: 'testing',
-        phase: 'delegate',
-      });
-
-      expect(skip).not.toBeNull();
-      expect(skip?.reason).toContain('skipped by verification policy');
-
-      const events = await gateEvents(store, 'feat-low', 'test-adequacy');
-      expect(events).toHaveLength(1);
-      const evt = events[0];
-      // The emission preserves the test-adequacy handler's exact shape.
-      expect((evt.data as { gateName: string }).gateName).toBe('test-adequacy');
-      expect((evt.data as { layer: string }).layer).toBe('testing');
-      expect((evt.data as { passed: boolean }).passed).toBe(true);
-      const details = (evt.data as { details: Record<string, unknown> }).details;
-      expect(details).toEqual({
-        dimension: 'D1',
-        phase: 'delegate',
-        taskId: 'T-low',
-        branch: 'feat/x',
-        skipped: true,
-        discriminant: 'skipped-by-policy',
-        reason: skip?.reason,
-      });
-    });
-
-    it('preservesPerGateGateNameLayerAndPhase_NotCoalesced', async () => {
-      // The contract-drift gate emits a DIFFERENT gateName + layer (and a fixed
-      // phase) than test-adequacy — the helper must not unify these away.
-      const store = await makeStore();
-      const skip = await emitPolicySkipIfNeeded({
-        eventStore: store,
-        featureId: 'feat-nb',
-        taskId: 'T-nb',
-        riskTier: 'medium',
-        boundaryTouching: false, // contract-drift only appended when boundaryTouching
-        policyGateName: 'check_contract_drift',
-        emitGateName: 'contract-drift',
-        layer: 'delegate',
-        phase: 'delegate',
-      });
-
-      expect(skip).not.toBeNull();
-      const events = await gateEvents(store, 'feat-nb', 'contract-drift');
-      expect(events).toHaveLength(1);
-      const evt = events[0];
-      expect((evt.data as { gateName: string }).gateName).toBe('contract-drift');
-      expect((evt.data as { layer: string }).layer).toBe('delegate');
-      const details = (evt.data as { details: { phase: string; branch?: string } }).details;
-      expect(details.phase).toBe('delegate');
-      // No branch supplied → the key is OMITTED (not emitted as undefined).
-      expect('branch' in details).toBe(false);
-    });
-
-    it('emissionFailure_StillReturnsReason_FireAndForget', async () => {
-      // A store whose append rejects must NOT break the skip verdict — the
-      // handlers treat the emission as fire-and-forget.
-      const throwingStore = {
-        append: () => Promise.reject(new Error('append failed')),
-        query: () => Promise.resolve([]),
-      } as unknown as EventStore;
-
-      const skip = await emitPolicySkipIfNeeded({
-        eventStore: throwingStore,
-        featureId: 'feat-x',
-        taskId: 'T-x',
-        riskTier: 'low',
-        boundaryTouching: false,
-        policyGateName: 'check_test_adequacy',
-        emitGateName: 'test-adequacy',
-        layer: 'testing',
-        phase: 'delegate',
-      });
-
-      expect(skip).not.toBeNull();
-      expect(skip?.reason).toContain('skipped by verification policy');
-    });
-
-    it('operationIdReplay_CollapsesToSingleRow', async () => {
-      // Idempotency (INV-8): re-emitting under the same operationId leaves ONE
-      // gate.executed row (the emit threads operationId as the idempotency key).
-      const store = await makeStore();
-      const params = {
-        eventStore: store,
-        featureId: 'feat-idem',
-        taskId: 'T-idem',
-        operationId: 'op-123',
-        riskTier: 'low' as const,
-        boundaryTouching: false,
-        policyGateName: 'check_test_adequacy' as const,
-        emitGateName: 'test-adequacy',
-        layer: 'testing',
-        phase: 'delegate',
+      const files: string[] = [];
+      const walk = (dir: string): void => {
+        for (const entry of readdirSync(dir, { withFileTypes: true })) {
+          const full = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            if (entry.name === 'node_modules' || entry.name === 'dist') continue;
+            walk(full);
+          } else if (entry.isFile() && /\.ts$/.test(entry.name) && !/\.test\.ts$/.test(entry.name)) {
+            files.push(full);
+          }
+        }
       };
-      await emitPolicySkipIfNeeded(params);
-      await emitPolicySkipIfNeeded(params);
-      const events = await gateEvents(store, 'feat-idem', 'test-adequacy');
-      expect(events).toHaveLength(1);
+      walk(srcRoot);
+
+      const importedBindings = new Set<string>();
+      let importerCount = 0;
+      for (const file of files) {
+        if (path.resolve(file) === path.resolve(moduleFile)) continue;
+        const text = readFileSync(file, 'utf8');
+        for (const match of text.matchAll(
+          /import\s*\{([^}]*)\}\s*from\s*'[^']*\/gate-preflight\.js'/g,
+        )) {
+          importerCount += 1;
+          for (const raw of (match[1] ?? '').split(',')) {
+            const name = raw.trim().replace(/^type\s+/, '').split(/\s+as\s+/)[0]?.trim();
+            if (name) importedBindings.add(name);
+          }
+        }
+      }
+      // Non-empty denominator: a scan that found no importer would pass this
+      // test by finding nothing, which is the failure shape it exists to catch.
+      expect(importerCount, 'no production importer of gate-preflight was found').toBeGreaterThan(0);
+
+      for (const name of valueExports) {
+        expect(importedBindings.has(name), `${name} is exported but no production module imports it`).toBe(
+          true,
+        );
+      }
     });
   });
 });

@@ -267,6 +267,74 @@ describe('enforcer-wiring gate — completeness ratchet', () => {
   });
 });
 
+describe('enforcer-wiring gate — the unfiltered-CI-path claim has live subjects', () => {
+  /** The live manifest + workflow set, read once. */
+  function liveInputs() {
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'enforcer-wiring-manifest.json'), 'utf8'),
+    );
+    const pkg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'));
+    const wfDir = path.join(REPO_ROOT, '.github', 'workflows');
+    const workflows: Record<string, string> = {};
+    for (const name of fs.readdirSync(wfDir)) {
+      if (!/\.ya?ml$/.test(name)) continue;
+      workflows[`.github/workflows/${name}`] = fs.readFileSync(path.join(wfDir, name), 'utf8');
+    }
+    return {
+      manifest,
+      scripts: pkg.scripts as Record<string, string>,
+      workflows,
+      primaryFiles: enumeratePrimaryFiles(path.join(REPO_ROOT, 'scripts')),
+    };
+  }
+
+  it('UnfilteredCiPath_IsClaimedByTheGrepGatesPrimaries', () => {
+    // DR-15's `unfilteredCiPath` adjudication was declared by ZERO of the 24
+    // primaries, so the whole verification path existed only for its own
+    // fixtures. Every grep-gates primary now carries the claim, which is what
+    // gives the check a live subject.
+    const { manifest } = liveInputs();
+    const claiming = manifest.primaries.filter(
+      (p: { unfilteredCiPath?: boolean }) => p.unfilteredCiPath === true,
+    );
+    expect(claiming.length, 'no primary claims an unfiltered CI path').toBeGreaterThan(10);
+    for (const entry of claiming) {
+      expect(entry.workflow, `${entry.script} claims a path without naming a workflow`).toBe(
+        '.github/workflows/ci.yml',
+      );
+    }
+    // The claims are verified against the live tree, not merely present.
+    const result = audit(liveInputs());
+    expect(result.violations, result.violations.join('\n')).toEqual([]);
+  });
+
+  it('UnfilteredCiPath_ClaimAgainstAFilteredLane_Fails', () => {
+    // The kill probe: put a path filter on the lane that hosts a claiming
+    // primary and the claim must fail HERE, rather than silently converting the
+    // gate into a skipped-as-passed one on the PRs it polices (#1711).
+    const live = liveInputs();
+    const claimed = live.manifest.primaries.find(
+      (p: { unfilteredCiPath?: boolean }) => p.unfilteredCiPath === true,
+    );
+    expect(claimed, 'the probe needs a claiming primary').toBeDefined();
+
+    const ci = live.workflows['.github/workflows/ci.yml'];
+    const filtered = ci.replace(
+      '  grep-gates:\n    name: Grep Gates (idempotency + substrate)\n    if: ',
+      "  grep-gates:\n    name: Grep Gates (idempotency + substrate)\n    if: needs.changes.outputs.mcp == 'true' && ",
+    );
+    expect(filtered, 'the probe must actually change the workflow').not.toBe(ci);
+
+    const result = audit({
+      ...live,
+      workflows: { ...live.workflows, '.github/workflows/ci.yml': filtered },
+    });
+    expect(result.ok).toBe(false);
+    expect(result.violations.join('\n')).toMatch(/\[filtered-ci-path\]/);
+    expect(result.violations.join('\n')).toContain(claimed.script);
+  });
+});
+
 describe('enforcer-wiring gate — exit-code analysis (the transitive core)', () => {
   it('AnalyzeCommandRefs_OrTrue_MarksLhsNonFailable', () => {
     // The real skills:guard line: lint:inv6 is caught by `|| true` (non-failable);
