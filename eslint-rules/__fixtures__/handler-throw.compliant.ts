@@ -128,7 +128,12 @@ async function dispatchSpecialBranch(
   if (action === 'onboard') {
     return envelopeWrap(await handleOnboard(rest as { report?: string }), startedAt);
   }
-  const handler: ActionHandler | undefined = ACTION_HANDLERS[action];
+  // The GUARDED table read, matching composite.ts's real tail. Written as the
+  // conditional rather than a bare lookup so the exemption is exercised through
+  // the wrapper production actually uses — a predicate that only accepted the
+  // bare form would reject the one dispatcher it exists for.
+  const handler: ActionHandler | undefined =
+    typeof action === 'string' ? ACTION_HANDLERS[action] : undefined;
   if (!handler) {
     return { success: false, error: { code: 'UNKNOWN_ACTION', message: action } };
   }

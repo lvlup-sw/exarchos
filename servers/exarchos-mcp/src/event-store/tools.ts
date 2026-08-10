@@ -335,18 +335,30 @@ export async function handleBatchAppend(
       success: false,
       error: {
         code: 'INVALID_INPUT',
-        message: resolution.reason === 'empty-input'
-          ? 'events array must be non-empty'
-          : 'batch resolved to zero appendable events after intra-batch deduplication',
+        message:
+          resolution.reason === 'empty-input'
+            ? 'events array must be non-empty'
+            : resolution.reason === 'malformed-element'
+              ? `events[${resolution.index}] must be an object`
+              : 'batch resolved to zero appendable events after intra-batch deduplication',
       },
     };
   }
 
-  // Validate all events have a type and no misplaced fields
-  for (let i = 0; i < args.events.length; i++) {
-    const event = args.events[i];
-    const eventType = event?.type as EventType | undefined;
-    if (!eventType || event === undefined) {
+  // Validate every event this batch will actually APPEND — the resolved
+  // survivors, not the raw input.
+  //
+  // The two validation classes disagreed about what deduplication means. These
+  // structural checks ran over `args.events`, so a discarded duplicate with a
+  // misplaced field rejected the whole batch; the per-type data validation
+  // below ran over the survivors, so the same discarded duplicate with an
+  // invalid `data` payload did not. `resolveBatchEvents` defines first
+  // occurrence wins, so the survivors are the contract and both classes now
+  // read the same population. Errors still carry the CALLER's index, which is
+  // what `resolved.index` is for.
+  for (const { event, index: i } of resolution.events) {
+    const eventType = event.type as EventType | undefined;
+    if (!eventType) {
       return {
         success: false,
         error: { code: 'INVALID_INPUT', message: `events[${i}].type is required` },

@@ -204,6 +204,48 @@ describe('Dispatch-seam containment census', () => {
         await rm(pkg, { recursive: true, force: true });
       }
     });
+
+    it('ScanBoundary_JsoncCommentForms_AreParsedNotChokedOn', async () => {
+      // tsconfig files are JSONC. Only whole-line `//` was stripped, so a
+      // trailing comment or any `/* … */` reached JSON.parse and came back as a
+      // bare SyntaxError naming no file — from the helper whose whole job is
+      // reading this config.
+      const forms = [
+        '{\n  // leading\n  "exclude": ["**/*.test.ts"] // trailing\n}',
+        '{\n  /* block */\n  "exclude": ["**/*.test.ts"]\n}',
+        '{ "exclude": ["**/*.test.ts"] /* inline */ }',
+      ];
+      for (const contents of forms) {
+        const pkg = await mkdtemp(path.join(tmpdir(), 'exarchos-seam-jsonc-'));
+        try {
+          await mkdir(path.join(pkg, 'src'), { recursive: true });
+          await writeFile(path.join(pkg, 'tsconfig.json'), contents, 'utf8');
+          expect(() => resolveEmitBoundary(path.join(pkg, 'src'))).not.toThrow();
+        } finally {
+          await rm(pkg, { recursive: true, force: true });
+        }
+      }
+    });
+
+    it('ScanBoundary_MalformedJson_NamesTheConfigAndKeepsTheCause', async () => {
+      const pkg = await mkdtemp(path.join(tmpdir(), 'exarchos-seam-malformed-'));
+      try {
+        await mkdir(path.join(pkg, 'src'), { recursive: true });
+        await writeFile(path.join(pkg, 'tsconfig.json'), '{ "exclude": [ ', 'utf8');
+        let thrown: unknown;
+        try {
+          resolveEmitBoundary(path.join(pkg, 'src'));
+        } catch (error) {
+          thrown = error;
+        }
+        // The path is in the message and the parser's own error is retained,
+        // so the failure says WHICH config and WHY.
+        expect(String((thrown as Error).message)).toContain('tsconfig.json');
+        expect((thrown as { cause?: unknown }).cause).toBeInstanceOf(Error);
+      } finally {
+        await rm(pkg, { recursive: true, force: true });
+      }
+    });
   });
 
   it('ImportDetector_DiscriminatesValueFromTypeAndProse', () => {

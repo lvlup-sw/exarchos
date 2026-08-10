@@ -499,3 +499,41 @@ invariants:
     expect(fake.writes).toHaveLength(0);
   });
 });
+
+// ─── Fence shapes the rebuild could not round-trip ───────────────────────────
+
+describe('invariants_amend — the fence bytes survive shapes a rebuild normalises', () => {
+  // The splice used to rebuild the document as `---\n<frontmatter>\n---\n<body>`,
+  // which can only reproduce a file whose fences happen to match that template.
+  // `splitCatalog` drops trailing whitespace on the closing fence line (`[ \t]*`)
+  // and cannot tell "no final newline" from "empty body", so both shapes below
+  // came back altered in bytes the amendment never named. The existing TAIL is
+  // the one shape that survives, which is why the suite stayed green.
+  const variants: ReadonlyArray<{ readonly label: string; readonly tail: string }> = [
+    {
+      label: 'trailing spaces on the closing fence line',
+      tail: '---   \n\n# Invariants\n\nProse body.\n',
+    },
+    { label: 'ends at the closing fence with no final newline', tail: '---' },
+    { label: 'closing fence, newline, and nothing after it', tail: '---\n' },
+  ];
+
+  for (const { label, tail } of variants) {
+    it(`CatalogSplice_${label.replace(/[^A-Za-z]/g, '')}_IsCarriedThroughVerbatim`, async () => {
+      const catalog = HEAD + ENTRY_TARGET + ENTRY_FOLDED_A + ENTRY_FOLDED_B + tail;
+      const { written, result } = await amendAndRead(catalog, 'U-1', {
+        summary: 'Corrected summary text.',
+      });
+
+      expect(result.success, JSON.stringify(result)).toBe(true);
+      const suffix = ENTRY_FOLDED_A + ENTRY_FOLDED_B + tail;
+      expect(
+        written.endsWith(suffix),
+        `tail (${label}) was rewritten:\n${JSON.stringify(written.slice(-80))}`,
+      ).toBe(true);
+      expect(written.startsWith(HEAD)).toBe(true);
+      // …and the amendment still happened.
+      expect(written).toContain('Corrected summary text.');
+    });
+  }
+});

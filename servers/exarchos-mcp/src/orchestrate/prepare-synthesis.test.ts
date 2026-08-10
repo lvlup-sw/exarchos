@@ -703,6 +703,43 @@ describe('handlePrepareSynthesis', () => {
     // No leg ran — a missing repoRoot must not silently produce a verdict.
     expect(vi.mocked(execSync)).not.toHaveBeenCalled();
   });
+
+  it('PrepareSynthesis_RelativeRepoRoot_IsRefusedLikeAMissingOne', async () => {
+    // `repoRoot: '.'` satisfies the presence check and is still the ambient-cwd
+    // fallback wearing a value: a relative path handed to a subprocess as `cwd`
+    // resolves against the SERVER, so the legs would measure whatever tree the
+    // server sits in while reporting a verdict about the caller's feature.
+    const taskView = mockTaskDetailView({ t1: { status: 'completed' } });
+    const mockMaterializer = createMockMaterializer(taskView);
+    const mockStore = createMockEventStore();
+    vi.mocked(getOrCreateMaterializer).mockReturnValue(
+      mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>,
+    );
+
+    for (const relative of ['.', '..', 'some/repo', './repo']) {
+      vi.mocked(execSync).mockClear();
+      const result = await handlePrepareSynthesis(
+        { featureId: 'test-feature', repoRoot: relative },
+        tmpDir,
+        mockStore as unknown as EventStore,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('INVALID_INPUT');
+      expect(result.error?.message).toContain('absolute');
+      expect(vi.mocked(execSync)).not.toHaveBeenCalled();
+    }
+
+    // The negative twin: an absolute path is still accepted, so the guard is
+    // rejecting relativeness rather than rejecting everything.
+    vi.mocked(execSync).mockClear();
+    const accepted = await handlePrepareSynthesis(
+      { featureId: 'test-feature', repoRoot: tmpDir },
+      tmpDir,
+      mockStore as unknown as EventStore,
+    );
+    expect(accepted.error?.message ?? '').not.toContain('absolute');
+  });
 });
 
 // ─── DR-2 (#1594): document-leg pure evaluation ─────────────────────────────

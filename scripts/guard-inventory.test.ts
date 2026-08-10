@@ -1012,6 +1012,23 @@ describe('Derivations the inventory rests on', () => {
     expect(() => hasDirectRunExit('function ( { ] )', 'broken.ts')).toThrow(/parse error/);
   });
 
+  it('DirectRunDetection_ExitCodeAssignment_IsAlsoAnEntrypoint', () => {
+    // `process.exitCode = …` is the flush-safe spelling of the same entrypoint:
+    // `process.exit` can sever stdout before the gate's diagnostics drain. If
+    // only the call form counted, adopting the safer spelling would silently
+    // demote a real gate to "not a gate" — an absence that reads as compliance.
+    const assigned = 'function run(): number { return 1; }\nprocess.exitCode = run();\n';
+    expect(hasDirectRunExit(assigned, 'd.ts')).toBe(true);
+
+    // The same containment rules still apply in both directions.
+    const insideFn = 'export function run(): void { process.exitCode = 1; }\n';
+    expect(hasDirectRunExit(insideFn, 'e.ts')).toBe(false);
+    const inProse = ['// process.exitCode = 1 is what a gate would do', 'export {};'].join('\n');
+    expect(hasDirectRunExit(inProse, 'f.ts')).toBe(false);
+    // …and a READ of exitCode is not an entrypoint — only an assignment is.
+    expect(hasDirectRunExit('const c = process.exitCode;\nexport {};\n', 'g.ts')).toBe(false);
+  });
+
   it('ImportScan_DynamicImport_IsCountedAsAProductionCaller', () => {
     // `index.ts` reaches `adapters/mcp.ts` only through `await import(...)`. A
     // static-only scan reports the MCP adapter as having no production caller.

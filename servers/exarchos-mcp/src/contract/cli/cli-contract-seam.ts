@@ -407,7 +407,23 @@ export function resolveEmitBoundary(sourceRoot: string): EmitBoundary {
   if (!fs.existsSync(configPath)) return UNIVERSAL_EMIT_BOUNDARY;
   const raw = fs.readFileSync(configPath, 'utf8');
   // `tsconfig.json` permits comments; strip them before JSON.parse.
-  const parsed: unknown = JSON.parse(raw.replace(/^\s*\/\/.*$/gm, ''));
+  // `tsconfig` files are JSONC. The old `^\s*//.*$` regex handled only
+  // whole-line comments, so a trailing `// …` or any `/* … */` reached
+  // `JSON.parse` and surfaced as a bare SyntaxError naming no file — for a
+  // helper whose entire job is deriving the scan boundary FROM this config.
+  // `stripComments` (below, and string-preserving) already knows how to do
+  // this correctly, so it is used rather than a second, weaker stripper.
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stripComments(raw));
+  } catch (cause) {
+    throw new Error(
+      `cli-contract-seam: could not parse ${configPath} as JSONC. The dispatch census ` +
+        'derives its scan boundary from the build config, so an unreadable config is a ' +
+        'boundary it will not guess.',
+      { cause },
+    );
+  }
   const excludes =
     typeof parsed === 'object' && parsed !== null && 'exclude' in parsed
       ? (parsed as { readonly exclude?: unknown }).exclude

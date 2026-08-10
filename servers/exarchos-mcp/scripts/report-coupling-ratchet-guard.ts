@@ -178,5 +178,9 @@ const isDirectRun =
   canonicalPath(process.argv[1]) === canonicalPath(fileURLToPath(import.meta.url));
 
 if (isDirectRun) {
-  process.exit(runGuard());
+  // `exitCode`, never `exit(…)`: the guard's diagnostics go to stdout, and
+  // `process.exit` can sever the pipe before it drains — a red gate with its
+  // reason truncated away. Statement-level either way, so `hasDirectRunExit`
+  // still classifies this module as a runnable gate.
+  process.exitCode = runGuard();
 }

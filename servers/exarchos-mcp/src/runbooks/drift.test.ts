@@ -38,7 +38,19 @@ function stepDerivedAutoEmits(runbook: RunbookDefinition): readonly string[] {
   for (const step of runbook.steps) {
     if (step.tool.startsWith('native:') || step.tool === 'none') continue;
     const action = findActionInRegistry(step.tool, step.action);
-    if (action?.autoEmits === undefined) continue;
+    // `action?.autoEmits === undefined` folded two different facts into one
+    // `continue`: "this action emits nothing" and "there is no such action".
+    // Under the second, a runbook whose steps had all stopped resolving derived
+    // an EMPTY emission set — and an empty set agrees with an empty declaration
+    // in both directions, so the bijection below passed by having nothing to
+    // compare. An unresolved step is a broken runbook, not a quiet one.
+    if (action === undefined) {
+      throw new Error(
+        `Runbook '${runbook.id}' step references ${step.tool}.${step.action}, which does not ` +
+          'resolve in the registry — the derived emission set would silently be empty.',
+      );
+    }
+    if (action.autoEmits === undefined) continue;
     for (const emission of action.autoEmits) events.add(emission.event);
   }
   return [...events].sort();
@@ -172,31 +184,60 @@ describe('Runbook drift detection', () => {
 // Both directions are asserted below, against a set DERIVED from the registry
 // rather than transcribed.
 
+/**
+ * The two directions as callables, so the negative fixtures can RUN them.
+ *
+ * They were inline `expect`s over `ALL_RUNBOOKS`, and the fixtures below only
+ * re-checked their own preconditions — that the phantom event is absent from the
+ * derived set, that the under-declarer derives something. Neither ever put a
+ * malformed runbook through the assertion it was built to trip, so deleting the
+ * assertion entirely would have left both fixtures green. Throwing rather than
+ * `expect`ing is what makes them executable against a subject expected to fail.
+ */
+function assertNothingDeclaredThatNoStepEmits(runbook: RunbookDefinition): void {
+  const derived = new Set(stepDerivedAutoEmits(runbook));
+  for (const event of runbook.autoEmits) {
+    if (!derived.has(event)) {
+      throw new Error(
+        `Runbook '${runbook.id}' declares autoEmits '${event}' that no step produces. An agent ` +
+          'reads autoEmits to decide it need not append the record itself, so a phantom entry ' +
+          'means the record is never written and nobody is told.',
+      );
+    }
+  }
+}
+
+function assertNothingEmittedThatIsNotDeclared(runbook: RunbookDefinition): void {
+  const declared = new Set(runbook.autoEmits);
+  for (const event of stepDerivedAutoEmits(runbook)) {
+    if (!declared.has(event)) {
+      throw new Error(
+        `Runbook '${runbook.id}' steps emit '${event}' which it does not declare in autoEmits.`,
+      );
+    }
+  }
+}
+
 describe('Runbook autoEmits ⇄ step-derived emissions (bijection)', () => {
   it('RunbookAutoEmits_EventDeclaredButNoStepEmits_FailsBijection', () => {
     // FORWARD: nothing is advertised that the steps do not produce. This is the
     // direction the deletion lost.
     for (const runbook of ALL_RUNBOOKS) {
-      const derived = new Set(stepDerivedAutoEmits(runbook));
-      for (const event of runbook.autoEmits) {
-        expect(
-          derived.has(event),
-          `Runbook '${runbook.id}' declares autoEmits '${event}' that no step produces. An agent ` +
-            'reads autoEmits to decide it need not append the record itself, so a phantom entry ' +
-            'means the record is never written and nobody is told.',
-        ).toBe(true);
-      }
+      expect(() => assertNothingDeclaredThatNoStepEmits(runbook)).not.toThrow();
     }
 
     // The fixture proves the assertion can fail: a runbook that declares one more
     // event than its steps produce is rejected. Built from a REAL runbook so the
-    // only difference from a passing subject is the phantom entry.
+    // only difference from a passing subject is the phantom entry — and put
+    // THROUGH the assertion, not merely inspected.
     const phantomDeclarer: RunbookDefinition = {
       ...TASK_COMPLETION,
       autoEmits: [...TASK_COMPLETION.autoEmits, 'workflow.transition'],
     };
-    const derived = new Set(stepDerivedAutoEmits(phantomDeclarer));
-    expect(derived.has('workflow.transition')).toBe(false);
+    expect(new Set(stepDerivedAutoEmits(phantomDeclarer)).has('workflow.transition')).toBe(false);
+    expect(() => assertNothingDeclaredThatNoStepEmits(phantomDeclarer)).toThrow(
+      /declares autoEmits 'workflow\.transition'/,
+    );
   });
 
   it('RunbookAutoEmits_StepEmitsButNotDeclared_FailsBijection', () => {
@@ -204,17 +245,14 @@ describe('Runbook autoEmits ⇄ step-derived emissions (bijection)', () => {
     // emission is the mirror failure — the agent appends a duplicate record
     // because the runbook did not say the tool already had.
     for (const runbook of ALL_RUNBOOKS) {
-      const declared = new Set(runbook.autoEmits);
-      for (const event of stepDerivedAutoEmits(runbook)) {
-        expect(
-          declared.has(event),
-          `Runbook '${runbook.id}' steps emit '${event}' which it does not declare in autoEmits.`,
-        ).toBe(true);
-      }
+      expect(() => assertNothingEmittedThatIsNotDeclared(runbook)).not.toThrow();
     }
 
     const underDeclarer: RunbookDefinition = { ...TASK_COMPLETION, autoEmits: [] };
     expect(stepDerivedAutoEmits(underDeclarer).length).toBeGreaterThan(0);
+    expect(() => assertNothingEmittedThatIsNotDeclared(underDeclarer)).toThrow(
+      /which it does not declare in autoEmits/,
+    );
   });
 
   it('RunbookAutoEmits_DerivationHasANonEmptySubject', () => {

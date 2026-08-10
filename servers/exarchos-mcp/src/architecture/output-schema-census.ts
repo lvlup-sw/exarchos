@@ -736,6 +736,16 @@ export function auditVacuityExpiry(
       case 'EXPIRED':
         findings.push({ code: 'EXPIRED_WAIVER', id: finding.id ?? '', message: finding.message });
         break;
+      default: {
+        // Same guard as the report-coupling consumer: without it, adding a
+        // seventh ledger code compiles clean and this mapping drops it.
+        const unmapped: never = finding.code;
+        throw new Error(
+          `output-schema-census: unmapped waiver-ledger finding code ${String(unmapped)}. ` +
+            'Every ledger verdict must be given an allowlist name, or the audit silently ' +
+            'drops it.',
+        );
+      }
     }
   }
 

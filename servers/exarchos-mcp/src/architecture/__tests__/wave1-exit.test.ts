@@ -270,6 +270,23 @@ describe('Wave 1 exit — the five guards (task 027, DR-6 / DR-24)', () => {
     }
   });
 
+  /**
+   * The exit predicate as a callable, so the probe below can RUN it.
+   *
+   * It was an inline `expect` over the live inventory, and the probe only
+   * re-checked that its own mutation produced one `unreachable` entry — never
+   * putting the mutated inventory through the assertion it exists to trip. The
+   * probe would have stayed green with the assertion deleted outright.
+   */
+  const assertNoGuardIsUnreachable = (guards: readonly { artifact: string; enforcement: string }[]): void => {
+    const unreachable = guards.filter((g) => g.enforcement === 'unreachable');
+    if (unreachable.length > 0) {
+      throw new Error(
+        `guard(s) unreachable from any CI job: ${unreachable.map((g) => g.artifact).join(', ')}`,
+      );
+    }
+  };
+
   it('Wave1Exit_NoGuardIsUnreachable', () => {
     // The whole-inventory companion: Wave 1 promised "every guard reachable from
     // a CI job, or a recorded expiring reason why not" (DR-24). At the exit the
@@ -278,8 +295,7 @@ describe('Wave 1 exit — the five guards (task 027, DR-6 / DR-24)', () => {
     // Asserted over the FULL inventory, not just the five: a wave that wires its
     // headline guards while leaving others dark has not closed DR-24.
     const inventory = buildGuardInventory();
-    const unreachable = inventory.guards.filter((g) => g.enforcement === 'unreachable');
-    expect(unreachable.map((g) => g.artifact)).toEqual([]);
+    expect(() => assertNoGuardIsUnreachable(inventory.guards)).not.toThrow();
     expect(inventory.guards.length).toBeGreaterThan(WAVE1_GUARDS.length);
 
     // …and "FULL" is itself a claim about the DENOMINATOR, which is the half
@@ -315,5 +331,11 @@ describe('Wave 1 exit — the five guards (task 027, DR-6 / DR-24)', () => {
     expect(unwired.filter((g) => g.enforcement === 'unreachable').map((g) => g.artifact)).toEqual([
       subject.artifact,
     ]);
+
+    // …and the mutated inventory is put THROUGH the exit predicate, which is
+    // the step that makes this a probe rather than a second statement about the
+    // mutation. Naming the subject in the failure proves the predicate saw this
+    // guard, not merely that something somewhere was unreachable.
+    expect(() => assertNoGuardIsUnreachable(unwired)).toThrow(subject.artifact);
   });
 });

@@ -653,6 +653,44 @@ describe('handleAmend — non-empty denominator (DR-24)', () => {
     expect(errorOf(result).code).toBe('CATALOG_UNREADABLE');
     expect(fake.writes).toHaveLength(0);
   });
+
+  it('Amend_CatalogVanishesBetweenExistsAndRead_ReturnsCodedEnvelope', async () => {
+    // `exists` and `read` are two syscalls and the envelope claim is TOTAL. The
+    // path can be removed, replaced by a directory, or lose read permission in
+    // between, and the raw ENOENT / EISDIR / EACCES would escape to dispatch and
+    // flatten into a generic INTERNAL_ERROR — the one outcome the header says
+    // cannot happen. Each error below is what a real kernel would raise.
+    for (const failure of [
+      Object.assign(new Error('ENOENT: no such file or directory'), { code: 'ENOENT' }),
+      Object.assign(new Error('EISDIR: illegal operation on a directory'), { code: 'EISDIR' }),
+      Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' }),
+    ]) {
+      const fake = makeFakeFs({ [CATALOG_ABS]: FENCED_CATALOG });
+      const { ctx } = makeCtx();
+      const result = await handleAmend(
+        {
+          repoRoot: REPO_ROOT,
+          catalog: CATALOG,
+          tier: 'user',
+          id: 'U-1',
+          patch: { summary: 'x' },
+          dryRun: false,
+        },
+        ctx,
+        {
+          ...fake.deps,
+          exists: () => true,
+          read: () => {
+            throw failure;
+          },
+        },
+      );
+
+      expect(result.success).toBe(false);
+      expect(errorOf(result).code).toBe('CATALOG_UNREADABLE');
+      expect(fake.writes).toHaveLength(0);
+    }
+  });
 });
 
 // ─── The commit path is TOTAL in its envelope (task 082 / DR-1) ──────────────

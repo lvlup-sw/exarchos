@@ -1573,6 +1573,46 @@ describe('mutation runner cwd resolution (DR-8)', () => {
     if (resolved.ok) return;
     expect(resolved.reason).toMatch(/does not exist/i);
   });
+
+  it('ResolveRunnerCwd_DeclaredRunnerDirEscapingTheRepo_IsRefused', () => {
+    // `runnerDir` is documented repo-root-relative, and only existence was
+    // checked — so an absolute path or a `..` climb resolved OUTSIDE the repo
+    // and the mutation command ran there, scoring a tree that is not the one
+    // under review. Both escapes point at directories that certainly exist, so
+    // the existence check could never catch them.
+    const root = makeRepoFixture({ 'stryker.conf.mjs': STRYKER_CONFIG });
+    const escapes = [path.resolve(root, '..'), '..', '../..', path.resolve(os.tmpdir())];
+
+    for (const declaredRunnerDir of escapes) {
+      const resolved = resolveMutationRunnerCwd({
+        command: 'npx stryker run',
+        repoRoot: root,
+        declaredRunnerDir,
+      });
+      expect(resolved.ok, `${declaredRunnerDir} was accepted`).toBe(false);
+      if (resolved.ok) continue;
+      expect(resolved.reason).toMatch(/outside/i);
+    }
+
+    // A SIBLING sharing the repo's name as a prefix is outside it too — the
+    // containment test is on the separator, not on the string.
+    const sibling = `${path.resolve(root)}-other`;
+    const siblingResolved = resolveMutationRunnerCwd({
+      command: 'npx stryker run',
+      repoRoot: root,
+      declaredRunnerDir: sibling,
+    });
+    expect(siblingResolved.ok).toBe(false);
+
+    // …and the legitimate in-repo case still resolves, so this rejects escape
+    // rather than rejecting declaration.
+    const inside = resolveMutationRunnerCwd({
+      command: 'npx stryker run',
+      repoRoot: root,
+      declaredRunnerDir: '.',
+    });
+    expect(inside.ok).toBe(true);
+  });
 });
 
 describe('mutation-adequacy run root — handler path (DR-8)', () => {

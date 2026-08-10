@@ -77,6 +77,8 @@ describe('prepare_synthesis production path (DR-8 / #1756)', () => {
   const cleanups: Array<() => void> = [];
   let ctx: DispatchContext;
   let repoRoot: string;
+  /** Held in scope so it can be closed BEFORE `stateDir` is removed. */
+  let openStore: EventStore | undefined;
 
   const FEATURE_ID = 'feat-prepare-synthesis-prodpath';
 
@@ -90,6 +92,7 @@ describe('prepare_synthesis production path (DR-8 / #1756)', () => {
 
     const eventStore = new EventStore(stateDir);
     await eventStore.initialize();
+    openStore = eventStore;
     // No tasks are seeded, so task-completion is vacuously satisfied and the
     // handler proceeds to the four shelling legs — the surface under test.
     await seedActivePhaseAttempt(eventStore, FEATURE_ID, { phase: 'synthesize' });
@@ -100,7 +103,19 @@ describe('prepare_synthesis production path (DR-8 / #1756)', () => {
     } as DispatchContext);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    // Close the SQLite handle FIRST. `cleanups` drains in push order and
+    // `rmrf(stateDir)` is registered before anything else, so a store closed
+    // from inside that list would always close too late. An open handle makes
+    // the directory removal fail with EBUSY on Windows (the `.db-shm` /
+    // `.db-wal` class in #1623); on Linux the unlink succeeds regardless, which
+    // is why this lane never surfaced the leak.
+    try {
+      await openStore?.close();
+    } catch {
+      /* best-effort */
+    }
+    openStore = undefined;
     for (const fn of cleanups.splice(0)) {
       try {
         fn();
