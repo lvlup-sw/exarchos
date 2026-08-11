@@ -99,7 +99,7 @@ export const VACUITY_SEED_KEY_SET_DIGEST =
  */
 export const VACUITY_SEED_DIGEST_ALGORITHM = 'sha256';
 
-// ─── The frozen expiry horizon (DR-4, task 017) ─────────────────────────────
+// ─── The frozen expiry schedule (DR-4, tasks 017 and 093) ───────────────────
 //
 // DR-4 says the allowlist entries carry an owner and an ISO expiry, and that
 // "expiry is enforced, not advisory". Task 055 wrote the `expires` field into
@@ -112,41 +112,96 @@ export const VACUITY_SEED_DIGEST_ALGORITHM = 'sha256';
 // ── Why the horizon is a SEPARATE, FROZEN constant ──────────────────────────
 // A deadline that the deadline's owner may move is not a deadline. If `expires`
 // were enforced against nothing else, the cheapest green on the day it bites is
-// a sed over `output-schema-vacuity-allowlist.ts` bumping all 112 dates by a
-// year — an edit that looks exactly like the routine paydown diffs the file
-// already receives, buried in a 112-line sorted object literal.
+// a sed over `output-schema-vacuity-allowlist.ts` adding a year to every date —
+// an edit that looks exactly like the routine paydown diffs the file already
+// receives, buried in a sorted object literal of a hundred-odd lines.
 //
-// So a waiver may not name ITS OWN deadline. Every entry's `expires` must be at
-// or before this ONE pinned date; an entry past it fails with
-// `WAIVER_BEYOND_HORIZON` before its own expiry is even consulted. Per-entry
-// renewal is therefore impossible, and blanket renewal collapses to editing this
-// single line — in a file that imports nothing, contains only frozen values, and
-// is headed with the instruction not to edit it to go green. That is the whole
-// of what this buys: it converts "112 invisible bumps" into "one conspicuous
-// one".
+// So a waiver may not name ITS OWN deadline. Every entry's `expires` is capped,
+// and an entry past its cap fails with `WAIVER_BEYOND_HORIZON` before its own
+// expiry is even consulted. Per-entry renewal is therefore impossible.
+//
+// ── Why the cap is a SCHEDULE and not one date (task 093) ───────────────────
+// Task 017 shipped one cap for every entry, and the whole seed sat on it. The
+// mechanism was sound and the incentive was not: nothing applied any pressure
+// before the horizon, so the modelled outcome was every waiver failing on the
+// same morning and being cleared by a single bump of this constant — the
+// "permanent exemption wearing a date" the allowlist header says task 017 set
+// out to end, deferred eighteen months rather than removed.
+//
+// The cap is now per OWNER. Each owner's cohort comes due one
+// {@link VACUITY_STAGGER_STEP_DAYS} step ahead of the next, so the debt arrives
+// in instalments a team can actually absorb instead of one cliff nobody can.
+// The schedule is DERIVED, never written down: `deriveOwnerCohorts()` in
+// `scripts/output-schema-ratchet-guard.ts` reads the owners off the frozen SEED
+// (allowlist ∪ retired), orders them by seeded cohort size, and hands the
+// smallest the earliest slot. Deriving it from the seed rather than from
+// today's allowlist is what keeps it still: the seed key set is the quantity
+// this file's digest already pins, so no paydown can shuffle a rank and no
+// team's deadline can move because another team did some work.
+//
+// This constant is the LAST slot — the largest cohort's date, and the absolute
+// cap no entry of any owner may exceed.
+//
+// ── What stops the bump ─────────────────────────────────────────────────────
+// A staggered schedule anchored on one constant is still one constant, so on
+// its own it converts "one bump renews everything at once" into "one bump
+// renews everything, staggered". {@link VACUITY_RUNWAY_BUDGET_DAYS} is the
+// tooth that makes the difference real: the anchor is measured against the WALL
+// CLOCK at the gate, and debt dated further out than the budget fails. The
+// eighteen-month deferral that motivated this task is now a red build.
 //
 // ── What this does NOT claim ───────────────────────────────────────────────
 // It is not tamper-proof, for exactly the reason the digest above is not: an
-// author who can edit the allowlist can edit this line too, and a reviewer must
-// catch that. The residual is identical in shape and is recorded here rather
-// than papered over. What changed is that the illegal act is now a single,
-// isolated, semantically unambiguous line in a file whose only content is
-// frozen values — instead of no act at all, which is what "advisory" meant.
+// author who can edit the allowlist can edit these lines too, and a reviewer
+// must catch that. The residual is identical in shape and is recorded here
+// rather than papered over — and it is now TWO constants with contradictory
+// headers, because renewing beyond the budget means raising the budget, an edit
+// with no innocent reading.
 //
-// ── Moving it legally ──────────────────────────────────────────────────────
-// There is one legal reason to change this value: the program deliberately
+// ── Moving them legally ────────────────────────────────────────────────────
+// There is one legal reason to change these values: the program deliberately
 // re-dating the whole outstanding debt, as an explicit decision with an owner.
-// That is a commit that touches this line and nothing else. Anything that
+// That is a commit that touches these lines and nothing else. Anything that
 // bundles it with a paydown, a registry change, or a "make CI green" fix is the
-// failure mode this constant exists to make visible.
+// failure mode they exist to make visible.
 
 /**
- * The single deadline every `outputSchema` vacuity waiver is measured against —
- * the uniform horizon the 112 seed entries were written with on 2026-08-07.
+ * The LAST slot of the vacuity expiry schedule: the largest owner cohort's
+ * deadline, and the absolute cap no waiver of any owner may exceed.
  *
  * An entry may expire EARLIER than this (paying a subset down sooner is always
- * legal); it may never expire later. Compared as an ISO `YYYY-MM-DD` string, so
- * ordering is lexicographic and no timezone, DST or `Date` arithmetic enters the
- * comparison.
+ * legal); it may never expire later, and every entry is additionally capped by
+ * its own owner's slot, which is at or before this date. Compared as an ISO
+ * `YYYY-MM-DD` string, so ordering is lexicographic and no timezone, DST or
+ * `Date` arithmetic enters the comparison.
  */
 export const VACUITY_EXPIRY_HORIZON = '2027-02-28';
+
+/**
+ * Whole days between one owner cohort's deadline and the next.
+ *
+ * Six weeks: long enough that a cohort's deadline is a quarter's planning input
+ * rather than an interrupt, short enough that the whole schedule stays inside
+ * {@link VACUITY_RUNWAY_BUDGET_DAYS}. Only the STEP is policy — which owner sits
+ * in which slot is derived from the seed, so this number cannot be tuned to
+ * favour a particular team.
+ */
+export const VACUITY_STAGGER_STEP_DAYS = 42;
+
+/**
+ * The furthest out the outstanding debt may be dated, in whole days from the
+ * day the gate runs.
+ *
+ * This is the anti-renewal tooth, and it is the only part of DR-4's expiry
+ * mechanism whose verdict depends on the wall clock rather than on the seed.
+ * Without it, one edit to {@link VACUITY_EXPIRY_HORIZON} moves every cohort by
+ * however long the editor likes; with it, a bump can only ever buy the slack
+ * between today's runway and this ceiling, and the multi-year deferral that
+ * motivated task 093 is a red build rather than a one-line diff.
+ *
+ * Nine months — DR-4 calls these waivers wave-scoped, and no wave in this
+ * program has run longer. Stated honestly: this is a ROLLING ceiling, not a
+ * decaying one. It bounds how deep the debt may be at any moment; it does not
+ * shrink on its own, and raising it is the one edit that renews everything.
+ */
+export const VACUITY_RUNWAY_BUDGET_DAYS = 270;

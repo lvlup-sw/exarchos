@@ -81,7 +81,7 @@ Anchored to `.exarchos/invariants.md` (always-load tier, plus reference-only ent
 Exarchos declares more contracts than it binds. Across four independent boundaries, the same defect appears: **a declaration exists, is enforced, and cannot fail.**
 
 1. **The event registry records authorship, not reliability.** `source: 'auto' | 'model'` says who composes the payload, not what the emission is welded to. All <!-- measured: event-types-total -->171<!-- /measured --> types require *some* tool call. The 25 `model` types are report-coupled — a dedicated append accomplishing nothing else, therefore the first thing dropped under context pressure.
-2. **`outputSchema` records presence, not substance.** The field is required at the interface boundary and `validateAction` fails the import without it — but **<!-- measured: output-schema-vacuous -->111<!-- /measured --> of <!-- measured: output-schema-total -->123<!-- /measured --> declarations are `EnvelopeSchema(z.unknown())`**. INV-17 names `outputSchema` totality as *the precondition that makes facade equivalence hold by construction*; a vacuous schema satisfies totality trivially, because it is total over all shapes including wrong ones. For nine actions in ten, INV-2's "schema-checked in addition to byte-checked" is byte-checked plus a tautology.
+2. **`outputSchema` records presence, not substance.** The field is required at the interface boundary and `validateAction` fails the import without it — but **<!-- measured: output-schema-vacuous -->109<!-- /measured --> of <!-- measured: output-schema-total -->123<!-- /measured --> declarations are `EnvelopeSchema(z.unknown())`**. INV-17 names `outputSchema` totality as *the precondition that makes facade equivalence hold by construction*; a vacuous schema satisfies totality trivially, because it is total over all shapes including wrong ones. For nine actions in ten, INV-2's "schema-checked in addition to byte-checked" is byte-checked plus a tautology.
 3. **The CLI's single-authority idiom exists and has decayed.** Flags derive from each action's Zod schema — and **`adapters/cli.ts` carries 13 `.command(...)` call sites, of which only 3 are derivation loops and <!-- measured: cli-handwritten-literals -->10<!-- /measured --> are hand-written literals**: `doctor`, `version`, `feedback`, `schema`, `topology`, `emissions`, `mcp`, `onboard`, `init`, `install-skills`. **As originally measured this was 14 sites and eleven literals, the eleventh being `merge-orchestrate`** — declared twice, as a registered action *and* by hand. That duplication was the finding; task 076 discharged it by moving the promotion onto the registry's `cli.topLevel` hint, which is why the bound count now reads ten. (Rev 1 claimed it was the only `posture: 'shared-mutating'` action, quoting a **stale JSDoc**; there are four — `merge_orchestrate`, `prune_worktrees`, `serialize_merge`, `cutover_decide`. The duplication is the finding; the uniqueness was never true.) `cli-vocab-guard` already walks the real composition root — but its policy is a *banned-vocabulary set*, so a hand-written command with good vocabulary passes. The guard that looks like it would catch this is measuring a different property. **And so did rev 1's replacement:** "traces to a registry declaration" does not discriminate either, because the hand-written commands call `addFlagsFromSchema` against the registry action. Only a source-level check separates derived from hand-written (G1, rev 2).
 4. **Detection exists and is discarded.** `_eventHints.missing` is computed (`check-event-emissions.ts:36-79`) and consumed only by the CLI pretty-printer (`cli-format.ts:96-103`). `hsm-transition-guard.ts` has no predicate of the form "expected event was never emitted."
 
@@ -142,7 +142,7 @@ PDD deliverable 2. Representation counts are measured, not estimated. **More tha
 |---|---:|---|---|---|
 | **Action contract** | registry descriptor; 10 derived consumers (composites ×4, launcher verb, docs generator, description-budget, rehydration fingerprint, CLI, MCP) | registry | Yes for the 10 | **Holds.** The idiom is real — which is what makes the bypasses below findings rather than noise. |
 | **CLI surface** | registry-derived tree; **14 hand-written `.command(...)`** | *contested* | **No** | **2 authorities.** `cli-vocab-guard` binds vocabulary, not derivation. `merge_orchestrate` declared twice. → **G1** |
-| **Response shape** | `outputSchema` (118); `Envelope<T>` type; the runtime payload | `outputSchema` nominally | **No** — <!-- measured: output-schema-vacuous -->111<!-- /measured --> vacuous | Authority exists but asserts nothing. → **G2** |
+| **Response shape** | `outputSchema` (118); `Envelope<T>` type; the runtime payload | `outputSchema` nominally | **No** — <!-- measured: output-schema-vacuous -->109<!-- /measured --> vacuous | Authority exists but asserts nothing. → **G2** |
 | **Event catalog** | `EVENT_EMISSION_REGISTRY`; `autoEmits` rows (`z.string()`); `PHASE_EXPECTED_EVENTS` (hand-maintained); skill prose (#1716) | registry nominally | **No** | 4 representations, none bound. → **G3, G5, DR-10, DR-16** |
 | **Effect ↔ event** | `EffectPlan`; the append site | *none* | **No** | `effect-carrier.ts` references no event store. → **G4/DR-7** |
 | **Capability/posture** | agent-spec YAML; `posture-mapping.ts`; MCP handshake; INV-11 text; **delegate skill prose** *(added rev 4.1)* | handshake ("handshake-authoritative") | Partially | **Authority is being deleted** by the spec revision. **5 representations** — task 048's docs added the fifth, and it is unbound. → **DR-14, DR-23, DR-25** |
@@ -174,7 +174,7 @@ PDD deliverable 1, specified per §3a. Ranked by findings eliminated. **Every gu
 |---|---|
 | **Policy** | `EnvelopeSchema(z.unknown())` is a **finding**, not a pass. Count may only decrease; new actions may not construct it. |
 | **Mechanism** | Registry-enumeration snapshot + two-way ratchet, reusing the type-debt ratchet idiom already in CI. |
-| **Kill fixture** | The <!-- measured: output-schema-vacuous -->111<!-- /measured --> current vacuous declarations — the ratchet's initial value, and its proof of a live subject. |
+| **Kill fixture** | The <!-- measured: output-schema-vacuous -->109<!-- /measured --> current vacuous declarations — the ratchet's initial value, and its proof of a live subject. |
 | **Self-test** | Add a new action declaring `EnvelopeSchema(z.unknown())`; CI must fail. |
 | **Protected path** | CI, unfiltered. |
 | **Exceptions** | Allowlist keyed by action id, owner, expiry. Entries expire per wave; expiry is enforced, not advisory. |
@@ -341,12 +341,12 @@ type EventRegistration = {
 
 **Acceptance criteria (amended rev 4):**
 - **Vacuity is unconstructible for new actions.** `ToolAction.outputSchema` accepts only the branded return of `withCappedShape` (or an explicit allowlist entry). A new action declaring `EnvelopeSchema(z.unknown())` **does not compile** — it is not rejected by a guard that must be remembered and run.
-- The **<!-- measured: output-schema-vacuous -->111<!-- /measured --> existing vacuous declarations** become an explicit **shrink-only allowlist**, each with an owner and an ISO expiry. Entries may only be removed. The list is seeded **from the census output, derived at introduction — never written as a literal.**
+- The **<!-- measured: output-schema-vacuous -->109<!-- /measured --> existing vacuous declarations** become an explicit **shrink-only allowlist**, each with an owner and an ISO expiry. Entries may only be removed. The list is seeded **from the census output, derived at introduction — never written as a literal.**
 - **G2 is the allowlist-shrink ratchet**, not a count threshold. This is strictly stronger: a threshold permits swapping one vacuous declaration for another, an allowlist does not.
 - **Non-empty denominator:** a census enumerating zero declarations **fails**, so a moved module or an import error cannot read as a clean run.
 - INV-17's audit treats a vacuous declaration as a **violation of the precondition it names**, not a pass.
-- The **<!-- measured: output-schema-substantive -->12<!-- /measured -->** currently-typed declarations — all `withCappedShape`; **there is no second constructor** — are the migration template; the DR-10 worktree surface is the reference implementation.
-- **Ordering proof:** a fixture asserts DR-8's fourth envelope state **cannot** be declared satisfied for an action whose `outputSchema` is vacuous — the allowlist and the envelope obligation are wired to the same census, so the <!-- measured: output-schema-vacuous -->111<!-- /measured --> cannot silently absorb the new state.
+- The **<!-- measured: output-schema-substantive -->14<!-- /measured -->** currently-typed declarations — all `withCappedShape`; **there is no second constructor** — are the migration template; the DR-10 worktree surface is the reference implementation.
+- **Ordering proof:** a fixture asserts DR-8's fourth envelope state **cannot** be declared satisfied for an action whose `outputSchema` is vacuous — the allowlist and the envelope obligation are wired to the same census, so the <!-- measured: output-schema-vacuous -->109<!-- /measured --> cannot silently absorb the new state.
 
 ### DR-5: CLI derivation guard **[MC-1 — new]**
 
@@ -385,7 +385,7 @@ MRTR's `input_required` is neither success nor failure. Overloading `success: fa
 **Acceptance criteria:**
 - `Envelope<T>` gains a third discriminated state, designed once, at the envelope level.
 - `CLI_EXIT_CODES` gains a distinct code, **derived from the envelope discriminator**, not switched on in the adapter. A CLI-side special-case fails INV-2's audit.
-- The state lands in all <!-- measured: output-schema-substantive -->12<!-- /measured --> typed `outputSchema` declarations; DR-4's ordering proof prevents the <!-- measured: output-schema-vacuous -->111<!-- /measured --> vacuous ones from silently absorbing it.
+- The state lands in all <!-- measured: output-schema-substantive -->14<!-- /measured --> typed `outputSchema` declarations; DR-4's ordering proof prevents the <!-- measured: output-schema-vacuous -->109<!-- /measured --> vacuous ones from silently absorbing it.
 - `input_required` reconciles with `next_actions` semantics (INV-12) rather than sitting beside them — one affordance contract, not two.
 - **Error-path criterion:** a malformed or expired resumption attempt returns a typed envelope, never a validation crash; an `input_required` that can never be satisfied (no capability, no operator) degrades to a typed terminal error rather than an infinite retry.
 
@@ -595,7 +595,7 @@ This is the **DR-1 pattern applied to a second boundary**, and it uses no new in
 Every numeric and structural claim in this document is a **representation of a derivation**, and none of them are bound to it. That is this program's own defect class, instantiated by the document that defines it. The evidence is not theoretical: **rev 1 was refuted 3/3 for stale measurements, and rev 3 reproduced the same class in DR-4** — wrong numerator, wrong denominator, and a "typed" set that was actually vacuous. DR-24 already carries the rule ("re-derive wave premises against the landing branch at plan time"), but as prose a human must remember, which is PDD's *"a fix relies on someone remembering a convention"* row.
 
 **Acceptance criteria:**
-- Measured claims in the spec carry a machine-readable annotation naming their derivation, e.g. `<!-- measured: output-schema-vacuous -->111<!-- /measured -->`.
+- Measured claims in the spec carry a machine-readable annotation naming their derivation, e.g. `<!-- measured: output-schema-vacuous -->109<!-- /measured -->`.
 - A checker maps each name to a derivation (a census function, a script, a counted grep) and **fails when the document's literal disagrees with the re-derived value.** The document cannot assert a number nothing produces.
 - **Kill fixture:** run the checker against **rev 3 of this file** — it must report the DR-4 counts (`109`, `123`, "12 typed") as drifted. A checker that passes on a document already known to be wrong has not been shown to work.
 - **Non-empty denominator:** a run that resolves zero annotated claims fails rather than passing clean.
@@ -732,7 +732,7 @@ Research pre-pass: discovery workflow **`mcp-spec-2026-07-28-migration`** (gathe
 
 **Excluded, with rationale:** Waves 2–5 are *deliberately* not decomposed in this pass. **DR-6's authority-topology census is the instrument that enumerates the real remediation subjects** — which boundaries have unbound representations, which events lack a consumer hop, which effects lack a coupling. Decomposing Waves 2–5 before that census has run would be fabricating a subject list rather than deriving one, which is precisely the precision-manufacturing PDD warns against ("do not add abstractions, manifests, generators, or test layers without a concrete correctness obligation").
 
-Two subject lists *are* already measured and therefore Wave 1 is fully decomposable now: the **<!-- measured: output-schema-vacuous -->111<!-- /measured --> vacuous `outputSchema` declarations** (DR-4) and the hand-written CLI commands, **<!-- measured: cli-handwritten-literals -->10<!-- /measured --> hand-written top-level verbs** as of task 076 (eleven when the wave was scoped) (DR-5). Wave 1 also matches the house-standard bundle size (~26 tasks, one integration branch), and it is the wave PDD's decision table requires to land first: *add the guard that makes derivation mandatory before adding another instance of the pattern.*
+Two subject lists *are* already measured and therefore Wave 1 is fully decomposable now: the **<!-- measured: output-schema-vacuous -->109<!-- /measured --> vacuous `outputSchema` declarations** (DR-4) and the hand-written CLI commands, **<!-- measured: cli-handwritten-literals -->10<!-- /measured --> hand-written top-level verbs** as of task 076 (eleven when the wave was scoped) (DR-5). Wave 1 also matches the house-standard bundle size (~26 tasks, one integration branch), and it is the wave PDD's decision table requires to land first: *add the guard that makes derivation mandatory before adding another instance of the pattern.*
 
 Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures, censuses reporting real subject counts) → `/exarchos:plan` over Waves 2–5 with the census output as input.
 
@@ -914,7 +914,7 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 ### Task 016: Vacuity detector over the registry
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-4
 **Files:** `servers/exarchos-mcp/src/architecture/output-schema-census.ts` (new)
-**Detail:** Enumerate declarations; classify `EnvelopeSchema(z.unknown())` as vacuous. Must report **<!-- measured: output-schema-vacuous -->111<!-- /measured -->** on introduction — its proof of a live subject.
+**Detail:** Enumerate declarations; classify `EnvelopeSchema(z.unknown())` as vacuous. Must report **<!-- measured: output-schema-vacuous -->109<!-- /measured -->** on introduction — its proof of a live subject.
 **Verification:** medium — scoped tests + kill-probe; snapshot pins the initial count.
 **Dependencies:** None · **Parallelizable:** Yes
 
@@ -1166,7 +1166,7 @@ Four findings:
 ### Task 055: Make `outputSchema` vacuity unconstructible + seed the shrink-only allowlist
 **Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-4
 **Files:** `servers/exarchos-mcp/src/registry.ts`, `servers/exarchos-mcp/src/architecture/output-schema-census.ts`, allowlist data file
-**Detail:** `withCappedShape` is the sole substantive constructor (<!-- measured: withcappedshape-count -->12<!-- /measured --> of <!-- measured: output-schema-substantive -->12<!-- /measured -->, measured). Type `ToolAction.outputSchema` to accept only its branded return or an allowlist entry, so vacuity stops being counted and starts being unconstructible. Supersedes the rung-3 counting ratchet planned for task 017.
+**Detail:** `withCappedShape` is the sole substantive constructor (<!-- measured: withcappedshape-count -->14<!-- /measured --> of <!-- measured: output-schema-substantive -->14<!-- /measured -->, measured). Type `ToolAction.outputSchema` to accept only its branded return or an allowlist entry, so vacuity stops being counted and starts being unconstructible. Supersedes the rung-3 counting ratchet planned for task 017.
 **Tests:**
 - `OutputSchema_NewActionDeclaringVacuous_FailsCompile` — rung 2, replaces the CI-guard formulation
 - `OutputSchema_AllowlistSeed_DerivedFromCensusNotLiteral` — the 112 come from the census
@@ -1664,7 +1664,7 @@ Groups A–D are mutually parallel after 005/006 land, and touch disjoint files 
 - [ ] Wave 0: INV-9 closed; all three defects preserved as kill fixtures
 - [ ] `Declaration<K>` envelope shipped; **relocation proof green** (D2 is a property, not a claim)
 - [ ] G1 rejects `merge-orchestrate`'s hand-written definition; self-test proves it measures derivation not vocabulary
-- [ ] G2 seeded at <!-- measured: output-schema-vacuous -->111<!-- /measured --> and shrink-only; new vacuous action fails CI
+- [ ] G2 seeded at <!-- measured: output-schema-vacuous -->109<!-- /measured --> and shrink-only; new vacuous action fails CI
 - [ ] G3 report-coupled ratchet pinned at 25, shrink-only
 - [ ] G5 census fails on the CLI-surface and event-catalog rows before remediation
 - [ ] Every guard's self-test runs in the same CI job as the guard

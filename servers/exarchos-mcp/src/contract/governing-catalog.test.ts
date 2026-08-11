@@ -163,8 +163,13 @@ describe('DR-26 — INV-4 is standards conformance, not six-runtime fan-out', ()
     // The retired framing: N first-class runtime renderings kept drift-guarded.
     expect(summary).not.toMatch(/six\s+runtimes\s+are\s+first-class/i);
 
-    // The mechanical backstop is unchanged: `skills/**` is generated output.
-    expect(catalogEntry('INV-4').enforcement?.mode).toBe('check');
+    // The mechanical backstop still EXISTS — but it is `skills:guard`, not a
+    // grep. #1764 task 086 re-pointed this to `audit`: the old `check` scoped to
+    // `skills/**` and greped `@@`, so it fired on every conforming regeneration,
+    // which CLAUDE.md mandates committing. Pinning `check` here pinned that bug.
+    // What must not silently become true is `mode: undefined` — an entry with no
+    // enforcement at all — so the assertion names the mode rather than dropping.
+    expect(catalogEntry('INV-4').enforcement?.mode).toBe('audit');
   });
 });
 

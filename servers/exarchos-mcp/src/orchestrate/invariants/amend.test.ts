@@ -697,11 +697,10 @@ describe('handleAmend — non-empty denominator (DR-24)', () => {
 
 describe('handleAmend — the catalog write returns an envelope, never throws', () => {
   it('handleAmend_CatalogWriteThrows_ReturnsCodedEnvelope', async () => {
-    // The commit path calls `replaceEntryInCatalog` (which throws) and
-    // `deps.write` (which throws on any fs failure) OUTSIDE any try/catch.
-    // An escaping throw is caught by dispatch's outer safety net and flattened
-    // to a generic INTERNAL_ERROR, so the caller loses the code it branches on
-    // — precisely the fidelity loss this handler avoids on every other path.
+    // The commit path calls `deps.write`, which throws on any fs failure. An
+    // escaping throw is caught by dispatch's outer safety net and flattened to
+    // a generic INTERNAL_ERROR, so the caller loses the code it branches on —
+    // precisely the fidelity loss this handler avoids on every other path.
     const fake = makeFakeFs({ [CATALOG_ABS]: FENCED_CATALOG });
     fake.deps.write = () => {
       throw new Error('EACCES: permission denied');

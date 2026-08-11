@@ -118,29 +118,35 @@ describe('dev-catalog v3 content — CR-2 mode:check enforcement', () => {
   // INV-5a/5d tool-COUNT facts require the whole file, not a diff — so those
   // three stay mode:audit (Approach-B "audit the rest"). See CR-6 below.
 
-  it('inv4_editingGeneratedSkillsRuntimeFile_fires', () => {
+  // These two characterized the PRE-086 check node, which greped `@@` over any
+  // `skills/**` diff. That fired on every regeneration — which CLAUDE.md
+  // mandates committing — so the old `inv4_editingGeneratedSkillsRuntimeFile_fires`
+  // asserted the defect as correct. Task 086 re-pointed INV-4 to `audit`
+  // deferring to `skills:guard`, so what is worth pinning is that the deferral
+  // went to a real mechanism rather than becoming an absence of enforcement.
+
+  it('inv4_GeneratedSkillsDiff_NoLongerAutoBlocks', () => {
     const e = entry('INV-4');
-    expect(e.enforcement?.mode).toBe('check');
-    const violating = diffFor('skills/claude-code/ideate/SKILL.md', [
-      'direct edit to generated output',
-    ]);
-    const findings = evaluateTree(
-      (e.enforcement as { mode: 'check'; check: never }).check,
-      violating,
-    );
-    expect(findings.length).toBeGreaterThanOrEqual(1);
+    expect(e.enforcement?.mode).toBe('audit');
+    // An audit entry carries no check tree, so no diff shape can auto-block —
+    // asserted structurally rather than by evaluating a node that is now absent.
+    expect(e.enforcement && 'check' in e.enforcement).toBe(false);
   });
 
-  it('inv4_editingSkillsSrcOnly_producesNoFinding', () => {
-    const e = entry('INV-4');
-    const clean = diffFor('skills-src/ideate/SKILL.md', [
-      'edit to source-of-truth is fine',
-    ]);
-    const findings = evaluateTree(
-      (e.enforcement as { mode: 'check'; check: never }).check,
-      clean,
-    );
-    expect(findings).toEqual([]);
+  it('inv4_AuditPrompt_NamesTheRenderEquivalenceProbe', () => {
+    const enforcement = entry('INV-4').enforcement;
+    if (!enforcement || enforcement.mode !== 'audit') {
+      throw new Error('INV-4 must be an audit entry for this claim to mean anything');
+    }
+    const prompt = enforcement['audit-prompt'];
+    // The deferral must name the probe that answers the question the grep could
+    // not — otherwise `audit` is just "a reviewer will think about it", and the
+    // downgrade would have removed enforcement instead of relocating it.
+    expect(prompt).toMatch(/skills:guard/);
+    expect(prompt).toMatch(/skills-src/);
+    // Non-empty denominator on the prompt itself: a one-word prompt would match
+    // neither pattern by accident, but an empty one must not read as satisfied.
+    expect(prompt.trim().length).toBeGreaterThan(80);
   });
 
   // ─── INV-13/14/16 raised audit→check (task 027 / DR-15): both-direction proofs ─
@@ -307,18 +313,25 @@ describe('dev-catalog v3 content — CR-5 end-to-end gate bite', () => {
     return { stateDir, eventStore };
   }
 
-  it('seededGeneratedSkillsEdit_inv4Fires_NeedsFixesWithGateEvent', async () => {
+  it('seededGeneratedSkillsEdit_inv4Audits_RatherThanAutoBlocking', async () => {
+    // This case previously asserted `NEEDS_FIXES` for ANY `skills/**` diff —
+    // i.e. it characterized the #1764/086 defect as correct behaviour. A diff
+    // touching generated skills is exactly what `npm run build:skills` produces
+    // and CLAUDE.md requires committing, so auto-blocking it made the invariant
+    // unsatisfiable by a conforming change. INV-4 now audits, and the mechanical
+    // question ("is this tree a faithful render of skills-src/?") is answered by
+    // `skills:guard`, which is a whole-tree probe this diff-scoped gate cannot be.
     const { stateDir, eventStore } = await arm();
     try {
-      const violating = diffFor('skills/claude-code/ideate/SKILL.md', [
+      const regenerated = diffFor('skills/claude-code/ideate/SKILL.md', [
         'a direct edit to generated output',
       ]);
       const result = await handleCheckInvariantConformance(
         {
-          featureId: 'feat-1466-violating',
+          featureId: 'feat-1466-regenerated',
           workflowType: 'feature',
           phase: 'review',
-          diff: violating,
+          diff: regenerated,
           repoRoot: REPO_ROOT,
           config: ENABLED_CONFIG,
         },
@@ -330,12 +343,18 @@ describe('dev-catalog v3 content — CR-5 end-to-end gate bite', () => {
         verdict: string;
         high: number;
         findings: Array<{ dimension?: string }>;
+        auditInvariantIds?: readonly string[];
       };
-      expect(data.verdict).toBe('NEEDS_FIXES');
-      expect(data.high).toBeGreaterThanOrEqual(1);
-      expect(data.findings.some((f) => f.dimension === 'INV-4')).toBe(true);
+      // No AUTOMATIC INV-4 block…
+      expect(data.findings.some((f) => f.dimension === 'INV-4')).toBe(false);
+      // …but INV-4 is still routed to the reviewer rather than dropped. That
+      // distinction is the whole point: audit relocates the judgement, and an
+      // INV-4 absent from BOTH lists would mean the downgrade deleted it.
+      expect(data.auditInvariantIds ?? []).toContain('INV-4');
 
-      const gates = await eventStore.query('feat-1466-violating', {
+      // The gate still runs and still records itself — a silent gate would be
+      // its own defect, so the event is asserted independently of the verdict.
+      const gates = await eventStore.query('feat-1466-regenerated', {
         type: 'gate.executed',
       });
       expect(gates.length).toBeGreaterThanOrEqual(1);

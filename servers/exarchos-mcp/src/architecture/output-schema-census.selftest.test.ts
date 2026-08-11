@@ -101,6 +101,7 @@ const GUARD_PATH = join(MCP_ROOT, 'scripts', 'output-schema-ratchet-guard.ts');
 const SHIPPED_PREDICATE =
   'canonicalPath(process.argv[1]) === canonicalPath(fileURLToPath(import.meta.url))';
 const LEGACY_FILENAME_PREDICATE = "process.argv[1].endsWith('output-schema-ratchet-guard.ts')";
+
 /**
  * The exit plumbing that turns a finding into a failed lane. Named once here
  * because it is asserted in more than one place and it has already drifted: the
@@ -109,7 +110,6 @@ const LEGACY_FILENAME_PREDICATE = "process.argv[1].endsWith('output-schema-ratch
  * describing a spelling the tree no longer contains.
  */
 const SHIPPED_EXIT = 'process.exitCode = runGuard()';
-
 /** Relative module specifiers in the guard's source, e.g. `../src/output-schema-seed-pin.js`. */
 const RELATIVE_SPECIFIER = /from '(\.\.\/[^']+\.js)'/g;
 
@@ -295,7 +295,11 @@ const MUTATIONS: readonly Mutation[] = Object.freeze([
         [
           'pin-with-a-drifted-digest.ts',
           [
-            `export { VACUITY_EXPIRY_HORIZON, VACUITY_SEED_DIGEST_ALGORITHM } from '${pinUrl}';`,
+            // `export *` rather than a named list: the pin's export surface is
+            // not this fixture's business, and enumerating it made adding a
+            // constant to the pin a link-time crash here (task 093 added two).
+            // A local export shadows the star, so only the digest is mutated.
+            `export * from '${pinUrl}';`,
             `export const VACUITY_SEED_KEY_SET_DIGEST = '${'0'.repeat(64)}';`,
             '',
           ].join('\n'),
