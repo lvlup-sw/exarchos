@@ -508,6 +508,23 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
+ * Does this prepared statement expose an explicit `finalize()`?
+ *
+ * A real type predicate rather than a cast: the two SQLite drivers this backend
+ * runs on disagree — bun:sqlite's `Statement` has `finalize()`, better-sqlite3's
+ * does not (it finalizes on `Database.close()`) — and the shared `Statement`
+ * type cannot describe both.
+ */
+function hasFinalize(value: unknown): value is { finalize: () => void } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'finalize' in value &&
+    typeof value.finalize === 'function'
+  );
+}
+
+/**
  * A path in the ONE form the filesystem itself uses, for comparing two paths
  * that may name the same file differently.
  *
@@ -750,10 +767,31 @@ export class SqliteBackend implements StorageBackend {
 
   close(): void {
     if (this.closed) return;
-    // Finalize prepared statements BEFORE the connection closes, not after: a
+    // Release prepared statements BEFORE the connection closes, not after: a
     // driver that refuses to close a connection with live statements throws
     // straight into the catch below, and the old order made that failure
     // indistinguishable from success.
+    //
+    // Both populations, not just the dynamic one — the static `stmts` outnumber
+    // the cached query statements and live exactly as long as the connection.
+    // `finalize()` is duck-typed because the two drivers differ: bun:sqlite
+    // exposes it and can refuse to close while statements are live, while
+    // better-sqlite3 exposes no such method and finalizes them itself on close.
+    // Best-effort on purpose — a statement that is already finalized must not
+    // turn a successful close into a failed one.
+    // `stmts` is definite-assignment (`stmts!`) and really can be undefined here:
+    // a partial `initialize()` failure registers the handle before preparing the
+    // statements, and that is precisely the case that must stay closeable.
+    const prepared = this.stmts === undefined ? [] : Object.values(this.stmts);
+    for (const statement of [...prepared, ...this.queryStmtCache.values()]) {
+      if (hasFinalize(statement)) {
+        try {
+          statement.finalize();
+        } catch {
+          // already finalized, or a driver that does not need it
+        }
+      }
+    }
     this.queryStmtCache.clear();
     // `db` is definite-assignment (`db!`); `?.` makes a never-opened handle a
     // no-op, and the `closed` guard above makes a double close one.
