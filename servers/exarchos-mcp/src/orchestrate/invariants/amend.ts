@@ -138,12 +138,16 @@ function renderAmendDiff(
   before: string,
   after: string,
 ): string {
-  const mark = (text: string, sign: string): string =>
-    text
-      .split('\n')
-      .filter((l) => l.length > 0)
-      .map((l) => `${sign}${l}`)
-      .join('\n');
+  const mark = (text: string, sign: string): string => {
+    const lines = text.split('\n');
+    // `split('\n')` on text ending in a newline yields ONE trailing '' that is an
+    // artifact of the terminator, not a line. Drop exactly that. Filtering every
+    // empty line (as this did) also erased blank lines INSIDE an entry, so a
+    // preview whose entire job is showing what changes quietly hid part of it —
+    // and a blank line is a real edit in a YAML block scalar.
+    if (lines[lines.length - 1] === '') lines.pop();
+    return lines.map((l) => `${sign}${l}`).join('\n');
+  };
   return (
     `--- a/${relCatalog}\n+++ b/${relCatalog}\n@@ invariants: (amend ${id}) @@\n` +
     `${mark(before, '-')}\n${mark(after, '+')}`

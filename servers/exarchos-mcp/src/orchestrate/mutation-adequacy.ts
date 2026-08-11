@@ -665,8 +665,12 @@ export function discoverMutationConfig(
   return {
     ok: false,
     reason:
-      `no mutation-runner configuration was found under ${repoRoot} (searched ` +
-      `${MUTATION_CONFIG_SCAN_MAX_DEPTH} directory levels, skipping dot-directories and ` +
+      // "the root plus N", not "N": the walk runs `depth <= MAX_DEPTH` from
+      // depth 0, so it visits MAX_DEPTH + 1 levels. Saying "5 levels" understated
+      // the search by one and would send someone hunting for a config the scan
+      // had in fact already looked at.
+      `no mutation-runner configuration was found under ${repoRoot} (searched the ` +
+      `root plus ${MUTATION_CONFIG_SCAN_MAX_DEPTH} directory levels, skipping dot-directories and ` +
       `${[...NON_SCANNABLE_DIRS].join('/')})`,
   };
 }
