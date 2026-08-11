@@ -37,6 +37,11 @@
 //       and production reachability. All parsed out of `.github/workflows/*.yml`,
 //       the two `package.json` script tables, the two `vitest.config.ts` include
 //       globs, and TypeScript import specifiers. Never asserted.
+//     - Whether a guard's ENTRYPOINT PREDICATE is coupled to its own filename
+//       ({@link classifyEntrypointPredicate}, DR-4). Every column above answers
+//       "is this guard reached?"; that one answers "and does it still run once
+//       reached?", which the others cannot see — a renamed guard keeps a direct,
+//       unfiltered, blocking row while enforcing nothing.
 //
 //   HAND-MAINTAINED (small, reviewable, and EXPIRING by construction)
 //     - {@link GUARD_EXEMPTIONS}: the record of a guard that is deliberately not
@@ -950,6 +955,24 @@ export interface GuardInventory {
    */
   readonly unresolvedSpecArtifacts: readonly string[];
   /**
+   * Guards whose self-execution is decided by their own FILENAME (DR-4).
+   *
+   * A rename plus the matching `run:` edit turns such a guard into a step that
+   * runs and enforces nothing, and every other column in this inventory keeps
+   * reporting it as direct, unfiltered and blocking. {@link auditGuardInventory}
+   * raises `[filename-coupled-entrypoint]` for each entry not covered by an
+   * expiring {@link GUARD_EXEMPTIONS} record.
+   */
+  readonly filenameCoupledEntrypoints: readonly FilenameCoupledEntrypoint[];
+  /**
+   * How many artifacts the entrypoint-predicate classifier actually parsed.
+   *
+   * The non-empty-denominator rule applied to the check itself: a classifier
+   * that examined nothing reports zero coupled entrypoints and is
+   * indistinguishable from a clean tree.
+   */
+  readonly entrypointPredicatesScanned: number;
+  /**
    * What the wrapper-script walk actually examined. Present so the indirection
    * resolver is subject to the same non-empty-denominator rule as the inventory:
    * a resolver that walked zero run-steps or zero wrappers would silently report
@@ -1182,6 +1205,158 @@ export function hasDirectRunExit(source: string, fileName: string): boolean {
   };
   ts.forEachChild(sourceFile, visit);
   return found;
+}
+
+// ─── The entrypoint predicate (DR-4 / task 074) ──────────────────────────────
+//
+// A guard that decides "am I the process entrypoint?" with
+// `process.argv[1].endsWith('<its own name>')` couples WHETHER IT RUNS to WHAT
+// IT IS CALLED. Rename it, update the `run:` step to match, and CI keeps a step
+// that exists, runs, resolves and enforces nothing — measured on
+// `output-schema-ratchet-guard.ts` as 0 bytes of output and exit 0.
+//
+// This inventory could not see that, and said so: the step is still there, still
+// direct, still unfiltered, so the guard's row is unchanged. That blindness is
+// what makes it this file's problem rather than each guard's. Four sites in the
+// tree carried the coupling when the check was added — one more than the spec
+// had enumerated by hand, which is the argument for detecting the CLASS instead
+// of fixing the instances.
+
+/** A guard whose self-execution is decided by its own filename. */
+export interface FilenameCoupledEntrypoint {
+  readonly artifact: string;
+  /** The filename literals the predicate tests, in source order. */
+  readonly literals: readonly string[];
+}
+
+interface EntrypointPredicate {
+  /** Filename literals `argv[1]` is tested against with no identity check alongside. */
+  readonly coupledLiterals: readonly string[];
+}
+
+/**
+ * Classify a module's entrypoint predicate.
+ *
+ * A filename test is only a FINDING when nothing in the same statement also
+ * compares `argv[1]` against `import.meta.url`. That distinction is load-bearing
+ * and in-tree: `check-type-debt.mjs`, `check-enforcer-wiring.mjs` and
+ * `stryker-adapter.mjs` all read
+ *
+ *     path.resolve(entry) === fileURLToPath(import.meta.url) || entry.endsWith('/check-type-debt.mjs')
+ *
+ * where the filename arm WIDENS an identity check rather than replacing it — a
+ * rename still self-executes through the first disjunct. Reporting those three
+ * would be a false positive demanding a waiver for correct code. Scoping to the
+ * nearest enclosing STATEMENT is what separates them from
+ *
+ *     const isDirectRun = process.argv[1].endsWith('cli-vocab-guard.ts');
+ *
+ * where the same statement contains no identity check at all.
+ *
+ * Both operands are followed through single-assignment aliases (`const entry =
+ * process.argv[1]`, `const self = fileURLToPath(import.meta.url)`), because
+ * three of the five real predicates in the tree are written that way.
+ *
+ * Fails CLOSED on a source the parser had to recover from — a `[]` there would
+ * read as "no coupling found".
+ */
+export function classifyEntrypointPredicate(source: string, fileName: string): EntrypointPredicate {
+  const sourceFile = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
+  const diagnostics: unknown = Reflect.get(sourceFile, 'parseDiagnostics');
+  if (Array.isArray(diagnostics) && diagnostics.length > 0) {
+    throw new Error(`${fileName}: ${diagnostics.length} parse error(s) — refusing to classify`);
+  }
+
+  const subtreeHas = (node: ts.Node, pred: (n: ts.Node) => boolean): boolean => {
+    let found = false;
+    const visit = (n: ts.Node): void => {
+      if (found) return;
+      if (pred(n)) {
+        found = true;
+        return;
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(node);
+    return found;
+  };
+
+  const isArgv1 = (n: ts.Node): boolean =>
+    ts.isElementAccessExpression(n) &&
+    ts.isPropertyAccessExpression(n.expression) &&
+    n.expression.name.text === 'argv' &&
+    ts.isIdentifier(n.expression.expression) &&
+    n.expression.expression.text === 'process' &&
+    ts.isNumericLiteral(n.argumentExpression) &&
+    n.argumentExpression.text === '1';
+
+  const isImportMeta = (n: ts.Node): boolean => n.kind === ts.SyntaxKind.MetaProperty;
+
+  const argvAliases = new Set<string>();
+  const metaAliases = new Set<string>();
+  const collectAliases = (n: ts.Node): void => {
+    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer !== undefined) {
+      if (subtreeHas(n.initializer, isArgv1)) argvAliases.add(n.name.text);
+      if (subtreeHas(n.initializer, isImportMeta)) metaAliases.add(n.name.text);
+    }
+    ts.forEachChild(n, collectAliases);
+  };
+  ts.forEachChild(sourceFile, collectAliases);
+
+  const mentionsArgv = (n: ts.Node): boolean =>
+    subtreeHas(n, (x) => isArgv1(x) || (ts.isIdentifier(x) && argvAliases.has(x.text)));
+  const mentionsMeta = (n: ts.Node): boolean =>
+    subtreeHas(n, (x) => isImportMeta(x) || (ts.isIdentifier(x) && metaAliases.has(x.text)));
+
+  /** The nearest enclosing statement — the scope a predicate is written in. */
+  const enclosingStatement = (node: ts.Node): ts.Node => {
+    let current: ts.Node = node;
+    while (current.parent !== undefined && !ts.isStatement(current)) current = current.parent;
+    return current;
+  };
+
+  /** `argv[1] === <something mentioning import.meta>`, in either operand order. */
+  const isIdentityCheck = (n: ts.Node): boolean => {
+    if (
+      ts.isBinaryExpression(n) &&
+      (n.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken ||
+        n.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsEqualsToken)
+    ) {
+      return (
+        (mentionsArgv(n.left) && mentionsMeta(n.right)) ||
+        (mentionsArgv(n.right) && mentionsMeta(n.left))
+      );
+    }
+    // `isDirectExecution(import.meta.url, process.argv[1])` — the helper form.
+    if (ts.isCallExpression(n)) {
+      return n.arguments.some((a) => mentionsArgv(a)) && n.arguments.some((a) => mentionsMeta(a));
+    }
+    return false;
+  };
+
+  const coupledLiterals: string[] = [];
+  const isFilenameTest = (n: ts.Node): n is ts.CallExpression =>
+    ts.isCallExpression(n) &&
+    ts.isPropertyAccessExpression(n.expression) &&
+    (n.expression.name.text === 'endsWith' || n.expression.name.text === 'includes') &&
+    n.arguments.length === 1 &&
+    mentionsArgv(n.expression.expression);
+
+  const visit = (n: ts.Node): void => {
+    if (isFilenameTest(n)) {
+      const literal = n.arguments[0];
+      if (
+        literal !== undefined &&
+        ts.isStringLiteralLike(literal) &&
+        !subtreeHas(enclosingStatement(n), isIdentityCheck)
+      ) {
+        coupledLiterals.push(literal.text);
+      }
+    }
+    ts.forEachChild(n, visit);
+  };
+  ts.forEachChild(sourceFile, visit);
+  return { coupledLiterals };
 }
 
 /**
@@ -1946,7 +2121,10 @@ export function productionImportedSet(repoRoot: string = REPO_ROOT): Set<string>
 // ─── Exemption register (the one hand-maintained input) ──────────────────────
 
 /** The finding an exemption is allowed to excuse. One entry excuses exactly one. */
-export type ExemptedFinding = 'unreachable' | 'filtered-implementation-surface';
+export type ExemptedFinding =
+  | 'unreachable'
+  | 'filtered-implementation-surface'
+  | 'filename-coupled-entrypoint';
 
 export interface GuardExemption {
   /** Repo-relative path of the guard whose hosting is knowingly imperfect. */
@@ -2259,12 +2437,31 @@ export function buildGuardInventory(options: BuildOptions = {}): GuardInventory 
     })
     .sort((a, b) => a.artifact.localeCompare(b.artifact));
 
+  // DR-4: the entrypoint predicate, over the SAME population every other column
+  // is computed from. Scoping it to the inventory rather than to a directory is
+  // the point — a guard has to escape all four discovery channels to escape this
+  // check too, and a new guard enters it without anyone remembering to.
+  const filenameCoupledEntrypoints: FilenameCoupledEntrypoint[] = [];
+  let entrypointPredicatesScanned = 0;
+  for (const guard of guards) {
+    if (!/\.[cm]?[jt]s$/.test(guard.artifact)) continue;
+    const source = readScript(guard.artifact);
+    if (source === null) continue;
+    entrypointPredicatesScanned += 1;
+    const { coupledLiterals } = classifyEntrypointPredicate(source, guard.artifact);
+    if (coupledLiterals.length > 0) {
+      filenameCoupledEntrypoints.push({ artifact: guard.artifact, literals: coupledLiterals });
+    }
+  }
+
   return {
     guards,
     runnableWithoutSelfTest: mcpScan.runnableWithoutSelfTest,
     architectureModulesWithoutSelfTest: architectureScan.modulesWithoutSelfTest,
     compileTimeOnlyArtifacts: [...new Set(compileTimeOnlyArtifacts)].sort(),
     unresolvedSpecArtifacts: [...new Set(unresolvedSpecArtifacts)].sort(),
+    filenameCoupledEntrypoints,
+    entrypointPredicatesScanned,
     indirection: ctx.shellIndex ?? { byStep: new Map(), runStepsWalked: 0, wrapperScriptsWalked: [], unresolvedInvocations: [] },
   };
 }
@@ -2305,6 +2502,12 @@ export interface InventoryAudit {
  *                                    applied to {@link SPEC_ARTIFACT_WAIVERS}: a waiver
  *                                    whose artifact turns up on disk is removed, not
  *                                    left standing to cover a later disappearance.
+ *   `[empty-entrypoint-scan]`      — the entrypoint classifier parsed zero sources, so
+ *                                    "no coupled entrypoint" is vacuous.
+ *   `[filename-coupled-entrypoint]` — DR-4: the guard self-executes on a match against
+ *                                    its own FILENAME, so a rename silently turns it
+ *                                    into a no-op while every other column here still
+ *                                    reports it as hosted and blocking.
  *   `[implementation-surface-outside-filter]` — the two-surface subset rule from
  *                                    docs/guides/ci-gate-hosting.md: a guard hosted
  *                                    ONLY in path-filtered jobs whose own source is
@@ -2374,7 +2577,29 @@ export function auditGuardInventory(
   const exhibits = new Map<ExemptedFinding, Set<string>>([
     ['unreachable', new Set(inventory.guards.filter((g) => g.enforcement === 'unreachable').map((g) => g.artifact))],
     ['filtered-implementation-surface', new Set<string>()],
+    ['filename-coupled-entrypoint', new Set(inventory.filenameCoupledEntrypoints.map((e) => e.artifact))],
   ]);
+
+  // ── Filename-coupled entrypoints (DR-4) ────────────────────────────────────
+  // The same non-empty-denominator rule the inventory applies to itself: a
+  // classifier that parsed nothing reports no coupling and looks exactly like a
+  // clean tree.
+  if (inventory.entrypointPredicatesScanned === 0) {
+    violations.push(
+      '[empty-entrypoint-scan]  the entrypoint-predicate classifier parsed ZERO guard ' +
+        'sources — no coupling could have been found, so a clean result proves nothing',
+    );
+  }
+  for (const coupled of inventory.filenameCoupledEntrypoints) {
+    if (excusedBy(coupled.artifact, 'filename-coupled-entrypoint') !== undefined) continue;
+    violations.push(
+      `${coupled.artifact}  [filename-coupled-entrypoint]  self-executes on ` +
+        `${coupled.literals.map((l) => `\`argv[1].endsWith('${l}')\``).join(' or ')}, so renaming ` +
+        'it leaves a step that runs and enforces nothing while this inventory still reports it ' +
+        'as hosted — compare the RESOLVED `argv[1]` against `fileURLToPath(import.meta.url)` ' +
+        '(DR-4), or record an expiring GUARD_EXEMPTIONS entry',
+    );
+  }
 
   for (const guard of inventory.guards) {
     if (!guard.pathFilteredOnly) continue;
@@ -2411,7 +2636,7 @@ export function auditGuardInventory(
     // A `filtered-implementation-surface` exemption is only checkable when the
     // filter globs were supplied; without them the finding cannot be computed, so
     // the entry is neither confirmed nor declared stale.
-    const checkable = exemption.excuses === 'unreachable' || filtersKnown;
+    const checkable = exemption.excuses !== 'filtered-implementation-surface' || filtersKnown;
     if (checkable && exhibits.get(exemption.excuses)?.has(exemption.artifact) !== true) {
       violations.push(
         `${exemption.artifact}  [stale-exemption]  no longer exhibits "${exemption.excuses}" — ` +

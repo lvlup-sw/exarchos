@@ -14,13 +14,16 @@
  *
  * Scope: the rule ONLY walks the "registration set" — the functions
  * `servers/exarchos-mcp/src/orchestrate/composite.ts`'s `ACTION_HANDLERS` map
- * resolves to, plus the six special-cased branch functions `handleOrchestrate`
- * dispatches directly (`describe`/`doctor`/`onboard`/`invariants_scaffold`/
- * `invariants_add`/`runbook`). This is intentionally a CLOSED, PRECISE set —
- * NOT "any function that returns ToolResult" (which would over-select the
- * deep helpers the registration set is allowed to call and that are allowed
- * to throw, e.g. `execute-merge.ts`'s internals, which the public
- * `merge_orchestrate` handler is expected to catch and convert).
+ * resolves to, plus the special-cased branch functions `handleOrchestrate`
+ * dispatches directly. That second half is DERIVED from the dispatch branches
+ * themselves (see `deriveDispatchedAction`), not from a hand-written roster of
+ * handler names: a census that has to be edited when a verb is added is a
+ * census a verb can fall off, and one already had (`invariants_amend` →
+ * `handleAmend` shipped unscanned). The set stays PRECISE — it is still not
+ * "any function that returns ToolResult", which would over-select the deep
+ * helpers the registration set is allowed to call and that are allowed to
+ * throw, e.g. `execute-merge.ts`'s internals, which the public
+ * `merge_orchestrate` handler is expected to catch and convert.
  *
  * Handler identification is TYPE-AWARE: `ACTION_HANDLERS` values are usually
  * `adaptXxx(handleYyy)` call expressions — the rule resolves the WRAPPED
@@ -35,12 +38,16 @@
  * the closure the factory's OWN body returns, so the resolver follows the
  * callee to its declaration and then unwraps ITS `return` statement.
  *
- * Resolution failure is FAIL-LOUD, not fail-open: every `ACTION_HANDLERS`
- * property is a registered handler by construction, so if none of the known
- * shapes above can resolve a scannable function for it, the rule reports a
- * rule error on that map entry (`unresolvedHandler`) rather than silently
- * skipping it — an unscannable entry is a gate hole, and a gate must fail
- * closed, not drop registrations off the census.
+ * Resolution failure is FAIL-LOUD, not fail-open, on BOTH census channels:
+ * every `ACTION_HANDLERS` property is a registered handler by construction,
+ * and every derived dispatch branch is one too, so if none of the known
+ * shapes above can resolve a scannable function, the rule reports a rule
+ * error (`unresolvedHandler`) rather than silently skipping — an unscannable
+ * entry is a gate hole, and a gate must fail closed, not drop registrations
+ * off the census. The same reasoning covers a direct handler dispatch the
+ * derivation cannot ATTRIBUTE to an action at all (`unattributedDispatch`):
+ * an envelope-wrapped call the census can neither name nor scan is exactly
+ * the shape that let `invariants_amend` ship unexamined.
  *
  * CAVEAT (review #1706): this gate covers literal `throw` statements
  * reachable in a handler's own body — it does NOT cover an un-converted
@@ -58,29 +65,196 @@
 import ts from 'typescript';
 import path from 'node:path';
 
-/**
- * The six branches `handleOrchestrate` special-cases OUTSIDE the
- * `ACTION_HANDLERS` map (composite.ts:639-715, dispatched via the same
- * `envelopeWrap(await handleXxx(...), startedAt)` shape as the map's own
- * dispatch at :748). Keyed by the imported handler function's name; the
- * value is the human-facing action name used in the census/report message.
- * This is a closed set BY DESIGN (Technical Design, #1706 spec) — matching by
- * name here (rather than "any envelopeWrap(await X(...))" call) keeps the
- * rule from over-selecting unrelated envelopeWrap call sites (e.g. the
- * ACTION_HANDLERS dispatch itself at composite.ts:748, which calls a
- * *variable* `handler`, not a named import, and so never matches this set).
- */
-const SPECIAL_BRANCH_ACTIONS = new Map([
-  ['handleDescribe', 'describe'],
-  ['handleDoctor', 'doctor'],
-  ['handleOnboard', 'onboard'],
-  ['handleScaffold', 'invariants_scaffold'],
-  ['handleAdd', 'invariants_add'],
-  ['handleRunbook', 'runbook'],
-]);
-
 const ACTION_HANDLERS_MAP_NAME = 'ACTION_HANDLERS';
 const ENVELOPE_WRAP_NAME = 'envelopeWrap';
+
+// ─── Special-branch census (DERIVED from the dispatch branches) ────────────
+
+/**
+ * `handleOrchestrate` special-cases a handful of actions OUTSIDE the
+ * `ACTION_HANDLERS` map, each as
+ *
+ *     if (action === '<verb>') { ... return envelopeWrap(await handleXxx(...), startedAt); }
+ *
+ * The census of those branches used to be a hand-written
+ * `handlerName -> actionName` map. It went stale the first time a verb was
+ * added (`invariants_amend` → `handleAmend`, which shipped unscanned), which
+ * is the failure mode a hand-maintained closed set has by construction. So
+ * the census is now DERIVED from that dispatch shape instead: the action name
+ * comes from the branch's own literal, and the handler from the call the
+ * branch returns. A new special-cased verb is therefore in the census the
+ * moment its branch exists — there is nothing left to forget to update.
+ *
+ * Precision is preserved by the derivation's two halves having to agree. A
+ * bare `envelopeWrap(...)` call is NOT enough on its own; the wrapped
+ * expression must be a direct call to a NAMED function, and the whole thing
+ * must sit inside a branch that tests a discriminant against a string
+ * literal. The map's own dispatch (`envelopeWrap(await handler(...))`, where
+ * `handler` is a function-local `const` holding an `ACTION_HANDLERS` lookup)
+ * matches neither half and is censused by the map walk instead.
+ */
+
+/**
+ * Unwraps an `envelopeWrap` first argument to the direct handler call it
+ * dispatches — `await handleXxx(...)` or `handleXxx(...)`. Returns the callee
+ * `Identifier` node, or `undefined` when the argument is a pre-built envelope
+ * rather than a dispatch (composite.ts's `envelopeWrap(invalid, startedAt)` /
+ * `envelopeWrap(validated.result, startedAt)` guard-clause returns), which is
+ * genuinely nothing to scan.
+ */
+function dispatchedCalleeIdentifier(argNode) {
+  if (!argNode) return { kind: 'not-a-call' };
+  const inner = argNode.type === 'AwaitExpression' ? argNode.argument : argNode;
+  if (!inner || inner.type !== 'CallExpression') return { kind: 'not-a-call' };
+  // A call the scanner cannot name — `handlers.handleX(…)`, `(cond ? a : b)(…)`
+  // — is NOT the same thing as a pre-built envelope. Returning `undefined` for
+  // both let the caller treat an unscannable dispatch as "nothing dispatched
+  // here", which is a gate hole wearing the shape of an exemption.
+  if (inner.callee.type !== 'Identifier') {
+    return { kind: 'unsupported-callee', node: inner.callee };
+  }
+  return { kind: 'identifier', node: inner.callee };
+}
+
+/**
+ * Collects the string literals a dispatch-branch test compares a discriminant
+ * against: `action === 'doctor'` → `['doctor']`, and
+ * `action === 'a' || action === 'b'` → `['a', 'b']`.
+ *
+ * `typeof action === 'string'` is deliberately NOT a match — a `typeof`
+ * operand is a type test, not a verb, and attributing a branch to the action
+ * `'string'` would be a fabricated census entry. The discriminant side must
+ * be a plain identifier or member access.
+ */
+function dispatchLiteralsOf(testNode, out) {
+  if (!testNode) return out;
+  if (testNode.type === 'LogicalExpression') {
+    dispatchLiteralsOf(testNode.left, out);
+    dispatchLiteralsOf(testNode.right, out);
+    return out;
+  }
+  if (testNode.type !== 'BinaryExpression') return out;
+  if (testNode.operator !== '===' && testNode.operator !== '==') return out;
+  const sides = [testNode.left, testNode.right];
+  const literal = sides.find(s => s.type === 'Literal' && typeof s.value === 'string');
+  const discriminant = sides.find(s => s.type === 'Identifier' || s.type === 'MemberExpression');
+  if (literal && discriminant) out.push(literal.value);
+  return out;
+}
+
+/**
+ * Walks up from an `envelopeWrap` call to the dispatch branch that selects
+ * it, and returns that branch's action name — the DERIVED census key. Stops
+ * at the enclosing function boundary: a branch in some other function is not
+ * this dispatch's selector.
+ *
+ * Recognizes both shapes a dispatch can take: an `if` whose CONSEQUENT holds
+ * the call (composite.ts's flat `if (action === '...') { ... }` sequence, and
+ * `else if` chains, which are nested `if`s in the alternate), and a
+ * `switch (action) { case '...': }` arm. The `alternate` of an `if` is not a
+ * match — falling through an `else` says nothing about which verb ran.
+ */
+function deriveDispatchedAction(callNode, sourceCode) {
+  const ancestors = sourceCode.getAncestors(callNode);
+  for (let i = ancestors.length - 1; i >= 0; i -= 1) {
+    const node = ancestors[i];
+    const child = i + 1 < ancestors.length ? ancestors[i + 1] : callNode;
+    if (isEstreeFunctionBoundary(node)) return undefined;
+    if (node.type === 'IfStatement' && node.consequent === child) {
+      const literals = dispatchLiteralsOf(node.test, []);
+      if (literals.length > 0) return literals.join('|');
+    }
+    if (node.type === 'SwitchCase' && node.test?.type === 'Literal' && typeof node.test.value === 'string') {
+      return node.test.value;
+    }
+  }
+  return undefined;
+}
+
+function isEstreeFunctionBoundary(node) {
+  return (
+    node.type === 'FunctionDeclaration' ||
+    node.type === 'FunctionExpression' ||
+    node.type === 'ArrowFunctionExpression'
+  );
+}
+
+/**
+ * True when a dispatched callee is an INDIRECTION rather than a named handler
+ * — a function-scoped local or parameter holding a handler value, which is
+ * exactly composite.ts's `const handler = ACTION_HANDLERS[action]` table
+ * dispatch. That call site's census is the `ACTION_HANDLERS` map walk, so it
+ * is not an unattributed dispatch and must not be reported as one.
+ *
+ * Deliberately narrow: a module-scoped binding (an import, a function
+ * declaration, a top-level `const handleX = async () => {}`) is a NAMED
+ * handler and stays subject to the fail-loud attribution check.
+ */
+function isTableDispatchCallee(identifierNode, sourceCode) {
+  const variable = resolveEstreeVariable(identifierNode, sourceCode);
+  if (!variable) return false;
+  if (variable.scope.type === 'module' || variable.scope.type === 'global') return false;
+  if (variable.defs.length === 0) return false;
+  // Function-local-ness is not the property. Every local binding used to
+  // qualify, so a plain alias — `const handler = handleX; envelopeWrap(handler(…))`
+  // — was exempted as though it came from the table, and its handler was never
+  // scanned. The exemption exists for the ACTION_HANDLERS lookup specifically,
+  // so the INITIALIZER has to be that lookup: `ACTION_HANDLERS[action]`. A
+  // parameter is still accepted — it is the same table value passed one frame
+  // down, and there is no initializer to inspect.
+  return variable.defs.every(def => {
+    if (def.type === 'Parameter') return true;
+    if (def.type !== 'Variable') return false;
+    return initializerReadsHandlerTable(def.node?.init);
+  });
+}
+
+/**
+ * True when `node` reads `ACTION_HANDLERS[...]`, through the wrappers the real
+ * dispatcher uses.
+ *
+ * The live shape is `typeof action === 'string' ? ACTION_HANDLERS[action] :
+ * undefined`, so requiring a bare member expression would reject the one call
+ * site this exemption exists for. Guard/cast wrappers are traversed; anything
+ * else — notably a bare identifier alias — is not a table read.
+ */
+function initializerReadsHandlerTable(node) {
+  if (!node) return false;
+  switch (node.type) {
+    case 'MemberExpression':
+      return (
+        node.computed === true &&
+        node.object?.type === 'Identifier' &&
+        node.object.name === ACTION_HANDLERS_MAP_NAME
+      );
+    case 'ConditionalExpression':
+      return (
+        initializerReadsHandlerTable(node.consequent) ||
+        initializerReadsHandlerTable(node.alternate)
+      );
+    case 'LogicalExpression':
+      return (
+        initializerReadsHandlerTable(node.left) || initializerReadsHandlerTable(node.right)
+      );
+    case 'TSNonNullExpression':
+    case 'TSAsExpression':
+    case 'TSSatisfiesExpression':
+    case 'TSTypeAssertion':
+      return initializerReadsHandlerTable(node.expression);
+    default:
+      return false;
+  }
+}
+
+function resolveEstreeVariable(identifierNode, sourceCode) {
+  let scope = sourceCode.getScope(identifierNode);
+  while (scope) {
+    const found = scope.variables.find(v => v.name === identifierNode.name);
+    if (found) return found;
+    scope = scope.upper;
+  }
+  return undefined;
+}
 
 // ─── ts.Node helpers (registration-set resolution) ─────────────────────────
 
@@ -463,7 +637,9 @@ const rule = {
       abnormalThrow:
         "Handler '{{handlerName}}' can abnormally complete via a throw at {{location}} — return ToolResult.error (with a meaningful error.code), not a raw throw. core/dispatch.ts's safety net would flatten this to a generic INTERNAL_ERROR, discarding the code and structured fields (suggestedFix/unmetGates/...).",
       unresolvedHandler:
-        "ACTION_HANDLERS entry '{{handlerName}}' could not be resolved to a scannable function by any known shape (adaptXxx(handleYyy), a zero-arg factory, an 'as ActionHandler' cast, or an inline literal) — this rule cannot verify its envelope-fidelity (#1706 DR-1). Fix the rule's resolution for this shape rather than letting a registered handler drop off the census unscanned.",
+        "Registered handler '{{handlerName}}' could not be resolved to a scannable function by any known shape (adaptXxx(handleYyy), a zero-arg factory, an 'as ActionHandler' cast, or an inline literal) — this rule cannot verify its envelope-fidelity (#1706 DR-1). Fix the rule's resolution for this shape rather than letting a registered handler drop off the census unscanned.",
+      unattributedDispatch:
+        "This envelopeWrap() dispatches directly to the named handler '{{handlerName}}', but the special-branch census cannot attribute it to an action: it sits in no `if (action === '...')` / `case '...':` dispatch branch (#1706 DR-1). An envelope-wrapped handler call the census can neither name nor scan is exactly the hole a hand-maintained handler list used to leave. Route it through a dispatch branch, or teach deriveDispatchedAction this shape.",
     },
   },
   create(context) {
@@ -518,14 +694,49 @@ const rule = {
       },
       CallExpression(node) {
         if (node.callee.type !== 'Identifier' || node.callee.name !== ENVELOPE_WRAP_NAME) return;
-        const firstArg = node.arguments[0];
-        if (!firstArg) return;
-        const awaited = firstArg.type === 'AwaitExpression' ? firstArg.argument : firstArg;
-        if (!awaited || awaited.type !== 'CallExpression' || awaited.callee.type !== 'Identifier') return;
-        const actionName = SPECIAL_BRANCH_ACTIONS.get(awaited.callee.name);
-        if (!actionName) return;
-        const fnNode = resolveHandlerFnNode(awaited.callee, services, checker);
-        if (!fnNode) return;
+        const dispatched = dispatchedCalleeIdentifier(node.arguments[0]);
+        // A pre-built envelope (`envelopeWrap(invalid, startedAt)`) dispatches
+        // nothing — there is no handler behind it to scan, and never was.
+        if (dispatched.kind === 'not-a-call') return;
+        // A call whose callee this rule cannot resolve to a name IS a dispatch,
+        // and one the census can neither name nor scan. Reported, not skipped.
+        if (dispatched.kind === 'unsupported-callee') {
+          context.report({
+            node,
+            messageId: 'unattributedDispatch',
+            data: { handlerName: context.sourceCode.getText(dispatched.node) },
+          });
+          return;
+        }
+        const callee = dispatched.node;
+
+        const actionName = deriveDispatchedAction(node, context.sourceCode);
+        if (!actionName) {
+          // No dispatch branch selects this call. Either it is the
+          // ACTION_HANDLERS table dispatch (censused by the map walk above),
+          // or it is a handler the census can neither name nor scan — and the
+          // second case is a gate hole, so it is reported rather than skipped.
+          if (isTableDispatchCallee(callee, context.sourceCode)) return;
+          context.report({
+            node,
+            messageId: 'unattributedDispatch',
+            data: { handlerName: callee.name },
+          });
+          return;
+        }
+
+        const fnNode = resolveHandlerFnNode(callee, services, checker);
+        if (!fnNode) {
+          // Same fail-loud reasoning as an ACTION_HANDLERS entry: a derived
+          // dispatch branch IS a registration, so an unscannable one is a
+          // hole in the census, not an absence of anything to check.
+          context.report({
+            node,
+            messageId: 'unresolvedHandler',
+            data: { handlerName: actionName },
+          });
+          return;
+        }
         reportAbnormalThrows(fnNode, actionName, node);
       },
     };

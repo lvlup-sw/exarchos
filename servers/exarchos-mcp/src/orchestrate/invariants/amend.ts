@@ -26,6 +26,12 @@
  * path must never be able to author a document the reader refuses.
  *
  * Pure-by-default: fs side effects flow through injected `ScaffoldDeps`.
+ *
+ * TOTAL in its envelope (#1706 DR-1): every failure this handler can reach —
+ * including the commit path's rewrite and its filesystem write, both of which
+ * throw — leaves through a coded `ToolResult.error`. Nothing escapes to
+ * dispatch's safety net, which would flatten it to a generic INTERNAL_ERROR
+ * and discard the code the caller branches on.
  */
 import * as path from 'node:path';
 import { toPosix } from '../../utils/paths.js';
@@ -232,7 +238,23 @@ export async function handleAmend(
       },
     };
   }
-  const catalogContents = deps.read(catalogAbs);
+  // `exists` and `read` are two syscalls, and the header promises a TOTAL
+  // envelope — every failure a coded result. Between the check above and this
+  // read the path can be removed, replaced by a directory, or lose read
+  // permission, and the ENOENT / EISDIR / EACCES would escape to dispatch and
+  // flatten to a generic INTERNAL_ERROR: exactly the outcome the claim says is
+  // unrepresentable. The existence check cannot be made atomic, so the read
+  // carries its own arm instead.
+  let catalogContents: string;
+  try {
+    catalogContents = deps.read(catalogAbs);
+  } catch (cause) {
+    return catalogUnreadableResult(
+      relCatalog,
+      tier,
+      `the catalog could not be read: ${cause instanceof Error ? cause.message : String(cause)}`,
+    );
+  }
 
   // ── Denominator, proven RESOLVED before anything is concluded from it ──
   const scan = readCatalogIds(catalogContents);
@@ -392,7 +414,41 @@ export async function handleAmend(
   }
 
   // ── Commit path ──
-  deps.write(catalogAbs, replaceEntryInCatalog(catalogContents, args.id, validated));
+  // Both halves of the write can throw — `replaceEntryInCatalog` when the
+  // document changed shape between the id scan and the write, `deps.write` on
+  // any filesystem failure — and neither may escape. Dispatch's outer safety
+  // net would flatten an escaping throw to a generic INTERNAL_ERROR, discarding
+  // the coded envelope this handler returns on every OTHER failure path
+  // (#1706 DR-1). One catch covers both: from the caller's side they are the
+  // same event — the amendment did not land — and `CATALOG_WRITE_FAILED` is
+  // what it branches on. (A separate arm for the rewrite would be unreachable
+  // today: the handler reads the catalog once and has already located the entry
+  // in that same text, so a "vanished between the scan and the write" throw
+  // cannot be produced from here. It is caught, not given its own code.)
+  try {
+    deps.write(catalogAbs, replaceEntryInCatalog(catalogContents, args.id, validated));
+  } catch (err) {
+    return {
+      success: false,
+      error: {
+        code: 'CATALOG_WRITE_FAILED',
+        message:
+          `Amending '${args.id}' failed while writing catalog '${relCatalog}': ` +
+          `${err instanceof Error ? err.message : String(err)}. No ` +
+          `invariant.amended event was emitted; re-read the catalog before retrying.`,
+        suggestedFix: {
+          tool: 'exarchos_orchestrate',
+          params: {
+            action: 'invariants_amend',
+            id: args.id,
+            catalog: relCatalog,
+            tier,
+            dryRun: true,
+          },
+        },
+      },
+    };
+  }
 
   // Emit the audit record (best-effort telemetry — never fail the write that
   // already landed, mirroring `invariants_add`).

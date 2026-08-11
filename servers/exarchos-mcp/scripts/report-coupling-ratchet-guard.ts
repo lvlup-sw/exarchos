@@ -127,7 +127,7 @@ export function runGuard(options: GuardOptions = {}): number {
       `reportCoupling:ratchet — OK as of ${today}. ` +
         `${verdict.membership.seeded.length} seeded of ${verdict.membership.total} ` +
         `registration(s); seed key set ${verdict.pin.keySetSize} id(s) matches its pin; ` +
-        'no entry past due.\n',
+        `no entry past due and every entry within the pinned horizon ${verdict.membership.horizon}.\n`,
     );
     return 0;
   }

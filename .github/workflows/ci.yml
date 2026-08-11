@@ -986,15 +986,18 @@ jobs:
         run: bash scripts/lint-envelopes.test.sh
 
       # The RULE's own self-test, as distinct from the wrapper's. `lint-envelopes.test.sh`
-      # above covers the wrapper's exit codes against one violating fixture; these 18
-      # cases cover the rule's handler resolution (adaptXxx unwrap, zero-arg factory,
-      # cast, inline literal, the fail-loud `unresolvedHandler` path) and its three
-      # exemption classes. They were executed by NOTHING: it is a `node:test` file with
-      # a `.js` extension, and the root vitest `include` list is all `*.test.ts` under
+      # above covers the wrapper's exit codes against one violating fixture; these cases
+      # cover the rule's handler resolution (adaptXxx unwrap, zero-arg factory, cast,
+      # inline literal, the DERIVED special-branch census, and the fail-loud
+      # `unresolvedHandler` / `unattributedDispatch` paths) and its three exemption
+      # classes. The case count is deliberately not transcribed here — the file is the
+      # authority, and a label that has to be edited alongside it just goes stale.
+      # They were executed by NOTHING: it is a `node:test` file with a `.js` extension,
+      # and the root vitest `include` list is all `*.test.ts` under
       # src/benchmarks/scripts/hooks/test/docs — no `eslint-rules/**`, no `.js` pattern.
       # A blocking lint rule whose resolution logic is unproven is the DR-24 shape the
       # rest of this lane exists to prevent.
-      - name: Error-envelope RULE self-test (18 cases)
+      - name: Error-envelope RULE self-test
         run: node eslint-rules/no-handler-throw.test.js
 
       # `eslint-rules/tsconfig.json` exists solely to typecheck `__fixtures__/**/*.ts`

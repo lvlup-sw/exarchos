@@ -1,4 +1,5 @@
-import { WorkflowEventBase, EVENT_DATA_SCHEMAS, type WorkflowEvent, type EventType } from './schemas.js';
+import { WorkflowEventBase, type WorkflowEvent, type EventType } from './schemas.js';
+import { validateEventData } from './event-validation.js';
 
 export interface EventInput {
   type: EventType;
@@ -34,11 +35,10 @@ export function buildValidatedEvent(
     timestamp: input.timestamp ?? new Date().toISOString(),
   });
 
-  // Type-specific data validation (defense in depth for all events with schemas)
-  const dataSchema = EVENT_DATA_SCHEMAS[event.type as EventType];
-  if (dataSchema && event.data !== undefined) {
-    dataSchema.parse(event.data);
-  }
+  // Type-specific data validation. DR-1: this check lives in exactly one
+  // place, shared with `batch_append`, so the two write paths cannot disagree
+  // on whether a payload is valid.
+  validateEventData(event.type as EventType, event.data);
 
   return event;
 }

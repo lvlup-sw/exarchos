@@ -56,3 +56,27 @@ export const REPORT_COUPLING_SEED_KEY_SET_DIGEST =
  * readable act rather than a silent reinterpretation of the same hex string.
  */
 export const REPORT_COUPLING_SEED_DIGEST_ALGORITHM = 'sha256';
+
+// ── The horizon (DR-6) ─────────────────────────────────────────────────────
+//
+// The digest above stops the seed GROWING. Until DR-6 this ratchet had nothing
+// stopping it AGEING: entries carried an `expires` the audit enforced, and
+// nothing capped what an entry could name. On the day the debt came due the
+// cheapest green was a sed over the 25-line literal adding a year to every date
+// — a diff indistinguishable from the paydown diffs that file already receives.
+// Its two sibling ledgers were built with this tooth from the start; the DR-6
+// extraction is where this one gets it rather than carrying the gap forward.
+//
+// The one legal reason to change the value below is the programme deliberately
+// re-dating the WHOLE outstanding debt, as a commit that touches this line and
+// nothing else.
+
+/**
+ * The single deadline every report-coupling seed entry is measured against — the uniform horizon
+ * all 25 entries were written with on 2026-08-07.
+ *
+ * An entry may expire EARLIER than this (paying a subset down sooner is always legal); it may never
+ * expire later. Compared as an ISO `YYYY-MM-DD` string, so ordering is lexicographic and no
+ * timezone, DST or `Date` arithmetic enters the comparison.
+ */
+export const REPORT_COUPLING_EXPIRY_HORIZON = '2027-02-28';

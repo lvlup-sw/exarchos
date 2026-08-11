@@ -87,6 +87,7 @@ import {
   EVENT_GRAMMAR_CONCESSIONS,
   type GrammarConcessionEntry,
 } from './event-grammar-concessions.js';
+import { isIsoDay, isoDayUtc } from './waiver-ledger.js';
 
 export { EVENT_GRAMMAR_CONCESSIONS, type GrammarConcessionEntry };
 
@@ -336,49 +337,15 @@ export interface EventGrammarRatchetVerdict {
   readonly findings: readonly EventGrammarFinding[];
 }
 
-const ISO_DAY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
-
 /**
- * Is `value` a real calendar day written `YYYY-MM-DD`?
+ * The day rule. Re-exported, not re-stated (DR-6).
  *
- * The pattern alone is not enough — `2027-02-31` and `2027-13-01` both match it and neither
- * exists, and both would compare cheerfully under `<` and yield a confident, wrong verdict. So the
- * value is round-tripped through `Date.UTC` and rejected unless every component survives. A guard
- * that accepts an impossible deadline has an impossible deadline. Same rule, and the same reason,
- * as `output-schema-census.ts`'s `isIsoDay`; re-stated here rather than imported because that
- * module reaches `TOOL_REGISTRY` at load, and a grammar census must not boot the tool registry to
- * read a date.
+ * This module used to carry its own copy, for a reason it wrote down: the only other definition
+ * lived in `output-schema-census.ts`, which reaches `TOOL_REGISTRY` at load, and a grammar census
+ * must not boot the tool registry to read a date. `waiver-ledger.ts` imports NOTHING, so the reason
+ * is gone and the fourth copy with it.
  */
-export function isIsoDay(value: string): boolean {
-  const match = ISO_DAY_PATTERN.exec(value);
-  if (match === null) return false;
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const utc = Date.UTC(year, month - 1, day);
-  if (Number.isNaN(utc)) return false;
-  const round = new Date(utc);
-  return (
-    round.getUTCFullYear() === year && round.getUTCMonth() + 1 === month && round.getUTCDate() === day
-  );
-}
-
-/**
- * The UTC calendar day of an instant, as `YYYY-MM-DD`.
- *
- * UTC and not local time on purpose: a CI runner, a laptop and a reviewer in another timezone must
- * agree on whether an entry is past due, or "expired" becomes a property of who ran the guard. An
- * invalid `Date` yields the empty string, which {@link auditEventGrammarRatchet} reports as
- * `UNREADABLE_CLOCK` rather than silently treating as "long ago".
- */
-export function isoDayUtc(now: Date): string {
-  const ms = now.getTime();
-  if (Number.isNaN(ms)) return '';
-  const year = String(now.getUTCFullYear()).padStart(4, '0');
-  const month = String(now.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(now.getUTCDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
+export { isIsoDay, isoDayUtc };
 
 /**
  * The DR-3 two-way ratchet: the live registry against the grammar, and the concession table

@@ -229,9 +229,11 @@ describe('authority census — the CLI-surface row, live', () => {
     expect(live.totality.ok).toBe(true);
     // Every measured row narrowed through `isAuthorityTopologyRow`. Without
     // this the census would silently drop a malformed measurement and report a
-    // smaller, cleaner tree.
+    // smaller, cleaner tree. `topologyRows().length` (not a transcribed
+    // count) is the independent population `liveTopology` maps over — see
+    // `liveTopology`'s definition below.
     expect(live.evaluatedRows).toBe(live.rowCount);
-    expect(live.evaluatedRows).toBe(8);
+    expect(live.evaluatedRows).toBe(topologyRows().length);
 
     expect(tuplesFor(live, 'cli-surface')).toEqual(['cli-surface | authority | ambiguous | cli-surface']);
     expect(live.ok).toBe(false);
@@ -339,7 +341,10 @@ describe('authority census — the event-catalog row, live', () => {
     // ── 5. The census, run over the measured row ─────────────────────────────
     const live = runAuthorityCensus(liveTopology([catalog]));
     expect(live.totality.ok).toBe(true);
-    expect(live.evaluatedRows).toBe(8);
+    // Derived against the same independent population as the cli-surface
+    // proof above — `liveTopology` maps over every row `topologyRows()`
+    // returns.
+    expect(live.evaluatedRows).toBe(topologyRows().length);
     expect(tuplesFor(live, 'event-catalog')).toEqual([
       `event-catalog | binding | missing | ${EVENT_CATALOG_REPRESENTATION_IDS.phaseExpectedEvents}`,
       `event-catalog | binding | missing | ${EVENT_CATALOG_REPRESENTATION_IDS.prose}`,

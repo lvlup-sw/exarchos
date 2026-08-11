@@ -30,6 +30,7 @@ import {
   SPEC_ARTIFACT_WAIVERS,
   auditGuardInventory,
   buildGuardInventory,
+  classifyEntrypointPredicate,
   collectImportSpecifiers,
   describeHost,
   globMatches,
@@ -60,6 +61,7 @@ import {
   vitestPathOperands,
   vitestProjectSelectors,
   wave1Tasks,
+  type FilenameCoupledEntrypoint,
   type GuardInventory,
   type GuardRecord,
   type LoadedWorkflow,
@@ -114,6 +116,7 @@ function inventoryOf(
   guards: readonly GuardRecord[],
   indirection: ShellIndirectionIndex = walkedSomething(),
   unresolvedSpecArtifacts: readonly string[] = [],
+  filenameCoupledEntrypoints: readonly FilenameCoupledEntrypoint[] = [],
 ): GuardInventory {
   return {
     guards,
@@ -121,6 +124,12 @@ function inventoryOf(
     architectureModulesWithoutSelfTest: [],
     compileTimeOnlyArtifacts: [],
     unresolvedSpecArtifacts,
+    filenameCoupledEntrypoints,
+    // Non-zero by default for the same reason {@link walkedSomething} exists: a
+    // fixture varying one field must not also trip the classifier's own
+    // empty-denominator arm. The zero case is asserted explicitly by
+    // `GuardInventory_EntrypointClassifierThatParsedNothing_FailsClosed`.
+    entrypointPredicatesScanned: guards.length + 1,
     indirection,
   };
 }
@@ -354,6 +363,161 @@ describe('Wave-1 guard inventory — CI reachability proof (DR-24, task 063)', (
     expect(audit.violations.join('\n')).toContain('scripts/check-invisible.mjs');
     // A `retired` primary is deliberately dead and must NOT be demanded back.
     expect(audit.violations.join('\n')).not.toContain('scripts/check-gone.mjs');
+  });
+});
+
+// ─── 1b. The entrypoint predicate (DR-4, task 074) ──────────────────────────
+//
+// Every other column of this inventory answers "is this guard reached?". This
+// one answers "and does it still run once reached?" — the question a rename
+// silently changes the answer to while leaving every other column identical.
+
+/** The shipped idiom, spelled once so the fixtures below cannot drift from it. */
+const RESOLVED_PATH_TAIL = [
+  'const isDirectRun =',
+  "  typeof process.argv[1] === 'string' &&",
+  '  canonicalPath(process.argv[1]) === canonicalPath(fileURLToPath(import.meta.url));',
+  'if (isDirectRun) process.exit(runGuard());',
+].join('\n');
+
+describe('Entrypoint predicates test identity, not filename (DR-4, task 074)', () => {
+  it('EntrypointPredicate_FilenameMatchWithNoIdentityCheck_IsReported', () => {
+    const coupled = classifyEntrypointPredicate(
+      [
+        'const isDirectRun =',
+        "  typeof process.argv[1] === 'string' &&",
+        "  (process.argv[1].endsWith('a-guard.ts') || process.argv[1].endsWith('a-guard.js'));",
+        'if (isDirectRun) process.exit(runGuard());',
+      ].join('\n'),
+      'scripts/a-guard.ts',
+    );
+    expect(coupled.coupledLiterals).toEqual(['a-guard.ts', 'a-guard.js']);
+  });
+
+  it('EntrypointPredicate_ResolvedPathIdiom_IsNotReported', () => {
+    expect(
+      classifyEntrypointPredicate(RESOLVED_PATH_TAIL, 'scripts/a-guard.ts').coupledLiterals,
+    ).toEqual([]);
+  });
+
+  it('EntrypointPredicate_FilenameArmWideningAnIdentityCheck_IsNotReported', () => {
+    // THE FALSE-POSITIVE CONTROL, and the reason the classifier scopes to the
+    // nearest enclosing STATEMENT rather than to the whole module.
+    // `check-type-debt.mjs`, `check-enforcer-wiring.mjs` and `stryker-adapter.mjs`
+    // all read this shape today: the filename arm WIDENS an identity check
+    // rather than replacing it, so a rename still self-executes through the
+    // first disjunct. Reporting them would demand a waiver for correct code.
+    //
+    // Both alias forms are covered because both are in the tree: `const entry =
+    // process.argv[1]` and `const self = fileURLToPath(import.meta.url)`.
+    const widened = classifyEntrypointPredicate(
+      [
+        'function invokedAsCli() {',
+        '  const entry = process.argv[1];',
+        '  const self = fileURLToPath(import.meta.url);',
+        '  if (!entry) return false;',
+        '  return (',
+        '    path.resolve(entry) === self ||',
+        "    entry.endsWith('/check-type-debt.mjs') ||",
+        "    entry.endsWith('\\\\check-type-debt.mjs')",
+        '  );',
+        '}',
+        'if (invokedAsCli()) main();',
+      ].join('\n'),
+      'scripts/check-type-debt.mjs',
+    );
+    expect(widened.coupledLiterals).toEqual([]);
+  });
+
+  it('EntrypointPredicate_UnparseableSource_ThrowsRatherThanReadingAsClean', () => {
+    // Fail CLOSED. A `[]` from a source the parser had to recover from is
+    // indistinguishable from a clean module, which is the exact shape of failure
+    // this check exists to detect.
+    expect(() => classifyEntrypointPredicate('const x = (', 'scripts/broken.ts')).toThrow(
+      /refusing to classify/,
+    );
+  });
+
+  it('GuardInventory_FilenameCoupledEntrypoint_FailsTheProof', () => {
+    const audit = auditSynthetic(
+      inventoryOf(
+        [guard({ artifact: 'scripts/check-a.mjs', enforcement: 'blocks' })],
+        walkedSomething(),
+        [],
+        [{ artifact: 'scripts/check-a.mjs', literals: ['check-a.mjs'] }],
+      ),
+    );
+    expect(audit.ok).toBe(false);
+    expect(audit.violations.join('\n')).toContain('[filename-coupled-entrypoint]');
+    expect(audit.violations.join('\n')).toContain("argv[1].endsWith('check-a.mjs')");
+  });
+
+  it('GuardInventory_FilenameCoupledEntrypointWithAnExpiringExemption_IsExcused', () => {
+    const inventory = inventoryOf(
+      [guard({ artifact: 'scripts/check-a.mjs', enforcement: 'blocks' })],
+      walkedSomething(),
+      [],
+      [{ artifact: 'scripts/check-a.mjs', literals: ['check-a.mjs'] }],
+    );
+    const exemption = {
+      artifact: 'scripts/check-a.mjs',
+      excuses: 'filename-coupled-entrypoint',
+      reason: 'seeded',
+      blockedBy: '#0',
+      expires: '2026-12-31',
+    } as const;
+    const excused = auditSynthetic(inventory, {
+      now: new Date('2026-01-01T00:00:00Z'),
+      exemptions: [exemption],
+    });
+    expect(excused.violations.join('\n')).not.toContain('[filename-coupled-entrypoint]');
+
+    // …and the exemption is a DEBT, not a permanent excuse: once the predicate is
+    // repaired the guard stops exhibiting the finding and the entry must go.
+    const repaired = auditSynthetic(
+      inventoryOf([guard({ artifact: 'scripts/check-a.mjs', enforcement: 'blocks' })]),
+      { now: new Date('2026-01-01T00:00:00Z'), exemptions: [exemption] },
+    );
+    expect(repaired.violations.join('\n')).toContain('[stale-exemption]');
+  });
+
+  it('GuardInventory_EntrypointClassifierThatParsedNothing_FailsClosed', () => {
+    // NON-EMPTY DENOMINATOR. A classifier that examined zero sources reports zero
+    // coupled entrypoints and is indistinguishable from a clean tree.
+    const inventory: GuardInventory = {
+      ...inventoryOf([guard({ artifact: 'scripts/check-a.mjs', enforcement: 'blocks' })]),
+      entrypointPredicatesScanned: 0,
+    };
+    const audit = auditSynthetic(inventory);
+    expect(audit.ok).toBe(false);
+    expect(audit.violations.join('\n')).toContain('[empty-entrypoint-scan]');
+  });
+
+  it('GuardInventory_LiveEntrypointPredicates_AreCoupledOnlyWhereWaived', () => {
+    // THE LIVE ASSERTION, and the one that reddens if any of task 074's three
+    // repairs is reverted. It is stated as an EQUALITY rather than a bound so it
+    // bites in both directions: a new coupled entrypoint fails, and a waiver left
+    // standing after its guard is repaired fails as `[stale-exemption]` above.
+    expect(liveInventory.entrypointPredicatesScanned).toBeGreaterThan(0);
+    const waived = new Set(
+      GUARD_EXEMPTIONS.filter((e) => e.excuses === 'filename-coupled-entrypoint').map(
+        (e) => e.artifact,
+      ),
+    );
+    const coupled = new Set(liveInventory.filenameCoupledEntrypoints.map((e) => e.artifact));
+    expect([...coupled].sort()).toEqual([...waived].sort());
+    // The three sites task 074 repaired are named explicitly: an equality against
+    // an empty set on both sides would also pass, and would prove nothing about
+    // the guards this task actually touched.
+    for (const artifact of [
+      'servers/exarchos-mcp/scripts/cli-derivation-guard.ts',
+      'servers/exarchos-mcp/scripts/cli-vocab-guard.ts',
+      'servers/exarchos-mcp/scripts/generate-docs.ts',
+      'servers/exarchos-mcp/scripts/output-schema-ratchet-guard.ts',
+    ]) {
+      expect(liveInventory.guards.some((g) => g.artifact === artifact), `${artifact} left the inventory`).toBe(true);
+      expect(coupled.has(artifact), `${artifact} is filename-coupled`).toBe(false);
+    }
   });
 });
 

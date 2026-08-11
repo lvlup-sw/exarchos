@@ -823,11 +823,19 @@ describe('authority census — the live topology', () => {
     expect(report.openBoundaries).toHaveLength(8);
 
     // Denominators, reported and non-trivial (DR-30: "the denominator is
-    // reported and ratcheted").
-    expect(report.rowCount).toBe(8);
-    expect(report.evaluatedRows).toBe(8);
-    expect(report.representationCount).toBe(24);
-    expect(report.bindingSubjectCount).toBe(15);
+    // reported and ratcheted"), derived against the same independent
+    // population `runAuthorityCensus()` itself evaluates — `topologyRows()`
+    // and `bindingSubjects()` — rather than transcribed integers sitting
+    // beside the count they duplicate (DR-8).
+    const rows = topologyRows();
+    expect(report.rowCount).toBe(rows.length);
+    expect(report.evaluatedRows).toBe(rows.length);
+    expect(report.representationCount).toBe(
+      rows.reduce((sum, row) => sum + row.representations.length, 0),
+    );
+    expect(report.bindingSubjectCount).toBe(
+      rows.reduce((sum, row) => sum + bindingSubjects(row).length, 0),
+    );
     expect(report.totality.ok).toBe(true);
   });
 

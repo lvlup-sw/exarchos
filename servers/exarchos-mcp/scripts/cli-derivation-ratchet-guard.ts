@@ -75,12 +75,21 @@ import {
   formatCliExpiryAudit,
   formatCliMembershipAudit,
   formatCliSeedIntegrityAudit,
-  isoDayUtc,
   readPolicy,
   scanGovernedSources,
   type CliDerivationPolicy,
   type DerivationScan,
 } from './cli-derivation-guard.js';
+// DR-6: the clock read below is the ledger's day rule, not a third statement of
+// it. `waiver-ledger.ts` imports NOTHING, so taking it here costs this guard
+// none of the load-bearing property that made task 023 decline to extract in the
+// first place — it still reaches no `bun:sqlite` and still runs under plain
+// node. That property is asserted, not assumed; see the co-located self-test.
+import { realpathSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { isoDayUtc } from '../src/architecture/waiver-ledger.js';
 import {
   CLI_DERIVATION_EXPIRY_HORIZON,
   CLI_DERIVATION_SEED_KEY_SET_DIGEST,
@@ -171,11 +180,27 @@ export function runRatchetGuard(options: RatchetGuardOptions = {}): number {
   return 1;
 }
 
+/**
+ * A canonical absolute path for comparison: symlinks resolved where possible,
+ * falling back to plain resolution for a path that does not exist on disk (so
+ * an exotic `argv[1]` degrades to "not the entrypoint" rather than throwing).
+ */
+function canonicalPath(candidate: string): string {
+  const absolute = resolve(candidate);
+  try {
+    return realpathSync(absolute);
+  } catch {
+    return absolute;
+  }
+}
+
+// Identity, not spelling. The filename test this replaced went silently green
+// under any other name — task 074's detector found this guard after the spec's
+// hand-enumeration had named three sites and stopped.
 const isDirectRun =
   typeof process !== 'undefined' &&
   typeof process.argv[1] === 'string' &&
-  (process.argv[1].endsWith('cli-derivation-ratchet-guard.ts') ||
-    process.argv[1].endsWith('cli-derivation-ratchet-guard.js'));
+  canonicalPath(process.argv[1]) === canonicalPath(fileURLToPath(import.meta.url));
 
 if (isDirectRun) {
   process.exit(runRatchetGuard());
