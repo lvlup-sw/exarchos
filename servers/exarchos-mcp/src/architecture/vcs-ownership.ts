@@ -23,6 +23,17 @@ import { join, relative } from 'node:path';
  *                         mutation site (phantom cover), so the allowlist can
  *                         never rot into a rubber stamp.
  *
+ * ── Scan root (DR-8, task 079) ──────────────────────────────────────────────
+ * The census governs {@link GOVERNED_SOURCE_ROOT} — the MCP package's shipped
+ * source, NOT the repository. This header used to say "the shipped source" while
+ * every live caller passed `servers/exarchos-mcp/src`, which is a
+ * repository-wide claim measured over one subtree. The root is now a declared
+ * constant the live audit derives its argument from, and the complement is
+ * measured rather than assumed: `vcs-ownership.test.ts` scans every OTHER
+ * first-party tree in the repository for the same mutation primitives, so the
+ * repo-wide property this module is cited for is proven across the union of
+ * (governed subtree) + (complement), instead of being asserted about a subtree.
+ *
  * ── Scope (DR-12) ───────────────────────────────────────────────────────────
  * The detector targets the git argument-vector mutation primitives that are
  * identifiable from source text with ZERO false positives on the live tree:
@@ -58,6 +69,13 @@ export interface VcsMutationSite {
   readonly evidence: string;
 }
 
+/** A completed walk: the sites it found, and the population it found them in. */
+export interface VcsMutationScan {
+  readonly sites: readonly VcsMutationSite[];
+  /** Modules the walk visited — the denominator the site list is read against. */
+  readonly moduleCount: number;
+}
+
 export type VcsOwnershipDiagnostic =
   | {
       readonly code: 'DIRECT_VCS_BYPASS';
@@ -70,11 +88,24 @@ export type VcsOwnershipDiagnostic =
       readonly code: 'STALE_VCS_OWNER';
       readonly module: string;
       readonly message: string;
+    }
+  | {
+      readonly code: 'EMPTY_MODULE_POPULATION';
+      readonly moduleCount: number;
+      readonly message: string;
     };
 
 export interface VcsOwnershipResult {
   readonly ok: boolean;
   readonly siteCount: number;
+  /**
+   * How many modules the walk actually visited (DR-8, task 079).
+   *
+   * Reported so a reader can tell "no bypass exists" from "nothing was
+   * examined". `undefined` for a verdict computed over a caller-supplied site
+   * list, where there is no walk to count.
+   */
+  readonly moduleCount?: number;
   readonly diagnostics: readonly VcsOwnershipDiagnostic[];
 }
 
@@ -145,6 +176,16 @@ export const VCS_MUTATION_OWNERS: readonly string[] = Object.freeze([
 ]);
 
 // ─── Detection ──────────────────────────────────────────────────────────────
+
+/**
+ * The tree this census governs, repo-relative.
+ *
+ * Exported so the scan root is a DECLARED fact with one owner rather than a
+ * string each caller reconstructs. {@link VCS_MUTATION_OWNERS}'s entries are
+ * relative to it, so the root and the allowlist are the same coordinate system —
+ * which is precisely why a silent root change would strand every owner rule.
+ */
+export const GOVERNED_SOURCE_ROOT = 'servers/exarchos-mcp/src';
 
 /** Directories that are not shipped source (test/bench/eval harnesses). */
 export const EXCLUDED_DIRS: ReadonlySet<string> = new Set([
@@ -403,10 +444,17 @@ async function collectScannableFiles(root: string): Promise<string[]> {
   return files.sort();
 }
 
-/** Scan the shipped source under `sourceRoot` and enumerate every mutation site. */
-export async function scanVcsMutationSites(
-  sourceRoot: string,
-): Promise<readonly VcsMutationSite[]> {
+/**
+ * Scan the shipped source under `sourceRoot` and enumerate every mutation site
+ * ALONGSIDE the denominator that says whether the site set means anything: how
+ * many modules the walk actually visited.
+ *
+ * The count is collected here because this is the only place that sees the
+ * population. Downstream, an empty site list is indistinguishable from a walk
+ * that reached nothing — and both read as "no module bypasses the owner", which
+ * is a pass (DR-8, task 079).
+ */
+export async function scanVcsTree(sourceRoot: string): Promise<VcsMutationScan> {
   const files = await collectScannableFiles(sourceRoot);
   const perFile = await Promise.all(
     files.map(async (file) => {
@@ -414,17 +462,27 @@ export async function scanVcsMutationSites(
       return detectVcsMutationSites(module, await readFile(file, 'utf8'));
     }),
   );
-  return Object.freeze(
-    perFile.flat().sort((a, b) =>
-      a.module === b.module
-        ? a.mutation < b.mutation
-          ? -1
-          : 1
-        : a.module < b.module
-          ? -1
-          : 1,
+  return Object.freeze({
+    sites: Object.freeze(
+      perFile.flat().sort((a, b) =>
+        a.module === b.module
+          ? a.mutation < b.mutation
+            ? -1
+            : 1
+          : a.module < b.module
+            ? -1
+            : 1,
+      ),
     ),
-  );
+    moduleCount: files.length,
+  });
+}
+
+/** Scan the shipped source under `sourceRoot` and enumerate every mutation site. */
+export async function scanVcsMutationSites(
+  sourceRoot: string,
+): Promise<readonly VcsMutationSite[]> {
+  return (await scanVcsTree(sourceRoot)).sites;
 }
 
 // ─── Census ─────────────────────────────────────────────────────────────────
@@ -478,11 +536,41 @@ export function runVcsOwnershipCensus(
   });
 }
 
-/** Collect the live mutation sites and return the census verdict over the real tree. */
+/**
+ * Collect the live mutation sites and return the census verdict over the real
+ * tree, with the walk's own denominator folded in.
+ *
+ * NON-EMPTY DENOMINATOR (DR-8, task 079): a walk that visited no module is a
+ * broken scan — a relocated root, a widened exclusion, a dead walker — and the
+ * verdict it produces ("no site bypasses the owner") is the same verdict a clean
+ * tree produces. The `STALE_VCS_OWNER` half of the ratchet catches this today
+ * only *incidentally*, and only while {@link VCS_MUTATION_OWNERS} is non-empty;
+ * an explicit `EMPTY_MODULE_POPULATION` says what actually went wrong.
+ */
 export async function auditVcsOwnership(
   sourceRoot: string,
   owners: readonly string[] = VCS_MUTATION_OWNERS,
 ): Promise<VcsOwnershipResult> {
-  const sites = await scanVcsMutationSites(sourceRoot);
-  return runVcsOwnershipCensus(sites, owners);
+  const scan = await scanVcsTree(sourceRoot);
+  const verdict = runVcsOwnershipCensus(scan.sites, owners);
+  if (scan.moduleCount > 0) {
+    return Object.freeze({ ...verdict, moduleCount: scan.moduleCount });
+  }
+  return Object.freeze({
+    ok: false,
+    siteCount: verdict.siteCount,
+    moduleCount: 0,
+    diagnostics: Object.freeze([
+      {
+        code: 'EMPTY_MODULE_POPULATION',
+        moduleCount: 0,
+        message:
+          `The VCS-ownership walk visited ZERO modules under "${sourceRoot}". A census ` +
+          'over an empty population reports no bypass for the same reason a clean tree ' +
+          'does, so this fails closed. The scan root moved, an exclusion widened, or the ' +
+          `tree is not where ${GOVERNED_SOURCE_ROOT} says it is.`,
+      } as const,
+      ...verdict.diagnostics,
+    ]),
+  });
 }

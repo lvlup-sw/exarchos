@@ -1,7 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 import {
+  DEFAULT_SRC_ROOT as SHIPPED_SRC_ROOT,
+  parseEmitBoundary,
+  resolveEmitBoundary,
   deriveCliSurface,
   serializeCliSurface,
   serializedCliSurfaceBaseline,
@@ -90,6 +96,156 @@ describe('Dispatch-seam containment census', () => {
   it('LiveTree_PassesTheSeamCensus', async () => {
     const sites = await scanDispatchSites();
     expect(runDispatchSeamCensus(sites)).toEqual([]);
+  });
+
+  // ─── Scan-boundary kill fixtures (task 081, DR-8) ───────────────────────
+  //
+  // The boundary used to be six directory NAMES. Three of them — `evals`,
+  // `benchmarks`, `test-helpers` — are inside `tsconfig.json`'s `include` and
+  // outside its `exclude`, so the build compiles them into `dist/`: 51 emitted
+  // modules were skipped on the strength of their folder names, and a direct
+  // dispatch path in any of them was invisible to the census that claims none
+  // exists. Each case below plants exactly that and requires it to be seen.
+  describe('scan boundary derives from the emit, not from folder names', () => {
+    const BYPASS = "import { dispatch } from '../core/dispatch.js';\nexport const go = dispatch;\n";
+
+    const scanTree = async (
+      layout: Readonly<Record<string, string>>,
+      tsconfig?: string,
+    ): Promise<readonly string[]> => {
+      const pkg = await mkdtemp(path.join(tmpdir(), 'exarchos-seam-boundary-'));
+      try {
+        if (tsconfig !== undefined) {
+          await writeFile(path.join(pkg, 'tsconfig.json'), tsconfig, 'utf8');
+        }
+        for (const [rel, contents] of Object.entries(layout)) {
+          const abs = path.join(pkg, 'src', rel);
+          await mkdir(path.dirname(abs), { recursive: true });
+          await writeFile(abs, contents, 'utf8');
+        }
+        const sites = await scanDispatchSites(path.join(pkg, 'src'));
+        return sites.map((s) => s.module);
+      } finally {
+        await rm(pkg, { recursive: true, force: true });
+      }
+    };
+
+    const LIVE_TSCONFIG = readFileSync(
+      path.join(SHIPPED_SRC_ROOT, '..', 'tsconfig.json'),
+      'utf8',
+    );
+
+    it.each(['evals', 'benchmarks', 'test-helpers', '__fixtures__', '__mocks__'])(
+      'ScanBoundary_EmittedDirectory_%s_IsInTheCensus',
+      async (dir) => {
+        const modules = await scanTree({ [`${dir}/bypass.ts`]: BYPASS }, LIVE_TSCONFIG);
+        expect(modules).toEqual([`${dir}/bypass.ts`]);
+      },
+    );
+
+    it('ScanBoundary_BuildExcludedDirectory_IsNotInTheCensus', async () => {
+      // The other direction, from the SAME authority: `__tests__` is the one
+      // former list member `tsconfig.json` actually excludes, so it must stay
+      // out — the repair widens the subject, it does not abolish the boundary.
+      const modules = await scanTree({ '__tests__/harness.ts': BYPASS }, LIVE_TSCONFIG);
+      expect(modules).toEqual([]);
+    });
+
+    it('ScanBoundary_BuildExcludedSuffixesAndPathPrefixes_AreNotInTheCensus', async () => {
+      const modules = await scanTree(
+        {
+          'a.test.ts': BYPASS,
+          'b.bench.ts': BYPASS,
+          'c.d.ts': BYPASS,
+          'evals/benchmarks/seeded-defects/fixtures/planted.ts': BYPASS,
+          'node_modules/dep/index.ts': BYPASS,
+          'dist/emitted.ts': BYPASS,
+        },
+        LIVE_TSCONFIG,
+      );
+      expect(modules).toEqual([]);
+    });
+
+    it('ScanBoundary_ExclusionsComeFromTheTsconfigNotAConstant', () => {
+      // The derivation is the point. Change what the build excludes and the
+      // census's subject changes with it — a name list could not do this.
+      const derived = parseEmitBoundary(['**/generated/**', '**/*.gen.ts', 'src/vendor/**']);
+      expect(derived.directories.has('generated')).toBe(true);
+      expect(derived.suffixes).toContain('.gen.ts');
+      expect(derived.pathPrefixes).toContain('src/vendor');
+      // And the three names that shipped as exclusions are NOT in the live one.
+      const live = resolveEmitBoundary(SHIPPED_SRC_ROOT);
+      for (const emitted of ['evals', 'benchmarks', 'test-helpers']) {
+        expect(live.directories.has(emitted), `${emitted} is emitted to dist/`).toBe(false);
+      }
+      expect(live.directories.has('__tests__')).toBe(true);
+    });
+
+    it('ScanBoundary_NoTsconfig_WidensRatherThanGuesses', async () => {
+      // A synthetic root has no build to ask. Over-scanning is the safe
+      // direction, so everything but node_modules/dist/dot-dirs is in scope.
+      const modules = await scanTree({
+        'evals/bypass.ts': BYPASS,
+        '__tests__/bypass.ts': BYPASS,
+        'node_modules/dep/index.ts': BYPASS,
+      });
+      expect(modules).toEqual(['__tests__/bypass.ts', 'evals/bypass.ts']);
+    });
+
+    it('ScanBoundary_UnparseableTsconfig_FailsLoud', async () => {
+      const pkg = await mkdtemp(path.join(tmpdir(), 'exarchos-seam-badconfig-'));
+      try {
+        await mkdir(path.join(pkg, 'src'), { recursive: true });
+        await writeFile(path.join(pkg, 'tsconfig.json'), '{"include":["src"]}', 'utf8');
+        expect(() => resolveEmitBoundary(path.join(pkg, 'src'))).toThrow(
+          /declares no `exclude` array/,
+        );
+      } finally {
+        await rm(pkg, { recursive: true, force: true });
+      }
+    });
+
+    it('ScanBoundary_JsoncCommentForms_AreParsedNotChokedOn', async () => {
+      // tsconfig files are JSONC. Only whole-line `//` was stripped, so a
+      // trailing comment or any `/* … */` reached JSON.parse and came back as a
+      // bare SyntaxError naming no file — from the helper whose whole job is
+      // reading this config.
+      const forms = [
+        '{\n  // leading\n  "exclude": ["**/*.test.ts"] // trailing\n}',
+        '{\n  /* block */\n  "exclude": ["**/*.test.ts"]\n}',
+        '{ "exclude": ["**/*.test.ts"] /* inline */ }',
+      ];
+      for (const contents of forms) {
+        const pkg = await mkdtemp(path.join(tmpdir(), 'exarchos-seam-jsonc-'));
+        try {
+          await mkdir(path.join(pkg, 'src'), { recursive: true });
+          await writeFile(path.join(pkg, 'tsconfig.json'), contents, 'utf8');
+          expect(() => resolveEmitBoundary(path.join(pkg, 'src'))).not.toThrow();
+        } finally {
+          await rm(pkg, { recursive: true, force: true });
+        }
+      }
+    });
+
+    it('ScanBoundary_MalformedJson_NamesTheConfigAndKeepsTheCause', async () => {
+      const pkg = await mkdtemp(path.join(tmpdir(), 'exarchos-seam-malformed-'));
+      try {
+        await mkdir(path.join(pkg, 'src'), { recursive: true });
+        await writeFile(path.join(pkg, 'tsconfig.json'), '{ "exclude": [ ', 'utf8');
+        let thrown: unknown;
+        try {
+          resolveEmitBoundary(path.join(pkg, 'src'));
+        } catch (error) {
+          thrown = error;
+        }
+        // The path is in the message and the parser's own error is retained,
+        // so the failure says WHICH config and WHY.
+        expect(String((thrown as Error).message)).toContain('tsconfig.json');
+        expect((thrown as { cause?: unknown }).cause).toBeInstanceOf(Error);
+      } finally {
+        await rm(pkg, { recursive: true, force: true });
+      }
+    });
   });
 
   it('ImportDetector_DiscriminatesValueFromTypeAndProse', () => {

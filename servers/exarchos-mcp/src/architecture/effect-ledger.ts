@@ -30,12 +30,21 @@ import { join, relative } from 'node:path';
  * `install` are named (see {@link EFFECT_OWNERSHIP}).
  *
  * ── Scope ───────────────────────────────────────────────────────────────────
- * "Shipped source" excludes test, fixture, benchmark and evaluation harnesses
- * (see {@link EXCLUDED_DIRS} / {@link isScannableFile}); those are not shipped
- * and carry their own effect surface. Filesystem persistence is pervasive, so
- * its ownership is declared at layer granularity; process and network are
- * declared at the crisp module/owner granularity their "one typed owner" mandate
- * warrants.
+ * The census governs {@link GOVERNED_SOURCE_ROOT} — the MCP package's shipped
+ * source, and NOT the repository. That distinction used to live only in the
+ * caller: this header said "the shipped source" while every live caller passed
+ * `servers/exarchos-mcp/src`, so the module claimed a repository-wide property
+ * it never measured (DR-8, task 079). The root is now a declared constant the
+ * live audit derives its argument FROM, so the claim and the walk cannot drift
+ * apart again — and {@link EFFECT_OWNERSHIP}'s rule paths are relative to it,
+ * which is what makes the boundary load-bearing rather than incidental.
+ *
+ * Within that root, "shipped source" excludes test, fixture, benchmark and
+ * evaluation harnesses (see {@link EXCLUDED_DIRS} / {@link isScannableFile});
+ * those are not shipped and carry their own effect surface. Filesystem
+ * persistence is pervasive, so its ownership is declared at layer granularity;
+ * process and network are declared at the crisp module/owner granularity their
+ * "one typed owner" mandate warrants.
  *
  * ── DR-13: effect detection is not evadable by import shape ─────────────────
  * The pre-DR-13 detector keyed off an exact specifier list
@@ -244,6 +253,20 @@ export interface EffectScan {
 }
 
 // ─── Detection ──────────────────────────────────────────────────────────────
+
+/**
+ * The tree this census governs, repo-relative.
+ *
+ * Exported so the scan root is a DECLARED fact with one owner rather than a
+ * string each caller reconstructs — the live audit resolves its `sourceRoot`
+ * from this constant, so "what the module claims" and "what the walk covers"
+ * are the same authority (DR-8).
+ *
+ * Widening it is a real project, not a parameter change: {@link
+ * EFFECT_OWNERSHIP}'s `match` prefixes are relative to this root, so a
+ * repository-wide walk renames every module and strands every rule.
+ */
+export const GOVERNED_SOURCE_ROOT = 'servers/exarchos-mcp/src';
 
 /** Directories whose contents are not shipped source (test/bench/eval harnesses). */
 export const EXCLUDED_DIRS: ReadonlySet<string> = new Set([
@@ -704,10 +727,11 @@ async function collectScannableFiles(root: string): Promise<string[]> {
 }
 
 /**
- * Scan the shipped source under `sourceRoot` and return every effect occurrence
- * ALONGSIDE the two denominators that say whether the occurrence set means
- * anything: how many modules the walk visited, and how many module specifiers
- * `lex` resolved across all of them.
+ * Scan the shipped source under `sourceRoot` — {@link GOVERNED_SOURCE_ROOT} on
+ * the live path — and return every effect occurrence ALONGSIDE the two
+ * denominators that say whether the occurrence set means anything: how many
+ * modules the walk visited, and how many module specifiers `lex` resolved
+ * across all of them.
  *
  * The counts are collected here rather than derived later because this is the
  * only place that sees the population. Downstream, an empty occurrence array is

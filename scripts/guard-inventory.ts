@@ -31,8 +31,8 @@
 // stated explicitly rather than left to inference:
 //
 //   DERIVED (no hand-maintenance anywhere in the chain)
-//     - The guard POPULATION, from three independent channels (see below). A
-//       guard has to hide from all three to escape.
+//     - The guard POPULATION, from four independent channels (see below). A
+//       guard has to hide from all four to escape.
 //     - Every VERDICT: hosting job, path-filter keys, blocking-vs-observing,
 //       and production reachability. All parsed out of `.github/workflows/*.yml`,
 //       the two `package.json` script tables, the two `vitest.config.ts` include
@@ -44,6 +44,9 @@
 //       ISO expiry. An expired entry FAILS. An entry whose guard turns out to be
 //       reachable FAILS (a stale exemption is a wiring lie). An entry naming a
 //       guard outside the inventory FAILS.
+//     - {@link SPEC_ARTIFACT_WAIVERS}: the record of a Wave-1 `**Files:**` entry
+//       that never landed under the name the spec gave it. Same four teeth, same
+//       expiry discipline — see {@link GuardInventory.unresolvedSpecArtifacts}.
 //
 //   NOT DERIVABLE AT ALL — stated so it cannot be mistaken for coverage
 //     - A guard's SCAN SURFACE (the files it reads). `docs/guides/ci-gate-hosting.md`'s
@@ -60,7 +63,7 @@
 //       exit code is not swallowed".
 //
 // ─────────────────────────────────────────────────────────────────────────────
-// THE THREE DISCOVERY CHANNELS
+// THE FOUR DISCOVERY CHANNELS
 //
 //   1. ENFORCER-MANIFEST PRIMARIES. Every non-`retired` entry in
 //      `scripts/enforcer-wiring-manifest.json`. This channel guarantees the
@@ -77,15 +80,37 @@
 //      placeholders that trail the Wave-1 block with no intervening header) are
 //      excluded by their own heading tag — never by a task-number range.
 //
-//   3. RUNNABLE GATES UNDER `servers/exarchos-mcp/scripts/`. A module is a guard
-//      executable iff it has a STATEMENT-LEVEL `process.exit(…)` entrypoint (a
-//      real parse, not a name match or a text scan) AND a co-located self-test.
-//      The self-test half is DR-24's own definition of a guard — "each guard's
-//      self-test runs in the same CI job as the guard" — so it is the criterion
-//      this program already committed to, not one invented here. A runnable
-//      module with no co-located self-test is REPORTED
-//      ({@link GuardInventory.runnableWithoutSelfTest}) rather than silently
-//      dropped, so the exclusion stays reviewable.
+//   3. GATES UNDER `servers/exarchos-mcp/scripts/`. A module is a guard iff it
+//      has a SELF-TEST ({@link selfTestCandidates}). That is DR-24's own
+//      definition of a guard — "each guard's self-test runs in the same CI job
+//      as the guard" — so it is the criterion this program already committed to,
+//      not one invented here. A module with NO self-test is reported rather than
+//      silently dropped: with a statement-level `process.exit(…)` entrypoint (a
+//      real parse, never a name match) it lands in
+//      {@link GuardInventory.runnableWithoutSelfTest}; without one it has no
+//      executable verdict at all and lands in
+//      {@link GuardInventory.compileTimeOnlyArtifacts}.
+//
+//   4. CENSUS / SEAM MODULES UNDER `servers/exarchos-mcp/src/architecture/`.
+//      Same self-test criterion, applied to the directory that exists to hold
+//      architectural guards. These are LIBRARY guards: they carry no entrypoint,
+//      so their co-located vitest IS the enforcement path (see
+//      {@link isEnforcingHost}) — which is exactly why they are invisible to
+//      channels 1 and 3, and why only the ones a Wave-1 task happened to NAME
+//      were reachable through channel 2. `adapter-ownership-seam.ts`,
+//      `effect-port-seam.ts`, `audit-delivery-closure.ts`, `delivery-safety.ts`
+//      and `import-cycles.ts` were absent from the inventory entirely, so
+//      `Wave1Exit_NoGuardIsUnreachable` — asserted over the FULL inventory
+//      precisely so a wave cannot wire its headline guards while leaving others
+//      dark — did not range over them (DR-9).
+//
+//      The membership rule is STRUCTURAL, not a `*-census|*-seam` filename
+//      match: three of those five carry neither suffix, and this program has
+//      twice been bitten by an instrument that measured a name. It errs toward
+//      INCLUSION — a support module in this directory earns a row it does not
+//      need, which costs a table line; a guard missing a row is the failure DR-9
+//      names. Modules here with no self-test are reported in
+//      {@link GuardInventory.architectureModulesWithoutSelfTest}.
 //
 // The union is deduplicated by repo-relative path.
 //
@@ -149,7 +174,7 @@
 // enforcement substrate, not to Wave 1, so closing them is out of this task's
 // scope — but the hole is real and is recorded here so it is not rediscovered.
 //
-// Implements: DR-24.
+// Implements: DR-24, DR-9.
 
 import { readdirSync, readFileSync, existsSync, statSync, type Dirent } from 'node:fs';
 import { dirname, join, resolve, posix } from 'node:path';
@@ -167,6 +192,8 @@ export const SPEC_PATH = 'docs/specs/2026-08-06-internal-mechanics-overhaul.md';
 export const MANIFEST_PATH = 'scripts/enforcer-wiring-manifest.json';
 /** Channel 3's scan root. */
 export const MCP_SCRIPTS_DIR = 'servers/exarchos-mcp/scripts';
+/** Channel 4's scan root — the directory that exists to hold architectural guards. */
+export const MCP_ARCHITECTURE_DIR = 'servers/exarchos-mcp/src/architecture';
 /** The aggregator that decides which `ci.yml` job can fail a PR. */
 export const AGGREGATOR_JOB = 'ci-gate';
 /** The workflow that hosts the aggregator. */
@@ -785,7 +812,11 @@ export function resolveShellExecutions(entryScript: string, read: (path: string)
 
 // ─── Guard population ────────────────────────────────────────────────────────
 
-export type GuardChannel = 'enforcer-manifest' | 'wave1-spec' | 'mcp-scripts-gate';
+export type GuardChannel =
+  | 'enforcer-manifest'
+  | 'wave1-spec'
+  | 'mcp-scripts-gate'
+  | 'mcp-architecture-module';
 
 /**
  * How a CI job reaches a guard.
@@ -879,12 +910,19 @@ export interface GuardRecord {
 export interface GuardInventory {
   readonly guards: readonly GuardRecord[];
   /**
-   * Runnable modules under {@link MCP_SCRIPTS_DIR} with NO co-located self-test.
+   * Runnable modules under {@link MCP_SCRIPTS_DIR} with NO self-test.
    * Excluded from the guard population by DR-24's own definition ("each guard's
    * self-test runs in the same CI job as the guard"), and listed so that
    * exclusion is reviewable rather than silent.
    */
   readonly runnableWithoutSelfTest: readonly string[];
+  /**
+   * Modules under {@link MCP_ARCHITECTURE_DIR} with no self-test — the channel-4
+   * analogue of {@link runnableWithoutSelfTest}. A census that LOSES its
+   * co-located test lands here rather than disappearing from the denominator,
+   * which is the drop DR-9 exists to make visible.
+   */
+  readonly architectureModulesWithoutSelfTest: readonly string[];
   /**
    * Wave-1 source artifacts with no co-located self-test and no runnable
    * entrypoint — modules whose enforcement rung is COMPILE TIME (`tsc --noEmit`
@@ -897,8 +935,18 @@ export interface GuardInventory {
   readonly compileTimeOnlyArtifacts: readonly string[];
   /**
    * Path-shaped `**Files:**` entries of Wave-1 tasks that do not resolve on disk.
-   * A drift signal (renamed or not-yet-landed), reported not failed — Wave-1
-   * tasks legitimately name files their own task has not landed yet.
+   *
+   * Wave 1 is CLOSED, so "the task has not landed yet" is no longer available as
+   * an explanation: an entry here is an artifact the spec PROMISED and the tree
+   * does not have. {@link auditGuardInventory} raises `[unresolved-spec-artifact]`
+   * for each one that is not covered by an expiring {@link SPEC_ARTIFACT_WAIVERS}
+   * entry — previously this list was computed and then never judged, so a task
+   * whose declared artifact never landed passed the DR-24 proof unremarked.
+   *
+   * A bare basename (`report-coupling-census.ts` — spec shorthand for a path
+   * given in full elsewhere) is resolved against the source roots when exactly
+   * one file carries that name, so shorthand is not reported as drift. Two
+   * matches, or none, stay here.
    */
   readonly unresolvedSpecArtifacts: readonly string[];
   /**
@@ -1006,6 +1054,60 @@ export function isTestArtifact(path: string): boolean {
   return /\.(test|type-test|bench|smoke\.test)\.[cm]?[jt]sx?$/.test(path) || /(^|\/)__tests__\//.test(path);
 }
 
+/**
+ * Every file under the source roots, keyed by BASENAME.
+ *
+ * Exists for one shape the spec actually uses: a `**Files:**` line that gives a
+ * path in full and then names a sibling by basename alone (task 077 writes
+ * ``…/output-schema-census.ts`, `report-coupling-census.ts``). Without this the
+ * shorthand reads as a promised artifact that never landed, which would put a
+ * permanent false entry in {@link SPEC_ARTIFACT_WAIVERS} — a register whose
+ * whole value is that every row is a real debt.
+ */
+export function indexSourceBasenames(repoRoot: string = REPO_ROOT): ReadonlyMap<string, readonly string[]> {
+  const byName = new Map<string, string[]>();
+  const walk = (dir: string): void => {
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(join(repoRoot, dir), { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const rel = `${dir}/${entry.name}`;
+      if (entry.isDirectory()) {
+        if (entry.name === 'node_modules' || entry.name === 'dist') continue;
+        walk(rel);
+      } else if (entry.isFile()) {
+        byName.set(entry.name, [...(byName.get(entry.name) ?? []), rel]);
+      }
+    }
+  };
+  for (const root of SOURCE_ROOTS) walk(root);
+  for (const paths of byName.values()) paths.sort();
+  return byName;
+}
+
+/**
+ * Resolve one `**Files:**` entry to a repo-relative path, or `null` when the
+ * artifact the spec promised is not in the tree.
+ *
+ * A path that exists resolves to itself. A BARE BASENAME resolves only when
+ * exactly one file in the source roots carries that name — two candidates is an
+ * ambiguity this resolver must not guess through, and zero is real drift. Both
+ * of those fail toward `null`, i.e. toward reporting.
+ */
+export function resolveSpecArtifact(
+  file: string,
+  exists: (path: string) => boolean,
+  basenames: ReadonlyMap<string, readonly string[]>,
+): string | null {
+  if (exists(file)) return file;
+  if (file.includes('/')) return null;
+  const hits = basenames.get(file) ?? [];
+  return hits.length === 1 ? (hits[0] ?? null) : null;
+}
+
 // ─── Channel 3: runnable gates with a co-located self-test ───────────────────
 
 /**
@@ -1082,21 +1184,112 @@ export function hasDirectRunExit(source: string, fileName: string): boolean {
   return found;
 }
 
-/** Co-located self-test candidates for an artifact, in resolution order. */
-export function selfTestCandidates(artifact: string): string[] {
+/**
+ * `<package>/src/**` test files, keyed `<packageDir>::<basename>` — the input
+ * that lets {@link selfTestCandidates} see a `scripts/` guard whose self-test
+ * was filed under `src/` instead of beside it.
+ *
+ * Built once and passed in, rather than globbed inside the candidate function,
+ * so `selfTestCandidates` stays a pure path computation that a unit test can
+ * exercise without a tree.
+ */
+export interface MirroredSelfTestIndex {
+  readonly byPackageAndName: ReadonlyMap<string, readonly string[]>;
+}
+
+/** The packages whose `scripts/` modules may file a self-test under `src/`. */
+const MIRROR_PACKAGES: readonly string[] = ['', 'servers/exarchos-mcp'];
+
+function mirrorKey(packageDir: string, name: string): string {
+  return `${packageDir}::${name}`;
+}
+
+/** The `<pkg>` of a `<pkg>/scripts/<file>` artifact, or `null` when it is not one. */
+function scriptsPackageOf(artifact: string): string | null {
+  if (artifact.startsWith('scripts/')) return '';
+  const match = /^(.*)\/scripts\/[^/]+$/.exec(artifact);
+  return match?.[1] ?? null;
+}
+
+/**
+ * Index `<pkg>/src/**` self-tests by basename.
+ *
+ * Only DIRECT `.test.*` siblings of a source name are indexed; the key drops the
+ * `.test.<ext>` suffix so `authority-live-proof.test.ts` is found from
+ * `authority-live-proof.ts`.
+ */
+export function indexMirroredSelfTests(repoRoot: string = REPO_ROOT): MirroredSelfTestIndex {
+  const byPackageAndName = new Map<string, string[]>();
+  const walk = (packageDir: string, dir: string): void => {
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(join(repoRoot, dir), { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const rel = `${dir}/${entry.name}`;
+      if (entry.isDirectory()) {
+        if (entry.name === 'node_modules' || entry.name === 'dist') continue;
+        walk(packageDir, rel);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      const stem = /^(.*)\.test\.[cm]?[jt]s$/.exec(entry.name)?.[1];
+      if (stem === undefined) continue;
+      const key = mirrorKey(packageDir, stem);
+      byPackageAndName.set(key, [...(byPackageAndName.get(key) ?? []), rel]);
+    }
+  };
+  for (const packageDir of MIRROR_PACKAGES) {
+    walk(packageDir, packageDir === '' ? 'src' : `${packageDir}/src`);
+  }
+  for (const paths of byPackageAndName.values()) paths.sort();
+  return { byPackageAndName };
+}
+
+/**
+ * Self-test candidates for an artifact, in resolution order.
+ *
+ * Co-located siblings first — the ordinary case. When `mirror` is supplied and
+ * the artifact is a `<pkg>/scripts/` module, the `<pkg>/src/**` file of the same
+ * name is offered too: `servers/exarchos-mcp/scripts/authority-live-proof.ts`
+ * (42 KB of live authority measurement) has its self-test at
+ * `servers/exarchos-mcp/src/architecture/authority-live-proof.test.ts`, and with
+ * only the co-located rule the whole guard read as untested and dropped out of
+ * the inventory.
+ *
+ * An AMBIGUOUS basename (two `src/**` tests of the same name) yields NO mirrored
+ * candidate. Guessing which one is the self-test could make an unexamined module
+ * read as covered; reporting it as untested is the direction that fails toward a
+ * finding.
+ */
+export function selfTestCandidates(artifact: string, mirror?: MirroredSelfTestIndex): string[] {
   const base = artifact.replace(/\.[cm]?[jt]s$/, '').replace(/\.sh$/, '');
-  return [`${base}.test.ts`, `${base}.test.mts`, `${base}.test.mjs`, `${base}.test.sh`];
+  const colocated = [`${base}.test.ts`, `${base}.test.mts`, `${base}.test.mjs`, `${base}.test.sh`];
+  if (mirror === undefined) return colocated;
+  const packageDir = scriptsPackageOf(artifact);
+  if (packageDir === null) return colocated;
+  const name = posix.basename(base);
+  const mirrored = mirror.byPackageAndName.get(mirrorKey(packageDir, name)) ?? [];
+  if (mirrored.length !== 1) return colocated;
+  return colocated.includes(mirrored[0] ?? '') ? colocated : [...colocated, ...mirrored];
 }
 
 export interface McpScriptScan {
+  /** Modules with a self-test — the channel-3 guard population. */
   readonly gatesWithSelfTest: readonly string[];
+  /** Runnable modules with no self-test: an executable verdict nothing re-asserts. */
   readonly runnableWithoutSelfTest: readonly string[];
+  /** Non-runnable modules with no self-test: no executable verdict to reach at all. */
+  readonly compileTimeOnly: readonly string[];
 }
 
-export function scanMcpScriptGates(repoRoot: string = REPO_ROOT): McpScriptScan {
+export function scanMcpScriptGates(repoRoot: string = REPO_ROOT, mirror?: MirroredSelfTestIndex): McpScriptScan {
   const dir = join(repoRoot, MCP_SCRIPTS_DIR);
   const gatesWithSelfTest: string[] = [];
   const runnableWithoutSelfTest: string[] = [];
+  const compileTimeOnly: string[] = [];
   let entries: Dirent[];
   try {
     entries = readdirSync(dir, { withFileTypes: true });
@@ -1110,15 +1303,61 @@ export function scanMcpScriptGates(repoRoot: string = REPO_ROOT): McpScriptScan 
     if (!/\.[cm]?[jt]s$/.test(entry.name)) continue;
     const rel = `${MCP_SCRIPTS_DIR}/${entry.name}`;
     if (isTestArtifact(rel)) continue;
+    if (selfTestCandidates(rel, mirror).some((c) => existsSync(join(repoRoot, c)))) {
+      gatesWithSelfTest.push(rel);
+      continue;
+    }
     const source = readFileSync(join(dir, entry.name), 'utf8');
-    if (!hasDirectRunExit(source, rel)) continue;
-    const hasSelfTest = selfTestCandidates(rel).some((c) => existsSync(join(repoRoot, c)));
-    if (hasSelfTest) gatesWithSelfTest.push(rel);
-    else runnableWithoutSelfTest.push(rel);
+    if (hasDirectRunExit(source, rel)) runnableWithoutSelfTest.push(rel);
+    else compileTimeOnly.push(rel);
   }
   return {
     gatesWithSelfTest: gatesWithSelfTest.sort(),
     runnableWithoutSelfTest: runnableWithoutSelfTest.sort(),
+    compileTimeOnly: compileTimeOnly.sort(),
+  };
+}
+
+// ─── Channel 4: architecture census / seam modules ───────────────────────────
+
+export interface ArchitectureScan {
+  /** Modules with a co-located self-test — the channel-4 guard population. */
+  readonly modulesWithSelfTest: readonly string[];
+  /** Modules with none, reported so the exclusion stays reviewable. */
+  readonly modulesWithoutSelfTest: readonly string[];
+}
+
+/**
+ * Channel 4 — every non-test module directly under {@link MCP_ARCHITECTURE_DIR}.
+ *
+ * TOP-LEVEL only: `__tests__/` and `__fixtures__/` under it hold subjects of the
+ * guards, not guards. Fails closed on an unreadable root for the same reason as
+ * {@link scanMcpScriptGates} — an empty channel reads as "no guards here".
+ */
+export function scanArchitectureModules(repoRoot: string = REPO_ROOT): ArchitectureScan {
+  const dir = join(repoRoot, MCP_ARCHITECTURE_DIR);
+  const modulesWithSelfTest: string[] = [];
+  const modulesWithoutSelfTest: string[] = [];
+  let entries: Dirent[];
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch (err) {
+    throw new Error(
+      `${MCP_ARCHITECTURE_DIR}: cannot enumerate (${err instanceof Error ? err.message : String(err)})`,
+    );
+  }
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    if (!/\.[cm]?ts$/.test(entry.name) || /\.d\.ts$/.test(entry.name)) continue;
+    const rel = `${MCP_ARCHITECTURE_DIR}/${entry.name}`;
+    if (isTestArtifact(rel)) continue;
+    const hasSelfTest = selfTestCandidates(rel).some((c) => existsSync(join(repoRoot, c)));
+    if (hasSelfTest) modulesWithSelfTest.push(rel);
+    else modulesWithoutSelfTest.push(rel);
+  }
+  return {
+    modulesWithSelfTest: modulesWithSelfTest.sort(),
+    modulesWithoutSelfTest: modulesWithoutSelfTest.sort(),
   };
 }
 
@@ -1330,6 +1569,11 @@ export interface ResolutionContext {
   readonly readScript?: (path: string) => string | null;
   /** Precomputed wrapper-script reach, per run-step. See {@link indexShellIndirection}. */
   readonly shellIndex?: ShellIndirectionIndex;
+  /**
+   * `<pkg>/src/**` self-tests, so a `scripts/` guard whose test was filed under
+   * `src/` still resolves one. Absent means co-located siblings only.
+   */
+  readonly mirroredSelfTests?: MirroredSelfTestIndex;
 }
 
 /**
@@ -1494,7 +1738,7 @@ export function indexShellIndirection(ctx: ResolutionContext): ShellIndirectionI
 /** Resolve every CI host of one guard artifact. */
 export function resolveHosts(artifact: string, ctx: ResolutionContext): GuardHost[] {
   const hosts: GuardHost[] = [];
-  const selfTests = selfTestCandidates(artifact).filter((c) => ctx.exists(c));
+  const selfTests = selfTestCandidates(artifact, ctx.mirroredSelfTests).filter((c) => ctx.exists(c));
 
   for (const { path: workflowPath, doc } of ctx.workflows) {
     const isCi = workflowPath === CI_WORKFLOW;
@@ -1820,6 +2064,80 @@ export const GUARD_EXEMPTIONS: readonly GuardExemption[] = Object.freeze([
   }),
 ]);
 
+// ─── Spec-artifact waivers (the second hand-maintained input) ────────────────
+
+/**
+ * A Wave-1 `**Files:**` entry that never landed under the name the spec gave it.
+ *
+ * Same construction as {@link GuardExemption} and for the same reason: the entry
+ * is a DEBT with an owner and a deadline, not a permanent excuse. The spec is a
+ * landed historical record, so the reconciliation is recorded HERE rather than
+ * by editing the document — amending the plan to match what shipped would erase
+ * the drift signal instead of paying it.
+ */
+export interface SpecArtifactWaiver {
+  /** The unresolved `**Files:**` entry, exactly as the spec spells it. */
+  readonly artifact: string;
+  /** What actually happened to it. Must name where the work landed, or that it did not. */
+  readonly reason: string;
+  /** The task or issue that reconciles it. */
+  readonly blockedBy: string;
+  /** ISO `YYYY-MM-DD`. Past this date the waiver FAILS rather than lapsing quietly. */
+  readonly expires: string;
+}
+
+/**
+ * The four Wave-1 artifacts the spec named and the tree does not have.
+ *
+ * All four are the same shape — a planned FILE SPLIT that the implementer
+ * consolidated — and the consolidation was the better call in each case. What
+ * was missing is that nothing said so anywhere a gate could read, which is the
+ * whole of DR-9's complaint applied to channel 2's denominator.
+ */
+export const SPEC_ARTIFACT_WAIVERS: readonly SpecArtifactWaiver[] = Object.freeze([
+  Object.freeze({
+    artifact: 'servers/exarchos-mcp/src/architecture/authority-topology.data.ts',
+    reason:
+      'Task 024 planned to split the boundary rows into a `.data.ts` sibling so "policy is data ' +
+      'the census reads, never prose inside a test body". The rows landed as the exported ' +
+      '`AUTHORITY_TOPOLOGY` inside `authority-topology.ts` itself, which satisfies that rule ' +
+      '(the census imports the data; no rule lives in a test predicate) without the extra file. ' +
+      'Task 027 named the same path again and inherited the same non-landing.',
+    blockedBy: '#1764 (Wave-1 spec reconciliation)',
+    expires: '2026-11-05',
+  }),
+  Object.freeze({
+    artifact: 'servers/exarchos-mcp/src/architecture/authority-topology.census.test.ts',
+    reason:
+      "Task 025's census tests landed in `authority-census.test.ts`, beside the census they " +
+      'exercise, rather than in a second test file named after the topology. The co-located ' +
+      'placement is what DR-24 asks for; the spec named the file before the module split was ' +
+      'settled.',
+    blockedBy: '#1764 (Wave-1 spec reconciliation)',
+    expires: '2026-11-05',
+  }),
+  Object.freeze({
+    artifact: 'servers/exarchos-mcp/src/architecture/__tests__/authority-topology.kill-fixtures.test.ts',
+    reason:
+      "Task 026's kill fixtures landed inside `authority-census.test.ts` and " +
+      '`authority-live-proof.test.ts` rather than as a separate `__tests__/` file, and none of ' +
+      'the three test names the spec listed survived verbatim. The fixtures themselves ARE in ' +
+      'the tree — what did not land is the file boundary.',
+    blockedBy: '#1764 (Wave-1 spec reconciliation)',
+    expires: '2026-11-05',
+  }),
+  Object.freeze({
+    artifact: 'servers/exarchos-mcp/src/architecture/__tests__/output-schema-census.selftest.test.ts',
+    reason:
+      "Task 018's G2 self-test landed one directory up, at " +
+      '`servers/exarchos-mcp/src/architecture/output-schema-census.selftest.test.ts`, so it sits ' +
+      'beside the census it guards instead of under `__tests__/`. Same file, same content, ' +
+      'different directory.',
+    blockedBy: '#1764 (Wave-1 spec reconciliation)',
+    expires: '2026-11-05',
+  }),
+]);
+
 // ─── The inventory ───────────────────────────────────────────────────────────
 
 export interface BuildOptions {
@@ -1845,6 +2163,7 @@ export function buildGuardInventory(options: BuildOptions = {}): GuardInventory 
     }
   };
 
+  const mirroredSelfTests = indexMirroredSelfTests(repoRoot);
   const base: ResolutionContext = {
     workflows,
     rootPkg: readPackageScripts(repoRoot, ''),
@@ -1852,6 +2171,7 @@ export function buildGuardInventory(options: BuildOptions = {}): GuardInventory 
     suites: loadSuiteConfigs(repoRoot),
     exists: (path) => existsSync(join(repoRoot, path)),
     readScript,
+    mirroredSelfTests,
   };
   const ctx: ResolutionContext = { ...base, shellIndex: indexShellIndirection(base) };
 
@@ -1878,13 +2198,15 @@ export function buildGuardInventory(options: BuildOptions = {}): GuardInventory 
     }
   };
 
+  const basenameIndex = indexSourceBasenames(repoRoot);
   const unresolvedSpecArtifacts: string[] = [];
   const compileTimeOnlyArtifacts: string[] = [];
   for (const task of wave1Tasks(parseSpecTasks(specText))) {
-    for (const file of task.files) {
-      if (!isPathShaped(file)) continue;
-      if (!ctx.exists(file)) {
-        unresolvedSpecArtifacts.push(file);
+    for (const rawFile of task.files) {
+      if (!isPathShaped(rawFile)) continue;
+      const file = resolveSpecArtifact(rawFile, ctx.exists, basenameIndex);
+      if (file === null) {
+        unresolvedSpecArtifacts.push(rawFile);
         continue;
       }
       if (isTestArtifact(file)) continue;
@@ -1893,7 +2215,7 @@ export function buildGuardInventory(options: BuildOptions = {}): GuardInventory 
       // same CI job. A Wave-1 module with neither a self-test nor an entrypoint
       // carries no executable verdict — its rung is `tsc`, not a CI step — so it
       // is recorded rather than judged against execution reachability.
-      const hasSelfTest = selfTestCandidates(file).some((c) => ctx.exists(c));
+      const hasSelfTest = selfTestCandidates(file, mirroredSelfTests).some((c) => ctx.exists(c));
       if (!hasSelfTest && !isRunnable(file)) {
         compileTimeOnlyArtifacts.push(file);
         continue;
@@ -1905,8 +2227,12 @@ export function buildGuardInventory(options: BuildOptions = {}): GuardInventory 
     }
   }
 
-  const mcpScan = scanMcpScriptGates(repoRoot);
+  const mcpScan = scanMcpScriptGates(repoRoot, mirroredSelfTests);
   for (const gate of mcpScan.gatesWithSelfTest) add(gate, 'mcp-scripts-gate');
+  for (const module of mcpScan.compileTimeOnly) compileTimeOnlyArtifacts.push(module);
+
+  const architectureScan = scanArchitectureModules(repoRoot);
+  for (const module of architectureScan.modulesWithSelfTest) add(module, 'mcp-architecture-module');
 
   const imported = productionImportedSet(repoRoot);
 
@@ -1936,6 +2262,7 @@ export function buildGuardInventory(options: BuildOptions = {}): GuardInventory 
   return {
     guards,
     runnableWithoutSelfTest: mcpScan.runnableWithoutSelfTest,
+    architectureModulesWithoutSelfTest: architectureScan.modulesWithoutSelfTest,
     compileTimeOnlyArtifacts: [...new Set(compileTimeOnlyArtifacts)].sort(),
     unresolvedSpecArtifacts: [...new Set(unresolvedSpecArtifacts)].sort(),
     indirection: ctx.shellIndex ?? { byStep: new Map(), runStepsWalked: 0, wrapperScriptsWalked: [], unresolvedInvocations: [] },
@@ -1966,6 +2293,18 @@ export interface InventoryAudit {
  *   `[orphan-exemption]`           — an exemption naming a guard outside the inventory.
  *   `[manifest-primary-missing]`   — a manifest primary the inventory cannot see, i.e.
  *                                    the denominator shrank below channel 1's.
+ *   `[unresolved-spec-artifact]`   — a Wave-1 `**Files:**` entry with no file behind it
+ *                                    and no waiver. Wave 1 is closed, so "not landed
+ *                                    yet" has expired as an explanation: an artifact
+ *                                    the spec promised and the tree lacks is either a
+ *                                    guard that never shipped or a rename nothing
+ *                                    recorded, and both used to pass this proof
+ *                                    unremarked (DR-9).
+ *   `[expired-spec-artifact-waiver]` / `[stale-spec-artifact-waiver]` — the same expiry
+ *                                    and staleness teeth GUARD_EXEMPTIONS carries,
+ *                                    applied to {@link SPEC_ARTIFACT_WAIVERS}: a waiver
+ *                                    whose artifact turns up on disk is removed, not
+ *                                    left standing to cover a later disappearance.
  *   `[implementation-surface-outside-filter]` — the two-surface subset rule from
  *                                    docs/guides/ci-gate-hosting.md: a guard hosted
  *                                    ONLY in path-filtered jobs whose own source is
@@ -1979,12 +2318,14 @@ export function auditGuardInventory(
   options: {
     readonly now?: Date;
     readonly exemptions?: readonly GuardExemption[];
+    readonly specArtifactWaivers?: readonly SpecArtifactWaiver[];
     readonly manifestJson?: unknown;
     readonly filterGlobs?: Record<string, string[]>;
   } = {},
 ): InventoryAudit {
   const now = options.now ?? new Date();
   const exemptions = options.exemptions ?? GUARD_EXEMPTIONS;
+  const specWaivers = options.specArtifactWaivers ?? SPEC_ARTIFACT_WAIVERS;
   const violations: string[] = [];
   const byArtifact = new Map(inventory.guards.map((g) => [g.artifact, g]));
 
@@ -2084,6 +2425,37 @@ export function auditGuardInventory(
       violations.push(
         `${exemption.artifact}  [expired-exemption]  expired ${exemption.expires} ` +
           `(blocked on ${exemption.blockedBy}) — fix it or re-justify with a new deadline`,
+      );
+    }
+  }
+
+  // ── Promised-but-absent Wave-1 artifacts (DR-9) ────────────────────────────
+  const unresolved = new Set(inventory.unresolvedSpecArtifacts);
+  const waivedArtifacts = new Set(specWaivers.map((w) => w.artifact));
+  for (const artifact of inventory.unresolvedSpecArtifacts) {
+    if (waivedArtifacts.has(artifact)) continue;
+    violations.push(
+      `${artifact}  [unresolved-spec-artifact]  a Wave-1 \`**Files:**\` entry with no file ` +
+        'behind it — land it, or record what it became in SPEC_ARTIFACT_WAIVERS with an owner ' +
+        'and an expiry',
+    );
+  }
+  for (const waiver of specWaivers) {
+    if (!unresolved.has(waiver.artifact)) {
+      violations.push(
+        `${waiver.artifact}  [stale-spec-artifact-waiver]  waived as absent but the spec entry ` +
+          'now resolves — remove the waiver so a later disappearance cannot pass unnoticed',
+      );
+    }
+    const expiry = Date.parse(`${waiver.expires}T00:00:00Z`);
+    if (Number.isNaN(expiry)) {
+      violations.push(
+        `${waiver.artifact}  [expired-spec-artifact-waiver]  unparseable expiry "${waiver.expires}"`,
+      );
+    } else if (expiry <= now.getTime()) {
+      violations.push(
+        `${waiver.artifact}  [expired-spec-artifact-waiver]  expired ${waiver.expires} ` +
+          `(blocked on ${waiver.blockedBy}) — reconcile it or re-justify with a new deadline`,
       );
     }
   }

@@ -8113,7 +8113,10 @@ Path: direct-commit
 If finalize resolved to \`synthesize\`, hand off to the standard synthesis
 flow — see \`@skills/synthesize/SKILL.md\`. The same \`prepare_synthesis\` /
 \`validate_pr_body\` / \`create_pr\` machinery used by the \`feature\`
-workflow applies. After the PR merges, the workflow transitions
+workflow applies, including \`prepare_synthesis\`'s required \`repoRoot\`:
+pass the absolute path of the repo you have been committing into, since
+every readiness leg runs there rather than in the server's own working
+directory. After the PR merges, the workflow transitions
 \`synthesize → completed\` via the existing \`mergeVerified\` guard, same as
 every other workflow type.
 
@@ -9650,9 +9653,12 @@ Call the \`prepare_synthesis\` composite action to validate all preconditions in
 \`\`\`typescript
 exarchos:exarchos_orchestrate({
   action: "prepare_synthesis",
-  featureId: "<id>"
+  featureId: "<id>",
+  repoRoot: "<absolute path of the repo under synthesis>"
 })
 \`\`\`
+
+\`repoRoot\` is required. All four readiness legs (test suite, typecheck, stack, changed files) shell out with it as their working directory, so it names the tree the verdict is about. The gate will not fall back to whatever directory the server was launched in — omit it and the call is rejected rather than answered about the wrong repo. During a stacked synthesis, pass the integration worktree's absolute path.
 
 This action performs:
 - **Phase readiness** -- Confirms workflow is in the correct phase with all reviews complete

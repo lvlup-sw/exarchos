@@ -46,6 +46,7 @@ import {
 } from '../architecture/sdk-generation-seam.js';
 import type { SdkGeneration } from './brand.js';
 import { parseModuleSpecifiers } from '../test-helpers/module-specifier-parser.js';
+import { listTrackedFiles, trackedFilesMissedBy } from '../test-helpers/tracked-population.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // src/sdk → servers/exarchos-mcp
@@ -361,7 +362,22 @@ describe('DR-26 — owned SDK seam, generation-branded handles', () => {
     expect(scan.sites.length).toBeGreaterThan(0);
     // The population is checked independently of the hits (task 062): once the
     // migration completes, a low site count stops being evidence of a live scan.
-    expect(scan.moduleCount).toBeGreaterThan(50);
+    //
+    // DERIVED, not floored (task 079 / DR-8). This read `moduleCount > 50` over a
+    // root holding ~1549 modules — 30× loose, so a walk that lost 96% of the tree
+    // still cleared it, and DR-26's "the seam is the SOLE importer" conclusion
+    // rested on that clearance. The pin is now CONTAINMENT against `git ls-files`,
+    // which knows nothing of this walker's recursion or its exclusions: every
+    // module the repository tracks under the scan root must have been reached.
+    // Containment rather than a count so a shortfall names the missing modules,
+    // and so an untracked scratch file in a working tree cannot mask one.
+    const trackedModules = listTrackedFiles(srcRoot);
+    expect(
+      trackedFilesMissedBy(scan.modules, trackedModules),
+      'the walk did not reach every module git tracks under the scan root — the ' +
+        'root moved, an exclusion widened, or the walker broke. Everything below ' +
+        'this line is measured over whatever it DID reach.',
+    ).toEqual([]);
     const live = runSdkSeamCensus(scan);
     expect(
       live.diagnostics.map((d) => d.message),
@@ -382,9 +398,9 @@ describe('DR-26 — owned SDK seam, generation-branded handles', () => {
     // STRONGER than the assertion it replaces, because it fails on a single
     // regressed bypass rather than tolerating any positive count.
     //
-    // The vacuity this arm exists to prevent is NOT re-opened: `moduleCount >
-    // 50`, `scan.sites.length > 0` and `seamSiteCount > 0` above are all
-    // checked independently of the bypass count, so a broken walk still fails
+    // The vacuity this arm exists to prevent is NOT re-opened: the tracked-module
+    // containment pin, `scan.sites.length > 0` and `seamSiteCount > 0` above are
+    // all checked independently of the bypass count, so a broken walk still fails
     // here rather than reading as a completed migration (task 062's tooth).
     expect(
       live.bypassSiteCount,
@@ -417,6 +433,34 @@ describe('DR-26 — owned SDK seam, generation-branded handles', () => {
       'These MCP SDK packages are installed but the owned seam draws from ' +
         'neither of their generations, so their handles would cross unbranded.',
     ).toEqual([]);
+  });
+
+  it('SdkSeamPopulationPin_NarrowedScanRoot_FailsInsteadOfPassing', () => {
+    // KILL FIXTURE for the pin above (task 079). A denominator tooth is only
+    // worth what it rejects, and the `> 50` floor it replaces rejected nothing a
+    // real regression would produce: `src/architecture` alone clears 50, so a
+    // walk narrowed to it read as a full-tree scan.
+    //
+    // The narrowing is applied to the WALK, not to the authority, which is
+    // exactly how the defect presents in the wild — a relocated root, a widened
+    // exclusion, a walker that silently stops recursing. Module paths stay
+    // `srcRoot`-relative so COVERAGE is the only variable.
+    const narrowed = scanLiveTree(path.join(srcRoot, 'architecture'), srcRoot);
+    expect(
+      narrowed.moduleCount,
+      'the narrowed root must clear the RETIRED floor — otherwise this fixture ' +
+        'proves nothing about what the floor let through',
+    ).toBeGreaterThan(50);
+
+    const tracked = listTrackedFiles(srcRoot);
+    // The narrowed walk DID reach everything under `architecture/`, so a report
+    // of misses there would mean the fixture is measuring the path basis rather
+    // than coverage.
+    const missed = trackedFilesMissedBy(narrowed.modules, tracked, tracked.length);
+    expect(missed.length, 'the derived pin must reject the narrowed walk').toBeGreaterThan(0);
+    expect(missed.filter((module) => module.startsWith('architecture/'))).toEqual([]);
+    // …and it NAMES what went missing rather than reporting a smaller integer.
+    expect(missed).toContain('sdk/seam.ts');
   });
 
   it('SdkSeamCensus_SeamMovedOrRenamed_FailsClosed', () => {
@@ -574,14 +618,28 @@ describe('DR-26 — owned SDK seam, generation-branded handles', () => {
  * was the belt to that exception's braces. The parse makes both unnecessary:
  * every `.ts` under `src/` is now scanned on the same terms, including this one.
  */
-function scanLiveTree(): {
+function scanLiveTree(
+  root: string = srcRoot,
+  /**
+   * Base the reported module paths resolve against. Defaults to `root`; the
+   * narrowed-root kill fixture pins it to `srcRoot` so the only thing that
+   * changes between the two scans is COVERAGE, not the path basis.
+   */
+  relativeTo: string = root,
+): {
   sites: SdkImportSite[];
   seamModulePresent: boolean;
   moduleCount: number;
+  /**
+   * The modules the walk actually reached, root-relative. Returned alongside the
+   * count so a shortfall against the tracked population can NAME what went
+   * missing instead of reporting a smaller integer (task 079).
+   */
+  modules: string[];
   installedGenerations: SdkGeneration[];
 } {
   const sites: SdkImportSite[] = [];
-  let moduleCount = 0;
+  const modules: string[] = [];
   const walk = (dir: string): void => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
@@ -591,8 +649,8 @@ function scanLiveTree(): {
         continue;
       }
       if (!entry.name.endsWith('.ts')) continue;
-      moduleCount += 1;
-      const module = path.relative(srcRoot, full).split(path.sep).join('/');
+      const module = path.relative(relativeTo, full).split(path.sep).join('/');
+      modules.push(module);
       sites.push(
         ...collectSdkImportSites(
           module,
@@ -602,11 +660,12 @@ function scanLiveTree(): {
       );
     }
   };
-  walk(srcRoot);
+  walk(root);
   return {
     sites,
-    seamModulePresent: fs.existsSync(path.join(srcRoot, ...SDK_SEAM_MODULE.split('/'))),
-    moduleCount,
+    seamModulePresent: fs.existsSync(path.join(root, ...SDK_SEAM_MODULE.split('/'))),
+    moduleCount: modules.length,
+    modules,
     installedGenerations: installedGenerationsFromManifest(),
   };
 }

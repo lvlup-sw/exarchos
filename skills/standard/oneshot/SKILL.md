@@ -314,7 +314,10 @@ Path: direct-commit
 If finalize resolved to `synthesize`, hand off to the standard synthesis
 flow — see `@skills/synthesize/SKILL.md`. The same `prepare_synthesis` /
 `validate_pr_body` / `create_pr` machinery used by the `feature`
-workflow applies. After the PR merges, the workflow transitions
+workflow applies, including `prepare_synthesis`'s required `repoRoot`:
+pass the absolute path of the repo you have been committing into, since
+every readiness leg runs there rather than in the server's own working
+directory. After the PR merges, the workflow transitions
 `synthesize → completed` via the existing `mergeVerified` guard, same as
 every other workflow type.
 

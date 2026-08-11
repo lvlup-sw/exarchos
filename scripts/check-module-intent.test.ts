@@ -1,19 +1,21 @@
 /**
  * Tests for the module-intent CI gate (DR-7, DR-8).
  *
- * The gate FAILS a production module under `servers/exarchos-mcp/src` that has
- * zero production importers unless it declares intent — either a valid
+ * The gate FAILS a production module under either first-party source root —
+ * `servers/exarchos-mcp/src` and the repo-root `src` (DR-9, task 080) — that has
+ * zero production importers unless it declares intent: either a valid
  * `RESERVED(issue, owner, expires)` header (well-formed issue ref + owner + a
- * clean, non-past expiry) or membership in a declared allowlist class
- * (test-infra / build-shim / type-test entrypoint). Reachability is delegated
- * to the vendored `scripts/audit/refgraph.mjs` detector; any scan failure is
- * fail-closed (DR-8).
+ * clean, non-past expiry) or membership in a declared allowlist class, whose
+ * enumerated members each carry an owner and a rationale. Reachability is
+ * delegated to the vendored `scripts/audit/refgraph.mjs` detector, widened by
+ * two evidence-based sweeps (cross-root importers, npm-script entrypoints); any
+ * scan failure is fail-closed (DR-8).
  *
  * Exit codes: 0 clean · 1 module-intent violation · 2 fail-closed (scan crash /
  * unreadable module / usage).
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, writeFileSync, rmSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runScriptCheck, makeFixtureSrc as makeFixtureSrcShared } from './test-utils.js';
@@ -188,11 +190,172 @@ describe('check-module-intent CLI (DR-7/DR-8)', () => {
   });
 
   it('ConformingRealTree_Pass', () => {
-    // The live tree: the 11 RESERVED + 11 class-allowlist dead-in-prod modules
-    // all declare valid intent. This also pins the command-shim-emitter.ts
-    // header normalization — if its expires field is re-polluted, this fails.
+    // The live tree, BOTH source roots: every dead-in-prod module declares valid
+    // intent. This also pins the command-shim-emitter.ts header normalization —
+    // if its expires field is re-polluted, this fails.
     const { status, stderr } = runCheck();
     expect(status, `stderr: ${stderr}`).toBe(0);
+  });
+
+  // ── Direction 3: the gate's ROOT SET covers root `src/` (DR-9) ─────────────
+
+  it('DefaultRootSet_CoversRootSrc_NotOnlyTheMcpPackage', () => {
+    // The gate's default root was the MCP package alone, so root `src/` was
+    // outside it entirely. `friction-signal.ts` states in its own header that it
+    // was placed there partly BECAUSE a module elsewhere "would itself register
+    // as dead-in-prod (DR-7)" — relocating out of a gate's reach is not
+    // satisfying the gate, so the reach is what moved.
+    //
+    // Driven through the real CLI: a fresh dead module dropped into root `src/`
+    // must be REPORTED by a default (no `--src-root`) invocation. Naming the
+    // default root list in an assertion would only restate the constant.
+    const orphan = path.join(REPO_ROOT, 'src', 'dr9-root-src-probe.ts');
+    writeFileSync(orphan, 'export const probe = () => 1;\n', 'utf8');
+    try {
+      const { status, stderr } = runCheck();
+      expect(status, 'a dead module in root `src/` must fail the DEFAULT invocation').toBe(1);
+      expect(stderr).toMatch(/src\/dr9-root-src-probe\.ts/);
+      expect(stderr).toMatch(/no RESERVED.*header and no allowlist class/);
+    } finally {
+      rmSync(orphan, { force: true });
+    }
+    // …and removing it restores the clean verdict, so the failure was the probe.
+    expect(runCheck().status).toBe(0);
+    // Two full-tree CLI spawns, where every sibling case spends one. A 2-core
+    // Windows runner needs ~3.4s per scan, so the default 5s budget cannot fit
+    // both — the timeout was arithmetic, not a slow gate.
+  }, 30_000);
+
+  it('FrictionSignal_DeclaresIntentRatherThanEvadingTheGate', () => {
+    // The specific module DR-9 names. Now that the gate reaches root `src/` it
+    // must satisfy DR-7 like anything else: a RESERVED marker with an owner, an
+    // issue and a live expiry — i.e. a scheduled deletion, not an exemption.
+    const source = readFileSync(path.join(REPO_ROOT, 'src', 'friction-signal.ts'), 'utf8');
+    const marker = /RESERVED\(issue:\s*#(\d+),\s*owner:\s*(\S+?),\s*expires:\s*(\d{4}-\d{2}-\d{2})\)/.exec(
+      source,
+    );
+    expect(marker, 'friction-signal.ts must declare its intent in-file').not.toBeNull();
+    expect(Date.parse(`${marker?.[3]}T00:00:00Z`)).toBeGreaterThan(Date.now());
+    // The header's original placement note claimed the relocation ANSWERED DR-7.
+    // That claim is what the correction had to remove, so it must not survive.
+    expect(source).not.toMatch(/would itself register as dead-in-prod \(DR-7\)[\s\S]{0,40}the opposite/);
+  });
+
+  it('CrossRootImporter_KeepsAModuleOutOfTheDeadSet', () => {
+    // `src/runtimes/embedded.ts` is imported by the plain-JS bridge at
+    // `servers/exarchos-mcp/src/cli-commands/install-skills-bridge.js`, which
+    // refgraph reads neither (wrong extension) nor reaches (wrong root). Widening
+    // the root set without the importer sweep would have reported a module the
+    // shipped binary statically depends on as dead — and the only way to make
+    // the gate green would have been to declare a falsehood about it.
+    const bridge = readFileSync(
+      path.join(REPO_ROOT, 'servers', 'exarchos-mcp', 'src', 'cli-commands', 'install-skills-bridge.js'),
+      'utf8',
+    );
+    expect(bridge, 'the live import edge this sweep exists for').toMatch(
+      /from '\.\.\/\.\.\/\.\.\/\.\.\/src\/runtimes\/embedded\.js'/,
+    );
+    // Its subject is therefore NOT reported, and carries no declaration either —
+    // it is answered by evidence, not by an allowlist entry. Driven with an
+    // EXPLICIT root-`src/` scan so the assertion cannot be satisfied by a gate
+    // that simply never looks there.
+    const { status, stderr } = runCheck(['--src-root', path.join(REPO_ROOT, 'src')]);
+    expect(status, `stderr: ${stderr}`).toBe(0);
+    expect(stderr).not.toMatch(/runtimes\/embedded\.ts/);
+    const embedded = readFileSync(path.join(REPO_ROOT, 'src', 'runtimes', 'embedded.ts'), 'utf8');
+    expect(embedded).not.toMatch(/RESERVED\(/);
+  });
+
+  it('NpmScriptEntrypoint_KeepsAModuleOutOfTheDeadSet', () => {
+    // `npm run hooks:guard` runs `node dist/hooks-guard.js`, i.e. the build
+    // output of `src/hooks-guard.ts`. refgraph's entry set is a hand-written
+    // filename regex that lists its sibling `skills-guard` and not it, so a live
+    // CI entrypoint read as dead code.
+    const pkg = JSON.parse(readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8')) as {
+      scripts?: Record<string, string>;
+    };
+    expect(pkg.scripts?.['hooks:guard']).toMatch(/dist\/hooks-guard\.js/);
+    // Explicit root, same reason as the cross-root case above.
+    const { status, stderr } = runCheck(['--src-root', path.join(REPO_ROOT, 'src')]);
+    expect(status, `stderr: ${stderr}`).toBe(0);
+    expect(stderr).not.toMatch(/hooks-guard\.ts/);
+    const guardSource = readFileSync(path.join(REPO_ROOT, 'src', 'hooks-guard.ts'), 'utf8');
+    expect(guardSource).not.toMatch(/RESERVED\(/);
+  });
+
+  // ── Direction 4: declared classes are OWNED, and per-module (DR-7) ─────────
+
+  it('SeamFilenameAlone_NoLongerGrantsAnExemption', () => {
+    // The blanket `/-seam\.ts$/` rule granted any such basename a permanent,
+    // unowned pass — a NAME standing in for a property, the shape this programme
+    // keeps repairing. A NEW dead `-seam.ts` must now be declared like anything
+    // else, and the five real members are enumerated with owners instead.
+    const { srcRoot, cleanup } = makeFixtureSrc({
+      'architecture/brand-new-seam.ts': 'export const lint = () => [];\n',
+    });
+    try {
+      const { status, stderr } = runCheck(['--src-root', srcRoot]);
+      expect(status, 'a filename suffix is not an intent declaration').toBe(1);
+      expect(stderr).toMatch(/architecture\/brand-new-seam\.ts/);
+    } finally {
+      cleanup();
+    }
+    // …while the five that ARE declared keep passing on the live tree.
+    expect(runCheck().status).toBe(0);
+  });
+
+  it('DormantSurfaceMemberPastItsExpiry_Fails', () => {
+    // A `declared-dormant-surface` member is a RESERVED marker kept in the
+    // register rather than the file, so it owes the same live expiry. Without
+    // this, moving a debt from a header into the class list would launder it
+    // into a permanent exemption.
+    const { srcRoot, cleanup } = makeFixtureSrc({
+      'wizard/wizard.ts': 'export const run = () => 1;\n',
+    });
+    try {
+      const clean = runCheck(['--src-root', srcRoot, '--now', '2026-08-09']);
+      expect(clean.status, `stderr: ${clean.stderr}`).toBe(0);
+
+      const expired = runCheck(['--src-root', srcRoot, '--now', '2099-01-01']);
+      expect(expired.status).toBe(1);
+      expect(expired.stderr).toMatch(/declared-dormant-surface. member is invalid/);
+      expect(expired.stderr).toMatch(/expired on/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('ReservedMentionedInProse_IsNotReadAsADeclaration', () => {
+    // `parseReserved` took the FIRST `RESERVED(` in the file, so a module that
+    // merely DISCUSSES the mechanism ("the same enforcement philosophy as the
+    // `RESERVED(...)` module-intent gate" — shim-registry.ts, advisory-registry.ts)
+    // was read as carrying a header with three missing fields. A mention is not a
+    // declaration; carrying a declared FIELD is what tells them apart.
+    const { srcRoot, cleanup } = makeFixtureSrc({
+      'prose/mentions-it.ts':
+        '// This module is governed the same way a RESERVED(...) stub is.\n' +
+        '// RESERVED(issue: #1590, owner: exarchos, expires: 2099-01-01) — the real marker\n' +
+        'export const x = 1;\n',
+    });
+    try {
+      const { status, stderr } = runCheck(['--src-root', srcRoot]);
+      expect(status, `stderr: ${stderr}`).toBe(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('EveryDeclaredMember_CarriesAnOwnerAndARationale', () => {
+    // The criterion itself, read off the gate's own source rather than restated:
+    // no enumerated member may be a bare path. `validateClassMember` enforces it
+    // at runtime; this pins that no member was added without the fields.
+    const source = readFileSync(SCRIPT, 'utf8');
+    const memberBlocks = source.match(/^\s{6}'[^']+': \{\n(?:\s{8}.*\n)+?\s{6}\},$/gm) ?? [];
+    expect(memberBlocks.length, 'enumerated members').toBeGreaterThan(15);
+    for (const block of memberBlocks) {
+      expect(block, `member missing owner:\n${block}`).toMatch(/\bowner:\s*'/);
+      expect(block, `member missing rationale:\n${block}`).toMatch(/\brationale:\s*\n?\s*'/);
+    }
   });
 
   // ── CI wiring ──────────────────────────────────────────────────────────────

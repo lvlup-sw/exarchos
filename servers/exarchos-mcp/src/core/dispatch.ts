@@ -41,6 +41,11 @@ import {
   extractTaskOptions,
   runTasksAugmented,
 } from '../dispatch/tasks-augmented.js';
+import {
+  selectForwardedParameters,
+  findIgnoredParameters,
+  buildIgnoredParameterError,
+} from '../dispatch/undeclared-parameters.js';
 import type { EventSourcedTaskStore } from '../task-store/event-sourced-task-store.js';
 
 // NOTE: `../telemetry/middleware.js` is intentionally NOT imported at module
@@ -834,41 +839,30 @@ export async function dispatch(
       }
     }
 
-    // Tolerant Dispatch (#1188): the MCP SDK validates against the flattened
-    // parent schema (buildRegistrationSchema) and applies sibling-action
-    // defaults (e.g. `nativeIsolation` from prepare_delegation, `outputFormat`
-    // from agent_spec) to every payload. Per-action schemas use .strict()
-    // to catch caller typos, so those leaked defaults would be rejected as
-    // unrecognized keys.
+    // ─── DR-7 — honoured, or refused (never accepted-and-dropped) ────────
     //
-    // Strip only sibling-action keys: a key declared on some other action's
-    // schema but not on the matching action's. Keys that aren't declared
-    // anywhere (caller typos) pass through so .strict() still rejects
-    // them — preserving the typo-detection guard.
-    const actionShape = (matchingAction.schema as { shape?: Record<string, unknown> }).shape;
-    const cleanedRest =
-      actionShape && typeof actionShape === 'object'
-        ? (() => {
-            const siblingKeys = new Set<string>();
-            for (const a of registeredTool.actions) {
-              if (a === matchingAction) continue;
-              const shape = (a.schema as { shape?: Record<string, unknown> }).shape;
-              if (shape && typeof shape === 'object') {
-                for (const k of Object.keys(shape)) siblingKeys.add(k);
-              }
-            }
-            return Object.fromEntries(
-              Object.entries(rest).filter(([k]) => {
-                const inAction = Object.prototype.hasOwnProperty.call(actionShape, k);
-                if (inAction) return true;
-                // Drop sibling-action keys (leaked parent defaults). Keep
-                // unknown keys so the per-action .strict() guard rejects
-                // caller typos with a clear error.
-                return !siblingKeys.has(k);
-              }),
-            );
-          })()
-        : rest;
+    // The MCP SDK validates against the flattened parent schema
+    // (buildRegistrationSchema), which is the UNION of every action's
+    // fields — so the wire admits a field the routed action has never heard
+    // of. This site used to reconcile that by deleting any such field before
+    // per-action validation, which turned "the action ignores your
+    // parameter" into a success response. `dryRun` aimed at `transition` was
+    // the live instance: `cancel` and `cleanup` declare it, `transition`
+    // does not, so a dry-run probe performed the real transition and
+    // reported success.
+    //
+    // What survives from the old strip is only the case that motivated it —
+    // a default the SDK injected from a sibling action, recognised by value.
+    // Everything else is forwarded to the action's own schema, and the
+    // refusal below reads that schema's verdict rather than second-guessing
+    // it. The rule and its exemptions live in `undeclared-parameters.ts`,
+    // derived from the registry, so a new action or a newly-defaulted field
+    // is covered without an edit here.
+    const { forwarded: cleanedRest, unshaped } = selectForwardedParameters(
+      rest,
+      matchingAction,
+      registeredTool.actions,
+    );
     // CodeRabbit CRITICAL #1424: pass `reportInput: true` so Zod retains
     // the original input on each issue. `extractSingleMissingRequiredField`
     // (above) needs `issue.input === undefined` to distinguish "field
@@ -937,6 +931,25 @@ export async function dispatch(
       return attachMeta({
         success: false,
         error: formatValidationError(parsed.error, context),
+      });
+    }
+
+    // DR-7, second half: the parse succeeded, so ask what it did with the
+    // parameters the action never declared. A `.passthrough()` action keeps
+    // them (it answers for them itself); a plain `z.object` drops them, and
+    // dropping them is the silent-ignore this refusal exists to end. Read
+    // AFTER the parse because the schema's own verdict is the thing being
+    // read — not a guess made from its shape.
+    const ignored = findIgnoredParameters(unshaped, parsed.data);
+    if (ignored.length > 0) {
+      return attachMeta({
+        success: false,
+        error: buildIgnoredParameterError(
+          tool,
+          matchingAction,
+          registeredTool.actions,
+          ignored,
+        ),
       });
     }
 

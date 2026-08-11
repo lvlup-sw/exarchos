@@ -322,26 +322,124 @@ export interface DispatchSite {
   readonly module: string;
 }
 
-/** Directories that are not shipped source (test/bench/eval harnesses). */
-const EXCLUDED_DIRS: ReadonlySet<string> = new Set([
-  'node_modules',
-  '__tests__',
-  '__fixtures__',
-  '__mocks__',
-  'test-helpers',
-  'benchmarks',
-  'evals',
-]);
+/**
+ * What the census may skip, and why it may skip it.
+ *
+ * The list this replaced named six directories as "not shipped source". Three of
+ * them — `evals`, `benchmarks`, `test-helpers` — are inside `tsconfig.json`'s
+ * `include` and outside its `exclude`, so the build compiles them and emits them
+ * to `dist/`. They ARE shipped; the census skipped 51 emitted modules on the
+ * strength of their folder names, which is precisely the shape DR-8 forbids
+ * (roots exclude by PROPERTY, never by naming subtrees).
+ *
+ * So the boundary is now read from the build itself: whatever `tsconfig.json`
+ * keeps out of the emit is not shipped, and everything else is in the census's
+ * subject whatever it is called.
+ */
+export interface EmitBoundary {
+  /** Directory names the build excludes wholesale (e.g. `__tests__`). */
+  readonly directories: ReadonlySet<string>;
+  /** Package-relative path prefixes the build excludes (e.g. a fixture tree). */
+  readonly pathPrefixes: readonly string[];
+  /** File suffixes the build excludes (e.g. `.test.ts`). */
+  readonly suffixes: readonly string[];
+}
 
-/** True for a shipped-source TypeScript module (not a test/decl/bench file). */
-function isScannableFile(name: string): boolean {
-  return (
-    name.endsWith('.ts') &&
-    !name.endsWith('.test.ts') &&
-    !name.endsWith('.type-test.ts') &&
-    !name.endsWith('.d.ts') &&
-    !name.endsWith('.bench.ts')
-  );
+/**
+ * Exclusions that hold for ANY directory tree, with no build to consult: a
+ * dependency tree, a build output, and dot-dirs. `.d.ts` joins them because a
+ * declaration emits no runtime code at all.
+ *
+ * This is the floor, not the answer — it is deliberately the WIDEST scan, so a
+ * root with no `tsconfig.json` (a synthetic fixture) is over-scanned rather than
+ * under-scanned.
+ */
+const UNIVERSAL_EXCLUDED_DIRS: ReadonlySet<string> = new Set(['node_modules', 'dist']);
+const UNIVERSAL_EXCLUDED_SUFFIXES: readonly string[] = Object.freeze(['.d.ts']);
+
+const UNIVERSAL_EMIT_BOUNDARY: EmitBoundary = Object.freeze({
+  directories: UNIVERSAL_EXCLUDED_DIRS,
+  pathPrefixes: Object.freeze([]),
+  suffixes: UNIVERSAL_EXCLUDED_SUFFIXES,
+});
+
+/**
+ * Translate a `tsconfig.json` `exclude` entry into the boundary it describes.
+ *
+ * Three glob shapes cover every entry this package uses, and an entry that fits
+ * none of them is IGNORED rather than guessed at — an unrecognised glob must not
+ * silently shrink the census's subject, and over-scanning is the safe direction.
+ */
+export function parseEmitBoundary(excludes: readonly string[]): EmitBoundary {
+  const directories = new Set(UNIVERSAL_EXCLUDED_DIRS);
+  const pathPrefixes: string[] = [];
+  const suffixes = new Set(UNIVERSAL_EXCLUDED_SUFFIXES);
+  for (const raw of excludes) {
+    const entry = raw.replaceAll('\\', '/');
+    const bareDir = /^(?:\*\*\/)?([^*/]+)(?:\/\*\*)?\/?$/.exec(entry);
+    const suffixGlob = /^(?:\*\*\/)?\*(\.[^*/]+)$/.exec(entry);
+    // Order matters: `**/__tests__/**` is a bare-directory glob that happens to
+    // contain slashes, so the path-prefix arm must be the LAST resort.
+    if (suffixGlob?.[1] !== undefined) {
+      suffixes.add(suffixGlob[1]);
+    } else if (bareDir?.[1] !== undefined) {
+      directories.add(bareDir[1]);
+    } else if (entry.includes('/')) {
+      pathPrefixes.push(entry.replace(/\/?\*\*\/?$/, '').replace(/\/$/, ''));
+    }
+  }
+  return Object.freeze({
+    directories,
+    pathPrefixes: Object.freeze(pathPrefixes),
+    suffixes: Object.freeze([...suffixes]),
+  });
+}
+
+/**
+ * The emit boundary declared by the `tsconfig.json` beside `sourceRoot`, or the
+ * universal floor when there is no build to ask (a synthetic root).
+ *
+ * A tsconfig that EXISTS but cannot be parsed throws: silently widening to the
+ * floor there would be the census guessing at its own subject.
+ */
+export function resolveEmitBoundary(sourceRoot: string): EmitBoundary {
+  const configPath = path.join(path.dirname(sourceRoot), 'tsconfig.json');
+  if (!fs.existsSync(configPath)) return UNIVERSAL_EMIT_BOUNDARY;
+  const raw = fs.readFileSync(configPath, 'utf8');
+  // `tsconfig.json` permits comments; strip them before JSON.parse.
+  // `tsconfig` files are JSONC. The old `^\s*//.*$` regex handled only
+  // whole-line comments, so a trailing `// …` or any `/* … */` reached
+  // `JSON.parse` and surfaced as a bare SyntaxError naming no file — for a
+  // helper whose entire job is deriving the scan boundary FROM this config.
+  // `stripComments` (below, and string-preserving) already knows how to do
+  // this correctly, so it is used rather than a second, weaker stripper.
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stripComments(raw));
+  } catch (cause) {
+    throw new Error(
+      `cli-contract-seam: could not parse ${configPath} as JSONC. The dispatch census ` +
+        'derives its scan boundary from the build config, so an unreadable config is a ' +
+        'boundary it will not guess.',
+      { cause },
+    );
+  }
+  const excludes =
+    typeof parsed === 'object' && parsed !== null && 'exclude' in parsed
+      ? (parsed as { readonly exclude?: unknown }).exclude
+      : undefined;
+  if (!Array.isArray(excludes)) {
+    throw new Error(
+      `cli-contract-seam: ${configPath} declares no \`exclude\` array. The dispatch ` +
+        'census derives its scan boundary from the build; it will not invent one.',
+    );
+  }
+  return parseEmitBoundary(excludes.filter((e): e is string => typeof e === 'string'));
+}
+
+/** True for a file the build compiles into `dist/`. */
+function isScannableFile(name: string, boundary: EmitBoundary): boolean {
+  return name.endsWith('.ts') && !boundary.suffixes.some((s) => name.endsWith(s));
 }
 
 /**
@@ -442,16 +540,27 @@ export function importsRuntimeDispatchValue(source: string): boolean {
   return false;
 }
 
-async function collectScannableFiles(root: string): Promise<string[]> {
+async function collectScannableFiles(
+  root: string,
+  boundary: EmitBoundary,
+): Promise<string[]> {
+  const packageRoot = path.dirname(root);
   const files: string[] = [];
   const walk = async (dir: string): Promise<void> => {
     const entries = await readdir(dir, { withFileTypes: true });
     for (const entry of entries) {
+      const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
-        if (EXCLUDED_DIRS.has(entry.name)) continue;
-        await walk(path.join(dir, entry.name));
-      } else if (entry.isFile() && isScannableFile(entry.name)) {
-        files.push(path.join(dir, entry.name));
+        if (boundary.directories.has(entry.name)) continue;
+        // Dot-dirs are tooling state, not source, on every tree.
+        if (entry.name.startsWith('.')) continue;
+        const rel = relative(packageRoot, full).replaceAll('\\', '/');
+        if (boundary.pathPrefixes.some((p) => rel === p || rel.startsWith(`${p}/`))) {
+          continue;
+        }
+        await walk(full);
+      } else if (entry.isFile() && isScannableFile(entry.name, boundary)) {
+        files.push(full);
       }
     }
   };
@@ -460,8 +569,11 @@ async function collectScannableFiles(root: string): Promise<string[]> {
 }
 
 /** Scan the shipped source under `sourceRoot` and enumerate every dispatch site. */
-export async function scanDispatchSites(sourceRoot: string = DEFAULT_SRC_ROOT): Promise<readonly DispatchSite[]> {
-  const files = await collectScannableFiles(sourceRoot);
+export async function scanDispatchSites(
+  sourceRoot: string = DEFAULT_SRC_ROOT,
+  boundary: EmitBoundary = resolveEmitBoundary(sourceRoot),
+): Promise<readonly DispatchSite[]> {
+  const files = await collectScannableFiles(sourceRoot, boundary);
   const perFile = await Promise.all(
     files.map(async (file) => {
       const source = await readFile(file, 'utf8');

@@ -45,6 +45,23 @@ Each allowlist entry MUST carry:
 - a rationale string explaining why the job is intentionally non-blocking, and
 - where applicable, a tracking-issue reference (for example, a flake class or a scoped follow-up), so the non-blocking disposition has an owner and an exit condition rather than a permanent, unexamined exemption.
 
+## The skip policy: a lane's execution is not optional (DR-10)
+
+`needs:` membership decides which lanes *can* fail a PR; the skip policy decides whether a lane is allowed to not run at all.
+Both come from one place, and neither is a list you maintain by hand.
+
+The aggregator reads `${{ toJSON(needs) }}` into `NEEDS_JSON` and applies its policy to whatever that context contains, so the lane list is the `needs:` list — there is no second copy to fall out of step with it.
+The only lanes permitted to report `skipped` are those named in the step's `LICENSED_SKIPS` declaration, each paired with the `changes` output that must be non-`true` to license the skip.
+Every other lane, present or future, lands on the strict default: a skip is a hard failure.
+
+Two consequences worth stating plainly.
+
+- **Adding a lane to `needs:` cannot omit it from the policy.** Absence from `LICENSED_SKIPS` is the strict case, so forgetting an entry can only over-constrain — loudly, on the next run — never open a hole.
+- **A licence must be earned by a real path filter.** `scripts/ci-topology.test.ts` derives the lane→key mapping from each lane's own `if:` expression and asserts `LICENSED_SKIPS` restates it exactly, so a licence cannot outlive the filter that justified it. That test also executes the aggregator's script verbatim over synthetic `needs` contexts, which is why the script takes every GitHub value through `env:` and interpolates no `${{ }}`.
+
+This is what stops the failure mode the host taxonomy above is designed around from reappearing at the aggregator.
+A gate correctly placed in an unfiltered host still stops governing if its host lane silently does not run, and an aggregator that prints success over a skipped lane makes that indistinguishable from a pass.
+
 ## Out of scope: `pr-body-check.yml`
 
 `pr-body-check.yml` is a separate workflow, not a job inside `ci.yml`.

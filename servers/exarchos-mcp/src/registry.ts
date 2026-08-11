@@ -1613,9 +1613,17 @@ const workflowActions: readonly BuiltinToolAction[] = [
   },
   {
     name: 'cancel',
-    description: 'Cancel a workflow with saga compensation. Auto-emits workflow.cancel and compensation events',
+    description: 'Cancel a workflow with saga compensation. Optional `reason` is recorded on the cancel.requested event and in the cancel metadata. Auto-emits workflow.cancel and compensation events',
     schema: z.object({
       featureId: featureIdSchema,
+      // DR-7 (task 090): `handleCancel` reads `input.reason`, stamps it onto
+      // the `cancel.requested` payload and into the cancel metadata
+      // — and `CancelInputSchema` has always declared it. This action's
+      // schema did not, so dispatch dropped the operator's stated reason and
+      // reported a successful cancel with an unattributed audit trail. Same
+      // shape as `dryRun` on `transition`, opposite repair: the capability is
+      // real, so declare it rather than refuse it.
+      reason: z.string().optional(),
       dryRun: z.boolean().optional(),
     }),
     phases: ALL_PHASES,
@@ -1969,9 +1977,42 @@ const orchestrateActions: readonly BuiltinToolAction[] = [
   },
   {
     name: 'prepare_synthesis',
-    description: 'Run pre-synthesis checks: tests, typecheck, stack health. Emits events for readiness views and eval flywheel.',
+    description: 'Run pre-synthesis checks: tests, typecheck, stack health. Emits events for readiness views and eval flywheel. Set repoRoot to the tree the verdict is about — every leg runs there.',
     schema: z.object({
       featureId: z.string().min(1),
+      // DR-8 (#1756): REQUIRED, unlike the `.optional()` repoRoot the review
+      // gates carry. Those gates resolve a root when one is absent; this one
+      // has nothing to resolve from and deliberately refuses to guess, so the
+      // only honest place to say so is the boundary. Declaring it here is also
+      // what makes it ARRIVE: `repoRoot` is declared by sibling actions, so
+      // tolerant dispatch's sibling-key stripper dropped it from any payload
+      // this action did not declare it on — the handler's own guard then
+      // refused every real MCP/CLI call. Required + declared means a verdict
+      // measured against the server's ambient process.cwd() is unrepresentable
+      // rather than merely discouraged.
+      // The description is deliberately action-NEUTRAL: `buildRegistrationSchema`
+      // flattens same-named fields first-wins, and this is the first `repoRoot`
+      // in the actions array, so its wording is what every repoRoot-taking
+      // sibling advertises on `tools/list`. Action-specific nuance belongs in
+      // the action description, not here.
+      // …and "absolute" is ENFORCED, not just advertised. `min(1)` accepted `.`
+      // and every other relative path, which the handler then hands straight to
+      // a subprocess as `cwd` — resolving against the SERVER's process.cwd()
+      // and measuring the verdict on whatever repository the server happens to
+      // be sitting in. That is the exact failure the required-and-declared
+      // design above exists to make unrepresentable.
+      //
+      // `.regex()` rather than `.refine()` on purpose: the registration-schema
+      // flattening compares base types across same-named fields, and a refine
+      // would make this a ZodEffects while its siblings stay ZodString.
+      repoRoot: z
+        .string()
+        .min(1)
+        .regex(
+          /^(?:\/|[A-Za-z]:[\\/]|\\\\)/,
+          'repoRoot must be absolute (POSIX `/…`, Windows `C:\\…`, or UNC `\\\\…`) — a relative path resolves against the server process, not the caller\'s repository',
+        )
+        .describe('Absolute path of the repository this action operates on; subprocesses run with it as cwd rather than the server\'s own working directory'),
     }),
     phases: SYNTHESIS_REVIEW_PHASES,
     roles: ROLE_LEAD,
