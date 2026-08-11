@@ -507,9 +507,16 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
     expect(noWaivers.findings.map((f) => f.code)).toEqual(['UNWAIVED_VACUITY']);
 
     // A census that could not read an envelope is not a trustworthy input
-    // either — proving nothing must not read as proving compliance.
+    // either — proving nothing must not read as proving compliance. Built via
+    // `vacuityWaiver`, not `withCappedShape`: task 092 made `withCappedShape`
+    // refuse a non-envelope `outputSchema` outright (it can no longer mint an
+    // unreadable-but-declared schema), so `vacuityWaiver` — the constructor
+    // documented to accept an arbitrary schema unchecked — is the one that can
+    // still produce this fixture.
     const unreadable = auditVacuityAllowlist(
-      censusOutputSchemas([tool('t', [action('a', withCappedShape(z.object({ x: z.string() })))])]),
+      censusOutputSchemas([
+        tool('t', [action('a', vacuityWaiver('exarchos_workflow.init', z.object({ x: z.string() })))]),
+      ]),
       ['t.a'],
     );
     expect(unreadable.ok).toBe(false);

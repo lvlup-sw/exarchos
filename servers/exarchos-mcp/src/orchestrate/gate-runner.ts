@@ -42,7 +42,9 @@ import { resolveWorkflowState } from './resolve-state.js';
 import {
   attachGateEvidence,
   normalizeGateVerdict,
+  readGateSkipDescriptor,
   type GateEvidenceReference,
+  type GateSkipDescriptor,
 } from './gate-utils.js';
 
 const GATE_RUNNER_VERSION = '2.12.0';
@@ -131,6 +133,14 @@ export const GATE_RUNNER_GATE_LAYER = 'verification-ladder';
  * A task-kind subject stamps `details.taskId` so the per-task reader matches it;
  * any other subject kind (commit/artifact/…) deliberately omits it and reads as
  * a project-wide gate, matching the documented tolerant-reader contract (#1189).
+ *
+ * DR-7 — a SKIPPED gate says so in `details`. The retired `emitPolicySkipIfNeeded`
+ * stamped `skipped` + `discriminant` on the rows it minted; the runner that
+ * replaced it carried neither, so "the policy routed this gate out of the
+ * sequence" and "the gate ran" were indistinguishable to every reader of the
+ * durable log. `skip` is read from the SAME carrier the verdict is derived from
+ * ({@link readGateSkipDescriptor}), so the row's `passed:false` and its
+ * `details.skipped:true` cannot tell different stories.
  */
 async function appendGateExecutedSignal(
   eventStore: Pick<EventStore, 'append' | 'query'>,
@@ -138,6 +148,7 @@ async function appendGateExecutedSignal(
   operationId: string,
   provider: GateProvider,
   record: AdmissionEvidenceRecorded,
+  skip: GateSkipDescriptor | undefined,
 ): Promise<void> {
   const { evidence } = record;
   const subject = evidence.subject;
@@ -161,6 +172,7 @@ async function appendGateExecutedSignal(
           evidenceId: evidence.evidenceId,
           phaseAttemptId: evidence.phaseAttemptId,
           requirementId: evidence.requirementId,
+          ...(skip === undefined ? {} : skip),
         },
       },
     },
@@ -405,6 +417,7 @@ export async function runGate(
           operationId,
           provider,
           sameOperation.record,
+          readGateSkipDescriptor(providerResult),
         );
       }
       return attachGateEvidence(providerResult, [
@@ -501,6 +514,7 @@ export async function runGate(
         operationId,
         provider,
         persistedRecord,
+        readGateSkipDescriptor(providerResult),
       );
     }
     return attachGateEvidence(providerResult, [

@@ -16,8 +16,7 @@
     "generate:docs": "tsx scripts/generate-docs.ts",
     "generate:agents": "tsx src/agents/generate-agents.ts",
     "vendor:sync:pm-detector": "tsx scripts/sync-vendor-pm-detector.ts",
-    "vendor:check:pm-detector": "tsx scripts/sync-vendor-pm-detector.ts --check",
-    "postinstall": "patch-package"
+    "vendor:check:pm-detector": "tsx scripts/sync-vendor-pm-detector.ts --check"
   },
   "dependencies": {
     "@modelcontextprotocol/client": "2.0.0",
@@ -25,7 +24,6 @@
     "@modelcontextprotocol/server": "2.0.0",
     "commander": "^14.0.3",
     "gray-matter": "^4.0.3",
-    "patch-package": "^8.0.1",
     "pino": "^10.3.1",
     "yaml": "^2.8.2",
     "yazl": "3.3.1",

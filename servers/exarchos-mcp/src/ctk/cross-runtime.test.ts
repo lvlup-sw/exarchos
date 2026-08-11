@@ -94,13 +94,31 @@ describe('admission decision cross-runtime parity (exit-proof d, cross-runtime l
     expect(b).toBe(a);
   });
 
-  it.skipIf(BUN_EXECUTABLE === null)(
-    'CorpusDigest_MatchesAcrossNodeAndBun',
-    () => {
-      const nodeDigest = corpusDigest(admissionScenarioCorpus);
-      // BUN_EXECUTABLE is non-null in this branch (skipIf guards it).
-      const bunDigest = runBunDigest(BUN_EXECUTABLE as string);
-      expect(bunDigest).toBe(nodeDigest);
-    },
-  );
+  // DR-7 (task 078) — this test used to carry `skipIf(BUN_EXECUTABLE === null)`.
+  // It is the ONLY leg that crosses a runtime boundary, so skipping it left the
+  // file asserting nothing but `corpusDigest(x) === corpusDigest(x)` under Node,
+  // while the suite still reported success: a cross-runtime parity proof that
+  // had quietly stopped being cross-runtime.
+  //
+  // `bun` is not an optional convenience here. It is a documented build
+  // prerequisite (`npm run build`, `build:binary`, `build:release-verifier` all
+  // shell out to it) and every CI lane that runs this suite installs it via
+  // `oven-sh/setup-bun`. Its absence is therefore an ENVIRONMENT DEFECT, and
+  // the honest response is to say so — not to silently degrade the proof.
+  it('CorpusDigest_MatchesAcrossNodeAndBun', () => {
+    expect(
+      BUN_EXECUTABLE,
+      'bun is unavailable, so the only cross-runtime leg of this parity proof cannot run. ' +
+        'bun is a documented build prerequisite (npm run build shells out to it) and every CI ' +
+        'lane hosting this suite installs it — its absence is an environment defect, not a ' +
+        'reason to skip. Install bun (https://bun.sh) and re-run.',
+    ).not.toBeNull();
+
+    const nodeDigest = corpusDigest(admissionScenarioCorpus);
+    const bunDigest = runBunDigest(BUN_EXECUTABLE as string);
+    expect(bunDigest).toBe(nodeDigest);
+    // Pin that the digest actually crossed the boundary rather than defaulting
+    // to something trivially equal on both sides.
+    expect(bunDigest).toMatch(/^[a-f0-9]{64}$/);
+  }, 120_000);
 });

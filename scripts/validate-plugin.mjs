@@ -33,6 +33,20 @@
  * same tooth rejects a policy whose `expected` and `retired` hook sets overlap:
  * the run would then be self-contradictory rather than merely empty.
  *
+ * ── Strict schema (task 085) ────────────────────────────────────────────────
+ * The interpreter reads every family through `policy.<key> ?? []`, so an
+ * unrecognised key is not a name it fails on — it is a family it never looks
+ * for. A single mistyped `requiredFiles` -> `requiredfiles` silently drops every
+ * check in that family, and the non-empty tooth above cannot see it: it fires
+ * only when ALL families vanish at once. Measured on this tree, three declared
+ * families were dropped and the gate still exited 0 with a clean report.
+ *
+ * So the policy is validated against a CLOSED key set before it is interpreted,
+ * at every level including array entries, and anything outside it is a
+ * `[policy-unknown-key]` violation. The schema below is the only place a key is
+ * named; adding a family means adding it there and in the interpreter, which is
+ * the coupling that makes the drop impossible rather than merely unlikely.
+ *
  * Usage: validate-plugin.mjs [--repo-root <path>] [--policy <path>] [--json]
  *
  * Exit codes:
@@ -117,6 +131,165 @@ function provenance(entry) {
 }
 
 /**
+ * The CLOSED key set of the packaging policy, at every level.
+ *
+ * `object` maps a key to a nested shape; `entries` describes the objects inside
+ * an array-valued key. Every key the interpreter below reads appears here, and
+ * nothing else is admitted — see the header's "Strict schema" note for why a
+ * silently-ignored key is the failure mode this closes.
+ *
+ * `$comment` is admitted at the root only: it is the file's own prose channel
+ * and carries no policy.
+ */
+const POLICY_SCHEMA = {
+  keys: {
+    $comment: { type: 'array' },
+    manifest: {
+      type: 'object',
+      keys: {
+        path: { type: 'string' },
+        requiredFields: { type: 'array', entryKeys: ['field', 'because', 'decidedIn'], requires: 'field' },
+        forbiddenFields: { type: 'array', entryKeys: ['field', 'because', 'decidedIn'], requires: 'field' },
+        mcpServers: {
+          type: 'object',
+          keys: {
+            field: { type: 'string' },
+            expected: { type: 'array', entryKeys: ['name', 'because', 'decidedIn'], requires: 'name' },
+            exact: { type: 'boolean' },
+            exactBecause: { type: 'string' },
+          },
+        },
+      },
+    },
+    requiredDirs: { type: 'array', entryKeys: ['path', 'because', 'decidedIn'], requires: 'path' },
+    requiredFiles: { type: 'array', entryKeys: ['path', 'because', 'decidedIn'], requires: 'path' },
+    forbiddenFiles: { type: 'array', entryKeys: ['path', 'because', 'decidedIn'], requires: 'path' },
+    hooks: {
+      type: 'object',
+      keys: {
+        path: { type: 'string' },
+        expected: { type: 'array', entryKeys: ['type', 'because', 'decidedIn'], requires: 'type' },
+        retired: { type: 'array', entryKeys: ['type', 'because', 'decidedIn'], requires: 'type' },
+        forbiddenTokens: { type: 'array', entryKeys: ['token', 'because', 'decidedIn'], requires: 'token' },
+        exact: { type: 'boolean' },
+        exactBecause: { type: 'string' },
+      },
+    },
+  },
+};
+
+/** The JSON type name of `value`, using `array` and `null` rather than `object`. */
+function jsonTypeOf(value) {
+  if (value === null) return 'null';
+  if (Array.isArray(value)) return 'array';
+  return typeof value;
+}
+
+/**
+ * The entries of a family, or none.
+ *
+ * `for (const entry of policy.requiredFiles ?? [])` throws a TypeError on a
+ * family declared as an object — an unhandled crash where the schema has already
+ * recorded a `[policy-type]` violation. The interpreter yields nothing for a
+ * malformed family and lets the violation carry the verdict, so the report stays
+ * complete instead of stopping at the first bad key.
+ */
+function entriesOf(value) {
+  if (!Array.isArray(value)) return [];
+  // Drop entries that are not objects. `validatePolicyShape` has already
+  // recorded a `[policy-type]` violation for each of them, so the run fails
+  // either way — but it must fail with that violation rather than with a
+  // TypeError from `entry.path` three functions later. Accumulating every
+  // violation is the whole discipline here; crashing reports exactly one.
+  return value.filter((entry) => entry !== null && typeof entry === 'object' && !Array.isArray(entry));
+}
+
+/**
+ * Check `node` against `shape`, pushing a violation for every key the schema
+ * does not admit and every value whose type it does not expect.
+ *
+ * Recursive over nested objects and array entries so a typo cannot hide one
+ * level down — `hooks.retried` drops the retired-hook family exactly as
+ * completely as a root-level typo drops `requiredFiles`.
+ *
+ * @param {unknown} node
+ * @param {object} shape
+ * @param {string} where  Dotted path for the message, e.g. `manifest.mcpServers`.
+ * @param {string[]} violations
+ */
+function validatePolicyShape(node, shape, where, violations) {
+  if (node === null || typeof node !== 'object' || Array.isArray(node)) {
+    violations.push(
+      `[policy-type]  \`${where}\` must be an object, found ${jsonTypeOf(node)}`,
+    );
+    return;
+  }
+
+  const known = Object.keys(shape.keys);
+  for (const [key, value] of Object.entries(node)) {
+    const at = where === '' ? key : `${where}.${key}`;
+    const spec = shape.keys[key];
+    if (spec === undefined) {
+      violations.push(
+        `[policy-unknown-key]  \`${at}\` is not a key this gate interprets. Every family is ` +
+          `read as \`policy.<key> ?? []\`, so an unrecognised key is not a name the gate fails ` +
+          `on — it is a family the gate never looks for, and its checks vanish silently. ` +
+          `Known here: ${known.join(', ')}.`,
+      );
+      continue;
+    }
+
+    const actual = jsonTypeOf(value);
+    if (actual !== spec.type) {
+      violations.push(
+        `[policy-type]  \`${at}\` must be ${spec.type}, found ${actual}. A family of the wrong ` +
+          'type contributes no checks, which reads identical to a family that passed.',
+      );
+      continue;
+    }
+
+    if (spec.type === 'object') {
+      validatePolicyShape(value, spec, at, violations);
+    } else if (spec.type === 'array' && spec.entryKeys !== undefined) {
+      value.forEach((entry, index) => {
+        const entryAt = `${at}[${index}]`;
+        if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
+          violations.push(
+            `[policy-type]  \`${entryAt}\` must be an object, found ${jsonTypeOf(entry)}`,
+          );
+          return;
+        }
+        for (const [entryKey, entryValue] of Object.entries(entry)) {
+          if (!spec.entryKeys.includes(entryKey)) {
+            violations.push(
+              `[policy-unknown-key]  \`${entryAt}.${entryKey}\` is not a key this gate ` +
+                `interprets. Known here: ${spec.entryKeys.join(', ')}.`,
+            );
+            continue;
+          }
+          // Membership alone is not shape. Every entry key this gate defines is
+          // string-valued, and `because` / `decidedIn` carry the provenance the
+          // failure message prints — a number there renders as "1" and reads
+          // like a citation nobody can follow.
+          if (typeof entryValue !== 'string') {
+            violations.push(
+              `[policy-type]  \`${entryAt}.${entryKey}\` must be string, found ` +
+                `${jsonTypeOf(entryValue)}.`,
+            );
+          }
+        }
+        if (typeof entry[spec.requires] !== 'string') {
+          violations.push(
+            `[policy-incomplete]  \`${entryAt}\` does not declare \`${spec.requires}\`, so the ` +
+              'entry names no subject and its check would assert about nothing.',
+          );
+        }
+      });
+    }
+  }
+}
+
+/**
  * Evaluate a packaging policy against a tree.
  *
  * Pure: every filesystem touch goes through `tree`. Returns the full check list
@@ -126,8 +299,9 @@ function provenance(entry) {
  * @param {unknown} policy
  * @param {TreeReader} tree
  * @returns {{ checks: CheckResult[], violations: string[] }}
- *   `violations` holds structural problems with the POLICY itself (empty,
- *   self-contradictory), which are distinct from a failing check.
+ *   `violations` holds structural problems with the POLICY itself (unknown key,
+ *   wrong type, empty, self-contradictory), which are distinct from a failing
+ *   check.
  */
 export function evaluatePackaging(policy, tree) {
   /** @type {CheckResult[]} */
@@ -141,6 +315,10 @@ export function evaluatePackaging(policy, tree) {
     violations.push('[policy-unreadable]  the packaging policy is not a JSON object');
     return { checks, violations };
   }
+
+  // Before interpreting: every key must be one this gate acts on. A key it does
+  // not recognise is a family it will never look for.
+  validatePolicyShape(policy, POLICY_SCHEMA, '', violations);
 
   // ── plugin.json ───────────────────────────────────────────────────────────
   const manifestSpec = policy.manifest ?? {};
@@ -157,7 +335,7 @@ export function evaluatePackaging(policy, tree) {
       parsed.error,
     );
 
-    for (const entry of manifestSpec.requiredFields ?? []) {
+    for (const entry of entriesOf(manifestSpec.requiredFields)) {
       const field = entry.field;
       const present = manifest !== undefined && manifest !== null && manifest[field] !== undefined;
       add(
@@ -168,7 +346,7 @@ export function evaluatePackaging(policy, tree) {
       );
     }
 
-    for (const entry of manifestSpec.forbiddenFields ?? []) {
+    for (const entry of entriesOf(manifestSpec.forbiddenFields)) {
       const field = entry.field;
       const present = manifest !== undefined && manifest !== null && manifest[field] !== undefined;
       add(
@@ -186,7 +364,7 @@ export function evaluatePackaging(policy, tree) {
         manifest !== null && typeof manifest === 'object' ? manifest?.[field] : undefined;
       const names =
         servers !== null && typeof servers === 'object' ? Object.keys(servers) : undefined;
-      for (const entry of serversSpec.expected ?? []) {
+      for (const entry of entriesOf(serversSpec.expected)) {
         const present = names?.includes(entry.name) === true;
         add(
           `manifest.mcp-server.${entry.name}`,
@@ -196,7 +374,7 @@ export function evaluatePackaging(policy, tree) {
         );
       }
       if (serversSpec.exact === true) {
-        const expected = (serversSpec.expected ?? []).map((e) => e.name).sort();
+        const expected = entriesOf(serversSpec.expected).map((e) => e.name).sort();
         const actual = [...(names ?? [])].sort();
         const same = actual.length === expected.length && actual.every((n, i) => n === expected[i]);
         add(
@@ -212,7 +390,7 @@ export function evaluatePackaging(policy, tree) {
   }
 
   // ── Referenced directories / files ────────────────────────────────────────
-  for (const entry of policy.requiredDirs ?? []) {
+  for (const entry of entriesOf(policy.requiredDirs)) {
     const ok = tree.dirExists(entry.path);
     add(
       `dir.${entry.path}`,
@@ -222,7 +400,7 @@ export function evaluatePackaging(policy, tree) {
     );
   }
 
-  for (const entry of policy.requiredFiles ?? []) {
+  for (const entry of entriesOf(policy.requiredFiles)) {
     const ok = tree.fileExists(entry.path);
     add(
       `file.${entry.path}`,
@@ -232,7 +410,7 @@ export function evaluatePackaging(policy, tree) {
     );
   }
 
-  for (const entry of policy.forbiddenFiles ?? []) {
+  for (const entry of entriesOf(policy.forbiddenFiles)) {
     const present = tree.fileExists(entry.path);
     add(
       `forbidden-file.${entry.path}`,
@@ -243,11 +421,14 @@ export function evaluatePackaging(policy, tree) {
   }
 
   // ── hooks/hooks.json ──────────────────────────────────────────────────────
+  // Same reasoning as `entriesOf`: a `hooks` that is null, an array, or a
+  // scalar has already been recorded as a `[policy-type]` violation. Reading
+  // `.path` off it here would replace that message with a stack trace.
   const hooksSpec = policy.hooks;
-  if (hooksSpec !== undefined) {
+  if (hooksSpec !== null && typeof hooksSpec === 'object' && !Array.isArray(hooksSpec)) {
     const hooksPath = hooksSpec.path;
-    const expectedTypes = (hooksSpec.expected ?? []).map((e) => e.type);
-    const retiredTypes = (hooksSpec.retired ?? []).map((e) => e.type);
+    const expectedTypes = entriesOf(hooksSpec.expected).map((e) => e.type);
+    const retiredTypes = entriesOf(hooksSpec.retired).map((e) => e.type);
     const overlap = expectedTypes.filter((t) => retiredTypes.includes(t));
     if (overlap.length > 0) {
       violations.push(
@@ -271,7 +452,7 @@ export function evaluatePackaging(policy, tree) {
       parsed.error ?? (declared === undefined ? 'no `hooks` object at the document root' : undefined),
     );
 
-    for (const entry of hooksSpec.expected ?? []) {
+    for (const entry of entriesOf(hooksSpec.expected)) {
       const present = declared?.includes(entry.type) === true;
       add(
         `hooks.expected.${entry.type}`,
@@ -281,7 +462,7 @@ export function evaluatePackaging(policy, tree) {
       );
     }
 
-    for (const entry of hooksSpec.retired ?? []) {
+    for (const entry of entriesOf(hooksSpec.retired)) {
       const present = declared?.includes(entry.type) === true;
       add(
         `hooks.retired.${entry.type}`,
@@ -303,7 +484,7 @@ export function evaluatePackaging(policy, tree) {
       );
     }
 
-    for (const entry of hooksSpec.forbiddenTokens ?? []) {
+    for (const entry of entriesOf(hooksSpec.forbiddenTokens)) {
       // Read as TEXT: a placeholder can hide in any string value, and the point
       // is that it never reaches a consumer's machine in ANY position.
       let raw = parsed.raw;

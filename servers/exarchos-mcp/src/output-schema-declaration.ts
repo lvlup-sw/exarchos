@@ -202,14 +202,42 @@ export const CappedDataSchema = z
  * spell `withCappedShape(...)` — and it is now true by construction, because
  * this is the only branding path that does not go through the allowlist.
  *
- * No-op passthrough for a schema whose success-branch `data` cannot be
- * extracted; such a schema is not made substantive by being passed here, and
- * the census will still classify it vacuous (and the allowlist audit will then
- * demand a waiver it does not have).
+ * TASK 092 — DECISION: a non-envelope `outputSchema` is REJECTED OUTRIGHT, not
+ * branded unchecked. The H1 repair (task 060-adjacent) added the totality
+ * throw below but reached it only through `baseData`, so a schema
+ * `extractEnvelopeDataSchema` cannot read (i.e. not `EnvelopeSchema(...)`)
+ * returned early with a brand and no check at all — `withCappedShape(z.unknown())`
+ * and `withCappedShape(z.any())` were both silently ACCEPTED while the two
+ * envelope-wrapped equivalents were correctly refused. That is DR-8's shape
+ * one layer in: a guard whose subject (the envelope's `data` branch) is
+ * narrower than its claim ("mints substance, so it must refuse to mint it out
+ * of nothing" — a claim about the whole `outputSchema`, not just the
+ * envelope-shaped slice of it).
+ *
+ * Hoisting `acceptsEveryValue` above the early return was the other option and
+ * was rejected: this constructor's entire documented job is widening an
+ * `EnvelopeSchema(...)` `data` branch with {@link CappedDataSchema}, and a
+ * non-envelope schema has no `data` branch to widen. A hoisted check would
+ * still brand-and-return a non-total-but-non-envelope schema (e.g. a bare
+ * `z.object(...)`) having done none of that widening — same lie, narrower
+ * trigger. Measured on the live registry (12 call sites, `registry.ts` +
+ * `views/lifecycle/{inspect,export}.ts`): every one already passes
+ * `EnvelopeSchema(...)`, so rejecting the non-envelope shape breaks nothing
+ * live and closes the path structurally rather than resting on "nothing
+ * currently constructs one" (DR-4/DR-10 already rejected that argument once).
  */
 export function withCappedShape(outputSchema: z.ZodType): DeclaredOutputSchema {
   const baseData = extractEnvelopeDataSchema(outputSchema);
-  if (baseData === undefined) return declareOutputSchema(outputSchema);
+  if (baseData === undefined) {
+    throw new Error(
+      'withCappedShape: refusing a non-envelope `outputSchema` — ' +
+        '`extractEnvelopeDataSchema` found no `data` branch to widen with ' +
+        'CappedDataSchema, so this constructor cannot do the job it exists to ' +
+        'do. Wrap the schema in EnvelopeSchema(<data schema>) first, or if the ' +
+        'declaration is genuinely vacuous, record the debt with ' +
+        'vacuityWaiver(<id>) so it stays on the shrink-only allowlist.',
+    );
+  }
 
   // Refuse a base that already accepts everything. Widening a total `data` into
   // `z.union([total, capped])` leaves it total while changing its outermost node

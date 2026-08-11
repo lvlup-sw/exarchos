@@ -1009,8 +1009,9 @@ export function isTestArtifact(path: string): boolean {
 // ─── Channel 3: runnable gates with a co-located self-test ───────────────────
 
 /**
- * True iff the module has a STATEMENT-LEVEL `process.exit(…)` — one not nested
- * inside a function body, so it executes on load and can fail a build.
+ * True iff the module has a STATEMENT-LEVEL exit entrypoint — `process.exit(…)`
+ * or `process.exitCode = …`, either one not nested inside a function body, so
+ * it executes on load and can fail a build.
  *
  * A real parse, deliberately: `cli-derivation-guard.ts` records that a naive
  * `/\.command\(/` over the very file it governs reports 15 sites instead of 14
@@ -1044,14 +1045,32 @@ export function hasDirectRunExit(source: string, fileName: string): boolean {
     }
     return false;
   };
+  /** `process.exit` / `process.exitCode`, as a property access off `process`. */
+  const isProcessMember = (node: ts.Node, member: string): boolean =>
+    ts.isPropertyAccessExpression(node) &&
+    node.name.text === member &&
+    ts.isIdentifier(node.expression) &&
+    node.expression.text === 'process';
+
   const visit = (node: ts.Node): void => {
     if (found) return;
     if (
       ts.isCallExpression(node) &&
-      ts.isPropertyAccessExpression(node.expression) &&
-      node.expression.name.text === 'exit' &&
-      ts.isIdentifier(node.expression.expression) &&
-      node.expression.expression.text === 'process' &&
+      isProcessMember(node.expression, 'exit') &&
+      !insideFunction(node)
+    ) {
+      found = true;
+      return;
+    }
+    // `process.exitCode = runGuard()` is the same entrypoint with the flush
+    // hazard removed, so it has to classify the same way. Detecting only the
+    // call form would quietly demote a guard to "not a gate" the moment it
+    // stopped truncating its own diagnostics — the inventory would report the
+    // safer spelling as an absence.
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      isProcessMember(node.left, 'exitCode') &&
       !insideFunction(node)
     ) {
       found = true;

@@ -32,6 +32,13 @@
 // and exercised against BOTH populations — v1-present and v1-absent — before
 // being applied to the live tree. Without that, the death-condition arm would
 // be vacuous today (v1 is present) and would assert nothing at all.
+//
+// The SAME discipline governs the TOOLING (task 085). `patch-package` and its
+// `postinstall` hook are present exactly while there is a patch to apply. This
+// file used to mandate both unconditionally, on the premise "patches/ exists but
+// nothing applies it" — false since task 049 deleted the last patch, so it was
+// requiring a runtime dependency and an install hook to apply nothing, on every
+// install of the published package. See `checkPatchToolingLifetime`.
 
 /**
  * DR-30 authorities. The lifetime rule is a pure function over two sources,
@@ -188,6 +195,111 @@ export function checkPatchLifetime(
   return findings;
 }
 
+type PatchToolingCode =
+  | 'PATCH_TOOLING_MISSING'
+  | 'PATCH_TOOLING_NOT_INVOKED'
+  | 'ORPHAN_PATCH_TOOLING'
+  | 'ORPHAN_PATCH_INVOCATION';
+
+interface PatchToolingFinding {
+  readonly code: PatchToolingCode;
+  readonly message: string;
+}
+
+/**
+ * True iff `script` actually RUNS `patch-package` and lets its failure surface.
+ *
+ * A substring test is not an invocation test: `echo patch-package` names it
+ * without running it, and `patch-package || true` runs it while discarding the
+ * very exit status the check exists to preserve. Both spellings satisfy
+ * `includes('patch-package')` while leaving patches unapplied or their failures
+ * swallowed — the silent-wire regression this whole policy is about.
+ *
+ * So the script is split into sequential segments and the COMMAND WORD of each
+ * is compared, after stepping over an `npx` prefix and its flags. Any `|` at all
+ * disqualifies the script: both `||` (fallback) and a plain pipe (status of the
+ * last stage) replace patch-package's exit status with something else's.
+ */
+export function invokesPatchPackage(script: unknown): boolean {
+  if (typeof script !== 'string') return false;
+  if (script.includes('|')) return false;
+  return script
+    .split(/&&|;/)
+    .map((segment) => segment.trim())
+    .some((segment) => {
+      const words = segment.split(/\s+/).filter((word) => word.length > 0);
+      let index = 0;
+      if (words[index] === 'npx') {
+        index += 1;
+        while (words[index]?.startsWith('-')) index += 1;
+      }
+      return words[index] === 'patch-package';
+    });
+}
+
+/**
+ * Decide whether `patch-package` and the patch population agree about each
+ * other's existence.
+ *
+ * The same lifetime discipline the patch itself is held to, applied to the thing
+ * that applies it. Patches with no tooling is the silent wire regression —
+ * a patch file sitting in the tree that nothing ever applies. Tooling with no
+ * patches is dead weight that runs on every install of the published package to
+ * do nothing, and it is the state this repo was in: `postinstall: patch-package`
+ * plus a RUNTIME dependency, for a `patches/` directory that does not exist.
+ *
+ * Pure over its three inputs so both populations can be driven synthetically —
+ * the live tree can only ever be one of them.
+ */
+export function checkPatchToolingLifetime(
+  patchFilenames: readonly string[],
+  dependencies: Readonly<Record<string, string>>,
+  scripts: Readonly<Record<string, unknown>>,
+): readonly PatchToolingFinding[] {
+  const findings: PatchToolingFinding[] = [];
+  const installed = dependencies['patch-package'] !== undefined;
+  const invoked = invokesPatchPackage(scripts['postinstall']);
+
+  if (patchFilenames.length > 0) {
+    if (!installed) {
+      findings.push({
+        code: 'PATCH_TOOLING_MISSING',
+        message:
+          `${patchFilenames.length} patch file(s) exist but patch-package is not a dependency. ` +
+          'An unapplied patch is indistinguishable on the wire from no patch at all.',
+      });
+    }
+    if (!invoked) {
+      findings.push({
+        code: 'PATCH_TOOLING_NOT_INVOKED',
+        message:
+          `${patchFilenames.length} patch file(s) exist but no postinstall script runs ` +
+          'patch-package, so nothing applies them.',
+      });
+    }
+    return findings;
+  }
+
+  if (installed) {
+    findings.push({
+      code: 'ORPHAN_PATCH_TOOLING',
+      message:
+        'patch-package is a dependency with no patches to apply. It shipped to every consumer ' +
+        'of the published package to do nothing — drop it, and restore it with the patch if one ' +
+        'is ever needed again.',
+    });
+  }
+  if (invoked) {
+    findings.push({
+      code: 'ORPHAN_PATCH_INVOCATION',
+      message:
+        'postinstall runs patch-package with no patches to apply. Every install pays for a ' +
+        'no-op, and the hook reads as evidence that patching is live when it is not.',
+    });
+  }
+  return findings;
+}
+
 describe('DR-0 / task 050 — SDK patch lifetime policy', () => {
   /**
    * The rule itself, driven over populations the live tree cannot supply today.
@@ -293,22 +405,93 @@ describe('DR-0 / task 050 — SDK patch lifetime policy', () => {
   });
 
   /**
-   * `patch-package` only runs if it is wired to run. A patch file that is never
-   * applied is indistinguishable, on the wire, from no patch at all.
+   * The TOOLING follows the patch population, in both directions.
+   *
+   * This arm used to assert unconditionally that `patch-package` was a runtime
+   * dependency and that `postinstall` invoked it, on the premise "patches/ exists
+   * but nothing applies it". That premise had been false since task 049 deleted
+   * the last patch: `patches/` does not exist and v1 is gone, so the assertion was
+   * mandating tooling for a population of zero — a runtime dependency and a
+   * postinstall hook that run on every install of the published package to apply
+   * nothing.
+   *
+   * The rule the file already applies to the patch itself applies to the tooling:
+   * present exactly while it has work. Both arms are exercised synthetically
+   * because the live tree can only ever supply one of them.
    */
-  it('PatchLifetime_PatchPackage_IsInstalledAndWiredToPostinstall', () => {
-    const pkg = readPackageJson();
-    const dependencies = readDependencies();
-    expect(dependencies['patch-package']).toBeDefined();
+  it('CheckPatchToolingLifetime_BothPopulations_AreJudged', () => {
+    const wired = { 'patch-package': '^8.0.1' };
+    const invoking = { postinstall: 'patch-package' };
 
+    // NEGATIVE TWIN — agreement is silent in both directions.
+    expect(checkPatchToolingLifetime(['x+1.0.0.patch'], wired, invoking)).toEqual([]);
+    expect(checkPatchToolingLifetime([], {}, {})).toEqual([]);
+
+    // Patches exist and nothing applies them: the wire regression with a patch
+    // file still in the tree to reassure the reader.
+    expect(checkPatchToolingLifetime(['x+1.0.0.patch'], {}, {}).map((f) => f.code)).toEqual([
+      'PATCH_TOOLING_MISSING',
+      'PATCH_TOOLING_NOT_INVOKED',
+    ]);
+
+    // No patches and the tooling is still installed and still running: dead
+    // tooling on every install of the published package.
+    expect(checkPatchToolingLifetime([], wired, invoking).map((f) => f.code)).toEqual([
+      'ORPHAN_PATCH_TOOLING',
+      'ORPHAN_PATCH_INVOCATION',
+    ]);
+  });
+
+  it('InvokesPatchPackage_NamingItIsNotRunningIt', () => {
+    // The check used to be `includes('patch-package')`, which is satisfied by a
+    // script that never runs it and by one that runs it and throws the result
+    // away. Both leave the wire in exactly the state this policy forbids, and
+    // both read green.
+    const wired = { 'patch-package': '^8.0.1' };
+    const notInvoked = (postinstall: string): string[] =>
+      checkPatchToolingLifetime(['x+1.0.0.patch'], wired, { postinstall }).map((f) => f.code);
+
+    // Named, never executed.
+    expect(invokesPatchPackage('echo patch-package')).toBe(false);
+    expect(invokesPatchPackage('# patch-package runs here')).toBe(false);
+    expect(notInvoked('echo patch-package')).toEqual(['PATCH_TOOLING_NOT_INVOKED']);
+
+    // Executed, but its failure is discarded — the patch can fail and install
+    // still succeeds, which is the regression wearing a green tick.
+    expect(invokesPatchPackage('patch-package || true')).toBe(false);
+    expect(invokesPatchPackage('patch-package | tee log')).toBe(false);
+    expect(notInvoked('patch-package || true')).toEqual(['PATCH_TOOLING_NOT_INVOKED']);
+
+    // …and the forms that genuinely run it and let it fail still pass, so the
+    // predicate is not merely stricter than the substring test — it is right.
+    expect(invokesPatchPackage('patch-package')).toBe(true);
+    expect(invokesPatchPackage('npx patch-package')).toBe(true);
+    expect(invokesPatchPackage('npx --no-install patch-package')).toBe(true);
+    expect(invokesPatchPackage('npm run build && patch-package')).toBe(true);
+    expect(invokesPatchPackage('patch-package --error-on-fail')).toBe(true);
+    expect(invokesPatchPackage(undefined)).toBe(false);
+  });
+
+  it('PatchLifetime_LiveTree_CarriesNoToolingForAnEmptyPatchSet', () => {
+    const pkg = readPackageJson();
     const scripts = pkg['scripts'];
     expect(isRecord(scripts)).toBe(true);
     if (!isRecord(scripts)) throw new Error('package.json scripts is not an object');
-    const postinstall = scripts['postinstall'];
-    expect(
-      postinstall,
-      'patches/ exists but nothing applies it — postinstall must run patch-package',
-    ).toBe('patch-package');
+
+    const dependencies = readDependencies();
+    // Anti-vacuity on the manifest read, same tooth as the arm above.
+    expect(Object.keys(dependencies).length).toBeGreaterThan(0);
+    expect(Object.keys(scripts).length).toBeGreaterThan(0);
+
+    const patches = readPatchFilenames();
+    expect(checkPatchToolingLifetime(patches, dependencies, scripts)).toEqual([]);
+
+    // The live state, named rather than inferred from a clean verdict: no
+    // patches, so no tooling. If a patch is ever reintroduced, the rule above
+    // requires both halves back and this expectation is what fails first.
+    expect(patches).toEqual([]);
+    expect(dependencies['patch-package']).toBeUndefined();
+    expect(scripts['postinstall']).toBeUndefined();
   });
 
   /**

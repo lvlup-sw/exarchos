@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { rehydrationReducer } from './reducer.js';
 import { RehydrationDocumentSchema } from './schema.js';
-import type { WorkflowEvent } from '../../event-store/schemas.js';
+import { EventTypes, type WorkflowEvent } from '../../event-store/schemas.js';
 
 /**
  * Helper — build a minimal, schema-coherent WorkflowEvent. Only the fields the
@@ -537,13 +537,26 @@ describe('rehydration reducer — blockers fold (T025, DR-3)', () => {
 
 // Decisions — no decision-producing event type is registered in the
 // event-store (no `decision.*` namespace, and `state.patched` does not surface
-// a canonical decisions subtree). Per the task spec, this sub-test is skipped
-// and the gap is documented in the completion report. If a decisions event
-// type is added later (e.g. `decision.recorded`), a follow-up task should
-// extend the reducer.
-describe.skip('rehydration reducer — decisions fold (T025, DR-3) — SKIPPED: no registered event source', () => {
-  it.skip('no registered event currently produces decisions', () => {
-    // placeholder
+// a canonical decisions subtree), so there is nothing for a decisions fold to
+// consume and nothing to assert about it.
+//
+// DR-7 (task 078): this was a `describe.skip` wrapping an `it.skip` placeholder
+// — a suite that could not fail, whose justification lived only in the comment
+// above it. The justification is a CLAIM ABOUT THE TREE, and claims about the
+// tree are checkable. So instead of skipping, assert the premise: the day a
+// `decision.*` event type is registered, this goes red and the reducer's
+// missing fold becomes visible, rather than the skip quietly outliving its
+// reason.
+describe('rehydration reducer — decisions fold (T025, DR-3)', () => {
+  it('RehydrationReducer_DecisionsFold_HasNoRegisteredEventSourceToFold', () => {
+    const decisionEvents = EventTypes.filter((type) => type.startsWith('decision.'));
+    expect(
+      decisionEvents,
+      `A 'decision.*' event type is now registered (${decisionEvents.join(', ')}). The ` +
+        `rehydration reducer has no decisions fold — it was omitted precisely because no ` +
+        `event produced decisions. Extend the reducer and replace this premise check with ` +
+        `real fold coverage.`,
+    ).toEqual([]);
   });
 });
 

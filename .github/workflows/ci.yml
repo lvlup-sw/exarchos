@@ -134,6 +134,28 @@ jobs:
       # (exercised by `scripts/build-binary.test.ts`).
       - run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
         working-directory: servers/exarchos-mcp
+
+      # DR-20 acceptance needs BOTH installer shells (task 078, DR-7).
+      # `scripts/installer-verify.test.ts` drives get-exarchos.sh under bash and
+      # get-exarchos.ps1 under pwsh; each absent shell silently dropped 11 tests
+      # while the run still reported success. This lane owns that suite, so it
+      # owns the prerequisite. PowerShell ships on the ubuntu-latest runner
+      # image — installing it here would be redundant, but ASSERTING it is not:
+      # an image change that drops pwsh must fail here with a legible message
+      # rather than reappear as a suite that quietly halves. The suite's own
+      # `InstallerVerify_ShellAbsent_FailsClosedRatherThanSkipping` is the
+      # backstop; this step just fails earlier and more clearly.
+      - name: Guard — both installer shells present (DR-20 acceptance)
+        run: |
+          missing=()
+          command -v bash >/dev/null 2>&1 || missing+=("bash")
+          command -v pwsh >/dev/null 2>&1 || command -v powershell >/dev/null 2>&1 || missing+=("pwsh")
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::${missing[*]} unavailable on this lane — the DR-20 installer acceptance suite would SKIP 11 tests per missing shell and still report success. Install it (ubuntu: https://learn.microsoft.com/powershell/scripting/install/install-ubuntu) rather than widening the waiver."
+            exit 1
+          fi
+          echo "installer shells present: bash=$(command -v bash) pwsh=$(command -v pwsh || command -v powershell)"
+
       - run: npm run typecheck
 
       # Windows-portability lint (#1623): editor-first ESLint rules, also run
@@ -362,7 +384,10 @@ jobs:
   test-windows:
     name: Windows Unit (MCP)
     needs: changes
-    if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && needs.changes.outputs.mcp == 'true'
+    # Always on a push to main, same baseline argument as Windows Unit (Root).
+    if: >-
+      (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request')
+      && (needs.changes.outputs.mcp == 'true' || github.event_name == 'push')
     runs-on: windows-latest
     defaults:
       run:
@@ -471,7 +496,15 @@ jobs:
   test-windows-root:
     name: Windows Unit (Root)
     needs: changes
-    if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && needs.changes.outputs.root == 'true'
+    # Path-filtered on PRs, but ALWAYS on a push to main (#1699). The filter
+    # skipped this lane on 4/4 recent main runs, so it had no green baseline and
+    # every PR failure was ambiguous by construction — indistinguishable between
+    # "this PR broke Windows" and "Windows was already red". A lane whose red is
+    # unattributable gets re-run until it passes, which is how a real regression
+    # would slip through. `push` only fires on main (see `on:` above).
+    if: >-
+      (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request')
+      && (needs.changes.outputs.root == 'true' || github.event_name == 'push')
     runs-on: windows-latest
     env:
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
@@ -1062,8 +1095,17 @@ jobs:
       # deps tail rather than the zero-dep prefix. Unfiltered on purpose: the
       # premises drift when the CODE changes, which is precisely the PR a
       # docs-path filter would skip.
+      #
+      # DR-7 (task 078): the gate has THREE verdicts and `gaps` now exits 3,
+      # distinct from pass (0) and fail (1) — it used to exit 0, so a run that
+      # printed `VERDICT: GAPS` was indistinguishable from a pass to this lane
+      # and to `npm run validate` alike. This lane still tolerates gaps, because
+      # 11 unprobed obligation rungs are real work rather than a broken gate —
+      # but the toleration is DECLARED, dated and enforced by the gate itself:
+      # past the date, gaps exit 1 and this step goes red. Drift, an empty
+      # denominator and an unannotated rung row still fail today, unchanged.
       - name: Measured-premise drift gate (DR-27)
-        run: node scripts/check-measured-premises.mjs
+        run: node scripts/check-measured-premises.mjs --tolerate-gaps-until 2026-11-30
 
       # Its own self-test on the same host (DR-24: "each guard's self-test runs
       # in the same CI job as the guard", so guard-execution failure cannot pass
@@ -1281,18 +1323,29 @@ jobs:
       # registry, derives each registration's coupling through the DR-2 tier
       # union, and holds the report-coupled population to a shrink-only seed
       # (membership + ISO expiry + a frozen key-set pin against in-place swaps).
-      # The census module is a pure library, so this test file IS the guard — and
-      # it carries the kill fixtures (a seeded 26th report-coupled registration,
-      # an emptied denominator, a seeded tier/source disagreement), which
-      # satisfies DR-24's "each guard's self-test runs in the same CI job as the
-      # guard" for free: guard-execution failure exits non-zero here rather than
-      # passing as success. Must be UNFILTERED — the co-located test would
-      # otherwise be hosted only by `test-mcp`, which is filtered on `mcp` and
-      # skips-as-passed on exactly the PRs #1711 describes. Rides the deps tail,
-      # not the zero-dep prefix: it resolves the MCP TypeScript source through
-      # the MCP vitest installed by the two steps above.
-      # See docs/guides/ci-gate-hosting.md.
-      - name: G3 report-coupled ratchet (DR-2, task 013)
+      #
+      # TWO steps, and the split is the point (task 085). The executable gate
+      # reads the wall clock; the library takes `today` as a required parameter
+      # and reads no clock at all. Before that split the clock lived inside the
+      # census, so the ENFORCED expiry would have reddened every developer's
+      # `vitest run` on 2027-03-01 — teaching people to fix the clock rather than
+      # the debt. The deadline now reddens the artifact that blocks a merge.
+      #
+      # Both must be UNFILTERED — their only other host is `test-mcp`, which is
+      # filtered on `mcp` and skips-as-passed on exactly the PRs #1711 describes.
+      # They ride the deps tail, not the zero-dep prefix: they resolve the MCP
+      # TypeScript source through the MCP vitest/tsx installed by the two steps
+      # above. See docs/guides/ci-gate-hosting.md.
+      - name: G3 report-coupled ratchet — executable gate (DR-2, task 013/085)
+        working-directory: servers/exarchos-mcp
+        run: npx --no-install tsx scripts/report-coupling-ratchet-guard.ts
+
+      # The kill fixtures (a seeded 26th report-coupled registration, an emptied
+      # denominator, a seeded tier/source disagreement, an in-place swap, a lapsed
+      # expiry) on the SAME host — DR-24's "each guard's self-test runs in the
+      # same CI job as the guard", so guard-execution failure exits non-zero here
+      # rather than passing as success.
+      - name: G3 report-coupled ratchet self-tests re-assert (DR-24, unfiltered)
         working-directory: servers/exarchos-mcp
         run: npx --no-install vitest run src/architecture/report-coupling-census.test.ts
 

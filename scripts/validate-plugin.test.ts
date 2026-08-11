@@ -250,6 +250,145 @@ describe('validate-plugin — non-empty denominator (task 064, DR-24)', () => {
   });
 });
 
+// ─── The strict schema (task 085) ───────────────────────────────────────────
+//
+// The interpreter reads each family as `policy.<key> ?? []`, so an unrecognised
+// key is not a name it fails on — it is a family it never looks for. The
+// non-empty tooth above only fires when ALL families vanish at once, so a single
+// typo silently drops one family's checks and the gate still exits 0.
+
+describe('validate-plugin — the policy is validated before it is interpreted', () => {
+  /** How many checks the shipped policy produces against a conforming tree. */
+  const baselineCheckCount = (): number =>
+    (evaluatePackaging(shippedPolicy(), memoryTree(conformingFiles())) as Report).checks.length;
+
+  it('ValidatePluginPolicy_UnknownTopLevelKey_IsReportedAsFinding', () => {
+    const policy = clone(shippedPolicy()) as Record<string, unknown>;
+    const before = baselineCheckCount();
+
+    // The exact typo: one character, one family gone.
+    policy['requiredfiles'] = policy['requiredFiles'];
+    delete policy['requiredFiles'];
+
+    const report: Report = evaluatePackaging(policy, memoryTree(conformingFiles()));
+
+    // The DEFECT, measured: checks really did disappear. Asserting this first
+    // means the violation below is attributable to a real loss of coverage
+    // rather than to a schema that objects to a harmless key.
+    expect(report.checks.length).toBeLessThan(before);
+    expect(report.checks.filter((c) => c.id.startsWith('file.'))).toEqual([]);
+
+    // And the gate now says so, by name, instead of exiting 0.
+    expect(report.violations.join('\n')).toContain('[policy-unknown-key]');
+    expect(report.violations.join('\n')).toContain('requiredfiles');
+    expect(isClean(report)).toBe(false);
+  });
+
+  it('ValidatePluginPolicy_ThreeDroppedFamilies_NoLongerExitZero', () => {
+    // The measured case from the finding: three families dropped at once, every
+    // remaining check still passing, so the non-empty tooth stays silent.
+    const policy = clone(shippedPolicy()) as Record<string, unknown>;
+    for (const [wrong, right] of [
+      ['requiredfiles', 'requiredFiles'],
+      ['requireddirs', 'requiredDirs'],
+      ['forbiddenfiles', 'forbiddenFiles'],
+    ]) {
+      policy[wrong] = policy[right];
+      delete policy[right];
+    }
+
+    const report: Report = evaluatePackaging(policy, memoryTree(conformingFiles()));
+    expect(report.checks.every((c) => c.passed)).toBe(true);
+    expect(report.checks.length).toBeGreaterThan(0);
+    expect(report.violations.filter((v) => v.includes('[policy-unknown-key]'))).toHaveLength(3);
+    expect(isClean(report)).toBe(false);
+  });
+
+  it('ValidatePluginPolicy_TypoOneLevelDown_IsAlsoReported', () => {
+    // A nested typo drops its family exactly as completely, so the schema is
+    // recursive rather than a root-level key list.
+    const nested = clone(shippedPolicy()) as { hooks: Record<string, unknown> };
+    nested.hooks['retried'] = nested.hooks['retired'];
+    delete nested.hooks['retired'];
+    const hooksReport: Report = evaluatePackaging(nested, memoryTree(conformingFiles()));
+    expect(hooksReport.violations.join('\n')).toContain('[policy-unknown-key]');
+    expect(hooksReport.violations.join('\n')).toContain('hooks.retried');
+    expect(hooksReport.checks.filter((c) => c.id.startsWith('hooks.retired.'))).toEqual([]);
+
+    // …and inside an array entry.
+    const entry = clone(shippedPolicy()) as { requiredFiles: Record<string, unknown>[] };
+    entry.requiredFiles[0]!['pth'] = entry.requiredFiles[0]!['path'];
+    delete entry.requiredFiles[0]!['path'];
+    const entryReport: Report = evaluatePackaging(entry, memoryTree(conformingFiles()));
+    expect(entryReport.violations.join('\n')).toContain('[policy-unknown-key]');
+    expect(entryReport.violations.join('\n')).toContain('requiredFiles[0].pth');
+    expect(entryReport.violations.join('\n')).toContain('[policy-incomplete]');
+    expect(isClean(entryReport)).toBe(false);
+  });
+
+  it('ValidatePluginPolicy_FamilyOfTheWrongType_IsReported', () => {
+    // A family declared as the wrong type contributes no checks, which reads
+    // identical to a family that passed.
+    const policy = clone(shippedPolicy()) as Record<string, unknown>;
+    policy['requiredFiles'] = {};
+    const report: Report = evaluatePackaging(policy, memoryTree(conformingFiles()));
+    expect(report.violations.join('\n')).toContain('[policy-type]');
+    expect(isClean(report)).toBe(false);
+  });
+
+  it('ValidatePluginPolicy_NonStringProvenance_IsReported', () => {
+    // Key membership is not shape. `because` and `decidedIn` are what the
+    // failure message prints as the citation, so a number there renders as a
+    // provenance nobody can follow — and used to pass the entry check silently.
+    const policy = clone(shippedPolicy()) as Record<string, unknown>;
+    (policy['requiredFiles'] as Record<string, unknown>[])[0] = {
+      path: 'README.md',
+      because: 1,
+      decidedIn: null,
+    };
+    const report: Report = evaluatePackaging(policy, memoryTree(conformingFiles()));
+    const joined = report.violations.join('\n');
+    expect(joined).toContain('[policy-type]');
+    expect(joined).toContain('requiredFiles[0].because');
+    expect(joined).toContain('requiredFiles[0].decidedIn');
+    expect(isClean(report)).toBe(false);
+  });
+
+  it('ValidatePluginPolicy_MalformedFamilies_AccumulateRatherThanThrow', () => {
+    // The discipline this gate exists to keep is "report every violation", and
+    // a TypeError reports exactly one. A null entry used to reach `entry.path`
+    // and a null `hooks` used to reach `hooksSpec.path`, so the run died on the
+    // first malformed value instead of listing all of them.
+    const policy = clone(shippedPolicy()) as Record<string, unknown>;
+    policy['requiredFiles'] = [null, { path: 'README.md' }];
+    policy['hooks'] = null;
+
+    let report!: Report;
+    expect(() => {
+      report = evaluatePackaging(policy, memoryTree(conformingFiles()));
+    }).not.toThrow();
+
+    const joined = report.violations.join('\n');
+    expect(joined).toContain('requiredFiles[0]');
+    expect(joined).toContain('hooks');
+    expect(joined).toContain('[policy-type]');
+    expect(isClean(report)).toBe(false);
+    // …and the surviving well-formed entry was still interpreted, so skipping
+    // the malformed one did not quietly drop the rest of the family.
+    expect(report.checks.some((c) => c.id === 'file.README.md')).toBe(true);
+  });
+
+  it('ValidatePluginPolicy_ShippedPolicy_UsesOnlyKnownKeys', () => {
+    // The negative twin: the live policy raises nothing, so the rejections above
+    // are attributable to the typo rather than to a schema that rejects
+    // everything. Includes the `$comment` prose channel, admitted at the root.
+    const report: Report = evaluatePackaging(shippedPolicy(), memoryTree(conformingFiles()));
+    expect(report.violations).toEqual([]);
+    expect(report.checks.length).toBeGreaterThan(0);
+    expect(Object.keys(shippedPolicy())).toContain('$comment');
+  });
+});
+
 describe('validate-plugin — the shipped policy vs the shipped tree (task 064, DR-24)', () => {
   const report: Report = evaluatePackaging(shippedPolicy(), diskTree(REPO_ROOT));
 

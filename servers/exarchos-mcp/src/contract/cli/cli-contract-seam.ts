@@ -18,8 +18,10 @@
 //     site on the CLI side. Every api-action call site in `adapters/cli.ts`
 //     addresses its action by contract ActionId through
 //     `invokeContractAction`, which verifies the id against
-//     `deriveCliSurface(compileForCli())` before dispatching — an action the
-//     contract does not compile CANNOT be addressed, so the "no direct
+//     `generated/cli-action-ids.ts` before dispatching — the module the golden
+//     emits from `deriveCliSurface(compileForCli())`, pinned byte-identical to a
+//     fresh derivation — so an action the contract does not compile CANNOT be
+//     addressed and the "no direct
 //     CLI-to-dispatch path" exit criterion holds by construction rather than
 //     by ledger cover.
 //   • `adapters/cli.ts` no longer imports the runtime `dispatch` value at all
