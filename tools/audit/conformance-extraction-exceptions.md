@@ -81,6 +81,40 @@ drift the constants exist to prevent — the census would assert against a copy
 that no longer matches what ships. The boundary rule is therefore "no
 *uninverted* edge into the subject", and this module is its sole exception.
 
+## The premise that mattered most, and it was false
+
+The plan's framing — "`src/architecture/` is 78 files of first-party enforcement
+living inside the tree it governs" — is **true of roughly half the directory.**
+
+Measuring which modules are imported from OUTSIDE `architecture/` by
+*production* code (`tools/audit/` has the script; it is reproduced in
+`measure-conformance-extraction.mjs`'s sibling analysis) found **eleven modules
+with production value consumers**:
+
+| Module | Production consumers |
+| --- | --- |
+| `effect-ledger.ts` | 7 — `contract/oracle/{fixtures,oracle-seam}`, `contract/reachability/{collect,providers}`, `events/{event-registration,registration-validate}`, `test-helpers/module-lexer` |
+| `invariants-loader.ts` | 3 — `verbs/gates/check-invariant-conformance`, `verbs/invariants/{add,amend}` |
+| `resolve-effective-catalog.ts` | 3 — `projections/views/effective-catalog`, `verbs/doctor/probes`, `verbs/gates/check-invariant-conformance` |
+| `invariant-schema.ts` | 2 — `verbs/invariants/{add,amend}` |
+| `glob-to-regexp.ts` | 2 — `verbs/team/{prepare-delegation,prepare-synthesis}` |
+| `catalog-sources.ts`, `catalog-merge.ts` | `verbs/doctor/probes` |
+| `project-catalog.ts`, `check-evaluator.ts`, `audit-prompt.ts`, `audit-delivery-closure.data.ts` | `verbs/gates/check-invariant-conformance` |
+
+These are not enforcement instruments. They are the **invariants-catalog
+subsystem and shared utilities** — the machinery behind the `invariants_add` /
+`invariants_amend` verbs and the `check_invariant_conformance` gate, which are
+product features. They are misfiled under `architecture/`, and moving them into a
+dev-tooling package would make production code import from `tools/`, inverting
+the dependency direction.
+
+Adding the modules that transitively depend on them, **18 of 39 modules stay and
+21 move**. Notably `layer-boundaries-seam.ts` (51 tests) and `vocabulary-lint.ts`
+stay only because they reach `effect-ledger.ts` and `invariants-loader.ts`
+respectively — re-homing those two pinned modules out of `architecture/` into a
+proper `src/` domain would unblock both, and that belongs to task 019's residual
+mapping rather than here.
+
 ### Value — needs inversion (7)
 
 | Module | Subject | Inversion |
