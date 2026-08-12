@@ -1,0 +1,130 @@
+{
+  "capturedAt": "2026-08-12",
+  "trackedFiles": 3311,
+  "surfaces": {
+    "depcruise:no-domain-core-to-io-adapters:from": {
+      "kind": "module-set",
+      "matched": 92,
+      "detail": {
+        "pattern": "^servers/exarchos-mcp/src/(event-store|workflow)/"
+      }
+    },
+    "depcruise:no-domain-core-to-io-adapters:to": {
+      "kind": "module-set",
+      "matched": 27,
+      "detail": {
+        "pattern": "^servers/exarchos-mcp/src/adapters/"
+      }
+    },
+    "codeowners:*": {
+      "kind": "ownership",
+      "matched": 3311
+    },
+    "codeowners:servers/exarchos-mcp/": {
+      "kind": "ownership",
+      "matched": 1647
+    },
+    "codeowners:scripts/": {
+      "kind": "ownership",
+      "matched": 167
+    },
+    "codeowners:skills/": {
+      "kind": "ownership",
+      "matched": 224
+    },
+    "codeowners:commands/": {
+      "kind": "ownership",
+      "matched": 18
+    },
+    "package.files:dist/bin": {
+      "kind": "packaging",
+      "matched": 1
+    },
+    "package.files:dist/release-verify.js": {
+      "kind": "packaging",
+      "matched": 1
+    },
+    "package.files:agents": {
+      "kind": "packaging",
+      "matched": 1
+    },
+    "package.files:commands": {
+      "kind": "packaging",
+      "matched": 1
+    },
+    "package.files:skills": {
+      "kind": "packaging",
+      "matched": 1
+    },
+    "package.files:command-aliases": {
+      "kind": "packaging",
+      "matched": 1
+    },
+    "package.files:rules": {
+      "kind": "packaging",
+      "matched": 1
+    },
+    "package.files:scripts": {
+      "kind": "packaging",
+      "matched": 1
+    },
+    "package.files:hooks": {
+      "kind": "packaging",
+      "matched": 1
+    },
+    "package.files:settings.json": {
+      "kind": "packaging",
+      "matched": 1
+    },
+    "package.files:.claude-plugin": {
+      "kind": "packaging",
+      "matched": 1
+    },
+    "package.files:CLAUDE.md.template": {
+      "kind": "packaging",
+      "matched": 0
+    },
+    "package.files:AGENTS.md": {
+      "kind": "packaging",
+      "matched": 1
+    },
+    "protected-suites:files": {
+      "kind": "test-protection",
+      "matched": 51,
+      "detail": {
+        "declared": 51,
+        "generatedFrom": "servers/exarchos-mcp/src"
+      }
+    },
+    "invariants:references": {
+      "kind": "catalog-reference",
+      "matched": 46,
+      "detail": {
+        "declared": 46
+      }
+    },
+    "lint:eslint-cli-glob": {
+      "kind": "lint-scope",
+      "matched": 1549,
+      "detail": {
+        "glob": "servers/exarchos-mcp/src/**/*.ts"
+      }
+    },
+    "lint:inv6": {
+      "kind": "lint-scope",
+      "matched": 106
+    },
+    "lint:test-first-drift": {
+      "kind": "lint-scope",
+      "matched": 128
+    },
+    "knip:workspace:.": {
+      "kind": "dead-code",
+      "matched": 1
+    },
+    "knip:workspace:servers/exarchos-mcp": {
+      "kind": "dead-code",
+      "matched": 1
+    }
+  }
+}
