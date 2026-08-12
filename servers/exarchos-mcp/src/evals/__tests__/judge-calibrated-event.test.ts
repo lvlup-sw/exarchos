@@ -2,12 +2,12 @@ import { describe, it, expect } from 'vitest';
 import {
   JudgeCalibratedDataSchema,
   EventTypes,
-} from '../../event-store/schemas.js';
+} from '../../events/schemas.js';
 import {
   evalResultsProjection,
   type EvalResultsViewState,
-} from '../../views/eval-results-view.js';
-import type { WorkflowEvent } from '../../event-store/schemas.js';
+} from '../../projections/views/eval-results-view.js';
+import type { WorkflowEvent } from '../../events/schemas.js';
 
 // ─── Helper ─────────────────────────────────────────────────────────────────
 

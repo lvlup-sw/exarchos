@@ -29,7 +29,7 @@ import {
   runSessionMachineryConsumedInterceptor,
   __resetMachineryConsumedCache,
 } from './session-machinery.js';
-import type { EventStore } from '../../event-store/store.js';
+import type { EventStore } from '../../events/store.js';
 
 describe('runSessionMachineryConsumedInterceptor — F-05 swallow-path warn', () => {
   beforeEach(() => {

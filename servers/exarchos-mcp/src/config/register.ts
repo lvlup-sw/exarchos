@@ -3,13 +3,13 @@ import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
 import { registerWorkflowType, unregisterWorkflowType } from '../workflow/state-machine.js';
 import { extendWorkflowTypeEnum, unextendWorkflowTypeEnum } from '../workflow/schemas.js';
-import { registerEventType, unregisterEventType } from '../event-store/schemas.js';
-import { ViewRegistry } from '../views/registry.js';
+import { registerEventType, unregisterEventType } from '../events/schemas.js';
+import { ViewRegistry } from '../projections/views/registry.js';
 import { registerCustomTool, unregisterCustomTool, setCustomToolActionHandler, ALL_PHASES } from '../registry.js';
 import type { ExtensionCompositeTool, ExtensionToolAction } from '../registry.js';
 import { unregisteredActionOutputSchema } from '../output-schema-declaration.js';
 import { logger } from '../logger.js';
-import type { ViewProjection } from '../views/materializer.js';
+import type { ViewProjection } from '../projections/views/materializer.js';
 import type { ExarchosConfig, WorkflowDefinition } from './define.js';
 
 const configLogger = logger.child({ subsystem: 'config' });

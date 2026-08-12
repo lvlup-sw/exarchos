@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { rehydrationReducer } from './reducer.js';
 import { RehydrationDocumentSchema, type RehydrationDocument } from './schema.js';
-import type { WorkflowEvent } from '../../event-store/schemas.js';
+import type { WorkflowEvent } from '../../events/schemas.js';
 
 /**
  * T057 — Chaos test for the rehydration reducer (DR-18, resilience).

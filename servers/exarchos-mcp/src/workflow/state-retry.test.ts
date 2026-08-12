@@ -21,8 +21,8 @@ import { fileURLToPath } from 'node:url';
 import * as path from 'node:path';
 
 import { withStateRetry, MAX_STATE_RETRIES } from './state-retry.js';
-import { ConcurrencyError } from '../event-store/concurrency-error.js';
-import { StorageBusyError } from '../event-store/storage-busy-error.js';
+import { ConcurrencyError } from '../events/concurrency-error.js';
+import { StorageBusyError } from '../events/storage-busy-error.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 

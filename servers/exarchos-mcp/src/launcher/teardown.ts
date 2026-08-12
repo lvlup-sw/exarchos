@@ -52,7 +52,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import {
   WorktreeManager,
   defaultGitRunner,

@@ -46,9 +46,9 @@ import { toEnvelope } from '../../src/format.js';
 import type { ToolResult } from '../../src/format.js';
 import { TOOL_REGISTRY } from '../../src/registry.js';
 import type { CompositeTool } from '../../src/registry.js';
-import type { EventStore } from '../../src/event-store/store.js';
+import type { EventStore } from '../../src/events/store.js';
 import type { StorageBackend } from '../../src/storage/backend.js';
-import type { WorkflowEvent } from '../../src/event-store/schemas.js';
+import type { WorkflowEvent } from '../../src/events/schemas.js';
 import {
   derivePackagedDenominators,
   classifyErrorLayer,

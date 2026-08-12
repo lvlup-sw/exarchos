@@ -1,10 +1,10 @@
-import type { WorkflowEvent } from '../event-store/schemas.js';
+import type { WorkflowEvent } from '../events/schemas.js';
 import type { WorkflowState } from '../workflow/types.js';
-import type { QueryFilters } from '../event-store/store.js';
+import type { QueryFilters } from '../events/store.js';
 import type { SnapshotRecord } from '../projections/snapshot-schema.js';
 
 // Re-export QueryFilters for consumers of the StorageBackend
-export type { QueryFilters } from '../event-store/store.js';
+export type { QueryFilters } from '../events/store.js';
 
 // ─── Event Sender ───────────────────────────────────────────────────────────
 

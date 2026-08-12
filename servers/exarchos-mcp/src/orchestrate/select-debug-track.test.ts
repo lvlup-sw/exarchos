@@ -10,8 +10,8 @@ import * as fs from 'node:fs';
 vi.mock('node:fs');
 
 import { handleSelectDebugTrack } from './select-debug-track.js';
-import type { EventStore } from '../event-store/store.js';
-import type { WorkflowEvent } from '../event-store/schemas.js';
+import type { EventStore } from '../events/store.js';
+import type { WorkflowEvent } from '../events/schemas.js';
 
 const STATE_DIR = '/tmp/test-select-debug-track';
 

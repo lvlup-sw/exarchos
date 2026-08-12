@@ -25,7 +25,7 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import { execFileSync } from 'node:child_process';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import { handleUpdate } from '../workflow/tools.js';
 import { WorkflowIntentSchema } from '../workflow/schemas.js';
 import type { WorkflowIntent } from '../workflow/schemas.js';

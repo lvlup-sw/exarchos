@@ -42,7 +42,7 @@ import * as resolverModule from './resolver.js';
 import { capabilitiesForPosture } from './posture-mapping.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { dispatch, stubCompositeHandler } from '../core/dispatch.js';
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 
 describe('shared-mutating posture gate — removed (INV-11)', () => {
   let tmpDir: string;

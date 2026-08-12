@@ -70,7 +70,7 @@ import {
   AdmissionShadowAttemptData,
   type AdmissionEnforcementEnabled,
   type AdmissionRolloutDecision,
-} from '../../event-store/schemas.js';
+} from '../../events/schemas.js';
 import type { PhaseKind } from '../phase-kind.js';
 import {
   liveShadowEvidenceStreamId,

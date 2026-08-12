@@ -8,7 +8,7 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import type { ToolResult } from '../format.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import type { WorkflowIntent } from '../workflow/schemas.js';
 import { readIntent, bodyHasIntentMarker, isMeaningfulIntent } from './extract-intent.js';
 

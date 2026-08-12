@@ -8,7 +8,7 @@ import {
   configureWorkflowMaterializer,
 } from './tools.js';
 
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import { registerWorkflowType, unregisterWorkflowType } from './state-machine.js';
 import { extendWorkflowTypeEnum, unextendWorkflowTypeEnum } from './schemas.js';
 import { registerCustomWorkflows, clearRegisteredGuards } from '../config/register.js';
@@ -68,13 +68,13 @@ describe('handleSet_EventInjection', () => {
     // Append team.spawned and team.disbanded events to the JSONL store
     // (these would be emitted by the orchestrator in a real workflow)
     await eventStore.append('inject-test', {
-      type: 'team.spawned' as import('../event-store/schemas.js').EventType,
+      type: 'team.spawned' as import('../events/schemas.js').EventType,
       correlationId: 'inject-test',
       source: 'orchestrator',
       data: { featureId: 'inject-test' },
     });
     await eventStore.append('inject-test', {
-      type: 'team.disbanded' as import('../event-store/schemas.js').EventType,
+      type: 'team.disbanded' as import('../events/schemas.js').EventType,
       correlationId: 'inject-test',
       source: 'orchestrator',
       data: { featureId: 'inject-test', totalDurationMs: 5000, tasksCompleted: 1, tasksFailed: 0 },
@@ -327,13 +327,13 @@ describe('handleSet_UnifiedHydration', () => {
 
     // Append team events with rich data
     await eventStore.append('spread-test', {
-      type: 'team.spawned' as import('../event-store/schemas.js').EventType,
+      type: 'team.spawned' as import('../events/schemas.js').EventType,
       correlationId: 'spread-test',
       source: 'orchestrator',
       data: { featureId: 'spread-test', agentCount: 3 },
     });
     await eventStore.append('spread-test', {
-      type: 'team.disbanded' as import('../event-store/schemas.js').EventType,
+      type: 'team.disbanded' as import('../events/schemas.js').EventType,
       correlationId: 'spread-test',
       source: 'orchestrator',
       data: {
@@ -401,11 +401,11 @@ describe('handleSet_UnifiedHydration', () => {
 
     // Append team events
     await eventStore.append('query-count', {
-      type: 'team.spawned' as import('../event-store/schemas.js').EventType,
+      type: 'team.spawned' as import('../events/schemas.js').EventType,
       data: { featureId: 'query-count' },
     });
     await eventStore.append('query-count', {
-      type: 'team.disbanded' as import('../event-store/schemas.js').EventType,
+      type: 'team.disbanded' as import('../events/schemas.js').EventType,
       data: { featureId: 'query-count', totalDurationMs: 1000, tasksCompleted: 1, tasksFailed: 0 },
     });
 

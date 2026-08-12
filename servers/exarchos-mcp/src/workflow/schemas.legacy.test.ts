@@ -31,7 +31,7 @@ import {
   extendWorkflowTypeEnum,
   unextendWorkflowTypeEnum,
 } from './schemas.js';
-import { EventTypes } from '../event-store/schemas.js';
+import { EventTypes } from '../events/schemas.js';
 import { TOOL_REGISTRY } from '../registry.js';
 
 // Helper to create a minimal valid checkpoint state

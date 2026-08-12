@@ -8,7 +8,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { ToolResult } from '../format.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import { classifyStateFile, resolveWorkflowState } from './resolve-state.js';
 
 // ─── Types ─────────────────────────────────────────────────────────────────

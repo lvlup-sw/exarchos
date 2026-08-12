@@ -35,7 +35,7 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import {
   mintDispatchContext,
   runWithDispatchContext,

@@ -39,7 +39,7 @@ vi.mock('./mock-boundary.js', async (importOriginal) => {
   return { ...actual, detectMockFindings: (...args: unknown[]) => mockDetectMockFindings(...args) };
 });
 
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { handleOrchestrate } from './composite.js';
 import { gateRunnerObservationSource } from './gate-runner.js';

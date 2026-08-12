@@ -30,7 +30,7 @@
  * given it returns a filtered copy; with no bound it returns a shallow copy of
  * the input so callers can never alias (and thus mutate) the source array.
  */
-import type { WorkflowEvent } from '../event-store/schemas.js';
+import type { WorkflowEvent } from '../events/schemas.js';
 
 /**
  * An as-of bound: either a stream-sequence ceiling or a timestamp ceiling.

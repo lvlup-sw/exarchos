@@ -80,7 +80,7 @@
  * `assertReducerImmutable` in the co-located test.
  */
 import type { ProjectionReducer } from '../../../projections/types.js';
-import type { WorkflowEvent } from '../../../event-store/schemas.js';
+import type { WorkflowEvent } from '../../../events/schemas.js';
 import {
   canonicalWorktreeId,
   defaultRealpath,

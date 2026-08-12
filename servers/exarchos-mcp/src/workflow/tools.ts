@@ -45,9 +45,9 @@ import {
 import { type ToolResult } from '../format.js';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs/promises';
-import type { EventStore } from '../event-store/store.js';
-import type { ViewMaterializer } from '../views/materializer.js';
-import { WORKFLOW_STATE_VIEW, type WorkflowStateView } from '../views/workflow-state-projection.js';
+import type { EventStore } from '../events/store.js';
+import type { ViewMaterializer } from '../projections/views/materializer.js';
+import { WORKFLOW_STATE_VIEW, type WorkflowStateView } from '../projections/views/workflow-state-projection.js';
 import * as path from 'node:path';
 // T034 (DR-6) — checkpoint materializes the rehydration projection:
 // fold events → snapshot → emit `workflow.checkpoint_written`. Reuses the
@@ -62,8 +62,8 @@ import {
 import type { RehydrationDocument } from '../projections/rehydration/schema.js';
 import { appendSnapshot } from '../projections/store.js';
 import type { SnapshotRecord } from '../projections/snapshot-schema.js';
-import type { WorkflowEvent } from '../event-store/schemas.js';
-import { buildValidatedEvent } from '../event-store/event-factory.js';
+import type { WorkflowEvent } from '../events/schemas.js';
+import { buildValidatedEvent } from '../events/event-factory.js';
 import {
   allocateInitialPhaseAttemptId,
   allocatePhaseAttemptId,
@@ -203,7 +203,7 @@ export async function handleInit(
         // #1325 — route through buildValidatedEvent for defense-in-depth
         // Zod validation at the emission boundary.
         const validatedEvent = buildValidatedEvent(input.featureId, 1, {
-          type: 'workflow.started' as import('../event-store/schemas.js').EventType,
+          type: 'workflow.started' as import('../events/schemas.js').EventType,
           correlationId: input.featureId,
           source: 'workflow',
           data: {
@@ -594,7 +594,7 @@ export async function handleSet(
           // #1325 — route through buildValidatedEvent for defense-in-depth
           // Zod validation. Emission is best-effort.
           const validatedEvent = buildValidatedEvent(input.featureId, 1, {
-            type: 'checkpoint.state_missing' as import('../event-store/schemas.js').EventType,
+            type: 'checkpoint.state_missing' as import('../events/schemas.js').EventType,
             correlationId: input.featureId,
             source: 'workflow',
             data: { action: 'set' },
@@ -612,7 +612,7 @@ export async function handleSet(
             // #1325 — route through buildValidatedEvent for defense-in-depth
             // Zod validation. Emission is best-effort.
             const validatedEvent = buildValidatedEvent(input.featureId, 1, {
-              type: 'checkpoint.enforced' as import('../event-store/schemas.js').EventType,
+              type: 'checkpoint.enforced' as import('../events/schemas.js').EventType,
               correlationId: input.featureId,
               source: 'workflow',
               data: {
@@ -1070,7 +1070,7 @@ export async function handleSet(
         // #1325 — route through buildValidatedEvent for defense-in-depth
         // Zod validation at the emission boundary.
         const validatedEvent = buildValidatedEvent(input.featureId, 1, {
-          type: 'state.patched' as import('../event-store/schemas.js').EventType,
+          type: 'state.patched' as import('../events/schemas.js').EventType,
           correlationId: input.featureId,
           source: 'workflow',
           data: {
@@ -1149,7 +1149,7 @@ export async function handleSet(
           // the canonical pattern used by every other emission in this
           // handler. Emission is best-effort.
           const validatedEvent = buildValidatedEvent(input.featureId, 1, {
-            type: 'workflow.cas-failed' as import('../event-store/schemas.js').EventType,
+            type: 'workflow.cas-failed' as import('../events/schemas.js').EventType,
             correlationId: input.featureId,
             source: 'workflow',
             data: {
@@ -1726,7 +1726,7 @@ export async function handleCheckpoint(
       // #1325 — route through buildValidatedEvent for defense-in-depth
       // Zod validation at the emission boundary.
       const validatedEvent = buildValidatedEvent(input.featureId, 1, {
-        type: 'workflow.checkpoint' as import('../event-store/schemas.js').EventType,
+        type: 'workflow.checkpoint' as import('../events/schemas.js').EventType,
         correlationId: input.featureId,
         source: 'workflow',
         // T4 (#1240): persist the handoff payload on the event when the
@@ -1860,7 +1860,7 @@ export async function handleCheckpoint(
       // #1325 — route through buildValidatedEvent for defense-in-depth
       // Zod validation at the emission boundary.
       const validatedEvent = buildValidatedEvent(input.featureId, 1, {
-        type: 'workflow.checkpoint_written' as import('../event-store/schemas.js').EventType,
+        type: 'workflow.checkpoint_written' as import('../events/schemas.js').EventType,
         correlationId: input.featureId,
         source: 'workflow',
         data: {

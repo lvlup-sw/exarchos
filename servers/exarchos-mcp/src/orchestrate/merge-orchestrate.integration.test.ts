@@ -36,7 +36,7 @@ import { tmpdir } from 'node:os';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import type { ToolResult } from '../format.js';
 
@@ -50,7 +50,7 @@ import {
 import type { MergePreflightResult } from './pure/merge-preflight.js';
 import type { GitExecResult } from './pure/merge-preflight.js';
 import { writeStateFile } from '../workflow/state-store.js';
-import type { WorkflowEvent } from '../event-store/schemas.js';
+import type { WorkflowEvent } from '../events/schemas.js';
 
 import { computeNextActions } from '../next-actions-computer.js';
 import {

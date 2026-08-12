@@ -14,7 +14,7 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import { handleInit } from './tools.js';
 import { handleCancel } from './cancel.js';
 import { assertCanonicalEnvelope } from './test-helpers/canonical-envelope.js';

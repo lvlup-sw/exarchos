@@ -53,7 +53,7 @@ import {
   type HandleExecuteMergeInput,
 } from './execute-merge.js';
 import { buildMergeOrchestrateIdempotencyKey } from './merge-keys.js';
-import { SequenceConflictError } from '../event-store/store.js';
+import { SequenceConflictError } from '../events/store.js';
 import {
   readStateFile,
   writeStateFile,
@@ -69,7 +69,7 @@ import {
 import {
   ConcurrencyError,
   StorageBusyError,
-} from '../event-store/index.js';
+} from '../events/index.js';
 import type { MergeOrchestratorState } from '../projections/merge-orchestrator/index.js';
 // DR-2 lease guard: fold the singleton `worktrees` stream to look up the
 // in-flight merge lease on the target integration ref. `WORKTREES_STREAM` /

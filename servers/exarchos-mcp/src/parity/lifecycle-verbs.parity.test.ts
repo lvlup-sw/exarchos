@@ -39,7 +39,7 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { CommanderError } from 'commander';
 
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import type { DispatchContext, CompositeHandler } from '../core/dispatch.js';
 import { stubCompositeHandler } from '../core/dispatch.js';
 import type { ToolResult } from '../format.js';
@@ -58,10 +58,10 @@ import {
 } from '../__tests__/parity-harness.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
-import { handleViewPs } from '../views/lifecycle/ps.js';
-import { handleViewWait, type WaitDeps } from '../views/lifecycle/wait.js';
-import { handleViewInspect } from '../views/lifecycle/inspect.js';
-import { handleViewExport } from '../views/lifecycle/export.js';
+import { handleViewPs } from '../projections/views/lifecycle/ps.js';
+import { handleViewWait, type WaitDeps } from '../projections/views/lifecycle/wait.js';
+import { handleViewInspect } from '../projections/views/lifecycle/inspect.js';
+import { handleViewExport } from '../projections/views/lifecycle/export.js';
 
 // ─── Deterministic injected deps (fixed clock → wait `waitedMs` folds to 0) ──
 

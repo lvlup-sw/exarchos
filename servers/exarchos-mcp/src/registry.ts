@@ -83,9 +83,9 @@ import {
   allField as lifecycleAllField,
   operationField as lifecycleOperationField,
   outputField as lifecycleOutputField,
-} from './views/lifecycle/schema-fields.js';
-import { InspectOutputSchema } from './views/lifecycle/inspect.js';
-import { ExportOutputSchema } from './views/lifecycle/export.js';
+} from './projections/views/lifecycle/schema-fields.js';
+import { InspectOutputSchema } from './projections/views/lifecycle/inspect.js';
+import { ExportOutputSchema } from './projections/views/lifecycle/export.js';
 import type { AgentPosture } from './agents/spec.js';
 export { coercedRecord, coercedPositiveInt, coercedNonnegativeInt, coercedStringArray, coercedIntArray } from './coerce.js';
 import { coercedRecord, coercedPositiveInt, coercedNonnegativeInt, coercedStringArray, coercedIntArray } from './coerce.js';
@@ -99,7 +99,7 @@ import type { SupportedGateClass } from './orchestrate/gate-provider-registry.js
 import {
   INTERNAL_ADMISSION_EVENT_TYPES,
   INTERNAL_CANCELLATION_EVENT_TYPES,
-} from './event-store/schemas.js';
+} from './events/schemas.js';
 
 // ─── Tool Registry Types ────────────────────────────────────────────────────
 

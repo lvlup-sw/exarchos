@@ -4,12 +4,12 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { handleInit, handleGet, configureWorkflowMaterializer } from './tools.js';
-import { EventStore } from '../event-store/store.js';
-import { ViewMaterializer } from '../views/materializer.js';
+import { EventStore } from '../events/store.js';
+import { ViewMaterializer } from '../projections/views/materializer.js';
 import {
   workflowStateProjection,
   WORKFLOW_STATE_VIEW,
-} from '../views/workflow-state-projection.js';
+} from '../projections/views/workflow-state-projection.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 // ─── T7 (#1555) — `asOf` dispatch-core wiring for `handleGet` ────────────────

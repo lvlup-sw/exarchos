@@ -838,7 +838,7 @@ describe('resolveTestRuntime', () => {
 
     // Schema validation — the new discriminated union must accept all three
     // events.
-    const { CommandResolvedEventSchema } = await import('../event-store/schemas.js');
+    const { CommandResolvedEventSchema } = await import('../events/schemas.js');
     for (const evt of calls) {
       const parsed = CommandResolvedEventSchema.safeParse(evt.data);
       expect(parsed.success).toBe(true);

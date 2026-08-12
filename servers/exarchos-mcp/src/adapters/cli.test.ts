@@ -1494,7 +1494,7 @@ describe('DR-25: generated CLI client agrees with MCP through a real handler', (
     const { buildCli: realBuildCli } = await import('./cli.js');
     const { dispatch: realDispatch } = await import('../core/dispatch.js');
     const { createMcpServer } = await import('./mcp.js');
-    const { EventStore } = await import('../event-store/store.js');
+    const { EventStore } = await import('../events/store.js');
     const { normalize } = await import('../__tests__/parity-harness.js');
     const { makeTempDir, rmrfAsync } = await import('../test-helpers/temp-dir.js');
     const {

@@ -28,7 +28,7 @@ import { mkdtemp, writeFile, mkdir, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
-import { EventStore } from '../../event-store/store.js';
+import { EventStore } from '../../events/store.js';
 import type { DispatchContext } from '../../core/dispatch.js';
 import { ONBOARD_STREAM_ID } from '../../core/infra-streams.js';
 import type { CheckResult } from '../doctor/schema.js';

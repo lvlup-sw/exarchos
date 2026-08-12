@@ -22,7 +22,7 @@ import { runCommandSync } from '../utils/process.js';
 import { z } from 'zod';
 
 import type { ToolResult } from '../format.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
 import {
   resolveVerificationRuntime,

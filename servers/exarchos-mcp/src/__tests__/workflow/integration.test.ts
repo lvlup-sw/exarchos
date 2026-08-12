@@ -13,9 +13,9 @@ import {
 } from '../../workflow/tools.js';
 import { executeTransition, getHSMDefinition } from '../../workflow/state-machine.js';
 import { appendEvent, mapInternalToExternalType } from '../../workflow/events.js';
-import { EventStore } from '../../event-store/store.js';
+import { EventStore } from '../../events/store.js';
 import { readStateFile, reconcileFromEvents } from '../../workflow/state-store.js';
-import type { EventType as ExternalEventType } from '../../event-store/schemas.js';
+import type { EventType as ExternalEventType } from '../../events/schemas.js';
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 describe('Integration', () => {

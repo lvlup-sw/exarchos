@@ -62,9 +62,9 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import * as path from 'node:path';
-import type { EventStore } from '../../event-store/store.js';
-import type { EventInput, DecideResult } from '../../event-store/atomic-appender.js';
-import type { WorkflowEvent } from '../../event-store/schemas.js';
+import type { EventStore } from '../../events/store.js';
+import type { EventInput, DecideResult } from '../../events/atomic-appender.js';
+import type { WorkflowEvent } from '../../events/schemas.js';
 import { spawnCommandSync } from '../../utils/process.js';
 import { removeWorktreeForce } from '../../vcs/mutation-owner.js';
 import { withStateRetry } from '../../workflow/state-retry.js';

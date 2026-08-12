@@ -24,9 +24,9 @@ import {
   legacyTransitionCorpus,
 } from './__fixtures__/transition-admission-corpus.js';
 import { getHSMDefinition } from './state-machine.js';
-import { EventStore } from '../event-store/store.js';
-import type { WorkflowEvent } from '../event-store/schemas.js';
-import { EVENT_DATA_SCHEMAS } from '../event-store/schemas.js';
+import { EventStore } from '../events/store.js';
+import type { WorkflowEvent } from '../events/schemas.js';
+import { EVENT_DATA_SCHEMAS } from '../events/schemas.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 let tmpDir: string;

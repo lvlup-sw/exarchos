@@ -21,8 +21,8 @@
 //   3. return a structured `ToolResult` failure with code `MERGE_ROLLED_BACK`
 
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
-import type { EventStore } from '../event-store/store.js';
-import { SequenceConflictError } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
+import { SequenceConflictError } from '../events/store.js';
 import type { DispatchContext } from '../core/dispatch.js';
 
 import { handleExecuteMerge } from './execute-merge.js';
@@ -1084,7 +1084,7 @@ describe('handleExecuteMerge terminal-phase persistence (T27)', () => {
 // idempotency-claims dedup is exercised end-to-end, mirroring
 // `execute-merge.migration.test.ts`.
 
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import * as fsp from 'node:fs/promises';
 import * as osMod from 'node:os';
 import * as pathMod from 'node:path';

@@ -4,7 +4,7 @@ import type { StorageBackend } from './backend.js';
 import type { WorkflowState } from '../workflow/types.js';
 import { logger } from '../logger.js';
 import { WorkflowStateSchema } from '../workflow/schemas.js';
-import { TELEMETRY_STREAM } from '../telemetry/constants.js';
+import { TELEMETRY_STREAM } from '../projections/telemetry/constants.js';
 import { publishTempFile } from '../utils/atomic-write.js';
 
 // ─── Lifecycle Policy ───────────────────────────────────────────────────────

@@ -12,7 +12,7 @@ import { runCommandSync } from '../utils/process.js';
 import { join, resolve } from 'node:path';
 import { toPosix } from '../utils/paths.js';
 import type { ToolResult } from '../format.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import { resolveWorkflowState } from './resolve-state.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────

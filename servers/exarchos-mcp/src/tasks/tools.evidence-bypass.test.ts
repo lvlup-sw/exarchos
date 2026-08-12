@@ -30,9 +30,9 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import { handleTaskComplete, isBlockingGate, resetModuleEventStore } from './tools.js';
-import { resetMaterializerCache } from '../views/tools.js';
+import { resetMaterializerCache } from '../projections/views/tools.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 import { runAsTrustedCaller } from '../test-helpers/trusted-context.js';
 import {

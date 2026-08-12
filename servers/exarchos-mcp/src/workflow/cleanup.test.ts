@@ -76,7 +76,7 @@ vi.mock('./admission/live-shadow-observer.js', async (importOriginal) => {
 const { handleCleanup } = await import('./cleanup.js');
 const { handleCancel } = await import('./cancel.js');
 const { handleInit } = await import('./tools.js');
-const { EventStore } = await import('../event-store/store.js');
+const { EventStore } = await import('../events/store.js');
 const { hsmTransitionGuard } = await import('./hsm-transition-guard.js');
 const { rmrfAsync } = await import('../test-helpers/temp-dir.js');
 

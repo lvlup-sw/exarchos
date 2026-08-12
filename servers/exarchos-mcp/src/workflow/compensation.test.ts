@@ -4,8 +4,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type { Event } from './types.js';
 import { executeCompensation } from './compensation.js';
-import { ConcurrencyError } from '../event-store/concurrency-error.js';
-import { EventStore } from '../event-store/store.js';
+import { ConcurrencyError } from '../events/concurrency-error.js';
+import { EventStore } from '../events/store.js';
 
 // Mock ONLY `child_process.execFile` (the async side-effect path the SUT shells
 // git through) — the rest of the module stays REAL so the INV-14 dirty-guard's
@@ -25,7 +25,7 @@ import { WORKTREES_STREAM, defaultGitRunner } from '../orchestrate/worktree/mana
 import { createWorktreesReducer } from '../orchestrate/worktree/projections/worktrees.js';
 import type { RealpathResolver } from '../orchestrate/worktree/pure/path-containment.js';
 import { canonicalWorktreeId } from '../orchestrate/worktree/pure/path-containment.js';
-import type { WorkflowEvent } from '../event-store/schemas.js';
+import type { WorkflowEvent } from '../events/schemas.js';
 
 const mockedExecFile = vi.mocked(execFile);
 

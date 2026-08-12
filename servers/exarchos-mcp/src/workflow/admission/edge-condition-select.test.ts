@@ -43,8 +43,8 @@ import {
   liveShadowEvidenceStreamId,
   liveShadowSink,
 } from './live-shadow-observer.js';
-import { EventStore } from '../../event-store/store.js';
-import { AdmissionShadowAttemptData } from '../../event-store/schemas.js';
+import { EventStore } from '../../events/store.js';
+import { AdmissionShadowAttemptData } from '../../events/schemas.js';
 import { handleWorkflow } from '../composite.js';
 import { handleGet, handleSet } from '../tools.js';
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';

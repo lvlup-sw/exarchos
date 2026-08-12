@@ -12,8 +12,8 @@ import { executeTransition, getHSMDefinition } from '../../workflow/state-machin
 import { getFixCycleCount, mapInternalToExternalType } from '../../workflow/events.js';
 import { appendEvent } from '../../workflow/events.js';
 import type { Event, EventType } from '../../workflow/types.js';
-import { EventStore } from '../../event-store/store.js';
-import type { EventType as ExternalEventType } from '../../event-store/schemas.js';
+import { EventStore } from '../../events/store.js';
+import type { EventType as ExternalEventType } from '../../events/schemas.js';
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 /**

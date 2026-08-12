@@ -16,9 +16,9 @@
 // SAME correlationId; this handler establishes and returns it.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import type { ToolResult } from '../format.js';
-import { buildValidatedEvent } from '../event-store/event-factory.js';
+import { buildValidatedEvent } from '../events/event-factory.js';
 import { workflowLogger } from '../logger.js';
 
 export interface DiscoverBridgeArgs {

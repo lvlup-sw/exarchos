@@ -34,7 +34,7 @@
 // applicability are decided from pure inputs BEFORE the transaction; the
 // transaction only reads the stream to enforce authenticity and appends.
 
-import type { EventInput } from '../../event-store/atomic-appender.js';
+import type { EventInput } from '../../events/atomic-appender.js';
 import { freezeRequirements } from './freeze-requirements.js';
 import type { FrozenRequirementSetProjection } from './freeze-requirements.js';
 import { atLeastAsStrong } from './requirement-strength.js';
@@ -51,7 +51,7 @@ import {
   generationInputDigest,
   type GenerationProvenance,
 } from './bootstrap-generation.js';
-import { AdmissionReassessmentRequestedData } from '../../event-store/schemas.js';
+import { AdmissionReassessmentRequestedData } from '../../events/schemas.js';
 import { createHash } from 'node:crypto';
 import {
   ADMISSION_EVENT_TYPES,

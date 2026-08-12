@@ -17,11 +17,11 @@ import { hsmTransitionGuard } from './hsm-transition-guard.js';
 import { recordLiveTransition } from './admission/live-shadow-observer.js';
 import { allocatePhaseAttemptId, readPhaseAttemptId } from './phase-attempt-id.js';
 import { executeCompensation, CANCEL_MAX_ATTEMPTS, type CompensationCheckpoint } from './compensation.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import {
   CancelReadyData,
   CancelRequestedData,
-} from '../event-store/schemas.js';
+} from '../events/schemas.js';
 import {
   acquireCancelOwnership,
   appendFencedCancelEvent,
@@ -287,7 +287,7 @@ export async function handleCancel(
         if (event === undefined) continue;
         const externalType = mapInternalToExternalType(event.type);
         await eventStore.append(input.featureId, {
-          type: externalType as import('../event-store/schemas.js').EventType,
+          type: externalType as import('../events/schemas.js').EventType,
           data: { ...event.metadata, featureId: input.featureId },
         });
       }
@@ -427,7 +427,7 @@ export async function handleCancel(
   if (eventStore) {
     const cancelTrail = [
       ...attempt.emittedEvents.map((transitionEvent) => ({
-        type: mapInternalToExternalType(transitionEvent.type) as import('../event-store/schemas.js').EventType,
+        type: mapInternalToExternalType(transitionEvent.type) as import('../events/schemas.js').EventType,
         data: {
           from: transitionEvent.from,
           to: transitionEvent.to,
@@ -438,7 +438,7 @@ export async function handleCancel(
         idempotencyKey: `${input.featureId}:cancel:transition:${transitionEvent.type}:${transitionEvent.from}:cancelled`,
       })),
       {
-        type: mapInternalToExternalType('cancel') as import('../event-store/schemas.js').EventType,
+        type: mapInternalToExternalType('cancel') as import('../events/schemas.js').EventType,
         data: {
           from: currentPhase,
           to: 'cancelled',

@@ -26,13 +26,13 @@ import type {
   V2Task as Task,
 } from '../sdk/seam.js';
 
-import type { EventSourcedTaskStore } from '../task-store/event-sourced-task-store.js';
+import type { EventSourcedTaskStore } from '../projections/task-store/event-sourced-task-store.js';
 import {
   runInspectFollow,
   type FollowSubscribe,
   type InspectFollowHandle,
 } from '../cli/follow-loop.js';
-import type { SubscriptionClock } from '../event-store/subscriptions.js';
+import type { SubscriptionClock } from '../events/subscriptions.js';
 import type { Frame } from '../ndjson/frames.js';
 
 /**

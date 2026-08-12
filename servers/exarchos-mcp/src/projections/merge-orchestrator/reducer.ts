@@ -25,7 +25,7 @@
  * (Wave 2B.3) enforces this property over a representative event fixture.
  */
 import type { ProjectionReducer } from '../types.js';
-import type { WorkflowEvent } from '../../event-store/schemas.js';
+import type { WorkflowEvent } from '../../events/schemas.js';
 import {
   initialMergeOrchestratorState,
   type MergeActionMetadata,

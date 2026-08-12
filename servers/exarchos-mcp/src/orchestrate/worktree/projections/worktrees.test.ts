@@ -16,7 +16,7 @@ import {
   worktreesReducer,
   type WorktreesProjection,
 } from './worktrees.js';
-import type { WorkflowEvent } from '../../../event-store/schemas.js';
+import type { WorkflowEvent } from '../../../events/schemas.js';
 import type { RealpathResolver } from '../pure/path-containment.js';
 import { toPosix } from '../../../utils/paths.js';
 import { assertReducerImmutable } from '../../../projections/testing.js';
@@ -26,8 +26,8 @@ import { assertReducerImmutable } from '../../../projections/testing.js';
 // below resolves the id via that registry; if the side-effect import line in
 // `src/projections/index.ts` is removed, resolution throws and the guard fails.
 import '../../../projections/index.js';
-import { EventStore } from '../../../event-store/store.js';
-import { AtomicAppender } from '../../../event-store/atomic-appender.js';
+import { EventStore } from '../../../events/store.js';
+import { AtomicAppender } from '../../../events/atomic-appender.js';
 import { rmrfAsync } from '../../../test-helpers/temp-dir.js';
 
 // ─── Fixtures ───────────────────────────────────────────────────────────────

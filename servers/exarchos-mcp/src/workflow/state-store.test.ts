@@ -24,7 +24,7 @@ import {
 } from './state-store.js';
 import { spawn } from 'node:child_process';
 import { isPidAlive } from '../utils/process.js';
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import { InMemoryBackend, VersionConflictError as BackendVersionConflictError } from '../storage/memory-backend.js';
 import type { WorkflowState } from './types.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';

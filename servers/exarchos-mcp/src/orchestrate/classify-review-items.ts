@@ -13,7 +13,7 @@
 
 import { createHash } from 'node:crypto';
 import type { ToolResult } from '../format.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import type { ActionItem, Severity } from '../review/types.js';
 import { classifyReviewItems } from '../review/classifier.js';
 import { orchestrateLogger } from '../logger.js';

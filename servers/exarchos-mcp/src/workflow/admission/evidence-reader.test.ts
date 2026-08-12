@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { EventStore } from '../../event-store/store.js';
+import { EventStore } from '../../events/store.js';
 import {
   ALL_PHASE_KINDS,
   MINIMUM_LIVE_ATTEMPTS,

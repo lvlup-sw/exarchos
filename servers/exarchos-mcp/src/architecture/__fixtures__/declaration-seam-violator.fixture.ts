@@ -19,7 +19,7 @@
  */
 
 import type { Declaration } from '../../contract/declaration.js';
-import { EVENT_EMISSION_REGISTRY } from '../../event-store/schemas.js';
+import { EVENT_EMISSION_REGISTRY } from '../../events/schemas.js';
 
 /** The bypass: lifts an envelope straight out of the store, around the seam. */
 export function readEventDeclarationBypassingTheSeam(

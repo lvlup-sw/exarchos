@@ -238,7 +238,7 @@ describe.skipIf(process.platform === 'win32')('CLI correlation filter — end-to
     // module subtree. Without re-import, the mocked `dispatch` would
     // still be wired into the `buildCli` action callback.
     const { buildCli: buildCliReal } = await import('./cli.js');
-    const { EventStore } = await import('../event-store/store.js');
+    const { EventStore } = await import('../events/store.js');
 
     const store = new EventStore(tmpDir);
     const TELEMETRY_STREAM = 'telemetry';

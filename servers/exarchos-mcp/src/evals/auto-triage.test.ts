@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { triageTrace } from './auto-triage.js';
-import type { WorkflowEvent } from '../event-store/schemas.js';
+import type { WorkflowEvent } from '../events/schemas.js';
 import type { EvalCase } from './types.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────

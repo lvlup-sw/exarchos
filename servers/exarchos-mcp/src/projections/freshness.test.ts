@@ -17,12 +17,12 @@ import * as nodePath from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type { DispatchContext } from '../core/dispatch.js';
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import {
   EVENT_DATA_SCHEMAS,
   EVENT_EMISSION_REGISTRY,
   EventTypes,
-} from '../event-store/schemas.js';
+} from '../events/schemas.js';
 import {
   assessProjectionFreshness,
   assessStreamFreshness,
@@ -36,8 +36,8 @@ import {
   PROJECTION_DEGRADED_EVENT_TYPE,
   PROJECTION_RECOVERED_EVENT_TYPE,
 } from './freshness.js';
-import { handleView } from '../views/composite.js';
-import { getOrCreateMaterializer } from '../views/tools.js';
+import { handleView } from './views/composite.js';
+import { getOrCreateMaterializer } from './views/tools.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 describe('projection freshness comparison (EFF-002)', () => {

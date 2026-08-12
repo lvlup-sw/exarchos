@@ -18,8 +18,8 @@
 // inlined assertion shapes remain) and tidied the header comment.
 
 import { expect } from 'vitest';
-import type { WorkflowEvent } from '../../event-store/schemas.js';
-import { EVENT_DATA_SCHEMAS } from '../../event-store/schemas.js';
+import type { WorkflowEvent } from '../../events/schemas.js';
+import { EVENT_DATA_SCHEMAS } from '../../events/schemas.js';
 
 export interface AssertEnvelopeOptions {
   /**

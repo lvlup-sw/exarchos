@@ -5,8 +5,8 @@ import {
   listWorkflowTypes,
 } from '../workflow/state-machine.js';
 import type { SerializedTopology, WorkflowTypeSummary } from '../workflow/state-machine.js';
-import { serializeEventCatalog } from '../event-store/schemas.js';
-import type { EventCatalog } from '../event-store/schemas.js';
+import { serializeEventCatalog } from '../events/schemas.js';
+import type { EventCatalog } from '../events/schemas.js';
 import {
   serializePlaybooks,
   listPlaybookWorkflowTypes,

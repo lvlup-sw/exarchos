@@ -13,9 +13,9 @@ import { mapInternalToExternalType } from './events.js';
 import { hsmTransitionGuard } from './hsm-transition-guard.js';
 import { recordLiveTransition } from './admission/live-shadow-observer.js';
 import { allocatePhaseAttemptId, readPhaseAttemptId } from './phase-attempt-id.js';
-import type { EventStore } from '../event-store/store.js';
-import type { EventType } from '../event-store/schemas.js';
-import type { SnapshotStore } from '../views/snapshot-store.js';
+import type { EventStore } from '../events/store.js';
+import type { EventType } from '../events/schemas.js';
+import type { SnapshotStore } from '../projections/views/snapshot-store.js';
 import type { ToolResult } from '../format.js';
 import * as path from 'node:path';
 

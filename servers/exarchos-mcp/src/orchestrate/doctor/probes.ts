@@ -27,7 +27,7 @@ import { promisify } from 'node:util';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { DispatchContext } from '../../core/dispatch.js';
-import type { EventStore, IntegrityResult } from '../../event-store/store.js';
+import type { EventStore, IntegrityResult } from '../../events/store.js';
 import {
   detectAgentEnvironments,
   type AgentEnvironment,

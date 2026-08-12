@@ -2,16 +2,16 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import type { SessionEvent, SessionSummaryEvent } from '../session/types.js';
+import type { SessionEvent, SessionSummaryEvent } from '../projections/session/types.js';
 
 // ─── Mocks ──────────────────────────────────────────────────────────────────
 
-vi.mock('../session/transcript-parser.js', () => ({
+vi.mock('../projections/session/transcript-parser.js', () => ({
   parseTranscript: vi.fn(),
 }));
 
-vi.mock('../session/manifest.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../session/manifest.js')>();
+vi.mock('../projections/session/manifest.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../projections/session/manifest.js')>();
   return {
     ...actual,
     writeManifestCompletion: vi.fn(),
@@ -126,7 +126,7 @@ describe('session-end command', () => {
   describe('extraction', () => {
     it('handleSessionEnd_ValidTranscript_WritesSessionEventsFile', async () => {
       const { handleSessionEnd } = await import('./session-end.js');
-      const { parseTranscript } = await import('../session/transcript-parser.js');
+      const { parseTranscript } = await import('../projections/session/transcript-parser.js');
       const sessionId = 'test-session-001';
       const mockEvents = makeMockEvents(sessionId);
 
@@ -153,8 +153,8 @@ describe('session-end command', () => {
 
     it('handleSessionEnd_ValidTranscript_UpdatesManifestWithCompletion', async () => {
       const { handleSessionEnd } = await import('./session-end.js');
-      const { parseTranscript } = await import('../session/transcript-parser.js');
-      const { writeManifestCompletion } = await import('../session/manifest.js');
+      const { parseTranscript } = await import('../projections/session/transcript-parser.js');
+      const { writeManifestCompletion } = await import('../projections/session/manifest.js');
       const sessionId = 'test-session-002';
       const mockEvents = makeMockEvents(sessionId);
 
@@ -186,7 +186,7 @@ describe('session-end command', () => {
 
     it('handleSessionEnd_ValidTranscript_SessionEventsContainToolAndTurnAndSummary', async () => {
       const { handleSessionEnd } = await import('./session-end.js');
-      const { parseTranscript } = await import('../session/transcript-parser.js');
+      const { parseTranscript } = await import('../projections/session/transcript-parser.js');
       const sessionId = 'test-session-003';
       const mockEvents = makeMockEvents(sessionId);
 
@@ -228,7 +228,7 @@ describe('session-end command', () => {
 
     it('handleSessionEnd_AlreadyExtracted_SkipsReextraction', async () => {
       const { handleSessionEnd } = await import('./session-end.js');
-      const { parseTranscript } = await import('../session/transcript-parser.js');
+      const { parseTranscript } = await import('../projections/session/transcript-parser.js');
       const sessionId = 'test-session-005';
 
       // Arrange — create events file to simulate already-extracted session
@@ -248,7 +248,7 @@ describe('session-end command', () => {
 
     it('handleSessionEnd_ParseTranscriptThrows_ReturnsExtractionError', async () => {
       const { handleSessionEnd } = await import('./session-end.js');
-      const { parseTranscript } = await import('../session/transcript-parser.js');
+      const { parseTranscript } = await import('../projections/session/transcript-parser.js');
       const sessionId = 'test-session-006';
 
       // Arrange
@@ -268,8 +268,8 @@ describe('session-end command', () => {
 
     it('handleSessionEnd_NoEndReason_DefaultsToUnknown', async () => {
       const { handleSessionEnd } = await import('./session-end.js');
-      const { parseTranscript } = await import('../session/transcript-parser.js');
-      const { writeManifestCompletion } = await import('../session/manifest.js');
+      const { parseTranscript } = await import('../projections/session/transcript-parser.js');
+      const { writeManifestCompletion } = await import('../projections/session/manifest.js');
       const sessionId = 'test-session-007';
       const mockEvents = makeMockEvents(sessionId);
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('../views/tools.js', () => ({
+vi.mock('../projections/views/tools.js', () => ({
   getOrCreateEventStore: vi.fn(() => ({
     appendEvent: vi.fn().mockResolvedValue(undefined),
   })),

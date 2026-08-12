@@ -1,6 +1,6 @@
 import { getRequiredReviewsPrerequisite } from './review-contract.js';
 import { getRegisteredEventTypes } from '../projections/rehydration/reducer.js';
-import { EVENT_EMISSION_REGISTRY, type EventType } from '../event-store/schemas.js';
+import { EVENT_EMISSION_REGISTRY, type EventType } from '../events/schemas.js';
 import { resolveVerificationPolicy } from './verification-policy-resolver.js';
 
 // ─── Verification-Ladder Gate Guidance (vls1-b1, task 008) ──────────────────

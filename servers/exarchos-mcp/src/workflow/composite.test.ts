@@ -3,7 +3,7 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import type { DispatchContext } from '../core/dispatch.js';
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import { deriveRepoKey } from '../utils/paths.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
@@ -333,7 +333,7 @@ describe('HandleWorkflow_InitDispatch_EmitsWorkflowStartedWithRepoRoot (DR-5)', 
 
   it('composite init dispatch stamps the caller repo key on workflow.started', async () => {
     const { handleWorkflow } = await import('./composite.js');
-    const { EventStore: FreshEventStore } = await import('../event-store/store.js');
+    const { EventStore: FreshEventStore } = await import('../events/store.js');
     const { deriveRepoKey: freshDeriveRepoKey } = await import('../utils/paths.js');
 
     const store = new FreshEventStore(tempDir);

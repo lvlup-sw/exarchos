@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 
-import { ContentAddressedStore } from '../artifacts/content-addressed-store.js';
+import { ContentAddressedStore } from '../storage/artifacts/content-addressed-store.js';
 import { getDispatchContext } from '../dispatch/dispatch-context.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import type { ToolResult } from '../format.js';
 import { createEvidenceSubject } from '../workflow/admission/evidence-subject.js';
 import type { EvidenceSubjectV1 } from '../workflow/admission/types.js';

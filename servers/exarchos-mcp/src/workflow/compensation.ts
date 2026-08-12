@@ -6,12 +6,12 @@ import { appendEvent } from './events.js';
 import { ErrorCode } from './schemas.js';
 import { withStateRetry } from './state-retry.js';
 import type { Event } from './types.js';
-import type { EventStore } from '../event-store/store.js';
-import type { WorkflowEvent } from '../event-store/schemas.js';
+import type { EventStore } from '../events/store.js';
+import type { WorkflowEvent } from '../events/schemas.js';
 import {
   CancelCompensationCompletedData,
   CancelCompensationFailedData,
-} from '../event-store/schemas.js';
+} from '../events/schemas.js';
 import {
   appendFencedCancelEvent,
   decideCompensationAction,

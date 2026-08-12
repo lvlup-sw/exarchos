@@ -3,12 +3,12 @@ import { fc } from '@fast-check/vitest';
 import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
-import type { WorkflowEvent } from '../event-store/schemas.js';
+import type { WorkflowEvent } from '../events/schemas.js';
 import type { WorkflowState } from '../workflow/types.js';
 import type { EventSender } from './backend.js';
 import { SqliteBackend, SqliteImmediateUnsupportedError } from './sqlite-backend.js';
 import { VersionConflictError } from './memory-backend.js';
-import { AtomicAppender } from '../event-store/atomic-appender.js';
+import { AtomicAppender } from '../events/atomic-appender.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 // ─── DR-4 durability posture + DR-3 immediate fail-fast ─────────────────────

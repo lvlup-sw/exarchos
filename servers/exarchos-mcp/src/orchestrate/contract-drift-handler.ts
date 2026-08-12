@@ -19,7 +19,7 @@
 
 import { runCommandSync } from '../utils/process.js';
 import type { ToolResult } from '../format.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import { defaultGitExec, resolvePolicySkip, SKIPPED_BY_POLICY } from './gate-utils.js';
 import { runGatePreflight } from './pure/gate-preflight.js';
 import { runDurableGateProducer } from './durable-gate-producer.js';

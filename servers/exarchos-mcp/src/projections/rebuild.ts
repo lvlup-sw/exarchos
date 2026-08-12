@@ -22,7 +22,7 @@
  * mutation of its inputs. All determinism guarantees flow through the
  * reducer's purity contract (see `ProjectionReducer.apply`).
  */
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import type { ProjectionReducer } from './types.js';
 import {
   defaultRegistry,
@@ -30,7 +30,7 @@ import {
 } from './registry.js';
 import { boundEvents, type AsOfBound } from './cursor.js';
 import { readLatestSnapshot } from './store.js';
-import type { WorkflowEvent } from '../event-store/schemas.js';
+import type { WorkflowEvent } from '../events/schemas.js';
 
 /**
  * Optional overrides for {@link rebuildProjection}.

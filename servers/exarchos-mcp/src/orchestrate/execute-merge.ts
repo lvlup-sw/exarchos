@@ -37,7 +37,7 @@ import type { DispatchContext } from '../core/dispatch.js';
 import { executeMerge, type GitExec, type MergeStrategy } from './pure/execute-merge.js';
 import { buildLocalGitMergeAdapter } from './local-git-merge.js';
 import { buildMergeOrchestrateIdempotencyKey } from './merge-keys.js';
-import { SequenceConflictError } from '../event-store/store.js';
+import { SequenceConflictError } from '../events/store.js';
 import {
   readStateFile,
   writeStateFile,
@@ -52,7 +52,7 @@ import {
 import {
   ConcurrencyError,
   StorageBusyError,
-} from '../event-store/index.js';
+} from '../events/index.js';
 import type { MergeOrchestratorState } from '../projections/merge-orchestrator/index.js';
 // Side-effect import — registers `merge-orchestrator@v1` with `defaultRegistry`
 // so the Wave 3 primitive (`AtomicAppender.decide`) can resolve the reducer

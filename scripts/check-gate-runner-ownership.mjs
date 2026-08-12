@@ -127,7 +127,7 @@ const DISPOSITIONS = Object.freeze([
   { file: 'servers/exarchos-mcp/src/benchmarks/event-factories.ts', kind: 'manual-gate-event', count: 1, owner: 'benchmarks/event-factories', rationale: 'Synthetic benchmark fixture construction cannot execute or enforce a workflow gate.', category: 'diagnostic-observation' },
   { file: 'servers/exarchos-mcp/src/orchestrate/review-verdict.ts', kind: 'manual-gate-event', count: 1, owner: 'orchestrate/review-verdict', rationale: 'Read-only query of compatibility observations; durable review evidence is produced by the merged runner seam.', category: 'diagnostic-observation' },
   { file: 'servers/exarchos-mcp/src/tasks/tools.ts', kind: 'manual-gate-event', count: 1, owner: 'tasks/tools', rationale: 'Read-only task status query; this path cannot emit or enforce gate evidence.', category: 'diagnostic-observation' },
-  { file: 'servers/exarchos-mcp/src/telemetry/middleware.ts', kind: 'manual-gate-event', count: 1, owner: 'telemetry/middleware', rationale: 'Fire-and-forget token-budget telemetry; append failure is explicitly non-fatal and cannot affect a transition.', category: 'telemetry-observation' },
+  { file: 'servers/exarchos-mcp/src/projections/telemetry/middleware.ts', kind: 'manual-gate-event', count: 1, owner: 'telemetry/middleware', rationale: 'Fire-and-forget token-budget telemetry; append failure is explicitly non-fatal and cannot affect a transition.', category: 'telemetry-observation' },
   { file: 'servers/exarchos-mcp/src/workflow/playbooks.ts', kind: 'playbook-gate-observation', count: 17, owner: 'workflow/playbooks', rationale: 'Legacy model guidance describes compatibility observations only; it is not a provider or durable evidence path.', category: 'diagnostic-observation' },
 ]);
 

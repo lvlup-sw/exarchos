@@ -21,7 +21,7 @@
 // explicit > roots > cwd > elicitation > INVALID_INPUT.
 
 import type { z } from 'zod';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import { deriveElicitationSchema } from '../capabilities/elicitation.js';
 
 /**

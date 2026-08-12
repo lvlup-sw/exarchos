@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
 
 import { makeTempDir, rmrf } from './temp-dir.js';
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import { SqliteBackend } from '../storage/sqlite-backend.js';
 
 /**

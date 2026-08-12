@@ -49,7 +49,7 @@ import * as path from 'node:path';
 import { createMcpServer } from '../../adapters/mcp.js';
 import { createInMemoryResolver } from '../../capabilities/resolver.js';
 import type { DispatchContext } from '../../core/dispatch.js';
-import { EventStore } from '../../event-store/store.js';
+import { EventStore } from '../../events/store.js';
 
 // ─── Public surface ────────────────────────────────────────────────────────
 

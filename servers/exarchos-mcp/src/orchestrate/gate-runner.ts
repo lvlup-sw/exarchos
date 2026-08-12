@@ -3,13 +3,13 @@ import { join } from 'node:path';
 
 import {
   ContentAddressedStore,
-} from '../artifacts/content-addressed-store.js';
+} from '../storage/artifacts/content-addressed-store.js';
 import { getDispatchContext } from '../dispatch/dispatch-context.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import {
   AdmissionEvidenceRecordedData,
   type AdmissionEvidenceRecorded,
-} from '../event-store/schemas.js';
+} from '../events/schemas.js';
 import type { ToolResult } from '../format.js';
 import {
   storeEvidenceArtifact,

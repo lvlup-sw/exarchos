@@ -34,7 +34,7 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
-import { EventStore } from '../../event-store/store.js';
+import { EventStore } from '../../events/store.js';
 import type { DispatchContext, CompositeHandler } from '../../core/dispatch.js';
 import { stubCompositeHandler } from '../../core/dispatch.js';
 import type { ToolResult } from '../../format.js';
@@ -48,7 +48,7 @@ import {
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 import { handleOrchestrate } from '../composite.js';
-import { handleView } from '../../views/composite.js';
+import { handleView } from '../../projections/views/composite.js';
 import {
   handleAcquireWorktree,
   handleReleaseWorktree,

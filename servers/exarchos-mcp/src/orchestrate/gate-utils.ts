@@ -5,7 +5,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { orchestrateLogger } from '../logger.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import type { ToolResult } from '../format.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
 import { resolveGateSeverity } from './gate-severity.js';
@@ -17,7 +17,7 @@ import { resolveVerificationPolicy } from '../workflow/verification-policy-resol
 import type { PhaseKind } from '../workflow/phase-kind.js';
 import type { GitExec } from './pure/execute-merge.js';
 import type { EvidenceArtifactReferenceV1 } from '../workflow/admission/evidence-artifact.js';
-import type { AdmissionEvidenceRecorded } from '../event-store/schemas.js';
+import type { AdmissionEvidenceRecorded } from '../events/schemas.js';
 
 /**
  * Output ceiling for the git shell-outs below.

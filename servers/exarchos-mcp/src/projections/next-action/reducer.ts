@@ -36,7 +36,7 @@
  * make tests that construct their own registries straightforward.
  */
 import type { ProjectionReducer } from '../types.js';
-import type { WorkflowEvent } from '../../event-store/schemas.js';
+import type { WorkflowEvent } from '../../events/schemas.js';
 import type { HSMDefinition } from '../../workflow/state-machine.js';
 import type { NextAction } from '../../next-action.js';
 import { computeNextActions } from '../../next-actions-computer.js';

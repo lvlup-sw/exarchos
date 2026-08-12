@@ -98,7 +98,7 @@ import {
   type DirectorySyncOutcome,
   type DurabilityBarrier,
 } from '../utils/atomic-write.js';
-import { resolveContainedArtifactPath } from '../artifacts/artifact-path.js';
+import { resolveContainedArtifactPath } from '../storage/artifacts/artifact-path.js';
 import {
   digestTree,
   type DigestEntry,

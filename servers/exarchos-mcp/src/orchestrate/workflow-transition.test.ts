@@ -20,7 +20,7 @@ import * as path from 'node:path';
 
 import { handleInit, handleSet } from '../workflow/tools.js';
 import { handleWorkflow } from '../workflow/composite.js';
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { getHSMDefinition, getInitialPhase } from '../workflow/state-machine.js';
 import {

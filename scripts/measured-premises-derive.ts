@@ -25,7 +25,7 @@
  */
 import { censusOutputSchemas } from '../servers/exarchos-mcp/src/architecture/output-schema-census.js';
 import { censusReportCoupling } from '../servers/exarchos-mcp/src/architecture/report-coupling-census.js';
-import { EventTypes } from '../servers/exarchos-mcp/src/event-store/schemas.js';
+import { EventTypes } from '../servers/exarchos-mcp/src/events/schemas.js';
 import { censusEventNameGrammar } from '../servers/exarchos-mcp/src/architecture/event-grammar-census.js';
 
 /** The derivation names this entrypoint answers. Keys match the annotation names. */

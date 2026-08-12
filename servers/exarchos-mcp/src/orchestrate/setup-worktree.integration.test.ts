@@ -30,7 +30,7 @@ import * as path from 'node:path';
 import { handleSetupWorktree } from './setup-worktree.js';
 import { buildLocalGitMergeAdapter } from './local-git-merge.js';
 import type { GitExec } from './pure/execute-merge.js';
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 import { capabilitiesForPosture } from '../capabilities/posture-mapping.js';
 import { isSuccess } from '../core/effect-carrier.js';

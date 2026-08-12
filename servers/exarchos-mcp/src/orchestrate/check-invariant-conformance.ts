@@ -40,7 +40,7 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import type { ToolResult } from '../format.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import type { PluginFinding } from '../review/check-catalog.js';
 import type { ExarchosConfig } from '../config/exarchos-config-schema.js';
 import { loadExarchosConfig } from '../config/load-exarchos-config.js';

@@ -10,7 +10,7 @@ import { buildCheckpointMeta } from './checkpoint.js';
 import { getRecentEventsFromStore } from './events.js';
 import { getHSMDefinition } from './state-machine.js';
 import { checkCircuitBreakerFromStore } from './circuit-breaker.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import { stripNullish, type ToolResult } from '../format.js';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';

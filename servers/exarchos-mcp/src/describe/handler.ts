@@ -9,7 +9,7 @@ import {
   getValidEventTypes,
   isBuiltInEventType,
   serializeEventCatalog,
-} from '../event-store/schemas.js';
+} from '../events/schemas.js';
 import { serializeTopology, listWorkflowTypes } from '../workflow/state-machine.js';
 import { serializePlaybooks, listPlaybookWorkflowTypes } from '../workflow/playbooks.js';
 import { buildConfigDescription } from '../workflow/describe-config.js';

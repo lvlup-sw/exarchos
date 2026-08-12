@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { getRegisteredEventTypes } from './reducer.js';
 import { PHASE_EXPECTED_EVENTS } from '../../orchestrate/check-event-emissions.js';
 import { getPlaybook } from '../../workflow/playbooks.js';
-import { EVENT_EMISSION_REGISTRY, type EventType } from '../../event-store/schemas.js';
+import { EVENT_EMISSION_REGISTRY, type EventType } from '../../events/schemas.js';
 
 /**
  * Filter a reducer-registry list to the model-emitted subset — the contract

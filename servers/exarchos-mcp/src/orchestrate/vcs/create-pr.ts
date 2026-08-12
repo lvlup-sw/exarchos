@@ -41,7 +41,7 @@ import {
 import {
   ConcurrencyError,
   StorageBusyError,
-} from '../../event-store/index.js';
+} from '../../events/index.js';
 import { readIntent, groundBodyInIntent } from '../extract-intent.js';
 import { resolveWorkflowState } from '../resolve-state.js';
 

@@ -225,70 +225,70 @@
   },
   {
     "symbol": "AdmissionReassessmentCompleted",
-    "file": "servers/exarchos-mcp/src/event-store/schemas.ts",
+    "file": "servers/exarchos-mcp/src/events/schemas.ts",
     "owner": "@reedsalus",
     "expires": "2026-11-30",
     "rationale": "Wiring-closure admission/contract vocabulary type - declared contract surface for the P06 cutover wave; not yet import-reached. Wire or delete at expiry."
   },
   {
     "symbol": "AdmissionReassessmentRequested",
-    "file": "servers/exarchos-mcp/src/event-store/schemas.ts",
+    "file": "servers/exarchos-mcp/src/events/schemas.ts",
     "owner": "@reedsalus",
     "expires": "2026-11-30",
     "rationale": "Wiring-closure admission/contract vocabulary type - declared contract surface for the P06 cutover wave; not yet import-reached. Wire or delete at expiry."
   },
   {
     "symbol": "AdmissionTransitionDecided",
-    "file": "servers/exarchos-mcp/src/event-store/schemas.ts",
+    "file": "servers/exarchos-mcp/src/events/schemas.ts",
     "owner": "@reedsalus",
     "expires": "2026-11-30",
     "rationale": "Wiring-closure admission/contract vocabulary type - declared contract surface for the P06 cutover wave; not yet import-reached. Wire or delete at expiry."
   },
   {
     "symbol": "AdmissionWaiverRecorded",
-    "file": "servers/exarchos-mcp/src/event-store/schemas.ts",
+    "file": "servers/exarchos-mcp/src/events/schemas.ts",
     "owner": "@reedsalus",
     "expires": "2026-11-30",
     "rationale": "Wiring-closure admission/contract vocabulary type - declared contract surface for the P06 cutover wave; not yet import-reached. Wire or delete at expiry."
   },
   {
     "symbol": "AgentEventType",
-    "file": "servers/exarchos-mcp/src/event-store/schemas.ts",
+    "file": "servers/exarchos-mcp/src/events/schemas.ts",
     "owner": "@reedsalus",
     "expires": "2026-10-31",
     "rationale": "Event-store schema inferred type; public event-contract surface (token / gate / phase events). Review before removal — event schemas are append-only."
   },
   {
     "symbol": "GateExecutedDetails",
-    "file": "servers/exarchos-mcp/src/event-store/schemas.ts",
+    "file": "servers/exarchos-mcp/src/events/schemas.ts",
     "owner": "@reedsalus",
     "expires": "2026-10-31",
     "rationale": "Event-store schema inferred type; public event-contract surface (token / gate / phase events). Review before removal — event schemas are append-only."
   },
   {
     "symbol": "PhaseEntered",
-    "file": "servers/exarchos-mcp/src/event-store/schemas.ts",
+    "file": "servers/exarchos-mcp/src/events/schemas.ts",
     "owner": "@reedsalus",
     "expires": "2026-10-31",
     "rationale": "Event-store schema inferred type; public event-contract surface (token / gate / phase events). Review before removal — event schemas are append-only."
   },
   {
     "symbol": "PhaseExited",
-    "file": "servers/exarchos-mcp/src/event-store/schemas.ts",
+    "file": "servers/exarchos-mcp/src/events/schemas.ts",
     "owner": "@reedsalus",
     "expires": "2026-10-31",
     "rationale": "Event-store schema inferred type; public event-contract surface (token / gate / phase events). Review before removal — event schemas are append-only."
   },
   {
     "symbol": "SubagentTokensUsedData",
-    "file": "servers/exarchos-mcp/src/event-store/schemas.ts",
+    "file": "servers/exarchos-mcp/src/events/schemas.ts",
     "owner": "@reedsalus",
     "expires": "2026-10-31",
     "rationale": "Event-store schema inferred type; public event-contract surface (token / gate / phase events). Review before removal — event schemas are append-only."
   },
   {
     "symbol": "TurnCompletedData",
-    "file": "servers/exarchos-mcp/src/event-store/schemas.ts",
+    "file": "servers/exarchos-mcp/src/events/schemas.ts",
     "owner": "@reedsalus",
     "expires": "2026-10-31",
     "rationale": "Event-store schema inferred type; public event-contract surface (token / gate / phase events). Review before removal — event schemas are append-only."
@@ -463,7 +463,7 @@
   },
   {
     "symbol": "PipelineSummary",
-    "file": "servers/exarchos-mcp/src/views/pipeline-view.ts",
+    "file": "servers/exarchos-mcp/src/projections/views/pipeline-view.ts",
     "owner": "@reedsalus",
     "expires": "2026-10-31",
     "rationale": "Pipeline-view summary type; forward-compat view surface."

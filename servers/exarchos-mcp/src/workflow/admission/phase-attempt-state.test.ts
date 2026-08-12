@@ -19,8 +19,8 @@ import {
   type PhaseAttemptAdmissionFoldInput,
 } from './phase-attempt-state.js';
 import { ADMISSION_RUNTIME_CONTRACT_VERSION } from './types.js';
-import { workflowStateProjection } from '../../views/workflow-state-projection.js';
-import type { WorkflowEvent } from '../../event-store/schemas.js';
+import { workflowStateProjection } from '../../projections/views/workflow-state-projection.js';
+import type { WorkflowEvent } from '../../events/schemas.js';
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 

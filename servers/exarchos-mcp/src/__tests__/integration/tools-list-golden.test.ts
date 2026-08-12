@@ -87,7 +87,7 @@ import {
   type V2Client,
 } from '../../sdk/seam.js';
 import { createMcpServer } from '../../adapters/mcp.js';
-import { EventStore } from '../../event-store/store.js';
+import { EventStore } from '../../events/store.js';
 import type { DispatchContext } from '../../core/dispatch.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));

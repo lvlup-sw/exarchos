@@ -21,7 +21,7 @@ import * as os from 'node:os';
 
 import { handleInit, handleSet } from '../../workflow/tools.js';
 import { handleCancel } from '../../workflow/cancel.js';
-import { EventStore } from '../../event-store/store.js';
+import { EventStore } from '../../events/store.js';
 import { handleFinalizeOneshot } from '../../orchestrate/finalize-oneshot.js';
 import { handleRequestSynthesize } from '../../orchestrate/request-synthesize.js';
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';

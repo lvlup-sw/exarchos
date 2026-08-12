@@ -18,7 +18,7 @@ import * as fsPromises from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as nodePath from 'node:path';
 import { handleExtractFixTasks } from './extract-fix-tasks.js';
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 
 const mockExistsSync = vi.mocked(existsSync);
 const mockReadFileSync = vi.mocked(readFileSync);

@@ -13,7 +13,7 @@ import {
   resolvePhaseMode,
   getDiff,
 } from './gate-utils.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import { resolveConfig } from '../config/resolve.js';
 import type { VerificationPolicyOverlay } from '../config/yaml-schema.js';
 import {

@@ -10,7 +10,7 @@ import {
   probeStashAndEmit,
 } from './dispatch-guard.js';
 import type { AncestryResult, WorktreeAssertionResult } from './dispatch-guard.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 
 // ─── Event-store mock helper ────────────────────────────────────────────────
 

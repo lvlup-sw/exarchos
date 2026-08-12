@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { zodToJsonSchema } from '../adapters/json-schema.js';
 import { ALL_RUNBOOKS } from './definitions.js';
 import { findActionInRegistry, getFullRegistry } from '../registry.js';
-import { EVENT_EMISSION_REGISTRY } from '../event-store/schemas.js';
+import { EVENT_EMISSION_REGISTRY } from '../events/schemas.js';
 
 describe('Runbook drift detection', () => {
   it('RunbookDrift_EveryStepReferencesValidRegistryAction', () => {

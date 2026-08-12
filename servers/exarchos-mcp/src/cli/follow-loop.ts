@@ -49,21 +49,21 @@ import type { V2Task as Task } from '../sdk/seam.js';
 // re-pointed at the seam. `../task-store/port.ts` imports nothing and is
 // generation-neutral by construction; `isTaskTerminal` is differentially tested
 // against the v1 oracle over v2's own status vocabulary.
-import { isTaskTerminal } from '../task-store/port.js';
+import { isTaskTerminal } from '../projections/task-store/port.js';
 
 import {
   formatMissingTask,
   formatTransition,
   type FollowSubcommand,
 } from './follow-formatter.js';
-import type { WorkflowEvent } from '../event-store/schemas.js';
+import type { WorkflowEvent } from '../events/schemas.js';
 import type {
   SubscribeOptions,
   SubscriptionClock,
   SubscriptionFilter,
   SubscriptionHandle,
   SubscriptionListener,
-} from '../event-store/subscriptions.js';
+} from '../events/subscriptions.js';
 import type { Frame } from '../ndjson/frames.js';
 
 /**

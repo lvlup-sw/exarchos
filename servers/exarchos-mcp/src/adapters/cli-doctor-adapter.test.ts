@@ -40,7 +40,7 @@ import * as os from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 import { buildCli, CLI_EXIT_CODES } from './cli.js';
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import * as dispatchModule from '../core/dispatch.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { DoctorOutputSchema } from '../orchestrate/doctor/schema.js';

@@ -18,7 +18,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { z } from 'zod';
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import type { ToolResult } from '../format.js';
 import { toEnvelope } from '../format.js';
 import { NextAction } from '../next-action.js';

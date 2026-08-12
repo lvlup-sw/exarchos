@@ -28,12 +28,12 @@ import { createVcsProvider } from '../../vcs/factory.js';
 import {
   ConcurrencyError,
   StorageBusyError,
-} from '../../event-store/index.js';
+} from '../../events/index.js';
 import {
   withStateRetry,
   MAX_STATE_RETRIES,
 } from '../../workflow/state-retry.js';
-import type { AppendResult } from '../../event-store/index.js';
+import type { AppendResult } from '../../events/index.js';
 
 // ─── Args ─────────────────────────────────────────────────────────────────────
 

@@ -7,7 +7,7 @@ import { readStateFile, writeStateFile } from './state-store.js';
 import type { WorkflowState } from './types.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
 import { DEFAULTS } from '../config/resolve.js';
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 // ─── Checkpoint Gate Integration (Task 017) ──────────────────────────────────
@@ -246,7 +246,7 @@ describe('handleSet checkpoint gate', () => {
 
     // Emit the event directly to verify the type is valid
     const event = await eventStore.append(featureId, {
-      type: 'checkpoint.state_missing' as import('../event-store/schemas.js').EventType,
+      type: 'checkpoint.state_missing' as import('../events/schemas.js').EventType,
       correlationId: featureId,
       source: 'workflow',
       data: { action: 'set' },

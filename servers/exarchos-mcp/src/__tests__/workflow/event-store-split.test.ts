@@ -20,8 +20,8 @@ import {
   handleSet,
   configureWorkflowMaterializer,
 } from '../../workflow/tools.js';
-import { handleEventAppend } from '../../event-store/tools.js';
-import { EventStore } from '../../event-store/store.js';
+import { handleEventAppend } from '../../events/tools.js';
+import { EventStore } from '../../events/store.js';
 import { InMemoryBackend } from '../../storage/memory-backend.js';
 import { configureStateStoreBackend } from '../../workflow/state-store.js';
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';

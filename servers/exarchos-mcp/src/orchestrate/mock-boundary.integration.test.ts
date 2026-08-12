@@ -28,7 +28,7 @@ import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { handleOrchestrate } from './composite.js';
 import { rmrf } from '../test-helpers/temp-dir.js';

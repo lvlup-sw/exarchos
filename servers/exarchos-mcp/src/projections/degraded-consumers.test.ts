@@ -45,11 +45,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type { DispatchContext } from '../core/dispatch.js';
 import type { ToolResult } from '../format.js';
-import { EventStore } from '../event-store/store.js';
-import { handleView } from '../views/composite.js';
+import { EventStore } from '../events/store.js';
+import { handleView } from './views/composite.js';
 import { handleWorkflow } from '../workflow/composite.js';
 import { handleOrchestrate } from '../orchestrate/composite.js';
-import { getOrCreateMaterializer } from '../views/tools.js';
+import { getOrCreateMaterializer } from './views/tools.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 import {
   assessStreamFreshness,

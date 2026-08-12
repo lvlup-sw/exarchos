@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { Outbox } from './outbox.js';
 import type { EventSender, ExarchosEventDto } from './types.js';
-import type { WorkflowEvent } from '../event-store/schemas.js';
+import type { WorkflowEvent } from '../events/schemas.js';
 import { InMemoryBackend } from '../storage/memory-backend.js';
 
 function makeEvent(overrides?: Partial<WorkflowEvent>): WorkflowEvent {

@@ -6,7 +6,7 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import type { ToolResult } from '../format.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import { resolveWorkflowState } from './resolve-state.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';

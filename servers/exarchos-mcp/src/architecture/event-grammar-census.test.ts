@@ -21,8 +21,8 @@ import {
   getValidEventTypes,
   registerEventType,
   unregisterEventType,
-} from '../event-store/schemas.js';
-import { classifyEventName, WORD_SEPARATORS } from '../event-store/event-name.js';
+} from '../events/schemas.js';
+import { classifyEventName, WORD_SEPARATORS } from '../events/event-name.js';
 import {
   auditEventGrammarRatchet,
   censusEventNameGrammar,

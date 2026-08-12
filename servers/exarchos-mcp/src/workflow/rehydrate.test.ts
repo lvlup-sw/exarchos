@@ -3,7 +3,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 import { appendSnapshot, readLatestSnapshot } from '../projections/store.js';
 import { rebuildProjection, projectAt } from '../projections/rebuild.js';
@@ -20,7 +20,7 @@ import type {
   WorkflowRehydrated,
   WorkflowProjectionDegraded,
   WorkflowEvent,
-} from '../event-store/schemas.js';
+} from '../events/schemas.js';
 // Importing this barrel has a side effect: it registers the rehydration
 // reducer with the process-wide default registry. Import so the handler's
 // registry-based resolution works during this test file.

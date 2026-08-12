@@ -15,11 +15,11 @@ import { join } from 'node:path';
 
 import { DefaultHSMTransitionGuard } from '../hsm-transition-guard.js';
 import { defaultTranslationContext } from './legacy-state-translation.js';
-import { EventStore } from '../../event-store/store.js';
+import { EventStore } from '../../events/store.js';
 import {
   AdmissionDisagreementDispositionData,
   AdmissionShadowAttemptData,
-} from '../../event-store/schemas.js';
+} from '../../events/schemas.js';
 import { handleWorkflow } from '../composite.js';
 import { handleSet } from '../tools.js';
 import { dispatch } from '../../core/dispatch.js';

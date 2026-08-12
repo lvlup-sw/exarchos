@@ -3,7 +3,7 @@ import { Database } from 'bun:sqlite';
 import { mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import type { WorkflowEvent } from '../../event-store/schemas.js';
+import type { WorkflowEvent } from '../../events/schemas.js';
 import { SqliteBackend } from '../sqlite-backend.js';
 import { rmrf } from '../../test-helpers/temp-dir.js';
 

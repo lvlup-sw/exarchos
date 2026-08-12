@@ -92,7 +92,7 @@ import {
   type DispatchContextFactory,
   type RealHandlerObservationSet,
 } from './fixtures.js';
-import { EventStore } from '../../event-store/store.js';
+import { EventStore } from '../../events/store.js';
 
 let stateDir: string;
 let realHandlers: RealHandlerObservationSet;

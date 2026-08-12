@@ -6,7 +6,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ToolResult } from '../format.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 
 // ─── Mock event store ────────────────────────────────────────────────────────
 
@@ -15,7 +15,7 @@ const mockStore = {
   query: vi.fn().mockResolvedValue([]),
 };
 
-vi.mock('../views/tools.js', () => ({
+vi.mock('../projections/views/tools.js', () => ({
   getOrCreateMaterializer: () => ({}),
 }));
 

@@ -6,7 +6,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { ToolResult } from '../format.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import { emitGateEvent, getDiff } from './gate-utils.js';
 import { checkWorkflowDeterminism } from './pure/workflow-determinism.js';
 

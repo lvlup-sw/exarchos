@@ -28,7 +28,7 @@ import { loadInvariants, type InvariantEntry } from './invariants-loader.js';
 import { evaluateTree } from './check-evaluator.js';
 import { projectCatalog } from './project-catalog.js';
 import { renderAuditPrompt } from './audit-prompt.js';
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import { handleCheckInvariantConformance } from '../orchestrate/check-invariant-conformance.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 

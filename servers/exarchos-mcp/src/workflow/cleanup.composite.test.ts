@@ -5,8 +5,8 @@ import * as path from 'node:path';
 import { handleCleanup } from './cleanup.js';
 import { handleInit } from './tools.js';
 import { handleWorkflow } from './composite.js';
-import { EventStore } from '../event-store/store.js';
-import type { EventStore as EventStoreType } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
+import type { EventStore as EventStoreType } from '../events/store.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 

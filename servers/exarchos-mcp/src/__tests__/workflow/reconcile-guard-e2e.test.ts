@@ -8,8 +8,8 @@ import {
   configureWorkflowMaterializer,
 } from '../../workflow/tools.js';
 import { reconcileFromEvents } from '../../workflow/state-store.js';
-import { EventStore } from '../../event-store/store.js';
-import type { EventType } from '../../event-store/schemas.js';
+import { EventStore } from '../../events/store.js';
+import type { EventType } from '../../events/schemas.js';
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 describe('ReconcileGuardE2E', () => {

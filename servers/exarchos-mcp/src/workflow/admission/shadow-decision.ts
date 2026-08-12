@@ -34,7 +34,7 @@ import {
   AdmissionShadowAttemptData,
   type AdmissionDisagreementDisposition,
   type AdmissionShadowAttempt,
-} from '../../event-store/schemas.js';
+} from '../../events/schemas.js';
 import type { PhaseKind } from '../phase-kind.js';
 import type { PolicyVerdict } from './policy-evaluation.js';
 import type {

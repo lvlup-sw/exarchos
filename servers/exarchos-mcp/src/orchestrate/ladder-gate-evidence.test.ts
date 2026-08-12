@@ -98,8 +98,8 @@ import {
   mintDispatchContext,
   runWithDispatchContext,
 } from '../dispatch/dispatch-context.js';
-import type { EventStore } from '../event-store/store.js';
-import type { WorkflowEvent } from '../event-store/schemas.js';
+import type { EventStore } from '../events/store.js';
+import type { WorkflowEvent } from '../events/schemas.js';
 import type { ToolResult } from '../format.js';
 import { handleCheckIntegrationSuite } from './check-integration-suite.js';
 import { handleContractDrift } from './contract-drift-handler.js';

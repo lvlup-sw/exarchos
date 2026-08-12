@@ -29,8 +29,8 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
-import { EventStore } from '../event-store/store.js';
-import { EventSourcedTaskStore } from '../task-store/event-sourced-task-store.js';
+import { EventStore } from '../events/store.js';
+import { EventSourcedTaskStore } from '../projections/task-store/event-sourced-task-store.js';
 import { createInMemoryResolver } from './resolver.js';
 import { dispatch } from '../core/dispatch.js';
 import type { DispatchContext } from '../core/dispatch.js';

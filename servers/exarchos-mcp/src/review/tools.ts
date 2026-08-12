@@ -5,7 +5,7 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import type { ToolResult } from '../format.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import { detectVelocity } from './velocity.js';
 import { dispatchReviews } from './dispatch.js';
 import type { PRDiffMetadata, ReviewContext, ReviewDispatch } from './types.js';

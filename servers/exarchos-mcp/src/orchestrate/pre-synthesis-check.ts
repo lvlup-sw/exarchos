@@ -14,7 +14,7 @@
 import { execFileSync } from 'node:child_process';
 import { runCommandSync } from '../utils/process.js';
 import type { ToolResult } from '../format.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import { resolveTestRuntime } from '../config/test-runtime-resolver.js';
 import { splitCommand } from '../config/tokenize-command.js';
 import type { VcsProvider } from '../vcs/provider.js';

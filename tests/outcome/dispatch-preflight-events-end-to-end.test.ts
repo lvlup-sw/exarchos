@@ -29,9 +29,9 @@ import * as path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 import { withTmpGit } from './_helpers/tmp-git.js';
-import { EventStore } from '../../servers/exarchos-mcp/src/event-store/store.js';
+import { EventStore } from '../../servers/exarchos-mcp/src/events/store.js';
 import { handlePrepareDelegation } from '../../servers/exarchos-mcp/src/orchestrate/prepare-delegation.js';
-import { resetMaterializerCache } from '../../servers/exarchos-mcp/src/views/tools.js';
+import { resetMaterializerCache } from '../../servers/exarchos-mcp/src/projections/views/tools.js';
 import type { DispatchContext } from '../../servers/exarchos-mcp/src/core/dispatch.js';
 
 function gitRun(repo: string, args: readonly string[]): void {

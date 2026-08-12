@@ -26,7 +26,7 @@ vi.mock('./contract-drift.js', async (importOriginal) => {
   return { ...actual, runContractDrift: (...args: unknown[]) => mockRunContractDrift(...args) };
 });
 
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import type { DispatchContext, CompositeHandler } from '../core/dispatch.js';
 import { stubCompositeHandler } from '../core/dispatch.js';
 import type { ToolResult } from '../format.js';

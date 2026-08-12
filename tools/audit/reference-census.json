@@ -222,7 +222,7 @@
         "servers/exarchos-mcp/src/architecture/vocabulary-lint.ts",
         "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "servers/exarchos-mcp/src/orchestrate/worktree-baseref.ts",
-        "servers/exarchos-mcp/src/views/tools.ts"
+        "servers/exarchos-mcp/src/projections/views/tools.ts"
       ]
     },
     "docs/guides": {

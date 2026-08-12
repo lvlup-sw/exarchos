@@ -11,7 +11,7 @@ import type { VcsProvider, CiStatus, ReviewStatus, PrComment } from '../vcs/prov
 const mockAppend = vi.fn();
 const mockQuery = vi.fn();
 
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import { handleAssessStack, resolveCommentWindow } from './assess-stack.js';
 
 const mockEventStore = {

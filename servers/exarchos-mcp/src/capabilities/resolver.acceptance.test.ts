@@ -19,7 +19,7 @@ import { resolvePosture, createInMemoryResolver } from './resolver.js';
 import type { Capability } from '../agents/capabilities.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { dispatch, stubCompositeHandler } from '../core/dispatch.js';
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 
 describe('Capability_PostureSpec_ResolverDerivesEffectiveCapabilities (DR-6)', () => {
   it('derives effective capabilities from posture unioned with handshake declarations', () => {

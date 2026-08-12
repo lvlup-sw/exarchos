@@ -10,13 +10,13 @@ import { execFileSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
 import { DEFAULTS } from '../config/resolve.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import { orchestrateLogger } from '../logger.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import {
   getOrCreateMaterializer,
   queryDeltaEvents,
-} from '../views/tools.js';
+} from '../projections/views/tools.js';
 import {
   validateBranchAncestry,
   assertMainWorktree,
@@ -28,25 +28,25 @@ import type { AncestryResult } from './dispatch-guard.js';
 import { assertWorktreeBaseRefPinned } from './worktree-baseref.js';
 import {
   WORKFLOW_STATE_VIEW,
-} from '../views/workflow-state-projection.js';
-import type { WorkflowStateView } from '../views/workflow-state-projection.js';
+} from '../projections/views/workflow-state-projection.js';
+import type { WorkflowStateView } from '../projections/views/workflow-state-projection.js';
 import {
   CODE_QUALITY_VIEW,
-} from '../views/code-quality-view.js';
-import type { CodeQualityViewState } from '../views/code-quality-view.js';
+} from '../projections/views/code-quality-view.js';
+import type { CodeQualityViewState } from '../projections/views/code-quality-view.js';
 import {
   DELEGATION_READINESS_VIEW,
   computeScopedWorktrees,
   scopeReadinessToWave,
-} from '../views/delegation-readiness-view.js';
-import type { DelegationReadinessState } from '../views/delegation-readiness-view.js';
-import { generateQualityHints } from '../quality/hints.js';
-import type { QualityHint } from '../quality/hints.js';
+} from '../projections/views/delegation-readiness-view.js';
+import type { DelegationReadinessState } from '../projections/views/delegation-readiness-view.js';
+import { generateQualityHints } from '../projections/quality/hints.js';
+import type { QualityHint } from '../projections/quality/hints.js';
 import { emitGateEvent } from './gate-utils.js';
 import { parseTaskStamps, stampForTask } from './parse-task-stamps.js';
 import { readFile } from 'node:fs/promises';
-import { queryTelemetryState } from '../telemetry/telemetry-queries.js';
-import type { TelemetryViewState } from '../telemetry/telemetry-projection.js';
+import { queryTelemetryState } from '../projections/telemetry/telemetry-queries.js';
+import type { TelemetryViewState } from '../projections/telemetry/telemetry-projection.js';
 import {
   shouldEnforceCheckpoint,
   CHECKPOINT_OPERATION_THRESHOLD,
@@ -95,7 +95,7 @@ const DELEGATION_DISPATCH: DispatchShape = dispatchShapeFor(DELEGATION_POSTURE);
 
 // ─── Result Interface ────────────────────────────────────────────────────────
 
-export type { DelegationReadinessState } from '../views/delegation-readiness-view.js';
+export type { DelegationReadinessState } from '../projections/views/delegation-readiness-view.js';
 
 /** Input shape for a task passed to prepare_delegation. */
 export interface TaskInput {
@@ -848,7 +848,7 @@ function computeDesyncBlockers(
 // `computeScopedWorktrees` is part of this module's established public
 // surface and its unit tests import it from here.
 export { computeScopedWorktrees, scopeReadinessToWave };
-export type { ScopedWorktreesResult } from '../views/delegation-readiness-view.js';
+export type { ScopedWorktreesResult } from '../projections/views/delegation-readiness-view.js';
 
 
 // ─── Quality Hint Assembly ──────────────────────────────────────────────────

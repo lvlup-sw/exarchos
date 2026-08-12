@@ -3,7 +3,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { handleSessionStart } from './session-start.js';
-import { readManifestEntries } from '../session/manifest.js';
+import { readManifestEntries } from '../projections/session/manifest.js';
 
 // ─── session-start (#1485) ────────────────────────────────────────────────────
 //

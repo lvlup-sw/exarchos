@@ -23,7 +23,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 });
 
 import { readFile } from 'node:fs/promises';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import { emitGateEvent } from './gate-utils.js';
 import {
   parseTaskBlocks,

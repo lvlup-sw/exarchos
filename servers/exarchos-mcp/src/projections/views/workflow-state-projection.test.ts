@@ -1,0 +1,1447 @@
+import { describe, it, expect } from 'vitest';
+import type { WorkflowEvent } from '../../events/schemas.js';
+import {
+  workflowStateProjection,
+  WORKFLOW_STATE_VIEW,
+} from './workflow-state-projection.js';
+
+// ─── Test Helpers ──────────────────────────────────────────────────────────
+
+let seq = 0;
+
+function makeEvent(
+  type: WorkflowEvent['type'],
+  data?: Record<string, unknown>,
+  overrides?: Partial<WorkflowEvent>,
+): WorkflowEvent {
+  seq += 1;
+  return {
+    streamId: 'test-stream',
+    sequence: seq,
+    timestamp: new Date().toISOString(),
+    type,
+    schemaVersion: '1.0',
+    data: data ?? {},
+    ...overrides,
+  } as WorkflowEvent;
+}
+
+// ─── View Name ─────────────────────────────────────────────────────────────
+
+describe('WORKFLOW_STATE_VIEW', () => {
+  it('should export the view name constant', () => {
+    expect(WORKFLOW_STATE_VIEW).toBe('workflow-state');
+  });
+});
+
+// ─── init() ────────────────────────────────────────────────────────────────
+
+describe('WorkflowStateProjection init', () => {
+  describe('Init_NoEvents_ReturnsMinimalSkeleton', () => {
+    it('should return a valid skeleton with empty arrays and objects', () => {
+      const state = workflowStateProjection.init();
+
+      expect(state.version).toBe('1.1');
+      expect(state.featureId).toBe('');
+      expect(state.workflowType).toBe('feature');
+      expect(state.phase).toBe('plan');
+      expect(state.createdAt).toBe('');
+      expect(state.updatedAt).toBe('');
+      expect(state.artifacts).toEqual({ design: null, plan: null, pr: null });
+      expect(state.tasks).toEqual([]);
+      expect(state.worktrees).toEqual({});
+      expect(state.reviews).toEqual({});
+      expect(state.integration).toBeNull();
+      expect(state.synthesis).toEqual({
+        integrationBranch: null,
+        mergeOrder: [],
+        mergedBranches: [],
+        prUrl: null,
+        prFeedback: [],
+      });
+      expect(state._events).toEqual([]);
+      expect(state._version).toBe(1);
+      expect(state._history).toEqual({});
+      expect(state._checkpoint).toEqual({
+        timestamp: '',
+        phase: '',
+        summary: '',
+        operationsSince: 0,
+        fixCycleCount: 0,
+        lastActivityTimestamp: '',
+        staleAfterMinutes: 120,
+      });
+    });
+  });
+});
+
+// ─── Workflow Lifecycle ────────────────────────────────────────────────────
+
+describe('WorkflowStateProjection workflow lifecycle', () => {
+  describe('Apply_WorkflowStarted_SetsFeatureIdAndPhase', () => {
+    it('should set featureId, workflowType, phase, createdAt, updatedAt from workflow.started', () => {
+      const state = workflowStateProjection.init();
+      const ts = '2026-02-19T10:00:00.000Z';
+
+      const event = makeEvent(
+        'workflow.started',
+        { featureId: 'my-feature', workflowType: 'feature' },
+        { timestamp: ts },
+      );
+      const next = workflowStateProjection.apply(state, event);
+
+      expect(next.featureId).toBe('my-feature');
+      expect(next.workflowType).toBe('feature');
+      // DR-4 (#1581): workflow.started folds to the initial phase, now 'plan'.
+      expect(next.phase).toBe('plan');
+      expect(next.createdAt).toBe(ts);
+      expect(next.updatedAt).toBe(ts);
+    });
+
+    it('should preserve an existing createdAt when workflow.started is re-folded (reconcile idempotency)', () => {
+      // Regression: reconcileFromEvents replays from sequence 0 when a state
+      // lacks `_eventSequence`, re-folding `workflow.started` onto an
+      // already-stamped view. createdAt must NOT be clobbered to the (same)
+      // event timestamp on the second fold — it is set once, then preserved.
+      const created = '2026-02-19T10:00:00.000Z';
+      const later = '2026-03-01T12:00:00.000Z';
+      const start = workflowStateProjection.apply(
+        workflowStateProjection.init(),
+        makeEvent('workflow.started', { featureId: 'f', workflowType: 'feature' }, { timestamp: created }),
+      );
+      expect(start.createdAt).toBe(created);
+
+      const refolded = workflowStateProjection.apply(
+        start,
+        makeEvent('workflow.started', { featureId: 'f', workflowType: 'feature' }, { timestamp: later }),
+      );
+
+      expect(refolded.createdAt).toBe(created); // preserved, not overwritten
+      expect(refolded.updatedAt).toBe(later); // updatedAt still advances
+    });
+
+    it('should set phase to triage for debug workflows', () => {
+      const state = workflowStateProjection.init();
+      const event = makeEvent('workflow.started', {
+        featureId: 'bug-hunt',
+        workflowType: 'debug',
+      });
+      const next = workflowStateProjection.apply(state, event);
+
+      expect(next.workflowType).toBe('debug');
+      expect(next.phase).toBe('triage');
+    });
+
+    it('should set phase to explore for refactor workflows', () => {
+      const state = workflowStateProjection.init();
+      const event = makeEvent('workflow.started', {
+        featureId: 'cleanup',
+        workflowType: 'refactor',
+      });
+      const next = workflowStateProjection.apply(state, event);
+
+      expect(next.workflowType).toBe('refactor');
+      expect(next.phase).toBe('explore');
+    });
+  });
+
+  describe('Apply_WorkflowTransition_UpdatesPhase', () => {
+    it('should update phase to event.data.to and updatedAt', () => {
+      const state = workflowStateProjection.init();
+      const ts = '2026-02-19T11:00:00.000Z';
+
+      const event = makeEvent(
+        'workflow.transition',
+        { from: 'ideate', to: 'plan', trigger: 'next', featureId: 'f1' },
+        { timestamp: ts },
+      );
+      const next = workflowStateProjection.apply(state, event);
+
+      expect(next.phase).toBe('plan');
+      expect(next.updatedAt).toBe(ts);
+    });
+
+    it('should merge historyUpdates into _history when present', () => {
+      const state = workflowStateProjection.init();
+
+      const event = makeEvent('workflow.transition', {
+        from: 'ideate',
+        to: 'plan',
+        trigger: 'next',
+        featureId: 'f1',
+        historyUpdates: { ideate: 'completed design doc' },
+      });
+      const next = workflowStateProjection.apply(state, event);
+
+      expect(next._history).toEqual({ ideate: 'completed design doc' });
+    });
+  });
+
+  describe('Apply_WorkflowCheckpoint_UpdatesCheckpointFields', () => {
+    it('should update _checkpoint phase, timestamp, lastActivityTimestamp, and operationsSince', () => {
+      const state = workflowStateProjection.init();
+      const ts = '2026-02-19T12:00:00.000Z';
+
+      const event = makeEvent(
+        'workflow.checkpoint',
+        { phase: 'delegate', counter: 5, featureId: 'f1' },
+        { timestamp: ts },
+      );
+      const next = workflowStateProjection.apply(state, event);
+
+      expect(next._checkpoint.phase).toBe('delegate');
+      expect(next._checkpoint.timestamp).toBe(ts);
+      expect(next._checkpoint.lastActivityTimestamp).toBe(ts);
+      expect(next._checkpoint.operationsSince).toBe(5);
+    });
+
+    it('should leave operationsSince unchanged when counter is not provided', () => {
+      const state = workflowStateProjection.init();
+
+      const event = makeEvent('workflow.checkpoint', {
+        phase: 'review',
+        featureId: 'f1',
+      });
+      const next = workflowStateProjection.apply(state, event);
+
+      expect(next._checkpoint.phase).toBe('review');
+      expect(next._checkpoint.operationsSince).toBe(0); // unchanged from init
+    });
+  });
+});
+
+// ─── Task Events ───────────────────────────────────────────────────────────
+
+describe('WorkflowStateProjection task events', () => {
+  describe('Apply_TaskAssigned_PushesToTasksArray', () => {
+    it('should add a new task with pending status', () => {
+      const state = workflowStateProjection.init();
+      const event = makeEvent('task.assigned', {
+        taskId: 'task-1',
+        title: 'Implement feature',
+        branch: 'feat/task-1',
+        worktree: '/tmp/wt-1',
+      });
+      const next = workflowStateProjection.apply(state, event);
+
+      expect(next.tasks).toHaveLength(1);
+      expect(next.tasks[0]).toEqual({
+        id: 'task-1',
+        title: 'Implement feature',
+        status: 'pending',
+        branch: 'feat/task-1',
+        worktreePath: '/tmp/wt-1',
+      });
+    });
+  });
+
+  describe('Apply_TaskAssigned_DuplicateId_UpdatesExisting', () => {
+    it('should update the existing task instead of duplicating', () => {
+      let state = workflowStateProjection.init();
+
+      // Assign first task
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent('task.assigned', {
+          taskId: 'task-1',
+          title: 'Original title',
+          branch: 'feat/old',
+        }),
+      );
+
+      // Assign same taskId again with different data
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent('task.assigned', {
+          taskId: 'task-1',
+          title: 'Updated title',
+          branch: 'feat/new',
+          worktree: '/tmp/wt-new',
+        }),
+      );
+
+      expect(state.tasks).toHaveLength(1);
+      expect(state.tasks[0].title).toBe('Updated title');
+      expect(state.tasks[0].branch).toBe('feat/new');
+      expect(state.tasks[0].worktreePath).toBe('/tmp/wt-new');
+    });
+  });
+
+  describe('Apply_TaskCompleted_UpdatesStatusAndCompletedAt', () => {
+    it('should set status to complete and record completedAt', () => {
+      let state = workflowStateProjection.init();
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent('task.assigned', { taskId: 'task-1', title: 'T1' }),
+      );
+
+      const ts = '2026-02-19T14:00:00.000Z';
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent(
+          'task.completed',
+          { taskId: 'task-1' },
+          { timestamp: ts },
+        ),
+      );
+
+      expect(state.tasks[0].status).toBe('complete');
+      expect(state.tasks[0].completedAt).toBe(ts);
+    });
+  });
+
+  describe('Apply_TaskCompleted_UnknownTaskId_NoOp', () => {
+    it('should return state unchanged when taskId is not found', () => {
+      const state = workflowStateProjection.init();
+      const event = makeEvent('task.completed', { taskId: 'nonexistent' });
+      const next = workflowStateProjection.apply(state, event);
+
+      expect(next).toEqual(state);
+    });
+  });
+
+  describe('Apply_TaskFailed_UpdatesStatus', () => {
+    it('should set status to failed', () => {
+      let state = workflowStateProjection.init();
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent('task.assigned', { taskId: 'task-1', title: 'T1' }),
+      );
+
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent('task.failed', { taskId: 'task-1', error: 'build failed' }),
+      );
+
+      expect(state.tasks[0].status).toBe('failed');
+    });
+  });
+});
+
+// ─── state.patched ─────────────────────────────────────────────────────────
+
+describe('WorkflowStateProjection state.patched', () => {
+  describe('Apply_StatePatched_DeepMergesIntoState', () => {
+    it('should patch top-level fields into state', () => {
+      const state = workflowStateProjection.init();
+      const event = makeEvent('state.patched', {
+        patch: { integration: { passed: true } },
+      });
+      const next = workflowStateProjection.apply(state, event);
+
+      expect(next.integration).toEqual({ passed: true });
+    });
+  });
+
+  describe('Apply_StatePatched_NestedObjects_MergesRecursively', () => {
+    it('should recursively merge nested objects', () => {
+      let state = workflowStateProjection.init();
+
+      // First patch sets some synthesis fields
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent('state.patched', {
+          patch: { synthesis: { integrationBranch: 'main', mergeOrder: ['a', 'b'] } },
+        }),
+      );
+
+      // Second patch merges additional synthesis fields without overwriting existing ones
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent('state.patched', {
+          patch: { synthesis: { prUrl: 'https://github.com/pr/1' } },
+        }),
+      );
+
+      expect(state.synthesis.integrationBranch).toBe('main');
+      expect(state.synthesis.mergeOrder).toEqual(['a', 'b']);
+      expect(state.synthesis.prUrl).toBe('https://github.com/pr/1');
+    });
+  });
+
+  describe('Apply_StatePatched_ArrayFields_ReplacesArray', () => {
+    it('should replace arrays instead of merging them', () => {
+      let state = workflowStateProjection.init();
+
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent('state.patched', {
+          patch: { synthesis: { mergeOrder: ['a', 'b'] } },
+        }),
+      );
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent('state.patched', {
+          patch: { synthesis: { mergeOrder: ['x', 'y', 'z'] } },
+        }),
+      );
+
+      expect(state.synthesis.mergeOrder).toEqual(['x', 'y', 'z']);
+    });
+  });
+
+  describe('Apply_StatePatched_NullPatch_NoOp', () => {
+    it('should return state unchanged when patch is null', () => {
+      const state = workflowStateProjection.init();
+      const event = makeEvent('state.patched', { patch: null });
+      const next = workflowStateProjection.apply(state, event);
+
+      expect(next).toEqual(state);
+    });
+
+    it('should return state unchanged when patch is undefined', () => {
+      const state = workflowStateProjection.init();
+      const event = makeEvent('state.patched', {});
+      const next = workflowStateProjection.apply(state, event);
+
+      expect(next).toEqual(state);
+    });
+
+    it('should return state unchanged when data is missing', () => {
+      const state = workflowStateProjection.init();
+      const event = makeEvent('state.patched', undefined);
+      const next = workflowStateProjection.apply(state, event);
+
+      expect(next).toEqual(state);
+    });
+
+    it('should return the SAME reference for an empty patch (no-op identity)', () => {
+      // Regression (Seer): an empty `{}` patch must not structuredClone into a
+      // fresh reference — reconcileFromEvents' `next !== folded` check would
+      // miscount it as applied and force a spurious no-op write-back.
+      const state = workflowStateProjection.init();
+      const event = makeEvent('state.patched', { patch: {} });
+      const next = workflowStateProjection.apply(state, event);
+
+      expect(next).toBe(state); // reference identity, not just deep equality
+    });
+  });
+
+  describe('Apply_StatePatched_ArrayIndexPath_MergesInPlace', () => {
+    it('should apply an array-index dot-path patch in place without clobbering sibling tasks', () => {
+      let state = workflowStateProjection.init();
+
+      // Two tasks land via task.assigned.
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent('task.assigned', { taskId: 'task-1', title: 'First', branch: 'feat/1', worktree: '/tmp/wt-1' }),
+      );
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent('task.assigned', { taskId: 'task-2', title: 'Second' }),
+      );
+
+      // An array-index patch (the shape handleSet emits for `tasks[0].nativeTaskId`).
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent('state.patched', { patch: { 'tasks[0].nativeTaskId': 'nt-1' } }),
+      );
+
+      // fold ≡ write: tasks[0] keeps its identity AND gains the patched field,
+      // and tasks[1] survives (the array is NOT replaced wholesale).
+      expect(state.tasks).toHaveLength(2);
+      expect(state.tasks[0]).toMatchObject({
+        id: 'task-1',
+        title: 'First',
+        status: 'pending',
+        nativeTaskId: 'nt-1',
+      });
+      expect(state.tasks[1]).toMatchObject({ id: 'task-2', title: 'Second', status: 'pending' });
+    });
+
+    it('should update an existing field at an array index in place', () => {
+      let state = workflowStateProjection.init();
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent('task.assigned', { taskId: 'task-1', title: 'First' }),
+      );
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent('task.assigned', { taskId: 'task-2', title: 'Second' }),
+      );
+
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent('state.patched', { patch: { 'tasks[1].status': 'complete' } }),
+      );
+
+      expect(state.tasks).toHaveLength(2);
+      expect(state.tasks[0]).toMatchObject({ id: 'task-1', status: 'pending' });
+      expect(state.tasks[1]).toMatchObject({ id: 'task-2', status: 'complete' });
+    });
+  });
+});
+
+// ─── Stack and Review Events ───────────────────────────────────────────────
+
+describe('WorkflowStateProjection stack/review events', () => {
+  describe('Apply_StackPositionFilled_UpdatesTaskBranch', () => {
+    it('should update the matching task branch', () => {
+      let state = workflowStateProjection.init();
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent('task.assigned', {
+          taskId: 'task-1',
+          title: 'T1',
+          branch: 'old-branch',
+        }),
+      );
+
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent('stack.position-filled', {
+          taskId: 'task-1',
+          branch: 'new-branch',
+          position: 1,
+        }),
+      );
+
+      expect(state.tasks[0].branch).toBe('new-branch');
+    });
+  });
+
+  describe('Apply_ReviewRouted_UpdatesReviewsRecord', () => {
+    it('should add an entry to the reviews object keyed by PR number', () => {
+      const state = workflowStateProjection.init();
+      const event = makeEvent('review.routed', {
+        pr: 42,
+        riskScore: 0.75,
+        factors: ['large-diff'],
+        destination: 'coderabbit',
+        velocityTier: 'normal',
+        semanticAugmented: true,
+      });
+      const next = workflowStateProjection.apply(state, event);
+
+      expect(next.reviews['42']).toBeDefined();
+      expect((next.reviews['42'] as Record<string, unknown>).pr).toBe(42);
+      expect((next.reviews['42'] as Record<string, unknown>).riskScore).toBe(0.75);
+      expect((next.reviews['42'] as Record<string, unknown>).destination).toBe('coderabbit');
+    });
+  });
+});
+
+// ─── Team Events (_events projection) ─────────────────────────────────────
+
+describe('WorkflowStateProjection team events', () => {
+  describe('Apply_TeamSpawned_AppendsToViewEvents', () => {
+    it('should append team.spawned to view._events', () => {
+      const state = workflowStateProjection.init();
+      const ts = '2026-02-19T15:00:00.000Z';
+
+      const event = makeEvent(
+        'team.spawned',
+        { teamSize: 3, teammateNames: ['a', 'b', 'c'], taskCount: 3, dispatchMode: 'parallel' },
+        { timestamp: ts },
+      );
+      const next = workflowStateProjection.apply(state, event);
+
+      expect(next._events).toBeDefined();
+      expect(Array.isArray(next._events)).toBe(true);
+      expect(next._events).toHaveLength(1);
+      expect(next._events[0]).toMatchObject({ type: 'team.spawned' });
+    });
+  });
+
+  describe('Apply_TeamDisbanded_AppendsToViewEvents', () => {
+    it('should append both team.spawned and team.disbanded to view._events', () => {
+      let state = workflowStateProjection.init();
+      const ts1 = '2026-02-19T15:00:00.000Z';
+      const ts2 = '2026-02-19T16:00:00.000Z';
+
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent(
+          'team.spawned',
+          { teamSize: 2 },
+          { timestamp: ts1 },
+        ),
+      );
+
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent(
+          'team.disbanded',
+          { totalDurationMs: 5000 },
+          { timestamp: ts2 },
+        ),
+      );
+
+      expect(state._events).toHaveLength(2);
+      expect(state._events[0]).toMatchObject({ type: 'team.spawned' });
+      expect(state._events[1]).toMatchObject({ type: 'team.disbanded' });
+    });
+  });
+
+  describe('Apply_TeamSpawned_PreservesEventData', () => {
+    it('should preserve event data including teamSize in _events entry', () => {
+      const state = workflowStateProjection.init();
+      const ts = '2026-02-19T15:00:00.000Z';
+
+      const event = makeEvent(
+        'team.spawned',
+        { teamSize: 3 },
+        { timestamp: ts },
+      );
+      const next = workflowStateProjection.apply(state, event);
+
+      expect(next._events).toHaveLength(1);
+      const entry = next._events[0];
+      expect(entry.type).toBe('team.spawned');
+      expect(entry.timestamp).toBe(ts);
+      expect(entry.data).toBeDefined();
+      expect((entry.data as Record<string, unknown>).teamSize).toBe(3);
+    });
+  });
+});
+
+// ─── Oneshot / Pruning Events (_events projection) ────────────────────────
+
+describe('WorkflowStateProjection oneshot/pruning events', () => {
+  describe('workflowStateProjection_synthesizeRequested_appendsToEvents', () => {
+    it('should append synthesize.requested to view._events', () => {
+      const state = workflowStateProjection.init();
+      const ts = '2026-04-11T10:00:00.000Z';
+
+      const event = makeEvent(
+        'synthesize.requested',
+        { featureId: 'oneshot-feature', reason: 'all-tasks-complete' },
+        { timestamp: ts },
+      );
+      const next = workflowStateProjection.apply(state, event);
+
+      expect(next._events).toBeDefined();
+      expect(Array.isArray(next._events)).toBe(true);
+      expect(next._events).toHaveLength(1);
+      expect(next._events[0]).toMatchObject({
+        type: 'synthesize.requested',
+        timestamp: ts,
+      });
+      expect((next._events[0].data as Record<string, unknown>).featureId).toBe(
+        'oneshot-feature',
+      );
+    });
+  });
+
+  describe('workflowStateProjection_synthesizeRequested_doesNotMutateOtherFields', () => {
+    it('should leave phase, featureId, tasks, and other fields unchanged', () => {
+      let state = workflowStateProjection.init();
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent(
+          'workflow.started',
+          { featureId: 'f-synth', workflowType: 'feature' },
+          { timestamp: '2026-04-11T09:00:00.000Z' },
+        ),
+      );
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent('task.assigned', { taskId: 'task-A', title: 'A', branch: 'feat/a' }),
+      );
+
+      const before = {
+        featureId: state.featureId,
+        workflowType: state.workflowType,
+        phase: state.phase,
+        createdAt: state.createdAt,
+        tasks: state.tasks,
+        artifacts: state.artifacts,
+        synthesis: state.synthesis,
+        reviews: state.reviews,
+        integration: state.integration,
+      };
+
+      const next = workflowStateProjection.apply(
+        state,
+        makeEvent('synthesize.requested', { featureId: 'f-synth' }),
+      );
+
+      expect(next.featureId).toBe(before.featureId);
+      expect(next.workflowType).toBe(before.workflowType);
+      expect(next.phase).toBe(before.phase);
+      expect(next.createdAt).toBe(before.createdAt);
+      expect(next.tasks).toEqual(before.tasks);
+      expect(next.artifacts).toEqual(before.artifacts);
+      expect(next.synthesis).toEqual(before.synthesis);
+      expect(next.reviews).toEqual(before.reviews);
+      expect(next.integration).toEqual(before.integration);
+    });
+  });
+
+  describe('workflowStateProjection_workflowPruned_appendsToEvents', () => {
+    it('should append workflow.pruned to view._events for audit trail', () => {
+      const state = workflowStateProjection.init();
+      const ts = '2026-04-11T11:00:00.000Z';
+
+      const event = makeEvent(
+        'workflow.pruned',
+        { featureId: 'stale-feature', reason: 'stale-timeout', prunedAt: ts },
+        { timestamp: ts },
+      );
+      const next = workflowStateProjection.apply(state, event);
+
+      expect(next._events).toBeDefined();
+      expect(Array.isArray(next._events)).toBe(true);
+      expect(next._events).toHaveLength(1);
+      expect(next._events[0]).toMatchObject({
+        type: 'workflow.pruned',
+        timestamp: ts,
+      });
+      expect((next._events[0].data as Record<string, unknown>).reason).toBe(
+        'stale-timeout',
+      );
+    });
+  });
+
+  describe('workflowStateProjection_workflowPruned_doesNotMutateOtherFields', () => {
+    it('should leave phase, featureId, tasks, and other fields unchanged', () => {
+      let state = workflowStateProjection.init();
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent(
+          'workflow.started',
+          { featureId: 'f-prune', workflowType: 'feature' },
+          { timestamp: '2026-04-11T09:00:00.000Z' },
+        ),
+      );
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent('task.assigned', { taskId: 'task-B', title: 'B', branch: 'feat/b' }),
+      );
+
+      const before = {
+        featureId: state.featureId,
+        workflowType: state.workflowType,
+        phase: state.phase,
+        createdAt: state.createdAt,
+        tasks: state.tasks,
+        artifacts: state.artifacts,
+        synthesis: state.synthesis,
+        reviews: state.reviews,
+        integration: state.integration,
+      };
+
+      const next = workflowStateProjection.apply(
+        state,
+        makeEvent('workflow.pruned', { featureId: 'f-prune', reason: 'stale' }),
+      );
+
+      expect(next.featureId).toBe(before.featureId);
+      expect(next.workflowType).toBe(before.workflowType);
+      expect(next.phase).toBe(before.phase);
+      expect(next.createdAt).toBe(before.createdAt);
+      expect(next.tasks).toEqual(before.tasks);
+      expect(next.artifacts).toEqual(before.artifacts);
+      expect(next.synthesis).toEqual(before.synthesis);
+      expect(next.reviews).toEqual(before.reviews);
+      expect(next.integration).toEqual(before.integration);
+    });
+  });
+});
+
+// ─── Observability and Unknown Events ──────────────────────────────────────
+
+describe('WorkflowStateProjection passthrough events', () => {
+  describe('Apply_UnknownEventType_ReturnsStateUnchanged', () => {
+    it('should return state unchanged for unrecognized event types', () => {
+      const state = workflowStateProjection.init();
+      const event = makeEvent('some.unknown.event' as WorkflowEvent['type'], {
+        anything: true,
+      });
+      const next = workflowStateProjection.apply(state, event);
+
+      expect(next).toEqual(state);
+    });
+  });
+
+  describe('Apply_ObservabilityOnly_ReturnsStateUnchanged', () => {
+    it('should return state unchanged for non-team observability events', () => {
+      const state = workflowStateProjection.init();
+
+      const toolInvoked = workflowStateProjection.apply(
+        state,
+        makeEvent('tool.invoked', { tool: 'exarchos_workflow' }),
+      );
+      expect(toolInvoked).toEqual(state);
+
+      const benchmarkCompleted = workflowStateProjection.apply(
+        state,
+        makeEvent('benchmark.completed', { taskId: 't1', results: [] }),
+      );
+      expect(benchmarkCompleted).toEqual(state);
+
+      const gateExecuted = workflowStateProjection.apply(
+        state,
+        makeEvent('gate.executed', { gateName: 'typecheck', layer: 'L1', passed: true }),
+      );
+      expect(gateExecuted).toEqual(state);
+    });
+  });
+});
+
+// ─── Mutation-adequacy dimension (DR-2a) ─────────────────────────────────────
+
+describe('WorkflowStateProjection mutation-adequacy dimension (DR-2a)', () => {
+  type Dim = {
+    status?: string;
+    passed?: boolean;
+    mutationScore?: number;
+    skipped?: boolean;
+    degraded?: boolean;
+    noCoverage?: number;
+  };
+  const dimOf = (s: ReturnType<typeof workflowStateProjection.init>): Dim | undefined =>
+    (s.reviews as Record<string, Dim>)['mutation-adequacy'];
+
+  it('foldsMutationGateExecutedIntoReviewsDimension', () => {
+    const state = workflowStateProjection.init();
+    const next = workflowStateProjection.apply(
+      state,
+      makeEvent('gate.executed', {
+        gateName: 'mutation-adequacy',
+        layer: 'review',
+        passed: true,
+        details: { mutationScore: 0.82, threshold: 0.4 },
+      }),
+    );
+    const dim = dimOf(next);
+    expect(dim).toBeDefined();
+    expect(dim!.status).toBe('pass');
+    expect(dim!.passed).toBe(true);
+    expect(dim!.mutationScore).toBe(0.82);
+    expect(dim!.skipped ?? false).toBe(false);
+  });
+
+  it('foldsSkipPassWhenNoToolchain', () => {
+    // No-toolchain emits a skip-passing gate.executed; the dimension is recorded
+    // as skip-pass so review→synthesize is not dead-locked at HIGH tier.
+    const state = workflowStateProjection.init();
+    const next = workflowStateProjection.apply(
+      state,
+      makeEvent('gate.executed', {
+        gateName: 'mutation-adequacy',
+        layer: 'review',
+        passed: true,
+        details: { skipped: true, reason: 'no runner', mutationScore: 0 },
+      }),
+    );
+    expect(dimOf(next)!.status).toBe('pass');
+    expect(dimOf(next)!.skipped).toBe(true);
+    // RVC-R1: a no-toolchain skip-pass carries NO degrade marker.
+    expect(dimOf(next)!.degraded ?? false).toBe(false);
+  });
+
+  it('foldsDegradedMarkerFromDegradePath_RVC_R1', () => {
+    // RVC-R1: a degrade path (toolchain present but runner failed / unparseable
+    // report) emits skipped:true AND degraded:true. The projection must carry the
+    // degraded flag so `allReviewsPassed` Check 4 can fail it closed under block
+    // enforcement — a shared skipped:true marker alone would let a broken runner
+    // silently pass review→synthesize.
+    const state = workflowStateProjection.init();
+    const next = workflowStateProjection.apply(
+      state,
+      makeEvent('gate.executed', {
+        gateName: 'mutation-adequacy',
+        layer: 'review',
+        passed: true,
+        details: { skipped: true, degraded: true, reason: 'stryker exited 1', mutationScore: 0 },
+      }),
+    );
+    expect(dimOf(next)!.status).toBe('pass');
+    expect(dimOf(next)!.skipped).toBe(true);
+    expect(dimOf(next)!.degraded).toBe(true);
+  });
+
+  it('advisoryPassEvenWhenScoreBelowThreshold', () => {
+    // DR-2a records the dimension as advisory 'pass'; the raw sub-threshold
+    // verdict rides `passed` for the DR-3 (task 006) score-enforcement check.
+    const state = workflowStateProjection.init();
+    const next = workflowStateProjection.apply(
+      state,
+      makeEvent('gate.executed', {
+        gateName: 'mutation-adequacy',
+        layer: 'review',
+        passed: false,
+        details: { mutationScore: 0.1, threshold: 0.4 },
+      }),
+    );
+    expect(dimOf(next)!.status).toBe('pass');
+    expect(dimOf(next)!.passed).toBe(false);
+    expect(dimOf(next)!.mutationScore).toBe(0.1);
+  });
+
+  it('nonMutationGateExecutedIsNoOp', () => {
+    const state = workflowStateProjection.init();
+    const next = workflowStateProjection.apply(
+      state,
+      makeEvent('gate.executed', { gateName: 'static-analysis', layer: 'delegate', passed: true }),
+    );
+    expect(next).toEqual(state);
+  });
+
+  // ── DR-6: the fold ADDITIVELY carries `noCoverage` so the block-mode guard's
+  // orthogonal axis can read it off the folded dimension. Legacy events WITHOUT
+  // the field must fold byte-identical to before (INV-1).
+
+  it('Fold_MutationEventWithNoCoverage_CarriesField', () => {
+    const state = workflowStateProjection.init();
+    const next = workflowStateProjection.apply(
+      state,
+      makeEvent('gate.executed', {
+        gateName: 'mutation-adequacy',
+        layer: 'review',
+        passed: false,
+        details: { mutationScore: 1.0, noCoverage: 3, threshold: 0.4 },
+      }),
+    );
+    const dim = dimOf(next)!;
+    expect(dim.status).toBe('pass');
+    // mutationScore unchanged (INV-5b) AND noCoverage now carried (DR-6).
+    expect(dim.mutationScore).toBe(1.0);
+    expect(dim.noCoverage).toBe(3);
+  });
+
+  it('Fold_LegacyMutationEventWithoutNoCoverage_FoldsIdentically', () => {
+    // A legacy mutation gate.executed predates DR-6 and carries NO `noCoverage`
+    // in its details. The extended fold must produce a dimension with NO
+    // `noCoverage` key — byte-identical to the pre-DR-6 replay (INV-1: pure
+    // left-fold, identical legacy replay).
+    const legacyEvent = makeEvent('gate.executed', {
+      gateName: 'mutation-adequacy',
+      layer: 'review',
+      passed: true,
+      details: { mutationScore: 0.82, threshold: 0.4 },
+    });
+    const dim = dimOf(workflowStateProjection.apply(workflowStateProjection.init(), legacyEvent))!;
+    // The dimension folds to EXACTLY the pre-DR-6 shape — no `noCoverage` key.
+    expect(dim).toEqual({
+      status: 'pass',
+      gateName: 'mutation-adequacy',
+      passed: true,
+      mutationScore: 0.82,
+    });
+    expect('noCoverage' in dim).toBe(false);
+  });
+});
+
+// ─── Round-Trip Integration ────────────────────────────────────────────────
+
+describe('WorkflowStateProjection round-trip', () => {
+  describe('RoundTrip_FullEventSequence_ProducesCompleteState', () => {
+    it('should produce a complete state from a realistic event sequence', () => {
+      let state = workflowStateProjection.init();
+
+      // 1. workflow.started
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent(
+          'workflow.started',
+          { featureId: 'round-trip', workflowType: 'feature' },
+          { timestamp: '2026-02-19T10:00:00.000Z' },
+        ),
+      );
+      expect(state.featureId).toBe('round-trip');
+      expect(state.phase).toBe('plan');
+
+      // 2. state.patched (add artifacts)
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent('state.patched', {
+          patch: { artifacts: { design: 'docs/design.md', plan: 'docs/plan.md', pr: null } },
+        }),
+      );
+      expect(state.artifacts.design).toBe('docs/design.md');
+
+      // 3. workflow.transition (ideate -> plan)
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent(
+          'workflow.transition',
+          { from: 'ideate', to: 'plan', trigger: 'next', featureId: 'round-trip' },
+          { timestamp: '2026-02-19T10:05:00.000Z' },
+        ),
+      );
+      expect(state.phase).toBe('plan');
+
+      // 4. task.assigned x 3
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent('task.assigned', { taskId: 't1', title: 'Task 1', branch: 'feat/t1' }),
+      );
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent('task.assigned', { taskId: 't2', title: 'Task 2', branch: 'feat/t2' }),
+      );
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent('task.assigned', { taskId: 't3', title: 'Task 3', branch: 'feat/t3' }),
+      );
+      expect(state.tasks).toHaveLength(3);
+
+      // 5. task.completed x 2
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent(
+          'task.completed',
+          { taskId: 't1' },
+          { timestamp: '2026-02-19T11:00:00.000Z' },
+        ),
+      );
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent(
+          'task.completed',
+          { taskId: 't2' },
+          { timestamp: '2026-02-19T11:05:00.000Z' },
+        ),
+      );
+
+      // 6. task.failed x 1
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent('task.failed', { taskId: 't3', error: 'test failure' }),
+      );
+
+      // Verify task statuses
+      const t1 = state.tasks.find((t) => t.id === 't1');
+      const t2 = state.tasks.find((t) => t.id === 't2');
+      const t3 = state.tasks.find((t) => t.id === 't3');
+      expect(t1?.status).toBe('complete');
+      expect(t1?.completedAt).toBe('2026-02-19T11:00:00.000Z');
+      expect(t2?.status).toBe('complete');
+      expect(t3?.status).toBe('failed');
+
+      // 7. state.patched (synthesis data)
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent('state.patched', {
+          patch: {
+            synthesis: {
+              integrationBranch: 'main',
+              mergeOrder: ['feat/t1', 'feat/t2'],
+              mergedBranches: ['feat/t1', 'feat/t2'],
+              prUrl: 'https://github.com/pr/99',
+            },
+          },
+        }),
+      );
+      expect(state.synthesis.integrationBranch).toBe('main');
+      expect(state.synthesis.prUrl).toBe('https://github.com/pr/99');
+
+      // 8. workflow.transition -> completed
+      state = workflowStateProjection.apply(
+        state,
+        makeEvent(
+          'workflow.transition',
+          { from: 'plan', to: 'completed', trigger: 'finish', featureId: 'round-trip' },
+          { timestamp: '2026-02-19T12:00:00.000Z' },
+        ),
+      );
+      expect(state.phase).toBe('completed');
+      expect(state.updatedAt).toBe('2026-02-19T12:00:00.000Z');
+
+      // Final assertions
+      expect(state.featureId).toBe('round-trip');
+      expect(state.workflowType).toBe('feature');
+      expect(state.tasks).toHaveLength(3);
+      expect(state.artifacts.design).toBe('docs/design.md');
+      expect(state.artifacts.plan).toBe('docs/plan.md');
+    });
+  });
+});
+
+// ─── Immutability ──────────────────────────────────────────────────────────
+
+describe('WorkflowStateProjection immutability', () => {
+  it('should not mutate the input state', () => {
+    const original = workflowStateProjection.init();
+    const frozen = JSON.parse(JSON.stringify(original));
+
+    workflowStateProjection.apply(
+      original,
+      makeEvent('workflow.started', { featureId: 'immut-test', workflowType: 'feature' }),
+    );
+
+    // Original should be unchanged
+    expect(original).toEqual(frozen);
+  });
+
+  it('should not mutate the tasks array', () => {
+    let state = workflowStateProjection.init();
+    state = workflowStateProjection.apply(
+      state,
+      makeEvent('task.assigned', { taskId: 't1', title: 'T1' }),
+    );
+
+    const tasksBefore = state.tasks;
+
+    workflowStateProjection.apply(
+      state,
+      makeEvent('task.assigned', { taskId: 't2', title: 'T2' }),
+    );
+
+    // Original tasks array should not have been mutated
+    expect(tasksBefore).toHaveLength(1);
+  });
+});
+
+// ─── phase.entered / phase.exited (DR-13, epic #1546) ────────────────────────
+
+describe('WorkflowStateProjection phase.entered / phase.exited', () => {
+  const enteredData = {
+    phase: 'implement',
+    kind: 'IMPLEMENT',
+    resolver: 'verification-ladder',
+    resolvedGates: [
+      { family: 'ladder', gate: 'check_static_analysis' },
+      { family: 'ladder', gate: 'check_test_adequacy' },
+    ],
+    policySource: 'builtin',
+    mode: 'enforce',
+    posture: 'task-isolated',
+  } as const;
+
+  const fold = (evts: WorkflowEvent[]) =>
+    evts.reduce(
+      (v, e) => workflowStateProjection.apply(v, e),
+      workflowStateProjection.init(),
+    );
+
+  it('workflowStateProjection_PhaseEnteredExited_FoldedAndReplayStable', () => {
+    const events: WorkflowEvent[] = [
+      makeEvent('workflow.started', { featureId: 'f1', workflowType: 'feature' }),
+      makeEvent('workflow.transition', { to: 'implement' }),
+      makeEvent('phase.entered', { ...enteredData }),
+    ];
+
+    const afterEntered = fold(events);
+    // The frozen obligation is folded onto the view — NOT lost to the default case.
+    expect(afterEntered.phaseObligation).toEqual({
+      phase: 'implement',
+      kind: 'IMPLEMENT',
+      resolver: 'verification-ladder',
+      resolvedGates: enteredData.resolvedGates,
+      policySource: 'builtin',
+      mode: 'enforce',
+      posture: 'task-isolated',
+      enteredAt: expect.any(String),
+      exited: false,
+      allRequiredGatesPassed: null,
+    });
+
+    // Replay determinism (#1208-class single-trigger): folding the identical
+    // event log from init reconstructs a byte-identical obligation — resolve-
+    // then-freeze is a pure left-fold and reads `kind` from the frozen event,
+    // never re-derived from the phase name.
+    const replayed = fold(events);
+    expect(replayed.phaseObligation).toEqual(afterEntered.phaseObligation);
+  });
+
+  it('workflowStateProjection_PhaseExited_RecordsAggregateStatus_FreezeUntouched', () => {
+    const afterEntered = fold([
+      makeEvent('workflow.started', { featureId: 'f1', workflowType: 'feature' }),
+      makeEvent('phase.entered', { ...enteredData }),
+    ]);
+
+    const afterExited = workflowStateProjection.apply(
+      afterEntered,
+      makeEvent('phase.exited', { phase: 'implement', allRequiredGatesPassed: true }),
+    );
+
+    expect(afterExited.phaseObligation?.exited).toBe(true);
+    expect(afterExited.phaseObligation?.allRequiredGatesPassed).toBe(true);
+    // Exit records status only — the frozen resolver + gate-set are immutable.
+    expect(afterExited.phaseObligation?.resolver).toBe('verification-ladder');
+    expect(afterExited.phaseObligation?.resolvedGates).toEqual(enteredData.resolvedGates);
+  });
+
+  it('workflowStateProjection_GatherPhaseEntered_FreezesEmptyObligation', () => {
+    const afterEntered = fold([
+      makeEvent('workflow.started', { featureId: 'f1', workflowType: 'feature' }),
+      makeEvent('phase.entered', {
+        phase: 'gather',
+        kind: 'GATHER',
+        resolver: null,
+        resolvedGates: [],
+        policySource: 'builtin',
+        mode: 'enforce',
+        posture: 'read-only',
+      }),
+    ]);
+    expect(afterEntered.phaseObligation?.kind).toBe('GATHER');
+    expect(afterEntered.phaseObligation?.resolver).toBeNull();
+    expect(afterEntered.phaseObligation?.resolvedGates).toEqual([]);
+    expect(afterEntered.phaseObligation?.posture).toBe('read-only');
+  });
+
+  // ─── DR-3 (#1581 task 005): per-feature designDepth freeze round-trips ──────
+  it('DesignDepth_ProjectionRoundTrip_RecoversFrozenValue', () => {
+    const planEntered = {
+      phase: 'plan',
+      kind: 'PLAN',
+      resolver: 'plan-structure',
+      resolvedGates: [{ family: 'plan', gate: 'check_task_decomposition' }],
+      policySource: 'builtin',
+      mode: 'enforce',
+      posture: 'read-only',
+      designDepth: 'deep',
+    } as const;
+    const events: WorkflowEvent[] = [
+      makeEvent('workflow.started', { featureId: 'f1', workflowType: 'feature' }),
+      makeEvent('phase.entered', { ...planEntered }),
+    ];
+
+    // The frozen depth is folded onto the view and survives a clean replay.
+    expect(fold(events).designDepth).toBe('deep');
+    expect(fold(events).designDepth).toBe('deep');
+
+    // Sticky: a later non-PLAN phase.entered (no designDepth) must NOT clear it.
+    const afterNonPlan = workflowStateProjection.apply(
+      fold(events),
+      makeEvent('phase.entered', {
+        phase: 'implement',
+        kind: 'IMPLEMENT',
+        resolver: 'verification-ladder',
+        resolvedGates: [],
+        policySource: 'builtin',
+        mode: 'enforce',
+        posture: 'task-isolated',
+      }),
+    );
+    expect(afterNonPlan.designDepth).toBe('deep');
+
+    // A workflow that never enters PLAN with a depth leaves it undefined (the
+    // resolver then defaults to 'standard') — no phantom freeze.
+    const noPlan = fold([
+      makeEvent('workflow.started', { featureId: 'f2', workflowType: 'feature' }),
+    ]);
+    expect(noPlan.designDepth).toBeUndefined();
+  });
+});
+
+// ─── Merge Orchestrator fold (#1504/#1554 — close the projection gap) ───────
+// Pre-fix, workflowStateProjection dropped merge.* on the floor (default arm),
+// so resolveWorkflowState materialized state with NO mergeOrchestrator block —
+// the headline gap the #1504 field-coverage audit found. These fold the merge
+// terminal events the file-path applyEventToState (state-store.ts:804-853) did.
+describe('WorkflowStateProjection mergeOrchestrator fold', () => {
+  it('MergeExecuted_FoldsCompletedBlock', () => {
+    let view = workflowStateProjection.init();
+    view = workflowStateProjection.apply(view, makeEvent('workflow.started', {
+      featureId: 'feat-m', workflowType: 'feature',
+    }));
+    view = workflowStateProjection.apply(view, makeEvent('merge.executed', {
+      taskId: 't1', sourceBranch: 'task/t1', targetBranch: 'integration',
+      strategy: 'squash', mergeSha: 'abc123',
+    }));
+
+    expect(view.mergeOrchestrator).toBeDefined();
+    expect(view.mergeOrchestrator).toMatchObject({
+      phase: 'completed',
+      taskId: 't1',
+      sourceBranch: 'task/t1',
+      targetBranch: 'integration',
+      strategy: 'squash',
+      mergeSha: 'abc123',
+    });
+  });
+
+  it('MergeRollback_FoldsRolledBackBlockWithRecoveryError', () => {
+    let view = workflowStateProjection.init();
+    view = workflowStateProjection.apply(view, makeEvent('merge.rollback', {
+      taskId: 't2', sourceBranch: 'task/t2', targetBranch: 'integration',
+      rollbackSha: 'def456', reason: 'verification-failed',
+      recoveryError: 'reset-keep-blocked',
+    }));
+
+    expect(view.mergeOrchestrator).toMatchObject({
+      phase: 'rolled-back',
+      taskId: 't2',
+      rollbackSha: 'def456',
+      reason: 'verification-failed',
+      recoveryError: 'reset-keep-blocked',
+    });
+  });
+
+  it('MergePreflightFailed_FoldsAbortedBlock', () => {
+    let view = workflowStateProjection.init();
+    view = workflowStateProjection.apply(view, makeEvent('merge.preflight', {
+      passed: false, taskId: 't3', sourceBranch: 'task/t3', targetBranch: 'integration',
+    }));
+
+    expect(view.mergeOrchestrator).toMatchObject({
+      phase: 'aborted',
+      abortReason: 'preflight-failed',
+      taskId: 't3',
+    });
+  });
+
+  it('MergePreflightPassed_IsObservationOnly_NoBlock', () => {
+    let view = workflowStateProjection.init();
+    view = workflowStateProjection.apply(view, makeEvent('merge.preflight', {
+      passed: true, taskId: 't4', sourceBranch: 'task/t4', targetBranch: 'integration',
+    }));
+
+    // A passing preflight is observation; the executor's merge.executed produces
+    // the next terminal write. Mirrors applyEventToState (returns false → no-op).
+    expect(view.mergeOrchestrator).toBeUndefined();
+  });
+});
+
+// ─── Plan-review revise count (DR-1) ─────────────────────────────────────────
+
+describe('WorkflowStateProjection plan-revision count (DR-1)', () => {
+  type View = ReturnType<typeof workflowStateProjection.init>;
+  function revisionCountOf(state: View): number | undefined {
+    const planReview = state.planReview as { revisionCount?: number } | undefined;
+    return planReview?.revisionCount;
+  }
+
+  it('Apply_PlanRevision_FoldsIntoNestedPlanReviewRevisionCount', () => {
+    // AC (c): the count folds into the NESTED `planReview.revisionCount` — the
+    // exact field `revisionsExhausted` reads — not a top-level field.
+    let state = workflowStateProjection.init();
+    expect(revisionCountOf(state)).toBeUndefined();
+    expect(state.revisionCount).toBeUndefined(); // never a top-level field
+
+    state = workflowStateProjection.apply(
+      state,
+      makeEvent('workflow.plan-revision', { count: 1, featureId: 'f' }),
+    );
+    expect(revisionCountOf(state)).toBe(1);
+
+    state = workflowStateProjection.apply(
+      state,
+      makeEvent('workflow.plan-revision', { count: 2, featureId: 'f' }),
+    );
+    expect(revisionCountOf(state)).toBe(2);
+    expect(state.revisionCount).toBeUndefined();
+  });
+
+  it('Apply_PlanRevision_PreservesOtherPlanReviewFields', () => {
+    // The fold spreads the prior planReview, so an `approved` / `gapsFound`
+    // written via state.patched survives the revision-count increment.
+    let state = workflowStateProjection.init();
+    state = workflowStateProjection.apply(
+      state,
+      makeEvent('state.patched', { patch: { 'planReview.approved': true } }),
+    );
+    state = workflowStateProjection.apply(
+      state,
+      makeEvent('workflow.plan-revision', { count: 1, featureId: 'f' }),
+    );
+
+    const planReview = state.planReview as {
+      approved?: boolean;
+      revisionCount?: number;
+    };
+    expect(planReview.approved).toBe(true);
+    expect(planReview.revisionCount).toBe(1);
+  });
+
+  it('Apply_PlanRevision_CountIsEventDerivedAndSurvivesReplay', () => {
+    // AC (d): the count is purely event-derived — replaying the log from a fresh
+    // `init()` reconstructs the identical count (a left-fold of +1 per event),
+    // so a reconcile/rebuild can never drift from the live projection.
+    const events: WorkflowEvent[] = [
+      makeEvent('workflow.started', { featureId: 'f', workflowType: 'feature' }),
+      makeEvent('workflow.plan-revision', { count: 1, featureId: 'f' }),
+      makeEvent('workflow.plan-revision', { count: 2, featureId: 'f' }),
+      makeEvent('workflow.plan-revision', { count: 3, featureId: 'f' }),
+    ];
+
+    const foldAll = (): View =>
+      events.reduce(
+        (s, e) => workflowStateProjection.apply(s, e),
+        workflowStateProjection.init(),
+      );
+
+    const live = foldAll();
+    const replayed = foldAll();
+
+    expect(revisionCountOf(live)).toBe(3);
+    expect(revisionCountOf(replayed)).toBe(3);
+    expect(replayed.planReview).toEqual(live.planReview);
+  });
+});
+
+// ─── Plan-review dispatch count (WLM-6 DR-2) ─────────────────────────────────
+
+describe('WorkflowStateProjection plan-review-dispatch count (WLM-6 DR-2)', () => {
+  type View = ReturnType<typeof workflowStateProjection.init>;
+  function revisionCountOf(state: View): number | undefined {
+    const planReview = state.planReview as { revisionCount?: number } | undefined;
+    return planReview?.revisionCount;
+  }
+  const dispatched = (ordinal: number): WorkflowEvent =>
+    makeEvent('workflow.plan-review-dispatched', { featureId: 'f', ordinal });
+
+  it('RevisionCount_FoldsFromDispatchEvent_NotStandardEdge', () => {
+    // WLM-6 (DR-2): `planReview.revisionCount` (the field `revisionsExhausted`
+    // reads) folds from the `prepare_review scope:plan` provisioning seam's
+    // `workflow.plan-review-dispatched` events — NOT the retired standard-edge
+    // `workflow.plan-revision`. The ordinal-0 initial review is revision 0 (no
+    // counter increment); each re-dispatch (ordinal N) is revision N.
+    let state = workflowStateProjection.init();
+    expect(revisionCountOf(state)).toBeUndefined();
+
+    // Initial review — ordinal 0 folds to revisionCount 0 (NOT +1).
+    state = workflowStateProjection.apply(state, dispatched(0));
+    expect(revisionCountOf(state)).toBe(0);
+    expect(state.revisionCount).toBeUndefined(); // never a top-level field
+
+    // First re-dispatch — ordinal 1 → revision 1.
+    state = workflowStateProjection.apply(state, dispatched(1));
+    expect(revisionCountOf(state)).toBe(1);
+
+    // Second re-dispatch — ordinal 2 → revision 2.
+    state = workflowStateProjection.apply(state, dispatched(2));
+    expect(revisionCountOf(state)).toBe(2);
+  });
+
+  it('Apply_PlanReviewDispatch_FoldsMaxOrdinal_IdempotentUnderDuplicate', () => {
+    // The fold is `max(current, ordinal)`, not `+1 per event` — so a duplicate
+    // ordinal (e.g. one that slipped past the storage-layer idempotency key) does
+    // NOT double-count. This keeps revisionCount = number of RE-DISPATCHES, which
+    // is what makes the guard's `revisionCount >= cap` semantics correct.
+    let state = workflowStateProjection.init();
+    state = workflowStateProjection.apply(state, dispatched(0));
+    state = workflowStateProjection.apply(state, dispatched(1));
+    state = workflowStateProjection.apply(state, dispatched(1)); // duplicate ordinal
+    expect(revisionCountOf(state)).toBe(1);
+  });
+
+  it('Apply_PlanReviewDispatch_PreservesOtherPlanReviewFields', () => {
+    // The fold spreads the prior planReview, so an `approved` written via
+    // state.patched survives the revision-count fold (mirrors the DR-1 fold).
+    let state = workflowStateProjection.init();
+    state = workflowStateProjection.apply(
+      state,
+      makeEvent('state.patched', { patch: { 'planReview.approved': true } }),
+    );
+    state = workflowStateProjection.apply(state, dispatched(0));
+    state = workflowStateProjection.apply(state, dispatched(1));
+    const planReview = state.planReview as { approved?: boolean; revisionCount?: number };
+    expect(planReview.approved).toBe(true);
+    expect(planReview.revisionCount).toBe(1);
+  });
+
+  it('Apply_PlanReviewDispatch_CountIsEventDerivedAndSurvivesReplay', () => {
+    const events: WorkflowEvent[] = [
+      makeEvent('workflow.started', { featureId: 'f', workflowType: 'feature' }),
+      dispatched(0),
+      dispatched(1),
+      dispatched(2),
+    ];
+    const foldAll = (): View =>
+      events.reduce(
+        (s, e) => workflowStateProjection.apply(s, e),
+        workflowStateProjection.init(),
+      );
+    const live = foldAll();
+    const replayed = foldAll();
+    expect(revisionCountOf(live)).toBe(2);
+    expect(revisionCountOf(replayed)).toBe(2);
+    expect(replayed.planReview).toEqual(live.planReview);
+  });
+});

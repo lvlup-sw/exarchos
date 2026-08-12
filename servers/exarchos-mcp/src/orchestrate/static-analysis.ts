@@ -6,7 +6,7 @@
 
 import { runCommandSync } from '../utils/process.js';
 import type { ToolResult } from '../format.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import { runDurableGateProducer } from './durable-gate-producer.js';
 import { runGatePreflight } from './pure/gate-preflight.js';
 import { runStaticAnalysis } from './pure/static-analysis.js';

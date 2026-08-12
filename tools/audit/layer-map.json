@@ -1,11 +1,11 @@
 {
-  "capturedAt": "2026-08-11",
-  "tree": "b0a25e5724f3421d4a101b3913481e353dc0c2be",
+  "capturedAt": "2026-08-12",
+  "tree": "5f9dd6a68a284108eaf3b55bc7fec15bf8cd07f6",
   "source": "servers/exarchos-mcp/src",
   "authority": "docs/system-design.html is the canonical L1-L9 architecture; this file maps the tree onto it. Task 044 asserts THIS mapping, not set equality, which is why the 11 targets -> 9 published layers relation is written out rather than inferred.",
   "counts": {
-    "directories": 55,
-    "mapped": 44,
+    "directories": 49,
+    "mapped": 38,
     "exceptions": 11,
     "targets": 11,
     "publishedLayers": 9
@@ -94,12 +94,6 @@
       "destination": "tools/conformance/",
       "reason": "Conformance scanners and seam audits. They read the tree; they are not part of it. Extraction named in the plan."
     },
-    "artifacts": {
-      "disposition": "mapped",
-      "target": "storage",
-      "layer": "L1",
-      "reason": "Content-addressed artifact store plus its path-containment guards: persistence, not a view over it."
-    },
     "bench": {
       "disposition": "exception",
       "destination": "tools/evals/",
@@ -179,11 +173,11 @@
       "destination": "tools/evals/",
       "reason": "Eval harness and benchmark drivers. OPEN QUESTION RESOLVED: evals is not a layer — it measures the engine from outside and must not sit in its call graph."
     },
-    "event-store": {
+    "events": {
       "disposition": "mapped",
       "target": "events",
       "layer": "L2",
-      "reason": "Append, expected-sequence, idempotency, the composite reader — L2 itself."
+      "reason": "Append, expected-sequence, idempotency, the composite reader — L2 itself. Task 012 renamed event-store/ to match its target."
     },
     "extensions": {
       "disposition": "mapped",
@@ -248,19 +242,13 @@
       "disposition": "mapped",
       "target": "projections",
       "layer": "L3",
-      "reason": "Pure reducers, cursors, snapshot/rebuild — L3 itself."
+      "reason": "Pure reducers, cursors, snapshot/rebuild — L3 itself. Task 012 folded views/, telemetry/, quality/, session/ and task-store/ in as subdirectories; each remains a read model that derives and never decides."
     },
     "pruner": {
       "disposition": "mapped",
       "target": "verbs",
       "layer": "L6",
       "reason": "Prune coordinator and scoring are a composite-tool action."
-    },
-    "quality": {
-      "disposition": "mapped",
-      "target": "projections",
-      "layer": "L3",
-      "reason": "Attribution and correlation are derived read models over recorded gate outcomes."
     },
     "release": {
       "disposition": "mapped",
@@ -303,12 +291,6 @@
       "layer": "L5",
       "reason": "Brand and seam types are the contract boundary the SDK exposes."
     },
-    "session": {
-      "disposition": "mapped",
-      "target": "projections",
-      "layer": "L3",
-      "reason": "Session provenance is a projection; the transcript parser is its source decoder."
-    },
     "shared": {
       "disposition": "mapped",
       "target": "contract",
@@ -325,7 +307,7 @@
       "disposition": "mapped",
       "target": "storage",
       "layer": "L1",
-      "reason": "The SQLite backend, its lifecycle and the sidecar merger — L1 itself."
+      "reason": "The SQLite backend, its lifecycle and the sidecar merger — L1 itself. Task 012 folded artifacts/ in: the content-addressed store is persistence, and its path-containment guards travel with it."
     },
     "sync": {
       "disposition": "mapped",
@@ -333,23 +315,11 @@
       "layer": "L7",
       "reason": "Outbox and sync handler are lifecycle-shaped generic windows, not workflow primitives."
     },
-    "task-store": {
-      "disposition": "mapped",
-      "target": "projections",
-      "layer": "L3",
-      "reason": "The event-sourced task store is a projection with a port, not a second write substrate."
-    },
     "tasks": {
       "disposition": "mapped",
       "target": "verbs",
       "layer": "L6",
       "reason": "Task tools are composite-tool actions."
-    },
-    "telemetry": {
-      "disposition": "mapped",
-      "target": "projections",
-      "layer": "L3",
-      "reason": "Telemetry is a projection over the event log plus its middleware; it derives, never decides."
     },
     "test-helpers": {
       "disposition": "exception",
@@ -372,12 +342,6 @@
       "target": "adapters",
       "layer": "L8",
       "reason": "GitHub/GitLab/ADO providers adapt an external system; same shape as L8."
-    },
-    "views": {
-      "disposition": "mapped",
-      "target": "projections",
-      "layer": "L3",
-      "reason": "CQRS read models (pipeline, convergence, code-quality). Read side of L3, not a separate concern."
     },
     "workflow": {
       "disposition": "mapped",

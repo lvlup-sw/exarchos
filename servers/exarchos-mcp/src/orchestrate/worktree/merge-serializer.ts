@@ -36,9 +36,9 @@ import { randomUUID } from 'node:crypto';
 
 import type { DispatchContext } from '../../core/dispatch.js';
 import type { ToolResult } from '../../format.js';
-import type { AtomicAppender } from '../../event-store/atomic-appender.js';
-import type { EventStore } from '../../event-store/store.js';
-import { ConcurrencyError, StorageBusyError } from '../../event-store/index.js';
+import type { AtomicAppender } from '../../events/atomic-appender.js';
+import type { EventStore } from '../../events/store.js';
+import { ConcurrencyError, StorageBusyError } from '../../events/index.js';
 import { withStateRetry } from '../../workflow/state-retry.js';
 import {
   handleMergeOrchestrate,

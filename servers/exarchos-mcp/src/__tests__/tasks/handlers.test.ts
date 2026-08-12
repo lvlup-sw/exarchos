@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { EventStore, SequenceConflictError } from '../../event-store/store.js';
+import { EventStore, SequenceConflictError } from '../../events/store.js';
 import {
   handleTaskClaim,
   handleTaskComplete,
@@ -11,7 +11,7 @@ import {
 } from '../../tasks/tools.js';
 import {
   resetMaterializerCache,
-} from '../../views/tools.js';
+} from '../../projections/views/tools.js';
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 let tempDir: string;

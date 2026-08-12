@@ -59,7 +59,7 @@ vi.mock('./gate-utils.js', () => ({
 
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import { handleTaskDecomposition } from './task-decomposition.js';
 
 // Resolve the fixture path relative to this test file so the test runs from

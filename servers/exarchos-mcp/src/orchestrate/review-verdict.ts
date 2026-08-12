@@ -7,7 +7,7 @@
 
 import type { ToolResult } from '../format.js';
 import type { PluginFinding } from '../review/check-catalog.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
 import { emitGateEvent } from './gate-utils.js';
 import { createEvidenceSubject } from '../workflow/admission/evidence-subject.js';

@@ -48,8 +48,8 @@ import {
 import { createEvidenceSubject } from './evidence-subject.js';
 import { PhaseAttemptIdSchema } from './types.js';
 import { DefaultHSMTransitionGuard } from '../hsm-transition-guard.js';
-import { EventStore } from '../../event-store/store.js';
-import { workflowStateProjection } from '../../views/workflow-state-projection.js';
+import { EventStore } from '../../events/store.js';
+import { workflowStateProjection } from '../../projections/views/workflow-state-projection.js';
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 import { handleInit, handleSet } from '../tools.js';
 

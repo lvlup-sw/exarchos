@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
-import type { WorkflowEvent } from '../event-store/schemas.js';
+import type { WorkflowEvent } from '../events/schemas.js';
 import type { OutboxEntry, EventSender } from './types.js';
 import type { StorageBackend } from '../storage/backend.js';
 import { validateStreamId } from '../shared/validation.js';

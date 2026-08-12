@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { fc } from '@fast-check/vitest';
-import type { WorkflowEvent } from '../event-store/schemas.js';
+import type { WorkflowEvent } from '../events/schemas.js';
 import type { WorkflowState } from '../workflow/types.js';
 import type { EventSender } from './backend.js';
 import { InMemoryBackend } from './memory-backend.js';

@@ -18,7 +18,7 @@ import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import type { InvariantEntry } from '../architecture/invariants-loader.js';
 import type { ExarchosConfig } from '../config/exarchos-config-schema.js';
 import { handleCheckInvariantConformance } from './check-invariant-conformance.js';

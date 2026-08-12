@@ -2,13 +2,13 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import { createRegistry } from './registry.js';
 import type { ProjectionRegistry } from './registry.js';
 import type { ProjectionReducer } from './types.js';
 import { rehydrationReducer } from './rehydration/reducer.js';
 import type { RehydrationDocument } from './rehydration/schema.js';
-import type { WorkflowEvent } from '../event-store/schemas.js';
+import type { WorkflowEvent } from '../events/schemas.js';
 import { rebuildProjection, UnknownProjectionIdError } from './rebuild.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 

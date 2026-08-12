@@ -34,7 +34,7 @@ import {
   VersionConflictError,
 } from './state-store.js';
 import { ErrorCode } from './schemas.js';
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 let tmpDir: string;

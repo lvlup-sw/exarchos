@@ -1,6 +1,6 @@
 import type { ToolResult } from '../format.js';
 import { logger } from '../logger.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import type { ExarchosConfig } from '../config/define.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
 import type { VcsProvider } from '../vcs/provider.js';
@@ -41,7 +41,7 @@ import {
   extractTaskOptions,
   runTasksAugmented,
 } from '../dispatch/tasks-augmented.js';
-import type { EventSourcedTaskStore } from '../task-store/event-sourced-task-store.js';
+import type { EventSourcedTaskStore } from '../projections/task-store/event-sourced-task-store.js';
 
 // NOTE: `../telemetry/middleware.js` is intentionally NOT imported at module
 // top-level. The middleware instantiates a singleton TraceWriter at import,
@@ -476,9 +476,9 @@ export function stubCompositeHandler(
  */
 export const COMPOSITE_HANDLER_LOADERS: Record<string, () => Promise<CompositeHandler>> = {
   exarchos_workflow: () => import('../workflow/composite.js').then((m) => m.handleWorkflow),
-  exarchos_event: () => import('../event-store/composite.js').then((m) => m.handleEvent),
+  exarchos_event: () => import('../events/composite.js').then((m) => m.handleEvent),
   exarchos_orchestrate: () => import('../orchestrate/composite.js').then((m) => m.handleOrchestrate),
-  exarchos_view: () => import('../views/composite.js').then((m) => m.handleView),
+  exarchos_view: () => import('../projections/views/composite.js').then((m) => m.handleView),
   exarchos_sync: () => import('../sync/composite.js').then((m) => m.handleSync),
 };
 
@@ -1067,7 +1067,7 @@ export async function dispatch(
     const requestId = `dispatch:${dispatchCtx.operationId}`;
     const augmentedHandler = ctx.enableTelemetry
       ? async () => {
-          const { withTelemetry } = await import('../telemetry/middleware.js');
+          const { withTelemetry } = await import('../projections/telemetry/middleware.js');
           const wrapped = withTelemetry(coreHandler, tool, ctx.eventStore);
           return wrapped(args);
         }
@@ -1081,7 +1081,7 @@ export async function dispatch(
     });
   } else if (ctx.enableTelemetry) {
     // Lazy-load to keep CLI cold-start under the DR-5 budget.
-    const { withTelemetry } = await import('../telemetry/middleware.js');
+    const { withTelemetry } = await import('../projections/telemetry/middleware.js');
     const wrappedHandler = withTelemetry(coreHandler, tool, ctx.eventStore);
     result = await wrappedHandler(args);
   } else {

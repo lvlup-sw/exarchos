@@ -3,7 +3,7 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import { handleDiscoverBridge } from './discover-bridge.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 

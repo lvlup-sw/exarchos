@@ -6,13 +6,13 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import type { ToolResult } from '../format.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import {
   getOrCreateMaterializer,
   queryDeltaEvents,
-} from '../views/tools.js';
-import { ALL_DIMENSIONS, CONVERGENCE_VIEW } from '../views/convergence-view.js';
-import type { ConvergenceViewState } from '../views/convergence-view.js';
+} from '../projections/views/tools.js';
+import { ALL_DIMENSIONS, CONVERGENCE_VIEW } from '../projections/views/convergence-view.js';
+import type { ConvergenceViewState } from '../projections/views/convergence-view.js';
 import { emitGateEvent } from './gate-utils.js';
 
 // ─── Types ─────────────────────────────────────────────────────────────────

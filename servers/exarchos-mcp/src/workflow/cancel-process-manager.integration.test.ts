@@ -24,7 +24,7 @@ vi.mock('child_process', async () => {
 });
 
 import { execFile } from 'child_process';
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import { handleInit } from './tools.js';
 import { handleCancel } from './cancel.js';
 import {
@@ -42,7 +42,7 @@ import {
   mintDispatchContext,
   runWithDispatchContext,
 } from '../dispatch/dispatch-context.js';
-import type { WorkflowEvent } from '../event-store/schemas.js';
+import type { WorkflowEvent } from '../events/schemas.js';
 
 const mockedExecFile = vi.mocked(execFile);
 

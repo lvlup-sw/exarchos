@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { VcsProvider, PrComment } from '../../vcs/provider.js';
-import type { EventStore } from '../../event-store/store.js';
+import type { EventStore } from '../../events/store.js';
 import type { DispatchContext } from '../../core/dispatch.js';
 
 vi.mock('../../vcs/factory.js', () => ({

@@ -219,7 +219,7 @@ describe('remediation is data, never a mutation', () => {
     // The census must be able to FAIL — a stubbed detector that always passes
     // would be worthless. Feed it a module that reaches the event store.
     const tainted = [
-      "import { AtomicAppender } from '../../event-store/atomic-appender.js';",
+      "import { AtomicAppender } from '../../events/atomic-appender.js';",
       "export const x = AtomicAppender;",
     ].join('\n');
     const verdict = auditRemediationPurity('tainted.ts', tainted);

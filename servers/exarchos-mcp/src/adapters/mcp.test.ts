@@ -3,7 +3,7 @@ import { z } from 'zod';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import { TOOL_REGISTRY, buildToolDescription } from '../registry.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { dispatch, READ_ONLY_ACTIONS } from '../core/dispatch.js';

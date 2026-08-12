@@ -13,11 +13,11 @@
 // repo root.
 //
 // The seeded rule encodes the real domain-core / IO-facade split inside the
-// MCP server: the event-store and workflow domain cores must not import from
+// MCP server: the events and workflow domain cores must not import from
 // the `adapters/` IO facade (CLI / MCP / hooks surfaces). That separation
 // keeps the event-sourced core free of transport concerns. The rule is scoped
 // to non-test sources — test fixtures legitimately import adapter exports to
-// exercise them (e.g. event-store/schemas.test.ts pulls json-schema), so the
+// exercise them (e.g. events/schemas.test.ts pulls json-schema), so the
 // `from` path excludes `*.test.ts`.
 
 /** @type {import('dependency-cruiser').IConfiguration} */
@@ -54,12 +54,12 @@ module.exports = {
     {
       name: 'no-domain-core-to-io-adapters',
       comment:
-        'Domain core (event-store, workflow) must not import the IO facade ' +
+        'Domain core (events, workflow) must not import the IO facade ' +
         '(adapters/). Route transport/CLI/MCP concerns through the orchestrate ' +
         'handlers instead of reaching into adapters from the core.',
       severity: 'error',
       from: {
-        path: '^servers/exarchos-mcp/src/(event-store|workflow)/',
+        path: '^servers/exarchos-mcp/src/(events|workflow)/',
         pathNot: '\\.test\\.ts$',
       },
       to: {

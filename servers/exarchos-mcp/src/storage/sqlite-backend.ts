@@ -1,9 +1,9 @@
 import { Database, type Statement } from 'bun:sqlite';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, basename, resolve, relative, isAbsolute } from 'node:path';
-import type { WorkflowEvent } from '../event-store/schemas.js';
+import type { WorkflowEvent } from '../events/schemas.js';
 import type { WorkflowState } from '../workflow/types.js';
-import type { QueryFilters } from '../event-store/store.js';
+import type { QueryFilters } from '../events/store.js';
 import type {
   StorageBackend,
   EventSender,

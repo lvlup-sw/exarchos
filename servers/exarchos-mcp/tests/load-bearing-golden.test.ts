@@ -32,7 +32,7 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { EventStore } from '../src/event-store/store.js';
+import { EventStore } from '../src/events/store.js';
 import {
   RehydrationDocumentSchema,
   type RehydrationDocument,

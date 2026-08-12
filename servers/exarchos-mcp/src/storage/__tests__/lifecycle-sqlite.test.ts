@@ -2,12 +2,12 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import type { WorkflowEvent } from '../../event-store/schemas.js';
+import type { WorkflowEvent } from '../../events/schemas.js';
 import type { WorkflowState } from '../../workflow/types.js';
 import { SqliteBackend } from '../sqlite-backend.js';
 import { compactWorkflow, rotateTelemetry } from '../lifecycle.js';
 import type { LifecyclePolicy } from '../lifecycle.js';
-import { TELEMETRY_STREAM } from '../../telemetry/constants.js';
+import { TELEMETRY_STREAM } from '../../projections/telemetry/constants.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 

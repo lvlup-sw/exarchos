@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { rehydrationReducer } from './reducer.js';
 import { RehydrationDocumentSchema } from './schema.js';
-import type { WorkflowEvent } from '../../event-store/schemas.js';
+import type { WorkflowEvent } from '../../events/schemas.js';
 
 /**
  * Helper — build a minimal, schema-coherent WorkflowEvent. Only the fields the

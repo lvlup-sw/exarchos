@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { EventStore } from '../../event-store/store.js';
+import { EventStore } from '../../events/store.js';
 import type { DispatchContext } from '../../core/dispatch.js';
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 

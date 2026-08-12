@@ -47,7 +47,7 @@ describe('EventStore single composition root (#1182, Fix 1)', () => {
     // any handler should see — there is no module-global factory to
     // create a competing instance. This test asserts that invariant: the
     // `getOrCreateEventStore` factory has been deleted.
-    const toolsModule = await import('../../views/tools.js');
+    const toolsModule = await import('../../projections/views/tools.js');
     expect(
       (toolsModule as Record<string, unknown>).getOrCreateEventStore,
       'getOrCreateEventStore must not exist — handlers receive EventStore via DispatchContext',

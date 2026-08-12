@@ -1,5 +1,5 @@
 import type { Event } from './types.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import { getFixCycleCount, getFixCycleCountFromStore } from './events.js';
 
 export interface CircuitBreakerState {

@@ -23,7 +23,7 @@ import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import { InMemoryBackend } from '../storage/memory-backend.js';
 import type { DispatchContext } from './dispatch.js';
 import type { StorageBackend } from '../storage/backend.js';

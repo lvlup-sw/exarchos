@@ -9,7 +9,7 @@
 
 import type { VcsProvider, CiStatus, PrComment as VcsPrComment } from '../vcs/provider.js';
 import { createVcsProvider } from '../vcs/factory.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import type { ToolResult } from '../format.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';
 import { orchestrateLogger } from '../logger.js';

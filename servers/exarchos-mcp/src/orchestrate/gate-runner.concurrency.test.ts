@@ -19,7 +19,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { ContentAddressedStore } from '../artifacts/content-addressed-store.js';
+import { ContentAddressedStore } from '../storage/artifacts/content-addressed-store.js';
 import { createInMemoryResolver } from '../capabilities/resolver.js';
 import {
   deriveMcpCallerIdentity,
@@ -33,8 +33,8 @@ import {
 import {
   AdmissionEvidenceRecordedData,
   type AdmissionEvidenceRecorded,
-} from '../event-store/schemas.js';
-import { EventStore } from '../event-store/store.js';
+} from '../events/schemas.js';
+import { EventStore } from '../events/store.js';
 import type { ToolResult } from '../format.js';
 import { selectEvidence } from '../workflow/admission/select-evidence.js';
 import { createEvidenceSubject } from '../workflow/admission/evidence-subject.js';

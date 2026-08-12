@@ -8,7 +8,7 @@ import {
   type CheckpointEnforcementConfig,
   type CheckpointGateResult,
 } from './checkpoint.js';
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import { handleInit, handleCheckpoint } from './tools.js';
 import { handleRehydrate } from './rehydrate.js';
 import { SnapshotRecord } from '../projections/snapshot-schema.js';
@@ -378,7 +378,7 @@ describe('handleCheckpoint — materializes rehydration projection (T034, DR-6)'
       // Unhandled by rehydration reducer — increments event-store seq
       // without bumping projectionSequence. This is the gap that the
       // bug widens with every checkpoint.
-      type: 'gate.executed' as import('../event-store/schemas.js').EventType,
+      type: 'gate.executed' as import('../events/schemas.js').EventType,
       source: 'workflow',
       data: { gate: 'lint', passed: true } as Record<string, unknown>,
     });

@@ -15,7 +15,7 @@
  * events (or identity preservation for the unknown-event case).
  */
 import { describe, it, expect } from 'vitest';
-import type { WorkflowEvent } from '../../event-store/schemas.js';
+import type { WorkflowEvent } from '../../events/schemas.js';
 import { taskStoreReducer } from './reducer.js';
 import type { TaskStoreState } from './types.js';
 import { assertReducerImmutable } from '../testing.js';

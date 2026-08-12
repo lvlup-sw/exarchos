@@ -118,7 +118,7 @@ import {
   resolveEmissionSource,
   type EventLifecycle,
   type EventTier,
-} from '../src/event-store/event-registration.js';
+} from '../src/events/event-registration.js';
 
 const LABEL = 'authority-live-proof';
 

@@ -29,7 +29,7 @@ vi.mock('./durable-gate-producer.js', () => ({
   ) => executeProvider(),
 }));
 
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { handleOrchestrate } from './composite.js';
 import { DEFAULTS } from '../config/resolve.js';

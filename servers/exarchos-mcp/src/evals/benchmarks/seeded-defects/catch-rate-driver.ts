@@ -33,7 +33,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { performance } from 'node:perf_hooks';
 
-import { EventStore } from '../../../event-store/store.js';
+import { EventStore } from '../../../events/store.js';
 import type { ToolResult } from '../../../format.js';
 import { handleTestAdequacy } from '../../../orchestrate/test-adequacy-handler.js';
 import { handleStaticAnalysis } from '../../../orchestrate/static-analysis.js';

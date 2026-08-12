@@ -8,7 +8,7 @@
 
 import { spawnCommandSync } from '../utils/process.js';
 import type { ToolResult } from '../format.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import { emitGateEvent } from './gate-utils.js';
 import { checkPostMerge } from './pure/post-merge.js';
 import type { CommandResult } from './pure/post-merge.js';

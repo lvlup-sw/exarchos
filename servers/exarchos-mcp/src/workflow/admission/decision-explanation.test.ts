@@ -16,7 +16,7 @@ import { describe, it, expect } from 'vitest';
 import type {
   DecideOnceContext,
   DecideOnceDecision,
-} from '../../event-store/atomic-appender.js';
+} from '../../events/atomic-appender.js';
 import { NextAction } from '../../next-action.js';
 import { STABLE_ERROR_REGISTRY } from '../../contract/error-families.js';
 import {

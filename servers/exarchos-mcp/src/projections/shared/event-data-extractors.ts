@@ -16,7 +16,7 @@
  * short-circuit a malformed event into no-op handling without ever writing an
  * ill-typed value into a schema-validated projection.
  */
-import type { WorkflowEvent } from '../../event-store/schemas.js';
+import type { WorkflowEvent } from '../../events/schemas.js';
 
 /**
  * Pull a non-empty string `taskId` off an event's opaque `data` bag. Returns

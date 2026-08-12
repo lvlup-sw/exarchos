@@ -10,7 +10,7 @@ import * as fsPromises from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as nodePath from 'node:path';
 import { handleVerifyReviewTriage } from './verify-review-triage.js';
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 
 const mockExistsSync = vi.mocked(existsSync);
 const mockReadFileSync = vi.mocked(readFileSync);

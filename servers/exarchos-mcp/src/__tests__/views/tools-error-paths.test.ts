@@ -7,10 +7,10 @@ import {
   handleViewConvergence,
   handleViewProvenance,
   resetMaterializerCache,
-} from '../../views/tools.js';
-import { handleView } from '../../views/composite.js';
+} from '../../projections/views/tools.js';
+import { handleView } from '../../projections/views/composite.js';
 import type { DispatchContext } from '../../core/dispatch.js';
-import { EventStore } from '../../event-store/store.js';
+import { EventStore } from '../../events/store.js';
 
 function makeCtx(stateDir: string): DispatchContext {
   return { stateDir, eventStore: new EventStore(stateDir), enableTelemetry: false };
@@ -46,7 +46,7 @@ describe('views/tools.ts composite error paths', () => {
       // But a simpler approach: mock the module function.
       //
       // For a non-Error throw, we mock the EventStore.query to throw a string.
-      const storeModule = await import('../../event-store/store.js');
+      const storeModule = await import('../../events/store.js');
       vi.spyOn(storeModule.EventStore.prototype, 'query').mockImplementation(() => {
         // eslint-disable-next-line no-throw-literal
         throw 'string error from query';
@@ -66,7 +66,7 @@ describe('views/tools.ts composite error paths', () => {
 
   describe('HandleViewConvergence_QueryThrowsError_ReturnsViewError', () => {
     it('should return VIEW_ERROR when queryDeltaEvents throws an Error', async () => {
-      const storeModule = await import('../../event-store/store.js');
+      const storeModule = await import('../../events/store.js');
       vi.spyOn(storeModule.EventStore.prototype, 'query').mockImplementation(() => {
         throw new Error('connection lost');
       });
@@ -84,7 +84,7 @@ describe('views/tools.ts composite error paths', () => {
 
   describe('HandleViewProvenance_QueryThrowsError_ReturnsViewError', () => {
     it('should return VIEW_ERROR when queryDeltaEvents throws an Error', async () => {
-      const storeModule = await import('../../event-store/store.js');
+      const storeModule = await import('../../events/store.js');
       vi.spyOn(storeModule.EventStore.prototype, 'query').mockImplementation(() => {
         throw new Error('provenance query failed');
       });

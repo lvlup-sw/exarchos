@@ -15,7 +15,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import type { ToolResult } from '../format.js';
 import { allocatePhaseAttemptId } from '../workflow/phase-attempt-id.js';
 import { getInitialPhase } from '../workflow/state-machine.js';

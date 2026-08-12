@@ -19,7 +19,7 @@ import {
   type MergeOrchestratorState,
 } from './types.js';
 import { assertReducerImmutable } from '../testing.js';
-import type { WorkflowEvent } from '../../event-store/schemas.js';
+import type { WorkflowEvent } from '../../events/schemas.js';
 
 /**
  * Helper — build a minimal, schema-shaped WorkflowEvent. Only `type` and

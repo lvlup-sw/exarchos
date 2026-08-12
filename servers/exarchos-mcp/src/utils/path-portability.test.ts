@@ -128,7 +128,7 @@ describe('no hardcoded ~/.claude/ path constructions in production code', () => 
 
 describe('schema descriptions are platform-neutral', () => {
   it('SessionTaggedData.sessionId does not mention Claude Code', async () => {
-    const { SessionTaggedData } = await import('../event-store/schemas.js');
+    const { SessionTaggedData } = await import('../events/schemas.js');
     const shape = SessionTaggedData.shape;
     const sessionIdDesc = shape.sessionId.description;
     expect(sessionIdDesc).not.toContain('Claude Code');

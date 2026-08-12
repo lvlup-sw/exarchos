@@ -5,7 +5,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { handleCancel } from '../../workflow/cancel.js';
 import { handleInit } from '../../workflow/tools.js';
-import { EventStore } from '../../event-store/store.js';
+import { EventStore } from '../../events/store.js';
 import type { CompensationResult } from '../../workflow/compensation.js';
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 

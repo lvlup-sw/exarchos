@@ -66,7 +66,7 @@ const CASE_MERGE_EXECUTED = /case\s+['"]merge\.executed['"]\s*:/;
 // POSIX-relative paths (from the src root) that are allowed to be a
 // workflow-state fold. See the module docstring for the rationale per entry.
 const ALLOWLIST = new Set([
-  'views/workflow-state-projection.ts',
+  'projections/views/workflow-state-projection.ts',
   'projections/rehydration/reducer.ts',
 ]);
 

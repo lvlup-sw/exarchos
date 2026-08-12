@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   ContentAddressedStore,
   type ContentAddressedStoreIo,
-} from '../../artifacts/content-addressed-store.js';
+} from '../../storage/artifacts/content-addressed-store.js';
 import { publishTempFile } from '../../utils/atomic-write.js';
 import {
   EvidenceArtifactResolutionError,

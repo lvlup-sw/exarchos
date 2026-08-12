@@ -25,7 +25,7 @@ import {
 } from './extract-intent.js';
 import { handleInit } from '../workflow/tools.js';
 import { resolveWorkflowState } from './resolve-state.js';
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 // ─── Harness ────────────────────────────────────────────────────────────────

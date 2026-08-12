@@ -15,7 +15,7 @@ import {
   STABLE_KEYS,
   VOLATILE_KEYS,
 } from './serialize.js';
-import { WorkflowCheckpointData } from '../../event-store/schemas.js';
+import { WorkflowCheckpointData } from '../../events/schemas.js';
 
 describe('rehydration document stable-sections schema (T011, DR-3)', () => {
   it('RehydrationDoc_MinimalStableSections_Parses', () => {

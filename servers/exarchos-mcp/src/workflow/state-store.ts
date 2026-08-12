@@ -25,13 +25,13 @@ export {
 import { migrateState, CURRENT_VERSION, backupStateFile } from './migration.js';
 import { mapExternalToInternalType } from './events.js';
 import type { WorkflowState, WorkflowType } from './types.js';
-import type { EventStore } from '../event-store/store.js';
-import type { WorkflowEvent } from '../event-store/schemas.js';
+import type { EventStore } from '../events/store.js';
+import type { WorkflowEvent } from '../events/schemas.js';
 // Canonical workflow-state fold (#1554). Imported for its `apply` at call time
 // only (inside reconcileFromEvents) — the state-store ↔ workflow-state-projection
 // edge is a call-time-only ESM cycle (the projection imports isPlainObject/
 // applyDotPath from here, also call-time), which live bindings resolve safely.
-import { workflowStateProjection, type WorkflowStateView } from '../views/workflow-state-projection.js';
+import { workflowStateProjection, type WorkflowStateView } from '../projections/views/workflow-state-projection.js';
 import type { StorageBackend } from '../storage/backend.js';
 import { mergeSidecarEvents } from '../storage/sidecar-merger.js';
 import { isPidAlive } from '../utils/process.js';

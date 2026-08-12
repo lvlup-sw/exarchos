@@ -35,14 +35,14 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { EventStore } from '../../event-store/store.js';
+import { EventStore } from '../../events/store.js';
 import type { DispatchContext } from '../../core/dispatch.js';
 import type { ToolResult } from '../../format.js';
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 import { serializeMerge } from './merge-serializer.js';
 import { handleSerializeMerge } from './handlers.js';
-import { handleView } from '../../views/composite.js';
+import { handleView } from '../../projections/views/composite.js';
 import {
   WorktreeManager,
   WORKTREES_STREAM,

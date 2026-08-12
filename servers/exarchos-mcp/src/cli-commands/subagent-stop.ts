@@ -44,9 +44,9 @@
 
 import { z } from 'zod';
 import type { CommandResult } from './types.js';
-import { EventStore } from '../event-store/store.js';
-import { parseTranscript } from '../session/transcript-parser.js';
-import type { SessionSummaryEvent } from '../session/types.js';
+import { EventStore } from '../events/store.js';
+import { parseTranscript } from '../projections/session/transcript-parser.js';
+import type { SessionSummaryEvent } from '../projections/session/types.js';
 
 // Input contract for the SubagentStop hook payload. Only `agent_id` +
 // `agent_transcript_path` are load-bearing; the rest aid attribution. Parsed

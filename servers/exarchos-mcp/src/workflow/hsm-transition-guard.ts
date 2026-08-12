@@ -33,7 +33,7 @@
 // strict mode is the only mode and `workflow.set({ phase })` is removed.
 // Until then, the routing here is the strict mode.
 
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import type { GuardFailure } from './guards.js';
 import {
   executeTransition,
@@ -48,8 +48,8 @@ import { applyPhaseSkips } from './phase-skip.js';
 import { mapInternalToExternalType } from './events.js';
 import { getRegisteredGuard } from '../config/register.js';
 import { executeGuard } from '../config/guards.js';
-import { buildValidatedEvent } from '../event-store/event-factory.js';
-import type { EventType } from '../event-store/schemas.js';
+import { buildValidatedEvent } from '../events/event-factory.js';
+import type { EventType } from '../events/schemas.js';
 import type { LegacyTransitionObservation } from './admission/shadow-decision.js';
 import {
   resolveDangerCoordinate,

@@ -45,7 +45,7 @@ import type {
 import type {
   OnboardExecuted,
   OnboardRequested,
-} from '../../event-store/schemas.js';
+} from '../../events/schemas.js';
 import type {
   Advisory,
   DesiredState,

@@ -32,7 +32,7 @@
 import { describe, it, expect } from 'vitest';
 import type { DoctorProbes } from './probes.js';
 import type { AgentEnvironment } from '../../runtime/agent-environment-detector.js';
-import type { IntegrityResult } from '../../event-store/store.js';
+import type { IntegrityResult } from '../../events/store.js';
 import { CheckStatusSchema, CheckResultSchema, type CheckResult } from './schema.js';
 import { ALL_CHECKS } from './index.js';
 

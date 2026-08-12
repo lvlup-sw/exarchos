@@ -49,12 +49,12 @@ import type {
   DecideOnceDecision,
   DecideOnceStoredEvent,
   EventInput,
-} from '../../event-store/atomic-appender.js';
+} from '../../events/atomic-appender.js';
 import {
   AdmissionTransitionDecidedData,
   WorkflowCleanupData,
   WorkflowTransitionData,
-} from '../../event-store/schemas.js';
+} from '../../events/schemas.js';
 import {
   selectEdge,
   type EdgeCandidate,

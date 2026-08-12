@@ -7,7 +7,7 @@
 
 import { execSync, execFileSync } from 'node:child_process';
 import type { ToolResult } from '../format.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import { resolveWorkflowState } from './resolve-state.js';
 import { emitGateEvent } from './gate-utils.js';
 import type { ResolvedProjectConfig } from '../config/resolve.js';

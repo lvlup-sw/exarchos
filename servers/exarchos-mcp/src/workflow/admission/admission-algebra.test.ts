@@ -36,7 +36,7 @@ import {
   mapExternalToInternalType,
   mapInternalToExternalType,
 } from '../events.js';
-import { INTERNAL_ADMISSION_EVENT_TYPES } from '../../event-store/schemas.js';
+import { INTERNAL_ADMISSION_EVENT_TYPES } from '../../events/schemas.js';
 
 // ─── Shared test fixtures ────────────────────────────────────────────────────
 

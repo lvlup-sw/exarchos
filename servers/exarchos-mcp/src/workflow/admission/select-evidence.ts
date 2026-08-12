@@ -3,7 +3,7 @@ import {
   AdmissionEvidenceRecordedData,
   type AdmissionContradictionRecorded,
   type AdmissionEvidenceRecorded,
-} from '../../event-store/schemas.js';
+} from '../../events/schemas.js';
 import type {
   AdmissionEvidenceV1,
   ContentDigestV1,

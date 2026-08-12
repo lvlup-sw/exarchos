@@ -25,9 +25,9 @@
 // closure that ends in a `writeStateFile` call.
 
 import { VersionConflictError } from './state-store.js';
-import { ConcurrencyError } from '../event-store/concurrency-error.js';
-import { StorageBusyError } from '../event-store/storage-busy-error.js';
-import { SequenceConflictError } from '../event-store/store.js';
+import { ConcurrencyError } from '../events/concurrency-error.js';
+import { StorageBusyError } from '../events/storage-busy-error.js';
+import { SequenceConflictError } from '../events/store.js';
 
 /** Maximum number of attempts (initial + retries) before bubbling out. */
 export const MAX_STATE_RETRIES = 3;

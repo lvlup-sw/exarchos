@@ -5,7 +5,7 @@ import * as path from 'node:path';
 
 import { dispatch } from './dispatch.js';
 import type { DispatchContext } from './dispatch.js';
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import {
   collectInstallIdentity,
   writeRecordedIdentity,

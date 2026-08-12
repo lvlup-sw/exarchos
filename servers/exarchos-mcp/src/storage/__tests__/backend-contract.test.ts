@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { WorkflowEvent } from '../../event-store/schemas.js';
+import type { WorkflowEvent } from '../../events/schemas.js';
 import type { WorkflowState } from '../../workflow/types.js';
 import type { SnapshotRecord } from '../../projections/snapshot-schema.js';
 import type { StorageBackend, EventSender } from '../backend.js';

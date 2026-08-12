@@ -3,7 +3,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { handleSyncNow } from './sync-handler.js';
-import type { WorkflowEvent } from '../event-store/schemas.js';
+import type { WorkflowEvent } from '../events/schemas.js';
 import type { EventSender } from './types.js';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────

@@ -6,7 +6,7 @@
 
 import { type ToolResult } from '../format.js';
 import type { DispatchContext } from '../core/dispatch.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import { handleDescribe } from '../describe/handler.js';
 import { handleRunbook } from '../runbooks/handler.js';
 import { TOOL_REGISTRY } from '../registry.js';
@@ -361,8 +361,8 @@ function adaptSetupWorktree(): ActionHandler {
 
     if (featureId && ctx?.eventStore) {
       try {
-        const { getOrCreateMaterializer, queryDeltaEvents } = await import('../views/tools.js');
-        const { WORKFLOW_STATE_VIEW } = await import('../views/workflow-state-projection.js');
+        const { getOrCreateMaterializer, queryDeltaEvents } = await import('../projections/views/tools.js');
+        const { WORKFLOW_STATE_VIEW } = await import('../projections/views/workflow-state-projection.js');
         const materializer = getOrCreateMaterializer(stateDir);
         const events = await queryDeltaEvents(
           ctx.eventStore,

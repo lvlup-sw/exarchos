@@ -7,7 +7,7 @@
 // each and have their EventStore + DispatchContext threaded via arguments).
 // ────────────────────────────────────────────────────────────────────────────
 
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 

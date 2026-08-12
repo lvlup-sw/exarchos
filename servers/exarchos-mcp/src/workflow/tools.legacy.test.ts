@@ -17,9 +17,9 @@ import {
   CURRENT_ES_VERSION,
 } from './tools.js';
 import { initStateFile, readStateFile, writeStateFile, VersionConflictError } from './state-store.js';
-import { EventStore } from '../event-store/store.js';
-import { ViewMaterializer } from '../views/materializer.js';
-import { workflowStateProjection, WORKFLOW_STATE_VIEW } from '../views/workflow-state-projection.js';
+import { EventStore } from '../events/store.js';
+import { ViewMaterializer } from '../projections/views/materializer.js';
+import { workflowStateProjection, WORKFLOW_STATE_VIEW } from '../projections/views/workflow-state-projection.js';
 import { reconcileTasks } from './query.js';
 import type { WorkflowState } from './types.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
@@ -1879,7 +1879,7 @@ describe('Diagnostic Event Emission', () => {
     // Inject 3 fix-cycle events into JSONL store to trigger circuit breaker
     for (let i = 0; i < 3; i++) {
       await eventStore.append('circuit-diag', {
-        type: 'workflow.fix-cycle' as import('../event-store/schemas.js').EventType,
+        type: 'workflow.fix-cycle' as import('../events/schemas.js').EventType,
         correlationId: 'circuit-diag',
         source: 'workflow',
         data: {
@@ -2976,7 +2976,7 @@ describe('HandleSet CAS Diagnostic', () => {
       }
 
       // Assert: Validate the event shape matches WorkflowCasFailedData
-      const { WorkflowCasFailedData } = await import('../event-store/schemas.js');
+      const { WorkflowCasFailedData } = await import('../events/schemas.js');
       const events = await eventStore.query('cas-shape');
       const casFailedEvents = events.filter(e => e.type === 'workflow.cas-failed');
       expect(casFailedEvents).toHaveLength(1);

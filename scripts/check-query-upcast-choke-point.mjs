@@ -3,7 +3,7 @@
  * Read-time upcasting choke-point CI gate (#1556).
  *
  * Walks `servers/exarchos-mcp/src/**` looking for direct backend reads
- * (`.queryEvents(` / `.queryEventsByType(`) outside the event-store substrate.
+ * (`.queryEvents(` / `.queryEventsByType(`) outside the events substrate.
  * Those methods return RAW backend rows — they have NOT passed through the
  * `migrateEvents` upcasting seam. Every reader must go through
  * `EventStore.query` / `EventStore.queryByType` (which fold rows through
@@ -15,7 +15,7 @@
  *   Exit 2 — usage / environment error.
  *
  * Allowlisted substrate (these legitimately call the backend directly):
- *   - servers/exarchos-mcp/src/event-store/**  (store.ts is the choke point;
+ *   - servers/exarchos-mcp/src/events/**  (store.ts is the choke point;
  *     atomic-appender.ts reads internally for sequence allocation / dedup —
  *     write-path reads, never returned to consumers as upcast events)
  *   - servers/exarchos-mcp/src/storage/**      (the backends that DEFINE these
@@ -45,9 +45,9 @@ function toPosix(p) {
 }
 
 // Directory prefixes whose files may read the backend directly. These ARE the
-// event-store substrate (the choke point + its internal write-path reads) and
+// events substrate (the choke point + its internal write-path reads) and
 // the storage backends that define the methods.
-const ALLOWLISTED_DIRS = ['event-store', 'storage'];
+const ALLOWLISTED_DIRS = ['events', 'storage'];
 
 // `.queryEvents(` and `.queryEventsByType(` — the `(ByType)?` alternation
 // matches both, and the trailing `\s*\(` ensures we only catch calls (not a
@@ -186,7 +186,7 @@ function main() {
     `Found ${violations.length} raw backend read(s) bypassing the upcasting choke point.\n`,
   );
   process.stderr.write(
-    'Allowed only under the event-store/ and storage/ substrate. Test/bench files are excluded.\n\n',
+    'Allowed only under the events/ and storage/ substrate. Test/bench files are excluded.\n\n',
   );
   for (const v of violations) {
     process.stderr.write(`  ${v.path}:${v.line}  ${v.excerpt}\n`);

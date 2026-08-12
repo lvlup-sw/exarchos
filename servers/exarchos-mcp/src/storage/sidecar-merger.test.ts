@@ -4,7 +4,7 @@ import fc from 'fast-check';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import { mergeSidecarEvents, type MergeResult } from './sidecar-merger.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 

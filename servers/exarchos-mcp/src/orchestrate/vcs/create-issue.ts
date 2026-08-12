@@ -21,7 +21,7 @@ import { createVcsProvider } from '../../vcs/factory.js';
 import {
   withStateRetry,
 } from '../../workflow/state-retry.js';
-import { ConcurrencyError, StorageBusyError } from '../../event-store/index.js';
+import { ConcurrencyError, StorageBusyError } from '../../events/index.js';
 import { MAX_STATE_RETRIES } from '../../workflow/state-retry.js';
 
 // ─── Idempotency marker ──────────────────────────────────────────────────────

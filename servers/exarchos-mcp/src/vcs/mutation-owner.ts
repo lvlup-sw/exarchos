@@ -54,9 +54,9 @@ import {
   type EffectOutcome,
   type EffectPlan,
 } from '../core/effect-carrier.js';
-import { getValidEventTypes, registerEventType } from '../event-store/schemas.js';
-import type { EventStore } from '../event-store/store.js';
-import type { WorkflowEvent } from '../event-store/schemas.js';
+import { getValidEventTypes, registerEventType } from '../events/schemas.js';
+import type { EventStore } from '../events/store.js';
+import type { WorkflowEvent } from '../events/schemas.js';
 import { spawnCommandSync } from '../utils/process.js';
 
 // ─── Durable ledger vocabulary ───────────────────────────────────────────────

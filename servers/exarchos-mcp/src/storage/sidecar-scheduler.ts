@@ -11,8 +11,8 @@
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import type { EventStore } from '../event-store/store.js';
-import type { WorkflowEvent } from '../event-store/schemas.js';
+import type { EventStore } from '../events/store.js';
+import type { WorkflowEvent } from '../events/schemas.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 

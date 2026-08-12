@@ -4,8 +4,8 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { getRecentEventsFromStore, mapInternalToExternalType } from '../../workflow/events.js';
 import { getRecentEvents } from '../../workflow/events.js';
-import { EventStore } from '../../event-store/store.js';
-import type { EventType as ExternalEventType } from '../../event-store/schemas.js';
+import { EventStore } from '../../events/store.js';
+import type { EventType as ExternalEventType } from '../../events/schemas.js';
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 describe('Bridge Events Fixes', () => {

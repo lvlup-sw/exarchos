@@ -8,8 +8,8 @@ import { fileURLToPath } from 'node:url';
 
 import { logger } from './logger.js';
 import { resolveStateDir as resolveStateDirFromPaths, STORE_DB_FILENAME } from './utils/paths.js';
-import { EventStore } from './event-store/store.js';
-import { SnapshotStore } from './views/snapshot-store.js';
+import { EventStore } from './events/store.js';
+import { SnapshotStore } from './projections/views/snapshot-store.js';
 import {
   ANTHROPIC_NATIVE_CACHING,
   createInMemoryResolver,

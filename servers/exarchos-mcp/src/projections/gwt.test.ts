@@ -3,7 +3,7 @@ import { given } from './gwt.js';
 import { rehydrationReducer } from './rehydration/index.js';
 import { assertReducerImmutable } from './testing.js';
 import type { ProjectionReducer } from './types.js';
-import type { WorkflowEvent } from '../event-store/schemas.js';
+import type { WorkflowEvent } from '../events/schemas.js';
 import type { RehydrationDocument } from './rehydration/schema.js';
 
 /**

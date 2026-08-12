@@ -37,7 +37,7 @@
  * Enforced by `assertReducerImmutable` in `reducer.test.ts` (Task 2A.4).
  */
 import type { ProjectionReducer } from '../types.js';
-import type { WorkflowEvent } from '../../event-store/schemas.js';
+import type { WorkflowEvent } from '../../events/schemas.js';
 import type { TaskRecord, TaskStoreState, TaskStatus } from './types.js';
 import {
   extractTaskId,

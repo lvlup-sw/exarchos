@@ -1,9 +1,9 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { CommandResult } from './types.js';
-import { parseTranscript } from '../session/transcript-parser.js';
-import { writeManifestCompletion } from '../session/manifest.js';
-import type { SessionEvent, SessionSummaryEvent, SessionManifestCompletion } from '../session/types.js';
+import { parseTranscript } from '../projections/session/transcript-parser.js';
+import { writeManifestCompletion } from '../projections/session/manifest.js';
+import type { SessionEvent, SessionSummaryEvent, SessionManifestCompletion } from '../projections/session/types.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 

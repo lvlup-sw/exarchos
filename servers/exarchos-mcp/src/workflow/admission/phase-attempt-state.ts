@@ -51,7 +51,7 @@ import {
   AdmissionRequirementResolvedData,
   AdmissionTransitionDecidedData,
   type AdmissionRequirementResolved,
-} from '../../event-store/schemas.js';
+} from '../../events/schemas.js';
 import {
   DecisionIdSchema,
   EvidenceIdSchema,

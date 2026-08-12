@@ -1,6 +1,6 @@
 import type { Writable } from 'node:stream';
-import type { WorkflowEvent } from '../event-store/schemas.js';
-import type { EventStore } from '../event-store/store.js';
+import type { WorkflowEvent } from '../events/schemas.js';
+import type { EventStore } from '../events/store.js';
 import { NdjsonEncoder } from '../ndjson/encoder.js';
 import { startHeartbeat } from '../ndjson/heartbeat.js';
 import type { Frame } from '../ndjson/frames.js';

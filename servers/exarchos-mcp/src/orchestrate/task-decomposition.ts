@@ -10,7 +10,7 @@
 
 import { readFile } from 'node:fs/promises';
 import type { ToolResult } from '../format.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import type { RiskTier } from '../workflow/verification-policy.js';
 import { emitGateEvent } from './gate-utils.js';
 import { canonicaliseTaskId } from '../utils/task-id.js';

@@ -75,7 +75,7 @@ vi.mock('../../workflow/composite.js', () => ({
   handleWorkflow: mockHandleWorkflow,
 }));
 
-vi.mock('../../event-store/composite.js', () => ({
+vi.mock('../../events/composite.js', () => ({
   handleEvent: mockHandleEvent,
 }));
 
@@ -83,7 +83,7 @@ vi.mock('../../orchestrate/composite.js', () => ({
   handleOrchestrate: mockHandleOrchestrate,
 }));
 
-vi.mock('../../views/composite.js', () => ({
+vi.mock('../../projections/views/composite.js', () => ({
   handleView: mockHandleView,
 }));
 
@@ -92,16 +92,16 @@ vi.mock('../../workflow/cleanup.js', () => ({
   configureCleanupSnapshotStore: vi.fn(),
 }));
 
-vi.mock('../../event-store/store.js', () => ({
+vi.mock('../../events/store.js', () => ({
   EventStore: vi.fn(),
 }));
 
-vi.mock('../../views/snapshot-store.js', () => ({
+vi.mock('../../projections/views/snapshot-store.js', () => ({
   SnapshotStore: vi.fn(),
 }));
 
 // Mock telemetry middleware (pass-through by default)
-vi.mock('../../telemetry/middleware.js', () => ({
+vi.mock('../../projections/telemetry/middleware.js', () => ({
   withTelemetry: vi.fn((handler: unknown) => handler),
 }));
 
@@ -302,7 +302,7 @@ describe('MCP Server Entry Point', () => {
 
   describe('telemetry integration', () => {
     it('should wrap handlers with withTelemetry when EXARCHOS_TELEMETRY is not false', async () => {
-      const { withTelemetry } = await import('../../telemetry/middleware.js');
+      const { withTelemetry } = await import('../../projections/telemetry/middleware.js');
       const originalEnv = process.env.EXARCHOS_TELEMETRY;
       try {
         delete process.env.EXARCHOS_TELEMETRY;

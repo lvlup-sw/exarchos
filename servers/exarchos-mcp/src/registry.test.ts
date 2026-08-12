@@ -31,7 +31,7 @@ import { envelopeDataSchemaIsTyped } from './orchestrate/worktree/schemas.js';
 import { handleDescribe } from './describe/handler.js';
 import { wrap, wrapError } from './format.js';
 import { zodToJsonSchema } from './adapters/json-schema.js';
-import { ConcurrencyError } from './event-store/concurrency-error.js';
+import { ConcurrencyError } from './events/concurrency-error.js';
 import { rmrfAsync } from './test-helpers/temp-dir.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -901,7 +901,7 @@ describe('TOOL_REGISTRY', () => {
     // and confirming it does NOT fall through to UNKNOWN_ACTION. `onboard` is the
     // regression target — before its branch + import were wired it failed here.
     const { handleOrchestrate } = await import('./orchestrate/composite.js');
-    const { EventStore } = await import('./event-store/store.js');
+    const { EventStore } = await import('./events/store.js');
     const { mkdtemp, rm } = await import('node:fs/promises');
     const { tmpdir } = await import('node:os');
     const path = await import('node:path');
@@ -1897,7 +1897,7 @@ describe('quality_hints view action', () => {
 
 describe('AutoEmits Drift Tests', () => {
   it('RegistryDrift_AutoEmitsMatchEventEmissionRegistry', async () => {
-    const { EVENT_EMISSION_REGISTRY } = await import('./event-store/schemas.js');
+    const { EVENT_EMISSION_REGISTRY } = await import('./events/schemas.js');
 
     // At least one action must have autoEmits populated
     let anyPopulated = false;

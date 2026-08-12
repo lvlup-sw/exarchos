@@ -5,7 +5,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import type { ToolResult } from '../format.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 
 // ─── Mock child_process ────────────────────────────────────────────────────
 
@@ -17,7 +17,7 @@ import { execSync } from 'node:child_process';
 
 // ─── Mock views/tools to control materializer and event store ──────────────
 
-vi.mock('../views/tools.js', () => ({
+vi.mock('../projections/views/tools.js', () => ({
   getOrCreateMaterializer: vi.fn(),
 }));
 
@@ -44,7 +44,7 @@ vi.mock('./gate-runner.js', () => ({
   }),
 }));
 
-import { getOrCreateMaterializer } from '../views/tools.js';
+import { getOrCreateMaterializer } from '../projections/views/tools.js';
 
 // ─── Import handler under test ─────────────────────────────────────────────
 

@@ -41,13 +41,13 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import type { DispatchContext } from '../../core/dispatch.js';
-import type { IntegrityResult } from '../../event-store/store.js';
+import type { IntegrityResult } from '../../events/store.js';
 import {
   DoctorOutputSchema,
   type CheckResult,
   type DoctorOutput,
 } from './schema.js';
-import { DiagnosticExecutedDataSchema } from '../../event-store/schemas.js';
+import { DiagnosticExecutedDataSchema } from '../../events/schemas.js';
 import { handleDoctor, ALL_CHECKS } from './index.js';
 
 // ─── Pinned canonical check identity ────────────────────────────────────────

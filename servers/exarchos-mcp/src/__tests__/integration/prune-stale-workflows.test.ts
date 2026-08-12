@@ -29,7 +29,7 @@ import {
 } from '../../orchestrate/prune-stale-workflows.js';
 import { handleList } from '../../workflow/tools.js';
 import { handleCancel } from '../../workflow/cancel.js';
-import { EventStore } from '../../event-store/store.js';
+import { EventStore } from '../../events/store.js';
 import type { DispatchContext } from '../../core/dispatch.js';
 import {
   loadTopology,

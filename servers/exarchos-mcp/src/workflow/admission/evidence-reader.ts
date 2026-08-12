@@ -28,7 +28,7 @@ import { createHash } from 'node:crypto';
 import {
   AdmissionDisagreementDispositionData,
   AdmissionShadowAttemptData,
-} from '../../event-store/schemas.js';
+} from '../../events/schemas.js';
 import {
   evaluateCutoverGate,
   type CutoverGateEvidence,

@@ -7,7 +7,7 @@
  * characterization, acceptance — plus the shared `parity-harness.ts` they lean on.
  * Keep-class status is by **dedicated-suite SUFFIX**, never by a file merely
  * importing `fast-check` or another test utility (e.g.
- * `event-store/tools.test.ts` imports fast-check but is a mixed consolidation
+ * `events/tools.test.ts` imports fast-check but is a mixed consolidation
  * TARGET, not protected — its property cases relocate/merge verbatim).
  *
  * Two modes:
@@ -51,12 +51,12 @@ export const KEEP_CLASS_SUFFIXES = Object.freeze([
 
 /**
  * Areas whose parity suite is literally named `parity.test.ts` (no character
- * before "parity", so `*.parity.test.ts` does not match it) — `views/parity`
- * and `event-store/parity`. Matches the file itself and, defensively, any
+ * before "parity", so `*.parity.test.ts` does not match it) — `projections/views/parity`
+ * and `events/parity`. Matches the file itself and, defensively, any
  * future file nested under a same-named subdirectory. Paths are POSIX,
  * relative to {@link SRC_ROOT}.
  */
-export const KEEP_CLASS_AREAS = Object.freeze(['views/parity', 'event-store/parity']);
+export const KEEP_CLASS_AREAS = Object.freeze(['projections/views/parity', 'events/parity']);
 
 /**
  * Named adjacent files the suffix/area rules above already cover (kept here,
@@ -67,7 +67,7 @@ export const KEEP_CLASS_AREAS = Object.freeze(['views/parity', 'event-store/pari
 export const KEEP_CLASS_EXPLICIT = Object.freeze([
   'workflow/state-machine.property.test.ts',
   'workflow/tools.update.race.test.ts',
-  'views/materializer.property.test.ts',
+  'projections/views/materializer.property.test.ts',
   '__tests__/parity-harness.ts',
 ]);
 

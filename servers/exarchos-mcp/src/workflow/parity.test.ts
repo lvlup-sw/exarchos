@@ -5,7 +5,7 @@ import * as path from 'node:path';
 
 import { CLI_EXIT_CODES } from '../adapters/cli.js';
 import { type DispatchContext } from '../core/dispatch.js';
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import {
   callCli as harnessCallCli,
   callMcp as harnessCallMcp,
@@ -15,12 +15,12 @@ import {
 import type { ToolResult } from '../format.js';
 import type { RehydrationDocument } from '../projections/rehydration/schema.js';
 import { configureWorkflowMaterializer, handleInit } from './tools.js';
-import { resetMaterializerCache } from '../views/tools.js';
-import { ViewMaterializer } from '../views/materializer.js';
+import { resetMaterializerCache } from '../projections/views/tools.js';
+import { ViewMaterializer } from '../projections/views/materializer.js';
 import {
   workflowStateProjection,
   WORKFLOW_STATE_VIEW,
-} from '../views/workflow-state-projection.js';
+} from '../projections/views/workflow-state-projection.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 // ─── Task 014: CLI-vs-MCP Parity for exarchos_workflow (DR-3) ─────────────────

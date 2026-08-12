@@ -31,7 +31,7 @@ import {
   ProjectionRecoveredData,
   type ProjectionDegraded,
   type ProjectionRecovered,
-} from '../event-store/schemas.js';
+} from '../events/schemas.js';
 
 /** Why a projection is not trustworthy for this read. */
 export type ProjectionDegradationReason =

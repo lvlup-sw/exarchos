@@ -41,7 +41,7 @@
  * short-circuits on an existing terminal).
  */
 
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import { emitLaunchExecuted } from './liveness.js';
 import { WORKTREES_STREAM, WORKTREES_REDUCER } from '../orchestrate/worktree/manager.js';
 import type { WorktreesProjection } from '../orchestrate/worktree/projections/worktrees.js';

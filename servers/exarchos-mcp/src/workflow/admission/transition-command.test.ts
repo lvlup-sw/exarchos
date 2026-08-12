@@ -18,12 +18,12 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
-import { AtomicAppender } from '../../event-store/atomic-appender.js';
+import { AtomicAppender } from '../../events/atomic-appender.js';
 import type {
   DecideOnceContext,
   DecideOnceDecision,
-} from '../../event-store/atomic-appender.js';
-import { ConcurrencyError } from '../../event-store/concurrency-error.js';
+} from '../../events/atomic-appender.js';
+import { ConcurrencyError } from '../../events/concurrency-error.js';
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 import {

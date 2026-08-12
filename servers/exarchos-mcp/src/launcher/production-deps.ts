@@ -34,7 +34,7 @@
 // stays in the declarative descriptors the registry resolves.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { launcherLogger } from '../logger.js';
 import {

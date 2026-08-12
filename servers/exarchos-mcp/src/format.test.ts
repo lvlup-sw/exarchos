@@ -17,8 +17,8 @@ import {
   createInMemoryResolver,
 } from './capabilities/resolver.js';
 import { STABLE_PREFIX_KEYS } from './projections/rehydration/serialize.js';
-import { ConcurrencyError } from './event-store/concurrency-error.js';
-import { StorageBusyError } from './event-store/storage-busy-error.js';
+import { ConcurrencyError } from './events/concurrency-error.js';
+import { StorageBusyError } from './events/storage-busy-error.js';
 
 describe('pickFields', () => {
   it('pickFields_TopLevelField_ReturnsValue', () => {

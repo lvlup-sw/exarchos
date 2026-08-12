@@ -5,7 +5,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { z } from 'zod';
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import { createInMemoryResolver } from '../capabilities/resolver.js';
 import {
   performElicitation,

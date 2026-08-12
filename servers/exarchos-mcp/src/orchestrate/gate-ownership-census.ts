@@ -2,7 +2,7 @@ import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 
-import { ContentAddressedStore } from '../artifacts/content-addressed-store.js';
+import { ContentAddressedStore } from '../storage/artifacts/content-addressed-store.js';
 import { createInMemoryResolver } from '../capabilities/resolver.js';
 import {
   deriveMcpCallerIdentity,
@@ -12,7 +12,7 @@ import {
   mintDispatchContext,
   runWithDispatchContext,
 } from '../dispatch/dispatch-context.js';
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import type { ToolResult } from '../format.js';
 import { TOOL_REGISTRY } from '../registry.js';
 import { createEvidenceSubject } from '../workflow/admission/evidence-subject.js';

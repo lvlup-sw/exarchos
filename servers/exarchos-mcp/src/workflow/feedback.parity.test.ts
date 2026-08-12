@@ -5,7 +5,7 @@ import * as path from 'node:path';
 
 import { CLI_EXIT_CODES } from '../adapters/cli.js';
 import { type DispatchContext } from '../core/dispatch.js';
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import {
   callCli as harnessCallCli,
   callMcp as harnessCallMcp,

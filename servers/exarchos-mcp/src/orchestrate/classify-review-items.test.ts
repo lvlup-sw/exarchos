@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { handleClassifyReviewItems } from './classify-review-items.js';
 import type { ActionItem } from '../review/types.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 
 function makeItem(overrides: Partial<ActionItem> = {}): ActionItem {
   return {

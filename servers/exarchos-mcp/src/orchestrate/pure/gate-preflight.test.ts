@@ -14,7 +14,7 @@ import { mkdtempSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { EventStore } from '../../event-store/store.js';
+import { EventStore } from '../../events/store.js';
 import { rmrf } from '../../test-helpers/temp-dir.js';
 import { emitPolicySkipIfNeeded, runGatePreflight } from './gate-preflight.js';
 

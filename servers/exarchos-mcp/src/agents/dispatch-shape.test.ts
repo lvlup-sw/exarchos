@@ -58,7 +58,7 @@ import { buildSupportMap } from './adapters/support-levels.js';
 import { claudeAdapter } from './adapters/claude.js';
 import { codexAdapter } from './adapters/codex.js';
 import { handlePrepareReview } from '../orchestrate/prepare-review.js';
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 import type { ToolResult } from '../format.js';
 

@@ -12,7 +12,7 @@ import { makeStubProbes } from './checks/__shared__/make-stub-probes.js';
 import type { CheckFn } from './checks/__shared__/make-stub-probes.js';
 import type { DoctorProbes } from './probes.js';
 import type { AgentEnvironment } from '../../runtime/agent-environment-detector.js';
-import type { IntegrityResult } from '../../event-store/store.js';
+import type { IntegrityResult } from '../../events/store.js';
 import type { CheckResult } from './schema.js';
 import { handleDoctorWithChecks, ALL_CHECKS } from './index.js';
 

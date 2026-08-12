@@ -32,7 +32,7 @@
 // no-op (`already-bootstrapped`) — bootstrapping twice can never fork one
 // attempt into two.
 
-import type { EventInput } from '../../event-store/atomic-appender.js';
+import type { EventInput } from '../../events/atomic-appender.js';
 import { resolveRequirements } from './requirement-resolution.js';
 import type { RequirementContext } from './requirement-context.js';
 import { freezeRequirements } from './freeze-requirements.js';

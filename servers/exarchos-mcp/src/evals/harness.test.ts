@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { discoverSuites, runSuite, runAll, type DiscoveredSuite } from './harness.js';
 import { createDefaultRegistry, GraderRegistry } from './graders/index.js';
 import type { EvalSuiteConfig, EvalCase } from './types.js';
-import { JudgeCalibratedDataSchema } from '../event-store/schemas.js';
+import { JudgeCalibratedDataSchema } from '../events/schemas.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Resolve the repo-root evals/ directory (servers/exarchos-mcp/src/evals -> ../../../../evals)

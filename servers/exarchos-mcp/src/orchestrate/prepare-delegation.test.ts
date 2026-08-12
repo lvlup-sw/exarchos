@@ -2,19 +2,19 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ToolResult } from '../format.js';
-import { WORKFLOW_STATE_VIEW } from '../views/workflow-state-projection.js';
-import { CODE_QUALITY_VIEW } from '../views/code-quality-view.js';
-import { DELEGATION_READINESS_VIEW } from '../views/delegation-readiness-view.js';
-import type { DelegationReadinessState } from '../views/delegation-readiness-view.js';
+import { WORKFLOW_STATE_VIEW } from '../projections/views/workflow-state-projection.js';
+import { CODE_QUALITY_VIEW } from '../projections/views/code-quality-view.js';
+import { DELEGATION_READINESS_VIEW } from '../projections/views/delegation-readiness-view.js';
+import type { DelegationReadinessState } from '../projections/views/delegation-readiness-view.js';
 
 // ─── Mock Dependencies ──────────────────────────────────────────────────────
 
-vi.mock('../views/tools.js', () => ({
+vi.mock('../projections/views/tools.js', () => ({
   getOrCreateMaterializer: vi.fn(),
   queryDeltaEvents: vi.fn(),
 }));
 
-vi.mock('../quality/hints.js', () => ({
+vi.mock('../projections/quality/hints.js', () => ({
   generateQualityHints: vi.fn(),
 }));
 
@@ -22,7 +22,7 @@ vi.mock('./gate-utils.js', () => ({
   emitGateEvent: vi.fn(),
 }));
 
-vi.mock('../telemetry/telemetry-queries.js', () => ({
+vi.mock('../projections/telemetry/telemetry-queries.js', () => ({
   queryTelemetryState: vi.fn().mockResolvedValue(null),
 }));
 
@@ -63,8 +63,8 @@ vi.mock('../workflow/phase-kind.js', async (importActual) => {
 import {
   getOrCreateMaterializer,
   queryDeltaEvents,
-} from '../views/tools.js';
-import { generateQualityHints } from '../quality/hints.js';
+} from '../projections/views/tools.js';
+import { generateQualityHints } from '../projections/quality/hints.js';
 import { emitGateEvent } from './gate-utils.js';
 import {
   handlePrepareDelegation,
@@ -92,8 +92,8 @@ import * as fsp from 'node:fs/promises';
 import * as os from 'node:os';
 import * as nodePath from 'node:path';
 import * as fc from 'fast-check';
-import { delegationReadinessProjection } from '../views/delegation-readiness-view.js';
-import type { WorkflowEvent } from '../event-store/schemas.js';
+import { delegationReadinessProjection } from '../projections/views/delegation-readiness-view.js';
+import type { WorkflowEvent } from '../events/schemas.js';
 import {
   validateBranchAncestry,
   assertMainWorktree,
@@ -252,7 +252,7 @@ const mockStore = {
 function makeCtx(store: { append: unknown; query: unknown }, stateDir: string) {
   return {
     stateDir,
-    eventStore: store as unknown as import('../event-store/store.js').EventStore,
+    eventStore: store as unknown as import('../events/store.js').EventStore,
     enableTelemetry: false,
   };
 }

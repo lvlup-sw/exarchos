@@ -22,10 +22,10 @@
 // @oracle-sources: ../event-store/event-annotations.ts, ./report-coupling-seed.ts, ./report-coupling-seed-pin.ts
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
-import { EVENT_EMISSION_REGISTRY, EventTypes } from '../event-store/schemas.js';
-import { ANNOTATED_EVENTS, EVENT_ANNOTATIONS } from '../event-store/event-annotations.js';
-import type { EventAnnotationSource } from '../event-store/event-declarations.js';
-import type { EventRegistration } from '../event-store/event-registration.js';
+import { EVENT_EMISSION_REGISTRY, EventTypes } from '../events/schemas.js';
+import { ANNOTATED_EVENTS, EVENT_ANNOTATIONS } from '../events/event-annotations.js';
+import type { EventAnnotationSource } from '../events/event-declarations.js';
+import type { EventRegistration } from '../events/event-registration.js';
 import {
   auditReportCouplingRatchet,
   auditReportCouplingSeed,

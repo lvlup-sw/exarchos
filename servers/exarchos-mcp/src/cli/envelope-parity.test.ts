@@ -18,7 +18,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { toEnvelope, type ToolResult } from '../format.js';
-import { computeOutputTokenHints, telemetryProjection } from '../telemetry/telemetry-projection.js';
+import { computeOutputTokenHints, telemetryProjection } from '../projections/telemetry/telemetry-projection.js';
 
 describe('EnvelopeParity_OutputTokensHigh (#1262)', () => {
   it('Envelope_OutputTokensHighHint_CLIAndMCPIdentical', () => {

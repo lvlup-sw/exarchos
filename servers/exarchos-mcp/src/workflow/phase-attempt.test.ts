@@ -3,9 +3,9 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import { PhaseAttemptIdSchema } from './admission/types.js';
-import { workflowStateProjection } from '../views/workflow-state-projection.js';
+import { workflowStateProjection } from '../projections/views/workflow-state-projection.js';
 import {
   handleCancel,
   handleGet,

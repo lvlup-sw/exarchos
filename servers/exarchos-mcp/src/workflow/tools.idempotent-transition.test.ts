@@ -20,9 +20,9 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { handleInit, handleTransition } from './tools.js';
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import { readStateFile } from './state-store.js';
-import type { WorkflowEvent } from '../event-store/schemas.js';
+import type { WorkflowEvent } from '../events/schemas.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 let tmpDir: string;

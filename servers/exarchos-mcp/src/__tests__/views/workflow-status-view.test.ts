@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { ViewMaterializer } from '../../views/materializer.js';
+import { ViewMaterializer } from '../../projections/views/materializer.js';
 import {
   workflowStatusProjection,
   WORKFLOW_STATUS_VIEW,
-} from '../../views/workflow-status-view.js';
-import type { WorkflowStatusViewState } from '../../views/workflow-status-view.js';
-import type { WorkflowEvent } from '../../event-store/schemas.js';
+} from '../../projections/views/workflow-status-view.js';
+import type { WorkflowStatusViewState } from '../../projections/views/workflow-status-view.js';
+import type { WorkflowEvent } from '../../events/schemas.js';
 
 function makeEvent(
   seq: number,

@@ -6,7 +6,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import type { ToolResult } from '../format.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 // The boundary-lint leg (SIV-3 Layer A, task 027) is exercised below against
 // the REAL implementation. The module-level mock stubs only `runStaticAnalysis`
 // (the handler tests inject canned results); every other export — including
@@ -56,7 +56,7 @@ const mockStore = {
   query: vi.fn().mockResolvedValue([]),
 };
 
-vi.mock('../views/tools.js', () => ({
+vi.mock('../projections/views/tools.js', () => ({
   getOrCreateMaterializer: () => ({}),
 }));
 

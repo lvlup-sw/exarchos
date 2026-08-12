@@ -21,8 +21,8 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
-import { EventStore } from '../event-store/store.js';
-import type { WorkflowEvent } from '../event-store/schemas.js';
+import { EventStore } from '../events/store.js';
+import type { WorkflowEvent } from '../events/schemas.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 import { WORKTREES_STREAM } from '../orchestrate/worktree/manager.js';
 import type { SpawnExit } from '../utils/process.js';

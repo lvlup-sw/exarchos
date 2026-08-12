@@ -15,8 +15,8 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
-import { AtomicAppender } from '../../event-store/atomic-appender.js';
-import type { DecideOnceStoredEvent } from '../../event-store/atomic-appender.js';
+import { AtomicAppender } from '../../events/atomic-appender.js';
+import type { DecideOnceStoredEvent } from '../../events/atomic-appender.js';
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 import { runReassessment } from './reassessment.js';

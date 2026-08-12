@@ -7,7 +7,7 @@
 
 import type { ToolResult } from '../format.js';
 import type { NextAction } from '../next-action.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import { QUALITY_CHECK_CATALOG } from '../review/check-catalog.js';
 import { loadProjectConfig } from '../config/yaml-loader.js';
 import { resolveConfig, DEFAULTS } from '../config/resolve.js';

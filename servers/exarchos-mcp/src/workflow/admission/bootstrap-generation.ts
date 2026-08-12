@@ -23,8 +23,8 @@ import { createHash } from 'node:crypto';
 import type {
   DecideOnceStoredEvent,
   EventInput,
-} from '../../event-store/atomic-appender.js';
-import { AdmissionRequirementResolvedData } from '../../event-store/schemas.js';
+} from '../../events/atomic-appender.js';
+import { AdmissionRequirementResolvedData } from '../../events/schemas.js';
 import {
   foldPhaseAttemptAdmission,
   type PhaseAttemptAdmissionFold,

@@ -65,10 +65,10 @@ import type {
 // imported from a module that imports nothing. It is deliberately NOT
 // re-exported through the SDK seam: routing it there would claim it is drawn
 // from a generation, and it is drawn from neither.
-import type { CreateTaskParams } from '../task-store/port.js';
+import type { CreateTaskParams } from '../projections/task-store/port.js';
 
 import type { ToolResult } from '../format.js';
-import type { EventSourcedTaskStore } from '../task-store/event-sourced-task-store.js';
+import type { EventSourcedTaskStore } from '../projections/task-store/event-sourced-task-store.js';
 import {
   getDispatchContext,
   runWithDispatchContext,

@@ -13,7 +13,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { EventStore } from '../../servers/exarchos-mcp/src/event-store/store.js';
+import { EventStore } from '../../servers/exarchos-mcp/src/events/store.js';
 import { handleInit } from '../../servers/exarchos-mcp/src/workflow/tools.js';
 import { dispatch } from '../../servers/exarchos-mcp/src/core/dispatch.js';
 import { createInMemoryResolver } from '../../servers/exarchos-mcp/src/capabilities/resolver.js';

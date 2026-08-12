@@ -6,9 +6,9 @@ import { createRegistry, defaultRegistry } from '../registry.js';
 // top so registration is reached before any test executes regardless of
 // describe ordering — mirrors `projections/registry.test.ts`.
 import { workflowStateReducer } from './index.js';
-import { workflowStateProjection } from '../../views/workflow-state-projection.js';
+import { workflowStateProjection } from '../views/workflow-state-projection.js';
 import { assertReducerImmutable } from '../testing.js';
-import { EventTypes, type WorkflowEvent } from '../../event-store/schemas.js';
+import { EventTypes, type WorkflowEvent } from '../../events/schemas.js';
 import { getInitialPhase } from '../../workflow/state-machine.js';
 
 function ev(type: string, data: Record<string, unknown>, sequence: number): WorkflowEvent {

@@ -35,8 +35,8 @@
  * key; the pre-check is the short-circuit + signal.
  */
 
-import type { EventStore } from '../event-store/store.js';
-import type { WorkflowEvent } from '../event-store/schemas.js';
+import type { EventStore } from '../events/store.js';
+import type { WorkflowEvent } from '../events/schemas.js';
 import { withStateRetry } from '../workflow/state-retry.js';
 import { WORKTREES_STREAM } from '../orchestrate/worktree/manager.js';
 

@@ -12,9 +12,9 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import { existsSync, readFileSync } from 'node:fs';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import type { ToolResult } from '../format.js';
-import { workflowStateProjection } from '../views/workflow-state-projection.js';
+import { workflowStateProjection } from '../projections/views/workflow-state-projection.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 

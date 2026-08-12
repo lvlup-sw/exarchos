@@ -18,7 +18,7 @@
 import * as path from 'node:path';
 import type { ToolResult } from '../format.js';
 import type { DispatchContext } from '../core/dispatch.js';
-import type { EventType } from '../event-store/schemas.js';
+import type { EventType } from '../events/schemas.js';
 import { handleList } from '../workflow/tools.js';
 import { handleCancel } from '../workflow/cancel.js';
 import { readStateFile } from '../workflow/state-store.js';

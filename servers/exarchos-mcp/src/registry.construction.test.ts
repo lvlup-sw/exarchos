@@ -29,7 +29,7 @@ import {
   outputField,
   operationField,
   type LifecycleFieldName,
-} from './views/lifecycle/schema-fields.js';
+} from './projections/views/lifecycle/schema-fields.js';
 
 /** The real, un-mocked `exarchos_view` composite tool. */
 function viewTool(): CompositeTool {

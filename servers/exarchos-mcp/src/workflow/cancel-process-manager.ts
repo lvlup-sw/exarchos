@@ -32,15 +32,15 @@
 // driver exercising all four exit proofs against a real `EventStore`.
 
 import { createHash } from 'node:crypto';
-import type { EventStore } from '../event-store/store.js';
-import type { EventInput } from '../event-store/atomic-appender.js';
-import { buildValidatedEvent } from '../event-store/event-factory.js';
+import type { EventStore } from '../events/store.js';
+import type { EventInput } from '../events/atomic-appender.js';
+import { buildValidatedEvent } from '../events/event-factory.js';
 import {
   CancelCompensationCompletedData,
   CancelOwnershipAcquiredData,
   CancelReadyData,
   type EventType,
-} from '../event-store/schemas.js';
+} from '../events/schemas.js';
 
 // ─── Foldable event shape ────────────────────────────────────────────────────
 

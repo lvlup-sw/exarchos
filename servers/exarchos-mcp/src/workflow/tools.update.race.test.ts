@@ -23,7 +23,7 @@ import * as os from 'node:os';
 
 import { handleWorkflow } from './composite.js';
 import { handleInit } from './tools.js';
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import { SqliteBackend } from '../storage/sqlite-backend.js';
 import { configureStateStoreBackend } from './state-store.js';

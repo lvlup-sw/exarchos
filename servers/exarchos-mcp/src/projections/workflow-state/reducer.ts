@@ -27,11 +27,11 @@
  * @see docs/designs/archive/2026-06-20-w3-event-sourcing-read-path.md §3.3
  */
 import type { ProjectionReducer } from '../types.js';
-import type { WorkflowEvent } from '../../event-store/schemas.js';
+import type { WorkflowEvent } from '../../events/schemas.js';
 import {
   workflowStateProjection,
   type WorkflowStateView,
-} from '../../views/workflow-state-projection.js';
+} from '../views/workflow-state-projection.js';
 
 export const workflowStateReducer: ProjectionReducer<WorkflowStateView, WorkflowEvent> = {
   id: 'workflow-state@v1',

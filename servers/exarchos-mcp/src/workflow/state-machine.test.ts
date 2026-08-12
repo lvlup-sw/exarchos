@@ -15,7 +15,7 @@ import type {
   HSMDefinition,
 } from './state-machine.js';
 import { EXCLUDED_MERGE_PHASES, createFeatureHSM, createRefactorHSM } from './hsm-definitions.js';
-import { EVENT_DATA_SCHEMAS, isBuiltInEventType } from '../event-store/schemas.js';
+import { EVENT_DATA_SCHEMAS, isBuiltInEventType } from '../events/schemas.js';
 import { buildHsmEventData } from './hsm-transition-guard.js';
 import { mapInternalToExternalType } from './events.js';
 import { resolveGateSet, KIND_OBLIGATIONS } from './phase-kind.js';

@@ -57,14 +57,14 @@ import * as path from 'node:path';
 vi.mock('../../../src/vcs/shell.js', () => ({ exec: vi.fn() }));
 
 import { exec as ghBoundary } from '../../../src/vcs/shell.js';
-import { EventStore } from '../../../src/event-store/store.js';
+import { EventStore } from '../../../src/events/store.js';
 import { handleExecuteMerge } from '../../../src/orchestrate/execute-merge.js';
 import { handleCreatePr } from '../../../src/orchestrate/vcs/create-pr.js';
 import { initStateFile } from '../../../src/workflow/state-store.js';
 import { rmrf } from '../../../src/test-helpers/temp-dir.js';
 import type { DispatchContext } from '../../../src/core/dispatch.js';
 import type { ResolvedProjectConfig } from '../../../src/config/resolve.js';
-import type { WorkflowEvent } from '../../../src/event-store/schemas.js';
+import type { WorkflowEvent } from '../../../src/events/schemas.js';
 
 // ─── Temp-dir bookkeeping ──────────────────────────────────────────────────
 

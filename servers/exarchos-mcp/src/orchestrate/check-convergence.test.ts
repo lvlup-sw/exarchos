@@ -2,7 +2,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ToolResult } from '../format.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 
 // ─── Mock event store + materializer ────────────────────────────────────────
 
@@ -19,7 +19,7 @@ const mockMaterializer = {
   loadFromSnapshot: vi.fn().mockResolvedValue(undefined),
 };
 
-vi.mock('../views/tools.js', () => ({
+vi.mock('../projections/views/tools.js', () => ({
   getOrCreateMaterializer: () => mockMaterializer,
   queryDeltaEvents: vi.fn().mockResolvedValue([]),
 }));
@@ -198,7 +198,7 @@ describe('handleCheckConvergence', () => {
       dimensions: {},
     };
 
-    const { queryDeltaEvents } = await import('../views/tools.js');
+    const { queryDeltaEvents } = await import('../projections/views/tools.js');
 
     await handleCheckConvergence(
       { featureId: 'test-feature', workflowId: 'custom-stream' },

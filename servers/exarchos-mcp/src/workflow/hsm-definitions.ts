@@ -2,7 +2,7 @@ import { guards, composeGuards } from './guards.js';
 import type { Guard, GuardResult } from './guards.js';
 import type { HSMDefinition, State, Transition } from './state-machine.js';
 import { eventDataHasWorktreeAssociation } from '../projections/rehydration/reducer.js';
-import type { WorkflowEvent } from '../event-store/schemas.js';
+import type { WorkflowEvent } from '../events/schemas.js';
 
 // ─── Merge Orchestrator Phase Filtering (T17 / T19) ─────────────────────────
 

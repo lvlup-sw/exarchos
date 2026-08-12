@@ -11,7 +11,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import { InMemoryBackend } from '../storage/memory-backend.js';
 import { createInMemoryResolver } from '../capabilities/resolver.js';
 import type { RootsClient } from './discovery.js';

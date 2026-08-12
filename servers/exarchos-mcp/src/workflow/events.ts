@@ -1,6 +1,6 @@
 import type { Event, EventType } from './types.js';
-import type { EventStore } from '../event-store/store.js';
-import type { WorkflowEvent } from '../event-store/schemas.js';
+import type { EventStore } from '../events/store.js';
+import type { WorkflowEvent } from '../events/schemas.js';
 import { ADMISSION_EVENT_TYPE_VALUES } from './admission/types.js';
 
 /** Default event log cap — configurable via EVENT_LOG_MAX env var */

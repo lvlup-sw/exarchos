@@ -24,7 +24,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { EventStore } from '../../servers/exarchos-mcp/src/event-store/store.js';
+import { EventStore } from '../../servers/exarchos-mcp/src/events/store.js';
 import {
   handleInit,
   handleUpdate,

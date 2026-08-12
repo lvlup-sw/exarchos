@@ -21,7 +21,7 @@
 import * as path from 'node:path';
 
 import type { ToolResult } from '../format.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import { handleSet } from '../workflow/tools.js';
 import { guards } from '../workflow/guards.js';
 import { hydrateEventsFromStore } from '../workflow/state-store.js';

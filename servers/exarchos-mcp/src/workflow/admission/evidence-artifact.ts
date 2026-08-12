@@ -3,7 +3,7 @@ import { z } from 'zod';
 import {
   ContentAddressedStore,
   ContentAddressedStoreError,
-} from '../../artifacts/content-addressed-store.js';
+} from '../../storage/artifacts/content-addressed-store.js';
 import {
   canonicalizeEvidenceSubject,
   createEvidenceSubject,

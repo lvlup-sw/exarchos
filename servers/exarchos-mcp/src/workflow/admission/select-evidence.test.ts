@@ -1,9 +1,9 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import type { WorkflowEvent } from '../../event-store/schemas.js';
-import { AdmissionEvidenceRecordedData } from '../../event-store/schemas.js';
-import { buildValidatedEvent } from '../../event-store/event-factory.js';
-import { workflowStateProjection } from '../../views/workflow-state-projection.js';
+import type { WorkflowEvent } from '../../events/schemas.js';
+import { AdmissionEvidenceRecordedData } from '../../events/schemas.js';
+import { buildValidatedEvent } from '../../events/event-factory.js';
+import { workflowStateProjection } from '../../projections/views/workflow-state-projection.js';
 import { selectEvidence } from './select-evidence.js';
 
 const AT = '2026-07-21T20:00:00.000Z';

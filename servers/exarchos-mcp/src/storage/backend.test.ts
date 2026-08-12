@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { StorageBackend, QueryFilters, ViewCacheEntry, DrainResult, EventSender } from './backend.js';
-import type { WorkflowEvent } from '../event-store/schemas.js';
+import type { WorkflowEvent } from '../events/schemas.js';
 import type { WorkflowState } from '../workflow/types.js';
 
 // ─── StorageBackend Interface Contract ──────────────────────────────────────

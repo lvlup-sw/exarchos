@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import type { PRDiffMetadata } from './types.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
@@ -130,7 +130,7 @@ describe('handleReviewTriage', () => {
     expect(events[0].type).toBe('review.routed');
 
     // Validate shape matches ReviewRoutedData schema
-    const { ReviewRoutedData } = await import('../event-store/schemas.js');
+    const { ReviewRoutedData } = await import('../events/schemas.js');
     const data = events[0].data as Record<string, unknown>;
     const parseResult = ReviewRoutedData.safeParse(data);
     expect(parseResult.success).toBe(true);
@@ -238,7 +238,7 @@ describe('orchestrate review_triage action', () => {
       pendingCodeRabbitReviews: 0,
     };
 
-    const { EventStore } = await import('../event-store/store.js');
+    const { EventStore } = await import('../events/store.js');
     const eventStore = new EventStore(tmpDir);
     await eventStore.initialize();
     const result = await handleOrchestrate(args as Record<string, unknown>, { stateDir: tmpDir, eventStore, enableTelemetry: false });

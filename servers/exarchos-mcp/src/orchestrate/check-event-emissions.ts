@@ -5,16 +5,16 @@
 // hints for missing events and emits a gate.executed event for traceability.
 // ────────────────────────────────────────────────────────────────────────────
 
-import type { EventType } from '../event-store/schemas.js';
-import { EVENT_DATA_SCHEMAS, EVENT_EMISSION_REGISTRY } from '../event-store/schemas.js';
+import type { EventType } from '../events/schemas.js';
+import { EVENT_DATA_SCHEMAS, EVENT_EMISSION_REGISTRY } from '../events/schemas.js';
 import type { ToolResult } from '../format.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import {
   getOrCreateMaterializer,
   queryDeltaEvents,
-} from '../views/tools.js';
-import { WORKFLOW_STATE_VIEW } from '../views/workflow-state-projection.js';
-import type { WorkflowStateView } from '../views/workflow-state-projection.js';
+} from '../projections/views/tools.js';
+import { WORKFLOW_STATE_VIEW } from '../projections/views/workflow-state-projection.js';
+import type { WorkflowStateView } from '../projections/views/workflow-state-projection.js';
 import { emitGateEvent } from './gate-utils.js';
 import { getRegisteredEventTypes } from '../projections/rehydration/reducer.js';
 

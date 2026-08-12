@@ -6,9 +6,9 @@ import { handleSummary, handleReconcile, handleTransitions } from './query.js';
 import { configureStateStoreBackend } from './state-store.js';
 import { handleGet } from './tools.js';
 import { InMemoryBackend } from '../storage/memory-backend.js';
-import type { EventStore } from '../event-store/store.js';
-import type { WorkflowEvent } from '../event-store/schemas.js';
-import type { QueryFilters } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
+import type { WorkflowEvent } from '../events/schemas.js';
+import type { QueryFilters } from '../events/store.js';
 
 // ─── Minimal EventStore mock ──────────────────────────────────────────────
 

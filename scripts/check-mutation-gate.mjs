@@ -10,11 +10,11 @@
  * `handleMutationAdequacy` function the MCP `exarchos_orchestrate` tool
  * dispatches to) rather than shelling out to a CLI or re-implementing its
  * logic. `handleMutationAdequacy` requires a real `EventStore`, and
- * `EventStore` (`servers/exarchos-mcp/src/event-store/store.ts`) unconditionally
+ * `EventStore` (`servers/exarchos-mcp/src/events/store.ts`) unconditionally
  * pulls in the SQLite backend, which imports `bun:sqlite` — a virtual module
  * scheme only Bun's runtime resolves. Plain Node (and therefore `tsx`, which
  * still executes under Node) rejects it with `ERR_UNSUPPORTED_ESM_URL_SCHEME`
- * — the exact failure `src/event-store/cli-concurrency.test.ts`'s own history
+ * — the exact failure `src/events/cli-concurrency.test.ts`'s own history
  * comment documents for the same reason (issue #1324). `npx`/plain-node/tsx are
  * therefore all disqualified for this specific entrypoint; **Bun** is the one
  * runtime that resolves `bun:sqlite` natively, and this repo already requires

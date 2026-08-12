@@ -1,7 +1,7 @@
 // ─── Context Economy Action Tests ───────────────────────────────────────────
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 
 // ─── Mock gate-utils (getDiff + emitGateEvent) ─────────────────────────────
 
@@ -40,7 +40,7 @@ const mockMaterializer = {
   loadFromSnapshot: vi.fn().mockResolvedValue(undefined),
 };
 
-vi.mock('../views/tools.js', () => ({
+vi.mock('../projections/views/tools.js', () => ({
   getOrCreateMaterializer: () => mockMaterializer,
   queryDeltaEvents: vi.fn().mockResolvedValue([]),
 }));

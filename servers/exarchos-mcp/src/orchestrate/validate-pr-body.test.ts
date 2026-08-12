@@ -2,7 +2,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { handleValidatePrBody } from './validate-pr-body.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import { deriveIntent, INTENT_GROUNDING_MARKER } from './extract-intent.js';
 
 // Mock child_process and fs. We partially mock `node:child_process` —

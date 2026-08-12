@@ -5,7 +5,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { getFullRegistry } from './registry.js';
 import { buildCli } from './adapters/cli.js';
-import { EventStore } from './event-store/store.js';
+import { EventStore } from './events/store.js';
 import { rmrfAsync } from './test-helpers/temp-dir.js';
 import type { DispatchContext } from './core/dispatch.js';
 

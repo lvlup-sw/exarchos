@@ -26,7 +26,7 @@ import { runAll } from './harness.js';
 import type { EvalEventStore } from './harness.js';
 import type { RunSummary } from './types.js';
 import { formatMultiSuiteReport } from './reporters/cli-reporter.js';
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import { resolveStateDir } from '../utils/paths.js';
 
 const VALID_LAYERS = ['regression', 'capability', 'reliability'] as const;

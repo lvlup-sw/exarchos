@@ -15,7 +15,7 @@ import type { ActionItem } from '../../review/types.js';
 const mockAppend = vi.fn();
 const mockQuery = vi.fn().mockResolvedValue([]);
 
-vi.mock('../../event-store/store.js', () => ({
+vi.mock('../../events/store.js', () => ({
   EventStore: vi.fn().mockImplementation(() => ({
     append: mockAppend,
     query: mockQuery,
@@ -77,7 +77,7 @@ describe('shepherd → classifier integration (#1159)', () => {
       },
     ];
 
-    const { EventStore } = await import('../../event-store/store.js');
+    const { EventStore } = await import('../../events/store.js');
     const eventStore = new EventStore(STATE_DIR);
     const assessResult = await handleAssessStack(
       { featureId: 'feat-integration', prNumbers: [42] },

@@ -1,7 +1,7 @@
 // ─── Provenance Chain Action Tests ──────────────────────────────────────────
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 
 // ─── Mock pure TS provenance-chain module ───────────────────────────────────
 

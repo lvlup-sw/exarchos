@@ -76,13 +76,13 @@
  * or resolving zero concessions, is a FAILURE and never a clean run — without them the instrument
  * reads green precisely when it has stopped working.
  */
-import { EVENT_NAME_PATTERN, getValidEventTypes, isBuiltInEventType } from '../event-store/schemas.js';
+import { EVENT_NAME_PATTERN, getValidEventTypes, isBuiltInEventType } from '../events/schemas.js';
 import {
   classifyEventName,
   WORD_SEPARATORS,
   type EventNameDefect,
   type WordSeparator,
-} from '../event-store/event-name.js';
+} from '../events/event-name.js';
 import {
   EVENT_GRAMMAR_CONCESSIONS,
   type GrammarConcessionEntry,

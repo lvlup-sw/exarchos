@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { rehydrationReducer } from './rehydration/reducer.js';
 import { taskStoreReducer } from './taskstore/reducer.js';
-import type { WorkflowEvent } from '../event-store/schemas.js';
+import type { WorkflowEvent } from '../events/schemas.js';
 
 // ─── DR-10 / INV-1: shared-extractor fold-identity regression ────────────────
 //

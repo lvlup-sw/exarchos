@@ -7,8 +7,8 @@
 // handler suites exercise it end-to-end).
 
 import { describe, it, expect, vi } from 'vitest';
-import type { EventStore } from '../event-store/store.js';
-import type { WorkflowEvent } from '../event-store/schemas.js';
+import type { EventStore } from '../events/store.js';
+import type { WorkflowEvent } from '../events/schemas.js';
 import { resolveOneshotState } from './oneshot-state.js';
 
 let _seq = 0;

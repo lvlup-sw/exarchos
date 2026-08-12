@@ -18,7 +18,7 @@
 
 import { readFile } from 'node:fs/promises';
 import type { ToolResult } from '../format.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import type { DesignDepth } from '../workflow/plan-depth-policy.js';
 import { emitGateEvent } from './gate-utils.js';
 import { resolveWorkflowState } from './resolve-state.js';

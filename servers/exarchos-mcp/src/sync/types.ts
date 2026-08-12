@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { WorkflowEvent } from '../event-store/schemas.js';
+import type { WorkflowEvent } from '../events/schemas.js';
 
 // ─── Remote Configuration ────────────────────────────────────────────────────
 

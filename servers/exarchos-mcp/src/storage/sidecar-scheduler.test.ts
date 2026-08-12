@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import {
   startPeriodicMerge,
   type DrainResult,

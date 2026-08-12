@@ -20,8 +20,8 @@ import { createElicitationClient } from '../mcp/elicitation-method.js';
 import type { RootsClient } from '../workspace/discovery.js';
 import { EnvelopeSchema } from '../schemas/envelope.js';
 import { logger } from '../logger.js';
-import { EventSourcedTaskStore } from '../task-store/event-sourced-task-store.js';
-import { attachTaskStoreToV2, describeTaskWireGap } from '../task-store/attach.js';
+import { EventSourcedTaskStore } from '../projections/task-store/event-sourced-task-store.js';
+import { attachTaskStoreToV2, describeTaskWireGap } from '../projections/task-store/attach.js';
 import type { NextAction } from '../next-action.js';
 import type { ToolResult } from '../format.js';
 import {

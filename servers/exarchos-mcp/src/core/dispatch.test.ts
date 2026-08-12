@@ -7,7 +7,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as os from 'node:os';
 import { z } from 'zod';
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import type { ToolResult } from '../format.js';
 import {
   registerCustomTool,
@@ -1224,7 +1224,7 @@ describe('dispatch', () => {
       const restore = stubCompositeHandler('exarchos_workflow', oneShot);
       try {
         const { EventSourcedTaskStore } = await import(
-          '../task-store/event-sourced-task-store.js'
+          '../projections/task-store/event-sourced-task-store.js'
         );
         const taskStore = new EventSourcedTaskStore(eventStore);
         const ctx: DispatchContext = {
@@ -1267,7 +1267,7 @@ describe('dispatch', () => {
       const restore = stubCompositeHandler('exarchos_workflow', oneShot);
       try {
         const { EventSourcedTaskStore } = await import(
-          '../task-store/event-sourced-task-store.js'
+          '../projections/task-store/event-sourced-task-store.js'
         );
         const taskStore = new EventSourcedTaskStore(eventStore);
         const ctx: DispatchContext = {

@@ -6,11 +6,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { ToolResult } from '../format.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import { emitGateEvent, getDiff } from './gate-utils.js';
 import { checkContextEconomy } from './pure/context-economy.js';
-import { queryRuntimeMetrics } from '../telemetry/telemetry-queries.js';
-import type { RuntimeMetrics } from '../telemetry/telemetry-queries.js';
+import { queryRuntimeMetrics } from '../projections/telemetry/telemetry-queries.js';
+import type { RuntimeMetrics } from '../projections/telemetry/telemetry-queries.js';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 

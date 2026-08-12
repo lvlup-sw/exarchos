@@ -30,7 +30,7 @@ import {
   mintDispatchContext,
   runWithDispatchContext,
 } from '../dispatch/dispatch-context.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import type { ToolResult } from '../format.js';
 import { handlePlanCoverage } from './plan-coverage.js';
 import { handlePrepareSynthesis } from './prepare-synthesis.js';

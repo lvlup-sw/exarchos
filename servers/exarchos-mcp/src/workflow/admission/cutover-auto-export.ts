@@ -30,7 +30,7 @@ import { dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
 
 import { ADMISSION_STREAM_ID } from '../../core/infra-streams.js';
-import { AdmissionCutoverReadyData } from '../../event-store/schemas.js';
+import { AdmissionCutoverReadyData } from '../../events/schemas.js';
 import { atomicWriteFile } from '../../utils/atomic-write.js';
 import {
   MINIMUM_LIVE_ATTEMPTS,

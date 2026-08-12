@@ -20,9 +20,9 @@
 
 import { describe, it, expect } from 'vitest';
 
-import type { WorkflowEvent } from '../event-store/schemas.js';
-import { MergeRollbackData, MergeRecoveredData } from '../event-store/schemas.js';
-import { workflowStateProjection } from '../views/workflow-state-projection.js';
+import type { WorkflowEvent } from '../events/schemas.js';
+import { MergeRollbackData, MergeRecoveredData } from '../events/schemas.js';
+import { workflowStateProjection } from './views/workflow-state-projection.js';
 import { rehydrationReducer } from './rehydration/reducer.js';
 import { mergeOrchestratorReducer } from './merge-orchestrator/reducer.js';
 import { getHSMDefinition, executeTransition } from '../workflow/state-machine.js';

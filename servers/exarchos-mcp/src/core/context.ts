@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { EventStore } from '../event-store/store.js';
-import { SnapshotStore } from '../views/snapshot-store.js';
+import { EventStore } from '../events/store.js';
+import { SnapshotStore } from '../projections/views/snapshot-store.js';
 import type { DispatchContext } from './dispatch.js';
 import type { StorageBackend } from '../storage/backend.js';
 import {
@@ -23,7 +23,7 @@ import { configureCutoverAutoExport } from '../workflow/admission/cutover-auto-e
 import { configureCleanupSnapshotStore } from '../workflow/cleanup.js';
 import { configureStateStoreBackend } from '../workflow/state-store.js';
 import { loadTopology } from '../topology/loader.js';
-import { assertRegistrationWeldsAtStartup } from '../event-store/registration-validate.js';
+import { assertRegistrationWeldsAtStartup } from '../events/registration-validate.js';
 
 // ─── Config Detection ──────────────────────────────────────────────────────
 

@@ -19,8 +19,8 @@
 // transition / rehydration (the T-40 auto-resume trap).
 
 import type { CommandResult } from './types.js';
-import { readManifestEntries, writeManifestEntry } from '../session/manifest.js';
-import type { SessionManifestEntry } from '../session/types.js';
+import { readManifestEntries, writeManifestEntry } from '../projections/session/manifest.js';
+import type { SessionManifestEntry } from '../projections/session/types.js';
 
 /** Optional, non-stdin inputs (the binding directive is baked into the rendered
  * per-runtime hook command and threaded through by the hook adapter). */

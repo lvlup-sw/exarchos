@@ -25,7 +25,7 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import type { ToolResult } from '../../format.js';
-import type { EventStore } from '../../event-store/store.js';
+import type { EventStore } from '../../events/store.js';
 import type { ResolvedProjectConfig } from '../../config/resolve.js';
 import type { GateName, RiskTier } from '../../workflow/verification-policy.js';
 import {

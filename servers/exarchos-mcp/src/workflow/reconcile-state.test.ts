@@ -6,7 +6,7 @@ import {
   handleReconcileState,
 } from './tools.js';
 import { initStateFile, reconcileFromEvents } from './state-store.js';
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 let tmpDir: string;
@@ -142,11 +142,11 @@ describe('reconcileFromEvents_HydratesEvents', () => {
       data: { from: 'ideate', to: 'delegate', trigger: 'execute-transition', featureId: 'hydrate-test' },
     });
     await eventStore.append('hydrate-test', {
-      type: 'team.spawned' as import('../event-store/schemas.js').EventType,
+      type: 'team.spawned' as import('../events/schemas.js').EventType,
       data: { featureId: 'hydrate-test', agentCount: 3 },
     });
     await eventStore.append('hydrate-test', {
-      type: 'team.disbanded' as import('../event-store/schemas.js').EventType,
+      type: 'team.disbanded' as import('../events/schemas.js').EventType,
       data: { featureId: 'hydrate-test', totalDurationMs: 5000, tasksCompleted: 3, tasksFailed: 0 },
     });
 
@@ -182,7 +182,7 @@ describe('reconcileFromEvents_HydratesEvents', () => {
       data: { featureId: 'data-test', workflowType: 'feature' },
     });
     await eventStore.append('data-test', {
-      type: 'team.disbanded' as import('../event-store/schemas.js').EventType,
+      type: 'team.disbanded' as import('../events/schemas.js').EventType,
       data: { totalDurationMs: 5000, tasksCompleted: 3, tasksFailed: 0 },
     });
 
@@ -279,7 +279,7 @@ describe('reconcileFromEvents_HydratesEvents', () => {
       data: { featureId: 'patch-test', workflowType: 'feature' },
     });
     await eventStore.append('patch-test', {
-      type: 'state.patched' as import('../event-store/schemas.js').EventType,
+      type: 'state.patched' as import('../events/schemas.js').EventType,
       data: {
         patch: {
           artifacts: {
@@ -310,7 +310,7 @@ describe('reconcileFromEvents_HydratesEvents', () => {
       data: { featureId: 'no-patch-test', workflowType: 'feature' },
     });
     await eventStore.append('no-patch-test', {
-      type: 'state.patched' as import('../event-store/schemas.js').EventType,
+      type: 'state.patched' as import('../events/schemas.js').EventType,
       data: { artifacts: { design: 'wrong-shape.md' } },
     });
 

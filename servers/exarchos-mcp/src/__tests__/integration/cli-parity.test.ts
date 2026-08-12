@@ -26,7 +26,7 @@ import {
 } from '../../sdk/seam.js';
 import { createMcpServer } from '../../adapters/mcp.js';
 import { buildCli } from '../../adapters/cli.js';
-import { EventStore } from '../../event-store/store.js';
+import { EventStore } from '../../events/store.js';
 import type { DispatchContext } from '../../core/dispatch.js';
 import {
   callCli as harnessCallCli,

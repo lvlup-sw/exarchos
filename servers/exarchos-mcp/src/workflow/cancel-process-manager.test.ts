@@ -9,7 +9,7 @@ vi.mock('child_process', async () => {
 });
 
 import { execFile } from 'child_process';
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import { handleInit } from './tools.js';
 import { handleCancel } from './cancel.js';
 import { allocatePhaseAttemptId } from './phase-attempt-id.js';

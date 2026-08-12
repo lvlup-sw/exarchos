@@ -24,13 +24,13 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { EventStore } from '../../servers/exarchos-mcp/src/event-store/store.js';
+import { EventStore } from '../../servers/exarchos-mcp/src/events/store.js';
 import {
   dispatch,
   stubCompositeHandler,
   type DispatchContext,
 } from '../../servers/exarchos-mcp/src/core/dispatch.js';
-import { EventSourcedTaskStore } from '../../servers/exarchos-mcp/src/task-store/event-sourced-task-store.js';
+import { EventSourcedTaskStore } from '../../servers/exarchos-mcp/src/projections/task-store/event-sourced-task-store.js';
 
 async function mktemp(label: string): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), `outcome-1273-${label}-`));

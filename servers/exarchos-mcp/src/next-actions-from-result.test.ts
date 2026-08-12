@@ -19,7 +19,7 @@ import {
 } from './next-actions-from-result.js';
 import type { ToolResult } from './format.js';
 import { rehydrationReducer } from './projections/rehydration/reducer.js';
-import type { WorkflowEvent } from './event-store/schemas.js';
+import type { WorkflowEvent } from './events/schemas.js';
 import { RehydrationMergeOrchestratorSchema } from './projections/rehydration/schema.js';
 import { MergeOrchestratorStateSchema } from './workflow/schemas.js';
 

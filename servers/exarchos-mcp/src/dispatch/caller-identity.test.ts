@@ -7,7 +7,7 @@ import {
 } from '../capabilities/resolver.js';
 import type { Capability } from '../agents/capabilities.js';
 import { dispatch } from '../core/dispatch.js';
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import {
   registerCustomTool,
   setCustomToolActionHandler,

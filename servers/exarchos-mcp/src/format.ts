@@ -1,7 +1,7 @@
 // ─── Shared Tool Result Formatting ──────────────────────────────────────────
 
 import type { ValidTransitionTarget } from './workflow/state-machine.js';
-import type { Correction } from './telemetry/auto-correction.js';
+import type { Correction } from './projections/telemetry/auto-correction.js';
 import type { NextAction } from './next-action.js';
 import type { ProjectionDegradedDetail } from './projections/degraded-result.js';
 import {
@@ -9,8 +9,8 @@ import {
   type CapabilityResolver,
 } from './capabilities/resolver.js';
 import { STABLE_PREFIX_KEYS } from './projections/rehydration/serialize.js';
-import { ConcurrencyError } from './event-store/concurrency-error.js';
-import { StorageBusyError } from './event-store/storage-busy-error.js';
+import { ConcurrencyError } from './events/concurrency-error.js';
+import { StorageBusyError } from './events/storage-busy-error.js';
 
 export interface PerfMetrics {
   readonly ms: number;

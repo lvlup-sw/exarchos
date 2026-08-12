@@ -25,13 +25,13 @@
  */
 import * as path from 'node:path';
 
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import type { ToolResult } from '../format.js';
 import type {
   WorkflowEvent,
   WorkflowRehydrated,
   WorkflowProjectionDegraded,
-} from '../event-store/schemas.js';
+} from '../events/schemas.js';
 import { workflowLogger } from '../logger.js';
 import { rebuildProjection } from '../projections/rebuild.js';
 import { readLatestSnapshot } from '../projections/store.js';
@@ -49,7 +49,7 @@ import { loadRehydrationDocument } from '../projections/rehydration/serialize.js
 import type { ProjectionReducer } from '../projections/types.js';
 import { composePhasePlaybook } from './playbooks.js';
 import { readStateFile } from './state-store.js';
-import { buildValidatedEvent } from '../event-store/event-factory.js';
+import { buildValidatedEvent } from '../events/event-factory.js';
 import { PROJECTION_LAG_THRESHOLD_MS } from '../projections/index.js';
 import {
   PROJECTION_DEGRADED_META,

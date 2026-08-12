@@ -3,7 +3,7 @@ import { registerCustomWorkflows, getRegisteredGuards, clearRegisteredGuards, re
 import type { ExarchosConfig } from './register.js';
 import { getHSMDefinition, unregisterWorkflowType } from '../workflow/state-machine.js';
 import { WorkflowTypeSchema, unextendWorkflowTypeEnum } from '../workflow/schemas.js';
-import { getValidEventTypes, unregisterEventType } from '../event-store/schemas.js';
+import { getValidEventTypes, unregisterEventType } from '../events/schemas.js';
 import { getFullRegistry, clearCustomTools, hasCustomToolHandlers } from '../registry.js';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';

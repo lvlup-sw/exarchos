@@ -59,7 +59,7 @@ import { buildSupportMap } from '../../agents/adapters/support-levels.js';
 import { codexAdapter } from '../../agents/adapters/codex.js';
 import type { SupportLevel } from '../../agents/adapters/types.js';
 import { handlePrepareReview } from '../prepare-review.js';
-import { EventStore } from '../../event-store/store.js';
+import { EventStore } from '../../events/store.js';
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 // ─── typed access to an untrusted payload (no `any`) ────────────────────────

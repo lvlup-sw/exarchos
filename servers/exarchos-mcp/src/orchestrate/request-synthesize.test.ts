@@ -16,8 +16,8 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ToolResult } from '../format.js';
-import type { EventStore } from '../event-store/store.js';
-import type { WorkflowEvent } from '../event-store/schemas.js';
+import type { EventStore } from '../events/store.js';
+import type { WorkflowEvent } from '../events/schemas.js';
 import { handleRequestSynthesize } from './request-synthesize.js';
 
 // ─── Event seeding helpers ──────────────────────────────────────────────────

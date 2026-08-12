@@ -29,7 +29,7 @@ import * as nodeFs from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
-import { EventStore } from '../../event-store/store.js';
+import { EventStore } from '../../events/store.js';
 import type { DispatchContext } from '../../core/dispatch.js';
 import type { ApplyCtx } from '../../core/onboarding/reconcile.js';
 import type { PlanStep } from '../../core/onboarding/types.js';

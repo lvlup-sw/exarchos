@@ -34,7 +34,7 @@ import {
   type AnyDeclaration,
 } from './declaration.js';
 import { TOOL_REGISTRY, type ToolAction } from '../registry.js';
-import { EVENT_EMISSION_REGISTRY } from '../event-store/schemas.js';
+import { EVENT_EMISSION_REGISTRY } from '../events/schemas.js';
 
 // ─── DR-1, task 005 — the IR-shaped declaration envelope ────────────────────
 //

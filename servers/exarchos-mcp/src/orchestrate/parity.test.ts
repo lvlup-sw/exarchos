@@ -15,10 +15,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
-import { EventStore } from '../event-store/store.js';
+import { EventStore } from '../events/store.js';
 import type { DispatchContext } from '../core/dispatch.js';
 import type { ToolResult } from '../format.js';
-import { resetMaterializerCache } from '../views/tools.js';
+import { resetMaterializerCache } from '../projections/views/tools.js';
 import {
   callCli as harnessCallCli,
   callMcp as harnessCallMcp,

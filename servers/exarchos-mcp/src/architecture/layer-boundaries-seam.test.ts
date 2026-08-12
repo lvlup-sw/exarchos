@@ -115,7 +115,7 @@ describe('detectLayerEdges', () => {
   it('emits one cross-directory edge and ignores intra-layer + root-file imports', () => {
     const edges = detectLayerEdges(
       'workflow/foo.ts',
-      `import { EventStore } from '../event-store/store.js';
+      `import { EventStore } from '../events/store.js';
        import { handleInit } from './tools.js';
        import { format } from '../format.js';
        import { z } from 'zod';`, lexModule,
@@ -310,7 +310,7 @@ describe('detectDeclarationSeamUsage', () => {
     expect(
       detectDeclarationSeamUsage(
         'workflow/tools.ts',
-        `import { EventStore } from '../event-store/store.js';`,
+        `import { EventStore } from '../events/store.js';`,
         lexModule, TEST_RULE,
       ),
     ).toBeUndefined();

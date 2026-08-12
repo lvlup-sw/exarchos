@@ -10,7 +10,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { ToolResult } from '../format.js';
-import type { EventStore } from '../event-store/store.js';
+import type { EventStore } from '../events/store.js';
 import { handlePlanCoverage } from './plan-coverage.js';
 import { resolveWorkflowState } from './resolve-state.js';
 
