@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1142,
-    "parsedFiles": 1097,
+    "testFiles": 1143,
+    "parsedFiles": 1098,
     "shellFiles": 45,
-    "cases": 12612,
+    "cases": 12627,
     "dynamicTitles": 130,
     "unparseableFiles": 0
   },
@@ -69284,6 +69284,87 @@
         {
           "suite": "benchmark baseline",
           "name": "BenchmarkBaseline_PinnedBinary_RecordsItsDeferralExplicitly",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/dead-code-allowlist.test.ts": {
+      "file": "tests/architecture/dead-code-allowlist.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "DeadCodeAllowlist_EveryEntry_CarriesOwnerAndExpiry",
+          "name": "the ledger is non-empty, so these checks are not vacuous",
+          "dynamic": false
+        },
+        {
+          "suite": "DeadCodeAllowlist_EveryEntry_CarriesOwnerAndExpiry",
+          "name": "every entry names an owner",
+          "dynamic": false
+        },
+        {
+          "suite": "DeadCodeAllowlist_EveryEntry_CarriesOwnerAndExpiry",
+          "name": "every entry carries a review deadline, or is explicitly permanent",
+          "dynamic": false
+        },
+        {
+          "suite": "DeadCodeAllowlist_EveryEntry_CarriesOwnerAndExpiry",
+          "name": "a permanent exemption says WHY it can never expire",
+          "dynamic": false
+        },
+        {
+          "suite": "DeadCodeAllowlist_EveryEntry_CarriesOwnerAndExpiry",
+          "name": "every expiry is a real, parseable, future-or-reviewable date",
+          "dynamic": false
+        },
+        {
+          "suite": "DeadCodeAllowlist_EveryEntry_CarriesOwnerAndExpiry",
+          "name": "every entry points at a file that still exists",
+          "dynamic": false
+        },
+        {
+          "suite": "DeadCodeAllowlist_EveryEntry_CarriesOwnerAndExpiry",
+          "name": "no two entries exempt the same finding twice",
+          "dynamic": false
+        },
+        {
+          "suite": "DeadCodeAllowlist_EveryEntry_CarriesOwnerAndExpiry",
+          "name": "the ledger has not grown past its last deliberate sweep",
+          "dynamic": false
+        },
+        {
+          "suite": "DeadCodeAllowlist_BareEntry_IsRejected",
+          "name": "no shipped entry carries a stub rationale",
+          "dynamic": false
+        },
+        {
+          "suite": "DeadCodeAllowlist_BareEntry_IsRejected",
+          "name": "no shipped entry carries a rationale too short to be one",
+          "dynamic": false
+        },
+        {
+          "suite": "DeadCodeAllowlist_BareEntry_IsRejected",
+          "name": "the un-retirable residue does not grow",
+          "dynamic": false
+        },
+        {
+          "suite": "DeadCodeAllowlist_BareEntry_IsRejected",
+          "name": "a bare entry is rejected by the loader itself",
+          "dynamic": false
+        },
+        {
+          "suite": "DeadCodeAllowlist_BareEntry_IsRejected",
+          "name": "an entry missing only its rationale is still rejected",
+          "dynamic": false
+        },
+        {
+          "suite": "DeadCodeAllowlist_BareEntry_IsRejected",
+          "name": "an entry missing only its owner is still rejected",
+          "dynamic": false
+        },
+        {
+          "suite": "DeadCodeAllowlist_BareEntry_IsRejected",
+          "name": "an entry with neither expiry nor permanent is rejected",
           "dynamic": false
         }
       ]

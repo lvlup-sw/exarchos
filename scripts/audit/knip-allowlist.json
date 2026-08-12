@@ -1,5 +1,19 @@
 [
   {
+    "symbol": "scripts/__fixtures__/comment-hygiene/offenders.ts",
+    "file": "scripts/__fixtures__/comment-hygiene/offenders.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Comment-hygiene kill-fixture read via fs at test runtime, never imported: comment-fixtures.test.ts does readFileSync(FIXTURES/offenders.ts) and runs the shipped extractor + classifier over its source text, so it is unreachable in knip's import graph by construction. It holds comments copied verbatim from the tree that the policy MUST reject, so a green run proves the detector fires on real prose rather than on invented strings. Same class as the architecture/__fixtures__ rows below, and deliberately NOT promoted to a knip `entry` or added to `ignore`: both change what the graph treats as reachable, and the fixture's value is that its contents are DATA the detector reads, not code anything calls. Retire when the fixture corpus is deleted or the classifier stops reading it by path."
+  },
+  {
+    "symbol": "scripts/__fixtures__/comment-hygiene/permitted.ts",
+    "file": "scripts/__fixtures__/comment-hygiene/permitted.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Comment-hygiene kill-fixture read via fs at test runtime, never imported: comment-fixtures.test.ts does readFileSync(FIXTURES/permitted.ts) and runs the shipped extractor + classifier over its source text, so it is unreachable in knip's import graph by construction. It holds comments the policy must NOT reject, so it is the false-positive half of the corpus. Same class as the architecture/__fixtures__ rows below, and deliberately NOT promoted to a knip `entry` or added to `ignore`: both change what the graph treats as reachable, and the fixture's value is that its contents are DATA the detector reads, not code anything calls. Retire when the fixture corpus is deleted or the classifier stops reading it by path."
+  },
+  {
     "symbol": "scripts/__shims__/bun.d.ts",
     "file": "scripts/__shims__/bun.d.ts",
     "owner": "@reedsalus",
@@ -242,42 +256,42 @@
     "file": "servers/exarchos-mcp/src/event-store/schemas.ts",
     "owner": "@reedsalus",
     "expires": "2026-10-31",
-    "rationale": "Event-store schema inferred type; public event-contract surface (token / gate / phase events). Review before removal \u2014 event schemas are append-only."
+    "rationale": "Event-store schema inferred type; public event-contract surface (token / gate / phase events). Review before removal — event schemas are append-only."
   },
   {
     "symbol": "GateExecutedDetails",
     "file": "servers/exarchos-mcp/src/event-store/schemas.ts",
     "owner": "@reedsalus",
     "expires": "2026-10-31",
-    "rationale": "Event-store schema inferred type; public event-contract surface (token / gate / phase events). Review before removal \u2014 event schemas are append-only."
+    "rationale": "Event-store schema inferred type; public event-contract surface (token / gate / phase events). Review before removal — event schemas are append-only."
   },
   {
     "symbol": "PhaseEntered",
     "file": "servers/exarchos-mcp/src/event-store/schemas.ts",
     "owner": "@reedsalus",
     "expires": "2026-10-31",
-    "rationale": "Event-store schema inferred type; public event-contract surface (token / gate / phase events). Review before removal \u2014 event schemas are append-only."
+    "rationale": "Event-store schema inferred type; public event-contract surface (token / gate / phase events). Review before removal — event schemas are append-only."
   },
   {
     "symbol": "PhaseExited",
     "file": "servers/exarchos-mcp/src/event-store/schemas.ts",
     "owner": "@reedsalus",
     "expires": "2026-10-31",
-    "rationale": "Event-store schema inferred type; public event-contract surface (token / gate / phase events). Review before removal \u2014 event schemas are append-only."
+    "rationale": "Event-store schema inferred type; public event-contract surface (token / gate / phase events). Review before removal — event schemas are append-only."
   },
   {
     "symbol": "SubagentTokensUsedData",
     "file": "servers/exarchos-mcp/src/event-store/schemas.ts",
     "owner": "@reedsalus",
     "expires": "2026-10-31",
-    "rationale": "Event-store schema inferred type; public event-contract surface (token / gate / phase events). Review before removal \u2014 event schemas are append-only."
+    "rationale": "Event-store schema inferred type; public event-contract surface (token / gate / phase events). Review before removal — event schemas are append-only."
   },
   {
     "symbol": "TurnCompletedData",
     "file": "servers/exarchos-mcp/src/event-store/schemas.ts",
     "owner": "@reedsalus",
     "expires": "2026-10-31",
-    "rationale": "Event-store schema inferred type; public event-contract surface (token / gate / phase events). Review before removal \u2014 event schemas are append-only."
+    "rationale": "Event-store schema inferred type; public event-contract surface (token / gate / phase events). Review before removal — event schemas are append-only."
   },
   {
     "symbol": "servers/exarchos-mcp/src/extensions/index.ts",
