@@ -542,6 +542,15 @@ Every later reconciliation compares against this run. The sibling repo's plan wa
 **Tests:**
 - `Baseline_OnCleanCheckout_EveryConfiguredSuiteIsGreen`
 **Verification:** From a clean clone on both Linux and Windows: `npm ci`, `npm run typecheck`, `npm run test:all`, plus the nested workspace's suite. **A red suite blocks — there is no `accepted-red` escape** (revision 1 permitted one here while DR-11 forbade it). Any genuinely red suite on `main` is either fixed in this task, or explicitly removed from the oracle's scope with a recorded reason, and that decision is made **now**, never during a later reconciliation. **This task blocks 001a and 002.**
+
+**Measured 2026-08-11 — "green" is environment-dependent, and this task must say which environment it means.** On a clean worktree at `2306dd2e3` with both dependency trees installed: the root suite is **fully green** (167/167 files, 1,690 tests) and both typechecks pass, but the nested `servers/exarchos-mcp` suite reports **26 failures across 9 files**, entirely within `merge-orchestrate` and `store.race`. The same tree is **green on CI**: the `CI Gate` run for `355ffd63` succeeded, as did the two runs before it.
+
+So the failures are local-only, and the task as written cannot be executed as stated — it demands a green clean clone, and a clean clone is green in one environment and red in another. Resolving this **is** the task, and there are only two honest outcomes:
+
+- **Pin the oracle's environment to CI** and state that the local delta is out of scope, recording the 26 by name so a later reconciliation cannot mistake them for damage this refactor caused; or
+- **Fix the local-only failures first**, which makes the two environments agree and removes the ambiguity permanently.
+
+What must not happen is capturing the oracle locally without deciding. The whole point of this task is that every later reconciliation compares against it: 26 tests recorded as failing in the baseline would be indistinguishable from 26 tests the refactor broke, and the guard-liveness and test-inventory oracles built on top of it inherit the same corruption. That is precisely the failure mode this task exists to make impossible.
 **Dependencies:** None
 **Parallelizable:** No
 
