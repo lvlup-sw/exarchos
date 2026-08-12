@@ -1,7 +1,7 @@
 /**
  * DR-2 (task 006) — merge.rollback replay-safety regression.
  *
- * The `merge.rollback` WRITE path is RETIRED (`orchestrate/execute-merge.ts` now
+ * The `merge.rollback` WRITE path is RETIRED (`verbs/pure/execute-merge.ts` now
  * emits only the canonical `merge.recovered`), but the READ path is KEPT
  * (its data schema + type-map entry survive). This suite is the INV-1 replay
  * proof: a legacy event log that ALREADY contains `merge.rollback` must still

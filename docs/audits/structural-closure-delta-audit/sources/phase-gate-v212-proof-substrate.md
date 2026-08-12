@@ -328,9 +328,9 @@ Task numbers are local to this feature. `Roadmap Task` preserves provenance to t
 **Implements:** DR-2, DR-4
 
 **Files:**
-- `servers/exarchos-mcp/src/orchestrate/gate-runner.ts`
-- `servers/exarchos-mcp/src/orchestrate/gate-runner.test.ts`
-- `servers/exarchos-mcp/src/orchestrate/gate-utils.ts`
+- `servers/exarchos-mcp/src/verbs/gates/gate-runner.ts`
+- `servers/exarchos-mcp/src/verbs/gates/gate-runner.test.ts`
+- `servers/exarchos-mcp/src/verbs/gates/gate-utils.ts`
 
 **Testing Strategy:** Integration and property tests for canonical retries, predecessor links, phase-attempt stamping, and append-failure behavior; characterization required.
 **Tests:** `GateRunner_AppendFailure_ReturnsFailure`
@@ -352,8 +352,8 @@ Task numbers are local to this feature. `Roadmap Task` preserves provenance to t
 **Implements:** DR-5
 
 **Files:**
-- `servers/exarchos-mcp/src/orchestrate/gate-provider-registry.ts`
-- `servers/exarchos-mcp/src/orchestrate/gate-provider-registry.test.ts`
+- `servers/exarchos-mcp/src/verbs/gates/gate-provider-registry.ts`
+- `servers/exarchos-mcp/src/verbs/gates/gate-provider-registry.test.ts`
 - `servers/exarchos-mcp/src/registry.ts`
 
 **Testing Strategy:** Exhaustive provider-resolution tests with structured unknown-class suggestions; characterization required.
@@ -376,11 +376,11 @@ Task numbers are local to this feature. `Roadmap Task` preserves provenance to t
 **Implements:** DR-1, DR-5
 
 **Files:**
-- `servers/exarchos-mcp/src/orchestrate/static-analysis.ts`
-- `servers/exarchos-mcp/src/orchestrate/test-adequacy-handler.ts`
-- `servers/exarchos-mcp/src/orchestrate/check-integration-suite.ts`
-- `servers/exarchos-mcp/src/orchestrate/contract-drift-handler.ts`
-- `servers/exarchos-mcp/src/orchestrate/mock-boundary-handler.ts`
+- `servers/exarchos-mcp/src/verbs/pure/static-analysis.ts`
+- `servers/exarchos-mcp/src/verbs/gates/test-adequacy-handler.ts`
+- `servers/exarchos-mcp/src/verbs/gates/check-integration-suite.ts`
+- `servers/exarchos-mcp/src/verbs/gates/contract-drift-handler.ts`
+- `servers/exarchos-mcp/src/verbs/gates/mock-boundary-handler.ts`
 - co-located tests
 
 **Testing Strategy:** Integration and property tests proving each ladder gate emits evidence for the intended task or diff while preserving carrier semantics; characterization required.
@@ -403,10 +403,10 @@ Task numbers are local to this feature. `Roadmap Task` preserves provenance to t
 **Implements:** DR-1, DR-5
 
 **Files:**
-- `servers/exarchos-mcp/src/orchestrate/plan-coverage.ts`
-- `servers/exarchos-mcp/src/orchestrate/provenance-chain.ts`
-- `servers/exarchos-mcp/src/orchestrate/review-verdict.ts`
-- `servers/exarchos-mcp/src/orchestrate/prepare-synthesis.ts`
+- `servers/exarchos-mcp/src/verbs/gates/plan-coverage.ts`
+- `servers/exarchos-mcp/src/verbs/pure/provenance-chain.ts`
+- `servers/exarchos-mcp/src/verbs/review/review-verdict.ts`
+- `servers/exarchos-mcp/src/verbs/team/prepare-synthesis.ts`
 - co-located tests
 
 **Testing Strategy:** Integration and property tests proving no successful phase gate exists without durable evidence; characterization required.
@@ -431,7 +431,7 @@ Task numbers are local to this feature. `Roadmap Task` preserves provenance to t
 **Files:**
 - `servers/exarchos-mcp/src/views/gate-reliability-view.ts`
 - `servers/exarchos-mcp/src/views/gate-reliability-view.test.ts`
-- `servers/exarchos-mcp/src/orchestrate/gate-runner.ts`
+- `servers/exarchos-mcp/src/verbs/gates/gate-runner.ts`
 
 **Testing Strategy:** Property tests proving reliability is a pure attributable fold and unobserved executions cannot affect it.
 **Tests:** `GateReliability_VerdictAndContradiction_FoldsAttributably`

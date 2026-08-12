@@ -10,7 +10,7 @@
 //                          filterable by status / phase / workflowType / all.
 //   • scope: 'worktree'  → the WLM-6 worktree liveness fold, CONSUMED not
 //                          duplicated: delegates to `handleWorktreeScopePs`
-//                          (`orchestrate/worktree/handlers.ts`) so the
+//                          (`verbs/worktree/handlers.ts`) so the
 //                          inFlightMerges / launches / inFlightPrunes columns AND
 //                          the `probe: true` reclaim/reconcile write path are
 //                          preserved byte-for-byte.
@@ -50,7 +50,7 @@ import type {
 import {
   handleWorktreeScopePs,
   type WorktreeViewDeps,
-} from '../../../orchestrate/worktree/handlers.js';
+} from '../../../verbs/worktree/handlers.js';
 import {
   foldWorkflowSummaries,
   type WorkflowFoldRow,

@@ -6,7 +6,7 @@ import {
 } from './shepherd-status-view.js';
 import type { ShepherdStatusState } from './shepherd-status-view.js';
 import type { WorkflowEvent } from '../../events/schemas.js';
-import { countShepherdIterations } from '../../orchestrate/escalation-policy.js';
+import { countShepherdIterations } from '../../verbs/review/escalation-policy.js';
 
 function makeEvent(
   seq: number,

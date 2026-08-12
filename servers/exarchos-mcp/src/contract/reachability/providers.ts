@@ -69,13 +69,13 @@ export interface EffectProvider {
  * Sourced from `dispatch/core/dispatch.ts::COMPOSITE_HANDLER_LOADERS`:
  *   exarchos_workflow    → import('../workflow/composite.js')     → workflow/
  *   exarchos_event       → import('../events/composite.js')       → events/
- *   exarchos_orchestrate → import('../orchestrate/composite.js')  → orchestrate/
+ *   exarchos_orchestrate → import('../verbs/composite.js')        → verbs/
  *   exarchos_view        → import('../projections/views/composite.js') → projections/views/
  *   exarchos_sync        → import('../sync/composite.js')         → sync/
  */
 export const EFFECT_PROVIDERS: readonly EffectProvider[] = Object.freeze([
   { tool: 'exarchos_event', area: 'events/', owner: 'event-store-fs', effectClass: 'filesystem' },
-  { tool: 'exarchos_orchestrate', area: 'orchestrate/', owner: 'orchestrate-fs', effectClass: 'filesystem' },
+  { tool: 'exarchos_orchestrate', area: 'verbs/', owner: 'orchestrate-fs', effectClass: 'filesystem' },
   { tool: 'exarchos_sync', area: 'sync/', owner: 'sync-fs', effectClass: 'filesystem' },
   { tool: 'exarchos_view', area: 'projections/views/', owner: 'view-fs', effectClass: 'filesystem' },
   { tool: 'exarchos_workflow', area: 'workflow/', owner: 'workflow-fs', effectClass: 'filesystem' },

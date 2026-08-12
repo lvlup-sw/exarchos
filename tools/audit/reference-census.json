@@ -220,8 +220,8 @@
         "servers/exarchos-mcp/src/__tests__/event-store/single-composition-root.test.ts",
         "servers/exarchos-mcp/src/agents/generate-agents.test.ts",
         "servers/exarchos-mcp/src/architecture/vocabulary-lint.ts",
-        "servers/exarchos-mcp/src/orchestrate/composite.ts",
-        "servers/exarchos-mcp/src/orchestrate/worktree-baseref.ts",
+        "servers/exarchos-mcp/src/verbs/composite.ts",
+        "servers/exarchos-mcp/src/verbs/team/worktree-baseref.ts",
         "servers/exarchos-mcp/src/projections/views/tools.ts"
       ]
     },

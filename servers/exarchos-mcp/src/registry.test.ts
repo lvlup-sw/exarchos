@@ -27,7 +27,7 @@ import {
   RUNBOOK_ECONOMY_BUDGET_TOKENS,
 } from './registry.js';
 import type { ToolAction, CompositeTool, ActionAnnotations } from './registry.js';
-import { envelopeDataSchemaIsTyped } from './orchestrate/worktree/schemas.js';
+import { envelopeDataSchemaIsTyped } from './verbs/worktree/schemas.js';
 import { handleDescribe } from './describe/handler.js';
 import { wrap, wrapError } from './format.js';
 import { zodToJsonSchema } from './adapters/json-schema.js';
@@ -837,7 +837,7 @@ describe('TOOL_REGISTRY', () => {
     expect(composite).toBeDefined();
     const registryNames = new Set(composite!.actions.map((a) => a.name));
 
-    const { ACTION_HANDLER_KEYS } = await import('./orchestrate/composite.js');
+    const { ACTION_HANDLER_KEYS } = await import('./verbs/composite.js');
 
     // Actions that have NO entry in the ACTION_HANDLERS table because they are
     // served by an EXPLICIT dispatch branch in the composite router (an
@@ -900,7 +900,7 @@ describe('TOOL_REGISTRY', () => {
     // branch. We assert routing by dispatching each through `handleOrchestrate`
     // and confirming it does NOT fall through to UNKNOWN_ACTION. `onboard` is the
     // regression target — before its branch + import were wired it failed here.
-    const { handleOrchestrate } = await import('./orchestrate/composite.js');
+    const { handleOrchestrate } = await import('./verbs/composite.js');
     const { EventStore } = await import('./events/store.js');
     const { mkdtemp, rm } = await import('node:fs/promises');
     const { tmpdir } = await import('node:os');

@@ -534,7 +534,7 @@ describe('VCS mutation owner (P04-05)', () => {
 //
 // These centralize the worktree/branch mutation argument vectors in the owner
 // module so the WLM (`worktree/manager.ts`) and the merge saga
-// (`orchestrate/local-git-merge.ts`) — which carry their own idempotency — route
+// (`verbs/merge/local-git-merge.ts`) — which carry their own idempotency — route
 // the raw git transport through the owner WITHOUT opening a second ledger, and
 // no mutation token survives outside `vcs/` for the architecture census to flag.
 describe('shared git-mutation primitives (P04-05)', () => {

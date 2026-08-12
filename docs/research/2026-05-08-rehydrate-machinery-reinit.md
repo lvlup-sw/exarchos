@@ -24,7 +24,7 @@ The RCA frames the defect as "the projection ships empty `behavioralGuidance`." 
 
 The `behavioralGuidance` field on `RehydrationDocument` is a 2-key string struct (`skill`, `skillRef`) seeded empty and only mutated by an explicit guidance event no production flow emits. It is a vestigial hole the projection cannot fill — because the data the agent actually needs (the full `PhasePlaybook`) is structurally not in the event stream and never should be.
 
-The playbook registry is *already* the canonical contract surface: `workflow/playbooks.ts` exports a complete `PhasePlaybook` per `(workflowType, phase)` with `tools`, `events`, `autoEmittedEvents`, `transitionCriteria`, `guardPrerequisites`, `validationScripts`, and `compactGuidance`. It is consumed by `exarchos_workflow describe playbook=feature:delegate` (the L6 `describe` action), by `orchestrate/check-event-emissions.ts` (`PHASE_EXPECTED_EVENTS` derives from the same SoT), and by the playbook renderer. It is *not* consumed by `handleRehydrate` (the L5 dispatch handler that produces the rehydration envelope).
+The playbook registry is *already* the canonical contract surface: `workflow/playbooks.ts` exports a complete `PhasePlaybook` per `(workflowType, phase)` with `tools`, `events`, `autoEmittedEvents`, `transitionCriteria`, `guardPrerequisites`, `validationScripts`, and `compactGuidance`. It is consumed by `exarchos_workflow describe playbook=feature:delegate` (the L6 `describe` action), by `verbs/gates/check-event-emissions.ts` (`PHASE_EXPECTED_EVENTS` derives from the same SoT), and by the playbook renderer. It is *not* consumed by `handleRehydrate` (the L5 dispatch handler that produces the rehydration envelope).
 
 So the question is not "how do we fill the empty field" — it is **"why does rehydrate fail to compose the canonical contract surface that already exists at the same architectural layer?"**
 
@@ -315,7 +315,7 @@ The RCA is right that the *fix surface* spans projection / handler / template. T
 - Reducer (L3): [`servers/exarchos-mcp/src/projections/rehydration/reducer.ts`](../../servers/exarchos-mcp/src/projections/rehydration/reducer.ts)
 - Schema (L3): [`servers/exarchos-mcp/src/projections/rehydration/schema.ts`](../../servers/exarchos-mcp/src/projections/rehydration/schema.ts)
 - Playbooks (L4 SoT): [`servers/exarchos-mcp/src/workflow/playbooks.ts`](../../servers/exarchos-mcp/src/workflow/playbooks.ts)
-- Sibling SoT consumer: [`servers/exarchos-mcp/src/orchestrate/check-event-emissions.ts`](../../servers/exarchos-mcp/src/orchestrate/check-event-emissions.ts)
+- Sibling SoT consumer: [`servers/exarchos-mcp/src/verbs/gates/check-event-emissions.ts`](../../servers/exarchos-mcp/src/verbs/gates/check-event-emissions.ts)
 - Projection contract: [`docs/architecture/projections.md`](../architecture/projections.md)
 
 ### 10.2 Invariants

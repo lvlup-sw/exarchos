@@ -7,10 +7,10 @@ import {
 } from '../../events/schemas.js';
 import {
   BUILTIN_GATE_PROVIDER_REGISTRY,
-} from '../../orchestrate/gate-provider-registry.js';
+} from '../../verbs/gates/gate-provider-registry.js';
 import {
   CANONICAL_GATE_RUNNER_SOURCE_PREFIX,
-} from '../../orchestrate/gate-runner.js';
+} from '../../verbs/gates/gate-runner.js';
 import type { ContentDigestV1, EvidenceSubjectV1 } from '../../workflow/admission/types.js';
 import type { ViewProjection } from './materializer.js';
 

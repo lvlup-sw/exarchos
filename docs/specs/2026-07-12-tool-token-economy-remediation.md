@@ -184,11 +184,11 @@ The union is single-owned by a dedicated registry task (022) and must land befor
 - `servers/exarchos-mcp/src/telemetry/middleware.ts` — ordering with `injectPerf`; final-size reporting.
 - `servers/exarchos-mcp/src/views/output-cap.ts` → shared core module — kit generalization.
 - `servers/exarchos-mcp/src/format.ts` — `_meta.truncated` / `economyDegraded` envelope conventions.
-- `servers/exarchos-mcp/src/orchestrate/assess-stack.ts` — DR-2 minimal types (also `list_prs` window).
-- `servers/exarchos-mcp/src/orchestrate/vcs/get-pr-comments.ts` — DR-3.
-- `servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts` — DR-4.
+- `servers/exarchos-mcp/src/verbs/vcs/assess-stack.ts` — DR-2 minimal types (also `list_prs` window).
+- `servers/exarchos-mcp/src/verbs/vcs/get-pr-comments.ts` — DR-3.
+- `servers/exarchos-mcp/src/verbs/team/prepare-delegation.ts` — DR-4.
 - `servers/exarchos-mcp/src/event-store/tools.ts` — DR-5.
-- `servers/exarchos-mcp/src/orchestrate/pure/static-analysis.ts`, `orchestrate/review-diff.ts` — DR-7.
+- `servers/exarchos-mcp/src/verbs/pure/static-analysis.ts`, `verbs/review/review-diff.ts` — DR-7.
 - `servers/exarchos-mcp/src/views/tools.ts` — DR-8 (~20 views).
 - `servers/exarchos-mcp/src/adapters/mcp.ts` — DR-6 flip site; DR-9 (if verified).
 - `.exarchos/invariants.md` — DR-10 (INV-17, via wizard).
@@ -260,7 +260,7 @@ The decomposition maps every task to one or more DR-N from the section above.
 - `servers/exarchos-mcp/src/dispatch/core/economy.ts`
 - `servers/exarchos-mcp/src/views/output-cap.ts`
 - `servers/exarchos-mcp/src/views/tools.ts`
-- `servers/exarchos-mcp/src/orchestrate/worktree/handlers.ts`
+- `servers/exarchos-mcp/src/verbs/worktree/handlers.ts`
 - `servers/exarchos-mcp/src/dispatch/core/economy.test.ts`
 
 Relocate `estimateOutputTokens`, `narrowAffordance`, `countBy`, threshold resolution into a shared core module; widen `narrowAffordance`'s verb type from `'pipeline' | 'worktrees'` to any action name; `pipeline`/`worktrees` consume the generalized kit with byte-identical behavior.
@@ -331,10 +331,10 @@ Post-handler, pre-`injectPerf`: measure `data`; over budget → declared summari
 
 **Files:**
 - `servers/exarchos-mcp/src/vcs/github.ts`
-- `servers/exarchos-mcp/src/orchestrate/vcs/check-ci.ts`
+- `servers/exarchos-mcp/src/verbs/vcs/check-ci.ts`
 - co-located test
 
-Replace the removed `conclusion` JSON field with `state` at the true seam — `vcs/github.ts` (`mapConclusion` and the gh `--json` field list); the registered handler `orchestrate/vcs/check-ci.ts` is a thin pass-through. Pin the parse against a recorded current-gh output fixture. **Wave-1 priority — blocks shepherd CI checks today.**
+Replace the removed `conclusion` JSON field with `state` at the true seam — `vcs/github.ts` (`mapConclusion` and the gh `--json` field list); the registered handler `verbs/vcs/check-ci.ts` is a thin pass-through. Pin the parse against a recorded current-gh output fixture. **Wave-1 priority — blocks shepherd CI checks today.**
 
 **Verification:**
 - `checkCi_CurrentGhStateField_ParsesRunStatus`
@@ -376,11 +376,11 @@ Default `limit` 20 newest with `page:{total,offset,limit,hasMore}`; deterministi
 **Files:**
 - `servers/exarchos-mcp/src/vcs/github.ts`
 - `servers/exarchos-mcp/src/vcs/provider.ts`
-- `servers/exarchos-mcp/src/orchestrate/vcs/get-pr-comments.ts`
-- `servers/exarchos-mcp/src/orchestrate/vcs/list-prs.ts`
+- `servers/exarchos-mcp/src/verbs/vcs/get-pr-comments.ts`
+- `servers/exarchos-mcp/src/verbs/vcs/list-prs.ts`
 - co-located test
 
-Default limit ~20 newest + `page` metadata + `fields` projection; truncation notice steers to narrower calls. The window/projection lands in `vcs/github.ts` and the `VcsProvider` interface (the orchestrate files are thin shims); GitLab/ADO partial providers keep their throw-behavior. `list_prs` gains a default window in the same pass (its handler is `orchestrate/vcs/list-prs.ts`). Schema params ride Task 022.
+Default limit ~20 newest + `page` metadata + `fields` projection; truncation notice steers to narrower calls. The window/projection lands in `vcs/github.ts` and the `VcsProvider` interface (the orchestrate files are thin shims); GitLab/ADO partial providers keep their throw-behavior. `list_prs` gains a default window in the same pass (its handler is `verbs/vcs/list-prs.ts`). Schema params ride Task 022.
 
 **Verification:**
 - `getPrComments_DefaultLimit_ReturnsPageWithHasMore`
@@ -401,7 +401,7 @@ Default limit ~20 newest + `page` metadata + `fields` projection; truncation not
 **Testing Strategy:** propertyTests: false, characterizationRequired: true
 
 **Files:**
-- `servers/exarchos-mcp/src/orchestrate/assess-stack.ts`
+- `servers/exarchos-mcp/src/verbs/vcs/assess-stack.ts`
 - co-located test
 
 Delete dead `fullBody`; collapse `actionItems[].raw` to a reference into `unresolvedComments`; cap comments per PR with `page` metadata; `checks[]` → counts + failing detail. Schema params ride Task 022; `list_prs` windowing moved to Task 006 (its handler lives in `orchestrate/vcs/`).
@@ -425,7 +425,7 @@ Delete dead `fullBody`; collapse `actionItems[].raw` to a reference into `unreso
 **Testing Strategy:** propertyTests: false, characterizationRequired: true
 
 **Files:**
-- `servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts`
+- `servers/exarchos-mcp/src/verbs/team/prepare-delegation.ts`
 - co-located test
 
 Rendered implementer prompt returned once per response (or via `outputFormat: 'prompt-only'` / `detail: true`); per-task deltas `{riskTier, boundaryTouching, verificationNote}`; #1636 tier-stamp threading unchanged.
@@ -469,7 +469,7 @@ Accept CSV (`1660,1671,1659`) for int-array flags through the coercion layer, co
 **Testing Strategy:** propertyTests: false, characterizationRequired: true
 
 **Files:**
-- `servers/exarchos-mcp/src/orchestrate/pure/static-analysis.ts`
+- `servers/exarchos-mcp/src/verbs/pure/static-analysis.ts`
 - co-located test
 
 FAIL detail caps at first ~50 lines + total count + steering suffix; capped detail always names every distinct failing file with per-file counts.
@@ -490,7 +490,7 @@ FAIL detail caps at first ~50 lines + total count + steering suffix; capped deta
 **Testing Strategy:** propertyTests: false, characterizationRequired: true
 
 **Files:**
-- `servers/exarchos-mcp/src/orchestrate/review-diff.ts`
+- `servers/exarchos-mcp/src/verbs/review/review-diff.ts`
 - co-located test
 
 Stat-summary + capped hunks; the diff is never embedded twice (today: `data.diff` and again inside `data.report`).
@@ -639,7 +639,7 @@ Author the response-economy entry through `invariants_scaffold`/`invariants_add`
 **Testing Strategy:** propertyTests: false, characterizationRequired: true
 
 **Files:**
-- `servers/exarchos-mcp/src/orchestrate/doctor/checks/store-path-divergence.ts` — new
+- `servers/exarchos-mcp/src/verbs/doctor/checks/store-path-divergence.ts` — new
 - `servers/exarchos-mcp/src/index.ts` — CLI store-path resolution
 - `servers/exarchos-mcp/src/storage/sqlite-backend.ts`
 - co-located tests
@@ -728,8 +728,8 @@ Single owner of every `registry.ts` schema edit the economy work needs, so handl
 **Testing Strategy:** propertyTests: false, characterizationRequired: true
 
 **Files:**
-- `servers/exarchos-mcp/src/orchestrate/check-pr-comments.ts`
-- `servers/exarchos-mcp/src/orchestrate/check-integration-suite.ts`
+- `servers/exarchos-mcp/src/verbs/vcs/check-pr-comments.ts`
+- `servers/exarchos-mcp/src/verbs/gates/check-integration-suite.ts`
 - co-located tests
 
 Counts-not-transcripts for the remaining unbounded gate echoes (audit O-3/O-4): `check_pr_comments` caps per-comment lines at N + total count; `check_integration_suite` caps its load-failure list at N + count; both steer to the uncapped escape hatch. Fixed caps — no new schema params.

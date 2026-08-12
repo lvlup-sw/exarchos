@@ -62,7 +62,7 @@ Invariants (INV-1, INV-2, phasePlaybook null contract) all pass — no spec rewo
 - `servers/exarchos-mcp/src/workflow/terminal-phases.ts` — drop orphan reference (line TBD via grep)
 - `servers/exarchos-mcp/src/workflow/human-checkpoint-phases.ts` — drop orphan reference (line TBD via grep)
 - `servers/exarchos-mcp/src/session/types.ts:1` — drop orphan comment
-- `servers/exarchos-mcp/src/orchestrate/design-completeness*.ts:32,302` — drop orphan comments
+- `servers/exarchos-mcp/src/verbs/design-completeness*.ts:32,302` — drop orphan comments
 
 **Acceptance**:
 - `grep -rn "session-start\|pre-compact" servers/exarchos-mcp/src/ scripts/ --include="*.ts" --include="*.mjs" --include="*.sh"` shows only intentional historical references (CHANGELOG, fix-plan docs); no orphan code/comment hits

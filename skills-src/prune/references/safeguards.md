@@ -63,8 +63,8 @@ selective bypassing.
 
 ## See also
 
-- `servers/exarchos-mcp/src/orchestrate/prune-safeguards.ts` — the
+- `servers/exarchos-mcp/src/verbs/team/prune-safeguards.ts` — the
   default implementations (gh/git backends) and the `PruneSafeguards`
   interface for DI.
-- `servers/exarchos-mcp/src/orchestrate/prune-stale-workflows.ts` —
+- `servers/exarchos-mcp/src/verbs/team/prune-stale-workflows.ts` —
   the handler that composes safeguards with selection and cancel.

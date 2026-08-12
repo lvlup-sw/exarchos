@@ -79,7 +79,7 @@ vi.mock('../../events/composite.js', () => ({
   handleEvent: mockHandleEvent,
 }));
 
-vi.mock('../../orchestrate/composite.js', () => ({
+vi.mock('../../verbs/composite.js', () => ({
   handleOrchestrate: mockHandleOrchestrate,
 }));
 

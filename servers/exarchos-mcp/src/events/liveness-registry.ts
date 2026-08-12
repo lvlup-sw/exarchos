@@ -21,7 +21,7 @@
  *   • merge    → `data.instanceId ?? data.taskId ?? \`${sourceBranch}→${targetBranch}\``
  *   • launch   → `data.instanceId ?? data.worktreeId`
  *   • mutation → `data.instanceId ?? data.operationId ?? MUTATION_LEGACY_SINGLETON_KEY`
- *     (the live emitter — `orchestrate/mutation-adequacy.ts` — stamps
+ *     (the live emitter — `verbs/gates/mutation-adequacy.ts` — stamps
  *     `instanceId`; the `operationId` fallback is defensive, and a truly
  *     keyless legacy row resolves to the DR-2 singleton instance so it still
  *     pairs rather than being dropped)
@@ -137,7 +137,7 @@ function launchInstanceKeyOf(data: Record<string, unknown> | undefined): string 
 
 /**
  * DR-2 singleton fallback key for a keyless legacy `mutation` row. The
- * pre-retrofit `orchestrate/mutation-adequacy.ts` liveness path stamped neither
+ * pre-retrofit `verbs/gates/mutation-adequacy.ts` liveness path stamped neither
  * `instanceId` nor `operationId`, so such a start would resolve to `undefined`
  * and be SKIPPED by the pairing fold — leaving a stuck mutation invisible to
  * `ps` / un-waitable, which contradicts DR-2's "keyless mutation → singleton
@@ -183,8 +183,8 @@ export function livenessStartedAt(event: { readonly timestamp?: string }): strin
 /**
  * One entry per INV-10 liveness surface. See the module doc for the full
  * canonical-key contract each `instanceKeyOf` mirrors from task 003's real
- * emitters (`orchestrate/execute-merge.ts`, `launcher/liveness.ts`,
- * `orchestrate/mutation-adequacy.ts`, `orchestrate/worktree/manager.ts`).
+ * emitters (`verbs/pure/execute-merge.ts`, `launcher/liveness.ts`,
+ * `verbs/gates/mutation-adequacy.ts`, `verbs/worktree/manager.ts`).
  */
 export const LIVENESS_REGISTRY: Readonly<Record<LivenessSurface, LivenessDescriptor>> = {
   merge: {

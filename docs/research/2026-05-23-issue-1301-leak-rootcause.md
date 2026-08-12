@@ -59,7 +59,7 @@ Code's file-tool layer, outside this repo)?
 
 - **MCP-server path-resolution leak.** The characterization test
   `ImplementerDispatch_WorktreeEdit_DoesNotAppearInMainWorktree`
-  (`src/orchestrate/prepare-delegation.integration.test.ts`) drives
+  (`src/verbs/team/prepare-delegation.integration.test.ts`) drives
   `handleSetupWorktree` against a real temp git repo, performs an agent-side
   write at the server-provisioned worktree path, and asserts the edited path
   does **not** surface as a modification in the main worktree. It passes: the

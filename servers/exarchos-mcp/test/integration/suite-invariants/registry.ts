@@ -159,9 +159,9 @@ export const ACCEPTED_GAPS: readonly AcceptedGap[] = Object.freeze([
     id: 'class-b/contract-drift-guard',
     kind: 'shape-annotation-debt',
     files: [
-      'servers/exarchos-mcp/src/orchestrate/contract-drift.test.ts',
-      'servers/exarchos-mcp/src/orchestrate/contract-drift.parity.test.ts',
-      'servers/exarchos-mcp/src/orchestrate/contract-drift.integration.test.ts',
+      'servers/exarchos-mcp/src/verbs/gates/contract-drift.test.ts',
+      'servers/exarchos-mcp/src/verbs/gates/contract-drift.parity.test.ts',
+      'servers/exarchos-mcp/src/verbs/gates/contract-drift.integration.test.ts',
     ],
     suppresses: ['oracle-sources-missing'],
     owner: 'workflow-platform',

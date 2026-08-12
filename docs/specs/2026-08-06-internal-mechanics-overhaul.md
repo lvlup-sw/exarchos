@@ -669,7 +669,7 @@ The **relocation proof** (DR-1) is the spine that makes D2 real: at any wave bou
 
 ### Integration Points
 
-`dispatch/core/dispatch.ts` (interceptor chain — DR-15) · `dispatch/core/effect-carrier.ts` (DR-7) · `event-store/schemas.ts` (`registerEventType` seam — DR-1, DR-2) · `event-store/atomic-appender.ts` + `idempotency_claims` (DR-7, DR-9, DR-11) · `contract/{compiler,reachability,oracle}` (DR-10, DR-17, DR-18) · `architecture/*-seam.ts` (G1–G5 vocabulary) · `scripts/cli-vocab-guard.ts` (G1) · `adapters/{cli,mcp}.ts` (DR-19, DR-22) · `capabilities/resolver.ts` (DR-14) · `orchestrate/reconcile-state.ts` (DR-11–13) · `.exarchos/invariants.md` via `/exarchos:invariants` (DR-23).
+`dispatch/core/dispatch.ts` (interceptor chain — DR-15) · `dispatch/core/effect-carrier.ts` (DR-7) · `event-store/schemas.ts` (`registerEventType` seam — DR-1, DR-2) · `event-store/atomic-appender.ts` + `idempotency_claims` (DR-7, DR-9, DR-11) · `contract/{compiler,reachability,oracle}` (DR-10, DR-17, DR-18) · `architecture/*-seam.ts` (G1–G5 vocabulary) · `scripts/cli-vocab-guard.ts` (G1) · `adapters/{cli,mcp}.ts` (DR-19, DR-22) · `capabilities/resolver.ts` (DR-14) · `verbs/reconcile-state.ts` (DR-11–13) · `.exarchos/invariants.md` via `/exarchos:invariants` (DR-23).
 
 ### Exploration
 
@@ -948,7 +948,7 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 
 ### Task 068: An amend path for the invariant catalog, and write-time id uniqueness
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-23, DR-24
-**Files:** `servers/exarchos-mcp/src/orchestrate/invariants/add.ts`, `servers/exarchos-mcp/src/registry.ts`, `skills-src/invariants/SKILL.md`
+**Files:** `servers/exarchos-mcp/src/verbs/invariants/add.ts`, `servers/exarchos-mcp/src/registry.ts`, `skills-src/invariants/SKILL.md`
 **Detail:** Two defects, one root: **the catalog's write path is weaker than its own read path.**
 
 1. **No amend verb.** Every correction to a shipped entry is unreachable through the sanctioned surface.
@@ -966,7 +966,7 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 
 ### Task 069: Give the audit-mode path an instructed reader, and type the gate that carries it
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-4, DR-24
-**Files:** `servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts`, `servers/exarchos-mcp/src/registry.ts`, the DR-4 allowlist data file, `skills-src/` as needed
+**Files:** `servers/exarchos-mcp/src/verbs/gates/check-invariant-conformance.ts`, `servers/exarchos-mcp/src/registry.ts`, the DR-4 allowlist data file, `skills-src/` as needed
 **Detail:** `check_invariant_conformance` computes `auditPrompt` and returns it, but `findings[]` are produced only from `mode: 'check'` combinator trees — so an **`audit`-mode invariant contributes text to a field no skill mentions and no formatter renders.** INV-17 is audit-mode. This is why task 019 is blocked: correcting its prompt would change a string nobody is directed to read.
 
 The second half is the sharper one. The action declares `outputSchema: vacuityWaiver(...)`, so the field crosses the boundary **untyped** — a consumer could not rely on its presence or shape even if instructed to read it. The conformance gate for a catalog containing the anti-vacuity invariant is itself on the vacuity allowlist.
@@ -1094,7 +1094,7 @@ Four findings:
 
 ### Task 046: Add a posture-to-dispatch mapping to the two provisioning verbs
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-25
-**Files:** `servers/exarchos-mcp/src/orchestrate/prepare-review.ts`, `servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts`, `servers/exarchos-mcp/src/agents/dispatch-shape.ts`, `servers/exarchos-mcp/src/agents/dispatch-shape.test.ts`
+**Files:** `servers/exarchos-mcp/src/verbs/team/prepare-review.ts`, `servers/exarchos-mcp/src/verbs/team/prepare-delegation.ts`, `servers/exarchos-mcp/src/agents/dispatch-shape.ts`, `servers/exarchos-mcp/src/agents/dispatch-shape.test.ts`
 **Detail:** `dispatch` becomes part of the emitted contract — `read-only` → anonymous async; `task-isolated` → named plus worktree isolation; `shared-mutating` → main worktree, never a subagent. Policy is data the verb reads, not prose in a skill.
 **Tests:**
 - `DispatchShape_EveryDeclaredPosture_HasExactlyOneEntry` — totality over `AgentPosture`
@@ -1105,7 +1105,7 @@ Four findings:
 
 ### Task 047: Prove today's prepare_review output fails the dispatch totality test
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-25
-**Files:** `servers/exarchos-mcp/src/orchestrate/__tests__/dispatch-shape.kill-fixture.test.ts`
+**Files:** `servers/exarchos-mcp/src/verbs/__tests__/dispatch-shape.kill-fixture.test.ts`
 **Detail:** The kill fixture is the current `prepare_review` result — `posture: 'read-only'` with no `dispatch` field. A guard with no current failing subject has not been shown to work.
 **Tests:**
 - `PrepareReview_CurrentOutput_LacksDispatchField` — fails on introduction
@@ -1315,7 +1315,7 @@ Each is an **eighth-occurrence candidate** of the measure-the-wrong-property pat
 
 ### Task 073: `invariants_amend` re-flows entries it was not asked to touch
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-23, DR-24
-**Files:** `servers/exarchos-mcp/src/orchestrate/invariants/catalog-file.ts`, `servers/exarchos-mcp/src/orchestrate/invariants/amend.ts`
+**Files:** `servers/exarchos-mcp/src/verbs/invariants/catalog-file.ts`, `servers/exarchos-mcp/src/verbs/invariants/amend.ts`
 **Detail:** Found by task 019 against task 068's verb, on the first real use of it.
 
 `invariants_amend` advertises itself as **id-targeted and field-scoped**, and semantically it is. But committing re-serializes the **whole frontmatter document**, so `yaml`'s line-width folding re-wraps folded scalars in unrelated entries. Task 019's one-field amendment to INV-17 produced a **69-insert / 34-delete** diff, roughly 35 lines of which were cosmetic re-wrap of INV-2 and INV-11.

@@ -203,7 +203,7 @@ Link: `docs/designs/2026-02-12-progressive-disclosure-hooks.md`
 **TDD Steps:**
 
 1. [RED] Write routing tests for all 8 actions
-   - File: `plugins/exarchos/servers/exarchos-mcp/src/orchestrate/composite.test.ts`
+   - File: `plugins/exarchos/servers/exarchos-mcp/src/verbs/composite.test.ts`
    - `handleOrchestrate_TeamSpawn_DelegatesToHandleTeamSpawn`
    - `handleOrchestrate_TeamMessage_DelegatesToHandleTeamMessage`
    - `handleOrchestrate_TeamBroadcast_DelegatesToHandleTeamBroadcast`
@@ -216,7 +216,7 @@ Link: `docs/designs/2026-02-12-progressive-disclosure-hooks.md`
    - Run: `npm run test:run` - MUST FAIL
 
 2. [GREEN] Implement composite handler
-   - File: `plugins/exarchos/servers/exarchos-mcp/src/orchestrate/composite.ts`
+   - File: `plugins/exarchos/servers/exarchos-mcp/src/verbs/composite.ts`
    - Import handlers from `team/tools.ts` and `tasks/tools.ts`
    - Run: `npm run test:run` - MUST PASS
 

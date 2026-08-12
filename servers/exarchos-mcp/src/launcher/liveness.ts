@@ -38,7 +38,7 @@
 import type { EventStore } from '../events/store.js';
 import type { WorkflowEvent } from '../events/schemas.js';
 import { withStateRetry } from '../workflow/state-retry.js';
-import { WORKTREES_STREAM } from '../orchestrate/worktree/manager.js';
+import { WORKTREES_STREAM } from '../verbs/worktree/manager.js';
 
 /** The launcher child-process liveness CLAIM (INV-10 `<surface>.executing_started`). */
 export const LAUNCH_EXECUTING_STARTED = 'launch.executing_started';

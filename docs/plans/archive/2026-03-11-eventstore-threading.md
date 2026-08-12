@@ -78,7 +78,7 @@ Issues: #1001, #1003, #1011
    - File: `servers/exarchos-mcp/src/workflow/composite.ts` — `handleWorkflow(args, ctx)`, internally use `ctx.stateDir` where `stateDir` was used
    - File: `servers/exarchos-mcp/src/event-store/composite.ts` — `handleEvent(args, ctx)`, use `ctx.stateDir`
    - File: `servers/exarchos-mcp/src/views/composite.ts` — `handleView(args, ctx)`, use `ctx.stateDir`
-   - File: `servers/exarchos-mcp/src/orchestrate/composite.ts` — `handleOrchestrate(args, ctx)`, use `ctx.stateDir`
+   - File: `servers/exarchos-mcp/src/verbs/composite.ts` — `handleOrchestrate(args, ctx)`, use `ctx.stateDir`
    - File: `servers/exarchos-mcp/src/sync/composite.ts` — `handleSync(args, ctx)`, use `ctx.stateDir`
 
 4. [GREEN] Update composite handler tests to pass ctx instead of stateDir

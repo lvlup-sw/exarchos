@@ -54,7 +54,7 @@ import { rmrfAsync } from '../test-helpers/temp-dir.js';
 // public surface module.
 //
 // v2.10.0-preview.2 Wave 4 (#1340, audit §F1.2): the reference-migration
-// commits add `orchestrate/merge-orchestrate.ts` (Phase A — `decide`
+// commits add `verbs/merge/merge-orchestrate.ts` (Phase A — `decide`
 // commits `merge.requested` purely before the executor's git-merge side
 // effect fires) as the first consumer outside the substrate-internal
 // cluster. This is the canonical "consumer outside the storage cluster"
@@ -64,10 +64,10 @@ const EXPECTED_CONSUMERS = [
   'src/events/index.ts',
   'src/events/store.ts',
   'src/events/tools.ts',
-  'src/orchestrate/execute-merge.ts',
-  'src/orchestrate/merge-orchestrate.ts',
-  'src/orchestrate/worktree/manager.ts',
-  'src/orchestrate/worktree/merge-serializer.ts',
+  'src/verbs/pure/execute-merge.ts',
+  'src/verbs/merge/merge-orchestrate.ts',
+  'src/verbs/worktree/manager.ts',
+  'src/verbs/worktree/merge-serializer.ts',
   'src/storage/sqlite-backend.ts',
   // P06-05 (structural-closure remediation): the admission chokepoint appends
   // the admission decision and the phase-lifecycle sibling in ONE `decideOnce`

@@ -28,9 +28,9 @@ The per-round metrics in #1159 (rounds 1–3 on basileus PR [#159](https://githu
 | Scaffolder agent template | [`agents/scaffolder.md`](../../agents/scaffolder.md) | Defined and dispatchable today |
 | Template interpolation | [`servers/exarchos-mcp/src/agents/handler.ts:28-50`](../../servers/exarchos-mcp/src/agents/handler.ts) | String replacement only; no dynamic file Reads |
 | Hook wiring | [`servers/exarchos-mcp/src/agents/generate-cc-agents.ts:15-51`](../../servers/exarchos-mcp/src/agents/generate-cc-agents.ts) | `TRIGGER_MAP` supports `pre-write`, `pre-edit`, `post-test`. **No `pre-dispatch` trigger.** |
-| Review-comment ingest | [`servers/exarchos-mcp/src/orchestrate/check-pr-comments.ts:1-117`](../../servers/exarchos-mcp/src/orchestrate/check-pr-comments.ts) | Flat list per comment; no severity, no thread reply detection |
-| Finding → task extraction | [`servers/exarchos-mcp/src/orchestrate/extract-fix-tasks.ts:163-171`](../../servers/exarchos-mcp/src/orchestrate/extract-fix-tasks.ts) | 1:1 mapping, no file grouping. Severity threaded through (`severity: finding.severity ?? 'MEDIUM'`) but unused downstream |
-| Task classification | [`servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts:91,115-195`](../../servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts) | `classifyTask()` already routes scaffolding-keyword titles → `scaffolder` + `sonnet`. Does **not** read severity. |
+| Review-comment ingest | [`servers/exarchos-mcp/src/verbs/vcs/check-pr-comments.ts:1-117`](../../servers/exarchos-mcp/src/verbs/vcs/check-pr-comments.ts) | Flat list per comment; no severity, no thread reply detection |
+| Finding → task extraction | [`servers/exarchos-mcp/src/verbs/tasks/extract-fix-tasks.ts:163-171`](../../servers/exarchos-mcp/src/verbs/tasks/extract-fix-tasks.ts) | 1:1 mapping, no file grouping. Severity threaded through (`severity: finding.severity ?? 'MEDIUM'`) but unused downstream |
+| Task classification | [`servers/exarchos-mcp/src/verbs/team/prepare-delegation.ts:91,115-195`](../../servers/exarchos-mcp/src/verbs/team/prepare-delegation.ts) | `classifyTask()` already routes scaffolding-keyword titles → `scaffolder` + `sonnet`. Does **not** read severity. |
 | Severity catalog | [`servers/exarchos-mcp/src/review/check-catalog.ts:9,14`](../../servers/exarchos-mcp/src/review/check-catalog.ts) | `CheckSeverity = 'HIGH' \| 'MEDIUM' \| 'LOW'` exists |
 | Shepherd loop | [`skills-src/shepherd/SKILL.md:20-150`](../../skills-src/shepherd/SKILL.md) | `assess → fix → resubmit` iteration ≤5x; no per-iteration batching |
 

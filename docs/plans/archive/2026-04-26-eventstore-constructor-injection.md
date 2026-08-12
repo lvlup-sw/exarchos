@@ -25,7 +25,7 @@ Research convergence (Seemann, Fowler, Microsoft .NET DI guidelines):
 
 ### Wave 1 — Adapter scaffolding (atomic)
 
-Add `adaptWithEventStore<T>` to `orchestrate/composite.ts`, mirroring the existing `adaptWithCtx` pattern:
+Add `adaptWithEventStore<T>` to `verbs/composite.ts`, mirroring the existing `adaptWithCtx` pattern:
 
 ```typescript
 function adaptWithEventStore<T>(
@@ -43,13 +43,13 @@ No call-site changes yet. Just the adapter is available.
 ### Wave 2 — Convert 7 orchestrate handlers
 
 For each of:
-- `orchestrate/check-event-emissions.ts` (`handleCheckEventEmissions`)
-- `orchestrate/design-completeness.ts` (`handleDesignCompleteness`)
-- `orchestrate/provenance-chain.ts` (`handleProvenanceChain`)
-- `orchestrate/task-decomposition.ts` (`handleTaskDecomposition`)
-- `orchestrate/context-economy.ts` (`handleContextEconomy`)
-- `orchestrate/prepare-synthesis.ts` (`handlePrepareSynthesis`)
-- `orchestrate/static-analysis.ts` (`handleStaticAnalysis`)
+- `verbs/gates/check-event-emissions.ts` (`handleCheckEventEmissions`)
+- `verbs/pure/design-completeness.ts` (`handleDesignCompleteness`)
+- `verbs/pure/provenance-chain.ts` (`handleProvenanceChain`)
+- `verbs/tasks/task-decomposition.ts` (`handleTaskDecomposition`)
+- `verbs/pure/context-economy.ts` (`handleContextEconomy`)
+- `verbs/team/prepare-synthesis.ts` (`handlePrepareSynthesis`)
+- `verbs/pure/static-analysis.ts` (`handleStaticAnalysis`)
 
 Each conversion is mechanical:
 

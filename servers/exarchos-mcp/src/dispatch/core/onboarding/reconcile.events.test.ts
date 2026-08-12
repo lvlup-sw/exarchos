@@ -8,7 +8,7 @@ import type {
   EmittedEvent,
 } from './reconcile.js';
 import type { ApplyCtx } from './reconcile.js';
-import type { CheckResult } from '../../../orchestrate/doctor/schema.js';
+import type { CheckResult } from '../../../verbs/doctor/schema.js';
 import type { PlanStep, ReconcileResult } from './types.js';
 
 /**

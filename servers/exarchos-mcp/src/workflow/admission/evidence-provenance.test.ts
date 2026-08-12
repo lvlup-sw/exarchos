@@ -25,7 +25,7 @@
  *     the production `hydrateEventsFromStore`.
  *
  * Nothing here is hand-mocked: the admission proof facts are appended to the
- * feature's own append-only stream exactly as `orchestrate/gate-runner.ts`
+ * feature's own append-only stream exactly as `verbs/gates/gate-runner.ts`
  * appends them in production, and reach the translation because
  * `workflow/tools.ts` hydrates that stream onto `state._events` before the
  * guarded transition runs.

@@ -104,7 +104,7 @@ Refactor brief in workflow state `refactor-plugin-self-contained`. No formal des
 
 **TDD Steps:**
 1. [RED] Write test: `RunScript_ValidScript_ReturnsStructuredResult`
-   - File: `servers/exarchos-mcp/src/orchestrate/run-script.test.ts`
+   - File: `servers/exarchos-mcp/src/verbs/run-script.test.ts`
    - Call handler with `{ script: "verify-doc-links.sh", args: ["--docs-dir", "docs/"] }`
    - Mock `execFileSync` to return stdout "All links valid"
    - Assert: result contains `{ passed: true, exitCode: 0, stdout: "All links valid" }`
@@ -112,28 +112,28 @@ Refactor brief in workflow state `refactor-plugin-self-contained`. No formal des
    - Run: `cd servers/exarchos-mcp && npm run test:run` - MUST FAIL
 
 2. [RED] Write test: `RunScript_ScriptFails_ReturnsFailure`
-   - File: `servers/exarchos-mcp/src/orchestrate/run-script.test.ts`
+   - File: `servers/exarchos-mcp/src/verbs/run-script.test.ts`
    - Mock `execFileSync` to throw with exit code 1 and stderr "2 broken links found"
    - Assert: result contains `{ passed: false, exitCode: 1, stderr: "2 broken links found" }`
    - Expected failure: handler doesn't exist
    - Run: `cd servers/exarchos-mcp && npm run test:run` - MUST FAIL
 
 3. [RED] Write test: `RunScript_PathTraversal_RejectsUnsafePaths`
-   - File: `servers/exarchos-mcp/src/orchestrate/run-script.test.ts`
+   - File: `servers/exarchos-mcp/src/verbs/run-script.test.ts`
    - Call handler with `{ script: "../../../etc/passwd" }`
    - Assert: throws or returns error (rejects path traversal)
    - Expected failure: handler doesn't exist
    - Run: `cd servers/exarchos-mcp && npm run test:run` - MUST FAIL
 
 4. [RED] Write test: `RunScript_UsesResolveScript_ForPathResolution`
-   - File: `servers/exarchos-mcp/src/orchestrate/run-script.test.ts`
+   - File: `servers/exarchos-mcp/src/verbs/run-script.test.ts`
    - Spy on `resolveScript`
    - Assert: handler calls `resolveScript` with the script name
    - Expected failure: handler doesn't exist
    - Run: `cd servers/exarchos-mcp && npm run test:run` - MUST FAIL
 
 5. [GREEN] Implement run_script handler
-   - File: `servers/exarchos-mcp/src/orchestrate/run-script.ts`
+   - File: `servers/exarchos-mcp/src/verbs/run-script.ts`
    - Parse input: `script` (required, string), `args` (optional, string[])
    - Validate: reject scripts with path traversal (`..`, absolute paths)
    - Resolve path via `resolveScript(script)`
@@ -143,7 +143,7 @@ Refactor brief in workflow state `refactor-plugin-self-contained`. No formal des
    - Run: `cd servers/exarchos-mcp && npm run test:run` - MUST PASS
 
 6. [GREEN] Register in orchestrate composite
-   - File: `servers/exarchos-mcp/src/orchestrate/composite.ts`
+   - File: `servers/exarchos-mcp/src/verbs/composite.ts`
    - Add `run_script` action to the handler registry
    - Add to Zod action enum
    - Run: `cd servers/exarchos-mcp && npm run test:run` - MUST PASS

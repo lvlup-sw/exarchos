@@ -327,10 +327,10 @@ interface TaskCompletedData {
 | `skills/spec-review/SKILL.md` | Add acceptance test coverage check | Content only |
 | `skills/refactor/SKILL.md` | Add characterization testing pre-step | Content only |
 | `skills/debug/SKILL.md` | Add characterization testing for thorough track | Content only |
-| `servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts` | Extend `classifyTask` with `testLayer` signal | Code change |
-| `servers/exarchos-mcp/src/orchestrate/pure/tdd-compliance.ts` | Extend to validate acceptance test existence | Code change |
-| `servers/exarchos-mcp/src/orchestrate/check-design-completeness.ts` | Validate Given/When/Then criteria presence | Code change |
-| `servers/exarchos-mcp/src/orchestrate/check-plan-coverage.ts` | Validate acceptance test task per DR-N | Code change |
+| `servers/exarchos-mcp/src/verbs/team/prepare-delegation.ts` | Extend `classifyTask` with `testLayer` signal | Code change |
+| `servers/exarchos-mcp/src/verbs/pure/tdd-compliance.ts` | Extend to validate acceptance test existence | Code change |
+| `servers/exarchos-mcp/src/verbs/check-design-completeness.ts` | Validate Given/When/Then criteria presence | Code change |
+| `servers/exarchos-mcp/src/verbs/check-plan-coverage.ts` | Validate acceptance test task per DR-N | Code change |
 | Event schema: `task.completed` | Add `acceptanceTestRef` to `TaskCompletedData` | Schema change |
 
 ## Testing Strategy

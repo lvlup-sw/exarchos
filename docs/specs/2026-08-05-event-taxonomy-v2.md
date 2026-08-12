@@ -319,9 +319,9 @@ builds on the structural-closure substrate that exists, not on the v3.0 SDK that
 | Reachability census | `contract/reachability/graph.ts` — `REACHABILITY_HOPS`, `HOP_AUTHORITIES` | DR-11 |
 | Independent oracle | `contract/oracle/oracle-seam.ts` | DR-12 |
 | Architecture censuses | `architecture/{effect-ledger,adapter-ownership-seam,effect-port-seam,layer-boundaries-seam}.ts` | DR-3, DR-4, DR-5 |
-| Reconciliation precedent | `orchestrate/reconcile-state.ts`, WLM `adopt`, `worktrees@v1` fold | DR-5, DR-6, DR-7 |
+| Reconciliation precedent | `verbs/reconcile-state.ts`, WLM `adopt`, `worktrees@v1` fold | DR-5, DR-6, DR-7 |
 | Dispatch interceptor chain | `dispatch/core/dispatch.ts` | DR-8 |
-| Durable gate runner | `orchestrate/gate-runner.ts`, `gate-provider-registry.ts` | DR-13 |
+| Durable gate runner | `verbs/gates/gate-runner.ts`, `gate-provider-registry.ts` | DR-13 |
 | Atomic append + claims | `event-store/atomic-appender.ts`, `idempotency_claims` | DR-4, DR-5 |
 
 #### Actionable now — 13 of 15 DRs, Waves 1–4 in full

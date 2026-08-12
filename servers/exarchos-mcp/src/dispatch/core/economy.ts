@@ -4,7 +4,7 @@
 // output-cap + measured-size-summary primitives now live in the shared core so
 // every dispatch path — not just the two inventory views — can reuse them. The
 // `pipeline` (`projections/views/tools.ts`) and `worktrees`
-// (`orchestrate/worktree/handlers.ts`) views are the first consumers, unchanged
+// (`verbs/worktree/handlers.ts`) views are the first consumers, unchanged
 // in behavior; `projections/views/output-cap.ts` remains as a re-export shim.
 //
 // Two guards, applied in order by a consumer:

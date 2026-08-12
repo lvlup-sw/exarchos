@@ -24,7 +24,7 @@ import {
 import {
   deriveRiskTier,
   deriveBoundaryTouching,
-} from '../../../orchestrate/prepare-delegation.js';
+} from '../../../verbs/team/prepare-delegation.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = path.join(HERE, 'fixtures');

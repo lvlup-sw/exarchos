@@ -1,7 +1,7 @@
 import * as path from 'node:path';
 import { z } from 'zod';
 import { WorkflowTypeSchema } from '../workflow/schemas.js';
-import { DoctorOutputSchema } from '../orchestrate/doctor/schema.js';
+import { DoctorOutputSchema } from '../verbs/doctor/schema.js';
 import { ReconcilePlanSchema, ReconcileResultSchema } from '../dispatch/core/onboarding/types.js';
 import {
   AdmissionDecisionRecordV1Schema,
@@ -419,7 +419,7 @@ export const EventTypes = [
   // verification-ladder slice 1 (task 020) — mutation-run liveness (INV-10).
   // `mutation.executing_started` lands at the start of a (non-dry-run) mutation
   // run driven by the `mutation-adequacy` gate handler
-  // (`orchestrate/mutation-adequacy.ts`); `mutation.executed` is the paired
+  // (`verbs/gates/mutation-adequacy.ts`); `mutation.executed` is the paired
   // terminal event carrying the pass/fail verdict + exit code. The pair makes
   // a long-running mutation sweep observable as "started but not yet
   // terminated" the same way merge.executing_started/executed does. Emitted
@@ -1698,7 +1698,7 @@ const MergePreflightDriftData = z.object({
 // growth); verbose sub-modes belong on a separate `=2` channel.
 //
 // Field shape mirrors the `PreflightDebug` TypeScript type in
-// `orchestrate/pure/merge-preflight.ts`. Phase-1 captures the minimal data
+// `verbs/pure/merge-preflight.ts`. Phase-1 captures the minimal data
 // needed to disambiguate Windows ref-resolution and merge-base failures
 // from filesystem-layer worktree mis-detection; phase-2 may extend.
 const MergePreflightDebugRefData = z.object({
@@ -2841,7 +2841,7 @@ export const TaskCancelledData = z.object({
 // ─── Dispatch guard preflight observability (#1261) ─────────────────────────
 
 /**
- * Emitted by `orchestrate/dispatch-guard.ts` after the dispatch boundary
+ * Emitted by `verbs/team/dispatch-guard.ts` after the dispatch boundary
  * runs all preflight guards. Records the per-guard pass/fail outcome plus
  * an aggregate `passed` flag and total `durationMs` so audit queries can
  * (a) attribute dispatch blocks to a specific guard and (b) track
@@ -2877,7 +2877,7 @@ export const DispatchPreflightData = z.object({
 });
 
 /**
- * Emitted by `orchestrate/dispatch-guard.ts` when the worktree under
+ * Emitted by `verbs/team/dispatch-guard.ts` when the worktree under
  * dispatch has a non-empty `git stash list`. Stash storage is shared
  * across worktrees in the same repository (documented project hazard:
  * `feedback_subagent_stash_hazard`), so any pre-existing stash entry
@@ -2896,7 +2896,7 @@ export const StashDetectedData = z.object({
 // ─── Mutation-run liveness (verification-ladder slice 1, task 020 / INV-10) ──
 //
 // `mutation.executing_started` records the start of a mutation run driven by
-// the `mutation-adequacy` gate handler (`orchestrate/mutation-adequacy.ts`);
+// the `mutation-adequacy` gate handler (`verbs/gates/mutation-adequacy.ts`);
 // `mutation.executed` is the paired terminal carrying the verdict. The pair
 // makes a long-running mutation sweep observable as a lifecycle, the same shape
 // as the merge orchestrator's executing/executed split.

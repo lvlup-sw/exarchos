@@ -51,8 +51,8 @@ import {
   runProbe,
   type ProbeResult,
   type TestRunFn,
-} from '../../../servers/exarchos-mcp/src/orchestrate/test-adequacy.js';
-import type { GitExec } from '../../../servers/exarchos-mcp/src/orchestrate/pure/execute-merge.js';
+} from '../../../servers/exarchos-mcp/src/verbs/gates/test-adequacy.js';
+import type { GitExec } from '../../../servers/exarchos-mcp/src/verbs/pure/execute-merge.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = path.resolve(__dirname, '../../../');

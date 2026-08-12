@@ -43,14 +43,14 @@
 
 import type { EventStore } from '../events/store.js';
 import { emitLaunchExecuted } from './liveness.js';
-import { WORKTREES_STREAM, WORKTREES_REDUCER } from '../orchestrate/worktree/manager.js';
-import type { WorktreesProjection } from '../orchestrate/worktree/projections/worktrees.js';
+import { WORKTREES_STREAM, WORKTREES_REDUCER } from '../verbs/worktree/manager.js';
+import type { WorktreesProjection } from '../verbs/worktree/projections/worktrees.js';
 import {
   probeLaunchHolders,
   defaultProcessTableSource,
   type ProcessTableSource,
   type LaunchHolder,
-} from '../orchestrate/worktree/pure/probe.js';
+} from '../verbs/worktree/pure/probe.js';
 
 /** Outcome of a {@link reconcileLaunches} pass (DR-6). */
 export interface ReconcileLaunchesResult {

@@ -220,11 +220,11 @@ This preview lifts the substrate from atomic-append into an event-sourced aggreg
 
 #### Wave 4 — Reference migration to two-event split (audit §F1.2)
 - **`withStateRetry` recognizes `ConcurrencyError` AND `StorageBusyError`** alongside the legacy `VersionConflictError`. Predicate-based `isRetryable(err)` gate. All three trigger the same bounded exponential-backoff retry path.
-- **`orchestrate/merge-orchestrate.ts` migrated** to three-phase shape:
+- **`verbs/merge/merge-orchestrate.ts` migrated** to three-phase shape:
   1. **Phase A** (retryable): `decide` commits `merge.requested` purely. State-check short-circuit: `if state.phase === 'executed' || 'completed' return []`.
   2. **Phase B** (outside retry): `aggregateStream` re-reads state; if not already `executed`/`completed`, fire the side-effect EXACTLY ONCE.
   3. **Phase C** (retryable): `decide` commits `merge.executed` purely. Same short-circuit pattern.
-- **`orchestrate/execute-merge.ts` migrated** to the same shape — `vcsMerge` action sits in Phase B, outside any retry boundary.
+- **`verbs/pure/execute-merge.ts` migrated** to the same shape — `vcsMerge` action sits in Phase B, outside any retry boundary.
 - **PR-API-non-refire fixture** pins the property: forcing `ConcurrencyError` on Phase A retries the closure but the executor mock receives ZERO calls; Phase B fires it EXACTLY ONCE; Phase C retries don't re-invoke.
 - **Concurrency race fixture** pins end-to-end loop: two concurrent invocations on the same feature → one wins, loser retries via `CONCURRENCY_CONFLICT` and state-check short-circuits to `[]`; final stream has exactly ONE `merge.requested` and ONE `merge.executed`; merge mock invoked exactly ONCE.
 - **Storage-busy fixture** (audit §F2.1): inject substrate contention via `SqliteBusyExhaustedError` on first invocation → handler retries via `withStateRetry` → eventual success after contention clears.
@@ -277,7 +277,7 @@ Thirteen items tracking the architectural leverage opportunities the preview del
 - **Refactored:** `prune-stale-workflows` migrated from custom multi-signal heuristic to typed-contract scorer (#1334) — pruning policy now lives in `topology.yaml` `staleness` blocks per phase, not in handler code.
 - **Fixed (CI):** Three subprocess-spawning tests refactored to in-process `EventStore`, removing the `bun:sqlite` ESM scheme failure on Node CI runners (#1324). CLI-adapter coverage gap surfaced and tracked as #1337 (non-blocker).
 - **Behavior improvement:** Malformed event payloads emitted via the new canonical envelope path are caught at the emission boundary (`EVENT_APPEND_FAILED`) instead of being silently persisted with `undefined` fields — surfaced by the `workflowType` integration test under `__tests__/mcp-tools.integration.test.ts`.
-- **Tooling:** Shared `buildMergeOrchestrateIdempotencyKey` helper at `orchestrate/merge-keys.ts`; shared `assertCanonicalEnvelope` test helper at `workflow/test-helpers/canonical-envelope.ts`.
+- **Tooling:** Shared `buildMergeOrchestrateIdempotencyKey` helper at `verbs/merge/merge-keys.ts`; shared `assertCanonicalEnvelope` test helper at `workflow/test-helpers/canonical-envelope.ts`.
 - **No schema migration. No agent-surface changes. No deprecation-shim removal.** This preview is internal-only.
 
 Operator note: upgrading from v2.10.0 main (substrate-cut tip) to v2.10.0-preview.1 is a no-op at the data layer. Stay on this preview through preview.2 — that's where the V3→V4 schema migration lands.

@@ -2,7 +2,7 @@
 //
 // Unit coverage for the pure carrier→provision-outcome mapping the setup-worktree
 // handler depends on. The owner-backed provisioner's live git/EventStore path is
-// exercised end-to-end in `orchestrate/setup-worktree.integration.test.ts`; here
+// exercised end-to-end in `verbs/team/setup-worktree.integration.test.ts`; here
 // we pin the three-way discrimination (success / error / dry-run) that decides
 // whether the report reads "created", "already exists", or "failed".
 

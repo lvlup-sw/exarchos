@@ -46,7 +46,7 @@ function registeredActionIds(): string[] {
 const COMPOSITES: Readonly<Record<string, string>> = {
   exarchos_workflow: 'workflow/composite.ts',
   exarchos_event: 'events/composite.ts',
-  exarchos_orchestrate: 'orchestrate/composite.ts',
+  exarchos_orchestrate: 'verbs/composite.ts',
   exarchos_view: 'projections/views/composite.ts',
   exarchos_sync: 'sync/composite.ts',
 };

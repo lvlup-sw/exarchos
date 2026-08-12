@@ -30,7 +30,7 @@ import { execFileSync } from 'node:child_process';
 
 import { withTmpGit } from './_helpers/tmp-git.js';
 import { EventStore } from '../../servers/exarchos-mcp/src/events/store.js';
-import { handlePrepareDelegation } from '../../servers/exarchos-mcp/src/orchestrate/prepare-delegation.js';
+import { handlePrepareDelegation } from '../../servers/exarchos-mcp/src/verbs/team/prepare-delegation.js';
 import { resetMaterializerCache } from '../../servers/exarchos-mcp/src/projections/views/tools.js';
 import type { DispatchContext } from '../../servers/exarchos-mcp/src/dispatch/core/dispatch.js';
 

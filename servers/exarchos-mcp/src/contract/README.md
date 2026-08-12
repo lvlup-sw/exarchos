@@ -120,7 +120,7 @@ npx tsx src/contract/authority-lock-cli.ts
 Running the generator **is** the approval gesture (it writes `approved: true` at
 the current digests). Commit the updated `contract-authority.lock.json`.
 
-## Relationship to `orchestrate/contract-drift.ts`
+## Relationship to `verbs/gates/contract-drift.ts`
 
 Complementary, not overlapping. `contract-drift` detects *breaking schema
 changes* between a merge-base and HEAD by running external codegen/diff tools.

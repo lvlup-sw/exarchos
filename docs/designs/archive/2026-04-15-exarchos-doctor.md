@@ -175,7 +175,7 @@ This matches the existing `CLI_EXIT_CODES` contract in `adapters/cli.ts`. Warnin
 
 ### MCP surface
 
-`exarchos_orchestrate({action: "doctor"})` routes through `orchestrate/composite.ts` into `handleDoctor`. The action is added to the orchestrate registry's action schema in `registry.ts` with the same Zod schema as the CLI flags, so parity is enforced at the type level.
+`exarchos_orchestrate({action: "doctor"})` routes through `verbs/composite.ts` into `handleDoctor`. The action is added to the orchestrate registry's action schema in `registry.ts` with the same Zod schema as the CLI flags, so parity is enforced at the type level.
 
 ## Cross-cutting constraints (baked in from ideate)
 
@@ -203,9 +203,9 @@ Three layers, mirroring the existing parity-test convention in `orchestrate/`:
 
 **Unit tests (per-check):** Each `checks/<name>.ts` has a co-located `<name>.test.ts` that injects probes and asserts on the returned `CheckResult`. No module-level `vi.mock` — probes are plain object arguments. This keeps every test under DIM-4/T-4.2's three-mock flag.
 
-**Composer tests (`orchestrate/doctor/index.test.ts`):** Verify parallel execution, timeout enforcement, abort propagation, summary tally, and event emission via an in-memory `EventStore` test double.
+**Composer tests (`verbs/doctor/index.test.ts`):** Verify parallel execution, timeout enforcement, abort propagation, summary tally, and event emission via an in-memory `EventStore` test double.
 
-**Parity tests (`orchestrate/doctor.parity.test.ts`):** Invoke doctor through the real CLI adapter (spawn or direct function call) and through the real MCP adapter. Assert both return byte-identical `DoctorOutput` JSON given the same probes. This catches any CLI/MCP projection divergence — the single most common failure mode for shared-handler features, per the existing `parity-harness.ts`.
+**Parity tests (`verbs/doctor.parity.test.ts`):** Invoke doctor through the real CLI adapter (spawn or direct function call) and through the real MCP adapter. Assert both return byte-identical `DoctorOutput` JSON given the same probes. This catches any CLI/MCP projection divergence — the single most common failure mode for shared-handler features, per the existing `parity-harness.ts`.
 
 ## Acceptance criteria traceability
 
@@ -213,7 +213,7 @@ Mapped 1:1 from [#1089](https://github.com/lvlup-sw/exarchos/issues/1089):
 
 | Issue AC | Design coverage |
 |----------|----------------|
-| `exarchos doctor` in dispatch core (shared CLI+MCP) | `orchestrate/doctor/index.ts` wired through `COMPOSITE_HANDLER_LOADERS` |
+| `exarchos doctor` in dispatch core (shared CLI+MCP) | `verbs/doctor/index.ts` wired through `COMPOSITE_HANDLER_LOADERS` |
 | MCP tool `exarchos_orchestrate({action: "doctor"})` | Action added to orchestrate registry |
 | ≥8 diagnostic checks across categories | 10 checks listed in layout |
 | Each check has category/name/message/status | Enforced by `CheckResultSchema` |

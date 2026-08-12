@@ -316,8 +316,8 @@ export function checkBlockingClaims(file: string, source: string): readonly Viol
  * DELIBERATELY NOT FIRED ON: a block that merely *constructs* a could-not-run
  * carrier in order to prove the system rejects it. Two such negative fixtures
  * exist in the corpus today —
- * `orchestrate/static-analysis.test.ts::NormalizeGateVerdict_SkippedStaticAnalysis_…`
- * and `orchestrate/test-adequacy.production-path.test.ts::VerdictOf_LegacyVacuousCarrier_…`
+ * `verbs/pure/static-analysis.test.ts::NormalizeGateVerdict_SkippedStaticAnalysis_…`
+ * and `verbs/gates/test-adequacy.production-path.test.ts::VerdictOf_LegacyVacuousCarrier_…`
  * — and both assert `'indeterminate'` / `passed === false`. An earlier draft
  * of this rule keyed on "an object literal carrying both markers" and flagged
  * exactly those two, i.e. it punished the tests that already enforce the

@@ -112,7 +112,7 @@ export const COVERED_SHAPES: readonly ShapeDefinition[] = Object.freeze([
   },
   {
     // Added because the catalogue's first draft MISSED the contract drift
-    // guard (`orchestrate/contract-drift.parity.test.ts`), one of the three
+    // guard (`verbs/gates/contract-drift.parity.test.ts`), one of the three
     // Class B instances DR-30 names by name. Its assertion is
     // `expect(normalizedCli).toEqual(normalizedMcp)` — two locally-computed
     // values compared against each other, with nothing in the shape itself

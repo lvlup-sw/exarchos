@@ -45,13 +45,13 @@ import {
   PsOutputSchema,
   WaitOutputSchema,
   WorktreesOutputSchema,
-} from './orchestrate/worktree/schemas.js';
-import { AmendInvariantOutputSchema } from './orchestrate/invariants/amend.js';
+} from './verbs/worktree/schemas.js';
+import { AmendInvariantOutputSchema } from './verbs/invariants/amend.js';
 // DR-4 (task 069) — the invariant-conformance gate's response contract, paid
 // down from `vacuityWaiver` to a real `data` schema. Held in its own module so
 // the registry does not pull the handler's import closure (event store, config
 // loader, catalog resolver) in behind it.
-import { CheckInvariantConformanceOutputSchema } from './orchestrate/check-invariant-conformance-schema.js';
+import { CheckInvariantConformanceOutputSchema } from './verbs/gates/check-invariant-conformance-schema.js';
 // DR-4 (task 055) — the closed `outputSchema` declaration surface. `ToolAction.
 // outputSchema` accepts only what these two constructors mint, so the vacuous
 // form (`EnvelopeSchema(z.unknown())`) is not merely discouraged here, it does
@@ -95,7 +95,7 @@ import {
   removedPruneKnobMessage,
   unrecognizedPruneKeyMessage,
 } from './config/prune-removed-knobs.js';
-import type { SupportedGateClass } from './orchestrate/gate-provider-registry.js';
+import type { SupportedGateClass } from './verbs/gates/gate-provider-registry.js';
 import {
   INTERNAL_ADMISSION_EVENT_TYPES,
   INTERNAL_CANCELLATION_EVENT_TYPES,
@@ -3248,7 +3248,7 @@ const orchestrateActions: readonly BuiltinToolAction[] = [
     outputSchema: vacuityWaiver('exarchos_orchestrate.doctor'),
     // sentry HIGH on PR #1369: `doctor` emits `diagnostic.executed` on
     // every invocation (see `autoEmits` above and
-    // `orchestrate/doctor/index.ts:204`). The advisory annotation must
+    // `verbs/doctor/index.ts:204`). The advisory annotation must
     // match the actual write surface — `readOnly: true` would let a
     // readonly-capability client trigger event-store writes and bypass
     // the audit boundary.

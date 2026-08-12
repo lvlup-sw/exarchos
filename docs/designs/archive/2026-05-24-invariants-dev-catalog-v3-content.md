@@ -99,7 +99,7 @@ The fixture-diff verification runs through **both** the CLI and MCP adapters and
 - `servers/exarchos-mcp/src/architecture/invariant-schema.ts` — schema is the authoring target (read-only here; no code change expected unless an unforeseen field is needed).
 - `servers/exarchos-mcp/src/architecture/invariants-loader.ts` + its tests — back-compat characterization (CR-1).
 - `servers/exarchos-mcp/src/architecture/project-catalog.ts` + tests — projection assertions (CR-3).
-- `servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.{ts,test.ts}` — fixture-diff exercise (CR-2/5).
+- `servers/exarchos-mcp/src/verbs/check-invariant-conformance.{ts,test.ts}` — fixture-diff exercise (CR-2/5).
 - `scripts/lint-inv6.mjs` — referenced as INV-6's `mode: check` projection (reuse, not rewrite).
 - `npm run lint:invariants` (vocabulary-lint + coverage-closure) — CR-4 gate.
 

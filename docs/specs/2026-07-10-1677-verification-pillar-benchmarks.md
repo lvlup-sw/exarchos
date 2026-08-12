@@ -48,7 +48,7 @@ Cross-cutting method-integrity and fail-honest requirements (DR-8) bind every be
 
 ### Integration Points
 
-- `servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts` — tier-keyed `resolveModelForTask`; classification wiring for DR-1.
+- `servers/exarchos-mcp/src/verbs/team/prepare-delegation.ts` — tier-keyed `resolveModelForTask`; classification wiring for DR-1.
 - `servers/exarchos-mcp/src/config/resolve.ts` — `agents.tier-models` resolution + monotonicity validation for DR-1.
 - `servers/exarchos-mcp/src/evals/benchmarks/` — seeded-defect corpus, catch-rate driver, gate-policy replay for DR-2, DR-3, DR-5.
 - `servers/exarchos-mcp/src/evals/provenance.ts` — reused provenance stamping for DR-8.
@@ -219,8 +219,8 @@ Extend `ResolvedProjectConfig['agents']` with `tierModels: Record<RiskTier, 'opu
 **Implements:** DR-1
 **Bundle:** A
 **Files:**
-- `servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts`
-- `servers/exarchos-mcp/src/orchestrate/prepare-delegation.test.ts`
+- `servers/exarchos-mcp/src/verbs/team/prepare-delegation.ts`
+- `servers/exarchos-mcp/src/verbs/team/prepare-delegation.test.ts`
 
 Add `resolveModelForTask(agent, riskTier, config)` and apply it in `classifyTask`, where the resolved `riskTier` (planner stamps win per #1669) is in scope — `classifyTaskCore` keeps producing agent/complexity/effort; the tier policy overrides the model on top. The scaffolder/implementer agent split is unchanged. A high-tier task with a scaffolding-keyword title keeps agent=scaffolder but gets the high-tier model, closing the #1670 miscalibration. `TaskClassification.recommendedModel`'s type is unchanged, so the registered outputSchema is untouched; existing parity tests must stay green (INV-2). Modifies existing production code → characterization first.
 

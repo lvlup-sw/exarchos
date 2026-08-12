@@ -160,22 +160,22 @@ Related issue: #952 (unimplemented event emitters tracking)
 
 **TDD Steps:**
 1. [RED] Write test: `PhaseExpectedEvents_DelegatePhase_ExpectsTeamEvents`
-   - File: `servers/exarchos-mcp/src/orchestrate/check-event-emissions.test.ts`
+   - File: `servers/exarchos-mcp/src/verbs/gates/check-event-emissions.test.ts`
    - Expected failure: module does not exist
    - Test: `PHASE_EXPECTED_EVENTS['delegate']` includes `team.spawned`, `team.teammate.dispatched`
 
 2. [RED] Write test: `PhaseExpectedEvents_ReviewPhase_ExpectsReviewEvents`
-   - File: `servers/exarchos-mcp/src/orchestrate/check-event-emissions.test.ts`
+   - File: `servers/exarchos-mcp/src/verbs/gates/check-event-emissions.test.ts`
    - Expected failure: module does not exist
    - Test: `PHASE_EXPECTED_EVENTS['review']` includes `review.routed`
 
 3. [RED] Write test: `PhaseExpectedEvents_SynthesizePhase_ExpectsStackAndShepherd`
-   - File: `servers/exarchos-mcp/src/orchestrate/check-event-emissions.test.ts`
+   - File: `servers/exarchos-mcp/src/verbs/gates/check-event-emissions.test.ts`
    - Expected failure: module does not exist
    - Test: `PHASE_EXPECTED_EVENTS['synthesize']` includes `stack.submitted`, `shepherd.iteration`
 
 4. [GREEN] Create phase-expected-events registry
-   - File: `servers/exarchos-mcp/src/orchestrate/check-event-emissions.ts`
+   - File: `servers/exarchos-mcp/src/verbs/gates/check-event-emissions.ts`
    - Export `PHASE_EXPECTED_EVENTS: Record<string, EventType[]>` mapping workflow phases to expected model-emitted events
    - Only include model-emitted events (filter via `EVENT_EMISSION_REGISTRY`)
 
@@ -191,27 +191,27 @@ Related issue: #952 (unimplemented event emitters tracking)
 
 **TDD Steps:**
 1. [RED] Write test: `CheckEventEmissions_MissingFeatureId_ReturnsError`
-   - File: `servers/exarchos-mcp/src/orchestrate/check-event-emissions.test.ts`
+   - File: `servers/exarchos-mcp/src/verbs/gates/check-event-emissions.test.ts`
    - Expected failure: handler does not exist
    - Test: call with empty args, expect `INVALID_INPUT`
 
 2. [RED] Write test: `CheckEventEmissions_AllExpectedEventsPresent_ReturnsNoHints`
-   - File: `servers/exarchos-mcp/src/orchestrate/check-event-emissions.test.ts`
+   - File: `servers/exarchos-mcp/src/verbs/gates/check-event-emissions.test.ts`
    - Expected failure: handler does not exist
    - Test: mock event stream with all expected events for `delegate` phase, expect `{ hints: [], complete: true }`
 
 3. [RED] Write test: `CheckEventEmissions_MissingTeamSpawned_ReturnsHint`
-   - File: `servers/exarchos-mcp/src/orchestrate/check-event-emissions.test.ts`
+   - File: `servers/exarchos-mcp/src/verbs/gates/check-event-emissions.test.ts`
    - Expected failure: handler does not exist
    - Test: mock event stream missing `team.spawned` during `delegate` phase, expect hint with event type and description
 
 4. [RED] Write test: `CheckEventEmissions_UnknownPhase_ReturnsEmptyHints`
-   - File: `servers/exarchos-mcp/src/orchestrate/check-event-emissions.test.ts`
+   - File: `servers/exarchos-mcp/src/verbs/gates/check-event-emissions.test.ts`
    - Expected failure: handler does not exist
    - Test: call with phase not in registry, expect `{ hints: [] }`
 
 5. [GREEN] Implement `handleCheckEventEmissions`
-   - File: `servers/exarchos-mcp/src/orchestrate/check-event-emissions.ts`
+   - File: `servers/exarchos-mcp/src/verbs/gates/check-event-emissions.ts`
    - Query workflow state for current phase via materializer
    - Query event stream for existing events
    - Compare against `PHASE_EXPECTED_EVENTS[phase]`
@@ -230,12 +230,12 @@ Related issue: #952 (unimplemented event emitters tracking)
 
 **TDD Steps:**
 1. [RED] Write test: `HandleOrchestrate_CheckEventEmissions_RoutesToHandler`
-   - File: `servers/exarchos-mcp/src/orchestrate/composite.test.ts` (or integration test)
+   - File: `servers/exarchos-mcp/src/verbs/composite.test.ts` (or integration test)
    - Expected failure: action not registered
    - Test: call `handleOrchestrate({ action: 'check_event_emissions', featureId: 'test' }, stateDir)`, expect not `UNKNOWN_ACTION`
 
 2. [GREEN] Register handler in composite + registry
-   - File: `servers/exarchos-mcp/src/orchestrate/composite.ts`
+   - File: `servers/exarchos-mcp/src/verbs/composite.ts`
      - Import `handleCheckEventEmissions`
      - Add to `ACTION_HANDLERS` map: `check_event_emissions: adapt(handleCheckEventEmissions)`
    - File: `servers/exarchos-mcp/src/registry.ts`

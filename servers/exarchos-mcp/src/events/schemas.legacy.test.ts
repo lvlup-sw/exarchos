@@ -455,7 +455,7 @@ describe('EventTypes', () => {
     // over the event store; see
     // `src/projections/task-store/event-sourced-task-store.ts`).
     // #1261: bumped 113 → 115 to include `dispatch.preflight` +
-    // `stash.detected`, emitted by `orchestrate/dispatch-guard.ts`.
+    // `stash.detected`, emitted by `verbs/team/dispatch-guard.ts`.
     // #1437: bumped 115 → 116 to include `migration.correlation_backfill_progress`,
     // emitted per-chunk by `sqlite-backend.ts:migrateV5ToV6` during the
     // V5→V6 correlation-column backfill (Wave 2 of correlation-indexed-columns).

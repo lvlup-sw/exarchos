@@ -465,7 +465,7 @@ left implicit:
 - **No production producer yet files evidence under the translation's
   requirement ids.** `edgeAdmissionScope(edge)` publishes the
   `req:{gate,approval}:<id>:<workflowType>:<from>:<to>` identity and its
-  phase-attempt subject, but `orchestrate/gate-runner.ts` still records under
+  phase-attempt subject, but `verbs/gates/gate-runner.ts` still records under
   its own ids (`requirement:plan-coverage`, `verification-ladder:<gateClass>`).
   Until a producer adopts the published scope, the recorded ledger is empty on
   shipped workflows and every requirement falls back to the derived
@@ -530,9 +530,9 @@ left implicit:
 **Test Layer:** integration
 **Implements:** DR-1
 **Files:**
-- `servers/exarchos-mcp/src/orchestrate/gate-runner.ts`
+- `servers/exarchos-mcp/src/verbs/gates/gate-runner.ts`
 - `servers/exarchos-mcp/src/tasks/tools.ts`
-- `servers/exarchos-mcp/src/orchestrate/gate-runner.test.ts`
+- `servers/exarchos-mcp/src/verbs/gates/gate-runner.test.ts`
 **Tests:** `TaskComplete_StaticAnalysisPassed_SucceedsWithoutSeededEvent`, `TaskComplete_StaticAnalysisRed_ReturnsGateNotPassed`
 **Verification:** high — scoped tests + `check_test_adequacy` + T2 integration across the gate→task seam. Characterization required (existing behavior changes).
 **Dependencies:** None
@@ -573,7 +573,7 @@ left implicit:
 **Implements:** DR-3
 **Files:**
 - `servers/exarchos-mcp/src/runbooks/definitions.ts`
-- `servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts`
+- `servers/exarchos-mcp/src/verbs/team/prepare-delegation.ts`
 - `servers/exarchos-mcp/src/runbooks/definitions.test.ts`
 **Tests:** `TaskCompletion_DelegationStamp_DeliversRiskTierToGate`, `TaskFix_DelegationStamp_DeliversBoundaryTouchingToGate`
 **Verification:** high — tier taken from the same delegation stamp `prepare_delegation` produced, not a literal.
@@ -616,7 +616,7 @@ left implicit:
 **Files:**
 - `servers/exarchos-mcp/src/views/composite.ts`
 - `servers/exarchos-mcp/src/workflow/composite.ts`
-- `servers/exarchos-mcp/src/orchestrate/composite.ts`
+- `servers/exarchos-mcp/src/verbs/composite.ts`
 - `servers/exarchos-mcp/src/views/composite.test.ts`
 **Tests:** `ViewComposite_DegradedProjection_ReturnsTypedDegradedResult`, `WorkflowComposite_DegradedProjection_DoesNotReturnStalePayload`
 **Verification:** high — fault injection; no consumer returns `success:true` with a stale payload.
@@ -644,7 +644,7 @@ left implicit:
 **Implements:** DR-6
 **Files:**
 - `package.json`
-- `servers/exarchos-mcp/src/orchestrate/static-analysis.ts`
+- `servers/exarchos-mcp/src/verbs/pure/static-analysis.ts`
 **Verification:** medium — a skipped constituent renders DEGRADED; the aggregate cannot report PASS.
 **Dependencies:** None
 **Parallelizable:** Yes
@@ -863,9 +863,9 @@ left implicit:
 **Test Layer:** integration
 **Implements:** DR-18
 **Files:**
-- `servers/exarchos-mcp/src/orchestrate/init/writers/mcp-json-writer.ts`
-- `servers/exarchos-mcp/src/orchestrate/init/writers/claude-code.ts`
-- `servers/exarchos-mcp/src/orchestrate/init/writers/mcp-json-writer.test.ts`
+- `servers/exarchos-mcp/src/verbs/init/writers/mcp-json-writer.ts`
+- `servers/exarchos-mcp/src/verbs/init/writers/claude-code.ts`
+- `servers/exarchos-mcp/src/verbs/init/writers/mcp-json-writer.test.ts`
 **Tests:** `McpJsonWriter_InjectedFailure_LeavesOldOrNewComplete`, `ClaudeConfigWriter_InterruptedPromotion_RecoversAtStartup`
 **Verification:** high — injected failure leaves old-complete or new-complete; `recoverInterruptedPromotion` gains a startup/doctor entry point.
 **Dependencies:** T-23
@@ -1117,7 +1117,7 @@ left implicit:
 - `.exarchos.yml`
 - `servers/exarchos-mcp/src/config/exarchos-config-schema.test.ts`
 **Tests:** `ExarchosConfig_DevCatalogRemoved_EffectiveCatalogUnchanged`, `ExarchosConfig_LegacyDevCatalogKey_EmitsTypedDeprecation`
-**Verification:** high — the boolean is gone or is a deprecated alias emitting a typed deprecation and desugaring to a `catalogs:` entry. Also update the seed path (`orchestrate/init/seed-exarchos-config.ts`) and the doctor check so a freshly-onboarded repo never writes the retired flag.
+**Verification:** high — the boolean is gone or is a deprecated alias emitting a typed deprecation and desugaring to a `catalogs:` entry. Also update the seed path (`verbs/init/seed-exarchos-config.ts`) and the doctor check so a freshly-onboarded repo never writes the retired flag.
 **Dependencies:** T-42
 **Parallelizable:** No
 

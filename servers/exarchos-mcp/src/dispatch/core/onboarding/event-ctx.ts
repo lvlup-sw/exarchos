@@ -4,8 +4,8 @@
  * over the real {@link EventStore}.
  *
  * Before this extraction the identical seam was duplicated in
- * `orchestrate/onboard/index.ts` (`buildEventCtx`) and
- * `orchestrate/doctor/index.ts` (`buildOnboardEventCtx`). It is the
+ * `verbs/doctor/index.ts` (`buildEventCtx`) and
+ * `verbs/doctor/index.ts` (`buildOnboardEventCtx`). It is the
  * safety-critical core of the feature (the CAS-pin idempotency trap is
  * sidestepped here by construction), so it lives in ONE place that both
  * facades import — drift between the two is now impossible (INV-2: behavior

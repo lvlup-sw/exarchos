@@ -11,7 +11,7 @@
 
 ## Invariant conformance (design-time constraints)
 
-- **INV-1 (event-sourcing-integrity)** — WS2 is *the* fix: read-models are left-folds over events, never the `.state.json` side surface. `resolveWorkflowState` (`orchestrate/resolve-state.ts`) materializes via `workflowStateProjection`; the `state.patched` deep-merge case means every planner-stamp field the handlers read is already in the projection.
+- **INV-1 (event-sourcing-integrity)** — WS2 is *the* fix: read-models are left-folds over events, never the `.state.json` side surface. `resolveWorkflowState` (`verbs/resolve-state.ts`) materializes via `workflowStateProjection`; the `state.patched` deep-merge case means every planner-stamp field the handlers read is already in the projection.
 - **INV-2 (facade-equivalence)** — all handler fixes live in the shared dispatch core (called by both CLI + MCP via `composite.ts`); zero behavior added to adapters. Registry Zod schema is the single source for CLI flags + MCP shape.
 - **INV-4 (platform-agnosticity)** — WS1 edits `skills-src/` source-of-truth + `commands/`; regen `skills/<runtime>/**` via `npm run build:skills`; `skills:guard` must be clean.
 - **INV-5a/5b (input/output contract)** — new args (`featureId`, optional `stateFile`) are schema-constrained; tool results keep the fixed carrier shape (`#1500`'s new status still maps to the standard `passed` envelope).
@@ -40,7 +40,7 @@ Target adapter: `adaptArgsWithStateDirAndEventStore` (the good-pattern wiring us
 
 ### WS3 — #1500 tdd-compliance vacuous pass
 
-- **T-09** — `orchestrate/pure/tdd-compliance.ts`: extend `status` union with `warn`; on `commits.length === 0` emit a WARNING report + `status: 'warn'` ("no commits between base and branch — already merged? check ordering"). Handler `tdd-compliance.ts` already maps non-`pass` → `passed:false`; emit the advisory in `data`. Update both co-located tests (the existing `'no commits found returns pass'` test flips to expect the advisory). *(independent)*
+- **T-09** — `verbs/pure/tdd-compliance.ts`: extend `status` union with `warn`; on `commits.length === 0` emit a WARNING report + `status: 'warn'` ("no commits between base and branch — already merged? check ordering"). Handler `tdd-compliance.ts` already maps non-`pass` → `passed:false`; emit the advisory in `data`. Update both co-located tests (the existing `'no commits found returns pass'` test flips to expect the advisory). *(independent)*
 
 ## Out of scope (follow-up issues filed)
 

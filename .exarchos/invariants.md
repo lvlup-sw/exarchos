@@ -42,7 +42,7 @@ invariants:
         2013) — chapter on Event Sourcing"
     references:
       - docs/architecture/invariants/references/INV-1-event-sourcing.md
-      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
+      - servers/exarchos-mcp/src/verbs/gates/check-invariant-conformance.ts
       - docs/architecture/projections.md
 
   - id: INV-7
@@ -187,7 +187,7 @@ invariants:
         https://learn.microsoft.com/en-us/azure/architecture/patterns/scheduler\
         -agent-supervisor"
     references:
-      - servers/exarchos-mcp/src/orchestrate/merge-orchestrate.ts
+      - servers/exarchos-mcp/src/verbs/merge/merge-orchestrate.ts
       - docs/architecture/runtime.md#§6
 
   - id: INV-11
@@ -340,7 +340,7 @@ invariants:
       - "Greg Young, *Why Event Sourced Systems Fail*:
         https://www.youtube.com/watch?v=FKFu78ZEIi8"
     references:
-      - servers/exarchos-mcp/src/orchestrate/merge-orchestrate.ts
+      - servers/exarchos-mcp/src/verbs/merge/merge-orchestrate.ts
       - servers/exarchos-mcp/src/events/atomic-appender.ts
       - docs/architecture/runtime.md#§4-process-manager-handlers
 
@@ -393,7 +393,7 @@ invariants:
       - "git documentation — `git merge --abort`, `git reset --keep`:
         https://git-scm.com/docs/git-reset"
     references:
-      - servers/exarchos-mcp/src/orchestrate/merge-orchestrate.ts
+      - servers/exarchos-mcp/src/verbs/merge/merge-orchestrate.ts
       - docs/architecture/runtime.md#§5
 
   - id: INV-15
@@ -499,7 +499,7 @@ invariants:
       - docs/architecture/invariants/references/INV-2-facade-equivalence.md
       - servers/exarchos-mcp/src/contract/cli/cli-contract-seam.ts
       - servers/exarchos-mcp/src/contract/cli/generated-client.ts
-      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
+      - servers/exarchos-mcp/src/verbs/gates/check-invariant-conformance.ts
       - docs/designs/archive/2026-05-07-milestone-16-mcp-alignment.md
 
   - id: INV-3
@@ -540,7 +540,7 @@ invariants:
         https://martinfowler.com/eaaCatalog/remoteFacade.html"
     references:
       - docs/architecture/invariants/references/INV-3-basileus-forward.md
-      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
+      - servers/exarchos-mcp/src/verbs/gates/check-invariant-conformance.ts
       - servers/exarchos-mcp/src/capabilities/resolver.ts
       - servers/exarchos-mcp/src/adapters/remote-mcp.ts
 
@@ -603,7 +603,7 @@ invariants:
         https://modelcontextprotocol.io/specification/2025-06-18/architecture"
     references:
       - docs/architecture/invariants/references/INV-4-platform-agnosticity.md
-      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
+      - servers/exarchos-mcp/src/verbs/gates/check-invariant-conformance.ts
       - skills-src/SKILL_AUTHORING.md
 
   - id: INV-5a
@@ -639,7 +639,7 @@ invariants:
         https://json-schema.org/draft/2020-12/json-schema-validation"
     references:
       - docs/architecture/invariants/references/INV-5a-input-ergonomics.md
-      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
+      - servers/exarchos-mcp/src/verbs/gates/check-invariant-conformance.ts
       - servers/exarchos-mcp/src/registry.ts
       - servers/exarchos-mcp/src/adapters/schema-to-flags.ts
 
@@ -670,7 +670,7 @@ invariants:
         https://json-schema.org/draft/2020-12/json-schema-validation"
     references:
       - docs/architecture/invariants/references/INV-5b-output-contract.md
-      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
+      - servers/exarchos-mcp/src/verbs/gates/check-invariant-conformance.ts
       - servers/exarchos-mcp/src/format.ts
       - servers/exarchos-mcp/src/next-actions-computer.ts
       - servers/exarchos-mcp/src/mcp/tasks-methods.ts
@@ -698,7 +698,7 @@ invariants:
         https://12factor.net/admin-processes"
     references:
       - docs/architecture/invariants/references/INV-5c-aspire-verbs.md
-      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
+      - servers/exarchos-mcp/src/verbs/gates/check-invariant-conformance.ts
       - servers/exarchos-mcp/src/describe/handler.ts
       - servers/exarchos-mcp/src/adapters/cli.ts
 
@@ -729,7 +729,7 @@ invariants:
       openWorldHint) live on CompositeAction post-#1268.
     references:
       - docs/architecture/invariants/references/INV-5d-action-discriminator.md
-      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
+      - servers/exarchos-mcp/src/verbs/gates/check-invariant-conformance.ts
       - servers/exarchos-mcp/src/registry.ts
       - servers/exarchos-mcp/src/adapters/mcp.ts
 
@@ -849,7 +849,7 @@ invariants:
       coordination uses the Ontology MCP Server (intent_register) rather than
       bespoke RPC. Strategos.Contracts via TypeSpec governs schema.
     references:
-      - servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts
+      - servers/exarchos-mcp/src/verbs/gates/check-invariant-conformance.ts
       - docs/research/2026-05-14-semantic-merge-queue-audit.md
       - servers/exarchos-mcp/src/sync
   - id: INV-17
@@ -988,7 +988,7 @@ The vocabulary-lint scanner (`servers/exarchos-mcp/src/architecture/vocabulary-l
 ## Consumers
 
 - `/exarchos:ideate` — surfaces relevant invariants as Constraints during Phase 0 (before Phase 1), before the clarifying questions.
-- `check_invariant_conformance` gate (`servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts`) — audits design proposals against INV-1..INV-15 (substrate runtime invariants). The audit prompt is catalog-generated (`servers/exarchos-mcp/src/architecture/audit-prompt.ts`). This gate replaced the retired `design-invariants` skill (T-23).
+- `check_invariant_conformance` gate (`servers/exarchos-mcp/src/verbs/gates/check-invariant-conformance.ts`) — audits design proposals against INV-1..INV-15 (substrate runtime invariants). The audit prompt is catalog-generated (`servers/exarchos-mcp/src/architecture/audit-prompt.ts`). This gate replaced the retired `design-invariants` skill (T-23).
 - `vocabulary-lint` — flags references to invariant IDs not registered here.
 - Future: `#1275` MCP Resources — expose this catalog as `resources/exarchos-invariants` once Resources land.
 
@@ -996,4 +996,4 @@ The vocabulary-lint scanner (`servers/exarchos-mcp/src/architecture/vocabulary-l
 
 - [`docs/architecture/projections.md`](projections.md) — projection layer specifics.
 - [`docs/architecture/runtime.md`](runtime.md) — runtime / capability resolution.
-- [`check-invariant-conformance.ts`](../../servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts) — the conformance gate that consumes this catalog (replaced the retired `design-invariants` skill in T-23).
+- [`check-invariant-conformance.ts`](../../servers/exarchos-mcp/src/verbs/gates/check-invariant-conformance.ts) — the conformance gate that consumes this catalog (replaced the retired `design-invariants` skill in T-23).

@@ -32,7 +32,7 @@
 //     signature line per action.
 //   • `handleDescribe(...)` — the shipped `describe` action that every
 //     composite handler routes (`projections/views/composite.ts:626`,
-//     `workflow/composite.ts:268`, `orchestrate/composite.ts:701`). It is what
+//     `workflow/composite.ts:268`, `verbs/composite.ts:701`). It is what
 //     a model-facing agent is told about roles, phases, gates, auto-emissions,
 //     deprecation, task-suitability and the effective economy budget.
 //

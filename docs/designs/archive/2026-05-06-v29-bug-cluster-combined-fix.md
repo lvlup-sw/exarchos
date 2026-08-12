@@ -131,7 +131,7 @@ export interface SubagentStreamRouter {
 
 ### Implementation sketch
 
-The team coordinator (current location to be confirmed during implementation; likely in `servers/exarchos-mcp/src/orchestrate/dispatch.ts` or `agents/team-coordinator.ts`) is refactored to:
+The team coordinator (current location to be confirmed during implementation; likely in `servers/exarchos-mcp/src/verbs/dispatch.ts` or `agents/team-coordinator.ts`) is refactored to:
 
 1. On child-stream `task.completed` — route through `SubagentStreamRouter.onTaskCompleted` which appends a `task.completed` event to the parent stream via the parent's `AtomicAppender`.
 2. On disband — query the parent stream for `task.completed` count *for this team's tasks*, populate `tasksCompleted` from that, append `team.disbanded`.
@@ -200,7 +200,7 @@ This is the right shape regardless of substrate — projections should be idempo
 
 ### #1117 — pruner multi-signal staleness
 
-`servers/exarchos-mcp/src/orchestrate/prune-stale-workflows.ts:96–173` gates staleness on `_checkpoint.lastActivityTimestamp`, refreshed by any MCP read. Add two secondary signals to `selectPruneCandidates`:
+`servers/exarchos-mcp/src/verbs/team/prune-stale-workflows.ts:96–173` gates staleness on `_checkpoint.lastActivityTimestamp`, refreshed by any MCP read. Add two secondary signals to `selectPruneCandidates`:
 
 - **`phaseTransitionTimestamp`** — last `workflow.transition` event's timestamp. Captures "stuck in phase X for N days" even when reads keep activity fresh.
 - **`branchActivity`** — `git log -1 --format=%ct` on the feature branch when the workflow tracks a branch. Captures "branch hasn't moved" as an independent signal.

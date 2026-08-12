@@ -190,7 +190,7 @@ through `resolveGateSet`. The ladder gate set is `check_static_analysis`,
 | M | `runbooks/definitions.ts:187` | `task-fix` runbook blocks on `check_tdd_compliance onFail:'stop'` — contradicts the advisory default and the sibling `task-completion` step (`:35` `onFail:'continue'`) |
 | L | `workflow/playbooks.ts:1079` (`overhaul-delegate`) | Prose calls `check_tdd_compliance` a "**mandatory** gate" **and** omits `verificationLadderGuidance()` — overhaul agents never see the ladder text |
 | L | `workflow/playbooks.ts:451` (`delegate`) | "mandatory" wording for the (advisory) tdd gate — milder; ladder text *is* appended |
-| M/Amb | `orchestrate/task-decomposition.ts:332` | `status = hasFiles && hasTests ? 'PASS' : 'FAIL'` — **every** task hard-FAILS decomposition without a test marker, no tier scaling (the gate the user flagged) |
+| M/Amb | `verbs/tasks/task-decomposition.ts:332` | `status = hasFiles && hasTests ? 'PASS' : 'FAIL'` — **every** task hard-FAILS decomposition without a test marker, no tier scaling (the gate the user flagged) |
 
 ---
 

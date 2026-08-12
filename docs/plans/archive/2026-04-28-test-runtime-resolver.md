@@ -43,7 +43,7 @@ Stage gating allows landing each stage as a separate PR if scope expands. Defaul
 **Phase:** RED only — these tests document current behavior; they MUST stay green throughout the refactor.
 
 1. **[RED]** Write characterization tests:
-   - File: `servers/exarchos-mcp/src/orchestrate/detect-test-commands.characterization.test.ts`
+   - File: `servers/exarchos-mcp/src/verbs/detect-test-commands.characterization.test.ts`
    - Tests:
      - `detect_NodeProject_ReturnsNpmRunTestRun` (package.json → npm)
      - `detect_PythonProject_ReturnsPytest` (pyproject.toml → pytest)
@@ -63,7 +63,7 @@ Stage gating allows landing each stage as a separate PR if scope expands. Defaul
 **Phase:** RED only.
 
 1. **[RED]** Write characterization tests:
-   - File: `servers/exarchos-mcp/src/orchestrate/verify-worktree-baseline.characterization.test.ts`
+   - File: `servers/exarchos-mcp/src/verbs/verify-worktree-baseline.characterization.test.ts`
    - Tests:
      - `detectProjectType_Node_ReturnsNpmRunTestRun`
      - `detectProjectType_DotNet_ReturnsDotnetTest`
@@ -81,7 +81,7 @@ Stage gating allows landing each stage as a separate PR if scope expands. Defaul
 **Phase:** RED only — captures BOTH current behavior AND the destructive failure mode that T09 will fix.
 
 1. **[RED]** Write characterization tests:
-   - File: `servers/exarchos-mcp/src/orchestrate/setup-worktree.characterization.test.ts`
+   - File: `servers/exarchos-mcp/src/verbs/setup-worktree.characterization.test.ts`
    - Tests:
      - `runNpmInstall_NoPackageJson_SkipsWithReason`
      - `runNpmInstall_NpmProject_RunsNpmInstall`
@@ -168,7 +168,7 @@ Stage gating allows landing each stage as a separate PR if scope expands. Defaul
 
 **Phase:** REFACTOR
 
-1. Delete inline detection from `servers/exarchos-mcp/src/orchestrate/detect-test-commands.ts`.
+1. Delete inline detection from `servers/exarchos-mcp/src/verbs/detect-test-commands.ts`.
 2. Re-export `detectTestCommands(repoRoot, override?)` as a thin compatibility wrapper around the resolver, mapping `ResolvedRuntime` → existing `TestCommands` shape.
 3. T01 characterization tests MUST still pass. Existing call sites unchanged.
 
@@ -282,7 +282,7 @@ Stage gating allows landing each stage as a separate PR if scope expands. Defaul
 **Phase:** RED → GREEN
 
 1. **[RED]** Tests:
-   - File: `servers/exarchos-mcp/src/orchestrate/init/seed-exarchos-config.test.ts`
+   - File: `servers/exarchos-mcp/src/verbs/init/seed-exarchos-config.test.ts`
    - `seed_NoExistingConfig_WritesDetectedCommands`
    - `seed_ExistingConfig_DoesNotOverwrite` (idempotent; no surprise changes)
    - `seed_DetectionUnresolved_WritesEmptyConfigWithComments` (helps user discover the file)

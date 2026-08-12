@@ -181,7 +181,7 @@ exarchos_orchestrate({
 })
 ```
 
-The orchestrate handler lives at `servers/exarchos-mcp/src/orchestrate/shepherd-auto.ts`. It accepts typed args matching a Zod schema registered in `registry.ts`. Both facades route through this single handler.
+The orchestrate handler lives at `servers/exarchos-mcp/src/verbs/shepherd-auto.ts`. It accepts typed args matching a Zod schema registered in `registry.ts`. Both facades route through this single handler.
 
 **Acceptance criteria:**
 - AC-6.1: CLI and MCP produce identical `ToolResult` output for the same inputs (parity test).

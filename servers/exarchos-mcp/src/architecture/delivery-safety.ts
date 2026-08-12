@@ -22,7 +22,7 @@ import { join } from 'node:path';
  * preserved by the mask so findings carry accurate line numbers.
  *
  * This is the same "string-aware static scan producing a typed verdict" shape as
- * `orchestrate/gate-ownership-census.ts`.
+ * `verbs/gates/gate-ownership-census.ts`.
  */
 
 export interface SwallowFinding {

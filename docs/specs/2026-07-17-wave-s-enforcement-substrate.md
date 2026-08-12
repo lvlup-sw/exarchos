@@ -113,7 +113,7 @@ The dispositions are **measured, not guessed** (the same standard DR-5 imposes o
 
 ### DR-6: Mutation NoCoverage becomes a blocking axis — carrier AND enforcement path
 
-`orchestrate/mutation-adequacy.ts`: the carrier's `mutationScore` definition is **unchanged** (`killed / (total − noCoverage)` — INV-5b: consumers keep their semantics). The change lands at every layer that decides pass/fail:
+`verbs/gates/mutation-adequacy.ts`: the carrier's `mutationScore` definition is **unchanged** (`killed / (total − noCoverage)` — INV-5b: consumers keep their semantics). The change lands at every layer that decides pass/fail:
 
 1. **Handler:** the `passed` computation (`:712`) gains a second, orthogonal knob: for diff-scoped runs, `passed = mutationScore >= threshold && noCoverage <= maxNoCoverage`, with `maxNoCoverage` defaulting to **0**. The carrier additively gains the fields the axis needs (`noCoverage` already exists; the failure message attributes NoCoverage to file/line).
 2. **Projection fold:** `views/workflow-state-projection.ts` folds the mutation `gate.executed` into `reviews['mutation-adequacy']` with `status:'pass'` **unconditionally** today (it carries `passed`, `mutationScore`, `skipped`, and `degraded` as fields — `noCoverage` is the one absent); the fold additively carries `noCoverage` so the enforcement guard can see the axis. Legacy events without the field fold exactly as before (INV-1).
@@ -186,7 +186,7 @@ Every script/gate added by DR-2..DR-9 follows the wave-1 DR-8 convention, extend
 
 - `.github/workflows/ci.yml` — skip-guards in `ci-gate` evaluate (DR-3); DR-4 disposition (either a `needs:` addition + evaluate clause, or allowlist rationale) + corrected comments; coverage-instrumented suite step + observe-mode mutation step in `test-mcp` (DR-5, DR-7); vocabulary-lint + ci-topology-test steps in the grep-gates tsx tail (DR-8, DR-2); type-debt step in the grep-gates zero-dep prefix (DR-9); `.test.sh` re-assert steps for the new check scripts (DR-10); host-class comments (DR-1). All `ci.yml` edits land serially (wave-1 discipline).
 - `scripts/` — `ci-topology.test.ts` + `__fixtures__/ci-topology/` (DR-2); `check-type-debt.mjs` + `type-debt-baseline.json` + `check-type-debt.test.sh` (DR-9); `check-coverage-ratchet.mjs` + self-test (DR-5); `check-mutation-gate.mjs` + self-test (DR-7); **`enforcer-wiring-manifest.json` — all new entries land in task 007 with the wiring** (DR-10).
-- `servers/exarchos-mcp/` — `src/orchestrate/mutation-adequacy.ts` (+tests) — two-knob `passed` (DR-6); `src/views/workflow-state-projection.ts` + `src/workflow/guards.ts` + `src/workflow/tools.ts` (+the composite injector) (+tests) — enforcement-path reach incl. `_maxNoCoverage` injection (DR-6); `vitest.config.ts` — `json-summary` reporter (DR-5); `package.json` + `package-lock.json` — pinned stryker devDeps (DR-7); stryker config + `scripts/stryker-adapter.mjs` (DR-7); `src/config/toolchains.ts` — corrected node-row `--since` comment documenting the adapter contract (DR-7); `coverage-baseline.json` (DR-5).
+- `servers/exarchos-mcp/` — `src/verbs/gates/mutation-adequacy.ts` (+tests) — two-knob `passed` (DR-6); `src/views/workflow-state-projection.ts` + `src/workflow/guards.ts` + `src/workflow/tools.ts` (+the composite injector) (+tests) — enforcement-path reach incl. `_maxNoCoverage` injection (DR-6); `vitest.config.ts` — `json-summary` reporter (DR-5); `package.json` + `package-lock.json` — pinned stryker devDeps (DR-7); stryker config + `scripts/stryker-adapter.mjs` (DR-7); `src/config/toolchains.ts` — corrected node-row `--since` comment documenting the adapter contract (DR-7); `coverage-baseline.json` (DR-5).
 - `.exarchos.yml` — `mutation:` toolchain entry → the adapter command (DR-7).
 - Docs: one canonical decision-table location (DR-1).
 
@@ -251,8 +251,8 @@ None blocking. The two empirical constants (coverage epsilon per metric, e2e-pro
 **Boundary Touching:** true
 **Implements:** DR-6
 **Files:**
-- `servers/exarchos-mcp/src/orchestrate/mutation-adequacy.ts` (the `passed` computation ~:712 gains the `maxNoCoverage` knob, default 0 for diff scope; failure message attributes NoCoverage to file/line; carrier evolution additive only)
-- `servers/exarchos-mcp/src/orchestrate/mutation-adequacy.test.ts` (extend)
+- `servers/exarchos-mcp/src/verbs/gates/mutation-adequacy.ts` (the `passed` computation ~:712 gains the `maxNoCoverage` knob, default 0 for diff scope; failure message attributes NoCoverage to file/line; carrier evolution additive only)
+- `servers/exarchos-mcp/src/verbs/gates/mutation-adequacy.test.ts` (extend)
 - `servers/exarchos-mcp/src/views/workflow-state-projection.ts` (~:530 — the `reviews['mutation-adequacy']` fold additively carries `noCoverage` alongside the existing `passed`/`mutationScore`/`skipped`/`degraded`)
 - `servers/exarchos-mcp/src/workflow/guards.ts` (~:382-398 — Check 4 block-mode enforcement additionally blocks on `noCoverage > maxNoCoverage` with an attributable reason; Check 4 stays pure — it reads a new pre-resolved `_maxNoCoverage` injection)
 - `servers/exarchos-mcp/src/workflow/tools.ts` + the composite adapter injection site (plumb `_maxNoCoverage` from resolved config exactly as `_mutationEnforcement`/`_mutationThreshold` are plumbed today)

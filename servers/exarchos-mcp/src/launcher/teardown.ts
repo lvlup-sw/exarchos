@@ -59,16 +59,16 @@ import {
   type GitRunner,
   type ReservationOwner,
   type ReleaseResult,
-} from '../orchestrate/worktree/manager.js';
+} from '../verbs/worktree/manager.js';
 import {
   probeWorktreeUsage,
   defaultProcessTableSource,
   type ProcessTableSource,
-} from '../orchestrate/worktree/pure/probe.js';
+} from '../verbs/worktree/pure/probe.js';
 import {
   defaultRealpath,
   type RealpathResolver,
-} from '../orchestrate/worktree/pure/path-containment.js';
+} from '../verbs/worktree/pure/path-containment.js';
 import { emitLaunchExecuted } from './liveness.js';
 import {
   recoverPendingCreations,

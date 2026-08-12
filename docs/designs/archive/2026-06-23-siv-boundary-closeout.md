@@ -4,7 +4,7 @@
 - **Feature id:** `siv-boundary-closeout`
 - **Status:** Design — feeds `/exarchos:plan`. No code committed.
 - **Closes:** the open `build:preview.4` tail of epic **#1515** (risk-proportional verification pipeline) — #1529 (SIV-3 Layer B), #1531 (SIV-5), #1532 (SIV-6), #1533 (SIV-7, **dropped**) — plus the measurement close **#1561** and its blocker **#1572**.
-- **Grounded against:** `docs/research/2026-06-06-structural-integration-verification.md` (the SIV-1…SIV-7 source), the live seams (`servers/exarchos-mcp/src/orchestrate/static-analysis.ts`, `config/toolchains.ts`, `cli-commands/subagent-stop.ts`, `orchestrate/onboard/hooks.ts`, `skills-src/implementation-planning/references/testing-strategy-guide.md`), and `.exarchos/invariants.md`.
+- **Grounded against:** `docs/research/2026-06-06-structural-integration-verification.md` (the SIV-1…SIV-7 source), the live seams (`servers/exarchos-mcp/src/verbs/pure/static-analysis.ts`, `config/toolchains.ts`, `cli-commands/subagent-stop.ts`, `verbs/onboard/hooks.ts`, `skills-src/implementation-planning/references/testing-strategy-guide.md`), and `.exarchos/invariants.md`.
 
 ---
 
@@ -40,7 +40,7 @@ Two user decisions (2026-06-23) shape the bundle:
 
 **Design.** Add a second boundary leg under the lint gate in `static-analysis.ts` — a **Semgrep-driven taint query** (`runRawIoTaint`) flagging the results of `JSON.parse` / `response.json()` / `req.body` / `fs.read*` that are **not immediately consumed by a registered parse function**. The parse boundary is a resolved convention (`parsers: ['src/parse/**']`), resolved like a toolchain entry so it is per-repo, not baked. The rule is **two-part** and must encode both halves or the guarantee is illusory: (a) a single parse boundary, **and** (b) no out-of-band `as Brand` / `as any` downstream — because Zod `.brand()` is compile-time-only and one stray cast defeats the whole scheme. Semgrep is the **first-class engine** here, not a non-TS fallback: the same committed `.semgrep/` ruleset expresses the guarantee across runtimes (guarantee agnostic, implementation per-runtime — INV-4 parity); absent the engine **or** its committed ruleset the leg SKIP/advisory-degrades exactly like Layer A, and only a real finding (semgrep exit 1) hard-FAILs. Couple it to the SIV-1 boundary axis so it routes on boundary-touching tasks only (R6 cheap-mix), not everywhere.
 
-**Files:** `orchestrate/static-analysis.ts` (the Layer-B leg), a `parse/` registry convention, `testing-strategy-guide.md` (R6 coupling). **Acceptance:** flags a raw `JSON.parse` into core not crossing a registered parser; passes when it does; flags a downstream `as Brand`; documented engine-absent degrade path; advisory-skips with no engine or no committed ruleset.
+**Files:** `verbs/pure/static-analysis.ts` (the Layer-B leg), a `parse/` registry convention, `testing-strategy-guide.md` (R6 coupling). **Acceptance:** flags a raw `JSON.parse` into core not crossing a registered parser; passes when it does; flags a downstream `as Brand`; documented engine-absent degrade path; advisory-skips with no engine or no committed ruleset.
 
 ---
 
@@ -78,13 +78,13 @@ Two user decisions (2026-06-23) shape the bundle:
 
 **Disposition:** fix the one real code gap (#1572 Gap 1), drive the live proof through Exarchos's own dispatch, document the Agent-tool gap.
 
-**Gap 1 — onboard hook symmetry (code).** `orchestrate/onboard/hooks.ts:installHook` writes **only** the `SessionStart` binding into `settings.json`; the plugin's `hooks/hooks.json` declares `SubagentStop → exarchos subagent-stop` (and `SessionEnd`), so **standalone-CLI** consumers silently get no per-subagent token attribution. Fix: extend `installHook` to also write the `SubagentStop` (and `SessionEnd`) bindings, **capability-gated** on `subagentStopEvent` / `sessionEndEvent` (INV-4), symmetric with the existing `SessionStart` path.
+**Gap 1 — onboard hook symmetry (code).** `verbs/onboard/hooks.ts:installHook` writes **only** the `SessionStart` binding into `settings.json`; the plugin's `hooks/hooks.json` declares `SubagentStop → exarchos subagent-stop` (and `SessionEnd`), so **standalone-CLI** consumers silently get no per-subagent token attribution. Fix: extend `installHook` to also write the `SubagentStop` (and `SessionEnd`) bindings, **capability-gated** on `subagentStopEvent` / `sessionEndEvent` (INV-4), symmetric with the existing `SessionStart` path.
 
 **The live proof (#1561).** `subagent-stop.ts:resolveTeammateByWorktree` attributes by matching the subagent `cwd` to a `worktreePath` carried on a `team.task.assigned` / `team.teammate.dispatched` event emitted **before** the agent runs. This works **only** when the orchestrator owns the worktree path — i.e. Exarchos's own **agent-team worktree dispatch**, *not* Claude-Code Agent-tool native isolation (where the harness assigns an opaque post-hoc `.claude/worktrees/agent-<id>` cwd the orchestrator cannot pre-declare; empirically 9 such dispatches produced 0 atoms). The closeout exploits this: **the SIV build work itself, delegated via Exarchos agent-team worktree dispatch, IS the representative batch** — we then confirm `exarchos_view team_performance` / `delegation_timeline` show non-empty per-teammate token metrics on the `siv-boundary-closeout` stream. Dogfood proof, no synthetic batch.
 
 **Gap 2 — Agent-tool incompatibility (documented, not built).** Because the orchestrator cannot pre-declare cwd *or* agent_id under native isolation, the option-(b) `agent_id` attribution path cannot serve that dispatch mode anyway; it is a harness limitation, not an Exarchos bug. Record it as a known INV-4 coverage gap (logged, never failed): *live token capture requires Exarchos agent-team worktree dispatch.* A post-hoc `subagent.tokens_unattributed` reconciliation is noted as a future option, not in this bundle.
 
-**Files:** `orchestrate/onboard/hooks.ts` (+ test), a coverage-gap note in `subagent-stop.ts` JSDoc / docs. **Acceptance (from #1561):** `subagent.tokens_used` present on a real feature stream after an isolated Exarchos-dispatch; per-teammate metrics non-empty in both views; the Agent-tool gap logged, never failed.
+**Files:** `verbs/onboard/hooks.ts` (+ test), a coverage-gap note in `subagent-stop.ts` JSDoc / docs. **Acceptance (from #1561):** `subagent.tokens_used` present on a real feature stream after an isolated Exarchos-dispatch; per-teammate metrics non-empty in both views; the Agent-tool gap logged, never failed.
 
 ---
 

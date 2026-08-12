@@ -139,7 +139,7 @@ The combinator evaluator and `resolveEffectiveCatalog` are pure functions in the
 
 - `servers/exarchos-mcp/src/architecture/invariants-loader.ts` — extend `InvariantEntry` + parsing (DR-1).
 - `servers/exarchos-mcp/src/review/check-catalog.ts` — reuse leaf execution + `PluginFinding` (DR-2/3).
-- `servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts` — new handler (DR-3).
+- `servers/exarchos-mcp/src/verbs/gates/check-invariant-conformance.ts` — new handler (DR-3).
 - `servers/exarchos-mcp/src/registry.ts` + `composite.ts` — register action (DR-3).
 - `servers/exarchos-mcp/src/config/exarchos-config-schema.ts` — `InvariantsConfigSchema` additive keys (DR-6).
 - `servers/exarchos-mcp/src/workflow/review-contract.ts` — add invariant-conformance dimension (DR-3/4).

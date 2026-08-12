@@ -25,8 +25,8 @@ import {
   type TaskInput,
   type TaskClassification,
   type RiskTier,
-} from '../../orchestrate/prepare-delegation.js';
-import { parseTaskStamps, type TaskStamp } from '../../orchestrate/parse-task-stamps.js';
+} from '../../verbs/team/prepare-delegation.js';
+import { parseTaskStamps, type TaskStamp } from '../../verbs/tasks/parse-task-stamps.js';
 import { DEFAULT_SPEC_DIR } from '../../config/artifacts.js';
 
 // ─── Corpus parsing ──────────────────────────────────────────────────────────

@@ -42,32 +42,32 @@
       "src/events/store.race.test.ts": [
         "MergeOrchestrate_TwoConcurrentInvocationsSameStream_NoDuplicateSequences"
       ],
-      "src/orchestrate/merge-orchestrate.api-refire.test.ts": [
+      "src/verbs/merge/merge-orchestrate.api-refire.test.ts": [
         "MergeOrchestrate_PostMigration_DoesNotRefireExecutorOnOccRetry"
       ],
-      "src/orchestrate/merge-orchestrate.busy.test.ts": [
+      "src/verbs/merge/merge-orchestrate.busy.test.ts": [
         "MergeOrchestrate_StorageBusyContention_RetriesViaWithStateRetryAndEventuallySucceeds"
       ],
-      "src/orchestrate/merge-orchestrate.integration.test.ts": [
+      "src/verbs/merge/merge-orchestrate.integration.test.ts": [
         "MergeOrchestrate_CrashAfterMergeExecutedAppendThenResume_AppendsExactlyOneMergeExecutedEvent",
         "eventTimeline_AfterRollback_NextActionsOmitMergeOrchestrate",
         "eventTimeline_RecoveryPath_ContainsMergeRecoveredWithCategorizedReason",
         "eventTimeline_TaskCompletedThroughMergeExecuted_FullyReconstructs"
       ],
-      "src/orchestrate/merge-orchestrate.migration.test.ts": [
+      "src/verbs/merge/merge-orchestrate.migration.test.ts": [
         "MergeOrchestrate_PostMigration_ProducesThreeEventSequence"
       ],
-      "src/orchestrate/merge-orchestrate.parity-harness.test.ts": [
+      "src/verbs/merge/merge-orchestrate.parity-harness.test.ts": [
         "Parity_MergeOrchestrate_CliAndMcpProduceIdenticalToolResult"
       ],
-      "src/orchestrate/merge-orchestrate.parity.test.ts": [
+      "src/verbs/merge/merge-orchestrate.parity.test.ts": [
         "mergeOrchestrate_CliAndMcpAdapters_ProduceIdenticalToolResult",
         "mergeOrchestrate_TopLevelCli_MatchesMcpToolResult"
       ],
-      "src/orchestrate/merge-orchestrate.race.test.ts": [
+      "src/verbs/merge/merge-orchestrate.race.test.ts": [
         "MergeOrchestrate_ConcurrentInvocations_OneWinsOneRetriesViaConcurrencyConflict"
       ],
-      "src/orchestrate/merge-orchestrate.test.ts": [
+      "src/verbs/merge/merge-orchestrate.test.ts": [
         "MergeOrchestrate_EnvSetAndAncestryFail_AppendsDebugBlockToEvent",
         "MergeOrchestrate_EnvUnsetAndAncestryFail_NoDebugBlockOnEvent",
         "MergeOrchestrate_PassingAncestryWithDebugInjected_DoesNotPersistDebug",

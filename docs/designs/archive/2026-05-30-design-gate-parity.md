@@ -156,7 +156,7 @@ description field) flow through `npm run build:skills` + `skills:guard`.
 
 ## Integration Points
 
-- The four gate handlers wire through `orchestrate/composite.ts`
+- The four gate handlers wire through `verbs/composite.ts`
   (`check_design_completeness`, etc.) and emit `gate.executed` events — behavior
   preserved; only the input-parsing branch changes.
 - `scripts/check-design-completeness.sh` is the parity reference for DR-1.

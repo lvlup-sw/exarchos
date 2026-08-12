@@ -749,7 +749,7 @@ export function factsDigest(facts: EdgeConditionFacts): ContentDigestV1 {
 // evidence store, so the shadow differential needs SOMETHING to judge when
 // nothing was recorded) — it is to stop treating it as the ONLY source. A
 // workflow's own append-only event log already carries real admission proof
-// facts: `admission.evidence-recorded` (written by `orchestrate/gate-runner.ts`
+// facts: `admission.evidence-recorded` (written by `verbs/gates/gate-runner.ts`
 // with an EXTERNAL producer identity and its own `createdAt`),
 // `admission.contradiction-recorded` and `admission.waiver-recorded`.
 // `workflow/tools.ts` hydrates that log onto `state._events` from the real

@@ -55,7 +55,7 @@ Remove the 18 modules re-verified dead on `main@b3a58d7a` (17 audit survivors �
 
 ### DR-2: Complete the overdue `merge.rollback` retirement without breaking replay
 
-Stop the legacy dual-emission in `orchestrate/execute-merge.ts` (~746-773) and remove the write-path surface (`event-store/schemas.ts` name list :156, categorization :624, data map :3199, type map :3519; projection cases; playbook/doc wording), while **preserving the fold of historical stores that contain `merge.rollback` events** (INV-1): the read side stays tolerant (retained read-only schema or an upcast to `merge.recovered` — decided in decomposition).
+Stop the legacy dual-emission in `verbs/pure/execute-merge.ts` (~746-773) and remove the write-path surface (`event-store/schemas.ts` name list :156, categorization :624, data map :3199, type map :3519; projection cases; playbook/doc wording), while **preserving the fold of historical stores that contain `merge.rollback` events** (INV-1): the read side stays tolerant (retained read-only schema or an upcast to `merge.recovered` — decided in decomposition).
 
 **Acceptance criteria:**
 - No production code path appends `merge.rollback`; `merge.recovered` is the sole recovery event.
@@ -144,7 +144,7 @@ The nearby trap, recorded so no task rediscovers it: **blocking is job-keyed, so
 
 ### DR-9: Remove the prune staleness knobs that are deprecated *and* ignored
 
-`thresholdMinutes` / `prune.staleAfterDays` have been deprecated and **ignored** since #1334, yet remain plumbed through `orchestrate/prune-stale-workflows.ts` (~:284, ~:800-807), `registry.ts` (~:2778), `config/resolve.ts` (type, default, read, assign), and — **fifth site, missed by the audit's census** — `workflow/describe-config.ts:81`, which live-reads *both* the resolved field and its default (`annotate(config.prune.staleAfterDays, DEFAULTS.prune.staleAfterDays)`). Removing the field from `config/resolve.ts` breaks that file at typecheck, so it is in scope, not a surprise. Removing all of it removes a config surface that lies: it accepts input and discards it.
+`thresholdMinutes` / `prune.staleAfterDays` have been deprecated and **ignored** since #1334, yet remain plumbed through `verbs/team/prune-stale-workflows.ts` (~:284, ~:800-807), `registry.ts` (~:2778), `config/resolve.ts` (type, default, read, assign), and — **fifth site, missed by the audit's census** — `workflow/describe-config.ts:81`, which live-reads *both* the resolved field and its default (`annotate(config.prune.staleAfterDays, DEFAULTS.prune.staleAfterDays)`). Removing the field from `config/resolve.ts` breaks that file at typecheck, so it is in scope, not a surprise. Removing all of it removes a config surface that lies: it accepts input and discards it.
 
 **The criterion is a symbol path, not a name.** "No production path reads either knob" is **not gradeable by name**: `thresholdMinutes` also exists as an unrelated per-signal contract field in `pruner/score.ts:85` and `topology/phase-contract.ts:55`, which this DR must **not** touch. The removal targets `config.prune.staleAfterDays` / the prune action's `thresholdMinutes` input specifically; a grep for the bare identifier is not evidence of completion and would produce false positives on two innocent modules.
 
@@ -162,7 +162,7 @@ Two distinct duplications, both re-verified in production code:
 1. **`config/test-runtime-resolver.ts`** — duplicated pnpm/yarn/npm missing-script branches (~266-325) and triplicated per-field event construction (~495-556). ~50–80 ln. Table-drive both.
 2. **~165 ln of cross-file clones** — gate preflight + policy-skip emission (the `contract-drift` / `mock-boundary` / `test-adequacy` / `check-integration-suite` / `static-analysis` handlers), VCS `computeOverallCiStatus` (azure-devops / gitlab / github), composite `envelopeWrap`, projection data-extractors (`rehydration` ↔ `taskstore` reducers), and oneshot-state validation (`finalize-oneshot` / `request-synthesize`).
 
-**`envelopeWrap` is a four-copy clone, and the whole set is in scope.** Measured on this branch, the identical `(result: ToolResult, startedAt: number) => ToolResult` signature is defined **four** times — `views/composite.ts:62`, `workflow/composite.ts:37`, `orchestrate/composite.ts:634`, `event-store/composite.ts:88` — plus an `envelopeWrapWithCacheHints` variant at `workflow/composite.ts:61`. All four are in scope, and the variant is reconciled against the shared helper or explicitly justified as distinct behavior. **Nothing in this feature detects a residual clone** — knip covers files/exports/types, module-intent covers 0-importer modules, `no-circular` covers cycles — so a partial collapse would stand under a green ratchet indefinitely. Where a clone set is named, it is taken whole.
+**`envelopeWrap` is a four-copy clone, and the whole set is in scope.** Measured on this branch, the identical `(result: ToolResult, startedAt: number) => ToolResult` signature is defined **four** times — `views/composite.ts:62`, `workflow/composite.ts:37`, `verbs/composite.ts:634`, `event-store/composite.ts:88` — plus an `envelopeWrapWithCacheHints` variant at `workflow/composite.ts:61`. All four are in scope, and the variant is reconciled against the shared helper or explicitly justified as distinct behavior. **Nothing in this feature detects a residual clone** — knip covers files/exports/types, module-intent covers 0-importer modules, `no-circular` covers cycles — so a partial collapse would stand under a green ratchet indefinitely. Where a clone set is named, it is taken whole.
 
 **Non-goal (pinned):** the `execute-merge ↔ merge-orchestrate` 66-ln clone **stays** — it is a migration/deprecation seam whose duplication is load-bearing, held equivalent by frozen parity tests. Collapsing it would delete the equivalence proof.
 
@@ -177,7 +177,7 @@ Two distinct duplications, both re-verified in production code:
 
 Both tsconfigs are `strict: true` but omit `noUncheckedIndexedAccess` (+346 errors) and `exactOptionalPropertyTypes` (+186). Fix per-area, then flip each flag to lock it. 532 mechanical fixes (the counts are the audit's targeting guidance and are re-measured by their tasks).
 
-**The `as unknown as` type-debt register is deferred to #1711**, not dropped. It needs an identity function this spec cannot supply: `{symbol, file}` cannot distinguish the multiple casts that share a file (`orchestrate/composite.ts` alone holds 13), so a subset register would pass a completeness check exactly where the debt concentrates; `{file, line, column}` churns on every edit and would be invalidated wholesale by this DR's own 532-fix wave. The census is also undefined — a naive scan returns 98 sites but includes a `.d.ts`, a `__shims__` module, a `.bench.ts`, and a `__tests__` fixture. A register with no workable key is a snapshot, and an unread snapshot is the documented-but-unwired decay this feature exists to stop; better to name the design question than to ship the thing the feature indicts.
+**The `as unknown as` type-debt register is deferred to #1711**, not dropped. It needs an identity function this spec cannot supply: `{symbol, file}` cannot distinguish the multiple casts that share a file (`verbs/composite.ts` alone holds 13), so a subset register would pass a completeness check exactly where the debt concentrates; `{file, line, column}` churns on every edit and would be invalidated wholesale by this DR's own 532-fix wave. The census is also undefined — a naive scan returns 98 sites but includes a `.d.ts`, a `__shims__` module, a `.bench.ts`, and a `__tests__` fixture. A register with no workable key is a snapshot, and an unread snapshot is the documented-but-unwired decay this feature exists to stop; better to name the design question than to ship the thing the feature indicts.
 
 **Acceptance criteria:**
 - Both flags on in **every** tsconfig — root, `servers/exarchos-mcp`, and the eval workspace DR-3 creates — with **every** typecheck green. The root typecheck does not cover `servers/exarchos-mcp`, so "typecheck passes" without the server run is not evidence; and an eval workspace exempt from the flags would be a strict-flag hole this program opened itself.
@@ -249,16 +249,16 @@ What they share is a **contract**, not a row: every entry, whatever its key, car
 
 ## Integration Points
 
-- `servers/exarchos-mcp/src/orchestrate/execute-merge.ts` — remove legacy dual-emission (DR-2)
+- `servers/exarchos-mcp/src/verbs/pure/execute-merge.ts` — remove legacy dual-emission (DR-2)
 - `servers/exarchos-mcp/src/event-store/schemas.ts` — retire write-path `merge.rollback` entries (DR-2)
 - `servers/exarchos-mcp/package.json` + `evals/graders/llm-{rubric,similarity}.ts` + `.github/workflows/eval-gate.yml` — promptfoo isolation (DR-3)
 - `.dependency-cruiser.cjs` + `dispatch/core/dispatch.ts`/`*/composite.ts` import edges — cycle gate (DR-4)
 - `scripts/` (new `check-enforcer-wiring.mjs`, `check-module-intent.mjs`) + `.github/workflows/ci.yml` grep-gates block (DR-5, DR-7)
 - `scripts/validate-no-legacy.sh` knip args + new allowlist file (DR-6)
 - The 6 reserved-stub module headers (DR-7)
-- `servers/exarchos-mcp/src/orchestrate/prune-stale-workflows.ts` (declaration ~:284, **validation branch ~:761-773**, deprecation warn ~:800-807) + `registry.ts` (~:2778) + `config/resolve.ts` (type :84, default :232, read :473, assign :509) + `workflow/describe-config.ts` (~:81) — prune knob removal (DR-9)
+- `servers/exarchos-mcp/src/verbs/team/prune-stale-workflows.ts` (declaration ~:284, **validation branch ~:761-773**, deprecation warn ~:800-807) + `registry.ts` (~:2778) + `config/resolve.ts` (type :84, default :232, read :473, assign :509) + `workflow/describe-config.ts` (~:81) — prune knob removal (DR-9)
 - `servers/exarchos-mcp/src/config/test-runtime-resolver.ts` (~266-325, ~495-556) — table-driving (DR-10)
-- Gate handlers (`orchestrate/contract-drift.ts`, `mock-boundary.ts`, `test-adequacy.ts`, `check-integration-suite.ts`, `pure/static-analysis.ts`), `src/vcs/{github,gitlab,azure-devops}.ts` `computeOverallCiStatus`, **all four** composite `envelopeWrap` sites (`views/composite.ts:62`, `workflow/composite.ts:37`, `orchestrate/composite.ts:634`, `event-store/composite.ts:88`) plus `envelopeWrapWithCacheHints` (`workflow/composite.ts:61`), `projections/rehydration/reducer.ts` ↔ `projections/taskstore/reducer.ts`, `orchestrate/finalize-oneshot.ts`/`request-synthesize.ts` — clone extraction (DR-10)
+- Gate handlers (`verbs/gates/contract-drift.ts`, `mock-boundary.ts`, `test-adequacy.ts`, `check-integration-suite.ts`, `pure/static-analysis.ts`), `src/vcs/{github,gitlab,azure-devops}.ts` `computeOverallCiStatus`, **all four** composite `envelopeWrap` sites (`views/composite.ts:62`, `workflow/composite.ts:37`, `verbs/composite.ts:634`, `event-store/composite.ts:88`) plus `envelopeWrapWithCacheHints` (`workflow/composite.ts:61`), `projections/rehydration/reducer.ts` ↔ `projections/taskstore/reducer.ts`, `verbs/tasks/finalize-oneshot.ts`/`request-synthesize.ts` — clone extraction (DR-10)
 - `tsconfig.json` (root) + `servers/exarchos-mcp/tsconfig.json` — strict-flag ratchet (DR-14)
 - `.exarchos/invariants.md` catalog entries + `check_invariant_conformance` gate registration (DR-15)
 - `docs/plans`, `docs/designs`, `documentation/public/logo.svg` (DR-18)
@@ -367,7 +367,7 @@ The decomposition maps every task to one or more DR-N from the section above.
 **Boundary Touching:** false
 **Implements:** DR-1
 **Files:**
-- `servers/exarchos-mcp/src/benchmarks/emit-results.ts`, `quality/regression-eval-generator.ts`, `orchestrate/detect-test-commands.ts`, `mcp/tools-call-handler.ts`, `telemetry/benchmarks/helpers.ts`, `orchestrate/tools-config.ts` (+ co-located/characterization tests, incl. `orchestrate/tools-config-wiring.test.ts`) (delete)
+- `servers/exarchos-mcp/src/benchmarks/emit-results.ts`, `quality/regression-eval-generator.ts`, `verbs/detect-test-commands.ts`, `mcp/tools-call-handler.ts`, `telemetry/benchmarks/helpers.ts`, `verbs/tools-config.ts` (+ co-located/characterization tests, incl. `verbs/tools-config-wiring.test.ts`) (delete)
 - `servers/exarchos-mcp/src/quality/__tests__/flywheel-integration.test.ts` (partial rewrite — cross-module integration test importing `generateRegressionEval`/`writeAutoRegressionCase`; drop only those paths, preserve its live coverage of calibrated-correlation, refinement-signal, hints, and the code-quality/eval-results views)
 - stale **prose** references to the deleted detect-test-commands module: `servers/exarchos-mcp/src/config/exarchos-config-schema.ts` (~:7), `servers/exarchos-mcp/src/config/vendor/package-manager-detector/README.md` (~:14). (A third stale comment lives in the test-runtime resolver ~:12 and is fixed by **Task 017**, which owns that file — putting it here would collide with 017's table-driving.)
 **Verification:** scoped: server typecheck + suite; `knip.json` reference to `telemetry/benchmarks/helpers` cleaned; **no comment describes a module this task deletes** — nothing breaks if these survive (they are prose), but DR-7's module-intent gate reads reachability, not prose, so nothing else in this feature would ever catch them. This is the doc-rot the feature is nominally against.
@@ -395,13 +395,13 @@ The decomposition maps every task to one or more DR-N from the section above.
 **Boundary Touching:** true
 **Implements:** DR-2
 **Files:**
-- `servers/exarchos-mcp/src/orchestrate/execute-merge.ts` (drop legacy append ~746-773)
+- `servers/exarchos-mcp/src/verbs/pure/execute-merge.ts` (drop legacy append ~746-773)
 - `servers/exarchos-mcp/src/event-store/schemas.ts` (write-path entries; read-tolerance decision)
 - **all** fold/consumer sites of the event (typecheck breaks at each if the type-map entry is dropped): `views/workflow-state-projection.ts` (case ~:587), `projections/rehydration/reducer.ts` (case ~:947), `workflow/hsm-definitions.ts` (string-compare in merge-pending-exit guard ~:143), merge-orchestrator projections
 - `servers/exarchos-mcp/src/runbooks/definitions.ts` `autoEmits` (~:682) + `definitions.test.ts` pin; `registry.ts` `merge.rollback` emission declaration (~:2268)
 - event-type census pins in **both** schema suites: `event-store/schemas.test.ts` (count :584, membership :2888) and `__tests__/event-store/schemas.test.ts` (:486-532); `views/workflow-state-projection.test.ts` (:1206 folds the event)
-- `servers/exarchos-mcp/src/orchestrate/execute-merge.test.ts` (update: no legacy append asserted)
-- the remaining `merge.rollback`-bearing suites, all inside this task's blast radius: `servers/exarchos-mcp/src/orchestrate/execute-merge.deprecation-parity.test.ts` (6 refs — DR-10 pins this clone's parity tests as the equivalence proof, so it is load-bearing here), `servers/exarchos-mcp/src/projections/merge-orchestrator/reducer.test.ts` (13), `servers/exarchos-mcp/src/orchestrate/merge-orchestrate.integration.test.ts` (4), `servers/exarchos-mcp/src/projections/rehydration/reducer.test.ts` (2), `servers/exarchos-mcp/src/orchestrate/execute-merge.migration.test.ts` (1), `servers/exarchos-mcp/src/workflow/state-machine.test.ts` (1)
+- `servers/exarchos-mcp/src/verbs/pure/execute-merge.test.ts` (update: no legacy append asserted)
+- the remaining `merge.rollback`-bearing suites, all inside this task's blast radius: `servers/exarchos-mcp/src/verbs/merge/execute-merge.deprecation-parity.test.ts` (6 refs — DR-10 pins this clone's parity tests as the equivalence proof, so it is load-bearing here), `servers/exarchos-mcp/src/projections/merge-orchestrator/reducer.test.ts` (13), `servers/exarchos-mcp/src/verbs/merge/merge-orchestrate.integration.test.ts` (4), `servers/exarchos-mcp/src/projections/rehydration/reducer.test.ts` (2), `servers/exarchos-mcp/src/verbs/merge/execute-merge.migration.test.ts` (1), `servers/exarchos-mcp/src/workflow/state-machine.test.ts` (1)
 - `servers/exarchos-mcp/src/projections/merge-rollback-replay.regression.test.ts` (new: fixture log with legacy `merge.rollback` events folds to identical state across **all three** folding reducers, and the HSM merge-pending-exit guard behaves identically)
 **Expected tests:** `executeMerge_RecoveryPath_EmitsOnlyMergeRecovered`, `executeMerge_RecoveryPath_NoLegacyRollbackAppend`, `replayFixture_LegacyRollbackEvents_FoldsToIdenticalWorkflowState`, `schemas_MergeRollback_ReadTolerantButNotEmittable`
 **Verification:** high rung: scoped tests + `check_test_adequacy` kill-probe + integration suite; replay fixture containing legacy `merge.rollback` events folds to identical state; parity tests green
@@ -417,7 +417,7 @@ The decomposition maps every task to one or more DR-N from the section above.
 **Files:**
 - `skills-src/**` mentions (edit source, `npm run build:skills`, commit both)
 - `docs/**` and `workflow/playbooks.ts` wording where `merge.rollback` is described as current
-- `src/**` comments describing the retired event as current: `servers/exarchos-mcp/src/orchestrate/merge-keys.ts` (~:5, lists it among "the four append sites") and `servers/exarchos-mcp/src/projections/rehydration/schema.ts` (~:101)
+- `src/**` comments describing the retired event as current: `servers/exarchos-mcp/src/verbs/merge/merge-keys.ts` (~:5, lists it among "the four append sites") and `servers/exarchos-mcp/src/projections/rehydration/schema.ts` (~:101)
 - `src/**` comments describing Task 002's deleted verbs as live: `servers/exarchos-mcp/src/event-store/schemas.ts` (~:329, :753, :2873, :2878 — documents `mutation.executing_started`/`mutation.executed` as "emitted by the `exarchos run-mutation` CLI verb") and `servers/exarchos-mcp/src/event-store/liveness-registry.ts` (~:25, :187)
 **Scope note:** this task exists because **nothing else in this feature catches stale prose** — the module-intent gate reads reachability, knip reads exports, neither reads comments. It sweeps both DR-1's deleted verbs and DR-2's retired event in one pass, and lands after 006 restructures `schemas.ts` so the two do not contend on it.
 **Verification:** static: skills:guard green (INV-4 — no direct `skills/**` edits); grep shows no doc **or `src/**` comment** claims `merge.rollback` is still emitted or that the deleted CLI verbs are live
@@ -470,7 +470,7 @@ The task's evidence is a PR touching only the relocated evals that still trigger
 **Boundary Touching:** false
 **Implements:** DR-4, DR-8
 **Files:**
-- `.dependency-cruiser.cjs` (no-circular under DR-4's pinned semantics, at **non-error severity** — the shared config has an existing consumer, `runBoundaryLint` in `orchestrate/pure/static-analysis.ts:208`, which runs bare `depcruise --validate` and folds any non-zero exit into `check_static_analysis` FAIL; blocking is enforced only by the gate script below)
+- `.dependency-cruiser.cjs` (no-circular under DR-4's pinned semantics, at **non-error severity** — the shared config has an existing consumer, `runBoundaryLint` in `verbs/pure/static-analysis.ts:208`, which runs bare `depcruise --validate` and folds any non-zero exit into `check_static_analysis` FAIL; blocking is enforced only by the gate script below)
 - `scripts/audit/cycle-baseline.json` (finalized from Task 009's draft — depcruise has no native owner/issue metadata; entries are **edge-keyed** `{rule, from, to, owner, rationale, issue, expires | permanent: true}`. **`owner` is added** so the baseline meets the shared entry contract — DR-6's "every entry names an owner and an expiry, enforced by the schema" was unsatisfiable for this file while it had no owner field)
 - new gate script over depcruise JSON output: FAILS on unbaselined cycle, expired entry, entry matching no current violation, and tool-missing/unparseable output
 - `.github/workflows/ci.yml` — add the gate step to **`grep-gates`**, which currently runs **no** `npm ci`: add a root-only install step (the server/promptfoo closure is never installed there). `grep-gates` is already in `ci-gate`'s `needs:`, so the step blocks on merge (DR-8) — no aggregator edit. Plus root `package.json` (hoist `dependency-cruiser` to root devDependencies so the gate runs without the server install)
@@ -537,7 +537,7 @@ The task's evidence is a PR touching only the relocated evals that still trigger
 **Boundary Touching:** false
 **Implements:** DR-7
 **Files:**
-- `orchestrate/vcs/push-with-lease.ts` (#1596), `runtime/command-shim-emitter.ts` (#1590/#1609), `projections/diff-states.ts` (#1475), `workflow/depth-proposal.ts` (#1581), `projections/bisect.ts` (#1555), `mcp/tasks-methods.ts` (#1273) — header-only edits: `RESERVED(issue, owner, expires)` per the 013 format
+- `verbs/vcs/push-with-lease.ts` (#1596), `runtime/command-shim-emitter.ts` (#1590/#1609), `projections/diff-states.ts` (#1475), `workflow/depth-proposal.ts` (#1581), `projections/bisect.ts` (#1555), `mcp/tasks-methods.ts` (#1273) — header-only edits: `RESERVED(issue, owner, expires)` per the 013 format
 **Verification:** static: typecheck; 013's parser accepts all six headers
 **Dependencies:** None (header format agreed with 013; can land first)
 **Parallelizable:** Yes
@@ -563,7 +563,7 @@ The task's evidence is a PR touching only the relocated evals that still trigger
 **Boundary Touching:** true
 **Implements:** DR-9
 **Files:**
-- `servers/exarchos-mcp/src/orchestrate/prune-stale-workflows.ts` (~:284, ~:800-807 — remove read + plumbing)
+- `servers/exarchos-mcp/src/verbs/team/prune-stale-workflows.ts` (~:284, ~:800-807 — remove read + plumbing)
 - `servers/exarchos-mcp/src/registry.ts` (~:2778 — remove the schema field; the CLI flag is auto-emitted from it and must disappear with it)
 - `servers/exarchos-mcp/src/config/resolve.ts` (type, default, read, assign)
 - `servers/exarchos-mcp/src/workflow/describe-config.ts` (~:81 — the fifth plumbing site: `annotate(config.prune.staleAfterDays, DEFAULTS.prune.staleAfterDays)` live-reads both the field and its default; removing the field from `resolve.ts` breaks this at typecheck) + `servers/exarchos-mcp/src/workflow/describe-config.test.ts`
@@ -593,8 +593,8 @@ The task's evidence is a PR touching only the relocated evals that still trigger
 **Boundary Touching:** false
 **Implements:** DR-10
 **Files:**
-- `servers/exarchos-mcp/src/orchestrate/contract-drift.ts`, `servers/exarchos-mcp/src/orchestrate/mock-boundary.ts`, `servers/exarchos-mcp/src/orchestrate/test-adequacy.ts`, `servers/exarchos-mcp/src/orchestrate/check-integration-suite.ts`, `servers/exarchos-mcp/src/orchestrate/pure/static-analysis.ts` (preflight + policy-skip emission → shared helper)
-- `servers/exarchos-mcp/src/orchestrate/pure/gate-preflight.ts` (new leaf helper) + `servers/exarchos-mcp/src/orchestrate/pure/gate-preflight.test.ts`
+- `servers/exarchos-mcp/src/verbs/gates/contract-drift.ts`, `servers/exarchos-mcp/src/verbs/gates/mock-boundary.ts`, `servers/exarchos-mcp/src/verbs/gates/test-adequacy.ts`, `servers/exarchos-mcp/src/verbs/gates/check-integration-suite.ts`, `servers/exarchos-mcp/src/verbs/pure/static-analysis.ts` (preflight + policy-skip emission → shared helper)
+- `servers/exarchos-mcp/src/verbs/pure/gate-preflight.ts` (new leaf helper) + `servers/exarchos-mcp/src/verbs/pure/gate-preflight.test.ts`
 **Verification:** medium rung: scoped tests + adequacy probe; each of the five handlers' existing tests pass **unmodified**; the policy-skip emission keeps identical event shape per handler (a shared emitter must not coalesce or re-label them)
 **Dependencies:** 005
 **Parallelizable:** Yes (after 005)
@@ -607,9 +607,9 @@ The task's evidence is a PR touching only the relocated evals that still trigger
 **Implements:** DR-10
 **Files:**
 - `servers/exarchos-mcp/src/vcs/github.ts`, `servers/exarchos-mcp/src/vcs/gitlab.ts`, `servers/exarchos-mcp/src/vcs/azure-devops.ts` — `computeOverallCiStatus` → shared helper
-- **all four** `envelopeWrap` definitions → one shared helper: `servers/exarchos-mcp/src/views/composite.ts` (~:62), `servers/exarchos-mcp/src/workflow/composite.ts` (~:37), `servers/exarchos-mcp/src/orchestrate/composite.ts` (~:634), `servers/exarchos-mcp/src/event-store/composite.ts` (~:88); plus `envelopeWrapWithCacheHints` (`workflow/composite.ts` ~:61) — reconciled against the shared helper or justified in-task as distinct behavior
+- **all four** `envelopeWrap` definitions → one shared helper: `servers/exarchos-mcp/src/views/composite.ts` (~:62), `servers/exarchos-mcp/src/workflow/composite.ts` (~:37), `servers/exarchos-mcp/src/verbs/composite.ts` (~:634), `servers/exarchos-mcp/src/event-store/composite.ts` (~:88); plus `envelopeWrapWithCacheHints` (`workflow/composite.ts` ~:61) — reconciled against the shared helper or justified in-task as distinct behavior
 - `servers/exarchos-mcp/src/projections/rehydration/reducer.ts`, `servers/exarchos-mcp/src/projections/taskstore/reducer.ts` — shared data-extractors
-- `servers/exarchos-mcp/src/orchestrate/finalize-oneshot.ts`, `servers/exarchos-mcp/src/orchestrate/request-synthesize.ts` — shared oneshot-state validation
+- `servers/exarchos-mcp/src/verbs/tasks/finalize-oneshot.ts`, `servers/exarchos-mcp/src/verbs/team/request-synthesize.ts` — shared oneshot-state validation
 - `servers/exarchos-mcp/src/projections/clone-extraction-fold.regression.test.ts` (new: fixture log folds identically through both reducers before and after extraction)
 **Expected tests:** `ComputeOverallCiStatus_GitLabPartialProvider_StillThrows`, `ComputeOverallCiStatus_AzureDevOpsPartialProvider_StillThrows`, `Reducers_SharedExtractors_FoldFixtureLogIdentically`, `EnvelopeWrap_AllFourCallsites_IdenticalEnvelopeShape`
 **Verification:** high rung: scoped tests + `check_test_adequacy` kill-probe + integration suite; **the existing tests of every touched module pass unmodified** — a test edited to accommodate a helper is a design smell and fails DR-10; **per-provider CI-status paths tested separately including the by-design throws** (GitLab/ADO are partial `VcsProvider`s — a helper that swallows or normalizes those throws changes behavior); reducer folds byte-identical on a fixture log (INV-1); **zero residual `envelopeWrap` definitions** outside the shared helper (grep is sufficient here — this is a definition count, not a semantic claim); the `execute-merge ↔ merge-orchestrate` 66-ln clone is **untouched** (pinned non-goal — its parity tests are the equivalence proof)

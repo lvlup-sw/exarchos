@@ -12,7 +12,7 @@
 //
 // All four surfaces append to a REAL EventStore (per-test tmp dir): merge / launch
 // / prune through their own emission seams, and mutation through the LIVE
-// `orchestrate/mutation-adequacy.ts` handler, which brackets the injected run with
+// `verbs/gates/mutation-adequacy.ts` handler, which brackets the injected run with
 // the INV-10 liveness pair and stamps the canonical `operationId` as `instanceId`.
 // `EventStore.append` validates only the envelope, so every emitted `data` is
 // re-parsed here with the surface's exported schema — that is the real validator
@@ -39,7 +39,7 @@ import {
 } from './schemas.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 import type { DispatchContext } from '../dispatch/core/dispatch.js';
-import { handleExecuteMerge } from '../orchestrate/execute-merge.js';
+import { handleExecuteMerge } from '../verbs/merge/execute-merge.js';
 // Side-effect: register `merge-orchestrator@v1` so the executor's Phase A
 // `decide` closure can resolve the reducer against a real EventStore.
 import '../projections/merge-orchestrator/index.js';
@@ -47,11 +47,11 @@ import {
   emitLaunchExecutingStarted,
   emitLaunchExecuted,
 } from '../launcher/liveness.js';
-import { WorktreeManager, WORKTREES_STREAM } from '../orchestrate/worktree/manager.js';
+import { WorktreeManager, WORKTREES_STREAM } from '../verbs/worktree/manager.js';
 import {
   handleMutationAdequacy,
   type MutationRunResult,
-} from '../orchestrate/mutation-adequacy.js';
+} from '../verbs/gates/mutation-adequacy.js';
 import type { ResolvedVerificationRuntime } from '../config/test-runtime-resolver.js';
 
 const scratchDirs: string[] = [];
@@ -198,7 +198,7 @@ describe('DR-2 liveness emitters', () => {
     }
 
     // ── mutation: instanceId = operationId (through the LIVE emission path) ────
-    // Drive the genuinely-live emitter — `orchestrate/mutation-adequacy.ts`
+    // Drive the genuinely-live emitter — `verbs/gates/mutation-adequacy.ts`
     // brackets the injected mutation run with the INV-10 liveness pair, stamping
     // `args.operationId` as the canonical `instanceId` on BOTH events (mirroring the
     // now-deleted run-mutation CLI shim, whose liveness surface this handler owns —

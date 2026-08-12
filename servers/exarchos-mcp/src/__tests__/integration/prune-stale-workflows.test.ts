@@ -1,7 +1,7 @@
 // ─── T15: End-to-End Integration Test — Prune Stale Workflows ───────────────
 //
 // Complements the unit tests in
-// `orchestrate/prune-stale-workflows.test.ts` by exercising the handler
+// `verbs/team/prune-stale-workflows.test.ts` by exercising the handler
 // against real on-disk state files via `handleInit`/`handleCancel` plus a
 // real `EventStore` rooted at a `mkdtemp` directory. The only seams we
 // stub are the safeguards (`hasOpenPR`, `hasRecentCommits`) — everything
@@ -26,7 +26,7 @@ import {
   type PruneHandlerDeps,
   type PruneHandlerResult,
   type PruneSafeguards,
-} from '../../orchestrate/prune-stale-workflows.js';
+} from '../../verbs/team/prune-stale-workflows.js';
 import { handleList } from '../../workflow/tools.js';
 import { handleCancel } from '../../workflow/cancel.js';
 import { EventStore } from '../../events/store.js';

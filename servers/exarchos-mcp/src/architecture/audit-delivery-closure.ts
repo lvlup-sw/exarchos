@@ -41,7 +41,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { TOOL_REGISTRY } from '../registry.js';
-import { extractEnvelopeDataSchema } from '../orchestrate/worktree/schemas.js';
+import { extractEnvelopeDataSchema } from '../verbs/worktree/schemas.js';
 import {
   AUDIT_DELIVERY_OBLIGATIONS,
   requiredDirectiveTokens,

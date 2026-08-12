@@ -9,7 +9,7 @@ on:
       - 'evals/**'
       - 'servers/exarchos-mcp/src/workflow/playbooks.ts'
       - 'servers/exarchos-mcp/src/cli-commands/**'
-      - 'servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts'
+      - 'servers/exarchos-mcp/src/verbs/team/prepare-delegation.ts'
       - 'servers/exarchos-mcp/src/evals/**'
       # Opt-in eval package (DR-3): owns the promptfoo dep the graders
       # dynamic-import. A change here must re-run the eval gate.

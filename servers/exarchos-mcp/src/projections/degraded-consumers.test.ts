@@ -48,7 +48,7 @@ import type { ToolResult } from '../format.js';
 import { EventStore } from '../events/store.js';
 import { handleView } from './views/composite.js';
 import { handleWorkflow } from '../workflow/composite.js';
-import { handleOrchestrate } from '../orchestrate/composite.js';
+import { handleOrchestrate } from '../verbs/composite.js';
 import { getOrCreateMaterializer } from './views/tools.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 import {

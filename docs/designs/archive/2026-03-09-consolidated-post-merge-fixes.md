@@ -275,7 +275,7 @@ try {
 
 Port all validation logic into the existing TypeScript handler files. Each handler already exists — remove the `execFileSync` call and replace with inline TypeScript logic that returns structured results directly.
 
-**`src/orchestrate/plan-coverage.ts` — port `verify-plan-coverage.sh` logic:**
+**`src/verbs/gates/plan-coverage.ts` — port `verify-plan-coverage.sh` logic:**
 
 Pure TypeScript implementation of:
 - `parseDesignSections(content: string)`: Extract `###`/`####` headers under `## Technical Design`, `## Design Requirements`, or `## Requirements` (case-insensitive). Hierarchical: prefer `####` subsections when they exist under a `###`.
@@ -287,7 +287,7 @@ Pure TypeScript implementation of:
 
 Return `PlanCoverageResult` directly — no stdout parsing.
 
-**`src/orchestrate/design-completeness.ts` — port `verify-ideate-artifacts.sh` logic:**
+**`src/verbs/pure/design-completeness.ts` — port `verify-ideate-artifacts.sh` logic:**
 
 Pure TypeScript implementation of:
 - `resolveDesignFile(stateFile, docsDir?, designFile?)`: Resolve from args, state JSON, or docs directory.
@@ -297,7 +297,7 @@ Pure TypeScript implementation of:
 
 No `jq` dependency — use `JSON.parse` + `fs.readFile`.
 
-**`src/orchestrate/task-decomposition.ts` — port `check-task-decomposition.sh` logic:**
+**`src/verbs/tasks/task-decomposition.ts` — port `check-task-decomposition.sh` logic:**
 
 Pure TypeScript implementation of:
 - `parseTaskBlocks(content: string)`: Extract task ID + content blocks.
@@ -307,15 +307,15 @@ Pure TypeScript implementation of:
 
 **Additional 9 scripts to port (same pattern — remove `execFileSync`, implement in TypeScript):**
 
-- `src/orchestrate/security-scan.ts` ← `scripts/security-scan.sh`: Regex-based credential/secret pattern scanning. Port grep patterns to TypeScript regex.
-- `src/orchestrate/review-verdict.ts` ← `scripts/review-verdict.sh`: Parse PR review status. Port `gh` CLI output parsing to TypeScript (or use GitHub API directly).
-- `src/orchestrate/static-analysis.ts` ← `scripts/static-analysis-gate.sh`: Invoke `tsc --noEmit`, lint, test status. Note: this script legitimately shells out to external tools — port the orchestration logic but keep `execFileSync` for external tool invocation (tsc, eslint) with proper error handling.
-- `src/orchestrate/provenance-chain.ts` ← `scripts/verify-provenance-chain.sh`: File existence + content cross-reference. Pure string analysis, straightforward port.
-- `src/orchestrate/context-economy.ts` ← `scripts/check-context-economy.sh`: Token/context metrics. Port metric extraction to TypeScript.
-- `src/orchestrate/operational-resilience.ts` ← `scripts/check-operational-resilience.sh`: Error handling pattern validation. Port grep patterns to TypeScript regex.
-- `src/orchestrate/tdd-compliance.ts` ← `scripts/check-tdd-compliance.sh`: Git log analysis for test-first ordering. Port git log parsing to TypeScript.
-- `src/orchestrate/post-merge.ts` ← `scripts/check-post-merge.sh`: Post-merge validation. Port checks to TypeScript.
-- `src/orchestrate/workflow-determinism.ts` ← `scripts/check-workflow-determinism.sh`: State machine validation. Port to TypeScript.
+- `src/verbs/gates/security-scan.ts` ← `scripts/security-scan.sh`: Regex-based credential/secret pattern scanning. Port grep patterns to TypeScript regex.
+- `src/verbs/review/review-verdict.ts` ← `scripts/review-verdict.sh`: Parse PR review status. Port `gh` CLI output parsing to TypeScript (or use GitHub API directly).
+- `src/verbs/pure/static-analysis.ts` ← `scripts/static-analysis-gate.sh`: Invoke `tsc --noEmit`, lint, test status. Note: this script legitimately shells out to external tools — port the orchestration logic but keep `execFileSync` for external tool invocation (tsc, eslint) with proper error handling.
+- `src/verbs/pure/provenance-chain.ts` ← `scripts/verify-provenance-chain.sh`: File existence + content cross-reference. Pure string analysis, straightforward port.
+- `src/verbs/pure/context-economy.ts` ← `scripts/check-context-economy.sh`: Token/context metrics. Port metric extraction to TypeScript.
+- `src/verbs/pure/operational-resilience.ts` ← `scripts/check-operational-resilience.sh`: Error handling pattern validation. Port grep patterns to TypeScript regex.
+- `src/verbs/tdd-compliance.ts` ← `scripts/check-tdd-compliance.sh`: Git log analysis for test-first ordering. Port git log parsing to TypeScript.
+- `src/verbs/pure/post-merge.ts` ← `scripts/check-post-merge.sh`: Post-merge validation. Port checks to TypeScript.
+- `src/verbs/pure/workflow-determinism.ts` ← `scripts/check-workflow-determinism.sh`: State machine validation. Port to TypeScript.
 
 **Files to delete (12 scripts + 12 test files = 24 files):**
 - `scripts/verify-plan-coverage.sh` + `.test.sh`

@@ -25,7 +25,7 @@ import './merge-orchestrator/index.js';
 import './workflow-state/index.js';
 
 // WLM foundation — worktrees@v1 lifecycle reducer registration (side-effect import)
-import '../orchestrate/worktree/projections/index.js';
+import '../verbs/worktree/projections/index.js';
 
 export type { ProjectionReducer } from './types.js';
 export { assertReducerImmutable } from './testing.js';

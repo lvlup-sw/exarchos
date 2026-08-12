@@ -28,8 +28,8 @@ import type { WorkflowEvent } from '../events/schemas.js';
 import { LaunchExecutingStartedData } from '../events/schemas.js';
 import type { DispatchContext } from '../dispatch/core/dispatch.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
-import { WORKTREES_STREAM } from '../orchestrate/worktree/manager.js';
-import type { ProcessSource } from '../orchestrate/worktree/pure/process-identity.js';
+import { WORKTREES_STREAM } from '../verbs/worktree/manager.js';
+import type { ProcessSource } from '../verbs/worktree/pure/process-identity.js';
 import type {
   AsyncSpawnRequest,
   ChildHandle,

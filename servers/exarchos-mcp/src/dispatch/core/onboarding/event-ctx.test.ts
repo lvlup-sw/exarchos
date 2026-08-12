@@ -1,7 +1,7 @@
 /**
  * RF-3 (#1510 review): tests for the SHARED onboard event seam,
  * `buildOnboardEventCtx`. This logic was previously DUPLICATED in
- * `orchestrate/onboard/index.ts` and `orchestrate/doctor/index.ts`; it is the
+ * `verbs/doctor/index.ts` and `verbs/doctor/index.ts`; it is the
  * most safety-critical code in the feature (the CAS-pin idempotency trap is
  * sidestepped by construction). These tests run it against a REAL on-disk
  * EventStore so the tail-cut + plain-append behavior is locked in ONE place.

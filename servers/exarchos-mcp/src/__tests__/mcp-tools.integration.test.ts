@@ -12,7 +12,7 @@ import * as os from 'node:os';
 import { handleWorkflow } from '../workflow/composite.js';
 import { handleEvent } from '../events/composite.js';
 import { handleView } from '../projections/views/composite.js';
-import { handleOrchestrate } from '../orchestrate/composite.js';
+import { handleOrchestrate } from '../verbs/composite.js';
 import { handleSync } from '../sync/composite.js';
 import { configureWorkflowMaterializer, handleSet } from '../workflow/tools.js';
 import { EventStore } from '../events/store.js';

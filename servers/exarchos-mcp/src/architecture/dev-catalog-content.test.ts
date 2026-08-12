@@ -29,7 +29,7 @@ import { evaluateTree } from './check-evaluator.js';
 import { projectCatalog } from './project-catalog.js';
 import { renderAuditPrompt } from './audit-prompt.js';
 import { EventStore } from '../events/store.js';
-import { handleCheckInvariantConformance } from '../orchestrate/check-invariant-conformance.js';
+import { handleCheckInvariantConformance } from '../verbs/gates/check-invariant-conformance.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -162,7 +162,7 @@ describe('dev-catalog v3 content — CR-2 mode:check enforcement', () => {
     // The forbidden git-args invocation `['reset', '--hard', …]`.
     const resetHard = `['reset', ` + `'--hard', sha]`;
     const violating = diffFor(
-      'servers/exarchos-mcp/src/orchestrate/pure/execute-merge.ts',
+      'servers/exarchos-mcp/src/verbs/pure/execute-merge.ts',
       [`    gitExec(repoRoot, ${resetHard});`],
     );
     expect(evaluateTree(checkTreeOf('INV-14'), violating).length).toBeGreaterThanOrEqual(1);
@@ -171,7 +171,7 @@ describe('dev-catalog v3 content — CR-2 mode:check enforcement', () => {
   it('inv14_usesResetKeepRecoveryLadder_producesNoFinding', () => {
     // The conforming INV-14 ladder: merge --abort → reset --keep, never --hard.
     const conforming = diffFor(
-      'servers/exarchos-mcp/src/orchestrate/pure/execute-merge.ts',
+      'servers/exarchos-mcp/src/verbs/pure/execute-merge.ts',
       [
         `    gitExec(repoRoot, ['merge', '--abort']);`,
         `    gitExec(repoRoot, ['reset', '--keep', sha]);`,
@@ -197,7 +197,7 @@ describe('dev-catalog v3 content — CR-2 mode:check enforcement', () => {
 
   it('inv13_addsExecutedWithoutRequested_fires', () => {
     const violating = diffFor(
-      'servers/exarchos-mcp/src/orchestrate/execute-merge.ts',
+      'servers/exarchos-mcp/src/verbs/pure/execute-merge.ts',
       [`    await emit(eventStore, featureId, 'merge.executed', { mergeSha });`],
     );
     expect(evaluateTree(checkTreeOf('INV-13'), violating).length).toBeGreaterThanOrEqual(1);
@@ -205,7 +205,7 @@ describe('dev-catalog v3 content — CR-2 mode:check enforcement', () => {
 
   it('inv13_addsBothRequestedAndExecuted_producesNoFinding', () => {
     const conforming = diffFor(
-      'servers/exarchos-mcp/src/orchestrate/execute-merge.ts',
+      'servers/exarchos-mcp/src/verbs/pure/execute-merge.ts',
       [
         `    await emit(eventStore, featureId, 'merge.requested', { payload });`,
         `    await emit(eventStore, featureId, 'merge.executed', { mergeSha });`,
@@ -436,11 +436,11 @@ describe('dev-catalog v3 content — task 027 gate blocking (DR-15)', () => {
       // INV-14 reset --keep ladder, both INV-13 two-event emissions, and the
       // INV-16 fileURLToPath module path. No check-mode invariant fires.
       const conforming = [
-        diffFor('servers/exarchos-mcp/src/orchestrate/pure/execute-merge.ts', [
+        diffFor('servers/exarchos-mcp/src/verbs/pure/execute-merge.ts', [
           `    gitExec(repoRoot, ['merge', '--abort']);`,
           `    gitExec(repoRoot, ['reset', '--keep', sha]);`,
         ]),
-        diffFor('servers/exarchos-mcp/src/orchestrate/execute-merge.ts', [
+        diffFor('servers/exarchos-mcp/src/verbs/pure/execute-merge.ts', [
           `    await emit(store, id, 'merge.requested', { payload });`,
           `    await emit(store, id, 'merge.executed', { mergeSha });`,
         ]),

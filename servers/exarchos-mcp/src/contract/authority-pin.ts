@@ -29,7 +29,7 @@
 // constant, and the registry) lives in `authority-collector.ts`. Keeping the
 // verification pure makes each fail-closed rule unit-testable without a repo.
 //
-// Relationship to `orchestrate/contract-drift.ts`: that gate detects breaking
+// Relationship to `verbs/gates/contract-drift.ts`: that gate detects breaking
 // SCHEMA changes between a merge-base and HEAD by running external codegen/diff
 // tools. This module is the complementary FREEZE layer — it pins the authority
 // versions/digests a generator consumes. The two are orthogonal: drift compares

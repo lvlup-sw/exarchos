@@ -135,6 +135,6 @@ After migration there is exactly one authoring tool (`invariants_add` + the skil
 - `servers/exarchos-mcp/src/architecture/catalog-merge.ts` — `mergeCatalogs`, `RESERVED_USER_ID_PREFIXES`.
 - `servers/exarchos-mcp/src/architecture/sdlc-catalog.ts` — why sdlc stays inline.
 - `servers/exarchos-mcp/src/architecture/invariant-schema.ts` — `InvariantEntryV3Schema`, the `.strict()` enforcement DSL.
-- `servers/exarchos-mcp/src/orchestrate/init/seed-exarchos-config.ts` — idempotent `.exarchos.yml` write pattern to mirror.
+- `servers/exarchos-mcp/src/verbs/init/seed-exarchos-config.ts` — idempotent `.exarchos.yml` write pattern to mirror.
 - `docs/guides/authoring-invariants.md` — the prose on-ramp the wizard replaces as the primary path.
 - `docs/proposals/2026-05-20-invariants-catalog-v2-spec.md` §1.1, §4.0, §10 — audience-scope rationale.

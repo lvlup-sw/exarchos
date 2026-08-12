@@ -362,7 +362,7 @@ Wording proposed for each new entry. Existing entries (INV-1..INV-6, INV-5a..d, 
     - "AWP runtime liveness: https://github.com/veegee82/agent-workflow-protocol/blob/main/docs/runtime.md"
     - "Microsoft Scheduler-Agent-Supervisor (negative reference — what this protocol replaces): https://learn.microsoft.com/en-us/azure/architecture/patterns/scheduler-agent-supervisor"
   references:
-    - servers/exarchos-mcp/src/orchestrate/merge-orchestrate.ts
+    - servers/exarchos-mcp/src/verbs/merge/merge-orchestrate.ts
     - docs/architecture/runtime.md#§6
 ```
 
@@ -456,7 +456,7 @@ Wording proposed for each new entry. Existing entries (INV-1..INV-6, INV-5a..d, 
     - "Wolverine [AggregateHandler] (Miller 2023): https://jeremydmiller.com/2023/12/06/building-a-critter-stack-application-wolverines-aggregate-handler-workflow-ftw/"
     - "Greg Young, *Why Event Sourced Systems Fail*: https://www.youtube.com/watch?v=FKFu78ZEIi8"
   references:
-    - servers/exarchos-mcp/src/orchestrate/merge-orchestrate.ts
+    - servers/exarchos-mcp/src/verbs/merge/merge-orchestrate.ts
     - servers/exarchos-mcp/src/dispatch/with-session.ts
     - docs/architecture/runtime.md#§4-process-manager-handlers
 ```
@@ -487,7 +487,7 @@ Wording proposed for each new entry. Existing entries (INV-1..INV-6, INV-5a..d, 
     - "Greg Young, *Event Sourcing: The Bad Parts* (CodeCrafts 2022) — local-rewind recovery posture: https://www.youtube.com/watch?v=K4bj31fJGFk"
     - "git documentation — `git merge --abort`, `git reset --keep`: https://git-scm.com/docs/git-reset"
   references:
-    - servers/exarchos-mcp/src/orchestrate/merge-orchestrate.ts
+    - servers/exarchos-mcp/src/verbs/merge/merge-orchestrate.ts
     - docs/architecture/runtime.md#§5
 ```
 

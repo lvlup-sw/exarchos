@@ -73,7 +73,7 @@ Resuming into `overhaul-delegate`, the first dispatch (`prepare_delegation`, `na
 - `servers/exarchos-mcp/src/registry.ts` — pipeline input schema + description.
 - `servers/exarchos-mcp/src/views/output-cap.ts` — pipeline-specific default window constant.
 - `skills-src/shepherd/SKILL.md`, `skills-src/rehydrate/SKILL.md`, `skills-src/cleanup/SKILL.md`, `skills-src/checkpoint/SKILL.md`, `skills-src/dogfood/SKILL.md`, `skills-src/prune/SKILL.md`, `skills-src/checkpoint/references/mcp-tool-reference.md` — pipeline-discovery flows learn the scoping contract.
-- `servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts` — DR-10: `!nativeIsolation` gate on the protected-branch preflight guard (delegate-time fold-in).
+- `servers/exarchos-mcp/src/verbs/team/prepare-delegation.ts` — DR-10: `!nativeIsolation` gate on the protected-branch preflight guard (delegate-time fold-in).
 
 ### Alternatives considered
 
@@ -369,8 +369,8 @@ Tests are judged **test-after by adequacy** — the failing-test-first ordering 
 **Test Layer:** unit
 **Implements:** DR-10
 **Files:**
-- `servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts`
-- `servers/exarchos-mcp/src/orchestrate/prepare-delegation.test.ts`
+- `servers/exarchos-mcp/src/verbs/team/prepare-delegation.ts`
+- `servers/exarchos-mcp/src/verbs/team/prepare-delegation.test.ts`
 **Verification:** medium — scoped tests + kill-probe. Tests: `handlePrepareDelegation_NativeIsolationOnProtectedBranch_SkipsGuardAndProceeds` (guard never consulted, dispatch proceeds to readiness) and the retained `handlePrepareDelegation_OnProtectedBranch_ReturnsBlockedAndEmitsPreflightBlocked` (non-native regression). The new test uses `mockReturnValueOnce` for the `getCurrentBranch` override and queues nothing on `assertCurrentBranchNotProtected` — `beforeEach` clears calls but not implementations, so a persistent override would leak into every downstream test (caught during implementation via a baseline diff). Whole-file `prepare-delegation.test.ts` + `.integration.test.ts` + `dispatch-guard.test.ts` green.
 **Dependencies:** None — dispatch-unblocking prerequisite. Applied on the integration branch directly rather than dispatched, since it repairs the very `prepare_delegation` path a normal dispatch would traverse (chicken-and-egg). Takes effect only after an MCP-server rebuild + restart.
 **Parallelizable:** N/A (lands before the wave)

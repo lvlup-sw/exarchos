@@ -52,7 +52,7 @@ survivor) · **ESCALATE** (needs its own task; not deleted).
 | # | Module | Lines | testIn | Disposition | Evidence / reason |
 | --- | --- | ---: | ---: | --- | --- |
 | 1 | `mcp/tasks-methods.ts` | 206 | 3 | RESERVED | `RESERVED(#1273 … expires 2027-01-31)` header (task 014). |
-| 2 | `orchestrate/vcs/push-with-lease.ts` | 196 | 1 | RESERVED | `RESERVED(#1596 … expires 2027-01-31)` header. |
+| 2 | `verbs/vcs/push-with-lease.ts` | 196 | 1 | RESERVED | `RESERVED(#1596 … expires 2027-01-31)` header. |
 | 3 | `runtime/command-shim-emitter.ts` | 195 | 1 | RESERVED | `RESERVED(#1590 …; see also #1609)` header. |
 | 4 | `projections/diff-states.ts` | 162 | 2 | RESERVED | `RESERVED(#1475 … expires 2027-01-31)` header. |
 | 5 | `workflow/depth-proposal.ts` | 131 | 1 | RESERVED | `RESERVED(#1581 … expires 2027-01-31)` header. |

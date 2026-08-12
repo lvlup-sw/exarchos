@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { classifyTasksFailClosed } from '../orchestrate/prepare-delegation.js';
-import type { TaskInput, TaskClassification } from '../orchestrate/prepare-delegation.js';
-import { resolvePolicySkip } from '../orchestrate/gate-utils.js';
-import { runProbe, interpretProbeVerdict } from '../orchestrate/test-adequacy.js';
+import { classifyTasksFailClosed } from '../verbs/team/prepare-delegation.js';
+import type { TaskInput, TaskClassification } from '../verbs/team/prepare-delegation.js';
+import { resolvePolicySkip } from '../verbs/gates/gate-utils.js';
+import { runProbe, interpretProbeVerdict } from '../verbs/gates/test-adequacy.js';
 import type { RunbookDefinition, RunbookStep } from './types.js';
 import {
   TASK_COMPLETION,

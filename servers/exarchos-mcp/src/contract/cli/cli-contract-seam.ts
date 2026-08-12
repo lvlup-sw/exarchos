@@ -52,7 +52,7 @@
 //      edge never touches the census half below.
 //
 //   2. CENSUS      — a THREE-collector, two-way-ratchet structural conformance
-//      gate (same shape as `orchestrate/gate-ownership-census.ts`,
+//      gate (same shape as `verbs/gates/gate-ownership-census.ts`,
 //      `architecture/effect-ledger.ts`, `architecture/vcs-ownership.ts`) over
 //      the exit criterion "API actions have no direct CLI-to-dispatch path":
 //        • DISPATCH-SEAM CONTAINMENT (source scan) — the runtime `dispatch`

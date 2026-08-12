@@ -11,7 +11,7 @@ import { join, relative } from 'node:path';
  * site* and fails closed when one appears OUTSIDE the declared VCS-owner surface
  * ({@link VCS_MUTATION_OWNERS}).
  *
- * It follows the established `orchestrate/gate-ownership-census.ts` /
+ * It follows the established `verbs/gates/gate-ownership-census.ts` /
  * `architecture/effect-ledger.ts` pattern — a comment-aware source scan yielding
  * a typed verdict over the *real* tree, so a regression (a new module that shells
  * `git worktree add` / `git worktree remove` / `git branch -D` directly instead
@@ -31,7 +31,7 @@ import { join, relative } from 'node:path';
  *
  * `merge` and `branch <create>` were previously scoped OUT on the grounds that
  * their git tokens are "too ambiguous for a false-positive-free static scan".
- * That scope-out is RETRACTED: it made `orchestrate/local-git-merge.ts` — the
+ * That scope-out is RETRACTED: it made `verbs/merge/local-git-merge.ts` — the
  * production module that actually runs `git merge` — invisible to the census
  * that claims to own VCS mutation. The ambiguity was real but is resolved by a
  * *shape* discriminator rather than a bare token match; see
@@ -101,7 +101,7 @@ export interface VcsOwnershipResult {
  * a later refactor that does route them through the owner is forced to update
  * this list rather than leaving phantom cover behind:
  *
- *   - `orchestrate/local-git-merge.ts`  — the production `vcsMerge` adapter
+ *   - `verbs/merge/local-git-merge.ts`  — the production `vcsMerge` adapter
  *                                         (#1194, DR-MO-2). Owns the `git merge
  *                                         --no-ff/--squash/--ff-only` argv and
  *                                         the ephemeral `checkout -b` used by
@@ -115,7 +115,7 @@ export interface VcsOwnershipResult {
  *                                         mutation is — duplicate-merge
  *                                         suppression lives one layer up in the
  *                                         merge serializer, not here.
- *   - `orchestrate/pure/execute-merge.ts` — the INV-14 recovery ladder's
+ *   - `verbs/pure/execute-merge.ts` — the INV-14 recovery ladder's
  *                                         `git merge --abort`, the operation's
  *                                         own native recovery primitive. It
  *                                         reverses a merge rather than creating
@@ -123,7 +123,7 @@ export interface VcsOwnershipResult {
  *                                         owner's create-shaped idempotency
  *                                         without inverting its meaning.
  *
- * The formerly-listed `orchestrate/setup-worktree.ts` and `orchestrate/worktree/
+ * The formerly-listed `verbs/team/setup-worktree.ts` and `orchestrate/worktree/
  * manager.ts` do NOT appear here: their git worktree/branch mutation now routes
  * through `vcs/mutation-owner.ts` (either the full `VcsMutationOwner` via the
  * worktree provisioner, or its shared mutation primitives
@@ -138,8 +138,8 @@ export interface VcsOwnershipResult {
  */
 export const VCS_MUTATION_OWNERS: readonly string[] = Object.freeze([
   'launcher/create-worktree.ts',
-  'orchestrate/local-git-merge.ts',
-  'orchestrate/pure/execute-merge.ts',
+  'verbs/merge/local-git-merge.ts',
+  'verbs/pure/execute-merge.ts',
   'vcs/mutation-owner.ts',
   'workflow/compensation.ts',
 ]);

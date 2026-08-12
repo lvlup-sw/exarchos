@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 import { DATED_RECORD_TREES } from './vocabulary-lint.js';
-import { handleVerifyDocLinks } from '../orchestrate/verify-doc-links.js';
+import { handleVerifyDocLinks } from '../verbs/gates/verify-doc-links.js';
 import { getPlaybook } from '../workflow/playbooks.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));

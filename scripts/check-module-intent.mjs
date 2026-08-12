@@ -126,7 +126,7 @@ const ALLOWLIST_CLASSES = [
         'Pure Tarjan-SCC runtime import-cycle detector (DR-4, debloat task 009); its co-located test shells dependency-cruiser and feeds the JSON graph here. Gate machinery — the analysis analog of contract-seam. NOTE: added by task 009 AFTER the 005 baseline, so it is the one dead-in-prod module not in 005’s disposition table.',
       'projections/gwt.ts':
         'Given-When-Then test-harness DSL for projection reducers (T044, DR-10). Pure test infrastructure.',
-      'orchestrate/gate-ownership-census.ts':
+      'verbs/gates/gate-ownership-census.ts':
         'Evidence-ownership census (P01-05): a static scan proving gate-runner.ts is the sole durable evidence emitter, plus a behavioural durability witness. Its co-located test runs it against the live tree. Gate machinery — the census analog of contract-seam, and the enforcement point for P01-05’s exit proof.',
       'architecture/effect-ledger.ts':
         'Effect-ownership census (P04-01): statically classifies every filesystem/process/network occurrence in shipped source against EFFECT_OWNERSHIP and fails on an indeterminate owner. Test-invoked structural gate; the ledger itself is the declared authority, not a production import target.',

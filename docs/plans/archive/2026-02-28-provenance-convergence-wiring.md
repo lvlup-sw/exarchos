@@ -147,17 +147,17 @@ Handlers: `static-analysis`, `security-scan`, `context-economy`, `operational-re
 **Phase:** RED → GREEN → REFACTOR
 
 1. **[RED]** Write test: `handleCheckConvergence_WithPhaseFilter_ReturnsOnlyMatchingGateResults`
-   - File: `servers/exarchos-mcp/src/orchestrate/check-convergence.test.ts`
+   - File: `servers/exarchos-mcp/src/verbs/gates/check-convergence.test.ts`
    - Setup: convergence view with gate results from multiple phases
    - Assert: when `phase: 'review'` passed, only review-phase gate results considered for convergence
    - Expected failure: phase parameter not accepted or ignored
 
 2. **[RED]** Write test: `handleCheckConvergence_WithoutPhaseFilter_ReturnsAllResults`
-   - File: `servers/exarchos-mcp/src/orchestrate/check-convergence.test.ts`
+   - File: `servers/exarchos-mcp/src/verbs/gates/check-convergence.test.ts`
    - Assert: backward-compatible — no phase parameter returns all results (existing behavior)
 
 3. **[GREEN]** Add `phase?: string` to `CheckConvergenceArgs`, filter gate results in materialized view before computing convergence
-   - File: `servers/exarchos-mcp/src/orchestrate/check-convergence.ts`
+   - File: `servers/exarchos-mcp/src/verbs/gates/check-convergence.ts`
    - Lines ~20-23 (args type), ~44-51 (filtering logic)
 
 4. **[REFACTOR]** Extract phase filtering into a helper function if logic is complex
@@ -172,18 +172,18 @@ Handlers: `static-analysis`, `security-scan`, `context-economy`, `operational-re
 **Phase:** RED → GREEN → REFACTOR
 
 1. **[RED]** Write test: `handleContextEconomy_WithTelemetryData_IncludesRuntimeMetricsInResult`
-   - File: `servers/exarchos-mcp/src/orchestrate/context-economy.test.ts`
+   - File: `servers/exarchos-mcp/src/verbs/pure/context-economy.test.ts`
    - Setup: telemetry event store with tool.completed events showing high token usage
    - Assert: gate result includes `runtimeMetrics` field with session token totals and p95 data
    - Expected failure: result has no `runtimeMetrics` field
 
 2. **[RED]** Write test: `handleContextEconomy_WithoutTelemetryData_ReturnsScriptOnlyResult`
-   - File: `servers/exarchos-mcp/src/orchestrate/context-economy.test.ts`
+   - File: `servers/exarchos-mcp/src/verbs/pure/context-economy.test.ts`
    - Assert: backward-compatible — empty telemetry stream still returns script-based result
    - Expected failure: should pass immediately if implementation handles empty gracefully
 
 3. **[GREEN]** Import telemetry projection, materialize from telemetry stream, include `runtimeMetrics` in result
-   - File: `servers/exarchos-mcp/src/orchestrate/context-economy.ts`
+   - File: `servers/exarchos-mcp/src/verbs/pure/context-economy.ts`
    - Add: read telemetry events, compute session totals, append to gate event details
 
 4. **[REFACTOR]** Extract telemetry materialization to a shared helper if reused

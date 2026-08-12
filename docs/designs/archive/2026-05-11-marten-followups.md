@@ -18,9 +18,9 @@ Residue worth fixing alongside: the projection snapshot sidecar (`projections/st
 
 | Handler | File | Side effect |
 |---|---|---|
-| `create_pr` | `orchestrate/vcs/create-pr.ts` | `gh pr create` |
-| `add_pr_comment` | `orchestrate/vcs/add-pr-comment.ts` | `gh pr comment` |
-| `create_issue` | `orchestrate/vcs/create-issue.ts` | `gh issue create` |
+| `create_pr` | `verbs/vcs/create-pr.ts` | `gh pr create` |
+| `add_pr_comment` | `verbs/vcs/add-pr-comment.ts` | `gh pr comment` |
+| `create_issue` | `verbs/vcs/create-issue.ts` | `gh issue create` |
 | `delete-feature-branches` (compensation) | `workflow/compensation.ts:206` | `git branch -D` + `git push origin --delete` |
 | `cleanup-worktrees` (compensation) | `workflow/compensation.ts:147` | `git worktree remove --force` |
 
@@ -304,7 +304,7 @@ Independent walk of INV-1..INV-5d against this brief. Format matches the skill o
 - `servers/exarchos-mcp/src/event-store/store.ts:162-410` (PID lock implementation)
 - `servers/exarchos-mcp/src/projections/store.ts` (JSONL sidecar)
 - `servers/exarchos-mcp/src/storage/sqlite-backend.ts:998` (`atomicAppend`)
-- `servers/exarchos-mcp/src/orchestrate/execute-merge.ts` (two-event split exemplar, audit §F1.2 GREEN)
+- `servers/exarchos-mcp/src/verbs/pure/execute-merge.ts` (two-event split exemplar, audit §F1.2 GREEN)
 - INV-1 → `.claude/skills/design-invariants/references/INV-1-event-sourcing.md`
 - INV-2 → `.claude/skills/design-invariants/references/INV-2-facade-equivalence.md`
 - INV-3 → `.claude/skills/design-invariants/references/INV-3-basileus-forward.md`

@@ -543,7 +543,7 @@ The **relocation proof** (DR-1) is the spine that makes D2 real: at any wave bou
 
 ### Integration Points
 
-`dispatch/core/dispatch.ts` (interceptor chain — DR-15) · `dispatch/core/effect-carrier.ts` (DR-7) · `event-store/schemas.ts` (`registerEventType` seam — DR-1, DR-2) · `event-store/atomic-appender.ts` + `idempotency_claims` (DR-7, DR-9, DR-11) · `contract/{compiler,reachability,oracle}` (DR-10, DR-17, DR-18) · `architecture/*-seam.ts` (G1–G5 vocabulary) · `scripts/cli-vocab-guard.ts` (G1) · `adapters/{cli,mcp}.ts` (DR-19, DR-22) · `capabilities/resolver.ts` (DR-14) · `orchestrate/reconcile-state.ts` (DR-11–13) · `.exarchos/invariants.md` via `/exarchos:invariants` (DR-23).
+`dispatch/core/dispatch.ts` (interceptor chain — DR-15) · `dispatch/core/effect-carrier.ts` (DR-7) · `event-store/schemas.ts` (`registerEventType` seam — DR-1, DR-2) · `event-store/atomic-appender.ts` + `idempotency_claims` (DR-7, DR-9, DR-11) · `contract/{compiler,reachability,oracle}` (DR-10, DR-17, DR-18) · `architecture/*-seam.ts` (G1–G5 vocabulary) · `scripts/cli-vocab-guard.ts` (G1) · `adapters/{cli,mcp}.ts` (DR-19, DR-22) · `capabilities/resolver.ts` (DR-14) · `verbs/reconcile-state.ts` (DR-11–13) · `.exarchos/invariants.md` via `/exarchos:invariants` (DR-23).
 
 ### Exploration
 
@@ -875,7 +875,7 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 
 ### Task 046: Add a posture-to-dispatch mapping to the two provisioning verbs
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-25
-**Files:** `servers/exarchos-mcp/src/orchestrate/prepare-review.ts`, `servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts`, `servers/exarchos-mcp/src/agents/dispatch-shape.ts`, `servers/exarchos-mcp/src/agents/dispatch-shape.test.ts`
+**Files:** `servers/exarchos-mcp/src/verbs/team/prepare-review.ts`, `servers/exarchos-mcp/src/verbs/team/prepare-delegation.ts`, `servers/exarchos-mcp/src/agents/dispatch-shape.ts`, `servers/exarchos-mcp/src/agents/dispatch-shape.test.ts`
 **Detail:** `dispatch` becomes part of the emitted contract — `read-only` → anonymous async; `task-isolated` → named plus worktree isolation; `shared-mutating` → main worktree, never a subagent. Policy is data the verb reads, not prose in a skill.
 **Tests:**
 - `DispatchShape_EveryDeclaredPosture_HasExactlyOneEntry` — totality over `AgentPosture`
@@ -886,7 +886,7 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 
 ### Task 047: Prove today's prepare_review output fails the dispatch totality test
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-25
-**Files:** `servers/exarchos-mcp/src/orchestrate/__tests__/dispatch-shape.kill-fixture.test.ts`
+**Files:** `servers/exarchos-mcp/src/verbs/__tests__/dispatch-shape.kill-fixture.test.ts`
 **Detail:** The kill fixture is the current `prepare_review` result — `posture: 'read-only'` with no `dispatch` field. A guard with no current failing subject has not been shown to work.
 **Tests:**
 - `PrepareReview_CurrentOutput_LacksDispatchField` — fails on introduction

@@ -23,7 +23,7 @@ The most important section of this design. Each row is a piece of infrastructure
 | Main worktree assertion | `dispatch-guard.ts:147` `assertMainWorktree(cwd?)` | Imported and called as-is. |
 | Composition pattern | `prepare-delegation.ts:295-360` (composes all four guards in sequence) | Followed verbatim. |
 | Multi-VCS provider | `vcs/factory.ts:21` `createVcsProvider({ config: ctx.projectConfig })` (GitHub / GitLab / Azure DevOps) | **Not used by `merge_orchestrate`** — its merge is local-git (#1194). VCS provider remains in use by `merge_pr` and other synthesize-phase remote operations. |
-| Local git merge | `execFileSync('git', ['merge', ...])` via `orchestrate/local-git-merge.ts` (#1194) | Production `vcsMerge` adapter. The executor's recorded `recoveryPointSha` corresponds to a real local ref the recovery ladder (`git merge --abort` → `git reset --keep`) can rewind to. |
+| Local git merge | `execFileSync('git', ['merge', ...])` via `verbs/merge/local-git-merge.ts` (#1194) | Production `vcsMerge` adapter. The executor's recorded `recoveryPointSha` corresponds to a real local ref the recovery ladder (`git merge --abort` → `git reset --keep`) can rewind to. |
 | Worktree validation pattern | `verify-worktree.ts`, `verify-worktree-baseline.ts` | Drift detection extends this pattern in-place; no parallel module. |
 | Git command exec | `setup-worktree.ts:32` `gitExec(repoRoot, args)` helper using `execFileSync('git', ['-C', repoRoot, ...])` | Same shape, 120s timeout matching `post-merge.ts:48`. |
 | Event emission | `gate-utils.ts:emitGateEvent(store, featureId, gateName, gateType, passed, payload)` | All five orchestrator events emitted through this. |
@@ -172,7 +172,7 @@ The executor records a **recovery point** before the merge, performs a *local* `
 
 **Capabilities**
 - Record pre-merge `HEAD` via `git rev-parse HEAD` and persist to `WorkflowState.mergeOrchestrator.recoveryPointSha` *before* the merge command runs.
-- Perform the merge via `buildLocalGitMergeAdapter` (`orchestrate/local-git-merge.ts`): checks out `targetBranch`, runs `git merge --no-ff` / `--squash` / rebase + ff-only depending on strategy, captures the new HEAD as `mergeSha`. No `prId`, no remote API call.
+- Perform the merge via `buildLocalGitMergeAdapter` (`verbs/merge/local-git-merge.ts`): checks out `targetBranch`, runs `git merge --no-ff` / `--squash` / rebase + ff-only depending on strategy, captures the new HEAD as `mergeSha`. No `prId`, no remote API call.
 - On merge failure or post-merge verification failure, run the INV-14 recovery ladder (`git merge --abort` → `git reset --keep <recoveryPointSha>`, never `--hard`) and dual-emit `merge.rollback` (legacy wire shape) plus `merge.recovered` (the canonical successor, #1306) with a categorized reason (`merge-failed`, `verification-failed`, `timeout`).
 - Emit distinct events for success (`merge.executed`) and recovery (`merge.rollback` / `merge.recovered`).
 

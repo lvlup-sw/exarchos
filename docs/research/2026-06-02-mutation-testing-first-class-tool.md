@@ -34,7 +34,7 @@ The case for mutation testing is sharpest precisely *because* the tests are agen
 - **MutGen** (arXiv 2506.02954, 2025): feeding live/uncovered mutant info into the prompt makes LLMs write higher-mutation-score tests, beating EvoSuite and vanilla prompting.
 - **AdverTest — "Test vs Mutant: Adversarial LLM Agents"** (arXiv 2602.08146, 2026): two adversarial agents (test-gen vs mutant-gen) loop until tests kill hard mutants; **+8.56% fault detection over the best prior LLM method, +63.30% over EvoSuite** on Defects4J. This is an *agent* pattern — directly applicable to Exarchos's delegation model.
 
-**Exarchos already has the gap this fills.** The TDD gates are known to false-negative on test *adequacy*: `check_tdd_compliance` verifies the RED→GREEN *shape* of commits, not whether the resulting tests are meaningful (`servers/exarchos-mcp/src/orchestrate/tdd-compliance.ts`), and coverage thresholds (`check-coverage-thresholds.ts`) certify *execution*, not *assertion*. Mutation score is the missing adequacy signal that sits behind both.
+**Exarchos already has the gap this fills.** The TDD gates are known to false-negative on test *adequacy*: `check_tdd_compliance` verifies the RED→GREEN *shape* of commits, not whether the resulting tests are meaningful (`servers/exarchos-mcp/src/verbs/tdd-compliance.ts`), and coverage thresholds (`check-coverage-thresholds.ts`) certify *execution*, not *assertion*. Mutation score is the missing adequacy signal that sits behind both.
 
 Caveat for threshold-setting: on complex real-world functions, mutation scores average ~40% (vs ~50% on toy benchmarks). Thresholds must be calibrated to that reality — see §6.
 
@@ -215,8 +215,8 @@ The strongest framing for the design phase: **this is not a new feature, it is t
 - `servers/exarchos-mcp/src/config/toolchains.ts` — `ToolchainCommands` (28-32), `Toolchain` (45-60), `BUILTIN_TOOLCHAINS` (66-150), `ConfigToolchain` (152-162)
 - `servers/exarchos-mcp/src/config/test-runtime-resolver.ts` — 5-tier layered `pick()` resolver
 - `servers/exarchos-mcp/src/cli-commands/run-tests.ts` — runtime-resolving CLI verb pattern (59-102)
-- `servers/exarchos-mcp/src/orchestrate/tdd-compliance.ts`, `check-coverage-thresholds.ts`, `static-analysis.ts` — gate handler signature `(args, stateDir, eventStore) => ToolResult`
-- `servers/exarchos-mcp/src/orchestrate/gate-utils.ts:38-55` — `emitGateEvent` / `gate.executed`
+- `servers/exarchos-mcp/src/verbs/tdd-compliance.ts`, `check-coverage-thresholds.ts`, `static-analysis.ts` — gate handler signature `(args, stateDir, eventStore) => ToolResult`
+- `servers/exarchos-mcp/src/verbs/gates/gate-utils.ts:38-55` — `emitGateEvent` / `gate.executed`
 - `servers/exarchos-mcp/src/registry.ts` — 4 composite tools; gate registration; `longRunning` + `dispatch.taskSuitable`
 - `servers/exarchos-mcp/src/workflow/review-contract.ts:12-24` — review dimension = skill-folder name
 - `docs/designs/2026-04-17-tdd-swarm.md`, `docs/adrs/distributed-sdlc-pipeline.md` §11, `docs/designs/2026-02-15-autonomous-code-verification.md`

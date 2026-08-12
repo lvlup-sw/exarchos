@@ -341,7 +341,7 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
     'projections',
     [
       'adapters', 'architecture', 'capabilities', 'config', 'contract', 'describe',
-      'dispatch', 'events', 'orchestrate', 'stack', 'storage', 'utils', 'workflow',
+      'dispatch', 'events', 'verbs', 'stack', 'storage', 'utils', 'workflow',
     ],
     'The WIDEST allowance in this table, and deliberately so: task 012 folded ' +
       'views/, telemetry/, quality/, session/ and task-store/ into projections/, so this ' +

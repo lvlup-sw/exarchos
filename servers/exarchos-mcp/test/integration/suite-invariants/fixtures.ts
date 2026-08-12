@@ -165,8 +165,8 @@ export const FIXTURE_PASSED_TRUE_BY_BINDING = `import { it, expect } from 'vites
 
 /**
  * NEGATIVE — and the most important one. This is the shape of the two REAL
- * corpus tests (`orchestrate/static-analysis.test.ts` and
- * `orchestrate/test-adequacy.production-path.test.ts`) that deliberately BUILD
+ * corpus tests (`verbs/pure/static-analysis.test.ts` and
+ * `verbs/gates/test-adequacy.production-path.test.ts`) that deliberately BUILD
  * a could-not-run carrier in order to prove the system refuses to read it as a
  * pass. An earlier draft of R6 keyed on "an object literal carrying both
  * markers" and flagged exactly those two, i.e. it punished the tests that

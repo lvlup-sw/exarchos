@@ -1085,8 +1085,8 @@ later batches follow.
 **Implements:** DR-10
 **Files:**
 - `servers/exarchos-mcp/src/event-store/event-registration.ts`
-- `servers/exarchos-mcp/src/orchestrate/worktree/manager.ts`
-- `servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts`
+- `servers/exarchos-mcp/src/verbs/worktree/manager.ts`
+- `servers/exarchos-mcp/src/verbs/team/prepare-delegation.ts`
 - `servers/exarchos-mcp/src/dispatch/core/onboarding/reconcile.ts`
 - `servers/exarchos-mcp/src/architecture/invariants-loader.ts`
 - `scripts/guard-inventory.ts`

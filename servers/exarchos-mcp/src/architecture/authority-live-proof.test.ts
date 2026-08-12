@@ -31,7 +31,7 @@ import { readFileSync, mkdtempSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { EVENT_EMISSION_REGISTRY } from '../events/schemas.js';
-import { PHASE_EXPECTED_EVENTS } from '../orchestrate/check-event-emissions.js';
+import { PHASE_EXPECTED_EVENTS } from '../verbs/gates/check-event-emissions.js';
 import { topologyRows, type AuthorityTopologyRow } from './authority-topology.js';
 import {
   runAuthorityCensus,

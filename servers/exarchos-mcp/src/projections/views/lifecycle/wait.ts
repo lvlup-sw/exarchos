@@ -40,7 +40,7 @@
 //   • `until`     — the WLM-6 worktree predicates (`merge` / `idle` +
 //                   `integrationRef`), retained as the WORKTREE SCOPE of this
 //                   same verb: absorbed by delegating to the kernel in
-//                   `orchestrate/worktree/handlers.ts`.
+//                   `verbs/worktree/handlers.ts`.
 //
 // The SCOPE axis is expressed by WHICH predicate field is set — never a `scope`
 // field (task-019 pins the shared `scope` shape to `z.enum(['repo','all'])` to
@@ -65,13 +65,13 @@ import {
   type LivenessDescriptor,
   type LivenessSurface,
 } from '../../../events/liveness-registry.js';
-import { resolveWorkflowState } from '../../../orchestrate/resolve-state.js';
+import { resolveWorkflowState } from '../../../verbs/resolve-state.js';
 import { getHSMDefinition } from '../../../workflow/state-machine.js';
-import { DEFAULT_WAIT_TIMEOUT_MS } from '../../../orchestrate/worktree/manager.js';
+import { DEFAULT_WAIT_TIMEOUT_MS } from '../../../verbs/worktree/manager.js';
 import {
   handleWorktreeUntilWait,
   type WorktreeViewDeps,
-} from '../../../orchestrate/worktree/handlers.js';
+} from '../../../verbs/worktree/handlers.js';
 import { phaseField, statusField, operationField } from './schema-fields.js';
 
 // ─── Terminal-status vocabulary (DR-5) ────────────────────────────────────────

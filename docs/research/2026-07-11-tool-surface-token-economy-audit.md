@@ -107,13 +107,13 @@ Empirical `_perf` measurements (live stores + live GitHub; full table in appendi
 
 | Action | Measured | Boundedness | Root cause (file:line) |
 | --- | --- | --- | --- |
-| `assess_stack` (3 PRs) | **153,844 tok** | unbounded, no reduction flag | `orchestrate/assess-stack.ts:188-196, 592-605` |
-| `get_pr_comments` (1 PR) | **37,613 tok** | unbounded, no limit/fields | `orchestrate/vcs/get-pr-comments.ts:22` |
+| `assess_stack` (3 PRs) | **153,844 tok** | unbounded, no reduction flag | `verbs/vcs/assess-stack.ts:188-196, 592-605` |
+| `get_pr_comments` (1 PR) | **37,613 tok** | unbounded, no limit/fields | `verbs/vcs/get-pr-comments.ts:22` |
 | `event query` (112-event stream, default) | 5,755 tok | **no default limit** | `event-store/tools.ts:497-510` |
 | `event describe --emissionGuide` | 1,795 tok | single large string | — |
-| `review_diff` | n/m (code) | full raw diff in `data.diff` **and** re-embedded in `data.report` | `orchestrate/review-diff.ts:157-165` |
-| `check_static_analysis` (FAIL path) | n/m (code) | entire raw stderr/stdout of failing lint/typecheck in report | `orchestrate/pure/static-analysis.ts:447-451, 519` |
-| `check_pr_comments` | n/m (code) | one line per comment, unbounded count | `orchestrate/check-pr-comments.ts:98-102` |
+| `review_diff` | n/m (code) | full raw diff in `data.diff` **and** re-embedded in `data.report` | `verbs/review/review-diff.ts:157-165` |
+| `check_static_analysis` (FAIL path) | n/m (code) | entire raw stderr/stdout of failing lint/typecheck in report | `verbs/pure/static-analysis.ts:447-451, 519` |
+| `check_pr_comments` | n/m (code) | one line per comment, unbounded count | `verbs/vcs/check-pr-comments.ts:98-102` |
 | `list_prs` (direct) | 74 tok (small repo state) | no default window | `assess-stack.ts:455-468` |
 
 **Anatomy of the `assess_stack` payload** (615,374 B measured):
@@ -236,5 +236,5 @@ External:
 Internal:
 
 - `docs/specs/2026-07-09-refactor-pipeline-view-economy.md` (DR-1..DR-10) + commit `585c154c` (PR #1659)
-- `servers/exarchos-mcp/src/` — `registry.ts`, `adapters/mcp.ts`, `format.ts`, `views/output-cap.ts`, `views/tools.ts`, `orchestrate/assess-stack.ts`, `orchestrate/prepare-delegation.ts`, `orchestrate/review-diff.ts`, `orchestrate/pure/static-analysis.ts`, `event-store/tools.ts`
+- `servers/exarchos-mcp/src/` — `registry.ts`, `adapters/mcp.ts`, `format.ts`, `views/output-cap.ts`, `views/tools.ts`, `verbs/vcs/assess-stack.ts`, `verbs/team/prepare-delegation.ts`, `verbs/review/review-diff.ts`, `verbs/pure/static-analysis.ts`, `event-store/tools.ts`
 - Live `_perf` measurements, 2026-07-11 (appendix A)

@@ -31,7 +31,7 @@ import { rmrfAsync } from '../../../test-helpers/temp-dir.js';
 import type { DispatchContext } from '../../../dispatch/core/dispatch.js';
 import type { WorkflowEvent } from '../../../events/schemas.js';
 import { workflowStateProjection } from '../workflow-state-projection.js';
-import { resolveWorkflowState } from '../../../orchestrate/resolve-state.js';
+import { resolveWorkflowState } from '../../../verbs/resolve-state.js';
 import { handleViewExport, ExportOutputSchema } from './export.js';
 import { handleView } from '../composite.js';
 

@@ -62,7 +62,7 @@ The `isClaudeCodePlugin()` helper checks `CLAUDE_PLUGIN_ROOT` or `EXARCHOS_PLUGI
 | `cli-commands/subagent-context.ts` | 630 | `path.join(homeDir, '.claude', 'teams')` | `resolveTeamsDir()` |
 | `cli-commands/subagent-context.ts` | 647 | `path.join(homeDir, '.claude', 'tasks', featureId)` | `resolveTasksDir()` + featureId |
 | `cli.ts` | 66 | `path.join(os.homedir(), '.claude', 'teams')` | `resolveTeamsDir()` |
-| `orchestrate/verify-delegation-saga.ts` | 59 | `join(homedir(), '.claude', 'workflow-state')` | `resolveStateDir()` |
+| `verbs/team/verify-delegation-saga.ts` | 59 | `join(homedir(), '.claude', 'workflow-state')` | `resolveStateDir()` |
 | `cli-commands/eval-run.ts` | 69 | `path.join(os.homedir(), '.claude', 'workflow-state')` | `resolveStateDir()` |
 
 **Tests:**
@@ -130,7 +130,7 @@ No behavior change. Same routing, clearer boundary.
 
 ### Phase 4: new-project Generalization
 
-**Problem:** `orchestrate/new-project.ts` unconditionally scaffolds `.claude/settings.json` and adds `.claude/settings.local.json` to `.gitignore`.
+**Problem:** `verbs/new-project.ts` unconditionally scaffolds `.claude/settings.json` and adds `.claude/settings.local.json` to `.gitignore`.
 
 **Solution:** Add an optional `platform` parameter to the `new_project` action schema:
 

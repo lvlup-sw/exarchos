@@ -220,7 +220,7 @@
     {
       "id": "handler:orchestrate.acquire_worktree",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptCtx(handleAcquireWorktree)"
     },
     {
@@ -257,7 +257,7 @@
     {
       "id": "handler:orchestrate.add_pr_comment",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptCtx(handleAddPrComment)"
     },
     {
@@ -294,7 +294,7 @@
     {
       "id": "handler:orchestrate.agent_spec",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adapt(handleAgentSpec)"
     },
     {
@@ -325,7 +325,7 @@
     {
       "id": "handler:orchestrate.assess_refactor_scope",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptArgsWithEventStore(handleAssessRefactorScope)"
     },
     {
@@ -356,7 +356,7 @@
     {
       "id": "handler:orchestrate.assess_stack",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptWithEventStoreAndConfig(handleAssessStack)"
     },
     {
@@ -387,7 +387,7 @@
     {
       "id": "handler:orchestrate.check_ci",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptCtx(handleCheckCi)"
     },
     {
@@ -418,7 +418,7 @@
     {
       "id": "handler:orchestrate.check_coderabbit",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptArgs(handleCheckCoderabbit)"
     },
     {
@@ -461,7 +461,7 @@
     {
       "id": "handler:orchestrate.check_context_economy",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptWithEventStore(handleContextEconomy)"
     },
     {
@@ -492,7 +492,7 @@
     {
       "id": "handler:orchestrate.check_contract_drift",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptLadderGate('check_contract_drift', 'D1', handleContractDrift)"
     },
     {
@@ -523,7 +523,7 @@
     {
       "id": "handler:orchestrate.check_convergence",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptWithEventStore(handleCheckConvergence)"
     },
     {
@@ -554,7 +554,7 @@
     {
       "id": "handler:orchestrate.check_coverage_thresholds",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptArgs(handleCheckCoverageThresholds)"
     },
     {
@@ -585,7 +585,7 @@
     {
       "id": "handler:orchestrate.check_design_completeness",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptWithEventStore(handleDesignCompleteness)"
     },
     {
@@ -616,7 +616,7 @@
     {
       "id": "handler:orchestrate.check_event_emissions",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptWithEventStore(handleCheckEventEmissions)"
     },
     {
@@ -647,7 +647,7 @@
     {
       "id": "handler:orchestrate.check_exploration_depth",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptWithEventStore(handleCheckExplorationDepth)"
     },
     {
@@ -678,7 +678,7 @@
     {
       "id": "handler:orchestrate.check_integration_suite",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptLadderGate('check_integration_suite', 'D2', handleCheckIntegrationSuite)"
     },
     {
@@ -709,7 +709,7 @@
     {
       "id": "handler:orchestrate.check_invariant_conformance",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptWithEventStore(handleCheckInvariantConformance)"
     },
     {
@@ -740,7 +740,7 @@
     {
       "id": "handler:orchestrate.check_mock_boundary",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptLadderGate('check_mock_boundary', 'D1', handleMockBoundary)"
     },
     {
@@ -771,7 +771,7 @@
     {
       "id": "handler:orchestrate.check_operational_resilience",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptWithEventStore(handleOperationalResilience)"
     },
     {
@@ -802,7 +802,7 @@
     {
       "id": "handler:orchestrate.check_plan_coverage",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptWithEventStore(handlePlanCoverage)"
     },
     {
@@ -833,7 +833,7 @@
     {
       "id": "handler:orchestrate.check_polish_scope",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptArgs(handleCheckPolishScope)"
     },
     {
@@ -864,7 +864,7 @@
     {
       "id": "handler:orchestrate.check_post_merge",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptWithEventStore(handlePostMerge)"
     },
     {
@@ -895,7 +895,7 @@
     {
       "id": "handler:orchestrate.check_pr_comments",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptArgs(handleCheckPrComments)"
     },
     {
@@ -926,7 +926,7 @@
     {
       "id": "handler:orchestrate.check_provenance_chain",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptWithEventStore(handleProvenanceChain)"
     },
     {
@@ -957,7 +957,7 @@
     {
       "id": "handler:orchestrate.check_review_verdict",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptWithEventStoreAndConfig(handleReviewVerdict)"
     },
     {
@@ -988,7 +988,7 @@
     {
       "id": "handler:orchestrate.check_security_scan",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptWithEventStore(handleSecurityScan)"
     },
     {
@@ -1019,7 +1019,7 @@
     {
       "id": "handler:orchestrate.check_static_analysis",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptLadderGate('check_static_analysis', 'D2', handleStaticAnalysis)"
     },
     {
@@ -1050,7 +1050,7 @@
     {
       "id": "handler:orchestrate.check_task_decomposition",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptWithEventStore(handleTaskDecomposition)"
     },
     {
@@ -1081,7 +1081,7 @@
     {
       "id": "handler:orchestrate.check_test_adequacy",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptLadderGate('check_test_adequacy', 'D1', handleTestAdequacy)"
     },
     {
@@ -1112,7 +1112,7 @@
     {
       "id": "handler:orchestrate.check_workflow_determinism",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptWithEventStore(handleWorkflowDeterminism)"
     },
     {
@@ -1143,7 +1143,7 @@
     {
       "id": "handler:orchestrate.classify_review_items",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptArgsWithEventStore(handleClassifyReviewItems)"
     },
     {
@@ -1174,7 +1174,7 @@
     {
       "id": "handler:orchestrate.create_issue",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "async (args, _stateDir, ctx) => {\n    if (!ctx) throw new Error('DispatchContext required for this handler');\n    const typedArgs = args as unknown as Omit<HandleCreateIssueArgs, 'listIssuesByMarker'> &\n      Partial<Pick<HandleCreateIssueArgs, 'listIssuesByMarker'>>;\n    // Lazy provider creation: only construct the VCS provider if the\n    // caller hasn't injected a `listIssuesByMarker` (e.g. tests that\n    // stub the recovery probe directly). Avoids surfacing provider\n    // bootstrap errors before the handler's own input guards run.\n    const listIssuesByMarker =\n      typedArgs.listIssuesByMarker ??\n      (async (operationId: string) => {\n        const provider = await createVcsProvider({ config: ctx.projectConfig });\n        return provider.searchIssuesByMarker(operationId);\n      });\n    return handleCreateIssue({ ...typedArgs, listIssuesByMarker }, ctx);\n  }"
     },
     {
@@ -1205,7 +1205,7 @@
     {
       "id": "handler:orchestrate.create_pr",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptCtx(handleCreatePr)"
     },
     {
@@ -1236,7 +1236,7 @@
     {
       "id": "handler:orchestrate.debug_review_gate",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptArgs(handleDebugReviewGate)"
     },
     {
@@ -1298,7 +1298,7 @@
     {
       "id": "handler:orchestrate.discover_bridge",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptWithOptionalEventStore(handleDiscoverBridge)"
     },
     {
@@ -1329,7 +1329,7 @@
     {
       "id": "handler:orchestrate.doctor",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/doctor/index.ts",
+      "source": "servers/exarchos-mcp/src/verbs/doctor/index.ts",
       "symbol": "handleDoctor"
     },
     {
@@ -1360,7 +1360,7 @@
     {
       "id": "handler:orchestrate.extract_fix_tasks",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptArgsWithStateDirAndEventStore(handleExtractFixTasks)"
     },
     {
@@ -1391,7 +1391,7 @@
     {
       "id": "handler:orchestrate.extract_task",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adapt(handleExtractTask)"
     },
     {
@@ -1422,7 +1422,7 @@
     {
       "id": "handler:orchestrate.finalize_oneshot",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptArgsWithStateDirAndEventStore(handleFinalizeOneshot)"
     },
     {
@@ -1453,7 +1453,7 @@
     {
       "id": "handler:orchestrate.generate_traceability",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptArgs(handleGenerateTraceability)"
     },
     {
@@ -1484,7 +1484,7 @@
     {
       "id": "handler:orchestrate.get_pr_comments",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptCtx(handleGetPrComments)"
     },
     {
@@ -1515,7 +1515,7 @@
     {
       "id": "handler:orchestrate.invariants_add",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/invariants/add.ts",
+      "source": "servers/exarchos-mcp/src/verbs/invariants/add.ts",
       "symbol": "handleAdd"
     },
     {
@@ -1552,7 +1552,7 @@
     {
       "id": "handler:orchestrate.invariants_scaffold",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/invariants/scaffold.ts",
+      "source": "servers/exarchos-mcp/src/verbs/invariants/scaffold.ts",
       "symbol": "handleScaffold"
     },
     {
@@ -1583,7 +1583,7 @@
     {
       "id": "handler:orchestrate.investigation_timer",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptWithOptionalEventStore(handleInvestigationTimer)"
     },
     {
@@ -1614,7 +1614,7 @@
     {
       "id": "handler:orchestrate.list_prs",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptCtx(handleListPrs)"
     },
     {
@@ -1645,7 +1645,7 @@
     {
       "id": "handler:orchestrate.merge_orchestrate",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptCtx(handleMergeOrchestrate)"
     },
     {
@@ -1676,7 +1676,7 @@
     {
       "id": "handler:orchestrate.merge_pr",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptCtx(handleMergePr)"
     },
     {
@@ -1707,7 +1707,7 @@
     {
       "id": "handler:orchestrate.mutation-adequacy",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/mutation-adequacy.ts",
+      "source": "servers/exarchos-mcp/src/verbs/gates/mutation-adequacy.ts",
       "symbol": "adaptLadderGate(MUTATION_GATE_NAME, D1, handleMutationAdequacy)"
     },
     {
@@ -1738,7 +1738,7 @@
     {
       "id": "handler:orchestrate.needs_schema_sync",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptArgs(handleNeedsSchemaSync)"
     },
     {
@@ -1769,7 +1769,7 @@
     {
       "id": "handler:orchestrate.onboard",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/onboard/index.ts",
+      "source": "servers/exarchos-mcp/src/verbs/doctor/index.ts",
       "symbol": "handleOnboard"
     },
     {
@@ -1806,7 +1806,7 @@
     {
       "id": "handler:orchestrate.post_delegation_check",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptArgsWithEventStore(handlePostDelegationCheck)"
     },
     {
@@ -1837,7 +1837,7 @@
     {
       "id": "handler:orchestrate.pre_synthesis_check",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptArgsWithStateDirAndEventStore(handlePreSynthesisCheck)"
     },
     {
@@ -1868,7 +1868,7 @@
     {
       "id": "handler:orchestrate.prepare_delegation",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptWithCtx(handlePrepareDelegation)"
     },
     {
@@ -1899,7 +1899,7 @@
     {
       "id": "handler:orchestrate.prepare_review",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptWithEventStore(handlePrepareReview)"
     },
     {
@@ -1930,7 +1930,7 @@
     {
       "id": "handler:orchestrate.prepare_synthesis",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptWithEventStoreAndConfig(handlePrepareSynthesis)"
     },
     {
@@ -1961,7 +1961,7 @@
     {
       "id": "handler:orchestrate.prune_stale_workflows",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "handlePruneStaleWorkflows as ActionHandler"
     },
     {
@@ -1992,7 +1992,7 @@
     {
       "id": "handler:orchestrate.prune_worktrees",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptCtx(handlePruneWorktrees)"
     },
     {
@@ -2023,7 +2023,7 @@
     {
       "id": "handler:orchestrate.reconcile_state",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptArgsWithEventStore(handleReconcileState)"
     },
     {
@@ -2054,7 +2054,7 @@
     {
       "id": "handler:orchestrate.release_worktree",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptCtx(handleReleaseWorktree)"
     },
     {
@@ -2085,7 +2085,7 @@
     {
       "id": "handler:orchestrate.request_synthesize",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptArgsWithStateDirAndEventStore(handleRequestSynthesize)"
     },
     {
@@ -2116,7 +2116,7 @@
     {
       "id": "handler:orchestrate.review_diff",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adapt(handleReviewDiff)"
     },
     {
@@ -2147,7 +2147,7 @@
     {
       "id": "handler:orchestrate.review_triage",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptWithEventStore(handleReviewTriage)"
     },
     {
@@ -2209,7 +2209,7 @@
     {
       "id": "handler:orchestrate.select_debug_track",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptWithOptionalEventStore(handleSelectDebugTrack)"
     },
     {
@@ -2240,7 +2240,7 @@
     {
       "id": "handler:orchestrate.serialize_merge",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptCtx(handleSerializeMerge)"
     },
     {
@@ -2271,7 +2271,7 @@
     {
       "id": "handler:orchestrate.setup_worktree",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptSetupWorktree()"
     },
     {
@@ -2302,7 +2302,7 @@
     {
       "id": "handler:orchestrate.spec_coverage_check",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptArgs(handleSpecCoverageCheck)"
     },
     {
@@ -2333,7 +2333,7 @@
     {
       "id": "handler:orchestrate.task_claim",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptWithEventStore(handleTaskClaim)"
     },
     {
@@ -2364,7 +2364,7 @@
     {
       "id": "handler:orchestrate.task_complete",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptWithEventStore(handleTaskComplete)"
     },
     {
@@ -2395,7 +2395,7 @@
     {
       "id": "handler:orchestrate.task_fail",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptWithEventStore(handleTaskFail)"
     },
     {
@@ -2426,7 +2426,7 @@
     {
       "id": "handler:orchestrate.validate_pr_body",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptWithOptionalEventStore(handleValidatePrBody)"
     },
     {
@@ -2457,7 +2457,7 @@
     {
       "id": "handler:orchestrate.validate_pr_stack",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptArgs(handleValidatePrStack)"
     },
     {
@@ -2488,7 +2488,7 @@
     {
       "id": "handler:orchestrate.verify_delegation_saga",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptArgs(handleVerifyDelegationSaga)"
     },
     {
@@ -2519,7 +2519,7 @@
     {
       "id": "handler:orchestrate.verify_doc_links",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptArgs(handleVerifyDocLinks)"
     },
     {
@@ -2550,7 +2550,7 @@
     {
       "id": "handler:orchestrate.verify_review_triage",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adaptArgsWithStateDirAndEventStore(handleVerifyReviewTriage)"
     },
     {
@@ -2581,7 +2581,7 @@
     {
       "id": "handler:orchestrate.verify_worktree",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adapt(handleVerifyWorktree)"
     },
     {
@@ -2612,7 +2612,7 @@
     {
       "id": "handler:orchestrate.verify_worktree_baseline",
       "nodeClass": "handler",
-      "source": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "source": "servers/exarchos-mcp/src/verbs/composite.ts",
       "symbol": "adapt(handleVerifyWorktreeBaseline)"
     },
     {
@@ -13091,7 +13091,7 @@
       "inputContractId": "orchestrate.acquire_worktree",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptCtx(handleAcquireWorktree)"
       },
       "effectIds": [
@@ -13123,7 +13123,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -13138,7 +13138,7 @@
       "inputContractId": "orchestrate.add_pr_comment",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptCtx(handleAddPrComment)"
       },
       "effectIds": [
@@ -13170,7 +13170,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -13185,7 +13185,7 @@
       "inputContractId": "orchestrate.agent_spec",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adapt(handleAgentSpec)"
       },
       "effectIds": [],
@@ -13215,7 +13215,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -13230,7 +13230,7 @@
       "inputContractId": "orchestrate.assess_refactor_scope",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptArgsWithEventStore(handleAssessRefactorScope)"
       },
       "effectIds": [],
@@ -13260,7 +13260,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -13275,7 +13275,7 @@
       "inputContractId": "orchestrate.assess_stack",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptWithEventStoreAndConfig(handleAssessStack)"
       },
       "effectIds": [],
@@ -13305,7 +13305,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -13320,7 +13320,7 @@
       "inputContractId": "orchestrate.check_ci",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptCtx(handleCheckCi)"
       },
       "effectIds": [
@@ -13352,7 +13352,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -13367,7 +13367,7 @@
       "inputContractId": "orchestrate.check_coderabbit",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptArgs(handleCheckCoderabbit)"
       },
       "effectIds": [
@@ -13400,7 +13400,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -13415,7 +13415,7 @@
       "inputContractId": "orchestrate.check_context_economy",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptWithEventStore(handleContextEconomy)"
       },
       "effectIds": [
@@ -13448,7 +13448,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -13463,7 +13463,7 @@
       "inputContractId": "orchestrate.check_contract_drift",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptLadderGate('check_contract_drift', 'D1', handleContractDrift)"
       },
       "effectIds": [
@@ -13496,7 +13496,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -13511,7 +13511,7 @@
       "inputContractId": "orchestrate.check_convergence",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptWithEventStore(handleCheckConvergence)"
       },
       "effectIds": [
@@ -13544,7 +13544,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -13559,7 +13559,7 @@
       "inputContractId": "orchestrate.check_coverage_thresholds",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptArgs(handleCheckCoverageThresholds)"
       },
       "effectIds": [
@@ -13592,7 +13592,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -13607,7 +13607,7 @@
       "inputContractId": "orchestrate.check_design_completeness",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptWithEventStore(handleDesignCompleteness)"
       },
       "effectIds": [
@@ -13640,7 +13640,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -13655,7 +13655,7 @@
       "inputContractId": "orchestrate.check_event_emissions",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptWithEventStore(handleCheckEventEmissions)"
       },
       "effectIds": [
@@ -13688,7 +13688,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -13703,7 +13703,7 @@
       "inputContractId": "orchestrate.check_exploration_depth",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptWithEventStore(handleCheckExplorationDepth)"
       },
       "effectIds": [
@@ -13736,7 +13736,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -13751,7 +13751,7 @@
       "inputContractId": "orchestrate.check_integration_suite",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptLadderGate('check_integration_suite', 'D2', handleCheckIntegrationSuite)"
       },
       "effectIds": [
@@ -13784,7 +13784,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -13799,7 +13799,7 @@
       "inputContractId": "orchestrate.check_invariant_conformance",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptWithEventStore(handleCheckInvariantConformance)"
       },
       "effectIds": [
@@ -13832,7 +13832,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -13847,7 +13847,7 @@
       "inputContractId": "orchestrate.check_mock_boundary",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptLadderGate('check_mock_boundary', 'D1', handleMockBoundary)"
       },
       "effectIds": [
@@ -13880,7 +13880,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -13895,7 +13895,7 @@
       "inputContractId": "orchestrate.check_operational_resilience",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptWithEventStore(handleOperationalResilience)"
       },
       "effectIds": [
@@ -13928,7 +13928,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -13943,7 +13943,7 @@
       "inputContractId": "orchestrate.check_plan_coverage",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptWithEventStore(handlePlanCoverage)"
       },
       "effectIds": [
@@ -13976,7 +13976,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -13991,7 +13991,7 @@
       "inputContractId": "orchestrate.check_polish_scope",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptArgs(handleCheckPolishScope)"
       },
       "effectIds": [
@@ -14024,7 +14024,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -14039,7 +14039,7 @@
       "inputContractId": "orchestrate.check_post_merge",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptWithEventStore(handlePostMerge)"
       },
       "effectIds": [
@@ -14072,7 +14072,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -14087,7 +14087,7 @@
       "inputContractId": "orchestrate.check_pr_comments",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptArgs(handleCheckPrComments)"
       },
       "effectIds": [
@@ -14120,7 +14120,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -14135,7 +14135,7 @@
       "inputContractId": "orchestrate.check_provenance_chain",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptWithEventStore(handleProvenanceChain)"
       },
       "effectIds": [
@@ -14168,7 +14168,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -14183,7 +14183,7 @@
       "inputContractId": "orchestrate.check_review_verdict",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptWithEventStoreAndConfig(handleReviewVerdict)"
       },
       "effectIds": [
@@ -14216,7 +14216,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -14231,7 +14231,7 @@
       "inputContractId": "orchestrate.check_security_scan",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptWithEventStore(handleSecurityScan)"
       },
       "effectIds": [
@@ -14264,7 +14264,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -14279,7 +14279,7 @@
       "inputContractId": "orchestrate.check_static_analysis",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptLadderGate('check_static_analysis', 'D2', handleStaticAnalysis)"
       },
       "effectIds": [
@@ -14312,7 +14312,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -14327,7 +14327,7 @@
       "inputContractId": "orchestrate.check_task_decomposition",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptWithEventStore(handleTaskDecomposition)"
       },
       "effectIds": [
@@ -14360,7 +14360,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -14375,7 +14375,7 @@
       "inputContractId": "orchestrate.check_test_adequacy",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptLadderGate('check_test_adequacy', 'D1', handleTestAdequacy)"
       },
       "effectIds": [
@@ -14408,7 +14408,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -14423,7 +14423,7 @@
       "inputContractId": "orchestrate.check_workflow_determinism",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptWithEventStore(handleWorkflowDeterminism)"
       },
       "effectIds": [
@@ -14456,7 +14456,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -14471,7 +14471,7 @@
       "inputContractId": "orchestrate.classify_review_items",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptArgsWithEventStore(handleClassifyReviewItems)"
       },
       "effectIds": [],
@@ -14501,7 +14501,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -14516,7 +14516,7 @@
       "inputContractId": "orchestrate.create_issue",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "async (args, _stateDir, ctx) => {\n    if (!ctx) throw new Error('DispatchContext required for this handler');\n    const typedArgs = args as unknown as Omit<HandleCreateIssueArgs, 'listIssuesByMarker'> &\n      Partial<Pick<HandleCreateIssueArgs, 'listIssuesByMarker'>>;\n    // Lazy provider creation: only construct the VCS provider if the\n    // caller hasn't injected a `listIssuesByMarker` (e.g. tests that\n    // stub the recovery probe directly). Avoids surfacing provider\n    // bootstrap errors before the handler's own input guards run.\n    const listIssuesByMarker =\n      typedArgs.listIssuesByMarker ??\n      (async (operationId: string) => {\n        const provider = await createVcsProvider({ config: ctx.projectConfig });\n        return provider.searchIssuesByMarker(operationId);\n      });\n    return handleCreateIssue({ ...typedArgs, listIssuesByMarker }, ctx);\n  }"
       },
       "effectIds": [
@@ -14548,7 +14548,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -14563,7 +14563,7 @@
       "inputContractId": "orchestrate.create_pr",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptCtx(handleCreatePr)"
       },
       "effectIds": [
@@ -14595,7 +14595,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -14610,7 +14610,7 @@
       "inputContractId": "orchestrate.debug_review_gate",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptArgs(handleDebugReviewGate)"
       },
       "effectIds": [],
@@ -14640,7 +14640,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -14700,7 +14700,7 @@
       "inputContractId": "orchestrate.discover_bridge",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptWithOptionalEventStore(handleDiscoverBridge)"
       },
       "effectIds": [],
@@ -14730,7 +14730,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -14745,7 +14745,7 @@
       "inputContractId": "orchestrate.doctor",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/doctor/index.ts",
+        "file": "servers/exarchos-mcp/src/verbs/doctor/index.ts",
         "symbol": "handleDoctor"
       },
       "effectIds": [],
@@ -14775,7 +14775,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/doctor/index.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/doctor/index.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -14790,7 +14790,7 @@
       "inputContractId": "orchestrate.extract_fix_tasks",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptArgsWithStateDirAndEventStore(handleExtractFixTasks)"
       },
       "effectIds": [],
@@ -14820,7 +14820,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -14835,7 +14835,7 @@
       "inputContractId": "orchestrate.extract_task",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adapt(handleExtractTask)"
       },
       "effectIds": [],
@@ -14865,7 +14865,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -14880,7 +14880,7 @@
       "inputContractId": "orchestrate.finalize_oneshot",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptArgsWithStateDirAndEventStore(handleFinalizeOneshot)"
       },
       "effectIds": [
@@ -14912,7 +14912,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -14927,7 +14927,7 @@
       "inputContractId": "orchestrate.generate_traceability",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptArgs(handleGenerateTraceability)"
       },
       "effectIds": [],
@@ -14957,7 +14957,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -14972,7 +14972,7 @@
       "inputContractId": "orchestrate.get_pr_comments",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptCtx(handleGetPrComments)"
       },
       "effectIds": [
@@ -15004,7 +15004,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -15019,7 +15019,7 @@
       "inputContractId": "orchestrate.invariants_add",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/invariants/add.ts",
+        "file": "servers/exarchos-mcp/src/verbs/invariants/add.ts",
         "symbol": "handleAdd"
       },
       "effectIds": [
@@ -15051,7 +15051,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/invariants/add.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/invariants/add.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -15066,7 +15066,7 @@
       "inputContractId": "orchestrate.invariants_scaffold",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/invariants/scaffold.ts",
+        "file": "servers/exarchos-mcp/src/verbs/invariants/scaffold.ts",
         "symbol": "handleScaffold"
       },
       "effectIds": [
@@ -15098,7 +15098,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/invariants/scaffold.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/invariants/scaffold.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -15113,7 +15113,7 @@
       "inputContractId": "orchestrate.investigation_timer",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptWithOptionalEventStore(handleInvestigationTimer)"
       },
       "effectIds": [],
@@ -15143,7 +15143,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -15158,7 +15158,7 @@
       "inputContractId": "orchestrate.list_prs",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptCtx(handleListPrs)"
       },
       "effectIds": [
@@ -15190,7 +15190,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -15205,7 +15205,7 @@
       "inputContractId": "orchestrate.merge_orchestrate",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptCtx(handleMergeOrchestrate)"
       },
       "effectIds": [
@@ -15237,7 +15237,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -15252,7 +15252,7 @@
       "inputContractId": "orchestrate.merge_pr",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptCtx(handleMergePr)"
       },
       "effectIds": [
@@ -15284,7 +15284,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -15299,7 +15299,7 @@
       "inputContractId": "orchestrate.mutation-adequacy",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/mutation-adequacy.ts",
+        "file": "servers/exarchos-mcp/src/verbs/gates/mutation-adequacy.ts",
         "symbol": "adaptLadderGate(MUTATION_GATE_NAME, D1, handleMutationAdequacy)"
       },
       "effectIds": [],
@@ -15329,7 +15329,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/mutation-adequacy.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/gates/mutation-adequacy.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -15344,7 +15344,7 @@
       "inputContractId": "orchestrate.needs_schema_sync",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptArgs(handleNeedsSchemaSync)"
       },
       "effectIds": [],
@@ -15374,7 +15374,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -15389,7 +15389,7 @@
       "inputContractId": "orchestrate.onboard",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/onboard/index.ts",
+        "file": "servers/exarchos-mcp/src/verbs/doctor/index.ts",
         "symbol": "handleOnboard"
       },
       "effectIds": [
@@ -15421,7 +15421,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/onboard/index.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/doctor/index.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -15436,7 +15436,7 @@
       "inputContractId": "orchestrate.post_delegation_check",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptArgsWithEventStore(handlePostDelegationCheck)"
       },
       "effectIds": [],
@@ -15466,7 +15466,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -15481,7 +15481,7 @@
       "inputContractId": "orchestrate.pre_synthesis_check",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptArgsWithStateDirAndEventStore(handlePreSynthesisCheck)"
       },
       "effectIds": [
@@ -15514,7 +15514,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -15529,7 +15529,7 @@
       "inputContractId": "orchestrate.prepare_delegation",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptWithCtx(handlePrepareDelegation)"
       },
       "effectIds": [
@@ -15562,7 +15562,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -15577,7 +15577,7 @@
       "inputContractId": "orchestrate.prepare_review",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptWithEventStore(handlePrepareReview)"
       },
       "effectIds": [],
@@ -15607,7 +15607,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -15622,7 +15622,7 @@
       "inputContractId": "orchestrate.prepare_synthesis",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptWithEventStoreAndConfig(handlePrepareSynthesis)"
       },
       "effectIds": [
@@ -15655,7 +15655,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -15670,7 +15670,7 @@
       "inputContractId": "orchestrate.prune_stale_workflows",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "handlePruneStaleWorkflows as ActionHandler"
       },
       "effectIds": [
@@ -15702,7 +15702,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -15717,7 +15717,7 @@
       "inputContractId": "orchestrate.prune_worktrees",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptCtx(handlePruneWorktrees)"
       },
       "effectIds": [
@@ -15749,7 +15749,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -15764,7 +15764,7 @@
       "inputContractId": "orchestrate.reconcile_state",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptArgsWithEventStore(handleReconcileState)"
       },
       "effectIds": [
@@ -15796,7 +15796,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -15811,7 +15811,7 @@
       "inputContractId": "orchestrate.release_worktree",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptCtx(handleReleaseWorktree)"
       },
       "effectIds": [
@@ -15843,7 +15843,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -15858,7 +15858,7 @@
       "inputContractId": "orchestrate.request_synthesize",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptArgsWithStateDirAndEventStore(handleRequestSynthesize)"
       },
       "effectIds": [
@@ -15890,7 +15890,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -15905,7 +15905,7 @@
       "inputContractId": "orchestrate.review_diff",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adapt(handleReviewDiff)"
       },
       "effectIds": [],
@@ -15935,7 +15935,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -15950,7 +15950,7 @@
       "inputContractId": "orchestrate.review_triage",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptWithEventStore(handleReviewTriage)"
       },
       "effectIds": [
@@ -15982,7 +15982,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -16042,7 +16042,7 @@
       "inputContractId": "orchestrate.select_debug_track",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptWithOptionalEventStore(handleSelectDebugTrack)"
       },
       "effectIds": [],
@@ -16072,7 +16072,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -16087,7 +16087,7 @@
       "inputContractId": "orchestrate.serialize_merge",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptCtx(handleSerializeMerge)"
       },
       "effectIds": [
@@ -16119,7 +16119,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -16134,7 +16134,7 @@
       "inputContractId": "orchestrate.setup_worktree",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptSetupWorktree()"
       },
       "effectIds": [
@@ -16166,7 +16166,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -16181,7 +16181,7 @@
       "inputContractId": "orchestrate.spec_coverage_check",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptArgs(handleSpecCoverageCheck)"
       },
       "effectIds": [],
@@ -16211,7 +16211,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -16226,7 +16226,7 @@
       "inputContractId": "orchestrate.task_claim",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptWithEventStore(handleTaskClaim)"
       },
       "effectIds": [
@@ -16258,7 +16258,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -16273,7 +16273,7 @@
       "inputContractId": "orchestrate.task_complete",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptWithEventStore(handleTaskComplete)"
       },
       "effectIds": [
@@ -16305,7 +16305,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -16320,7 +16320,7 @@
       "inputContractId": "orchestrate.task_fail",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptWithEventStore(handleTaskFail)"
       },
       "effectIds": [
@@ -16352,7 +16352,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -16367,7 +16367,7 @@
       "inputContractId": "orchestrate.validate_pr_body",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptWithOptionalEventStore(handleValidatePrBody)"
       },
       "effectIds": [],
@@ -16397,7 +16397,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -16412,7 +16412,7 @@
       "inputContractId": "orchestrate.validate_pr_stack",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptArgs(handleValidatePrStack)"
       },
       "effectIds": [],
@@ -16442,7 +16442,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -16457,7 +16457,7 @@
       "inputContractId": "orchestrate.verify_delegation_saga",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptArgs(handleVerifyDelegationSaga)"
       },
       "effectIds": [],
@@ -16487,7 +16487,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -16502,7 +16502,7 @@
       "inputContractId": "orchestrate.verify_doc_links",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptArgs(handleVerifyDocLinks)"
       },
       "effectIds": [],
@@ -16532,7 +16532,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -16547,7 +16547,7 @@
       "inputContractId": "orchestrate.verify_review_triage",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adaptArgsWithStateDirAndEventStore(handleVerifyReviewTriage)"
       },
       "effectIds": [],
@@ -16577,7 +16577,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -16592,7 +16592,7 @@
       "inputContractId": "orchestrate.verify_worktree",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adapt(handleVerifyWorktree)"
       },
       "effectIds": [
@@ -16624,7 +16624,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",
@@ -16639,7 +16639,7 @@
       "inputContractId": "orchestrate.verify_worktree_baseline",
       "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "symbol": "adapt(handleVerifyWorktreeBaseline)"
       },
       "effectIds": [
@@ -16671,7 +16671,7 @@
       "disposition": "open",
       "finding": "Action has explicit missing edge(s): packaged-proof.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "source/adapter tests only; packaged proof missing",
         "exitCondition": "Add a compiled-binary or installed-artifact proof that invokes this exact action and validates its output carrier.",
         "reevaluateAt": "action, handler, effect, adapter, or packaging change",

@@ -52,10 +52,10 @@ import type {
 import {
   defaultProcessSource,
   type ProcessSource,
-} from '../orchestrate/worktree/pure/process-identity.js';
-import type { GitRunner, ReservationOwner } from '../orchestrate/worktree/manager.js';
-import type { ProcessTableSource } from '../orchestrate/worktree/pure/probe.js';
-import type { RealpathResolver } from '../orchestrate/worktree/pure/path-containment.js';
+} from '../verbs/worktree/pure/process-identity.js';
+import type { GitRunner, ReservationOwner } from '../verbs/worktree/manager.js';
+import type { ProcessTableSource } from '../verbs/worktree/pure/probe.js';
+import type { RealpathResolver } from '../verbs/worktree/pure/path-containment.js';
 import type { CreateLauncherWorktreeDeps } from './create-worktree.js';
 
 /**

@@ -53,14 +53,14 @@ T6 depends on T5 (final state must be buildable).
 **Phase:** RED → GREEN → REFACTOR
 
 1. **[RED]** Write test: `orchestrate_composite_without_team_imports_compiles`
-   - File: `plugins/exarchos/servers/exarchos-mcp/src/orchestrate/composite.test.ts`
+   - File: `plugins/exarchos/servers/exarchos-mcp/src/verbs/composite.test.ts`
    - Add a test that verifies `handleOrchestrate` rejects all 5 team actions (`team_spawn`, `team_message`, `team_broadcast`, `team_shutdown`, `team_status`) with `UNKNOWN_ACTION` error
    - Expected failure: test fails because team actions currently succeed
 
 2. **[GREEN]** Delete team module and update orchestrate composite
    - Delete: `src/team/coordinator.ts`, `src/team/composition.ts`, `src/team/roles.ts`, `src/team/tools.ts`
    - Delete: `src/__tests__/team/coordinator.test.ts`, `src/__tests__/team/composition.test.ts`, `src/__tests__/team/roles.test.ts`, `src/__tests__/team/tools.test.ts`
-   - Modify `src/orchestrate/composite.ts`: remove all team imports and `TEAM_ACTIONS` object, `ACTION_HANDLERS` becomes just `TASK_ACTIONS`
+   - Modify `src/verbs/composite.ts`: remove all team imports and `TEAM_ACTIONS` object, `ACTION_HANDLERS` becomes just `TASK_ACTIONS`
 
 3. **[REFACTOR]** Clean up composite module
    - Remove `TEAM_ACTIONS` / `TASK_ACTIONS` distinction — rename to just `ACTION_HANDLERS` directly
@@ -76,13 +76,13 @@ T6 depends on T5 (final state must be buildable).
 **Phase:** RED → GREEN → REFACTOR
 
 1. **[RED]** Write test: `orchestrate_only_routes_task_actions`
-   - File: `plugins/exarchos/servers/exarchos-mcp/src/orchestrate/composite.test.ts`
+   - File: `plugins/exarchos/servers/exarchos-mcp/src/verbs/composite.test.ts`
    - Test that `handleOrchestrate` only accepts `task_claim`, `task_complete`, `task_fail`
    - Test that valid actions list in error message contains exactly 3 actions
    - Expected failure: currently lists 8 actions
 
 2. **[GREEN]** Update orchestrate composite
-   - File: `src/orchestrate/composite.ts`
+   - File: `src/verbs/composite.ts`
    - Remove team handler imports (lines 9-17)
    - Remove `TEAM_ACTIONS` object (lines 31-37)
    - Set `ACTION_HANDLERS` to only task handlers

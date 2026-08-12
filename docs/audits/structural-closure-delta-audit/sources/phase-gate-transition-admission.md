@@ -237,7 +237,7 @@ Gate reliability from #1646 remains a projection. It is sampled into requirement
 - `servers/exarchos-mcp/src/workflow/hsm-transition-guard.ts` - replaced by transition admission over `AtomicAppender.decide`.
 - `servers/exarchos-mcp/src/workflow/phase-kind.ts` - retains kind-level obligation resolver dispatch and gains the shared requirement-set carrier.
 - `servers/exarchos-mcp/src/workflow/guards.ts` - migration source, then deleted.
-- `servers/exarchos-mcp/src/orchestrate/gate-utils.ts` - evolves into the single evidence-producing gate runner.
+- `servers/exarchos-mcp/src/verbs/gates/gate-utils.ts` - evolves into the single evidence-producing gate runner.
 - `servers/exarchos-mcp/src/event-store/schemas.ts` - evidence, requirement, decision, waiver, and reassessment events.
 - `servers/exarchos-mcp/src/views/workflow-state-projection.ts` - folds the active requirement set and latest admission decision.
 - `servers/exarchos-mcp/src/next-actions-computer.ts` - derives admissible remediation from decisions.
@@ -665,9 +665,9 @@ The v2.12 task set defines versioned runtime event contracts and reusable storag
 **Implements:** DR-3, DR-5, DR-9
 
 **Files:**
-- `servers/exarchos-mcp/src/orchestrate/gate-runner.ts`
-- `servers/exarchos-mcp/src/orchestrate/gate-runner.test.ts`
-- `servers/exarchos-mcp/src/orchestrate/gate-utils.ts`
+- `servers/exarchos-mcp/src/verbs/gates/gate-runner.ts`
+- `servers/exarchos-mcp/src/verbs/gates/gate-runner.test.ts`
+- `servers/exarchos-mcp/src/verbs/gates/gate-utils.ts`
 
 **Testing Strategy:** `exampleTests: true`, `propertyTests: true`, `benchmarks: false`, `testLayer: integration`, `characterizationRequired: true`; properties: same operation ID yields one canonical evidence record; reruns stamp the canonical predecessor and current phase attempt; append failure cannot return success.
 **Tests:** `GateRunner_AppendFailure_ReturnsFailure`
@@ -688,8 +688,8 @@ The v2.12 task set defines versioned runtime event contracts and reusable storag
 **Implements:** DR-3, DR-10
 
 **Files:**
-- `servers/exarchos-mcp/src/orchestrate/gate-provider-registry.ts`
-- `servers/exarchos-mcp/src/orchestrate/gate-provider-registry.test.ts`
+- `servers/exarchos-mcp/src/verbs/gates/gate-provider-registry.ts`
+- `servers/exarchos-mcp/src/verbs/gates/gate-provider-registry.test.ts`
 - `servers/exarchos-mcp/src/registry.ts`
 
 **Testing Strategy:** `exampleTests: true`, `propertyTests: true`, `benchmarks: false`, `testLayer: unit`, `characterizationRequired: true`; property: every declared GateClass resolves exactly one provider or fails with structured suggestions.
@@ -712,11 +712,11 @@ The v2.12 task set defines versioned runtime event contracts and reusable storag
 **Implements:** DR-3, DR-8, DR-9
 
 **Files:**
-- `servers/exarchos-mcp/src/orchestrate/static-analysis.ts`
-- `servers/exarchos-mcp/src/orchestrate/test-adequacy-handler.ts`
-- `servers/exarchos-mcp/src/orchestrate/check-integration-suite.ts`
-- `servers/exarchos-mcp/src/orchestrate/contract-drift-handler.ts`
-- `servers/exarchos-mcp/src/orchestrate/mock-boundary-handler.ts`
+- `servers/exarchos-mcp/src/verbs/pure/static-analysis.ts`
+- `servers/exarchos-mcp/src/verbs/gates/test-adequacy-handler.ts`
+- `servers/exarchos-mcp/src/verbs/gates/check-integration-suite.ts`
+- `servers/exarchos-mcp/src/verbs/gates/contract-drift-handler.ts`
+- `servers/exarchos-mcp/src/verbs/gates/mock-boundary-handler.ts`
 - co-located tests
 
 **Testing Strategy:** `exampleTests: true`, `propertyTests: true`, `benchmarks: false`, `testLayer: integration`, `characterizationRequired: true`; property: each handler emits evidence bound to the intended task/diff subject.
@@ -739,10 +739,10 @@ The v2.12 task set defines versioned runtime event contracts and reusable storag
 **Implements:** DR-3, DR-5, DR-8, DR-9
 
 **Files:**
-- `servers/exarchos-mcp/src/orchestrate/plan-coverage.ts`
-- `servers/exarchos-mcp/src/orchestrate/provenance-chain.ts`
-- `servers/exarchos-mcp/src/orchestrate/review-verdict.ts`
-- `servers/exarchos-mcp/src/orchestrate/prepare-synthesis.ts`
+- `servers/exarchos-mcp/src/verbs/gates/plan-coverage.ts`
+- `servers/exarchos-mcp/src/verbs/pure/provenance-chain.ts`
+- `servers/exarchos-mcp/src/verbs/review/review-verdict.ts`
+- `servers/exarchos-mcp/src/verbs/team/prepare-synthesis.ts`
 - co-located tests
 
 **Testing Strategy:** `exampleTests: true`, `propertyTests: true`, `benchmarks: false`, `testLayer: integration`, `characterizationRequired: true`; property: no successful gate result can exist without a durable evidence reference.
@@ -1207,7 +1207,7 @@ The v2.12 task set defines versioned runtime event contracts and reusable storag
 **Files:**
 - `servers/exarchos-mcp/src/views/gate-reliability-view.ts`
 - `servers/exarchos-mcp/src/views/gate-reliability-view.test.ts`
-- `servers/exarchos-mcp/src/orchestrate/gate-runner.ts`
+- `servers/exarchos-mcp/src/verbs/gates/gate-runner.ts`
 
 **Testing Strategy:** `exampleTests: true`, `propertyTests: true`, `benchmarks: false`, `testLayer: property`, `characterizationRequired: false`; properties: projection is a pure fold with attributable source/sample/time; no unobserved gate execution can affect the metric.
 **Tests:** `GateReliability_VerdictAndContradiction_FoldsAttributably`
@@ -1264,8 +1264,8 @@ The v2.12 task set defines versioned runtime event contracts and reusable storag
 - `servers/exarchos-mcp/src/workflow/guards.legacy.test.ts`
 - `servers/exarchos-mcp/src/workflow/state-machine.legacy.test.ts`
 - `servers/exarchos-mcp/src/tasks/tools.test.ts`
-- `servers/exarchos-mcp/src/orchestrate/finalize-oneshot.ts`
-- `servers/exarchos-mcp/src/orchestrate/prepare-review.ts`
+- `servers/exarchos-mcp/src/verbs/tasks/finalize-oneshot.ts`
+- `servers/exarchos-mcp/src/verbs/team/prepare-review.ts`
 - `.exarchos/invariants.md`
 - `docs/system-design.html`
 - `docs/architecture/runtime.md`
@@ -1571,14 +1571,14 @@ The v2.12 task set defines versioned runtime event contracts and reusable storag
 - `servers/exarchos-mcp/src/workflow/state-machine.ts`
 - `servers/exarchos-mcp/src/workflow/hsm-transition-guard.ts`
 - `servers/exarchos-mcp/src/workflow/playbooks.ts`
-- `servers/exarchos-mcp/src/orchestrate/assess-stack.ts`
-- `servers/exarchos-mcp/src/orchestrate/mutation-adequacy.ts`
-- `servers/exarchos-mcp/src/orchestrate/security-scan.ts`
-- `servers/exarchos-mcp/src/orchestrate/task-decomposition.ts`
-- `servers/exarchos-mcp/src/orchestrate/check-exploration-depth.ts`
-- `servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts`
-- `servers/exarchos-mcp/src/orchestrate/post-merge.ts`
-- `servers/exarchos-mcp/src/orchestrate/check-convergence.ts`
+- `servers/exarchos-mcp/src/verbs/vcs/assess-stack.ts`
+- `servers/exarchos-mcp/src/verbs/gates/mutation-adequacy.ts`
+- `servers/exarchos-mcp/src/verbs/gates/security-scan.ts`
+- `servers/exarchos-mcp/src/verbs/tasks/task-decomposition.ts`
+- `servers/exarchos-mcp/src/verbs/gates/check-exploration-depth.ts`
+- `servers/exarchos-mcp/src/verbs/gates/check-invariant-conformance.ts`
+- `servers/exarchos-mcp/src/verbs/pure/post-merge.ts`
+- `servers/exarchos-mcp/src/verbs/gates/check-convergence.ts`
 - `servers/exarchos-mcp/src/telemetry/middleware.ts`
 
 **Testing Strategy:** `exampleTests: true`, `propertyTests: true`, `benchmarks: false`, `testLayer: integration`, `characterizationRequired: true`; property: every gate emission and transition guard definition has one approved owner or fails the census.

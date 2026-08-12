@@ -7,11 +7,11 @@
 //
 // WHY THIS FILE EXISTS — the gap it closes:
 //
-//   The pre-existing merge tests (`src/orchestrate/execute-merge.test.ts`,
+//   The pre-existing merge tests (`src/verbs/pure/execute-merge.test.ts`,
 //   `merge-orchestrate.race.test.ts`) inject a MOCK `vcsMerge` and count mock
 //   invocations. That proves the handler's control flow but not the outcome:
 //   a mock cannot tell you how many merge commits exist. Likewise the
-//   pre-existing `src/orchestrate/vcs/create-pr.test.ts` mocks
+//   pre-existing `src/verbs/vcs/create-pr.test.ts` mocks
 //   `createVcsProvider` wholesale, so the shipped `vcs/github.ts` provider —
 //   the thing that actually builds the `gh pr create` argv — never runs.
 //
@@ -32,10 +32,10 @@
 //     invocations that crossed that boundary.
 //
 //   Neither test defines a test-local idempotent wrapper. The mechanisms under
-//   test are `orchestrate/merge-keys.ts` +
+//   test are `verbs/merge/merge-keys.ts` +
 //   the EventStore idempotency-claims substrate (merge arm) and the
 //   natural-identity `listPrs({state:'open', head, base})` recovery precheck in
-//   `orchestrate/vcs/create-pr.ts` (PR arm) — both live in `src/`.
+//   `verbs/vcs/create-pr.ts` (PR arm) — both live in `src/`.
 //
 //   Each test carries its NEGATIVE TWIN: a distinct request identity that MUST
 //   NOT be deduped. Without it, an implementation that simply never acts twice
@@ -58,8 +58,8 @@ vi.mock('../../../src/vcs/shell.js', () => ({ exec: vi.fn() }));
 
 import { exec as ghBoundary } from '../../../src/vcs/shell.js';
 import { EventStore } from '../../../src/events/store.js';
-import { handleExecuteMerge } from '../../../src/orchestrate/execute-merge.js';
-import { handleCreatePr } from '../../../src/orchestrate/vcs/create-pr.js';
+import { handleExecuteMerge } from '../../../src/verbs/merge/execute-merge.js';
+import { handleCreatePr } from '../../../src/verbs/vcs/create-pr.js';
 import { initStateFile } from '../../../src/workflow/state-store.js';
 import { rmrf } from '../../../src/test-helpers/temp-dir.js';
 import type { DispatchContext } from '../../../src/dispatch/core/dispatch.js';
@@ -326,7 +326,7 @@ describe('DR-12 — duplicate merge and duplicate PR prevention (shipped path)',
     expect(revParse(repoRoot, TARGET_BRANCH)).toBe(mergeShaAfterFirst);
 
     // ── Durable-log truth: the idempotency key deduped the terminal events ──
-    // This is the assertion that `orchestrate/merge-keys.ts` is load-bearing
+    // This is the assertion that `verbs/merge/merge-keys.ts` is load-bearing
     // for: without a deterministic key the replay's append lands a SECOND
     // `merge.executed` row on the stream.
     const events = await eventStore.query(featureId);
@@ -444,7 +444,7 @@ describe('DR-12 — duplicate merge and duplicate PR prevention (shipped path)',
     // The shipped idempotency anchor for PR creation is NATURAL IDENTITY —
     // (head branch, base branch) on the target repo — consumed by the
     // `listPrs({state:'open', head, base})` recovery precheck in
-    // `orchestrate/vcs/create-pr.ts`. It is deliberately NOT a random value.
+    // `verbs/vcs/create-pr.ts`. It is deliberately NOT a random value.
     const duplicateRequest = {
       title: 'feat: DR-12 duplicate PR prevention',
       body: 'Body for the DR-12 acceptance fixture.',

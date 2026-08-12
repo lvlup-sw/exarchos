@@ -20,12 +20,12 @@ describe('runAdapterOwnershipCensus — verdict logic', () => {
   it('flags a network effect outside the owner surface as DIRECT_ADAPTER_BYPASS', () => {
     const occ: EffectOccurrence[] = [
       { module: 'workflow/feedback.ts', effectClass: 'network', evidence: 'fetch' },
-      { module: 'orchestrate/rogue.ts', effectClass: 'network', evidence: 'undici' },
+      { module: 'verbs/rogue.ts', effectClass: 'network', evidence: 'undici' },
     ];
     const result = runAdapterOwnershipCensus(occ, rules);
     expect(result.ok).toBe(false);
     const bypass = result.diagnostics.find((d) => d.code === 'DIRECT_ADAPTER_BYPASS');
-    expect(bypass && 'module' in bypass && bypass.module).toBe('orchestrate/rogue.ts');
+    expect(bypass && 'module' in bypass && bypass.module).toBe('verbs/rogue.ts');
     expect(bypass && 'evidence' in bypass && bypass.evidence).toBe('undici');
   });
 
@@ -63,7 +63,7 @@ describe('EXIT PROOF — live adapter ownership', () => {
   it('(b) a planted network effect outside the owner surface FAILS against the live occurrences', async () => {
     const occurrences = await scanEffectOccurrences(SRC_ROOT, lexModule);
     const planted: EffectOccurrence = {
-      module: 'orchestrate/rogue-client.ts',
+      module: 'verbs/rogue-client.ts',
       effectClass: 'network',
       evidence: 'undici',
     };
@@ -74,7 +74,7 @@ describe('EXIT PROOF — live adapter ownership', () => {
         (d) =>
           d.code === 'DIRECT_ADAPTER_BYPASS' &&
           'module' in d &&
-          d.module === 'orchestrate/rogue-client.ts',
+          d.module === 'verbs/rogue-client.ts',
       ),
     ).toBe(true);
   });

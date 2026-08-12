@@ -140,13 +140,13 @@ Brief: `refactor-remove-graphite` workflow state (no separate design doc — ref
 
 **TDD Steps:**
 1. [RED] Write test: `verifyStack_UsesGitBranch_NotGtLog`
-   - File: `servers/exarchos-mcp/src/orchestrate/prepare-synthesis.test.ts`
+   - File: `servers/exarchos-mcp/src/verbs/team/prepare-synthesis.test.ts`
    - Mock `execSync` to verify it calls `git log --oneline` or `git branch` (not `gt log`)
    - Expected failure: verifyStack still calls gt log
    - Run: `npm run test:run` - MUST FAIL
 
 2. [GREEN] Replace `verifyStack()` implementation:
-   - File: `servers/exarchos-mcp/src/orchestrate/prepare-synthesis.ts`
+   - File: `servers/exarchos-mcp/src/verbs/team/prepare-synthesis.ts`
    - Replace `execSync('gt log', ...)` with `execSync('git log --oneline --graph main..HEAD', ...)`
    - Parse branch chain from git output instead of gt output
    - Update comment on line 4 (remove "Graphite stack health")

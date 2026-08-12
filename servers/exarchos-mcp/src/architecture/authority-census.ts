@@ -70,7 +70,7 @@
 //
 // A worked example of why "a check exists" is not a binding, and why this census
 // must never accept one as such: `PHASE_EXPECTED_EVENTS`
-// (`orchestrate/check-event-emissions.ts`) is 2-of-6 derived and 4-of-6
+// (`verbs/gates/check-event-emissions.ts`) is 2-of-6 derived and 4-of-6
 // hand-written literals, and its module-load loop validates that every event it
 // LISTS exists and is `model`-sourced. That loop can never see an event that
 // should be listed and is not. Validation of the entries present is not a binding
@@ -347,7 +347,7 @@ export const BOUNDARY_HOP_EVIDENCE: BoundaryHopEvidence = Object.freeze({
           // deriving the list from the oracle's own sources rather than restating it.
           'servers/exarchos-mcp/src/events/event-annotations.ts',
           'servers/exarchos-mcp/src/registry.ts',
-          'servers/exarchos-mcp/src/orchestrate/check-event-emissions.ts',
+          'servers/exarchos-mcp/src/verbs/gates/check-event-emissions.ts',
           'skills-src',
         ]),
       }),
@@ -369,7 +369,7 @@ export const BOUNDARY_HOP_EVIDENCE: BoundaryHopEvidence = Object.freeze({
           // deriving the list from the oracle's own sources rather than restating it.
           'servers/exarchos-mcp/src/events/event-annotations.ts',
           'servers/exarchos-mcp/src/registry.ts',
-          'servers/exarchos-mcp/src/orchestrate/check-event-emissions.ts',
+          'servers/exarchos-mcp/src/verbs/gates/check-event-emissions.ts',
           'skills-src',
         ]),
       }),

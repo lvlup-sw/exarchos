@@ -425,7 +425,7 @@ export type SynthesisConfig = z.infer<typeof SynthesisConfigSchema>;
  * the review and shepherd fix-loops. `maxIterations` is
  * the per-loop auto-fix bound: how many times a loop may auto-fix a mechanical
  * finding before escalating to the user. Resolves to a uniform default of `5`
- * (see `DEFAULT_MAX_ITERATIONS` in `orchestrate/escalation-policy.ts`); a
+ * (see `DEFAULT_MAX_ITERATIONS` in `verbs/review/escalation-policy.ts`); a
  * project raises or lowers the bound here. A per-loop call-site override takes
  * precedence over this config value.
  */

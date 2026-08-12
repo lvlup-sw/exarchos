@@ -49,12 +49,12 @@ import {
   parseWorktreeListPorcelain,
   type GitRunner,
   type ReservationOwner,
-} from '../orchestrate/worktree/manager.js';
+} from '../verbs/worktree/manager.js';
 import {
   defaultProcessSource,
   type ProcessSource,
-} from '../orchestrate/worktree/pure/process-identity.js';
-import { canonicalWorktreeId } from '../orchestrate/worktree/pure/path-containment.js';
+} from '../verbs/worktree/pure/process-identity.js';
+import { canonicalWorktreeId } from '../verbs/worktree/pure/path-containment.js';
 import {
   deriveWorktreePath,
   guardWorktreeContainment,

@@ -19,7 +19,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import { EventStore } from '../../events/store.js';
-import { computeScopedWorktrees } from '../../orchestrate/prepare-delegation.js';
+import { computeScopedWorktrees } from '../../verbs/team/prepare-delegation.js';
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 import { handleView } from './composite.js';
 import {

@@ -17,7 +17,7 @@ import { maskLiteralsAndComments } from '../architecture/delivery-safety.js';
  *
  * This census is the ratchet. It is a string-aware static scan of the shipped
  * MCP source (the same shape as `architecture/vcs-ownership.ts` and
- * `orchestrate/gate-ownership-census.ts`) that enumerates every reference to the
+ * `verbs/gates/gate-ownership-census.ts`) that enumerates every reference to the
  * phase-mutation primitive and fails closed when one appears outside the
  * declared authority surface. It is deliberately a two-way ratchet:
  *

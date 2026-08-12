@@ -24,7 +24,7 @@ import { buildCli, CLI_EXIT_CODES } from './cli.js';
 import { EventStore } from '../events/store.js';
 import type { DispatchContext } from '../dispatch/core/dispatch.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
-import { WorktreeManager, WORKTREES_STREAM } from '../orchestrate/worktree/manager.js';
+import { WorktreeManager, WORKTREES_STREAM } from '../verbs/worktree/manager.js';
 import { LAUNCH_EXECUTED } from '../launcher/liveness.js';
 import { deriveWorktreePath } from '../launcher/topology.js';
 import type {

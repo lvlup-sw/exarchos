@@ -2,7 +2,7 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import type { WorkflowEvent } from '../../events/schemas.js';
-import { gateRunnerObservationSource } from '../../orchestrate/gate-runner.js';
+import { gateRunnerObservationSource } from '../../verbs/gates/gate-runner.js';
 import {
   gateReliabilityProjection,
   type GateReliabilityMetric,

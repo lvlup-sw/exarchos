@@ -57,7 +57,7 @@ describe('check-event-store-composition-root CLI (Fix 1, #1182)', () => {
 
   it('Detects_RogueInstantiation_ExitsNonZero', () => {
     const { srcRoot, cleanup } = makeFixtureSrc({
-      'orchestrate/some-handler.ts':
+      'verbs/some-handler.ts':
         "import { EventStore } from '../event-store/store.js';\n" +
         'export function getStore(dir: string) {\n' +
         '  return new EventStore(dir);\n' +
@@ -120,7 +120,7 @@ describe('check-event-store-composition-root CLI (Fix 1, #1182)', () => {
     // The script must distinguish actual `new EventStore(...)` calls from
     // prose mentions of the pattern (e.g. RCA references in docstrings).
     const { srcRoot, cleanup } = makeFixtureSrc({
-      'orchestrate/some-handler.ts':
+      'verbs/some-handler.ts':
         '/**\n' +
         ' * Migrated away from `new EventStore(...)`. See RCA.\n' +
         ' */\n' +
@@ -137,7 +137,7 @@ describe('check-event-store-composition-root CLI (Fix 1, #1182)', () => {
 
   it('Reports_AllViolations_NotJustFirst', () => {
     const { srcRoot, cleanup } = makeFixtureSrc({
-      'orchestrate/some-handler.ts':
+      'verbs/some-handler.ts':
         "import { EventStore } from '../event-store/store.js';\n" +
         'export const a = new EventStore("/tmp");\n',
       'review/tools.ts':

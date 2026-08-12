@@ -151,7 +151,7 @@ construction (the setting) plus a fail-closed guard, not by operator convention.
 | Surface | Change |
 |---|---|
 | `.claude/settings.json` (this repo) | add `worktree.baseRef: "head"` |
-| `servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts` | new `baseRef` guard in the `nativeIsolation` branch (~L520) + `guardOutcomes` extension |
+| `servers/exarchos-mcp/src/verbs/team/prepare-delegation.ts` | new `baseRef` guard in the `nativeIsolation` branch (~L520) + `guardOutcomes` extension |
 | `skills-src/delegation/SKILL.md` (~L390) | correct base contract + add baseRef prerequisite + ancestry STEP 0; regenerate `skills/<runtime>/` |
 | `agents/{implementer,fixer,scaffolder}.md` | **unchanged** — keep `isolation: worktree` |
 | docs runbook | operator note: stop hand-pinning the base |
@@ -161,5 +161,5 @@ construction (the setting) plus a fail-closed guard, not by operator convention.
 - `code.claude.com/docs/en/worktrees.md` §"Choose the base branch", §"Isolate subagents with worktrees"
 - `code.claude.com/docs/en/sub-agents.md` §"Supported frontmatter fields"
 - `skills-src/delegation/SKILL.md` §"When integration advances mid-wave"
-- `servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts` (DR-1/DR-2 preflight; `nativeIsolation` skip at L522)
+- `servers/exarchos-mcp/src/verbs/team/prepare-delegation.ts` (DR-1/DR-2 preflight; `nativeIsolation` skip at L522)
 - Related: #1119 (merge-orchestrator ancestry preflight, same stacked-branch family)

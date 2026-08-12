@@ -223,7 +223,7 @@ export function withTelemetry(
           const HINT_TIMEOUT_MS = 150;
           const hintResult = await Promise.race([
             (async () => {
-              const { handleCheckEventEmissions } = await import('../../orchestrate/check-event-emissions.js');
+              const { handleCheckEventEmissions } = await import('../../verbs/gates/check-event-emissions.js');
               return handleCheckEventEmissions(
                 { featureId: featureIdForHints },
                 eventStore.dir,

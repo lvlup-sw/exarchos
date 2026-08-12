@@ -14,7 +14,7 @@ import { join, relative } from 'node:path';
  * `STALE_OWNERSHIP` phantom and also fails (no stale cover — the same "no-mask"
  * ratchet as `architecture/import-cycles.ts`).
  *
- * It follows the established `orchestrate/gate-ownership-census.ts` pattern: a
+ * It follows the established `verbs/gates/gate-ownership-census.ts` pattern: a
  * string-aware source scan producing a typed verdict over the *real* tree, so a
  * regression (a new unowned effect site) trips it rather than a hand-maintained
  * mirror.
@@ -930,7 +930,7 @@ function registerLedger(): readonly EffectOwnershipRule[] {
     ),
     rule(
       'process',
-      'orchestrate/',
+      'verbs/',
       'orchestrate-process-owner',
       'per-call: orchestrate probes/gates own their re-run semantics',
       'orchestrate saga steps carry their own compensation',
@@ -996,7 +996,7 @@ function registerLedger(): readonly EffectOwnershipRule[] {
     ),
     rule(
       'filesystem',
-      'orchestrate/',
+      'verbs/',
       'orchestrate-fs',
       'worktree/state writes carry saga idempotency',
       'orchestrate compensation reverses worktree/state writes',

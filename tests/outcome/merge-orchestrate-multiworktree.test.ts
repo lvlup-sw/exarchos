@@ -19,7 +19,7 @@ import * as path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 import { withTmpGit, addSiblingWorktree } from './_helpers/tmp-git.js';
-import { handleMergeOrchestrate } from '../../servers/exarchos-mcp/src/orchestrate/merge-orchestrate.js';
+import { handleMergeOrchestrate } from '../../servers/exarchos-mcp/src/verbs/merge/merge-orchestrate.js';
 import { EventStore } from '../../servers/exarchos-mcp/src/events/store.js';
 import type { DispatchContext } from '../../servers/exarchos-mcp/src/dispatch/core/dispatch.js';
 // Side-effect import — registers `merge-orchestrator@v1` with the default

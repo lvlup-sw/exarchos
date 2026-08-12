@@ -477,7 +477,7 @@ export function stubCompositeHandler(
 export const COMPOSITE_HANDLER_LOADERS: Record<string, () => Promise<CompositeHandler>> = {
   exarchos_workflow: () => import('../../workflow/composite.js').then((m) => m.handleWorkflow),
   exarchos_event: () => import('../../events/composite.js').then((m) => m.handleEvent),
-  exarchos_orchestrate: () => import('../../orchestrate/composite.js').then((m) => m.handleOrchestrate),
+  exarchos_orchestrate: () => import('../../verbs/composite.js').then((m) => m.handleOrchestrate),
   exarchos_view: () => import('../../projections/views/composite.js').then((m) => m.handleView),
   exarchos_sync: () => import('../../sync/composite.js').then((m) => m.handleSync),
 };

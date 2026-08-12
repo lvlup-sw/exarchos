@@ -455,7 +455,7 @@ function formatTally(counts: DisagreementClassTally): string {
  * observer's health reading, and evaluates the six conditions.
  *
  * #1739 (cutover promotion path) supersedes the former RESERVED note: the
- * production callers are `orchestrate/cutover-readiness.ts` (the
+ * production callers are `verbs/gates/cutover-readiness.ts` (the
  * `cutover_readiness` / `cutover_decide` verbs) and the observer's
  * durable-append auto-export hook (`cutover-auto-export.ts`), both assembling
  * evidence through `evidence-reader.ts`. What T-32 closed remains: the gate

@@ -153,7 +153,7 @@ Evidence:
 - `servers/exarchos-mcp/src/workflow/state-machine.property.test.ts:118-183`
 - `servers/exarchos-mcp/src/workflow/admission/types.ts:29-182`
 - `servers/exarchos-mcp/src/workflow/admission/types.ts:288-324`
-- `servers/exarchos-mcp/src/orchestrate/gate-provider-registry.ts:50-78`
+- `servers/exarchos-mcp/src/verbs/gates/gate-provider-registry.ts:50-78`
 - `servers/exarchos-mcp/src/event-store/atomic-appender.ts:66-115`
 - `servers/exarchos-mcp/src/projections/immutability.test.ts:1-40`
 - `servers/exarchos-mcp/src/workflow/verification-policy-resolver.ts:63-88`
@@ -186,11 +186,11 @@ These shapes allow invalid static combinations such as success with an error, fa
 
 Policy skips also use success-shaped carriers. A skipped gate returns `success: true`, often with `data.passed: true` and a secondary discriminant. This makes skip semantics dependent on caller discipline:
 
-- `servers/exarchos-mcp/src/orchestrate/verification-ladder-routing.test.ts:100-172`
+- `servers/exarchos-mcp/src/verbs/verification-ladder-routing.test.ts:100-172`
 
 One shared helper catches and discards gate-event persistence errors:
 
-- `servers/exarchos-mcp/src/orchestrate/pure/gate-preflight.ts:143-189`
+- `servers/exarchos-mcp/src/verbs/pure/gate-preflight.ts:143-189`
 
 That behavior conflicts with explicit effects and durable proof for enforceable gates.
 
@@ -216,7 +216,7 @@ The codebase has several deliberate module seams:
 
 Evidence:
 
-- `servers/exarchos-mcp/src/orchestrate/pure/`
+- `servers/exarchos-mcp/src/verbs/pure/`
 - `servers/exarchos-mcp/src/storage/__tests__/backend-contract.test.ts`
 - `.dependency-cruiser.cjs:55-67`
 - `servers/exarchos-mcp/src/architecture/import-cycles.test.ts:15-28`
@@ -273,7 +273,7 @@ satisfies Record<SupportedGateClass, ...>
 
 Adding a supported mechanical gate class without one provider becomes a compile-time error:
 
-- `servers/exarchos-mcp/src/orchestrate/gate-provider-registry.ts:80-106`
+- `servers/exarchos-mcp/src/verbs/gates/gate-provider-registry.ts:80-106`
 
 Registry tests require every action to carry an output schema and action annotations:
 
@@ -344,7 +344,7 @@ Project configuration is composed through one pure resolver:
 
 Routing tests dispatch through the real composite router rather than testing handlers only:
 
-- `servers/exarchos-mcp/src/orchestrate/verification-ladder-routing.test.ts`
+- `servers/exarchos-mcp/src/verbs/verification-ladder-routing.test.ts`
 
 The test substrate includes:
 
@@ -360,7 +360,7 @@ The test substrate includes:
 Evidence:
 
 - `package.json:38-46`
-- `servers/exarchos-mcp/src/orchestrate/mutation-adequacy.ts`
+- `servers/exarchos-mcp/src/verbs/gates/mutation-adequacy.ts`
 - `servers/exarchos-mcp/src/evals/benchmarks/seeded-defects/corpus.ts`
 
 ### Gaps

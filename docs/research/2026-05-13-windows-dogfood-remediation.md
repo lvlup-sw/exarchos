@@ -610,12 +610,12 @@ Files inspected during verification (paths relative to repo root):
 - `src/install-skills.ts` — install bug source.
 - `.claude/skills/design-invariants/SKILL.md` — frontmatter sample (no `agents:`).
 - `skills/copilot/*/SKILL.md` — 17 files, all without `agents:` frontmatter (verified via `grep -c "^agents:" skills/copilot/*/SKILL.md` returning 0 across the board).
-- `servers/exarchos-mcp/src/orchestrate/merge-orchestrate.ts` — F1 orchestrator handler.
-- `servers/exarchos-mcp/src/orchestrate/execute-merge.ts` — F1 executor.
-- `servers/exarchos-mcp/src/orchestrate/local-git-merge.ts` — F1 merge adapter (defensive `git checkout target` at line 72 is the trigger).
-- `servers/exarchos-mcp/src/orchestrate/pure/execute-merge.ts` — F1 rollback SHA capture (line 35).
-- `servers/exarchos-mcp/src/orchestrate/pure/merge-preflight.ts` — F2 ancestry call site (line 218-222).
-- `servers/exarchos-mcp/src/orchestrate/dispatch-guard.ts` — F2 algorithm (lines 65-106).
+- `servers/exarchos-mcp/src/verbs/merge/merge-orchestrate.ts` — F1 orchestrator handler.
+- `servers/exarchos-mcp/src/verbs/pure/execute-merge.ts` — F1 executor.
+- `servers/exarchos-mcp/src/verbs/merge/local-git-merge.ts` — F1 merge adapter (defensive `git checkout target` at line 72 is the trigger).
+- `servers/exarchos-mcp/src/verbs/pure/execute-merge.ts` — F1 rollback SHA capture (line 35).
+- `servers/exarchos-mcp/src/verbs/pure/merge-preflight.ts` — F2 ancestry call site (line 218-222).
+- `servers/exarchos-mcp/src/verbs/team/dispatch-guard.ts` — F2 algorithm (lines 65-106).
 - `servers/exarchos-mcp/src/projections/rehydration/reducer.ts` — F3 rehydration handlers (lines 802-925).
 - `servers/exarchos-mcp/src/views/pipeline-view.ts` — F3 pipeline view (lines 74-90).
 - `servers/exarchos-mcp/src/workflow/schemas.ts` — F4 reserved-field rule (lines 515-528).

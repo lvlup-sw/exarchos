@@ -107,7 +107,7 @@ Remove `team.context.injected` schema and its view handler stub — it's @planne
 
 ### Files Changed
 
-- `servers/exarchos-mcp/src/orchestrate/assess-stack.ts` — shepherd lifecycle emissions
+- `servers/exarchos-mcp/src/verbs/vcs/assess-stack.ts` — shepherd lifecycle emissions
 - `servers/exarchos-mcp/src/views/shepherd-status-view.ts` — add handlers for started/approval_requested/completed
 - `servers/exarchos-mcp/src/workflow/playbooks.ts` — task.progressed instruction
 - `servers/exarchos-mcp/src/evals/graders/llm-rubric.ts` — eval.judge.calibrated emission

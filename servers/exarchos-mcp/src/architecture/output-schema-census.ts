@@ -49,7 +49,7 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { TOOL_REGISTRY } from '../registry.js';
-import { extractEnvelopeDataSchema } from '../orchestrate/worktree/schemas.js';
+import { extractEnvelopeDataSchema } from '../verbs/worktree/schemas.js';
 import { acceptsEveryValue } from '../contract/schemas/schema-totality.js';
 import {
   VACUITY_ALLOWLIST,

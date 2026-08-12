@@ -35,7 +35,7 @@ Exarchos ships as a binary + plugin and does not own a consumer's
 `.claude/settings.json`, so the setting cannot be applied transparently. Instead,
 gate dispatch on it.
 
-**Seam:** `servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts`. The
+**Seam:** `servers/exarchos-mcp/src/verbs/team/prepare-delegation.ts`. The
 handler already runs DR-1 ancestry + DR-2 worktree-location guards and **skips
 the worktree check when `nativeIsolation: true`** (L522) — the exact branch with
 no base verification. Add a new `baseRef` guard *in that branch*.

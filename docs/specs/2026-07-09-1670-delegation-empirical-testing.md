@@ -43,8 +43,8 @@ Every result is charted bifrost-style (matplotlib → committed SVG + regen scri
 
 ### Integration Points
 
-- `servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts`, `parse-task-stamps.ts` — the surface Exp 1 exercises through the binary (measured, not changed).
-- `servers/exarchos-mcp/src/orchestrate/task-decomposition.ts:145` — `parseTaskBlocks`/`extractTaskRiskTier` latent-bug fix (DR-5); consumers: `prepare-delegation.ts`, `composite.ts`, `evals/graders/schema-grader.ts`.
+- `servers/exarchos-mcp/src/verbs/team/prepare-delegation.ts`, `parse-task-stamps.ts` — the surface Exp 1 exercises through the binary (measured, not changed).
+- `servers/exarchos-mcp/src/verbs/tasks/task-decomposition.ts:145` — `parseTaskBlocks`/`extractTaskRiskTier` latent-bug fix (DR-5); consumers: `prepare-delegation.ts`, `composite.ts`, `evals/graders/schema-grader.ts`.
 - `docs/evals/quality-ab/{tasks,grade.ts}` — under-specified variants + mechanical mutation grading (DR-4).
 - `docs/evals/native-baseline/` (new) — Exp 2 spike harness (DR-3).
 - `docs/evals/data/<date>/` (new) + a new dated `docs/evals/*.md` — raw CSV, `generate_charts.py`, SVGs, benchmark write-up (DR-6).
@@ -110,7 +110,7 @@ Extend `docs/evals/quality-ab/` with **under-specified** variants of the existin
 
 ### DR-5: Fix `parseTaskBlocks` — it drops tier extraction on the majority of real specs
 
-The gate-path `parseTaskBlocks` (`servers/exarchos-mcp/src/orchestrate/task-decomposition.ts:145`) matches exactly `/^###\s+Task\s+(T-[0-9]+|[0-9]+)/` — **three** hashes only. **Verified corpus distribution:** `docs/specs/` is majority **4-hash** — 81 `#### Task` headers vs ~53 real `### Task NNN` headers (≈3:2), with **7 of 11 specs authored 4-hash-only**. `parse-task-stamps.ts`'s own SoT comment documents this ("the actual corpus authors task headers as `####` ... `parseTaskBlocks` matches only `###`"). So `extractTaskRiskTier` silently drops tiers on **most live specs** — a corpus-wide gate failure, not a rare trap. Port `parseTaskBlocks` to `parse-task-stamps.ts`'s already-correct `###`/`####` + broad-id handling.
+The gate-path `parseTaskBlocks` (`servers/exarchos-mcp/src/verbs/tasks/task-decomposition.ts:145`) matches exactly `/^###\s+Task\s+(T-[0-9]+|[0-9]+)/` — **three** hashes only. **Verified corpus distribution:** `docs/specs/` is majority **4-hash** — 81 `#### Task` headers vs ~53 real `### Task NNN` headers (≈3:2), with **7 of 11 specs authored 4-hash-only**. `parse-task-stamps.ts`'s own SoT comment documents this ("the actual corpus authors task headers as `####` ... `parseTaskBlocks` matches only `###`"). So `extractTaskRiskTier` silently drops tiers on **most live specs** — a corpus-wide gate failure, not a rare trap. Port `parseTaskBlocks` to `parse-task-stamps.ts`'s already-correct `###`/`####` + broad-id handling.
 
 **Acceptance criteria:**
 - A regression test using a **real 4-hash corpus spec** (e.g. `docs/specs/2026-07-03-wlm-reconcile-enforce.md`) proves the gate now extracts task tiers where it previously returned none (RED before → GREEN after).
@@ -226,8 +226,8 @@ Invoke `prepare_delegation` through each binary's **real tool surface** (spawned
 **Test Layer:** integration
 **Implements:** DR-5
 **Files:**
-- `servers/exarchos-mcp/src/orchestrate/task-decomposition.ts`
-- `servers/exarchos-mcp/src/orchestrate/task-decomposition.test.ts`
+- `servers/exarchos-mcp/src/verbs/tasks/task-decomposition.ts`
+- `servers/exarchos-mcp/src/verbs/tasks/task-decomposition.test.ts`
 - `skills-src/plan/references/spec-template.md`, `skills-src/plan/references/task-template.md` (align header depth)
 
 Port `parseTaskBlocks`/`extractTaskRiskTier` to the SoT stamp parser's already-correct `###`/`####` + broad-id handling so the majority-4-hash corpus parses; align the templates to a single documented depth. This is a **shared-contract parser with three consumers** (the delegation prep, the composite dispatcher, and the eval schema-grader) → high tier. Modifies existing production code → characterization first.
@@ -360,7 +360,7 @@ Remove the PROVISIONAL caveats **only** for claims now backed by executed data; 
 
 **Critical path (primary, fix-isolating — not release-gated):** 001 → 003 → 004 → 011 → 012 → 013. The release (002) runs in parallel and gates only the *released-pair* rows, joined at 011; the causal-pair result flows without it.
 
-**Wave 1 (no deps, parallel):** 001, 002, 005, 008, 009 — disjoint file sets (`src/evals/provenance.ts`, `package.json`, `src/orchestrate/task-decomposition.ts`, `quality-ab/tasks/*/SPEC.underspec.md`, `quality-ab/grade.ts`).
+**Wave 1 (no deps, parallel):** 001, 002, 005, 008, 009 — disjoint file sets (`src/evals/provenance.ts`, `package.json`, `src/verbs/tasks/task-decomposition.ts`, `quality-ab/tasks/*/SPEC.underspec.md`, `quality-ab/grade.ts`).
 **Wave 2:** 003 (←001; causal pair + preview.1 build now), 006 (←001).
 **Wave 3:** 004 (←001,003; causal diff now, released diff after 002), 007 (←001,006), 010 (←001,008,009).
 **Wave 4 (converge):** 011 (←002,004,007,010) → 012 → 013.

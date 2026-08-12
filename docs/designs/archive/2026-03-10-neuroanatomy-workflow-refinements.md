@@ -482,7 +482,7 @@ These are embedded in the compactGuidance strings updated in §3.2. No separate 
 | `servers/exarchos-mcp/src/runbooks/definitions.ts` | Add TASK_CLASSIFICATION + REVIEW_STRATEGY runbooks | DR-9, DR-10, DR-11 |
 | `servers/exarchos-mcp/src/agents/types.ts` | Add `effort` field + `'scaffolder'` to AgentSpecId | DR-11, DR-12 |
 | `servers/exarchos-mcp/src/agents/definitions.ts` | Add SCAFFOLDER agent spec | DR-11 |
-| `servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts` | Return taskClassifications in output | DR-11, DR-16 |
+| `servers/exarchos-mcp/src/verbs/team/prepare-delegation.ts` | Return taskClassifications in output | DR-11, DR-16 |
 
 ### ADR Documents
 

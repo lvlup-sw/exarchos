@@ -76,7 +76,7 @@ Activating the presence requirement (DR-2) without recording the dimension or ha
 #### DR-4: Implement the `check_exploration_depth` gate handler + action (Gap B)
 
 **Acceptance criteria:**
-- `check_exploration_depth` has an `ACTION_HANDLERS` entry (`orchestrate/composite.ts`) and a registered action (`src/registry.ts`).
+- `check_exploration_depth` has an `ACTION_HANDLERS` entry (`verbs/composite.ts`) and a registered action (`src/registry.ts`).
 - The gate verifies a `deep`-`designDepth` spec carries the template-required `### Exploration` section citing a `/exarchos:discover` pass (path + `correlationId`), failing when absent; it self-skips at `thin`/`standard` (parity with `resolvePolicySkip`).
 - Regression test: `deep` without Exploration fails; with it passes; `standard` skips.
 
@@ -119,8 +119,8 @@ Activating the presence requirement (DR-2) without recording the dimension or ha
 
 - **Plan-review bound (DR-1).** `state-machine.ts`: add `isRevision?: boolean` to the transition type + the `if (transition.isRevision)` emission of a `plan-revision` event (mirror lines 815-819); add `countPlanRevisions`. `views/workflow-state-projection.ts`: fold `plan-revision` → `state.planReview.revisionCount`. `hsm-definitions.ts createFeatureHSM`: set `isRevision:true` on `plan-review → plan`, order `plan-review → blocked` first. `config/resolve.ts` + `config/yaml-schema.ts`: add `workflow.maxPlanRevisions` / `max-plan-revisions` (default 1) beside `maxFixCycles`. `workflow/composite.ts` + `workflow/tools.ts`: inject the resolved cap into the reserved ephemeral `_maxPlanRevisions` (beside the `_requiredReviews` injection, stripped before persistence — DR-3 pattern), so the pure guard `revisionsExhausted` reads `state._maxPlanRevisions ?? 1` without reading config or polluting the event log (INV-1). `commands/plan.md`: re-plumb the loop through `transition`.
 - **Workflow riskTier + dead-lock fix (DR-2/DR-2a/DR-3).** `verification-policy.ts`/decomposition: `deriveWorkflowRiskTier`. `prepare-delegation.ts`: persist `state.riskTier`. `views/workflow-state-projection.ts`: project the mutation `gate.executed` into `reviews['mutation-adequacy']`. `workflow/tools.ts`: gate the `_requiredReviews` injection on toolchain presence, and pre-resolve+inject threshold/mode for the score check. `workflow/guards.ts allReviewsPassed`: read the injected score/threshold.
-- **Mutation handler (DR-5/DR-6).** `orchestrate/mutation-adequacy.ts`: extend `composeScopedCommand` signature with a diff seam; implement PIT/mutmut arms; add the gated full-scope execution path. **Single owner file — DR-5 and DR-6 are serialized (Tasks 008→009).**
-- **Gate resolution (DR-4/DR-7).** Register `check_exploration_depth` in `orchestrate/composite.ts` + `src/registry.ts`. Route the review guard through `resolveGateSet('REVIEW', ctx-shim)`; delete stale comments in `workflow/phase-kind.ts`.
+- **Mutation handler (DR-5/DR-6).** `verbs/gates/mutation-adequacy.ts`: extend `composeScopedCommand` signature with a diff seam; implement PIT/mutmut arms; add the gated full-scope execution path. **Single owner file — DR-5 and DR-6 are serialized (Tasks 008→009).**
+- **Gate resolution (DR-4/DR-7).** Register `check_exploration_depth` in `verbs/composite.ts` + `src/registry.ts`. Route the review guard through `resolveGateSet('REVIEW', ctx-shim)`; delete stale comments in `workflow/phase-kind.ts`.
 - **Docs (DR-8).** SVG diagrams + two-axes callout in `docs/system-design.html`.
 
 ### Integration Points
@@ -133,9 +133,9 @@ Activating the presence requirement (DR-2) without recording the dimension or ha
 - `workflow/phase-kind.ts` — stale-comment deletion; `REVIEW` ctx shim.
 - `config/resolve.ts` + `config/yaml-schema.ts` — `review.mutationEnforcement` key; `workflow.maxPlanRevisions` / `max-plan-revisions` (default 1), injected at transition time as the reserved ephemeral `_maxPlanRevisions` (never event-sourced — INV-1).
 - `views/workflow-state-projection.ts` — `revisionCount` fold; `reviews['mutation-adequacy']` dimension fold.
-- `verification-policy.ts` / decomposition + `orchestrate/prepare-delegation.ts` — `deriveWorkflowRiskTier` + persist.
-- `orchestrate/mutation-adequacy.ts` — `composeScopedCommand` seam + PIT/mutmut + full-scope.
-- `orchestrate/composite.ts` + `src/registry.ts` — `check_exploration_depth` wiring.
+- `verification-policy.ts` / decomposition + `verbs/team/prepare-delegation.ts` — `deriveWorkflowRiskTier` + persist.
+- `verbs/gates/mutation-adequacy.ts` — `composeScopedCommand` seam + PIT/mutmut + full-scope.
+- `verbs/composite.ts` + `src/registry.ts` — `check_exploration_depth` wiring.
 - `commands/plan.md`, `workflow/playbooks.ts` — re-plumbed loop + cap prose.
 - `docs/system-design.html` — diagrams + two-axes callout.
 
@@ -203,14 +203,14 @@ Each task carries a `riskTier` stamp selecting its verification depth. Tests are
 #### Task 004: Derive + persist workflow `riskTier` (max-of-tiers)
 
 **Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-2
-**Files:** `workflow/verification-policy.ts` (or decomposition layer), `orchestrate/prepare-delegation.ts`, co-located `*.test.ts`
+**Files:** `workflow/verification-policy.ts` (or decomposition layer), `verbs/team/prepare-delegation.ts`, co-located `*.test.ts`
 **Verification:** high — adequacy tests: max-of-tiers, no-tier→low, persistence, override precedence; integration across delegation→review.
 **Dependencies:** None · **Parallelizable:** Yes (chain head)
 
 #### Task 005: Project mutation dimension + no-toolchain skip-pass (dead-lock fix)
 
 **Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-2a
-**Files:** `views/workflow-state-projection.ts` (dedicated `gate.executed` case: fold the mutation gate → `reviews['mutation-adequacy']`, advisory status `pass`, carrying `passed`/`mutationScore`/`skipped`), `orchestrate/mutation-adequacy.ts` (emit a skip-passing `gate.executed` on the no-toolchain and degrade paths), co-located `*.test.ts`
+**Files:** `views/workflow-state-projection.ts` (dedicated `gate.executed` case: fold the mutation gate → `reviews['mutation-adequacy']`, advisory status `pass`, carrying `passed`/`mutationScore`/`skipped`), `verbs/gates/mutation-adequacy.ts` (emit a skip-passing `gate.executed` on the no-toolchain and degrade paths), co-located `*.test.ts`
 **Verification:** high — tests: gate result projects into `reviews['mutation-adequacy']`; no-toolchain emits + folds a skip-pass so the required dimension is satisfied; sub-threshold folds advisory `pass` (DR-3 enforces the score separately); missing run (toolchain present) leaves it absent → blocks. Guard-level dead-lock proof via `allReviewsPassed`.
 **Seam (INV-1):** presence is satisfied by a **recorded skip-pass fact**, NOT by gating `_requiredReviews` injection on toolchain presence in `workflow/tools.ts` (which would couple the pure transition path to toolchain resolution) — so this task does **not** touch `tools.ts`, and the "required at HIGH tier" skill/command prose stays accurate (no skill edit needed).
 **Dependencies:** 004 · **Parallelizable:** No
@@ -225,21 +225,21 @@ Each task carries a `riskTier` stamp selecting its verification depth. Tests are
 #### Task 007: `check_exploration_depth` gate handler + action
 
 **Risk Tier:** medium · **Implements:** DR-4
-**Files:** `orchestrate/composite.ts`, `src/registry.ts`, new handler under `orchestrate/`, co-located `*.test.ts`
+**Files:** `verbs/composite.ts`, `src/registry.ts`, new handler under `orchestrate/`, co-located `*.test.ts`
 **Verification:** medium — scoped tests (deep-without-exploration fails, with passes, standard skips) + `check_test_adequacy`.
 **Dependencies:** None · **Parallelizable:** Yes
 
 #### Task 008: `composeScopedCommand` diff seam + PIT + mutmut scoping
 
 **Risk Tier:** medium · **Implements:** DR-5
-**Files:** `orchestrate/mutation-adequacy.ts`, `config/toolchains.ts` (descriptors if needed), co-located `*.test.ts`
+**Files:** `verbs/gates/mutation-adequacy.ts`, `config/toolchains.ts` (descriptors if needed), co-located `*.test.ts`
 **Verification:** medium — shape-based command-composition tests (mocked diff seam) for PIT `<changed>` + mutmut path-restriction; no degrade warning.
 **Dependencies:** None · **Parallelizable:** Yes (chain head)
 
 #### Task 009: Full-scope mutation execution behind an offline gate
 
 **Risk Tier:** medium · **Implements:** DR-6
-**Files:** `orchestrate/mutation-adequacy.ts`, co-located `*.test.ts`
+**Files:** `verbs/gates/mutation-adequacy.ts`, co-located `*.test.ts`
 **Verification:** medium — tests: full-scope via opt-in produces a scored result (mocked runner); inline `/review` does not execute full-tree.
 **Dependencies:** 008 (same file) · **Parallelizable:** No
 

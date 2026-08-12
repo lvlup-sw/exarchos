@@ -177,7 +177,7 @@ export const defaultVcsGitRunner: VcsGitRunner = {
 // defined ONCE, here in the owner module. Callers that already carry their own
 // idempotency boundary — the WLM `worktree/manager.ts` (its own
 // `worktree.remove.requested/executed` ledger + orphan recovery) and the merge
-// saga's ephemeral temp-branch cleanup in `orchestrate/local-git-merge.ts` — do
+// saga's ephemeral temp-branch cleanup in `verbs/merge/local-git-merge.ts` — do
 // NOT open a second `vcs-mutations` ledger (that would be a double idempotency
 // boundary for one effect). Instead they route the raw git mutation through
 // these primitives, so the argv + "how to force-remove a worktree / delete a

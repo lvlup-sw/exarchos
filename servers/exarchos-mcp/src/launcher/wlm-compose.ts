@@ -45,13 +45,13 @@ import {
   type AdoptResult,
   type ReconcileResult,
   type GitRunner,
-} from '../orchestrate/worktree/manager.js';
+} from '../verbs/worktree/manager.js';
 import {
   serializeMerge,
   type SerializeMergeInput,
   type SerializeMergeDeps,
-} from '../orchestrate/worktree/merge-serializer.js';
-import type { RealpathResolver } from '../orchestrate/worktree/pure/path-containment.js';
+} from '../verbs/worktree/merge-serializer.js';
+import type { RealpathResolver } from '../verbs/worktree/pure/path-containment.js';
 import {
   createLauncherWorktree,
   type CreateLauncherWorktreeInput,

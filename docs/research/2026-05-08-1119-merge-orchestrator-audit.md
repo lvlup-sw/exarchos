@@ -43,15 +43,15 @@ The v2.10/v2.11/v2.12 trajectory is the canonical framing made physical. Where t
 |---|---|
 | Design | `docs/designs/2026-04-26-autonomous-merge-orchestrator.md` |
 | Plan (25 tasks) | `docs/plans/2026-04-26-autonomous-merge-orchestrator.md` |
-| Composer | `servers/exarchos-mcp/src/orchestrate/merge-orchestrate.ts` (557 LOC) |
-| Executor | `servers/exarchos-mcp/src/orchestrate/execute-merge.ts` (403 LOC) |
-| Pure preflight | `servers/exarchos-mcp/src/orchestrate/pure/merge-preflight.ts` (259 LOC) |
-| Pure executor | `servers/exarchos-mcp/src/orchestrate/pure/execute-merge.ts` (145 LOC) |
-| Local-git adapter | `servers/exarchos-mcp/src/orchestrate/local-git-merge.ts` (126 LOC) |
+| Composer | `servers/exarchos-mcp/src/verbs/merge/merge-orchestrate.ts` (557 LOC) |
+| Executor | `servers/exarchos-mcp/src/verbs/pure/execute-merge.ts` (403 LOC) |
+| Pure preflight | `servers/exarchos-mcp/src/verbs/pure/merge-preflight.ts` (259 LOC) |
+| Pure executor | `servers/exarchos-mcp/src/verbs/pure/execute-merge.ts` (145 LOC) |
+| Local-git adapter | `servers/exarchos-mcp/src/verbs/merge/local-git-merge.ts` (126 LOC) |
 | HSM transitions | `servers/exarchos-mcp/src/workflow/hsm-definitions.ts:23-156` |
 | Next-action surfacing | `servers/exarchos-mcp/src/next-actions-computer.ts:100-129` |
 | Event schemas | `servers/exarchos-mcp/src/event-store/schemas.ts:955-1043` |
-| Composite registration | `servers/exarchos-mcp/src/orchestrate/composite.ts:289-292` |
+| Composite registration | `servers/exarchos-mcp/src/verbs/composite.ts:289-292` |
 | Tool registry | `servers/exarchos-mcp/src/registry.ts:978-1002` |
 | CLI (top-level) | `servers/exarchos-mcp/src/adapters/cli.ts:715-761` |
 | Tests | `merge-orchestrate.test.ts`, `execute-merge.test.ts`, `local-git-merge.test.ts`, two `pure/*.test.ts`, `merge-orchestrate.parity.test.ts`, `merge-orchestrate.integration.test.ts` (2,755 LOC) |
@@ -155,7 +155,7 @@ These are git-domain and tool-design concerns the substrate cannot address. They
 **File:** `merge-orchestrate.ts:164-188` and `execute-merge.ts:114-135`
 **Severity:** LOW
 **Description:** Both files define a private `defaultGitExec` doing the same thing. There's now a third copy elsewhere in the tree (per the inline comment "matches `post-merge.ts:48`"). Hygiene smell, drift surface.
-**Required fix:** Extract to `orchestrate/git-exec-default.ts` (or extend `setup-worktree.ts`'s `gitExec`); single source.
+**Required fix:** Extract to `verbs/vcs/git-exec-default.ts` (or extend `setup-worktree.ts`'s `gitExec`); single source.
 
 ### Vocabulary (documentation-only, but architecturally significant)
 

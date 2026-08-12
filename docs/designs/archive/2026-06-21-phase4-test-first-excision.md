@@ -49,7 +49,7 @@ all others** (without it the authoring fixes are cosmetic). WG-6 (drift guard) m
 Thread the per-task `riskTier`/`boundaryTouching` stamp from `prepare_delegation` into a **rendered**
 implementer prompt via `renderImplementerPrompt(ctx)`, replacing the static `agents/implementer.md`
 medium-RGR default at dispatch.
-- **Files:** `servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts` (call `renderImplementerPrompt`),
+- **Files:** `servers/exarchos-mcp/src/verbs/team/prepare-delegation.ts` (call `renderImplementerPrompt`),
   `servers/exarchos-mcp/src/agents/definitions.ts` (already exports the renderer — verify ctx shape),
   `skills-src/delegation/SKILL.md` (document the dispatch seam).
 - **INV-2:** the render happens in the dispatch core, surfaced identically to CLI and MCP.
@@ -63,11 +63,11 @@ ladder's high rung so it stops naming RED→GREEN→REFACTOR: high = scoped test
 + integration suite (test-after).
 - **Files:** `registry.ts`, `runbooks/definitions.ts` (the `task-fix onFail:'stop'` step),
   the `spec-review`/`quality-review`/`delegation` gate chains, `workflow/playbooks.ts`,
-  `dispatch/core/dispatch.ts`, `architecture/sdlc-catalog.ts`, `orchestrate/composite.ts`,
-  `orchestrate/mock-boundary-handler.ts` (the 7 files carrying `check_tdd_compliance`),
+  `dispatch/core/dispatch.ts`, `architecture/sdlc-catalog.ts`, `verbs/composite.ts`,
+  `verbs/gates/mock-boundary-handler.ts` (the 7 files carrying `check_tdd_compliance`),
   `workflow/verification-policy.ts`, `skills-src/_shared/references/verification.md`,
   `buildVerificationNote` (test-after language).
-- **#1544 (live half):** `orchestrate/task-decomposition.ts:332` — `hasTests` hard-fail
+- **#1544 (live half):** `verbs/tasks/task-decomposition.ts:332` — `hasTests` hard-fail
   (`status = hasFiles && hasTests ? 'PASS' : 'FAIL'`) **scales by `riskTier`** instead of failing
   every task; recognize non-JS/TS file extensions (`.py`, `.cs`) in the detector. *(Word-count half
   already fixed; `generate_traceability` half deferred — out of scope this round.)*

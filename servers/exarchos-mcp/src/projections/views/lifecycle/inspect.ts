@@ -31,7 +31,7 @@ import { z } from 'zod';
 import type { DispatchContext } from '../../../dispatch/core/dispatch.js';
 import type { ToolResult } from '../../../format.js';
 import type { WorkflowEvent } from '../../../events/schemas.js';
-import { resolveWorkflowState } from '../../../orchestrate/resolve-state.js';
+import { resolveWorkflowState } from '../../../verbs/resolve-state.js';
 import type { WorkflowStateView } from '../workflow-state-projection.js';
 import { EnvelopeSchema } from '../../../contract/schemas/envelope.js';
 
@@ -227,7 +227,7 @@ export async function handleViewInspect(
 
 // ─── Typed output schema (DR-1 — typed `data`, NOT `EnvelopeSchema(z.unknown())`) ──
 //
-// Derivation discipline (mirrors `orchestrate/worktree/schemas.ts`): the MCP
+// Derivation discipline (mirrors `verbs/worktree/schemas.ts`): the MCP
 // adapter `safeParse`s the REAL handler output against this schema and, on a
 // miss, REPLACES the result with an INTERNAL_ERROR — so a schema STRICTER than
 // the real output breaks production. Every object is declared in strip mode with

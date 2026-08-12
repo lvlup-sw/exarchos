@@ -17,7 +17,7 @@ import type { EventType } from '../../../events/schemas.js';
 import { EventStore } from '../../../events/store.js';
 import { rmrfAsync } from '../../../test-helpers/temp-dir.js';
 import { percentile } from '../../telemetry/percentile.js';
-import { WORKTREES_STREAM } from '../../../orchestrate/worktree/manager.js';
+import { WORKTREES_STREAM } from '../../../verbs/worktree/manager.js';
 
 const RUN_BENCHMARKS = process.env.RUN_BENCHMARKS === 'true';
 

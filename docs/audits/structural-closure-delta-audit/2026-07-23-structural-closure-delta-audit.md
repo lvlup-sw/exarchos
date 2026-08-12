@@ -38,8 +38,8 @@ proof from stable chokepoints.
 | BASE-002 | Resolve the dead-in-production gate reliability view | The candidate presents gate reliability as a closure gain, but the implementation is not selected by production and also breaks a blocking module-intent ratchet. | servers/exarchos-mcp/src/views/gate-reliability-view.ts, servers/exarchos-mcp/src/views/composite.ts, servers/exarchos-mcp/src/registry.ts | node scripts/check-module-intent.mjs exits 0 |
 | EFF-001 | Prove event-store append atomicity under concurrency and add startup sequence/version repair | Diverged sequence/version rows block task completion, task failure, checkpoints, team lifecycle events, and state reconciliation (dogfood CB-1 impact statement); every downstream projection (CB-8) inherits the corruption. | servers/exarchos-mcp/src/event-store/atomic-appender.ts, servers/exarchos-mcp/src/storage/sqlite-backend.ts, servers/exarchos-mcp/src/event-store/multi-process.test.ts | New/extended multi-process.test.ts triggers concurrent competing appends and asserts a single consistent (sequence, version) outcome with no silent divergence |
 | EFF-002 | Emit a blocking projection-degraded signal on stream/event/projection sequence disagreement | Consumers (orchestrate.describe, pipeline/workflow-state views, delegation readiness) can read and act on stale or contradictory state with no fail-safe, propagating CB-1-class corruption into operator-visible decisions. | servers/exarchos-mcp/src/views/workflow-state-projection.ts, servers/exarchos-mcp/src/views/gate-reliability-view.ts, servers/exarchos-mcp/src/projections/rebuild.ts | Fault-injection test seeds a lagging projection cursor behind the event max sequence and asserts every consuming view returns a typed degraded state, not stale data |
-| WFQ-002 | Scope prepare_delegation/worktree readiness to the current waves task list, not all historical task.assigned events | Makes incremental/wave-scoped delegation unusable in practice, forcing all-or-nothing dispatch and defeating the purpose of wave decomposition. This is a confirmed regression of previously-closed issue #1206. PRODUCT CODE BUG. | servers/exarchos-mcp/src/views/delegation-readiness-view.ts, servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts | A regression test replays 17 historical task.assigned events then calls prepare_delegation with a 4-task wave and asserts readiness is computed over exactly those 4 tasks |
-| WFQ-003 | Stop parsing full npm/vitest stdout as one JSON document in check_integration_suite | The task-completion runbooks final blocking gate (CB-5) fails on unrelated output framing rather than actual test results, for every task, adding a spurious full-suite failure signal on top of already-expensive per-task verification. Matches currently-open issue #1537. PRODUCT CODE BUG. | servers/exarchos-mcp/src/orchestrate/check-integration-suite.ts, servers/exarchos-mcp/src/orchestrate/pure/integration-suite.ts | A test runs the gate against a real npm-wrapped vitest invocation with non-JSON preamble output and asserts parseError:false with correct pass/fail/failCount |
+| WFQ-002 | Scope prepare_delegation/worktree readiness to the current waves task list, not all historical task.assigned events | Makes incremental/wave-scoped delegation unusable in practice, forcing all-or-nothing dispatch and defeating the purpose of wave decomposition. This is a confirmed regression of previously-closed issue #1206. PRODUCT CODE BUG. | servers/exarchos-mcp/src/views/delegation-readiness-view.ts, servers/exarchos-mcp/src/verbs/team/prepare-delegation.ts | A regression test replays 17 historical task.assigned events then calls prepare_delegation with a 4-task wave and asserts readiness is computed over exactly those 4 tasks |
+| WFQ-003 | Stop parsing full npm/vitest stdout as one JSON document in check_integration_suite | The task-completion runbooks final blocking gate (CB-5) fails on unrelated output framing rather than actual test results, for every task, adding a spurious full-suite failure signal on top of already-expensive per-task verification. Matches currently-open issue #1537. PRODUCT CODE BUG. | servers/exarchos-mcp/src/verbs/gates/check-integration-suite.ts, servers/exarchos-mcp/src/verbs/pure/integration-suite.ts | A test runs the gate against a real npm-wrapped vitest invocation with non-JSON preamble output and asserts parseError:false with correct pass/fail/failCount |
 | WFQ-004 | Reorder task-completion runbook so task_complete never precedes its own blocking gate, and remove duplicate verification ownership | Task completion state can misrepresent verification outcome (complete recorded, then blocking gate fails); per-task full-suite runs multiply wall-clock cost across 17 tasks; verification ownership ambiguity is a direct dogfood-cited contributor to the run being slower than comparable harnesses. PRODUCT CODE BUG (ordering) + PROCESS/SKILL DESIGN GAP (ownership). | servers/exarchos-mcp/src/runbooks/definitions.ts, skills-src/delegate/SKILL.md | A runbook-shape test asserts task_complete is after every blocking per-task gate and no blocking per-task gate can occur later. |
 
 ## How to use this report
@@ -889,8 +889,8 @@ Line count is a review/decomposition signal, not an automatic defect.
 | `src/build-skills.ts` | 2239 |
 | `servers/exarchos-mcp/src/views/tools.ts` | 2224 |
 | `servers/exarchos-mcp/src/workflow/tools.ts` | 2033 |
-| `servers/exarchos-mcp/src/orchestrate/worktree/manager.ts` | 1892 |
-| `servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts` | 1674 |
+| `servers/exarchos-mcp/src/verbs/worktree/manager.ts` | 1892 |
+| `servers/exarchos-mcp/src/verbs/team/prepare-delegation.ts` | 1674 |
 | `servers/exarchos-mcp/src/adapters/cli.ts` | 1576 |
 | `src/install-skills.ts` | 1555 |
 | `servers/exarchos-mcp/src/workflow/playbooks.ts` | 1546 |
@@ -899,19 +899,19 @@ Line count is a review/decomposition signal, not an automatic defect.
 | `servers/exarchos-mcp/src/task-store/event-sourced-task-store.ts` | 1316 |
 | `servers/exarchos-mcp/src/dispatch/core/dispatch.ts` | 1097 |
 | `servers/exarchos-mcp/src/dispatch/core/onboarding/reconcile.ts` | 1069 |
-| `servers/exarchos-mcp/src/orchestrate/prune-stale-workflows.ts` | 1061 |
+| `servers/exarchos-mcp/src/verbs/team/prune-stale-workflows.ts` | 1061 |
 | `servers/exarchos-mcp/src/workflow/guards.ts` | 1060 |
 | `servers/exarchos-mcp/src/workflow/state-machine.ts` | 1044 |
 | `servers/exarchos-mcp/src/views/workflow-state-projection.ts` | 1019 |
-| `servers/exarchos-mcp/src/orchestrate/mutation-adequacy.ts` | 1016 |
+| `servers/exarchos-mcp/src/verbs/gates/mutation-adequacy.ts` | 1016 |
 | `servers/exarchos-mcp/src/projections/rehydration/reducer.ts` | 988 |
-| `servers/exarchos-mcp/src/orchestrate/task-decomposition.ts` | 973 |
-| `servers/exarchos-mcp/src/orchestrate/merge-orchestrate.ts` | 951 |
+| `servers/exarchos-mcp/src/verbs/tasks/task-decomposition.ts` | 973 |
+| `servers/exarchos-mcp/src/verbs/merge/merge-orchestrate.ts` | 951 |
 | `servers/exarchos-mcp/src/event-store/store.ts` | 943 |
-| `servers/exarchos-mcp/src/orchestrate/onboard/install.ts` | 857 |
-| `servers/exarchos-mcp/src/orchestrate/pure/static-analysis.ts` | 856 |
-| `servers/exarchos-mcp/src/orchestrate/execute-merge.ts` | 818 |
-| `servers/exarchos-mcp/src/orchestrate/plan-coverage.ts` | 812 |
+| `servers/exarchos-mcp/src/verbs/onboard/install.ts` | 857 |
+| `servers/exarchos-mcp/src/verbs/pure/static-analysis.ts` | 856 |
+| `servers/exarchos-mcp/src/verbs/pure/execute-merge.ts` | 818 |
+| `servers/exarchos-mcp/src/verbs/gates/plan-coverage.ts` | 812 |
 | `servers/exarchos-mcp/src/workflow/state-store.ts` | 810 |
 
 ## Native gate and validation health
@@ -1322,7 +1322,7 @@ mechanically true:
 
 **Target files**
 - `servers/exarchos-mcp/src/views/delegation-readiness-view.ts`
-- `servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts`
+- `servers/exarchos-mcp/src/verbs/team/prepare-delegation.ts`
 
 **Acceptance proof**
 - A regression test replays 17 historical task.assigned events then calls prepare_delegation with a 4-task wave and asserts readiness is computed over exactly those 4 tasks
@@ -1343,11 +1343,11 @@ mechanically true:
 
 **Evidence**
 - 2026-07-21-phase-gate-v212-dogfood.md:260-276 (CB-4)
-- servers/exarchos-mcp/src/orchestrate/pure/integration-suite.ts confirmed at candidate SHA: json = JSON.parse(raw) wrapped in try/catch that returns parseError:true on any failure, with no framed-report or direct-binary fallback
+- servers/exarchos-mcp/src/verbs/pure/integration-suite.ts confirmed at candidate SHA: json = JSON.parse(raw) wrapped in try/catch that returns parseError:true on any failure, with no framed-report or direct-binary fallback
 
 **Target files**
-- `servers/exarchos-mcp/src/orchestrate/check-integration-suite.ts`
-- `servers/exarchos-mcp/src/orchestrate/pure/integration-suite.ts`
+- `servers/exarchos-mcp/src/verbs/gates/check-integration-suite.ts`
+- `servers/exarchos-mcp/src/verbs/pure/integration-suite.ts`
 
 **Acceptance proof**
 - A test runs the gate against a real npm-wrapped vitest invocation with non-JSON preamble output and asserts parseError:false with correct pass/fail/failCount
@@ -1673,7 +1673,7 @@ mechanically true:
 
 **Target files**
 - `scripts/generate-implementation-oracle.ts (new)`
-- `servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts`
+- `servers/exarchos-mcp/src/verbs/gates/check-invariant-conformance.ts`
 - `scripts/check-gate-runner-ownership.mjs`
 - `scripts/generate-ship-surface-graph.ts (new)`
 
@@ -1833,7 +1833,7 @@ mechanically true:
 - `skills-src/ideate/SKILL.md`
 - `skills-src/refactor/SKILL.md`
 - `servers/exarchos-mcp/src/cli-commands/install-skills-bridge.js`
-- `servers/exarchos-mcp/src/orchestrate/onboard/install.ts`
+- `servers/exarchos-mcp/src/verbs/onboard/install.ts`
 
 **Acceptance proof**
 - exarchos doctor (or equivalent) reports per-skill installed-vs-shipped hash comparison with explicit stale/match/modified verdicts
@@ -2038,11 +2038,11 @@ mechanically true:
 
 **Evidence**
 - authoring audit artifact: docs/audits/2026-07-23-structural-closure-delta-audit/effects.json#rows[gate.evidence-append] (disposition: partial, bypasses: concurrent distinct operationIds)
-- 13cf9642:servers/exarchos-mcp/src/orchestrate/gate-runner.ts:305-365 (sameOperation / activePredecessor)
+- 13cf9642:servers/exarchos-mcp/src/verbs/gates/gate-runner.ts:305-365 (sameOperation / activePredecessor)
 
 **Target files**
-- `servers/exarchos-mcp/src/orchestrate/gate-runner.ts`
-- `servers/exarchos-mcp/src/orchestrate/gate-runner.gate.test.ts`
+- `servers/exarchos-mcp/src/verbs/gates/gate-runner.ts`
+- `servers/exarchos-mcp/src/verbs/gate-runner.gate.test.ts`
 - `servers/exarchos-mcp/src/event-store/atomic-appender.gate.test.ts`
 
 **Acceptance proof**
@@ -2215,8 +2215,8 @@ mechanically true:
 - authoring audit artifact: docs/audits/2026-07-23-structural-closure-delta-audit/effects.json#rows[orchestrate.git-worktree-merge] (disposition: partial, bypasses: legacy/direct git execution sites)
 
 **Target files**
-- `servers/exarchos-mcp/src/orchestrate/git-exec-default.ts`
-- `servers/exarchos-mcp/src/orchestrate/worktree/`
+- `servers/exarchos-mcp/src/verbs/vcs/git-exec-default.ts`
+- `servers/exarchos-mcp/src/verbs/worktree/`
 - `scripts/check-gate-runner-ownership.mjs`
 
 **Acceptance proof**
@@ -2239,7 +2239,7 @@ mechanically true:
 - authoring audit artifact: docs/audits/2026-07-23-structural-closure-delta-audit/effects.json#rows[orchestrate.vcs-providers] (disposition: partial)
 
 **Target files**
-- `servers/exarchos-mcp/src/orchestrate/vcs/`
+- `servers/exarchos-mcp/src/verbs/vcs/`
 - `servers/exarchos-mcp/src/vcs/`
 
 **Acceptance proof**
@@ -2261,7 +2261,7 @@ mechanically true:
 - authoring audit artifact: docs/audits/2026-07-23-structural-closure-delta-audit/effects.json#rows[orchestrate.onboard-install] (disposition: partial)
 
 **Target files**
-- `servers/exarchos-mcp/src/orchestrate/onboard/install.ts`
+- `servers/exarchos-mcp/src/verbs/onboard/install.ts`
 
 **Acceptance proof**
 - Per-runtime failure-injection test proves idempotent re-run converges to a complete, consistent onboarded state after any single-step interruption
@@ -2311,8 +2311,8 @@ mechanically true:
 - servers/exarchos-mcp/src/runbooks/definitions.ts confirmed at candidate SHA: check_test_adequacy step note calls it the load-bearing per-task gate and the sole per-task gate after check_tdd_compliance was retired (#1587)
 
 **Target files**
-- `servers/exarchos-mcp/src/orchestrate/test-adequacy.ts`
-- `servers/exarchos-mcp/src/orchestrate/test-adequacy.test.ts`
+- `servers/exarchos-mcp/src/verbs/gates/test-adequacy.ts`
+- `servers/exarchos-mcp/src/verbs/gates/test-adequacy.test.ts`
 
 **Acceptance proof**
 - A test commits a branch that adds both a new source file and a new test file, runs the gate, and asserts it reverts only the source change and reports a real red/green kill-probe result (not revert-conflict, not no-new-tests)
@@ -2332,11 +2332,11 @@ mechanically true:
 
 **Evidence**
 - 2026-07-21-phase-gate-v212-dogfood.md:294-306 (CB-6)
-- servers/exarchos-mcp/src/orchestrate/plan-coverage.ts:59-90,722-731 confirmed at candidate SHA: heading list does not include Design & Rationale; plan-coverage.test.ts:1001 asserts NO_DESIGN_SECTIONS as an expected error code
+- servers/exarchos-mcp/src/verbs/gates/plan-coverage.ts:59-90,722-731 confirmed at candidate SHA: heading list does not include Design & Rationale; plan-coverage.test.ts:1001 asserts NO_DESIGN_SECTIONS as an expected error code
 
 **Target files**
-- `servers/exarchos-mcp/src/orchestrate/plan-coverage.ts`
-- `servers/exarchos-mcp/src/orchestrate/plan-coverage.test.ts`
+- `servers/exarchos-mcp/src/verbs/gates/plan-coverage.ts`
+- `servers/exarchos-mcp/src/verbs/gates/plan-coverage.test.ts`
 
 **Acceptance proof**
 - A test feeds a spec using only Design & Rationale with DR-N subsections and asserts the gate finds design sections (no NO_DESIGN_SECTIONS)
@@ -2358,8 +2358,8 @@ mechanically true:
 - 2026-07-21-phase-gate-v212-dogfood.md:307-322 (CB-7)
 
 **Target files**
-- `servers/exarchos-mcp/src/orchestrate/check-task-decomposition.ts`
-- `servers/exarchos-mcp/src/orchestrate/pure/task-decomposition.ts`
+- `servers/exarchos-mcp/src/verbs/check-task-decomposition.ts`
+- `servers/exarchos-mcp/src/verbs/tasks/task-decomposition.ts`
 
 **Acceptance proof**
 - A test feeds the actual v2.12 17-task plan shape (or an equivalent fixture) and asserts the gate now flags breadth/blanket-risk-stamp warnings instead of reporting 17/17 well-decomposed
@@ -2379,11 +2379,11 @@ mechanically true:
 
 **Evidence**
 - 2026-07-21-phase-gate-v212-dogfood.md:16-21,427-439 (UE-1)
-- servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts:83-90,267-311 (planner-precedence logic, per report citation)
+- servers/exarchos-mcp/src/verbs/team/prepare-delegation.ts:83-90,267-311 (planner-precedence logic, per report citation)
 
 **Target files**
-- `servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts`
-- `servers/exarchos-mcp/src/orchestrate/check-task-decomposition.ts`
+- `servers/exarchos-mcp/src/verbs/team/prepare-delegation.ts`
+- `servers/exarchos-mcp/src/verbs/check-task-decomposition.ts`
 
 **Acceptance proof**
 - A test plan with 17/17 identical high/boundaryTouching stamps triggers a blanket-stamp warning at plan or prepare_delegation time
@@ -2406,7 +2406,7 @@ mechanically true:
 
 **Target files**
 - `skills-src/delegate/SKILL.md`
-- `servers/exarchos-mcp/src/orchestrate/serialize-merge.ts`
+- `servers/exarchos-mcp/src/verbs/serialize-merge.ts`
 
 **Acceptance proof**
 - A read-only-caller test path exercises the documented fallback and asserts merge state/events are still recorded equivalently to serialize_merge
@@ -2615,7 +2615,7 @@ mechanically true:
 - `servers/exarchos-mcp/src/event-store/concurrency-error.ts`
 - `servers/exarchos-mcp/src/event-store/storage-busy-error.ts`
 - `servers/exarchos-mcp/src/event-store/session-errors.ts`
-- `servers/exarchos-mcp/src/orchestrate/git-exec-default.ts`
+- `servers/exarchos-mcp/src/verbs/vcs/git-exec-default.ts`
 
 **Acceptance proof**
 - Matrix test enumerates every declared effect chokepoint and asserts a typed retryable/terminal error carrier
@@ -2637,7 +2637,7 @@ mechanically true:
 - 2026-07-21-phase-gate-v212-dogfood.md:337-349 (CB-9)
 
 **Target files**
-- `servers/exarchos-mcp/src/orchestrate/spec-coverage-check.ts`
+- `servers/exarchos-mcp/src/verbs/gates/spec-coverage-check.ts`
 - `servers/exarchos-mcp/src/runbooks/definitions.ts`
 
 **Acceptance proof**
@@ -2659,13 +2659,13 @@ mechanically true:
 **Evidence**
 - 2026-07-21-phase-gate-v212-dogfood.md:352-386 (DOC-1, DOC-2, DOC-3)
 - skills-src/delegate/SKILL.md:98 confirmed at candidate SHA
-- servers/exarchos-mcp/src/orchestrate/setup-worktree.ts confirmed at candidate SHA: worktreeName built from taskId-taskName
+- servers/exarchos-mcp/src/verbs/team/setup-worktree.ts confirmed at candidate SHA: worktreeName built from taskId-taskName
 - skills-src/plan/SKILL.md threshold: 80 example confirmed at candidate SHA
 
 **Target files**
 - `skills-src/delegate/SKILL.md`
 - `skills-src/plan/SKILL.md`
-- `servers/exarchos-mcp/src/orchestrate/setup-worktree.ts`
+- `servers/exarchos-mcp/src/verbs/team/setup-worktree.ts`
 - `servers/exarchos-mcp/src/views/delegation-readiness-view.ts`
 
 **Acceptance proof**

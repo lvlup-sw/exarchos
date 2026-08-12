@@ -5,7 +5,7 @@
 // covering the four synthesisPolicy × event combinations and the mid-
 // implementing cancel path.
 //
-// Unlike the unit tests in `orchestrate/finalize-oneshot.test.ts`, these
+// Unlike the unit tests in `verbs/tasks/finalize-oneshot.test.ts`, these
 // tests wire the orchestrate handlers together exactly as the composite
 // dispatcher does at runtime: `handleInit` → `handleSet` (plan artifact) →
 // `handleSet` (phase transition) → `handleRequestSynthesize` (optional) →
@@ -22,8 +22,8 @@ import * as os from 'node:os';
 import { handleInit, handleSet } from '../../workflow/tools.js';
 import { handleCancel } from '../../workflow/cancel.js';
 import { EventStore } from '../../events/store.js';
-import { handleFinalizeOneshot } from '../../orchestrate/finalize-oneshot.js';
-import { handleRequestSynthesize } from '../../orchestrate/request-synthesize.js';
+import { handleFinalizeOneshot } from '../../verbs/tasks/finalize-oneshot.js';
+import { handleRequestSynthesize } from '../../verbs/team/request-synthesize.js';
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 // ─── Shared fixtures ────────────────────────────────────────────────────────

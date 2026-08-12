@@ -57,5 +57,5 @@ guards) means:
   `synthesisOptedOut`, `oneshotPlanSet` guard implementations.
 - `servers/exarchos-mcp/src/workflow/hsm-definitions.ts` — the oneshot HSM
   with the two sibling transitions from `implementing`.
-- `servers/exarchos-mcp/src/orchestrate/finalize-oneshot.ts` — the handler
+- `servers/exarchos-mcp/src/verbs/tasks/finalize-oneshot.ts` — the handler
   that resolves the choice state and calls `handleSet`.

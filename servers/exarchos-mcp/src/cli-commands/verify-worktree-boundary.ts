@@ -33,7 +33,7 @@
 import { execFileSync } from 'node:child_process';
 import * as path from 'node:path';
 import { z } from 'zod';
-import { defaultRealpath } from '../orchestrate/worktree/pure/path-containment.js';
+import { defaultRealpath } from '../verbs/worktree/pure/path-containment.js';
 
 /**
  * Shape of the PreToolUse hook payload we depend on. Validated with `safeParse`

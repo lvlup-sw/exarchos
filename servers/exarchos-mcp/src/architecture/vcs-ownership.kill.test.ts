@@ -79,7 +79,7 @@ describe('DR-12 kill — widened census sees merge and branch-create', () => {
       [OWNER_MODULE]: OWNER_SOURCE,
       // The exact vector DR-12 names: a direct `git merge --no-ff` in a module
       // no owner rule claims. This passed the census before the widening.
-      'orchestrate/rogue-merge.ts': `
+      'verbs/rogue-merge.ts': `
         import type { GitExec } from './pure/execute-merge.js';
         export function landBranch(gitExec: GitExec, repoRoot: string, target: string): void {
           gitExec(repoRoot, ['merge', '--no-ff', target]);
@@ -92,9 +92,9 @@ describe('DR-12 kill — widened census sees merge and branch-create', () => {
     expect(result.ok).toBe(false);
     const bypasses = bypassesOf(result.diagnostics);
     expect(bypasses).toHaveLength(1);
-    expect(bypasses[0]?.module).toBe('orchestrate/rogue-merge.ts');
+    expect(bypasses[0]?.module).toBe('verbs/rogue-merge.ts');
     expect(bypasses[0]?.mutation).toBe('merge');
-    expect(bypasses[0]?.message).toContain('orchestrate/rogue-merge.ts');
+    expect(bypasses[0]?.message).toContain('verbs/rogue-merge.ts');
     // The plant is the ONLY reason the tree is red.
     expect(result.diagnostics.map((d) => d.code)).toEqual(['DIRECT_VCS_BYPASS']);
   });
@@ -103,7 +103,7 @@ describe('DR-12 kill — widened census sees merge and branch-create', () => {
     const root = await plant({
       [OWNER_MODULE]: OWNER_SOURCE,
       // `git branch <name> <base>` — creation via the bare subcommand.
-      'orchestrate/rogue-branch.ts': `
+      'verbs/rogue-branch.ts': `
         export function forkBranch(git: Git, repoRoot: string, name: string, base: string): void {
           git.run(['branch', name, base], repoRoot);
         }
@@ -129,7 +129,7 @@ describe('DR-12 kill — widened census sees merge and branch-create', () => {
     expect(bypasses.map((d) => d.module).sort()).toEqual([
       'launcher/rogue-checkout.ts',
       'launcher/rogue-switch.ts',
-      'orchestrate/rogue-branch.ts',
+      'verbs/rogue-branch.ts',
     ]);
     for (const bypass of bypasses) {
       expect(bypass.mutation).toBe('branch.create');
@@ -177,11 +177,11 @@ describe('DR-12 kill — widened census sees merge and branch-create', () => {
         const templateVars = ['taskId', 'featureId', 'streamId', 'branch', 'worktreePath'];
       `,
       // orchestrate/pre-synthesis-check.ts — a git READ, not a create.
-      'orchestrate/pre-synthesis-check.ts': `
+      'verbs/gates/pre-synthesis-check.ts': `
         currentBranch = execFileSync('git', ['branch', '--show-current'], { cwd: root });
       `,
       // orchestrate/review-diff.ts — the same read through a helper.
-      'orchestrate/review-diff.ts': `
+      'verbs/review/review-diff.ts': `
         const currentBranch = git(['branch', '--show-current'], worktreePath);
       `,
       // architecture/sdlc-catalog.ts — a catalog tag list.
@@ -190,7 +190,7 @@ describe('DR-12 kill — widened census sees merge and branch-create', () => {
       `,
       // orchestrate/test-adequacy.ts — `checkout <ref> -- <paths>` restores the
       // working tree; it creates no branch.
-      'orchestrate/test-adequacy.ts': `
+      'verbs/gates/test-adequacy.ts': `
         const result = gitExec(repoRoot, ['checkout', stashSha, '--', '.']);
         const c = gitExec(repoRoot, ['checkout', baseRef, '--', ...basePaths]);
       `,
@@ -218,7 +218,7 @@ describe('DR-12 kill — widened census sees merge and branch-create', () => {
   it('a merge/branch-create mentioned only in a COMMENT is still not a site', async () => {
     const root = await plant({
       [OWNER_MODULE]: OWNER_SOURCE,
-      'orchestrate/documented.ts': `
+      'verbs/documented.ts': `
         // Landing runs ['merge', '--no-ff', target] under the hood.
         /* and ['checkout', '-b', tmp] for the rebase strategy */
         export const documented = 1;
@@ -305,7 +305,7 @@ describe('DR-12 live tree — the widened census is green and load-bearing', () 
     expect(kinds.has('merge')).toBe(true);
     expect(kinds.has('branch.create')).toBe(true);
     expect(
-      sites.some((s) => s.module === 'orchestrate/local-git-merge.ts' && s.mutation === 'merge'),
+      sites.some((s) => s.module === 'verbs/merge/local-git-merge.ts' && s.mutation === 'merge'),
     ).toBe(true);
   });
 
@@ -321,7 +321,7 @@ describe('DR-12 live tree — the widened census is green and load-bearing', () 
   it('dropping a DR-12 owner turns the live census RED (the new owners are load-bearing)', async () => {
     // Proves the two DR-12 additions are not decorative: remove either and the
     // live tree fails closed with a real bypass, not a shrug.
-    for (const dropped of ['orchestrate/local-git-merge.ts', 'orchestrate/pure/execute-merge.ts']) {
+    for (const dropped of ['verbs/merge/local-git-merge.ts', 'verbs/pure/execute-merge.ts']) {
       const owners = VCS_MUTATION_OWNERS.filter((o) => o !== dropped);
       const result = await auditVcsOwnership(SRC_ROOT, owners);
       expect(result.ok, `${dropped} should be load-bearing`).toBe(false);

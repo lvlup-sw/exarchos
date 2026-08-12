@@ -157,7 +157,7 @@ describe('DepcruiseRule_SeededViolation_StillFails', () => {
   it('the rule is the one static analysis actually runs', () => {
     // Liveness here is worthless if the gate stopped invoking the config.
     const staticAnalysis = readFileSync(
-      path.join(REPO_ROOT, 'servers/exarchos-mcp/src/orchestrate/pure/static-analysis.ts'),
+      path.join(REPO_ROOT, 'servers/exarchos-mcp/src/verbs/pure/static-analysis.ts'),
       'utf8',
     );
     expect(staticAnalysis).toMatch(/depcruise --validate/);

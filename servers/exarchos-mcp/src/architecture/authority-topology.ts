@@ -518,7 +518,7 @@ export const AUTHORITY_TOPOLOGY: Readonly<Record<ContractBoundaryId, AuthorityTo
             '`autoEmits` drifts from what it actually emits is invisible to any shipped check',
         ),
         unbound(
-          'PHASE_EXPECTED_EVENTS (`orchestrate/check-event-emissions.ts`)',
+          'PHASE_EXPECTED_EVENTS (`verbs/gates/check-event-emissions.ts`)',
           'only PARTIALLY bound, and the partial part is the trap: 2 of its 6 phase entries ' +
             '(`delegate`, `overhaul-delegate`) really are derived via ' +
             '`modelEmittedOnly(getRegisteredEventTypes(phase))`, but the other 4 (`review`, ' +
@@ -626,7 +626,7 @@ export const AUTHORITY_TOPOLOGY: Readonly<Record<ContractBoundaryId, AuthorityTo
       representations: Object.freeze([
         authoritative('the HSM phase topology / transition guard (INV-9)'),
         unbound(
-          'PHASE_EXPECTED_EVENTS (`orchestrate/check-event-emissions.ts`)',
+          'PHASE_EXPECTED_EVENTS (`verbs/gates/check-event-emissions.ts`)',
           'typed `Readonly<Record<string, readonly EventType[]>>` — keyed by BARE STRING, with no ' +
             'relationship to the HSM phase set. A phase renamed or retired in the HSM leaves a dead key ' +
             'here that nothing reports. See the `measured` field: this contradicts the spec table',

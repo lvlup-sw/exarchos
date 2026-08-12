@@ -91,7 +91,7 @@ After porting, update these to reference the new action names. The `validationSc
 ### DR-4: Remove `run_script` Action
 
 Once all 21 scripts are ported, fully remove the `run_script` action and all associated code:
-1. Delete `run_script` handler (`servers/exarchos-mcp/src/orchestrate/run-script.ts`)
+1. Delete `run_script` handler (`servers/exarchos-mcp/src/verbs/run-script.ts`)
 2. Remove `run_script` entry from `ACTION_HANDLERS` in `composite.ts`
 3. Remove `run_script` Zod schema from `registry.ts`
 4. Remove `resolveScript()` utility and any script-resolution infrastructure

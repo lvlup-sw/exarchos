@@ -35,7 +35,7 @@ In `workflow-state-projection.ts:264-275`, `team.spawned`, `team.disbanded`, and
 
 ### T2: Orchestrate Polyglot (#1063, #1068)
 
-**Files:** `servers/exarchos-mcp/src/orchestrate/post-delegation-check.ts`, `servers/exarchos-mcp/src/orchestrate/reconcile-state.ts`, `servers/exarchos-mcp/src/orchestrate/pre-synthesis-check.ts`
+**Files:** `servers/exarchos-mcp/src/verbs/team/post-delegation-check.ts`, `servers/exarchos-mcp/src/verbs/reconcile-state.ts`, `servers/exarchos-mcp/src/verbs/gates/pre-synthesis-check.ts`
 
 **#1063 — STATE_FILE_NOT_FOUND for MCP-managed workflows**
 

@@ -86,7 +86,7 @@ import type {
 import {
   defaultProcessSource,
   type ProcessSource,
-} from '../orchestrate/worktree/pure/process-identity.js';
+} from '../verbs/worktree/pure/process-identity.js';
 import type { ResolvedLaunch, LifecycleRunner } from './verb.js';
 
 // ============================================================

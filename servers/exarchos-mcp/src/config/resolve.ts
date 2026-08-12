@@ -1,6 +1,6 @@
 import type { ProjectConfig, VerificationPolicyOverlay } from './yaml-schema.js';
 import { DEFAULT_ARTIFACT_DIRS, resolveArtifactDirs, type ArtifactDirs } from './artifacts.js';
-import { DEFAULT_MAX_ITERATIONS } from '../orchestrate/escalation-policy.js';
+import { DEFAULT_MAX_ITERATIONS } from '../verbs/review/escalation-policy.js';
 import type { RiskTier } from '../workflow/verification-policy.js';
 
 /** The model-identity vocabulary shared by every model-selection surface. */

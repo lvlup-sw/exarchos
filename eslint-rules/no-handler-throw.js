@@ -13,7 +13,7 @@
  * crash-safety gate.
  *
  * Scope: the rule ONLY walks the "registration set" — the functions
- * `servers/exarchos-mcp/src/orchestrate/composite.ts`'s `ACTION_HANDLERS` map
+ * `servers/exarchos-mcp/src/verbs/composite.ts`'s `ACTION_HANDLERS` map
  * resolves to, plus the six special-cased branch functions `handleOrchestrate`
  * dispatches directly (`describe`/`doctor`/`onboard`/`invariants_scaffold`/
  * `invariants_add`/`runbook`). This is intentionally a CLOSED, PRECISE set —

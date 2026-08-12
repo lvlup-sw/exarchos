@@ -229,7 +229,7 @@ describe('orchestrate review_triage action', () => {
   });
 
   it('should route review_triage action to handleReviewTriage', async () => {
-    const { handleOrchestrate } = await import('../orchestrate/composite.js');
+    const { handleOrchestrate } = await import('../verbs/composite.js');
     const args = {
       action: 'review_triage',
       featureId: 'test-orchestrate',

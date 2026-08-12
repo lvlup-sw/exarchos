@@ -35,10 +35,10 @@ import { rmrfAsync } from '../test-helpers/temp-dir.js';
 import {
   WORKTREES_STREAM,
   WORKTREES_REDUCER,
-} from '../orchestrate/worktree/manager.js';
-import type { WorktreesProjection } from '../orchestrate/worktree/projections/worktrees.js';
-import type { HandleMergeOrchestrateInput } from '../orchestrate/merge-orchestrate.js';
-import { canonicalWorktreeId } from '../orchestrate/worktree/pure/path-containment.js';
+} from '../verbs/worktree/manager.js';
+import type { WorktreesProjection } from '../verbs/worktree/projections/worktrees.js';
+import type { HandleMergeOrchestrateInput } from '../verbs/merge/merge-orchestrate.js';
+import { canonicalWorktreeId } from '../verbs/worktree/pure/path-containment.js';
 import type { CreateLauncherWorktreeDeps } from './create-worktree.js';
 import { LauncherWlm, createLauncherWlm } from './wlm-compose.js';
 

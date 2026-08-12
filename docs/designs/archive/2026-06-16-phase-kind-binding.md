@@ -144,7 +144,7 @@ New module `workflow/phase-kind.ts`: the `PhaseKind` union, `PhaseObligations` i
 ## Integration Points
 
 - **`workflow/verification-policy.ts` / `verification-policy-resolver.ts`** — consumed unchanged; `IMPLEMENT`'s resolver slot points at `resolveVerificationPolicy`.
-- **`orchestrate/prepare-delegation.ts`** — the existing PDP call becomes `resolveGateSet('IMPLEMENT', ctx)`; the template for DR-4's other phases.
+- **`verbs/team/prepare-delegation.ts`** — the existing PDP call becomes `resolveGateSet('IMPLEMENT', ctx)`; the template for DR-4's other phases.
 - **`workflow/hsm-definitions.ts`** — `kind`-tagged states (DR-2).
 - **`workflow/playbooks.ts`** — TDD prose removed (DR-5); verification prose no longer authored here.
 - **`.exarchos.yml: review.gates.*`** — override surface unchanged (DR-6).

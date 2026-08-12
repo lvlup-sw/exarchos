@@ -37,7 +37,7 @@ const FROZEN_IMPORT_BASELINE = [
   'src/events/store.ts',
   // WLM operational-core (#1578): the serialize_merge optimistic lease claims
   // the worktrees stream via the AtomicAppender decide seam.
-  'src/orchestrate/worktree/merge-serializer.ts',
+  'src/verbs/worktree/merge-serializer.ts',
 ] as const;
 
 /**

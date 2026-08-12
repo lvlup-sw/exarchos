@@ -5,7 +5,7 @@
  *
  * Invocation seam (documented per the task brief — read this before changing
  * it): the in-tree `mutation-adequacy` orchestrate action
- * (`servers/exarchos-mcp/src/orchestrate/mutation-adequacy.ts`) is invoked
+ * (`servers/exarchos-mcp/src/verbs/gates/mutation-adequacy.ts`) is invoked
  * **in-process, through the real server entrypoint** (the same
  * `handleMutationAdequacy` function the MCP `exarchos_orchestrate` tool
  * dispatches to) rather than shelling out to a CLI or re-implementing its

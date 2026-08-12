@@ -35,13 +35,13 @@
         "sha": "fd32043dc02d94be6e4c94d9046749a8bc399c5d",
         "committedAt": "2026-07-21T16:06:11-07:00",
         "subject": "feat(orchestrate): persist phase gate evidence",
-        "path": "servers/exarchos-mcp/src/orchestrate/gate-runner.ts"
+        "path": "servers/exarchos-mcp/src/verbs/gates/gate-runner.ts"
       },
       {
         "sha": "e6e837b426735c5edaf8393f59c7f45712ca888c",
         "committedAt": "2026-07-21T16:11:01-07:00",
         "subject": "feat(orchestrate): persist ladder gate evidence",
-        "path": "servers/exarchos-mcp/src/orchestrate/durable-gate-producer.ts"
+        "path": "servers/exarchos-mcp/src/verbs/gates/durable-gate-producer.ts"
       },
       {
         "sha": "4d514919ae9b1f771c91a10176062640f4bfbf2f",
@@ -408,7 +408,7 @@
       "sourceRange": "30831d05f67c44b80e45391b67ed29f11dda4276..13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5",
       "evidenceReferences": [
         "git grep pinned SHAs for filesystem/process/network/event append candidates",
-        "git show 13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:servers/exarchos-mcp/src/orchestrate/gate-runner.ts",
+        "git show 13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:servers/exarchos-mcp/src/verbs/gates/gate-runner.ts",
         "git show 13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:scripts/check-gate-runner-ownership.mjs",
         "git archive candidate subset and run node scripts/check-gate-runner-ownership.mjs",
         "git show 30831d05f67c44b80e45391b67ed29f11dda4276:scripts/get-exarchos.sh",

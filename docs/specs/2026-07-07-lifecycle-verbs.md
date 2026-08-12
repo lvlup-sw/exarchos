@@ -166,7 +166,7 @@ Cross-cutting failure contract for the verb surface.
 
 **Backend read surface:** `listWorkflowSummaries({ workflowType?, status?, phase?, includeTerminal? })` joins `workflow_state` × `streams` with the `workflow_type` index (SQLite pushdown; in-memory filter on `InMemoryBackend`) — the `ps` workflows fold consumes it instead of loading all states.
 
-**Verbs:** new handlers under `src/views/lifecycle/` (ps/inspect/wait/export), routed via `views/composite.ts`; the WLM-6 worktree fold (`orchestrate/worktree/handlers.ts`) is called by the `ps` worktree scope rather than duplicated; the WLM-6 wait kernel is absorbed by generic `wait`. All lifecycle action schemas import field definitions from `src/views/lifecycle/schema-fields.ts` (one canonical Zod shape per field name — `scope`, `status`, `phase`, `workflowType`, `all`, `follow`, `limit`, `output`, `operation`) so `buildRegistrationSchema`'s same-name/different-base-type THROW is unrepresentable; a registry-construction test enforces it. Registry entries stamp postures, `outputSchema`, annotations, and `cli.topLevel` (#1316 Q7/Q8 land as registration facts, not prose).
+**Verbs:** new handlers under `src/views/lifecycle/` (ps/inspect/wait/export), routed via `views/composite.ts`; the WLM-6 worktree fold (`verbs/worktree/handlers.ts`) is called by the `ps` worktree scope rather than duplicated; the WLM-6 wait kernel is absorbed by generic `wait`. All lifecycle action schemas import field definitions from `src/views/lifecycle/schema-fields.ts` (one canonical Zod shape per field name — `scope`, `status`, `phase`, `workflowType`, `all`, `follow`, `limit`, `output`, `operation`) so `buildRegistrationSchema`'s same-name/different-base-type THROW is unrepresentable; a registry-construction test enforces it. Registry entries stamp postures, `outputSchema`, annotations, and `cli.topLevel` (#1316 Q7/Q8 land as registration facts, not prose).
 
 **CLI:** promotion loop + errorCode→exitCode map in `adapters/cli.ts`; follow carriers reuse `src/ndjson/` (CLI) and `src/mcp/tasks-methods.ts` (MCP), both fed by DR-1; follow lifecycle is AbortSignal-driven.
 
@@ -180,10 +180,10 @@ Cross-cutting failure contract for the verb surface.
 - `servers/exarchos-mcp/src/event-store/subscriptions.ts` — **new**: registry, cursor pump, atomic registration + initial drain, handle lifecycle, injectable-clock floor
 - `servers/exarchos-mcp/src/storage/backend.ts` + `sqlite-backend.ts` + `memory-backend.ts` — `dataVersion()` contract + `listWorkflowSummaries` read
 - `servers/exarchos-mcp/src/event-store/schemas.ts` + `liveness-registry.ts` — validation-compatible retrofits; descriptor registry; `export.*` events
-- `servers/exarchos-mcp/src/orchestrate/run-mutation.ts` (or the mutation emission site) — additive `operationId`
+- `servers/exarchos-mcp/src/verbs/run-mutation.ts` (or the mutation emission site) — additive `operationId`
 - `servers/exarchos-mcp/src/views/composite.ts` — route `ps`(redesigned)/`inspect`(new)/`wait`(redesigned)/`export`(new)
 - `servers/exarchos-mcp/src/views/lifecycle/` — **new**: verb handlers + `schema-fields.ts` shared shapes
-- `servers/exarchos-mcp/src/orchestrate/worktree/handlers.ts` — worktree fold consumed as `ps` scope; WLM-6 wait kernel absorbed
+- `servers/exarchos-mcp/src/verbs/worktree/handlers.ts` — worktree fold consumed as `ps` scope; WLM-6 wait kernel absorbed
 - `servers/exarchos-mcp/src/registry.ts` — action defs, postures, outputSchemas, `CliActionHints.topLevel`
 - `servers/exarchos-mcp/src/adapters/cli.ts` — top-level promotion, exit-code map, follow carrier wiring
 - `servers/exarchos-mcp/src/ndjson/` + `src/mcp/tasks-methods.ts` — carriers over the DR-1 contract
@@ -298,10 +298,10 @@ The decomposition maps every task to one or more DR-N from the section above.
 **Files:**
 - `servers/exarchos-mcp/src/event-store/schemas.ts` (retrofit the four `*.executing_started` (+terminal) schemas — validation-compatible additive `instanceId`; shared structural helpers only where payloads actually agree)
 - `servers/exarchos-mcp/src/event-store/schemas.test.ts` (previously-emitted payload fixtures)
-- `servers/exarchos-mcp/src/orchestrate/run-mutation.ts` (new `operationId` → `instanceId` on the mutation emissions)
-- `servers/exarchos-mcp/src/orchestrate/execute-merge.ts` (additive `instanceId` = `taskId ?? sourceBranch→targetBranch`)
+- `servers/exarchos-mcp/src/verbs/run-mutation.ts` (new `operationId` → `instanceId` on the mutation emissions)
+- `servers/exarchos-mcp/src/verbs/pure/execute-merge.ts` (additive `instanceId` = `taskId ?? sourceBranch→targetBranch`)
 - `servers/exarchos-mcp/src/launcher/liveness.ts` (additive `instanceId` = `worktreeId`)
-- `servers/exarchos-mcp/src/orchestrate/worktree/manager.ts` (prune emissions: additive `instanceId` = existing `operationId`)
+- `servers/exarchos-mcp/src/verbs/worktree/manager.ts` (prune emissions: additive `instanceId` = existing `operationId`)
 
 **Verification:** scoped tests + `check_test_adequacy` + integration suite (shared-contract surface — schema glob classifies this high mechanically). Tests: `ExecutingStartedSchemas_PreviouslyEmittedPayloadFixtures_StillValidate` (verbatim fixtures per surface), `ExecutingStartedSchemas_RejectMalformedPayload` (negative — carries the revert-probe adequacy), `AllFourEmitters_EmitCanonicalInstanceIdAdditively` (start + terminal emissions), `LegacyPayloadsWithoutInstanceId_StillValidate`.
 **testingStrategy:** `propertyTests: true` (property: schema compliance — every fixture-shaped payload, with and without the additive fields, validates; serialization category); `benchmarks: false`; `characterizationRequired: true` (modifies existing schemas + four emitters).
@@ -372,7 +372,7 @@ The decomposition maps every task to one or more DR-N from the section above.
 - `servers/exarchos-mcp/src/views/lifecycle/ps.test.ts` (new)
 - `servers/exarchos-mcp/src/views/composite.ts` (route redesigned `ps`)
 - `servers/exarchos-mcp/src/registry.ts` (redesigned schema: `scope`, filters; `outputSchema`; annotations)
-- `servers/exarchos-mcp/src/orchestrate/worktree/handlers.ts` (worktree fold consumed, not duplicated)
+- `servers/exarchos-mcp/src/verbs/worktree/handlers.ts` (worktree fold consumed, not duplicated)
 
 **Verification:** scoped tests + `check_test_adequacy` + integration suite (redesigns a shipped preview surface; parity baselines updated). Tests: `Ps_DefaultScope_All_ReturnsWorkflowsAndOperationsSections`, `Ps_WorkflowScopeWithProbe_RejectedInvalidInput`, `Ps_WorktreeScope_PreservesWlm6Capabilities`.
 **testingStrategy:** `propertyTests: false` (composition wiring; folds carry the PBT in 005/006); `benchmarks: false`; `characterizationRequired: true` (WLM-6 worktree behavior pinned before redesign).
@@ -429,7 +429,7 @@ The decomposition maps every task to one or more DR-N from the section above.
 - `servers/exarchos-mcp/src/views/lifecycle/wait.test.ts` (new)
 - `servers/exarchos-mcp/src/views/composite.ts` (route redesigned `wait`)
 - `servers/exarchos-mcp/src/registry.ts` (redesigned schema + `readOnlyHint`/`idempotentHint`)
-- `servers/exarchos-mcp/src/orchestrate/worktree/handlers.ts` (WLM-6 wait kernel absorbed)
+- `servers/exarchos-mcp/src/verbs/worktree/handlers.ts` (WLM-6 wait kernel absorbed)
 
 **Verification:** scoped tests + `check_test_adequacy` + integration suite. Tests: `Wait_PhaseAlreadyPassed_ReturnsImmediatelyWithoutSubscribing`, `Wait_InProcessTransition_ResolvesOnTier1Wake` (injected clock), `Wait_ForeignConnectionEvent_ResolvesWithinOneFloorTick_PerfSurfaced` (verb-level Tier-2 bound, DR-8), `Wait_Timeout_StructuredWaitTimeout`, `Wait_WorkflowCancelledMidWait_WaitFailed` (phase wait interrupted), `Wait_StatusPredicate_ResolvesOnRequestedTerminal`, `Wait_StatusPredicate_AlreadyTerminal_ReturnsImmediately`, `Wait_StatusPredicate_DifferentTerminalArrives_WaitFailed`, `Wait_OperationPredicate_ResolvesOnRegistryTerminalByInstanceKey`, `Wait_OperationPredicate_NoInFlight_ReturnsImmediately`, `Wait_OperationPredicate_NonFeatureScopedSurface_InvalidInputWithSuggestedFix`, `Wait_WorktreeScope_PreservesWlm6Capabilities` (until: merge + integrationRef; until: idle), `Wait_AllPaths_AppendZeroEvents` (event-count invariance).
 **testingStrategy:** `propertyTests: true` (property: for any transition/liveness event sequence, `wait` resolves iff its predicate is satisfied at precheck or becomes satisfied before timeout — state-machine category); `benchmarks: false`; `characterizationRequired: true` (absorbs shipped worktree kernel).

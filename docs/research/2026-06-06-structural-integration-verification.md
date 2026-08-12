@@ -7,7 +7,7 @@
   - [`2026-06-02-verification-pipeline-recommendations.md`](./2026-06-02-verification-pipeline-recommendations.md) — the R1–R10 risk-proportional verification ladder (the epic, #1515).
   - [`2026-06-02-verification-token-efficiency.md`](./2026-06-02-verification-token-efficiency.md) — the verification-signal ladder (tiers 0–8) and methodologies A–J.
   - [`2026-06-02-mutation-testing-first-class-tool.md`](./2026-06-02-mutation-testing-first-class-tool.md) — the resolved-substrate template (R4/R5).
-- **Grounded against:** `.exarchos/invariants.md` (INV-1..INV-15), the live seams (`config/toolchains.ts`, `orchestrate/prepare-delegation.ts:classifyTask`, `orchestrate/static-analysis.ts`, `skills-src/implementation-planning/references/testing-strategy-guide.md`, `workflow/review-contract.ts`), and three parallel research sweeps (~36 primary sources; full list in §9).
+- **Grounded against:** `.exarchos/invariants.md` (INV-1..INV-15), the live seams (`config/toolchains.ts`, `verbs/team/prepare-delegation.ts:classifyTask`, `verbs/pure/static-analysis.ts`, `skills-src/implementation-planning/references/testing-strategy-guide.md`, `workflow/review-contract.ts`), and three parallel research sweeps (~36 primary sources; full list in §9).
 
 ---
 
@@ -74,7 +74,7 @@ Mirror R4's `mutation` field exactly. Add `contract: { codegen: string|null; dif
 **Critical design calibration (from sweep 1):** implement G-1 as a **drift gate that fails the build, NOT a literal write-lock on the agent.** A write-lock ("block business logic until the schema resolves") fights the agent loop and buys nothing a failing typecheck gate doesn't already give. Let the agent write freely; let the *gate* reject drift. **Honest limit:** verifies shape not meaning — so the gate's `next_actions` should instruct "keep exactly one semantic test for this boundary; delete the redundant shape assertions." This is the precise, defensible version of "never ask a model to test the mapping": never ask it to test *structural* mapping (the compiler does it); still verify *semantic* mapping (one test).
 
 Strategic fit: this is the local, language-resolved expression of the **Strategos.Contracts / TypeSpec** posture already named in the cross-product invariants (`basileus-boundary`). It retires three would-be hardcoded codegen call-sites the same way R4 retires hardcoded Stryker.
-- **Files:** `config/toolchains.ts`, `test-runtime-resolver.ts` (generalize to `resolveVerificationRuntime` — co-sequence with R4), new `orchestrate/contract-drift.ts`, `cli-commands/run-contract.ts`, registry action.
+- **Files:** `config/toolchains.ts`, `test-runtime-resolver.ts` (generalize to `resolveVerificationRuntime` — co-sequence with R4), new `verbs/gates/contract-drift.ts`, `cli-commands/run-contract.ts`, registry action.
 - **Invariants:** INV-4 (resolve, don't bake), INV-6 (substrate), INV-2 (one core, CLI+MCP facades), INV-5d (action not 5th tool), INV-5b (fixed carrier `{passed, drift, breaking[], report}`), INV-1.
 
 ### SIV-3 — Boundary-parse structural gate (P-B, G-2)
@@ -88,7 +88,7 @@ Two layers, calibrated by what static analysis can actually prove (sweep 2):
 
 ### SIV-4 — "No agent-authored mock of an unowned dependency" check (P-C)
 Operationalize Hora & Robbes directly. A diff gate that (a) detects mock identifiers in **agent-authored** test diffs (their ~94%-precision heuristic: `mock|stub|spy|fake|patch|monkeypatch`), (b) cross-references the mocked symbol against an **ownership manifest** (first-party globs; everything else is "unowned"), and (c) **warns/blocks when the mocked target is an external dependency** — emitting `next_actions`: "replace the mock of `<dep>` with a Testcontainers fixture / Pact-verified stub / a fake." This sharpens the testing-strategy-guide's existing prose ("mock only at infrastructure boundaries") into a structural, machine-checkable rule, and is **backstopped by R5 mutation adequacy** — the precise detector for a hollow mock that has rotted a test into a tautology. The two gates are complementary: SIV-4 catches the *mock of the wrong thing*; R5 catches the *test that asserts nothing*.
-- **Files:** new `orchestrate/mock-boundary.ts`, ownership manifest in `.exarchos.yml`, `testing-strategy-guide.md` sharpening, `delegation/references/implementer-prompt.md` (tier-conditional note, per R7).
+- **Files:** new `verbs/gates/mock-boundary.ts`, ownership manifest in `.exarchos.yml`, `testing-strategy-guide.md` sharpening, `delegation/references/implementer-prompt.md` (tier-conditional note, per R7).
 - **Invariants:** INV-5d (action), INV-12 (`next_actions` as the affordance to the fix), INV-1, INV-6.
 
 ### SIV-5 — Hermetic-environment resolver (P-C, the constructive half)

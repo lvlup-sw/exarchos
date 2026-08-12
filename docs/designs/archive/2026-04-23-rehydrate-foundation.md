@@ -265,7 +265,7 @@ Not migrating this wave (each scoped to a follow-up):
 
 | Component | Why not now |
 |-----------|-------------|
-| `orchestrate/reconcile-state.ts` | Broader git/state reconciliation; migrating it risks destabilizing the install rewrite in-flight on another branch |
+| `verbs/reconcile-state.ts` | Broader git/state reconciliation; migrating it risks destabilizing the install rewrite in-flight on another branch |
 | `exarchos_view` projections (pipeline, task boards, stack health) | Each a substantial projection; deserves its own ideate once the reducer pattern is proven |
 | `cli-commands/subagent-context.ts` | Couples to delegation design; migrate when delegation is next touched |
 | `check_design_completeness` legacy state-path read | Gate handler currently reads `~/.claude/workflow-state/*.json`; should read MCP event store |

@@ -12,7 +12,7 @@ import * as path from 'node:path';
 
 import { EventStore } from '../events/store.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
-import { WORKTREES_STREAM } from '../orchestrate/worktree/manager.js';
+import { WORKTREES_STREAM } from '../verbs/worktree/manager.js';
 import {
   emitLaunchExecutingStarted,
   LAUNCH_EXECUTED,
@@ -20,7 +20,7 @@ import {
 import type {
   ProcessRecord,
   ProcessTableSource,
-} from '../orchestrate/worktree/pure/probe.js';
+} from '../verbs/worktree/pure/probe.js';
 import { reconcileLaunches } from './launch-reconcile.js';
 
 const stateDirs: string[] = [];

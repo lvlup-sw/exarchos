@@ -205,7 +205,7 @@ Covers the non-happy paths surfaced by the SoTA and prior RCAs.
 
 ## Technical Design
 
-**Module layout (TS, in-process):** `servers/exarchos-mcp/src/orchestrate/worktree/` — `manager.ts` (facade), `pure/probe.ts` (process+fs scan, protected-ancestry, pure-ish with injected process source), `pure/prune-ladder.ts` (safety ladder, ported from treehouse `analyzeIdleWorktree`), `merge-serializer.ts` (StreamLockManager funnel → `merge_orchestrate`), and `projections/worktrees.ts` (reducer). Existing `setup-worktree.ts` / `worktree-baseref.ts` / `dispatch-guard.ts` are folded behind `manager.ts` (no behavior change beyond cohesion).
+**Module layout (TS, in-process):** `servers/exarchos-mcp/src/verbs/worktree/` — `manager.ts` (facade), `pure/probe.ts` (process+fs scan, protected-ancestry, pure-ish with injected process source), `pure/prune-ladder.ts` (safety ladder, ported from treehouse `analyzeIdleWorktree`), `merge-serializer.ts` (StreamLockManager funnel → `merge_orchestrate`), and `projections/worktrees.ts` (reducer). Existing `setup-worktree.ts` / `worktree-baseref.ts` / `dispatch-guard.ts` are folded behind `manager.ts` (no behavior change beyond cohesion).
 
 **State & serialization:** ownership/liveness live only in `worktree.*` events + `worktrees@v1` projection. Cross-process ordering = SQLite WAL `BEGIN IMMEDIATE` + `PRIMARY KEY(stream_id, sequence)`; in-process ordering = StreamLockManager per-stream Promise mutex (INV-7). Idempotency keys on every append (INV-8), shaped like merge-keys (`<streamId>:worktree:<id>:<eventType>`).
 

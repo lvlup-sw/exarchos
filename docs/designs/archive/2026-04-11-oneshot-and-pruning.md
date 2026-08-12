@@ -34,7 +34,7 @@ Both concerns touch the same substrate (workflow state machine, terminal-phase s
 
 ### Design
 
-A new orchestrate handler `prune-stale-workflows` that wraps `handleCancel` in a batch loop. Lives at `servers/exarchos-mcp/src/orchestrate/prune-stale-workflows.ts`. Exposed as a new action on the `exarchos_orchestrate` composite tool.
+A new orchestrate handler `prune-stale-workflows` that wraps `handleCancel` in a batch loop. Lives at `servers/exarchos-mcp/src/verbs/team/prune-stale-workflows.ts`. Exposed as a new action on the `exarchos_orchestrate` composite tool.
 
 **Pure-vs-IO separation:** the *candidate-selection* logic is pure (takes a list of workflow summaries + config, returns candidates). The *safeguard checks* (open PR, recent commits) are orchestrate-layer IO, isolated in helper functions that can be mocked in tests. This matches the existing `prepare-synthesis.ts:54-73` pattern where orchestrate handlers run IO and emit events while pure decision logic stays separate.
 
@@ -309,7 +309,7 @@ All 10 sub-issues (#1050-1059) are closed as of 2026-04-03. The epic is just jan
   - Event hydration pre-transition: `servers/exarchos-mcp/src/workflow/tools.ts:494-513`
   - Terminal phase filter: `servers/exarchos-mcp/src/views/tools.ts:322` (`TERMINAL_PHASES`)
   - Stale detection: `servers/exarchos-mcp/src/workflow/checkpoint.ts:53` (`isStale`)
-  - Orchestrate handler with IO: `servers/exarchos-mcp/src/orchestrate/prepare-synthesis.ts:54-73`
+  - Orchestrate handler with IO: `servers/exarchos-mcp/src/verbs/team/prepare-synthesis.ts:54-73`
   - Existing cancel with compensation: `servers/exarchos-mcp/src/workflow/cancel.ts:37`
 
 - **External research:**

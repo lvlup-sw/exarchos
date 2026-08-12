@@ -24,7 +24,7 @@ import * as path from 'node:path';
 import { EventStore } from '../events/store.js';
 import type { WorkflowEvent } from '../events/schemas.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
-import { WORKTREES_STREAM } from '../orchestrate/worktree/manager.js';
+import { WORKTREES_STREAM } from '../verbs/worktree/manager.js';
 import type { SpawnExit } from '../utils/process.js';
 import { LAUNCH_EXECUTED, emitLaunchExecuted } from './liveness.js';
 import {

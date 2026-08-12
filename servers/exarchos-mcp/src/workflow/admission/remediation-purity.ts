@@ -6,7 +6,7 @@
 // mutate state because they do not IMPORT any state-mutation surface at all.
 //
 // It follows the repo's established census pattern (`architecture/effect-ledger.ts`,
-// `architecture/vcs-ownership.ts`, `orchestrate/gate-ownership-census.ts`): a
+// `architecture/vcs-ownership.ts`, `verbs/gates/gate-ownership-census.ts`): a
 // comment/string-aware scan of a module's own import surface yielding a typed
 // verdict, so a regression (a new import that reaches the event store, the
 // filesystem, a process, the network, or a phase/transition mutation) trips it

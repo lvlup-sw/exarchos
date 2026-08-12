@@ -44,7 +44,7 @@ All five original open questions are resolved (design Decision Log); DR-7 added 
 **Implements:** DR-2
 **Risk Tier:** medium
 **Verification:** scoped tests + `check_test_adequacy` kill-probe (test-after).
-**Files:** `servers/exarchos-mcp/src/orchestrate/prepare-synthesis.ts`, `prepare-synthesis.test.ts`
+**Files:** `servers/exarchos-mcp/src/verbs/team/prepare-synthesis.ts`, `prepare-synthesis.test.ts`
 **Tests:** `PrepareSynthesis_DocBearingSurfaceNoDocChange_FailsDocumentLeg`, `PrepareSynthesis_NonDocBearingChange_AutoWaivesDocumentLeg`, `PrepareSynthesis_DocumentLeg_EmitsGateExecutedEvent`
 **Dependencies:** 001
 **Parallelizable:** No
@@ -58,8 +58,8 @@ All five original open questions are resolved (design Decision Log); DR-7 added 
 - `servers/exarchos-mcp/src/config/exarchos-config-schema.ts` — `SynthesisConfigSchema` (`.strict()` zod, `documentLeg: { severity, surfaceGlobs, docGlobs }`), wired into `ExarchosConfigSchema`.
 - `config/yaml-schema.ts` — `synthesis: SynthesisConfigSchema.optional()`.
 - `config/resolve.ts` — `ResolvedProjectConfig.synthesis` + DEFAULTS + one-line resolve map.
-- `orchestrate/composite.ts` — **new `adaptWithEventStoreAndConfig` adapter** (mirrors `adaptLadderGate`'s `ctx.projectConfig`→args injection); switch `prepare_synthesis` to it. *Required because `handlePrepareSynthesis` is dispatched via `adaptWithEventStore` and does NOT receive `projectConfig` today.*
-- `orchestrate/prepare-synthesis.ts` — read `args.projectConfig`; reuse `architecture/glob-to-regexp.ts` for surface/doc matching.
+- `verbs/composite.ts` — **new `adaptWithEventStoreAndConfig` adapter** (mirrors `adaptLadderGate`'s `ctx.projectConfig`→args injection); switch `prepare_synthesis` to it. *Required because `handlePrepareSynthesis` is dispatched via `adaptWithEventStore` and does NOT receive `projectConfig` today.*
+- `verbs/team/prepare-synthesis.ts` — read `args.projectConfig`; reuse `architecture/glob-to-regexp.ts` for surface/doc matching.
 - Defaults: `severity:'advisory'`, `docGlobs:['docs/**','**/*.md']`, **empty `surfaceGlobs` ⇒ auto-waive** (opt-in per consumer, non-overfit).
 **Tests:** `DocumentLeg_SeverityConfig_ResolvesAdvisoryToBlocking`, `DocumentLeg_DefaultSeverity_IsAdvisory`, `PrepareSynthesis_AdapterThreadsProjectConfig`
 **Dependencies:** 002
@@ -74,7 +74,7 @@ All five original open questions are resolved (design Decision Log); DR-7 added 
 **Risk Tier:** medium
 **Boundary Touching:** false
 **Verification:** scoped tests + `check_test_adequacy` kill-probe.
-**Files:** `servers/exarchos-mcp/src/orchestrate/prepare-synthesis.ts` (or a folded `extract_intent` in `prepare-review.ts`), workflow-state types, co-located test
+**Files:** `servers/exarchos-mcp/src/verbs/team/prepare-synthesis.ts` (or a folded `extract_intent` in `prepare-review.ts`), workflow-state types, co-located test
 **Tests:** `ExtractIntent_DiffDerivedFloor_WritesArtifactsIntent`, `ExtractIntent_TranscriptPresent_EnrichesIntent`, `ExtractIntent_WorkflowAgnostic_NoTypeBranch`
 **Dependencies:** None
 **Parallelizable:** No (foundation for 005–006); ⚠ touches `prepare-synthesis.ts` — sequence after Bundle A
@@ -83,7 +83,7 @@ All five original open questions are resolved (design Decision Log); DR-7 added 
 **Implements:** DR-1
 **Risk Tier:** medium
 **Verification:** scoped tests on the prepare_review dispatch shape; kill-probe. Skill-body edit also requires snapshot + batch-baseline update.
-**Files:** `servers/exarchos-mcp/src/orchestrate/prepare-review.ts`, `skills-src/spec-review/SKILL.md`, co-located test
+**Files:** `servers/exarchos-mcp/src/verbs/team/prepare-review.ts`, `skills-src/spec-review/SKILL.md`, co-located test
 **Tests:** `PrepareReview_WithIntent_GroundsSpecReviewChecklist`, `PrepareReview_NoIntent_DegradesToDiffOnly`
 **Dependencies:** 004
 **Parallelizable:** No
@@ -92,7 +92,7 @@ All five original open questions are resolved (design Decision Log); DR-7 added 
 **Implements:** DR-1
 **Risk Tier:** medium
 **Verification:** scoped tests + kill-probe.
-**Files:** `servers/exarchos-mcp/src/orchestrate/vcs/validate-pr-body.ts`, `vcs/create-pr.ts`, co-located tests
+**Files:** `servers/exarchos-mcp/src/verbs/vcs/validate-pr-body.ts`, `vcs/create-pr.ts`, co-located tests
 **Tests:** `ValidatePrBody_WithIntent_GroundsBody`, `CreatePr_Body_ReferencesIntent`
 **Dependencies:** 004
 **Parallelizable:** Yes (with 005)
@@ -106,7 +106,7 @@ All five original open questions are resolved (design Decision Log); DR-7 added 
 **Risk Tier:** high
 **Boundary Touching:** true  *(posture/dispatch boundary — INV-11)*
 **Verification:** medium set + integration suite; kill-probe. The guard must be by-construction, not prose.
-**Files:** `servers/exarchos-mcp/src/orchestrate/vcs/create-pr.ts` (guard :124–193 retained), dispatch/posture layer, `create-pr.test.ts`
+**Files:** `servers/exarchos-mcp/src/verbs/vcs/create-pr.ts` (guard :124–193 retained), dispatch/posture layer, `create-pr.test.ts`
 **Tests:** `CreatePr_ShepherdContext_Refused`, `CreatePr_DoubleCreateGuard_RetainedAndPinned`
 **Dependencies:** None
 **Parallelizable:** No
@@ -159,7 +159,7 @@ All five original open questions are resolved (design Decision Log); DR-7 added 
 **Risk Tier:** high
 **Boundary Touching:** true
 **Verification:** medium set + integration suite; kill-probe. INV-6 — no workflow-type conditional in the harvest loop.
-**Files:** `servers/exarchos-mcp/src/orchestrate/assess-stack.ts` (harvest :124–178, mapping :230–256), `assess-stack.test.ts`
+**Files:** `servers/exarchos-mcp/src/verbs/vcs/assess-stack.ts` (harvest :124–178, mapping :230–256), `assess-stack.test.ts`
 **Tests:** `AssessStack_InlineReviewComment_BecomesActionItem`, `AssessStack_ThreadedReply_Surfaced`, `AssessStack_ReviewSummaryBody_Surfaced`, `AssessStack_HarvestLoop_NoWorkflowTypeBranch`
 **Dependencies:** 011
 **Parallelizable:** No
@@ -190,7 +190,7 @@ All five original open questions are resolved (design Decision Log); DR-7 added 
 **Risk Tier:** high
 **Boundary Touching:** true  *(shared policy contract consumed by 3 loops)*
 **Verification:** medium set + integration suite; kill-probe.
-**Files:** new `servers/exarchos-mcp/src/orchestrate/escalation-policy.ts` (+ test), `src/workflow/hsm-definitions.ts` (`maxFixCycles`)
+**Files:** new `servers/exarchos-mcp/src/verbs/review/escalation-policy.ts` (+ test), `src/workflow/hsm-definitions.ts` (`maxFixCycles`)
 **Tests:** `EscalationPolicy_DefaultFive_PerLoopOverride`, `EscalationPolicy_MechanicalFinding_AutoFixesWithinBound`, `EscalationPolicy_IntentTouchingFinding_EscalatesImmediately`
 **Dependencies:** None
 **Parallelizable:** No (foundation for 016–019)
@@ -209,7 +209,7 @@ All five original open questions are resolved (design Decision Log); DR-7 added 
 **Risk Tier:** high
 **Boundary Touching:** true  *(event-sourced counter authority — INV-1)*
 **Verification:** medium set + integration suite; kill-probe.
-**Files:** `servers/exarchos-mcp/src/orchestrate/assess-stack.ts`, shepherd-status view, co-located test
+**Files:** `servers/exarchos-mcp/src/verbs/vcs/assess-stack.ts`, shepherd-status view, co-located test
 **Tests:** `IterationCounter_SingleEventSourcedAuthority`, `ShepherdStatus_AndLoop_AgreeOnCount`
 **Dependencies:** 015; ⚠ touches `assess-stack.ts` — sequence after Bundle D
 **Parallelizable:** No
@@ -218,7 +218,7 @@ All five original open questions are resolved (design Decision Log); DR-7 added 
 **Implements:** DR-3
 **Risk Tier:** medium
 **Verification:** scoped tests; kill-probe. INV-10 — structured terminal, not a hang.
-**Files:** `servers/exarchos-mcp/src/orchestrate/assess-stack.ts`, liveness/status view, co-located test
+**Files:** `servers/exarchos-mcp/src/verbs/vcs/assess-stack.ts`, liveness/status view, co-located test
 **Tests:** `BoundHit_EmitsStructuredEscalation_NotHang`, `Escalation_SurfacedViaShepherdStatus`
 **Dependencies:** 017
 **Parallelizable:** No

@@ -375,7 +375,7 @@
       "proposedChange": "Thread the canonicalized task-ID set supplied to the active prepare_delegation call through to the readiness computation so expected and ready are computed only over that set (filter assignedTaskIds/readyTaskIds by the active wave, or track a per-wave readiness sub-state instead of one workflow-wide counter). Historical assignments outside the active wave must not affect readiness for that call.",
       "targetFiles": [
         "servers/exarchos-mcp/src/views/delegation-readiness-view.ts",
-        "servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts"
+        "servers/exarchos-mcp/src/verbs/team/prepare-delegation.ts"
       ],
       "acceptanceProof": [
         "A regression test replays 17 historical task.assigned events then calls prepare_delegation with a 4-task wave and asserts readiness is computed over exactly those 4 tasks",
@@ -400,12 +400,12 @@
       "impact": "The task-completion runbooks final blocking gate (CB-5) fails on unrelated output framing rather than actual test results, for every task, adding a spurious full-suite failure signal on top of already-expensive per-task verification. Matches currently-open issue #1537. PRODUCT CODE BUG.",
       "evidence": [
         "2026-07-21-phase-gate-v212-dogfood.md:260-276 (CB-4)",
-        "servers/exarchos-mcp/src/orchestrate/pure/integration-suite.ts confirmed at candidate SHA: json = JSON.parse(raw) wrapped in try/catch that returns parseError:true on any failure, with no framed-report or direct-binary fallback"
+        "servers/exarchos-mcp/src/verbs/pure/integration-suite.ts confirmed at candidate SHA: json = JSON.parse(raw) wrapped in try/catch that returns parseError:true on any failure, with no framed-report or direct-binary fallback"
       ],
       "proposedChange": "Invoke the resolved Vitest binary directly (bypassing npms own stdout banner) or configure a dedicated JSON reporter output file and read that file instead of stdout. Keep the existing parseError/parseFailureKind (spawn-failure vs shape-mismatch) distinction, but only apply shape-mismatch fail-closed after confirming the output source is actually vitests reporter stream.",
       "targetFiles": [
-        "servers/exarchos-mcp/src/orchestrate/check-integration-suite.ts",
-        "servers/exarchos-mcp/src/orchestrate/pure/integration-suite.ts"
+        "servers/exarchos-mcp/src/verbs/gates/check-integration-suite.ts",
+        "servers/exarchos-mcp/src/verbs/pure/integration-suite.ts"
       ],
       "acceptanceProof": [
         "A test runs the gate against a real npm-wrapped vitest invocation with non-JSON preamble output and asserts parseError:false with correct pass/fail/failCount",
@@ -821,7 +821,7 @@
       "proposedChange": "Build an AST/call-graph and structural-registry oracle independent of TypeSpec that resolves exact handlers, auth guards/scopes, pure/effectful classification, effect owners, dry-run/idempotency/compensation behavior, and observed output variants; reconcile it against generated contracts before client/registration acceptance.",
       "targetFiles": [
         "scripts/generate-implementation-oracle.ts (new)",
-        "servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts",
+        "servers/exarchos-mcp/src/verbs/gates/check-invariant-conformance.ts",
         "scripts/check-gate-runner-ownership.mjs",
         "scripts/generate-ship-surface-graph.ts (new)"
       ],
@@ -1021,7 +1021,7 @@
         "skills-src/ideate/SKILL.md",
         "skills-src/refactor/SKILL.md",
         "servers/exarchos-mcp/src/cli-commands/install-skills-bridge.js",
-        "servers/exarchos-mcp/src/orchestrate/onboard/install.ts"
+        "servers/exarchos-mcp/src/verbs/onboard/install.ts"
       ],
       "acceptanceProof": [
         "exarchos doctor (or equivalent) reports per-skill installed-vs-shipped hash comparison with explicit stale/match/modified verdicts",
@@ -1274,12 +1274,12 @@
       "impact": "Two concurrent equivalent gate executions could each believe they are the active/authoritative evidence chain, risking duplicate success carriers or non-deterministic admission decisions.",
       "evidence": [
         "authoring audit artifact: docs/audits/2026-07-23-structural-closure-delta-audit/effects.json#rows[gate.evidence-append] (disposition: partial, bypasses: concurrent distinct operationIds)",
-        "13cf9642:servers/exarchos-mcp/src/orchestrate/gate-runner.ts:305-365 (sameOperation / activePredecessor)"
+        "13cf9642:servers/exarchos-mcp/src/verbs/gates/gate-runner.ts:305-365 (sameOperation / activePredecessor)"
       ],
       "proposedChange": "Add an integration test that races two concurrent gate executions with distinct operationIds but identical (requirementId, phaseAttemptId, provider, subject) and asserts exactly one active evidence chain is selected deterministically with no duplicate success carrier escaping before append.",
       "targetFiles": [
-        "servers/exarchos-mcp/src/orchestrate/gate-runner.ts",
-        "servers/exarchos-mcp/src/orchestrate/gate-runner.gate.test.ts",
+        "servers/exarchos-mcp/src/verbs/gates/gate-runner.ts",
+        "servers/exarchos-mcp/src/verbs/gate-runner.gate.test.ts",
         "servers/exarchos-mcp/src/event-store/atomic-appender.gate.test.ts"
       ],
       "acceptanceProof": [
@@ -1493,8 +1493,8 @@
       ],
       "proposedChange": "Extend the gate-ownership-census pattern (scripts/check-gate-runner-ownership.mjs) to a git-mutation census that greps for direct child_process git invocations outside git-exec-default.ts and worktree/, and fails CI on any new occurrence; document/retire any found legacy sites.",
       "targetFiles": [
-        "servers/exarchos-mcp/src/orchestrate/git-exec-default.ts",
-        "servers/exarchos-mcp/src/orchestrate/worktree/",
+        "servers/exarchos-mcp/src/verbs/vcs/git-exec-default.ts",
+        "servers/exarchos-mcp/src/verbs/worktree/",
         "scripts/check-gate-runner-ownership.mjs"
       ],
       "acceptanceProof": [
@@ -1522,7 +1522,7 @@
       ],
       "proposedChange": "Define a shared idempotency-key and compensation-action contract in the provider interface (e.g., every mutating action returns a resumable operation ID and a documented compensating action); extend provider parity tests to assert identical partial-failure and idempotent-retry behavior across every registered provider using recorded-response fixtures.",
       "targetFiles": [
-        "servers/exarchos-mcp/src/orchestrate/vcs/",
+        "servers/exarchos-mcp/src/verbs/vcs/",
         "servers/exarchos-mcp/src/vcs/"
       ],
       "acceptanceProof": [
@@ -1542,14 +1542,14 @@
       "id": "EFF-012",
       "priority": "P1",
       "title": "Prove idempotent retry and rollback for onboarding install across supported runtimes",
-      "problem": "orchestrate/onboard/install.ts owns repository/user installation and configuration, but multi-step onboarding can leave partial files/configuration unless action-level rollback succeeds, and packaged cross-platform rollback/freshness proof is not established.",
+      "problem": "verbs/onboard/install.ts owns repository/user installation and configuration, but multi-step onboarding can leave partial files/configuration unless action-level rollback succeeds, and packaged cross-platform rollback/freshness proof is not established.",
       "impact": "A failed onboarding run (network interruption, permission error, partial platform-specific write) can leave a user repository in a half-onboarded state with no proven idempotent re-run.",
       "evidence": [
         "authoring audit artifact: docs/audits/2026-07-23-structural-closure-delta-audit/effects.json#rows[orchestrate.onboard-install] (disposition: partial)"
       ],
       "proposedChange": "Add failure-injection tests per supported runtime that interrupt onboarding after each step and assert re-running onboard is idempotent (converges to the same final state) and that partial state is either rolled back or safely resumable.",
       "targetFiles": [
-        "servers/exarchos-mcp/src/orchestrate/onboard/install.ts"
+        "servers/exarchos-mcp/src/verbs/onboard/install.ts"
       ],
       "acceptanceProof": [
         "Per-runtime failure-injection test proves idempotent re-run converges to a complete, consistent onboarded state after any single-step interruption"
@@ -1611,8 +1611,8 @@
       ],
       "proposedChange": "Land task-added-source-path handling (detect and correctly revert only pre-existing hunks, not entirely-new files, or handle new-file reversion by deletion+restore). Add an integration test that runs the gate against a committed branch (merge-base..HEAD) rather than only uncommitted worktree hunks. Assert the gate discovers new/modified test files from git diff against merge-base. Treat no-new-tests as a failure (not a vacuous pass) for medium/high-risk tasks when git reports added or modified test files.",
       "targetFiles": [
-        "servers/exarchos-mcp/src/orchestrate/test-adequacy.ts",
-        "servers/exarchos-mcp/src/orchestrate/test-adequacy.test.ts"
+        "servers/exarchos-mcp/src/verbs/gates/test-adequacy.ts",
+        "servers/exarchos-mcp/src/verbs/gates/test-adequacy.test.ts"
       ],
       "acceptanceProof": [
         "A test commits a branch that adds both a new source file and a new test file, runs the gate, and asserts it reverts only the source change and reports a real red/green kill-probe result (not revert-conflict, not no-new-tests)",
@@ -1636,12 +1636,12 @@
       "impact": "Required authors to add an artificial duplicate Technical Design compatibility section purely to satisfy the gate, adding maintenance burden and drift risk between the real content and the compatibility shim. PRODUCT CODE BUG (parser lag behind template change).",
       "evidence": [
         "2026-07-21-phase-gate-v212-dogfood.md:294-306 (CB-6)",
-        "servers/exarchos-mcp/src/orchestrate/plan-coverage.ts:59-90,722-731 confirmed at candidate SHA: heading list does not include Design & Rationale; plan-coverage.test.ts:1001 asserts NO_DESIGN_SECTIONS as an expected error code"
+        "servers/exarchos-mcp/src/verbs/gates/plan-coverage.ts:59-90,722-731 confirmed at candidate SHA: heading list does not include Design & Rationale; plan-coverage.test.ts:1001 asserts NO_DESIGN_SECTIONS as an expected error code"
       ],
       "proposedChange": "Add Design & Rationale (and its DR-N subsection convention) to the recognized top-level heading set in parseDesignSections, matching the current unified spec template exactly. Remove the requirement for a duplicate legacy heading once the unified-template path is covered.",
       "targetFiles": [
-        "servers/exarchos-mcp/src/orchestrate/plan-coverage.ts",
-        "servers/exarchos-mcp/src/orchestrate/plan-coverage.test.ts"
+        "servers/exarchos-mcp/src/verbs/gates/plan-coverage.ts",
+        "servers/exarchos-mcp/src/verbs/gates/plan-coverage.test.ts"
       ],
       "acceptanceProof": [
         "A test feeds a spec using only Design & Rationale with DR-N subsections and asserts the gate finds design sections (no NO_DESIGN_SECTIONS)",
@@ -1668,8 +1668,8 @@
       ],
       "proposedChange": "Add warnings/failures for: broad file sets per task beyond a configured threshold; plans where nearly all tasks are stamped high-risk/boundary-touching (tie into WFQ-009s reclassification check); task descriptions implying multiple distinct behaviors; and an estimated size heuristic derived from named behaviors and historical file-change data for similarly-scoped tasks. Require explicit rationale text when a task exceeds the configured size threshold.",
       "targetFiles": [
-        "servers/exarchos-mcp/src/orchestrate/check-task-decomposition.ts",
-        "servers/exarchos-mcp/src/orchestrate/pure/task-decomposition.ts"
+        "servers/exarchos-mcp/src/verbs/check-task-decomposition.ts",
+        "servers/exarchos-mcp/src/verbs/tasks/task-decomposition.ts"
       ],
       "acceptanceProof": [
         "A test feeds the actual v2.12 17-task plan shape (or an equivalent fixture) and asserts the gate now flags breadth/blanket-risk-stamp warnings instead of reporting 17/17 well-decomposed",
@@ -1695,12 +1695,12 @@
       "impact": "Confirmed-correct precedence behavior (#1636) becomes harmful when upstream planning data is wrong, because nothing downstream challenges an implausible blanket stamp. This compounds every other gate cost in the run. PRODUCT/PROCESS DESIGN GAP, not a regression of #1636 itself.",
       "evidence": [
         "2026-07-21-phase-gate-v212-dogfood.md:16-21,427-439 (UE-1)",
-        "servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts:83-90,267-311 (planner-precedence logic, per report citation)"
+        "servers/exarchos-mcp/src/verbs/team/prepare-delegation.ts:83-90,267-311 (planner-precedence logic, per report citation)"
       ],
       "proposedChange": "Add an advisory-first plausibility check in prepare_delegation (or the decomposition gate, see WFQ-007) that flags when more than a configured percentage of tasks in a plan share an identical explicit riskTier/boundaryTouching stamp, and surfaces a warning requiring the lead to confirm or override per-task before dispatch. Do not change the #1636 precedence rule itself; add a check upstream of it.",
       "targetFiles": [
-        "servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts",
-        "servers/exarchos-mcp/src/orchestrate/check-task-decomposition.ts"
+        "servers/exarchos-mcp/src/verbs/team/prepare-delegation.ts",
+        "servers/exarchos-mcp/src/verbs/check-task-decomposition.ts"
       ],
       "acceptanceProof": [
         "A test plan with 17/17 identical high/boundaryTouching stamps triggers a blanket-stamp warning at plan or prepare_delegation time",
@@ -1728,7 +1728,7 @@
       "proposedChange": "Generate merge instructions from the runtimes actual capability posture (shared-mutating vs read-only caller) rather than one fixed skill example, including the correct required dryRun value for the current default. Document and implement an explicit local-git fallback path (manual rebase/merge with equivalent state bookkeeping/event emission) for read-only callers, so merges do not silently fall outside the tracked workflow lifecycle.",
       "targetFiles": [
         "skills-src/delegate/SKILL.md",
-        "servers/exarchos-mcp/src/orchestrate/serialize-merge.ts"
+        "servers/exarchos-mcp/src/verbs/serialize-merge.ts"
       ],
       "acceptanceProof": [
         "A read-only-caller test path exercises the documented fallback and asserts merge state/events are still recorded equivalently to serialize_merge",
@@ -1994,7 +1994,7 @@
         "servers/exarchos-mcp/src/event-store/concurrency-error.ts",
         "servers/exarchos-mcp/src/event-store/storage-busy-error.ts",
         "servers/exarchos-mcp/src/event-store/session-errors.ts",
-        "servers/exarchos-mcp/src/orchestrate/git-exec-default.ts"
+        "servers/exarchos-mcp/src/verbs/vcs/git-exec-default.ts"
       ],
       "acceptanceProof": [
         "Matrix test enumerates every declared effect chokepoint and asserts a typed retryable/terminal error carrier",
@@ -2024,7 +2024,7 @@
       ],
       "proposedChange": "Split the action into two: (1) plan syntax validation, checking that test paths/names are well-formed and declared in the plan; (2) implementation coverage validation, checking that the declared files exist and pass after task completion. Wire (1) into the plan-review phase and (2) into task-completion or the wave-boundary gate.",
       "targetFiles": [
-        "servers/exarchos-mcp/src/orchestrate/spec-coverage-check.ts",
+        "servers/exarchos-mcp/src/verbs/gates/spec-coverage-check.ts",
         "servers/exarchos-mcp/src/runbooks/definitions.ts"
       ],
       "acceptanceProof": [
@@ -2050,14 +2050,14 @@
       "evidence": [
         "2026-07-21-phase-gate-v212-dogfood.md:352-386 (DOC-1, DOC-2, DOC-3)",
         "skills-src/delegate/SKILL.md:98 confirmed at candidate SHA",
-        "servers/exarchos-mcp/src/orchestrate/setup-worktree.ts confirmed at candidate SHA: worktreeName built from taskId-taskName",
+        "servers/exarchos-mcp/src/verbs/team/setup-worktree.ts confirmed at candidate SHA: worktreeName built from taskId-taskName",
         "skills-src/plan/SKILL.md threshold: 80 example confirmed at candidate SHA"
       ],
       "proposedChange": "Remove the worktree-creation claim from prepare_delegations skill documentation (or replace with an explicit call to setup_worktree / a statement of native-isolation responsibility). Introduce one canonical worktree ID/path generator function shared by the skill docs, setup_worktree, the readiness view, and event payloads, and regenerate/lint the skill docs path examples from it. Fix the plan skills threshold example to 0.8 and add a generated schema-doc consistency test that fails when a skill example value violates the referenced actions schema.",
       "targetFiles": [
         "skills-src/delegate/SKILL.md",
         "skills-src/plan/SKILL.md",
-        "servers/exarchos-mcp/src/orchestrate/setup-worktree.ts",
+        "servers/exarchos-mcp/src/verbs/team/setup-worktree.ts",
         "servers/exarchos-mcp/src/views/delegation-readiness-view.ts"
       ],
       "acceptanceProof": [
@@ -2514,7 +2514,7 @@
       "summary": "Skill documentation (SKILL.md files) is handwritten prose describing action behavior rather than generated from the actions registered description/schema, so it silently drifts from runtime reality (worktree creation claim, path convention, threshold scale, merge capability posture).",
       "evidence": [
         "skills-src/delegate/SKILL.md:98 confirmed at candidate SHA: Worktree creation - creates .worktrees/task-<id> ... runs npm install",
-        "servers/exarchos-mcp/src/orchestrate/setup-worktree.ts confirmed at candidate SHA: worktreeName built from taskId-taskName (different convention)",
+        "servers/exarchos-mcp/src/verbs/team/setup-worktree.ts confirmed at candidate SHA: worktreeName built from taskId-taskName (different convention)",
         "skills-src/plan/SKILL.md threshold: 80 example confirmed at candidate SHA against a documented 0-1 schema range (DOC-3)"
       ],
       "domain": "workflow-gates-quality"
@@ -2523,7 +2523,7 @@
       "id": "SF-5",
       "summary": "Plan-time coverage gates conflate the plan declares this artifact with this artifact already exists on disk, producing false negatives for spec structures and test files that implementation tasks are expected to create.",
       "evidence": [
-        "servers/exarchos-mcp/src/orchestrate/plan-coverage.ts:59-90,722-731 (parses only Technical Design / Design Requirements / Requirements headings, not the unified Design and Rationale template) - CB-6",
+        "servers/exarchos-mcp/src/verbs/gates/plan-coverage.ts:59-90,722-731 (parses only Technical Design / Design Requirements / Requirements headings, not the unified Design and Rationale template) - CB-6",
         "2026-07-21-phase-gate-v212-dogfood.md:337-349 (CB-9, spec_coverage_check requires referenced test files to already exist at plan time)"
       ],
       "domain": "workflow-gates-quality"
@@ -2603,7 +2603,7 @@
       "summary": "Event append now wraps stream-version update and event insert in one BEGIN IMMEDIATE SQLite transaction, and gate evidence append is idempotency-keyed by evidenceId with an explicit sameOperation dedup check before any new evidence is written.",
       "evidence": [
         "13cf9642:servers/exarchos-mcp/src/event-store/atomic-appender.ts",
-        "13cf9642:servers/exarchos-mcp/src/orchestrate/gate-runner.ts:309-323"
+        "13cf9642:servers/exarchos-mcp/src/verbs/gates/gate-runner.ts:309-323"
       ],
       "domain": "state-effects"
     },
@@ -2677,8 +2677,8 @@
     {
       "summary": "check_integration_suite already models load-cascade failures (a file failing at import) as counted failures rather than an invisible 0/0, and already carries a parseError/parseFailureKind distinction (spawn-failure vs shape-mismatch) that a fix can build on.",
       "evidence": [
-        "servers/exarchos-mcp/src/orchestrate/check-integration-suite.ts (header comment, confirmed at candidate SHA)",
-        "servers/exarchos-mcp/src/orchestrate/pure/integration-suite.ts (parseError/parseFailureKind fields, confirmed at candidate SHA)"
+        "servers/exarchos-mcp/src/verbs/gates/check-integration-suite.ts (header comment, confirmed at candidate SHA)",
+        "servers/exarchos-mcp/src/verbs/pure/integration-suite.ts (parseError/parseFailureKind fields, confirmed at candidate SHA)"
       ],
       "domain": "workflow-gates-quality"
     },

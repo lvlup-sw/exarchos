@@ -36,7 +36,7 @@ describe('check-query-upcast-choke-point CLI (#1556)', () => {
 
   it('Detects_RawBackendReadOutsideSubstrate_ExitsNonZero', () => {
     const { srcRoot, cleanup } = makeFixtureSrc({
-      'orchestrate/some-handler.ts':
+      'verbs/some-handler.ts':
         'export function load(backend: any, id: string) {\n' +
         '  return backend.queryEvents(id);\n' +
         '}\n',
@@ -86,11 +86,11 @@ describe('check-query-upcast-choke-point CLI (#1556)', () => {
 
   it('Excludes_TestAndBenchSurface_ExitsZero', () => {
     const { srcRoot, cleanup } = makeFixtureSrc({
-      'orchestrate/h.test.ts':
+      'verbs/h.test.ts':
         'const x = (b: any) => b.queryEvents("s");\n',
       '__tests__/integration.ts':
         'const x = (b: any) => b.queryEvents("s");\n',
-      'orchestrate/h.bench.ts':
+      'verbs/h.bench.ts':
         'const x = (b: any) => b.queryEvents("s");\n',
       'telemetry/benchmarks/helpers.ts':
         'export const x = (b: any) => b.queryEvents("s");\n',
@@ -105,7 +105,7 @@ describe('check-query-upcast-choke-point CLI (#1556)', () => {
 
   it('SkipsCommentLines_DocstringMentioningPattern_ExitsZero', () => {
     const { srcRoot, cleanup } = makeFixtureSrc({
-      'orchestrate/some-handler.ts':
+      'verbs/some-handler.ts':
         '/**\n' +
         ' * Do not call `backend.queryEvents(...)` here — go through EventStore.\n' +
         ' */\n' +

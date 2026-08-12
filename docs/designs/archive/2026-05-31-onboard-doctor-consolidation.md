@@ -22,7 +22,7 @@ with overlapping responsibility and no single "make my repo ready" command:
 | `exarchos init` | CLI + `exarchos_orchestrate.init` | Detect runtime(s) + VCS; write per-runtime MCP config (`~/.claude.json` etc.); seed `.exarchos.yml` (idempotent, never overwrites); emit `init.executed` | Writes config + registers MCP — overlaps `install-skills`' MCP registration |
 | `exarchos install-skills` | CLI-only bridge → root `src/install-skills.ts` | Install skills bundle to `~/.claude/skills/` (local-copy fast path, else `npx skills add …`); then `registerExarchosInClaudeJson()` | Registers MCP in `~/.claude.json` — same write `init` does |
 | `exarchos doctor` | CLI + `exarchos_orchestrate.doctor` | 11 parallel read-only checks (node version, sqlite health, state dir, env, git, agent config, MCP registration, plugin hash/version, remote-mcp stub, invariants catalog); emit `diagnostic.executed`. **Report-only — never fixes** | Diagnoses exactly the things `init`/`install-skills` produce, but can't repair them |
-| `new-project` | internal handler `orchestrate/new-project.ts` (not a public verb) | Scaffold a *new* repo: dir, `.claude/settings.json`, `.exarchos.yml` from template, optional `CLAUDE.md.template` + `applyLanguageCustomizations` (npm→dotnet **string-rewrite**, the #1508 residue), `.gitignore` | Generates the same artifacts `init` does, via a parallel code path |
+| `new-project` | internal handler `verbs/new-project.ts` (not a public verb) | Scaffold a *new* repo: dir, `.claude/settings.json`, `.exarchos.yml` from template, optional `CLAUDE.md.template` + `applyLanguageCustomizations` (npm→dotnet **string-rewrite**, the #1508 residue), `.gitignore` | Generates the same artifacts `init` does, via a parallel code path |
 
 Consequences:
 
@@ -65,18 +65,18 @@ Grounding for the consolidation — file references for the implementer:
 - **`init`** — registry `servers/exarchos-mcp/src/registry.ts:2373` (schema:
   `{ runtime?, vcs?, nonInteractive?, forceOverwrite?, format? }`); CLI adapter
   `servers/exarchos-mcp/src/adapters/cli.ts:858`; handler
-  `servers/exarchos-mcp/src/orchestrate/init/index.ts`; writers under
+  `servers/exarchos-mcp/src/verbs/doctor/index.ts`; writers under
   `orchestrate/init/writers/{claude-code,copilot,cursor,codex,opencode,mcp-json-writer}.ts`;
-  config seed `orchestrate/init/seed-exarchos-config.ts` (idempotent — never overwrites).
+  config seed `verbs/init/seed-exarchos-config.ts` (idempotent — never overwrites).
 - **`doctor`** — registry `registry.ts:2250` (schema: `{ timeoutMs?, format? }`); CLI
-  `cli.ts:660`; handler `orchestrate/doctor/index.ts`; 11 checks under
+  `cli.ts:660`; handler `verbs/doctor/index.ts`; 11 checks under
   `orchestrate/doctor/checks/*.ts`; each returns Pass/Warn/Fail/Skip + an optional `fix`
   *hint string* that nothing consumes programmatically.
 - **`install-skills`** — CLI-only bridge `cli.ts:1018` → root `src/install-skills.ts`
   (≈660 lines): local-copy fast path from `skills/<runtime>/` → runtime skills dir, else
   `npx skills add github:lvlup-sw/exarchos …`; then `registerExarchosInClaudeJson()`.
   **Not** in the registry; no MCP parity.
-- **`new-project`** — `orchestrate/new-project.ts`; internal only;
+- **`new-project`** — `verbs/new-project.ts`; internal only;
   `applyLanguageCustomizations` does the npm→dotnet string-rewrite (#1508).
 - **Config schema** — `servers/exarchos-mcp/src/config/exarchos-config-schema.ts`,
   top-level keys: `test`, `typecheck`, `install` (safe-command strings),

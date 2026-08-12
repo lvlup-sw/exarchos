@@ -229,7 +229,7 @@ node scripts/lint-inv6.mjs
 ## Running the full sweep
 
 The deterministic checks above are run by the `check_invariant_conformance`
-gate (`servers/exarchos-mcp/src/orchestrate/check-invariant-conformance.ts`),
+gate (`servers/exarchos-mcp/src/verbs/gates/check-invariant-conformance.ts`),
 whose audit prompt is generated from this catalog
 (`servers/exarchos-mcp/src/architecture/audit-prompt.ts`). The gate emits
 findings as a structured `ToolResult` (verdict + findings array with severity +

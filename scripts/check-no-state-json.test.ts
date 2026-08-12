@@ -54,7 +54,7 @@ describe('check-no-state-json CLI (#1504)', () => {
 
   it('Detects_ReadStateJson_ExitsNonZero', () => {
     const { srcRoot, cleanup } = makeFixtureSrc({
-      'orchestrate/some-reader.ts':
+      'verbs/some-reader.ts':
         'import { readFileSync } from "node:fs";\n' +
         'export function load(dir: string, id: string) {\n' +
         '  return JSON.parse(readFileSync(path.join(dir, `${id}.state.json`), "utf8"));\n' +
@@ -72,7 +72,7 @@ describe('check-no-state-json CLI (#1504)', () => {
   it('Detects_ExistsSyncStateJson_ExitsNonZero', () => {
     // Presence-probing a `.state.json` is the existence anti-pattern #1504 bans.
     const { srcRoot, cleanup } = makeFixtureSrc({
-      'orchestrate/probe.ts':
+      'verbs/worktree/pure/probe.ts':
         'import { existsSync } from "node:fs";\n' +
         'export const tracked = (dir: string, id: string) =>\n' +
         '  existsSync(path.join(dir, `${id}.state.json`));\n',

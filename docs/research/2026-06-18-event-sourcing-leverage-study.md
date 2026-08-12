@@ -61,7 +61,7 @@ The three questions in this study map cleanly onto that idea:
 |---|---|---|
 | Q1 — How do events replay state? | the **read/fold** path | `workflow/rehydrate.ts`, `projections/*`, `workflow/state-store.ts` |
 | Q2 — Concurrent vs distributed benefit? | the **write/coordinate** path | `event-store/atomic-appender.ts`, `storage/sqlite-backend.ts` |
-| Q3 — Are we fully leveraging it? | the **authority** of events vs files | `orchestrate/resolve-state.ts`, projection inventory |
+| Q3 — Are we fully leveraging it? | the **authority** of events vs files | `verbs/resolve-state.ts`, projection inventory |
 
 ---
 
@@ -247,7 +247,7 @@ happened during this workflow?" is answerable by reading the log
 **(e) Crash-safe external side effects (the process-manager split, INV-13).**
 Non-idempotent external mutations (GitHub API, git on shared branches) split into `*.requested`
 (intent + full payload, before) and `*.executed` (result, after)
-([`merge-orchestrate.ts`](../../servers/exarchos-mcp/src/orchestrate/merge-orchestrate.ts),
+([`merge-orchestrate.ts`](../../servers/exarchos-mcp/src/verbs/merge/merge-orchestrate.ts),
 [`runtime.md §4 "Process-manager handlers"`](../architecture/runtime.md)). On retry, the `*.requested`
 event idempotency-collapses so the side effect fires once; on crash recovery, the next invocation
 sees `*.requested` without `*.executed` and runs an *idempotent precheck* against external state
@@ -327,7 +327,7 @@ registers `merge-orchestrator@v1`, a stream-scoped left-fold over
 audit metadata across phase transitions. The executor reaches state via
 `appender.decide<MergeOrchestratorState>(featureId, "merge-orchestrator@v1", …)` and short-circuits
 to an idempotent no-op when the projection already shows forward progress
-([`execute-merge.ts`](../../servers/exarchos-mcp/src/orchestrate/execute-merge.ts)).
+([`execute-merge.ts`](../../servers/exarchos-mcp/src/verbs/pure/execute-merge.ts)).
 
 **CQRS views read from events, not files.**
 The `exarchos_view` materializers
@@ -343,7 +343,7 @@ production-grade and covered in §2.2.
 
 This is the most important finding. INV-1 says the event log is the source of truth and `.state.json`
 is a *derived stamp*. The shared resolver inverts that order. Verified first-hand in
-[`orchestrate/resolve-state.ts:77-115`](../../servers/exarchos-mcp/src/orchestrate/resolve-state.ts):
+[`verbs/resolve-state.ts:77-115`](../../servers/exarchos-mcp/src/verbs/resolve-state.ts):
 
 ```ts
 export async function resolveWorkflowState(opts: ResolveOpts): Promise<ResolveResult> {
@@ -458,7 +458,7 @@ truth. So R1 is a *deletion*, not a reordering — and strictly simpler than #15
 
 **The change.**
 1. Remove the `stateFile` branch from `resolveWorkflowState`
-   ([`resolve-state.ts:80-88`](../../servers/exarchos-mcp/src/orchestrate/resolve-state.ts)) — and,
+   ([`resolve-state.ts:80-88`](../../servers/exarchos-mcp/src/verbs/resolve-state.ts)) — and,
    ultimately, the `stateFile` parameter. The resolver becomes: materialize `workflowStateProjection`
    from the event log, period.
 2. Stop *writing* `.state.json` (the `writeStateFile`/reconcile path in

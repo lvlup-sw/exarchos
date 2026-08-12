@@ -62,16 +62,16 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as nodePath from 'node:path';
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';
-import { WORKTREES_STREAM } from '../../orchestrate/worktree/manager.js';
+import { WORKTREES_STREAM } from '../../verbs/worktree/manager.js';
 import {
   emitLaunchExecutingStarted,
   emitLaunchExecuted,
 } from '../../launcher/liveness.js';
-import type { WorktreeEntry } from '../../orchestrate/worktree/projections/worktrees.js';
+import type { WorktreeEntry } from '../../verbs/worktree/projections/worktrees.js';
 import type {
   ProcessRecord,
   ProcessTableSource,
-} from '../../orchestrate/worktree/pure/probe.js';
+} from '../../verbs/worktree/pure/probe.js';
 
 const STATE_DIR = '/tmp/test-state';
 

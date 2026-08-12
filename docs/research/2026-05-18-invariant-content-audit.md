@@ -139,7 +139,7 @@ Notes on the table:
 - **Coverage** — references found:
   - `servers/exarchos-mcp/src/describe/handler.ts` — `describe` verb on every composite tool.
   - `servers/exarchos-mcp/src/adapters/cli.ts:60` — `--json` / `--format json` envelope behavior; the JSON-explicit half.
-  - `servers/exarchos-mcp/src/orchestrate/merge-orchestrate.ts:617,635` — `dryRun: true` short-circuit pattern; `servers/exarchos-mcp/src/orchestrate/prune-stale-workflows.ts:273,285` — `dryRun` default-true.
+  - `servers/exarchos-mcp/src/verbs/merge/merge-orchestrate.ts:617,635` — `dryRun: true` short-circuit pattern; `servers/exarchos-mcp/src/verbs/team/prune-stale-workflows.ts:273,285` — `dryRun` default-true.
 - **Currency** — clean.
 - **Contradiction** — no.
 - **INV-4 cross-runtime** — `inv-4-finding: no`.

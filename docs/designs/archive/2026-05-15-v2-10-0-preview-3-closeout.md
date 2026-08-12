@@ -35,7 +35,7 @@ The failure mode is unknown without instrumentation but the three most likely fa
 
 ### #1362 — preflight surface
 
-`servers/exarchos-mcp/src/orchestrate/dispatch-guard.ts:78` calls `gitExec(['merge-base', '--is-ancestor', upstream, integrationBranch])`. The pure helper `servers/exarchos-mcp/src/orchestrate/pure/merge-preflight.ts` composes `validateBranchAncestry` + `detectDrift` + `assertCurrentBranchNotProtected` + `assertMainWorktree` and emits `merge.preflight` events. The debug-block injection point is the `merge.preflight` event payload schema — add an optional `debug?: PreflightDebug` field gated on `process.env.EXARCHOS_PREFLIGHT_DEBUG === '1'` AND `ancestry.passed === false`. The `PreflightDebug` shape: `{ gitVersion, repoRoot, worktreeList, refsHeadsSource: {sha, packed}, refsHeadsTarget: {sha, packed}, mergeBaseCommand, mergeBaseExitCode, mergeBaseStdout, mergeBaseStderr }`. Per INV-1, the debug payload lives on the event (event-sourced), not a side channel.
+`servers/exarchos-mcp/src/verbs/team/dispatch-guard.ts:78` calls `gitExec(['merge-base', '--is-ancestor', upstream, integrationBranch])`. The pure helper `servers/exarchos-mcp/src/verbs/pure/merge-preflight.ts` composes `validateBranchAncestry` + `detectDrift` + `assertCurrentBranchNotProtected` + `assertMainWorktree` and emits `merge.preflight` events. The debug-block injection point is the `merge.preflight` event payload schema — add an optional `debug?: PreflightDebug` field gated on `process.env.EXARCHOS_PREFLIGHT_DEBUG === '1'` AND `ancestry.passed === false`. The `PreflightDebug` shape: `{ gitVersion, repoRoot, worktreeList, refsHeadsSource: {sha, packed}, refsHeadsTarget: {sha, packed}, mergeBaseCommand, mergeBaseExitCode, mergeBaseStdout, mergeBaseStderr }`. Per INV-1, the debug payload lives on the event (event-sourced), not a side channel.
 
 ### Outcome-tier helpers
 
@@ -70,7 +70,7 @@ Bottom-up merge sequence partially closes #1354 on PR3 merge (#1365 stays open p
 
 **Investigation step (mandatory before fix):** Run `npm run test:run -- test/process/saga-merge-detour.test.ts` against current main. Add `console.error` instrumentation at three sites — (a) the `task_complete` handler's event emission (does `data.worktreePath` actually carry?); (b) the rehydration reducer's worktreePath fold (does `phase` flip to `merge-pending`?); (c) `nextActionsFromResult`'s shape-2 read (does the post-Wave-0 envelope still expose `data` or has it migrated to `structuredContent`?). The failure point determines the fix surface — do not write a fix without first knowing where the chain breaks.
 
-**Anticipated fix (subject to investigation):** If hypothesis (a) — patch `servers/exarchos-mcp/src/orchestrate/task-complete.ts` to thread `result.worktreePath` into the emitted `task.completed` event's `data.worktreePath`. If hypothesis (b) — patch `servers/exarchos-mcp/src/projections/rehydration/reducer.ts`'s `extractWorktreePath` helper. If hypothesis (c) — patch `servers/exarchos-mcp/src/next-actions-from-result.ts` to also read `result.structuredContent.workflowState` when `result.data.workflowState` is empty.
+**Anticipated fix (subject to investigation):** If hypothesis (a) — patch `servers/exarchos-mcp/src/verbs/task-complete.ts` to thread `result.worktreePath` into the emitted `task.completed` event's `data.worktreePath`. If hypothesis (b) — patch `servers/exarchos-mcp/src/projections/rehydration/reducer.ts`'s `extractWorktreePath` helper. If hypothesis (c) — patch `servers/exarchos-mcp/src/next-actions-from-result.ts` to also read `result.structuredContent.workflowState` when `result.data.workflowState` is empty.
 
 **Outcome test:** No new test needed — the existing `test/process/saga-merge-detour.test.ts` is the contract and is currently failing. Optionally add a unit-level pin in `next-actions-computer.test.ts` covering the exact post-fix path so a future regression is caught at the unit tier before the saga tier.
 
@@ -80,7 +80,7 @@ Bottom-up merge sequence partially closes #1354 on PR3 merge (#1365 stays open p
 
 **Deltas:**
 
-1. Extend `servers/exarchos-mcp/src/orchestrate/pure/merge-preflight.ts` with a `gatherPreflightDebug(gitExec, repoRoot, source, target): PreflightDebug` pure helper. Returns the debug block schema documented in §Verified surfaces. All git invocations through the injected `gitExec` — no direct shellouts.
+1. Extend `servers/exarchos-mcp/src/verbs/pure/merge-preflight.ts` with a `gatherPreflightDebug(gitExec, repoRoot, source, target): PreflightDebug` pure helper. Returns the debug block schema documented in §Verified surfaces. All git invocations through the injected `gitExec` — no direct shellouts.
 2. Modify `mergePreflight` so when `process.env.EXARCHOS_PREFLIGHT_DEBUG === '1'` AND `ancestry.passed === false`, the returned `PreflightResult` carries a `debug` field populated by `gatherPreflightDebug`.
 3. Extend the `merge.preflight` event payload schema (`servers/exarchos-mcp/src/event-schemas/merge.ts` or equivalent) with an optional `debug?: PreflightDebugSchema` branch. Register against the action's `outputSchema` so the carrier validates.
 4. Document `EXARCHOS_PREFLIGHT_DEBUG=1` in `skills-src/merge-orchestrator/SKILL.md` under a new "Diagnostics" section.

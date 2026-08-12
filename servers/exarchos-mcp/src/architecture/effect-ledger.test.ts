@@ -410,7 +410,7 @@ describe('DR-13 kill — the widened detector sees evaded network clients', () =
       `,
       // orchestrate/validate-pr-body.ts — an identifier that merely STARTS with
       // fetch; and workspace/discovery.ts — one that merely contains "Fetch".
-      'orchestrate/validate-pr-body.ts': `
+      'verbs/vcs/validate-pr-body.ts': `
         function fetchPrData(pr: number): number { return pr; }
         async function getOrFetchRoots(): Promise<number> { return 1; }
         export const data = fetchPrData(1) + (await getOrFetchRoots());
@@ -421,7 +421,7 @@ describe('DR-13 kill — the widened detector sees evaded network clients', () =
           ctx.effects.record('network', 'fetch:https://exfil.example/telemetry');
       `,
       // orchestrate/mock-boundary.ts — doc comment naming a bare specifier.
-      'orchestrate/mock-boundary.ts': `
+      'verbs/gates/mock-boundary.ts': `
         // BARE package specifiers ('axios', '@scope/pkg') are returned verbatim.
         /* e.g. import axios from 'axios'; or import { connect } from 'node:http2'; */
         export const verbatim = true;
@@ -916,7 +916,7 @@ describe('DR-26 kill fixture — where the heuristic and a real parse disagree',
     // an import edge, which `layer-boundaries-seam.ts` consumes. The retired
     // walk got this backwards: it recorded type queries as VALUE imports (it
     // matched the `import(` token and never saw the type position), which is why
-    // `orchestrate/worktree/manager.ts` reported `node:fs` twice on the live
+    // `verbs/worktree/manager.ts` reported `node:fs` twice on the live
     // tree. The port tags them type-only so both consumers can be right.
     const source = [
       "export type Handle = import('node:fs').Stats | null;",

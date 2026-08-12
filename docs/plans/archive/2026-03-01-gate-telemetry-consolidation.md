@@ -116,20 +116,20 @@ WS1, WS2, WS3 are fully parallelizable. WS4 must complete before WS5 (shared abs
 **Phase:** RED → GREEN → REFACTOR
 **Implements:** DR-2 (D5 task decomposition quality)
 
-1. [RED] Write test: `servers/exarchos-mcp/src/orchestrate/task-decomposition.test.ts`
+1. [RED] Write test: `servers/exarchos-mcp/src/verbs/tasks/task-decomposition.test.ts`
    - `HandleTaskDecomposition_PassingScript_EmitsD5GateEvent` — mock execSync to return exit 0 output, verify gate.executed emitted with dimension D5
    - `HandleTaskDecomposition_FailingScript_EmitsD5GateEventWithPassedFalse` — exit 1, verify passed: false
    - `HandleTaskDecomposition_MissingPlanFile_ReturnsScriptError` — exit 2, verify error response
    - `HandleTaskDecomposition_ReturnsStructuredMetrics` — verify response includes wellDecomposedTasks, tasksNeedingRework, totalTasks
 
-2. [GREEN] Implement `servers/exarchos-mcp/src/orchestrate/task-decomposition.ts`
+2. [GREEN] Implement `servers/exarchos-mcp/src/verbs/tasks/task-decomposition.ts`
    - Follow `plan-coverage.ts` handler pattern
    - Invoke `check-task-decomposition.sh --plan-file <planPath>`
    - Parse metrics from markdown output via regex
    - Emit `gate.executed` with `gateName: 'task-decomposition'`, `layer: 'planning'`, `dimension: 'D5'`, `phase: 'plan'`
    - Return `{ passed, metrics, report }`
 
-3. [GREEN] Register in `servers/exarchos-mcp/src/orchestrate/composite.ts`
+3. [GREEN] Register in `servers/exarchos-mcp/src/verbs/composite.ts`
    - Import handler, add `check_task_decomposition` to `ACTION_HANDLERS` map
 
 4. [REFACTOR] Ensure handler follows guard-clause-first pattern
@@ -174,7 +174,7 @@ WS1, WS2, WS3 are fully parallelizable. WS4 must complete before WS5 (shared abs
    - Encapsulate: query telemetry stream, materialize TelemetryView, extract metrics
    - Graceful degradation: catch errors, return zero metrics
 
-3. [GREEN] Update `servers/exarchos-mcp/src/orchestrate/context-economy.ts`
+3. [GREEN] Update `servers/exarchos-mcp/src/verbs/pure/context-economy.ts`
    - Replace direct telemetry projection import with `queryRuntimeMetrics` import from `../telemetry/telemetry-queries.js`
    - Remove import of `TELEMETRY_VIEW` and `TelemetryViewState` from telemetry projection
    - Call `queryRuntimeMetrics(store, materializer)` instead of inline materialization
@@ -203,7 +203,7 @@ WS1, WS2, WS3 are fully parallelizable. WS4 must complete before WS5 (shared abs
    - When `telemetryState` provided: call `generateHints(telemetryState)`, convert `Hint[]` to `QualityHint[]` with category `'telemetry'`, severity `'info'`
    - Merge telemetry hints into quality hints before sorting and truncation
 
-3. [GREEN] Update `servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts`
+3. [GREEN] Update `servers/exarchos-mcp/src/verbs/team/prepare-delegation.ts`
    - After materializing CodeQualityView, also materialize TelemetryView (via `queryRuntimeMetrics` or direct telemetry query)
    - Pass telemetry state to `generateQualityHints(qualityState, undefined, undefined, telemetryState)` (or restructure args)
 
@@ -219,12 +219,12 @@ WS1, WS2, WS3 are fully parallelizable. WS4 must complete before WS5 (shared abs
 **Phase:** RED → GREEN → REFACTOR
 **Implements:** DR-5 (readiness dedup)
 
-1. [RED] Write test: `servers/exarchos-mcp/src/orchestrate/prepare-delegation.test.ts`
+1. [RED] Write test: `servers/exarchos-mcp/src/verbs/team/prepare-delegation.test.ts`
    - `HandlePrepareDelegation_QueriesDelegationReadinessView_UsesViewState` — verify handler materializes DelegationReadinessView and uses its `ready`/`blockers` fields
    - `HandlePrepareDelegation_ViewNotReady_ReturnsBlockers` — seed events where view reports not ready, verify handler returns matching blockers
    - `HandlePrepareDelegation_ViewReady_ProceedsToHints` — seed events where view reports ready, verify quality hints generated
 
-2. [GREEN] Update `servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts`
+2. [GREEN] Update `servers/exarchos-mcp/src/verbs/team/prepare-delegation.ts`
    - Replace inline `assessReadiness(workflowState, qualityState, taskCount)` with DelegationReadinessView materialization
    - Import and materialize `DELEGATION_READINESS_VIEW` from views
    - Use `delegationReadiness.ready` and `delegationReadiness.blockers` instead of computing inline

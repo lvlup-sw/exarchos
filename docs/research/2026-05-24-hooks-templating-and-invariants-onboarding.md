@@ -187,7 +187,7 @@ There are **two unconnected bootstrap paths**, and neither is wired into `exarch
 Gaps found:
 
 1. `exarchos init` seeds only `test`/`typecheck`/`install` in `.exarchos.yml`
-   (`servers/exarchos-mcp/src/orchestrate/init/seed-exarchos-config.ts`) — **no `invariants:`
+   (`servers/exarchos-mcp/src/verbs/init/seed-exarchos-config.ts`) — **no `invariants:`
    stanza at all**. A fresh repo gets zero invariants config and must hand-edit.
 2. The two bootstrap docs/paths have **no cross-reference** — a consumer reading the authoring
    guide never learns the scaffolder exists, and vice-versa.
@@ -330,7 +330,7 @@ coupling and three retirement traps are:
 **Load-bearing surfaces:**
 - `.exarchos.yml:32` `plugins.axiom.enabled: true` + Zod `PluginsConfig` (`config/yaml-schema.ts:115`,
   `.strict()`) + resolver defaults (`config/resolve.ts:54,129,283,309`).
-- Review path: `orchestrate/prepare-review.ts:71` returns `pluginStatus.axiom`; `commands/review.md`
+- Review path: `verbs/team/prepare-review.ts:71` returns `pluginStatus.axiom`; `commands/review.md`
   invokes `Skill({skill:"axiom:audit"})`; `skills-src/quality-review/references/axiom-integration.md`
   is a whole Tier-3 integration spec.
 - Invariants loader: `axiomOverlap` field + **referential-integrity check**
@@ -379,7 +379,7 @@ made before any code/catalog edits.
 
 Verified — the scaffolding spine already exists; it just doesn't know about invariants:
 
-- **`init` exists.** `handleInit` (`servers/exarchos-mcp/src/orchestrate/init/index.ts`) fans out
+- **`init` exists.** `handleInit` (`servers/exarchos-mcp/src/verbs/doctor/index.ts`) fans out
   per-runtime config writers (`ClaudeCodeWriter`, `CursorWriter`, `CodexWriter`, `CopilotWriter`,
   `OpenCodeWriter`) + VCS detection, and **already seeds `.exarchos.yml`** via
   `seedExarchosConfig` (`init/seed-exarchos-config.ts:198`). Today it writes only

@@ -40,7 +40,7 @@ Pushing to `main` happens later, via `merge_pr`, against a PR opened from the in
 
 ## Branch precondition
 
-The local-git merge adapter (`orchestrate/local-git-merge.ts`) checks out the target branch defensively at the top of every invocation. This makes the precondition explicit: the orchestrator expects to be in the main worktree, on (or able to switch to) the target branch. A wrong-state caller surfaces as a clear `git checkout` failure rather than silent misbehavior.
+The local-git merge adapter (`verbs/merge/local-git-merge.ts`) checks out the target branch defensively at the top of every invocation. This makes the precondition explicit: the orchestrator expects to be in the main worktree, on (or able to switch to) the target branch. A wrong-state caller surfaces as a clear `git checkout` failure rather than silent misbehavior.
 
 The preflight composer separately asserts main-worktree (`git rev-parse --git-dir` shape) — this catches the case of an operator running `merge_orchestrate` from inside a subagent worktree, which would otherwise corrupt that worktree's state.
 

@@ -4,7 +4,7 @@
 // with a pinned HOME and `process.cwd()`, and asserts:
 //
 //   1. The returned ToolResult.data validates against the Zod schema
-//      exported from `orchestrate/doctor/schema.ts` (contract pin —
+//      exported from `verbs/doctor/schema.ts` (contract pin —
 //      handler output cannot drift from the MCP wire shape, DR-3).
 //   2. In a fresh project with no `.claude/` config, at least one non-Pass
 //      check produces a `fix` string suggesting an init-style remediation
@@ -31,7 +31,7 @@
 // `#!/usr/bin/env node` shebang, `--json` formatting, or the CLI's
 // exit-code mapping. Those are CLI-adapter contracts; the per-check
 // unit tests + the composer tests
-// (`orchestrate/doctor/index.test.ts`) already cover the handler.
+// (`verbs/doctor/index.test.ts`) already cover the handler.
 // Pinning the CLI surface is tracked as a follow-up — see #1324 close
 // notes — and would be reintroduced via an in-process Commander harness
 // rather than a tsx spawn.
@@ -52,8 +52,8 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 
-import { DoctorOutputSchema, type DoctorOutput } from '../../orchestrate/doctor/schema.js';
-import { handleDoctor } from '../../orchestrate/doctor/index.js';
+import { DoctorOutputSchema, type DoctorOutput } from '../../verbs/doctor/schema.js';
+import { handleDoctor } from '../../verbs/doctor/index.js';
 import { initializeContext } from '../../dispatch/core/context.js';
 import type { ToolResult } from '../../format.js';
 import { rmrf } from '../../test-helpers/temp-dir.js';

@@ -365,7 +365,7 @@ Authors the merge-orchestrate seed test that drives real `handleMergeOrchestrate
    ```ts
    import { describe, it, expect } from 'vitest';
    import { withTmpGit, addSiblingWorktree } from './_helpers/tmp-git.js';
-   import { handleMergeOrchestrate } from '../../servers/exarchos-mcp/src/orchestrate/merge-orchestrate.js';
+   import { handleMergeOrchestrate } from '../../servers/exarchos-mcp/src/verbs/merge-orchestrate.js';
 
    describe('merge-orchestrate multi-worktree topology outcome', () => {
      it.failing('MergeOrchestrate_TargetCheckedOutInSibling_AbortsCleanly', async () => {

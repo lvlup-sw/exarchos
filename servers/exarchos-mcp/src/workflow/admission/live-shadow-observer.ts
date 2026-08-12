@@ -29,7 +29,7 @@
 // (`admission.shadow-attempt`, `admission.disagreement-disposition`) were
 // registered-but-never-emitted. T-31 makes the observer append BOTH facts to the
 // real event store through the same `EventStore.append` path every other
-// admission producer uses (see `orchestrate/gate-runner.ts` for
+// admission producer uses (see `verbs/gates/gate-runner.ts` for
 // `admission.evidence-recorded`). The in-memory sink survives only as a
 // same-process cache; the store is now the substrate.
 //

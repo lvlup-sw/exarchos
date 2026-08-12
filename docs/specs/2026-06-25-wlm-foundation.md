@@ -136,7 +136,7 @@ Covers the non-happy paths these two slices own. *(Required: at least one DR cov
 
 ### Technical Design
 
-**Module layout** (per [parent §Technical Design](../designs/archive/2026-06-21-worktree-lifecycle-manager.md#technical-design)) — new `servers/exarchos-mcp/src/orchestrate/worktree/`:
+**Module layout** (per [parent §Technical Design](../designs/archive/2026-06-21-worktree-lifecycle-manager.md#technical-design)) — new `servers/exarchos-mcp/src/verbs/worktree/`:
 - `manager.ts` — in-process facade; the bundle's `acquire_worktree` / `release_worktree` / `prune_worktrees` / `worktrees` entry points fold behind it. **This bundle does NOT modify or absorb `setup-worktree.ts` / `worktree-baseref.ts` / `dispatch-guard.ts`** — `manager.ts` is introduced *alongside* them and only routes the four new actions. Folding those existing files behind the facade is the epic's larger consolidation and is **explicitly deferred** to a later WLM slice (it carries the blast radius of every existing worktree caller, out of scope here). No task in this bundle touches those three files.
 - `projections/worktrees.ts` — the `worktrees@v1` reducer (DR-1).
 - `pure/ownership.ts` — PID + create-time liveness check (DR-3), portable process source injected for tests (DR-11s).
@@ -152,7 +152,7 @@ Covers the non-happy paths these two slices own. *(Required: at least one DR cov
 
 - `servers/exarchos-mcp/src/event-store/schemas.ts` — add the four new `worktree.*` lifecycle types + reuse `worktree.remove.*`; idempotency keys.
 - `servers/exarchos-mcp/src/registry.ts` — register `acquire_worktree` / `release_worktree` / `prune_worktrees` on `exarchos_orchestrate` and `worktrees` on `exarchos_view` (CLI flags auto-emit from each action's Zod schema — see [[project_cli_schema_driven_flags]]).
-- **Dispatch wiring (or actions are DOA — [[project_composite_dispatch_handler_gap]]):** `servers/exarchos-mcp/src/orchestrate/composite.ts` — add the three orchestrate actions to the `ACTION_HANDLERS` map (handled by `handleOrchestrate`); `servers/exarchos-mcp/src/views/composite.ts` — add the `worktrees` case to `handleView`. A registered action with no dispatch branch returns `UNKNOWN_ACTION` at runtime; tests must dispatch **through** `handleOrchestrate`/`handleView`, not just inspect registry metadata.
+- **Dispatch wiring (or actions are DOA — [[project_composite_dispatch_handler_gap]]):** `servers/exarchos-mcp/src/verbs/composite.ts` — add the three orchestrate actions to the `ACTION_HANDLERS` map (handled by `handleOrchestrate`); `servers/exarchos-mcp/src/views/composite.ts` — add the `worktrees` case to `handleView`. A registered action with no dispatch branch returns `UNKNOWN_ACTION` at runtime; tests must dispatch **through** `handleOrchestrate`/`handleView`, not just inspect registry metadata.
 - `servers/exarchos-mcp/src/orchestrate/` — new `worktree/` module **only**. The existing `setup-worktree.ts` / `worktree-baseref.ts` / `dispatch-guard.ts` are **not modified in this bundle** (their consolidation behind `manager.ts` is deferred to a later WLM slice).
 - `servers/exarchos-mcp/src/views/workflow-state-projection.ts` (`integrationBranch`) / `workflow/schemas.ts` (`synthesis.integrationBranch`) — read-only source the prune handler resolves `integrationRef` from (same path as `setup-worktree.ts`).
 - Projection registry — register `worktrees@v1` alongside the existing projections.
@@ -215,10 +215,10 @@ The decomposition maps every task to one or more DR-N from the Design & Rational
 **Implements:** DR-1
 **Verification (medium):** scoped tests + kill-probe — golden-fold, `assertReducerImmutable`, cold-rebuild equality.
 **Files:**
-- `servers/exarchos-mcp/src/orchestrate/worktree/projections/worktrees.ts` (reducer)
-- `servers/exarchos-mcp/src/orchestrate/worktree/projections/index.ts` (barrel — `defaultRegistry.register(worktreesReducer)` self-registration, DR-1 convention)
+- `servers/exarchos-mcp/src/verbs/worktree/projections/worktrees.ts` (reducer)
+- `servers/exarchos-mcp/src/verbs/doctor/index.ts` (barrel — `defaultRegistry.register(worktreesReducer)` self-registration, DR-1 convention)
 - `servers/exarchos-mcp/src/projections/index.ts` (add the side-effect import line for the barrel — **without it `aggregateStream('worktrees@v1')` throws `UnknownProjectionIdError`**)
-- `servers/exarchos-mcp/src/orchestrate/worktree/projections/worktrees.test.ts`
+- `servers/exarchos-mcp/src/verbs/worktree/projections/worktrees.test.ts`
 **Defines** the `WorktreeEntry` projection shape (`worktreeId`, `path`, `featureId`, `state ∈ {adopted,reserved,released,orphan}`, `ownerPid`, `ownerStartedAt`) keyed by `worktreeId` over the single `worktrees` stream (per DR-1). Tasks 004/007 query this shape.
 **Expected tests:** `WorktreesReducer_FoldEvents_ReproducesStateFromLogAlone`, `WorktreesReducer_AnyEventOrder_PassesAssertReducerImmutable`, `WorktreesReducer_ColdRebuild_EqualsLiveState`, `WorktreesReducer_EntryCarriesFeatureIdAndOwnerFields` (the shape Task 007's lookup depends on), `WorktreesReducer_RemoveExecuted_DropsEntryFromProjection` (fold of `worktree.remove.executed` **removes** the entry — there is no `removed` state; absence is the terminal), `Projection_WorktreesV1_IsRegistered_AggregateStreamResolves` (the registration guard — fails with `UnknownProjectionIdError` if the side-effect import is missing)
 **Dependencies:** 001
@@ -232,10 +232,10 @@ The decomposition maps every task to one or more DR-N from the Design & Rational
 **Implements:** DR-11s, DR-3
 **Verification (medium):** scoped tests + kill-probe — platform-shimmed process source (injected); symlink-resolved containment.
 **Files:**
-- `servers/exarchos-mcp/src/orchestrate/worktree/pure/process-identity.ts`
-- `servers/exarchos-mcp/src/orchestrate/worktree/pure/path-containment.ts`
-- `servers/exarchos-mcp/src/orchestrate/worktree/pure/process-identity.test.ts`
-- `servers/exarchos-mcp/src/orchestrate/worktree/pure/path-containment.test.ts`
+- `servers/exarchos-mcp/src/verbs/worktree/pure/process-identity.ts`
+- `servers/exarchos-mcp/src/verbs/worktree/pure/path-containment.ts`
+- `servers/exarchos-mcp/src/verbs/worktree/pure/process-identity.test.ts`
+- `servers/exarchos-mcp/src/verbs/worktree/pure/path-containment.test.ts`
 **Expected tests:** `ProcessIdentity_PidAbsentOrStartedAtMismatch_ReportsDead`, `ProcessIdentity_PidPresentAndStartedAtMatches_ReportsAlive`, `ProcessIdentity_CreateTime_ResolvesOnLinuxMacWindows` (platform-shimmed), `PathContainment_SymlinkedRoot_ResolvesRealpathAndMatches`
 **Dependencies:** None
 **Parallelizable:** Yes (Wave A)
@@ -246,10 +246,10 @@ The decomposition maps every task to one or more DR-N from the Design & Rational
 **Implements:** DR-3, DR-12s
 **Verification (high):** medium set + integration suite across the event-store seam — real-SQLite reserve/release, crash-then-resume yields exactly one `released`, no advisory lock file on disk.
 **Files:**
-- `servers/exarchos-mcp/src/orchestrate/worktree/pure/ownership.ts`
-- `servers/exarchos-mcp/src/orchestrate/worktree/pure/ownership.test.ts`
-- `servers/exarchos-mcp/src/orchestrate/worktree/manager.ts` (reserve/release/reconcile entry points)
-- `servers/exarchos-mcp/src/orchestrate/worktree/manager.reconcile.test.ts`
+- `servers/exarchos-mcp/src/verbs/worktree/pure/ownership.ts`
+- `servers/exarchos-mcp/src/verbs/worktree/pure/ownership.test.ts`
+- `servers/exarchos-mcp/src/verbs/worktree/manager.ts` (reserve/release/reconcile entry points)
+- `servers/exarchos-mcp/src/verbs/worktree/manager.reconcile.test.ts`
 **Expected tests:** `Reconcile_DeadOwner_EmitsReleasedExactlyOnce`, `Reconcile_LiveOwnerPidAndStartedAtMatch_NeverReleases`, `Reconcile_RepeatedRun_IsIdempotent` (DR-12s crash-mid-reservation), `Reservation_LeavesNoAdvisoryLockFile`, `ReserveRelease_WritesNoJsonSideFile` (DR-1 no-side-file, G9), `Reconcile_ConcurrentSameWorktree_StreamLockSerializes_NoDoubleRelease`, `Reserve_AppendsToWorktreesStream_WithOperationIdKey` (DR-1 stream identity)
 **Dependencies:** 001, 002, 003
 **Parallelizable:** No (join point; introduces `manager.ts` reserve/release/reconcile with an **injected** probe; the real git probe lands in Task 005)
@@ -260,8 +260,8 @@ The decomposition maps every task to one or more DR-N from the Design & Rational
 **Implements:** DR-2, DR-12s
 **Verification (high):** medium set + integration across the git↔event-store seam — adopt via `git worktree list --porcelain`, re-verify HEAD/ancestry before reporting adoptable.
 **Files:**
-- `servers/exarchos-mcp/src/orchestrate/worktree/manager.ts` (adopt path)
-- `servers/exarchos-mcp/src/orchestrate/worktree/manager.adopt.test.ts`
+- `servers/exarchos-mcp/src/verbs/worktree/manager.ts` (adopt path)
+- `servers/exarchos-mcp/src/verbs/worktree/manager.adopt.test.ts`
 **Expected tests:** `Adopt_HarnessOrHandMadeWorktree_AdoptedWithoutManagerCreating`, `Adopt_NoHarnessSpecificCreationAssumption`, `Adopt_HandMadeWorktree_RecordsFeatureIdNull` (DR-1/DR-6 lookup), `Adopt_StaleAfterExternalPush_ReverifiesHeadBeforeMutation` (DR-12s), `Released_WorktreeIsGcEligible_NotRecycledIntoPool`, `Reconcile_RealGitProbePlusReplay_EqualsFreshEventLogReplay` (DR-1 operational cold-rebuild via real `git worktree list --porcelain`, G7 — moved here because this task owns the probe)
 **Dependencies:** 004 (shares `manager.ts` — pinned order 004 → 005 → 007 serializes all facade edits)
 **Parallelizable:** No — strictly between 004 and 007 on the `manager.ts` chain. Task 006 (pure ladder, different file) may run concurrently with 005.
@@ -272,8 +272,8 @@ The decomposition maps every task to one or more DR-N from the Design & Rational
 **Implements:** DR-6
 **Verification (medium):** scoped tests + kill-probe — table tests over in-use / dirty / unmerged / orphan / origin-unreachable classifications against an injected git+fs+probe source.
 **Files:**
-- `servers/exarchos-mcp/src/orchestrate/worktree/pure/prune-ladder.ts`
-- `servers/exarchos-mcp/src/orchestrate/worktree/pure/prune-ladder.test.ts`
+- `servers/exarchos-mcp/src/verbs/worktree/pure/prune-ladder.ts`
+- `servers/exarchos-mcp/src/verbs/worktree/pure/prune-ladder.test.ts`
 **Expected tests:** `PruneLadder_ReservedLiveOwner_SkippedInUse`, `PruneLadder_UntrackedOnlyChanges_SkippedDirty` (untracked-aware), `PruneLadder_HeadNotAncestorOfInjectedIntegrationRef_SkippedUnmerged`, `PruneLadder_NullIntegrationRef_TreatedUnverifiable_FailClosed`, `PruneLadder_NoAdoptionRecord_ClassifiedUnverifiable_NotDeletable` (the G6 conservative classification at the pure layer), `PruneLadder_BackingGitdirMissing_ClassifiedOrphan`, `PruneLadder_OriginUnreachable_LeftUntouchedFailClosed`
 **Dependencies:** 003 (the ladder is pure over injected inputs — `integrationRef`, in-use predicate, adoption record, git/fs source — so no hard dep on 004/005; the handler in 007 supplies them)
 **Parallelizable:** Yes (with 004/005 — different files)
@@ -286,8 +286,8 @@ The decomposition maps every task to one or more DR-N from the Design & Rational
 **Implements:** DR-6, DR-12s
 **Verification (high):** medium set + integration suite — real-SQLite concurrent prune; step-0 adopt-gate → ladder → `plan → reserve → re-verify-under-lock → commit`; default dry-run deletes nothing; resolves `integrationRef` from `workflowState.synthesis.integrationBranch`; deletion via the `worktree.remove.requested`/`executed` two-event split; never `git reset --hard`.
 **Files:**
-- `servers/exarchos-mcp/src/orchestrate/worktree/manager.ts` (prune entry point)
-- `servers/exarchos-mcp/src/orchestrate/worktree/manager.prune.test.ts`
+- `servers/exarchos-mcp/src/verbs/worktree/manager.ts` (prune entry point)
+- `servers/exarchos-mcp/src/verbs/worktree/manager.prune.test.ts`
 **Expected tests:** `Prune_DefaultInvocation_DeletesNothing_ReportsCandidatesAndBytes`, `Prune_AdoptGate_ReconcilesUnadoptedWorktreesBeforeLadder` (G6 step-0), `Prune_OnlyReleasedOrOrphanState_IsDeletionEligible` (state-based rule), `Prune_UnadoptedCleanWorktree_NotDeleted_ReproducesAndBlocks55724` (G6), `Prune_LongRunningUnreleasedWorktree_StaleMtime_NotDeleted` (state-based, NOT mtime — distinguishes safe impl), `Prune_ResolvesIntegrationRefPerWorktreeFromFeatureId` (G2 per-worktree lookup), `Prune_NullFeatureIdOrUnresolvableBranch_FailsClosed` (G2), `Prune_UncommittedOrUntracked_NeverDeleted` (DR-12s preserve-uncommitted; #55724 Fix 2), `Prune_Orphan_OnlyDeletedWithExplicitPruneOrphansYes`, `Prune_OriginUnreachable_FailsClosed`, `Prune_Deletion_EmitsRemoveRequestedThenExecuted` (INV-13, G3), `Prune_CrashBetweenRequestedAndDelete_ResumesIdempotently_SingleExecuted` (DR-12s, G3), `Prune_ConcurrentWithReconcile_ReverifiesUnderLock_NoDoubleFree` (DR-12s), `Prune_RecoveryPath_NeverUsesResetHard`
 **Dependencies:** 002, 004, **005** (the step-0 adopt-gate calls the adopt path — G6), 006
 **Parallelizable:** No — runs **after 005** (both share `manager.ts`; pinned order 004 → 005 → 007 serializes facade edits, closing G5)
@@ -299,9 +299,9 @@ The decomposition maps every task to one or more DR-N from the Design & Rational
 **Verification (medium):** scoped tests + kill-probe — registered Zod `outputSchema` + annotations per action; **tests dispatch THROUGH `handleOrchestrate`/`handleView`** (not registry-metadata-only) so a missing dispatch branch fails loudly; CLI≡MCP parity; visible composite-tool count stays at 4.
 **Files:**
 - `servers/exarchos-mcp/src/registry.ts` (action registration + outputSchemas + annotations)
-- `servers/exarchos-mcp/src/orchestrate/composite.ts` (add `acquire_worktree`/`release_worktree`/`prune_worktrees` to the `ACTION_HANDLERS` map — `handleOrchestrate`)
+- `servers/exarchos-mcp/src/verbs/composite.ts` (add `acquire_worktree`/`release_worktree`/`prune_worktrees` to the `ACTION_HANDLERS` map — `handleOrchestrate`)
 - `servers/exarchos-mcp/src/views/composite.ts` (add the `worktrees` case to `handleView`)
-- `servers/exarchos-mcp/src/orchestrate/worktree/dispatch.parity.test.ts`
+- `servers/exarchos-mcp/src/verbs/worktree/dispatch.parity.test.ts`
 **Expected tests:** `Dispatch_ThreeOrchestrateActions_RouteThroughHandleOrchestrate_NotUnknownAction` (the DOA-actions guard — [[project_composite_dispatch_handler_gap]]), `Dispatch_WorktreesAction_RouteThroughHandleView_NotUnknownAction`, `Registry_VisibleCompositeToolCount_StaysFour`, `Registry_AllFourActions_RegisterOutputSchemaAndAnnotations` (table-driven over **all four**, asserting the `safety` field too: `acquire_worktree`/`release_worktree` `local-mutation`+idempotent; `prune_worktrees` `compensable`+destructive+idempotent+dryRunDefault; `worktrees` `read-only`+readOnly — G10 + the superRefine constraint), `Registry_ModuleLoads_WithoutSuperRefineRejection` (guards the `destructive`⇒`compensable` constraint at load), `Parity_CliEqualsMcp_ForEveryNewAction`
 **Dependencies:** 004, 005, 007
 **Parallelizable:** No (join — needs the handlers from 004/005/007)

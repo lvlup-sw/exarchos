@@ -31,7 +31,7 @@ import {
   defaultRealpath,
   isPathWithinCanonical,
   type RealpathResolver,
-} from '../orchestrate/worktree/pure/path-containment.js';
+} from '../verbs/worktree/pure/path-containment.js';
 
 // Re-export the shared resolver seam so consumers (dry-run / creation) can
 // inject a test double without reaching into the worktree-manager internals.

@@ -24,7 +24,7 @@ plan-review checkpoint → review → doc-link verify → synthesize → merge c
 
 ## Design — the guardrail
 
-New shared module `servers/exarchos-mcp/src/orchestrate/invariants/reserved-tier-guard.ts`:
+New shared module `servers/exarchos-mcp/src/verbs/invariants/reserved-tier-guard.ts`:
 
 - `export const EXARCHOS_PACKAGE_NAME = '@lvlup-sw/exarchos'`
 - `isExarchosRepo(repoRoot, deps): boolean` — reads `<repoRoot>/package.json`

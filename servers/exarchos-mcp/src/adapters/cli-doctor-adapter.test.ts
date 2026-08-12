@@ -43,7 +43,7 @@ import { buildCli, CLI_EXIT_CODES } from './cli.js';
 import { EventStore } from '../events/store.js';
 import * as dispatchModule from '../dispatch/core/dispatch.js';
 import type { DispatchContext } from '../dispatch/core/dispatch.js';
-import { DoctorOutputSchema } from '../orchestrate/doctor/schema.js';
+import { DoctorOutputSchema } from '../verbs/doctor/schema.js';
 import { rmrf, rmrfAsync } from '../test-helpers/temp-dir.js';
 import { expectedTrustedContext } from '../test-helpers/trusted-context.js';
 

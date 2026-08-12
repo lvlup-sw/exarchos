@@ -61,7 +61,7 @@ export default defineConfig({
     exclude:
       process.env.EXARCHOS_SMOKE_ONLY === '1'
         ? [...configDefaults.exclude]
-        : [...configDefaults.exclude, 'src/orchestrate/stryker-adapter.smoke.test.ts'],
+        : [...configDefaults.exclude, 'src/verbs/stryker-adapter.smoke.test.ts'],
     // Cold-start bench (src/bench/cli-startup.bench.ts) isolation strategy
     // (F-021-2):
     //   - `describe.sequential(...)` in the bench file forces its two

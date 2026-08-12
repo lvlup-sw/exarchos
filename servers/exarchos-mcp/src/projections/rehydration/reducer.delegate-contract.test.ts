@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { getRegisteredEventTypes } from './reducer.js';
-import { PHASE_EXPECTED_EVENTS } from '../../orchestrate/check-event-emissions.js';
+import { PHASE_EXPECTED_EVENTS } from '../../verbs/gates/check-event-emissions.js';
 import { getPlaybook } from '../../workflow/playbooks.js';
 import { EVENT_EMISSION_REGISTRY, type EventType } from '../../events/schemas.js';
 

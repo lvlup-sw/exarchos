@@ -283,7 +283,7 @@ Keep gate steps as evidence producers and introduce a declarative admission poli
 - `docs/research/2026-06-16-phase-kind-binding-architecture.md`
 - `docs/research/2026-06-02-verification-pipeline-recommendations.md`
 - `servers/exarchos-mcp/src/workflow/{guards,state-machine,phase-kind,hsm-transition-guard}.ts`
-- `servers/exarchos-mcp/src/orchestrate/gate-utils.ts`
+- `servers/exarchos-mcp/src/verbs/gates/gate-utils.ts`
 - `servers/exarchos-mcp/src/event-store/{schemas,atomic-appender}.ts`
 - [Exarchos issue #1608](https://github.com/lvlup-sw/exarchos/issues/1608)
 - [Exarchos epic #1258](https://github.com/lvlup-sw/exarchos/issues/1258)

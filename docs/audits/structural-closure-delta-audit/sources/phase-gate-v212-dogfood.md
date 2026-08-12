@@ -227,7 +227,7 @@ Source:
   set must not affect readiness.
 - **Files:**
   - `servers/exarchos-mcp/src/views/delegation-readiness-view.ts:157-220`
-  - `servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts`
+  - `servers/exarchos-mcp/src/verbs/team/prepare-delegation.ts`
 
 ### CB-3: Test adequacy cannot reliably analyze committed task branches
 
@@ -254,8 +254,8 @@ Source:
   4. Treat `no-new-tests` as a failure for medium/high tasks when git reports
      added or modified `*.test.*` files.
 - **Files:**
-  - `servers/exarchos-mcp/src/orchestrate/test-adequacy.ts`
-  - `servers/exarchos-mcp/src/orchestrate/test-adequacy.test.ts`
+  - `servers/exarchos-mcp/src/verbs/gates/test-adequacy.ts`
+  - `servers/exarchos-mcp/src/verbs/gates/test-adequacy.test.ts`
 
 ### CB-4: Integration-suite JSON parsing remains unusable
 
@@ -271,8 +271,8 @@ Source:
   framed JSON report file. Do not parse the complete npm stdout as one JSON
   object.
 - **Files:**
-  - `servers/exarchos-mcp/src/orchestrate/check-integration-suite.ts`
-  - `servers/exarchos-mcp/src/orchestrate/pure/integration-suite.ts`
+  - `servers/exarchos-mcp/src/verbs/gates/check-integration-suite.ts`
+  - `servers/exarchos-mcp/src/verbs/pure/integration-suite.ts`
 
 ### CB-5: Task-completion runbook over-enforces and orders gates unsafely
 
@@ -370,7 +370,7 @@ Source:
   `setup_worktree`, which attempted a second path and failed.
 - **Files:**
   - `skills-src/delegate/SKILL.md:98`
-  - `servers/exarchos-mcp/src/orchestrate/setup-worktree.ts:556-561`
+  - `servers/exarchos-mcp/src/verbs/team/setup-worktree.ts:556-561`
 - **Suggested fix:** One canonical worktree ID/path generator shared by skill,
   setup action, readiness view, and events.
 

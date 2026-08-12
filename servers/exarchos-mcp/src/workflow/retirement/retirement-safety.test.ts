@@ -169,7 +169,7 @@ describe('RetirementSafety_DependencyScan (path + import resolution)', () => {
 
   it('resolves ../ and ./ specifiers against the importing module directory', () => {
     expect(resolveRelativeTarget('workflow/state-machine.ts', './guards.js')).toBe('workflow/guards');
-    expect(resolveRelativeTarget('orchestrate/finalize-oneshot.ts', '../workflow/guards.js')).toBe(
+    expect(resolveRelativeTarget('verbs/tasks/finalize-oneshot.ts', '../workflow/guards.js')).toBe(
       'workflow/guards',
     );
     expect(resolveRelativeTarget('a/b/c.ts', '../../top.js')).toBe('top');
@@ -236,9 +236,9 @@ describe('RetirementSafety_Disposition (evidence → verdict)', () => {
     const before = disposeAuthority(ungated, [], SATISFIED_GATE, []);
     expect(before.disposition).toBe('safe-to-delete');
 
-    const after = disposeAuthority(ungated, ['orchestrate/live-consumer.ts'], SATISFIED_GATE, []);
+    const after = disposeAuthority(ungated, ['verbs/live-consumer.ts'], SATISFIED_GATE, []);
     expect(after.disposition).toBe('blocked-by-live-reference');
-    expect(after.productionReferences).toEqual(['orchestrate/live-consumer.ts']);
+    expect(after.productionReferences).toEqual(['verbs/live-consumer.ts']);
   });
 
   it('(b) a live-behaviour test alone also blocks (never delete a test that covers live behaviour)', () => {
@@ -369,7 +369,7 @@ describe('RetirementSafety_LiveDisposition (P07-05 exit-proof d)', () => {
     // It is also demonstrably live: real production modules still import it.
     expect((d?.productionReferences.length ?? 0)).toBeGreaterThan(0);
     expect(d?.productionReferences).toContain('workflow/state-machine.ts');
-    expect(d?.productionReferences).toContain('orchestrate/finalize-oneshot.ts');
+    expect(d?.productionReferences).toContain('verbs/tasks/finalize-oneshot.ts');
   });
 
   it('the legacy HSM registry is blocked-by-cutover-gate and still has live importers', () => {

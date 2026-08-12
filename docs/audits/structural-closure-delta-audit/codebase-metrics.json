@@ -82,11 +82,11 @@
       "lines": 2033
     },
     {
-      "path": "servers/exarchos-mcp/src/orchestrate/worktree/manager.ts",
+      "path": "servers/exarchos-mcp/src/verbs/worktree/manager.ts",
       "lines": 1892
     },
     {
-      "path": "servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts",
+      "path": "servers/exarchos-mcp/src/verbs/team/prepare-delegation.ts",
       "lines": 1674
     },
     {
@@ -122,7 +122,7 @@
       "lines": 1069
     },
     {
-      "path": "servers/exarchos-mcp/src/orchestrate/prune-stale-workflows.ts",
+      "path": "servers/exarchos-mcp/src/verbs/team/prune-stale-workflows.ts",
       "lines": 1061
     },
     {
@@ -138,7 +138,7 @@
       "lines": 1019
     },
     {
-      "path": "servers/exarchos-mcp/src/orchestrate/mutation-adequacy.ts",
+      "path": "servers/exarchos-mcp/src/verbs/gates/mutation-adequacy.ts",
       "lines": 1016
     },
     {
@@ -146,11 +146,11 @@
       "lines": 988
     },
     {
-      "path": "servers/exarchos-mcp/src/orchestrate/task-decomposition.ts",
+      "path": "servers/exarchos-mcp/src/verbs/tasks/task-decomposition.ts",
       "lines": 973
     },
     {
-      "path": "servers/exarchos-mcp/src/orchestrate/merge-orchestrate.ts",
+      "path": "servers/exarchos-mcp/src/verbs/merge/merge-orchestrate.ts",
       "lines": 951
     },
     {
@@ -158,19 +158,19 @@
       "lines": 943
     },
     {
-      "path": "servers/exarchos-mcp/src/orchestrate/onboard/install.ts",
+      "path": "servers/exarchos-mcp/src/verbs/onboard/install.ts",
       "lines": 857
     },
     {
-      "path": "servers/exarchos-mcp/src/orchestrate/pure/static-analysis.ts",
+      "path": "servers/exarchos-mcp/src/verbs/pure/static-analysis.ts",
       "lines": 856
     },
     {
-      "path": "servers/exarchos-mcp/src/orchestrate/execute-merge.ts",
+      "path": "servers/exarchos-mcp/src/verbs/pure/execute-merge.ts",
       "lines": 818
     },
     {
-      "path": "servers/exarchos-mcp/src/orchestrate/plan-coverage.ts",
+      "path": "servers/exarchos-mcp/src/verbs/gates/plan-coverage.ts",
       "lines": 812
     },
     {
@@ -178,7 +178,7 @@
       "lines": 810
     },
     {
-      "path": "servers/exarchos-mcp/src/orchestrate/assess-stack.ts",
+      "path": "servers/exarchos-mcp/src/verbs/vcs/assess-stack.ts",
       "lines": 780
     },
     {
@@ -186,11 +186,11 @@
       "lines": 774
     },
     {
-      "path": "servers/exarchos-mcp/src/orchestrate/worktree/handlers.ts",
+      "path": "servers/exarchos-mcp/src/verbs/worktree/handlers.ts",
       "lines": 771
     },
     {
-      "path": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+      "path": "servers/exarchos-mcp/src/verbs/composite.ts",
       "lines": 750
     },
     {
@@ -218,7 +218,7 @@
       "lines": 716
     },
     {
-      "path": "servers/exarchos-mcp/src/orchestrate/worktree/pure/probe.ts",
+      "path": "servers/exarchos-mcp/src/verbs/worktree/pure/probe.ts",
       "lines": 697
     },
     {
@@ -234,7 +234,7 @@
       "lines": 656
     },
     {
-      "path": "servers/exarchos-mcp/src/orchestrate/worktree/merge-serializer.ts",
+      "path": "servers/exarchos-mcp/src/verbs/worktree/merge-serializer.ts",
       "lines": 651
     },
     {
@@ -254,7 +254,7 @@
       "lines": 609
     },
     {
-      "path": "servers/exarchos-mcp/src/orchestrate/setup-worktree.ts",
+      "path": "servers/exarchos-mcp/src/verbs/team/setup-worktree.ts",
       "lines": 608
     },
     {
@@ -262,7 +262,7 @@
       "lines": 598
     },
     {
-      "path": "servers/exarchos-mcp/src/orchestrate/worktree/projections/worktrees.ts",
+      "path": "servers/exarchos-mcp/src/verbs/worktree/projections/worktrees.ts",
       "lines": 590
     },
     {
@@ -278,11 +278,11 @@
       "lines": 574
     },
     {
-      "path": "servers/exarchos-mcp/src/orchestrate/doctor/probes.ts",
+      "path": "servers/exarchos-mcp/src/verbs/doctor/probes.ts",
       "lines": 564
     },
     {
-      "path": "servers/exarchos-mcp/src/orchestrate/pre-synthesis-check.ts",
+      "path": "servers/exarchos-mcp/src/verbs/gates/pre-synthesis-check.ts",
       "lines": 564
     },
     {
@@ -290,7 +290,7 @@
       "lines": 549
     },
     {
-      "path": "servers/exarchos-mcp/src/orchestrate/pure/design-completeness.ts",
+      "path": "servers/exarchos-mcp/src/verbs/pure/design-completeness.ts",
       "lines": 548
     },
     {
@@ -298,11 +298,11 @@
       "lines": 537
     },
     {
-      "path": "servers/exarchos-mcp/src/orchestrate/gate-utils.ts",
+      "path": "servers/exarchos-mcp/src/verbs/gates/gate-utils.ts",
       "lines": 534
     },
     {
-      "path": "servers/exarchos-mcp/src/orchestrate/worktree/git-retry.ts",
+      "path": "servers/exarchos-mcp/src/verbs/worktree/git-retry.ts",
       "lines": 527
     },
     {

@@ -41,7 +41,7 @@ Any MCP client (Claude Code, Cursor, generic)
 
 ### DR-1: `prepare_review` Orchestrate Action
 
-New action in `servers/exarchos-mcp/src/orchestrate/prepare-review.ts`.
+New action in `servers/exarchos-mcp/src/verbs/team/prepare-review.ts`.
 
 **Input:**
 ```typescript
@@ -113,7 +113,7 @@ The catalog is a TypeScript constant — no file I/O at runtime. Extensible via 
 
 ### DR-3: Extend `check_review_verdict`
 
-Extend the existing action in `servers/exarchos-mcp/src/orchestrate/review-verdict.ts`.
+Extend the existing action in `servers/exarchos-mcp/src/verbs/review/review-verdict.ts`.
 
 **New optional parameter:**
 ```typescript

@@ -32,12 +32,12 @@ import {
   type GitRunner,
   type ReleaseResult,
   type ReservationOwner,
-} from '../orchestrate/worktree/manager.js';
-import { canonicalWorktreeId } from '../orchestrate/worktree/pure/path-containment.js';
+} from '../verbs/worktree/manager.js';
+import { canonicalWorktreeId } from '../verbs/worktree/pure/path-containment.js';
 import type {
   ProcessRecord,
   ProcessTableSource,
-} from '../orchestrate/worktree/pure/probe.js';
+} from '../verbs/worktree/pure/probe.js';
 import type {
   AsyncSpawnRequest,
   ChildHandle,

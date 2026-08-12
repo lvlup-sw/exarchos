@@ -43,10 +43,10 @@ Seven issues, anchored at #1303. Order is by leverage (highest first) and by bla
 
 | # | Issue | Touchpoint | Shape |
 |---|---|---|---|
-| 1 | **#1303** | `orchestrate/merge-orchestrate.ts:410`, `orchestrate/execute-merge.ts:306,321` | Wire `idempotencyKey` + `expectedSequence` on three append sites; reuse prefix builder from `next-actions-computer.ts:118` |
+| 1 | **#1303** | `verbs/merge/merge-orchestrate.ts:410`, `verbs/pure/execute-merge.ts:306,321` | Wire `idempotencyKey` + `expectedSequence` on three append sites; reuse prefix builder from `next-actions-computer.ts:118` |
 | 2 | #1325 | 18 sites across `workflow/{cancel,hsm-transition-guard,rehydrate,tools}.ts` | Migrate `eventStore.append(…)` → `buildValidatedEvent` + `appendValidated` |
 | 3 | #1333 | `agents/types.ts:42`, `agents/definitions.ts` (4+ literals), `capabilities/resolver.ts`, `agents/adapters/{codex,cursor,opencode,copilot,claude}.ts` | Drop `capabilities: readonly Capability[]` from `AgentSpec` runtime interface; derive from `posture` via existing resolver; remove array literals from definitions |
-| 4 | #1334 | `orchestrate/prune-stale-workflows.ts:222–249`, `topology/phase-contract.ts` | Migrate the multi-signal heuristic to typed-contract scorer (Option B from issue body — thread `Topology` through handler) |
+| 4 | #1334 | `verbs/team/prune-stale-workflows.ts:222–249`, `topology/phase-contract.ts` | Migrate the multi-signal heuristic to typed-contract scorer (Option B from issue body — thread `Topology` through handler) |
 | 5 | #1335 | `storage/lifecycle.ts`, `cli-commands/subagent-context.ts` | Comment-scrub stale "Pre-v2.11" prose; grep-verify no live JSONL reader paths remain |
 | 6 | #1336 | `topology/loader.ts:LoadTopologyOptions` | Drop vestigial `emit?:` field from options shape (no `TopologyEventEmitter` class exists despite #1332 punt-list naming) |
 | 7 | #1324 | `event-store/cli-concurrency.test.ts`, `__tests__/integration/doctor-workflow.test.ts` (×2) | Refactor 3 subprocess-spawning tests to in-process `EventStore` (Option 1 from issue body); remove `it.skip` markers added in #1323 |

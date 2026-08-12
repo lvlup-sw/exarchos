@@ -828,7 +828,7 @@ describe('Indirect hosting through a wrapper script (DR-24, task 070)', () => {
 
   it('HostResolution_DataArgumentOfAnInterpretedTool_IsNotAnExecutedProgram', () => {
     // `npx eslint --print-config <file>` READS the file. Counting every argument
-    // of an interpreter as a program reported `orchestrate/composite.ts` as an
+    // of an interpreter as a program reported `verbs/composite.ts` as an
     // executed guard — a false "reachable" found while building this resolver.
     const walk = resolveShellExecutions('scripts/wrapper.sh', (path) =>
       ({

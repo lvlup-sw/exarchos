@@ -70,7 +70,7 @@ import type { z } from 'zod';
 import type { EventEmissionSource } from './schemas.js';
 import type { EffectClass } from '../architecture/effect-ledger.js';
 import type { EffectProvider } from '../contract/reachability/providers.js';
-import type { SupportedGateClass } from '../orchestrate/gate-provider-registry.js';
+import type { SupportedGateClass } from '../verbs/gates/gate-provider-registry.js';
 
 // ─── The two axes, in DATA form ─────────────────────────────────────────────
 //
@@ -245,7 +245,7 @@ export type GroundTruthSource = Extract<EffectClass, 'process' | 'network'>;
 export type WorkflowDefinitionId = string;
 
 // NOTE ON `GateClass`: DR-2 names the judgment arm's field type `GateClass`. That binds to the
-// SHIPPED `SupportedGateClass` (`orchestrate/gate-provider-registry.ts`) — the nine classes
+// SHIPPED `SupportedGateClass` (`verbs/gates/gate-provider-registry.ts`) — the nine classes
 // with exactly one registered provider each, which is precisely what makes a judgment weld
 // resolvable. No alias is introduced: a second name for one vocabulary is the defect class this
 // whole program exists to close. (The unqualified `GateClass` in
@@ -307,7 +307,7 @@ export const GROUND_TRUTH_SOURCES: readonly ['process', 'network'] = ['process',
 /**
  * {@link SupportedGateClass} as data — the nine classes with exactly one registered provider each.
  *
- * Deliberately NOT imported from `orchestrate/gate-provider-registry.ts` as a value. That module
+ * Deliberately NOT imported from `verbs/gates/gate-provider-registry.ts` as a value. That module
  * builds its provider registry at module load, and every import in THIS file is `import type`
  * precisely so the module contributes zero runtime import edges (see the header). The
  * mutual-assignability proof below binds this tuple to the shipped union just as tightly as an
@@ -456,7 +456,7 @@ export const EMISSION_SOURCE_BY_TIER: Readonly<Record<EventTier, EmissionSource>
     // `'auto'` was unvalidatable: no built-in event is owned by a user `ExarchosConfig.workflows`
     // definition, so on task 009's reading this tier had zero members and its value was a guess.
     // The catalog does hold the coupling, one level down. `PHASE_EXPECTED_EVENTS`
-    // (`orchestrate/check-event-emissions.ts`) is a live, mechanically-checked authority that
+    // (`verbs/gates/check-event-emissions.ts`) is a live, mechanically-checked authority that
     // maps model-emitted events to the workflow PHASE that owns them, and its own header states
     // why they stay model-emitted: "their transition site is a model-walked runbook step
     // bracketing a `native:` harness tool". A workflow definition's step composing the emission

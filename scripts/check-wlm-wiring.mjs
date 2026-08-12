@@ -176,16 +176,16 @@ const WORKTREE_MUTATION_RE = /\[\s*['"]worktree['"]\s*,\s*['"](?:add|remove|prun
 // wrapping. Every other file under scope is presumed naked. Paths are
 // src-root-relative, POSIX-separated.
 const WIRED_IDIOM_REQUIREMENTS = new Map([
-  ['orchestrate/git-exec-default.ts', /\bwithIndexLockRetrySync\s*\(/],
-  ['orchestrate/setup-worktree.ts', /\bburstStagger\s*\(/],
-  ['orchestrate/worktree/manager.ts', /\bwithIndexLockRetry\s*\(/],
+  ['verbs/vcs/git-exec-default.ts', /\bwithIndexLockRetrySync\s*\(/],
+  ['verbs/team/setup-worktree.ts', /\bburstStagger\s*\(/],
+  ['verbs/worktree/manager.ts', /\bwithIndexLockRetry\s*\(/],
   ['workflow/compensation.ts', /\bwithIndexLockRetry\s*\(/],
 ]);
 // git-retry.ts IS the kernel — it defines the idioms rather than calling one
 // of them, so it is allow-listed without an idiom-presence requirement.
 const WIRED_ALLOWLIST = new Set([
   ...WIRED_IDIOM_REQUIREMENTS.keys(),
-  'orchestrate/worktree/git-retry.ts',
+  'verbs/worktree/git-retry.ts',
 ]);
 
 // Scope-pin (default root only): the 5 wired files plus the merge seam
@@ -196,7 +196,7 @@ const WIRED_ALLOWLIST = new Set([
 // shrinking the gate's scope must never look like a clean pass.
 const EXPECTED_SRC_SCOPE_FILES = [
   ...WIRED_ALLOWLIST,
-  'orchestrate/merge-orchestrate.ts',
+  'verbs/merge/merge-orchestrate.ts',
 ];
 
 function checkRule1(srcRoot, srcRootIsDefault, violations) {

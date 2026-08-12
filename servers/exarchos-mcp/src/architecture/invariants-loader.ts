@@ -317,7 +317,7 @@ function projectV3Fields(raw: RawInvariantEntry, entry: InvariantEntry): void {
 // reader refuses to load (task 068 / DR-24).
 //
 // It is extracted here, not restated at the write site, so the two paths cannot
-// drift: `parseInvariantEntries` (read) and `orchestrate/invariants/add.ts`
+// drift: `parseInvariantEntries` (read) and `verbs/invariants/add.ts`
 // (write) both call these two functions and nothing else decides id uniqueness.
 // A change to what "duplicate" means — case-folding, namespace scoping — moves
 // both paths in one edit.
@@ -329,7 +329,7 @@ function projectV3Fields(raw: RawInvariantEntry, entry: InvariantEntry): void {
  * Total over its input: an empty list is vacuously unique. Callers that must
  * not accept a vacuous answer are responsible for proving their denominator
  * RESOLVED before asking (see `readCatalogIds` in
- * `orchestrate/invariants/add.ts`) — this function cannot distinguish "no
+ * `verbs/invariants/add.ts`) — this function cannot distinguish "no
  * entries" from "could not read the entries", and must not pretend to.
  */
 export function findDuplicateInvariantId(

@@ -37,7 +37,7 @@ No provider passes `--json` to its *create* command. **End-to-end** this fixes G
 **Acceptance criteria:**
 - Given a GitHub repo, When `create_pr` runs, Then the spawned `gh pr create` argv contains no `--json` token and a PR is created; `{url, number}` (number parsed from the stdout URL) matches the created PR (the end-to-end #1622 fix).
 - Given `GitLabProvider.createPr` is invoked directly (unit), Then `glab mr create` is spawned without `--json`, and `{url, number}` (number = MR iid) is obtained from a follow-up `glab mr view <headBranch> --json iid,webUrl` — not from create's output stream. (The `create_pr` *action* remains blocked for GitLab by the upstream `listPrs` precheck; this is the unit-level class-lock, not an action-level guarantee.)
-- The INV-13 two-event split is preserved: `*.requested` before the side effect, `*.executed` after; a retry idempotency-collapses the requested event (INV-8) and creates at most one PR. This is a *preservation* criterion — `handleCreatePr` is unchanged (the fix is provider-only), so it is covered by the existing untouched `orchestrate/vcs/create-pr.test.ts` two-event-split tests; no new test is required for it.
+- The INV-13 two-event split is preserved: `*.requested` before the side effect, `*.executed` after; a retry idempotency-collapses the requested event (INV-8) and creates at most one PR. This is a *preservation* criterion — `handleCreatePr` is unchanged (the fix is provider-only), so it is covered by the existing untouched `verbs/vcs/create-pr.test.ts` two-event-split tests; no new test is required for it.
 - A regression test asserts the absence of `--json` in the create argv for GitHub and GitLab (locks the class of bug).
 
 #### DR-2: one source of truth for the canonical command set in the runtime shim
@@ -91,12 +91,12 @@ The change set is confined to the VCS adapter layer and the runtime shim emitter
 - `servers/exarchos-mcp/src/vcs/github.ts` — `createPr` (drop `--json`, stdout URL + number-from-URL).
 - `servers/exarchos-mcp/src/vcs/gitlab.ts` — `createPr` (same fix); `getPrComments` (new impl, DR-3).
 - `servers/exarchos-mcp/src/vcs/azure-devops.ts` — `createPr` (verify `--output json` valid, no change expected); `getPrComments` (new impl, DR-4).
-- `servers/exarchos-mcp/src/orchestrate/vcs/create-pr.ts` — **no change** (delegates to `provider.createPr`; confirmed at `:279`).
-- `servers/exarchos-mcp/src/orchestrate/assess-stack.ts` — remove the `requiresGitHub` gate so GitLab/ADO harvest runs (DR-3/DR-4 enablement).
+- `servers/exarchos-mcp/src/verbs/vcs/create-pr.ts` — **no change** (delegates to `provider.createPr`; confirmed at `:279`).
+- `servers/exarchos-mcp/src/verbs/vcs/assess-stack.ts` — remove the `requiresGitHub` gate so GitLab/ADO harvest runs (DR-3/DR-4 enablement).
 - `servers/exarchos-mcp/src/vcs/require-github.ts` — unchanged utility; still used by `check_pr_comments`/`validate_pr_stack`.
 - `servers/exarchos-mcp/src/runtime/command-shim-emitter.ts` — collapse to `COMMAND_DESCRIPTIONS` map (DR-2).
 - `src/config/canonical-skills.ts` — SoT; add `canonicalCommandSet()` accessor.
-- Tests: `vcs/{github,gitlab,azure-devops}.test.ts`, `runtime/command-shim-emitter.test.ts` (incl. the cross-boundary guard), `src/config/canonical-skills.test.ts`, `orchestrate/assess-stack.test.ts`. (`orchestrate/vcs/create-pr.test.ts` is untouched — it backstops the INV-13 preservation criterion.)
+- Tests: `vcs/{github,gitlab,azure-devops}.test.ts`, `runtime/command-shim-emitter.test.ts` (incl. the cross-boundary guard), `src/config/canonical-skills.test.ts`, `verbs/vcs/assess-stack.test.ts`. (`verbs/vcs/create-pr.test.ts` is untouched — it backstops the INV-13 preservation criterion.)
 
 ### Alternatives considered
 
@@ -107,13 +107,13 @@ The change set is confined to the VCS adapter layer and the runtime shim emitter
 
 ### Open Questions
 
-- **INV-2 duplication (DR-1):** does `orchestrate/vcs/create-pr.ts` re-build the create argv, or delegate to `provider.createPr`? Resolve at `/plan` via symbol inspection; if duplicated, the fix is one task that touches both and a parity assertion.
+- **INV-2 duplication (DR-1):** does `verbs/vcs/create-pr.ts` re-build the create argv, or delegate to `provider.createPr`? Resolve at `/plan` via symbol inspection; if duplicated, the fix is one task that touches both and a parity assertion.
 - **Windows `az` shim (DR-4):** new Azure DevOps `getPrComments` invokes `az`, which is `az.cmd` on win32 — the #1623 class of `.cmd`-shim spawn bug. Existing `az repos pr` calls already go through the async `exec` in `vcs/shell.ts` with the same exposure, so this batch stays consistent with the current path; flag for a separate Windows-portability follow-up rather than widening scope here.
 - **Live-CI coverage (DR-3/DR-4):** there is no live GitLab/ADO CI; tests are mocked-CLI suites mirroring the GitHub provider tests (the existing provider test harnesses already mock `exec`). Acceptable — same coverage posture as the shipped GitHub harvester.
 
 #### Resolutions folded in during planning
 
-- **DR-1 / INV-2:** resolved — `handleCreatePr` (`orchestrate/vcs/create-pr.ts:279`) delegates to `provider.createPr`; it does **not** re-build the argv. The `--json` bug is provider-only; no handler dedup is required.
+- **DR-1 / INV-2:** resolved — `handleCreatePr` (`verbs/vcs/create-pr.ts:279`) delegates to `provider.createPr`; it does **not** re-build the argv. The `--json` bug is provider-only; no handler dedup is required.
 - **DR-2 / build boundary:** resolved — the MCP server tsconfig is `rootDir: ./src`, so production code in `servers/exarchos-mcp/src/` cannot import root `src/config/canonical-skills.ts`. The coupling is therefore a **test-only guard** that imports the SoT across the package boundary (the established pattern: `install-skills-bridge.test.ts` already imports `../../../../src/...`). The emitter reduces its hand-kept array to a `COMMAND_DESCRIPTIONS` map keyed by command name (names + `skill: exarchos:<name>` derive locally); the guard asserts those keys equal the canonical set. `canonical-skills.test.ts` already validates the SoT against `commands/*.md`.
 - **DR-3/DR-4 / `assess_stack` enablement (plan-review round 1, HIGH gap):** the adversarial pass found that `handleAssessStack` gates on `requiresGitHub` before harvesting, so `getPrComments` alone would not surface GitLab/ADO comments end-to-end — and the original Task 009 test (inject a non-GitHub provider) would hit the gate. Resolved by adding **Task 010** (narrow the gate for `assess_stack` only; safe because its provider methods are supported or fail-soft) and rewriting Task 009 to test the now-open path. `check_pr_comments`/`validate_pr_stack` stay gated (need `getRepository`/`listPrs`) and are scoped out. The INV-6 claim is sharpened: the *harvest loop* is branch-free; the *handler posture gate* is what's narrowed. Other round-1 findings folded in: full ADO `CommentThreadStatus` enum mapping (Task 008), GitLab resolvable-vs-note resolution (Task 007), corrected `boundaryTouching` stamps (005/006), and the DR-5 traceability row (002).
 - **Round-2 resolutions (second adversarial pass).** A second HIGH was found: `vcs/shell.ts`'s `exec` returns **stdout only**, so the round-1 "scan combined stdout+stderr" for `glab mr create` was unimplementable. Resolved by dropping output-stream parsing for GitLab entirely — Task 002 reads `{iid, webUrl}` from `glab mr view --json` after a flagless create (`--json` support proven elsewhere in `gitlab.ts`); GitHub keeps its stdout parse (the `createIssue` precedent). Folded-in MEDIUM/LOW: ADO `getPrComments` uses `az devops invoke … pullRequestThreads` (no `az repos pr` thread-list subcommand) and filters `commentType:'system'` (Task 008); DR-5 fail-soft reframed as *per-field defensive parsing* for GitLab/ADO's inline (single-call) resolution, not GitHub's separable-call model; class-lock assertions moved into each provider's own suite (Task 003 → ADO only); "full parity" reworded to "two-source parity"; 007/008 high-tier verification re-attributed (the assess_stack cross-seam integration is Task 009); and the `listPrs`-fail-soft merge-detection degradation for GitLab/ADO is documented (Task 010).
@@ -268,7 +268,7 @@ Harvest ADO PR comment threads via `az devops invoke --area git --resource pullR
 Remove the `requiresGitHub(provider, 'assess_stack')` call from `handleAssessStack` (`assess-stack.ts:494`) so an injected GitLab/ADO provider reaches the harvest. Safe because every provider call in the handler is either supported for those providers (`checkCi`, `getReviewStatus`, `getPrComments`) or already fail-soft (`listPrs` via `queryPrMergeState` → try/catch → `null`; `checkCi`/`getReviewStatus` query helpers also catch → `[]`). **Known partial-enablement (acceptable):** because `listPrs` throws for GitLab/ADO, `queryPrMergeState` returns `null`, so merge-detection (`shepherd.completed`) cannot fire for those providers — an enabled loop runs to its iteration bound rather than auto-completing on merge. This violates no DR acceptance (comment-surfacing, the goal, works); `listPrs` enablement is the scoped-out follow-up (#1592 child). Leave `requiresGitHub` in `check_pr_comments`/`validate_pr_stack`. Update any existing test that asserts `assess_stack` skips a non-GitHub provider to assert it now proceeds.
 
 **Verification (medium):** scoped tests + `check_test_adequacy` kill-probe.
-**Files:** `servers/exarchos-mcp/src/orchestrate/assess-stack.ts`, `servers/exarchos-mcp/src/orchestrate/assess-stack.test.ts`
+**Files:** `servers/exarchos-mcp/src/verbs/vcs/assess-stack.ts`, `servers/exarchos-mcp/src/verbs/vcs/assess-stack.test.ts`
 **Expected tests:** `AssessStack_NonGitHubProvider_ProceedsNotSkipped` (replaces any prior `_Skipped` assertion)
 **Dependencies:** 007, 008
 **Parallelizable:** No
@@ -282,7 +282,7 @@ Remove the `requiresGitHub(provider, 'assess_stack')` call from `handleAssessSta
 With the gate narrowed (010), extend `assess-stack` tests: inject a GitLab and an ADO mock provider (the 4th positional arg of `handleAssessStack`) returning `PrComment[]`, and assert each surfaces as `comment-reply` action items, honoring tri-state `resolved` (absent/false → actionable; true → filtered). Assert the *harvest loop* (`queryPrComments`) carries no provider/workflow-type branch (INV-6) — the only provider conditioning removed was the handler-level posture gate (010).
 
 **Verification (medium):** scoped tests + `check_test_adequacy` kill-probe.
-**Files:** `servers/exarchos-mcp/src/orchestrate/assess-stack.test.ts`
+**Files:** `servers/exarchos-mcp/src/verbs/vcs/assess-stack.test.ts`
 **Expected tests:** `AssessStack_SurfacesGitLabComments_AsCommentReply`, `AssessStack_SurfacesAdoComments_AsCommentReply`, `AssessStack_HarvestLoop_NoProviderBranch`
 **Dependencies:** 007, 008, 010
 **Parallelizable:** No

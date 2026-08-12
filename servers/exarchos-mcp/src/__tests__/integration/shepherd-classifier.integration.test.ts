@@ -8,8 +8,8 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import type { VcsProvider, CiStatus, ReviewStatus, PrComment } from '../../vcs/provider.js';
-import { handleAssessStack } from '../../orchestrate/assess-stack.js';
-import { handleClassifyReviewItems } from '../../orchestrate/classify-review-items.js';
+import { handleAssessStack } from '../../verbs/vcs/assess-stack.js';
+import { handleClassifyReviewItems } from '../../verbs/review/classify-review-items.js';
 import type { ActionItem } from '../../review/types.js';
 
 const mockAppend = vi.fn();

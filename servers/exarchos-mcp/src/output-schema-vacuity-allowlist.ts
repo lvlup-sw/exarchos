@@ -240,7 +240,7 @@ export const VACUITY_RETIRED: Readonly<Record<string, VacuityRetiredEntry>> = Ob
   // so the audit-mode prompt it exists to deliver crossed the tool boundary
   // through a schema constraining nothing. It now declares
   // `withCappedShape(CheckInvariantConformanceOutputSchema)` — see
-  // `orchestrate/check-invariant-conformance-schema.ts`. The id MOVED here
+  // `verbs/gates/check-invariant-conformance-schema.ts`. The id MOVED here
   // rather than being deleted, so `keys(VACUITY_ALLOWLIST) ∪ keys(VACUITY_RETIRED)`
   // is unchanged and `VACUITY_SEED_KEY_SET_DIGEST` did NOT have to be touched —
   // which is the whole point of the graveyard.

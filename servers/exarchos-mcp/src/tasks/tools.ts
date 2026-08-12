@@ -323,7 +323,7 @@ export async function handleTaskComplete(
 
   // Gate enforcement (DR-1): `gate.executed` is THE gate-executed signal, and
   // for every gate class the durable runner owns it has exactly ONE producer —
-  // `orchestrate/gate-runner.ts` (`appendGateExecutedSignal`), which mints the
+  // `verbs/gates/gate-runner.ts` (`appendGateExecutedSignal`), which mints the
   // row from the same persisted `admission.evidence-recorded` proof it just
   // wrote. Before that unification the migrated producers appended ONLY the
   // evidence record, so a legitimate `check_static_analysis` run could not be

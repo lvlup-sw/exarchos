@@ -22,7 +22,7 @@ import type {
   DispatchRecommendation,
   Severity,
 } from './types.js';
-import { REVIEW_DOC_NIT_KEYWORDS } from '../orchestrate/scaffolding-keywords.js';
+import { REVIEW_DOC_NIT_KEYWORDS } from '../verbs/tasks/scaffolding-keywords.js';
 
 const SEVERITY_RANK: Record<Severity, number> = { LOW: 0, MEDIUM: 1, HIGH: 2 };
 

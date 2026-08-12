@@ -9,7 +9,7 @@
 
 ## Method
 
-- `PHASE_EXPECTED_EVENTS` source: `servers/exarchos-mcp/src/orchestrate/check-event-emissions.ts:55`.
+- `PHASE_EXPECTED_EVENTS` source: `servers/exarchos-mcp/src/verbs/gates/check-event-emissions.ts:55`.
   The `delegate` / `overhaul-delegate` entries derive from
   `getRegisteredEventTypes(...)` (`projections/rehydration/reducer.ts:799`),
   filtered to `source === 'model'` via `modelEmittedOnly`.
@@ -73,7 +73,7 @@ wired handler append:
 
 | Event | Wired handler append? | Category | Site |
 |---|---|---|---|
-| `ci.status` | **Yes** | **A** | `emitCiStatusEvents` (`orchestrate/assess-stack.ts:313`) called from the assess-stack handler (`assess-stack.ts:483`), idempotency key `${featureId}:ci.status:${pr}:iter-${n}`. |
+| `ci.status` | **Yes** | **A** | `emitCiStatusEvents` (`verbs/vcs/assess-stack.ts:313`) called from the assess-stack handler (`assess-stack.ts:483`), idempotency key `${featureId}:ci.status:${pr}:iter-${n}`. |
 | `quality.regression` | **Yes** | **A** | `emitRegressionEvents` (`quality/regression-detector.ts:89`) called from `handleViewCodeQuality` (`views/tools.ts:724`), deduped against existing `quality.regression` events. |
 | `review.finding` | No (dormant) | B | `emitReviewFindings` (`review/findings.ts:24`) is only reachable via `emitParsedFindings` (`review/comment-parser.ts:100`), which has **no production caller**. Not demonstrably handler-emitted. |
 | `review.escalated` | No (dormant) | B | Same — only via `emitParsedFindings`, uncalled. |

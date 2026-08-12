@@ -137,7 +137,7 @@ sections:
     - { id: A-1, references: [DR-1] }
 ```
 
-Gates (`check_design_completeness`, `check_plan_coverage`, `check_provenance_chain`, `check_task_decomposition`) consume the sidecar; markdown becomes prose-only. **Co-existence period:** for one release after preview.4 merges, gates accept either sidecar OR regex-scrape, log a deprecation warning when only regex is present. Removal of the regex branch is scheduled for v2.11. Schema lives next to the action's outputSchema source-of-truth (`orchestrate/sidecar-schemas.ts`).
+Gates (`check_design_completeness`, `check_plan_coverage`, `check_provenance_chain`, `check_task_decomposition`) consume the sidecar; markdown becomes prose-only. **Co-existence period:** for one release after preview.4 merges, gates accept either sidecar OR regex-scrape, log a deprecation warning when only regex is present. Removal of the regex branch is scheduled for v2.11. Schema lives next to the action's outputSchema source-of-truth (`verbs/sidecar-schemas.ts`).
 
 **#1244 markdown-aware handoff lint (DIM-8).** Run the existing `prose-lint.ts` infrastructure on `handoff.context / nextSteps / suggestions` at `handleCheckpoint` input-validation time. Soft-fail (warn but don't block) by default; opt-in hard-fail via `.exarchos.yml` config. Flags AI-padded content, broken inline links, malformed code fences. Without this, AI-padded handoffs accumulate in the event log and degrade the rehydrate surface for downstream agents.
 

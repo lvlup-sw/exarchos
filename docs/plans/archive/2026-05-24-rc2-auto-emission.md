@@ -14,11 +14,11 @@
 together or the module throws at load:
 
 1. `event-store/schemas.ts:338` — registry source `'model'` → `'auto'`.
-2. `orchestrate/check-event-emissions.ts` — `PHASE_EXPECTED_EVENTS` lists
+2. `verbs/gates/check-event-emissions.ts` — `PHASE_EXPECTED_EVENTS` lists
    `review.routed` in **4** phases (`review`, `overhaul-review`, `synthesize`,
    `overhaul-update-docs`); a compile-time assertion (`check-event-emissions.ts:65`)
    throws if any listed event is non-`'model'`. Remove from all 4.
-3. `orchestrate/check-event-emissions.ts` `EVENT_DESCRIPTIONS` — dead hint entry
+3. `verbs/gates/check-event-emissions.ts` `EVENT_DESCRIPTIONS` — dead hint entry
    after removal (hygiene, DIM-5).
 
 Unaffected (stay green — proves behavior is unchanged): `review/tools.ts` emission,
@@ -59,14 +59,14 @@ Unaffected (stay green — proves behavior is unchanged): `review/tools.ts` emis
      (line ~107). Test name intent: `EventEmissionRegistry_ReviewRouted_IsAuto`.
    - Expected failure: registry still returns `'model'`.
 2. [RED] Assert it leaves the phase-expected set / hints:
-   - File: `servers/exarchos-mcp/src/orchestrate/check-event-emissions.test.ts`
+   - File: `servers/exarchos-mcp/src/verbs/gates/check-event-emissions.test.ts`
    - Change line 45 `.toContain('review.routed')` → `.not.toContain('review.routed')`;
      add a hints test for the `review` phase asserting `review.routed` is absent
      from `_eventHints.missing`. Intent: `CheckEventEmissions_ReviewRouted_NotExpectedFromModel`.
    - Expected failure: it is still listed in `PHASE_EXPECTED_EVENTS`.
 3. [GREEN] Implement the atomic three-site change:
    - `event-store/schemas.ts:338` — `'review.routed': 'auto'`.
-   - `orchestrate/check-event-emissions.ts` — remove `'review.routed'` from the
+   - `verbs/gates/check-event-emissions.ts` — remove `'review.routed'` from the
      `review`, `overhaul-review`, `synthesize`, `overhaul-update-docs` entries of
      `PHASE_EXPECTED_EVENTS`.
 4. [REFACTOR] Remove the now-dead `'review.routed'` entry from `EVENT_DESCRIPTIONS`
@@ -102,7 +102,7 @@ from `PHASE_EXPECTED_EVENTS`; emission/consumption tests for each stay green.
 **Phase:** RED → GREEN
 
 1. [RED] Assertion-path test:
-   - File: `servers/exarchos-mcp/src/orchestrate/check-event-emissions.test.ts`
+   - File: `servers/exarchos-mcp/src/verbs/gates/check-event-emissions.test.ts`
    - Add `PhaseExpectedEvents_AutoEventListed_ThrowsAtModuleLoad` proving the
      compile-time invariant fires if an `'auto'` event is (re)introduced into
      `PHASE_EXPECTED_EVENTS` — the mechanism that forces the three-site change to

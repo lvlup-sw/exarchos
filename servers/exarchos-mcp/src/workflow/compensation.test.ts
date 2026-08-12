@@ -21,10 +21,10 @@ vi.mock('child_process', async () => {
 import { execFile, execFileSync } from 'child_process';
 import * as fsSync from 'node:fs';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
-import { WORKTREES_STREAM, defaultGitRunner } from '../orchestrate/worktree/manager.js';
-import { createWorktreesReducer } from '../orchestrate/worktree/projections/worktrees.js';
-import type { RealpathResolver } from '../orchestrate/worktree/pure/path-containment.js';
-import { canonicalWorktreeId } from '../orchestrate/worktree/pure/path-containment.js';
+import { WORKTREES_STREAM, defaultGitRunner } from '../verbs/worktree/manager.js';
+import { createWorktreesReducer } from '../verbs/worktree/projections/worktrees.js';
+import type { RealpathResolver } from '../verbs/worktree/pure/path-containment.js';
+import { canonicalWorktreeId } from '../verbs/worktree/pure/path-containment.js';
 import type { WorkflowEvent } from '../events/schemas.js';
 
 const mockedExecFile = vi.mocked(execFile);

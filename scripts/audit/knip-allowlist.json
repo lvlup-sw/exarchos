@@ -351,21 +351,21 @@
   },
   {
     "symbol": "VerificationPolicyCell",
-    "file": "servers/exarchos-mcp/src/orchestrate/doctor/schema.ts",
+    "file": "servers/exarchos-mcp/src/verbs/doctor/schema.ts",
     "owner": "@reedsalus",
     "expires": "2026-10-31",
     "rationale": "Doctor verification-policy schema type; forward-compat surface."
   },
   {
     "symbol": "InitOutput",
-    "file": "servers/exarchos-mcp/src/orchestrate/init/schema.ts",
+    "file": "servers/exarchos-mcp/src/verbs/doctor/schema.ts",
     "owner": "@reedsalus",
     "expires": "2026-10-31",
     "rationale": "Init action output schema type; forward-compat surface."
   },
   {
     "symbol": "SkillsScope",
-    "file": "servers/exarchos-mcp/src/orchestrate/onboard/install.ts",
+    "file": "servers/exarchos-mcp/src/verbs/onboard/install.ts",
     "owner": "@reedsalus",
     "expires": "2026-10-31",
     "rationale": "Onboard install skills-scope type; forward-compat surface."

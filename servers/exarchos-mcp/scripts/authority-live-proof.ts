@@ -603,7 +603,7 @@ export const EVENT_CATALOG_SOURCES: {
   // and to derive the source through the SHIPPED derivation rather than restating it here.
   annotations: 'servers/exarchos-mcp/src/events/event-annotations.ts',
   autoEmits: 'servers/exarchos-mcp/src/registry.ts',
-  phaseExpectedEvents: 'servers/exarchos-mcp/src/orchestrate/check-event-emissions.ts',
+  phaseExpectedEvents: 'servers/exarchos-mcp/src/verbs/gates/check-event-emissions.ts',
   // The AUTHORED skills tree. `skills/<runtime>/` is generated from it, so
   // measuring both would count one representation several times.
   proseRoot: 'skills-src',
@@ -681,7 +681,7 @@ export const EVENT_CATALOG_REPRESENTATION_IDS: {
 } = Object.freeze({
   authority: 'EVENT_EMISSION_REGISTRY (`events/schemas.ts`)',
   autoEmits: 'the registry `autoEmits` rows',
-  phaseExpectedEvents: 'PHASE_EXPECTED_EVENTS (`orchestrate/check-event-emissions.ts`)',
+  phaseExpectedEvents: 'PHASE_EXPECTED_EVENTS (`verbs/gates/check-event-emissions.ts`)',
   prose: 'skill prose naming events to emit',
 });
 

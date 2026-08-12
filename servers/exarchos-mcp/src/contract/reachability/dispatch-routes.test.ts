@@ -67,7 +67,7 @@ describe('the shipped route table covers the live public action surface', () => 
   });
 
   it('FIDELITY: the scanned orchestrate table is a superset of the RUNTIME dispatch table', async () => {
-    const { ACTION_HANDLER_KEYS } = await import('../../orchestrate/composite.js');
+    const { ACTION_HANDLER_KEYS } = await import('../../verbs/composite.js');
     const scanned = new Set(
       collectDispatchRoutes()
         .filter((r) => r.tool === 'exarchos_orchestrate')

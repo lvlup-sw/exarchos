@@ -134,16 +134,16 @@ New CLI entry (a process supervisor; the stdio MCP surface can't own a child's l
 - **Creation & ownership** — `git worktree add` in the new `worktree.create.*` split (DR-2); ownership via existing `WorktreeManager.reserve`.
 - **WLM composition** — emit the events `worktrees@v1` folds; consume assignment + `serialize_merge`; leave `adopt`/`reconcile` intact for harness-created worktrees.
 - **Lifecycle core** — a harness-agnostic `runLifecycle(descriptor)` with declarative per-harness descriptors; one async cross-OS spawn primitive (`utils/process.ts`).
-- **Liveness** — new `launch.*` members + `worktrees@v1` reducer fold (`orchestrate/worktree/projections/worktrees.ts`) + `ps` surfacing (`views/composite.ts`).
+- **Liveness** — new `launch.*` members + `worktrees@v1` reducer fold (`verbs/worktree/projections/worktrees.ts`) + `ps` surfacing (`views/composite.ts`).
 - **Teardown/recovery** — INV-14 discriminator + #1577 protected-ancestry probe.
 
 **Not built (non-goals):** any filesystem-write confinement, boundary hooks, space-enforcement tiers, or deletion of `adopt`/`reconcile`/#1568. `#1568` and `#1301` are untouched by this slice.
 
 ### Integration Points
 
-- `servers/exarchos-mcp/src/orchestrate/worktree/manager.ts` — new `reserve` caller; `adopt`/`reconcile` **retained**.
+- `servers/exarchos-mcp/src/verbs/worktree/manager.ts` — new `reserve` caller; `adopt`/`reconcile` **retained**.
 - `servers/exarchos-mcp/src/event-store/schemas.ts` — new shared-stem `worktree.create.requested`/`worktree.create.executed` pair + `launch.executing_started`/`launch.executed`; `worktree.created` **untouched** (task-scoped).
-- `servers/exarchos-mcp/src/orchestrate/worktree/projections/worktrees.ts` — extend the `worktrees@v1` reducer `switch` to fold `launch.*` (the `worktree.create.*` pair stays a reducer **no-op**, audit-only like `worktree.remove.requested` — do not fold it, to avoid a spurious `projectionSequence` bump); `servers/exarchos-mcp/src/views/composite.ts` — surface `launch.*` in `ps`/`worktrees`.
+- `servers/exarchos-mcp/src/verbs/worktree/projections/worktrees.ts` — extend the `worktrees@v1` reducer `switch` to fold `launch.*` (the `worktree.create.*` pair stays a reducer **no-op**, audit-only like `worktree.remove.requested` — do not fold it, to avoid a spurious `projectionSequence` bump); `servers/exarchos-mcp/src/views/composite.ts` — surface `launch.*` in `ps`/`worktrees`.
 - `servers/exarchos-mcp/src/utils/process.ts` — async cross-OS spawn.
 - `runtimes/{claude,codex,cursor,copilot,opencode}.yaml` — `isolation:worktree` semantics → **launcher-managed lifecycle** (no space-enforcement claim).
 - `servers/exarchos-mcp/src/adapters/cli.ts` — the verb.
@@ -239,9 +239,9 @@ Ordered creation, **all appends on the singleton `worktrees` stream**: `reserve`
 
 #### Task 006: Launch liveness emission + `ps`/`worktrees` projection wiring
 **Risk Tier:** high · **Implements:** DR-2
-Emit `launch.executing_started`/`launch.executed`; **extend the `worktrees@v1` reducer `switch`** (`orchestrate/worktree/projections/worktrees.ts` — today `launch.*` fall through its `default → identity` arm) to fold them onto the launcher worktree entry (keyed by `worktreeId`), and surface them in the `ps` view (`views/composite.ts`). Expose the terminal-emit as an **idempotent** seam (`emitLaunchExecuted(operationId)` — at-most-once per launch even if both a signal and teardown fire) that the lifecycle/teardown/signal paths (010/011/012) call on **every catchable exit** (the guaranteed-terminal contract; phantom reconciliation of uncatchable death is Task 016). The "emitted on every catchable path" + idempotency guarantees are asserted by the **callers'** tests (011/012), not only here.
+Emit `launch.executing_started`/`launch.executed`; **extend the `worktrees@v1` reducer `switch`** (`verbs/worktree/projections/worktrees.ts` — today `launch.*` fall through its `default → identity` arm) to fold them onto the launcher worktree entry (keyed by `worktreeId`), and surface them in the `ps` view (`views/composite.ts`). Expose the terminal-emit as an **idempotent** seam (`emitLaunchExecuted(operationId)` — at-most-once per launch even if both a signal and teardown fire) that the lifecycle/teardown/signal paths (010/011/012) call on **every catchable exit** (the guaranteed-terminal contract; phantom reconciliation of uncatchable death is Task 016). The "emitted on every catchable path" + idempotency guarantees are asserted by the **callers'** tests (011/012), not only here.
 **Verification:** high — scoped tests + kill-probe + integration (view projection).
-**Files:** `servers/exarchos-mcp/src/launcher/liveness.ts`, `servers/exarchos-mcp/src/orchestrate/worktree/projections/worktrees.ts`, `servers/exarchos-mcp/src/views/composite.ts`, `.../liveness.test.ts`, `.../projections/worktrees.test.ts`
+**Files:** `servers/exarchos-mcp/src/launcher/liveness.ts`, `servers/exarchos-mcp/src/verbs/worktree/projections/worktrees.ts`, `servers/exarchos-mcp/src/views/composite.ts`, `.../liveness.test.ts`, `.../projections/worktrees.test.ts`
 **Expected tests:** `Liveness_EmitsStartedAndExecuted`, `Liveness_TerminalSeam_Idempotent` (in `liveness.test.ts`); `PsProjection_FoldsLaunch_ReflectsInFlight`, `PsProjection_LaunchExecuted_ClearsInFlight` (co-located in `projections/worktrees.test.ts`, asserting both fold directions — started ⇒ in-flight, executed ⇒ cleared, so a permanent phantom cannot survive)
 **Dependencies:** 001, 005 · **Parallelizable:** No
 
@@ -321,7 +321,7 @@ Verb registration with schema constraints + "do NOT use for"; visible-tool-count
 **Risk Tier:** high · **Implements:** DR-6
 Extend the shipped #1577 on-demand ground-truth probe to reconcile `launch.*`: a `launch.executing_started` with no paired `launch.executed` whose holder PID is provably dead (protected-ancestry probe) is reconciled to a terminal, so a `SIGKILL`/host-death never folds a permanent phantom in-flight launch in `ps`. On-demand only (GC / `ps --probe`), no polling (INV-10/15).
 **Verification:** high — scoped tests + kill-probe + integration (probe seam).
-**Files:** `servers/exarchos-mcp/src/orchestrate/worktree/pure/probe.ts`, `servers/exarchos-mcp/src/launcher/launch-reconcile.ts`, `.../launch-reconcile.test.ts`
+**Files:** `servers/exarchos-mcp/src/verbs/worktree/pure/probe.ts`, `servers/exarchos-mcp/src/launcher/launch-reconcile.ts`, `.../launch-reconcile.test.ts`
 **Expected tests:** `Reconcile_DeadHolderStartedNoExecuted_EmitsTerminal`, `Reconcile_LiveHolder_LeftInFlight`, `Reconcile_OnDemandOnly_NoPolling`
 **Dependencies:** 006, 010 · **Parallelizable:** No
 

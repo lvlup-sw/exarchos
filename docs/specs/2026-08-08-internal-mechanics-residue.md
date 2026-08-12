@@ -175,7 +175,7 @@ This is task 068's defect one layer down — a schema that exists, is enforced o
 
 ### Task 073: `invariants_amend` re-flows entries it was not asked to touch
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-3
-**Files:** `servers/exarchos-mcp/src/orchestrate/invariants/catalog-file.ts`, `servers/exarchos-mcp/src/orchestrate/invariants/amend.ts`
+**Files:** `servers/exarchos-mcp/src/verbs/invariants/catalog-file.ts`, `servers/exarchos-mcp/src/verbs/invariants/amend.ts`
 **Detail:** Found by task 019 against task 068's verb, on the first real use of it. `invariants_amend` advertises itself as id-targeted and field-scoped, and semantically it is — but committing re-serializes the whole frontmatter document, so `yaml`'s line-width folding re-wraps folded scalars in unrelated entries. 019's one-field amendment to INV-17 produced a 69-insert / 34-delete diff, ~35 lines of which were cosmetic re-wrap of INV-2 and INV-11.
 
 019 proved it is whitespace-only: parsing before and after and diffing the parsed entries yields exactly one semantic change, 21/21 entries intact, markdown body byte-identical. So it is diff noise, not content drift — and still not harmless. Every future one-field amendment drags a contract re-approval along with it, and a reviewer cannot separate amendment from reflow without running a parse-level comparison. That punishes the sanctioned path, which is the one DR-23 exists to make usable.
@@ -210,7 +210,7 @@ This is task 068's defect one layer down — a schema that exists, is enforced o
 
 ### Task 078: Verdict fidelity — four places a non-pass reads as a pass
 **Risk Tier:** high · **Boundary Touching:** true · **Implements:** DR-7
-**Files:** `servers/exarchos-mcp/src/orchestrate/gate-utils.ts` (`normalizeGateVerdict`), `scripts/check-measured-premises.mjs` + the `npm run validate` aggregator, `scripts/installer-verify.test.ts`, `servers/exarchos-mcp/src/ctk/cross-runtime.test.ts`
+**Files:** `servers/exarchos-mcp/src/verbs/gates/gate-utils.ts` (`normalizeGateVerdict`), `scripts/check-measured-premises.mjs` + the `npm run validate` aggregator, `scripts/installer-verify.test.ts`, `servers/exarchos-mcp/src/ctk/cross-runtime.test.ts`
 **Detail:** Four independent sites, one shape.
 1. `normalizeGateVerdict` returns `'pass'` for the advisory-skip carrier `{ passed: true, skipped: true }` — the `skipped && passed !== true` guard never fires because `passed` IS true. Three gates now emit that carrier through `runDurableGateProducer`, so the durable `admission.evidence-recorded` row records `verdict: 'pass'` and `gate.executed` is minted `passed: true` for a gate that never ran. It is also an observability regression: the retired `emitPolicySkipIfNeeded` carried `details.skipped` + `discriminant`; the runner-minted row carries neither.
 2. `check-measured-premises.mjs` prints `VERDICT: GAPS` and the words *"reportable, NOT a pass"* with 11 of 13 proof rungs unprobed — and `npm run validate` records it as `PASS measured-premises`, 9/9, exit 0.
@@ -244,7 +244,7 @@ This is task 068's defect one layer down — a schema that exists, is enforced o
 
 ### Task 080: The guard inventory cannot see the guards this wave shipped
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-9
-**Files:** `scripts/guard-inventory.ts`, `scripts/enforcer-wiring-manifest.json`, `scripts/check-enforcer-wiring.mjs`, `scripts/check-module-intent.mjs`, `src/friction-signal.ts`, `servers/exarchos-mcp/src/orchestrate/pure/gate-preflight.ts`
+**Files:** `scripts/guard-inventory.ts`, `scripts/enforcer-wiring-manifest.json`, `scripts/check-enforcer-wiring.mjs`, `scripts/check-module-intent.mjs`, `src/friction-signal.ts`, `servers/exarchos-mcp/src/verbs/pure/gate-preflight.ts`
 **Detail:** `buildGuardInventory` discovers through three channels (root `scripts/` manifest primaries, Wave-1 spec task `**Files:**` entries, and `servers/exarchos-mcp/scripts` gates with a SIBLING self-test). Absent from the inventory entirely: `adapter-ownership-seam.ts`, `effect-port-seam.ts`, `audit-delivery-closure.ts`, `delivery-safety.ts`, `import-cycles.ts` — so `Wave1Exit_NoGuardIsUnreachable`, asserted "over the FULL inventory" precisely so a wave cannot wire its headline guards while leaving others dark, does not range over them. `servers/exarchos-mcp/scripts/authority-live-proof.ts` (42 KB) is dropped because its self-test lives at `src/architecture/authority-live-proof.test.ts` rather than beside it. `unresolvedSpecArtifacts` computes the promised-but-absent list and `auditGuardInventory` never raises a violation for it, so a task whose declared artifact never landed passes the DR-24 proof unremarked. Adjacent: `unfilteredCiPath` is declared by zero of 24 manifest primaries (the adjudication is fixture-only), `emitPolicySkipIfNeeded` is dead production code kept alive by its own test, and `src/friction-signal.ts` is a 245-line module with no production importer whose header states it was placed in root `src/` *because* the MCP-side module-intent gate would have flagged it — relocating out of a gate's reach is not satisfying it.
 
 **Acceptance criteria:**
@@ -260,7 +260,7 @@ This is task 068's defect one layer down — a schema that exists, is enforced o
 
 ### Task 081: Detectors that match spelling instead of meaning
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-8
-**Files:** `servers/exarchos-mcp/src/orchestrate/gate-ownership-census.ts`, `scripts/check-windows-portability.mjs`, `scripts/lint-envelopes.mjs`, `servers/exarchos-mcp/src/contract/governing-catalog.test.ts`, `servers/exarchos-mcp/src/contract/cli/cli-contract-seam.ts`
+**Files:** `servers/exarchos-mcp/src/verbs/gates/gate-ownership-census.ts`, `scripts/check-windows-portability.mjs`, `scripts/lint-envelopes.mjs`, `servers/exarchos-mcp/src/contract/governing-catalog.test.ts`, `servers/exarchos-mcp/src/contract/cli/cli-contract-seam.ts`
 **Detail:** Same class as the DR-4 vacuity hole repaired inline (`acceptsEveryValue` tested the outermost node, not what the schema admits). Remaining instances: `gate-ownership-census.ts:162` detects an alternate evidence emitter only via a RAW STRING LITERAL inside `.append(...)`, while the codebase's own idiom is the exported `ADMISSION_EVENT_TYPES.EVIDENCE_RECORDED` constant or a hoisted event object — so a rogue emitter written the way every existing emitter is written is invisible. `check-windows-portability.mjs`'s `SPAWN_RE` matches only `execFile(Sync)('npm'|'npx'|…)` and its `DYNAMIC_SPAWN_RE` requires an identifier first argument, so `lint-envelopes.mjs:94`'s literal `spawnSync('npx', …)` falls through both — and the gate's default `--src-root` is the MCP package, so root `scripts/**` is never scanned at all (that spawn fails on every Windows host post-CVE-2024-27980). `governing-catalog.test.ts:241` greps `/INV-2\s+parity/i` over whole-file source, so an innocuous comment reddens the build — brittle enough that the test splits the literal in its own fixture to avoid self-matching. `cli-contract-seam.ts:323` excludes by directory NAME, and three of the six names (`evals`, `benchmarks`, `test-helpers`) are compiled and emitted to `dist/`.
 
 **Acceptance criteria:**
@@ -275,7 +275,7 @@ This is task 068's defect one layer down — a schema that exists, is enforced o
 
 ### Task 082: `no-handler-throw`'s census is a hand-maintained closed set
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-9
-**Files:** `eslint-rules/no-handler-throw.js`, `servers/exarchos-mcp/src/orchestrate/composite.ts`, `servers/exarchos-mcp/src/orchestrate/invariants/amend.ts`
+**Files:** `eslint-rules/no-handler-throw.js`, `servers/exarchos-mcp/src/verbs/composite.ts`, `servers/exarchos-mcp/src/verbs/invariants/amend.ts`
 **Detail:** `SPECIAL_BRANCH_ACTIONS` lists six handler names; this same wave added a seventh special-cased branch (`invariants_amend` → `handleAmend`, composite.ts:846-853). It is not in the map, so the rule never scans it — and unlike an `ACTION_HANDLERS` entry, where an unresolvable value is FAIL-LOUD `unresolvedHandler` precisely because "an unscannable entry is a gate hole", the special-branch path returns silently (`if (!actionName) return;`, `if (!fnNode) return;`). `handleAmend` is not throw-free either: its commit path calls `replaceEntryInCatalog` (which throws) outside any try/catch, so an escaping throw is flattened to a generic `INTERNAL_ERROR`, discarding the coded envelope the handler builds everywhere else. Two reviewers found this independently.
 **Note:** the rule's 18-case self-test now runs on the unfiltered grep-gates lane (fixed inline), so a repair here is actually observed by CI.
 
@@ -290,7 +290,7 @@ This is task 068's defect one layer down — a schema that exists, is enforced o
 
 ### Task 083: Two new verbs shipped vacuous `outputSchema`s
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-6
-**Files:** `servers/exarchos-mcp/src/registry.ts`, `servers/exarchos-mcp/src/output-schema-vacuity-allowlist.ts`, `servers/exarchos-mcp/src/orchestrate/cutover-readiness.ts`
+**Files:** `servers/exarchos-mcp/src/registry.ts`, `servers/exarchos-mcp/src/output-schema-vacuity-allowlist.ts`, `servers/exarchos-mcp/src/verbs/gates/cutover-readiness.ts`
 **Detail:** `cutover_readiness` and `cutover_decide` are new on this branch and both declare `vacuityWaiver(...)`, seeded into the allowlist in the same change — while DR-4's stated tooth #1 is that a NEW action cannot declare a vacuous `outputSchema` at all. `invariants/amend.ts` held itself to the opposite rule in the same PR ("the verb is new, so it has no seeded vacuityWaiver entry to inherit — and the waiver allowlist is shrink-only") and declared a substantive `AmendInvariantData`. Both handlers return fully typed shapes (`CutoverGateReport` already exists), so the schemas are writable today.
 **Note:** the construction path is now closed (`withCappedShape` refuses a vacuous base) and `acceptsEveryValue` sees through wrappers, so this is the remaining DEBT, not a live hole.
 
@@ -360,7 +360,7 @@ Plus: `differential-fixtures.test.ts:54/107` compares two functions with byte-id
 
 ### Task 088: `prepare_synthesis` measures the directory it was launched in
 **Risk Tier:** medium · **Boundary Touching:** true · **Implements:** DR-8
-**Files:** `servers/exarchos-mcp/src/orchestrate/prepare-synthesis.ts`, `servers/exarchos-mcp/src/orchestrate/prepare-synthesis.test.ts`
+**Files:** `servers/exarchos-mcp/src/verbs/team/prepare-synthesis.ts`, `servers/exarchos-mcp/src/verbs/team/prepare-synthesis.test.ts`
 **Detail:** DR-8's scan-root defect on a BLOCKING gate rather than a guard. `runTestSuite`, `runTypecheck`, `verifyStack` and `changedFilesAgainstBase` each shell out with no `cwd` option, so all four legs measure `process.cwd()` — whatever directory the MCP server happened to be launched in — while the readiness verdict is reported as the workflow's. The handler's second positional argument is `stateDir`, not a repo root, so there is currently nothing to thread: the gate has no way to name the tree it is judging. Two consequences. In production, a server launched anywhere but the workflow's repo returns a readiness verdict for an unrelated tree, and `testsPass`/`typecheckPass` are then folded into `ready`. In test, the legs run for real: the one `phase-gate-evidence.test.ts` case that clears the task-completion short-circuit re-entered the whole `vitest run` from inside a test and waited out both subprocess timeouts (120s + 60s = the 180s observed under load). That test was repaired inline by stubbing `node:child_process`, matching `prepare-synthesis.test.ts`; the production hole is untouched.
 **Acceptance criteria:**
 - The gate takes an explicit repo root and every subprocess leg passes it as `cwd`; no leg reads ambient `process.cwd()`.
@@ -372,7 +372,7 @@ Plus: `differential-fixtures.test.ts:54/107` compares two functions with byte-id
 
 ### Task 089: The mutation runner still never runs where its config lives
 **Risk Tier:** medium · **Boundary Touching:** false · **Implements:** DR-8
-**Files:** `servers/exarchos-mcp/src/orchestrate/mutation-adequacy.ts`, `servers/exarchos-mcp/src/orchestrate/mutation-adequacy.test.ts`
+**Files:** `servers/exarchos-mcp/src/verbs/gates/mutation-adequacy.ts`, `servers/exarchos-mcp/src/verbs/gates/mutation-adequacy.test.ts`
 **Detail:** The second half of the review's H4. That finding had two required fixes — stop treating `total: 0` as adequacy, and resolve the runner at the package that owns `stryker.conf.mjs`. Only the first landed: the gate now degrades with a reason instead of trivial-passing, so the vacuous verdict is gone. But the command still executes with `cwd: args.repoRoot` (the single `cwd` in the module), and `stryker.conf.mjs` plus the Stryker 9.6.1 devDependency live under `servers/exarchos-mcp`, which is not a workspace of the root (`workspaces: packages/*`) and puts no `stryker` on the root `.bin`. So the gate is now honestly reporting that it cannot run, rather than dishonestly reporting that it passed — an improvement, and still not a mutation score. **No mutation score has ever been measured for this branch's diff.** The dimension is advisory by default, so this blocks nothing; it does mean the R5 backstop is unexercised and the NoCoverage axis has nothing to enforce against.
 **Acceptance criteria:**
 - The resolved mutation command runs in the package that owns the mutation config, discovered from the config's location rather than named in a list.

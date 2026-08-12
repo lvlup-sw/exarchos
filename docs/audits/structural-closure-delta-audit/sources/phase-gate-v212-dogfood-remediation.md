@@ -598,7 +598,7 @@ unless the audit records the ratchet or retirement path they add.
 - `servers/exarchos-mcp/src/event-store/{multi-process.test.ts,atomic-appender.race.test.ts,atomic-appender.acceptance.test.ts}`
 - `servers/exarchos-mcp/src/storage/sqlite-backend.ts`
 - `servers/exarchos-mcp/src/views/delegation-readiness-view.ts`
-- `servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts`
+- `servers/exarchos-mcp/src/verbs/team/prepare-delegation.ts`
 - `servers/exarchos-mcp/src/orchestrate/{test-adequacy.ts,test-adequacy-handler.ts}`
 - `servers/exarchos-mcp/src/orchestrate/{check-integration-suite.ts,pure/integration-suite.ts}`
 - `servers/exarchos-mcp/src/runbooks/definitions.ts`

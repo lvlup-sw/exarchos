@@ -102,7 +102,7 @@ The freeze records the *obligation*; per-phase kinds also freeze the full `resol
 - **`workflow/state-machine.ts`** — `executeTransition` gains the non-optional resolve-then-freeze (DR-10); the central fail-closed → `phase.blocked` (DR-16).
 - **`workflow/review-contract.ts`** — re-export `ReviewDimension`; remains the SoT for dimension names (DR-8/DR-9).
 - **`workflow/playbooks.ts`** — plan/review/synthesis gate-selection prose removed (DR-11).
-- **`orchestrate/pure/provenance-chain.ts`, `orchestrate/task-decomposition.ts`, `orchestrate/prepare-synthesis.ts`** — reframed-bug fixes (DR-12).
+- **`verbs/pure/provenance-chain.ts`, `verbs/tasks/task-decomposition.ts`, `verbs/team/prepare-synthesis.ts`** — reframed-bug fixes (DR-12).
 - **`orchestrate/check-integration-suite` + toolchain resolver (`config/toolchains.ts`)** — DR-15.
 - **`event-store/schemas.ts`, `views/workflow-state-projection.ts`** — `phase.entered`/`phase.exited` schema + reducer (DR-13).
 - **`capabilities/resolver.ts`, `capabilities/posture-mapping.ts`** — kind→posture bundle minting (DR-14).

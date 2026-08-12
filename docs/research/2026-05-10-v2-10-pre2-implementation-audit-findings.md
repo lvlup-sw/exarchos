@@ -275,8 +275,8 @@ The Marc Brooker blog and SQLite forum threads turned up no concrete BEGIN IMMED
 - `servers/exarchos-mcp/src/event-store/atomic-appender.ts` — `AtomicAppender`, `StreamLockManager`, `AppendResult` shapes, `translateAtomicAppendError`.
 - `servers/exarchos-mcp/src/storage/sqlite-backend.ts` — `SqliteBackend`, `atomicAppend`, `applyConnectionPragmas`, `SqliteBusyExhaustedError`, `SQLITE_BUSY_RETRY_POLICY`.
 - `servers/exarchos-mcp/src/workflow/state-retry.ts` — `withStateRetry`, `MAX_STATE_RETRIES`, `VersionConflictError` catch.
-- `servers/exarchos-mcp/src/orchestrate/merge-orchestrate.ts:519` — current `withStateRetry` call site (wraps `persistState` only — does NOT currently wrap the executor's git ops; design Wave 4 proposes to expand the boundary).
-- `servers/exarchos-mcp/src/orchestrate/execute-merge.ts:249` — same shape.
+- `servers/exarchos-mcp/src/verbs/merge/merge-orchestrate.ts:519` — current `withStateRetry` call site (wraps `persistState` only — does NOT currently wrap the executor's git ops; design Wave 4 proposes to expand the boundary).
+- `servers/exarchos-mcp/src/verbs/pure/execute-merge.ts:249` — same shape.
 - `docs/research/2026-05-08-marten-event-store-lessons.md` §C-2 — R-2 `fetchForWriting` motivation.
 - `.claude/skills/design-invariants/references/INV-1-event-sourcing.md` — stores-as-projections rule; severity guide.
 - `docs/architecture/runtime.md` §3 — L2 (event store) substrate model.

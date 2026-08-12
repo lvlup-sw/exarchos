@@ -258,14 +258,14 @@
         "exitCondition": "All gate.executed events in production come from canonical runner; CI enforcer blocks non-registry gates",
         "ciPosture": "Compile-time check only (satisfies Record); CI enforcement script added but not verified blocking",
         "reevaluateAt": "v3 gate-runner canonicity mandate finalized",
-        "owner": "servers/exarchos-mcp/src/orchestrate/gate-provider-registry.ts composition root + scripts/check-gate-runner-ownership.mjs",
+        "owner": "servers/exarchos-mcp/src/verbs/gates/gate-provider-registry.ts composition root + scripts/check-gate-runner-ownership.mjs",
         "retirementProof": "Not applicable (new registry)"
       },
       "name": "Gate provider registry (exhaustive gate-class ownership)",
       "candidateEvidence": [
         "a0aa84c9 (feat: add exhaustive gate provider registry)",
-        "servers/exarchos-mcp/src/orchestrate/gate-provider-registry.ts:80-106 (satisfies Record exhaustiveness)",
-        "servers/exarchos-mcp/src/orchestrate/gate-provider-registry.test.ts"
+        "servers/exarchos-mcp/src/verbs/gates/gate-provider-registry.ts:80-106 (satisfies Record exhaustiveness)",
+        "servers/exarchos-mcp/src/verbs/gates/gate-provider-registry.test.ts"
       ],
       "compatibilityCarrier": "Internal dispatch table; not public",
       "disposition": "partial",
@@ -285,7 +285,7 @@
       ],
       "baselinePosture": "Gate runner code present but not mandated; v2.12 spec marks as TODO",
       "ownerControl": {
-        "owner": "servers/exarchos-mcp/src/orchestrate/gate-runner.ts and gate ownership census",
+        "owner": "servers/exarchos-mcp/src/verbs/gates/gate-runner.ts and gate ownership census",
         "ciPosture": "gating ownership census; universal packaged selection incomplete",
         "exitCondition": "Every applicable gate action resolves to the canonical runner and packaged/process proof rejects direct execution bypasses.",
         "reevaluateAt": "v3 admission cutover",
@@ -316,16 +316,16 @@
         "exitCondition": "v3 confirms event sourcing for all ladder gates",
         "ciPosture": "Blocking event emission (ladder-gate-evidence.test.ts verifies)",
         "reevaluateAt": "v3 ladder gate architecture finalized",
-        "owner": "servers/exarchos-mcp/src/orchestrate/static-analysis.ts, servers/exarchos-mcp/src/orchestrate/contract-drift-handler.ts"
+        "owner": "servers/exarchos-mcp/src/verbs/pure/static-analysis.ts, servers/exarchos-mcp/src/verbs/gates/contract-drift-handler.ts"
       },
       "disposition": "closed",
       "name": "Ladder gate evidence migration (static-analysis, contract-drift)",
       "baselinePosture": "Ladder gates executed; no durable evidence emission",
       "candidateEvidence": [
         "e6e837b4 (feat: persist ladder gate evidence)",
-        "servers/exarchos-mcp/src/orchestrate/ladder-gate-evidence.test.ts (NEW)",
-        "servers/exarchos-mcp/src/orchestrate/static-analysis.ts (modified)",
-        "servers/exarchos-mcp/src/orchestrate/contract-drift-handler.ts (modified)"
+        "servers/exarchos-mcp/src/verbs/ladder-gate-evidence.test.ts (NEW)",
+        "servers/exarchos-mcp/src/verbs/pure/static-analysis.ts (modified)",
+        "servers/exarchos-mcp/src/verbs/gates/contract-drift-handler.ts (modified)"
       ],
       "migrationEvidence": [
         "Migration complete; ladder gates now emit canonical events",
@@ -348,16 +348,16 @@
         "exitCondition": "v3 confirms event sourcing for all phase gates",
         "ciPosture": "Blocking event emission (phase-gate-evidence.test.ts verifies)",
         "reevaluateAt": "v3 phase gate architecture finalized",
-        "owner": "servers/exarchos-mcp/src/orchestrate/check-integration-suite.ts, servers/exarchos-mcp/src/orchestrate/prepare-synthesis.ts"
+        "owner": "servers/exarchos-mcp/src/verbs/gates/check-integration-suite.ts, servers/exarchos-mcp/src/verbs/team/prepare-synthesis.ts"
       },
       "disposition": "closed",
       "name": "Phase gate evidence migration (integration-suite, plan-coverage, etc.)",
       "baselinePosture": "Phase gates executed; evidence partial or missing",
       "candidateEvidence": [
         "fd32043d (feat: persist phase gate evidence)",
-        "servers/exarchos-mcp/src/orchestrate/phase-gate-evidence.test.ts (NEW)",
-        "servers/exarchos-mcp/src/orchestrate/check-integration-suite.ts (modified)",
-        "servers/exarchos-mcp/src/orchestrate/prepare-synthesis.ts (modified)"
+        "servers/exarchos-mcp/src/verbs/phase-gate-evidence.test.ts (NEW)",
+        "servers/exarchos-mcp/src/verbs/gates/check-integration-suite.ts (modified)",
+        "servers/exarchos-mcp/src/verbs/team/prepare-synthesis.ts (modified)"
       ],
       "migrationEvidence": [
         "Migration committed; phase gates emit events",
@@ -651,10 +651,10 @@
       "primaryDisposition": "admission-policy"
     },
     {
-      "candidatePosture": "servers/exarchos-mcp/src/orchestrate/test-adequacy-handler.ts separates pre/post filtering; task-added source revert and restore are tested.",
+      "candidatePosture": "servers/exarchos-mcp/src/verbs/gates/test-adequacy-handler.ts separates pre/post filtering; task-added source revert and restore are tested.",
       "compatibilityCarrier": "Verification ladder gate; not public result",
       "ownerControl": {
-        "owner": "servers/exarchos-mcp/src/orchestrate/test-adequacy-handler.ts and servers/exarchos-mcp/src/orchestrate/test-adequacy.ts",
+        "owner": "servers/exarchos-mcp/src/verbs/gates/test-adequacy-handler.ts and servers/exarchos-mcp/src/verbs/gates/test-adequacy.ts",
         "ciPosture": "blocking verification-ladder gate; committed-branch discovery remains partial",
         "exitCondition": "A committed-branch integration test proves merge-base..HEAD test discovery and rejects no-new-tests when tests changed.",
         "reevaluateAt": "v3 verification-ladder definition",
@@ -673,9 +673,9 @@
       "baselinePosture": "Adequacy gate could not revert task-added source files",
       "candidateEvidence": [
         "51f06ad8 and 0d72b09d: task-added source handling changes",
-        "servers/exarchos-mcp/src/orchestrate/test-adequacy-handler.ts",
-        "servers/exarchos-mcp/src/orchestrate/test-adequacy.ts",
-        "servers/exarchos-mcp/src/orchestrate/test-adequacy.test.ts"
+        "servers/exarchos-mcp/src/verbs/gates/test-adequacy-handler.ts",
+        "servers/exarchos-mcp/src/verbs/gates/test-adequacy.ts",
+        "servers/exarchos-mcp/src/verbs/gates/test-adequacy.test.ts"
       ],
       "dogfoodFindings": [
         "CB-3: test adequacy cannot reliably analyze committed task branches.",
@@ -687,7 +687,7 @@
       "candidatePosture": "(No visible fix in candidate diff)",
       "compatibilityCarrier": "Verification ladder gate; not public",
       "ownerControl": {
-        "owner": "servers/exarchos-mcp/src/orchestrate/check-integration-suite.ts",
+        "owner": "servers/exarchos-mcp/src/verbs/gates/check-integration-suite.ts",
         "retirementProof": "Old npm-stdout-parse path must be removed; no fire-and-forget JSON parsing",
         "reevaluateAt": "v3 verification ladder specification finalized; issue #1537 closed",
         "exitCondition": "v3 includes direct Vitest invocation or framed JSON parsing; dogfood re-run verifies gate works",
@@ -707,7 +707,7 @@
       "finding": "CB-4 JSON parsing bug remains unfixed in v2.12 candidate. Integration-suite gate fails even when scoped suites pass. Issue #1537 open. v3 must land fix: invoke Vitest binary directly or parse framed report file (do not parse complete npm stdout as JSON). Dogfood must re-run with fixed parser.",
       "baselinePosture": "Parser invokes npm, receives non-JSON preamble + JSON, fails on first parse",
       "candidateEvidence": [
-        "servers/exarchos-mcp/src/orchestrate/check-integration-suite.ts (referenced in dogfood; no committed fix visible)"
+        "servers/exarchos-mcp/src/verbs/gates/check-integration-suite.ts (referenced in dogfood; no committed fix visible)"
       ],
       "dogfoodFindings": [
         "CB-4: 'runner produced no parseable vitest JSON' — npm preamble and workspace output break JSON.parse(raw)",
@@ -786,7 +786,7 @@
       "candidateEvidence": [
         "docs/audits/2026-07-21-phase-gate-v212-dogfood.md:209-230",
         "servers/exarchos-mcp/src/views/delegation-readiness-view.ts",
-        "servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts"
+        "servers/exarchos-mcp/src/verbs/team/prepare-delegation.ts"
       ],
       "disposition": "open",
       "v3AuthorityEvidence": [
@@ -856,7 +856,7 @@
     {
       "candidateEvidence": [
         "docs/audits/2026-07-21-phase-gate-v212-dogfood.md:294-305",
-        "servers/exarchos-mcp/src/orchestrate/plan-coverage.ts"
+        "servers/exarchos-mcp/src/verbs/gates/plan-coverage.ts"
       ],
       "disposition": "open",
       "v3AuthorityEvidence": [
@@ -870,7 +870,7 @@
       "id": "M025",
       "primaryDisposition": "runtime-chokepoint",
       "ownerControl": {
-        "owner": "servers/exarchos-mcp/src/orchestrate/plan-coverage.ts",
+        "owner": "servers/exarchos-mcp/src/verbs/gates/plan-coverage.ts",
         "ciPosture": "blocking plan-coverage gate",
         "exitCondition": "Canonical unified specs pass without duplicate top-level compatibility sections.",
         "reevaluateAt": "v3 spec/IR parser definition",
@@ -889,7 +889,7 @@
     {
       "candidateEvidence": [
         "docs/audits/2026-07-21-phase-gate-v212-dogfood.md:307-322",
-        "servers/exarchos-mcp/src/orchestrate/task-decomposition.ts"
+        "servers/exarchos-mcp/src/verbs/tasks/task-decomposition.ts"
       ],
       "disposition": "open",
       "v3AuthorityEvidence": [
@@ -903,7 +903,7 @@
       "id": "M026",
       "primaryDisposition": "runtime-chokepoint",
       "ownerControl": {
-        "owner": "servers/exarchos-mcp/src/orchestrate/task-decomposition.ts",
+        "owner": "servers/exarchos-mcp/src/verbs/tasks/task-decomposition.ts",
         "ciPosture": "blocking planning gate with incomplete adequacy dimensions",
         "exitCondition": "The dogfood 41-file/9,585-line plan is flagged or requires explicit oversized-task rationale.",
         "reevaluateAt": "v3 decomposition policy definition",
@@ -957,7 +957,7 @@
     {
       "candidateEvidence": [
         "docs/audits/2026-07-21-phase-gate-v212-dogfood.md:337-348",
-        "servers/exarchos-mcp/src/orchestrate/spec-coverage-check.ts"
+        "servers/exarchos-mcp/src/verbs/gates/spec-coverage-check.ts"
       ],
       "disposition": "open",
       "v3AuthorityEvidence": [
@@ -971,7 +971,7 @@
       "id": "M028",
       "primaryDisposition": "runtime-chokepoint",
       "ownerControl": {
-        "owner": "servers/exarchos-mcp/src/orchestrate/spec-coverage-check.ts",
+        "owner": "servers/exarchos-mcp/src/verbs/gates/spec-coverage-check.ts",
         "ciPosture": "blocking coverage gate at the wrong lifecycle stage",
         "exitCondition": "Forward-declared tests pass planning validation and fail only if absent after implementation.",
         "reevaluateAt": "v3 verification lifecycle definition",

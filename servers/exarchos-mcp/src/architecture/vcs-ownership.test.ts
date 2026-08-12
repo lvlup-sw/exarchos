@@ -70,12 +70,12 @@ describe('runVcsOwnershipCensus — verdict logic', () => {
   it('flags a mutation site no owner claims as DIRECT_VCS_BYPASS', () => {
     const sites: VcsMutationSite[] = [
       { module: 'vcs/mutation-owner.ts', mutation: 'worktree.add', evidence: "'worktree', 'add'" },
-      { module: 'orchestrate/rogue.ts', mutation: 'worktree.add', evidence: "'worktree', 'add'" },
+      { module: 'verbs/rogue.ts', mutation: 'worktree.add', evidence: "'worktree', 'add'" },
     ];
     const result = runVcsOwnershipCensus(sites, owners);
     expect(result.ok).toBe(false);
     const bypass = result.diagnostics.find((d) => d.code === 'DIRECT_VCS_BYPASS');
-    expect(bypass && 'module' in bypass && bypass.module).toBe('orchestrate/rogue.ts');
+    expect(bypass && 'module' in bypass && bypass.module).toBe('verbs/rogue.ts');
   });
 
   it('flags an owner that claims nothing as STALE_VCS_OWNER', () => {
@@ -103,7 +103,7 @@ describe('EXIT PROOF — live VCS-ownership census', () => {
   it('(a) a planted direct bypass in a non-owner module FAILS the census against the live sites', async () => {
     const sites = await scanVcsMutationSites(SRC_ROOT);
     const planted: VcsMutationSite = {
-      module: 'orchestrate/rogue-bypass.ts',
+      module: 'verbs/rogue-bypass.ts',
       mutation: 'worktree.add',
       evidence: "'worktree', 'add'",
     };
@@ -114,7 +114,7 @@ describe('EXIT PROOF — live VCS-ownership census', () => {
         (d) =>
           d.code === 'DIRECT_VCS_BYPASS' &&
           'module' in d &&
-          d.module === 'orchestrate/rogue-bypass.ts',
+          d.module === 'verbs/rogue-bypass.ts',
       ),
     ).toBe(true);
   });

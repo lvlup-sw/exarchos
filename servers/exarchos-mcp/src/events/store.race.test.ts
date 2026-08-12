@@ -5,17 +5,17 @@ import * as path from 'node:path';
 
 import { EventStore } from './store.js';
 import { AtomicAppender } from './atomic-appender.js';
-import { handleMergeOrchestrate } from '../orchestrate/merge-orchestrate.js';
+import { handleMergeOrchestrate } from '../verbs/merge/merge-orchestrate.js';
 import {
   handleExecuteMerge,
   type HandleExecuteMergeInput,
-} from '../orchestrate/execute-merge.js';
+} from '../verbs/merge/execute-merge.js';
 import type { DispatchContext } from '../dispatch/core/dispatch.js';
 import type { ToolResult } from '../format.js';
 import type {
   MergePreflightResult,
   GitExecResult,
-} from '../orchestrate/pure/merge-preflight.js';
+} from '../verbs/pure/merge-preflight.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 /**

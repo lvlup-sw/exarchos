@@ -36,16 +36,16 @@ Link: `docs/designs/2026-02-28-adversarial-convergence-gates.md`
 **Implements:** DR-1, DR-2, DR-3, DR-4 (foundation for all gate handlers)
 
 1. [RED] Write test: `emitGateEvent_ValidInput_AppendsGateExecutedEvent`
-   - File: `servers/exarchos-mcp/src/orchestrate/gate-utils.test.ts`
+   - File: `servers/exarchos-mcp/src/verbs/gates/gate-utils.test.ts`
    - Test: Create in-memory event store, call emitGateEvent, verify event shape
    - Expected failure: module `gate-utils.ts` does not exist
 
 2. [RED] Write test: `emitGateEvent_WithDetails_IncludesDetailsInPayload`
-   - File: `servers/exarchos-mcp/src/orchestrate/gate-utils.test.ts`
+   - File: `servers/exarchos-mcp/src/verbs/gates/gate-utils.test.ts`
    - Expected failure: same module missing
 
 3. [GREEN] Extract `emitGateEvent` from `prepare-synthesis.ts` into `gate-utils.ts`
-   - File: `servers/exarchos-mcp/src/orchestrate/gate-utils.ts`
+   - File: `servers/exarchos-mcp/src/verbs/gates/gate-utils.ts`
    - Reexport from prepare-synthesis.ts to avoid breaking existing imports
 
 4. [REFACTOR] Update prepare-synthesis.ts to import from gate-utils.ts
@@ -61,7 +61,7 @@ Link: `docs/designs/2026-02-28-adversarial-convergence-gates.md`
 **Implements:** DR-1
 
 1. [RED] Write test: `handleDesignCompleteness_ValidDesign_ReturnsPassed`
-   - File: `servers/exarchos-mcp/src/orchestrate/design-completeness.test.ts`
+   - File: `servers/exarchos-mcp/src/verbs/pure/design-completeness.test.ts`
    - Mock: execSync to simulate script exit 0
    - Expected failure: module does not exist
 
@@ -77,12 +77,12 @@ Link: `docs/designs/2026-02-28-adversarial-convergence-gates.md`
    - Expected failure: same
 
 5. [GREEN] Implement `handleDesignCompleteness` handler
-   - File: `servers/exarchos-mcp/src/orchestrate/design-completeness.ts`
+   - File: `servers/exarchos-mcp/src/verbs/pure/design-completeness.ts`
    - Pattern: wrap `scripts/check-design-completeness.sh`, parse stderr for findings, emit gate.executed event via shared emitGateEvent
    - Return: `{ passed, advisory, findings[] }`
 
 6. [GREEN] Register `check_design_completeness` action in composite.ts
-   - File: `servers/exarchos-mcp/src/orchestrate/composite.ts`
+   - File: `servers/exarchos-mcp/src/verbs/composite.ts`
 
 7. [REFACTOR] Clean up error handling patterns
 
@@ -97,7 +97,7 @@ Link: `docs/designs/2026-02-28-adversarial-convergence-gates.md`
 **Implements:** DR-2
 
 1. [RED] Write test: `handlePlanCoverage_AllRequirementsCovered_ReturnsPassed`
-   - File: `servers/exarchos-mcp/src/orchestrate/plan-coverage.test.ts`
+   - File: `servers/exarchos-mcp/src/verbs/gates/plan-coverage.test.ts`
    - Mock: execSync for verify-plan-coverage.sh exit 0
    - Expected failure: module does not exist
 
@@ -114,7 +114,7 @@ Link: `docs/designs/2026-02-28-adversarial-convergence-gates.md`
    - Expected failure: same
 
 5. [GREEN] Implement `handlePlanCoverage` handler
-   - File: `servers/exarchos-mcp/src/orchestrate/plan-coverage.ts`
+   - File: `servers/exarchos-mcp/src/verbs/gates/plan-coverage.ts`
    - Wraps `scripts/verify-plan-coverage.sh`, emits gate.executed
 
 6. [GREEN] Register `check_plan_coverage` action in composite.ts
@@ -132,7 +132,7 @@ Link: `docs/designs/2026-02-28-adversarial-convergence-gates.md`
 **Implements:** DR-3
 
 1. [RED] Write test: `handleTddCompliance_CompliantBranch_ReturnsPassed`
-   - File: `servers/exarchos-mcp/src/orchestrate/tdd-compliance.test.ts`
+   - File: `servers/exarchos-mcp/src/verbs/tdd-compliance.test.ts`
    - Mock: execSync for check-tdd-compliance.sh exit 0
    - Expected failure: module does not exist
 
@@ -145,7 +145,7 @@ Link: `docs/designs/2026-02-28-adversarial-convergence-gates.md`
    - Expected failure: same
 
 4. [GREEN] Implement `handleTddCompliance` handler
-   - File: `servers/exarchos-mcp/src/orchestrate/tdd-compliance.ts`
+   - File: `servers/exarchos-mcp/src/verbs/tdd-compliance.ts`
    - Wraps `scripts/check-tdd-compliance.sh` scoped to task branch
    - Also runs `npm run test:run` and `npm run typecheck`
    - Emits gate.executed for each sub-check
@@ -194,7 +194,7 @@ Link: `docs/designs/2026-02-28-adversarial-convergence-gates.md`
 **Implements:** DR-4
 
 1. [RED] Write test: `handlePostMerge_CIPassing_ReturnsPassed`
-   - File: `servers/exarchos-mcp/src/orchestrate/post-merge.test.ts`
+   - File: `servers/exarchos-mcp/src/verbs/pure/post-merge.test.ts`
    - Mock: execSync for check-post-merge.sh exit 0
    - Expected failure: module does not exist
 
@@ -207,7 +207,7 @@ Link: `docs/designs/2026-02-28-adversarial-convergence-gates.md`
    - Expected failure: same
 
 4. [GREEN] Implement `handlePostMerge` handler
-   - File: `servers/exarchos-mcp/src/orchestrate/post-merge.ts`
+   - File: `servers/exarchos-mcp/src/verbs/pure/post-merge.ts`
    - Wraps check-post-merge.sh, emits gate.executed
 
 5. [GREEN] Register `check_post_merge` action in composite.ts
@@ -341,7 +341,7 @@ Link: `docs/designs/2026-02-28-adversarial-convergence-gates.md`
 **Implements:** DR-8
 
 1. [RED] Write test: `handlePrepareDelegation_EmitsPlanCoverageGateEvent`
-   - File: `servers/exarchos-mcp/src/orchestrate/prepare-delegation.test.ts` (or co-located)
+   - File: `servers/exarchos-mcp/src/verbs/team/prepare-delegation.test.ts` (or co-located)
    - Verify gate.executed event with gateName='plan-coverage' emitted
    - Expected failure: no gate event emission in current implementation
 

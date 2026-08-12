@@ -31,8 +31,8 @@ These are post-PR-1185 follow-ups. The event-store and projection cluster (#1179
 
 Three stream IDs are reserved for non-feature use across three modules:
 
-- `INIT_STREAM_ID = 'exarchos-init'` — `orchestrate/init/index.ts:42`
-- `DOCTOR_STREAM_ID = 'exarchos-doctor'` — `orchestrate/doctor/index.ts:116`
+- `INIT_STREAM_ID = 'exarchos-init'` — `verbs/doctor/index.ts:42`
+- `DOCTOR_STREAM_ID = 'exarchos-doctor'` — `verbs/doctor/index.ts:116`
 - `TELEMETRY_STREAM = 'telemetry'` — `telemetry/constants.ts:1`
 
 No shared module enumerates them. The view layer has no way to distinguish "feature stream" from "infra stream" without hard-coding the names.
@@ -186,7 +186,7 @@ Two factors:
 | Constraint | Each fix |
 |------------|----------|
 | **Event-sourcing integrity** | No new events emitted; #1189's `hasPassingGate` becomes more tolerant in *reading* `gate.executed` events; output of every projection remains reconstructable from the event log alone. |
-| **MCP parity** | Every code-side fix is in shared core (`views/tools.ts`, `dispatch/core/dispatch.ts`, `tasks/tools.ts`, `orchestrate/prepare-delegation.ts`) — both CLI and MCP facades dispatch through the same handlers, so behavior is uniform by construction. |
+| **MCP parity** | Every code-side fix is in shared core (`views/tools.ts`, `dispatch/core/dispatch.ts`, `tasks/tools.ts`, `verbs/team/prepare-delegation.ts`) — both CLI and MCP facades dispatch through the same handlers, so behavior is uniform by construction. |
 | **Basileus-forward** | No fix introduces a local-only assumption. The `infra-streams.ts` predicate is transport-agnostic; dispatch tolerance is transport-agnostic. |
 | **Capability resolution** | None of the fixes touch capability/handshake state — no yaml-vs-handshake reads added or modified. |
 

@@ -26,13 +26,13 @@ These are complementary moves: **remove** a cheap low-value gate, **add** an exp
 
 | Surface | Location | Today |
 |---|---|---|
-| Per-task TDD gate | `orchestrate/tdd-compliance.ts` (`check_tdd_compliance`) | Blocking; inspects commit ordering; known false-negative + misses blast-radius |
-| Static analysis | `orchestrate/static-analysis.ts` (`check_static_analysis`) | lint + typecheck |
+| Per-task TDD gate | `verbs/tdd-compliance.ts` (`check_tdd_compliance`) | Blocking; inspects commit ordering; known false-negative + misses blast-radius |
+| Static analysis | `verbs/pure/static-analysis.ts` (`check_static_analysis`) | lint + typecheck |
 | Plan-phase gates | `plan-coverage.ts`, `provenance-chain.ts`, `task-decomposition.ts`, `spec-coverage-check.ts`, `generate-traceability.ts` | Coverage/traceability of the plan |
 | Coverage thresholds | `check-coverage-thresholds.ts` | Execution coverage, not assertion adequacy |
-| Gate contract | `orchestrate/gate-utils.ts` | `(args, stateDir, eventStore) ⇒ ToolResult`; `emitGateEvent`→`gate.executed`; **`withConfigSeverity`** (disabled/warning/blocking per gate) |
+| Gate contract | `verbs/gates/gate-utils.ts` | `(args, stateDir, eventStore) ⇒ ToolResult`; `emitGateEvent`→`gate.executed`; **`withConfigSeverity`** (disabled/warning/blocking per gate) |
 | Toolchain | `config/toolchains.ts` (`ToolchainCommands {test,typecheck,install}`), `test-runtime-resolver.ts` (5-tier), `cli-commands/run-tests.ts` | No `mutation` (or `lint`) field |
-| Task shape | `orchestrate/prepare-delegation.ts` (`classifyTask`) | `complexity/agent/model/effort`; **no `riskTier`/blast-radius** |
+| Task shape | `verbs/team/prepare-delegation.ts` (`classifyTask`) | `complexity/agent/model/effort`; **no `riskTier`/blast-radius** |
 | Plan strategy | `implementation-planning/references/testing-strategy-guide.md`, `task-template.md` | `exampleTests:true` always; `propertyTests/benchmarks/testLayer/characterizationRequired` |
 | Skills mandating TDD | `implementation-planning/SKILL.md` (Iron Law), `_shared/references/tdd.md`, `delegation/references/implementer-prompt.md`, `oneshot-workflow/SKILL.md`, `refactor/SKILL.md` | Strict RED-GREEN-REFACTOR, always-on |
 | Review dimensions | `workflow/review-contract.ts` | `feature: ['spec-review','quality-review']`; dimension == skill folder |
@@ -69,7 +69,7 @@ Implement by **extending `withConfigSeverity`** (already the per-gate disabled/w
 ### R3 — Replace the ordering gate with a git-only adequacy probe (per-task)
 Demote `check_tdd_compliance` from blocking → **advisory** (config default), and add a `check_test_adequacy` action: **revert the task's source hunks → run the new test(s) → assert red → restore.** This is mutation testing at N=1 (the coarsest mutant: "the code isn't there"), needs **no extra tool** (pure git + the resolved test command), and recaptures the *only* unique guarantee of test-first while fixing the documented false-negative.
 **Honest limit:** proves the test isn't vacuous, not that it's robust to subtle mutants — that's R5's job.
-**Files:** `tdd-compliance.ts` (severity flip), new `orchestrate/test-adequacy.ts`, registry action.
+**Files:** `tdd-compliance.ts` (severity flip), new `verbs/gates/test-adequacy.ts`, registry action.
 **Invariants:** INV-5d (an *action* on `exarchos_orchestrate`, not a 5th tool), INV-4/INV-6 (git-only ⇒ language/runtime-agnostic), INV-1 (`gate.executed`), INV-5b.
 
 ### R4 — Extend the toolchain substrate with `mutation` (and `lint`)
@@ -79,7 +79,7 @@ Add `mutation: string | null` (and `lint: string | null`) to `ToolchainCommands`
 
 ### R5 — `check_mutation_adequacy` as a boundary review dimension
 New `exarchos_orchestrate` action consuming the Stryker **`mutation-testing-report-schema`** (de-facto cross-language standard): **diff-scoped by default**, **advisory threshold** (real scores ~40%; equivalent mutants cap < 100%), run only at the **`/review` boundary** on the **high** tier. Wire it as a `mutation-adequacy` review dimension (`review-contract.ts`) ⇒ requires a `skills-src/mutation-adequacy/` skill folder. Surviving/`NoCoverage` mutants become `next_actions` ("write a test that kills `<file>:<line>`") — the machine guard against vacuous tests *and* vacuous PBT properties (closes the open Q4 from the methodology research).
-**Files:** new `orchestrate/mutation-adequacy.ts`, `review-contract.ts`, `skills-src/mutation-adequacy/SKILL.md`, registry.
+**Files:** new `verbs/gates/mutation-adequacy.ts`, `review-contract.ts`, `skills-src/mutation-adequacy/SKILL.md`, registry.
 **Invariants:** INV-5d (action, no 5th tool), INV-5b (fixed carrier `{passed,mutationScore,killed,survived,noCoverage,total,report}`), INV-10 (`mutation.executing_started`/`executed`; full runs use Tasks/SEP-1686 — it is the canonical long-running op), INV-12 (survivors as affordances), INV-1 (score trend = left-fold over `gate.executed`), INV-2.
 
 ### R6 — Promote the cheap verification mix in planning
@@ -106,7 +106,7 @@ The onboard/doctor reconciler (`detect → DesiredState → diff → apply`) alr
 - **New doctor check (12th):** `verificationToolchainResolvable` — confirms `test`/`typecheck`/`mutation` resolve (or report remediation). **Today no doctor check covers test/typecheck/mutation availability** (confirmed gap). `doctor --fix` seeds missing commands via the same `apply`.
 - **DesiredState carries the verification-policy defaults** (R2), so `onboard` writes sensible tier defaults and `doctor --fix` reconciles drift.
 - **T0 characterization** (the issue's Feathers baseline) must additionally pin the *verification-gate outputs* before the fold, so the refactor is guarded.
-**Files:** `dispatch/core/onboarding/reconcile.ts` (T1), `orchestrate/doctor/checks/verification-toolchain.ts` (new), `doctor/index.ts` `ALL_CHECKS`.
+**Files:** `dispatch/core/onboarding/reconcile.ts` (T1), `verbs/doctor/checks/verification-toolchain.ts` (new), `doctor/index.ts` `ALL_CHECKS`.
 **Invariants:** INV-4 (runtime resolution, never gen-time — the #1510 decision already states this), INV-2 (one reconciler core, two callers), INV-6.
 
 ### R10 — Governance: score trend + token telemetry

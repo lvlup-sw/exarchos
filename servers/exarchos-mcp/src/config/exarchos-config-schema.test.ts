@@ -283,7 +283,7 @@ describe('ExarchosConfigSchema', () => {
  *
  *   - the key is GONE from the parsed shape — `InvariantsConfigSchema`
  *     desugars it away, so no production reader can gate on the boolean (the
- *     doctor probe that did, `orchestrate/doctor/probes.ts`, became a compile
+ *     doctor probe that did, `verbs/doctor/probes.ts`, became a compile
  *     error and now asks the registration question instead);
  *   - it is RETAINED on the INPUT shape as a deprecated alias, because the
  *     schema is `.strict()` and `loadExarchosConfig` THROWS on an unknown key

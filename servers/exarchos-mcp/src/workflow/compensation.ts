@@ -30,20 +30,20 @@ import {
   WORKTREES_STREAM,
   defaultGitRunner,
   type GitRunner,
-} from '../orchestrate/worktree/manager.js';
+} from '../verbs/worktree/manager.js';
 import {
   withIndexLockRetry,
   type IndexLockRetryOptions,
-} from '../orchestrate/worktree/git-retry.js';
+} from '../verbs/worktree/git-retry.js';
 import {
   canonicalWorktreeId,
   defaultRealpath,
   type RealpathResolver,
-} from '../orchestrate/worktree/pure/path-containment.js';
+} from '../verbs/worktree/pure/path-containment.js';
 import {
   createWorktreesReducer,
   type WorktreesProjection,
-} from '../orchestrate/worktree/projections/worktrees.js';
+} from '../verbs/worktree/projections/worktrees.js';
 
 // ─── Command Execution Helper ─────────────────────────────────────────────────
 
@@ -254,7 +254,7 @@ function worktreeHasUncommittedChanges(
 // scan the feature stream for a previously-emitted `*.requested` matching
 // the same target identifier (worktreePath / branch) that has no paired
 // `*.executed`, and reuse its operationId. Mirrors the recovery pattern in
-// `orchestrate/vcs/create-issue.ts:112-133`.
+// `verbs/vcs/create-issue.ts:112-133`.
 
 interface WorktreeRemoveRequestedData {
   readonly operationId: string;

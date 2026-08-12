@@ -24,7 +24,7 @@ not an AST walk. A test can assert containment in a form no listed shape
 matches and stay out of scope silently. That is a *false negative*, and it is
 mitigated only by the shape list being ratcheted and extensible — not
 eliminated. The first draft of the catalogue had exactly this hole: it missed
-`orchestrate/contract-drift.parity.test.ts`, one of the three Class B instances
+`verbs/gates/contract-drift.parity.test.ts`, one of the three Class B instances
 DR-30 names by name. The `derived-pair-parity` shape exists because of that
 miss.
 
@@ -78,8 +78,8 @@ carrier:
 
 An earlier draft keyed on "an object literal carrying both `passed: true` and a
 could-not-run marker". It flagged exactly two corpus files —
-`orchestrate/static-analysis.test.ts` and
-`orchestrate/test-adequacy.production-path.test.ts` — both of which *construct*
+`verbs/pure/static-analysis.test.ts` and
+`verbs/gates/test-adequacy.production-path.test.ts` — both of which *construct*
 the defective carrier in order to prove the system refuses it. That draft
 punished the tests that already enforce the property. The negative fixture
 `FIXTURE_COULD_NOT_RUN_NEGATIVE_FIXTURE` pins the corrected behaviour.

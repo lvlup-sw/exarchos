@@ -56,7 +56,7 @@ Load-bearing for this unit:
   Category-A event already satisfies this (`review/tools.ts` is core); the
   audit must not introduce adapter-local emission.
 - **DIM-3 (contracts, lockstep).** `EVENT_EMISSION_REGISTRY`,
-  `PHASE_EXPECTED_EVENTS` (`orchestrate/check-event-emissions.ts`), and the
+  `PHASE_EXPECTED_EVENTS` (`verbs/gates/check-event-emissions.ts`), and the
   playbook renderer are a coupled contract. `check-event-emissions.ts` carries a
   **compile-time assertion** that every entry in `PHASE_EXPECTED_EVENTS` is
   `source === 'model'`; flipping a registry entry to `'auto'` *without*
@@ -130,7 +130,7 @@ For each A event the audit confirms (anchor case: `review.routed`):
 1. **Registry** — flip `EVENT_EMISSION_REGISTRY[<event>]` from `'model'` to
    `'auto'` in `event-store/schemas.ts`.
 2. **Phase-expected set** — remove `<event>` from every `PHASE_EXPECTED_EVENTS`
-   entry in `orchestrate/check-event-emissions.ts`. Required: the module's
+   entry in `verbs/gates/check-event-emissions.ts`. Required: the module's
    compile-time assertion throws if an `'auto'` event remains listed there.
 3. **Renderer / hints** — the playbook renderer already separates model-emitted
    `events:` from `autoEmittedEvents:` (`playbooks.ts`); ensure the migrated

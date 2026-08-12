@@ -638,8 +638,8 @@ export interface RealRegistryCase {
  * The real handler that ENFORCES: it reads the trusted caller-authorization
  * snapshot off the production dispatch scope (`getDispatchContext()`) and fails
  * closed with the real `TRUSTED_CALLER_REQUIRED` authorization-family code when
- * it is absent — the same guard `orchestrate/gate-runner.ts` and
- * `orchestrate/durable-gate-producer.ts` apply.
+ * it is absent — the same guard `verbs/gates/gate-runner.ts` and
+ * `verbs/gates/durable-gate-producer.ts` apply.
  */
 const enforcingRealHandler: CompositeHandler = async (): Promise<ToolResult> => {
   const dispatchScope = getDispatchContext();

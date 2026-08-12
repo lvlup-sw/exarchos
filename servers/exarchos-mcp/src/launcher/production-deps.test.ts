@@ -28,8 +28,8 @@ import {
   WorktreeManager,
   WORKTREES_STREAM,
   type GitRunner,
-} from '../orchestrate/worktree/manager.js';
-import type { ProcessTableSource } from '../orchestrate/worktree/pure/probe.js';
+} from '../verbs/worktree/manager.js';
+import type { ProcessTableSource } from '../verbs/worktree/pure/probe.js';
 import type { SignalChild, SignalRegistrar, SignalListener, TrappedSignal } from './signals.js';
 import { emitLaunchExecuted, LAUNCH_EXECUTED } from './liveness.js';
 import type { LifecycleSignalContext } from './lifecycle-core.js';

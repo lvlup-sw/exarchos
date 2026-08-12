@@ -103,7 +103,7 @@ runtime code: it edits the planning references so the planner emits the cheap mi
 
 ### 4.1 The `mutation-adequacy` action
 
-New `servers/exarchos-mcp/src/orchestrate/mutation-adequacy.ts`, registered in `registry` with a
+New `servers/exarchos-mcp/src/verbs/gates/mutation-adequacy.ts`, registered in `registry` with a
 `handleOrchestrate` dispatch branch (the DOA-action trap — a registered action with no handler branch
 returns `UNKNOWN_ACTION`; the test must dispatch *through* `handleOrchestrate`). Input schema (Zod,
 INV-5a): `featureId` (string), `base` (string, the review/PR base ref — reuse the existing `string` type

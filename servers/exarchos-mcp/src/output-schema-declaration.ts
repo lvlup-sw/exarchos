@@ -67,7 +67,7 @@
  */
 import { z } from 'zod';
 import { EnvelopeSchema } from './contract/schemas/envelope.js';
-import { extractEnvelopeDataSchema } from './orchestrate/worktree/schemas.js';
+import { extractEnvelopeDataSchema } from './verbs/worktree/schemas.js';
 import { acceptsEveryValue } from './contract/schemas/schema-totality.js';
 import type { VacuityWaiverId } from './output-schema-vacuity-allowlist.js';
 

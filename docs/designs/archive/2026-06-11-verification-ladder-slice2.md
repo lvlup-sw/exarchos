@@ -143,13 +143,13 @@ change by default" acceptance line of #1517).
 
 Three call sites move from the frozen table to the resolver, none changing shape:
 
-1. **`prepare_delegation`** (`orchestrate/prepare-delegation.ts:405`): the
+1. **`prepare_delegation`** (`verbs/team/prepare-delegation.ts:405`): the
    `verificationSequence` stamp becomes `resolveVerificationPolicy(riskTier, boundaryTouching,
    config).sequence`. The `TaskClassification` field type is unchanged (`readonly GateName[]`),
    so delegation records, dispatch prompts, and `next_actions` carry resolved sequences with
    zero schema churn — and zero new action input fields (sidestepping the
    `buildRegistrationSchema` collision trap entirely).
-2. **`resolvePolicySkip`** (`orchestrate/gate-utils.ts`): gains an optional `config` parameter
+2. **`resolvePolicySkip`** (`verbs/gates/gate-utils.ts`): gains an optional `config` parameter
    and resolves through the same resolver. The skip reason string is extended with the policy
    source: `"…(sequence: …, policy: config)"` so a config-induced skip is never mistaken for a
    built-in decision. Absent-stamp behavior is preserved exactly (both stamps required, else
@@ -204,7 +204,7 @@ on the issue at synthesis time.
 
 ### 4.6 Doctor check — `verification-toolchain`
 
-New `orchestrate/doctor/checks/verification-toolchain.ts`, registered in `ALL_CHECKS`
+New `verbs/doctor/checks/verification-toolchain.ts`, registered in `ALL_CHECKS`
 (`doctor/index.ts`), following the established probe-based `CheckFn` contract
 (cf. `invariants-catalog.ts`). The probe calls `resolveVerificationRuntime` for the repo and
 reports per-field resolvability — today **no** doctor check covers this (confirmed gap; the

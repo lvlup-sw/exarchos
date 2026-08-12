@@ -35,11 +35,11 @@ import { performance } from 'node:perf_hooks';
 
 import { EventStore } from '../../../events/store.js';
 import type { ToolResult } from '../../../format.js';
-import { handleTestAdequacy } from '../../../orchestrate/test-adequacy-handler.js';
-import { handleStaticAnalysis } from '../../../orchestrate/static-analysis.js';
-import { handleContractDrift } from '../../../orchestrate/contract-drift-handler.js';
-import { handleMockBoundary } from '../../../orchestrate/mock-boundary-handler.js';
-import { handleCheckIntegrationSuite } from '../../../orchestrate/check-integration-suite.js';
+import { handleTestAdequacy } from '../../../verbs/gates/test-adequacy-handler.js';
+import { handleStaticAnalysis } from '../../../verbs/gates/static-analysis.js';
+import { handleContractDrift } from '../../../verbs/gates/contract-drift-handler.js';
+import { handleMockBoundary } from '../../../verbs/gates/mock-boundary-handler.js';
+import { handleCheckIntegrationSuite } from '../../../verbs/gates/check-integration-suite.js';
 import {
   deriveLocalOperatorIdentity,
   snapshotCallerAuthorization,

@@ -3,7 +3,7 @@
  *
  * This is the production wiring that routes the real `setup_worktree` action's
  * branch+worktree creation through the single typed {@link VcsMutationOwner}.
- * Before this seam, `orchestrate/setup-worktree.ts` created a branch and a
+ * Before this seam, `verbs/team/setup-worktree.ts` created a branch and a
  * worktree with two bare `execFileSync('git', …)` calls and recorded NO event —
  * the exact observed defect the work package exists to prevent: an interrupted
  * run left a worktree AND branch on disk with no corresponding `worktree.created`

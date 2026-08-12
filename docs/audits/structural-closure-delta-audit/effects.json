@@ -34,7 +34,7 @@
   },
   "commands": [
     "git grep pinned SHAs for filesystem/process/network/event append candidates",
-    "git show 13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:servers/exarchos-mcp/src/orchestrate/gate-runner.ts",
+    "git show 13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:servers/exarchos-mcp/src/verbs/gates/gate-runner.ts",
     "git show 13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:scripts/check-gate-runner-ownership.mjs",
     "git archive candidate subset and run node scripts/check-gate-runner-ownership.mjs",
     "git show 30831d05f67c44b80e45391b67ed29f11dda4276:scripts/get-exarchos.sh",
@@ -219,18 +219,18 @@
       "id": "gate.evidence-append",
       "effectClass": "gate-evidence",
       "entryPath": "runGate -> provider -> optional artifact -> admission.evidence-recorded append",
-      "owner": "servers/exarchos-mcp/src/orchestrate/gate-runner.ts",
+      "owner": "servers/exarchos-mcp/src/verbs/gates/gate-runner.ts",
       "productionRoot": "servers/exarchos-mcp/src/orchestrate/",
       "baseline": {
         "state": "absent",
         "evidence": [
-          "30831d05f67c44b80e45391b67ed29f11dda4276:servers/exarchos-mcp/src/orchestrate/gate-runner.ts (absent)"
+          "30831d05f67c44b80e45391b67ed29f11dda4276:servers/exarchos-mcp/src/verbs/gates/gate-runner.ts (absent)"
         ]
       },
       "candidate": {
         "state": "present",
         "evidence": [
-          "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:servers/exarchos-mcp/src/orchestrate/gate-runner.ts:310-407",
+          "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:servers/exarchos-mcp/src/verbs/gates/gate-runner.ts:310-407",
           "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:servers/exarchos-mcp/src/event-store/schemas.ts"
         ]
       },
@@ -743,20 +743,20 @@
       "id": "orchestrate.git-worktree-merge",
       "effectClass": "git-mutation",
       "entryPath": "worktree/setup/merge/prune actions -> centralized git execution and worktree manager",
-      "owner": "servers/exarchos-mcp/src/orchestrate/git-exec-default.ts and worktree/",
+      "owner": "servers/exarchos-mcp/src/verbs/vcs/git-exec-default.ts and worktree/",
       "productionRoot": "servers/exarchos-mcp/src/orchestrate/",
       "baseline": {
         "state": "present",
         "evidence": [
-          "30831d05f67c44b80e45391b67ed29f11dda4276:servers/exarchos-mcp/src/orchestrate/git-exec-default.ts",
-          "30831d05f67c44b80e45391b67ed29f11dda4276:servers/exarchos-mcp/src/orchestrate/worktree/"
+          "30831d05f67c44b80e45391b67ed29f11dda4276:servers/exarchos-mcp/src/verbs/vcs/git-exec-default.ts",
+          "30831d05f67c44b80e45391b67ed29f11dda4276:servers/exarchos-mcp/src/verbs/worktree/"
         ]
       },
       "candidate": {
         "state": "unchanged",
         "evidence": [
-          "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:servers/exarchos-mcp/src/orchestrate/git-exec-default.ts",
-          "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:servers/exarchos-mcp/src/orchestrate/worktree/"
+          "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:servers/exarchos-mcp/src/verbs/vcs/git-exec-default.ts",
+          "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:servers/exarchos-mcp/src/verbs/worktree/"
         ]
       },
       "persistenceFailure": "Commands surface structured failures and merge orchestration records recovery points; full rollback depends on action-specific paths.",
@@ -778,19 +778,19 @@
       "id": "orchestrate.vcs-providers",
       "effectClass": "network-vcs",
       "entryPath": "create/list/check/merge/comment actions -> VCS provider adapters and shell",
-      "owner": "servers/exarchos-mcp/src/orchestrate/vcs/ and servers/exarchos-mcp/src/vcs/",
-      "productionRoot": "servers/exarchos-mcp/src/orchestrate/vcs/; servers/exarchos-mcp/src/vcs/",
+      "owner": "servers/exarchos-mcp/src/verbs/vcs/ and servers/exarchos-mcp/src/vcs/",
+      "productionRoot": "servers/exarchos-mcp/src/verbs/vcs/; servers/exarchos-mcp/src/vcs/",
       "baseline": {
         "state": "present",
         "evidence": [
-          "30831d05f67c44b80e45391b67ed29f11dda4276:servers/exarchos-mcp/src/orchestrate/vcs/",
+          "30831d05f67c44b80e45391b67ed29f11dda4276:servers/exarchos-mcp/src/verbs/vcs/",
           "30831d05f67c44b80e45391b67ed29f11dda4276:servers/exarchos-mcp/src/vcs/"
         ]
       },
       "candidate": {
         "state": "unchanged",
         "evidence": [
-          "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:servers/exarchos-mcp/src/orchestrate/vcs/",
+          "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:servers/exarchos-mcp/src/verbs/vcs/",
           "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:servers/exarchos-mcp/src/vcs/"
         ]
       },
@@ -813,18 +813,18 @@
       "id": "orchestrate.onboard-install",
       "effectClass": "package-install",
       "entryPath": "onboard action -> repository/user installation and configuration",
-      "owner": "servers/exarchos-mcp/src/orchestrate/onboard/install.ts",
-      "productionRoot": "servers/exarchos-mcp/src/orchestrate/onboard/",
+      "owner": "servers/exarchos-mcp/src/verbs/onboard/install.ts",
+      "productionRoot": "servers/exarchos-mcp/src/verbs/onboard/",
       "baseline": {
         "state": "present",
         "evidence": [
-          "30831d05f67c44b80e45391b67ed29f11dda4276:servers/exarchos-mcp/src/orchestrate/onboard/install.ts"
+          "30831d05f67c44b80e45391b67ed29f11dda4276:servers/exarchos-mcp/src/verbs/onboard/install.ts"
         ]
       },
       "candidate": {
         "state": "unchanged",
         "evidence": [
-          "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:servers/exarchos-mcp/src/orchestrate/onboard/install.ts"
+          "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:servers/exarchos-mcp/src/verbs/onboard/install.ts"
         ]
       },
       "persistenceFailure": "Multi-step onboarding can leave partial files/configuration unless its action-level rollback succeeds.",
@@ -1865,183 +1865,183 @@
       {
         "id": "OCC-0089",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/assess-stack.ts",
+        "path": "servers/exarchos-mcp/src/verbs/vcs/assess-stack.ts",
         "line": 289,
         "match": "eventStore.append(",
         "excerpt": "await eventStore.append(featureId, {",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-event-append",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/assess-stack.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/vcs/assess-stack.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0090",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/assess-stack.ts",
+        "path": "servers/exarchos-mcp/src/verbs/vcs/assess-stack.ts",
         "line": 301,
         "match": "eventStore.append(",
         "excerpt": "await eventStore.append(featureId, {",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-event-append",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/assess-stack.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/vcs/assess-stack.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0091",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/assess-stack.ts",
+        "path": "servers/exarchos-mcp/src/verbs/vcs/assess-stack.ts",
         "line": 487,
         "match": "eventStore.append(",
         "excerpt": "await eventStore.append(featureId, {",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-event-append",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/assess-stack.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/vcs/assess-stack.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0092",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/assess-stack.ts",
+        "path": "servers/exarchos-mcp/src/verbs/vcs/assess-stack.ts",
         "line": 507,
         "match": "eventStore.append(",
         "excerpt": "await eventStore.append(featureId, {",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-event-append",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/assess-stack.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/vcs/assess-stack.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0093",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/assess-stack.ts",
+        "path": "servers/exarchos-mcp/src/verbs/vcs/assess-stack.ts",
         "line": 555,
         "match": "eventStore.append(",
         "excerpt": "await eventStore.append(featureId, {",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-event-append",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/assess-stack.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/vcs/assess-stack.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0094",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/assess-stack.ts",
+        "path": "servers/exarchos-mcp/src/verbs/vcs/assess-stack.ts",
         "line": 570,
         "match": "eventStore.append(",
         "excerpt": "await eventStore.append(featureId, {",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-event-append",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/assess-stack.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/vcs/assess-stack.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0095",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/assess-stack.ts",
+        "path": "servers/exarchos-mcp/src/verbs/vcs/assess-stack.ts",
         "line": 591,
         "match": "eventStore.append(",
         "excerpt": "await eventStore.append(featureId, {",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-event-append",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/assess-stack.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/vcs/assess-stack.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0096",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/assess-stack.ts",
+        "path": "servers/exarchos-mcp/src/verbs/vcs/assess-stack.ts",
         "line": 626,
         "match": "eventStore.append(",
         "excerpt": "await eventStore.append(featureId, {",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-event-append",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/assess-stack.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/vcs/assess-stack.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0097",
         "effectClass": "process",
-        "path": "servers/exarchos-mcp/src/orchestrate/check-polish-scope.ts",
+        "path": "servers/exarchos-mcp/src/verbs/gates/check-polish-scope.ts",
         "line": 46,
         "match": "execFileSync(",
         "excerpt": "output = execFileSync('git', ['diff', '--name-only', `${baseBranch}...HEAD`], {",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-process",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/check-polish-scope.ts contains a process candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/gates/check-polish-scope.ts contains a process candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0098",
         "effectClass": "process",
-        "path": "servers/exarchos-mcp/src/orchestrate/check-polish-scope.ts",
+        "path": "servers/exarchos-mcp/src/verbs/gates/check-polish-scope.ts",
         "line": 52,
         "match": "execFileSync(",
         "excerpt": "output = execFileSync('git', ['diff', '--name-only', baseBranch, 'HEAD'], {",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-process",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/check-polish-scope.ts contains a process candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/gates/check-polish-scope.ts contains a process candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0099",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/classify-review-items.ts",
+        "path": "servers/exarchos-mcp/src/verbs/review/classify-review-items.ts",
         "line": 94,
         "match": "eventStore.append(",
         "excerpt": "await args.eventStore.append(args.featureId, {",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-event-append",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/classify-review-items.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/review/classify-review-items.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0100",
         "effectClass": "process",
-        "path": "servers/exarchos-mcp/src/orchestrate/debug-review-gate.ts",
+        "path": "servers/exarchos-mcp/src/verbs/review/debug-review-gate.ts",
         "line": 132,
         "match": "execFileSync(",
         "excerpt": "const output = execFileSync(",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-process",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/debug-review-gate.ts contains a process candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/review/debug-review-gate.ts contains a process candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0101",
         "effectClass": "process",
-        "path": "servers/exarchos-mcp/src/orchestrate/debug-review-gate.ts",
+        "path": "servers/exarchos-mcp/src/verbs/review/debug-review-gate.ts",
         "line": 144,
         "match": "execFileSync(",
         "excerpt": "const output = execFileSync(",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-process",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/debug-review-gate.ts contains a process candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/review/debug-review-gate.ts contains a process candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0102",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/dispatch-guard.ts",
+        "path": "servers/exarchos-mcp/src/verbs/team/dispatch-guard.ts",
         "line": 253,
         "match": "store.append(",
         "excerpt": "await args.store.append(args.streamId, {",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-event-append",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/dispatch-guard.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/team/dispatch-guard.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0103",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/dispatch-guard.ts",
+        "path": "servers/exarchos-mcp/src/verbs/team/dispatch-guard.ts",
         "line": 321,
         "match": "store.append(",
         "excerpt": "await args.store.append(args.streamId, {",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-event-append",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/dispatch-guard.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/team/dispatch-guard.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0104",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/doctor/index.ts",
+        "path": "servers/exarchos-mcp/src/verbs/doctor/index.ts",
         "line": 439,
         "match": "eventStore.append(",
         "excerpt": "await ctx.eventStore.append(DOCTOR_STREAM_ID, {",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-event-append",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/doctor/index.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/doctor/index.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0105",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/execute-merge.ts",
+        "path": "servers/exarchos-mcp/src/verbs/pure/execute-merge.ts",
         "line": 269,
         "match": "eventStore.append(",
         "excerpt": "await ctx.eventStore.append(",
@@ -2050,7 +2050,7 @@
       {
         "id": "OCC-0106",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/execute-merge.ts",
+        "path": "servers/exarchos-mcp/src/verbs/pure/execute-merge.ts",
         "line": 426,
         "match": "eventStore.append(",
         "excerpt": "await ctx.eventStore.append(",
@@ -2059,7 +2059,7 @@
       {
         "id": "OCC-0107",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/execute-merge.ts",
+        "path": "servers/exarchos-mcp/src/verbs/pure/execute-merge.ts",
         "line": 549,
         "match": "eventStore.append(",
         "excerpt": "await ctx.eventStore.append(",
@@ -2068,7 +2068,7 @@
       {
         "id": "OCC-0108",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/execute-merge.ts",
+        "path": "servers/exarchos-mcp/src/verbs/pure/execute-merge.ts",
         "line": 630,
         "match": "eventStore.append(",
         "excerpt": "await ctx.eventStore.append(",
@@ -2077,7 +2077,7 @@
       {
         "id": "OCC-0109",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/execute-merge.ts",
+        "path": "servers/exarchos-mcp/src/verbs/pure/execute-merge.ts",
         "line": 707,
         "match": "eventStore.append(",
         "excerpt": "await ctx.eventStore.append(",
@@ -2086,29 +2086,29 @@
       {
         "id": "OCC-0110",
         "effectClass": "process",
-        "path": "servers/exarchos-mcp/src/orchestrate/extract-intent.ts",
+        "path": "servers/exarchos-mcp/src/verbs/tasks/extract-intent.ts",
         "line": 41,
         "match": "execFileSync(",
         "excerpt": "const ref = execFileSync('git', ['symbolic-ref', 'refs/remotes/origin/HEAD'], {",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-process",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/extract-intent.ts contains a process candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/tasks/extract-intent.ts contains a process candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0111",
         "effectClass": "process",
-        "path": "servers/exarchos-mcp/src/orchestrate/extract-intent.ts",
+        "path": "servers/exarchos-mcp/src/verbs/tasks/extract-intent.ts",
         "line": 59,
         "match": "execFileSync(",
         "excerpt": "const output = execFileSync('git', ['diff', '--name-only', `${baseBranch}...HEAD`], {",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-process",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/extract-intent.ts contains a process candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/tasks/extract-intent.ts contains a process candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0112",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/gate-runner.ts",
+        "path": "servers/exarchos-mcp/src/verbs/gates/gate-runner.ts",
         "line": 391,
         "match": "eventStore.append(",
         "excerpt": "const event = await dependencies.eventStore.append(",
@@ -2117,62 +2117,62 @@
       {
         "id": "OCC-0113",
         "effectClass": "process",
-        "path": "servers/exarchos-mcp/src/orchestrate/gate-utils.ts",
+        "path": "servers/exarchos-mcp/src/verbs/gates/gate-utils.ts",
         "line": 33,
         "match": "execFileSync(",
         "excerpt": "const stdout = execFileSync('git', [...args], {",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-process",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/gate-utils.ts contains a process candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/gates/gate-utils.ts contains a process candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0114",
         "effectClass": "process",
-        "path": "servers/exarchos-mcp/src/orchestrate/gate-utils.ts",
+        "path": "servers/exarchos-mcp/src/verbs/gates/gate-utils.ts",
         "line": 55,
         "match": "execFileSync(",
         "excerpt": "return execFileSync(",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-process",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/gate-utils.ts contains a process candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/gates/gate-utils.ts contains a process candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0115",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/gate-utils.ts",
+        "path": "servers/exarchos-mcp/src/verbs/gates/gate-utils.ts",
         "line": 103,
         "match": "store.append(",
         "excerpt": "await store.append(streamId, event, { idempotencyKey });",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-event-append",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/gate-utils.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/gates/gate-utils.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0116",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/gate-utils.ts",
+        "path": "servers/exarchos-mcp/src/verbs/gates/gate-utils.ts",
         "line": 105,
         "match": "store.append(",
         "excerpt": "await store.append(streamId, event);",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-event-append",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/gate-utils.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/gates/gate-utils.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0117",
         "effectClass": "filesystem",
-        "path": "servers/exarchos-mcp/src/orchestrate/generate-traceability.ts",
+        "path": "servers/exarchos-mcp/src/verbs/gates/generate-traceability.ts",
         "line": 209,
         "match": "writeFileSync(",
         "excerpt": "writeFileSync(args.outputFile, report, 'utf-8');",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-filesystem",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/generate-traceability.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/gates/generate-traceability.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0118",
         "effectClass": "process",
-        "path": "servers/exarchos-mcp/src/orchestrate/git-exec-default.ts",
+        "path": "servers/exarchos-mcp/src/verbs/vcs/git-exec-default.ts",
         "line": 15,
         "match": "execFileSync(",
         "excerpt": "const stdout = execFileSync('git', [...args], {",
@@ -2181,315 +2181,315 @@
       {
         "id": "OCC-0119",
         "effectClass": "filesystem",
-        "path": "servers/exarchos-mcp/src/orchestrate/init/probes.ts",
+        "path": "servers/exarchos-mcp/src/verbs/doctor/probes.ts",
         "line": 19,
         "match": "writeFile(",
         "excerpt": "writeFile(p: string, content: string): Promise<void>;",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-filesystem",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/init/probes.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/doctor/probes.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0120",
         "effectClass": "filesystem",
-        "path": "servers/exarchos-mcp/src/orchestrate/init/probes.ts",
+        "path": "servers/exarchos-mcp/src/verbs/doctor/probes.ts",
         "line": 20,
         "match": "mkdir(",
         "excerpt": "mkdir(p: string, opts?: { recursive?: boolean }): Promise<void>;",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-filesystem",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/init/probes.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/doctor/probes.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0121",
         "effectClass": "filesystem",
-        "path": "servers/exarchos-mcp/src/orchestrate/init/probes.ts",
+        "path": "servers/exarchos-mcp/src/verbs/doctor/probes.ts",
         "line": 22,
         "match": "rename(",
         "excerpt": "rename(oldPath: string, newPath: string): Promise<void>;",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-filesystem",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/init/probes.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/doctor/probes.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0122",
         "effectClass": "filesystem",
-        "path": "servers/exarchos-mcp/src/orchestrate/init/probes.ts",
+        "path": "servers/exarchos-mcp/src/verbs/doctor/probes.ts",
         "line": 23,
         "match": "copyFile(",
         "excerpt": "copyFile(src: string, dest: string): Promise<void>;",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-filesystem",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/init/probes.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/doctor/probes.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0123",
         "effectClass": "filesystem",
-        "path": "servers/exarchos-mcp/src/orchestrate/init/probes.ts",
+        "path": "servers/exarchos-mcp/src/verbs/doctor/probes.ts",
         "line": 69,
         "match": "writeFile(",
         "excerpt": "writeFile: (p, content) => nodeFs.writeFile(p, content, 'utf8'),",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-filesystem",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/init/probes.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/doctor/probes.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0124",
         "effectClass": "filesystem",
-        "path": "servers/exarchos-mcp/src/orchestrate/init/probes.ts",
+        "path": "servers/exarchos-mcp/src/verbs/doctor/probes.ts",
         "line": 70,
         "match": "mkdir(",
         "excerpt": "mkdir: (p, opts) => nodeFs.mkdir(p, opts).then(() => undefined),",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-filesystem",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/init/probes.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/doctor/probes.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0125",
         "effectClass": "filesystem",
-        "path": "servers/exarchos-mcp/src/orchestrate/init/probes.ts",
+        "path": "servers/exarchos-mcp/src/verbs/doctor/probes.ts",
         "line": 72,
         "match": "rename(",
         "excerpt": "rename: (oldPath, newPath) => nodeFs.rename(oldPath, newPath),",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-filesystem",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/init/probes.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/doctor/probes.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0126",
         "effectClass": "filesystem",
-        "path": "servers/exarchos-mcp/src/orchestrate/init/probes.ts",
+        "path": "servers/exarchos-mcp/src/verbs/doctor/probes.ts",
         "line": 73,
         "match": "copyFile(",
         "excerpt": "copyFile: (src, dest) => nodeFs.copyFile(src, dest),",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-filesystem",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/init/probes.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/doctor/probes.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0127",
         "effectClass": "filesystem",
-        "path": "servers/exarchos-mcp/src/orchestrate/init/seed-exarchos-config.ts",
+        "path": "servers/exarchos-mcp/src/verbs/init/seed-exarchos-config.ts",
         "line": 81,
         "match": "writeFileSync(",
         "excerpt": "const write = options?.write ?? ((p, contents) => writeFileSync(p, contents, 'utf8'));",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-filesystem",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/init/seed-exarchos-config.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/init/seed-exarchos-config.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0128",
         "effectClass": "filesystem",
-        "path": "servers/exarchos-mcp/src/orchestrate/init/writers/claude-code.ts",
+        "path": "servers/exarchos-mcp/src/verbs/init/writers/claude-code.ts",
         "line": 50,
         "match": "writeFile(",
         "excerpt": "await deps.fs.writeFile(tmp, serialized);",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-filesystem",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/init/writers/claude-code.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/init/writers/claude-code.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0129",
         "effectClass": "filesystem",
-        "path": "servers/exarchos-mcp/src/orchestrate/init/writers/claude-code.ts",
+        "path": "servers/exarchos-mcp/src/verbs/init/writers/claude-code.ts",
         "line": 51,
         "match": "rename(",
         "excerpt": "await publishTempFile(tmp, path, { rename: (from, to) => deps.fs.rename(from, to) });",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-filesystem",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/init/writers/claude-code.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/init/writers/claude-code.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0130",
         "effectClass": "filesystem",
-        "path": "servers/exarchos-mcp/src/orchestrate/init/writers/claude-code.ts",
+        "path": "servers/exarchos-mcp/src/verbs/init/writers/claude-code.ts",
         "line": 121,
         "match": "mkdir(",
         "excerpt": "await fs.mkdir(destDir, { recursive: true });",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-filesystem",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/init/writers/claude-code.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/init/writers/claude-code.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0131",
         "effectClass": "filesystem",
-        "path": "servers/exarchos-mcp/src/orchestrate/init/writers/claude-code.ts",
+        "path": "servers/exarchos-mcp/src/verbs/init/writers/claude-code.ts",
         "line": 144,
         "match": "mkdir(",
         "excerpt": "await fs.mkdir(dirname(destPath), { recursive: true });",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-filesystem",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/init/writers/claude-code.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/init/writers/claude-code.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0132",
         "effectClass": "filesystem",
-        "path": "servers/exarchos-mcp/src/orchestrate/init/writers/claude-code.ts",
+        "path": "servers/exarchos-mcp/src/verbs/init/writers/claude-code.ts",
         "line": 145,
         "match": "copyFile(",
         "excerpt": "await fs.copyFile(srcPath, destPath);",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-filesystem",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/init/writers/claude-code.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/init/writers/claude-code.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0133",
         "effectClass": "filesystem",
-        "path": "servers/exarchos-mcp/src/orchestrate/init/writers/claude-code.ts",
+        "path": "servers/exarchos-mcp/src/verbs/init/writers/claude-code.ts",
         "line": 182,
         "match": "mkdir(",
         "excerpt": "await deps.fs.mkdir(dirname(configPath), { recursive: true });",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-filesystem",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/init/writers/claude-code.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/init/writers/claude-code.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0134",
         "effectClass": "filesystem",
-        "path": "servers/exarchos-mcp/src/orchestrate/init/writers/mcp-json-writer.ts",
+        "path": "servers/exarchos-mcp/src/verbs/init/writers/mcp-json-writer.ts",
         "line": 24,
         "match": "writeFile(",
         "excerpt": "writeFile(p: string, data: string): Promise<void>;",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-filesystem",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/init/writers/mcp-json-writer.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/init/writers/mcp-json-writer.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0135",
         "effectClass": "filesystem",
-        "path": "servers/exarchos-mcp/src/orchestrate/init/writers/mcp-json-writer.ts",
+        "path": "servers/exarchos-mcp/src/verbs/init/writers/mcp-json-writer.ts",
         "line": 25,
         "match": "rename(",
         "excerpt": "rename(src: string, dst: string): Promise<void>;",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-filesystem",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/init/writers/mcp-json-writer.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/init/writers/mcp-json-writer.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0136",
         "effectClass": "filesystem",
-        "path": "servers/exarchos-mcp/src/orchestrate/init/writers/mcp-json-writer.ts",
+        "path": "servers/exarchos-mcp/src/verbs/init/writers/mcp-json-writer.ts",
         "line": 26,
         "match": "mkdir(",
         "excerpt": "mkdir(p: string, opts?: { recursive?: boolean }): Promise<void>;",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-filesystem",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/init/writers/mcp-json-writer.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/init/writers/mcp-json-writer.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0137",
         "effectClass": "filesystem",
-        "path": "servers/exarchos-mcp/src/orchestrate/init/writers/mcp-json-writer.ts",
+        "path": "servers/exarchos-mcp/src/verbs/init/writers/mcp-json-writer.ts",
         "line": 43,
         "match": "writeFile(",
         "excerpt": "writeFile: (p, data) => nodeFs.writeFile(p, data, 'utf8'),",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-filesystem",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/init/writers/mcp-json-writer.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/init/writers/mcp-json-writer.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0138",
         "effectClass": "filesystem",
-        "path": "servers/exarchos-mcp/src/orchestrate/init/writers/mcp-json-writer.ts",
+        "path": "servers/exarchos-mcp/src/verbs/init/writers/mcp-json-writer.ts",
         "line": 44,
         "match": "rename(",
         "excerpt": "rename: (src, dst) => nodeFs.rename(src, dst),",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-filesystem",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/init/writers/mcp-json-writer.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/init/writers/mcp-json-writer.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0139",
         "effectClass": "filesystem",
-        "path": "servers/exarchos-mcp/src/orchestrate/init/writers/mcp-json-writer.ts",
+        "path": "servers/exarchos-mcp/src/verbs/init/writers/mcp-json-writer.ts",
         "line": 45,
         "match": "mkdir(",
         "excerpt": "mkdir: (p, opts) => nodeFs.mkdir(p, opts).then(() => undefined),",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-filesystem",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/init/writers/mcp-json-writer.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/init/writers/mcp-json-writer.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0140",
         "effectClass": "filesystem",
-        "path": "servers/exarchos-mcp/src/orchestrate/init/writers/mcp-json-writer.ts",
+        "path": "servers/exarchos-mcp/src/verbs/init/writers/mcp-json-writer.ts",
         "line": 72,
         "match": "mkdir(",
         "excerpt": "await this.fs.mkdir(dirPath, { recursive: true });",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-filesystem",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/init/writers/mcp-json-writer.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/init/writers/mcp-json-writer.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0141",
         "effectClass": "filesystem",
-        "path": "servers/exarchos-mcp/src/orchestrate/init/writers/mcp-json-writer.ts",
+        "path": "servers/exarchos-mcp/src/verbs/init/writers/mcp-json-writer.ts",
         "line": 97,
         "match": "writeFile(",
         "excerpt": "await this.fs.writeFile(tmpPath, content);",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-filesystem",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/init/writers/mcp-json-writer.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/init/writers/mcp-json-writer.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0142",
         "effectClass": "filesystem",
-        "path": "servers/exarchos-mcp/src/orchestrate/init/writers/mcp-json-writer.ts",
+        "path": "servers/exarchos-mcp/src/verbs/init/writers/mcp-json-writer.ts",
         "line": 98,
         "match": "rename(",
         "excerpt": "await publishTempFile(tmpPath, configPath, { rename: (from, to) => this.fs.rename(from, to) });",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-filesystem",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/init/writers/mcp-json-writer.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/init/writers/mcp-json-writer.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0143",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/invariants/add.ts",
+        "path": "servers/exarchos-mcp/src/verbs/invariants/add.ts",
         "line": 370,
         "match": "eventStore.append(",
         "excerpt": "await ctx.eventStore.append(`invariants/${tier}`, {",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-event-append",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/invariants/add.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/invariants/add.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0144",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/invariants/add.ts",
+        "path": "servers/exarchos-mcp/src/verbs/invariants/add.ts",
         "line": 383,
         "match": "eventStore.append(",
         "excerpt": "await ctx.eventStore.append(`invariants/${tier}`, {",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-event-append",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/invariants/add.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/invariants/add.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0145",
         "effectClass": "filesystem",
-        "path": "servers/exarchos-mcp/src/orchestrate/invariants/fs-deps.ts",
+        "path": "servers/exarchos-mcp/src/verbs/invariants/fs-deps.ts",
         "line": 19,
         "match": "mkdirSync(",
         "excerpt": "mkdirSync(path.dirname(p), { recursive: true });",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-filesystem",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/invariants/fs-deps.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/invariants/fs-deps.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0146",
         "effectClass": "filesystem",
-        "path": "servers/exarchos-mcp/src/orchestrate/invariants/fs-deps.ts",
+        "path": "servers/exarchos-mcp/src/verbs/invariants/fs-deps.ts",
         "line": 20,
         "match": "writeFileSync(",
         "excerpt": "writeFileSync(p, contents, 'utf8');",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-filesystem",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/invariants/fs-deps.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/invariants/fs-deps.ts contains a filesystem candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0147",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/merge-orchestrate.ts",
+        "path": "servers/exarchos-mcp/src/verbs/merge/merge-orchestrate.ts",
         "line": 659,
         "match": "eventStore.append(",
         "excerpt": "await ctx.eventStore.append(",
@@ -2498,29 +2498,29 @@
       {
         "id": "OCC-0148",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/mutation-adequacy.ts",
+        "path": "servers/exarchos-mcp/src/verbs/gates/mutation-adequacy.ts",
         "line": 997,
         "match": "store.append(",
         "excerpt": "await store.append(stream, { type, data });",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-event-append",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/mutation-adequacy.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/gates/mutation-adequacy.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0149",
         "effectClass": "process",
-        "path": "servers/exarchos-mcp/src/orchestrate/needs-schema-sync.ts",
+        "path": "servers/exarchos-mcp/src/verbs/gates/needs-schema-sync.ts",
         "line": 66,
         "match": "execFileSync(",
         "excerpt": "const output = execFileSync('git', args, {",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-process",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/needs-schema-sync.ts contains a process candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/gates/needs-schema-sync.ts contains a process candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0150",
         "effectClass": "filesystem",
-        "path": "servers/exarchos-mcp/src/orchestrate/onboard/hooks.ts",
+        "path": "servers/exarchos-mcp/src/verbs/onboard/hooks.ts",
         "line": 300,
         "match": "writeFile(",
         "excerpt": "await deps.fs.writeFile(tmp, JSON.stringify(data, null, 2));",
@@ -2529,7 +2529,7 @@
       {
         "id": "OCC-0151",
         "effectClass": "filesystem",
-        "path": "servers/exarchos-mcp/src/orchestrate/onboard/hooks.ts",
+        "path": "servers/exarchos-mcp/src/verbs/onboard/hooks.ts",
         "line": 301,
         "match": "rename(",
         "excerpt": "await publishTempFile(tmp, path, { rename: (from, to) => deps.fs.rename(from, to) });",
@@ -2538,7 +2538,7 @@
       {
         "id": "OCC-0152",
         "effectClass": "filesystem",
-        "path": "servers/exarchos-mcp/src/orchestrate/onboard/hooks.ts",
+        "path": "servers/exarchos-mcp/src/verbs/onboard/hooks.ts",
         "line": 339,
         "match": "mkdir(",
         "excerpt": "await deps.fs.mkdir(dirname(settingsPath), { recursive: true });",
@@ -2547,7 +2547,7 @@
       {
         "id": "OCC-0153",
         "effectClass": "filesystem",
-        "path": "servers/exarchos-mcp/src/orchestrate/onboard/hooks.ts",
+        "path": "servers/exarchos-mcp/src/verbs/onboard/hooks.ts",
         "line": 442,
         "match": "mkdir(",
         "excerpt": "await deps.fs.mkdir(dirname(settingsPath), { recursive: true });",
@@ -2556,7 +2556,7 @@
       {
         "id": "OCC-0154",
         "effectClass": "filesystem",
-        "path": "servers/exarchos-mcp/src/orchestrate/onboard/install.ts",
+        "path": "servers/exarchos-mcp/src/verbs/onboard/install.ts",
         "line": 505,
         "match": "rmSync(",
         "excerpt": "removeDir: (dir) => fs.rmSync(dir, { recursive: true, force: true }),",
@@ -2565,7 +2565,7 @@
       {
         "id": "OCC-0155",
         "effectClass": "filesystem",
-        "path": "servers/exarchos-mcp/src/orchestrate/onboard/install.ts",
+        "path": "servers/exarchos-mcp/src/verbs/onboard/install.ts",
         "line": 506,
         "match": "unlinkSync(",
         "excerpt": "removeLink: (link) => fs.unlinkSync(link),",
@@ -2574,7 +2574,7 @@
       {
         "id": "OCC-0156",
         "effectClass": "filesystem",
-        "path": "servers/exarchos-mcp/src/orchestrate/onboard/new.ts",
+        "path": "servers/exarchos-mcp/src/verbs/onboard/new.ts",
         "line": 80,
         "match": "mkdirSync(",
         "excerpt": "mkdirSync(dir, { recursive: true });",
@@ -2583,7 +2583,7 @@
       {
         "id": "OCC-0157",
         "effectClass": "filesystem",
-        "path": "servers/exarchos-mcp/src/orchestrate/onboard/new.ts",
+        "path": "servers/exarchos-mcp/src/verbs/onboard/new.ts",
         "line": 87,
         "match": "writeFileSync(",
         "excerpt": "writeFileSync(gitignorePath, GITIGNORE_SEED, 'utf8');",
@@ -2592,7 +2592,7 @@
       {
         "id": "OCC-0158",
         "effectClass": "filesystem",
-        "path": "servers/exarchos-mcp/src/orchestrate/onboard/new.ts",
+        "path": "servers/exarchos-mcp/src/verbs/onboard/new.ts",
         "line": 186,
         "match": "mkdir(",
         "excerpt": "deps.mkdir(repoRoot);",
@@ -2601,117 +2601,117 @@
       {
         "id": "OCC-0159",
         "effectClass": "process",
-        "path": "servers/exarchos-mcp/src/orchestrate/pre-synthesis-check.ts",
+        "path": "servers/exarchos-mcp/src/verbs/gates/pre-synthesis-check.ts",
         "line": 356,
         "match": "execFileSync(",
         "excerpt": "currentBranch = execFileSync('git', ['branch', '--show-current'], {",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-process",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/pre-synthesis-check.ts contains a process candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/gates/pre-synthesis-check.ts contains a process candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0160",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts",
+        "path": "servers/exarchos-mcp/src/verbs/team/prepare-delegation.ts",
         "line": 917,
         "match": "store.append(",
         "excerpt": "await store.append(streamId, event);",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-event-append",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/team/prepare-delegation.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0161",
         "effectClass": "process",
-        "path": "servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts",
+        "path": "servers/exarchos-mcp/src/verbs/team/prepare-delegation.ts",
         "line": 966,
         "match": "execFileSync(",
         "excerpt": "return execFileSync('git', [...args], {",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-process",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts contains a process candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/team/prepare-delegation.ts contains a process candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0162",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/prepare-review.ts",
+        "path": "servers/exarchos-mcp/src/verbs/team/prepare-review.ts",
         "line": 331,
         "match": "eventStore.append(",
         "excerpt": "await eventStore.append(",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-event-append",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/prepare-review.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/team/prepare-review.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0163",
         "effectClass": "process",
-        "path": "servers/exarchos-mcp/src/orchestrate/prepare-synthesis.ts",
+        "path": "servers/exarchos-mcp/src/verbs/team/prepare-synthesis.ts",
         "line": 236,
         "match": "execFileSync(",
         "excerpt": "const output = execFileSync('git', ['diff', '--name-only', `${baseBranch}...HEAD`], {",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-process",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/prepare-synthesis.ts contains a process candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/team/prepare-synthesis.ts contains a process candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0164",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/prune-stale-workflows.ts",
+        "path": "servers/exarchos-mcp/src/verbs/team/prune-stale-workflows.ts",
         "line": 717,
         "match": "eventStore.append(",
         "excerpt": "await eventStore.append(candidate.featureId, {",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-event-append",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/prune-stale-workflows.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/team/prune-stale-workflows.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0165",
         "effectClass": "process",
-        "path": "servers/exarchos-mcp/src/orchestrate/reconcile-state.ts",
+        "path": "servers/exarchos-mcp/src/verbs/reconcile-state.ts",
         "line": 108,
         "match": "execFileSync(",
         "excerpt": "execFileSync('git', ['-C', repoRoot, 'rev-parse', '--verify', `refs/heads/${task.branch}`], {",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-process",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/reconcile-state.ts contains a process candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/reconcile-state.ts contains a process candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0166",
         "effectClass": "process",
-        "path": "servers/exarchos-mcp/src/orchestrate/reconcile-state.ts",
+        "path": "servers/exarchos-mcp/src/verbs/reconcile-state.ts",
         "line": 135,
         "match": "execFileSync(",
         "excerpt": "const output = execFileSync('git', ['-C', repoRoot, 'worktree', 'list', '--porcelain'], {",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-process",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/reconcile-state.ts contains a process candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/reconcile-state.ts contains a process candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0167",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/request-synthesize.ts",
+        "path": "servers/exarchos-mcp/src/verbs/team/request-synthesize.ts",
         "line": 132,
         "match": "eventStore.append(",
         "excerpt": "await eventStore.append(featureId, {",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-event-append",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/request-synthesize.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/team/request-synthesize.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0168",
         "effectClass": "process",
-        "path": "servers/exarchos-mcp/src/orchestrate/review-diff.ts",
+        "path": "servers/exarchos-mcp/src/verbs/review/review-diff.ts",
         "line": 100,
         "match": "execFileSync(",
         "excerpt": "return execFileSync('git', [...args], {",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-process",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/review-diff.ts contains a process candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/review/review-diff.ts contains a process candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0169",
         "effectClass": "process",
-        "path": "servers/exarchos-mcp/src/orchestrate/setup-worktree.ts",
+        "path": "servers/exarchos-mcp/src/verbs/team/setup-worktree.ts",
         "line": 68,
         "match": "execFileSync(",
         "excerpt": "return execFileSync('git', ['-C', repoRoot, ...args], {",
@@ -2720,7 +2720,7 @@
       {
         "id": "OCC-0170",
         "effectClass": "filesystem",
-        "path": "servers/exarchos-mcp/src/orchestrate/setup-worktree.ts",
+        "path": "servers/exarchos-mcp/src/verbs/team/setup-worktree.ts",
         "line": 165,
         "match": "appendFileSync(",
         "excerpt": "appendFileSync(gitignorePath, payload);",
@@ -2729,7 +2729,7 @@
       {
         "id": "OCC-0171",
         "effectClass": "process",
-        "path": "servers/exarchos-mcp/src/orchestrate/setup-worktree.ts",
+        "path": "servers/exarchos-mcp/src/verbs/team/setup-worktree.ts",
         "line": 356,
         "match": "execFileSync(",
         "excerpt": "execFileSync('git', ['-C', worktreePath, 'rev-parse', '--git-dir'], {",
@@ -2738,18 +2738,18 @@
       {
         "id": "OCC-0172",
         "effectClass": "process",
-        "path": "servers/exarchos-mcp/src/orchestrate/validate-pr-body.ts",
+        "path": "servers/exarchos-mcp/src/verbs/vcs/validate-pr-body.ts",
         "line": 77,
         "match": "execFileSync(",
         "excerpt": "const raw = execFileSync(",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-process",
-        "rationale": "servers/exarchos-mcp/src/orchestrate/validate-pr-body.ts contains a process candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/verbs/vcs/validate-pr-body.ts contains a process candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0173",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/vcs/add-pr-comment.ts",
+        "path": "servers/exarchos-mcp/src/verbs/vcs/add-pr-comment.ts",
         "line": 221,
         "match": "eventStore.append(",
         "excerpt": "await ctx.eventStore.append(",
@@ -2758,7 +2758,7 @@
       {
         "id": "OCC-0174",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/vcs/add-pr-comment.ts",
+        "path": "servers/exarchos-mcp/src/verbs/vcs/add-pr-comment.ts",
         "line": 253,
         "match": "eventStore.append(",
         "excerpt": "await ctx.eventStore.append(",
@@ -2767,7 +2767,7 @@
       {
         "id": "OCC-0175",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/vcs/add-pr-comment.ts",
+        "path": "servers/exarchos-mcp/src/verbs/vcs/add-pr-comment.ts",
         "line": 311,
         "match": "eventStore.append(",
         "excerpt": "await ctx.eventStore.append(",
@@ -2776,7 +2776,7 @@
       {
         "id": "OCC-0176",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/vcs/create-issue.ts",
+        "path": "servers/exarchos-mcp/src/verbs/vcs/create-issue.ts",
         "line": 220,
         "match": "eventStore.append(",
         "excerpt": "ctx.eventStore.append(",
@@ -2785,7 +2785,7 @@
       {
         "id": "OCC-0177",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/vcs/create-issue.ts",
+        "path": "servers/exarchos-mcp/src/verbs/vcs/create-issue.ts",
         "line": 292,
         "match": "eventStore.append(",
         "excerpt": "await ctx.eventStore.append(",
@@ -2794,7 +2794,7 @@
       {
         "id": "OCC-0178",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/vcs/create-issue.ts",
+        "path": "servers/exarchos-mcp/src/verbs/vcs/create-issue.ts",
         "line": 341,
         "match": "eventStore.append(",
         "excerpt": "await ctx.eventStore.append(",
@@ -2803,7 +2803,7 @@
       {
         "id": "OCC-0179",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/vcs/create-pr.ts",
+        "path": "servers/exarchos-mcp/src/verbs/vcs/create-pr.ts",
         "line": 171,
         "match": "eventStore.append(",
         "excerpt": "ctx.eventStore.append(",
@@ -2812,7 +2812,7 @@
       {
         "id": "OCC-0180",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/vcs/create-pr.ts",
+        "path": "servers/exarchos-mcp/src/verbs/vcs/create-pr.ts",
         "line": 263,
         "match": "eventStore.append(",
         "excerpt": "await ctx.eventStore.append(",
@@ -2821,7 +2821,7 @@
       {
         "id": "OCC-0181",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/vcs/create-pr.ts",
+        "path": "servers/exarchos-mcp/src/verbs/vcs/create-pr.ts",
         "line": 296,
         "match": "eventStore.append(",
         "excerpt": "await ctx.eventStore.append(",
@@ -2830,7 +2830,7 @@
       {
         "id": "OCC-0182",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/vcs/merge-pr.ts",
+        "path": "servers/exarchos-mcp/src/verbs/vcs/merge-pr.ts",
         "line": 34,
         "match": "eventStore.append(",
         "excerpt": "await ctx.eventStore.append('vcs', {",
@@ -2839,7 +2839,7 @@
       {
         "id": "OCC-0183",
         "effectClass": "process",
-        "path": "servers/exarchos-mcp/src/orchestrate/vcs/push-with-lease.ts",
+        "path": "servers/exarchos-mcp/src/verbs/vcs/push-with-lease.ts",
         "line": 88,
         "match": "execFileSync(",
         "excerpt": "execFileSync('git', [...args], {",
@@ -2848,7 +2848,7 @@
       {
         "id": "OCC-0184",
         "effectClass": "process",
-        "path": "servers/exarchos-mcp/src/orchestrate/verify-worktree-baseline.ts",
+        "path": "servers/exarchos-mcp/src/verbs/gates/verify-worktree-baseline.ts",
         "line": 133,
         "match": "execFileSync(",
         "excerpt": "const out = execFileSync('git', ['-C', worktreePath, ...args], {",
@@ -2857,7 +2857,7 @@
       {
         "id": "OCC-0185",
         "effectClass": "process",
-        "path": "servers/exarchos-mcp/src/orchestrate/verify-worktree-baseline.ts",
+        "path": "servers/exarchos-mcp/src/verbs/gates/verify-worktree-baseline.ts",
         "line": 291,
         "match": "execFileSync(",
         "excerpt": "execFileSync('git', ['-C', worktreePath, 'rev-parse', '--git-dir'], {",
@@ -2866,7 +2866,7 @@
       {
         "id": "OCC-0186",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/worktree/manager.ts",
+        "path": "servers/exarchos-mcp/src/verbs/worktree/manager.ts",
         "line": 1082,
         "match": "eventStore.append(",
         "excerpt": "this.eventStore.append(",
@@ -2875,7 +2875,7 @@
       {
         "id": "OCC-0187",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/worktree/manager.ts",
+        "path": "servers/exarchos-mcp/src/verbs/worktree/manager.ts",
         "line": 1106,
         "match": "eventStore.append(",
         "excerpt": "this.eventStore.append(",
@@ -2884,7 +2884,7 @@
       {
         "id": "OCC-0188",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/worktree/manager.ts",
+        "path": "servers/exarchos-mcp/src/verbs/worktree/manager.ts",
         "line": 1384,
         "match": "eventStore.append(",
         "excerpt": "this.eventStore.append(",
@@ -2893,7 +2893,7 @@
       {
         "id": "OCC-0189",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/worktree/manager.ts",
+        "path": "servers/exarchos-mcp/src/verbs/worktree/manager.ts",
         "line": 1837,
         "match": "eventStore.append(",
         "excerpt": "this.eventStore.append(",
@@ -2902,7 +2902,7 @@
       {
         "id": "OCC-0190",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/orchestrate/worktree/merge-serializer.ts",
+        "path": "servers/exarchos-mcp/src/verbs/worktree/merge-serializer.ts",
         "line": 204,
         "match": "appender.append(",
         "excerpt": "await appender.append(",

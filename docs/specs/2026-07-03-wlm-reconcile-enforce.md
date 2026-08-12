@@ -112,15 +112,15 @@ Fold the two open Seer deferrals riding the same seams: the signal-path teardown
 
 ### Integration Points
 
-- `servers/exarchos-mcp/src/orchestrate/worktree/manager.ts` — wrap remove-path mutations; prune liveness pair.
-- `servers/exarchos-mcp/src/orchestrate/merge-orchestrate.ts` — lease-guard preflight + wrapped `GitExec`.
-- `servers/exarchos-mcp/src/orchestrate/worktree/merge-serializer.ts` — thread `leaseOperationId` into the composed call.
+- `servers/exarchos-mcp/src/verbs/worktree/manager.ts` — wrap remove-path mutations; prune liveness pair.
+- `servers/exarchos-mcp/src/verbs/merge/merge-orchestrate.ts` — lease-guard preflight + wrapped `GitExec`.
+- `servers/exarchos-mcp/src/verbs/worktree/merge-serializer.ts` — thread `leaseOperationId` into the composed call.
 - `servers/exarchos-mcp/src/workflow/compensation.ts` — dirty-guard, stream unification, retry wrapping.
-- `servers/exarchos-mcp/src/orchestrate/setup-worktree.ts` — burst stagger (in place, no re-homing).
+- `servers/exarchos-mcp/src/verbs/team/setup-worktree.ts` — burst stagger (in place, no re-homing).
 - `servers/exarchos-mcp/src/capabilities/resolver.ts` — shared-mutating posture gate.
 - `skills-src/merge-orchestrator|delegation|synthesis|shepherd|git-worktrees` — reroute + cadence guidance (then `npm run build:skills`).
 - `.github/workflows/ci.yml` + branch protection — grep-gate; `test-windows` required.
-- `servers/exarchos-mcp/src/orchestrate/worktree/handlers.ts` / launcher teardown path — DR-6 fixes.
+- `servers/exarchos-mcp/src/verbs/worktree/handlers.ts` / launcher teardown path — DR-6 fixes.
 
 ### Alternatives considered
 
@@ -160,7 +160,7 @@ Fold the two open Seer deferrals riding the same seams: the signal-path teardown
 #### Task 001: Wrap the prune-executor remove path with `withIndexLockRetry`
 **Risk Tier:** high · **Boundary Touching:** true
 **Implements:** DR-1
-**Files:** `servers/exarchos-mcp/src/orchestrate/worktree/manager.ts`, `servers/exarchos-mcp/src/orchestrate/worktree/manager.prune.test.ts`
+**Files:** `servers/exarchos-mcp/src/verbs/worktree/manager.ts`, `servers/exarchos-mcp/src/verbs/worktree/manager.prune.test.ts`
 **Verification:** scoped tests + kill-probe + integration suite across the prune seam. Tests: `PruneExecutor_TransientIndexLock_RetriesWithBackoffThenRemoves`, `PruneExecutor_ExhaustedIndexLockRetry_PropagatesStructuredErrorNoDelete`.
 **Salvage:** review + adapt the uncommitted WIP in `.claude/worktrees/agent-a5171342a1827e641/` (`withIndexLockRetry` at its `manager.ts:1603` + prune-test edits) — treat as a draft, re-verify; then release/reclaim that worktree via `prune_worktrees` (dogfood: dry-run → apply).
 **Dependencies:** None · **Parallelizable:** Yes
@@ -168,14 +168,14 @@ Fold the two open Seer deferrals riding the same seams: the signal-path teardown
 #### Task 002: Retry adapters + wrap the default GitExec composition; correct the false retry-seam comment
 **Risk Tier:** high · **Boundary Touching:** true
 **Implements:** DR-1
-**Files:** `servers/exarchos-mcp/src/orchestrate/worktree/git-retry.ts` (adapters: `withIndexLockRetryResult` async, `withIndexLockRetrySync`), `servers/exarchos-mcp/src/orchestrate/git-exec-default.ts` (wrap `defaultGitExec`), `servers/exarchos-mcp/src/orchestrate/worktree/git-retry.test.ts`, `servers/exarchos-mcp/src/orchestrate/worktree/recovery.test.ts`
+**Files:** `servers/exarchos-mcp/src/verbs/worktree/git-retry.ts` (adapters: `withIndexLockRetryResult` async, `withIndexLockRetrySync`), `servers/exarchos-mcp/src/verbs/vcs/git-exec-default.ts` (wrap `defaultGitExec`), `servers/exarchos-mcp/src/verbs/worktree/git-retry.test.ts`, `servers/exarchos-mcp/src/verbs/worktree/recovery.test.ts`
 **Verification:** high ladder. Adapters engage on a result predicate (`exitCode !== 0 ∧ stderr` index.lock match) — `defaultGitExec` never throws. Tests: `WithIndexLockRetrySync_ContentionResult_RetriesWithBackoffThenSucceeds` (injected clock/sleep seam), `DefaultGitExecComposition_RealIndexLockFile_RetriesAndSucceeds` (REAL repo + real `index.lock` on disk, default composition — not the DI seam), `DefaultGitExecComposition_PersistentLock_ReturnsContentionResultNotSilentFailure`; comment at `recovery.test.ts:406` corrected to describe the now-real seam.
 **Dependencies:** None · **Parallelizable:** Yes
 
 #### Task 003: Burst stagger at the worktree-creation seam
 **Risk Tier:** medium
 **Implements:** DR-1
-**Files:** `servers/exarchos-mcp/src/orchestrate/setup-worktree.ts`, `servers/exarchos-mcp/src/orchestrate/setup-worktree.test.ts`
+**Files:** `servers/exarchos-mcp/src/verbs/team/setup-worktree.ts`, `servers/exarchos-mcp/src/verbs/team/setup-worktree.test.ts`
 **Verification:** scoped tests + kill-probe. Tests: `SetupWorktree_BurstCreation_StaggersWithinConfiguredJitterWindow` (injected sleep seam), `SetupWorktree_SingleCreation_NoStaggerDelay`.
 **Dependencies:** None · **Parallelizable:** Yes
 
@@ -189,7 +189,7 @@ Fold the two open Seer deferrals riding the same seams: the signal-path teardown
 #### Task 005: Lease-guard preflight + lease threading (ATOMIC — guard and threading ship together)
 **Risk Tier:** high · **Boundary Touching:** true
 **Implements:** DR-2
-**Files:** `servers/exarchos-mcp/src/orchestrate/merge-orchestrate.ts`, `servers/exarchos-mcp/src/registry.ts` (input schema: optional `leaseOperationId`), `servers/exarchos-mcp/src/orchestrate/worktree/merge-serializer.ts`, `servers/exarchos-mcp/src/orchestrate/merge-orchestrate.test.ts`, `servers/exarchos-mcp/src/orchestrate/worktree/merge-serializer.test.ts`
+**Files:** `servers/exarchos-mcp/src/verbs/merge/merge-orchestrate.ts`, `servers/exarchos-mcp/src/registry.ts` (input schema: optional `leaseOperationId`), `servers/exarchos-mcp/src/verbs/worktree/merge-serializer.ts`, `servers/exarchos-mcp/src/verbs/merge/merge-orchestrate.test.ts`, `servers/exarchos-mcp/src/verbs/worktree/merge-serializer.test.ts`
 **Verification:** high ladder. Foreign-lease semantics per Technical Design: `operationId` mismatch ∧ liveness ∈ {alive, unknown}; lookup key pinned to the serializer's bare-branch shape. Tests: `MergeOrchestrate_ForeignLiveLeaseOnTarget_FailsClosedNamingSerializeMerge`, `MergeOrchestrate_NoLease_BehavesAsToday`, `MergeOrchestrate_DeadHolderLease_ProceedsAfterProbe`, `MergeOrchestrate_UnknownHolderLiveness_FailsClosed`, `MergeOrchestrate_LeaseKeyShape_MatchesSerializerBareBranch`, `SerializeMerge_OwnLeaseThreadedThroughComposedCall_PassesGuard`, `SerializeMerge_CrashResumedNewPid_OriginalOperationId_PassesGuard`, and the byte-equality timeline oracle stays green. Watch the registration-schema field-collision class: `leaseOperationId` keeps one base type across actions.
 **Dependencies:** 002 (merge-orchestrate.ts file chain) · **Parallelizable:** No
 
@@ -210,7 +210,7 @@ Fold the two open Seer deferrals riding the same seams: the signal-path teardown
 #### Task 009: Unify compensation `worktree.remove.*` onto the `worktrees` stream (+ retry wrap)
 **Risk Tier:** high · **Boundary Touching:** true
 **Implements:** DR-3 (and DR-1 for this call site)
-**Files:** `servers/exarchos-mcp/src/workflow/compensation.ts`, `servers/exarchos-mcp/src/workflow/compensation.test.ts`, `servers/exarchos-mcp/src/orchestrate/worktree/projections/worktrees.test.ts`
+**Files:** `servers/exarchos-mcp/src/workflow/compensation.ts`, `servers/exarchos-mcp/src/workflow/compensation.test.ts`, `servers/exarchos-mcp/src/verbs/worktree/projections/worktrees.test.ts`
 **Verification:** high ladder. Adopt-then-remove: when the path has no `worktrees` entry, compensation first emits `worktree.adopted` (canonical worktreeId derived the same way the manager does), then the INV-13 pair — so the view genuinely reflects the removal (no vacuous pass by seeding state production never creates). `recoverWorktreeRemoveOperationId` relocates to query the `worktrees` stream WITH a legacy fallback that also scans the featureId stream, so a compensation that crashed pre-deploy (requested on the old stream, no executed) resumes under the original operationId instead of minting a second pair. Tests: `Compensation_WorktreeRemove_AdoptsThenEmitsPairOnWorktreesStream_ViewDropsEntry`, `Compensation_CrashBetweenRequestedAndExecuted_ResumesIdempotently`, `Compensation_PreDeployCrashLegacyFeatureStreamRequested_ResumedUnderOriginalOperationId`, `WorktreesReducer_PreUnificationHistoryReplay_FoldsWithoutError`.
 **Dependencies:** None · **Parallelizable:** Yes
 
@@ -224,14 +224,14 @@ Fold the two open Seer deferrals riding the same seams: the signal-path teardown
 #### Task 011: Prune INV-10 liveness pair — events, reducer, manager emission
 **Risk Tier:** high · **Boundary Touching:** true
 **Implements:** DR-3
-**Files:** `servers/exarchos-mcp/src/event-store/schemas.ts` (pair types), `servers/exarchos-mcp/src/orchestrate/worktree/projections/worktrees.ts` (+ tests), `servers/exarchos-mcp/src/orchestrate/worktree/manager.ts` (emission around the prune run)
+**Files:** `servers/exarchos-mcp/src/event-store/schemas.ts` (pair types), `servers/exarchos-mcp/src/verbs/worktree/projections/worktrees.ts` (+ tests), `servers/exarchos-mcp/src/verbs/worktree/manager.ts` (emission around the prune run)
 **Verification:** high ladder. Tests: `WorktreesReducer_PrunePair_FoldsAndClears`, `PruneWorktrees_Run_EmitsStartedAndTerminalExactlyOnce`; reducer purity via `assertReducerImmutable`. Count-pin updates (`EventTypes` N→N+2) — check both conflicted and bare pins. Cleanup rider: collapse the byte-identical duplicate `export interface InFlightMerge` declarations in `projections/worktrees.ts` (~150/~176) into one.
 **Dependencies:** 001 (manager.ts chain), 009 (worktrees projection tests chain) · **Parallelizable:** No (file chains)
 
 #### Task 021: `ps`/`wait` surface the prune pair — idle mode + schema
 **Risk Tier:** high · **Boundary Touching:** true
 **Implements:** DR-3
-**Files:** `servers/exarchos-mcp/src/orchestrate/worktree/handlers.ts` (`handleViewPs`/`handleViewWait`), `servers/exarchos-mcp/src/views/composite.ts`, `servers/exarchos-mcp/src/registry.ts` (`wait` input schema gains `until: 'idle'` — flag auto-emits via `addFlagsFromSchema`), `servers/exarchos-mcp/src/orchestrate/worktree/handlers.test.ts`
+**Files:** `servers/exarchos-mcp/src/verbs/worktree/handlers.ts` (`handleViewPs`/`handleViewWait`), `servers/exarchos-mcp/src/views/composite.ts`, `servers/exarchos-mcp/src/registry.ts` (`wait` input schema gains `until: 'idle'` — flag auto-emits via `addFlagsFromSchema`), `servers/exarchos-mcp/src/verbs/worktree/handlers.test.ts`
 **Verification:** high ladder. Today `ps` lists only `inFlightMerges` and `wait` resolves only on `worktree.merge_executed` — no idle mode exists; this task adds it. Tests: `PruneWorktrees_InFlight_VisibleViaPs`, `Wait_UntilIdle_ResolvesOnPruneTerminal`, `Wait_UntilIdle_Timeout_StructuredNotHang`, `WaitSchema_UntilIdleFlag_ParityCliMcp`. Owns its ripple into `tests/load-bearing-golden.test.ts` (regen under `GOLDEN-FIXTURE-UPDATE:` protocol if the document/NextAction shape moves).
 **Dependencies:** 011, 008 (golden-fixture chain), 005 (registry.ts chain) · **Parallelizable:** No
 
@@ -245,28 +245,28 @@ Fold the two open Seer deferrals riding the same seams: the signal-path teardown
 #### Task 013: #1301-shape regression audit/pin
 **Risk Tier:** medium
 **Implements:** DR-4
-**Files:** audit `#1568`'s shipped tests; if absent, add `servers/exarchos-mcp/src/orchestrate/worktree/boundary.regression.test.ts`
+**Files:** audit `#1568`'s shipped tests; if absent, add `servers/exarchos-mcp/src/verbs/worktree/boundary.regression.test.ts`
 **Verification:** scoped test reproducing the leak shape (implementer edit escaping its worktree) asserting it is blocked at the resolver/hook boundary.
 **Dependencies:** 012 · **Parallelizable:** No
 
 #### Task 014: Null-ready `ownerStartedAt` threading (#1633a)
 **Risk Tier:** medium
 **Implements:** DR-5
-**Files:** `servers/exarchos-mcp/src/orchestrate/worktree/manager.ts` (`ReservationOwner`/`ReserveInput`), `servers/exarchos-mcp/src/orchestrate/worktree/pure/process-identity.ts`, `servers/exarchos-mcp/src/event-store/schemas.ts` (`WorktreeReservedData.ownerStartedAt` `.nullable()`), co-located tests
+**Files:** `servers/exarchos-mcp/src/verbs/worktree/manager.ts` (`ReservationOwner`/`ReserveInput`), `servers/exarchos-mcp/src/verbs/worktree/pure/process-identity.ts`, `servers/exarchos-mcp/src/event-store/schemas.ts` (`WorktreeReservedData.ownerStartedAt` `.nullable()`), co-located tests
 **Verification:** scoped tests + kill-probe. Tests: `Reserve_UnresolvableCreateTime_StoresNullNeverEmptyString`, `ReservationLiveness_NullOwnerStartedAt_TreatedFailClosed`.
 **Dependencies:** 011 (manager.ts + schemas.ts file chains) · **Parallelizable:** No
 
 #### Task 015: win32 process source (cwd + create-time) behind the shim
 **Risk Tier:** medium
 **Implements:** DR-5
-**Files:** `servers/exarchos-mcp/src/orchestrate/worktree/pure/process-identity.ts`, `servers/exarchos-mcp/src/orchestrate/worktree/pure/probe.ts`, platform-shimmed tests
+**Files:** `servers/exarchos-mcp/src/verbs/worktree/pure/process-identity.ts`, `servers/exarchos-mcp/src/verbs/worktree/pure/probe.ts`, platform-shimmed tests
 **Verification:** scoped tests + kill-probe. Tests: `ProcessSource_Win32_ResolvesCwdAndCreateTime` (shimmed), `ProcessSource_UnsupportedPlatform_ReturnsUnknownFailClosed`; no platform syscall leaks into shared code (INV-16 idioms: `runCommandSync`/`resolveExecutable`, no `.cmd` direct spawn).
 **Dependencies:** 014 · **Parallelizable:** No
 
 #### Task 016: win32 path containment (8.3 + symlink canonicalization)
 **Risk Tier:** medium
 **Implements:** DR-5
-**Files:** `servers/exarchos-mcp/src/orchestrate/worktree/pure/path-containment.ts`, `servers/exarchos-mcp/src/orchestrate/worktree/pure/path-containment.test.ts`, reuse `servers/exarchos-mcp/src/utils/paths.ts`
+**Files:** `servers/exarchos-mcp/src/verbs/worktree/pure/path-containment.ts`, `servers/exarchos-mcp/src/verbs/worktree/pure/path-containment.test.ts`, reuse `servers/exarchos-mcp/src/utils/paths.ts`
 **Verification:** scoped tests + kill-probe. Tests: `PathContainment_Win32ShortName_MatchesViaNativeRealpath` (shape-based), `PathContainment_MacOSPrivateVarSymlink_Matches`; the `skipIf(win32)` case replaced with a Windows-correct equivalent.
 **Dependencies:** None · **Parallelizable:** Yes
 
@@ -287,7 +287,7 @@ Fold the two open Seer deferrals riding the same seams: the signal-path teardown
 #### Task 020: Wire or excise `resumeCrashedMerge`
 **Risk Tier:** high · **Boundary Touching:** true
 **Implements:** DR-3
-**Files:** `servers/exarchos-mcp/src/orchestrate/worktree/merge-serializer.ts`, its production entry point (reconcile / `ps probe:true` / serializer startup precheck — decide at implementation), `servers/exarchos-mcp/src/orchestrate/worktree/recovery.test.ts`
+**Files:** `servers/exarchos-mcp/src/verbs/worktree/merge-serializer.ts`, its production entry point (reconcile / `ps probe:true` / serializer startup precheck — decide at implementation), `servers/exarchos-mcp/src/verbs/worktree/recovery.test.ts`
 **Verification:** high ladder. Tests: `CrashedMerge_RecoveredFromProductionEntryPoint_ExactlyOneTerminalEvent` (caller-level, not module-level); if excised instead, the inline-reclaim path must cover the `Recovery_MergeRequestedNoExecuted_ResumeEmitsSingleExecuted` scenario and the dead export is removed.
 **Dependencies:** 005 (merge-serializer.ts file chain) · **Parallelizable:** No
 

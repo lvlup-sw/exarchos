@@ -198,11 +198,11 @@ describe('DR-14: noUncheckedIndexedAccess ratchet (root)', () => {
   //                  so tasks 011 and 053 contributed nothing to the movement.
   //
   //   1784 -> 1779   PAYDOWN, task 068, exactly the -5 it reported. The old
-  //                  `readExistingIds` in `orchestrate/invariants/add.ts` read a
+  //                  `readExistingIds` in `verbs/invariants/add.ts` read a
   //                  catalog's ids through five successive assertions
   //                  (`as unknown`, two `as { toJSON … }`, two `as { id … }`).
   //                  Its replacement, `readCatalogIds` in
-  //                  `orchestrate/invariants/catalog-file.ts`, narrows through
+  //                  `verbs/invariants/catalog-file.ts`, narrows through
   //                  `isSeq` and an `isPlainRecord` type PREDICATE, so the
   //                  compiler checks what the author used to assert. The
   //                  `invariants_amend` verb the same task added contributes ZERO

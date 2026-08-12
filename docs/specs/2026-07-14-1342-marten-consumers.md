@@ -10,9 +10,9 @@
 
 ### Problem Statement
 
-Epic #1342 was filed in May 2026 as an adoption ledger: four Marten primitives shipped in preview.2 "available-but-underused." Most of the ledger is already settled. The two-event split ships across all six handlers; blocker #1352 is closed; `merge.completed` is registered (`event-store/schemas.ts:172`) *and* produced (`orchestrate/execute-merge.ts:618`); both CI grep gates exist and block; the in-memory-store premise is false.
+Epic #1342 was filed in May 2026 as an adoption ledger: four Marten primitives shipped in preview.2 "available-but-underused." Most of the ledger is already settled. The two-event split ships across all six handlers; blocker #1352 is closed; `merge.completed` is registered (`event-store/schemas.ts:172`) *and* produced (`verbs/pure/execute-merge.ts:618`); both CI grep gates exist and block; the in-memory-store premise is false.
 
-Three of the epic's false claims trace to **stale comments that outlived their fix** — `orchestrate/merge-orchestrate.ts:819-821` still asserts `merge.completed` "is not yet registered." The epic was written from the comments, not the code.
+Three of the epic's false claims trace to **stale comments that outlived their fix** — `verbs/merge/merge-orchestrate.ts:819-821` still asserts `merge.completed` "is not yet registered." The epic was written from the comments, not the code.
 
 The epic's live question is why `task-store@v1`'s global projection is underused, and it treats snapshot cadence for it as a *tuning* question. Both framings fail. `readProjection` (`projections/store.ts:247`) has **zero production callers** — every call site is a test. `projections/cadence.ts` has zero callers. Both real consumers of `taskStoreReducer` (`views/workflow-status-view.ts:161`, `views/task-detail-view.ts:105`) call `.apply` **per-stream**.
 
@@ -69,7 +69,7 @@ DR-1 falsifies roughly a dozen comments that describe `task-store@v1` as global 
 - `projections/types.ts:62-77` — the `scope` doc describing `'global'` / "Consumed by `readProjection`".
 - `projections/taskstore/types.ts:3-9` ("The TaskStore is a **global** projection"), `taskstore/reducer.ts:1-8` ("is a **global** reducer… every workflow stream"), `taskstore/index.ts:7` ("via `readProjection<T>`").
 - `views/workflow-status-view.ts:30`, `views/task-detail-view.ts:98` — both name the global `readProjection` path.
-- `projections/store.ts:162` (`InvalidReducerScopeError` doc naming `readProjection` as raiser), `event-store/atomic-appender.ts:478,711`, `projections/workflow-state/reducer.ts:40`, `orchestrate/worktree/projections/worktrees.ts:547`, `storage/snapshot-retention.ts:28` (cites the deleted `cadence.ts`).
+- `projections/store.ts:162` (`InvalidReducerScopeError` doc naming `readProjection` as raiser), `event-store/atomic-appender.ts:478,711`, `projections/workflow-state/reducer.ts:40`, `verbs/worktree/projections/worktrees.ts:547`, `storage/snapshot-retention.ts:28` (cites the deleted `cadence.ts`).
 - `CHANGELOG.md:192` advertises `readProjection<T>(reducerId)` as a shipped primitive — its removal is recorded, on the same footing the spec demands for any observable change.
 - `docs/architecture/projections.md:369-384` documents a snapshot-cadence runner as live. No such runner existed. It is removed with the path.
 - `projections/rebuild.ts:153`'s count-as-position note "for the GLOBAL path" is corrected or removed.
@@ -131,10 +131,10 @@ The comment at `tools.ts:910-911` claims the key makes CAS retries "safely dedup
 - `servers/exarchos-mcp/src/projections/cadence.ts` — delete
 - `servers/exarchos-mcp/src/projections/taskstore/{reducer.ts,types.ts,index.ts,index.test.ts,reducer.test.ts}` — stamp + pinned tests + docs
 - `servers/exarchos-mcp/src/views/task-detail-view.test.ts` — re-point the surviving parity guard
-- `servers/exarchos-mcp/src/projections/rebuild.ts`, `storage/snapshot-retention.ts`, `event-store/atomic-appender.ts`, `projections/workflow-state/reducer.ts`, `orchestrate/worktree/projections/worktrees.ts`, `views/workflow-status-view.ts`, `views/task-detail-view.ts` — stale references
+- `servers/exarchos-mcp/src/projections/rebuild.ts`, `storage/snapshot-retention.ts`, `event-store/atomic-appender.ts`, `projections/workflow-state/reducer.ts`, `verbs/worktree/projections/worktrees.ts`, `views/workflow-status-view.ts`, `views/task-detail-view.ts` — stale references
 - `CHANGELOG.md`, `docs/architecture/projections.md` — records + scope discipline
 - `servers/exarchos-mcp/src/workflow/tools.ts` — contract text (DR-4)
-- `servers/exarchos-mcp/src/orchestrate/merge-orchestrate.ts`, `orchestrate/vcs/create-pr.ts` — stale comments (DR-3)
+- `servers/exarchos-mcp/src/verbs/merge/merge-orchestrate.ts`, `verbs/vcs/create-pr.ts` — stale comments (DR-3)
 - `scripts/check-begin-immediate-substrate.{sh,test.sh}`, `.github/workflows/ci.yml` (DR-5)
 - `servers/exarchos-mcp/src/workflow/state-store.ts` (DR-6)
 
@@ -264,7 +264,7 @@ Paths are relative to `servers/exarchos-mcp/` unless noted. Test names follow `M
 - `src/projections/workflow-state/reducer.ts`
 - `src/views/workflow-status-view.ts`
 - `src/views/task-detail-view.ts`
-- `src/orchestrate/worktree/projections/worktrees.ts`
+- `src/verbs/worktree/projections/worktrees.ts`
 - `src/storage/snapshot-retention.ts`
 - `CHANGELOG.md` (repo root)
 
@@ -382,13 +382,13 @@ Paths are relative to `servers/exarchos-mcp/` unless noted. Test names follow `M
 **Implements:** DR-3
 
 **Files:**
-- `src/orchestrate/merge-orchestrate.ts`
-- `src/orchestrate/vcs/create-pr.ts`
+- `src/verbs/merge/merge-orchestrate.ts`
+- `src/verbs/vcs/create-pr.ts`
 
 **Verification:** low — static analysis. Comment-only.
 
 **Steps:**
-1. `merge-orchestrate.ts:819-821` claims `merge.completed` "is not yet registered … out of scope for Wave 4." It is registered (`event-store/schemas.ts:172`) and produced (`orchestrate/execute-merge.ts:618`). This comment is the origin of the epic's false claim.
+1. `merge-orchestrate.ts:819-821` claims `merge.completed` "is not yet registered … out of scope for Wave 4." It is registered (`event-store/schemas.ts:172`) and produced (`verbs/pure/execute-merge.ts:618`). This comment is the origin of the epic's false claim.
 2. `create-pr.ts:162-165` claims it "satisfies the CI idempotency contract gate" — it never calls `withSession`, so the gate never scans it.
 
 **Dependencies:** None

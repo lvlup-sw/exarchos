@@ -97,7 +97,7 @@ function extractStatus(entry: Record<string, unknown>): string | undefined {
 const notPassed = statuses.filter((s) => !PASSED_STATUSES.has(s.status));
 ```
 
-The guard already handles `verdict` as a `status` synonym (per GitHub #1004), but `PASSED_STATUSES.has(s.status)` is a raw `Set` membership check — case-sensitive. The reviewer agent copies `verdict: "PASS"` / `"APPROVED"` straight out of `check_review_verdict`'s return type (`'APPROVED' | 'NEEDS_FIXES' | 'BLOCKED'`), which is defined uppercase in `servers/exarchos-mcp/src/orchestrate/review-verdict.ts:26`. Lowercase set + uppercase value = silent membership miss.
+The guard already handles `verdict` as a `status` synonym (per GitHub #1004), but `PASSED_STATUSES.has(s.status)` is a raw `Set` membership check — case-sensitive. The reviewer agent copies `verdict: "PASS"` / `"APPROVED"` straight out of `check_review_verdict`'s return type (`'APPROVED' | 'NEEDS_FIXES' | 'BLOCKED'`), which is defined uppercase in `servers/exarchos-mcp/src/verbs/review/review-verdict.ts:26`. Lowercase set + uppercase value = silent membership miss.
 
 **4. Short-circuit error reporting (#1074):**
 

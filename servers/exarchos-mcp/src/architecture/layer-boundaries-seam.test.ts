@@ -87,7 +87,7 @@ describe('resolveTarget', () => {
   });
 
   it('resolves a nested module specifier relative to its own directory', () => {
-    expect(resolveTarget('orchestrate/doctor/probes.ts', '../../vcs/x.js')).toBe('vcs/x.ts');
+    expect(resolveTarget('verbs/doctor/probes.ts', '../../vcs/x.js')).toBe('vcs/x.ts');
   });
 
   it('returns undefined for a bare package / node builtin specifier', () => {
@@ -103,7 +103,7 @@ describe('resolveTarget', () => {
 describe('layerOf / isRootFile', () => {
   it('reports the first path segment as the layer', () => {
     expect(layerOf('workflow/state-store.ts')).toBe('workflow');
-    expect(layerOf('orchestrate/doctor/probes.ts')).toBe('orchestrate');
+    expect(layerOf('verbs/doctor/probes.ts')).toBe('orchestrate');
   });
   it('treats a root-level file as a root file', () => {
     expect(isRootFile('format.ts')).toBe(true);
@@ -177,7 +177,7 @@ describe('runLayerBoundaryCensus — verdict logic', () => {
         specifier: '../utils/x.js',
       },
       {
-        module: 'orchestrate/x.ts',
+        module: 'verbs/x.ts',
         sourceLayer: 'orchestrate',
         targetModule: 'workflow/y.ts',
         targetLayer: 'workflow',
@@ -225,7 +225,7 @@ describe('EXIT PROOF — live allowed-dependency layering', () => {
     const planted: LayerEdge = {
       module: 'utils/rogue.ts',
       sourceLayer: 'utils',
-      targetModule: 'orchestrate/registry.ts',
+      targetModule: 'verbs/registry.ts',
       targetLayer: 'orchestrate',
       specifier: '../orchestrate/registry.js',
     };

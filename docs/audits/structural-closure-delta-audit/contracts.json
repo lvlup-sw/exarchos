@@ -326,7 +326,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 512,
         "symbol": "adaptCtx(handleAcquireWorktree)"
       },
@@ -336,7 +336,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.acquire_worktree.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -370,7 +370,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 482,
         "symbol": "adaptCtx(handleAddPrComment)"
       },
@@ -380,7 +380,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.add_pr_comment.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -414,7 +414,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 427,
         "symbol": "adapt(handleAgentSpec)"
       },
@@ -424,7 +424,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.agent_spec.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -458,7 +458,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 434,
         "symbol": "adaptArgsWithEventStore(handleAssessRefactorScope)"
       },
@@ -468,7 +468,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.assess_refactor_scope.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -502,7 +502,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 393,
         "symbol": "adaptWithEventStoreAndConfig(handleAssessStack)"
       },
@@ -512,7 +512,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.assess_stack.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -546,7 +546,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 479,
         "symbol": "adaptCtx(handleCheckCi)"
       },
@@ -556,7 +556,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.check_ci.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -590,7 +590,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 449,
         "symbol": "adaptArgs(handleCheckCoderabbit)"
       },
@@ -600,7 +600,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.check_coderabbit.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -634,7 +634,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 419,
         "symbol": "adaptWithEventStore(handleContextEconomy)"
       },
@@ -644,7 +644,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.check_context_economy.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -678,7 +678,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 406,
         "symbol": "adaptLadderGate('check_contract_drift', 'D1', handleContractDrift)"
       },
@@ -688,7 +688,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.check_contract_drift.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -722,7 +722,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 423,
         "symbol": "adaptWithEventStore(handleCheckConvergence)"
       },
@@ -732,7 +732,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.check_convergence.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -766,7 +766,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 433,
         "symbol": "adaptArgs(handleCheckCoverageThresholds)"
       },
@@ -776,7 +776,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.check_coverage_thresholds.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -810,7 +810,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 394,
         "symbol": "adaptWithEventStore(handleDesignCompleteness)"
       },
@@ -820,7 +820,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.check_design_completeness.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -854,7 +854,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 426,
         "symbol": "adaptWithEventStore(handleCheckEventEmissions)"
       },
@@ -864,7 +864,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.check_event_emissions.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -898,7 +898,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 399,
         "symbol": "adaptWithEventStore(handleCheckExplorationDepth)"
       },
@@ -908,7 +908,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.check_exploration_depth.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -942,7 +942,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 417,
         "symbol": "adaptLadderGate('check_integration_suite', 'D2', handleCheckIntegrationSuite)"
       },
@@ -952,7 +952,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.check_integration_suite.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -986,7 +986,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 456,
         "symbol": "adaptWithEventStore(handleCheckInvariantConformance)"
       },
@@ -996,7 +996,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.check_invariant_conformance.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -1030,7 +1030,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 407,
         "symbol": "adaptLadderGate('check_mock_boundary', 'D1', handleMockBoundary)"
       },
@@ -1040,7 +1040,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.check_mock_boundary.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -1074,7 +1074,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 420,
         "symbol": "adaptWithEventStore(handleOperationalResilience)"
       },
@@ -1084,7 +1084,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.check_operational_resilience.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -1118,7 +1118,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 395,
         "symbol": "adaptWithEventStore(handlePlanCoverage)"
       },
@@ -1128,7 +1128,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.check_plan_coverage.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -1162,7 +1162,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 450,
         "symbol": "adaptArgs(handleCheckPolishScope)"
       },
@@ -1172,7 +1172,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.check_polish_scope.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -1206,7 +1206,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 415,
         "symbol": "adaptWithEventStore(handlePostMerge)"
       },
@@ -1216,7 +1216,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.check_post_merge.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -1250,7 +1250,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 435,
         "symbol": "adaptArgs(handleCheckPrComments)"
       },
@@ -1260,7 +1260,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.check_pr_comments.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -1294,7 +1294,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 424,
         "symbol": "adaptWithEventStore(handleProvenanceChain)"
       },
@@ -1304,7 +1304,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.check_provenance_chain.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -1338,7 +1338,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 422,
         "symbol": "adaptWithEventStoreAndConfig(handleReviewVerdict)"
       },
@@ -1348,7 +1348,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.check_review_verdict.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -1382,7 +1382,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 418,
         "symbol": "adaptWithEventStore(handleSecurityScan)"
       },
@@ -1392,7 +1392,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.check_security_scan.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -1426,7 +1426,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 416,
         "symbol": "adaptLadderGate('check_static_analysis', 'D2', handleStaticAnalysis)"
       },
@@ -1436,7 +1436,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.check_static_analysis.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -1470,7 +1470,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 425,
         "symbol": "adaptWithEventStore(handleTaskDecomposition)"
       },
@@ -1480,7 +1480,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.check_task_decomposition.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -1514,7 +1514,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 405,
         "symbol": "adaptLadderGate('check_test_adequacy', 'D1', handleTestAdequacy)"
       },
@@ -1524,7 +1524,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.check_test_adequacy.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -1558,7 +1558,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 421,
         "symbol": "adaptWithEventStore(handleWorkflowDeterminism)"
       },
@@ -1568,7 +1568,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.check_workflow_determinism.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -1602,7 +1602,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 440,
         "symbol": "adaptArgsWithEventStore(handleClassifyReviewItems)"
       },
@@ -1612,7 +1612,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.classify_review_items.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -1646,7 +1646,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 487,
         "symbol": "async (args, _stateDir, ctx) => {\n    if (!ctx) throw new Error('DispatchContext required for this handler');\n    const typedArgs = args as unknown as Omit<HandleCreateIssueArgs, 'listIssuesByMarker'> &\n      Partial<Pick<HandleCreateIssueArgs, 'listIssuesByMarker'>>;\n    // Lazy provider creation: only construct the VCS provider if the\n    // caller hasn't injected a `listIssuesByMarker` (e.g. tests that\n    // stub the recovery probe directly). Avoids surfacing provider\n    // bootstrap errors before the handler's own input guards run.\n    const listIssuesByMarker =\n      typedArgs.listIssuesByMarker ??\n      (async (operationId: string) => {\n        const provider = await createVcsProvider({ config: ctx.projectConfig });\n        return provider.searchIssuesByMarker(operationId);\n      });\n    return handleCreateIssue({ ...typedArgs, listIssuesByMarker }, ctx);\n  }"
       },
@@ -1656,7 +1656,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.create_issue.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -1690,7 +1690,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 477,
         "symbol": "adaptCtx(handleCreatePr)"
       },
@@ -1700,7 +1700,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.create_pr.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -1734,7 +1734,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 438,
         "symbol": "adaptArgs(handleDebugReviewGate)"
       },
@@ -1744,7 +1744,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.debug_review_gate.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -1824,7 +1824,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 455,
         "symbol": "adaptWithOptionalEventStore(handleDiscoverBridge)"
       },
@@ -1834,7 +1834,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.discover_bridge.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -1868,7 +1868,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/doctor/index.ts",
+        "file": "servers/exarchos-mcp/src/verbs/doctor/index.ts",
         "line": null,
         "symbol": "handleDoctor"
       },
@@ -1878,7 +1878,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/doctor/index.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/doctor/index.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.doctor.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -1912,7 +1912,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 439,
         "symbol": "adaptArgsWithStateDirAndEventStore(handleExtractFixTasks)"
       },
@@ -1922,7 +1922,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.extract_fix_tasks.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -1956,7 +1956,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 428,
         "symbol": "adapt(handleExtractTask)"
       },
@@ -1966,7 +1966,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.extract_task.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -2000,7 +2000,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 475,
         "symbol": "adaptArgsWithStateDirAndEventStore(handleFinalizeOneshot)"
       },
@@ -2010,7 +2010,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.finalize_oneshot.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -2044,7 +2044,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 441,
         "symbol": "adaptArgs(handleGenerateTraceability)"
       },
@@ -2054,7 +2054,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.generate_traceability.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -2088,7 +2088,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 481,
         "symbol": "adaptCtx(handleGetPrComments)"
       },
@@ -2098,7 +2098,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.get_pr_comments.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -2132,7 +2132,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/invariants/add.ts",
+        "file": "servers/exarchos-mcp/src/verbs/invariants/add.ts",
         "line": null,
         "symbol": "handleAdd"
       },
@@ -2142,7 +2142,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/invariants/add.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/invariants/add.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.invariants_add.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -2176,7 +2176,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/invariants/scaffold.ts",
+        "file": "servers/exarchos-mcp/src/verbs/invariants/scaffold.ts",
         "line": null,
         "symbol": "handleScaffold"
       },
@@ -2186,7 +2186,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/invariants/scaffold.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/invariants/scaffold.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.invariants_scaffold.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -2220,7 +2220,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 432,
         "symbol": "adaptWithOptionalEventStore(handleInvestigationTimer)"
       },
@@ -2230,7 +2230,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.investigation_timer.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -2264,7 +2264,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 480,
         "symbol": "adaptCtx(handleListPrs)"
       },
@@ -2274,7 +2274,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.list_prs.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -2308,7 +2308,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 506,
         "symbol": "adaptCtx(handleMergeOrchestrate)"
       },
@@ -2318,7 +2318,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.merge_orchestrate.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -2352,7 +2352,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 478,
         "symbol": "adaptCtx(handleMergePr)"
       },
@@ -2362,7 +2362,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.merge_pr.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -2396,7 +2396,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/mutation-adequacy.ts",
+        "file": "servers/exarchos-mcp/src/verbs/gates/mutation-adequacy.ts",
         "line": null,
         "symbol": "adaptLadderGate(MUTATION_GATE_NAME, D1, handleMutationAdequacy)"
       },
@@ -2406,7 +2406,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/mutation-adequacy.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/gates/mutation-adequacy.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.mutation-adequacy.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -2440,7 +2440,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 451,
         "symbol": "adaptArgs(handleNeedsSchemaSync)"
       },
@@ -2450,7 +2450,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.needs_schema_sync.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -2484,7 +2484,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/onboard/index.ts",
+        "file": "servers/exarchos-mcp/src/verbs/doctor/index.ts",
         "line": null,
         "symbol": "handleOnboard"
       },
@@ -2494,7 +2494,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/onboard/index.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/doctor/index.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.onboard.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -2528,7 +2528,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 446,
         "symbol": "adaptArgsWithEventStore(handlePostDelegationCheck)"
       },
@@ -2538,7 +2538,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.post_delegation_check.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -2572,7 +2572,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 448,
         "symbol": "adaptArgsWithStateDirAndEventStore(handlePreSynthesisCheck)"
       },
@@ -2582,7 +2582,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.pre_synthesis_check.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -2616,7 +2616,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 391,
         "symbol": "adaptWithCtx(handlePrepareDelegation)"
       },
@@ -2626,7 +2626,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.prepare_delegation.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -2660,7 +2660,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 454,
         "symbol": "adaptWithEventStore(handlePrepareReview)"
       },
@@ -2670,7 +2670,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.prepare_review.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -2704,7 +2704,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 392,
         "symbol": "adaptWithEventStoreAndConfig(handlePrepareSynthesis)"
       },
@@ -2714,7 +2714,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.prepare_synthesis.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -2748,7 +2748,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 473,
         "symbol": "handlePruneStaleWorkflows as ActionHandler"
       },
@@ -2758,7 +2758,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.prune_stale_workflows.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -2792,7 +2792,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 514,
         "symbol": "adaptCtx(handlePruneWorktrees)"
       },
@@ -2802,7 +2802,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.prune_worktrees.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -2836,7 +2836,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 447,
         "symbol": "adaptArgsWithEventStore(handleReconcileState)"
       },
@@ -2846,7 +2846,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.reconcile_state.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -2880,7 +2880,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 513,
         "symbol": "adaptCtx(handleReleaseWorktree)"
       },
@@ -2890,7 +2890,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.release_worktree.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -2924,7 +2924,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 474,
         "symbol": "adaptArgsWithStateDirAndEventStore(handleRequestSynthesize)"
       },
@@ -2934,7 +2934,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.request_synthesize.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -2968,7 +2968,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 429,
         "symbol": "adapt(handleReviewDiff)"
       },
@@ -2978,7 +2978,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.review_diff.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -3012,7 +3012,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 390,
         "symbol": "adaptWithEventStore(handleReviewTriage)"
       },
@@ -3022,7 +3022,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.review_triage.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -3100,7 +3100,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 431,
         "symbol": "adaptWithOptionalEventStore(handleSelectDebugTrack)"
       },
@@ -3110,7 +3110,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.select_debug_track.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -3144,7 +3144,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 520,
         "symbol": "adaptCtx(handleSerializeMerge)"
       },
@@ -3154,7 +3154,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.serialize_merge.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -3188,7 +3188,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 444,
         "symbol": "adaptSetupWorktree()"
       },
@@ -3198,7 +3198,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.setup_worktree.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -3232,7 +3232,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 442,
         "symbol": "adaptArgs(handleSpecCoverageCheck)"
       },
@@ -3242,7 +3242,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.spec_coverage_check.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -3276,7 +3276,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 387,
         "symbol": "adaptWithEventStore(handleTaskClaim)"
       },
@@ -3286,7 +3286,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.task_claim.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -3320,7 +3320,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 388,
         "symbol": "adaptWithEventStore(handleTaskComplete)"
       },
@@ -3330,7 +3330,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.task_complete.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -3364,7 +3364,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 389,
         "symbol": "adaptWithEventStore(handleTaskFail)"
       },
@@ -3374,7 +3374,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.task_fail.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -3408,7 +3408,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 436,
         "symbol": "adaptWithOptionalEventStore(handleValidatePrBody)"
       },
@@ -3418,7 +3418,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.validate_pr_body.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -3452,7 +3452,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 437,
         "symbol": "adaptArgs(handleValidatePrStack)"
       },
@@ -3462,7 +3462,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.validate_pr_stack.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -3496,7 +3496,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 445,
         "symbol": "adaptArgs(handleVerifyDelegationSaga)"
       },
@@ -3506,7 +3506,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.verify_delegation_saga.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -3540,7 +3540,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 452,
         "symbol": "adaptArgs(handleVerifyDocLinks)"
       },
@@ -3550,7 +3550,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.verify_doc_links.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -3584,7 +3584,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 453,
         "symbol": "adaptArgsWithStateDirAndEventStore(handleVerifyReviewTriage)"
       },
@@ -3594,7 +3594,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.verify_review_triage.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -3628,7 +3628,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 430,
         "symbol": "adapt(handleVerifyWorktree)"
       },
@@ -3638,7 +3638,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.verify_worktree.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",
@@ -3672,7 +3672,7 @@
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [],
       "handler": {
-        "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "file": "servers/exarchos-mcp/src/verbs/composite.ts",
         "line": 443,
         "symbol": "adapt(handleVerifyWorktreeBaseline)"
       },
@@ -3682,7 +3682,7 @@
       "disposition": "partial",
       "finding": "Registry input/output contract and exact implementation are reconciled; generated one-contract authority and packaged proof remain open.",
       "ownerControl": {
-        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "owner": "exarchos_orchestrate registry and servers/exarchos-mcp/src/verbs/composite.ts",
         "ciPosture": "registry/composite parity plus schema validation",
         "exitCondition": "CTR-001 generates this contract/dispatch projection and ART-004 closes packaged proof for orchestrate.verify_worktree_baseline.",
         "reevaluateAt": "action contract, handler, adapter, or packaging change",

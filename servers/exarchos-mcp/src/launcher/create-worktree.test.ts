@@ -34,9 +34,9 @@ import {
   WORKTREES_REDUCER,
   defaultGitRunner,
   type GitRunner,
-} from '../orchestrate/worktree/manager.js';
-import type { WorktreesProjection } from '../orchestrate/worktree/projections/worktrees.js';
-import { canonicalWorktreeId } from '../orchestrate/worktree/pure/path-containment.js';
+} from '../verbs/worktree/manager.js';
+import type { WorktreesProjection } from '../verbs/worktree/projections/worktrees.js';
+import { canonicalWorktreeId } from '../verbs/worktree/pure/path-containment.js';
 import { deriveWorktreePath, guardWorktreeContainment } from './topology.js';
 import {
   createLauncherWorktree,

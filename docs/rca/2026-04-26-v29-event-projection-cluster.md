@@ -153,7 +153,7 @@ Phase 1 shipped in two iterations:
 
 The final implementation:
 - `views/tools.ts` no longer exports `getOrCreateEventStore` or `registerCanonicalEventStore`. The module-globals are gone.
-- All 16 production handlers (orchestrate × 14, review × 1, telemetry × 1) accept `EventStore` as a typed parameter. The composite dispatcher (`orchestrate/composite.ts`, `views/composite.ts`) threads `ctx.eventStore` to each.
+- All 16 production handlers (orchestrate × 14, review × 1, telemetry × 1) accept `EventStore` as a typed parameter. The composite dispatcher (`verbs/composite.ts`, `views/composite.ts`) threads `ctx.eventStore` to each.
 - CLI entrypoints (`pre-compact`, `evals/run-evals-cli`, `assemble-context`) bootstrap their own `EventStore` via `new EventStore + initialize` — separate process boundaries, PID lock holds.
 - Test fixtures (~17 files) updated to construct the EventStore in `beforeEach` and pass it as the third arg to handler calls.
 - `scripts/check-event-store-composition-root.mjs` allowlist lists 5 paths: `index.ts`, `dispatch/core/context.ts`, `cli-commands/assemble-context.ts`, `cli-commands/pre-compact.ts`, `evals/run-evals-cli.ts`.

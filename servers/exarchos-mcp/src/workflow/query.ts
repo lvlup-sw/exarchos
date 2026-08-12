@@ -5,7 +5,7 @@ import type {
   WorkflowState,
 } from './types.js';
 import { ErrorCode } from './schemas.js';
-import { resolveWorkflowState } from '../orchestrate/resolve-state.js';
+import { resolveWorkflowState } from '../verbs/resolve-state.js';
 import { buildCheckpointMeta } from './checkpoint.js';
 import { getRecentEventsFromStore } from './events.js';
 import { getHSMDefinition } from './state-machine.js';
