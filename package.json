@@ -87,16 +87,19 @@
   "devDependencies": {
     "@modelcontextprotocol/client": "2.0.0",
     "@modelcontextprotocol/server": "2.0.0",
+    "@fast-check/vitest": "^0.2.4",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.0.0",
     "dependency-cruiser": "^17.4.3",
     "eslint": "^9.39.4",
+    "fast-check": "^4.5.3",
+    "gray-matter": "^4.0.3",
     "knip": "^6.6.2",
     "tsx": "^4.21.0",
     "typescript": "^5.0.0",
     "typescript-eslint": "^8.62.0",
     "vitest": "^3.0.0",
-    "zod": "^4.3.6"
+    "zod": "^4.4.3"
   },
   "engines": {
     "node": ">=20.0.0"

@@ -9,10 +9,11 @@ import {
   scanRepoDefaults,
   scanText,
   scanRegistryActions,
-  DATED_RECORD_TREES,
+  datedRecordTrees,
   type RegistryLoader,
   type RegistryToolLike,
 } from './vocabulary-lint.js';
+import { ARTIFACT_DIRS } from './bindings.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
@@ -402,16 +403,17 @@ describe('scanRepoDefaults / DATED_RECORD_TREES archival-invariance (DR-18, task
     }
 
     // ── Bind to the live constant + function: the archived trees are members of
-    //    the excluded DATED_RECORD_TREES set, and that set is DISJOINT from the
+    //    the excluded dated-record set, and that set is DISJOINT from the
     //    scanned allowlist — so nothing scanRepoDefaults reads is a dated-record
-    //    tree, making DATED_RECORD_TREES inert to the scan (vacuous to edit). ──
-    expect(DATED_RECORD_TREES).toContain('docs/designs/');
-    expect(DATED_RECORD_TREES).toContain('docs/plans/');
+    //    tree, making the set inert to the scan (vacuous to edit). ──
+    const dated = datedRecordTrees(ARTIFACT_DIRS);
+    expect(dated).toContain('docs/designs/');
+    expect(dated).toContain('docs/plans/');
     for (const scanRoot of SCAN_ROOTS) {
       const scanned = `${scanRoot}/`;
       expect(
-        DATED_RECORD_TREES,
-        `${scanned} must not be a dated-record tree — the scan allowlist and DATED_RECORD_TREES are disjoint`,
+        dated,
+        `${scanned} must not be a dated-record tree — the scan allowlist and the dated-record set are disjoint`,
       ).not.toContain(scanned);
     }
 

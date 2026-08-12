@@ -23,7 +23,15 @@ import { fileURLToPath } from 'node:url';
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const SRC = path.join(REPO_ROOT, 'servers/exarchos-mcp/src');
 const ARCH = path.join(SRC, 'architecture');
-const STMT_RE = /import\s+(type\s+)?([\s\S]*?)\s*from\s*['"](\.[^'"]+)['"]/g;
+// Anchored at a line start, and the clause may not contain a `;` — together
+// those keep a match inside ONE statement. An unanchored `[\s\S]*?` clause bleeds
+// across statements whenever an earlier import has a bare specifier: the lazy
+// run expands past `from 'node:fs'` (which the `\.` specifier class rejects) into
+// the NEXT import, so a following `import type` is read with the previous line's
+// missing `type` keyword and scored as a value edge. That misread every
+// `import fs from 'node:fs'` + `import type {...} from '../x.js'` pair in the
+// tree — inflating the "needs inversion" bucket with modules that are type-only.
+const STMT_RE = /^[ \t]*import\s+(type\s+)?([^;]*?)\s*from\s*['"](\.[^'"]+)['"]/gm;
 
 function walk(dir) {
   const out = [];

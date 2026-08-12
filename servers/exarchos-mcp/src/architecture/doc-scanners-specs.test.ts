@@ -4,7 +4,8 @@ import { join, dirname, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
-import { DATED_RECORD_TREES } from './vocabulary-lint.js';
+import { datedRecordTrees } from './vocabulary-lint.js';
+import { ARTIFACT_DIRS } from './bindings.js';
 import { handleVerifyDocLinks } from '../verbs/gates/verify-doc-links.js';
 import { getPlaybook } from '../workflow/playbooks.js';
 
@@ -23,9 +24,10 @@ describe('doc scanners include docs/specs/ (DR-9, task 019)', () => {
     // (1) vocabulary-lint classifies docs/specs/ as a dated record tree — the
     // same exclusion as the docs/designs/ + docs/plans/ it replaces, so a
     // point-in-time spec is never retroactively linted.
-    expect(DATED_RECORD_TREES).toContain('docs/specs/');
-    expect(DATED_RECORD_TREES).toContain('docs/designs/');
-    expect(DATED_RECORD_TREES).toContain('docs/plans/');
+    const dated = datedRecordTrees(ARTIFACT_DIRS);
+    expect(dated).toContain('docs/specs/');
+    expect(dated).toContain('docs/designs/');
+    expect(dated).toContain('docs/plans/');
 
     // (2) the doc-link verifier processes a docs/specs/ document — it resolves an
     // internal link inside a unified spec (path-agnostic; proves the verifier

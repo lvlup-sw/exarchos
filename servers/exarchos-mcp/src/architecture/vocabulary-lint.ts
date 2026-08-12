@@ -21,7 +21,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadInvariantIds } from './invariants-loader.js';
 import type { ExarchosConfig } from '../config/exarchos-config-schema.js';
-import { DEFAULT_SPEC_DIR, DEFAULT_LEGACY_DESIGN_DIR } from '../config/artifacts.js';
 
 export interface VocabularyFinding {
   file: string;
@@ -197,7 +196,7 @@ function walkDirectory(
  *   - `docs/architecture/` — the catalog itself plus its reference prose.
  *   - `docs/guides/` — consumer-facing guides that cite `INV-*` IDs.
  *
- * It intentionally does NOT walk all of `docs/`. The {@link DATED_RECORD_TREES}
+ * It intentionally does NOT walk all of `docs/`. The {@link datedRecordTrees}
  * are point-in-time artifacts: a token that was valid vocabulary when the doc was
  * written (e.g. the `DIM-*` axiom dimensions, retired in #1477) should not
  * retroactively fail the lint forever. Policing only the live surfaces keeps the
@@ -212,20 +211,32 @@ function walkDirectory(
  * is a dated record like the former `docs/designs/` + `docs/plans/` it replaces,
  * so it must be classified the same way — never retroactively linted.
  */
-export const DATED_RECORD_TREES: readonly string[] = Object.freeze([
-  // The two artifact prefixes come from their owner (DR-6) rather than being
+export interface ArtifactDirs {
+  /** The unified spec directory. Owner: `config/artifacts` `DEFAULT_SPEC_DIR`. */
+  readonly specDir: string;
+  /** The superseded design directory. Owner: `DEFAULT_LEGACY_DESIGN_DIR`. */
+  readonly legacyDesignDir: string;
+}
+
+export function datedRecordTrees(dirs: ArtifactDirs): readonly string[] {
+  // The two artifact prefixes arrive from their owner (DR-6) rather than being
   // re-typed here, so a default change cannot leave the lint walking a tree it
-  // is meant to skip. This scans Exarchos's own tree, so it uses the built-in
-  // defaults deliberately — not a consuming project's configured directories.
-  DEFAULT_LEGACY_DESIGN_DIR,
-  'docs/plans/',
-  DEFAULT_SPEC_DIR,
-  'docs/research/',
-  'docs/rca/',
-  'docs/contexts/',
-  'docs/followups/',
-  'docs/proposals/',
-]);
+  // is meant to skip. They are a required parameter rather than an import: this
+  // module is conformance code and must not reach into the tree it inspects, so
+  // the binding happens at the composition root instead. This scans Exarchos's
+  // own tree, so the caller supplies the built-in defaults deliberately — not a
+  // consuming project's configured directories.
+  return Object.freeze([
+    dirs.legacyDesignDir,
+    'docs/plans/',
+    dirs.specDir,
+    'docs/research/',
+    'docs/rca/',
+    'docs/contexts/',
+    'docs/followups/',
+    'docs/proposals/',
+  ]);
+}
 
 export function scanRepoDefaults(
   options: ScanOptions = {},
