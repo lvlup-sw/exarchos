@@ -1,0 +1,198 @@
+{
+  "$schema": "./comment-policy.schema.json",
+  "version": 1,
+  "rule": "A code comment states its constraint in words and names no planning ordinal. Planning ordinals identify artifacts of a workflow that a future reader cannot resolve and that are renumbered as the plan is revised, so a citation accurate when written stops being so without anything changing. Durable external references are unaffected: they name something outside this repository's planning cycle and a reader can follow them.",
+  "forbiddenOrdinals": [
+    {
+      "id": "design-requirement",
+      "pattern": "\\bDR-\\d+\\b",
+      "flags": "gi",
+      "enabled": true,
+      "remedy": "State the constraint the requirement imposes. Report the identifier as `implements` on the task-completion event, which is where the provenance chain reads it."
+    },
+    {
+      "id": "task-ordinal",
+      "pattern": "\\btask[ -]\\d{1,4}\\b",
+      "flags": "gi",
+      "enabled": true,
+      "remedy": "Describe what the code does. The task identifier belongs to the plan and to the task-completion event, not to the source."
+    },
+    {
+      "id": "task-shorthand",
+      "pattern": "\\bT-\\d{1,4}\\b",
+      "flags": "g",
+      "enabled": true,
+      "remedy": "Describe what the code does. The task identifier belongs to the plan and to the task-completion event, not to the source."
+    },
+    {
+      "id": "task-shorthand-padded",
+      "pattern": "\\bT\\d{3,4}\\b",
+      "flags": "g",
+      "enabled": true,
+      "remedy": "Describe what the code does. The task identifier belongs to the plan and to the task-completion event, not to the source."
+    },
+    {
+      "id": "wave-ordinal",
+      "pattern": "\\bwave \\d{1,4}\\b",
+      "flags": "gi",
+      "enabled": true,
+      "remedy": "Name the behavior rather than the delivery batch it arrived in. A wave number stops meaning anything once the wave has landed."
+    },
+    {
+      "id": "slice-ordinal",
+      "pattern": "\\bslice \\d{1,4}\\b",
+      "flags": "gi",
+      "enabled": true,
+      "remedy": "Name the behavior rather than the delivery batch it arrived in."
+    },
+    {
+      "id": "epic-ordinal",
+      "pattern": "\\bepic #\\d+\\b",
+      "flags": "gi",
+      "enabled": true,
+      "remedy": "State the constraint. A bare `owner/repo#123` reference is permitted where the issue genuinely adds context a reader can follow."
+    },
+    {
+      "id": "invariant-ordinal",
+      "pattern": "\\bINV-\\d+[a-z]?\\b",
+      "flags": "g",
+      "enabled": true,
+      "remedy": "State the invariant's substance in words. The catalog stays citable from documentation, which is where the identifier resolves; a resolution check cannot tell a stale citation from a live one, because catalog entries are rewritten and renumbered in place."
+    },
+    {
+      "id": "planning-artifact-path",
+      "pattern": "\\bdocs/(?:specs|designs|plans)/[\\w./#-]+",
+      "flags": "gi",
+      "enabled": true,
+      "remedy": "Summarize the decision the document records. A path into the planning tree is not stable and the document may move out of this repository."
+    }
+  ],
+  "notForbidden": [
+    {
+      "id": "phase-ordinal",
+      "pattern": "\\bphase \\d+\\b",
+      "reason": "Product vocabulary, not a planning ordinal. The workflow state machine has numbered phases and the append path has numbered phases; treating these as citations produced 45 false positives on the measured tree."
+    }
+  ],
+  "allowedReferences": [
+    {
+      "id": "url",
+      "pattern": "\\bhttps?://[^\\s)]+",
+      "flags": "gi",
+      "reason": "Resolvable by any reader, and outside this repository's planning cycle."
+    },
+    {
+      "id": "issue-reference",
+      "pattern": "\\b[\\w.-]+/[\\w.-]+#\\d+\\b",
+      "flags": "g",
+      "reason": "A fully-qualified issue names a durable record in a system that keeps it."
+    },
+    {
+      "id": "cve",
+      "pattern": "\\bCVE-\\d{4}-\\d{4,}\\b",
+      "flags": "gi",
+      "reason": "A published vulnerability identifier, stable by definition."
+    },
+    {
+      "id": "rfc",
+      "pattern": "\\bRFC[ -]?\\d{3,5}\\b",
+      "flags": "gi",
+      "reason": "A published standard, stable by definition."
+    }
+  ],
+  "changelogPatterns": [
+    {
+      "id": "previously-narration",
+      "pattern": "\\bpreviously[ ,]+(?:this|it|we|the|these|that)\\b",
+      "flags": "gi",
+      "enabled": true,
+      "remedy": "Describe what the code does now. A bare `previously` with no change narration is fine; this matches only the narrating form."
+    },
+    {
+      "id": "used-to-be",
+      "pattern": "\\bused to be\\b",
+      "flags": "gi",
+      "enabled": true,
+      "remedy": "Describe present behavior. Version control holds the history."
+    },
+    {
+      "id": "formerly",
+      "pattern": "\\bformerly\\b",
+      "flags": "gi",
+      "enabled": true,
+      "remedy": "Describe present behavior. Version control holds the history."
+    },
+    {
+      "id": "passive-change-verb",
+      "pattern": "\\b(?:was|were) (?:renamed|replaced|removed|migrated|moved|extracted|deleted)\\b",
+      "flags": "gi",
+      "enabled": false,
+      "remedy": "Describe present behavior. What a thing was called before is a question for `git log`.",
+      "disabledReason": "Measured 42/50 (84%) on the tree, below the 95% floor. The 8 false positives are one coherent class: the verb describing a CONDITION rather than this code's history — a hypothetical (\"if `@proof` were renamed\"), a diagnostic (\"the seam was moved or renamed, so the specifier resolved nothing\"), a negation (\"nothing was renamed — only the place the name is DECLARED moved\"), a quoted example of the very phrasing being discussed, and a structural relative clause (\"the routing construct a route was extracted from\"). Narrowing to exclude conditional and diagnostic context is the path to enabling it; shipping at 84% would spend more review attention than it saves."
+    },
+    {
+      "id": "no-longer",
+      "pattern": "\\bno longer\\b",
+      "flags": "gi",
+      "enabled": false,
+      "remedy": "Describe present behavior.",
+      "disabledReason": "Measured 316 matches on the tree; adjudicating 22 put precision near 50%, far below the floor. Roughly half describe present or conditional behavior rather than narrating a change — \"allowlist entries knip no longer flags\", \"unprobed rungs may no longer accumulate\", \"a build that no longer emits the shipped path would still...\". Stays disabled."
+    }
+  ],
+  "precisionFloor": {
+    "threshold": 0.95,
+    "sampleSize": 50,
+    "reason": "A pattern that blocks below this rate spends more reviewer attention on false positives than it saves. Where fewer than sampleSize matches exist, all are adjudicated."
+  },
+  "exemptPaths": [
+    {
+      "glob": ".exarchos/comment-policy.json",
+      "reason": "The policy datum states the patterns it forbids. A datum that cannot spell its own rule cannot declare it."
+    },
+    {
+      "glob": "scripts/lib/comment-*.mjs",
+      "reason": "The classifier and extractor carry the rule's own vocabulary in remedies and doc comments."
+    },
+    {
+      "glob": "scripts/lib/comment-*.test.ts",
+      "reason": "The tests assert on the patterns, so they must contain them."
+    },
+    {
+      "glob": "scripts/check-comment-*.mjs",
+      "reason": "The gate's own sources."
+    },
+    {
+      "glob": "scripts/check-comment-*.test.ts",
+      "reason": "The gate's own tests."
+    },
+    {
+      "glob": "scripts/__fixtures__/comment-hygiene/**",
+      "reason": "Kill fixtures carry verbatim offender text. A guard that flags its own fixtures cannot be tested."
+    },
+    {
+      "glob": "eslint-rules/comment-content.js",
+      "reason": "The rule's own source."
+    },
+    {
+      "glob": "eslint-rules/comment-content.test.js",
+      "reason": "The rule's own tests."
+    },
+    {
+      "glob": "eslint-rules/__fixtures__/**",
+      "reason": "Rule fixtures carry verbatim offender text."
+    },
+    {
+      "glob": "docs/evals/**/runs/**",
+      "reason": "Verbatim captured agent output. This is evidence of what an agent produced, not authored code: rewriting it would destroy the record, and blocking on it would fail the tree for something no author wrote."
+    }
+  ],
+  "waivers": [],
+  "coverage": {
+    "exportedDeclarations": {
+      "enabled": false,
+      "baselinePath": "scripts/tsdoc-coverage-baseline.json",
+      "direction": "monotonic-increase",
+      "disabledReason": "The baseline is measured against a settled tree. Capturing it before the pending structural refactor would key it to paths that refactor destroys, and its diff-scoped check would block that refactor's decomposition wave."
+    }
+  }
+}

@@ -1,0 +1,170 @@
+{
+  "measuredAt": "2026-08-11",
+  "tree": "2306dd2e3b5a7df408bcfddaf6c496371e7cf367",
+  "instrument": "scripts/lib/comment-precision-sample.mjs",
+  "reproduce": "node scripts/lib/comment-precision-sample.mjs --limit 50",
+  "scannedFiles": 1885,
+  "indeterminateFiles": 0,
+  "floor": { "threshold": 0.95, "sampleSize": 50 },
+  "note": "Sampling is deterministic — files sorted by path, matches in source order, first N taken — so a re-run reproduces the same sample and these verdicts stay attached to the matches they were made about. Adjudication depth is recorded per pattern rather than assumed: the ordinal classes are structurally unambiguous (a comment containing `DR-4` cannot mean anything but the planning ordinal), while the changelog classes turn on English semantics and were adjudicated at full depth because their verdict was genuinely in doubt.",
+  "patterns": {
+    "design-requirement": {
+      "totalMatches": 4367,
+      "adjudicated": 7,
+      "truePositives": 7,
+      "precision": 1.0,
+      "verdict": "enabled",
+      "basis": "structural — the token has no non-ordinal reading"
+    },
+    "task-ordinal": {
+      "totalMatches": 1983,
+      "adjudicated": 7,
+      "truePositives": 7,
+      "precision": 1.0,
+      "verdict": "enabled",
+      "basis": "structural"
+    },
+    "task-shorthand": {
+      "totalMatches": 629,
+      "adjudicated": 12,
+      "truePositives": 12,
+      "precision": 1.0,
+      "verdict": "enabled",
+      "basis": "structural. The hyphenated form is deliberate: a bare `T<n>` collides with generic type parameters, `@template T1`, `{@link T2}` and `T0` timing notation, and every one of those appears in this tree. Requiring the hyphen removes the collision by construction rather than by exception list — confirmed by `Precision_TypeParameterT_NotClassifiedAsOrdinal`."
+    },
+    "task-shorthand-padded": {
+      "totalMatches": 326,
+      "adjudicated": 40,
+      "truePositives": 40,
+      "precision": 1.0,
+      "verdict": "enabled",
+      "basis": "structural, sampled evenly across all 326 matches rather than from the head, so a clustered false-positive class could not hide in the tail. Added after the hyphenated pattern was found to miss the tree's dominant form: real citations are written `T034`, `T051`, `T002` with no hyphen. Requiring three or more digits is what keeps this clear of the collision class — `T0` timing notation and `T1`/`T2` type parameters cannot match, and both appear in this tree."
+    },
+    "wave-ordinal": {
+      "totalMatches": 224,
+      "adjudicated": 12,
+      "truePositives": 12,
+      "precision": 1.0,
+      "verdict": "enabled",
+      "basis": "structural"
+    },
+    "slice-ordinal": {
+      "totalMatches": 60,
+      "adjudicated": 12,
+      "truePositives": 12,
+      "precision": 1.0,
+      "verdict": "enabled",
+      "basis": "structural"
+    },
+    "epic-ordinal": {
+      "totalMatches": 31,
+      "adjudicated": 7,
+      "truePositives": 7,
+      "precision": 1.0,
+      "verdict": "enabled",
+      "exhaustiveAvailable": true,
+      "basis": "structural. The remedy is the qualified `owner/repo#123` form, which the allowed-reference class permits — so a genuinely useful issue citation survives the rule by being written resolvably."
+    },
+    "invariant-ordinal": {
+      "totalMatches": 1283,
+      "adjudicated": 7,
+      "truePositives": 7,
+      "precision": 1.0,
+      "verdict": "enabled",
+      "basis": "structural. No carve-out: a resolution check proves an entry exists, not that the citation is still true, and catalog entries are rewritten and renumbered in place."
+    },
+    "planning-artifact-path": {
+      "totalMatches": 114,
+      "adjudicated": 7,
+      "truePositives": 7,
+      "precision": 1.0,
+      "verdict": "enabled",
+      "basis": "structural"
+    },
+    "previously-narration": {
+      "totalMatches": 18,
+      "adjudicated": 14,
+      "truePositives": 14,
+      "precision": 1.0,
+      "verdict": "enabled",
+      "basis": "semantic, adjudicated. Requiring a following pronoun or article is what separates narration from a bare `previously`, which frequently describes present behavior (\"previously computed values are reused\")."
+    },
+    "used-to-be": {
+      "totalMatches": 38,
+      "adjudicated": 14,
+      "truePositives": 14,
+      "precision": 1.0,
+      "verdict": "enabled",
+      "basis": "semantic, adjudicated. The phrase has no present-tense reading."
+    },
+    "formerly": {
+      "totalMatches": 4,
+      "adjudicated": 4,
+      "truePositives": 4,
+      "precision": 1.0,
+      "verdict": "enabled",
+      "exhaustive": true,
+      "basis": "semantic, adjudicated exhaustively — every match on the tree was read."
+    },
+    "passive-change-verb": {
+      "totalMatches": 131,
+      "adjudicated": 50,
+      "truePositives": 42,
+      "precision": 0.84,
+      "verdict": "disabled",
+      "basis": "Below the floor. The 8 false positives are one coherent class — the verb describing a CONDITION rather than this code's history. Narrowing to exclude conditional and diagnostic context is the path to enabling it.",
+      "falsePositives": [
+        {
+          "file": "scripts/audit/knip-diff.ts",
+          "match": "were renamed",
+          "why": "hypothetical — \"If `@proof` were renamed, or ...\""
+        },
+        {
+          "file": "scripts/check-measured-premises.mjs",
+          "match": "was moved",
+          "why": "quoted failure condition — \"the allowlist was moved, renamed or emptied\""
+        },
+        {
+          "file": "scripts/guard-inventory.ts",
+          "match": "was renamed",
+          "why": "negation describing present state — \"nothing was renamed — only the place the name is DECLARED moved\""
+        },
+        {
+          "file": "servers/exarchos-mcp/src/architecture/axiom-retirement.test.ts",
+          "match": "was removed",
+          "why": "quoted example of the phrasing under discussion, not narration by this comment"
+        },
+        {
+          "file": "servers/exarchos-mcp/src/architecture/import-cycles.ts",
+          "match": "was renamed",
+          "why": "failure mode — \"silently pass while the module it names was renamed away\""
+        },
+        {
+          "file": "servers/exarchos-mcp/src/architecture/sdk-generation-seam.ts",
+          "match": "was moved",
+          "why": "diagnostic condition — \"`SDK_SEAM_MODULE_MISSING` — the seam was moved or renamed\""
+        },
+        {
+          "file": "servers/exarchos-mcp/src/contract/dispatch-routes.ts",
+          "match": "was extracted",
+          "why": "structural relative clause — \"the routing construct a route was extracted from\""
+        },
+        {
+          "file": "servers/exarchos-mcp/src/event-store/registration-validate.ts",
+          "match": "was deleted",
+          "why": "conditional — \"a `consumedBy` naming a reducer that was deleted still boots\""
+        }
+      ]
+    },
+    "no-longer": {
+      "totalMatches": 316,
+      "adjudicated": 22,
+      "truePositives": 11,
+      "precision": 0.5,
+      "verdict": "disabled",
+      "basis": "Far below the floor, confirming the design's own doubt about this phrase. Roughly half of the sample describes present or conditional behavior rather than narrating a change: \"allowlist entries knip no longer flags\", \"unprobed rungs may no longer accumulate\", \"a build that no longer emits the shipped path would still leave every installer test passing\". Adjudication stopped at 22 because the verdict was already unambiguous.",
+      "priorEstimate": 321,
+      "priorEstimateNote": "The design recorded 321 from a regex pass. The parse-based extractor finds 316, so the two agree within rounding and the phrase's volume was never the uncertain part."
+    }
+  }
+}
