@@ -1,0 +1,93 @@
+{
+  "capturedAt": "2026-08-11",
+  "tree": "ffcdb01ed",
+  "oracleEnvironment": "ci",
+  "oracleEnvironmentRationale": "Green is not a single fact for this repository: the nested MCP suite fails locally in a way it does not on CI. Pinning the oracle to CI makes the baseline reproducible by anyone, and makes the local delta an explicitly named exclusion rather than an unrecorded difference that a later reconciliation would read as damage this refactor caused.",
+  "referenceCiRun": {
+    "workflow": "CI Gate",
+    "headSha": "355ffd63",
+    "conclusion": "success",
+    "url": "https://github.com/lvlup-sw/exarchos/actions/runs/31446406465",
+    "note": "The two runs before this one also succeeded, so the green result is not a single lucky pass."
+  },
+  "rootSuite": {
+    "runner": "npx vitest run",
+    "files": 167,
+    "tests": 1690,
+    "skipped": 17,
+    "failures": 0,
+    "environment": "local",
+    "note": "The root package is green locally AND on CI, so it needs no exclusions."
+  },
+  "typecheck": {
+    "root": "clean",
+    "nested": "clean",
+    "note": "The nested typecheck requires `cd servers/exarchos-mcp && npm install` in a fresh worktree; without it four module-resolution errors appear that are environmental, not real."
+  },
+  "nestedSuite": {
+    "runner": "cd servers/exarchos-mcp && npm run test:run",
+    "files": 914,
+    "tests": 11662,
+    "passed": 11611,
+    "skipped": 25,
+    "localFailures": 26,
+    "ciResult": "green"
+  },
+  "excludedFromOracle": {
+    "count": 26,
+    "files": 9,
+    "reason": "Local-only failures, confined to the merge-orchestrate handler and one event-store race test. The same tree is green on CI, so these are an environment artifact rather than a defect this refactor must carry. They are named individually so a later reconciliation can tell them apart from a regression: an unexplained failure outside this list blocks, and any of these that starts passing locally should be removed from the list rather than left as permanent cover.",
+    "reviewTrigger": "If any listed test fails on CI, this exclusion is void and the failure is real.",
+    "byFile": {
+      "src/event-store/store.race.test.ts": [
+        "MergeOrchestrate_TwoConcurrentInvocationsSameStream_NoDuplicateSequences"
+      ],
+      "src/orchestrate/merge-orchestrate.api-refire.test.ts": [
+        "MergeOrchestrate_PostMigration_DoesNotRefireExecutorOnOccRetry"
+      ],
+      "src/orchestrate/merge-orchestrate.busy.test.ts": [
+        "MergeOrchestrate_StorageBusyContention_RetriesViaWithStateRetryAndEventuallySucceeds"
+      ],
+      "src/orchestrate/merge-orchestrate.integration.test.ts": [
+        "MergeOrchestrate_CrashAfterMergeExecutedAppendThenResume_AppendsExactlyOneMergeExecutedEvent",
+        "eventTimeline_AfterRollback_NextActionsOmitMergeOrchestrate",
+        "eventTimeline_RecoveryPath_ContainsMergeRecoveredWithCategorizedReason",
+        "eventTimeline_TaskCompletedThroughMergeExecuted_FullyReconstructs"
+      ],
+      "src/orchestrate/merge-orchestrate.migration.test.ts": [
+        "MergeOrchestrate_PostMigration_ProducesThreeEventSequence"
+      ],
+      "src/orchestrate/merge-orchestrate.parity-harness.test.ts": [
+        "Parity_MergeOrchestrate_CliAndMcpProduceIdenticalToolResult"
+      ],
+      "src/orchestrate/merge-orchestrate.parity.test.ts": [
+        "mergeOrchestrate_CliAndMcpAdapters_ProduceIdenticalToolResult",
+        "mergeOrchestrate_TopLevelCli_MatchesMcpToolResult"
+      ],
+      "src/orchestrate/merge-orchestrate.race.test.ts": [
+        "MergeOrchestrate_ConcurrentInvocations_OneWinsOneRetriesViaConcurrencyConflict"
+      ],
+      "src/orchestrate/merge-orchestrate.test.ts": [
+        "MergeOrchestrate_EnvSetAndAncestryFail_AppendsDebugBlockToEvent",
+        "MergeOrchestrate_EnvUnsetAndAncestryFail_NoDebugBlockOnEvent",
+        "MergeOrchestrate_PassingAncestryWithDebugInjected_DoesNotPersistDebug",
+        "handleMergeOrchestrate_Always_EmitsMergePreflightEventOnce",
+        "handleMergeOrchestrate_DryRunFlag_RunsPreflightAndSkipsExecutor",
+        "handleMergeOrchestrate_DryRunPassedTrue_ReturnsToolResultSuccess",
+        "handleMergeOrchestrate_PreflightAndExecutePass_ReturnsCompletedToolResult",
+        "handleMergeOrchestrate_PreflightFails_EmitsMergePreflightWithPassedFalse",
+        "handleMergeOrchestrate_PreflightFails_PersistsPhaseAbortedAndReturnsToolResultFailure",
+        "handleMergeOrchestrate_ResumeWithCompletedState_ReturnsExistingResultNoOp",
+        "handleMergeOrchestrate_ResumeWithExistingPendingState_LoadsAndContinues",
+        "handleMergeOrchestrate_ResumeWithoutFlagButStateExists_StartsFresh",
+        "handleMergeOrchestrate_StateWriteRetriesExhausted_ReturnsToolResultFailure",
+        "handleMergeOrchestrate_StateWriteVersionConflict_RetriesAndSucceeds"
+      ]
+    }
+  },
+  "windowsLeg": {
+    "status": "outstanding",
+    "reason": "Task 001 requires a clean-clone verification on Windows as well as Linux. This capture is Linux plus CI only. The Windows leg is owed before Phase 1 lands, and the case-exactness gate that depends on it is task 045.",
+    "note": "Recorded as outstanding rather than silently omitted: an oracle that quietly covers one platform would let a Windows-only breakage look like a clean baseline."
+  }
+}
