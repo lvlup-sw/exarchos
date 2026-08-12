@@ -31,10 +31,13 @@ const here = dirname(fileURLToPath(import.meta.url));
 // strings we forbid in every other file.
 const sc = 'side' + 'car';
 
-/** Symbols/paths that must no longer appear anywhere under src/orchestrate. */
+/** Symbols/paths that must no longer appear anywhere under src/verbs. */
 const FORBIDDEN_TOKENS = [
   `${sc}:emit`,
-  `from '../orchestrate/${sc}-lookup`,
+  // Path-agnostic on purpose: pinning the old `../orchestrate/` specifier made
+  // this token unmatchable the moment task 015 renamed the directory, so a
+  // resurrected import under any path would have slipped through.
+  `${sc}-lookup`,
   `from './${sc}-schemas`,
   `loadDesign${sc[0].toUpperCase()}${sc.slice(1)}`,
   `loadPlan${sc[0].toUpperCase()}${sc.slice(1)}`,
@@ -62,7 +65,7 @@ function collectTsFiles(dir: string): string[] {
 }
 
 describe('sidecar layer removal (#1494)', () => {
-  it('no file under src/orchestrate references the deleted sidecar layer', () => {
+  it('no file under src/verbs references the deleted sidecar layer', () => {
     const files = collectTsFiles(here);
     // The shield must not flag itself — FORBIDDEN_TOKENS appears here as data.
     const candidates = files.filter((f) => !f.endsWith('sidecar-removal.test.ts'));

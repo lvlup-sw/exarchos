@@ -162,7 +162,7 @@ describe('dev-catalog v3 content — CR-2 mode:check enforcement', () => {
     // The forbidden git-args invocation `['reset', '--hard', …]`.
     const resetHard = `['reset', ` + `'--hard', sha]`;
     const violating = diffFor(
-      'servers/exarchos-mcp/src/verbs/pure/execute-merge.ts',
+      'servers/exarchos-mcp/src/verbs/merge/execute-merge.ts',
       [`    gitExec(repoRoot, ${resetHard});`],
     );
     expect(evaluateTree(checkTreeOf('INV-14'), violating).length).toBeGreaterThanOrEqual(1);
@@ -171,7 +171,7 @@ describe('dev-catalog v3 content — CR-2 mode:check enforcement', () => {
   it('inv14_usesResetKeepRecoveryLadder_producesNoFinding', () => {
     // The conforming INV-14 ladder: merge --abort → reset --keep, never --hard.
     const conforming = diffFor(
-      'servers/exarchos-mcp/src/verbs/pure/execute-merge.ts',
+      'servers/exarchos-mcp/src/verbs/merge/execute-merge.ts',
       [
         `    gitExec(repoRoot, ['merge', '--abort']);`,
         `    gitExec(repoRoot, ['reset', '--keep', sha]);`,
@@ -197,7 +197,7 @@ describe('dev-catalog v3 content — CR-2 mode:check enforcement', () => {
 
   it('inv13_addsExecutedWithoutRequested_fires', () => {
     const violating = diffFor(
-      'servers/exarchos-mcp/src/verbs/pure/execute-merge.ts',
+      'servers/exarchos-mcp/src/verbs/merge/execute-merge.ts',
       [`    await emit(eventStore, featureId, 'merge.executed', { mergeSha });`],
     );
     expect(evaluateTree(checkTreeOf('INV-13'), violating).length).toBeGreaterThanOrEqual(1);
@@ -205,7 +205,7 @@ describe('dev-catalog v3 content — CR-2 mode:check enforcement', () => {
 
   it('inv13_addsBothRequestedAndExecuted_producesNoFinding', () => {
     const conforming = diffFor(
-      'servers/exarchos-mcp/src/verbs/pure/execute-merge.ts',
+      'servers/exarchos-mcp/src/verbs/merge/execute-merge.ts',
       [
         `    await emit(eventStore, featureId, 'merge.requested', { payload });`,
         `    await emit(eventStore, featureId, 'merge.executed', { mergeSha });`,
@@ -214,8 +214,8 @@ describe('dev-catalog v3 content — CR-2 mode:check enforcement', () => {
     expect(evaluateTree(checkTreeOf('INV-13'), conforming)).toEqual([]);
   });
 
-  it('inv13_executedOutsideOrchestrateScope_producesNoFinding', () => {
-    // Scope guard: an executed emission outside the orchestrate handler tree is
+  it('inv13_executedOutsideVerbScope_producesNoFinding', () => {
+    // Scope guard: an executed emission outside the verb handler tree is
     // out of range, so the two-event proxy does not fire on it.
     const outOfScope = diffFor('servers/exarchos-mcp/src/projections/telemetry/foo.ts', [
       `    await emit(eventStore, featureId, 'merge.executed', { mergeSha });`,

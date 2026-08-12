@@ -51,7 +51,7 @@ const FUNCTIONAL_ALLOWLIST: ReadonlyArray<string> = [OWNER, 'scripts/guard-inven
 const PROSE_BUDGET: Readonly<Record<string, number>> = {
   'scripts/check-measured-premises.mjs': 1,
   'servers/exarchos-mcp/src/evals/benchmarks/plan-format-corpus.ts': 1,
-  'servers/exarchos-mcp/src/verbs/pure/design-completeness.ts': 1,
+  'servers/exarchos-mcp/src/verbs/gates/design-completeness.ts': 1,
   'servers/exarchos-mcp/src/verbs/tasks/discover-bridge.ts': 1,
   'servers/exarchos-mcp/src/verbs/team/prepare-review.ts': 1,
   'servers/exarchos-mcp/src/registry.ts': 1,

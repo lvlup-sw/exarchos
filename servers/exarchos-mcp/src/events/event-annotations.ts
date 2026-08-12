@@ -30,7 +30,7 @@
 //     substrate-vs-capability-vs-workflow-local and fixes `provider` / `workflow`.
 //   • CONSUMER FOLD — which reducer or view turns the event into state, read out of every
 //     `ViewProjection` / `ProjectionReducer` in `views/`, `projections/`, `telemetry/` and
-//     `orchestrate/worktree/projections/`. This fixes `consumedBy`, and its EMPTINESS is what
+//     `verbs/worktree/projections/`. This fixes `consumedBy`, and its EMPTINESS is what
 //     disqualifies an event from `capability`.
 //
 // Three findings came out of that measurement, and they are the substance of this task:

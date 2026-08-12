@@ -4,7 +4,7 @@
 // from infrastructure streams without duplicating string literals across
 // modules (DIM-1 — single source of truth).
 //
-// The owning modules (`orchestrate/init`, `orchestrate/doctor`,
+// The owning modules (`verbs/init`, `verbs/doctor`,
 // `telemetry/constants`) re-export from this file to preserve existing
 // import paths.
 

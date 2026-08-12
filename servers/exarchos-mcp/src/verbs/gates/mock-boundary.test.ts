@@ -63,12 +63,12 @@ describe('detectMockFindings', () => {
 
   describe('DetectMocks_FirstPartyMock_Allowed', () => {
     it('does not flag a vi.mock whose relative specifier resolves under a first-party glob', () => {
-      // foo.test.ts lives at servers/exarchos-mcp/src/orchestrate/; the relative
+      // foo.test.ts lives at servers/exarchos-mcp/src/verbs/; the relative
       // '../config/toolchains.js' resolves to servers/exarchos-mcp/src/config/
       // toolchains.js, which matches `servers/*/src/**`.
       const diff: readonly FileDiff[] = [
         testDiff('servers/exarchos-mcp/src/verbs/foo.test.ts', [
-          [8, "vi.mock('../../config/toolchains.js');"],
+          [8, "vi.mock('../config/toolchains.js');"],
         ]),
       ];
 
@@ -179,7 +179,7 @@ describe('detectMockFindings', () => {
       // a sibling stays outside → unowned.
       const outside: readonly FileDiff[] = [
         testDiff('scripts/tools/foo.test.ts', [
-          [4, "vi.mock('../../orchestrate/bar.js');"],
+          [4, "vi.mock('./bar.js');"],
         ]),
       ];
       const outsideFindings = detectMockFindings(outside, { firstPartyGlobs: FIRST_PARTY });
@@ -191,7 +191,7 @@ describe('detectMockFindings', () => {
       // resolves under src/** → owned, filtered out.
       const inside: readonly FileDiff[] = [
         testDiff('src/verbs/foo.test.ts', [
-          [4, "vi.mock('../../orchestrate/bar.js');"],
+          [4, "vi.mock('./bar.js');"],
         ]),
       ];
       const insideFindings = detectMockFindings(inside, { firstPartyGlobs: FIRST_PARTY });

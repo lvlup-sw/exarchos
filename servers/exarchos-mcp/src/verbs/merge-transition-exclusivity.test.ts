@@ -10,7 +10,7 @@
 // record — see CLAUDE.md "State surfaces").
 //
 // This is a structural guard: it scans every `.ts` source file under
-// `src/orchestrate/` and asserts no merge-transition code path applies a
+// `src/verbs/` and asserts no merge-transition code path applies a
 // bare top-level phase-set for a merge-pending entry/exit. The merge
 // orchestrator is permitted to write its OWN sub-state (`mergeOrchestrator.
 // phase`, an internal pending/executing/completed/rolled-back/aborted
@@ -103,8 +103,8 @@ describe('Orchestrate_NoSetPhaseCalls_ForMergeTransitions (#1305 T15)', () => {
     // mutation on the merge path, this fails before it can desync the
     // projection.
     const mergeFiles = [
-      join(here, 'merge-orchestrate.ts'),
-      join(here, 'execute-merge.ts'),
+      join(here, 'merge', 'merge-orchestrate.ts'),
+      join(here, 'merge', 'execute-merge.ts'),
     ];
     const bareSetTokens = [`${setCall}${phaseKey}`, `${setCallTight}${phaseKey}`];
 

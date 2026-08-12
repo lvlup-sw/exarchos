@@ -169,7 +169,7 @@ describe('RetirementSafety_DependencyScan (path + import resolution)', () => {
 
   it('resolves ../ and ./ specifiers against the importing module directory', () => {
     expect(resolveRelativeTarget('workflow/state-machine.ts', './guards.js')).toBe('workflow/guards');
-    expect(resolveRelativeTarget('verbs/tasks/finalize-oneshot.ts', '../workflow/guards.js')).toBe(
+    expect(resolveRelativeTarget('verbs/tasks/finalize-oneshot.ts', '../../workflow/guards.js')).toBe(
       'workflow/guards',
     );
     expect(resolveRelativeTarget('a/b/c.ts', '../../top.js')).toBe('top');

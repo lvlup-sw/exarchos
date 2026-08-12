@@ -64,11 +64,13 @@ const EXPECTED_CONSUMERS = [
   'src/events/index.ts',
   'src/events/store.ts',
   'src/events/tools.ts',
-  'src/verbs/pure/execute-merge.ts',
+  // Sorted order: the regroup moved these from `orchestrate/` to `verbs/`, which
+  // now sorts AFTER `storage/` rather than before it.
+  'src/storage/sqlite-backend.ts',
+  'src/verbs/merge/execute-merge.ts',
   'src/verbs/merge/merge-orchestrate.ts',
   'src/verbs/worktree/manager.ts',
   'src/verbs/worktree/merge-serializer.ts',
-  'src/storage/sqlite-backend.ts',
   // P06-05 (structural-closure remediation): the admission chokepoint appends
   // the admission decision and the phase-lifecycle sibling in ONE `decideOnce`
   // transaction — the atomicity the work package's exit proof ("partial

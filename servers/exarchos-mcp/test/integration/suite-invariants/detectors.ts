@@ -301,7 +301,7 @@ export function checkBlockingClaims(file: string, source: string): readonly Viol
 /**
  * The defect: a probe that could not execute is reported through the same
  * channel as a probe that executed and passed, so `passed: true` means either
- * "it worked" or "we never looked". `src/orchestrate/
+ * "it worked" or "we never looked". `src/verbs/
  * test-adequacy.production-path.test.ts` names this class explicitly
  * ("REPRESENTABILITY"). This rule forbids reproducing it.
  *

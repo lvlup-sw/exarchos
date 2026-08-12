@@ -2636,7 +2636,7 @@ describe('handlePrepareDelegation', () => {
 // exercising the genuine classify seam end-to-end — not a hand-mocked fixture.
 describe('classifyTask — stamped-corpus model mix (DR-1 #1672)', () => {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
-  const SPECS_DIR = path.join(__dirname, '..', '..', '..', '..', 'docs', 'specs');
+  const SPECS_DIR = path.join(__dirname, '..', '..', '..', '..', '..', 'docs', 'specs');
 
   /** Load every stamped task from docs/specs via the production stamp parser. */
   function loadStampedCorpus(): TaskInput[] {

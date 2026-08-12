@@ -3187,7 +3187,7 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
   }
 
   // A minimal VALID baseline `data` per typed-output action, shape-derived from
-  // the real handler returns (orchestrate/worktree/schemas.ts,
+  // the real handler returns (verbs/worktree/schemas.ts,
   // TelemetryViewDataSchema). Keyed `tool.action`.
   const baselineDataByAction: Record<string, Record<string, unknown>> = {
     'exarchos_orchestrate.acquire_worktree': {

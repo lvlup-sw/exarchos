@@ -461,7 +461,7 @@ describe('EventTypes', () => {
     // V5→V6 correlation-column backfill (Wave 2 of correlation-indexed-columns).
     // invariants-catalog-wizard P2: bumped 116 → 118 to include
     // `invariant.authored` + `catalog.registered`, emitted by the
-    // `invariants_add` composite handler (orchestrate/invariants/add.ts).
+    // `invariants_add` composite handler (verbs/invariants/add.ts).
     // #1304 INV-10 alignment: bumped 118 → 119 to include `merge.completed`,
     // the terminal lifecycle marker emitted by `handleExecuteMerge` adjacent
     // to `merge.executed`. Folded by `merge-orchestrator@v1` as the
@@ -477,7 +477,7 @@ describe('EventTypes', () => {
     // run-mutation` CLI verb was removed in task 002).
     // phase-kind binding DR-7 (task 007): bumped 122 → 123 to include
     // `phase.blocked`, the fail-closed marker appended when the IMPLEMENT
-    // gate-set resolver throws at a phase boundary (orchestrate/prepare-delegation.ts).
+    // gate-set resolver throws at a phase boundary (verbs/team/prepare-delegation.ts).
     // phase-kind binding DR-13 (task 012): bumped 123 → 125 to include
     // `phase.entered` + `phase.exited`, the resolve-then-freeze pair appended at
     // the executeTransition boundary (workflow/state-machine.ts).

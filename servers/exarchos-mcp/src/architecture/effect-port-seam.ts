@@ -20,7 +20,7 @@ import {
  *
  * ── Ledger vs. port (why this is additive, not redundant) ───────────────────
  * `effect-ledger.ts` proves *completeness*: every effect occurrence has SOME
- * declared owner, at LAYER granularity (e.g. all of `orchestrate/` may perform
+ * declared owner, at LAYER granularity (e.g. all of `verbs/` may perform
  * `process` AND `filesystem`). It never bounds a *single* module. The effect-port
  * census proves *narrowness*: a curated module's declared port is its EXACT
  * effect footprint, so a module the ledger would happily let widen (because its

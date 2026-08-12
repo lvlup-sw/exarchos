@@ -55,7 +55,7 @@ import {
 // Mirror servers/exarchos-mcp/src/verbs/sidecar-backfill.test.ts:
 // `__dirname` is undefined under NodeNext/ESM, so resolve REPO_ROOT from this
 // test file's location via import.meta.url. This file lives at
-// servers/exarchos-mcp/src/orchestrate/<this> → ../../../../ is the repo root.
+// servers/exarchos-mcp/src/verbs/<this> → ../../../../ is the repo root.
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 
 const TEMPLATES = {

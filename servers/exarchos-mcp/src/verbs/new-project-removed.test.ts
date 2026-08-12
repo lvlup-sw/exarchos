@@ -42,8 +42,11 @@ describe('new-project removed (DR-3, task 017)', () => {
       'new-project.ts must be deleted',
     ).toBe(false);
 
-    // 2. Importing the deleted module must fail (no dangling handler).
-    await expect(import('../orchestrate/new-project.js')).rejects.toBeDefined();
+    // 2. Importing the deleted module must fail (no dangling handler). The
+    //    specifier is the SIBLING checked above — after task 015 a `../orchestrate/`
+    //    path would reject merely because that directory is gone, which would pass
+    //    even if the module resurrected here.
+    await expect(import('./new-project.js')).rejects.toBeDefined();
 
     // 3. The `new_project` orchestrate action must be unregistered.
     const registry = getFullRegistry();

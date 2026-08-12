@@ -66,7 +66,7 @@ describe('check-event-store-composition-root CLI (Fix 1, #1182)', () => {
     try {
       const { status, stderr } = runCheck(['--src-root', srcRoot]);
       expect(status).toBe(1);
-      expect(stderr).toMatch(/orchestrate\/some-handler\.ts/);
+      expect(stderr).toMatch(/verbs\/some-handler\.ts/);
       expect(stderr).toMatch(/new EventStore/);
     } finally {
       cleanup();
@@ -147,7 +147,7 @@ describe('check-event-store-composition-root CLI (Fix 1, #1182)', () => {
     try {
       const { status, stderr } = runCheck(['--src-root', srcRoot]);
       expect(status).toBe(1);
-      expect(stderr).toMatch(/orchestrate\/some-handler\.ts/);
+      expect(stderr).toMatch(/verbs\/some-handler\.ts/);
       expect(stderr).toMatch(/review\/tools\.ts/);
     } finally {
       cleanup();

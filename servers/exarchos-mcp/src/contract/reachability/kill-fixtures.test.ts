@@ -162,11 +162,15 @@ describe('KILL: route — breaking the SHIPPED dispatch wiring drops the census'
 
   it('deleting a real key from the shipped orchestrate dispatch TABLE unroutes that action', () => {
     // The computed key `[MUTATION_GATE_NAME]` is resolved through the router's
-    // own import, so the sibling module travels with the copy.
-    scratchCopy(path.join(SOURCE_ROOT, 'orchestrate', 'mutation-adequacy.ts'), 'mutation-adequacy.ts');
+    // own import, so the imported module travels with the copy — at the same
+    // relative path the router names (`./gates/mutation-adequacy.js`).
+    scratchCopy(
+      path.join(SOURCE_ROOT, 'verbs', 'gates', 'mutation-adequacy.ts'),
+      path.join('gates', 'mutation-adequacy.ts'),
+    );
     const file = mutatedSource(
-      path.join(SOURCE_ROOT, 'orchestrate', 'composite.ts'),
-      'orchestrate-composite-dropped.ts',
+      path.join(SOURCE_ROOT, 'verbs', 'composite.ts'),
+      'verbs-composite-dropped.ts',
       (text) => text.replace(/^\s*task_claim:.*$/m, ''),
     );
     const report = censusFor({

@@ -1156,7 +1156,10 @@ describe('DR-6 — a skipped constituent renders DEGRADED, never PASS', () => {
   // ─── The `lint` script exists, is real, and can fail ──────────────────────
 
   it('RootPackageJson_DeclaresRealLintScript_NotANoOp', () => {
-    const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
+    const repoRoot = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      '../../../../..',
+    );
     const pkg = JSON.parse(
       fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf-8'),
     ) as { scripts?: Record<string, string> };
@@ -1180,7 +1183,10 @@ describe('DR-6 — a skipped constituent renders DEGRADED, never PASS', () => {
     // non-zero errorCount is exactly what makes `eslint` exit non-zero, which
     // is what the gate reads as FAIL.
     const { ESLint } = await import('eslint');
-    const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
+    const repoRoot = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      '../../../../..',
+    );
     const eslint = new ESLint({ cwd: repoRoot });
 
     const violating = [

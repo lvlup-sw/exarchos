@@ -67,7 +67,7 @@ const ALLOWLIST = new Set([
   // bypass / corrupted app sequences) does not apply:
   //   - gate-ownership-census: a sacrificial mkdtemp store the durability
   //     witness probes and discards; never the serving store.
-  path.join('orchestrate', 'gate-ownership-census.ts'),
+  path.join('verbs', 'gates', 'gate-ownership-census.ts'),
   //   - worktree-provisioner: the dedicated repo-local VCS-mutation ledger at
   //     `<repoRoot>/.git/exarchos/vcs-mutations` — a different database file
   //     from the app store, opened/closed per provision call.

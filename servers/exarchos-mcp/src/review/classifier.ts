@@ -11,7 +11,7 @@
 //   delegate-scaffolder — pure doc-nit cluster → cheap scaffolder dispatch
 //
 // The shared SCAFFOLDING_KEYWORDS constant is also used by
-// orchestrate/prepare-delegation.ts (#1159 design Q-P5 resolution).
+// verbs/team/prepare-delegation.ts (#1159 design Q-P5 resolution).
 // ────────────────────────────────────────────────────────────────────────────
 
 import type {

@@ -274,7 +274,7 @@ export const DEFAULT_PUBLISH_SYNC_IO: PublishSyncIo = { syncDirectory: fsyncDirS
  * home. Cleanup is best-effort and never masks the original error.
  *
  * @param io injection seam for callers that own their own `fs` (see
- * `orchestrate/init/writers/`). Defaults to `node:fs/promises` — see the import
+ * `verbs/init/writers/`). Defaults to `node:fs/promises` — see the import
  * note above for why that module and not `node:fs`'s `fs.promises`. `unlink` is
  * optional: a caller whose injected fs cannot delete (e.g. `McpJsonWriterFs`)
  * simply gets no cleanup, exactly as before.

@@ -23,7 +23,7 @@ function modelEmittedRegisteredEventTypes(phase: string): readonly EventType[] {
  * The rehydration reducer's set of registered event handlers is the canonical
  * source of truth for which events MATTER on a given phase. Two downstream
  * surfaces — the `_eventHints.missing` generator (PHASE_EXPECTED_EVENTS in
- * orchestrate/check-event-emissions.ts) and the delegate-phase playbook events
+ * verbs/gates/check-event-emissions.ts) and the delegate-phase playbook events
  * list (workflow/playbooks.ts) — used to maintain INDEPENDENT lists of event
  * types and drifted silently. For example, prior to this fix:
  *

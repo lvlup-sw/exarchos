@@ -63,7 +63,7 @@ describe('check-no-state-json CLI (#1504)', () => {
     try {
       const { status, stderr } = runCheck(['--src-root', srcRoot]);
       expect(status).toBe(1);
-      expect(stderr).toMatch(/orchestrate\/some-reader\.ts/);
+      expect(stderr).toMatch(/verbs\/some-reader\.ts/);
     } finally {
       cleanup();
     }
@@ -80,7 +80,7 @@ describe('check-no-state-json CLI (#1504)', () => {
     try {
       const { status, stderr } = runCheck(['--src-root', srcRoot]);
       expect(status).toBe(1);
-      expect(stderr).toMatch(/orchestrate\/probe\.ts/);
+      expect(stderr).toMatch(/verbs\/worktree\/pure\/probe\.ts/);
     } finally {
       cleanup();
     }

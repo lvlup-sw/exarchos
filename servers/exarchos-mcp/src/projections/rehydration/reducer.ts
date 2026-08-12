@@ -796,7 +796,7 @@ function applyReviewEscalated(
 //
 // SoT introspection — exposes the per-phase set of event types the reducer
 // recognises so that downstream surfaces (`PHASE_EXPECTED_EVENTS` in
-// orchestrate/check-event-emissions.ts; the delegate-phase playbook events
+// verbs/gates/check-event-emissions.ts; the delegate-phase playbook events
 // list in workflow/playbooks.ts) derive their lists from a single source
 // instead of maintaining independent copies that drift silently.
 //

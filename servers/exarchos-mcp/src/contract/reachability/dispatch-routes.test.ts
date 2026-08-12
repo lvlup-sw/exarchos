@@ -127,7 +127,7 @@ describe('the scanner reads code, not prose — comments and strings are inert',
   });
 
   it('reads quoted, bare and computed handler-table keys and skips nested values', () => {
-    const file = `${SOURCE_ROOT}/orchestrate/composite.ts`;
+    const file = `${SOURCE_ROOT}/verbs/composite.ts`;
     const src = [
       'const T: Readonly<Record<string, ActionHandler>> = {',
       '  bare_key: adapt(handleBare),',
@@ -167,7 +167,7 @@ describe('the scanner FAILS LOUD rather than under-reporting', () => {
   });
 
   it('throws when a computed dispatch key cannot be resolved to a literal', () => {
-    const file = `${SOURCE_ROOT}/orchestrate/composite.ts`;
+    const file = `${SOURCE_ROOT}/verbs/composite.ts`;
     const src = 'const T: Readonly<Record<string, ActionHandler>> = {\n  [NOT_IMPORTED_ANYWHERE]: adapt(h),\n};';
     expect(() => extractHandlerTableActions(src, maskCommentsAndStrings(src), file)).toThrow(
       /has no matching import/,

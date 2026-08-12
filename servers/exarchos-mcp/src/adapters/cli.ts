@@ -794,7 +794,7 @@ export function buildCli(ctx: DispatchContext, options?: BuildCliOptions): Comma
   //
   // `install-skills` is RENAMED to `onboard` (DR-5, design §7). Onboard's
   // reconciler now owns skills install: the GENERATE step writes runtime config
-  // + MCP registration ONCE, and the CLI install step (`orchestrate/onboard/
+  // + MCP registration ONCE, and the CLI install step (`verbs/onboard/
   // install.ts`) copies the skills bundle through the SAME `installSkills`
   // seam — so a standalone `install-skills` verb is dead. It is now a
   // one-release **error stub**: it prints `renamed → use 'exarchos onboard'`

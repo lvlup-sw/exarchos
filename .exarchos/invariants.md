@@ -294,7 +294,7 @@ invariants:
       # `*.requested` intent. Encoded as any-of[ no-added-executed OR
       # added-requested ] — it fires only when an added `(merge|onboard).executed`
       # emission appears with no added matching `.requested`. Added-line-anchored
-      # (`\n\+`) so a REMOVAL never false-fires; scoped to the orchestrate handler
+      # (`\n\+`) so a REMOVAL never false-fires; scoped to the verb handler
       # tree so unrelated `.executed` events (gate/diagnostic) are out of range.
       # The `(merge|onboard)` alternation names the known two-event mutator
       # families — extend it when a new external-mutator family is introduced.
@@ -306,7 +306,7 @@ invariants:
       mode: check
       check:
         scope:
-          fileGlob: "servers/exarchos-mcp/src/orchestrate/**"
+          fileGlob: "servers/exarchos-mcp/src/verbs/**"
         node:
           any-of:
             - kind: grep

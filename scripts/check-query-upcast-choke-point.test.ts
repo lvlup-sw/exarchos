@@ -44,7 +44,7 @@ describe('check-query-upcast-choke-point CLI (#1556)', () => {
     try {
       const { status, stderr } = runCheck(['--src-root', srcRoot]);
       expect(status).toBe(1);
-      expect(stderr).toMatch(/orchestrate\/some-handler\.ts/);
+      expect(stderr).toMatch(/verbs\/some-handler\.ts/);
       expect(stderr).toMatch(/queryEvents/);
     } finally {
       cleanup();

@@ -49,7 +49,7 @@ const PROJECTION_DERIVED_WORKFLOW_ACTIONS: ReadonlySet<string> = new Set(['get']
 // boundary; `next_actions` is populated whenever the handler's response carries
 // `{ phase, workflowType }` (handleInit / handleGet / handleTransition) and
 // otherwise defaults to `[]`. Internal callers of the underlying handlers
-// (e.g. orchestrate/prune-stale-workflows, orchestrate/finalize-oneshot) still
+// (e.g. verbs/team/prune-stale-workflows, verbs/tasks/finalize-oneshot) still
 // see the raw `ToolResult` they depend on. Error responses pass through
 // unchanged so structured `error` payloads stay accessible to callers.
 //

@@ -3378,7 +3378,7 @@ const orchestrateActions: readonly BuiltinToolAction[] = [
     // Flags auto-emit from this schema via `addFlagsFromSchema` in the CLI
     // adapter, so CLI/MCP arg parity is preserved by construction (INV-2) and
     // there is no hand-written flag table to drift. The schema MIRRORS
-    // `HandleOnboardArgs` (orchestrate/onboard/index.ts) MINUS `surface`:
+    // `HandleOnboardArgs` (verbs/onboard/index.ts) MINUS `surface`:
     // `surface` is adapter-injected (DR-6) — the MCP adapter supplies its
     // capability surface, the CLI passes `'cli'` — so it must NOT appear here
     // as a user-facing flag.

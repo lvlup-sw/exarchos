@@ -103,7 +103,7 @@ describe('resolveTarget', () => {
 describe('layerOf / isRootFile', () => {
   it('reports the first path segment as the layer', () => {
     expect(layerOf('workflow/state-store.ts')).toBe('workflow');
-    expect(layerOf('verbs/doctor/probes.ts')).toBe('orchestrate');
+    expect(layerOf('verbs/doctor/probes.ts')).toBe('verbs');
   });
   it('treats a root-level file as a root file', () => {
     expect(isRootFile('format.ts')).toBe(true);
@@ -167,7 +167,7 @@ describe('runLayerBoundaryCensus — verdict logic', () => {
   it('does NOT flag an ungoverned source layer as FORBIDDEN', () => {
     const edges: LayerEdge[] = [
       // A live runtime->utils edge keeps the `runtime` allowance from going stale,
-      // isolating the property under test: the ungoverned orchestrate->workflow
+      // isolating the property under test: the ungoverned verbs->workflow
       // edge must produce NO FORBIDDEN_IMPORT.
       {
         module: 'runtime/res.ts',
@@ -178,7 +178,7 @@ describe('runLayerBoundaryCensus — verdict logic', () => {
       },
       {
         module: 'verbs/x.ts',
-        sourceLayer: 'orchestrate',
+        sourceLayer: 'verbs',
         targetModule: 'workflow/y.ts',
         targetLayer: 'workflow',
         specifier: '../workflow/y.js',
@@ -226,8 +226,8 @@ describe('EXIT PROOF — live allowed-dependency layering', () => {
       module: 'utils/rogue.ts',
       sourceLayer: 'utils',
       targetModule: 'verbs/registry.ts',
-      targetLayer: 'orchestrate',
-      specifier: '../orchestrate/registry.js',
+      targetLayer: 'verbs',
+      specifier: '../verbs/registry.js',
     };
     const result = runLayerBoundaryCensus([...edges, planted], LAYER_ALLOWED_IMPORTS);
     expect(result.ok).toBe(false);

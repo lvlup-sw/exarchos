@@ -178,7 +178,7 @@ export function createFeatureHSM(): HSMDefinition {
       // HSM circuit-breaker fix-cycle bound for the delegate↔review loop. This
       // is the structural delegate-loop guard and is a DELIBERATE value, kept
       // distinct from the shared escalation auto-fix bound
-      // (`DEFAULT_MAX_ITERATIONS` = 5 in orchestrate/escalation-policy.ts, DR-3
+      // (`DEFAULT_MAX_ITERATIONS` = 5 in verbs/review/escalation-policy.ts, DR-3
       // #1595) that governs the spec/quality/shepherd fix-loops — do not fold
       // the two together.
       maxFixCycles: 3,

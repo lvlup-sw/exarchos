@@ -243,7 +243,7 @@ function defaultRunCommand(command: string, cwd: string): Promise<void> {
  * The bridge is dynamically imported (the same pattern `adapters/cli.ts` uses);
  * being JS, tsc (`allowJs: false`) never resolves into it while bun's
  * `--compile` bundler follows it at build time. The `../../cli-commands/`
- * specifier is TWO hops up from `orchestrate/onboard/` (onboard → orchestrate →
+ * specifier is TWO hops up from `verbs/onboard/` (onboard → orchestrate →
  * src, then into `cli-commands/`).
  */
 async function defaultRunSkillsInstall(opts: SkillsInstallOpts): Promise<void> {

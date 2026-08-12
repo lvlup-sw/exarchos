@@ -408,7 +408,7 @@ describe('DR-13 kill — the widened detector sees evaded network clients', () =
         export const note =
           'All network I/O (http/https/net/tls/dgram/undici/fetch) is owned by the feedback client.';
       `,
-      // orchestrate/validate-pr-body.ts — an identifier that merely STARTS with
+      // verbs/vcs/validate-pr-body.ts — an identifier that merely STARTS with
       // fetch; and workspace/discovery.ts — one that merely contains "Fetch".
       'verbs/vcs/validate-pr-body.ts': `
         function fetchPrData(pr: number): number { return pr; }
@@ -420,7 +420,7 @@ describe('DR-13 kill — the widened detector sees evaded network clients', () =
         export const record = (ctx: { effects: { record: (a: string, b: string) => void } }): void =>
           ctx.effects.record('network', 'fetch:https://exfil.example/telemetry');
       `,
-      // orchestrate/mock-boundary.ts — doc comment naming a bare specifier.
+      // verbs/gates/mock-boundary.ts — doc comment naming a bare specifier.
       'verbs/gates/mock-boundary.ts': `
         // BARE package specifiers ('axios', '@scope/pkg') are returned verbatim.
         /* e.g. import axios from 'axios'; or import { connect } from 'node:http2'; */

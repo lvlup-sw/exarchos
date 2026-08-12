@@ -176,11 +176,11 @@ describe('DR-12 kill — widened census sees merge and branch-create', () => {
       'runbooks/definitions.ts': `
         const templateVars = ['taskId', 'featureId', 'streamId', 'branch', 'worktreePath'];
       `,
-      // orchestrate/pre-synthesis-check.ts — a git READ, not a create.
+      // verbs/gates/pre-synthesis-check.ts — a git READ, not a create.
       'verbs/gates/pre-synthesis-check.ts': `
         currentBranch = execFileSync('git', ['branch', '--show-current'], { cwd: root });
       `,
-      // orchestrate/review-diff.ts — the same read through a helper.
+      // verbs/review/review-diff.ts — the same read through a helper.
       'verbs/review/review-diff.ts': `
         const currentBranch = git(['branch', '--show-current'], worktreePath);
       `,
@@ -188,7 +188,7 @@ describe('DR-12 kill — widened census sees merge and branch-create', () => {
       'architecture/sdlc-catalog.ts': `
         const applies = { 'applies-to': ['pull-requests', 'branch-topology', 'merge'] };
       `,
-      // orchestrate/test-adequacy.ts — `checkout <ref> -- <paths>` restores the
+      // verbs/gates/test-adequacy.ts — `checkout <ref> -- <paths>` restores the
       // working tree; it creates no branch.
       'verbs/gates/test-adequacy.ts': `
         const result = gitExec(repoRoot, ['checkout', stashSha, '--', '.']);

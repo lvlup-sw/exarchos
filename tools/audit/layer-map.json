@@ -1,6 +1,6 @@
 {
   "capturedAt": "2026-08-12",
-  "tree": "c330fd897286920a361c26e040f110745e53d197",
+  "tree": "3722bfc619e7aefacfc6a72d96f88285feb7f10d",
   "source": "servers/exarchos-mcp/src",
   "authority": "docs/system-design.html is the canonical L1-L9 architecture; this file maps the tree onto it. Task 044 asserts THIS mapping, not set equality, which is why the 11 targets -> 9 published layers relation is written out rather than inferred.",
   "counts": {
@@ -221,12 +221,6 @@
       "layer": null,
       "reason": "The managed block written into a consumer project during onboarding."
     },
-    "orchestrate": {
-      "disposition": "mapped",
-      "target": "verbs",
-      "layer": "L6",
-      "reason": "The action bodies behind the composite tools — the largest single directory in the tree (159 files) and squarely L6."
-    },
     "parity": {
       "disposition": "exception",
       "destination": "tools/conformance/",
@@ -312,6 +306,12 @@
       "target": "adapters",
       "layer": "L8",
       "reason": "GitHub/GitLab/ADO providers adapt an external system; same shape as L8."
+    },
+    "verbs": {
+      "disposition": "mapped",
+      "target": "verbs",
+      "layer": "L6",
+      "reason": "The action bodies behind the composite tools — the largest single directory in the tree (159 files) and squarely L6. Task 015 regrouped it from a flat `orchestrate/` into capability families; it now sits at its target."
     },
     "workflow": {
       "disposition": "mapped",

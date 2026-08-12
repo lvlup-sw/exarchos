@@ -66,7 +66,7 @@ import { handleTaskDecomposition } from './task-decomposition.js';
 // any cwd (vitest, scoped runs, watch mode).
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const FIXTURE_PATH = resolve(__dirname, 'fixtures/plans/agency-csl-auto-pr.md');
+const FIXTURE_PATH = resolve(__dirname, '../fixtures/plans/agency-csl-auto-pr.md');
 
 const STATE_DIR = '/tmp/test-state-task-decomposition-fixtures';
 

@@ -17,7 +17,7 @@
  * ── The two oracles (DR-30) ─────────────────────────────────────────────────
  * The obligation record is the SPECIFICATION, not an oracle — and it is not
  * independent of the registry anyway: `registry.ts` reaches it transitively
- * (`registry → views/lifecycle/inspect → core/dispatch → orchestrate/composite
+ * (`registry → views/lifecycle/inspect → core/dispatch → verbs/composite
  * → check-invariant-conformance → audit-delivery-closure.data`), because the
  * handler renders its report directive from the same record. The two authorities
  * this audit actually COMPARES are independent of each other:

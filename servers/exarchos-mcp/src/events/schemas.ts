@@ -112,7 +112,7 @@ export const EventTypes = [
   // event-sourced (replay-stable) count rather than advisory prose.
   'workflow.plan-revision',
   // WLM-6 (DR-2) — counted plan-review dispatch. Emitted by the unskippable
-  // `prepare_review scope:plan` provisioning seam (orchestrate/prepare-review.ts)
+  // `prepare_review scope:plan` provisioning seam (verbs/team/prepare-review.ts)
   // on EVERY provisioning of the front-of-pipeline adversarial plan-review, so
   // the plan-review revision loop is bounded at the one server action an agent
   // MUST call to re-review — closing the skippable-edge bypass the old

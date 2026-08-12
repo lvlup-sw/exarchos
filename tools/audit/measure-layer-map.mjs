@@ -33,7 +33,7 @@ const MAP = {
   config:       M('workflow', 'Cross-cutting by nature, but its output is the resolved config the dispatch context and workflow guards read. Placed at its consumer, not split.'),
   contract:     M('contract', 'Authority collection, digests, IR and admission — the contract half of the L5 split. Task 014 folded schemas/, sdk/ and shared/ in: all three are contract surface.'),
   dispatch:     M('dispatch', 'Caller identity, dispatch context, elicitation dispatch — the dispatch half of the L5 split. Task 014 folded core/ in: context.ts and dispatch.ts ARE the single dispatch function L5 describes.'),
-  orchestrate:  M('verbs', 'The action bodies behind the composite tools — the largest single directory in the tree (159 files) and squarely L6.'),
+  verbs:        M('verbs', 'The action bodies behind the composite tools — the largest single directory in the tree (159 files) and squarely L6. Task 015 regrouped it from a flat `orchestrate/` into capability families; it now sits at its target.'),
   review:       M('verbs', 'Review dispatch, classifier and check catalog are composite-tool actions.'),
   pruner:       M('verbs', 'Prune coordinator and scoring are a composite-tool action.'),
   stack:        M('verbs', 'Stack tools are composite-tool actions.'),

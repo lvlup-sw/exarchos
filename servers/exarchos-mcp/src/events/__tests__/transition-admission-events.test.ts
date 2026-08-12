@@ -230,7 +230,7 @@ describe('internal transition admission event schemas', () => {
       //   - admission.shadow-attempt / admission.disagreement-disposition:
       //     the live shadow observer, on every guarded transition (DR-23/T-31).
       //   - admission.rollout-decision / admission.enforcement-enabled: the
-      //     `cutover_decide` typed handler (#1739 — orchestrate/cutover-readiness.ts).
+      //     `cutover_decide` typed handler (#1739 — verbs/gates/cutover-readiness.ts).
       //   - admission.cutover-ready: the observer's durable-append auto-export
       //     hook (#1739 — workflow/admission/cutover-auto-export.ts).
       const autoEmitted = new Set([

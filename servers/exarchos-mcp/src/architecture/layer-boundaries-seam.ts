@@ -346,7 +346,7 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
     'The WIDEST allowance in this table, and deliberately so: task 012 folded ' +
       'views/, telemetry/, quality/, session/ and task-store/ into projections/, so this ' +
       'layer now carries the UNION of five directories\' import surfaces. Every edge here ' +
-      'existed before the fold — `views/` has always called into orchestrate and workflow — ' +
+      'existed before the fold — `views/` has always called into the verb layer and workflow — ' +
       'but each was invisible to this census while the five had separate layer names and ' +
       'their couplings read as ordinary cross-layer traffic. Phase 1 is a pure move with ' +
       'zero semantic edits, so the surface is RECORDED here rather than narrowed. That the ' +

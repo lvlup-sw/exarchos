@@ -913,7 +913,7 @@ export function executeTransition(
   // WLM-6 (DR-2): the standard feature `plan-review → plan` revise edge is
   // RETIRED as a counter source here. That loop is now counted at its
   // unskippable `prepare_review scope:plan` provisioning seam
-  // (orchestrate/prepare-review.ts → `workflow.plan-review-dispatched`), closing
+  // (verbs/team/prepare-review.ts → `workflow.plan-review-dispatched`), closing
   // the skippable-edge bypass — so this edge must NOT also emit, or the count
   // would double when the prescribed flow both re-provisions AND transitions.
   // The retirement is scoped to that ONE edge (`plan-review → plan`): the

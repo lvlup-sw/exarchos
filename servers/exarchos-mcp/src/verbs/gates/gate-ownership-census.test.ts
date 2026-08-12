@@ -18,7 +18,7 @@ import {
 } from './gate-ownership-census.js';
 
 const EVIDENCE_TYPE = ADMISSION_EVENT_TYPES.EVIDENCE_RECORDED;
-const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 const greenModel = (
   overrides: Partial<OwnershipCensusModel> = {},

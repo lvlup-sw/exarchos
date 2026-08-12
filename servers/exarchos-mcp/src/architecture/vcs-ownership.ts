@@ -123,7 +123,7 @@ export interface VcsOwnershipResult {
  *                                         owner's create-shaped idempotency
  *                                         without inverting its meaning.
  *
- * The formerly-listed `verbs/team/setup-worktree.ts` and `orchestrate/worktree/
+ * The formerly-listed `verbs/team/setup-worktree.ts` and `verbs/worktree/
  * manager.ts` do NOT appear here: their git worktree/branch mutation now routes
  * through `vcs/mutation-owner.ts` (either the full `VcsMutationOwner` via the
  * worktree provisioner, or its shared mutation primitives
