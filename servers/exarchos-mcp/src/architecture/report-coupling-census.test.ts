@@ -27,10 +27,12 @@ import { ANNOTATED_EVENTS, EVENT_ANNOTATIONS } from '../events/event-annotations
 import type { EventAnnotationSource } from '../events/event-declarations.js';
 import type { EventRegistration } from '../events/event-registration.js';
 import {
-  auditReportCouplingRatchet,
+  auditLiveReportCouplingRatchet,
+  censusLiveReportCoupling,
+} from './bindings/events.js';
+import {
   auditReportCouplingSeed,
   auditReportCouplingSeedIntegrity,
-  censusReportCoupling,
   formatReportCouplingCensus,
   formatReportCouplingRatchet,
   reportCouplingSeedDigest,
@@ -80,7 +82,7 @@ function seedOver(
 
 describe('G3 report-coupling census (DR-2, task 013)', () => {
   it('ReportCouplingCensus_LiveRegistry_IsCleanAndNonEmpty', () => {
-    const census = censusReportCoupling();
+    const census = censusLiveReportCoupling();
 
     // NON-EMPTY DENOMINATOR, asserted on the live subject and not only in the seeded case below.
     // A census reporting "0 report-coupled of 0" is what a moved module looks like.
@@ -96,7 +98,7 @@ describe('G3 report-coupling census (DR-2, task 013)', () => {
   });
 
   it('ReportCouplingCensus_SeedEqualsTheLivePopulation_DerivedNotTranscribed', () => {
-    const census = censusReportCoupling();
+    const census = censusLiveReportCoupling();
 
     // The seed is the measurement, not a transcription of it. Re-derived on every run, so a
     // hand-edited seed key that names no report-coupled registration turns this red.
@@ -112,13 +114,13 @@ describe('G3 report-coupling census (DR-2, task 013)', () => {
   });
 
   it('ReportCouplingRatchet_LiveTree_Passes', () => {
-    const verdict = auditReportCouplingRatchet();
+    const verdict = auditLiveReportCouplingRatchet();
     // Render the failure through the module's own composite formatter rather than re-deriving a
     // message here. It exists to print exactly this verdict (census + membership + pin), and a
     // second hand-rolled rendering is a second authority on what the guard says when it fails.
     // It was also this module's only unreferenced export — knip flagged it, correctly, as the
     // R-11 shape: shipped and called by nothing.
-    expect(verdict.findings, formatReportCouplingRatchet(verdict, censusReportCoupling())).toEqual(
+    expect(verdict.findings, formatReportCouplingRatchet(verdict, censusLiveReportCoupling())).toEqual(
       [],
     );
     expect(verdict.ok).toBe(true);
@@ -136,14 +138,14 @@ describe('G3 kill fixtures — the ratchet must be able to go red', () => {
   // widened its seed could not pass this by reporting the same verdict against a bigger list.
   it('ReportCouplingRatchet_SeededAdditionalReportCoupling_IsRejected', () => {
     const seededType = 'zz.seeded.report_coupled';
-    const census = censusReportCoupling(
+    const census = censusLiveReportCoupling(
       [...EventTypes, seededType],
       sourceOver({ [seededType]: REPORT_COUPLED }),
       { ...EVENT_EMISSION_REGISTRY, [seededType]: 'model' },
     );
 
     // BOTH numbers, so "the count moved" is asserted rather than inferred.
-    expect(censusReportCoupling().reportCoupledCount).toBe(REPORT_COUPLING_SEED_IDS.length);
+    expect(censusLiveReportCoupling().reportCoupledCount).toBe(REPORT_COUPLING_SEED_IDS.length);
     expect(census.reportCoupledCount).toBe(REPORT_COUPLING_SEED_IDS.length + 1);
 
     const audit = auditReportCouplingSeed(census);
@@ -152,11 +154,11 @@ describe('G3 kill fixtures — the ratchet must be able to go red', () => {
     expect(audit.findings.map((f) => f.code)).toContain('UNSEEDED_REPORT_COUPLING');
 
     // And the composed verdict — the thing CI reads — is red, not merely the sub-audit.
-    expect(auditReportCouplingRatchet(audit).ok).toBe(false);
+    expect(auditLiveReportCouplingRatchet(audit).ok).toBe(false);
   });
 
   it('ReportCouplingCensus_ZeroRegistrations_FailsRatherThanReportingClean', () => {
-    const census = censusReportCoupling([], sourceOver({}), {});
+    const census = censusLiveReportCoupling([], sourceOver({}), {});
     expect(census.total).toBe(0);
     expect(census.ok).toBe(false);
     expect(census.diagnostics.map((d) => d.code)).toContain('EMPTY_CENSUS');
@@ -166,12 +168,12 @@ describe('G3 kill fixtures — the ratchet must be able to go red', () => {
     const audit = auditReportCouplingSeed(census);
     expect(audit.ok).toBe(false);
     expect(audit.findings.map((f) => f.code)).toContain('EMPTY_CENSUS');
-    expect(auditReportCouplingRatchet(audit).ok).toBe(false);
+    expect(auditLiveReportCouplingRatchet(audit).ok).toBe(false);
   });
 
   it('ReportCouplingCensus_UnannotatedRegistration_FailsClosed', () => {
     // An event the annotation table does not know cannot be shown NOT to be report-coupled.
-    const census = censusReportCoupling([...EventTypes, 'zz.unannotated'], ANNOTATED_EVENTS);
+    const census = censusLiveReportCoupling([...EventTypes, 'zz.unannotated'], ANNOTATED_EVENTS);
     expect(census.ok).toBe(false);
     expect(census.diagnostics.map((d) => d.code)).toContain('UNANNOTATED_REGISTRATION');
 
@@ -185,7 +187,7 @@ describe('G3 kill fixtures — the ratchet must be able to go red', () => {
 
   it('ReportCouplingCensus_SeededTierSourceDisagreement_IsRejected', () => {
     // G3 self-test (1): a seeded disagreement between the declared source and the tier-derived one.
-    const census = censusReportCoupling(EventTypes, ANNOTATED_EVENTS, {
+    const census = censusLiveReportCoupling(EventTypes, ANNOTATED_EVENTS, {
       ...EVENT_EMISSION_REGISTRY,
       'workflow.started': 'model',
     });
@@ -213,7 +215,7 @@ describe('G3 kill fixtures — the ratchet must be able to go red', () => {
   it('ReportCouplingSeed_PaidDownEntry_MustMoveRatherThanLinger', () => {
     // Re-couple one seeded event: its seed entry is now stale and must be RETIRED, not parked.
     const paidDown = REPORT_COUPLING_SEED_IDS[0] ?? '';
-    const census = censusReportCoupling(
+    const census = censusLiveReportCoupling(
       EventTypes,
       sourceOver({ [paidDown]: HANDLER_COUPLED }),
       { ...EVENT_EMISSION_REGISTRY, [paidDown]: 'auto' },
@@ -227,7 +229,7 @@ describe('G3 kill fixtures — the ratchet must be able to go red', () => {
   });
 
   it('ReportCouplingSeed_LapsedExpiry_Fails', () => {
-    const census = censusReportCoupling();
+    const census = censusLiveReportCoupling();
     const lapsed = seedOver(REPORT_COUPLING_SEED_IDS, { owner: 'test', expires: '2020-01-01' });
 
     const audit = auditReportCouplingSeed(census, lapsed, new Date('2026-08-07T00:00:00Z'));
@@ -281,7 +283,7 @@ describe('G3 measures coupling, not the declared source column', () => {
 
   it('ReportCouplingCensus_DerivedModelWithDeclaredAuto_CountsAsReportCoupled', () => {
     const seededType = 'zz.derived.model';
-    const census = censusReportCoupling(
+    const census = censusLiveReportCoupling(
       [...EventTypes, seededType],
       sourceOver({ [seededType]: REPORT_COUPLED }),
       { ...EVENT_EMISSION_REGISTRY, [seededType]: 'auto' },
@@ -296,7 +298,7 @@ describe('G3 measures coupling, not the declared source column', () => {
 
   it('ReportCouplingCensus_DerivedAutoWithDeclaredModel_IsNotReportCoupled', () => {
     const seededType = 'zz.declared.model';
-    const census = censusReportCoupling(
+    const census = censusLiveReportCoupling(
       [...EventTypes, seededType],
       sourceOver({ [seededType]: HANDLER_COUPLED }),
       { ...EVENT_EMISSION_REGISTRY, [seededType]: 'model' },

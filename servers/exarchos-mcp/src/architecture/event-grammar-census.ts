@@ -76,17 +76,30 @@
  * or resolving zero concessions, is a FAILURE and never a clean run — without them the instrument
  * reads green precisely when it has stopped working.
  */
-import { EVENT_NAME_PATTERN, getValidEventTypes, isBuiltInEventType } from '../events/schemas.js';
-import {
-  classifyEventName,
-  WORD_SEPARATORS,
-  type EventNameDefect,
-  type WordSeparator,
+import type {
+  EventNameDefect,
+  EventNameVerdict,
+  WordSeparator,
 } from '../events/event-name.js';
 import {
   EVENT_GRAMMAR_CONCESSIONS,
   type GrammarConcessionEntry,
 } from './event-grammar-concessions.js';
+
+/**
+ * The two grammar authorities this census decides names under.
+ *
+ * They arrive as ports rather than imports: this module is conformance code and
+ * must not reach into the tree it inspects. `events/schemas.ts` is also a DR-1
+ * declaration store, which a census may not read directly. The composition root
+ * binds the shipped `classifyEventName` and `isBuiltInEventType`.
+ */
+export interface EventGrammarPorts {
+  /** The shipped grammar's verdict on a name. */
+  readonly classify: (name: string) => EventNameVerdict;
+  /** Whether a name is a built-in event type rather than a custom registration. */
+  readonly isBuiltIn: (name: string) => boolean;
+}
 
 export { EVENT_GRAMMAR_CONCESSIONS, type GrammarConcessionEntry };
 
@@ -167,9 +180,14 @@ export interface EventGrammarCensusReport {
   readonly diagnostics: readonly EventGrammarDiagnostic[];
 }
 
-/** The concession clauses the grammar currently makes, derived from task 014's data. */
+/**
+ * The concession clauses the grammar currently makes, derived from task 014's data.
+ *
+ * The separator set is explicit — it belongs to the shipped grammar, which this
+ * module may not import. `LIVE_SEPARATORS` in the composition root is the bound value.
+ */
 export function concessionClauses(
-  separators: readonly WordSeparator[] = WORD_SEPARATORS,
+  separators: readonly WordSeparator[],
 ): readonly ConcessionClause[] {
   return [...separators].map((separator): ConcessionClause => `word-separator:${separator}`).sort();
 }
@@ -195,11 +213,12 @@ function concessionsExercisedBy(
 /**
  * Enumerate the LIVE registry and decide every name under both authorities.
  *
- * Both inputs default to the live values, so the production call is `censusEventNameGrammar()`.
- * They are injectable seams for the same reason `censusReportCoupling` takes `registeredTypes`:
- * the co-located vitest has to drive compositions the live tree cannot produce — an emptied
- * subject, a repaired `EVENT_NAME_PATTERN`, a grammar that gained a third separator — without
- * mutating the real registry or the real regex.
+ * Every input is explicit; the live-bound convenience wrapper is
+ * `censusLiveEventNameGrammar` in the composition root. They are injectable seams for the
+ * same reason `censusReportCoupling` takes `registeredTypes`: the co-located vitest has to
+ * drive compositions the live tree cannot produce — an emptied subject, a repaired
+ * `EVENT_NAME_PATTERN`, a grammar that gained a third separator — without mutating the real
+ * registry or the real regex.
  *
  * `names` comes from {@link getValidEventTypes}, NOT from `EventTypes`. That direction is the
  * point of the whole module: `EventTypes` is the compile-time union task 014 already proves, and
@@ -207,17 +226,18 @@ function concessionsExercisedBy(
  * The custom registrations are the population only a runtime enumeration can see.
  */
 export function censusEventNameGrammar(
-  names: readonly string[] = getValidEventTypes(),
-  shippedPattern: RegExp = EVENT_NAME_PATTERN,
-  separators: readonly WordSeparator[] = WORD_SEPARATORS,
+  names: readonly string[],
+  shippedPattern: RegExp,
+  separators: readonly WordSeparator[],
+  ports: EventGrammarPorts,
 ): EventGrammarCensusReport {
   const records: EventNameRecord[] = [];
 
   for (const name of [...names].sort()) {
-    const verdict = classifyEventName(name);
+    const verdict = ports.classify(name);
     const shippedPatternAccepts = shippedPattern.test(name);
     const concessions = concessionsExercisedBy(name, separators);
-    const origin: EventNameOrigin = isBuiltInEventType(name) ? 'built-in' : 'custom';
+    const origin: EventNameOrigin = ports.isBuiltIn(name) ? 'built-in' : 'custom';
     // Built conditionally rather than with explicit `undefined`: `exactOptionalPropertyTypes` is
     // on, and the same three-way shape is how task 014's own `reject` helper builds its verdict.
     records.push(
@@ -415,7 +435,7 @@ export function isoDayUtc(now: Date): string {
  */
 export function auditEventGrammarRatchet(
   today: string,
-  report: EventGrammarCensusReport = censusEventNameGrammar(),
+  report: EventGrammarCensusReport,
   concessions: Readonly<Record<string, GrammarConcessionEntry>> = EVENT_GRAMMAR_CONCESSIONS,
 ): EventGrammarRatchetVerdict {
   const findings: EventGrammarFinding[] = [];

@@ -23,9 +23,9 @@ import {
   unregisterEventType,
 } from '../events/schemas.js';
 import { classifyEventName, WORD_SEPARATORS } from '../events/event-name.js';
+import { censusLiveEventNameGrammar } from './bindings/events.js';
 import {
   auditEventGrammarRatchet,
-  censusEventNameGrammar,
   concessionClauses,
   formatEventGrammarRatchet,
   isIsoDay,
@@ -39,7 +39,7 @@ import {
 const BEFORE_ANY_EXPIRY = '2026-01-01';
 
 /** The live census, taken once. Every live-tree case reads its numbers back from this. */
-const live = censusEventNameGrammar();
+const live = censusLiveEventNameGrammar();
 
 /** Names the live corpus registers that do NOT exercise a given concession clause. Derived. */
 function liveNamesWithout(clause: string): readonly string[] {
@@ -97,7 +97,7 @@ describe('EventGrammarCensus_LiveRegistry_IsWellFormed', () => {
     registerForThisTest('probe.registry-denominator');
     expect(getValidEventTypes().length).toBeGreaterThan(EventTypes.length);
 
-    const report = censusEventNameGrammar();
+    const report = censusLiveEventNameGrammar();
     expect(report.total).toBe(getValidEventTypes().length);
     expect(report.records.filter((r) => r.origin === 'built-in').length).toBe(EventTypes.length);
     expect(report.records.filter((r) => r.origin === 'custom').map((r) => r.name)).toEqual([
@@ -130,8 +130,8 @@ describe('EventGrammarCensus_ConcessionTable_IsExactlyTheLiveConcessions', () =>
     // The rung-3 twin of `_EventGrammarCensus_ConcessionKeys_MatchTheGrammar`. Both are kept: the
     // proof alias is checked by `tsc` over the literal, this is checked over the DERIVATION, and a
     // change to `concessionClauses` that stopped agreeing with the table would slip past the first.
-    expect([...concessionClauses()]).toEqual(Object.keys(EVENT_GRAMMAR_CONCESSIONS).sort());
-    expect(concessionClauses().length).toBe(WORD_SEPARATORS.length);
+    expect([...concessionClauses(WORD_SEPARATORS)]).toEqual(Object.keys(EVENT_GRAMMAR_CONCESSIONS).sort());
+    expect(concessionClauses(WORD_SEPARATORS).length).toBe(WORD_SEPARATORS.length);
   });
 
   it('every recorded concession is exercised by at least one live name', () => {
@@ -184,7 +184,7 @@ describe('EventGrammarCensus_ShippedPatternDivergence_IsMeasuredNotAsserted', ()
     //   rejects the digit while the shipped pattern admits it, so they DISAGREE.
     const subjects = ['workflow.plan-review_dispatched', 'workflow.started2'];
     const textProxy = subjects.filter((name) => name.includes('_'));
-    const measured = censusEventNameGrammar(subjects).divergent;
+    const measured = censusLiveEventNameGrammar(subjects).divergent;
 
     expect(textProxy).toEqual(['workflow.plan-review_dispatched']);
     expect([...measured]).toEqual(['workflow.started2']);
@@ -195,7 +195,7 @@ describe('EventGrammarCensus_ShippedPatternDivergence_IsMeasuredNotAsserted', ()
 
 describe('EventGrammarCensus_EmptyDenominator_Fails', () => {
   it('an emptied census reports EMPTY_CENSUS rather than a clean run', () => {
-    const empty = censusEventNameGrammar([]);
+    const empty = censusLiveEventNameGrammar([]);
     expect(empty.total).toBe(0);
     expect(empty.ok).toBe(false);
     expect(empty.diagnostics.map((d) => d.code)).toEqual(['EMPTY_CENSUS']);
@@ -204,7 +204,7 @@ describe('EventGrammarCensus_EmptyDenominator_Fails', () => {
   });
 
   it('the ratchet fails on an emptied census instead of inheriting its silence', () => {
-    const verdict = auditEventGrammarRatchet(BEFORE_ANY_EXPIRY, censusEventNameGrammar([]));
+    const verdict = auditEventGrammarRatchet(BEFORE_ANY_EXPIRY, censusLiveEventNameGrammar([]));
     expect(verdict.ok).toBe(false);
     expect(codesOf(verdict)).toContain('EMPTY_CENSUS');
   });
@@ -242,7 +242,7 @@ describe('EventGrammarCensus_ForwardTooth_RejectsARealMalformedRegistration', ()
 
     registerForThisTest(malformed);
 
-    const report = censusEventNameGrammar();
+    const report = censusLiveEventNameGrammar();
     expect([...report.malformed]).toEqual([malformed]);
     expect(report.records.find((r) => r.name === malformed)?.origin).toBe('custom');
 
@@ -261,11 +261,11 @@ describe('EventGrammarCensus_ForwardTooth_RejectsARealMalformedRegistration', ()
   it('restores the live verdict once the malformed registration is gone', () => {
     // Proves the previous case's RED came from the seeded subject and not from ambient state — and
     // that the cleanup actually cleans up, so file order cannot decide this suite.
-    expect([...censusEventNameGrammar().malformed]).toEqual([]);
+    expect([...censusLiveEventNameGrammar().malformed]).toEqual([]);
   });
 
   it('reports the offending segment when the classifier can localise it', () => {
-    const report = censusEventNameGrammar(['workflow.plan-review_dispatched']);
+    const report = censusLiveEventNameGrammar(['workflow.plan-review_dispatched']);
     expect(report.records[0]).toMatchObject({
       wellFormed: false,
       defect: 'MIXED_WORD_SEPARATORS',
@@ -290,7 +290,7 @@ describe('EventGrammarCensus_StaleTooth_RejectsCoverWithNoLiveSubject', () => {
     expect(withoutKebab.length).toBeGreaterThan(0);
     expect(withoutKebab.length).toBeLessThan(live.total);
 
-    const report = censusEventNameGrammar(withoutKebab);
+    const report = censusLiveEventNameGrammar(withoutKebab);
     expect(report.concessionUsage.get('word-separator:-')).toEqual([]);
     expect(report.concessionUsage.get('word-separator:_')?.length ?? 0).toBeGreaterThan(0);
 
@@ -307,7 +307,7 @@ describe('EventGrammarCensus_StaleTooth_RejectsCoverWithNoLiveSubject', () => {
     // The grammar drops `_` from WORD_SEPARATORS; the recorded concession for it is now cover for
     // a rule that does not exist. Posed through the injected separator set rather than by editing
     // task 014's tuple, so the fixture cannot corrupt the live grammar.
-    const narrowed = censusEventNameGrammar(getValidEventTypes(), EVENT_NAME_PATTERN, ['-']);
+    const narrowed = censusLiveEventNameGrammar(getValidEventTypes(), EVENT_NAME_PATTERN, ['-']);
     const verdict = auditEventGrammarRatchet(BEFORE_ANY_EXPIRY, narrowed);
     expect(verdict.clauses).toEqual(['word-separator:-']);
     expect([...verdict.stale]).toEqual(['word-separator:_']);
@@ -327,7 +327,7 @@ describe('EventGrammarCensus_StaleTooth_RejectsCoverWithNoLiveSubject', () => {
     // standing note about a repaired defect is exactly the stale cover this tooth exists to find,
     // and it would otherwise outlive the defect indefinitely.
     const repaired = /^[a-z][a-z0-9_-]*(\.[a-z][a-z0-9_-]*)+$/;
-    const report = censusEventNameGrammar(getValidEventTypes(), repaired);
+    const report = censusLiveEventNameGrammar(getValidEventTypes(), repaired);
     expect([...report.divergent]).toEqual([]);
 
     const verdict = auditEventGrammarRatchet(BEFORE_ANY_EXPIRY, report);
@@ -421,7 +421,7 @@ describe('EventGrammarCensus_ConcessionUsage_IsSegmentScoped', () => {
     // Counting a namespace separator as usage would let a malformed name keep a concession alive —
     // the stale tooth would report the clause as justified by the very name the forward tooth is
     // rejecting.
-    const report = censusEventNameGrammar(['my-app.started']);
+    const report = censusLiveEventNameGrammar(['my-app.started']);
     expect(report.records[0]).toMatchObject({
       wellFormed: false,
       defect: 'NAMESPACE_NOT_SINGLE_WORD',
@@ -431,7 +431,7 @@ describe('EventGrammarCensus_ConcessionUsage_IsSegmentScoped', () => {
   });
 
   it('a separator in a tail segment is an exercise of the concession', () => {
-    const report = censusEventNameGrammar(['workflow.plan-review-dispatched']);
+    const report = censusLiveEventNameGrammar(['workflow.plan-review-dispatched']);
     expect(report.records[0]).toMatchObject({
       wellFormed: true,
       concessions: ['word-separator:-'],

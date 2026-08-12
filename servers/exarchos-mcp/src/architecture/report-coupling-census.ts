@@ -51,14 +51,15 @@
  * is the failure mode a census exists to prevent.
  */
 import { createHash } from 'node:crypto';
-import { EVENT_EMISSION_REGISTRY, EventTypes } from '../events/schemas.js';
-import {
-  ANNOTATED_EVENTS,
-  tierSourceDisagreements,
-  type DeclaredEmissionSources,
-} from '../events/event-annotations.js';
-import { resolveEmissionSource } from '../events/event-registration.js';
+import type { DeclaredEmissionSources } from '../events/event-annotations.js';
+import type { EmissionAxes } from '../events/event-registration.js';
+// Type-only, and deliberately so: the union is the shipped vocabulary this
+// census reports in, and re-declaring it here would let the two drift apart
+// silently. A `import type` erases at compile time, so it creates no package
+// edge and no DR-1 storage read.
+import type { EventEmissionSource } from '../events/schemas.js';
 import type { EventAnnotationSource } from '../events/event-declarations.js';
+
 import {
   REPORT_COUPLING_SEED,
   REPORT_COUPLING_SEED_IDS,
@@ -69,6 +70,23 @@ import {
   REPORT_COUPLING_SEED_DIGEST_ALGORITHM,
   REPORT_COUPLING_SEED_KEY_SET_DIGEST,
 } from './report-coupling-seed-pin.js';
+
+/**
+ * The shipped event-subsystem behaviours this census measures against.
+ *
+ * They arrive as ports rather than imports: this module is conformance code and
+ * must not reach into the tree it inspects, and `events/schemas.ts` is a DR-1
+ * declaration store besides. The composition root binds the real functions.
+ */
+export interface ReportCouplingPorts {
+  /** Compose an emission source from a registration's two axes. */
+  readonly resolveSource: (registration: EmissionAxes) => EventEmissionSource;
+  /** The events whose declared source disagrees with their tier. */
+  readonly disagreements: (
+    declared: DeclaredEmissionSources,
+    annotations: EventAnnotationSource,
+  ) => readonly { readonly eventType: string }[];
+}
 
 /**
  * The two-way partition every registered event type falls into.
@@ -146,9 +164,10 @@ export interface ReportCouplingCensusReport {
  * true by construction.
  */
 export function censusReportCoupling(
-  registeredTypes: readonly string[] = EventTypes,
-  annotations: EventAnnotationSource = ANNOTATED_EVENTS,
-  declared: DeclaredEmissionSources = EVENT_EMISSION_REGISTRY,
+  registeredTypes: readonly string[],
+  annotations: EventAnnotationSource,
+  declared: DeclaredEmissionSources,
+  ports: ReportCouplingPorts,
 ): ReportCouplingCensusReport {
   const records: ReportCouplingRecord[] = [];
   const diagnostics: ReportCouplingDiagnostic[] = [];
@@ -169,7 +188,7 @@ export function censusReportCoupling(
       });
       continue;
     }
-    const derivedSource = resolveEmissionSource(registration);
+    const derivedSource = ports.resolveSource(registration);
     records.push({
       eventType,
       classification: derivedSource === 'model' ? 'report-coupled' : 'handler-coupled',
@@ -206,7 +225,7 @@ export function censusReportCoupling(
   // supplies a hand-authored map still gets a real verdict. That is exactly how
   // `ReportCoupling_SeededTierSourceDisagreement_IsReported` seeds one, and it is the guard that
   // fires if a future change re-introduces an independently-authored registry.
-  const live = new Set(tierSourceDisagreements(declared, annotations).map((d) => d.eventType));
+  const live = new Set(ports.disagreements(declared, annotations).map((d) => d.eventType));
   for (const eventType of [...live].sort()) {
     diagnostics.push({
       code: 'TIER_SOURCE_DISAGREEMENT',
@@ -346,7 +365,7 @@ export interface ReportCouplingSeedAudit {
  *      rather than a decoration.
  */
 export function auditReportCouplingSeed(
-  report: ReportCouplingCensusReport = censusReportCoupling(),
+  report: ReportCouplingCensusReport,
   seed: Readonly<Record<string, ReportCouplingSeedEntry>> = REPORT_COUPLING_SEED,
   now: Date = new Date(),
 ): ReportCouplingSeedAudit {
@@ -571,8 +590,8 @@ export interface ReportCouplingRatchetVerdict {
  * Together the only green path is: re-couple the event, then move the entry.
  */
 export function auditReportCouplingRatchet(
-  membership: ReportCouplingSeedAudit = auditReportCouplingSeed(),
-  pin: ReportCouplingPinAudit = auditReportCouplingSeedIntegrity(),
+  membership: ReportCouplingSeedAudit,
+  pin: ReportCouplingPinAudit,
 ): ReportCouplingRatchetVerdict {
   const findings: ReportCouplingRatchetFinding[] = [...membership.findings, ...pin.findings];
   return Object.freeze({
