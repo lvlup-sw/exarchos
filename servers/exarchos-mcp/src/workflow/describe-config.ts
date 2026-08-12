@@ -144,5 +144,17 @@ export function buildConfigDescription(config: ResolvedProjectConfig) {
       // fix-loops; default `5` (DEFAULT_MAX_ITERATIONS).
       maxIterations: annotate(config.escalation.maxIterations, DEFAULTS.escalation.maxIterations),
     },
+    artifacts: {
+      // DR-6 — where authored workflow artifacts live. Prefixes matched against
+      // the repo-relative paths in a workflow's artifact map, already
+      // POSIX-normalized and trailing-slashed. `legacyDesignDir` is a historical
+      // discriminator for pre-collapse two-artifact work, not a place anything
+      // new is written.
+      specDir: annotate(config.artifacts.specDir, DEFAULTS.artifacts.specDir),
+      legacyDesignDir: annotate(
+        config.artifacts.legacyDesignDir,
+        DEFAULTS.artifacts.legacyDesignDir,
+      ),
+    },
   };
 }
