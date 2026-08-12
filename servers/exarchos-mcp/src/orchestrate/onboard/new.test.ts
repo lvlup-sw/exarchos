@@ -28,8 +28,8 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
 import { EventStore } from '../../events/store.js';
-import type { DispatchContext } from '../../core/dispatch.js';
-import { ONBOARD_STREAM_ID } from '../../core/infra-streams.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
+import { ONBOARD_STREAM_ID } from '../../dispatch/core/infra-streams.js';
 import type { CheckResult } from '../doctor/schema.js';
 import { buildWriterDeps } from '../init/probes.js';
 import type { WriterDeps } from '../init/probes.js';

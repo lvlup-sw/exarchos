@@ -38,7 +38,7 @@
  * Pure source-text check; introduces NO runtime dependency.
  */
 import fs from 'node:fs';
-import type { PluginFinding } from '../review/check-catalog.js';
+import type { PluginFinding } from '../../review/check-catalog.js';
 
 const SOURCE = 'economy-seam';
 

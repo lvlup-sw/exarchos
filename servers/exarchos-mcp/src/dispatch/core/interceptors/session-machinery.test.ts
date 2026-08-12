@@ -16,7 +16,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // `const` declarations — without it the spy would be in the TDZ when the
 // factory runs.
 const { warnSpy } = vi.hoisted(() => ({ warnSpy: vi.fn() }));
-vi.mock('../../logger.js', () => ({
+vi.mock('../../../logger.js', () => ({
   workflowLogger: {
     warn: warnSpy,
     info: vi.fn(),
@@ -29,7 +29,7 @@ import {
   runSessionMachineryConsumedInterceptor,
   __resetMachineryConsumedCache,
 } from './session-machinery.js';
-import type { EventStore } from '../../events/store.js';
+import type { EventStore } from '../../../events/store.js';
 
 describe('runSessionMachineryConsumedInterceptor — F-05 swallow-path warn', () => {
   beforeEach(() => {

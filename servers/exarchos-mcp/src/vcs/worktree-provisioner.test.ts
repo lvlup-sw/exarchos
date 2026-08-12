@@ -7,7 +7,7 @@
 // whether the report reads "created", "already exists", or "failed".
 
 import { describe, it, expect } from 'vitest';
-import { failed, plannedDryRun, succeeded } from '../core/effect-carrier.js';
+import { failed, plannedDryRun, succeeded } from '../dispatch/core/effect-carrier.js';
 import type { WorktreeCreateResult } from './mutation-owner.js';
 import { mapWorktreeOutcome } from './worktree-provisioner.js';
 

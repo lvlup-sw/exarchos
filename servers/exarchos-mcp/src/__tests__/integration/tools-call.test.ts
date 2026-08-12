@@ -10,7 +10,7 @@
 //   2. `JSON.parse(content[0].text)` deep-equals `structuredContent` — i.e.
 //      no carrier-side reshaping or truncation between the two surfaces.
 //   3. `structuredContent` validates against `EnvelopeSchema(z.unknown())`
-//      from `schemas/envelope.ts`, the per-action contract surface.
+//      from `contract/schemas/envelope.ts`, the per-action contract surface.
 //
 // Failure in any of these would mean the carrier swap has drifted from the
 // design's "both surfaces, exact mirror" contract.
@@ -27,11 +27,11 @@ import {
   connectV2Server,
   type V2Client,
   type V2InMemoryTransport,
-} from '../../sdk/seam.js';
+} from '../../contract/sdk/seam.js';
 import { createMcpServer } from '../../adapters/mcp.js';
 import { EventStore } from '../../events/store.js';
-import { EnvelopeSchema } from '../../schemas/envelope.js';
-import type { DispatchContext } from '../../core/dispatch.js';
+import { EnvelopeSchema } from '../../contract/schemas/envelope.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 interface CallToolEnvelopeResult {

@@ -169,9 +169,9 @@ Framing the union as "MCP has D.5, the CLI has no D.5 pass, so they diverge" is 
 The union is single-owned by a dedicated registry task (022) and must land before enforcement (003) activates; concretely it makes each typed action's schema **total over its emittable shapes** (baseline + capped) — a §05 down-payment, not just a D.5 unblock.
 **Budget scope note (audit F-6):** budgets measure `data` only; the ~40–60-token envelope carrier floor is deliberately outside the budget and documented as such.
 
-**Kit relocation:** `views/output-cap.ts` → `core/economy.ts` (name illustrative); `pipeline`/`worktrees` become the first consumers of the generalized kit, unchanged in behavior.
+**Kit relocation:** `views/output-cap.ts` → `dispatch/core/economy.ts` (name illustrative); `pipeline`/`worktrees` become the first consumers of the generalized kit, unchanged in behavior.
 
-**Presentation seam (§05 down-payment):** today `toMcpResult` (`adapters/mcp.ts:173`) builds the `content` block inline as `JSON.stringify(env)` — the same full envelope it also puts in `structuredContent`. This feature extracts that into a single `renderContent(env)` presentation function: the one place `content` is derived from the canonical envelope. The extraction is **byte-identical and unconditional** — it lands regardless of DR-9's go/no-go, because it is the structural split point between *contract* (`structuredContent`, the canonical envelope) and *presentation* (`content`, a rendering of it). DR-9's lean rendering, if verified, simply fills this seam; §05's facade-codegen consumes the same split (the CLI becomes another renderer over the same contract). The input side is already schema-derived (`adapters/schema-to-flags.ts`); this establishes the matching seam on the output side. **Discipline:** capping/economy logic lives in the shared core (`core/economy.ts`, `core/dispatch.ts`), never in an adapter; adapters only *render*. New response shapes must fall out of the shared envelope + `renderContent`, never a hand-added `cli-format.ts` branch.
+**Presentation seam (§05 down-payment):** today `toMcpResult` (`adapters/mcp.ts:173`) builds the `content` block inline as `JSON.stringify(env)` — the same full envelope it also puts in `structuredContent`. This feature extracts that into a single `renderContent(env)` presentation function: the one place `content` is derived from the canonical envelope. The extraction is **byte-identical and unconditional** — it lands regardless of DR-9's go/no-go, because it is the structural split point between *contract* (`structuredContent`, the canonical envelope) and *presentation* (`content`, a rendering of it). DR-9's lean rendering, if verified, simply fills this seam; §05's facade-codegen consumes the same split (the CLI becomes another renderer over the same contract). The input side is already schema-derived (`adapters/schema-to-flags.ts`); this establishes the matching seam on the output side. **Discipline:** capping/economy logic lives in the shared core (`dispatch/core/economy.ts`, `dispatch/core/dispatch.ts`), never in an adapter; adapters only *render*. New response shapes must fall out of the shared envelope + `renderContent`, never a hand-added `cli-format.ts` branch.
 
 **Slim registration** is a one-line context flip plus eval validation; the `describe` action is already the bounded detail path (1–10 actions).
 
@@ -180,7 +180,7 @@ The union is single-owned by a dedicated registry task (022) and must land befor
 ## Integration Points
 
 - `servers/exarchos-mcp/src/registry.ts` — `economy` block on the descriptor type; per-action budgets; registry-enumeration budget test.
-- `servers/exarchos-mcp/src/core/dispatch.ts` — enforcement at the measurement seam; `slimRegistration: true`.
+- `servers/exarchos-mcp/src/dispatch/core/dispatch.ts` — enforcement at the measurement seam; `slimRegistration: true`.
 - `servers/exarchos-mcp/src/telemetry/middleware.ts` — ordering with `injectPerf`; final-size reporting.
 - `servers/exarchos-mcp/src/views/output-cap.ts` → shared core module — kit generalization.
 - `servers/exarchos-mcp/src/format.ts` — `_meta.truncated` / `economyDegraded` envelope conventions.
@@ -257,11 +257,11 @@ The decomposition maps every task to one or more DR-N from the section above.
 **Testing Strategy:** propertyTests: true, characterizationRequired: true
 
 **Files:**
-- `servers/exarchos-mcp/src/core/economy.ts`
+- `servers/exarchos-mcp/src/dispatch/core/economy.ts`
 - `servers/exarchos-mcp/src/views/output-cap.ts`
 - `servers/exarchos-mcp/src/views/tools.ts`
 - `servers/exarchos-mcp/src/orchestrate/worktree/handlers.ts`
-- `servers/exarchos-mcp/src/core/economy.test.ts`
+- `servers/exarchos-mcp/src/dispatch/core/economy.test.ts`
 
 Relocate `estimateOutputTokens`, `narrowAffordance`, `countBy`, threshold resolution into a shared core module; widen `narrowAffordance`'s verb type from `'pipeline' | 'worktrees'` to any action name; `pipeline`/`worktrees` consume the generalized kit with byte-identical behavior.
 
@@ -303,10 +303,10 @@ Add `economy?: { budgetTokens?: number; compactByDefault?: boolean; summarize?: 
 **Testing Strategy:** propertyTests: true, characterizationRequired: true
 
 **Files:**
-- `servers/exarchos-mcp/src/core/dispatch.ts`
+- `servers/exarchos-mcp/src/dispatch/core/dispatch.ts`
 - `servers/exarchos-mcp/src/telemetry/middleware.ts`
 - `servers/exarchos-mcp/src/format.ts`
-- `servers/exarchos-mcp/src/core/economy-enforcement.test.ts`
+- `servers/exarchos-mcp/src/dispatch/core/economy-enforcement.test.ts`
 
 Post-handler, pre-`injectPerf`: measure `data`; over budget → declared summarizer else generic capped fallback (`{summary, counts, firstPage}` shared schema fragment) + steering `next_actions` entry; stamp `_meta.truncated`; fail-open (`_meta.economyDegraded`) on unresolvable budget or throwing summarizer; `_perf` reports final post-cap size; envelope carrier fields never truncated.
 

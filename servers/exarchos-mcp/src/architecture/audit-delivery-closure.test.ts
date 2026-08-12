@@ -30,7 +30,7 @@
 // @oracle-sources: ../registry.ts, the reader documents on disk that each obligation names under skills-src which are read as text at audit time and appear nowhere in the static import graph
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
-import { EnvelopeSchema } from '../schemas/envelope.js';
+import { EnvelopeSchema } from '../contract/schemas/envelope.js';
 import { TOOL_REGISTRY } from '../registry.js';
 import { withCappedShape } from '../output-schema-declaration.js';
 import {

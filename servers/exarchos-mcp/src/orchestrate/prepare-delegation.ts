@@ -12,7 +12,7 @@ import type { ResolvedProjectConfig } from '../config/resolve.js';
 import { DEFAULTS } from '../config/resolve.js';
 import type { EventStore } from '../events/store.js';
 import { orchestrateLogger } from '../logger.js';
-import type { DispatchContext } from '../core/dispatch.js';
+import type { DispatchContext } from '../dispatch/core/dispatch.js';
 import {
   getOrCreateMaterializer,
   queryDeltaEvents,

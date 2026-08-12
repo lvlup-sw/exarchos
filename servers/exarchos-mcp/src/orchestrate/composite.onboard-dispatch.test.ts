@@ -24,7 +24,7 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
 import { EventStore } from '../events/store.js';
-import type { DispatchContext } from '../core/dispatch.js';
+import type { DispatchContext } from '../dispatch/core/dispatch.js';
 import { handleOrchestrate } from './composite.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
@@ -98,7 +98,7 @@ describe('handleOrchestrate — onboard dispatch (RF-1 #1510)', () => {
   it('emits NO onboard events on the dry-run path (plan-only, side-effect-free)', async () => {
     await handleOrchestrate({ action: 'onboard', dryRun: true, surface: 'cli' }, fx.ctx);
 
-    const { ONBOARD_STREAM_ID } = await import('../core/infra-streams.js');
+    const { ONBOARD_STREAM_ID } = await import('../dispatch/core/infra-streams.js');
     const events = await fx.ctx.eventStore.query(ONBOARD_STREAM_ID);
     const onboardEvents = events.filter(
       (e) => e.type === 'onboard.requested' || e.type === 'onboard.executed',

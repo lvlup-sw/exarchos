@@ -60,7 +60,7 @@
 // Task 049's lead HELD: v2's `registerTool` accepts a Zod v4 discriminated
 // union as `outputSchema` directly — no drop to an empty schema, no throw.
 //
-// Both generations are drawn through the owned SDK seam (`src/sdk/seam.ts`),
+// Both generations are drawn through the owned SDK seam (`src/contract/sdk/seam.ts`),
 // which is the one module permitted to import both; that is what lets a single
 // conformance file span the generation boundary without tripping the
 // `lintSdkGenerationMixing` rung-3 gate.
@@ -76,12 +76,12 @@ import {
   createV2Client,
   createV2LinkedTransportPair,
   createV2McpServer,
-} from '../../sdk/seam.js';
+} from '../../contract/sdk/seam.js';
 import { createMcpServer } from '../../adapters/mcp.js';
 import { EventStore } from '../../events/store.js';
 import { TOOL_REGISTRY } from '../../registry.js';
-import { EnvelopeSchema } from '../../schemas/envelope.js';
-import type { DispatchContext } from '../../core/dispatch.js';
+import { EnvelopeSchema } from '../../contract/schemas/envelope.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 
 const DRAFT_2020_12 = 'https://json-schema.org/draft/2020-12/schema';
 
@@ -314,7 +314,7 @@ describe('tools/list schema conformance — v1 production adapter', () => {
 // Driven by raw JSON-RPC frames rather than a `Client`: `@modelcontextprotocol/
 // client` is not an installed dependency, and the v1 client must never be
 // paired with a v2 server (a cross-generation "linked pair" is not linked at
-// all — see `src/sdk/seam.ts`). Raw frames keep the measurement honest and the
+// all — see `src/contract/sdk/seam.ts`). Raw frames keep the measurement honest and the
 // generations apart.
 // ════════════════════════════════════════════════════════════════════════════
 

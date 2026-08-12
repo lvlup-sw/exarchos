@@ -7,7 +7,7 @@ import { getFullRegistry } from './registry.js';
 import { buildCli } from './adapters/cli.js';
 import { EventStore } from './events/store.js';
 import { rmrfAsync } from './test-helpers/temp-dir.js';
-import type { DispatchContext } from './core/dispatch.js';
+import type { DispatchContext } from './dispatch/core/dispatch.js';
 
 // ─── B-6 (DR-11): plugin-registration ↔ CLI action parity ────────────────────
 //
@@ -119,7 +119,7 @@ async function enumerateMcpRegisteredActions(): Promise<Map<string, Set<string>>
   // DR-26 (task 053): the SDK class is drawn through the owned seam. The spy
   // needs the CONSTRUCTOR IDENTITY the production path calls through, which a
   // factory cannot supply — see `V2_MCP_SERVER_CLASS`.
-  const { V2_MCP_SERVER_CLASS } = await import('./sdk/seam.js');
+  const { V2_MCP_SERVER_CLASS } = await import('./contract/sdk/seam.js');
   const spy = vi.spyOn(V2_MCP_SERVER_CLASS.prototype, 'registerTool');
   const out = new Map<string, Set<string>>();
   try {

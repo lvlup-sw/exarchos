@@ -5,7 +5,7 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import { type ToolResult } from '../format.js';
-import type { DispatchContext } from '../core/dispatch.js';
+import type { DispatchContext } from '../dispatch/core/dispatch.js';
 import type { EventStore } from '../events/store.js';
 import { handleDescribe } from '../describe/handler.js';
 import { handleRunbook } from '../runbooks/handler.js';

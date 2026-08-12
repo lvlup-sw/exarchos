@@ -35,9 +35,9 @@
  * is exercised rather than a full stream scan.
  */
 
-import type { EventStore } from '../../events/store.js';
-import type { WorkflowEvent } from '../../events/schemas.js';
-import { workflowLogger } from '../../logger.js';
+import type { EventStore } from '../../../events/store.js';
+import type { WorkflowEvent } from '../../../events/schemas.js';
+import { workflowLogger } from '../../../logger.js';
 
 // ─── Process-local cache ───────────────────────────────────────────────────
 

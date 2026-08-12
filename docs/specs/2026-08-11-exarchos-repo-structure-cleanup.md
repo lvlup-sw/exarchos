@@ -1421,7 +1421,7 @@ Revision 1 deleted hundreds of tracked documents while naming no destination, no
 **Implements:** DR-7
 **Testing Strategy:** exampleTests true, propertyTests false, benchmarks false, characterizationRequired true.
 **Files:**
-- `tests/evals/`, `src/schemas/`, `docs/assets/`
+- `tests/evals/`, `src/contract/schemas/`, `docs/assets/`
 - `.exarchos/invariants.md`
 **Tests:**
 - `InvariantCatalog_EveryReferenceKey_ResolvesOnDisk`

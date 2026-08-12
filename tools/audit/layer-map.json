@@ -1,11 +1,11 @@
 {
   "capturedAt": "2026-08-12",
-  "tree": "c36b7036b8d9d4e0fb2ba10bb6c1ae0fa79c91d5",
+  "tree": "c330fd897286920a361c26e040f110745e53d197",
   "source": "servers/exarchos-mcp/src",
   "authority": "docs/system-design.html is the canonical L1-L9 architecture; this file maps the tree onto it. Task 044 asserts THIS mapping, not set equality, which is why the 11 targets -> 9 published layers relation is written out rather than inferred.",
   "counts": {
-    "directories": 48,
-    "mapped": 37,
+    "directories": 44,
+    "mapped": 33,
     "exceptions": 11,
     "targets": 11,
     "publishedLayers": 9
@@ -143,13 +143,7 @@
       "disposition": "mapped",
       "target": "contract",
       "layer": "L5",
-      "reason": "Authority collection, digests, IR and admission — the contract half of the L5 split."
-    },
-    "core": {
-      "disposition": "mapped",
-      "target": "dispatch",
-      "layer": "L5",
-      "reason": "context.ts and dispatch.ts ARE the single dispatch function L5 describes."
+      "reason": "Authority collection, digests, IR and admission — the contract half of the L5 split. Task 014 folded schemas/, sdk/ and shared/ in: all three are contract surface."
     },
     "ctk": {
       "disposition": "exception",
@@ -166,7 +160,7 @@
       "disposition": "mapped",
       "target": "dispatch",
       "layer": "L5",
-      "reason": "Caller identity, dispatch context, elicitation dispatch — the dispatch half of the L5 split."
+      "reason": "Caller identity, dispatch context, elicitation dispatch — the dispatch half of the L5 split. Task 014 folded core/ in: context.ts and dispatch.ts ARE the single dispatch function L5 describes."
     },
     "evals": {
       "disposition": "exception",
@@ -278,24 +272,6 @@
       "disposition": "exception",
       "destination": "(stays test-adjacent)",
       "reason": "Test-only (4 files, all .test.ts): per-runtime adapter tests. The runtime DATA is runtimes/*.yaml at the repo root."
-    },
-    "schemas": {
-      "disposition": "mapped",
-      "target": "contract",
-      "layer": "L5",
-      "reason": "Envelope and totality schemas are contract surface."
-    },
-    "sdk": {
-      "disposition": "mapped",
-      "target": "contract",
-      "layer": "L5",
-      "reason": "Brand and seam types are the contract boundary the SDK exposes."
-    },
-    "shared": {
-      "disposition": "mapped",
-      "target": "contract",
-      "layer": "L5",
-      "reason": "Shared validation is contract-shaped and consumed across the split."
     },
     "stack": {
       "disposition": "mapped",

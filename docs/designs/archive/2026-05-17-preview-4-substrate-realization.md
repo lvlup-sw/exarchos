@@ -11,7 +11,7 @@
 
 The v2.10.0-preview.4 bundle (PRs #1421–#1435) landed two substrates whose realized utility is currently narrower than the infrastructure justifies:
 
-- **Elicitation form-mode** (PR #1424) shipped the round-trip plumbing through `core/dispatch.ts:811-855` and wired `createElicitationClient` against SDK 1.29 `server.elicitInput` in `adapters/mcp.ts:266`. The CodeRabbit MAJOR finding caught a "wired-but-not-invoked" class of failure (the gate always failed `elicitationClient !== undefined`). The fix landed pre-merge, but **no integration test verifies the path actually fires end-to-end against a real MCP client.** (#1436)
+- **Elicitation form-mode** (PR #1424) shipped the round-trip plumbing through `dispatch/core/dispatch.ts:811-855` and wired `createElicitationClient` against SDK 1.29 `server.elicitInput` in `adapters/mcp.ts:266`. The CodeRabbit MAJOR finding caught a "wired-but-not-invoked" class of failure (the gate always failed `elicitationClient !== undefined`). The fix landed pre-merge, but **no integration test verifies the path actually fires end-to-end against a real MCP client.** (#1436)
 - **Tasks dispatch-core** (PR #1273, split C1/C2/C3) shipped the shared dispatch surface between CLI `--follow` and MCP `tasks/*` methods, with INV-2 facade equivalence verified and `EventSourcedTaskStore` projection proven via REPLAY test. **The substrate is correct.** The realized utility is three production callsites: `view workflow_status --follow`, `view shepherd_status --follow`, and the MCP `tools/call` `task: { ttl }` opt-in. (#1440 — 5 unrealized opportunities)
 
 The companion hygiene wave (#1450, 2026-05-18) closed the substrate's correctness debt. This bundle closes the **realization debt**: moving substrate from "shipped and correct" to "actually used and verified end-to-end."
@@ -29,7 +29,7 @@ Five unrealized opportunities are catalogued in #1440. This design scopes three 
 - Workflow verb wiring (Op 3 — `merge_orchestrate`, `synthesize`, `cleanup` through Tasks-augmented dispatch). Deferred: this has per-verb cancellation semantics that deserve dedicated design.
 - SSE/server-push fallback (Op 5). Deferred per #1440 acceptance criteria: gated on a client that needs it.
 - Rehydration-report optimization spike (#1395 Spike). Out of bundle theme.
-- Any change to the existing `taskCapabilityGate` at `core/dispatch.ts:927-954`. The annotation is **advisory and discovery-only**; the gate continues to be the binding opt-in.
+- Any change to the existing `taskCapabilityGate` at `dispatch/core/dispatch.ts:927-954`. The annotation is **advisory and discovery-only**; the gate continues to be the binding opt-in.
 
 ## 4. Component designs
 
@@ -153,7 +153,7 @@ The shape mirrors existing optional fields (`autoEmits`, `deprecated`, `outputSc
 
 **Threshold.** Hardcoded to 10_000 ms (10s) for this bundle. Config wiring at `.exarchos.yml` (`dispatch.retryWithTaskHintThresholdMs`) is deferred to a follow-up — see `dispatch.ts:1011` TODO.
 
-**Where it fires.** The hint computation runs at the dispatch boundary — `core/dispatch.ts`, after the action handler returns its `ToolResult` and BEFORE `nextActionsFromResult` runs. The hint is **prepended** to whatever the result-derived hints are, because it's a meta-hint about dispatch shape, not about the result's domain content.
+**Where it fires.** The hint computation runs at the dispatch boundary — `dispatch/core/dispatch.ts`, after the action handler returns its `ToolResult` and BEFORE `nextActionsFromResult` runs. The hint is **prepended** to whatever the result-derived hints are, because it's a meta-hint about dispatch shape, not about the result's domain content.
 
 **Idempotency.** If the caller already used `task: { ttl }`, the hint is not emitted (would be tautological). If the action is not `taskSuitable`, the hint is not emitted (no value to add).
 
@@ -164,7 +164,7 @@ The shape mirrors existing optional fields (`autoEmits`, `deprecated`, `outputSc
 **Test:**
 - Unit test in `next-actions-computer.test.ts`: assert the hint is emitted when elapsed > threshold AND `taskSuitable: true` AND `task: { ttl }` was not threaded.
 - Negative tests: (a) hint not emitted when elapsed < threshold; (b) hint not emitted when `taskSuitable: false`; (c) hint not emitted when `task: { ttl }` was threaded.
-- Integration test in `core/dispatch.test.ts`: full path with a slow action (simulated via `vi.useFakeTimers`).
+- Integration test in `dispatch/core/dispatch.test.ts`: full path with a slow action (simulated via `vi.useFakeTimers`).
 
 ## 5. /design-invariants conformance check
 
@@ -222,7 +222,7 @@ Applied recursively to this bundle:
 
 - Op 3 (workflow verb wiring): `merge_orchestrate`, `synthesize`, `cleanup` through Tasks-augmented dispatch. See §7.
 - Op 5 (SSE fallback). See §7.
-- Changing the binding `taskCapabilityGate` at `core/dispatch.ts:927-954`. The annotation is advisory and discovery-only.
+- Changing the binding `taskCapabilityGate` at `dispatch/core/dispatch.ts:927-954`. The annotation is advisory and discovery-only.
 - Renaming any existing CLI flags or MCP method names.
 - Migration tooling for the `dispatch` annotation (it's optional; existing actions stay valid without it).
 
@@ -234,8 +234,8 @@ Applied recursively to this bundle:
 - Invariants catalog: `docs/architecture/invariants.md`
 - Bundle audit: `docs/research/2026-05-16-v2-10-0-preview-4-bundle-audit.md`
 - Relevant code:
-  - `servers/exarchos-mcp/src/core/dispatch.ts:811-855` (elicitation gate)
-  - `servers/exarchos-mcp/src/core/dispatch.ts:927-954` (taskCapabilityGate)
+  - `servers/exarchos-mcp/src/dispatch/core/dispatch.ts:811-855` (elicitation gate)
+  - `servers/exarchos-mcp/src/dispatch/core/dispatch.ts:927-954` (taskCapabilityGate)
   - `servers/exarchos-mcp/src/adapters/cli.ts:236-238` (isViewFollow)
   - `servers/exarchos-mcp/src/adapters/mcp.ts:266` (createElicitationClient)
   - `servers/exarchos-mcp/src/registry.ts:45-72` (ActionAnnotations + ToolAction)

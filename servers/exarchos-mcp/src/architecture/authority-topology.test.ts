@@ -426,7 +426,7 @@ describe('authority topology — sdk-generation row vs the package manifest', ()
     // represent "the MCP SDK" and the system must ADJUDICATE between them. That
     // adjudication is live code, not history: `classifySdkImport` must still
     // resolve `@modelcontextprotocol/sdk` to `v1` in order to REJECT it, the
-    // mixing lint's kill fixtures still name both, and `sdk/brand.ts` still
+    // mixing lint's kill fixtures still name both, and `contract/sdk/brand.ts` still
     // brands handles by generation so a reintroduced v1 handle fails to compile.
     // Uninstalling a generation resolves the contest for today; it does not
     // dissolve the boundary, and a table that forgot v1 could not classify one

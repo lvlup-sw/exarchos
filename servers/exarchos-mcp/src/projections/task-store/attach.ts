@@ -50,7 +50,7 @@
  * cannot be made by accident.
  */
 
-import type { SdkGeneration } from '../../sdk/brand.js';
+import type { SdkGeneration } from '../../contract/sdk/brand.js';
 
 /**
  * The `tasks/*` JSON-RPC methods v1's SDK answers from an injected store, and

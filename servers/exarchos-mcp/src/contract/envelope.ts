@@ -2,7 +2,7 @@
 //
 // PROGRAM-03, API-006. Formalises the CLOSED set of runtime-emittable output
 // shapes on top of the EXISTING live envelope (`format.ts` `ToolResult` /
-// `Envelope<T>` and `schemas/envelope.ts`). It does NOT fork the envelope — it
+// `Envelope<T>` and `contract/schemas/envelope.ts`). It does NOT fork the envelope — it
 // names the four total variants every dispatched result already collapses to
 // and proves the set is closed:
 //
@@ -12,7 +12,7 @@
 //   error     `success:false`, structured `error` block
 //
 // The capped/degraded markers are the SAME keys the dispatch-core economy seam
-// (`core/response-economy.ts`) already stamps: `ECONOMY_META_TRUNCATED` /
+// (`dispatch/core/response-economy.ts`) already stamps: `ECONOMY_META_TRUNCATED` /
 // `ECONOMY_META_DEGRADED`. This module reads them, it does not invent new ones.
 //
 // Totality: {@link classifyOutput} maps any `ToolResult` to exactly one
@@ -31,7 +31,7 @@ import {
   SuccessEnvelopeSchema,
   ErrorEnvelopeSchema,
   CacheHintsSchema,
-} from '../schemas/envelope.js';
+} from './schemas/envelope.js';
 import { assertNever } from './error-families.js';
 
 // Re-export the canonical envelope schemas so the contract module is a single
@@ -149,7 +149,7 @@ export function classifyOutput(result: ToolResult): OutputKind {
 // ─── The generic capped-data carrier ────────────────────────────────────────
 
 /**
- * The generic capped-fallback data fragment stamped by `core/response-economy.ts`
+ * The generic capped-fallback data fragment stamped by `dispatch/core/response-economy.ts`
  * when an over-budget response has no declared summarizer:
  * `{ summary, counts: { total, shown }, firstPage }`. Formalised here so the
  * closed output union can validate a generic-capped response, and so P03-03 can

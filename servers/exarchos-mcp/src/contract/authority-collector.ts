@@ -20,7 +20,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { V2_LATEST_PROTOCOL_VERSION } from '../sdk/seam.js';
+import { V2_LATEST_PROTOCOL_VERSION } from './sdk/seam.js';
 import { TOOL_REGISTRY } from '../registry.js';
 import {
   computeAuthorities,

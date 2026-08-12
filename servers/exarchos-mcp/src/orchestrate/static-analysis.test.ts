@@ -659,7 +659,7 @@ describe('runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)', ()
           '    languages: [typescript]',
           '    severity: ERROR',
           '    message: raw IO must cross a registered parser (src/parse/**) before entering the core',
-          '    paths: { include: ["src/core/**"] }',
+          '    paths: { include: ["src/dispatch/core/**"] }',
           '    pattern-either:',
           '      - pattern: JSON.parse(...)',
           '      - pattern: $RES.json()',
@@ -669,7 +669,7 @@ describe('runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)', ()
           '    languages: [typescript]',
           '    severity: ERROR',
           '    message: out-of-band cast forges a branded type; route through a registered parser',
-          '    paths: { include: ["src/core/**"] }',
+          '    paths: { include: ["src/dispatch/core/**"] }',
           '    pattern-either:',
           '      - pattern: $X as any',
           '      - pattern: $X as $T & { __brand: $B }',
@@ -688,7 +688,7 @@ describe('runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)', ()
 
     const runner: RunCommandFn = vi.fn(() => ({
       exitCode: 1,
-      stdout: 'src/core/order.ts:3 no-raw-io-into-core: JSON.parse not crossing a parser\n',
+      stdout: 'src/dispatch/core/order.ts:3 no-raw-io-into-core: JSON.parse not crossing a parser\n',
       stderr: '',
     }));
 
@@ -714,7 +714,7 @@ describe('runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)', ()
 
     const runner: RunCommandFn = vi.fn(() => ({
       exitCode: 1,
-      stdout: 'src/core/order.ts:7 no-out-of-band-brand-cast: `x as any` forges a branded type\n',
+      stdout: 'src/dispatch/core/order.ts:7 no-out-of-band-brand-cast: `x as any` forges a branded type\n',
       stderr: '',
     }));
 

@@ -22,7 +22,7 @@
 // when not supplied, a fresh UUID is generated at handler entry.
 
 import { randomUUID } from 'node:crypto';
-import type { DispatchContext } from '../../core/dispatch.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import type { ToolResult } from '../../format.js';
 import { createVcsProvider } from '../../vcs/factory.js';
 import {

@@ -11,7 +11,7 @@ import type { ToolResult } from '../../format.js';
 // `toCliResult` json branch). `format.toEnvelope` is NOT mocked — both surfaces
 // resolve through the real, shared envelope projection.
 
-vi.mock('../../core/dispatch.js', () => ({
+vi.mock('../../dispatch/core/dispatch.js', () => ({
   dispatch: vi.fn<(tool: string, args: Record<string, unknown>, ctx: unknown) => Promise<ToolResult>>(
     async () => ({ success: true, data: {} }),
   ),
@@ -28,9 +28,9 @@ vi.mock('../../adapters/cli-format.js', () => ({
 }));
 
 import { buildCli, resolveExitCode } from '../../adapters/cli.js';
-import { dispatch } from '../../core/dispatch.js';
+import { dispatch } from '../../dispatch/core/dispatch.js';
 import { toEnvelope } from '../../format.js';
-import type { DispatchContext } from '../../core/dispatch.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import { DIFFERENTIAL_CASES, contractExitForResult } from './differential-fixtures.js';
 import { FAILURE_LAYERS } from '../error-families.js';
 

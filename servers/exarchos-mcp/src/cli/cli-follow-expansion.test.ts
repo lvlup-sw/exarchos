@@ -24,7 +24,7 @@ import { PassThrough } from 'node:stream';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { V2Task as Task } from '../sdk/seam.js';
+import type { V2Task as Task } from '../contract/sdk/seam.js';
 
 import { runFollowLoop, type FollowTaskStore } from './follow-loop.js';
 

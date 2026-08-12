@@ -39,7 +39,7 @@ import {
   connectV2Server,
   createV2LinkedTransportPair,
   createV2McpServer,
-} from '../../sdk/seam.js';
+} from '../../contract/sdk/seam.js';
 
 /** JSON-RPC "Method not found". */
 const METHOD_NOT_FOUND = -32601;

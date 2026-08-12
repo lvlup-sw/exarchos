@@ -3,7 +3,7 @@ import { mkdir } from 'node:fs/promises';
 import { WorkflowEventBase } from './schemas.js';
 import type { WorkflowEvent } from './schemas.js';
 import type { StorageBackend } from '../storage/backend.js';
-import { validateStreamId } from '../shared/validation.js';
+import { validateStreamId } from '../contract/shared/validation.js';
 import { AtomicAppender } from './atomic-appender.js';
 import { migrateEvents } from './event-migration.js';
 import { getDispatchContext } from '../dispatch/dispatch-context.js';

@@ -154,7 +154,7 @@ describe('check-module-intent CLI (DR-7/DR-8)', () => {
       'keep/reserved-thing.ts':
         '// RESERVED(issue: #1590, owner: exarchos, expires: 2099-01-01) — reserved stub\n' +
         'export const kept = 1;\n',
-      'core/dispatch.economy-seam.ts': 'export const lint = () => [];\n',
+      'dispatch/core/dispatch.economy-seam.ts': 'export const lint = () => [];\n',
       'workflow/test-helpers/util.ts': 'export const help = 1;\n',
       'event-store/decide-fixtures.ts': 'export const fx = {};\n',
       'storage/__shims__/bun-sqlite-node.ts': 'export const shim = 1;\n',

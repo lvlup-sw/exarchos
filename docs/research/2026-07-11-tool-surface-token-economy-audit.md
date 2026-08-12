@@ -96,7 +96,7 @@ Measured serialized `tools/list` payloads (description + inputSchema; tok ≈ ch
 | **Visible surface** | **105** | **169** | **~4,560** | **~3,291** | **~7,851 tok/session** |
 
 - F-1 **The slim-registration path is dead code.**
-  Every tool carries an authored `slimDescription`, and `buildToolDescription(tool, ctx.slimRegistration ?? false)` supports it (`adapters/mcp.ts:458`), but `ctx.slimRegistration` is never set true in production (`core/dispatch.ts:60` declares it only).
+  Every tool carries an authored `slimDescription`, and `buildToolDescription(tool, ctx.slimRegistration ?? false)` supports it (`adapters/mcp.ts:458`), but `ctx.slimRegistration` is never set true in production (`dispatch/core/dispatch.ts:60` declares it only).
   Enabling it drops descriptions from ~4,560 to ~480 tokens — **~4,081 tokens (~52%) recovered per session with zero new code**, on the model of §3.4's lazy-loading literature and the existing `describe` action as the on-demand detail path.
 - F-2 `exarchos_orchestrate` is 63% of the surface: 69 actions whose Zod schemas merge into one 108-property flattened union (`buildRegistrationSchema`, `registry.ts:500`).
   The flattened-union design is load-bearing (same-name/different-type collisions throw, `registry.ts:529`), so schema shrink must come from field consolidation and description budgets, not tool splitting.

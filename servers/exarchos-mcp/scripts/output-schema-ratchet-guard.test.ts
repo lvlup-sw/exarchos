@@ -66,7 +66,7 @@ import {
   unregisteredActionOutputSchema,
   withCappedShape,
 } from '../src/output-schema-declaration.js';
-import { EnvelopeSchema } from '../src/schemas/envelope.js';
+import { EnvelopeSchema } from '../src/contract/schemas/envelope.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CENSUS_SRC = resolve(HERE, '..', 'src', 'architecture', 'output-schema-census.ts');

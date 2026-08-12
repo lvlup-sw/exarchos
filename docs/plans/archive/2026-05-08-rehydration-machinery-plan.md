@@ -112,10 +112,10 @@ Two new event-stream signals for v2.12 lifecycle alignment. **Four tasks, parall
 
 | | |
 |---|---|
-| **RED** | `core/dispatch.test.ts`: after a `workflow.rehydrated` event lands on stream X, the next non-rehydrate L5 handler invocation against stream X causes one `session.machinery_consumed` event emission with `rehydrateSequence` matching the rehydrated event's sequence. Subsequent invocations produce no further emissions until another `workflow.rehydrated` lands. |
-| **GREEN** | `core/dispatch.ts`: add interceptor that, before handler execution, queries the latest `workflow.rehydrated` event on the stream, checks for any `session.machinery_consumed` since, and emits if absent. Short-circuit on event types `workflow.rehydrated` and `session.machinery_consumed` to avoid loop. |
+| **RED** | `dispatch/core/dispatch.test.ts`: after a `workflow.rehydrated` event lands on stream X, the next non-rehydrate L5 handler invocation against stream X causes one `session.machinery_consumed` event emission with `rehydrateSequence` matching the rehydrated event's sequence. Subsequent invocations produce no further emissions until another `workflow.rehydrated` lands. |
+| **GREEN** | `dispatch/core/dispatch.ts`: add interceptor that, before handler execution, queries the latest `workflow.rehydrated` event on the stream, checks for any `session.machinery_consumed` since, and emits if absent. Short-circuit on event types `workflow.rehydrated` and `session.machinery_consumed` to avoid loop. |
 | **REFACTOR** | Extract the "last-rehydrate / has-machinery-event" lookup into a helper if used by other interceptors. |
-| **Files** | `servers/exarchos-mcp/src/core/dispatch.ts`, `core/dispatch.test.ts`. Possibly a new `core/interceptors/session-machinery.ts`. |
+| **Files** | `servers/exarchos-mcp/src/dispatch/core/dispatch.ts`, `dispatch/core/dispatch.test.ts`. Possibly a new `dispatch/core/interceptors/session-machinery.ts`. |
 | **Risk** | Interceptor must be cheap (one stream tail query per dispatch). Consider caching the "last machinery_consumed sequence" per stream in process-local memory to avoid repeated tail queries. Verify it doesn't break the parity harness (CLI and MCP both intercept identically). |
 | **Estimated complexity** | Medium (~80 LoC) |
 
@@ -123,7 +123,7 @@ Two new event-stream signals for v2.12 lifecycle alignment. **Four tasks, parall
 
 | | |
 |---|---|
-| **RED** | `core/dispatch.test.ts`: two rehydrates separated by activity produce two `session.machinery_consumed` events with distinct `rehydrateSequence` values. Multiple activity calls between rehydrates produce only one machinery_consumed per rehydrate. |
+| **RED** | `dispatch/core/dispatch.test.ts`: two rehydrates separated by activity produce two `session.machinery_consumed` events with distinct `rehydrateSequence` values. Multiple activity calls between rehydrates produce only one machinery_consumed per rehydrate. |
 | **GREEN** | Refine T-12 logic: emission keyed by `rehydrateSequence`; `idempotencyKey = "session.machinery_consumed:${stream}:${rehydrateSequence}"`. |
 | **REFACTOR** | Promote idempotency-key construction to a shared helper. |
 | **Files** | same as T-12 |
@@ -464,7 +464,7 @@ Actually, P1 is sequential because each task depends on the prior schema state. 
 | Phase | Gate | Verifier |
 |---|---|---|
 | P1 | All v:2 snapshots upgrade cleanly to v:3; envelope schema v:3 is round-trippable | `schema.test.ts`, `upgrade.test.ts`, `serialize.test.ts` |
-| P4 | New event types parse; interceptor emits exactly-once per rehydrate | `event-store/schemas.test.ts`, `core/dispatch.test.ts` |
+| P4 | New event types parse; interceptor emits exactly-once per rehydrate | `event-store/schemas.test.ts`, `dispatch/core/dispatch.test.ts` |
 | P2 | Both rehydrate and checkpoint envelopes carry phasePlaybook for delegate-phase fixtures; degraded paths preserve null | `workflow/rehydrate.test.ts`, `workflow/tools.test.ts`, `workflow/parity.test.ts` |
 | P3 | Rendered slash-command outputs contain House Rules section verbatim; `skills:guard` passes | `commands-rehydrate-validation.test.ts`, `npm run skills:guard` |
 | P5 | hooks.json declares six hooks; HOOK_COMMANDS set has six entries; deleted modules absent from typecheck | `src/plugin-validation.test.ts`, `adapters/hooks.test.ts`, `npm run typecheck` |

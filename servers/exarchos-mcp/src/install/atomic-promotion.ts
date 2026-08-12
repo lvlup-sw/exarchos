@@ -109,7 +109,7 @@ import {
   type EffectMode,
   type EffectOutcome,
   type EffectPlan,
-} from '../core/effect-carrier.js';
+} from '../dispatch/core/effect-carrier.js';
 
 // ─── Errors ───────────────────────────────────────────────────────────────────
 

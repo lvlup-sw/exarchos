@@ -79,7 +79,7 @@ rg -n 'console\.(log|warn|error)|fs\.(write|append)|emit\(' \
 
 ### Check 2.3: Verbs bypassing dispatch core
 
-Every verb routes through `core/dispatch.ts`. New handlers in adapters that don't go through dispatch are violations.
+Every verb routes through `dispatch/core/dispatch.ts`. New handlers in adapters that don't go through dispatch are violations.
 
 ```bash
 # Look for handler functions in adapters/ that don't call dispatch()

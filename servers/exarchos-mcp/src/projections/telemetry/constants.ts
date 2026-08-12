@@ -1,4 +1,4 @@
-import { TELEMETRY_STREAM } from '../../core/infra-streams.js';
+import { TELEMETRY_STREAM } from '../../dispatch/core/infra-streams.js';
 export { TELEMETRY_STREAM };
 
 // ─── Threshold Constants ─────────────────────────────────────────────────────

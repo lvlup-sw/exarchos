@@ -12,12 +12,12 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
-import { EventStore } from '../../events/store.js';
+import { EventStore } from '../../../events/store.js';
 import type { DispatchContext } from '../dispatch.js';
 import { ONBOARD_STREAM_ID } from '../infra-streams.js';
 import { buildOnboardEventCtx } from './event-ctx.js';
-import type { OnboardExecuted, OnboardRequested } from '../../events/schemas.js';
-import { rmrfAsync } from '../../test-helpers/temp-dir.js';
+import type { OnboardExecuted, OnboardRequested } from '../../../events/schemas.js';
+import { rmrfAsync } from '../../../test-helpers/temp-dir.js';
 
 interface Fixture {
   readonly base: string;

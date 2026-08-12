@@ -17,8 +17,8 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { resolvePosture, createInMemoryResolver } from './resolver.js';
 import type { Capability } from '../agents/capabilities.js';
-import type { DispatchContext } from '../core/dispatch.js';
-import { dispatch, stubCompositeHandler } from '../core/dispatch.js';
+import type { DispatchContext } from '../dispatch/core/dispatch.js';
+import { dispatch, stubCompositeHandler } from '../dispatch/core/dispatch.js';
 import { EventStore } from '../events/store.js';
 
 describe('Capability_PostureSpec_ResolverDerivesEffectiveCapabilities (DR-6)', () => {

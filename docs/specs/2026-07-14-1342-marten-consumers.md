@@ -160,7 +160,7 @@ Five forks with the author, plus **two adversarial panels that refuted two revis
 - **Document `readProjection` as dormant-but-available (the `withSession` posture) —** **rejected:** `withSession` earns that posture by being correct and gated. Post-DR-1, `readProjection` has no correct candidate reducer *by construction*. Preserving it preserves the ambiguity that generated this epic twice.
 - **Remove the `scope` field entirely —** honest end-state once only one scope exists, but it touches every reducer and their tests. Deferred; see Open Questions.
 - **`decide` rollout / `aggregateStream` adoption —** dropped as behavior-neutral; #1599 names them churn #1258 undoes. Recorded for later: `workflow/compensation.ts:332-333` hand-rolls `events.reduce((acc, e) => reducer.apply(acc, e), reducer.initial)` over `WORKTREES_STREAM` — the exact fold `aggregateStream` performs, and the one site where adoption would delete code rather than move it.
-- **In-memory store audit —** dropped, premise false: `core/` holds one `Map` (`core/interceptors/session-machinery.ts:54`), documented as a cache over an event-log source of truth.
+- **In-memory store audit —** dropped, premise false: `core/` holds one `Map` (`dispatch/core/interceptors/session-machinery.ts:54`), documented as a cache over an event-log source of truth.
 
 ## Open Questions
 

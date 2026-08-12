@@ -9,7 +9,7 @@ import {
   resetMaterializerCache,
 } from '../../projections/views/tools.js';
 import { handleView } from '../../projections/views/composite.js';
-import type { DispatchContext } from '../../core/dispatch.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import { EventStore } from '../../events/store.js';
 
 function makeCtx(stateDir: string): DispatchContext {

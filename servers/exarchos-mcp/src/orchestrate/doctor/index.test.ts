@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import type { DispatchContext } from '../../core/dispatch.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import { makeStubProbes } from './checks/__shared__/make-stub-probes.js';
 import type { CheckFn } from './checks/__shared__/make-stub-probes.js';
 import type { DoctorProbes } from './probes.js';

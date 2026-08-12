@@ -20,7 +20,7 @@
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
 import { withCappedShape, isDeclaredOutputSchema } from './output-schema-declaration.js';
-import { EnvelopeSchema } from './schemas/envelope.js';
+import { EnvelopeSchema } from './contract/schemas/envelope.js';
 
 describe('withCappedShape — refuses a vacuous base', () => {
   it('withCappedShape_UnknownDataBase_Throws', () => {

@@ -63,7 +63,7 @@ ladder's high rung so it stops naming RED→GREEN→REFACTOR: high = scoped test
 + integration suite (test-after).
 - **Files:** `registry.ts`, `runbooks/definitions.ts` (the `task-fix onFail:'stop'` step),
   the `spec-review`/`quality-review`/`delegation` gate chains, `workflow/playbooks.ts`,
-  `core/dispatch.ts`, `architecture/sdlc-catalog.ts`, `orchestrate/composite.ts`,
+  `dispatch/core/dispatch.ts`, `architecture/sdlc-catalog.ts`, `orchestrate/composite.ts`,
   `orchestrate/mock-boundary-handler.ts` (the 7 files carrying `check_tdd_compliance`),
   `workflow/verification-policy.ts`, `skills-src/_shared/references/verification.md`,
   `buildVerificationNote` (test-after language).

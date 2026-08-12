@@ -414,6 +414,6 @@ Staged so each phase is independently valuable and independently revertible. **P
 - `servers/exarchos-mcp/src/adapters/cli.ts` — stdio transport wiring (`mcp` subcommand)
 - `servers/exarchos-mcp/src/capabilities/resolver.ts` — handshake-authoritative capability + POLA gates
 - `servers/exarchos-mcp/src/mcp/tasks-methods.ts`, `src/mcp/elicitation-method.ts`
-- `servers/exarchos-mcp/src/core/dispatch.ts`, `src/workspace/discovery.ts`, `src/registry.ts`
+- `servers/exarchos-mcp/src/dispatch/core/dispatch.ts`, `src/workspace/discovery.ts`, `src/registry.ts`
 - `servers/exarchos-mcp/patches/@modelcontextprotocol+sdk+1.29.0.patch`
 - `servers/exarchos-mcp/src/__tests__/sdk-pin-policy.test.ts`, `src/__tests__/integration/tools-list-2020-12.test.ts`

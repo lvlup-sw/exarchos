@@ -61,7 +61,7 @@ import {
   type ExtensionToolAction,
   type ToolAction,
 } from '../../registry.js';
-import { EnvelopeSchema } from '../../schemas/envelope.js';
+import { EnvelopeSchema } from '../schemas/envelope.js';
 import { unregisteredActionOutputSchema } from '../../output-schema-declaration.js';
 import { toEnvelope, wrap, wrapError, type ToolResult } from '../../format.js';
 import {
@@ -70,7 +70,7 @@ import {
   type CompositeHandlerLoader,
   type ImplementationBinding,
 } from '../bindings/binding-table.js';
-import type { CompositeHandler, DispatchContext } from '../../core/dispatch.js';
+import type { CompositeHandler, DispatchContext } from '../../dispatch/core/dispatch.js';
 import {
   deriveLocalOperatorIdentity,
   snapshotCallerAuthorization,
@@ -453,7 +453,7 @@ export type DispatchContextFactory = (stateDir: string) => DispatchContext;
  * the handler's behalf. A caller holding a required role is dispatched inside
  * the trusted caller-authorization scope the production dispatch boundary opens
  * (`snapshotCallerAuthorization` + `mintDispatchContext` +
- * `runWithDispatchContext`, the exact primitives `core/dispatch.ts` composes);
+ * `runWithDispatchContext`, the exact primitives `dispatch/core/dispatch.ts` composes);
  * a caller holding none is dispatched with no scope and no `callerIdentity`,
  * exactly as an unauthenticated transport would forward it.
  *

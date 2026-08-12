@@ -555,7 +555,7 @@ export const AUTHORITY_TOPOLOGY: Readonly<Record<ContractBoundaryId, AuthorityTo
       }),
       representations: Object.freeze([
         unbound(
-          'EffectPlan (`core/effect-carrier.ts`)',
+          'EffectPlan (`dispatch/core/effect-carrier.ts`)',
           'a typed description of the intended effect; it names no event and no event names it',
         ),
         unbound(
@@ -572,7 +572,7 @@ export const AUTHORITY_TOPOLOGY: Readonly<Record<ContractBoundaryId, AuthorityTo
         kind: 'declared',
         whyNotDerivable:
           'The boundary has exactly two representations and no enumerable domain generates them. ' +
-          '`EffectClass` (`core/effect-carrier.ts`) is a union, but it enumerates effect KINDS, not ' +
+          '`EffectClass` (`dispatch/core/effect-carrier.ts`) is a union, but it enumerates effect KINDS, not ' +
           'representations of this boundary — deriving the row from it would be a fabricated bridge ' +
           'that reports a totality it does not have.',
       }),

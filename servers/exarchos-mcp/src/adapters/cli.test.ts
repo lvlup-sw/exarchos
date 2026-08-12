@@ -8,7 +8,7 @@ import type { ToolResult } from '../format.js';
 // ─── Mocks ──────────────────────────────────────────────────────────────────
 
 // Mock dispatch to capture calls without invoking real handlers
-vi.mock('../core/dispatch.js', () => ({
+vi.mock('../dispatch/core/dispatch.js', () => ({
   dispatch: vi.fn<(tool: string, args: Record<string, unknown>, ctx: unknown) => Promise<ToolResult>>(
     async () => ({
       success: true,
@@ -75,8 +75,8 @@ vi.mock('./mcp.js', () => ({
 // thing in this suite that would seize the real stdio streams if it were ever
 // invoked, and a mock left aimed at a module the production path no longer
 // imports is stale cover — it reads as a defense and defends nothing.
-vi.mock('../sdk/seam.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../sdk/seam.js')>();
+vi.mock('../contract/sdk/seam.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../contract/sdk/seam.js')>();
   return { ...actual, createV2StdioServerTransport: vi.fn(() => ({})) };
 });
 
@@ -90,10 +90,10 @@ import {
   CLI_EXIT_CODES,
   CLI_PROMOTED_ACTION_IDS,
 } from './cli.js';
-import { dispatch } from '../core/dispatch.js';
+import { dispatch } from '../dispatch/core/dispatch.js';
 import { TOOL_REGISTRY, getFullRegistry } from '../registry.js';
 import type { CompositeTool } from '../registry.js';
-import type { DispatchContext } from '../core/dispatch.js';
+import type { DispatchContext } from '../dispatch/core/dispatch.js';
 import { CommanderError } from 'commander';
 import {
   auditCliContract,
@@ -531,7 +531,7 @@ describe('init command (DR-5 rename stub)', () => {
 
     await program.parseAsync(['node', 'exarchos', 'init']);
 
-    const { dispatch } = await import('../core/dispatch.js');
+    const { dispatch } = await import('../dispatch/core/dispatch.js');
     expect(dispatch).not.toHaveBeenCalled();
 
     stderrSpy.mockRestore();
@@ -558,7 +558,7 @@ describe('init command (DR-5 rename stub)', () => {
 
     await program.parseAsync(['node', 'exarchos', 'init', '--runtime', 'copilot']);
 
-    const { dispatch } = await import('../core/dispatch.js');
+    const { dispatch } = await import('../dispatch/core/dispatch.js');
     expect(dispatch).not.toHaveBeenCalled();
 
     stderrSpy.mockRestore();
@@ -1486,13 +1486,13 @@ describe('DR-25: generated CLI client agrees with MCP through a real handler', (
   it('Cli_GeneratedClient_AgreesWithMcpViaRealHandler', async () => {
     // ── Escape the file-wide mocks and load the REAL graph.
     const mockedDispatchCallsBefore = vi.mocked(dispatch).mock.calls.length;
-    vi.doUnmock('../core/dispatch.js');
+    vi.doUnmock('../dispatch/core/dispatch.js');
     vi.doUnmock('./cli-format.js');
     vi.doUnmock('./mcp.js');
     vi.resetModules();
 
     const { buildCli: realBuildCli } = await import('./cli.js');
-    const { dispatch: realDispatch } = await import('../core/dispatch.js');
+    const { dispatch: realDispatch } = await import('../dispatch/core/dispatch.js');
     const { createMcpServer } = await import('./mcp.js');
     const { EventStore } = await import('../events/store.js');
     const { normalize } = await import('../__tests__/parity-harness.js');
@@ -1502,7 +1502,7 @@ describe('DR-25: generated CLI client agrees with MCP through a real handler', (
       createV2LinkedTransportPair,
       connectV2Client,
       connectV2Server,
-    } = await import('../sdk/seam.js');
+    } = await import('../contract/sdk/seam.js');
 
     // ── The contract descriptor BOTH seams are driven from. The CLI command
     //    path (group + command name + required flags) and the MCP tool/action

@@ -13,7 +13,7 @@ import type { CompositeTool, ToolAction } from '../registry.js';
 // hand-authored PRESENTATION (groups, command names, flags); addressing and
 // behavior live behind the seam.
 import { invokeContractAction } from '../contract/cli/generated-client.js';
-import type { DispatchContext } from '../core/dispatch.js';
+import type { DispatchContext } from '../dispatch/core/dispatch.js';
 import { deriveLocalOperatorIdentity } from '../dispatch/caller-identity.js';
 import type { ToolResult } from '../format.js';
 import { toEnvelope } from '../format.js';
@@ -635,7 +635,7 @@ export function buildCli(ctx: DispatchContext, options?: BuildCliOptions): Comma
       const [
         { createMcpServer },
         { createV2StdioServerTransport, connectV2Server },
-      ] = await Promise.all([import('./mcp.js'), import('../sdk/seam.js')]);
+      ] = await Promise.all([import('./mcp.js'), import('../contract/sdk/seam.js')]);
       const server = createMcpServer(ctx);
       // DR-26: the transport is drawn through the seam and the PAIRING goes
       // through `connectV2Server`, which is where the generation brand is

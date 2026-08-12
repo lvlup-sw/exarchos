@@ -45,7 +45,7 @@ The unifying claim is the one re-verification measured: **every unwired rule dec
 
 ### DR-1: Delete the verified hard-dead production modules with their attached tests
 
-Remove the 18 modules re-verified dead on `main@b3a58d7a` (17 audit survivors — `projections/cadence.ts` is already gone — plus the `views/output-cap.ts` re-export shim): `quality/regression-eval-generator`, `benchmarks/emit-results`, `cli-commands/run-mutation`, `cli-commands/run-contract`, `cli-commands/checkpoint`, `session/lifecycle`, `sync/conflict`, `sync/sync-state`, `sync/config`, `views/unified-task-view`, `views/output-cap`, `review/comment-parser`, `review/merge-gate`, `errors.ts` (top-level), `orchestrate/detect-test-commands`, `mcp/tools-call-handler`, `telemetry/benchmarks/helpers`, `orchestrate/tools-config` — each with its co-located test file(s). `core/dispatch.economy-seam.ts` is **kept** (test-infra: self-testing INV-17 lint gate).
+Remove the 18 modules re-verified dead on `main@b3a58d7a` (17 audit survivors — `projections/cadence.ts` is already gone — plus the `views/output-cap.ts` re-export shim): `quality/regression-eval-generator`, `benchmarks/emit-results`, `cli-commands/run-mutation`, `cli-commands/run-contract`, `cli-commands/checkpoint`, `session/lifecycle`, `sync/conflict`, `sync/sync-state`, `sync/config`, `views/unified-task-view`, `views/output-cap`, `review/comment-parser`, `review/merge-gate`, `errors.ts` (top-level), `orchestrate/detect-test-commands`, `mcp/tools-call-handler`, `telemetry/benchmarks/helpers`, `orchestrate/tools-config` — each with its co-located test file(s). `dispatch/core/dispatch.economy-seam.ts` is **kept** (test-infra: self-testing INV-17 lint gate).
 
 **Acceptance criteria:**
 - `node scripts/audit/refgraph.mjs servers/exarchos-mcp/src` (vendored in-repo) lists none of the 18. Deleting a module can orphan a survivor whose only importers were deleted — any such **cascade orphan** surfaced by the re-run is dispositioned in Task 005 (deleted in the same wave under the same evidence bar, given a RESERVED header, or class-allowlisted); the final scan shows zero *undispositioned* dead modules.
@@ -252,7 +252,7 @@ What they share is a **contract**, not a row: every entry, whatever its key, car
 - `servers/exarchos-mcp/src/orchestrate/execute-merge.ts` — remove legacy dual-emission (DR-2)
 - `servers/exarchos-mcp/src/event-store/schemas.ts` — retire write-path `merge.rollback` entries (DR-2)
 - `servers/exarchos-mcp/package.json` + `evals/graders/llm-{rubric,similarity}.ts` + `.github/workflows/eval-gate.yml` — promptfoo isolation (DR-3)
-- `.dependency-cruiser.cjs` + `core/dispatch.ts`/`*/composite.ts` import edges — cycle gate (DR-4)
+- `.dependency-cruiser.cjs` + `dispatch/core/dispatch.ts`/`*/composite.ts` import edges — cycle gate (DR-4)
 - `scripts/` (new `check-enforcer-wiring.mjs`, `check-module-intent.mjs`) + `.github/workflows/ci.yml` grep-gates block (DR-5, DR-7)
 - `scripts/validate-no-legacy.sh` knip args + new allowlist file (DR-6)
 - The 6 reserved-stub module headers (DR-7)
@@ -356,7 +356,7 @@ The decomposition maps every task to one or more DR-N from the section above.
 - `servers/exarchos-mcp/src/views/unified-task-view.ts` + its non-co-located test `servers/exarchos-mcp/src/__tests__/views/unified-task-view.test.ts` (delete)
 - `servers/exarchos-mcp/src/views/output-cap.ts` (+ co-located test) (delete)
 - `servers/exarchos-mcp/src/errors.ts` (+ `errors.test.ts`) (delete)
-**Verification:** scoped: server typecheck + suite; verify `views/output-cap.ts` consumers all import `core/economy.js` directly (re-export shim retired)
+**Verification:** scoped: server typecheck + suite; verify `views/output-cap.ts` consumers all import `dispatch/core/economy.js` directly (re-export shim retired)
 **Dependencies:** None
 **Parallelizable:** Yes
 **testingStrategy:** propertyTests: false, benchmarks: false

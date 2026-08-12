@@ -19,8 +19,8 @@
 import { vi } from 'vitest';
 import { CommanderError } from 'commander';
 
-import type { DispatchContext } from '../core/dispatch.js';
-import { dispatch } from '../core/dispatch.js';
+import type { DispatchContext } from '../dispatch/core/dispatch.js';
+import { dispatch } from '../dispatch/core/dispatch.js';
 import type { ToolResult, Envelope, ErrorEnvelope } from '../format.js';
 import { toEnvelope } from '../format.js';
 import {

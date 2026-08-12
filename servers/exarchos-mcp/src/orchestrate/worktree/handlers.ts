@@ -15,7 +15,7 @@
 // either surface.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import type { DispatchContext } from '../../core/dispatch.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import type { ToolResult } from '../../format.js';
 import {
   WorktreeManager,
@@ -45,7 +45,7 @@ import {
   resolveOutputTokenThreshold,
   countBy,
   narrowAffordance,
-} from '../../core/economy.js';
+} from '../../dispatch/core/economy.js';
 import type { QualityHintsConfig } from '../../capabilities/resolver.js';
 
 // ─── Shared helpers ──────────────────────────────────────────────────────────

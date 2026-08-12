@@ -6,7 +6,7 @@ import { handleFeedback } from './feedback.js';
 import { handleDescribe } from '../describe/handler.js';
 import { TOOL_REGISTRY } from '../registry.js';
 import { type ToolResult } from '../format.js';
-import type { DispatchContext } from '../core/dispatch.js';
+import type { DispatchContext } from '../dispatch/core/dispatch.js';
 import { envelopeWrap } from '../envelope-wrap.js';
 import { deriveRepoKey } from '../utils/paths.js';
 import { workflowLogger } from '../logger.js';

@@ -24,7 +24,7 @@
 //   • The `capabilityResolver` is wired into the dispatch context so the
 //     server's `oninitialized` hook (`adapters/mcp.ts:298-326`) snapshots
 //     the client's declared capabilities. Without this resolver, the
-//     dispatch-side gate at `core/dispatch.ts:813` would never observe
+//     dispatch-side gate at `dispatch/core/dispatch.ts:813` would never observe
 //     `isElicitationDeclared() === true` and the elicitation branch would
 //     stay dark even with the SDK plumbing fully wired.
 //
@@ -42,13 +42,13 @@ import {
   V2_ELICIT_REQUEST_METHOD,
   type V2Client,
   type V2Server,
-} from '../../sdk/seam.js';
+} from '../../contract/sdk/seam.js';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { createMcpServer } from '../../adapters/mcp.js';
 import { createInMemoryResolver } from '../../capabilities/resolver.js';
-import type { DispatchContext } from '../../core/dispatch.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import { EventStore } from '../../events/store.js';
 
 // ─── Public surface ────────────────────────────────────────────────────────
@@ -157,7 +157,7 @@ export async function createElicitationTestPair(
   await eventStore.initialize();
 
   // CapabilityResolver wiring — the dispatch-side elicitation gate at
-  // `core/dispatch.ts:813` reads `ctx.capabilityResolver?.isElicitationDeclared()`.
+  // `dispatch/core/dispatch.ts:813` reads `ctx.capabilityResolver?.isElicitationDeclared()`.
   // Without a resolver on the dispatch context, that branch can never open
   // even if the client declares the capability. `createMcpServer` wires
   // `server.oninitialized` to snapshot the client's capabilities into the

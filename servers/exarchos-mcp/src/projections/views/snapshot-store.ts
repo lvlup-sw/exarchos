@@ -20,7 +20,7 @@ const SAFE_ID_PATTERN = /^[a-z0-9-]+$/;
  * Whether `id` may be used verbatim as a snapshot filename segment.
  *
  * This is the projection-side counterpart to the write-side `validateStreamId`
- * (`shared/validation.ts`), which is intentionally more permissive — it accepts
+ * (`contract/shared/validation.ts`), which is intentionally more permissive — it accepts
  * two-segment slash ids, dots, and underscores. Snapshot filenames must stay
  * kebab-only: a slash would escape the snapshot directory and `.`/`..` invite
  * path traversal. Callers that iterate arbitrary streamIds (e.g. the pipeline

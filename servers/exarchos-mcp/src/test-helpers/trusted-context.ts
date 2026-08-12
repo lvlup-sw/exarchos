@@ -1,4 +1,4 @@
-import type { DispatchContext as HandlerContext } from '../core/dispatch.js';
+import type { DispatchContext as HandlerContext } from '../dispatch/core/dispatch.js';
 import {
   deriveLocalOperatorIdentity,
   snapshotCallerAuthorization,
@@ -43,7 +43,7 @@ export function expectedTrustedContext(ctx: HandlerContext): HandlerContext {
  *
  * Tests that invoke such a handler DIRECTLY (bypassing `dispatch`) must open the
  * same scope, or they exercise the fail-closed path instead of the behaviour
- * under test. This helper composes the exact primitives `core/dispatch.ts` uses
+ * under test. This helper composes the exact primitives `dispatch/core/dispatch.ts` uses
  * — `snapshotCallerAuthorization` + `mintDispatchContext` +
  * `runWithDispatchContext` — so it cannot drift from production plumbing.
  *

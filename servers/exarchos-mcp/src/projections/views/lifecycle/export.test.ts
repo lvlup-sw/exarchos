@@ -28,7 +28,7 @@ import type { Readable } from 'node:stream';
 
 import { EventStore } from '../../../events/store.js';
 import { rmrfAsync } from '../../../test-helpers/temp-dir.js';
-import type { DispatchContext } from '../../../core/dispatch.js';
+import type { DispatchContext } from '../../../dispatch/core/dispatch.js';
 import type { WorkflowEvent } from '../../../events/schemas.js';
 import { workflowStateProjection } from '../workflow-state-projection.js';
 import { resolveWorkflowState } from '../../../orchestrate/resolve-state.js';

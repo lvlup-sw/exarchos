@@ -15,7 +15,7 @@ import {
 import type { EventAck, ToolResult } from '../format.js';
 import { runWithDispatchContext } from '../dispatch/dispatch-context.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
-import { estimateOutputTokens } from '../core/economy.js';
+import { estimateOutputTokens } from '../dispatch/core/economy.js';
 
 // DR-5: `event query` returns `{ events, page }`. These helpers unwrap that
 // envelope so a shape change surfaces in exactly one place per accessor.

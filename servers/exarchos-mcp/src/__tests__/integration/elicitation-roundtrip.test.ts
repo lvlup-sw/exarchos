@@ -155,7 +155,7 @@ describe('#1436 — elicitation-roundtrip decline path', () => {
 
       // Envelope: legacy INVALID_INPUT — the elicitation gate detected the
       // decline and fell through to the validation-failure return at
-      // `core/dispatch.ts:859-862`.
+      // `dispatch/core/dispatch.ts:859-862`.
       expect(result.structuredContent).toBeDefined();
       expect(result.structuredContent?.success).toBe(false);
       expect(result.structuredContent?.error?.code).toBe('INVALID_INPUT');
@@ -209,7 +209,7 @@ describe('#1436 — elicitation-roundtrip decline path', () => {
 // ─── T6 / #1436 — Capability-absent path ──────────────────────────────────
 //
 // Client does NOT declare the `elicitation` capability. The dispatch-side
-// gate at `core/dispatch.ts:813-815` short-circuits because
+// gate at `dispatch/core/dispatch.ts:813-815` short-circuits because
 // `ctx.capabilityResolver.isElicitationDeclared()` returns false; the
 // elicitation hand-off is skipped entirely and dispatch returns the
 // legacy INVALID_INPUT envelope on the missing required field.

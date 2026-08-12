@@ -85,7 +85,7 @@ documented for agents, and the only discovery fallback (`pipeline`) was broken b
 The event-store **write** path validates streamIds leniently; the view **projection**
 path validates them strictly. IDs that are legal to write are illegal to project.
 
-- Write side: `src/shared/validation.ts:30` `validateStreamId` — accepts "single
+- Write side: `src/contract/shared/validation.ts:30` `validateStreamId` — accepts "single
   segment, or two segments separated by a single slash; alphanumeric, hyphens, dots,
   and underscores only".
 - Projection side: `src/views/snapshot-store.ts:16` `SAFE_ID_PATTERN = /^[a-z0-9-]+$/`
@@ -100,7 +100,7 @@ classes (slash-separated streamIds), so the same crash recurs.
 
 File: `src/views/materializer.ts` Line: 54 (predicate), 151 + 259 (call sites)
 File: `src/views/snapshot-store.ts` Line: 16 (`SAFE_ID_PATTERN`), 18 (`assertSafeId`)
-File: `src/shared/validation.ts` Line: 30 (`validateStreamId`)
+File: `src/contract/shared/validation.ts` Line: 30 (`validateStreamId`)
 
 ### CB-2 — unconditional emission on empty stream
 

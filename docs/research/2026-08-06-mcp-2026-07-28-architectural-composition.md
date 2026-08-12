@@ -290,7 +290,7 @@ The extensions framework also gives `experimental: { 'claude/channel': {} }` a p
 
 ### 4.7 Per-request capability resolution *(MC-2, MC-4)*
 
-`CapabilityResolver` is a mutable closure snapshotted once per handshake, constructed at context init (`index.ts:241`, `core/context.ts:67`). The CLI already builds a fresh one per process — its lifetime is *already* per-request, by having no choice. So "make the resolver request-scoped" is adopting the CLI's lifetime on the MCP side.
+`CapabilityResolver` is a mutable closure snapshotted once per handshake, constructed at context init (`index.ts:241`, `dispatch/core/context.ts:67`). The CLI already builds a fresh one per process — its lifetime is *already* per-request, by having no choice. So "make the resolver request-scoped" is adopting the CLI's lifetime on the MCP side.
 
 It also retires a bug class the code patched around: CodeRabbit MAJOR #1423 fixed cross-handshake roots-cache bleed by clearing the cache inside `snapshot()` — unnecessary when the resolver cannot outlive the request. Security review still applies: this backs `enforceReadonlyGate`, `enforceSharedMutatingGate`, and `mintCapabilitiesForKind`.
 
@@ -383,8 +383,8 @@ Given §2.1's ratified layering, work relocates out of the facades and into the 
 **Repository** (inspected at `main` @ `30831d05f`)
 - `.exarchos/invariants.md` — INV-2 (lines 400–438); **INV-17** (lines ~784–806): the #1608 reframe, the facade-codegen direction, the `outputSchema`-totality precondition
 - `src/registry.ts` — `ToolAction` descriptor (`outputSchema` required, `longRunning`, `posture`, `cli`, `dispatch`, `economy`, `surface`); `withCappedShape` (line 1238); `validateAction`; `hidden: true` (line 3987); the 118/106/10/2 outputSchema census
-- `src/core/dispatch.ts` — `dispatch()`; `DispatchContext` (the three optional capability adapters); the `task` strip-before-validate path
-- `src/core/dispatch.economy-seam.ts` — the single origin of the un-capped payload
+- `src/dispatch/core/dispatch.ts` — `dispatch()`; `DispatchContext` (the three optional capability adapters); the `task` strip-before-validate path
+- `src/dispatch/core/dispatch.economy-seam.ts` — the single origin of the un-capped payload
 - `src/adapters/cli.ts` — 1,565 lines; 14 `.command(...)` registrations; `CLI_EXIT_CODES`; DR-7 mapping; `VIEW_FOLLOW_ACTIONS` + the INV-2 purity comment (line 239); DR-5 `longRunning` heartbeats; stdio wiring (579–585)
 - `src/adapters/schema-to-flags.ts` — `addFlagsFromSchema` (no reserved-flag mechanism)
 - `src/format.ts` — `ToolResult` / `Envelope<T>`; `CacheHints`; `applyCacheHints`; `ECONOMY_META_DEGRADED`

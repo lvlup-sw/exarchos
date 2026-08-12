@@ -2,11 +2,11 @@
 //
 // Contract: every registered action's `outputSchema` accepts the dispatch-
 // boundary three-field correlation block in `_meta`. The dispatch wrapper
-// (`core/dispatch.ts`) merges the active context's IDs into the response
+// (`dispatch/core/dispatch.ts`) merges the active context's IDs into the response
 // envelope's `_meta` after the handler runs, so the schema MUST accept
 // them or MCP would reject the response at the SDK validation boundary.
 //
-// Implementation hook: the canonical envelope (`schemas/envelope.ts`) uses
+// Implementation hook: the canonical envelope (`contract/schemas/envelope.ts`) uses
 // `_meta: z.record(z.string(), z.unknown())` — a permissive record that
 // already accepts arbitrary keys. We assert this anchor directly (one
 // source of truth) and then sample a few representative action
@@ -18,7 +18,7 @@ import {
   SuccessEnvelopeSchema,
   ErrorEnvelopeSchema,
   EnvelopeSchema,
-} from '../schemas/envelope.js';
+} from '../contract/schemas/envelope.js';
 import { getFullRegistry } from '../registry.js';
 
 const CORRELATION_META = {

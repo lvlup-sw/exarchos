@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
 import { CLI_EXIT_CODES } from '../src/adapters/cli.js';
-import type { DispatchContext } from '../src/core/dispatch.js';
+import type { DispatchContext } from '../src/dispatch/core/dispatch.js';
 import { EventStore } from '../src/events/store.js';
 import type { ToolResult } from '../src/format.js';
 import {

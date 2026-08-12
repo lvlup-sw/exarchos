@@ -28,7 +28,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 
 import { EventStore } from '../../events/store.js';
-import type { DispatchContext } from '../../core/dispatch.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import type { ToolResult } from '../../format.js';
 import { CLI_EXIT_CODES } from '../../adapters/cli.js';
 import { TOOL_REGISTRY } from '../../registry.js';

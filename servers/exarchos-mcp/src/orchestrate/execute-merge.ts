@@ -33,7 +33,7 @@ import * as path from 'node:path';
 import { z } from 'zod';
 
 import type { ToolResult } from '../format.js';
-import type { DispatchContext } from '../core/dispatch.js';
+import type { DispatchContext } from '../dispatch/core/dispatch.js';
 import { executeMerge, type GitExec, type MergeStrategy } from './pure/execute-merge.js';
 import { buildLocalGitMergeAdapter } from './local-git-merge.js';
 import { buildMergeOrchestrateIdempotencyKey } from './merge-keys.js';

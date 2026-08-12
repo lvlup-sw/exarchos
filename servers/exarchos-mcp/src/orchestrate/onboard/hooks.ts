@@ -31,8 +31,8 @@
  */
 
 import { join, dirname } from 'node:path';
-import type { ApplyCtx } from '../../core/onboarding/reconcile.js';
-import type { PlanStep } from '../../core/onboarding/types.js';
+import type { ApplyCtx } from '../../dispatch/core/onboarding/reconcile.js';
+import type { PlanStep } from '../../dispatch/core/onboarding/types.js';
 import type { WriterDeps } from '../init/probes.js';
 import { publishTempFile } from '../../utils/atomic-write.js';
 

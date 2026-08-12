@@ -220,7 +220,7 @@ Implementation:
 - `servers/exarchos-mcp/src/config/register.ts` — wire event/view/tool registration
 - `servers/exarchos-mcp/src/event-store/schemas.ts` — `registerEventType()`
 - `servers/exarchos-mcp/src/views/registry.ts` — new view registry (extract from hardcoded wiring)
-- `servers/exarchos-mcp/src/core/registry.ts` — extend TOOL_REGISTRY for dynamic registration
+- `servers/exarchos-mcp/src/dispatch/core/registry.ts` — extend TOOL_REGISTRY for dynamic registration
 
 ---
 

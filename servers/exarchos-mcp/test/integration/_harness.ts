@@ -5,11 +5,11 @@
 // than aspirational:
 //
 //   • the dispatch context is built by the PRODUCTION composition root
-//     (`core/context.ts::initializeContext`) over a REAL SQLite storage
+//     (`dispatch/core/context.ts::initializeContext`) over a REAL SQLite storage
 //     backend (`index.ts::initializeBackend`) in a REAL temp state dir. No
 //     hand-rolled `{ stateDir, eventStore, … }` object literal is ever
 //     synthesized here — that is precisely the shortcut DR-27 forbids.
-//   • the entry point is the REAL `core/dispatch.ts::dispatch`, imported
+//   • the entry point is the REAL `dispatch/core/dispatch.ts::dispatch`, imported
 //     directly. Nothing is `vi.mock`ed, and `assertNoStubbedCompositeHandlers`
 //     below actively proves that the handler the dispatcher cached is the
 //     genuine module export rather than a `stubCompositeHandler` install.
@@ -38,9 +38,9 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { dispatch, COMPOSITE_HANDLERS, COMPOSITE_HANDLER_LOADERS } from '../../src/core/dispatch.js';
-import type { DispatchContext } from '../../src/core/dispatch.js';
-import { initializeContext } from '../../src/core/context.js';
+import { dispatch, COMPOSITE_HANDLERS, COMPOSITE_HANDLER_LOADERS } from '../../src/dispatch/core/dispatch.js';
+import type { DispatchContext } from '../../src/dispatch/core/dispatch.js';
+import { initializeContext } from '../../src/dispatch/core/context.js';
 import { initializeBackend } from '../../src/index.js';
 import { toEnvelope } from '../../src/format.js';
 import type { ToolResult } from '../../src/format.js';
@@ -158,7 +158,7 @@ export function classifyRouting(result: ToolResult): RoutingRejection | null {
     if (mapped !== undefined) return mapped;
     if (code === 'INVALID_INPUT') {
       const message = result.error?.message ?? '';
-      // `core/dispatch.ts` built-in path: unknown action name, or an `action`
+      // `dispatch/core/dispatch.ts` built-in path: unknown action name, or an `action`
       // field that is missing/not-a-string. Both mean "never routed".
       if (/unknown action "/.test(message)) return 'unknown-action';
       if (/required field "action" is missing or not a string/.test(message)) {

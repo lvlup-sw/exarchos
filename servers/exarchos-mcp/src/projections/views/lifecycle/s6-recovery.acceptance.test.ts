@@ -37,7 +37,7 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
 import { EventStore } from '../../../events/store.js';
-import type { DispatchContext } from '../../../core/dispatch.js';
+import type { DispatchContext } from '../../../dispatch/core/dispatch.js';
 import { rmrfAsync } from '../../../test-helpers/temp-dir.js';
 import type { SubscriptionClock } from '../../../events/subscriptions.js';
 import { handleViewPs } from './ps.js';

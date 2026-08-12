@@ -16,7 +16,7 @@
 //
 // The lifecycle is the load-bearing observable. We DO NOT assert wire
 // shape of the CreateTaskResult here (unit-level coverage in
-// `dispatch/tasks-augmented.test.ts` and `core/dispatch.test.ts` already
+// `dispatch/tasks-augmented.test.ts` and `dispatch/core/dispatch.test.ts` already
 // pins that); this test pins the event-stream sequence end-to-end.
 
 import { describe, it, expect } from 'vitest';
@@ -29,7 +29,7 @@ import {
   dispatch,
   stubCompositeHandler,
   type DispatchContext,
-} from '../../servers/exarchos-mcp/src/core/dispatch.js';
+} from '../../servers/exarchos-mcp/src/dispatch/core/dispatch.js';
 import { EventSourcedTaskStore } from '../../servers/exarchos-mcp/src/projections/task-store/event-sourced-task-store.js';
 
 async function mktemp(label: string): Promise<string> {

@@ -12,7 +12,7 @@
     "servers/exarchos-mcp/src/config/register.ts": 1,
     "servers/exarchos-mcp/src/contract/bindings/binding-table.ts": 1,
     "servers/exarchos-mcp/src/contract/oracle/fixtures.ts": 3,
-    "servers/exarchos-mcp/src/core/dispatch.ts": 1,
+    "servers/exarchos-mcp/src/dispatch/core/dispatch.ts": 1,
     "servers/exarchos-mcp/src/ctk/__fixtures__/admission-decision-path.ts": 3,
     "servers/exarchos-mcp/src/dispatch/tasks-augmented.ts": 3,
     "servers/exarchos-mcp/src/events/subscriptions.ts": 1,

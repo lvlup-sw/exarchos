@@ -532,7 +532,7 @@ When done, output a JSON completion report:
   //   3. mcp:exarchos:readonly (without mcp:exarchos) → dispatch-layer
   //      gate rejects mutating composite actions (workflow.set,
   //      event.append, orchestrate.task_complete, etc.) structurally,
-  //      not via prose. See `core/dispatch.ts` readonly action allowlist.
+  //      not via prose. See `dispatch/core/dispatch.ts` readonly action allowlist.
   disallowedTools: ['Write', 'Edit', 'Agent', 'Bash'],
   model: 'inherit',
   skills: [],

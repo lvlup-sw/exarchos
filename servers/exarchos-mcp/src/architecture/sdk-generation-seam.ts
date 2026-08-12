@@ -36,7 +36,7 @@
  *
  * ── DR-26: what changed, and what did NOT ───────────────────────────────────
  * DR-26 relocates DR-0's rung-2 criterion onto a subject that can carry it —
- * `src/sdk/seam.ts`, whose handle types carry a generation brand (`src/sdk/
+ * `src/contract/sdk/seam.ts`, whose handle types carry a generation brand (`src/contract/sdk/
  * brand.ts`). That brand is a TYPE-level guarantee: a handle drawn from one
  * generation cannot be passed where the other is expected.
  *
@@ -45,7 +45,7 @@
  *
  *   • the brand decides WHAT MAY BE PASSED TO WHAT — but it cannot see a module
  *     that bypasses the seam, because an unbranded value is admitted by either
- *     brand (deliberately; see `src/sdk/brand.ts` for why the discriminant is
+ *     brand (deliberately; see `src/contract/sdk/brand.ts` for why the discriminant is
  *     optional);
  *   • this lint decides WHO MAY IMPORT THE SDK — but it cannot see a mixed
  *     *pairing*, because it reads specifiers, not dataflow.
@@ -64,12 +64,12 @@
  * zero) and for why the parse is a caller-supplied port rather than an import.
  */
 import type { PluginFinding } from '../review/check-catalog.js';
-import type { SdkGeneration } from '../sdk/brand.js';
+import type { SdkGeneration } from '../contract/sdk/brand.js';
 
 /**
  * Which SDK generation an import specifier belongs to.
  *
- * Re-exported from `src/sdk/brand.js` rather than declared here: the brand and
+ * Re-exported from `src/contract/sdk/brand.js` rather than declared here: the brand and
  * the lint must never disagree about what a generation is, and two independent
  * declarations of the same vocabulary is exactly the one-authority-per-boundary
  * violation this program exists to remove.
@@ -193,7 +193,7 @@ export function collectSdkImports(
  * on a forward-slashed path so absolute, package-relative and src-relative
  * spellings all resolve, which is the shape the whole-tree sweeps produce.
  */
-export const SDK_SEAM_MODULE = 'sdk/seam.ts';
+export const SDK_SEAM_MODULE = 'contract/sdk/seam.ts';
 
 /** Is `filePath` the owned seam module? */
 export function isOwnedSeamModule(filePath: string): boolean {
@@ -214,7 +214,7 @@ export function isOwnedSeamModule(filePath: string): boolean {
  *   v2 SDK generations; an empty array otherwise. Importing exclusively from
  *   one generation is always allowed — that is what "migrate directory by
  *   directory" means. The owned seam is exempt outright: holding both
- *   generations is its entire job, and the brand it applies (`src/sdk/brand.ts`)
+ *   generations is its entire job, and the brand it applies (`src/contract/sdk/brand.ts`)
  *   is the guarantee this lint cannot provide.
  */
 export function lintSdkGenerationMixing(

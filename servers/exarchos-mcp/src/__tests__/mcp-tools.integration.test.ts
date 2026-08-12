@@ -17,7 +17,7 @@ import { handleSync } from '../sync/composite.js';
 import { configureWorkflowMaterializer, handleSet } from '../workflow/tools.js';
 import { EventStore } from '../events/store.js';
 import { resetMaterializerCache } from '../projections/views/tools.js';
-import type { DispatchContext } from '../core/dispatch.js';
+import type { DispatchContext } from '../dispatch/core/dispatch.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 function makeCtx(stateDir: string): DispatchContext {

@@ -1164,7 +1164,7 @@ describe('TOOL_REGISTRY', () => {
     // T1 (#1446 residue) — register the view actions that are
     // dispatched through `projections/views/composite.ts` today but were never added to
     // `TOOL_REGISTRY.viewActions`. Without the registry entry, per-action
-    // Zod validation at `core/dispatch.ts:801` is silently skipped and
+    // Zod validation at `dispatch/core/dispatch.ts:801` is silently skipped and
     // `exarchos_view describe` under-lists the dispatched surface.
     it('TOOL_REGISTRY_viewActions_IncludesSessionProvenanceAndProvenance', () => {
       const viewComposite = findComposite('exarchos_view');
@@ -2180,7 +2180,7 @@ describe('Registry_OutputSchema (T40, DR-11)', () => {
 // The three standalone `Workflow{Set,Transition,Update}OutputSchema`
 // constants — declared in v2.10.0-preview.2 as the LCD-envelope prototype
 // — are consolidated as thin wrappers over the `EnvelopeSchema(dataSchema)`
-// factory from `schemas/envelope.ts`. The constants remain as deprecated
+// factory from `contract/schemas/envelope.ts`. The constants remain as deprecated
 // re-exports for one release window so any downstream typed-import
 // consumer doesn't break; canonical replacement is `EnvelopeSchema` directly.
 describe('Registry_OutputSchema (Wave 0 / G.2)', () => {
@@ -2571,7 +2571,7 @@ describe('validateAction', () => {
 //
 // This test asserts the shape only — no annotations on existing actions
 // land in T2; those are T9's job. The actual opt-in gate stays at
-// `core/dispatch.ts:927-954`; this marker is advisory.
+// `dispatch/core/dispatch.ts:927-954`; this marker is advisory.
 describe('ToolAction.dispatch - DispatchHints shape', () => {
   it('ToolAction_DispatchHintsShape_OptionalTaskSuitableField', () => {
     const action: ToolAction = {
@@ -2644,7 +2644,7 @@ describe('ToolAction.dispatch - DispatchHints shape', () => {
 //
 // Each must carry `dispatch: { taskSuitable: true,
 // taskTtlSuggestionMs: 60_000 }`. Annotations are advisory — the binding
-// opt-in gate stays at `core/dispatch.ts:927-954` — so this test only
+// opt-in gate stays at `dispatch/core/dispatch.ts:927-954` — so this test only
 // pins the registry-side declaration, not behavior.
 describe('Registry — taskSuitable annotations (T9, #1440 Op 2)', () => {
   it('Registry_TaskSuitableAnnotations_FourActionsMarked', () => {

@@ -17,7 +17,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import type { DispatchContext } from '../../core/dispatch.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import { makeStubProbes } from './checks/__shared__/make-stub-probes.js';
 import type { CheckFn } from './checks/__shared__/make-stub-probes.js';
 import type { CheckResult } from './schema.js';
@@ -27,7 +27,7 @@ import {
   type EmittedEvent,
   type ReconcileEventCtx,
   type ApplyCtx,
-} from '../../core/onboarding/reconcile.js';
+} from '../../dispatch/core/onboarding/reconcile.js';
 import type { WriterDeps } from '../init/probes.js';
 
 // ─── In-memory event store double ──────────────────────────────────────────────

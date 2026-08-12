@@ -30,9 +30,9 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
 import { EventStore } from '../../events/store.js';
-import type { DispatchContext } from '../../core/dispatch.js';
-import type { ApplyCtx } from '../../core/onboarding/reconcile.js';
-import type { PlanStep } from '../../core/onboarding/types.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
+import type { ApplyCtx } from '../../dispatch/core/onboarding/reconcile.js';
+import type { PlanStep } from '../../dispatch/core/onboarding/types.js';
 import type { CheckResult } from '../doctor/schema.js';
 import { buildWriterDeps } from '../init/probes.js';
 import type { WriterDeps } from '../init/probes.js';

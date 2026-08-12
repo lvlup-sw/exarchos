@@ -5,11 +5,11 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { EventStore } from '../events/store.js';
 import { TOOL_REGISTRY, buildToolDescription } from '../registry.js';
-import type { DispatchContext } from '../core/dispatch.js';
-import { dispatch, READ_ONLY_ACTIONS } from '../core/dispatch.js';
+import type { DispatchContext } from '../dispatch/core/dispatch.js';
+import { dispatch, READ_ONLY_ACTIONS } from '../dispatch/core/dispatch.js';
 import { createInMemoryResolver } from '../capabilities/resolver.js';
 import { toEnvelope } from '../format.js';
-import { EnvelopeSchema } from '../schemas/envelope.js';
+import { EnvelopeSchema } from '../contract/schemas/envelope.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 // Mock the state-store module
@@ -75,7 +75,7 @@ describe('createMcpServer', () => {
   });
 
   it('MCPHandler_ThreadsResolverAuthoritativeCallerSnapshot', async () => {
-    const { V2_MCP_SERVER_CLASS: McpServer } = await import('../sdk/seam.js');
+    const { V2_MCP_SERVER_CLASS: McpServer } = await import('../contract/sdk/seam.js');
     const {
       clearCustomTools,
       registerCustomTool,
@@ -510,7 +510,7 @@ describe('createMcpServer', () => {
   it('MCPHandler_DispatchResultMatchesPerActionSchema_PassesThrough', async () => {
     // Arrange — spy on registerTool to capture the per-tool handler so we
     // can invoke it directly without standing up an MCP transport.
-    const { V2_MCP_SERVER_CLASS: McpServer } = await import('../sdk/seam.js');
+    const { V2_MCP_SERVER_CLASS: McpServer } = await import('../contract/sdk/seam.js');
     const spy = vi.spyOn(McpServer.prototype, 'registerTool');
     try {
       const { createMcpServer } = await import('./mcp.js');
@@ -587,7 +587,7 @@ describe('createMcpServer', () => {
         data: { wrongField: 'oops' },
       }));
 
-      const { V2_MCP_SERVER_CLASS: McpServer } = await import('../sdk/seam.js');
+      const { V2_MCP_SERVER_CLASS: McpServer } = await import('../contract/sdk/seam.js');
       const spy = vi.spyOn(McpServer.prototype, 'registerTool');
       const { createMcpServer } = await import('./mcp.js');
       createMcpServer(ctx);
@@ -631,7 +631,7 @@ describe('createMcpServer', () => {
   // the typed envelope and revert to the legacy text-only carrier.
   it('MCPHandler_OutputShape_ContainsStructuredContent_NotTextOnly', async () => {
     // Arrange
-    const { V2_MCP_SERVER_CLASS: McpServer } = await import('../sdk/seam.js');
+    const { V2_MCP_SERVER_CLASS: McpServer } = await import('../contract/sdk/seam.js');
     const spy = vi.spyOn(McpServer.prototype, 'registerTool');
     const { createMcpServer } = await import('./mcp.js');
     createMcpServer(ctx);
@@ -669,7 +669,7 @@ describe('createMcpServer', () => {
     // Arrange — spy on McpServer.prototype.registerTool to capture per-tool
     // options without intercepting actual registration (so server setup
     // remains exercised).
-    const { V2_MCP_SERVER_CLASS: McpServer } = await import('../sdk/seam.js');
+    const { V2_MCP_SERVER_CLASS: McpServer } = await import('../contract/sdk/seam.js');
     const spy = vi.spyOn(McpServer.prototype, 'registerTool');
 
     // Act
@@ -732,7 +732,7 @@ describe('createMcpServer', () => {
   // surface safety affordances without scraping per-action telemetry.
   it('MCPServer_ToolsListAnnotations_AggregatesActionAnnotationsPerTool', async () => {
     // Arrange — capture every registerTool call's options.annotations.
-    const { V2_MCP_SERVER_CLASS: McpServer } = await import('../sdk/seam.js');
+    const { V2_MCP_SERVER_CLASS: McpServer } = await import('../contract/sdk/seam.js');
     const spy = vi.spyOn(McpServer.prototype, 'registerTool');
     const { createMcpServer } = await import('./mcp.js');
     createMcpServer(ctx);
@@ -809,7 +809,7 @@ describe('createMcpServer', () => {
     // call pattern via a Server.prototype intercept so a fresh
     // createMcpServer call surfaces the registration.
     const { V2_SERVER_CLASS: Server, V2_ROOTS_LIST_CHANGED_NOTIFICATION_METHOD } =
-      await import('../sdk/seam.js');
+      await import('../contract/sdk/seam.js');
     const setNotifSpy = vi.spyOn(Server.prototype, 'setNotificationHandler');
     try {
       const { createMcpServer } = await import('./mcp.js');

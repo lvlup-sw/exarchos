@@ -24,7 +24,7 @@
 //
 //   • route    ← the SHIPPED composite routers' real action-level dispatch
 //                tables (`dispatch-routes.ts`) — the code that actually runs.
-//   • handler  ← `BINDING_TABLE` ← `core/dispatch.ts::COMPOSITE_HANDLER_LOADERS`.
+//   • handler  ← `BINDING_TABLE` ← `dispatch/core/dispatch.ts::COMPOSITE_HANDLER_LOADERS`.
 //   • owner    ← the P04-01 effect ledger via the governed provider map.
 //   • schema   ← the CHECKED-IN `proof-fixtures.json`: the shipped input/output
 //                schema digests must equal the live compile's.

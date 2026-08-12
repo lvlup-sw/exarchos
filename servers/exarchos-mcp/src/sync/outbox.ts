@@ -4,7 +4,7 @@ import * as crypto from 'node:crypto';
 import type { WorkflowEvent } from '../events/schemas.js';
 import type { OutboxEntry, EventSender } from './types.js';
 import type { StorageBackend } from '../storage/backend.js';
-import { validateStreamId } from '../shared/validation.js';
+import { validateStreamId } from '../contract/shared/validation.js';
 import { publishTempFile } from '../utils/atomic-write.js';
 
 // ─── Outbox Options ─────────────────────────────────────────────────────────

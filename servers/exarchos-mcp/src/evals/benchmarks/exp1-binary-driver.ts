@@ -39,7 +39,7 @@ import {
   createV2Client,
   createV2StdioClientTransport,
   connectV2Client,
-} from '../../sdk/seam.js';
+} from '../../contract/sdk/seam.js';
 import { parseTaskStamps } from '../../orchestrate/parse-task-stamps.js';
 import { DEFAULT_SPEC_DIR } from '../../config/artifacts.js';
 import { stampProvenance, type ProvenanceStamped } from '../provenance.js';

@@ -29,7 +29,7 @@ import * as nodePath from 'node:path';
 import * as fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-import type { DispatchContext } from '../../core/dispatch.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import type { ToolResult } from '../../format.js';
 import { handleAdd } from './add.js';
 import { readCatalogIds } from './catalog-file.js';

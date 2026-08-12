@@ -13,7 +13,7 @@ import {
   ReconcileResultSchema,
   type ReconcilePlan,
   type ReconcileResult,
-} from '../core/onboarding/types.js';
+} from '../dispatch/core/onboarding/types.js';
 
 /**
  * DR-7 (task 008) — the two-event onboard contract. `onboard.requested` records

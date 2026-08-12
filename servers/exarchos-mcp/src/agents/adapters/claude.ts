@@ -160,7 +160,7 @@ export function generateClaudeAgentMarkdown(spec: AgentSpec): string {
   // there is no per-action allowlist surface in the agent file format,
   // so per-action enforcement for the readonly tier happens server-side
   // at dispatch time via `READ_ONLY_ACTIONS` / `enforceReadonlyGate`
-  // in `core/dispatch.ts` (T04). Granting the server here is the
+  // in `dispatch/core/dispatch.ts` (T04). Granting the server here is the
   // necessary precondition for that gate to fire — without the grant,
   // a readonly-only spec would be unable to invoke even the read-only
   // action subset.

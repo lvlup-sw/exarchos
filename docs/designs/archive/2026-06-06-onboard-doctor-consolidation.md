@@ -118,7 +118,7 @@ guard (DR-9).
 
 ### DR-1: Shared reconciler core (INV-2 facade)
 
-Extract a pure, harness-neutral reconciler at `servers/exarchos-mcp/src/core/onboarding/reconcile.ts`
+Extract a pure, harness-neutral reconciler at `servers/exarchos-mcp/src/dispatch/core/onboarding/reconcile.ts`
 exposing `detectDesiredState`, `diff`, and `apply`. It consumes the Bundle B layered resolver
 for all command derivation (override > `.exarchos.yml` > user `toolchains:` > task-runner >
 registry) — never a string-rewrite. Each step in a `ReconcilePlan` carries a `surface`

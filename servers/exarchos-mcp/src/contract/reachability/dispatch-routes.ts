@@ -13,7 +13,7 @@
 // blind to the drift it claimed to catch (an ActionId that no router serves).
 //
 // The authority read here is INDEPENDENT of the contract compiler: it is the
-// dispatch code that actually runs. `core/dispatch.ts::COMPOSITE_HANDLER_LOADERS`
+// dispatch code that actually runs. `dispatch/core/dispatch.ts::COMPOSITE_HANDLER_LOADERS`
 // resolves a TOOL to its composite module; that module's router then performs the
 // action-level routing. Those routing constructs are the last mile of the wire
 // path, and they are the thing that silently drifts when an action is renamed in
@@ -44,7 +44,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { COMPOSITE_HANDLER_LOADERS } from '../../core/dispatch.js';
+import { COMPOSITE_HANDLER_LOADERS } from '../../dispatch/core/dispatch.js';
 import { EFFECT_PROVIDERS, type EffectProvider } from './providers.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));

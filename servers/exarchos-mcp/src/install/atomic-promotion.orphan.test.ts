@@ -38,7 +38,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { makeTempDir, rmrf } from '../test-helpers/temp-dir.js';
 import { digestTree, type DigestEntry } from './install-identity.js';
-import { LIVE, isError } from '../core/effect-carrier.js';
+import { LIVE, isError } from '../dispatch/core/effect-carrier.js';
 import {
   PromotionError,
   assertNoOrphanBackup,

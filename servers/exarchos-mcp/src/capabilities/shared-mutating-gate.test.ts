@@ -6,7 +6,7 @@
 // Three reasons it went, worth keeping because re-adding it sounds reasonable:
 //
 // It never ran on real postures. The dispatch resolver is built in
-// `index.ts` and `core/context.ts` as `createInMemoryResolver([])` or
+// `index.ts` and `dispatch/core/context.ts` as `createInMemoryResolver([])` or
 // `[ANTHROPIC_NATIVE_CACHING])` — a response-cache flag that is not even a
 // `Capability`. Nothing feeds agent postures into it. So `has('fs:write')` was
 // always false and the gate denied every caller that reached it, which is how
@@ -40,8 +40,8 @@ import * as os from 'node:os';
 import { createInMemoryResolver } from './resolver.js';
 import * as resolverModule from './resolver.js';
 import { capabilitiesForPosture } from './posture-mapping.js';
-import type { DispatchContext } from '../core/dispatch.js';
-import { dispatch, stubCompositeHandler } from '../core/dispatch.js';
+import type { DispatchContext } from '../dispatch/core/dispatch.js';
+import { dispatch, stubCompositeHandler } from '../dispatch/core/dispatch.js';
 import { EventStore } from '../events/store.js';
 
 describe('shared-mutating posture gate — removed (INV-11)', () => {

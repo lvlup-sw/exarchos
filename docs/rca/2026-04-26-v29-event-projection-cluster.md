@@ -39,8 +39,8 @@ Five production sites instantiate `new EventStore(stateDir)`:
 
 | Site | Calls `.initialize()`? | Same process as primary? |
 |------|------------------------|--------------------------|
-| `index.ts:191` (primary, threaded via DispatchContext) | yes (via `core/context.ts`) | n/a |
-| `core/context.ts:106` (initializeContext) | yes | yes |
+| `index.ts:191` (primary, threaded via DispatchContext) | yes (via `dispatch/core/context.ts`) | n/a |
+| `dispatch/core/context.ts:106` (initializeContext) | yes | yes |
 | `cli-commands/assemble-context.ts:361` | yes | separate CLI process — PID lock works |
 | `review/tools.ts:110` | **no** | yes |
 | `views/tools.ts:143` | **no** | yes |
@@ -156,7 +156,7 @@ The final implementation:
 - All 16 production handlers (orchestrate × 14, review × 1, telemetry × 1) accept `EventStore` as a typed parameter. The composite dispatcher (`orchestrate/composite.ts`, `views/composite.ts`) threads `ctx.eventStore` to each.
 - CLI entrypoints (`pre-compact`, `evals/run-evals-cli`, `assemble-context`) bootstrap their own `EventStore` via `new EventStore + initialize` — separate process boundaries, PID lock holds.
 - Test fixtures (~17 files) updated to construct the EventStore in `beforeEach` and pass it as the third arg to handler calls.
-- `scripts/check-event-store-composition-root.mjs` allowlist lists 5 paths: `index.ts`, `core/context.ts`, `cli-commands/assemble-context.ts`, `cli-commands/pre-compact.ts`, `evals/run-evals-cli.ts`.
+- `scripts/check-event-store-composition-root.mjs` allowlist lists 5 paths: `index.ts`, `dispatch/core/context.ts`, `cli-commands/assemble-context.ts`, `cli-commands/pre-compact.ts`, `evals/run-evals-cli.ts`.
 - `__tests__/event-store/single-composition-root.test.ts` asserts the new contract: `getOrCreateEventStore` and `registerCanonicalEventStore` must NOT exist as exports; concurrent appends through `ctx.eventStore` produce monotonic unique sequences.
 
 Validation: typecheck clean (root + MCP server), root suite 625/625, MCP suite 5720/5725 (5 pre-existing `gates.test.ts` baseline failures unchanged).

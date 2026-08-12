@@ -663,7 +663,7 @@ describe('handlePruneStaleWorkflows', () => {
   // in-handler `'thresholdMinutes' in args` guard + its two direct tests were
   // removed: they cast past the type boundary to certify a path real callers
   // never reach (a vacuous gate). The behavior is pinned end-to-end by the
-  // dispatch-level arbiter in `core/dispatch.test.ts`
+  // dispatch-level arbiter in `dispatch/core/dispatch.test.ts`
   // (`Dispatch_PruneLegacyThresholdMinutes_ActionableRemovalError`) and the
   // yaml-config seam by `config/yaml-schema.test.ts`.
 

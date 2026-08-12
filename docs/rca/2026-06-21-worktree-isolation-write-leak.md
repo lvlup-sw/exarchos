@@ -20,7 +20,7 @@ dispatch two agents' leaks overlap and corrupt the main working tree against bot
 The 2026-05-23 RCA (T-09) asked exactly one question: *"Does the leak originate in
 MCP-server-owned code (`orchestrate/`)?"* It correctly proved the server never resolves an
 agent's per-file write target (`setup-worktree.ts` provisions strictly inside
-`<repoRoot>/.worktrees/`; nothing in `composite.ts`/`core/dispatch.ts` spawns the agent), and
+`<repoRoot>/.worktrees/`; nothing in `composite.ts`/`dispatch/core/dispatch.ts` spawns the agent), and
 concluded "harness-layer, not ownable → escalate; ship the merge-time backstop." That framing
 was too narrow: it never examined the **prompt contract and the agent-hook adapter** — both of
 which exarchos *does* own — and so it foreclosed the structural fix. The merge-time

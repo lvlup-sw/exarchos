@@ -48,20 +48,20 @@ Group E depends on both Group B (003→004) and Group D (009).
 **Phase:** RED → GREEN → REFACTOR
 
 1. **[RED]** Write test: `validateStreamId_rejectsUppercase`, `validateStreamId_rejectsDots`, `validateStreamId_acceptsValid`
-   - File: `servers/exarchos-mcp/src/shared/validation.test.ts`
+   - File: `servers/exarchos-mcp/src/contract/shared/validation.test.ts`
    - Assert shared `validateStreamId()` rejects IDs with uppercase, dots, underscores (matching EventStore's stricter pattern `[a-z0-9-]`)
    - Assert it accepts valid IDs like `my-workflow`, `feature-123`
    - Assert it throws a descriptive error with the invalid ID and expected pattern
    - Expected failure: module `../shared/validation.js` does not exist
 
 2. **[GREEN]** Extract `validateStreamId()` into shared module
-   - File: `servers/exarchos-mcp/src/shared/validation.ts`
+   - File: `servers/exarchos-mcp/src/contract/shared/validation.ts`
    - Export `validateStreamId(streamId: string): void` — throws on invalid
    - Export `SAFE_STREAM_ID_PATTERN` for consumers that need the regex directly
 
 3. **[REFACTOR]** Replace inline validation in EventStore and Outbox
-   - File: `servers/exarchos-mcp/src/event-store/store.ts` — replace `SAFE_STREAM_ID_PATTERN` and `validateStreamId()` with import from `shared/validation.js`
-   - File: `servers/exarchos-mcp/src/sync/outbox.ts` — replace `SAFE_STREAM_ID` regex with import from `shared/validation.js` (tightens Outbox validation to match EventStore)
+   - File: `servers/exarchos-mcp/src/event-store/store.ts` — replace `SAFE_STREAM_ID_PATTERN` and `validateStreamId()` with import from `contract/shared/validation.js`
+   - File: `servers/exarchos-mcp/src/sync/outbox.ts` — replace `SAFE_STREAM_ID` regex with import from `contract/shared/validation.js` (tightens Outbox validation to match EventStore)
    - Verify existing tests still pass (outbox tests may need stream IDs adjusted if they use uppercase/dots)
 
 **Dependencies:** None
@@ -122,7 +122,7 @@ Group E depends on both Group B (003→004) and Group D (009).
    - Expected failure: `handleSyncNow` doesn't accept `DispatchContext`
 
 2. **[GREEN]** Add `outbox` to `DispatchContext` and update `handleSyncNow`
-   - File: `servers/exarchos-mcp/src/core/dispatch.ts` — add `readonly outbox?: Outbox` to `DispatchContext`
+   - File: `servers/exarchos-mcp/src/dispatch/core/dispatch.ts` — add `readonly outbox?: Outbox` to `DispatchContext`
    - File: `servers/exarchos-mcp/src/sync/sync-handler.ts` — change signature to `handleSyncNow(ctx: DispatchContext)`, use `ctx.outbox` when available, fall back to creating new Outbox from `ctx.stateDir`
    - File: `servers/exarchos-mcp/src/sync/composite.ts` — pass `ctx` instead of `ctx.stateDir`
 
@@ -371,7 +371,7 @@ Group E depends on both Group B (003→004) and Group D (009).
    - Append event — assert success (no error, graceful absence)
 
 4. **[GREEN]** Add ChannelEmitter to DispatchContext and wire into event composite
-   - File: `servers/exarchos-mcp/src/core/dispatch.ts` — add `readonly channelEmitter?: ChannelEmitter`
+   - File: `servers/exarchos-mcp/src/dispatch/core/dispatch.ts` — add `readonly channelEmitter?: ChannelEmitter`
    - File: `servers/exarchos-mcp/src/event-store/composite.ts` — after successful append, if `ctx.channelEmitter`, call `ctx.channelEmitter.push(event, classifyPriority(event.type, event.data))`
    - Same pattern for `batch_append` (push each event in the batch)
 
@@ -393,7 +393,7 @@ Group E depends on both Group B (003→004) and Group D (009).
 cd servers/exarchos-mcp && npm run test:run
 
 # Run specific test files during development
-npx vitest run src/shared/validation.test.ts          # Task 001
+npx vitest run src/contract/shared/validation.test.ts          # Task 001
 npx vitest run src/event-store/store.test.ts           # Task 002
 npx vitest run src/sync/sync-handler.test.ts           # Task 003, 004
 npx vitest run src/adapters/mcp.test.ts                # Task 006
@@ -407,8 +407,8 @@ npx vitest run src/event-store/composite.test.ts       # Task 010
 
 | Path | Task | Purpose |
 |------|------|---------|
-| `src/shared/validation.ts` | 001 | Shared stream ID validation |
-| `src/shared/validation.test.ts` | 001 | Tests for shared validation |
+| `src/contract/shared/validation.ts` | 001 | Shared stream ID validation |
+| `src/contract/shared/validation.test.ts` | 001 | Tests for shared validation |
 | `src/adapters/mcp.test.ts` | 006 | Tests for MCP server capability declaration |
 | `src/channel/priority.ts` | 007 | Notification priority classification and threshold |
 | `src/channel/priority.test.ts` | 007 | Tests for priority router |
@@ -423,7 +423,7 @@ npx vitest run src/event-store/composite.test.ts       # Task 010
 |------|-------|---------|
 | `src/event-store/store.ts` | 001, 002 | Import shared validation; add outbox loop in batchAppend |
 | `src/sync/outbox.ts` | 001 | Import shared validation (tightens regex) |
-| `src/core/dispatch.ts` | 003, 010 | Add `outbox` and `channelEmitter` to DispatchContext |
+| `src/dispatch/core/dispatch.ts` | 003, 010 | Add `outbox` and `channelEmitter` to DispatchContext |
 | `src/sync/sync-handler.ts` | 003, 004 | Accept DispatchContext; add local-mode skip |
 | `src/sync/composite.ts` | 003 | Pass ctx to handleSyncNow |
 | `src/event-store/tools.ts` | 005 | Remove dead registerEventTools function |

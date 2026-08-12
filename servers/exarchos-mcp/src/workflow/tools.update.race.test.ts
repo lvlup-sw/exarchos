@@ -24,7 +24,7 @@ import * as os from 'node:os';
 import { handleWorkflow } from './composite.js';
 import { handleInit } from './tools.js';
 import { EventStore } from '../events/store.js';
-import type { DispatchContext } from '../core/dispatch.js';
+import type { DispatchContext } from '../dispatch/core/dispatch.js';
 import { SqliteBackend } from '../storage/sqlite-backend.js';
 import { configureStateStoreBackend } from './state-store.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
@@ -44,7 +44,7 @@ beforeEach(async () => {
   // state-file CAS write is a SQLite transaction with VersionConflict
   // semantics, NOT the file-only write-through path whose temp filename
   // is shared per PID and races on concurrent rename). This matches
-  // `core/context.ts:initializeContext`, which is the path every
+  // `dispatch/core/context.ts:initializeContext`, which is the path every
   // production callsite — CLI dispatch, MCP server — takes. Skipping
   // the backend wiring is a test-only degraded mode that exercises a
   // best-effort backup write whose failure is logged but non-fatal

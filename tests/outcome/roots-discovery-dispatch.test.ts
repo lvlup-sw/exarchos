@@ -15,7 +15,7 @@ import * as path from 'node:path';
 
 import { EventStore } from '../../servers/exarchos-mcp/src/events/store.js';
 import { handleInit } from '../../servers/exarchos-mcp/src/workflow/tools.js';
-import { dispatch } from '../../servers/exarchos-mcp/src/core/dispatch.js';
+import { dispatch } from '../../servers/exarchos-mcp/src/dispatch/core/dispatch.js';
 import { createInMemoryResolver } from '../../servers/exarchos-mcp/src/capabilities/resolver.js';
 import type { RootsClient } from '../../servers/exarchos-mcp/src/workspace/discovery.js';
 

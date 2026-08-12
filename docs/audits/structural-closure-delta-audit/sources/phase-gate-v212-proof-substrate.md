@@ -455,7 +455,7 @@ Task numbers are local to this feature. `Roadmap Task` preserves provenance to t
 **Files:**
 - `servers/exarchos-mcp/src/event-store/tools.ts`
 - `servers/exarchos-mcp/src/registry.ts`
-- `servers/exarchos-mcp/src/core/dispatch.ts`
+- `servers/exarchos-mcp/src/dispatch/core/dispatch.ts`
 - `servers/exarchos-mcp/src/event-store/admission-event-authorization.test.ts`
 
 **Testing Strategy:** Acceptance and property tests proving generic append cannot create reserved proof facts or self-assert trusted metadata; characterization required.
@@ -589,7 +589,7 @@ Task numbers are local to this feature. `Roadmap Task` preserves provenance to t
 - `servers/exarchos-mcp/src/dispatch/caller-identity.ts`
 - `servers/exarchos-mcp/src/dispatch/caller-identity.test.ts`
 - `servers/exarchos-mcp/src/capabilities/resolver.ts`
-- `servers/exarchos-mcp/src/core/dispatch.ts`
+- `servers/exarchos-mcp/src/dispatch/core/dispatch.ts`
 - `servers/exarchos-mcp/src/adapters/mcp.ts`
 - `servers/exarchos-mcp/src/adapters/cli.ts`
 

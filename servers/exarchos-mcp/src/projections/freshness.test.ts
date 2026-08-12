@@ -16,7 +16,7 @@ import * as nodePath from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import type { DispatchContext } from '../core/dispatch.js';
+import type { DispatchContext } from '../dispatch/core/dispatch.js';
 import { EventStore } from '../events/store.js';
 import {
   EVENT_DATA_SCHEMAS,

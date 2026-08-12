@@ -10,7 +10,7 @@ import {
   type Envelope,
   type ToolResult,
 } from './format.js';
-import { EnvelopeSchema, ErrorEnvelopeSchema } from './schemas/envelope.js';
+import { EnvelopeSchema, ErrorEnvelopeSchema } from './contract/schemas/envelope.js';
 import type { NextAction } from './next-action.js';
 import {
   ANTHROPIC_NATIVE_CACHING,

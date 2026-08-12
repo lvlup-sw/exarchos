@@ -16,7 +16,7 @@ import * as os from 'node:os';
 import * as fsp from 'node:fs/promises';
 import * as nodePath from 'node:path';
 
-import type { DispatchContext } from '../../core/dispatch.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import { handleAdd, appendEntryToCatalog } from './add.js';
 import type { ScaffoldDeps } from './scaffold.js';
 import { allocateNextId } from './add.js';

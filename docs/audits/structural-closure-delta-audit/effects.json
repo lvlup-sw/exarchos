@@ -1528,24 +1528,24 @@
       {
         "id": "OCC-0056",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/core/interceptors/session-machinery.ts",
+        "path": "servers/exarchos-mcp/src/dispatch/core/interceptors/session-machinery.ts",
         "line": 155,
         "match": "eventStore.append(",
         "excerpt": "await eventStore.append(",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-event-append",
-        "rationale": "servers/exarchos-mcp/src/core/interceptors/session-machinery.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/dispatch/core/interceptors/session-machinery.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0057",
         "effectClass": "event-append",
-        "path": "servers/exarchos-mcp/src/core/onboarding/event-ctx.ts",
+        "path": "servers/exarchos-mcp/src/dispatch/core/onboarding/event-ctx.ts",
         "line": 49,
         "match": "eventStore.append(",
         "excerpt": "await ctx.eventStore.append(ONBOARD_STREAM_ID, {",
         "ownerRowId": "effect.dynamic-extension-boundary",
         "subcategory": "unresolved-first-party-event-append",
-        "rationale": "servers/exarchos-mcp/src/core/onboarding/event-ctx.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
+        "rationale": "servers/exarchos-mcp/src/dispatch/core/onboarding/event-ctx.ts contains a event-append candidate with no dedicated owner rule; targeted source classification is required."
       },
       {
         "id": "OCC-0058",

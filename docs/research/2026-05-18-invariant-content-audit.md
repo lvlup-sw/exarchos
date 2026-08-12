@@ -71,7 +71,7 @@ Notes on the table:
 - **Currency** — all scopes present.
   - `cli-adapter` → `servers/exarchos-mcp/src/adapters/cli.ts`.
   - `mcp-adapter` → `servers/exarchos-mcp/src/adapters/mcp.ts`.
-  - `dispatch-core` → `servers/exarchos-mcp/src/core/`, `servers/exarchos-mcp/src/dispatch/`.
+  - `dispatch-core` → `servers/exarchos-mcp/src/dispatch/core/`, `servers/exarchos-mcp/src/dispatch/`.
   - `parity-tests` → multiple suites, listed above.
 - **Contradiction** — no. The `assertActionHasOutputSchema` runtime check at registry-construction time makes the post-#1266 claim self-enforcing.
 - **INV-4 cross-runtime** — `inv-4-finding: no`. No runtime-specific assumptions in the wording.

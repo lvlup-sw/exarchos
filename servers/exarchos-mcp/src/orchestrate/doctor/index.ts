@@ -19,9 +19,9 @@
  *     probe bundle or the canonical check list (DIM-4).
  */
 
-import type { DispatchContext } from '../../core/dispatch.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import type { ToolResult } from '../../format.js';
-import { DOCTOR_STREAM_ID } from '../../core/infra-streams.js';
+import { DOCTOR_STREAM_ID } from '../../dispatch/core/infra-streams.js';
 import { buildProbes as defaultBuildProbes } from './probes.js';
 import type { DoctorProbes } from './probes.js';
 import { DoctorOutputSchema, type CheckResult, type DoctorSummary } from './schema.js';
@@ -30,15 +30,15 @@ import {
   reconcileWithEvents,
   type ApplyCtx,
   type DetectOptions,
-} from '../../core/onboarding/reconcile.js';
-import { buildOnboardEventCtx } from '../../core/onboarding/event-ctx.js';
-import type { ReconcilePlan, ReconcileResult } from '../../core/onboarding/types.js';
+} from '../../dispatch/core/onboarding/reconcile.js';
+import { buildOnboardEventCtx } from '../../dispatch/core/onboarding/event-ctx.js';
+import type { ReconcilePlan, ReconcileResult } from '../../dispatch/core/onboarding/types.js';
 import type { WriterDeps } from '../init/probes.js';
 import { buildWriterDeps } from '../init/probes.js';
 import { getAllWriters } from '../init/index.js';
 import type { RuntimeConfigWriter } from '../init/writers/writer.js';
 import type { SeedResult } from '../init/seed-exarchos-config.js';
-import type { PlanStep } from '../../core/onboarding/types.js';
+import type { PlanStep } from '../../dispatch/core/onboarding/types.js';
 
 import { runtimeNodeVersion } from './checks/runtime-node-version.js';
 import { storageStateDir } from './checks/storage-state-dir.js';
@@ -206,7 +206,7 @@ export interface HandleDoctorArgs {
  * a stateful `runDoctorChecks`, and a stub `seed`.
  *
  * `doctor --fix` reuses the reconciler DIRECTLY (it imports
- * `reconcileWithEvents` from `core/onboarding/reconcile.js`) rather than calling
+ * `reconcileWithEvents` from `dispatch/core/onboarding/reconcile.js`) rather than calling
  * the `onboard` handler — the two share the ONE `apply`, which is what makes them
  * converge by construction (DR-4). This is the single injection axis; the event
  * seam (over `ctx.eventStore`) is built internally so callers cannot mis-wire the
@@ -252,7 +252,7 @@ export type BuildProbesFn = (ctx: DispatchContext) => DoctorProbes;
  * Stream ID for diagnostic events. Doctor is phase-independent and
  * not tied to any workflow, so a dedicated stream keeps diagnostic
  * history separate from workflow streams. (`DOCTOR_STREAM_ID` is imported
- * from `core/infra-streams.js` at the top of the module; re-exported here so
+ * from `dispatch/core/infra-streams.js` at the top of the module; re-exported here so
  * callers keep their single import site alongside the handler.)
  */
 export { DOCTOR_STREAM_ID };
@@ -385,7 +385,7 @@ async function runDoctorFix(
   );
 
   // Post-fix re-diff: re-run the checks and classify what (if anything) remains.
-  const { diff } = await import('../../core/onboarding/reconcile.js');
+  const { diff } = await import('../../dispatch/core/onboarding/reconcile.js');
   const postChecks = await deps.runDoctorChecks(deps.repoRoot);
   const residual = diff({ runtimes: [], vcs: 'git', commands: {} }, postChecks);
 

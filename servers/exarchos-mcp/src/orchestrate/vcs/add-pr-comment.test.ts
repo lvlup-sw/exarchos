@@ -4,7 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type { VcsProvider, PrComment, RepoInfo } from '../../vcs/provider.js';
 import type { EventStore } from '../../events/store.js';
-import type { DispatchContext } from '../../core/dispatch.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import { ConcurrencyError } from '../../events/index.js';
 
 vi.mock('../../vcs/factory.js', () => ({

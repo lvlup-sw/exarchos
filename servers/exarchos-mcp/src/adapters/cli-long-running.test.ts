@@ -21,7 +21,7 @@ import type { ToolResult } from '../format.js';
 // without actually running npm run test:run (which prepare_synthesis does).
 const dispatchDelayMs = { current: 0 };
 
-vi.mock('../core/dispatch.js', () => ({
+vi.mock('../dispatch/core/dispatch.js', () => ({
   dispatch: vi.fn<(tool: string, args: Record<string, unknown>, ctx: unknown) => Promise<ToolResult>>(
     async () => {
       const delay = dispatchDelayMs.current;
@@ -62,7 +62,7 @@ vi.mock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
 
 import { buildCli } from './cli.js';
 import { TOOL_REGISTRY } from '../registry.js';
-import type { DispatchContext } from '../core/dispatch.js';
+import type { DispatchContext } from '../dispatch/core/dispatch.js';
 
 function createTestContext(): DispatchContext {
   return {

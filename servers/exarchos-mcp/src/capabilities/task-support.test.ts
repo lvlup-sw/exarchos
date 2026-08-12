@@ -32,8 +32,8 @@ import * as path from 'node:path';
 import { EventStore } from '../events/store.js';
 import { EventSourcedTaskStore } from '../projections/task-store/event-sourced-task-store.js';
 import { createInMemoryResolver } from './resolver.js';
-import { dispatch } from '../core/dispatch.js';
-import type { DispatchContext } from '../core/dispatch.js';
+import { dispatch } from '../dispatch/core/dispatch.js';
+import type { DispatchContext } from '../dispatch/core/dispatch.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 describe('Task-support capability gating (#1273 / T32)', () => {

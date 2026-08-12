@@ -22,7 +22,7 @@ import {
 } from '../../events/schemas.js';
 import { handleWorkflow } from '../composite.js';
 import { handleSet } from '../tools.js';
-import { dispatch } from '../../core/dispatch.js';
+import { dispatch } from '../../dispatch/core/dispatch.js';
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 import {
   InMemoryLiveShadowSink,

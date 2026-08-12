@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
-import type { DispatchContext } from '../core/dispatch.js';
+import type { DispatchContext } from '../dispatch/core/dispatch.js';
 import { EventStore } from '../events/store.js';
 import { deriveRepoKey } from '../utils/paths.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';

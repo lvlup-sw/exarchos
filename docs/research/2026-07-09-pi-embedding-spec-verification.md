@@ -46,8 +46,8 @@ The closest shipped analog to the whole governance-controller pattern is `exampl
 
 | # | Spec claim | Verdict | Evidence |
 |---|---|---|---|
-| 1 | `dispatch(tool, args, ctx)` at `core/dispatch.ts:532`; `DispatchContext` at `:52` | **CONFIRMED (minor drift)** | Signatures exact; `DispatchContext` also requires `enableTelemetry` (spec's `{ stateDir, eventStore }` omits it) plus 12 optional fields |
-| 2 | Composition root `core/context.ts:101`, `index.ts:182` | **PARTIAL (lines off; path clean but driver-entangled)** | Real seam is `initializeContext(stateDir, options)` at `context.ts:94` (EventStore at `:103-104`); server-side construction at `index.ts:224`. Reusable without the MCP SDK, but production requires the Bun-backed `SqliteBackend` — exactly DR-9's problem |
+| 1 | `dispatch(tool, args, ctx)` at `dispatch/core/dispatch.ts:532`; `DispatchContext` at `:52` | **CONFIRMED (minor drift)** | Signatures exact; `DispatchContext` also requires `enableTelemetry` (spec's `{ stateDir, eventStore }` omits it) plus 12 optional fields |
+| 2 | Composition root `dispatch/core/context.ts:101`, `index.ts:182` | **PARTIAL (lines off; path clean but driver-entangled)** | Real seam is `initializeContext(stateDir, options)` at `context.ts:94` (EventStore at `:103-104`); server-side construction at `index.ts:224`. Reusable without the MCP SDK, but production requires the Bun-backed `SqliteBackend` — exactly DR-9's problem |
 | 3 | `handleRehydrate` (`workflow/rehydrate.ts:405`), `hydrateFromSnapshotThenTail` (`:163`), `deliveryPath:"direct"` | **CONFIRMED (exact)** | `direct` is the default and returns the document by value |
 | 4 | `EventStore.append` at `store.ts:302` | **CONFIRMED (path imprecise)** | Real path `event-store/store.ts:302` |
 | 5 | `projectionSequence` as ETag | **PARTIAL — semantic drift the code itself flags** | It is a count of *handled* events; `rehydrate.ts:193-196` warns it diverges from the store sequence when unhandled event types appear, and snapshot persistence deliberately uses `lastEventSequence`. Adequate for change-detection; not the monotonic store version "ETag" implies |

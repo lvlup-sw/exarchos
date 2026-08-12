@@ -1,14 +1,14 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { EventStore } from '../events/store.js';
-import { SnapshotStore } from '../projections/views/snapshot-store.js';
+import { EventStore } from '../../events/store.js';
+import { SnapshotStore } from '../../projections/views/snapshot-store.js';
 import type { DispatchContext } from './dispatch.js';
-import type { StorageBackend } from '../storage/backend.js';
+import type { StorageBackend } from '../../storage/backend.js';
 import {
   ANTHROPIC_NATIVE_CACHING,
   createInMemoryResolver,
   type CapabilityResolver,
-} from '../capabilities/resolver.js';
+} from '../../capabilities/resolver.js';
 
 // NOTE: `../config/loader.js`, `../config/yaml-loader.js`, `../config/resolve.js`,
 // `../config/register.js`, `../vcs/factory.js`, and `../hooks/config-hooks.js`
@@ -19,11 +19,11 @@ import {
 // avoids the ~10ms module-graph cost. See DR-5 / task 021 cold-start budget.
 
 // EventStore is now threaded via DispatchContext — no module-level injection needed
-import { configureCutoverAutoExport } from '../workflow/admission/cutover-auto-export.js';
-import { configureCleanupSnapshotStore } from '../workflow/cleanup.js';
-import { configureStateStoreBackend } from '../workflow/state-store.js';
-import { loadTopology } from '../workflow/topology/loader.js';
-import { assertRegistrationWeldsAtStartup } from '../events/registration-validate.js';
+import { configureCutoverAutoExport } from '../../workflow/admission/cutover-auto-export.js';
+import { configureCleanupSnapshotStore } from '../../workflow/cleanup.js';
+import { configureStateStoreBackend } from '../../workflow/state-store.js';
+import { loadTopology } from '../../workflow/topology/loader.js';
+import { assertRegistrationWeldsAtStartup } from '../../events/registration-validate.js';
 
 // ─── Config Detection ──────────────────────────────────────────────────────
 
@@ -153,10 +153,10 @@ export async function initializeContext(
     { createVcsProvider },
     { createConfigHookRunner },
   ] = await Promise.all([
-    import('../config/yaml-loader.js'),
-    import('../config/resolve.js'),
-    import('../vcs/factory.js'),
-    import('../hooks/config-hooks.js'),
+    import('../../config/yaml-loader.js'),
+    import('../../config/resolve.js'),
+    import('../../vcs/factory.js'),
+    import('../../hooks/config-hooks.js'),
   ]);
 
   const projectConfig = resolveConfig(loadProjectConfig(projectRoot));
@@ -200,8 +200,8 @@ export async function initializeContext(
     { loadConfig },
     { registerCustomWorkflows, registerCustomViews, registerCustomTools },
   ] = await Promise.all([
-    import('../config/loader.js'),
-    import('../config/register.js'),
+    import('../../config/loader.js'),
+    import('../../config/register.js'),
   ]);
 
   const config = await loadConfig(projectRoot);

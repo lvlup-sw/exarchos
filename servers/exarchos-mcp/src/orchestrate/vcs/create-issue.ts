@@ -15,7 +15,7 @@
 // marker scan and recovers gracefully — no duplicate issue is created.
 
 import { randomUUID } from 'node:crypto';
-import type { DispatchContext } from '../../core/dispatch.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import type { ToolResult } from '../../format.js';
 import { createVcsProvider } from '../../vcs/factory.js';
 import {

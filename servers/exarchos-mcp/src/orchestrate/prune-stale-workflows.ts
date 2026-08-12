@@ -17,7 +17,7 @@
 
 import * as path from 'node:path';
 import type { ToolResult } from '../format.js';
-import type { DispatchContext } from '../core/dispatch.js';
+import type { DispatchContext } from '../dispatch/core/dispatch.js';
 import type { EventType } from '../events/schemas.js';
 import { handleList } from '../workflow/tools.js';
 import { handleCancel } from '../workflow/cancel.js';
@@ -758,7 +758,7 @@ export async function handlePruneStaleWorkflows(
   // function. `PruneHandlerArgs` no longer declares it, so a former in-handler
   // `'thresholdMinutes' in args` guard was reachable only by a test casting
   // past the type boundary (a vacuous gate). It was removed with its direct
-  // test; the dispatch-level test (`core/dispatch.test.ts`) is the real arbiter.
+  // test; the dispatch-level test (`dispatch/core/dispatch.test.ts`) is the real arbiter.
   if (args.now !== undefined) {
     if (typeof args.now !== 'string' || Number.isNaN(new Date(args.now).valueOf())) {
       return {

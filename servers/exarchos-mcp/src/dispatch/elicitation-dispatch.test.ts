@@ -11,7 +11,7 @@ import {
   performElicitation,
   type ElicitationClient,
 } from './elicitation-dispatch.js';
-import { dispatch, stubCompositeHandler } from '../core/dispatch.js';
+import { dispatch, stubCompositeHandler } from './core/dispatch.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 describe('elicitation-dispatch (#1274)', () => {

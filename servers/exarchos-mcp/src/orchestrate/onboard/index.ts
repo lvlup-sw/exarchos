@@ -1,7 +1,7 @@
 /**
  * handleOnboard — the `onboard` verb dispatch-core handler (DR-2).
  *
- * Composes the Wave-1 pure reconciler (`core/onboarding/reconcile.ts`) into the
+ * Composes the Wave-1 pure reconciler (`dispatch/core/onboarding/reconcile.ts`) into the
  * full onboarding pipeline:
  *
  *   DETECT → CONFIG → GENERATE → INSTALL → VERIFY
@@ -37,11 +37,11 @@
  *     onboard` CLI verb.
  *   - `doctor --fix` reuses this same `apply`/pipeline with `trigger:'doctor-fix'`
  *     (`../doctor/index.ts`), sharing the extracted event seam
- *     (`core/onboarding/event-ctx.ts`).
+ *     (`dispatch/core/onboarding/event-ctx.ts`).
  */
 
-import type { DispatchContext } from '../../core/dispatch.js';
-import { ONBOARD_STREAM_ID } from '../../core/infra-streams.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
+import { ONBOARD_STREAM_ID } from '../../dispatch/core/infra-streams.js';
 import type { ToolResult } from '../../format.js';
 import type { NextAction } from '../../next-action.js';
 import type { CheckResult } from '../doctor/schema.js';
@@ -60,9 +60,9 @@ import {
   type DetectOptions,
   type OnboardTrigger,
   type ReconcileEventInput,
-} from '../../core/onboarding/reconcile.js';
-import { buildOnboardEventCtx } from '../../core/onboarding/event-ctx.js';
-import type { ReconcilePlan, ReconcileResult, Surface } from '../../core/onboarding/types.js';
+} from '../../dispatch/core/onboarding/reconcile.js';
+import { buildOnboardEventCtx } from '../../dispatch/core/onboarding/event-ctx.js';
+import type { ReconcilePlan, ReconcileResult, Surface } from '../../dispatch/core/onboarding/types.js';
 
 // ─── Args ────────────────────────────────────────────────────────────────────
 
@@ -123,9 +123,9 @@ export interface OnboardDeps {
   /** Config seeder (defaults to the real `seedExarchosConfig` via `apply`). */
   readonly seed?: (repoRoot: string, force: boolean) => SeedResult;
   /** CLI-only install hook (real `npx` install is task 015; no-op default). */
-  readonly installStep?: (step: import('../../core/onboarding/types.js').PlanStep, ctx: ApplyCtx) => Promise<void>;
+  readonly installStep?: (step: import('../../dispatch/core/onboarding/types.js').PlanStep, ctx: ApplyCtx) => Promise<void>;
   /** Lifecycle-hook installer (real #1485 binding is task 012; no-op default). */
-  readonly installHook?: (step: import('../../core/onboarding/types.js').PlanStep, ctx: ApplyCtx) => Promise<void>;
+  readonly installHook?: (step: import('../../dispatch/core/onboarding/types.js').PlanStep, ctx: ApplyCtx) => Promise<void>;
   /** Threaded into `detectDesiredState` (runtime/vcs/command overrides). */
   readonly detectOptions?: DetectOptions;
   /**
@@ -182,7 +182,7 @@ async function verify(
 ): Promise<OnboardVerify> {
   // The pure `diff` lives in the reconciler; import lazily to keep this module's
   // import graph tight and to reuse the EXACT classification the plan used.
-  const { diff } = await import('../../core/onboarding/reconcile.js');
+  const { diff } = await import('../../dispatch/core/onboarding/reconcile.js');
   const checks = await deps.runDoctorChecks(deps.repoRoot);
   // `diff(desired, actual)` ignores `desired` today (the plan is derived from the
   // remediable checks); pass the prior plan's notional desired-state placeholder.

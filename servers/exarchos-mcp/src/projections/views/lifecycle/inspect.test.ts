@@ -21,7 +21,7 @@ import { tmpdir } from 'node:os';
 
 import { EventStore } from '../../../events/store.js';
 import { rmrfAsync } from '../../../test-helpers/temp-dir.js';
-import type { DispatchContext } from '../../../core/dispatch.js';
+import type { DispatchContext } from '../../../dispatch/core/dispatch.js';
 import { handleViewInspect, InspectOutputSchema } from './inspect.js';
 import { handleView } from '../composite.js';
 import { TOOL_REGISTRY, buildToolDescription } from '../../../registry.js';

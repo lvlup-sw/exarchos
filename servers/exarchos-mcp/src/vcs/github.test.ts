@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GitHubProvider } from './github.js';
-import { estimateOutputTokens } from '../core/economy.js';
+import { estimateOutputTokens } from '../dispatch/core/economy.js';
 import { DEFAULT_PR_COMMENTS_LIMIT } from './provider.js';
 
 // Recorded `gh pr checks --json name,state,link,bucket,workflow` blobs captured

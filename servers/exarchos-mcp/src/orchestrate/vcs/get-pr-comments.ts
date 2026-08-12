@@ -9,11 +9,11 @@
 // bounded provider surface, and advertises a narrow affordance when more
 // comments remain.
 
-import type { DispatchContext } from '../../core/dispatch.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import type { ToolResult } from '../../format.js';
 import type { GetPrCommentsOptions } from '../../vcs/provider.js';
 import { windowPrComments } from '../../vcs/provider.js';
-import { narrowAffordance } from '../../core/economy.js';
+import { narrowAffordance } from '../../dispatch/core/economy.js';
 import { createVcsProvider } from '../../vcs/factory.js';
 
 export interface HandleGetPrCommentsArgs {

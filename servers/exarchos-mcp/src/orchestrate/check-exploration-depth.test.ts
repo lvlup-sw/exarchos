@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { handleOrchestrate } from './composite.js';
 import { EventStore } from '../events/store.js';
-import type { DispatchContext } from '../core/dispatch.js';
+import type { DispatchContext } from '../dispatch/core/dispatch.js';
 import {
   checkExplorationDepth,
   extractExplorationSection,

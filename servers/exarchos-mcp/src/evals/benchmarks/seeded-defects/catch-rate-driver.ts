@@ -244,7 +244,7 @@ const defaultDispatch: GateDispatch = async (fixture, args, stateDir, eventStore
   // from the ambient dispatch scope and binds evidence to an active phase
   // attempt; without both, every cell fails closed and the driver honestly
   // records `invalid` — which measures the harness, not the gate's detection
-  // power. Uses the same primitives `core/dispatch.ts` does so this cannot
+  // power. Uses the same primitives `dispatch/core/dispatch.ts` does so this cannot
   // drift from production plumbing.
   const featureId =
     typeof (args as { featureId?: unknown }).featureId === 'string'

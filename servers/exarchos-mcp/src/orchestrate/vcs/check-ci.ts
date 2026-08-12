@@ -3,7 +3,7 @@
 // Checks CI status for a pull/merge request via the VCS provider abstraction.
 // Read-only — does NOT emit events.
 
-import type { DispatchContext } from '../../core/dispatch.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import type { ToolResult } from '../../format.js';
 import { createVcsProvider } from '../../vcs/factory.js';
 

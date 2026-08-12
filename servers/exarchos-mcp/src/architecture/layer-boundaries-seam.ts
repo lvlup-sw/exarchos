@@ -69,7 +69,7 @@ import {
  *
  * ── Third census in this module: the SDK GENERATION SEAM (DR-26) ────────────
  * The last section carries a third census, and it is the same rule applied to a
- * third boundary: DR-26's requirement that `sdk/seam.ts` is the SOLE importer of
+ * third boundary: DR-26's requirement that `contract/sdk/seam.ts` is the SOLE importer of
  * either MCP SDK generation. A module reaching a `@modelcontextprotocol/*`
  * package directly fails it. See {@link SDK_SEAM_BOUNDARY}.
  *
@@ -340,9 +340,8 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
   allowance(
     'projections',
     [
-      'adapters', 'architecture', 'capabilities', 'config', 'core', 'describe',
-      'dispatch', 'events', 'orchestrate', 'schemas', 'sdk', 'stack', 'storage',
-      'utils', 'workflow',
+      'adapters', 'architecture', 'capabilities', 'config', 'contract', 'describe',
+      'dispatch', 'events', 'orchestrate', 'stack', 'storage', 'utils', 'workflow',
     ],
     'The WIDEST allowance in this table, and deliberately so: task 012 folded ' +
       'views/, telemetry/, quality/, session/ and task-store/ into projections/, so this ' +
@@ -357,8 +356,8 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
   allowance('stack', ['events', 'projections'], 'Stack renders event state through the projections layer.'),
   allowance(
     'cli',
-    ['events', 'ndjson', 'sdk', 'projections'],
-    'CLI surface reads event state and frames it as NDJSON. The `sdk` and ' +
+    ['events', 'ndjson', 'contract', 'projections'],
+    'CLI surface reads event state and frames it as NDJSON. The `contract` and ' +
       '`projections` edges are DR-26 / task 053: `cli/follow-loop.ts` and ' +
       '`cli/follow-formatter.ts` render the protocol `Task` payload and ask whether ' +
       'a status is terminal. Both used to reach `@modelcontextprotocol/sdk` DIRECTLY, ' +

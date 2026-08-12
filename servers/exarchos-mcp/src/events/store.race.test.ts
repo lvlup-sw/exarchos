@@ -10,7 +10,7 @@ import {
   handleExecuteMerge,
   type HandleExecuteMergeInput,
 } from '../orchestrate/execute-merge.js';
-import type { DispatchContext } from '../core/dispatch.js';
+import type { DispatchContext } from '../dispatch/core/dispatch.js';
 import type { ToolResult } from '../format.js';
 import type {
   MergePreflightResult,

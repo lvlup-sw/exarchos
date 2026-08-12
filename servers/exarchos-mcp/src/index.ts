@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import type { V2McpServer } from './sdk/seam.js';
+import type { V2McpServer } from './contract/sdk/seam.js';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { realpathSync } from 'node:fs';
@@ -23,13 +23,13 @@ import { configureCleanupSnapshotStore } from './workflow/cleanup.js';
 import { configureStateStoreBackend } from './workflow/state-store.js';
 
 // New dispatch layer
-import { initializeContext } from './core/context.js';
+import { initializeContext } from './dispatch/core/context.js';
 // NOTE: `createMcpServer` is intentionally NOT imported at the top level —
 // task 021 made MCP SDK loading dynamic to keep CLI cold-start under the
 // 250ms p95 budget. See dynamic import at `createServer()` below.
 import { buildCli, runCli, resolvePackageVersion } from './adapters/cli.js';
 import { isHookCommand, handleHookCommand } from './adapters/hooks.js';
-import type { DispatchContext } from './core/dispatch.js';
+import type { DispatchContext } from './dispatch/core/dispatch.js';
 
 // NOTE: `./adapters/mcp.js` and the MCP SDK are intentionally NOT imported at
 // the top level. They pull the MCP SDK (~60ms module-graph load) and the full
@@ -233,7 +233,7 @@ export async function createServer(
   const enableTelemetry = process.env.EXARCHOS_TELEMETRY !== 'false';
 
   // Default to always-on cache hints with an env kill switch (T051, DR-14).
-  // Mirror of `core/context.ts:buildDefaultCapabilityResolver` — kept inline
+  // Mirror of `dispatch/core/context.ts:buildDefaultCapabilityResolver` — kept inline
   // because this entrypoint runs before the module-graph cost we shed in
   // `initializeContext` is acceptable.
   const capabilityResolver =

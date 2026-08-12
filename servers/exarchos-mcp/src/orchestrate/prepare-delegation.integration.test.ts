@@ -25,7 +25,7 @@ import {
 import { WORKFLOW_STATE_VIEW } from '../projections/views/workflow-state-projection.js';
 import { getRequiredReviews } from '../workflow/review-contract.js';
 import { EventStore } from '../events/store.js';
-import type { DispatchContext } from '../core/dispatch.js';
+import type { DispatchContext } from '../dispatch/core/dispatch.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 vi.mock('./dispatch-guard.js', () => ({

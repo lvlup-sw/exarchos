@@ -34,13 +34,13 @@ import { parse as parseYaml } from 'yaml';
 import { apply, detectDesiredState, diff, type ApplyCtx } from './reconcile.js';
 import type { PlanStep, ReconcilePlan } from './types.js';
 import { ReconcileResultSchema } from './types.js';
-import { buildWriterDeps } from '../../orchestrate/init/probes.js';
-import type { RuntimeConfigWriter } from '../../orchestrate/init/writers/writer.js';
-import { loadExarchosConfig } from '../../config/load-exarchos-config.js';
-import { resolveVerificationRuntime } from '../../config/test-runtime-resolver.js';
-import type { CheckResult } from '../../orchestrate/doctor/schema.js';
-import { BLOCK_DRIFT_CHECK_NAME } from '../../orchestrate/onboard/block-drift.js';
-import { RETIRED_HOOKS_CHECK_NAME } from '../../orchestrate/onboard/hooks.js';
+import { buildWriterDeps } from '../../../orchestrate/init/probes.js';
+import type { RuntimeConfigWriter } from '../../../orchestrate/init/writers/writer.js';
+import { loadExarchosConfig } from '../../../config/load-exarchos-config.js';
+import { resolveVerificationRuntime } from '../../../config/test-runtime-resolver.js';
+import type { CheckResult } from '../../../orchestrate/doctor/schema.js';
+import { BLOCK_DRIFT_CHECK_NAME } from '../../../orchestrate/onboard/block-drift.js';
+import { RETIRED_HOOKS_CHECK_NAME } from '../../../orchestrate/onboard/hooks.js';
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 

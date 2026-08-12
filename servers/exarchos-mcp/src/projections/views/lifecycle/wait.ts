@@ -49,7 +49,7 @@
 // `schema-fields.ts` SoT so their base types cannot drift across lifecycle verbs.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import type { DispatchContext } from '../../../core/dispatch.js';
+import type { DispatchContext } from '../../../dispatch/core/dispatch.js';
 import type { ToolResult } from '../../../format.js';
 import type { WorkflowEvent } from '../../../events/schemas.js';
 import type {

@@ -74,12 +74,12 @@ The append-only event log is the source of truth. Every read-model is a left-fol
 
 ### INV-2: Facade equivalence over a shared dispatch core
 
-CLI and MCP are both **facades over a single functional dispatch core** (`servers/exarchos-mcp/src/core/dispatch.ts`). For any verb, the same `DispatchContext` + same arguments must produce the same `ToolResult`. Adapters (`adapters/cli.ts`, `adapters/mcp.ts`) carry **zero behavior** — only presentation: argv parsing, exit codes, stdio framing, error rendering, output carrier translation.
+CLI and MCP are both **facades over a single functional dispatch core** (`servers/exarchos-mcp/src/dispatch/core/dispatch.ts`). For any verb, the same `DispatchContext` + same arguments must produce the same `ToolResult`. Adapters (`adapters/cli.ts`, `adapters/mcp.ts`) carry **zero behavior** — only presentation: argv parsing, exit codes, stdio framing, error rendering, output carrier translation.
 
 The byte-equivalence parity tests in `parity.test.ts` (and `views/parity.test.ts`, `workflow/parity.test.ts`, `event-store/parity.test.ts`) are the **witness**, not the invariant. The invariant is the architectural separation; the tests confirm it.
 
 **Acceptance questions:**
-1. Does the new verb route through `core/dispatch.ts` as a typed handler, with both `adapters/cli.ts` and `adapters/mcp.ts` as thin wrappers?
+1. Does the new verb route through `dispatch/core/dispatch.ts` as a typed handler, with both `adapters/cli.ts` and `adapters/mcp.ts` as thin wrappers?
 2. Is there zero behavior in either adapter beyond format conversion? (No CLI-only event emission, no MCP-only side effects.)
 3. Does the parity harness in `__tests__/parity-harness.ts` cover the new verb with at least one fixture covering the bug-cluster shapes (e.g., empty state vs duplicated events vs no-handoff invocations)?
 4. Does the verb's `ToolResult` shape match the canonical envelope (`success`/`data`/`error`/`_meta`/`_perf`/`next_actions` and the v2.10 additions — see INV-5b)?
@@ -103,7 +103,7 @@ Practical impact on the skill's INV-2 checks:
 - MCP spec *2025-11-25 §CallToolResult* — `structuredContent` sibling to `content` is the spec-native carrier for validated JSON; #1266 migration is alignment, not invention.
 
 **Severity guide:**
-- HIGH: behavior diverges (one adapter emits an event the other doesn't); adapter-local mutable state that would not survive a swap; new verb that bypasses `core/dispatch.ts`.
+- HIGH: behavior diverges (one adapter emits an event the other doesn't); adapter-local mutable state that would not survive a swap; new verb that bypasses `dispatch/core/dispatch.ts`.
 - MEDIUM: shape diverges in non-load-bearing fields; schema not registered post-#1266; missing parity-harness fixture.
 - LOW: cosmetic differences (whitespace, key order).
 
@@ -263,7 +263,7 @@ Exarchos exposes **4 visible composite tools**, each accepting an `action` discr
 | Invariant | #1118 | #1109 | Basileus ADR | Repo state |
 |---|---|---|---|---|
 | INV-1 Event-sourcing integrity | Principle 1 | Constraint 1 | (cited as constraint) | `docs/architecture/projections.md`, `event-store/schemas.ts`, milestone-16 §2.1 |
-| INV-2 Facade equivalence over shared dispatch core | — | Constraint 2 | (cited) | `core/dispatch.ts`, `parity.test.ts`, `__tests__/parity-harness.ts`, milestone-16 §2.2 |
+| INV-2 Facade equivalence over shared dispatch core | — | Constraint 2 | (cited) | `dispatch/core/dispatch.ts`, `parity.test.ts`, `__tests__/parity-harness.ts`, milestone-16 §2.2 |
 | INV-3 Basileus-forward | — | Constraint 3 | §§2.1, 2.4, 2.7, 2.8 | `runtimes/*.yaml` resolver, milestone-16 §2.3 (Roots) |
 | INV-4 Platform-agnosticity | Principle 2 | (implied) | §1.5 (constraints table) | `skills-src/SKILL_AUTHORING.md`, `runtimes/*.yaml` |
 | INV-5 Agent-first (5a–5d) | Principle 3 | (implied) | thesis §1 | `format.ts`, `next-actions-from-result.ts`, `registry.ts`, milestone-16 alignment design |

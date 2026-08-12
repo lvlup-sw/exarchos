@@ -26,7 +26,7 @@
 import { createHash } from 'node:crypto';
 import { ZodError } from 'zod';
 
-import { ADMISSION_STREAM_ID } from '../core/infra-streams.js';
+import { ADMISSION_STREAM_ID } from '../dispatch/core/infra-streams.js';
 import { getDispatchContext } from '../dispatch/dispatch-context.js';
 import type { EventStore } from '../events/store.js';
 import type { ToolResult } from '../format.js';

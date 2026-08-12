@@ -8,7 +8,7 @@
 >
 > Rev 1 was **refuted 3/3** by an adversarial panel. Root cause: rev 1 was authored against a worktree **7 commits behind `origin/main`** and never re-measured against the branch it lands on. One claim was worse than stale — the "only `merge_orchestrate` declares a posture" line was copied from a **stale JSDoc** rather than measured, which is the exact defect this program exists to eliminate.
 >
-> **Dismissed as panel-side artifacts** (three voters measured the stale tree; verified present on `origin/main`): the claim that `core/effect-carrier.ts`, `vcs/mutation-owner.ts`, `architecture/{effect-ledger,effect-port-seam,layer-boundaries-seam,adapter-ownership-seam,vcs-ownership}.ts` and the whole `contract/` tree do not exist; the claim that they live only in an unmerged branch; the missing-input-documents gap; and **R-9 (now withdrawn — the taxonomy spec is tracked on `origin/main`)**.
+> **Dismissed as panel-side artifacts** (three voters measured the stale tree; verified present on `origin/main`): the claim that `dispatch/core/effect-carrier.ts`, `vcs/mutation-owner.ts`, `architecture/{effect-ledger,effect-port-seam,layer-boundaries-seam,adapter-ownership-seam,vcs-ownership}.ts` and the whole `contract/` tree do not exist; the claim that they live only in an unmerged branch; the missing-input-documents gap; and **R-9 (now withdrawn — the taxonomy spec is tracked on `origin/main`)**.
 >
 > **Corrected measurements** (rev 1 → landing branch): vacuous `outputSchema` **106 → 109**; `cli.ts` **1,565 → 1,613** lines; `.command()` **"14 hand-written" → 14 total, of which 3 are derivation loops and 11 are hand-written literals**; hand-written top-level verbs **8 → 11** (adds `feedback`, `schema`, `topology`); `shared-mutating` actions **1 → 4** (`merge_orchestrate`, `prune_worktrees`, `serialize_merge`, `cutover_decide`); `EventTypes` **169 → 170** (pinned by three tests). Holding unchanged: `withCappedShape` 10, `longRunning` 9, `hidden: true` 1, `VIEW_FOLLOW_ACTIONS` 5.
 >
@@ -136,7 +136,7 @@ PDD deliverable 1, specified per §3a. Ranked by findings eliminated. **Every gu
 | Field | Value |
 |---|---|
 | **Policy** | Every `EffectPlan` names the event that records it; every T1 event has exactly one **primary** owner. `T` is unreachable without the append having occurred. Ownership is declared data (`role: 'primary' \| 'recovery'`), not inferred. |
-| **Mechanism** | Rung 2 — `Committed<T>` makes an uncommitted effect's result type unusable — plus a **boot-time bijection check** over the ledger. Extends the shipped `core/effect-carrier.ts` (P04-01) and `architecture/effect-ledger.ts`. |
+| **Mechanism** | Rung 2 — `Committed<T>` makes an uncommitted effect's result type unusable — plus a **boot-time bijection check** over the ledger. Extends the shipped `dispatch/core/effect-carrier.ts` (P04-01) and `architecture/effect-ledger.ts`. |
 | **Kill fixture** | **Re-scoped in rev 2.** Rev 1 named `VcsMutationOwner` as an uncoupled subject; on the landing branch it is the *reference implementation* of the coupling (it appends `vcs.requested` before the effect and `vcs.executed`/`vcs.compensated` after). The real failing subjects are the effect call sites that are **not** routed through `VcsMutationOwner` — enumerated by the boot-time bijection on introduction, and recorded as the seed. **A task must publish that enumeration before G4 is declared specified** (see DR-7); a guard whose failing subject is asserted rather than measured is what rev 1 got wrong. |
 | **Self-test** | (1) Seed a second primary producer for one event → boot fails. (2) Seed an effect with no `emits` → compile fails. (3) Non-empty denominator: a bijection over zero plans fails. |
 | **Protected path** | Boot-time, so it blocks **server start and every CI job that boots the server** — not a lint lane. Named explicitly because a boot check that only runs in one job is skipped-as-passed everywhere else. |
@@ -279,7 +279,7 @@ type EventRegistration = {
 
 ### DR-7: Effect ledger — emission as a precondition of the effect landing **[T-4]**
 
-Extends the shipped `core/effect-carrier.ts` (P04-01), which carries `owner`/`idempotent`/`compensation` but **no event coupling**.
+Extends the shipped `dispatch/core/effect-carrier.ts` (P04-01), which carries `owner`/`idempotent`/`compensation` but **no event coupling**.
 
 **Acceptance criteria:**
 - `EffectPlan` gains a required `emits: EventType`; an effect cannot be planned without naming the event that records it.
@@ -372,7 +372,7 @@ type ObservationOutcome<S> =
 ### DR-15: EmissionVerifier **[T-8]**
 
 **Acceptance criteria:**
-- A post-dispatch interceptor in the existing `core/dispatch.ts` chain asserts every `condition: 'always'` contract landed for the operation.
+- A post-dispatch interceptor in the existing `dispatch/core/dispatch.ts` chain asserts every `condition: 'always'` contract landed for the operation.
 - On violation it appends `emission.contract-violated` carrying action, missing set, `operationId`.
 - **Fails the response in CI/dev; telemetry-only in production** (D8), selected by **policy, not build flag**.
 - A seeded handler that skips its declared emission fails the CI suite.
@@ -543,7 +543,7 @@ The **relocation proof** (DR-1) is the spine that makes D2 real: at any wave bou
 
 ### Integration Points
 
-`core/dispatch.ts` (interceptor chain — DR-15) · `core/effect-carrier.ts` (DR-7) · `event-store/schemas.ts` (`registerEventType` seam — DR-1, DR-2) · `event-store/atomic-appender.ts` + `idempotency_claims` (DR-7, DR-9, DR-11) · `contract/{compiler,reachability,oracle}` (DR-10, DR-17, DR-18) · `architecture/*-seam.ts` (G1–G5 vocabulary) · `scripts/cli-vocab-guard.ts` (G1) · `adapters/{cli,mcp}.ts` (DR-19, DR-22) · `capabilities/resolver.ts` (DR-14) · `orchestrate/reconcile-state.ts` (DR-11–13) · `.exarchos/invariants.md` via `/exarchos:invariants` (DR-23).
+`dispatch/core/dispatch.ts` (interceptor chain — DR-15) · `dispatch/core/effect-carrier.ts` (DR-7) · `event-store/schemas.ts` (`registerEventType` seam — DR-1, DR-2) · `event-store/atomic-appender.ts` + `idempotency_claims` (DR-7, DR-9, DR-11) · `contract/{compiler,reachability,oracle}` (DR-10, DR-17, DR-18) · `architecture/*-seam.ts` (G1–G5 vocabulary) · `scripts/cli-vocab-guard.ts` (G1) · `adapters/{cli,mcp}.ts` (DR-19, DR-22) · `capabilities/resolver.ts` (DR-14) · `orchestrate/reconcile-state.ts` (DR-11–13) · `.exarchos/invariants.md` via `/exarchos:invariants` (DR-23).
 
 ### Exploration
 

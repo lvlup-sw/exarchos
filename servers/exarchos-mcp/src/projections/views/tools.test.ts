@@ -33,7 +33,7 @@ import {
 } from './tools.js';
 import { EventStore } from '../../events/store.js';
 import { TOOL_REGISTRY, resolveEconomyBudget } from '../../registry.js';
-import { estimateOutputTokens, DEFAULT_VIEW_ITEM_CAP } from '../../core/economy.js';
+import { estimateOutputTokens, DEFAULT_VIEW_ITEM_CAP } from '../../dispatch/core/economy.js';
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 /** Effective per-action response budget the dispatch-core backstop enforces (Task 003). */

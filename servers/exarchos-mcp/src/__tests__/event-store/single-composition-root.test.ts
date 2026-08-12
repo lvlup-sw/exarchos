@@ -62,7 +62,7 @@ describe('EventStore single composition root (#1182, Fix 1)', () => {
     // Production wiring: one EventStore per process, threaded everywhere.
     // Concurrent appends serialize through the in-memory `withLock` chain,
     // so sequences are unique and contiguous regardless of arrival order.
-    const { initializeContext } = await import('../../core/context.js');
+    const { initializeContext } = await import('../../dispatch/core/context.js');
     const ctx = await initializeContext(tmpDir);
 
     const streamId = 'integrity-test';

@@ -12,7 +12,7 @@
 //   • `@modelcontextprotocol/client` — v2 client surface. Added by task 049:
 //     nine test modules and the exp1 eval driver drive the server through a
 //     `Client` over an in-memory linked pair, so a v2 server with a v1 client
-//     would have been the cross-generation pair `sdk/seam.ts` exists to forbid.
+//     would have been the cross-generation pair `contract/sdk/seam.ts` exists to forbid.
 //     Installing it is what let the v1 dependency go entirely.
 //
 // Re-scope note: the originating issue (#1292) assumed a `^1.0.0` range and
@@ -323,7 +323,7 @@ describe('MCP SDK pin policy (#1292, DR-0)', () => {
       v1Sites,
       `These modules still import the retired v1 SDK. The package is no longer ` +
         `installed, so these are broken imports, not merely stale ones — route ` +
-        `them through \`sdk/seam.ts\`.`,
+        `them through \`contract/sdk/seam.ts\`.`,
     ).toEqual([]);
   });
 });

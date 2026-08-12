@@ -356,7 +356,7 @@ const THIRD_PARTY_NETWORK_CLIENTS: ReadonlySet<string> = new Set([
  *     any of those invalidates this entry and requires an `EFFECT_OWNERSHIP`
  *     rule naming the owner.
  *   - `@modelcontextprotocol/server` — the v2 MCP server package, reached ONLY
- *     through the owned SDK seam (`sdk/seam.ts`, DR-26). The same judgement as
+ *     through the owned SDK seam (`contract/sdk/seam.ts`, DR-26). The same judgement as
  *     v1 applies, and here it is narrower and checkable: the seam re-exports
  *     `McpServer`, `Server`, `InMemoryTransport` and `StdioServerTransport` and
  *     nothing else. The package's network-capable surface —
@@ -372,7 +372,7 @@ const THIRD_PARTY_NETWORK_CLIENTS: ReadonlySet<string> = new Set([
  *     first import; it did exactly that, and this entry is the human vetting act
  *     it demanded rather than a silencing of it.
  *     The judgement is narrower than the `server` entry, and checkable the same
- *     way: `sdk/seam.ts` draws exactly ONE symbol from core — `TaskStatusSchema`,
+ *     way: `contract/sdk/seam.ts` draws exactly ONE symbol from core — `TaskStatusSchema`,
  *     a Zod enum of five string literals, read once at module scope for
  *     `V2_TASK_STATUS_VALUES`. Core's network-capable surface (`createFetchWithInit`,
  *     the OAuth client/metadata helpers, `SdkHttpError`) is not imported and not
@@ -1036,7 +1036,7 @@ function registerLedger(): readonly EffectOwnershipRule[] {
       'read-only derived views; idempotent',
       'none: views are derived',
     ),
-    rule('filesystem', 'core/', 'core-fs', 'read-only bootstrap/context', 'none'),
+    rule('filesystem', 'dispatch/core/', 'core-fs', 'read-only bootstrap/context', 'none'),
     rule('filesystem', 'utils/', 'utils-fs', 'pure fs helpers; caller owns idempotency', 'caller-owned'),
     rule('filesystem', 'lib/', 'lib-fs', 'pure fs helpers; caller owns idempotency', 'caller-owned'),
     rule('filesystem', 'launcher/', 'launcher-fs', 'startup/teardown fs; idempotent', 'launcher teardown'),

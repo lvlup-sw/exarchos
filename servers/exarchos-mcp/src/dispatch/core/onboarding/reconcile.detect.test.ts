@@ -7,7 +7,7 @@ import { detectDesiredState } from './reconcile.js';
 import {
   resolveTestRuntime,
   resolveVerificationRuntime,
-} from '../../config/test-runtime-resolver.js';
+} from '../../../config/test-runtime-resolver.js';
 import { DesiredStateSchema } from './types.js';
 
 /**

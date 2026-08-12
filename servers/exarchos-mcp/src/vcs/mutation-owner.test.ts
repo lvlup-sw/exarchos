@@ -18,7 +18,7 @@ import { EventStore } from '../events/store.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 import { capabilitiesForPosture } from '../capabilities/posture-mapping.js';
 import type { Capability } from '../agents/capabilities.js';
-import { DRY_RUN, isDryRun, isError, isSuccess } from '../core/effect-carrier.js';
+import { DRY_RUN, isDryRun, isError, isSuccess } from '../dispatch/core/effect-carrier.js';
 import {
   VcsMutationOwner,
   VcsStaleEpochError,

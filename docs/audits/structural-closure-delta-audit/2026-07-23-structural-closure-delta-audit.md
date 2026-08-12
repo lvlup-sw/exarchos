@@ -897,8 +897,8 @@ Line count is a review/decomposition signal, not an automatic defect.
 | `servers/exarchos-mcp/src/event-store/atomic-appender.ts` | 1419 |
 | `servers/exarchos-mcp/src/workflow/compensation.ts` | 1334 |
 | `servers/exarchos-mcp/src/task-store/event-sourced-task-store.ts` | 1316 |
-| `servers/exarchos-mcp/src/core/dispatch.ts` | 1097 |
-| `servers/exarchos-mcp/src/core/onboarding/reconcile.ts` | 1069 |
+| `servers/exarchos-mcp/src/dispatch/core/dispatch.ts` | 1097 |
+| `servers/exarchos-mcp/src/dispatch/core/onboarding/reconcile.ts` | 1069 |
 | `servers/exarchos-mcp/src/orchestrate/prune-stale-workflows.ts` | 1061 |
 | `servers/exarchos-mcp/src/workflow/guards.ts` | 1060 |
 | `servers/exarchos-mcp/src/workflow/state-machine.ts` | 1044 |
@@ -1434,7 +1434,7 @@ mechanically true:
 **Target files**
 - `servers/exarchos-mcp/src/adapters/mcp.ts`
 - `servers/exarchos-mcp/src/index.ts`
-- `servers/exarchos-mcp/src/core/dispatch.ts`
+- `servers/exarchos-mcp/src/dispatch/core/dispatch.ts`
 - `servers/exarchos-mcp/src/task-store/`
 - `servers/exarchos-mcp/src/registry.ts`
 
@@ -1546,7 +1546,7 @@ mechanically true:
 **Proposed change:** Define the declarative total failure-origin mapping plus closed success/error envelope unions, stable error registry, retry/target/fix metadata, CLI exits, version negotiation/ranges, directional upcasts, input/output variance, authorization/effect/safety/idempotency/dry-run/task/evidence change classes, canonical digests, deprecation/replacement fields, and mixed-version fixtures. API-003 then generates runtime wiring from this authority.
 
 **Evidence**
-- servers/exarchos-mcp/src/schemas/envelope.ts
+- servers/exarchos-mcp/src/contract/schemas/envelope.ts
 - servers/exarchos-mcp/src/format.ts
 - servers/exarchos-mcp/src/adapters/cli.ts:resolveExitCode
 - authoring audit artifact: docs/audits/2026-07-23-structural-closure-delta-audit/api-contract-codegen.json:compatibility
@@ -1555,7 +1555,7 @@ mechanically true:
 - `contracts/exarchos-api/envelope.tsp`
 - `contracts/exarchos-api/errors.tsp`
 - `contracts/exarchos-api/compatibility.tsp`
-- `servers/exarchos-mcp/src/schemas/envelope.ts`
+- `servers/exarchos-mcp/src/contract/schemas/envelope.ts`
 - `servers/exarchos-mcp/src/format.ts`
 
 **Acceptance proof**
@@ -1645,7 +1645,7 @@ mechanically true:
 - `contracts/exarchos-api/extensions.tsp`
 - `servers/exarchos-mcp/src/registry.ts`
 - `servers/exarchos-mcp/src/capabilities/resolver.ts`
-- `servers/exarchos-mcp/src/core/dispatch.ts`
+- `servers/exarchos-mcp/src/dispatch/core/dispatch.ts`
 
 **Acceptance proof**
 - Valid signed extensions are admitted under an isolated namespace and pinned implementation digest.
@@ -1962,7 +1962,7 @@ mechanically true:
 **Target files**
 - `servers/exarchos-mcp/src/event-store/composite.ts`
 - `servers/exarchos-mcp/src/channel/`
-- `servers/exarchos-mcp/src/core/dispatch.ts`
+- `servers/exarchos-mcp/src/dispatch/core/dispatch.ts`
 
 **Acceptance proof**
 - Failure-injection tests prove hook/channel errors never corrupt the authoritative append and are never silent.
@@ -2287,7 +2287,7 @@ mechanically true:
 - `docs/audits/2026-07-23-structural-closure-delta-audit/effects.json`
 - `scripts/check-gate-runner-ownership.mjs`
 - `scripts/enforcer-wiring-manifest.json`
-- `servers/exarchos-mcp/src/core/`
+- `servers/exarchos-mcp/src/dispatch/core/`
 
 **Acceptance proof**
 - The effect occurrence ledger reports indeterminate=0 and unclassified=0.

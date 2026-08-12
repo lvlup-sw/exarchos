@@ -39,7 +39,7 @@ No shared module enumerates them. The view layer has no way to distinguish "feat
 
 ### Fix
 
-Introduce `servers/exarchos-mcp/src/core/infra-streams.ts` re-exporting the three constants as a `INFRA_STREAM_IDS: ReadonlySet<string>` and a `isFeatureStream(streamId): boolean` predicate. Filter `discoverStreams()` output through `isFeatureStream` in `handleViewPipeline` before materialization.
+Introduce `servers/exarchos-mcp/src/dispatch/core/infra-streams.ts` re-exporting the three constants as a `INFRA_STREAM_IDS: ReadonlySet<string>` and a `isFeatureStream(streamId): boolean` predicate. Filter `discoverStreams()` output through `isFeatureStream` in `handleViewPipeline` before materialization.
 
 This is the **Specification pattern** (predicate as a first-class value) plus **DRY** (single source of truth — the existing per-module constants are imported, not duplicated).
 
@@ -67,7 +67,7 @@ shape[key] = field.isOptional() ? field : field.optional();
 
 Fields keep their `.default()` wrappers from the originating per-action schema. When the MCP SDK validates the caller's payload against this parent schema, Zod applies the defaults: every payload, regardless of action, gets `nativeIsolation: false` and `outputFormat: 'full'` injected.
 
-`servers/exarchos-mcp/src/core/dispatch.ts:311-319` then re-validates against the matching action's per-action schema:
+`servers/exarchos-mcp/src/dispatch/core/dispatch.ts:311-319` then re-validates against the matching action's per-action schema:
 
 ```typescript
 const { action: _action, ...rest } = args;
@@ -80,7 +80,7 @@ Per-action `.strict()` is the right safety choice (catches caller typos). The pr
 
 ### Fix
 
-In `core/dispatch.ts`, before per-action `safeParse`, drop only keys declared on a *sibling* action's schema. Keys declared on the matching action's schema, and keys not declared on any action, both pass through. The leaked sibling defaults disappear; caller typos still hit `.strict()` and are reported with a clear unrecognized-key error.
+In `dispatch/core/dispatch.ts`, before per-action `safeParse`, drop only keys declared on a *sibling* action's schema. Keys declared on the matching action's schema, and keys not declared on any action, both pass through. The leaked sibling defaults disappear; caller typos still hit `.strict()` and are reported with a clear unrecognized-key error.
 
 ```typescript
 const actionShape = (matchingAction.schema as { shape?: Record<string, unknown> }).shape;
@@ -186,7 +186,7 @@ Two factors:
 | Constraint | Each fix |
 |------------|----------|
 | **Event-sourcing integrity** | No new events emitted; #1189's `hasPassingGate` becomes more tolerant in *reading* `gate.executed` events; output of every projection remains reconstructable from the event log alone. |
-| **MCP parity** | Every code-side fix is in shared core (`views/tools.ts`, `core/dispatch.ts`, `tasks/tools.ts`, `orchestrate/prepare-delegation.ts`) — both CLI and MCP facades dispatch through the same handlers, so behavior is uniform by construction. |
+| **MCP parity** | Every code-side fix is in shared core (`views/tools.ts`, `dispatch/core/dispatch.ts`, `tasks/tools.ts`, `orchestrate/prepare-delegation.ts`) — both CLI and MCP facades dispatch through the same handlers, so behavior is uniform by construction. |
 | **Basileus-forward** | No fix introduces a local-only assumption. The `infra-streams.ts` predicate is transport-agnostic; dispatch tolerance is transport-agnostic. |
 | **Capability resolution** | None of the fixes touch capability/handshake state — no yaml-vs-handshake reads added or modified. |
 
@@ -211,8 +211,8 @@ Two factors:
 
 ### Immediate (this PR)
 
-- [x] Centralize `INFRA_STREAM_IDS` in shared `core/infra-streams.ts` (one fact, one place)
-- [x] Add Tolerant Dispatch helper in `core/dispatch.ts` (boundary normalization)
+- [x] Centralize `INFRA_STREAM_IDS` in shared `dispatch/core/infra-streams.ts` (one fact, one place)
+- [x] Add Tolerant Dispatch helper in `dispatch/core/dispatch.ts` (boundary normalization)
 - [x] Apply Tolerant Reader to `hasPassingGate` (accept canonical and operator shapes)
 - [x] Add regression tests for all four defects (the missing dimension above)
 - [x] Reframe delegation Step 1 around `describe()` (runtime is the spec)

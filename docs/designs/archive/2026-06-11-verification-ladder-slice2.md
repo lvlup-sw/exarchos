@@ -183,7 +183,7 @@ onto `review.gates` later without breaking this shape.
 
 ### 4.5 R9 — DesiredState + detect + seed (commands only)
 
-`ResolvedCommandsSchema` (`core/onboarding/types.ts`) grows `mutation: z.string().optional()`
+`ResolvedCommandsSchema` (`dispatch/core/onboarding/types.ts`) grows `mutation: z.string().optional()`
 and `lint: z.string().optional()` — same optionality semantics as the existing fields (the
 layered resolver may leave any field unresolved). `detectDesiredState` switches its resolution
 call from `resolveTestRuntime` to the slice-1 `resolveVerificationRuntime` (same module, wider

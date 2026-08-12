@@ -393,14 +393,14 @@
   },
   {
     "symbol": "V1",
-    "file": "servers/exarchos-mcp/src/sdk/brand.ts",
+    "file": "servers/exarchos-mcp/src/contract/sdk/brand.ts",
     "owner": "@reedsalus",
     "expires": "2027-02-28",
     "rationale": "DR-26 rung-2 kill-fixture consumer, invisible to static analysis by construction: sdk/seam.test.ts writes CROSS_GENERATION_FIXTURE to a temp file and compiles it with a SUBPROCESS tsc, and that fixture imports V1 to brand a synthetic other-generation transport. A real consumer reached by path - remedy 3's stated case. Deleting V1 makes the rung-2 guarantee unprovable now that v1 is no longer installed."
   },
   {
     "symbol": "V2TaskStoreServerOption",
-    "file": "servers/exarchos-mcp/src/sdk/seam.ts",
+    "file": "servers/exarchos-mcp/src/contract/sdk/seam.ts",
     "owner": "@reedsalus",
     "expires": "2027-02-28",
     "rationale": "DR-0 task 049: the ONE surface v2 2.0.0 deleted with no owned replacement - ServerOptions.taskStore, which a v2 server IGNORES SILENTLY. Uninhabited SdkSurfaceGap kept as the named record of that gap; enforcement lives in task-store/attach.ts (the v2 attachment has no serverOptions member to spread) and announcement in describeTaskWireGap(). Deleting it removes the only place the gap is named. Re-evaluate if a v2 release restores a Tasks store seam."

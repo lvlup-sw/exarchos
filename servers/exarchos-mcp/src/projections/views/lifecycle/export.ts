@@ -50,11 +50,11 @@ import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import { ZipFile } from 'yazl';
 
-import type { DispatchContext } from '../../../core/dispatch.js';
+import type { DispatchContext } from '../../../dispatch/core/dispatch.js';
 import type { ToolResult } from '../../../format.js';
 import type { WorkflowEvent } from '../../../events/schemas.js';
 import { workflowStateProjection, type WorkflowStateView } from '../workflow-state-projection.js';
-import { EnvelopeSchema } from '../../../schemas/envelope.js';
+import { EnvelopeSchema } from '../../../contract/schemas/envelope.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 

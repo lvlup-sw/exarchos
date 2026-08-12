@@ -77,7 +77,7 @@ The original brief's phases 2-8 are amended:
 |---|---|---|
 | C-W2 | C2.1 – C2.7 (foundation) | **+ bump SDK to `^1.29.0`; + add `patch-package` dev dependency; + apply two-gap patch to `@modelcontextprotocol/sdk@1.29.0`** |
 | C-W2.5 | NEW | **Draft upstream PR against `@modelcontextprotocol/sdk` fixing the two gaps. Can run in parallel with C-W3..C-W7. Authored as a researcher-implementer agent against a forked clone, NOT this repo's branch. Output: fork URL + draft PR URL recorded back to this addendum.** |
-| C-W3 | C3.1 – C3.4 (`schemas/envelope.ts`) | Unchanged |
+| C-W3 | C3.1 – C3.4 (`contract/schemas/envelope.ts`) | Unchanged |
 | C-W4 | C4 (`registry.ts`) | Unchanged |
 | C-W5 | C5.1 – C5.4 (adapters) | **Reactivate canonical `EnvelopeSchema(z.unknown())` LCD in `adapters/mcp.ts` (drop the passthrough workaround). Verify against patched SDK.** |
 | C-W6 | C6.1 – C6.7 (sweep) | Unchanged |

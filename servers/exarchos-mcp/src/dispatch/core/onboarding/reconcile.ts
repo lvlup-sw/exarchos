@@ -24,28 +24,28 @@
 import { existsSync } from 'node:fs';
 import * as path from 'node:path';
 
-import { resolveVerificationRuntime } from '../../config/test-runtime-resolver.js';
-import { loadExarchosConfig } from '../../config/load-exarchos-config.js';
-import { BLOCK_DRIFT_CHECK_NAME } from '../../orchestrate/onboard/block-drift.js';
-import { RETIRED_HOOKS_CHECK_NAME } from '../../orchestrate/onboard/hooks.js';
+import { resolveVerificationRuntime } from '../../../config/test-runtime-resolver.js';
+import { loadExarchosConfig } from '../../../config/load-exarchos-config.js';
+import { BLOCK_DRIFT_CHECK_NAME } from '../../../orchestrate/onboard/block-drift.js';
+import { RETIRED_HOOKS_CHECK_NAME } from '../../../orchestrate/onboard/hooks.js';
 import {
   detectAgentEnvironments,
   type AgentRuntimeName,
-} from '../../runtime/agent-environment-detector.js';
-import type { CheckResult } from '../../orchestrate/doctor/schema.js';
+} from '../../../runtime/agent-environment-detector.js';
+import type { CheckResult } from '../../../orchestrate/doctor/schema.js';
 import {
   seedExarchosConfig,
   type SeedResult,
-} from '../../orchestrate/init/seed-exarchos-config.js';
-import type { WriterDeps } from '../../orchestrate/init/probes.js';
+} from '../../../orchestrate/init/seed-exarchos-config.js';
+import type { WriterDeps } from '../../../orchestrate/init/probes.js';
 import type {
   RuntimeConfigWriter,
   WriteOptions,
-} from '../../orchestrate/init/writers/writer.js';
+} from '../../../orchestrate/init/writers/writer.js';
 import type {
   OnboardExecuted,
   OnboardRequested,
-} from '../../events/schemas.js';
+} from '../../../events/schemas.js';
 import type {
   Advisory,
   DesiredState,

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import { z } from 'zod';
-import { EnvelopeSchema } from '../../schemas/envelope.js';
+import { EnvelopeSchema } from '../schemas/envelope.js';
 import type { CompositeTool, ToolAction } from '../../registry.js';
 import { layerCodes } from '../error-families.js';
 import { CONTRACT_SURFACE_VERSION } from '../compatibility.js';

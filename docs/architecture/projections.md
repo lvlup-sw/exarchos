@@ -591,7 +591,7 @@ Repo identity is derived by `deriveRepoKey(inputPath)` in `utils/paths.ts`:
 - The result is POSIX-normalized (`toPosix` + `fs.realpathSync.native`, so Windows 8.3 short-names expand and separator forms match) and **memoized** per input path in a module-level map.
 
 The **composite layer owns caller identity**: `views/composite.ts` threads `deriveRepoKey(ctx.cwd ?? process.cwd())` into `handleViewPipeline` as the caller key (mirroring `workflow/composite.ts`, which threads the same key into `handleInit` at write time).
-Per `core/dispatch.ts`, `DispatchContext.cwd` defaults to the long-lived **server process's** working directory; production adapters do not populate it.
+Per `dispatch/core/dispatch.ts`, `DispatchContext.cwd` defaults to the long-lived **server process's** working directory; production adapters do not populate it.
 For a project-scoped server (the normal plugin/CLI arrangement) that is the repository the server was launched in, so write-time (init) and read-time (pipeline) identities agree by construction.
 A future client that threads a real `ctx.cwd` (for example via MCP roots) gets more precise identity through the same seam with no code change — this is the deliberate, documented v1 semantics, not an accident.
 Because the server derives its own cwd key once and memoizes, every steady-state pipeline call thereafter pays a map lookup rather than a git subprocess.

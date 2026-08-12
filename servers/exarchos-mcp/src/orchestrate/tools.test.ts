@@ -18,7 +18,7 @@
 // responses pass through unwrapped (DR-7) and are NOT asserted here.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { DispatchContext } from '../core/dispatch.js';
+import type { DispatchContext } from '../dispatch/core/dispatch.js';
 import { EventStore } from '../events/store.js';
 
 // ─── Mocks ──────────────────────────────────────────────────────────────────

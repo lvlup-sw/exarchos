@@ -66,9 +66,9 @@
  * taking the type system's word for it.
  */
 import { z } from 'zod';
-import { EnvelopeSchema } from './schemas/envelope.js';
+import { EnvelopeSchema } from './contract/schemas/envelope.js';
 import { extractEnvelopeDataSchema } from './orchestrate/worktree/schemas.js';
-import { acceptsEveryValue } from './schemas/schema-totality.js';
+import { acceptsEveryValue } from './contract/schemas/schema-totality.js';
 import type { VacuityWaiverId } from './output-schema-vacuity-allowlist.js';
 
 /**

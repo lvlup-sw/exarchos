@@ -199,7 +199,7 @@ ${IN_SCOPE_ASSERTION}
 /** POSITIVE: mocking away the wiring the tier exists to prove. */
 export const FIXTURE_MOCKED_COMPOSITE = `import { it, expect, vi } from 'vitest';
 // @oracle-sources: ./corpus.ts, ./registry.ts
-vi.mock('../../src/core/dispatch.js', () => ({ dispatch: vi.fn() }));
+vi.mock('../../src/dispatch/core/dispatch.js', () => ({ dispatch: vi.fn() }));
 ${IN_SCOPE_ASSERTION}
 `;
 

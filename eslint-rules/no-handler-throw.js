@@ -4,7 +4,7 @@
  * contract (#1706 DR-1, INV-5b output-contract / INV-17 response-economy) on
  * REGISTERED MCP action handlers.
  *
- * Why this exists: `core/dispatch.ts`'s outer safety net already catches any
+ * Why this exists: `dispatch/core/dispatch.ts`'s outer safety net already catches any
  * escaped `throw` and flattens it to `{ success:false, error:{ code:
  * 'INTERNAL_ERROR', message } }`. Nothing crashes — but a meaningful
  * `error.code` (e.g. `MERGE_CONFLICT`) and structured fields (`suggestedFix`,

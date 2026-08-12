@@ -15880,893 +15880,280 @@
         }
       ]
     },
-    "servers/exarchos-mcp/src/core/context.test.ts": {
-      "file": "servers/exarchos-mcp/src/core/context.test.ts",
+    "servers/exarchos-mcp/src/contract/schemas/envelope.test.ts": {
+      "file": "servers/exarchos-mcp/src/contract/schemas/envelope.test.ts",
       "runner": "vitest:nested",
       "cases": [
         {
-          "suite": "initializeContext",
-          "name": "InitializeContext_CreatesEventStore_ConfiguresModules",
+          "suite": "NextActionSchema",
+          "name": "NextActionSchema_AcceptsCanonicalNextAction_Succeeds",
           "dynamic": false
         },
         {
-          "suite": "initializeContext",
-          "name": "InitializeContext_WithBackend_PassesBackendToEventStore",
+          "suite": "NextActionSchema",
+          "name": "NextActionSchema_AcceptsMinimalNextAction_Succeeds",
           "dynamic": false
         },
         {
-          "suite": "initializeContext",
-          "name": "Lifecycle_Start_ConstructsStorageAndPassesViaContext",
+          "suite": "NextActionSchema",
+          "name": "NextActionSchema_RejectsMissingVerb_Fails",
           "dynamic": false
         },
         {
-          "suite": "initializeContext",
-          "name": "Lifecycle_Start_NoBackend_StorageUndefined",
+          "suite": "NextActionSchema",
+          "name": "NextActionSchema_RejectsEmptyVerb_Fails",
           "dynamic": false
         },
         {
-          "suite": "initializeContext",
-          "name": "InitializeContext_ConfiguresStateStoreBackend",
+          "suite": "ErrorEnvelopeSchema",
+          "name": "ErrorEnvelopeSchema_AcceptsConcurrencyWrapError_Succeeds",
           "dynamic": false
         },
         {
-          "suite": "initializeContext",
-          "name": "InitializeContext_NoProjectRoot_ConfigUndefined",
+          "suite": "ErrorEnvelopeSchema",
+          "name": "ErrorEnvelopeSchema_AcceptsStorageBusyWrapError_Succeeds",
           "dynamic": false
         },
         {
-          "suite": "initializeContext",
-          "name": "InitializeContext_DefaultResolver_ReportsAnthropicNativeCaching",
+          "suite": "ErrorEnvelopeSchema",
+          "name": "ErrorEnvelopeSchema_AcceptsGenericWrapError_Succeeds",
           "dynamic": false
         },
         {
-          "suite": "initializeContext",
-          "name": "InitializeContext_DisableCacheHintsEnv_ResolverReportsNothing",
+          "suite": "ErrorEnvelopeSchema",
+          "name": "ErrorEnvelopeSchema_RejectsSuccessTrue_Fails",
           "dynamic": false
         },
         {
-          "suite": "initializeContext",
-          "name": "InitializeContext_WithProjectRoot_LoadsConfig",
+          "suite": "EnvelopeSchema factory",
+          "name": "EnvelopeSchema_DiscriminatesOnSuccessField_AcceptsBothBranches",
           "dynamic": false
         },
         {
-          "suite": "initializeContext",
-          "name": "InitializeContext_WithProjectRootNoConfig_ConfigEmpty",
+          "suite": "EnvelopeSchema factory",
+          "name": "EnvelopeSchema_RejectsDataMismatch_Fails",
           "dynamic": false
         },
         {
-          "suite": "initializeContext",
-          "name": "InitializeContext_WithConfigWorkflows_CallsRegisterCustomWorkflows",
+          "suite": "EnvelopeSchema factory",
+          "name": "SuccessEnvelopeSchema_AcceptsOptionalDecorators_Succeeds",
           "dynamic": false
         },
         {
-          "suite": "initializeContext — projectConfig (YAML)",
-          "name": "initializeContext_WithProjectRoot_LoadsProjectConfig",
+          "suite": "EnvelopeSchema factory",
+          "name": "PerfMetricsSchema_RoundTripsThroughZodType_Succeeds",
           "dynamic": false
         },
         {
-          "suite": "initializeContext — projectConfig (YAML)",
-          "name": "initializeContext_NoYml_ProjectConfigIsDefaults",
+          "suite": "EnvelopeSchema factory",
+          "name": "PerfMetricsSchema_RejectsNegativeValues_OnEachField",
           "dynamic": false
         },
         {
-          "suite": "initializeContext — projectConfig (YAML)",
-          "name": "initializeContext_ProjectConfigBeforeExarchosConfig",
+          "suite": "EnvelopeSchema factory",
+          "name": "EventHintsSchema_RoundTripsThroughZodType_Succeeds",
           "dynamic": false
         },
         {
-          "suite": "initializeContext — projectConfig (YAML)",
-          "name": "dispatch_ProjectConfig_PassedToHandlers",
+          "suite": "EnvelopeSchema factory",
+          "name": "CacheHintsSchema_RoundTripsThroughZodType_Succeeds",
           "dynamic": false
         },
         {
-          "suite": "initializeContext — projectConfig (YAML)",
-          "name": "initializeContext_WithProjectRoot_VcsProviderAvailable",
-          "dynamic": false
-        },
-        {
-          "suite": "initializeContext — projectConfig (YAML)",
-          "name": "initializeContext_WithGitLabConfig_VcsProviderIsGitLab",
-          "dynamic": false
-        },
-        {
-          "suite": "initializeContext — projectConfig (YAML)",
-          "name": "initializeContext_NoProjectRoot_VcsProviderUndefined",
-          "dynamic": false
-        },
-        {
-          "suite": "initializeContext — projectConfig (YAML)",
-          "name": "initializeContext_WithProjectRoot_HookRunnerAvailable",
-          "dynamic": false
-        },
-        {
-          "suite": "initializeContext — projectConfig (YAML)",
-          "name": "initializeContext_NoProjectRoot_HookRunnerUndefined",
-          "dynamic": false
-        },
-        {
-          "suite": "initializeContext — topology loader wired at startup (T58, DR-7)",
-          "name": "Context_InitializeWithTopologyMissingContracts_DoesNotBlockStartup_SwallowsLoaderThrow_v2_11_DR7",
-          "dynamic": false
-        },
-        {
-          "suite": "initializeContext — topology loader wired at startup (T58, DR-7)",
-          "name": "Context_InitializeWithoutProjectRoot_DoesNotLoadTopology",
-          "dynamic": false
-        },
-        {
-          "suite": "initializeContext — topology loader wired at startup (T58, DR-7)",
-          "name": "Context_InitializeWithProjectRootButNoTopologyYaml_DoesNotThrow",
+          "suite": "EnvelopeSchema factory",
+          "name": "EnvelopeSchema_SuccessLiteralNarrows_DiscriminatedUnion",
           "dynamic": false
         }
       ]
     },
-    "servers/exarchos-mcp/src/core/dispatch-context.acceptance.test.ts": {
-      "file": "servers/exarchos-mcp/src/core/dispatch-context.acceptance.test.ts",
+    "servers/exarchos-mcp/src/contract/sdk/seam.test.ts": {
+      "file": "servers/exarchos-mcp/src/contract/sdk/seam.test.ts",
       "runner": "vitest:nested",
       "cases": [
         {
-          "suite": "DR-2 acceptance — storage handle DI through DispatchContext",
-          "name": "DispatchContext_StorageHandle_InjectedNotAmbient",
+          "suite": "DR-26 — owned SDK seam, generation-branded handles",
+          "name": "SdkSeam_HandleFromOtherGeneration_FailsCompile",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-26 — owned SDK seam, generation-branded handles",
+          "name": "SdkSeam_ZeroImportSitesResolved_FailsClosed",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-26 — owned SDK seam, generation-branded handles",
+          "name": "SdkSeamCensus_SeamMovedOrRenamed_FailsClosed",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-26 — owned SDK seam, generation-branded handles",
+          "name": "SdkSeamCensus_SeamDropsOneGeneration_ReportsUncovered",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-26 — owned SDK seam, generation-branded handles",
+          "name": "SdkSeamCensus_NoGenerationInstalled_FailsClosed",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-26 — owned SDK seam, generation-branded handles",
+          "name": "CollectSdkImportSites_SeamAndBypass_AreAttributedApart",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-26 — owned SDK seam, generation-branded handles",
+          "name": "IsOwnedSeamModule_AbsoluteRelativeAndWindowsPaths_AllResolve",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-26 — owned SDK seam, generation-branded handles",
+          "name": "LintSdkGenerationMixing_OwnedSeamOnly_IsExemptFromMixing",
           "dynamic": false
         }
       ]
     },
-    "servers/exarchos-mcp/src/core/dispatch.economy-seam.test.ts": {
-      "file": "servers/exarchos-mcp/src/core/dispatch.economy-seam.test.ts",
+    "servers/exarchos-mcp/src/contract/shared/validation.test.ts": {
+      "file": "servers/exarchos-mcp/src/contract/shared/validation.test.ts",
       "runner": "vitest:nested",
       "cases": [
         {
-          "suite": "economy-seam no-bypass gate (INV-17 Axis-2)",
-          "name": "EconomySeam_RealDispatchAndMiddleware_NoBypass",
+          "suite": "SAFE_STREAM_ID_PATTERN",
+          "name": "matches the expected regex (admits the optional namespaced form)",
           "dynamic": false
         },
         {
-          "suite": "economy-seam no-bypass gate (INV-17 Axis-2)",
-          "name": "EconomySeam_UnguardedTelemetryOffBranch_Flagged",
+          "suite": "validateStreamId",
+          "name": "accepts lowercase alphanumeric strings",
           "dynamic": false
         },
         {
-          "suite": "economy-seam no-bypass gate (INV-17 Axis-2)",
-          "name": "EconomySeam_ProximityNotProof_Flagged",
+          "suite": "validateStreamId",
+          "name": "accepts uppercase alphanumeric strings",
           "dynamic": false
         },
         {
-          "suite": "economy-seam no-bypass gate (INV-17 Axis-2)",
-          "name": "EconomySeam_GuardedTelemetryOffBranch_Clean",
+          "suite": "validateStreamId",
+          "name": "accepts mixed case alphanumeric strings",
           "dynamic": false
         },
         {
-          "suite": "economy-seam no-bypass gate (INV-17 Axis-2)",
-          "name": "EconomySeam_MultiLineWrappedCall_Clean",
+          "suite": "validateStreamId",
+          "name": "accepts hyphens",
           "dynamic": false
         },
         {
-          "suite": "economy-seam no-bypass gate (INV-17 Axis-2)",
-          "name": "EconomySeam_MiddlewareReturnsRaw_Flagged",
+          "suite": "validateStreamId",
+          "name": "accepts dots",
           "dynamic": false
         },
         {
-          "suite": "economy-seam no-bypass gate (INV-17 Axis-2)",
-          "name": "EconomySeam_MiddlewareComputesCapButReturnsRaw_Flagged",
+          "suite": "validateStreamId",
+          "name": "accepts underscores",
           "dynamic": false
         },
         {
-          "suite": "economy-seam no-bypass gate (INV-17 Axis-2)",
-          "name": "EconomySeam_RenamedAnchor_Flagged",
+          "suite": "validateStreamId",
+          "name": "accepts a combination of all valid characters",
           "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/core/dispatch.install-freshness.test.ts": {
-      "file": "servers/exarchos-mcp/src/core/dispatch.install-freshness.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "P05-04 dispatch chokepoint — matching install proceeds",
-          "name": "a coherent install is NOT freshness-blocked (handler runs)",
-          "dynamic": false
-        },
-        {
-          "suite": "P05-04 dispatch chokepoint — matching install proceeds",
-          "name": "first run with NO recorded lock BOOTSTRAPS (records, does not block)",
-          "dynamic": false
-        },
-        {
-          "suite": "P05-04 dispatch chokepoint — matching install proceeds",
-          "name": "a read-only action is exempt even when the install is stale",
-          "dynamic": false
-        },
-        {
-          "suite": "P05-04 dispatch chokepoint — each seeded mismatch blocks before execution",
-          "name": "BINARY mismatch blocks the mutating action",
-          "dynamic": false
-        },
-        {
-          "suite": "P05-04 dispatch chokepoint — each seeded mismatch blocks before execution",
-          "name": "PLUGIN mismatch blocks the mutating action",
-          "dynamic": false
-        },
-        {
-          "suite": "P05-04 dispatch chokepoint — each seeded mismatch blocks before execution",
-          "name": "SKILL mismatch blocks the mutating action",
-          "dynamic": false
-        },
-        {
-          "suite": "P05-04 dispatch chokepoint — each seeded mismatch blocks before execution",
-          "name": "CACHE mismatch blocks the mutating action",
-          "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/core/dispatch.test.ts": {
-      "file": "servers/exarchos-mcp/src/core/dispatch.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "dispatch",
-          "name": "DispatchContext_TypeShape_IncludesStorageField",
-          "dynamic": false
-        },
-        {
-          "suite": "dispatch",
-          "name": "Dispatch_KnownTool_CallsHandler",
-          "dynamic": false
-        },
-        {
-          "suite": "dispatch",
-          "name": "Dispatch_UnknownTool_ReturnsError",
-          "dynamic": false
-        },
-        {
-          "suite": "dispatch",
-          "name": "Dispatch_LoadCompositeHandlerThrows_ReturnsCompositeLoadFailed",
-          "dynamic": false
-        },
-        {
-          "suite": "dispatch",
-          "name": "Dispatch_WithTelemetry_EnrichesResult",
-          "dynamic": false
-        },
-        {
-          "suite": "dispatch > Custom tool dispatch",
-          "name": "Dispatch_CustomTool_ReturnsSuccess",
-          "dynamic": false
-        },
-        {
-          "suite": "dispatch > Custom tool dispatch",
-          "name": "Dispatch_CustomTool_MissingAction_ReturnsError",
-          "dynamic": false
-        },
-        {
-          "suite": "dispatch > Custom tool dispatch",
-          "name": "Dispatch_CustomTool_UnknownAction_ReturnsError",
-          "dynamic": false
-        },
-        {
-          "suite": "dispatch > Custom tool dispatch",
-          "name": "dispatch_compositeHandler_receivesDispatchContext",
-          "dynamic": false
-        },
-        {
-          "suite": "dispatch > Custom tool dispatch",
-          "name": "Dispatch_LeakedHandler_WithoutRegistration_ReturnsUnknownTool",
-          "dynamic": false
-        },
-        {
-          "suite": "dispatch > Custom tool dispatch",
-          "name": "Dispatch_CustomTool_HandlerReturnsToolResult_PassesThrough",
-          "dynamic": false
-        },
-        {
-          "suite": "dispatch > parent-tool default-key leak (#1188)",
-          "name": "Dispatch_LeakedSiblingDefaults_DoesNotRejectStrictPerActionSchema",
-          "dynamic": false
-        },
-        {
-          "suite": "dispatch > parent-tool default-key leak (#1188)",
-          "name": "Dispatch_CallerTypo_StillRejected",
-          "dynamic": false
-        },
-        {
-          "suite": "dispatch > DR-9 prune removed-knob rejection (real dispatch seam)",
-          "name": "Dispatch_PruneLegacyThresholdMinutes_ActionableRemovalError",
-          "dynamic": false
-        },
-        {
-          "suite": "dispatch > DR-9 prune removed-knob rejection (real dispatch seam)",
-          "name": "Dispatch_PruneValidArgs_NotRejectedByRemovedKnobGuard",
-          "dynamic": false
-        },
-        {
-          "suite": "dispatch > DR-9 prune removed-knob rejection (real dispatch seam)",
-          "name": "Dispatch_PruneNowOverride_ReachesHandlerClockValidation",
-          "dynamic": false
-        },
-        {
-          "suite": "dispatch > doctor action wiring",
-          "name": "Dispatch_ExarchosOrchestrateDoctor_RoutesToOrchestrateCompositeAndReturnsValidDoctorOutput",
-          "dynamic": false
-        },
-        {
-          "suite": "dispatch > T-12 session.machinery_consumed interceptor",
-          "name": "T12_FirstNonRehydrateInvocationAfterRehydrated_EmitsSessionMachineryConsumed",
-          "dynamic": false
-        },
-        {
-          "suite": "dispatch > T-12 session.machinery_consumed interceptor",
-          "name": "T12_SubsequentInvocationsOnSameRehydrateSequence_NoAdditionalEmissions",
-          "dynamic": false
-        },
-        {
-          "suite": "dispatch > T-12 session.machinery_consumed interceptor",
-          "name": "T12_CrossStreamIsolation_StreamAEmissionDoesNotBlockStreamB",
-          "dynamic": false
-        },
-        {
-          "suite": "dispatch > T-12 session.machinery_consumed interceptor",
-          "name": "T12_RehydrateActionItself_DoesNotTriggerSessionMachineryConsumed",
-          "dynamic": false
-        },
-        {
-          "suite": "dispatch > T-12 session.machinery_consumed interceptor",
-          "name": "T12_NoWorkflowRehydratedOnStream_NoEmission",
-          "dynamic": false
-        },
-        {
-          "suite": "dispatch > T-12 session.machinery_consumed interceptor",
-          "name": "T12_FirstActionVerb_CapturesDispatchedActionName",
-          "dynamic": false
-        },
-        {
-          "suite": "dispatch > T-13 session.machinery_consumed idempotency property",
-          "name": "T13_TwoRehydratesSeparatedByActivity_ProduceTwoDistinctEmissions",
-          "dynamic": false
-        },
-        {
-          "suite": "dispatch > T-13 session.machinery_consumed idempotency property",
-          "name": "T13_MultipleActivitiesBetweenRehydrates_ProduceOneEmission",
-          "dynamic": false
-        },
-        {
-          "suite": "dispatch > T-13 session.machinery_consumed idempotency property",
-          "name": "T13_Property_EmissionCountEqualsDistinctRehydrateSequencesWithFollowingActivity",
-          "dynamic": false
-        },
-        {
-          "suite": "dispatch > T-13 session.machinery_consumed idempotency property",
-          "name": "T13_ColdStartCacheMiss_DoesNotReemitAfterProcessRestart",
-          "dynamic": false
-        },
-        {
-          "suite": "dispatch > T-13 session.machinery_consumed idempotency property",
-          "name": "T13_IdempotencyKey_SameStreamAndSequence_DoesNotDoubleEmitViaKeyCollapse",
-          "dynamic": false
-        },
-        {
-          "suite": "dispatch > #1273 Tasks-augmented dispatch entrypoint",
-          "name": "DispatchCore_NoTaskOption_ReturnsEnvelope",
-          "dynamic": false
-        },
-        {
-          "suite": "dispatch > #1273 Tasks-augmented dispatch entrypoint",
-          "name": "DispatchCore_TaskOptionPresent_ReturnsCreateTaskResult",
-          "dynamic": false
-        },
-        {
-          "suite": "dispatch > #1273 Tasks-augmented dispatch entrypoint",
-          "name": "DispatchCore_TaskOptionWithoutTaskStore_FallsBackToOneShot",
-          "dynamic": false
-        },
-        {
-          "suite": "dispatch",
-          "name": "Dispatch_BuiltInTool_PreservesInbound_meta",
-          "dynamic": false
-        },
-        {
-          "suite": "dispatch > T1 — DR-5 dispatch validation for newly registered view actions",
-          "name": "<dynamic-case-1>",
-          "dynamic": true
-        },
-        {
-          "suite": "dispatch > extractSingleMissingRequiredField — Zod v4 issue shape (#1451)",
-          "name": "ExtractSingleMissingRequiredField_ZodV4MissingFieldNoReceivedProperty_ReturnsKey",
-          "dynamic": false
-        },
-        {
-          "suite": "dispatch > extractSingleMissingRequiredField — Zod v4 issue shape (#1451)",
-          "name": "ExtractSingleMissingRequiredField_ZodV4WrongTypeNumber_ReturnsUndefined",
-          "dynamic": false
-        },
-        {
-          "suite": "dispatch > retry_with_task hint (Preview-4 §4.4)",
-          "name": "RetryWithTaskHint_TaskSuitableActionWithoutTaskTtlExceededThreshold_PrependsHint",
-          "dynamic": false
-        },
-        {
-          "suite": "dispatch > retry_with_task hint (Preview-4 §4.4)",
-          "name": "RetryWithTaskHint_ElapsedBelowThreshold_HintNotEmitted",
-          "dynamic": false
-        },
-        {
-          "suite": "dispatch > retry_with_task hint (Preview-4 §4.4)",
-          "name": "RetryWithTaskHint_ActionNotTaskSuitable_HintNotEmitted",
-          "dynamic": false
-        },
-        {
-          "suite": "dispatch > retry_with_task hint (Preview-4 §4.4)",
-          "name": "RetryWithTaskHint_TaskTtlAlreadyThreaded_HintNotEmitted",
-          "dynamic": false
-        },
-        {
-          "suite": "dispatch > retry_with_task hint (Preview-4 §4.4)",
-          "name": "Dispatch_SlowTaskSuitableAction_EmitsRetryWithTaskHintInMeta",
-          "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/core/economy-enforcement.test.ts": {
-      "file": "servers/exarchos-mcp/src/core/economy-enforcement.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "response-economy enforcement (DR-1, Task 003)",
-          "name": "dispatchEconomy_OverBudgetResponse_AppliesSummarizerAndStampsTruncated",
-          "dynamic": false
-        },
-        {
-          "suite": "response-economy enforcement (DR-1, Task 003)",
-          "name": "dispatchEconomy_BudgetUnresolvable_FailsOpenWithDegradedMarker",
-          "dynamic": false
-        },
-        {
-          "suite": "response-economy enforcement (DR-1, Task 003)",
-          "name": "dispatchEconomy_SummarizerThrows_ReturnsUncappedWithDegradedMarker",
-          "dynamic": false
-        },
-        {
-          "suite": "response-economy enforcement (DR-1, Task 003)",
-          "name": "dispatchEconomy_CappedListResponse_FirstPageIsFaithfulPrefix",
-          "dynamic": false
-        },
-        {
-          "suite": "response-economy enforcement (DR-1, Task 003)",
-          "name": "dispatchEconomy_OverBudgetObjectPayload_FailsOpenPreservingAllFields",
-          "dynamic": false
-        },
-        {
-          "suite": "response-economy enforcement (DR-1, Task 003)",
-          "name": "dispatchEconomy_ObjectWrappedInventory_StillCaps",
-          "dynamic": false
-        },
-        {
-          "suite": "response-economy enforcement (DR-1, Task 003)",
-          "name": "dispatchEconomy_TelemetryDisabled_StillEnforcesBudget",
-          "dynamic": false
-        },
-        {
-          "suite": "response-economy enforcement (DR-1, Task 003)",
-          "name": "dispatchEconomy_NoWindowingParam_OmitsCliFlagHint",
-          "dynamic": false
-        },
-        {
-          "suite": "response-economy enforcement (DR-1, Task 003)",
-          "name": "dispatchEconomy_LimitParam_EmitsAccurateLimitFlagHint",
-          "dynamic": false
-        },
-        {
-          "suite": "response-economy enforcement (DR-1, Task 003)",
-          "name": "dispatchEconomy_CappedTypedOutputSchemaAction_ConformsToRegisteredSchema",
-          "dynamic": false
-        },
-        {
-          "suite": "response-economy enforcement (DR-1, Task 003)",
-          "name": "enforceResponseEconomy_FailureEnvelope_ReturnedUntouched",
-          "dynamic": false
-        },
-        {
-          "suite": "response-economy enforcement (DR-1, Task 003)",
-          "name": "enforceResponseEconomy_UnknownAction_NoContract_ReturnedUntouched",
-          "dynamic": false
-        },
-        {
-          "suite": "response-economy enforcement (DR-1, Task 003)",
-          "name": "enforceResponseEconomy_CarrierKeySet_ExcludesData",
-          "dynamic": false
-        },
-        {
-          "suite": "response-economy enforcement (DR-1, Task 003)",
-          "name": "withCappedShape_typedOutput_acceptsGenericCappedFallback",
-          "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/core/economy.test.ts": {
-      "file": "servers/exarchos-mcp/src/core/economy.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "estimateOutputTokens (DR-1 relocation)",
-          "name": "estimateOutputTokens_AnyPayload_MatchesTelemetryMiddlewareFormula",
-          "dynamic": false
-        },
-        {
-          "suite": "estimateOutputTokens (DR-1 relocation)",
-          "name": "estimateOutputTokens_UnserializablePayload_FallsBackLikeMiddleware",
-          "dynamic": false
-        },
-        {
-          "suite": "narrowAffordance (DR-1 widened verb type)",
-          "name": "narrowAffordance_AnyVerb_ValidatesAgainstNextActionSchema",
-          "dynamic": false
-        },
-        {
-          "suite": "narrowAffordance (DR-1 widened verb type)",
-          "name": "narrowAffordance_RealActionNames_ValidateAndCarryNarrowSteering",
-          "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/core/effect-carrier.test.ts": {
-      "file": "servers/exarchos-mcp/src/core/effect-carrier.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "effect carrier constructors + guards",
-          "name": "succeeded builds a success arm that only isSuccess narrows",
-          "dynamic": false
-        },
-        {
-          "suite": "effect carrier constructors + guards",
-          "name": "failed builds an error arm carrying the structured error",
-          "dynamic": false
-        },
-        {
-          "suite": "effect carrier constructors + guards",
-          "name": "plannedDryRun builds a dry-run arm carrying the plan",
-          "dynamic": false
-        },
-        {
-          "suite": "runEffect — live mode",
-          "name": "invokes execute and wraps the value in a success carrier",
-          "dynamic": false
-        },
-        {
-          "suite": "runEffect — live mode",
-          "name": "captures a thrown error into an error carrier instead of rejecting",
-          "dynamic": false
-        },
-        {
-          "suite": "runEffect — dry-run mode (provably no real effect)",
-          "name": "does NOT invoke execute and returns the withheld plan",
-          "dynamic": false
-        },
-        {
-          "suite": "runEffect — dry-run mode (provably no real effect)",
-          "name": "withholds even an effect that would throw — no throw escapes",
-          "dynamic": false
-        },
-        {
-          "suite": "toEffectError",
-          "name": "derives a class-scoped code and preserves the cause",
-          "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/core/interceptors/session-machinery.test.ts": {
-      "file": "servers/exarchos-mcp/src/core/interceptors/session-machinery.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "runSessionMachineryConsumedInterceptor — F-05 swallow-path warn",
-          "name": "emits workflowLogger.warn when EventStore.query throws (swallow path)",
-          "dynamic": false
-        },
-        {
-          "suite": "runSessionMachineryConsumedInterceptor — F-05 swallow-path warn",
-          "name": "does not emit warn on the happy path (no rehydrated event present)",
-          "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/core/onboarding/event-ctx.test.ts": {
-      "file": "servers/exarchos-mcp/src/core/onboarding/event-ctx.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "buildOnboardEventCtx (shared seam, RF-3 #1510)",
-          "name": "emit appends to the onboard stream as a PLAIN append (no CAS pin)",
-          "dynamic": false
-        },
-        {
-          "suite": "buildOnboardEventCtx (shared seam, RF-3 #1510)",
-          "name": "readStreamTail returns the FRESH tail after the last onboard.executed",
-          "dynamic": false
-        },
-        {
-          "suite": "buildOnboardEventCtx (shared seam, RF-3 #1510)",
-          "name": "readStreamTail is empty when the most recent event is an onboard.executed",
-          "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/core/onboarding/reconcile.apply.test.ts": {
-      "file": "servers/exarchos-mcp/src/core/onboarding/reconcile.apply.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "apply",
-          "name": "Apply_EmptyPlan_IsNoOp",
-          "dynamic": false
-        },
-        {
-          "suite": "apply",
-          "name": "Apply_HandEditedConfig_PreservedWithoutForce",
-          "dynamic": false
-        },
-        {
-          "suite": "apply",
-          "name": "Apply_ForceFlag_OverwritesAndReports",
-          "dynamic": false
-        },
-        {
-          "suite": "apply",
-          "name": "Apply_CliOnlyStepOffCliSurface_BecomesAdvisory",
-          "dynamic": false
-        },
-        {
-          "suite": "apply",
-          "name": "Apply_CliOnlyStepOnCliSurface_RunsViaHook",
-          "dynamic": false
-        },
-        {
-          "suite": "apply",
-          "name": "Apply_HookStep_RoutesThroughInstallHook",
-          "dynamic": false
-        },
-        {
-          "suite": "apply",
-          "name": "Apply_HookStepThrows_IsForwardOnly_ResidualPlusAdvisory_PipelineNotAborted",
-          "dynamic": false
-        },
-        {
-          "suite": "apply",
-          "name": "Apply_GenerateStep_RoutesThroughInitWriters",
-          "dynamic": false
-        },
-        {
-          "suite": "apply",
-          "name": "Apply_MultipleGenerateSteps_SkippedWritersConverge_NoFalseResidual",
-          "dynamic": false
-        },
-        {
-          "suite": "apply",
-          "name": "Apply_GenerateStep_FailedWriter_IsResidual",
-          "dynamic": false
-        },
-        {
-          "suite": "apply",
-          "name": "onboard_BlockWriteFails_RetiredHooksKept",
-          "dynamic": false
-        },
-        {
-          "suite": "apply",
-          "name": "onboard_BlockWriteConvergesButOnrampFailed_RetiredHooksKept",
-          "dynamic": false
-        },
-        {
-          "suite": "apply",
-          "name": "onboard_BlockWriteSucceeds_RetiredHooksRemoved",
-          "dynamic": false
-        },
-        {
-          "suite": "apply",
-          "name": "onboard_NoBlockWriteStep_RetiredHooksRemoved",
-          "dynamic": false
-        },
-        {
-          "suite": "apply",
-          "name": "Apply_MutationConfigStep_SeedsExarchosYml",
-          "dynamic": false
-        },
-        {
-          "suite": "apply",
-          "name": "Apply_MutationConfigStep_ExistingConfig_ResidualNotSilentlySkipped",
-          "dynamic": false
-        },
-        {
-          "suite": "apply",
-          "name": "Apply_ReRunAfterSeed_EmptyPlanIdempotent",
-          "dynamic": false
-        },
-        {
-          "suite": "apply",
-          "name": "Apply_NeverWritesVerificationPolicyBlock",
-          "dynamic": false
-        },
-        {
-          "suite": "apply",
-          "name": "Apply_EmptyPlan_Idempotent",
-          "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/core/onboarding/reconcile.characterization.test.ts": {
-      "file": "servers/exarchos-mcp/src/core/onboarding/reconcile.characterization.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "reconcile characterization (T0 baseline) > ResolvedCommandsSchema_WidenedFields_Pinned",
-          "name": "accepts exactly {test?, typecheck?, install?, mutation?, lint?} and silently strips unknown keys",
-          "dynamic": false
-        },
-        {
-          "suite": "reconcile characterization (T0 baseline) > DetectDesiredState_FixtureRepo_CurrentShape",
-          "name": "pins the full DesiredState shape for the fixture repo",
-          "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/core/onboarding/reconcile.detect.test.ts": {
-      "file": "servers/exarchos-mcp/src/core/onboarding/reconcile.detect.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "DetectDesiredState_DerivesCommands_FromLayeredResolver",
-          "name": "derives test/typecheck/install from the layered resolver for a node repo",
-          "dynamic": false
-        },
-        {
-          "suite": "DetectDesiredState_DerivesCommands_FromLayeredResolver",
-          "name": "omits (never fabricates) a command field the resolver leaves unresolved",
-          "dynamic": false
-        },
-        {
-          "suite": "DetectDesiredState_DerivesCommands_FromLayeredResolver",
-          "name": "reports vcs as git when a .git dir is present, none otherwise",
-          "dynamic": false
-        },
-        {
-          "suite": "DetectDesiredState_DerivesCommands_FromLayeredResolver",
-          "name": "DetectDesiredState_NodeFixtureWithStryker_ResolvesMutationCommand",
-          "dynamic": false
-        },
-        {
-          "suite": "DetectDesiredState_DerivesCommands_FromLayeredResolver",
-          "name": "DetectDesiredState_UnresolvableMutation_LeavesFieldAbsent",
-          "dynamic": false
         },
         {
-          "suite": "DetectDesiredState_DerivesCommands_FromLayeredResolver",
-          "name": "DetectDesiredState_ExistingFields_ByteIdenticalToT0Pin",
+          "suite": "validateStreamId",
+          "name": "rejects empty strings",
           "dynamic": false
         },
-        {
-          "suite": "DetectDesiredState_DerivesCommands_FromLayeredResolver",
-          "name": "returns a string[] of runtimes and honors runtime/vcs overrides",
-          "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/core/onboarding/reconcile.diff.test.ts": {
-      "file": "servers/exarchos-mcp/src/core/onboarding/reconcile.diff.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
         {
-          "suite": "diff",
-          "name": "Diff_ProducesStructuredPlan_FromDoctorChecks",
+          "suite": "validateStreamId",
+          "name": "rejects strings with spaces",
           "dynamic": false
         },
         {
-          "suite": "diff",
-          "name": "Diff_NoDrift_ReturnsEmptyPlan",
+          "suite": "validateStreamId",
+          "name": "rejects strings with backslashes",
           "dynamic": false
         },
         {
-          "suite": "diff",
-          "name": "Diff_CleanRepo_AlwaysEmptyPlan",
+          "suite": "validateStreamId",
+          "name": "rejects strings with special characters",
           "dynamic": false
         },
         {
-          "suite": "diff > verification-command seeding (§4.5-seed)",
-          "name": "Diff_ResolvedMutationMissingFromConfig_EmitsConfigStep",
+          "suite": "validateStreamId",
+          "name": "rejects strings with path traversal",
           "dynamic": false
         },
         {
-          "suite": "diff > verification-command seeding (§4.5-seed)",
-          "name": "Diff_ResolvedMutationAlreadyDeclared_NoStep_Idempotent",
+          "suite": "validateStreamId",
+          "name": "includes the invalid streamId in the error message",
           "dynamic": false
         },
         {
-          "suite": "diff > verification-command seeding (§4.5-seed)",
-          "name": "Diff_UnresolvedVerificationCommand_NoStep",
+          "suite": "validateStreamId — namespaced form (T24)",
+          "name": "accepts a well-formed namespaced id with hyphens",
           "dynamic": false
         },
         {
-          "suite": "diff > verification-command seeding (§4.5-seed)",
-          "name": "Diff_DeclaredDefaultsToEmpty_BackwardCompatible",
+          "suite": "validateStreamId — namespaced form (T24)",
+          "name": "accepts a well-formed namespaced id with mixed character classes",
           "dynamic": false
         },
         {
-          "suite": "diff > DR-7 block-write-before-hook-removal ordering",
-          "name": "reconcile_BlockWriteOrderedBeforeHookRemoval",
+          "suite": "validateStreamId — namespaced form (T24)",
+          "name": "accepts a single-segment legacy id (regression coverage)",
           "dynamic": false
         },
         {
-          "suite": "diff > DR-7 block-write-before-hook-removal ordering",
-          "name": "Reconcile_AlreadyOrdered_PreservesOtherStepOrder",
+          "suite": "validateStreamId — namespaced form (T24)",
+          "name": "rejects a trailing slash",
           "dynamic": false
         },
-        {
-          "suite": "diff > DR-7 block-write-before-hook-removal ordering",
-          "name": "Reconcile_RemovalWithoutBlockWrite_LeavesRemovalStep",
-          "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/core/onboarding/reconcile.events.test.ts": {
-      "file": "servers/exarchos-mcp/src/core/onboarding/reconcile.events.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
         {
-          "suite": "reconcileWithEvents (DR-7 / DR-10 — two-event split + crash recovery)",
-          "name": "Apply_NonDryRun_EmitsRequestedThenExecuted",
+          "suite": "validateStreamId — namespaced form (T24)",
+          "name": "rejects a leading slash",
           "dynamic": false
         },
         {
-          "suite": "reconcileWithEvents (DR-7 / DR-10 — two-event split + crash recovery)",
-          "name": "Apply_DryRun_EmitsNeither",
+          "suite": "validateStreamId — namespaced form (T24)",
+          "name": "rejects double slashes (empty middle segment)",
           "dynamic": false
         },
         {
-          "suite": "reconcileWithEvents (DR-7 / DR-10 — two-event split + crash recovery)",
-          "name": "Apply_RequestedWithoutExecuted_RecoversResidualOnly",
+          "suite": "validateStreamId — namespaced form (T24)",
+          "name": "rejects three or more segments",
           "dynamic": false
         },
-        {
-          "suite": "reconcileWithEvents (DR-7 / DR-10 — two-event split + crash recovery)",
-          "name": "Apply_Retry_SideEffectAtMostOnce (property)",
-          "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/core/onboarding/types.test.ts": {
-      "file": "servers/exarchos-mcp/src/core/onboarding/types.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
         {
-          "suite": "ReconcileTypes_PlanStepSurface_TaggedCliOnly",
-          "name": "SurfaceSchema accepts the two known surfaces and rejects others",
+          "suite": "validateStreamId — namespaced form (T24)",
+          "name": "rejects a `..` segment in the namespaced form",
           "dynamic": false
         },
         {
-          "suite": "ReconcileTypes_PlanStepSurface_TaggedCliOnly",
-          "name": "PlanStep enforces the kind enum and the surface tag (cli-only gates install)",
+          "suite": "validateStreamId — namespaced form (T24)",
+          "name": "rejects a leading `..` segment in the namespaced form",
           "dynamic": false
         },
         {
-          "suite": "ReconcileTypes_PlanStepSurface_TaggedCliOnly",
-          "name": "DesiredState parses detected runtimes/vcs + resolver-derived commands and rejects malformed",
+          "suite": "validateStreamId — namespaced form (T24)",
+          "name": "rejects a single-segment `..` (path traversal)",
           "dynamic": false
         },
         {
-          "suite": "ReconcileTypes_PlanStepSurface_TaggedCliOnly",
-          "name": "ResolvedCommandsSchema_MutationAndLint_Optional",
+          "suite": "validateStreamId — namespaced form (T24)",
+          "name": "rejects a single-segment `.` (current-dir)",
           "dynamic": false
         },
         {
-          "suite": "ReconcileTypes_PlanStepSurface_TaggedCliOnly",
-          "name": "Advisory parses the cli-only install advisory and rejects malformed",
+          "suite": "validateStreamId — namespaced form (T24)",
+          "name": "rejects an empty first segment",
           "dynamic": false
         },
         {
-          "suite": "ReconcileTypes_PlanStepSurface_TaggedCliOnly",
-          "name": "ReconcilePlan parses valid steps, the empty plan, and rejects malformed",
+          "suite": "validateStreamId — namespaced form (T24)",
+          "name": "property: namespaced ids of arbitrary segment lengths validate",
           "dynamic": false
         },
         {
-          "suite": "ReconcileTypes_PlanStepSurface_TaggedCliOnly",
-          "name": "ReconcileResult parses the four step buckets + advisories and rejects malformed",
+          "suite": "validateStreamId — namespaced form (T24)",
+          "name": "property: malformed namespaced ids reject",
           "dynamic": false
         }
       ]
@@ -17255,6 +16642,897 @@
         {
           "suite": "trusted caller identity and authorization snapshots",
           "name": "CallerAuthorization_RealDispatch_ThreadsTrustedSnapshotToHandler",
+          "dynamic": false
+        }
+      ]
+    },
+    "servers/exarchos-mcp/src/dispatch/core/context.test.ts": {
+      "file": "servers/exarchos-mcp/src/dispatch/core/context.test.ts",
+      "runner": "vitest:nested",
+      "cases": [
+        {
+          "suite": "initializeContext",
+          "name": "InitializeContext_CreatesEventStore_ConfiguresModules",
+          "dynamic": false
+        },
+        {
+          "suite": "initializeContext",
+          "name": "InitializeContext_WithBackend_PassesBackendToEventStore",
+          "dynamic": false
+        },
+        {
+          "suite": "initializeContext",
+          "name": "Lifecycle_Start_ConstructsStorageAndPassesViaContext",
+          "dynamic": false
+        },
+        {
+          "suite": "initializeContext",
+          "name": "Lifecycle_Start_NoBackend_StorageUndefined",
+          "dynamic": false
+        },
+        {
+          "suite": "initializeContext",
+          "name": "InitializeContext_ConfiguresStateStoreBackend",
+          "dynamic": false
+        },
+        {
+          "suite": "initializeContext",
+          "name": "InitializeContext_NoProjectRoot_ConfigUndefined",
+          "dynamic": false
+        },
+        {
+          "suite": "initializeContext",
+          "name": "InitializeContext_DefaultResolver_ReportsAnthropicNativeCaching",
+          "dynamic": false
+        },
+        {
+          "suite": "initializeContext",
+          "name": "InitializeContext_DisableCacheHintsEnv_ResolverReportsNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "initializeContext",
+          "name": "InitializeContext_WithProjectRoot_LoadsConfig",
+          "dynamic": false
+        },
+        {
+          "suite": "initializeContext",
+          "name": "InitializeContext_WithProjectRootNoConfig_ConfigEmpty",
+          "dynamic": false
+        },
+        {
+          "suite": "initializeContext",
+          "name": "InitializeContext_WithConfigWorkflows_CallsRegisterCustomWorkflows",
+          "dynamic": false
+        },
+        {
+          "suite": "initializeContext — projectConfig (YAML)",
+          "name": "initializeContext_WithProjectRoot_LoadsProjectConfig",
+          "dynamic": false
+        },
+        {
+          "suite": "initializeContext — projectConfig (YAML)",
+          "name": "initializeContext_NoYml_ProjectConfigIsDefaults",
+          "dynamic": false
+        },
+        {
+          "suite": "initializeContext — projectConfig (YAML)",
+          "name": "initializeContext_ProjectConfigBeforeExarchosConfig",
+          "dynamic": false
+        },
+        {
+          "suite": "initializeContext — projectConfig (YAML)",
+          "name": "dispatch_ProjectConfig_PassedToHandlers",
+          "dynamic": false
+        },
+        {
+          "suite": "initializeContext — projectConfig (YAML)",
+          "name": "initializeContext_WithProjectRoot_VcsProviderAvailable",
+          "dynamic": false
+        },
+        {
+          "suite": "initializeContext — projectConfig (YAML)",
+          "name": "initializeContext_WithGitLabConfig_VcsProviderIsGitLab",
+          "dynamic": false
+        },
+        {
+          "suite": "initializeContext — projectConfig (YAML)",
+          "name": "initializeContext_NoProjectRoot_VcsProviderUndefined",
+          "dynamic": false
+        },
+        {
+          "suite": "initializeContext — projectConfig (YAML)",
+          "name": "initializeContext_WithProjectRoot_HookRunnerAvailable",
+          "dynamic": false
+        },
+        {
+          "suite": "initializeContext — projectConfig (YAML)",
+          "name": "initializeContext_NoProjectRoot_HookRunnerUndefined",
+          "dynamic": false
+        },
+        {
+          "suite": "initializeContext — topology loader wired at startup (T58, DR-7)",
+          "name": "Context_InitializeWithTopologyMissingContracts_DoesNotBlockStartup_SwallowsLoaderThrow_v2_11_DR7",
+          "dynamic": false
+        },
+        {
+          "suite": "initializeContext — topology loader wired at startup (T58, DR-7)",
+          "name": "Context_InitializeWithoutProjectRoot_DoesNotLoadTopology",
+          "dynamic": false
+        },
+        {
+          "suite": "initializeContext — topology loader wired at startup (T58, DR-7)",
+          "name": "Context_InitializeWithProjectRootButNoTopologyYaml_DoesNotThrow",
+          "dynamic": false
+        }
+      ]
+    },
+    "servers/exarchos-mcp/src/dispatch/core/dispatch-context.acceptance.test.ts": {
+      "file": "servers/exarchos-mcp/src/dispatch/core/dispatch-context.acceptance.test.ts",
+      "runner": "vitest:nested",
+      "cases": [
+        {
+          "suite": "DR-2 acceptance — storage handle DI through DispatchContext",
+          "name": "DispatchContext_StorageHandle_InjectedNotAmbient",
+          "dynamic": false
+        }
+      ]
+    },
+    "servers/exarchos-mcp/src/dispatch/core/dispatch.economy-seam.test.ts": {
+      "file": "servers/exarchos-mcp/src/dispatch/core/dispatch.economy-seam.test.ts",
+      "runner": "vitest:nested",
+      "cases": [
+        {
+          "suite": "economy-seam no-bypass gate (INV-17 Axis-2)",
+          "name": "EconomySeam_RealDispatchAndMiddleware_NoBypass",
+          "dynamic": false
+        },
+        {
+          "suite": "economy-seam no-bypass gate (INV-17 Axis-2)",
+          "name": "EconomySeam_UnguardedTelemetryOffBranch_Flagged",
+          "dynamic": false
+        },
+        {
+          "suite": "economy-seam no-bypass gate (INV-17 Axis-2)",
+          "name": "EconomySeam_ProximityNotProof_Flagged",
+          "dynamic": false
+        },
+        {
+          "suite": "economy-seam no-bypass gate (INV-17 Axis-2)",
+          "name": "EconomySeam_GuardedTelemetryOffBranch_Clean",
+          "dynamic": false
+        },
+        {
+          "suite": "economy-seam no-bypass gate (INV-17 Axis-2)",
+          "name": "EconomySeam_MultiLineWrappedCall_Clean",
+          "dynamic": false
+        },
+        {
+          "suite": "economy-seam no-bypass gate (INV-17 Axis-2)",
+          "name": "EconomySeam_MiddlewareReturnsRaw_Flagged",
+          "dynamic": false
+        },
+        {
+          "suite": "economy-seam no-bypass gate (INV-17 Axis-2)",
+          "name": "EconomySeam_MiddlewareComputesCapButReturnsRaw_Flagged",
+          "dynamic": false
+        },
+        {
+          "suite": "economy-seam no-bypass gate (INV-17 Axis-2)",
+          "name": "EconomySeam_RenamedAnchor_Flagged",
+          "dynamic": false
+        }
+      ]
+    },
+    "servers/exarchos-mcp/src/dispatch/core/dispatch.install-freshness.test.ts": {
+      "file": "servers/exarchos-mcp/src/dispatch/core/dispatch.install-freshness.test.ts",
+      "runner": "vitest:nested",
+      "cases": [
+        {
+          "suite": "P05-04 dispatch chokepoint — matching install proceeds",
+          "name": "a coherent install is NOT freshness-blocked (handler runs)",
+          "dynamic": false
+        },
+        {
+          "suite": "P05-04 dispatch chokepoint — matching install proceeds",
+          "name": "first run with NO recorded lock BOOTSTRAPS (records, does not block)",
+          "dynamic": false
+        },
+        {
+          "suite": "P05-04 dispatch chokepoint — matching install proceeds",
+          "name": "a read-only action is exempt even when the install is stale",
+          "dynamic": false
+        },
+        {
+          "suite": "P05-04 dispatch chokepoint — each seeded mismatch blocks before execution",
+          "name": "BINARY mismatch blocks the mutating action",
+          "dynamic": false
+        },
+        {
+          "suite": "P05-04 dispatch chokepoint — each seeded mismatch blocks before execution",
+          "name": "PLUGIN mismatch blocks the mutating action",
+          "dynamic": false
+        },
+        {
+          "suite": "P05-04 dispatch chokepoint — each seeded mismatch blocks before execution",
+          "name": "SKILL mismatch blocks the mutating action",
+          "dynamic": false
+        },
+        {
+          "suite": "P05-04 dispatch chokepoint — each seeded mismatch blocks before execution",
+          "name": "CACHE mismatch blocks the mutating action",
+          "dynamic": false
+        }
+      ]
+    },
+    "servers/exarchos-mcp/src/dispatch/core/dispatch.test.ts": {
+      "file": "servers/exarchos-mcp/src/dispatch/core/dispatch.test.ts",
+      "runner": "vitest:nested",
+      "cases": [
+        {
+          "suite": "dispatch",
+          "name": "DispatchContext_TypeShape_IncludesStorageField",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch",
+          "name": "Dispatch_KnownTool_CallsHandler",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch",
+          "name": "Dispatch_UnknownTool_ReturnsError",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch",
+          "name": "Dispatch_LoadCompositeHandlerThrows_ReturnsCompositeLoadFailed",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch",
+          "name": "Dispatch_WithTelemetry_EnrichesResult",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch > Custom tool dispatch",
+          "name": "Dispatch_CustomTool_ReturnsSuccess",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch > Custom tool dispatch",
+          "name": "Dispatch_CustomTool_MissingAction_ReturnsError",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch > Custom tool dispatch",
+          "name": "Dispatch_CustomTool_UnknownAction_ReturnsError",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch > Custom tool dispatch",
+          "name": "dispatch_compositeHandler_receivesDispatchContext",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch > Custom tool dispatch",
+          "name": "Dispatch_LeakedHandler_WithoutRegistration_ReturnsUnknownTool",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch > Custom tool dispatch",
+          "name": "Dispatch_CustomTool_HandlerReturnsToolResult_PassesThrough",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch > parent-tool default-key leak (#1188)",
+          "name": "Dispatch_LeakedSiblingDefaults_DoesNotRejectStrictPerActionSchema",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch > parent-tool default-key leak (#1188)",
+          "name": "Dispatch_CallerTypo_StillRejected",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch > DR-9 prune removed-knob rejection (real dispatch seam)",
+          "name": "Dispatch_PruneLegacyThresholdMinutes_ActionableRemovalError",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch > DR-9 prune removed-knob rejection (real dispatch seam)",
+          "name": "Dispatch_PruneValidArgs_NotRejectedByRemovedKnobGuard",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch > DR-9 prune removed-knob rejection (real dispatch seam)",
+          "name": "Dispatch_PruneNowOverride_ReachesHandlerClockValidation",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch > doctor action wiring",
+          "name": "Dispatch_ExarchosOrchestrateDoctor_RoutesToOrchestrateCompositeAndReturnsValidDoctorOutput",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch > T-12 session.machinery_consumed interceptor",
+          "name": "T12_FirstNonRehydrateInvocationAfterRehydrated_EmitsSessionMachineryConsumed",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch > T-12 session.machinery_consumed interceptor",
+          "name": "T12_SubsequentInvocationsOnSameRehydrateSequence_NoAdditionalEmissions",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch > T-12 session.machinery_consumed interceptor",
+          "name": "T12_CrossStreamIsolation_StreamAEmissionDoesNotBlockStreamB",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch > T-12 session.machinery_consumed interceptor",
+          "name": "T12_RehydrateActionItself_DoesNotTriggerSessionMachineryConsumed",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch > T-12 session.machinery_consumed interceptor",
+          "name": "T12_NoWorkflowRehydratedOnStream_NoEmission",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch > T-12 session.machinery_consumed interceptor",
+          "name": "T12_FirstActionVerb_CapturesDispatchedActionName",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch > T-13 session.machinery_consumed idempotency property",
+          "name": "T13_TwoRehydratesSeparatedByActivity_ProduceTwoDistinctEmissions",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch > T-13 session.machinery_consumed idempotency property",
+          "name": "T13_MultipleActivitiesBetweenRehydrates_ProduceOneEmission",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch > T-13 session.machinery_consumed idempotency property",
+          "name": "T13_Property_EmissionCountEqualsDistinctRehydrateSequencesWithFollowingActivity",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch > T-13 session.machinery_consumed idempotency property",
+          "name": "T13_ColdStartCacheMiss_DoesNotReemitAfterProcessRestart",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch > T-13 session.machinery_consumed idempotency property",
+          "name": "T13_IdempotencyKey_SameStreamAndSequence_DoesNotDoubleEmitViaKeyCollapse",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch > #1273 Tasks-augmented dispatch entrypoint",
+          "name": "DispatchCore_NoTaskOption_ReturnsEnvelope",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch > #1273 Tasks-augmented dispatch entrypoint",
+          "name": "DispatchCore_TaskOptionPresent_ReturnsCreateTaskResult",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch > #1273 Tasks-augmented dispatch entrypoint",
+          "name": "DispatchCore_TaskOptionWithoutTaskStore_FallsBackToOneShot",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch",
+          "name": "Dispatch_BuiltInTool_PreservesInbound_meta",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch > T1 — DR-5 dispatch validation for newly registered view actions",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "dispatch > extractSingleMissingRequiredField — Zod v4 issue shape (#1451)",
+          "name": "ExtractSingleMissingRequiredField_ZodV4MissingFieldNoReceivedProperty_ReturnsKey",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch > extractSingleMissingRequiredField — Zod v4 issue shape (#1451)",
+          "name": "ExtractSingleMissingRequiredField_ZodV4WrongTypeNumber_ReturnsUndefined",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch > retry_with_task hint (Preview-4 §4.4)",
+          "name": "RetryWithTaskHint_TaskSuitableActionWithoutTaskTtlExceededThreshold_PrependsHint",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch > retry_with_task hint (Preview-4 §4.4)",
+          "name": "RetryWithTaskHint_ElapsedBelowThreshold_HintNotEmitted",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch > retry_with_task hint (Preview-4 §4.4)",
+          "name": "RetryWithTaskHint_ActionNotTaskSuitable_HintNotEmitted",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch > retry_with_task hint (Preview-4 §4.4)",
+          "name": "RetryWithTaskHint_TaskTtlAlreadyThreaded_HintNotEmitted",
+          "dynamic": false
+        },
+        {
+          "suite": "dispatch > retry_with_task hint (Preview-4 §4.4)",
+          "name": "Dispatch_SlowTaskSuitableAction_EmitsRetryWithTaskHintInMeta",
+          "dynamic": false
+        }
+      ]
+    },
+    "servers/exarchos-mcp/src/dispatch/core/economy-enforcement.test.ts": {
+      "file": "servers/exarchos-mcp/src/dispatch/core/economy-enforcement.test.ts",
+      "runner": "vitest:nested",
+      "cases": [
+        {
+          "suite": "response-economy enforcement (DR-1, Task 003)",
+          "name": "dispatchEconomy_OverBudgetResponse_AppliesSummarizerAndStampsTruncated",
+          "dynamic": false
+        },
+        {
+          "suite": "response-economy enforcement (DR-1, Task 003)",
+          "name": "dispatchEconomy_BudgetUnresolvable_FailsOpenWithDegradedMarker",
+          "dynamic": false
+        },
+        {
+          "suite": "response-economy enforcement (DR-1, Task 003)",
+          "name": "dispatchEconomy_SummarizerThrows_ReturnsUncappedWithDegradedMarker",
+          "dynamic": false
+        },
+        {
+          "suite": "response-economy enforcement (DR-1, Task 003)",
+          "name": "dispatchEconomy_CappedListResponse_FirstPageIsFaithfulPrefix",
+          "dynamic": false
+        },
+        {
+          "suite": "response-economy enforcement (DR-1, Task 003)",
+          "name": "dispatchEconomy_OverBudgetObjectPayload_FailsOpenPreservingAllFields",
+          "dynamic": false
+        },
+        {
+          "suite": "response-economy enforcement (DR-1, Task 003)",
+          "name": "dispatchEconomy_ObjectWrappedInventory_StillCaps",
+          "dynamic": false
+        },
+        {
+          "suite": "response-economy enforcement (DR-1, Task 003)",
+          "name": "dispatchEconomy_TelemetryDisabled_StillEnforcesBudget",
+          "dynamic": false
+        },
+        {
+          "suite": "response-economy enforcement (DR-1, Task 003)",
+          "name": "dispatchEconomy_NoWindowingParam_OmitsCliFlagHint",
+          "dynamic": false
+        },
+        {
+          "suite": "response-economy enforcement (DR-1, Task 003)",
+          "name": "dispatchEconomy_LimitParam_EmitsAccurateLimitFlagHint",
+          "dynamic": false
+        },
+        {
+          "suite": "response-economy enforcement (DR-1, Task 003)",
+          "name": "dispatchEconomy_CappedTypedOutputSchemaAction_ConformsToRegisteredSchema",
+          "dynamic": false
+        },
+        {
+          "suite": "response-economy enforcement (DR-1, Task 003)",
+          "name": "enforceResponseEconomy_FailureEnvelope_ReturnedUntouched",
+          "dynamic": false
+        },
+        {
+          "suite": "response-economy enforcement (DR-1, Task 003)",
+          "name": "enforceResponseEconomy_UnknownAction_NoContract_ReturnedUntouched",
+          "dynamic": false
+        },
+        {
+          "suite": "response-economy enforcement (DR-1, Task 003)",
+          "name": "enforceResponseEconomy_CarrierKeySet_ExcludesData",
+          "dynamic": false
+        },
+        {
+          "suite": "response-economy enforcement (DR-1, Task 003)",
+          "name": "withCappedShape_typedOutput_acceptsGenericCappedFallback",
+          "dynamic": false
+        }
+      ]
+    },
+    "servers/exarchos-mcp/src/dispatch/core/economy.test.ts": {
+      "file": "servers/exarchos-mcp/src/dispatch/core/economy.test.ts",
+      "runner": "vitest:nested",
+      "cases": [
+        {
+          "suite": "estimateOutputTokens (DR-1 relocation)",
+          "name": "estimateOutputTokens_AnyPayload_MatchesTelemetryMiddlewareFormula",
+          "dynamic": false
+        },
+        {
+          "suite": "estimateOutputTokens (DR-1 relocation)",
+          "name": "estimateOutputTokens_UnserializablePayload_FallsBackLikeMiddleware",
+          "dynamic": false
+        },
+        {
+          "suite": "narrowAffordance (DR-1 widened verb type)",
+          "name": "narrowAffordance_AnyVerb_ValidatesAgainstNextActionSchema",
+          "dynamic": false
+        },
+        {
+          "suite": "narrowAffordance (DR-1 widened verb type)",
+          "name": "narrowAffordance_RealActionNames_ValidateAndCarryNarrowSteering",
+          "dynamic": false
+        }
+      ]
+    },
+    "servers/exarchos-mcp/src/dispatch/core/effect-carrier.test.ts": {
+      "file": "servers/exarchos-mcp/src/dispatch/core/effect-carrier.test.ts",
+      "runner": "vitest:nested",
+      "cases": [
+        {
+          "suite": "effect carrier constructors + guards",
+          "name": "succeeded builds a success arm that only isSuccess narrows",
+          "dynamic": false
+        },
+        {
+          "suite": "effect carrier constructors + guards",
+          "name": "failed builds an error arm carrying the structured error",
+          "dynamic": false
+        },
+        {
+          "suite": "effect carrier constructors + guards",
+          "name": "plannedDryRun builds a dry-run arm carrying the plan",
+          "dynamic": false
+        },
+        {
+          "suite": "runEffect — live mode",
+          "name": "invokes execute and wraps the value in a success carrier",
+          "dynamic": false
+        },
+        {
+          "suite": "runEffect — live mode",
+          "name": "captures a thrown error into an error carrier instead of rejecting",
+          "dynamic": false
+        },
+        {
+          "suite": "runEffect — dry-run mode (provably no real effect)",
+          "name": "does NOT invoke execute and returns the withheld plan",
+          "dynamic": false
+        },
+        {
+          "suite": "runEffect — dry-run mode (provably no real effect)",
+          "name": "withholds even an effect that would throw — no throw escapes",
+          "dynamic": false
+        },
+        {
+          "suite": "toEffectError",
+          "name": "derives a class-scoped code and preserves the cause",
+          "dynamic": false
+        }
+      ]
+    },
+    "servers/exarchos-mcp/src/dispatch/core/interceptors/session-machinery.test.ts": {
+      "file": "servers/exarchos-mcp/src/dispatch/core/interceptors/session-machinery.test.ts",
+      "runner": "vitest:nested",
+      "cases": [
+        {
+          "suite": "runSessionMachineryConsumedInterceptor — F-05 swallow-path warn",
+          "name": "emits workflowLogger.warn when EventStore.query throws (swallow path)",
+          "dynamic": false
+        },
+        {
+          "suite": "runSessionMachineryConsumedInterceptor — F-05 swallow-path warn",
+          "name": "does not emit warn on the happy path (no rehydrated event present)",
+          "dynamic": false
+        }
+      ]
+    },
+    "servers/exarchos-mcp/src/dispatch/core/onboarding/event-ctx.test.ts": {
+      "file": "servers/exarchos-mcp/src/dispatch/core/onboarding/event-ctx.test.ts",
+      "runner": "vitest:nested",
+      "cases": [
+        {
+          "suite": "buildOnboardEventCtx (shared seam, RF-3 #1510)",
+          "name": "emit appends to the onboard stream as a PLAIN append (no CAS pin)",
+          "dynamic": false
+        },
+        {
+          "suite": "buildOnboardEventCtx (shared seam, RF-3 #1510)",
+          "name": "readStreamTail returns the FRESH tail after the last onboard.executed",
+          "dynamic": false
+        },
+        {
+          "suite": "buildOnboardEventCtx (shared seam, RF-3 #1510)",
+          "name": "readStreamTail is empty when the most recent event is an onboard.executed",
+          "dynamic": false
+        }
+      ]
+    },
+    "servers/exarchos-mcp/src/dispatch/core/onboarding/reconcile.apply.test.ts": {
+      "file": "servers/exarchos-mcp/src/dispatch/core/onboarding/reconcile.apply.test.ts",
+      "runner": "vitest:nested",
+      "cases": [
+        {
+          "suite": "apply",
+          "name": "Apply_EmptyPlan_IsNoOp",
+          "dynamic": false
+        },
+        {
+          "suite": "apply",
+          "name": "Apply_HandEditedConfig_PreservedWithoutForce",
+          "dynamic": false
+        },
+        {
+          "suite": "apply",
+          "name": "Apply_ForceFlag_OverwritesAndReports",
+          "dynamic": false
+        },
+        {
+          "suite": "apply",
+          "name": "Apply_CliOnlyStepOffCliSurface_BecomesAdvisory",
+          "dynamic": false
+        },
+        {
+          "suite": "apply",
+          "name": "Apply_CliOnlyStepOnCliSurface_RunsViaHook",
+          "dynamic": false
+        },
+        {
+          "suite": "apply",
+          "name": "Apply_HookStep_RoutesThroughInstallHook",
+          "dynamic": false
+        },
+        {
+          "suite": "apply",
+          "name": "Apply_HookStepThrows_IsForwardOnly_ResidualPlusAdvisory_PipelineNotAborted",
+          "dynamic": false
+        },
+        {
+          "suite": "apply",
+          "name": "Apply_GenerateStep_RoutesThroughInitWriters",
+          "dynamic": false
+        },
+        {
+          "suite": "apply",
+          "name": "Apply_MultipleGenerateSteps_SkippedWritersConverge_NoFalseResidual",
+          "dynamic": false
+        },
+        {
+          "suite": "apply",
+          "name": "Apply_GenerateStep_FailedWriter_IsResidual",
+          "dynamic": false
+        },
+        {
+          "suite": "apply",
+          "name": "onboard_BlockWriteFails_RetiredHooksKept",
+          "dynamic": false
+        },
+        {
+          "suite": "apply",
+          "name": "onboard_BlockWriteConvergesButOnrampFailed_RetiredHooksKept",
+          "dynamic": false
+        },
+        {
+          "suite": "apply",
+          "name": "onboard_BlockWriteSucceeds_RetiredHooksRemoved",
+          "dynamic": false
+        },
+        {
+          "suite": "apply",
+          "name": "onboard_NoBlockWriteStep_RetiredHooksRemoved",
+          "dynamic": false
+        },
+        {
+          "suite": "apply",
+          "name": "Apply_MutationConfigStep_SeedsExarchosYml",
+          "dynamic": false
+        },
+        {
+          "suite": "apply",
+          "name": "Apply_MutationConfigStep_ExistingConfig_ResidualNotSilentlySkipped",
+          "dynamic": false
+        },
+        {
+          "suite": "apply",
+          "name": "Apply_ReRunAfterSeed_EmptyPlanIdempotent",
+          "dynamic": false
+        },
+        {
+          "suite": "apply",
+          "name": "Apply_NeverWritesVerificationPolicyBlock",
+          "dynamic": false
+        },
+        {
+          "suite": "apply",
+          "name": "Apply_EmptyPlan_Idempotent",
+          "dynamic": false
+        }
+      ]
+    },
+    "servers/exarchos-mcp/src/dispatch/core/onboarding/reconcile.characterization.test.ts": {
+      "file": "servers/exarchos-mcp/src/dispatch/core/onboarding/reconcile.characterization.test.ts",
+      "runner": "vitest:nested",
+      "cases": [
+        {
+          "suite": "reconcile characterization (T0 baseline) > ResolvedCommandsSchema_WidenedFields_Pinned",
+          "name": "accepts exactly {test?, typecheck?, install?, mutation?, lint?} and silently strips unknown keys",
+          "dynamic": false
+        },
+        {
+          "suite": "reconcile characterization (T0 baseline) > DetectDesiredState_FixtureRepo_CurrentShape",
+          "name": "pins the full DesiredState shape for the fixture repo",
+          "dynamic": false
+        }
+      ]
+    },
+    "servers/exarchos-mcp/src/dispatch/core/onboarding/reconcile.detect.test.ts": {
+      "file": "servers/exarchos-mcp/src/dispatch/core/onboarding/reconcile.detect.test.ts",
+      "runner": "vitest:nested",
+      "cases": [
+        {
+          "suite": "DetectDesiredState_DerivesCommands_FromLayeredResolver",
+          "name": "derives test/typecheck/install from the layered resolver for a node repo",
+          "dynamic": false
+        },
+        {
+          "suite": "DetectDesiredState_DerivesCommands_FromLayeredResolver",
+          "name": "omits (never fabricates) a command field the resolver leaves unresolved",
+          "dynamic": false
+        },
+        {
+          "suite": "DetectDesiredState_DerivesCommands_FromLayeredResolver",
+          "name": "reports vcs as git when a .git dir is present, none otherwise",
+          "dynamic": false
+        },
+        {
+          "suite": "DetectDesiredState_DerivesCommands_FromLayeredResolver",
+          "name": "DetectDesiredState_NodeFixtureWithStryker_ResolvesMutationCommand",
+          "dynamic": false
+        },
+        {
+          "suite": "DetectDesiredState_DerivesCommands_FromLayeredResolver",
+          "name": "DetectDesiredState_UnresolvableMutation_LeavesFieldAbsent",
+          "dynamic": false
+        },
+        {
+          "suite": "DetectDesiredState_DerivesCommands_FromLayeredResolver",
+          "name": "DetectDesiredState_ExistingFields_ByteIdenticalToT0Pin",
+          "dynamic": false
+        },
+        {
+          "suite": "DetectDesiredState_DerivesCommands_FromLayeredResolver",
+          "name": "returns a string[] of runtimes and honors runtime/vcs overrides",
+          "dynamic": false
+        }
+      ]
+    },
+    "servers/exarchos-mcp/src/dispatch/core/onboarding/reconcile.diff.test.ts": {
+      "file": "servers/exarchos-mcp/src/dispatch/core/onboarding/reconcile.diff.test.ts",
+      "runner": "vitest:nested",
+      "cases": [
+        {
+          "suite": "diff",
+          "name": "Diff_ProducesStructuredPlan_FromDoctorChecks",
+          "dynamic": false
+        },
+        {
+          "suite": "diff",
+          "name": "Diff_NoDrift_ReturnsEmptyPlan",
+          "dynamic": false
+        },
+        {
+          "suite": "diff",
+          "name": "Diff_CleanRepo_AlwaysEmptyPlan",
+          "dynamic": false
+        },
+        {
+          "suite": "diff > verification-command seeding (§4.5-seed)",
+          "name": "Diff_ResolvedMutationMissingFromConfig_EmitsConfigStep",
+          "dynamic": false
+        },
+        {
+          "suite": "diff > verification-command seeding (§4.5-seed)",
+          "name": "Diff_ResolvedMutationAlreadyDeclared_NoStep_Idempotent",
+          "dynamic": false
+        },
+        {
+          "suite": "diff > verification-command seeding (§4.5-seed)",
+          "name": "Diff_UnresolvedVerificationCommand_NoStep",
+          "dynamic": false
+        },
+        {
+          "suite": "diff > verification-command seeding (§4.5-seed)",
+          "name": "Diff_DeclaredDefaultsToEmpty_BackwardCompatible",
+          "dynamic": false
+        },
+        {
+          "suite": "diff > DR-7 block-write-before-hook-removal ordering",
+          "name": "reconcile_BlockWriteOrderedBeforeHookRemoval",
+          "dynamic": false
+        },
+        {
+          "suite": "diff > DR-7 block-write-before-hook-removal ordering",
+          "name": "Reconcile_AlreadyOrdered_PreservesOtherStepOrder",
+          "dynamic": false
+        },
+        {
+          "suite": "diff > DR-7 block-write-before-hook-removal ordering",
+          "name": "Reconcile_RemovalWithoutBlockWrite_LeavesRemovalStep",
+          "dynamic": false
+        }
+      ]
+    },
+    "servers/exarchos-mcp/src/dispatch/core/onboarding/reconcile.events.test.ts": {
+      "file": "servers/exarchos-mcp/src/dispatch/core/onboarding/reconcile.events.test.ts",
+      "runner": "vitest:nested",
+      "cases": [
+        {
+          "suite": "reconcileWithEvents (DR-7 / DR-10 — two-event split + crash recovery)",
+          "name": "Apply_NonDryRun_EmitsRequestedThenExecuted",
+          "dynamic": false
+        },
+        {
+          "suite": "reconcileWithEvents (DR-7 / DR-10 — two-event split + crash recovery)",
+          "name": "Apply_DryRun_EmitsNeither",
+          "dynamic": false
+        },
+        {
+          "suite": "reconcileWithEvents (DR-7 / DR-10 — two-event split + crash recovery)",
+          "name": "Apply_RequestedWithoutExecuted_RecoversResidualOnly",
+          "dynamic": false
+        },
+        {
+          "suite": "reconcileWithEvents (DR-7 / DR-10 — two-event split + crash recovery)",
+          "name": "Apply_Retry_SideEffectAtMostOnce (property)",
+          "dynamic": false
+        }
+      ]
+    },
+    "servers/exarchos-mcp/src/dispatch/core/onboarding/types.test.ts": {
+      "file": "servers/exarchos-mcp/src/dispatch/core/onboarding/types.test.ts",
+      "runner": "vitest:nested",
+      "cases": [
+        {
+          "suite": "ReconcileTypes_PlanStepSurface_TaggedCliOnly",
+          "name": "SurfaceSchema accepts the two known surfaces and rejects others",
+          "dynamic": false
+        },
+        {
+          "suite": "ReconcileTypes_PlanStepSurface_TaggedCliOnly",
+          "name": "PlanStep enforces the kind enum and the surface tag (cli-only gates install)",
+          "dynamic": false
+        },
+        {
+          "suite": "ReconcileTypes_PlanStepSurface_TaggedCliOnly",
+          "name": "DesiredState parses detected runtimes/vcs + resolver-derived commands and rejects malformed",
+          "dynamic": false
+        },
+        {
+          "suite": "ReconcileTypes_PlanStepSurface_TaggedCliOnly",
+          "name": "ResolvedCommandsSchema_MutationAndLint_Optional",
+          "dynamic": false
+        },
+        {
+          "suite": "ReconcileTypes_PlanStepSurface_TaggedCliOnly",
+          "name": "Advisory parses the cli-only install advisory and rejects malformed",
+          "dynamic": false
+        },
+        {
+          "suite": "ReconcileTypes_PlanStepSurface_TaggedCliOnly",
+          "name": "ReconcilePlan parses valid steps, the empty plan, and rejects malformed",
+          "dynamic": false
+        },
+        {
+          "suite": "ReconcileTypes_PlanStepSurface_TaggedCliOnly",
+          "name": "ReconcileResult parses the four step buckets + advisories and rejects malformed",
           "dynamic": false
         }
       ]
@@ -49424,284 +49702,6 @@
         {
           "suite": "runtimes/opencode.yaml supportedCapabilities",
           "name": "OpencodeYaml_SpawnAgentCall_ReferencesGeneratedAgentName",
-          "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/schemas/envelope.test.ts": {
-      "file": "servers/exarchos-mcp/src/schemas/envelope.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "NextActionSchema",
-          "name": "NextActionSchema_AcceptsCanonicalNextAction_Succeeds",
-          "dynamic": false
-        },
-        {
-          "suite": "NextActionSchema",
-          "name": "NextActionSchema_AcceptsMinimalNextAction_Succeeds",
-          "dynamic": false
-        },
-        {
-          "suite": "NextActionSchema",
-          "name": "NextActionSchema_RejectsMissingVerb_Fails",
-          "dynamic": false
-        },
-        {
-          "suite": "NextActionSchema",
-          "name": "NextActionSchema_RejectsEmptyVerb_Fails",
-          "dynamic": false
-        },
-        {
-          "suite": "ErrorEnvelopeSchema",
-          "name": "ErrorEnvelopeSchema_AcceptsConcurrencyWrapError_Succeeds",
-          "dynamic": false
-        },
-        {
-          "suite": "ErrorEnvelopeSchema",
-          "name": "ErrorEnvelopeSchema_AcceptsStorageBusyWrapError_Succeeds",
-          "dynamic": false
-        },
-        {
-          "suite": "ErrorEnvelopeSchema",
-          "name": "ErrorEnvelopeSchema_AcceptsGenericWrapError_Succeeds",
-          "dynamic": false
-        },
-        {
-          "suite": "ErrorEnvelopeSchema",
-          "name": "ErrorEnvelopeSchema_RejectsSuccessTrue_Fails",
-          "dynamic": false
-        },
-        {
-          "suite": "EnvelopeSchema factory",
-          "name": "EnvelopeSchema_DiscriminatesOnSuccessField_AcceptsBothBranches",
-          "dynamic": false
-        },
-        {
-          "suite": "EnvelopeSchema factory",
-          "name": "EnvelopeSchema_RejectsDataMismatch_Fails",
-          "dynamic": false
-        },
-        {
-          "suite": "EnvelopeSchema factory",
-          "name": "SuccessEnvelopeSchema_AcceptsOptionalDecorators_Succeeds",
-          "dynamic": false
-        },
-        {
-          "suite": "EnvelopeSchema factory",
-          "name": "PerfMetricsSchema_RoundTripsThroughZodType_Succeeds",
-          "dynamic": false
-        },
-        {
-          "suite": "EnvelopeSchema factory",
-          "name": "PerfMetricsSchema_RejectsNegativeValues_OnEachField",
-          "dynamic": false
-        },
-        {
-          "suite": "EnvelopeSchema factory",
-          "name": "EventHintsSchema_RoundTripsThroughZodType_Succeeds",
-          "dynamic": false
-        },
-        {
-          "suite": "EnvelopeSchema factory",
-          "name": "CacheHintsSchema_RoundTripsThroughZodType_Succeeds",
-          "dynamic": false
-        },
-        {
-          "suite": "EnvelopeSchema factory",
-          "name": "EnvelopeSchema_SuccessLiteralNarrows_DiscriminatedUnion",
-          "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/sdk/seam.test.ts": {
-      "file": "servers/exarchos-mcp/src/sdk/seam.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "DR-26 — owned SDK seam, generation-branded handles",
-          "name": "SdkSeam_HandleFromOtherGeneration_FailsCompile",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-26 — owned SDK seam, generation-branded handles",
-          "name": "SdkSeam_ZeroImportSitesResolved_FailsClosed",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-26 — owned SDK seam, generation-branded handles",
-          "name": "SdkSeamCensus_SeamMovedOrRenamed_FailsClosed",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-26 — owned SDK seam, generation-branded handles",
-          "name": "SdkSeamCensus_SeamDropsOneGeneration_ReportsUncovered",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-26 — owned SDK seam, generation-branded handles",
-          "name": "SdkSeamCensus_NoGenerationInstalled_FailsClosed",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-26 — owned SDK seam, generation-branded handles",
-          "name": "CollectSdkImportSites_SeamAndBypass_AreAttributedApart",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-26 — owned SDK seam, generation-branded handles",
-          "name": "IsOwnedSeamModule_AbsoluteRelativeAndWindowsPaths_AllResolve",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-26 — owned SDK seam, generation-branded handles",
-          "name": "LintSdkGenerationMixing_OwnedSeamOnly_IsExemptFromMixing",
-          "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/shared/validation.test.ts": {
-      "file": "servers/exarchos-mcp/src/shared/validation.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "SAFE_STREAM_ID_PATTERN",
-          "name": "matches the expected regex (admits the optional namespaced form)",
-          "dynamic": false
-        },
-        {
-          "suite": "validateStreamId",
-          "name": "accepts lowercase alphanumeric strings",
-          "dynamic": false
-        },
-        {
-          "suite": "validateStreamId",
-          "name": "accepts uppercase alphanumeric strings",
-          "dynamic": false
-        },
-        {
-          "suite": "validateStreamId",
-          "name": "accepts mixed case alphanumeric strings",
-          "dynamic": false
-        },
-        {
-          "suite": "validateStreamId",
-          "name": "accepts hyphens",
-          "dynamic": false
-        },
-        {
-          "suite": "validateStreamId",
-          "name": "accepts dots",
-          "dynamic": false
-        },
-        {
-          "suite": "validateStreamId",
-          "name": "accepts underscores",
-          "dynamic": false
-        },
-        {
-          "suite": "validateStreamId",
-          "name": "accepts a combination of all valid characters",
-          "dynamic": false
-        },
-        {
-          "suite": "validateStreamId",
-          "name": "rejects empty strings",
-          "dynamic": false
-        },
-        {
-          "suite": "validateStreamId",
-          "name": "rejects strings with spaces",
-          "dynamic": false
-        },
-        {
-          "suite": "validateStreamId",
-          "name": "rejects strings with backslashes",
-          "dynamic": false
-        },
-        {
-          "suite": "validateStreamId",
-          "name": "rejects strings with special characters",
-          "dynamic": false
-        },
-        {
-          "suite": "validateStreamId",
-          "name": "rejects strings with path traversal",
-          "dynamic": false
-        },
-        {
-          "suite": "validateStreamId",
-          "name": "includes the invalid streamId in the error message",
-          "dynamic": false
-        },
-        {
-          "suite": "validateStreamId — namespaced form (T24)",
-          "name": "accepts a well-formed namespaced id with hyphens",
-          "dynamic": false
-        },
-        {
-          "suite": "validateStreamId — namespaced form (T24)",
-          "name": "accepts a well-formed namespaced id with mixed character classes",
-          "dynamic": false
-        },
-        {
-          "suite": "validateStreamId — namespaced form (T24)",
-          "name": "accepts a single-segment legacy id (regression coverage)",
-          "dynamic": false
-        },
-        {
-          "suite": "validateStreamId — namespaced form (T24)",
-          "name": "rejects a trailing slash",
-          "dynamic": false
-        },
-        {
-          "suite": "validateStreamId — namespaced form (T24)",
-          "name": "rejects a leading slash",
-          "dynamic": false
-        },
-        {
-          "suite": "validateStreamId — namespaced form (T24)",
-          "name": "rejects double slashes (empty middle segment)",
-          "dynamic": false
-        },
-        {
-          "suite": "validateStreamId — namespaced form (T24)",
-          "name": "rejects three or more segments",
-          "dynamic": false
-        },
-        {
-          "suite": "validateStreamId — namespaced form (T24)",
-          "name": "rejects a `..` segment in the namespaced form",
-          "dynamic": false
-        },
-        {
-          "suite": "validateStreamId — namespaced form (T24)",
-          "name": "rejects a leading `..` segment in the namespaced form",
-          "dynamic": false
-        },
-        {
-          "suite": "validateStreamId — namespaced form (T24)",
-          "name": "rejects a single-segment `..` (path traversal)",
-          "dynamic": false
-        },
-        {
-          "suite": "validateStreamId — namespaced form (T24)",
-          "name": "rejects a single-segment `.` (current-dir)",
-          "dynamic": false
-        },
-        {
-          "suite": "validateStreamId — namespaced form (T24)",
-          "name": "rejects an empty first segment",
-          "dynamic": false
-        },
-        {
-          "suite": "validateStreamId — namespaced form (T24)",
-          "name": "property: namespaced ids of arbitrary segment lengths validate",
-          "dynamic": false
-        },
-        {
-          "suite": "validateStreamId — namespaced form (T24)",
-          "name": "property: malformed namespaced ids reject",
           "dynamic": false
         }
       ]

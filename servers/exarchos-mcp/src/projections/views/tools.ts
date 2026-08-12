@@ -5,7 +5,7 @@ import type { WorkflowEvent } from '../../events/schemas.js';
 import { pickFields, type ToolResult } from '../../format.js';
 import { logger } from '../../logger.js';
 import { TERMINAL_PHASES } from '../../workflow/terminal-phases.js';
-import { isFeatureStream } from '../../core/infra-streams.js';
+import { isFeatureStream } from '../../dispatch/core/infra-streams.js';
 import { getDispatchContext } from '../../dispatch/dispatch-context.js';
 // DR-6 — explicit-`repoRoot` normalization routes through the same memoized
 // key derivation the composite layer uses for the caller key.
@@ -41,7 +41,7 @@ import {
   resolveOutputTokenThreshold,
   countBy,
   narrowAffordance,
-} from '../../core/economy.js';
+} from '../../dispatch/core/economy.js';
 import type { QualityHintsConfig } from '../../capabilities/resolver.js';
 import {
   stackViewProjection,
@@ -1009,7 +1009,7 @@ export async function handleViewPipeline(
 // ─── DR-8 (Task 013): generalized inventory-view contract helpers ────────────
 //
 // The `pipeline` and `worktrees` views were migrated first (#1659 + the shared
-// `core/economy.ts` kit). This batch generalizes the SAME contract to the
+// `dispatch/core/economy.ts` kit). This batch generalizes the SAME contract to the
 // remaining list/inventory-shaped views in this file:
 //   • `page: {total, offset, limit, hasMore}` metadata when list-shaped;
 //   • `detail: true` honored — compact by default, full rows on request;

@@ -42,8 +42,8 @@ import * as path from 'node:path';
 import { orchestrateLogger } from '../../logger.js';
 import { atomicCopyTreeSync } from '../../install/atomic-promotion.js';
 
-import type { ApplyCtx } from '../../core/onboarding/reconcile.js';
-import type { PlanStep } from '../../core/onboarding/types.js';
+import type { ApplyCtx } from '../../dispatch/core/onboarding/reconcile.js';
+import type { PlanStep } from '../../dispatch/core/onboarding/types.js';
 import {
   resolveTestRuntime,
   type ResolvedRuntime,

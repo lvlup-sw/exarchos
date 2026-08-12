@@ -24,7 +24,7 @@
 import type {
   V2Result as Result,
   V2Task as Task,
-} from '../sdk/seam.js';
+} from '../contract/sdk/seam.js';
 
 import type { EventSourcedTaskStore } from '../projections/task-store/event-sourced-task-store.js';
 import {

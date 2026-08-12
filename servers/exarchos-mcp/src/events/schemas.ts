@@ -2,7 +2,7 @@ import * as path from 'node:path';
 import { z } from 'zod';
 import { WorkflowTypeSchema } from '../workflow/schemas.js';
 import { DoctorOutputSchema } from '../orchestrate/doctor/schema.js';
-import { ReconcilePlanSchema, ReconcileResultSchema } from '../core/onboarding/types.js';
+import { ReconcilePlanSchema, ReconcileResultSchema } from '../dispatch/core/onboarding/types.js';
 import {
   AdmissionDecisionRecordV1Schema,
   AdmissionEvidenceV1Schema,
@@ -1586,7 +1586,7 @@ export const SessionTaggedData = z.object({
  * `data.projectionSequence`). Event-store sequence is globally monotonic
  * over the stream, so two rehydrates that fold the same number of events
  * still get distinct correlators — required for the per-rehydrate-cycle
- * idempotency cache in `core/interceptors/session-machinery.ts`.
+ * idempotency cache in `dispatch/core/interceptors/session-machinery.ts`.
  * `firstActionVerb` — the tool/handler name of the first real action, e.g.
  * `"task_complete"`, `"exarchos_orchestrate"`. Non-empty string required so
  * observability queries can group by action type.

@@ -22,7 +22,7 @@ vi.mock('../cli-commands/install-skills-bridge.js', () => ({
 }));
 
 import { buildCli, CLI_EXIT_CODES } from './cli.js';
-import type { DispatchContext } from '../core/dispatch.js';
+import type { DispatchContext } from '../dispatch/core/dispatch.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 

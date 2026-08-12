@@ -28,10 +28,10 @@ import {
   connectV2Client,
   connectV2Server,
   type V2Client,
-} from '../../sdk/seam.js';
+} from '../../contract/sdk/seam.js';
 import { createMcpServer } from '../../adapters/mcp.js';
 import { EventStore } from '../../events/store.js';
-import type { DispatchContext } from '../../core/dispatch.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 const ITERATIONS = 100;

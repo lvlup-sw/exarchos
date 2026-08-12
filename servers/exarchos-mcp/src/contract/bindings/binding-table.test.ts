@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { COMPOSITE_HANDLER_LOADERS } from '../../core/dispatch.js';
+import { COMPOSITE_HANDLER_LOADERS } from '../../dispatch/core/dispatch.js';
 import {
   BINDING_TABLE,
   buildBindingTable,

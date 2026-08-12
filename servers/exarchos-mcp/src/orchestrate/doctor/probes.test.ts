@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import type { DispatchContext } from '../../core/dispatch.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import { buildProbes, resolveInvariantsCatalog } from './probes.js';
 import { ReservedNamespaceError } from '../../architecture/catalog-merge.js';
 import { rmrf } from '../../test-helpers/temp-dir.js';

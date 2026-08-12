@@ -24,7 +24,7 @@
     ],
     "searchRoots": [
       "servers/exarchos-mcp/src/registry.ts",
-      "servers/exarchos-mcp/src/core/dispatch.ts",
+      "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "servers/exarchos-mcp/src/*/composite.ts",
       "servers/exarchos-mcp/test/process/",
       "test/process/",
@@ -73,7 +73,7 @@
     {
       "id": "dispatch:core",
       "nodeClass": "dispatch",
-      "source": "servers/exarchos-mcp/src/core/dispatch.ts"
+      "source": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts"
     },
     {
       "id": "handler:event.append",
@@ -12899,7 +12899,7 @@
       "actionId": "event.append",
       "tool": "exarchos_event",
       "inputContractId": "event.append",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/event-store/composite.ts",
         "symbol": "handleEventAppend, fireHookIfConfigured, pushToChannelIfConfigured, envelopeWrap"
@@ -12948,7 +12948,7 @@
       "actionId": "event.batch_append",
       "tool": "exarchos_event",
       "inputContractId": "event.batch_append",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/event-store/composite.ts",
         "symbol": "handleBatchAppend, ctx.hookRunner, new Date().toISOString, classifyPriority, ctx.channelEmitter.push, envelopeWrap"
@@ -12997,7 +12997,7 @@
       "actionId": "event.describe",
       "tool": "exarchos_event",
       "inputContractId": "event.describe",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/event-store/composite.ts",
         "symbol": "handleEventDescribe, envelopeWrap"
@@ -13042,7 +13042,7 @@
       "actionId": "event.query",
       "tool": "exarchos_event",
       "inputContractId": "event.query",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/event-store/composite.ts",
         "symbol": "handleEventQuery, envelopeWrap"
@@ -13089,7 +13089,7 @@
       "actionId": "orchestrate.acquire_worktree",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.acquire_worktree",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptCtx(handleAcquireWorktree)"
@@ -13136,7 +13136,7 @@
       "actionId": "orchestrate.add_pr_comment",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.add_pr_comment",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptCtx(handleAddPrComment)"
@@ -13183,7 +13183,7 @@
       "actionId": "orchestrate.agent_spec",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.agent_spec",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adapt(handleAgentSpec)"
@@ -13228,7 +13228,7 @@
       "actionId": "orchestrate.assess_refactor_scope",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.assess_refactor_scope",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptArgsWithEventStore(handleAssessRefactorScope)"
@@ -13273,7 +13273,7 @@
       "actionId": "orchestrate.assess_stack",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.assess_stack",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptWithEventStoreAndConfig(handleAssessStack)"
@@ -13318,7 +13318,7 @@
       "actionId": "orchestrate.check_ci",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.check_ci",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptCtx(handleCheckCi)"
@@ -13365,7 +13365,7 @@
       "actionId": "orchestrate.check_coderabbit",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.check_coderabbit",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptArgs(handleCheckCoderabbit)"
@@ -13413,7 +13413,7 @@
       "actionId": "orchestrate.check_context_economy",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.check_context_economy",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptWithEventStore(handleContextEconomy)"
@@ -13461,7 +13461,7 @@
       "actionId": "orchestrate.check_contract_drift",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.check_contract_drift",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptLadderGate('check_contract_drift', 'D1', handleContractDrift)"
@@ -13509,7 +13509,7 @@
       "actionId": "orchestrate.check_convergence",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.check_convergence",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptWithEventStore(handleCheckConvergence)"
@@ -13557,7 +13557,7 @@
       "actionId": "orchestrate.check_coverage_thresholds",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.check_coverage_thresholds",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptArgs(handleCheckCoverageThresholds)"
@@ -13605,7 +13605,7 @@
       "actionId": "orchestrate.check_design_completeness",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.check_design_completeness",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptWithEventStore(handleDesignCompleteness)"
@@ -13653,7 +13653,7 @@
       "actionId": "orchestrate.check_event_emissions",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.check_event_emissions",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptWithEventStore(handleCheckEventEmissions)"
@@ -13701,7 +13701,7 @@
       "actionId": "orchestrate.check_exploration_depth",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.check_exploration_depth",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptWithEventStore(handleCheckExplorationDepth)"
@@ -13749,7 +13749,7 @@
       "actionId": "orchestrate.check_integration_suite",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.check_integration_suite",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptLadderGate('check_integration_suite', 'D2', handleCheckIntegrationSuite)"
@@ -13797,7 +13797,7 @@
       "actionId": "orchestrate.check_invariant_conformance",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.check_invariant_conformance",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptWithEventStore(handleCheckInvariantConformance)"
@@ -13845,7 +13845,7 @@
       "actionId": "orchestrate.check_mock_boundary",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.check_mock_boundary",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptLadderGate('check_mock_boundary', 'D1', handleMockBoundary)"
@@ -13893,7 +13893,7 @@
       "actionId": "orchestrate.check_operational_resilience",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.check_operational_resilience",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptWithEventStore(handleOperationalResilience)"
@@ -13941,7 +13941,7 @@
       "actionId": "orchestrate.check_plan_coverage",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.check_plan_coverage",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptWithEventStore(handlePlanCoverage)"
@@ -13989,7 +13989,7 @@
       "actionId": "orchestrate.check_polish_scope",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.check_polish_scope",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptArgs(handleCheckPolishScope)"
@@ -14037,7 +14037,7 @@
       "actionId": "orchestrate.check_post_merge",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.check_post_merge",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptWithEventStore(handlePostMerge)"
@@ -14085,7 +14085,7 @@
       "actionId": "orchestrate.check_pr_comments",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.check_pr_comments",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptArgs(handleCheckPrComments)"
@@ -14133,7 +14133,7 @@
       "actionId": "orchestrate.check_provenance_chain",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.check_provenance_chain",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptWithEventStore(handleProvenanceChain)"
@@ -14181,7 +14181,7 @@
       "actionId": "orchestrate.check_review_verdict",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.check_review_verdict",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptWithEventStoreAndConfig(handleReviewVerdict)"
@@ -14229,7 +14229,7 @@
       "actionId": "orchestrate.check_security_scan",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.check_security_scan",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptWithEventStore(handleSecurityScan)"
@@ -14277,7 +14277,7 @@
       "actionId": "orchestrate.check_static_analysis",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.check_static_analysis",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptLadderGate('check_static_analysis', 'D2', handleStaticAnalysis)"
@@ -14325,7 +14325,7 @@
       "actionId": "orchestrate.check_task_decomposition",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.check_task_decomposition",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptWithEventStore(handleTaskDecomposition)"
@@ -14373,7 +14373,7 @@
       "actionId": "orchestrate.check_test_adequacy",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.check_test_adequacy",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptLadderGate('check_test_adequacy', 'D1', handleTestAdequacy)"
@@ -14421,7 +14421,7 @@
       "actionId": "orchestrate.check_workflow_determinism",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.check_workflow_determinism",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptWithEventStore(handleWorkflowDeterminism)"
@@ -14469,7 +14469,7 @@
       "actionId": "orchestrate.classify_review_items",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.classify_review_items",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptArgsWithEventStore(handleClassifyReviewItems)"
@@ -14514,7 +14514,7 @@
       "actionId": "orchestrate.create_issue",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.create_issue",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "async (args, _stateDir, ctx) => {\n    if (!ctx) throw new Error('DispatchContext required for this handler');\n    const typedArgs = args as unknown as Omit<HandleCreateIssueArgs, 'listIssuesByMarker'> &\n      Partial<Pick<HandleCreateIssueArgs, 'listIssuesByMarker'>>;\n    // Lazy provider creation: only construct the VCS provider if the\n    // caller hasn't injected a `listIssuesByMarker` (e.g. tests that\n    // stub the recovery probe directly). Avoids surfacing provider\n    // bootstrap errors before the handler's own input guards run.\n    const listIssuesByMarker =\n      typedArgs.listIssuesByMarker ??\n      (async (operationId: string) => {\n        const provider = await createVcsProvider({ config: ctx.projectConfig });\n        return provider.searchIssuesByMarker(operationId);\n      });\n    return handleCreateIssue({ ...typedArgs, listIssuesByMarker }, ctx);\n  }"
@@ -14561,7 +14561,7 @@
       "actionId": "orchestrate.create_pr",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.create_pr",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptCtx(handleCreatePr)"
@@ -14608,7 +14608,7 @@
       "actionId": "orchestrate.debug_review_gate",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.debug_review_gate",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptArgs(handleDebugReviewGate)"
@@ -14653,7 +14653,7 @@
       "actionId": "orchestrate.describe",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.describe",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/describe/handler.ts",
         "symbol": "handleDescribe"
@@ -14698,7 +14698,7 @@
       "actionId": "orchestrate.discover_bridge",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.discover_bridge",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptWithOptionalEventStore(handleDiscoverBridge)"
@@ -14743,7 +14743,7 @@
       "actionId": "orchestrate.doctor",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.doctor",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/doctor/index.ts",
         "symbol": "handleDoctor"
@@ -14788,7 +14788,7 @@
       "actionId": "orchestrate.extract_fix_tasks",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.extract_fix_tasks",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptArgsWithStateDirAndEventStore(handleExtractFixTasks)"
@@ -14833,7 +14833,7 @@
       "actionId": "orchestrate.extract_task",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.extract_task",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adapt(handleExtractTask)"
@@ -14878,7 +14878,7 @@
       "actionId": "orchestrate.finalize_oneshot",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.finalize_oneshot",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptArgsWithStateDirAndEventStore(handleFinalizeOneshot)"
@@ -14925,7 +14925,7 @@
       "actionId": "orchestrate.generate_traceability",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.generate_traceability",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptArgs(handleGenerateTraceability)"
@@ -14970,7 +14970,7 @@
       "actionId": "orchestrate.get_pr_comments",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.get_pr_comments",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptCtx(handleGetPrComments)"
@@ -15017,7 +15017,7 @@
       "actionId": "orchestrate.invariants_add",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.invariants_add",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/invariants/add.ts",
         "symbol": "handleAdd"
@@ -15064,7 +15064,7 @@
       "actionId": "orchestrate.invariants_scaffold",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.invariants_scaffold",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/invariants/scaffold.ts",
         "symbol": "handleScaffold"
@@ -15111,7 +15111,7 @@
       "actionId": "orchestrate.investigation_timer",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.investigation_timer",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptWithOptionalEventStore(handleInvestigationTimer)"
@@ -15156,7 +15156,7 @@
       "actionId": "orchestrate.list_prs",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.list_prs",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptCtx(handleListPrs)"
@@ -15203,7 +15203,7 @@
       "actionId": "orchestrate.merge_orchestrate",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.merge_orchestrate",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptCtx(handleMergeOrchestrate)"
@@ -15250,7 +15250,7 @@
       "actionId": "orchestrate.merge_pr",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.merge_pr",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptCtx(handleMergePr)"
@@ -15297,7 +15297,7 @@
       "actionId": "orchestrate.mutation-adequacy",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.mutation-adequacy",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/mutation-adequacy.ts",
         "symbol": "adaptLadderGate(MUTATION_GATE_NAME, D1, handleMutationAdequacy)"
@@ -15342,7 +15342,7 @@
       "actionId": "orchestrate.needs_schema_sync",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.needs_schema_sync",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptArgs(handleNeedsSchemaSync)"
@@ -15387,7 +15387,7 @@
       "actionId": "orchestrate.onboard",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.onboard",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/onboard/index.ts",
         "symbol": "handleOnboard"
@@ -15434,7 +15434,7 @@
       "actionId": "orchestrate.post_delegation_check",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.post_delegation_check",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptArgsWithEventStore(handlePostDelegationCheck)"
@@ -15479,7 +15479,7 @@
       "actionId": "orchestrate.pre_synthesis_check",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.pre_synthesis_check",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptArgsWithStateDirAndEventStore(handlePreSynthesisCheck)"
@@ -15527,7 +15527,7 @@
       "actionId": "orchestrate.prepare_delegation",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.prepare_delegation",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptWithCtx(handlePrepareDelegation)"
@@ -15575,7 +15575,7 @@
       "actionId": "orchestrate.prepare_review",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.prepare_review",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptWithEventStore(handlePrepareReview)"
@@ -15620,7 +15620,7 @@
       "actionId": "orchestrate.prepare_synthesis",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.prepare_synthesis",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptWithEventStoreAndConfig(handlePrepareSynthesis)"
@@ -15668,7 +15668,7 @@
       "actionId": "orchestrate.prune_stale_workflows",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.prune_stale_workflows",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "handlePruneStaleWorkflows as ActionHandler"
@@ -15715,7 +15715,7 @@
       "actionId": "orchestrate.prune_worktrees",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.prune_worktrees",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptCtx(handlePruneWorktrees)"
@@ -15762,7 +15762,7 @@
       "actionId": "orchestrate.reconcile_state",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.reconcile_state",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptArgsWithEventStore(handleReconcileState)"
@@ -15809,7 +15809,7 @@
       "actionId": "orchestrate.release_worktree",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.release_worktree",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptCtx(handleReleaseWorktree)"
@@ -15856,7 +15856,7 @@
       "actionId": "orchestrate.request_synthesize",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.request_synthesize",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptArgsWithStateDirAndEventStore(handleRequestSynthesize)"
@@ -15903,7 +15903,7 @@
       "actionId": "orchestrate.review_diff",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.review_diff",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adapt(handleReviewDiff)"
@@ -15948,7 +15948,7 @@
       "actionId": "orchestrate.review_triage",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.review_triage",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptWithEventStore(handleReviewTriage)"
@@ -15995,7 +15995,7 @@
       "actionId": "orchestrate.runbook",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.runbook",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/runbooks/handler.ts",
         "symbol": "handleRunbook"
@@ -16040,7 +16040,7 @@
       "actionId": "orchestrate.select_debug_track",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.select_debug_track",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptWithOptionalEventStore(handleSelectDebugTrack)"
@@ -16085,7 +16085,7 @@
       "actionId": "orchestrate.serialize_merge",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.serialize_merge",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptCtx(handleSerializeMerge)"
@@ -16132,7 +16132,7 @@
       "actionId": "orchestrate.setup_worktree",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.setup_worktree",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptSetupWorktree()"
@@ -16179,7 +16179,7 @@
       "actionId": "orchestrate.spec_coverage_check",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.spec_coverage_check",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptArgs(handleSpecCoverageCheck)"
@@ -16224,7 +16224,7 @@
       "actionId": "orchestrate.task_claim",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.task_claim",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptWithEventStore(handleTaskClaim)"
@@ -16271,7 +16271,7 @@
       "actionId": "orchestrate.task_complete",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.task_complete",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptWithEventStore(handleTaskComplete)"
@@ -16318,7 +16318,7 @@
       "actionId": "orchestrate.task_fail",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.task_fail",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptWithEventStore(handleTaskFail)"
@@ -16365,7 +16365,7 @@
       "actionId": "orchestrate.validate_pr_body",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.validate_pr_body",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptWithOptionalEventStore(handleValidatePrBody)"
@@ -16410,7 +16410,7 @@
       "actionId": "orchestrate.validate_pr_stack",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.validate_pr_stack",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptArgs(handleValidatePrStack)"
@@ -16455,7 +16455,7 @@
       "actionId": "orchestrate.verify_delegation_saga",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.verify_delegation_saga",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptArgs(handleVerifyDelegationSaga)"
@@ -16500,7 +16500,7 @@
       "actionId": "orchestrate.verify_doc_links",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.verify_doc_links",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptArgs(handleVerifyDocLinks)"
@@ -16545,7 +16545,7 @@
       "actionId": "orchestrate.verify_review_triage",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.verify_review_triage",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adaptArgsWithStateDirAndEventStore(handleVerifyReviewTriage)"
@@ -16590,7 +16590,7 @@
       "actionId": "orchestrate.verify_worktree",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.verify_worktree",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adapt(handleVerifyWorktree)"
@@ -16637,7 +16637,7 @@
       "actionId": "orchestrate.verify_worktree_baseline",
       "tool": "exarchos_orchestrate",
       "inputContractId": "orchestrate.verify_worktree_baseline",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/orchestrate/composite.ts",
         "symbol": "adapt(handleVerifyWorktreeBaseline)"
@@ -16684,7 +16684,7 @@
       "actionId": "sync.now",
       "tool": "exarchos_sync",
       "inputContractId": "sync.now",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/sync/composite.ts",
         "symbol": "handleSyncNow"
@@ -16731,7 +16731,7 @@
       "actionId": "view.code_quality",
       "tool": "exarchos_view",
       "inputContractId": "view.code_quality",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/views/composite.ts",
         "symbol": "wrapView, handleViewCodeQuality"
@@ -16776,7 +16776,7 @@
       "actionId": "view.convergence",
       "tool": "exarchos_view",
       "inputContractId": "view.convergence",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/views/composite.ts",
         "symbol": "wrapView, handleViewConvergence"
@@ -16821,7 +16821,7 @@
       "actionId": "view.delegation_readiness",
       "tool": "exarchos_view",
       "inputContractId": "view.delegation_readiness",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/views/composite.ts",
         "symbol": "wrapView, handleViewDelegationReadiness"
@@ -16866,7 +16866,7 @@
       "actionId": "view.delegation_timeline",
       "tool": "exarchos_view",
       "inputContractId": "view.delegation_timeline",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/views/composite.ts",
         "symbol": "wrapView, handleViewDelegationTimeline"
@@ -16911,7 +16911,7 @@
       "actionId": "view.describe",
       "tool": "exarchos_view",
       "inputContractId": "view.describe",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/views/composite.ts",
         "symbol": "wrapView, handleDescribe"
@@ -16956,7 +16956,7 @@
       "actionId": "view.eval_results",
       "tool": "exarchos_view",
       "inputContractId": "view.eval_results",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/views/composite.ts",
         "symbol": "wrapView, handleViewEvalResults"
@@ -17001,7 +17001,7 @@
       "actionId": "view.export",
       "tool": "exarchos_view",
       "inputContractId": "view.export",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/views/composite.ts",
         "symbol": "wrapView, handleViewExport"
@@ -17046,7 +17046,7 @@
       "actionId": "view.inspect",
       "tool": "exarchos_view",
       "inputContractId": "view.inspect",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/views/composite.ts",
         "symbol": "wrapView, handleViewInspect"
@@ -17091,7 +17091,7 @@
       "actionId": "view.invariants_effective",
       "tool": "exarchos_view",
       "inputContractId": "view.invariants_effective",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/views/composite.ts",
         "symbol": "wrapView, handleViewInvariantsEffective"
@@ -17136,7 +17136,7 @@
       "actionId": "view.pipeline",
       "tool": "exarchos_view",
       "inputContractId": "view.pipeline",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/views/composite.ts",
         "symbol": "wrapView, handleViewPipeline, deriveRepoKey, process.cwd"
@@ -17181,7 +17181,7 @@
       "actionId": "view.provenance",
       "tool": "exarchos_view",
       "inputContractId": "view.provenance",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/views/composite.ts",
         "symbol": "wrapView, handleViewProvenance"
@@ -17226,7 +17226,7 @@
       "actionId": "view.ps",
       "tool": "exarchos_view",
       "inputContractId": "view.ps",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/views/composite.ts",
         "symbol": "wrapView, withLaunchLivenessAffordance, handleViewPs"
@@ -17271,7 +17271,7 @@
       "actionId": "view.quality_attribution",
       "tool": "exarchos_view",
       "inputContractId": "view.quality_attribution",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/views/composite.ts",
         "symbol": "wrapView, handleViewQualityAttribution"
@@ -17316,7 +17316,7 @@
       "actionId": "view.quality_correlation",
       "tool": "exarchos_view",
       "inputContractId": "view.quality_correlation",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/views/composite.ts",
         "symbol": "wrapView, handleViewQualityCorrelation"
@@ -17361,7 +17361,7 @@
       "actionId": "view.quality_hints",
       "tool": "exarchos_view",
       "inputContractId": "view.quality_hints",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/views/composite.ts",
         "symbol": "wrapView, handleViewQualityHints"
@@ -17406,7 +17406,7 @@
       "actionId": "view.session_provenance",
       "tool": "exarchos_view",
       "inputContractId": "view.session_provenance",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/views/composite.ts",
         "symbol": "wrapView, handleViewSessionProvenance"
@@ -17451,7 +17451,7 @@
       "actionId": "view.shepherd_status",
       "tool": "exarchos_view",
       "inputContractId": "view.shepherd_status",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/views/composite.ts",
         "symbol": "wrapView, handleViewShepherdStatus"
@@ -17496,7 +17496,7 @@
       "actionId": "view.stack_place",
       "tool": "exarchos_view",
       "inputContractId": "view.stack_place",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/views/composite.ts",
         "symbol": "wrapView, handleStackPlace"
@@ -17541,7 +17541,7 @@
       "actionId": "view.stack_status",
       "tool": "exarchos_view",
       "inputContractId": "view.stack_status",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/views/composite.ts",
         "symbol": "wrapView, handleStackStatus"
@@ -17586,7 +17586,7 @@
       "actionId": "view.synthesis_readiness",
       "tool": "exarchos_view",
       "inputContractId": "view.synthesis_readiness",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/views/composite.ts",
         "symbol": "wrapView, handleViewSynthesisReadiness"
@@ -17631,7 +17631,7 @@
       "actionId": "view.tasks",
       "tool": "exarchos_view",
       "inputContractId": "view.tasks",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/views/composite.ts",
         "symbol": "wrapView, handleViewTasks"
@@ -17676,7 +17676,7 @@
       "actionId": "view.team_performance",
       "tool": "exarchos_view",
       "inputContractId": "view.team_performance",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/views/composite.ts",
         "symbol": "wrapView, handleViewTeamPerformance"
@@ -17721,7 +17721,7 @@
       "actionId": "view.telemetry",
       "tool": "exarchos_view",
       "inputContractId": "view.telemetry",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/views/composite.ts",
         "symbol": "wrapView, handleViewTelemetry"
@@ -17766,7 +17766,7 @@
       "actionId": "view.wait",
       "tool": "exarchos_view",
       "inputContractId": "view.wait",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/views/composite.ts",
         "symbol": "wrapView, handleViewWait"
@@ -17811,7 +17811,7 @@
       "actionId": "view.workflow_status",
       "tool": "exarchos_view",
       "inputContractId": "view.workflow_status",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/views/composite.ts",
         "symbol": "wrapView, handleViewWorkflowStatus"
@@ -17856,7 +17856,7 @@
       "actionId": "view.worktrees",
       "tool": "exarchos_view",
       "inputContractId": "view.worktrees",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/views/composite.ts",
         "symbol": "wrapView, handleViewWorktrees"
@@ -17901,7 +17901,7 @@
       "actionId": "workflow.cancel",
       "tool": "exarchos_workflow",
       "inputContractId": "workflow.cancel",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/workflow/composite.ts",
         "symbol": "envelopeWrap, handleCancel"
@@ -17949,7 +17949,7 @@
       "actionId": "workflow.checkpoint",
       "tool": "exarchos_workflow",
       "inputContractId": "workflow.checkpoint",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/workflow/composite.ts",
         "symbol": "import, process.cwd, loadExarchosConfig, workflowLogger.warn, envelopeWrap, handleCheckpoint"
@@ -17997,7 +17997,7 @@
       "actionId": "workflow.cleanup",
       "tool": "exarchos_workflow",
       "inputContractId": "workflow.cleanup",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/workflow/composite.ts",
         "symbol": "envelopeWrap, handleCleanup"
@@ -18045,7 +18045,7 @@
       "actionId": "workflow.describe",
       "tool": "exarchos_workflow",
       "inputContractId": "workflow.describe",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/workflow/composite.ts",
         "symbol": "envelopeWrap, handleDescribe"
@@ -18090,7 +18090,7 @@
       "actionId": "workflow.feedback",
       "tool": "exarchos_workflow",
       "inputContractId": "workflow.feedback",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/workflow/composite.ts",
         "symbol": "envelopeWrap, handleFeedback"
@@ -18138,7 +18138,7 @@
       "actionId": "workflow.get",
       "tool": "exarchos_workflow",
       "inputContractId": "workflow.get",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/workflow/composite.ts",
         "symbol": "envelopeWrap, handleGet"
@@ -18185,7 +18185,7 @@
       "actionId": "workflow.init",
       "tool": "exarchos_workflow",
       "inputContractId": "workflow.init",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/workflow/composite.ts",
         "symbol": "deriveRepoKey, process.cwd, envelopeWrap, handleInit"
@@ -18235,7 +18235,7 @@
       "actionId": "workflow.reconcile",
       "tool": "exarchos_workflow",
       "inputContractId": "workflow.reconcile",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/workflow/composite.ts",
         "symbol": "envelopeWrap, handleReconcileState"
@@ -18283,7 +18283,7 @@
       "actionId": "workflow.rehydrate",
       "tool": "exarchos_workflow",
       "inputContractId": "workflow.rehydrate",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/workflow/composite.ts",
         "symbol": "envelopeWrap, handleRehydrate"
@@ -18333,7 +18333,7 @@
       "actionId": "workflow.transition",
       "tool": "exarchos_workflow",
       "inputContractId": "workflow.transition",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/workflow/composite.ts",
         "symbol": "Number.isInteger, envelopeWrap, handleTransition, Object.keys"
@@ -18381,7 +18381,7 @@
       "actionId": "workflow.update",
       "tool": "exarchos_workflow",
       "inputContractId": "workflow.update",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "handler": {
         "file": "servers/exarchos-mcp/src/workflow/composite.ts",
         "symbol": "envelopeWrap, handleUpdate"

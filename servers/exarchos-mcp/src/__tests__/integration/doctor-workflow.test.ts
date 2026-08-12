@@ -54,7 +54,7 @@ import * as os from 'node:os';
 
 import { DoctorOutputSchema, type DoctorOutput } from '../../orchestrate/doctor/schema.js';
 import { handleDoctor } from '../../orchestrate/doctor/index.js';
-import { initializeContext } from '../../core/context.js';
+import { initializeContext } from '../../dispatch/core/context.js';
 import type { ToolResult } from '../../format.js';
 import { rmrf } from '../../test-helpers/temp-dir.js';
 

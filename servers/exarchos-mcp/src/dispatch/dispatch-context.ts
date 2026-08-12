@@ -20,7 +20,7 @@
 //
 // This module is intentionally side-effect free and has no transitive deps
 // beyond `node:crypto`. The wiring `DispatchContext` interface in
-// `core/dispatch.ts` is a separate concern (a startup-time wiring container
+// `dispatch/core/dispatch.ts` is a separate concern (a startup-time wiring container
 // for storage / capability resolver / etc.); this module's value is the
 // per-call correlation packet that gets carried forward through the
 // AsyncLocalStorage stamping path inside `events/store.ts`.

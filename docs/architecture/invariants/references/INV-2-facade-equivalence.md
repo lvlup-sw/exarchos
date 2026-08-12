@@ -7,7 +7,7 @@
 > dimension itself was renamed `contract-client-equivalence` — read the title
 > above, not the filename, as the governing framing.
 
-The MCP wire projection of the compiled contract is the invocation surface. The CLI is a **client of that same contract**, equal to the wire BY CONSTRUCTION — not a peer facade kept in step by hand-coordination or by a passing fixture. Behavior lives in the shared dispatch core (`servers/exarchos-mcp/src/core/dispatch.ts`); a client carries **presentation only** (argv parsing, exit codes, stdio framing, error rendering, carrier translation).
+The MCP wire projection of the compiled contract is the invocation surface. The CLI is a **client of that same contract**, equal to the wire BY CONSTRUCTION — not a peer facade kept in step by hand-coordination or by a passing fixture. Behavior lives in the shared dispatch core (`servers/exarchos-mcp/src/dispatch/core/dispatch.ts`); a client carries **presentation only** (argv parsing, exit codes, stdio framing, error rendering, carrier translation).
 
 Byte- and schema-equivalence across carriers — the parity harnesses plus each action's registered Zod `outputSchema` — are the **WITNESS** of that construction, never the invariant itself. A suite of green parity fixtures does not make two hand-written surfaces equal; the mechanical backstop is the dispatch-seam containment census in `servers/exarchos-mcp/src/contract/cli/cli-contract-seam.ts`, not the parity tests.
 
@@ -24,7 +24,7 @@ The deviation is an acknowledged, expiring debt AGAINST this invariant, never a 
 
 ## Acceptance questions
 
-1. Does the new verb route through `core/dispatch.ts` as a typed handler, with `adapters/mcp.ts` as the thin generated-equivalent wrapper?
+1. Does the new verb route through `dispatch/core/dispatch.ts` as a typed handler, with `adapters/mcp.ts` as the thin generated-equivalent wrapper?
 2. If a new module needs the shared handler but cannot yet route through the compiled contract, does it carry a governed row in `CLI_CONTRACT_DEVIATIONS` (owner, rationale, retirement condition, expiry) rather than a silent import?
 3. Is there zero behavior in `adapters/mcp.ts` beyond format conversion? (No MCP-only side effects, no adapter-local mutable state.)
 4. Does the parity harness in `__tests__/parity-harness.ts` cover the new verb, and does the verb's `ToolResult` shape match the canonical envelope (`success` / `data` / `error` / `_meta` / `_perf` / `next_actions` — see [INV-5b](INV-5b-output-contract.md))?

@@ -32,7 +32,7 @@ import { withTmpGit } from './_helpers/tmp-git.js';
 import { EventStore } from '../../servers/exarchos-mcp/src/events/store.js';
 import { handlePrepareDelegation } from '../../servers/exarchos-mcp/src/orchestrate/prepare-delegation.js';
 import { resetMaterializerCache } from '../../servers/exarchos-mcp/src/projections/views/tools.js';
-import type { DispatchContext } from '../../servers/exarchos-mcp/src/core/dispatch.js';
+import type { DispatchContext } from '../../servers/exarchos-mcp/src/dispatch/core/dispatch.js';
 
 function gitRun(repo: string, args: readonly string[]): void {
   execFileSync('git', ['-C', repo, ...args], { stdio: 'pipe' });

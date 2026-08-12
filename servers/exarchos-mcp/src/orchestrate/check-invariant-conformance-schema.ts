@@ -34,7 +34,7 @@
 // registry.
 
 import { z } from 'zod';
-import { EnvelopeSchema } from '../schemas/envelope.js';
+import { EnvelopeSchema } from '../contract/schemas/envelope.js';
 
 /**
  * One finding the gate folds into the review verdict. Mirrors `PluginFinding`

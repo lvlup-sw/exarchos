@@ -22,7 +22,7 @@ import * as path from 'node:path';
 
 import { buildCli, CLI_EXIT_CODES } from './cli.js';
 import { EventStore } from '../events/store.js';
-import type { DispatchContext } from '../core/dispatch.js';
+import type { DispatchContext } from '../dispatch/core/dispatch.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 import { WorktreeManager, WORKTREES_STREAM } from '../orchestrate/worktree/manager.js';
 import { LAUNCH_EXECUTED } from '../launcher/liveness.js';

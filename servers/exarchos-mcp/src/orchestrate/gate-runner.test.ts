@@ -34,7 +34,7 @@ import {
 } from './gate-runner.js';
 import { emitGateEvent } from './gate-utils.js';
 import { seedActivePhaseAttempt, withTrustedCaller } from '../test-helpers/trusted-context.js';
-import { dispatch, type DispatchContext as HandlerContext } from '../core/dispatch.js';
+import { dispatch, type DispatchContext as HandlerContext } from '../dispatch/core/dispatch.js';
 
 const FIXED_TIME = '2026-07-21T22:30:00.000Z';
 const POLICY_DIGEST: ContentDigestV1 = {

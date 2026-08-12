@@ -78,7 +78,7 @@ describe('check-event-store-composition-root CLI (Fix 1, #1182)', () => {
       'index.ts':
         "import { EventStore } from './event-store/store.js';\n" +
         'export const store = new EventStore("/tmp");\n',
-      'core/context.ts':
+      'dispatch/core/context.ts':
         "import { EventStore } from '../event-store/store.js';\n" +
         'export const store = new EventStore("/tmp");\n',
       'cli-commands/assemble-context.ts':

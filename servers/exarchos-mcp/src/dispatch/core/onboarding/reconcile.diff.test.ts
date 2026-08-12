@@ -18,9 +18,9 @@ import { fc } from '@fast-check/vitest';
 import { diff } from './reconcile.js';
 import type { DesiredState } from './types.js';
 import { ReconcilePlanSchema } from './types.js';
-import type { CheckResult } from '../../orchestrate/doctor/schema.js';
-import { BLOCK_DRIFT_CHECK_NAME } from '../../orchestrate/onboard/block-drift.js';
-import { RETIRED_HOOKS_CHECK_NAME } from '../../orchestrate/onboard/hooks.js';
+import type { CheckResult } from '../../../orchestrate/doctor/schema.js';
+import { BLOCK_DRIFT_CHECK_NAME } from '../../../orchestrate/onboard/block-drift.js';
+import { RETIRED_HOOKS_CHECK_NAME } from '../../../orchestrate/onboard/hooks.js';
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 

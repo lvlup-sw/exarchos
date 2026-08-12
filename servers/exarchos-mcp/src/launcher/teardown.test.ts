@@ -23,7 +23,7 @@ import * as path from 'node:path';
 
 import { EventStore } from '../events/store.js';
 import type { WorkflowEvent } from '../events/schemas.js';
-import type { DispatchContext } from '../core/dispatch.js';
+import type { DispatchContext } from '../dispatch/core/dispatch.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 import {
   WorktreeManager,

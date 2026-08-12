@@ -26,11 +26,11 @@ import {
   connectV2Server,
   type V2Client,
   type V2InMemoryTransport,
-} from '../../sdk/seam.js';
+} from '../../contract/sdk/seam.js';
 import { createMcpServer } from '../../adapters/mcp.js';
 import { EventStore } from '../../events/store.js';
 import { TOOL_REGISTRY } from '../../registry.js';
-import type { DispatchContext } from '../../core/dispatch.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 
 // Per design `docs/designs/archive/2026-05-13-wave-0-carrier-swap.md` §2.6 the
 // advertised tool schemas SHOULD carry the JSON Schema 2020-12 `$schema`

@@ -13,7 +13,7 @@ import {
   type FeedbackUpstreamPayload,
 } from './feedback.js';
 import { handleWorkflow } from './composite.js';
-import type { DispatchContext } from '../core/dispatch.js';
+import type { DispatchContext } from '../dispatch/core/dispatch.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
 
 // ─── #1319 — feedback action: agent→runtime friction back-channel ────────────

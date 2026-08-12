@@ -1,10 +1,10 @@
 import { EventStore } from '../../events/store.js';
 import type { ToolResult, PerfMetrics } from '../../format.js';
-// Import the economy seam from its LEAF module, NOT from `core/dispatch.js`
+// Import the economy seam from its LEAF module, NOT from `dispatch/core/dispatch.js`
 // (DR-4, task 009). dispatch() dynamic-imports THIS middleware for its
 // telemetry-ON wrap arm; importing `enforceResponseEconomy` from the leaf keeps
 // that a one-way edge instead of a dispatch ↔ middleware runtime import cycle.
-import { enforceResponseEconomy } from '../../core/response-economy.js';
+import { enforceResponseEconomy } from '../../dispatch/core/response-economy.js';
 import { telemetryLogger } from '../../logger.js';
 import { TELEMETRY_STREAM, TOKEN_GATE_THRESHOLD } from './constants.js';
 import type { ToolMetrics } from './telemetry-projection.js';

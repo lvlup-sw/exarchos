@@ -114,11 +114,11 @@
       "lines": 1316
     },
     {
-      "path": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "path": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "lines": 1097
     },
     {
-      "path": "servers/exarchos-mcp/src/core/onboarding/reconcile.ts",
+      "path": "servers/exarchos-mcp/src/dispatch/core/onboarding/reconcile.ts",
       "lines": 1069
     },
     {

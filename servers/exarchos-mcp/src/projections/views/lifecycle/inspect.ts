@@ -28,12 +28,12 @@
 
 import { z } from 'zod';
 
-import type { DispatchContext } from '../../../core/dispatch.js';
+import type { DispatchContext } from '../../../dispatch/core/dispatch.js';
 import type { ToolResult } from '../../../format.js';
 import type { WorkflowEvent } from '../../../events/schemas.js';
 import { resolveWorkflowState } from '../../../orchestrate/resolve-state.js';
 import type { WorkflowStateView } from '../workflow-state-projection.js';
-import { EnvelopeSchema } from '../../../schemas/envelope.js';
+import { EnvelopeSchema } from '../../../contract/schemas/envelope.js';
 
 // ─── Bounded-output default ───────────────────────────────────────────────────
 

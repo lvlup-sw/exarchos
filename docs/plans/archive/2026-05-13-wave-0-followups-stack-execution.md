@@ -113,7 +113,7 @@ Reference: [PR-C brief](../followups/2026-05-13-pr-c-1366-zod-v4-migration.md) �
 | C-W0 | Branch from `refactor/wave-0-followups/1368-cli-toCliResult-wiring` | Orchestrator inline. |
 | C-W1 | C1.1 – C1.5 (audit + decision points) | Single researcher agent. **Output:** `docs/research/2026-05-13-zod-v4-breaking-changes.md` + decision record covering the three "Decision points" listed in PR-C brief §"Decision points the user may want to weigh in on". **Gate:** decision record committed; orchestrator surfaces decisions to user for confirmation before C-W2 starts. |
 | C-W2 | C2.1 – C2.7 (foundation: bump dep + adapter rewrite) | Single implementer agent. **Iron Law gate:** capture full `npx tsc --noEmit` error list as the failing-test surrogate before any source change. |
-| C-W3 | C3.1 – C3.4 (`schemas/envelope.ts`) | Single implementer agent. |
+| C-W3 | C3.1 – C3.4 (`contract/schemas/envelope.ts`) | Single implementer agent. |
 | C-W4 | C4 (`registry.ts`) | Single implementer agent. **Critical file** — most complex Zod introspection. |
 | C-W5 | C5.1 – C5.4 (adapters/mcp.ts + cli.ts + cli-format.ts) | Single implementer agent. |
 | C-W6 | C6.1 – C6.7 (sweep remaining surfaces) | **Parallel agents, internal to PR-C only** — up to 5–7 agents per the brief's wave table. Stack-level serialization is preserved. Per-agent scope: one directory subtree, runs `tsc --noEmit && vitest run <scope>` until GREEN. |

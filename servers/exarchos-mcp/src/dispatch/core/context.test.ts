@@ -2,11 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { rmrfAsync } from '../test-helpers/temp-dir.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 // Mock the state-store module to spy on configureStateStoreBackend
-vi.mock('../workflow/state-store.js', async (importOriginal) => {
-  const original = await importOriginal<typeof import('../workflow/state-store.js')>();
+vi.mock('../../workflow/state-store.js', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../../workflow/state-store.js')>();
   return {
     ...original,
     configureStateStoreBackend: vi.fn(),
@@ -14,8 +14,8 @@ vi.mock('../workflow/state-store.js', async (importOriginal) => {
 });
 
 // Mock the register module to spy on registerCustomWorkflows
-vi.mock('../config/register.js', async (importOriginal) => {
-  const original = await importOriginal<typeof import('../config/register.js')>();
+vi.mock('../../config/register.js', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../../config/register.js')>();
   return {
     ...original,
     registerCustomWorkflows: vi.fn(),
@@ -51,7 +51,7 @@ describe('initializeContext', () => {
   it('InitializeContext_WithBackend_PassesBackendToEventStore', async () => {
     // Arrange
     const { initializeContext } = await import('./context.js');
-    const { InMemoryBackend } = await import('../storage/memory-backend.js');
+    const { InMemoryBackend } = await import('../../storage/memory-backend.js');
     const backend = new InMemoryBackend();
     await backend.initialize();
 
@@ -73,7 +73,7 @@ describe('initializeContext', () => {
   // for an ambient `bun:sqlite` import (T17).
   it('Lifecycle_Start_ConstructsStorageAndPassesViaContext', async () => {
     const { initializeContext } = await import('./context.js');
-    const { InMemoryBackend } = await import('../storage/memory-backend.js');
+    const { InMemoryBackend } = await import('../../storage/memory-backend.js');
     const backend = new InMemoryBackend();
     await backend.initialize();
 
@@ -103,7 +103,7 @@ describe('initializeContext', () => {
   it('InitializeContext_ConfiguresStateStoreBackend', async () => {
     // Arrange
     const { initializeContext } = await import('./context.js');
-    const { configureStateStoreBackend } = await import('../workflow/state-store.js');
+    const { configureStateStoreBackend } = await import('../../workflow/state-store.js');
 
     // Act
     await initializeContext(tmpDir);
@@ -219,7 +219,7 @@ describe('initializeContext', () => {
   it('InitializeContext_WithConfigWorkflows_CallsRegisterCustomWorkflows', async () => {
     // Arrange
     const { initializeContext } = await import('./context.js');
-    const { registerCustomWorkflows } = await import('../config/register.js');
+    const { registerCustomWorkflows } = await import('../../config/register.js');
     const { writeFile } = await import('node:fs/promises');
     const { join } = await import('node:path');
 
@@ -467,7 +467,7 @@ describe('initializeContext — projectConfig (YAML)', () => {
 //
 // File-location decision: same rationale as T57 — `lifecycle.ts` exists but
 // is exclusively retention/compaction; the actual startup hook is
-// `initializeContext` in `core/context.ts`. Co-locate the test here with
+// `initializeContext` in `dispatch/core/context.ts`. Co-locate the test here with
 // `context.ts`.
 describe('initializeContext — topology loader wired at startup (T58, DR-7)', () => {
   let tmpDir: string;
@@ -481,13 +481,13 @@ describe('initializeContext — topology loader wired at startup (T58, DR-7)', (
     // test and the once-per-startup-per-process semantics would be
     // unobservable (it would look as though the second startup never
     // emitted, but actually the FIRST test already populated the cache).
-    const { __resetTopologyCacheForTesting } = await import('../workflow/topology/loader.js');
+    const { __resetTopologyCacheForTesting } = await import('../../workflow/topology/loader.js');
     __resetTopologyCacheForTesting();
   });
 
   afterEach(async () => {
     await rmrfAsync(tmpDir);
-    const { __resetTopologyCacheForTesting } = await import('../workflow/topology/loader.js');
+    const { __resetTopologyCacheForTesting } = await import('../../workflow/topology/loader.js');
     __resetTopologyCacheForTesting();
   });
 
@@ -524,7 +524,7 @@ phases:
     // emit `phase.contract_missing` once per missing phase + heuristic
     // fallback in the pruner) is gone.
     //
-    // `loadTopologyIfPresent` in `core/context.ts` retains its
+    // `loadTopologyIfPresent` in `dispatch/core/context.ts` retains its
     // try/catch around `loadTopology()` so a malformed topology does
     // NOT take down the substrate-bearing startup path. The error is
     // surfaced via the loader's structured error log line; the
@@ -538,7 +538,7 @@ phases:
     //     `_substrate` stream (the advisory branch is gone)
     //   - `getTopology()` still throws (no successful load → no cache)
     const { initializeContext } = await import('./context.js');
-    const { getTopology } = await import('../workflow/topology/loader.js');
+    const { getTopology } = await import('../../workflow/topology/loader.js');
 
     const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ctx-topo-proj-'));
     await fs.writeFile(path.join(projectRoot, 'topology.yaml'), PARTIAL_TOPOLOGY, 'utf-8');
@@ -567,7 +567,7 @@ phases:
     // fail here (it would also drag the YAML loader into the cold-start
     // import graph, blowing the DR-5 / task 021 p95=250ms budget).
     const { initializeContext } = await import('./context.js');
-    const { getTopology } = await import('../workflow/topology/loader.js');
+    const { getTopology } = await import('../../workflow/topology/loader.js');
 
     await initializeContext(tmpDir);
 
@@ -580,7 +580,7 @@ phases:
     // back to the v2.9 single-signal heuristic when no contract is loaded;
     // the lifecycle hook honors the same "advisory, not required" stance.
     const { initializeContext } = await import('./context.js');
-    const { getTopology } = await import('../workflow/topology/loader.js');
+    const { getTopology } = await import('../../workflow/topology/loader.js');
 
     const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ctx-topo-empty-'));
 

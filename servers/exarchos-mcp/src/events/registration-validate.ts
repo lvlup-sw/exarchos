@@ -2,7 +2,7 @@
 //
 // DR-2's acceptance criterion, verbatim: *"A `capability` registration naming an unresolvable
 // `EffectProviderId` fails at boot."* This module is that gate, and
-// {@link assertRegistrationWeldsAtStartup} is what `core/context.ts::initializeContext` calls
+// {@link assertRegistrationWeldsAtStartup} is what `dispatch/core/context.ts::initializeContext` calls
 // before it does anything else — so the failure lands on the shared production boot of BOTH
 // facades (the CLI and `exarchos mcp` both route through `index.ts` `main()` →
 // `initializeContext`), never at a caller's first append.
@@ -362,7 +362,7 @@ export class RegistrationWeldError extends Error {
 }
 
 /**
- * **The boot gate.** `core/context.ts::initializeContext` calls this as its first statement, so a
+ * **The boot gate.** `dispatch/core/context.ts::initializeContext` calls this as its first statement, so a
  * `capability` registration naming an unresolvable `EffectProviderId` halts the process before an
  * EventStore is constructed — on the CLI facade and the `exarchos mcp` facade alike, because both
  * route through `initializeContext` (`index.ts` `main()`).

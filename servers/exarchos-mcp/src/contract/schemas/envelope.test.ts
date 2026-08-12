@@ -9,9 +9,9 @@ import {
   EventHintsSchema,
   CacheHintsSchema,
 } from './envelope.js';
-import { wrap, wrapError } from '../format.js';
-import { ConcurrencyError } from '../events/concurrency-error.js';
-import { StorageBusyError } from '../events/storage-busy-error.js';
+import { wrap, wrapError } from '../../format.js';
+import { ConcurrencyError } from '../../events/concurrency-error.js';
+import { StorageBusyError } from '../../events/storage-busy-error.js';
 
 describe('NextActionSchema', () => {
   it('NextActionSchema_AcceptsCanonicalNextAction_Succeeds', () => {

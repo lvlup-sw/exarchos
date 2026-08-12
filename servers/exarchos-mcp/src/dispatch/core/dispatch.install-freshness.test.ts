@@ -5,15 +5,15 @@ import * as path from 'node:path';
 
 import { dispatch } from './dispatch.js';
 import type { DispatchContext } from './dispatch.js';
-import { EventStore } from '../events/store.js';
+import { EventStore } from '../../events/store.js';
 import {
   collectInstallIdentity,
   writeRecordedIdentity,
   installIdentityLockPath,
   CACHE_DESCRIPTOR_FILENAME,
-} from '../install/collect-identity.js';
-import { resetInstallFreshnessGateForTest } from '../install/freshness-gate.js';
-import { rmrfAsync } from '../test-helpers/temp-dir.js';
+} from '../../install/collect-identity.js';
+import { resetInstallFreshnessGateForTest } from '../../install/freshness-gate.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 /**
  * P05-04 — install freshness gating THROUGH THE REAL DISPATCH CHOKEPOINT.

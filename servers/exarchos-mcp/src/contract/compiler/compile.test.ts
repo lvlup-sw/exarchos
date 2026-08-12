@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
-import { EnvelopeSchema } from '../../schemas/envelope.js';
+import { EnvelopeSchema } from '../schemas/envelope.js';
 import type { CompositeTool, ToolAction } from '../../registry.js';
 import type { AuthorityVerdict } from '../authority-pin.js';
 import { deriveMetaModel } from './meta-model.js';

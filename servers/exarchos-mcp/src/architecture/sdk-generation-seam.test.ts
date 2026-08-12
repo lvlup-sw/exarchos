@@ -78,7 +78,7 @@ function supersededCollectSdkImports(source: string): string[] {
 // and silently rewrite the historical measurement into something unfalsifiable.
 // Assembling the specifier keeps the count at ten while still producing source
 // text in which a real, literal specifier sits inside a template literal — which
-// is what the parser is actually being tested against. `sdk/seam.test.ts` adopted
+// is what the parser is actually being tested against. `contract/sdk/seam.test.ts` adopted
 // the same discipline for the same reason.
 const SCOPE = '@modelcontextprotocol';
 const v1Spec = (subpath: string): string => `${SCOPE}/sdk/${subpath}`;

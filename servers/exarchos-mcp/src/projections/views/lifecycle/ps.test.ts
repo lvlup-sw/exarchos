@@ -21,7 +21,7 @@ import * as path from 'node:path';
 
 import { EventStore } from '../../../events/store.js';
 import { InMemoryBackend } from '../../../storage/memory-backend.js';
-import type { DispatchContext } from '../../../core/dispatch.js';
+import type { DispatchContext } from '../../../dispatch/core/dispatch.js';
 import type { WorkflowEvent } from '../../../events/schemas.js';
 import type { WorkflowState } from '../../../workflow/types.js';
 import { rmrfAsync } from '../../../test-helpers/temp-dir.js';

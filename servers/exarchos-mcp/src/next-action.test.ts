@@ -22,7 +22,7 @@ describe('NextAction schema', () => {
   // shape: `ttl_suggestion_ms: number`.
   //
   // T10 lands the schema entry only; T11 will emit the verb from
-  // `core/dispatch.ts`, and T12 will add the integration coverage.
+  // `dispatch/core/dispatch.ts`, and T12 will add the integration coverage.
 
   it('NextActionsDiscriminator_RetryWithTaskVerb_Validates', () => {
     const result = NextAction.safeParse({

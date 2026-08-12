@@ -4,7 +4,7 @@ import {
   createV2McpServer,
   V2_ROOTS_LIST_CHANGED_NOTIFICATION_METHOD,
   type V2McpServer,
-} from '../sdk/seam.js';
+} from '../contract/sdk/seam.js';
 import {
   getFullRegistry,
   buildRegistrationSchema,
@@ -13,12 +13,12 @@ import {
 import type { ToolAction } from '../registry.js';
 import { toEnvelope } from '../format.js';
 import type { Envelope, ErrorEnvelope } from '../format.js';
-import { dispatch } from '../core/dispatch.js';
-import type { DispatchContext } from '../core/dispatch.js';
+import { dispatch } from '../dispatch/core/dispatch.js';
+import type { DispatchContext } from '../dispatch/core/dispatch.js';
 import { handleRootsListChanged } from '../mcp/notifications.js';
 import { createElicitationClient } from '../mcp/elicitation-method.js';
 import type { RootsClient } from '../workspace/discovery.js';
-import { EnvelopeSchema } from '../schemas/envelope.js';
+import { EnvelopeSchema } from '../contract/schemas/envelope.js';
 import { logger } from '../logger.js';
 import { EventSourcedTaskStore } from '../projections/task-store/event-sourced-task-store.js';
 import { attachTaskStoreToV2, describeTaskWireGap } from '../projections/task-store/attach.js';
@@ -193,7 +193,7 @@ const LCD_OUTPUT_SCHEMA = EnvelopeSchema(z.unknown());
  * byte-identical. See `docs/research/2026-07-DR9-content-injection-verification.md`.
  *
  * Discipline: any future economy/capping logic lives in the shared core
- * (`core/economy.ts`, `core/dispatch.ts`) — `renderContent` only *renders*.
+ * (`dispatch/core/economy.ts`, `dispatch/core/dispatch.ts`) — `renderContent` only *renders*.
  */
 function renderContent(
   env: Envelope<unknown> | ErrorEnvelope,

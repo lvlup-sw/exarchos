@@ -27,7 +27,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { makeTempDir, rmrf } from '../test-helpers/temp-dir.js';
 import { digestTree, type DigestEntry } from './install-identity.js';
-import { DRY_RUN, LIVE, isDryRun, isError, isSuccess } from '../core/effect-carrier.js';
+import { DRY_RUN, LIVE, isDryRun, isError, isSuccess } from '../dispatch/core/effect-carrier.js';
 import {
   PromotionError,
   atomicCopyTreeSync,

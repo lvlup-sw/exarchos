@@ -3,7 +3,7 @@
 // PROGRAM-03, API-005. MCP is the standards-compliant WIRE projection of the
 // contract; the CLI is the in-process projection. Both route API-action
 // execution through ONE shared contract-handler seam (`dispatch` from
-// `core/dispatch.ts`).
+// `dispatch/core/dispatch.ts`).
 //
 // ─── DR-25 RESOLUTION: the CLI addresses actions through a generated client ──
 //
@@ -150,7 +150,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * The shared MCP contract-handler seam. Both projections (CLI + MCP) route
  * API-action execution through the runtime `dispatch` VALUE exported here.
  */
-export const DISPATCH_SEAM_MODULE = 'core/dispatch.ts';
+export const DISPATCH_SEAM_MODULE = 'dispatch/core/dispatch.ts';
 
 /**
  * The projections that meet the GOVERNING INV-2 framing with no deviation:

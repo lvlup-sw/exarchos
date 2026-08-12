@@ -1,47 +1,47 @@
-import type { ToolResult } from '../format.js';
-import { logger } from '../logger.js';
-import type { EventStore } from '../events/store.js';
-import type { ExarchosConfig } from '../config/define.js';
-import type { ResolvedProjectConfig } from '../config/resolve.js';
-import type { VcsProvider } from '../vcs/provider.js';
-import type { ConfigHookRunner } from '../hooks/config-hooks.js';
-import type { Outbox } from '../sync/outbox.js';
-import type { ChannelEmitter } from '../channel/emitter.js';
-import type { CapabilityResolver } from '../capabilities/resolver.js';
-import type { StorageBackend } from '../storage/backend.js';
-import type { RootsClient } from '../workspace/discovery.js';
-import type { ElicitationClient } from '../dispatch/elicitation-dispatch.js';
-import { hasCustomToolHandlers, getCustomToolActionHandler, getFullRegistry, findActionInRegistry } from '../registry.js';
+import type { ToolResult } from '../../format.js';
+import { logger } from '../../logger.js';
+import type { EventStore } from '../../events/store.js';
+import type { ExarchosConfig } from '../../config/define.js';
+import type { ResolvedProjectConfig } from '../../config/resolve.js';
+import type { VcsProvider } from '../../vcs/provider.js';
+import type { ConfigHookRunner } from '../../hooks/config-hooks.js';
+import type { Outbox } from '../../sync/outbox.js';
+import type { ChannelEmitter } from '../../channel/emitter.js';
+import type { CapabilityResolver } from '../../capabilities/resolver.js';
+import type { StorageBackend } from '../../storage/backend.js';
+import type { RootsClient } from '../../workspace/discovery.js';
+import type { ElicitationClient } from '../elicitation-dispatch.js';
+import { hasCustomToolHandlers, getCustomToolActionHandler, getFullRegistry, findActionInRegistry } from '../../registry.js';
 // The response-economy seam lives in its own leaf (`./response-economy.js`) so
 // the telemetry middleware can import `enforceResponseEconomy` without the
 // dispatch ↔ middleware runtime import cycle (DR-4, task 009). Re-exported below
-// so the seam tests and any historical `core/dispatch.js` importers are
+// so the seam tests and any historical `dispatch/core/dispatch.js` importers are
 // unaffected; dispatch() still calls the seam directly (see the coreHandler
 // wrap sites), which the economy no-bypass gate (`dispatch.economy-seam.ts`)
 // pins by source structure.
 import { enforceResponseEconomy, ECONOMY_CARRIER_KEYS } from './response-economy.js';
 export { enforceResponseEconomy, ECONOMY_CARRIER_KEYS };
-import type { NextAction } from '../next-action.js';
+import type { NextAction } from '../../next-action.js';
 import {
   formatValidationError,
   buildInvalidInput,
-} from '../adapters/schema-to-flags.js';
+} from '../../adapters/schema-to-flags.js';
 import { runSessionMachineryConsumedInterceptor } from './interceptors/session-machinery.js';
-import { evaluateInstallFreshness } from '../install/freshness-gate.js';
+import { evaluateInstallFreshness } from '../../install/freshness-gate.js';
 import {
   mintDispatchContextFromRequest,
   runWithDispatchContext,
-} from '../dispatch/dispatch-context.js';
+} from '../dispatch-context.js';
 import {
   snapshotCallerAuthorization,
   type CallerIdentity,
-} from '../dispatch/caller-identity.js';
+} from '../caller-identity.js';
 import {
   isTaskAugmented,
   extractTaskOptions,
   runTasksAugmented,
-} from '../dispatch/tasks-augmented.js';
-import type { EventSourcedTaskStore } from '../projections/task-store/event-sourced-task-store.js';
+} from '../tasks-augmented.js';
+import type { EventSourcedTaskStore } from '../../projections/task-store/event-sourced-task-store.js';
 
 // NOTE: `../telemetry/middleware.js` is intentionally NOT imported at module
 // top-level. The middleware instantiates a singleton TraceWriter at import,
@@ -90,7 +90,7 @@ export interface DispatchContext {
   /**
    * Storage handle constructed once at startup (DR-2 of the
    * durable-event-store-substrate design). Lifecycle wiring in
-   * `index.ts` / `core/context.ts` opens the SQLite (or in-memory)
+   * `index.ts` / `dispatch/core/context.ts` opens the SQLite (or in-memory)
    * backend and threads it through the context so consumers do not
    * reach for an ambient `bun:sqlite` import.
    *
@@ -475,11 +475,11 @@ export function stubCompositeHandler(
  * additions as a regression.
  */
 export const COMPOSITE_HANDLER_LOADERS: Record<string, () => Promise<CompositeHandler>> = {
-  exarchos_workflow: () => import('../workflow/composite.js').then((m) => m.handleWorkflow),
-  exarchos_event: () => import('../events/composite.js').then((m) => m.handleEvent),
-  exarchos_orchestrate: () => import('../orchestrate/composite.js').then((m) => m.handleOrchestrate),
-  exarchos_view: () => import('../projections/views/composite.js').then((m) => m.handleView),
-  exarchos_sync: () => import('../sync/composite.js').then((m) => m.handleSync),
+  exarchos_workflow: () => import('../../workflow/composite.js').then((m) => m.handleWorkflow),
+  exarchos_event: () => import('../../events/composite.js').then((m) => m.handleEvent),
+  exarchos_orchestrate: () => import('../../orchestrate/composite.js').then((m) => m.handleOrchestrate),
+  exarchos_view: () => import('../../projections/views/composite.js').then((m) => m.handleView),
+  exarchos_sync: () => import('../../sync/composite.js').then((m) => m.handleSync),
 };
 
 /**
@@ -772,7 +772,7 @@ export async function dispatch(
       && !NO_WORKSPACE_RESOLUTION_ACTIONS.has(actionName)
     ) {
       try {
-        const { resolveWorkspace } = await import('../workspace/discovery.js');
+        const { resolveWorkspace } = await import('../../workspace/discovery.js');
         const resolution = await resolveWorkspace({
           resolver: ctx.capabilityResolver,
           rootsClient: ctx.rootsClient,
@@ -896,7 +896,7 @@ export async function dispatch(
         const actionSchema = matchingAction.schema as unknown as import('zod').z.ZodObject;
         try {
           const { performElicitation } = await import(
-            '../dispatch/elicitation-dispatch.js'
+            '../elicitation-dispatch.js'
           );
           // Sentry MEDIUM #1428: reuse the dispatch-context operationId
           // here. Pre-fix elicitation minted its own operationId, so the
@@ -1067,7 +1067,7 @@ export async function dispatch(
     const requestId = `dispatch:${dispatchCtx.operationId}`;
     const augmentedHandler = ctx.enableTelemetry
       ? async () => {
-          const { withTelemetry } = await import('../projections/telemetry/middleware.js');
+          const { withTelemetry } = await import('../../projections/telemetry/middleware.js');
           const wrapped = withTelemetry(coreHandler, tool, ctx.eventStore);
           return wrapped(args);
         }
@@ -1081,7 +1081,7 @@ export async function dispatch(
     });
   } else if (ctx.enableTelemetry) {
     // Lazy-load to keep CLI cold-start under the DR-5 budget.
-    const { withTelemetry } = await import('../projections/telemetry/middleware.js');
+    const { withTelemetry } = await import('../../projections/telemetry/middleware.js');
     const wrappedHandler = withTelemetry(coreHandler, tool, ctx.eventStore);
     result = await wrappedHandler(args);
   } else {

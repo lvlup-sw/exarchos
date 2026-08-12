@@ -800,7 +800,7 @@ describe('authority census — the live topology', () => {
       'capability-posture | binding | missing | the INV-11 invariants-catalog text',
       'cli-surface | authority | ambiguous | cli-surface',
       'effect-event | authority | missing | effect-event',
-      'effect-event | binding | missing | EffectPlan (`core/effect-carrier.ts`)',
+      'effect-event | binding | missing | EffectPlan (`dispatch/core/effect-carrier.ts`)',
       'effect-event | binding | missing | the event append site',
       'event-catalog | binding | missing | PHASE_EXPECTED_EVENTS (`orchestrate/check-event-emissions.ts`)',
       'event-catalog | binding | missing | skill prose naming events to emit',

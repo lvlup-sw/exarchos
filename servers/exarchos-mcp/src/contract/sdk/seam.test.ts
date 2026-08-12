@@ -15,9 +15,9 @@
  * DR-30 authorities. The live-tree census below is cross-checked against two
  * sources, neither derived from the other:
  *
- *   • `../architecture/sdk-generation-seam.ts` — the RULE: which specifiers
+ *   • `../../architecture/sdk-generation-seam.ts` — the RULE: which specifiers
  *     constitute a generation, and which module is the owned seam.
- *   • `../../package.json` — the INSTALLED REALITY: which generations npm was
+ *   • `../../../package.json` — the INSTALLED REALITY: which generations npm was
  *     actually asked to resolve. A seam that stopped drawing from an installed
  *     generation, or a rule that cannot classify a declared dependency, is a
  *     disagreement between these two and surfaces as a failure rather than a
@@ -27,7 +27,7 @@
  * `../sdk/brand.js` (the generation vocabulary) and nothing else from `sdk/`,
  * and `package.json` is data.
  *
- * @oracle-sources: ../architecture/sdk-generation-seam.ts, ../../package.json
+ * @oracle-sources: ../../architecture/sdk-generation-seam.ts, ../../../package.json
  */
 
 import { describe, it, expect } from 'vitest';
@@ -43,13 +43,14 @@ import {
   collectSdkImportSites,
   runSdkSeamCensus,
   type SdkImportSite,
-} from '../architecture/sdk-generation-seam.js';
+} from '../../architecture/sdk-generation-seam.js';
 import type { SdkGeneration } from './brand.js';
-import { parseModuleSpecifiers } from '../test-helpers/module-specifier-parser.js';
+import { parseModuleSpecifiers } from '../../test-helpers/module-specifier-parser.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // src/sdk → servers/exarchos-mcp
-const packageRoot = path.join(here, '..', '..');
+// Task 014 moved sdk/ into contract/sdk/, so the package root is one hop further.
+const packageRoot = path.join(here, '..', '..', '..');
 const srcRoot = path.join(packageRoot, 'src');
 
 // ── Fixture specifiers are ASSEMBLED, never written literally ────────────────
@@ -87,7 +88,7 @@ import {
   createV2LinkedTransportPair,
   connectV2Server,
   connectV2Client,
-} from '../src/sdk/seam.js';
+} from '../src/contract/sdk/seam.js';
 
 export async function v2Only(): Promise<void> {
   const server = createV2McpServer({ name: 'probe', version: '1.0.0' });
@@ -134,7 +135,7 @@ import {
   connectV2Server,
   type V1,
   type V2Transport,
-} from '../src/sdk/seam.js';
+} from '../src/contract/sdk/seam.js';
 
 /**
  * A transport that is structurally identical to a v2 transport and branded v1.
@@ -388,9 +389,9 @@ describe('DR-26 — owned SDK seam, generation-branded handles', () => {
     // here rather than reading as a completed migration (task 062's tooth).
     expect(
       live.bypassSiteCount,
-      'A module outside `sdk/seam.ts` imports an MCP SDK package directly. ' +
+      'A module outside `contract/sdk/seam.ts` imports an MCP SDK package directly. ' +
         'DR-26 makes the seam the SOLE importer, so this is a bypass — route ' +
-        'the import through `sdk/seam.ts`. `architecture/layer-boundaries-seam.ts` ' +
+        'the import through `contract/sdk/seam.ts`. `architecture/layer-boundaries-seam.ts` ' +
         'names the offending module.',
     ).toBe(0);
 
@@ -532,11 +533,11 @@ describe('DR-26 — owned SDK seam, generation-branded handles', () => {
     expect(isOwnedSeamModule(SDK_SEAM_MODULE)).toBe(true);
     expect(isOwnedSeamModule(`src/${SDK_SEAM_MODULE}`)).toBe(true);
     expect(isOwnedSeamModule(`/repo/servers/exarchos-mcp/src/${SDK_SEAM_MODULE}`)).toBe(true);
-    expect(isOwnedSeamModule('C:\\repo\\servers\\exarchos-mcp\\src\\sdk\\seam.ts')).toBe(true);
+    expect(isOwnedSeamModule('C:\\repo\\servers\\exarchos-mcp\\src\\contract\\sdk\\seam.ts')).toBe(true);
 
     // Near-misses must NOT be exempt — the exemption is one module, not a family.
-    expect(isOwnedSeamModule('src/sdk/brand.ts')).toBe(false);
-    expect(isOwnedSeamModule('src/sdk/seam.test.ts')).toBe(false);
+    expect(isOwnedSeamModule('src/contract/sdk/brand.ts')).toBe(false);
+    expect(isOwnedSeamModule('src/contract/sdk/seam.test.ts')).toBe(false);
     expect(isOwnedSeamModule('src/adapters/seam.ts')).toBe(false);
   });
 

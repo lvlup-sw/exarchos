@@ -18,10 +18,10 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { z } from 'zod';
-import { EventStore } from '../events/store.js';
-import type { ToolResult } from '../format.js';
-import { toEnvelope } from '../format.js';
-import { NextAction } from '../next-action.js';
+import { EventStore } from '../../events/store.js';
+import type { ToolResult } from '../../format.js';
+import { toEnvelope } from '../../format.js';
+import { NextAction } from '../../next-action.js';
 import {
   dispatch,
   stubCompositeHandler,
@@ -38,9 +38,9 @@ import {
   type ActionAnnotations,
   type CompositeTool,
   type EconomyHints,
-} from '../registry.js';
-import { EnvelopeSchema } from '../schemas/envelope.js';
-import { rmrfAsync } from '../test-helpers/temp-dir.js';
+} from '../../registry.js';
+import { EnvelopeSchema } from '../../contract/schemas/envelope.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 const READ_ONLY: ActionAnnotations = {
   safety: 'read-only',

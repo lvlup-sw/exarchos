@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { fc } from '@fast-check/vitest';
 import { estimateOutputTokens, narrowAffordance } from './economy.js';
-import { NextAction } from '../next-action.js';
+import { NextAction } from '../../next-action.js';
 
 // ─── DR-1: relocated + generalized output-cap kit ────────────────────────────
 //

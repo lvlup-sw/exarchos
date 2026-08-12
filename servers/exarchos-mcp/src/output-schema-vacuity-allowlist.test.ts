@@ -58,7 +58,7 @@ import {
 } from './architecture/output-schema-census.js';
 import type { CensusableAction, CensusableTool } from './architecture/output-schema-census.js';
 import { TOOL_REGISTRY } from './registry.js';
-import { EnvelopeSchema } from './schemas/envelope.js';
+import { EnvelopeSchema } from './contract/schemas/envelope.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REGISTRY_SRC = resolve(HERE, 'registry.ts');

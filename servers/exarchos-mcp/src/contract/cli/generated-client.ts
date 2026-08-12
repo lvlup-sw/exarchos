@@ -31,8 +31,8 @@
 // costs only the `core/dispatch` edge the CLI already paid before DR-25.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { dispatch } from '../../core/dispatch.js';
-import type { DispatchContext } from '../../core/dispatch.js';
+import { dispatch } from '../../dispatch/core/dispatch.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import type { ToolResult } from '../../format.js';
 import { CLI_ACTION_IDS } from './generated/cli-action-ids.js';
 

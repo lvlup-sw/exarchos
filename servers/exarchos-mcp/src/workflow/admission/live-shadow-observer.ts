@@ -610,7 +610,7 @@ const pendingEvidenceAppends = new Set<Promise<void>>();
 // `cutover-gate.ts` here would be a runtime import cycle — that module already
 // imports this one), so the seam is a registered listener: the auto-export
 // module (`cutover-auto-export.ts`) installs its hook at lifecycle wiring time
-// (`core/context.ts`). The listener call is error-isolated — a throwing hook
+// (`dispatch/core/context.ts`). The listener call is error-isolated — a throwing hook
 // is swallowed, so nothing it does can reach the transition path.
 
 export type DurableAppendSuccessListener = () => void;

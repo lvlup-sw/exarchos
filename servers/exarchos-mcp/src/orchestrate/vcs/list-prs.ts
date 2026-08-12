@@ -9,10 +9,10 @@
 // full set call `provider.listPrs` directly and are unaffected). `page` metadata
 // keeps the total perceivable and a narrow affordance steers to a filter.
 
-import type { DispatchContext } from '../../core/dispatch.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import type { ToolResult } from '../../format.js';
 import type { PrSummary } from '../../vcs/provider.js';
-import { narrowAffordance } from '../../core/economy.js';
+import { narrowAffordance } from '../../dispatch/core/economy.js';
 import { createVcsProvider } from '../../vcs/factory.js';
 
 /**

@@ -37,7 +37,7 @@ non-DR rows are narrative design context, not separately-tracked requirements.
 
 **Target:** Consolidate `init` + `install-skills` + `new-project` + `doctor` into
 an `onboard` + `doctor` pair over one shared, harness-neutral reconciler
-(`core/onboarding/reconcile.ts`), delivered across tasks 001–020 plus the
+(`dispatch/core/onboarding/reconcile.ts`), delivered across tasks 001–020 plus the
 review-fix follow-up (epic #1510; closes #1508).
 
 **Excluded:** Backward-compatible aliases beyond the one-release error stubs

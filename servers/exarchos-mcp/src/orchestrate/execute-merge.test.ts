@@ -23,7 +23,7 @@
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 import type { EventStore } from '../events/store.js';
 import { SequenceConflictError } from '../events/store.js';
-import type { DispatchContext } from '../core/dispatch.js';
+import type { DispatchContext } from '../dispatch/core/dispatch.js';
 
 import { handleExecuteMerge } from './execute-merge.js';
 

@@ -18,7 +18,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { z } from 'zod';
-import { EnvelopeSchema } from '../../schemas/envelope.js';
+import { EnvelopeSchema } from '../../contract/schemas/envelope.js';
 
 // ─── Shared projection sub-schemas (mirror `projections/worktrees.ts`) ────────
 

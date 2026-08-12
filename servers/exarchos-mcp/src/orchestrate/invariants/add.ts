@@ -24,7 +24,7 @@ import { z } from 'zod';
 import { parseDocument, stringify as stringifyYaml, isSeq } from 'yaml';
 import type { YAMLSeq } from 'yaml';
 
-import type { DispatchContext } from '../../core/dispatch.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import type { ToolResult } from '../../format.js';
 import {
   InvariantEntryV3Schema,

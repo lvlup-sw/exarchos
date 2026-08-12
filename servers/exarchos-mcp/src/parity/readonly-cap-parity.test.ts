@@ -2,7 +2,7 @@
 //
 // Closes the #1109 Constraint 2 (MCP Parity) verification step for the
 // capability ISP work landed in T03–T11. The capability gate
-// (`enforceReadonlyGate`, src/core/dispatch.ts) lives in the shared
+// (`enforceReadonlyGate`, src/dispatch/core/dispatch.ts) lives in the shared
 // transport-agnostic dispatch entry, so both the CLI adapter
 // (src/adapters/cli.ts) and the MCP adapter (src/adapters/mcp.ts) consult
 // the same `ctx.capabilityResolver` and short-circuit identically when
@@ -39,7 +39,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { CLI_EXIT_CODES } from '../adapters/cli.js';
-import { type DispatchContext } from '../core/dispatch.js';
+import { type DispatchContext } from '../dispatch/core/dispatch.js';
 import { EventStore } from '../events/store.js';
 import { createInMemoryResolver } from '../capabilities/resolver.js';
 import { resetMaterializerCache } from '../projections/views/tools.js';

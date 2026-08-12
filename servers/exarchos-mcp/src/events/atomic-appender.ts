@@ -3,7 +3,7 @@ import { mkdirSync } from 'node:fs';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
-import { validateStreamId } from '../shared/validation.js';
+import { validateStreamId } from '../contract/shared/validation.js';
 import { STORE_DB_FILENAME } from '../utils/paths.js';
 import {
   SqliteBackend,

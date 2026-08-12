@@ -27,7 +27,7 @@ import * as os from 'node:os';
 import { handleWorkflow } from '../../workflow/composite.js';
 import { handleInit } from '../../workflow/tools.js';
 import { EventStore } from '../../events/store.js';
-import type { DispatchContext } from '../../core/dispatch.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 describe('IdeateFlow_E2E (Wave 5 / Task 5.5, #1341)', () => {

@@ -1,9 +1,9 @@
 // The BOOT half of task 012 (DR-2): the gate is wired into a path that actually executes in
 // production, not only into a pure function a test can call.
 //
-// @oracle-sources: ../core/context.ts, the shipped effect-provider registry the seeded id is deliberately absent from
+// @oracle-sources: ../dispatch/core/context.ts, the shipped effect-provider registry the seeded id is deliberately absent from
 //
-// The two authorities. `core/context.ts` owns the BOOT SEQUENCE — whether the process refuses to
+// The two authorities. `dispatch/core/context.ts` owns the BOOT SEQUENCE — whether the process refuses to
 // start — and knows nothing about which provider ids exist. The effect-provider registry owns which
 // ids RESOLVE, and is what makes the seeded id bad; it was authored for P05-05's reachability
 // closure, long before any event named a provider. The test asserts the two agree: the id the
@@ -11,12 +11,12 @@
 //
 // The second authority is a LABEL rather than the path `../contract/reachability/providers.ts`,
 // because DR-30's derivation check is a static module-reachability walk and — precisely BECAUSE
-// this task wired the gate — `core/context.ts` now reaches `providers.ts` through
+// this task wired the gate — `dispatch/core/context.ts` now reaches `providers.ts` through
 // `registration-validate.ts`. That is an import edge, not a derivation: the boot sequence does not
 // author the provider map, and reporting them as one authority would be the over-approximation
 // `suite-invariants/LIMITATIONS.md` names. Same call, same reason, as `event-annotations.test.ts`.
 //
-// The production entry point is `core/context.ts::initializeContext`, whose sole production caller
+// The production entry point is `dispatch/core/context.ts::initializeContext`, whose sole production caller
 // is `index.ts` `main()` (`... await initializeContext(stateDir, { backend, projectRoot })`) — the
 // shared boot of BOTH facades: `exarchos mcp` and every stateful CLI verb route through it.
 // `createServer()` in `index.ts` is a library/test factory with no production caller, so wiring the
@@ -82,7 +82,7 @@ describe('DR-2 boot gate — initializeContext refuses to start on an unresolvab
       };
     });
 
-    const { initializeContext } = await import('../core/context.js');
+    const { initializeContext } = await import('../dispatch/core/context.js');
     const { RegistrationWeldError } = await import('./registration-validate.js');
 
     await expect(initializeContext(tmpDir)).rejects.toBeInstanceOf(RegistrationWeldError);
@@ -103,7 +103,7 @@ describe('DR-2 boot gate — initializeContext refuses to start on an unresolvab
     vi.resetModules();
     vi.doUnmock('./event-annotations.js');
 
-    const { initializeContext } = await import('../core/context.js');
+    const { initializeContext } = await import('../dispatch/core/context.js');
     const ctx = await initializeContext(tmpDir);
     expect(ctx.stateDir).toBe(tmpDir);
     expect(ctx.eventStore).toBeDefined();

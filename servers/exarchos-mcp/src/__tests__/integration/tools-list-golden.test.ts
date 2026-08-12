@@ -85,10 +85,10 @@ import {
   connectV2Client,
   connectV2Server,
   type V2Client,
-} from '../../sdk/seam.js';
+} from '../../contract/sdk/seam.js';
 import { createMcpServer } from '../../adapters/mcp.js';
 import { EventStore } from '../../events/store.js';
-import type { DispatchContext } from '../../core/dispatch.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const goldenPath = path.join(here, '__goldens__', 'tools-list.golden.json');

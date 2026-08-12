@@ -152,7 +152,7 @@ A pure function over the registry, in the established census shape.
 
 #### DR-4: Effect ledger — emission as a precondition of the effect landing
 
-**This extends a shipped module rather than introducing one.** `core/effect-carrier.ts` already
+**This extends a shipped module rather than introducing one.** `dispatch/core/effect-carrier.ts` already
 implements the P04-01 typed effect carrier: `EffectPlan` carries `owner`, `idempotent`, and
 `compensation`, and `runEffect(mode, plan, execute)` returns a three-arm `EffectOutcome` whose
 dry-run arm is structurally incapable of performing the effect. What it does **not** carry is any
@@ -213,7 +213,7 @@ exactly that gap.
 #### DR-8: EmissionVerifier
 
 **Acceptance criteria:**
-- A post-dispatch interceptor in the existing `core/dispatch.ts` chain asserts every
+- A post-dispatch interceptor in the existing `dispatch/core/dispatch.ts` chain asserts every
   `condition: 'always'` contract landed for the operation.
 - On violation it appends `emission.contract-violated` carrying action, missing set, `operationId`.
 - **Fails the response in CI/dev; telemetry-only in production** (D4), selected by policy, not build flag.
@@ -313,14 +313,14 @@ builds on the structural-closure substrate that exists, not on the v3.0 SDK that
 | Component | Path | Consumed by |
 |---|---|---|
 | Emission registry + name pattern | `event-store/schemas.ts` (`EVENT_EMISSION_REGISTRY`, `EVENT_NAME_PATTERN:479`, `registerEventType:495`) | DR-1, DR-2, DR-13 |
-| Typed effect carrier (P04-01) | `core/effect-carrier.ts` — `EffectPlan`, `runEffect`, dry-run arm | DR-4 |
+| Typed effect carrier (P04-01) | `dispatch/core/effect-carrier.ts` — `EffectPlan`, `runEffect`, dry-run arm | DR-4 |
 | VCS mutation owner | `vcs/mutation-owner.ts` — `VcsMutationOwner` | DR-4, DR-13 |
 | Contract compiler | `contract/compiler/{compile,meta-model,runtime-authority}.ts` | DR-10 |
 | Reachability census | `contract/reachability/graph.ts` — `REACHABILITY_HOPS`, `HOP_AUTHORITIES` | DR-11 |
 | Independent oracle | `contract/oracle/oracle-seam.ts` | DR-12 |
 | Architecture censuses | `architecture/{effect-ledger,adapter-ownership-seam,effect-port-seam,layer-boundaries-seam}.ts` | DR-3, DR-4, DR-5 |
 | Reconciliation precedent | `orchestrate/reconcile-state.ts`, WLM `adopt`, `worktrees@v1` fold | DR-5, DR-6, DR-7 |
-| Dispatch interceptor chain | `core/dispatch.ts` | DR-8 |
+| Dispatch interceptor chain | `dispatch/core/dispatch.ts` | DR-8 |
 | Durable gate runner | `orchestrate/gate-runner.ts`, `gate-provider-registry.ts` | DR-13 |
 | Atomic append + claims | `event-store/atomic-appender.ts`, `idempotency_claims` | DR-4, DR-5 |
 

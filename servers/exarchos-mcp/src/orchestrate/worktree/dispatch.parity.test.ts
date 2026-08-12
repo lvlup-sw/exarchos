@@ -35,11 +35,11 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
 import { EventStore } from '../../events/store.js';
-import type { DispatchContext, CompositeHandler } from '../../core/dispatch.js';
-import { stubCompositeHandler } from '../../core/dispatch.js';
+import type { DispatchContext, CompositeHandler } from '../../dispatch/core/dispatch.js';
+import { stubCompositeHandler } from '../../dispatch/core/dispatch.js';
 import type { ToolResult } from '../../format.js';
 import { TOOL_REGISTRY, validateAction, type ToolAction } from '../../registry.js';
-import { EnvelopeSchema } from '../../schemas/envelope.js';
+import { EnvelopeSchema } from '../../contract/schemas/envelope.js';
 import {
   callCli as harnessCallCli,
   callMcp as harnessCallMcp,

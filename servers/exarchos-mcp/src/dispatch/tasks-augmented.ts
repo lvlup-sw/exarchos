@@ -58,7 +58,7 @@ import type {
   V2Request as Request,
   V2RequestId as RequestId,
   V2Result as Result,
-} from '../sdk/seam.js';
+} from '../contract/sdk/seam.js';
 // DR-0 / task 051: v2 DELETED `CreateTaskOptions` with the rest of the
 // experimental Tasks store seam, so the replacement is the OWNED
 // `CreateTaskParams` — field-for-field identical, generation-neutral, and

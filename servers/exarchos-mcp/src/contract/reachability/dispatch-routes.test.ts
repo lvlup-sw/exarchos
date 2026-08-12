@@ -15,7 +15,7 @@ import {
 } from './dispatch-routes.js';
 import { EFFECT_PROVIDERS } from './providers.js';
 import { TOOL_REGISTRY } from '../../registry.js';
-import { COMPOSITE_HANDLER_LOADERS } from '../../core/dispatch.js';
+import { COMPOSITE_HANDLER_LOADERS } from '../../dispatch/core/dispatch.js';
 
 // ─── The shipped dispatch-route authority ────────────────────────────────────
 //

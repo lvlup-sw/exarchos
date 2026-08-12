@@ -2,7 +2,7 @@
 //
 // The response-economy cap decision (`enforceResponseEconomy`) and its private
 // helpers, extracted here (DR-4, debloat task 009) to break the runtime import
-// cycle between `core/dispatch.ts` and `projections/telemetry/middleware.ts`. `dispatch.ts`
+// cycle between `dispatch/core/dispatch.ts` and `projections/telemetry/middleware.ts`. `dispatch.ts`
 // dynamic-imports the middleware (its telemetry-ON wrap arm); the middleware
 // value-imported `enforceResponseEconomy` straight back from `dispatch.ts` — a
 // genuine mutual runtime cycle (dependency-cruiser SCC, dynamic-import counted).
@@ -20,18 +20,18 @@
 // shared core, never in an adapter. Adapters only render. This module is the
 // single owner of the runtime cap decision.
 
-import type { ToolResult, EconomyMeta } from '../format.js';
+import type { ToolResult, EconomyMeta } from '../../format.js';
 import {
   ECONOMY_META_TRUNCATED,
   ECONOMY_META_DEGRADED,
-} from '../format.js';
-import { findActionInRegistry, resolveEconomyBudget } from '../registry.js';
+} from '../../format.js';
+import { findActionInRegistry, resolveEconomyBudget } from '../../registry.js';
 import {
   estimateOutputTokens,
   narrowAffordance,
   SUMMARY_FIRST_PAGE_ITEMS,
 } from './economy.js';
-import type { NextAction } from '../next-action.js';
+import type { NextAction } from '../../next-action.js';
 
 /**
  * Envelope carrier fields the economy guard MUST NOT touch. Budgets measure

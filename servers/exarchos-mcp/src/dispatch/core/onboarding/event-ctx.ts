@@ -14,7 +14,7 @@
 
 import type { DispatchContext } from '../dispatch.js';
 import { ONBOARD_STREAM_ID } from '../infra-streams.js';
-import type { WorkflowEvent } from '../../events/schemas.js';
+import type { WorkflowEvent } from '../../../events/schemas.js';
 import type { EmittedEvent, ReconcileEventCtx } from './reconcile.js';
 
 /**

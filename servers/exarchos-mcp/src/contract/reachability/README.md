@@ -23,7 +23,7 @@ ActionId → schema → route → handler → [owner] → output → artifact �
 | --- | --- | --- | --- |
 | **schema** | the checked-in `compiler/generated/proof-fixtures.json` — shipped input/output schema **digests**, compared against the live compile | shipped artifact | the shipped schema baseline disagrees with the live contract (stale / hand-edited artifact) |
 | **route** | the **shipped composite router** for the action's tool — its real `switch (action)` / dispatch-table / branch arm ([`dispatch-routes.ts`](./dispatch-routes.ts)) | runtime wiring | no shipped router routes the action name (registration ↔ dispatch drift), or two arms do |
-| **handler** | `BINDING_TABLE` ← `core/dispatch.ts::COMPOSITE_HANDLER_LOADERS` — one non-serializable handler per tool | runtime wiring | the tool has no (or two) handler bindings |
+| **handler** | `BINDING_TABLE` ← `dispatch/core/dispatch.ts::COMPOSITE_HANDLER_LOADERS` — one non-serializable handler per tool | runtime wiring | the tool has no (or two) handler bindings |
 | **owner** *(conditional)* | P04-01 `EFFECT_OWNERSHIP` via the [provider map](./providers.ts) | runtime wiring | a **mutating** action's effect path has no (or two) effect owners |
 | **output** | the checked-in `proof-fixtures.json` — shipped output-kind + error-family contract, non-empty and equal to the live compile's | shipped artifact | the shipped output contract is empty or has drifted from the live contract |
 | **artifact** | the checked-in `cli/generated/cli-surface.json` — the shipped client command for the ActionId | shipped artifact | the packaged client surface exposes no (or two) commands for the action |

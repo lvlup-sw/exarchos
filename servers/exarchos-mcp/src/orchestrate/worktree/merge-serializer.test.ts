@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url';
 
 import { EventStore } from '../../events/store.js';
 import { EVENT_DATA_SCHEMAS } from '../../events/schemas.js';
-import type { DispatchContext } from '../../core/dispatch.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 import { writeStateFile } from '../../workflow/state-store.js';
 import type { ToolResult } from '../../format.js';

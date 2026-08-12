@@ -16,7 +16,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { EventStore } from '../events/store.js';
-import type { DispatchContext } from '../core/dispatch.js';
+import type { DispatchContext } from '../dispatch/core/dispatch.js';
 import type { ToolResult } from '../format.js';
 import { resetMaterializerCache } from '../projections/views/tools.js';
 import {

@@ -40,7 +40,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import type { DispatchContext } from '../../core/dispatch.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import type { IntegrityResult } from '../../events/store.js';
 import {
   DoctorOutputSchema,

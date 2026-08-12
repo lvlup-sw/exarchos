@@ -34,7 +34,7 @@ All hard-cut, plus a `workflow.repair` action (event-emitting, capability-gated 
 
 - **C1 (storage):** Flip source-of-truth direction. SQLite (`bun:sqlite`) becomes truth; legacy JSONL is archived (one-release retention) and the JSONL writer is deleted. The `AtomicAppender` interface is unchanged; only its body is replaced. Closes the F1 family by physics, not by test discipline.
 - **C2 (cross-stream propagation):** Stream IDs become `<feature-id>/<subagent-id>`. The `SubagentStreamRouter` primitive's behavior moves to a query reducing over the `events` table at `team.disbanded` emission time. Generalizes the v2.9 router from explicit emit to derivation-from-events.
-- **C4 (HSM API single-path):** `workflow.transition(target)` is the canonical action. `workflow.set({ phase })` is retained one release as a deprecation rerouting surface — the handler routes through the same `core/dispatch.ts` and emits the same `workflow.transition` event under the hood. Each invocation emits a `hsm.deprecated_action_invoked` event and surfaces `_meta.deprecation` in the response envelope. v2.11 removes the action.
+- **C4 (HSM API single-path):** `workflow.transition(target)` is the canonical action. `workflow.set({ phase })` is retained one release as a deprecation rerouting surface — the handler routes through the same `dispatch/core/dispatch.ts` and emits the same `workflow.transition` event under the hood. Each invocation emits a `hsm.deprecated_action_invoked` event and surfaces `_meta.deprecation` in the response envelope. v2.11 removes the action.
 - **C5 (capability posture):** `AgentPosture = 'read-only' | 'task-isolated' | 'shared-mutating'` is added as a spec field. `capabilities/resolver.ts` derives the full capability set from posture. Specs declaring legacy `capabilities` arrays continue to work for one release with the same deprecation envelope. Resolver remains the only authority over `yaml ⊕ handshake`. v2.11 removes the array path.
 - **C6 (phase contract):** Each phase in `topology.yaml` may declare a `staleness` block. Pruner becomes a generic scorer over declared signals. Missing contracts fall back to today's single-signal heuristic and emit a `phase.contract_missing` event at startup. Mandatory v2.11.
 
@@ -43,7 +43,7 @@ All hard-cut, plus a `workflow.repair` action (event-emitting, capability-gated 
 | Invariant / Dimension | How this design honors it |
 |---|---|
 | **INV-1** event-sourcing integrity | C1 makes append atomicity a property of physics. C2 reduces over the `events` table (never over derived `workflow_state` fields). C4's deprecated path emits the same event the canonical path emits — no fix-it-up surface. Migration steps (DR-12) are themselves events. |
-| **INV-2** facade equivalence | All swaps live below `core/dispatch.ts`. Storage handle is injected through `DispatchContext`; no adapter-local cache. Deprecated action handler routes through dispatch core, not adapter shims. |
+| **INV-2** facade equivalence | All swaps live below `dispatch/core/dispatch.ts`. Storage handle is injected through `DispatchContext`; no adapter-local cache. Deprecated action handler routes through dispatch core, not adapter shims. |
 | **INV-3** basileus-forward | Capability derivation goes through `capabilities/resolver.ts`; `posture` is the YAML half of `yaml ⊕ handshake`, handshake stays authoritative. Storage backend is transport-agnostic; the cross-stream query is a primitive that a future remote store can implement. |
 | **INV-4** platform-agnosticity | `bun:sqlite` decision is settled (#1175 → #1176); skill-source content is unaffected. No new `runtimes/*.yaml` tokens needed. |
 | **INV-5a** input ergonomics | `set({phase})` action description gains explicit "Do NOT use — use action: 'transition' instead" pointer. Resolver loads phase contracts via typed loader; no free-text YAML at handler call time. |
@@ -114,7 +114,7 @@ The dispatch context is constructed in `lifecycle.ts` and threaded as a paramete
 **DR-3.** Subagent stream IDs are namespaced as `<feature-id>/<subagent-id>`. Cross-stream propagation at `team.disbanded` emission time is a query reducing over the `events` table.
 
 **Acceptance criteria:**
-- Stream-id validator (`shared/validation.ts`) accepts the namespaced form and rejects malformed inputs with structured error.
+- Stream-id validator (`contract/shared/validation.ts`) accepts the namespaced form and rejects malformed inputs with structured error.
 - Team-disbanded emission queries `eventStore.queryByType('task.completed', { streamPrefix: featureId })` and reduces; no read of `workflow_state.tasksCompleted` or any other derived-state field.
 - The `SubagentStreamRouter` primitive from v2.9 is removed in favor of the query (or kept as a thin wrapper if call sites benefit; documented either way).
 - Bundle test exercises a two-worktree scenario where two subagents append concurrently and the parent stream's `team.disbanded` event reflects exactly the two `task.completed` events.
@@ -124,7 +124,7 @@ The dispatch context is constructed in `lifecycle.ts` and threaded as a paramete
 **DR-4.** `workflow.transition(target)` is the canonical phase-mutation action. `workflow.set({ phase })` is retained for one release as a deprecation rerouting surface.
 
 **Acceptance criteria:**
-- `set({ phase })` handler routes through `core/dispatch.ts` and emits a `workflow.transition` event indistinguishable from the canonical path's emission (same event type, same data shape).
+- `set({ phase })` handler routes through `dispatch/core/dispatch.ts` and emits a `workflow.transition` event indistinguishable from the canonical path's emission (same event type, same data shape).
 - Each invocation emits a `hsm.deprecated_action_invoked` event with `data.action: 'workflow.set.phase'` and `data.invokedBy` populated from `DispatchContext`.
 - Response envelope carries `_meta.deprecation = { since: "2.10.0", removeIn: "2.11.0", replacement: "transition" }`.
 - `outputSchema` for `exarchos_workflow.set` registers `_meta.deprecation` as a typed field.

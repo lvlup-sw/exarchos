@@ -53,7 +53,7 @@ import {
   type EffectMode,
   type EffectOutcome,
   type EffectPlan,
-} from '../core/effect-carrier.js';
+} from '../dispatch/core/effect-carrier.js';
 import { getValidEventTypes, registerEventType } from '../events/schemas.js';
 import type { EventStore } from '../events/store.js';
 import type { WorkflowEvent } from '../events/schemas.js';

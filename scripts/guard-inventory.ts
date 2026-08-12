@@ -889,7 +889,7 @@ export interface GuardInventory {
    * Wave-1 source artifacts with no co-located self-test and no runnable
    * entrypoint — modules whose enforcement rung is COMPILE TIME (`tsc --noEmit`
    * in the typecheck steps), e.g. `output-schema-declaration.ts` and
-   * `sdk/brand.ts`. They carry no executable verdict, so execution-reachability
+   * `contract/sdk/brand.ts`. They carry no executable verdict, so execution-reachability
    * is not a question that can be asked of them. Reported, never silently
    * dropped: a guard that loses its self-test would land here rather than
    * disappearing.

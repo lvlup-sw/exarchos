@@ -13,7 +13,7 @@ import type { ToolResult } from '../format.js';
 
 // ─── Mocks ──────────────────────────────────────────────────────────────────
 
-vi.mock('../core/dispatch.js', () => ({
+vi.mock('../dispatch/core/dispatch.js', () => ({
   dispatch: vi.fn<(tool: string, args: Record<string, unknown>, ctx: unknown) => Promise<ToolResult>>(
     async () => ({ success: true, data: {} }),
   ),
@@ -37,8 +37,8 @@ vi.mock('./cli-format.js', () => ({
 // ─── Test Imports ───────────────────────────────────────────────────────────
 
 import { buildCli, CLI_EXIT_CODES } from './cli.js';
-import { dispatch } from '../core/dispatch.js';
-import type { DispatchContext } from '../core/dispatch.js';
+import { dispatch } from '../dispatch/core/dispatch.js';
+import type { DispatchContext } from '../dispatch/core/dispatch.js';
 import { expectedTrustedContext } from '../test-helpers/trusted-context.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────

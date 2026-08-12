@@ -878,9 +878,9 @@ invariants:
       totality obligation."
     references:
       - servers/exarchos-mcp/src/registry.ts
-      - servers/exarchos-mcp/src/core/dispatch.ts
-      - servers/exarchos-mcp/src/core/dispatch.economy-seam.ts
-      - servers/exarchos-mcp/src/core/economy.ts
+      - servers/exarchos-mcp/src/dispatch/core/dispatch.ts
+      - servers/exarchos-mcp/src/dispatch/core/dispatch.economy-seam.ts
+      - servers/exarchos-mcp/src/dispatch/core/economy.ts
       - docs/specs/2026-07-12-tool-token-economy-remediation.md
     citations:
       - "Anthropic, *Writing effective tools for AI agents / tool-use best

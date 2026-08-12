@@ -62,7 +62,7 @@ import { handleExecuteMerge } from '../../../src/orchestrate/execute-merge.js';
 import { handleCreatePr } from '../../../src/orchestrate/vcs/create-pr.js';
 import { initStateFile } from '../../../src/workflow/state-store.js';
 import { rmrf } from '../../../src/test-helpers/temp-dir.js';
-import type { DispatchContext } from '../../../src/core/dispatch.js';
+import type { DispatchContext } from '../../../src/dispatch/core/dispatch.js';
 import type { ResolvedProjectConfig } from '../../../src/config/resolve.js';
 import type { WorkflowEvent } from '../../../src/events/schemas.js';
 

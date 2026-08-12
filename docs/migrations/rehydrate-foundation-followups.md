@@ -17,8 +17,8 @@ Design reference: `docs/designs/2026-04-23-rehydrate-foundation.md` DR-16.
 
 ### 2. `applyCacheHints` composite wiring (T051) — RESOLVED on PR #1178
 
-- **State:** Resolved during the PR #1178 review cycle. `DispatchContext` now carries a `capabilityResolver`; `core/context.ts` and `index.ts` both construct one defaulting to `[ANTHROPIC_NATIVE_CACHING]`, gated by `EXARCHOS_DISABLE_CACHE_HINTS=1` as a kill switch. `workflow/composite.ts` introduces a rehydrate-only `envelopeWrapWithCacheHints` that applies the helper after `wrap()` and before the `wrapWithPassthrough` finalisation. Other workflow actions remain on the plain `envelopeWrap` so cache annotations don't leak into mutating dispatches.
-- **Coverage:** Four new behavioural tests in `workflow/composite.test.ts` cover the four resolver cases (capability + no resolver + empty resolver + non-rehydrate-actions-never-emit), plus two `core/context.test.ts` cases for the env kill switch.
+- **State:** Resolved during the PR #1178 review cycle. `DispatchContext` now carries a `capabilityResolver`; `dispatch/core/context.ts` and `index.ts` both construct one defaulting to `[ANTHROPIC_NATIVE_CACHING]`, gated by `EXARCHOS_DISABLE_CACHE_HINTS=1` as a kill switch. `workflow/composite.ts` introduces a rehydrate-only `envelopeWrapWithCacheHints` that applies the helper after `wrap()` and before the `wrapWithPassthrough` finalisation. Other workflow actions remain on the plain `envelopeWrap` so cache annotations don't leak into mutating dispatches.
+- **Coverage:** Four new behavioural tests in `workflow/composite.test.ts` cover the four resolver cases (capability + no resolver + empty resolver + non-rehydrate-actions-never-emit), plus two `dispatch/core/context.test.ts` cases for the env kill switch.
 - **Linked task:** T051 (closed)
 
 ---

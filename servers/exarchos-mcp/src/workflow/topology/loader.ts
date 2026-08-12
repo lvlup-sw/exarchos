@@ -17,7 +17,7 @@
  *
  * Design notes:
  *   - The loader is testable in isolation: the canonical topology path
- *     is an explicit option, not a hard-coded dependency. `core/context.ts`
+ *     is an explicit option, not a hard-coded dependency. `dispatch/core/context.ts`
  *     wires this into `initializeContext()` with the production path.
  */
 import * as fs from 'node:fs/promises';

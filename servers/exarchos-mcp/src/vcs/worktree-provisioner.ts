@@ -26,7 +26,7 @@
 
 import { join } from 'node:path';
 import { capabilitiesForPosture } from '../capabilities/posture-mapping.js';
-import { isError, isSuccess, type EffectOutcome } from '../core/effect-carrier.js';
+import { isError, isSuccess, type EffectOutcome } from '../dispatch/core/effect-carrier.js';
 import { EventStore } from '../events/store.js';
 import {
   VcsMutationOwner,

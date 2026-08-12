@@ -209,7 +209,7 @@ const LCD_OUTPUT_SCHEMA = z
 ```
 
 This is a workaround. The canonical envelope shape is the discriminated
-union `EnvelopeSchema(z.unknown())` from `schemas/envelope.ts:153-…`:
+union `EnvelopeSchema(z.unknown())` from `contract/schemas/envelope.ts:153-…`:
 
 ```ts
 return z.discriminatedUnion('success', [

@@ -4,7 +4,7 @@
 // `exarchos_sync` entry point with a real implementation.
 
 import type { ToolResult } from '../format.js';
-import type { DispatchContext } from '../core/dispatch.js';
+import type { DispatchContext } from '../dispatch/core/dispatch.js';
 import { handleSyncNow } from './sync-handler.js';
 
 /**

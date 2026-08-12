@@ -57,7 +57,7 @@ survivor) · **ESCALATE** (needs its own task; not deleted).
 | 4 | `projections/diff-states.ts` | 162 | 2 | RESERVED | `RESERVED(#1475 … expires 2027-01-31)` header. |
 | 5 | `workflow/depth-proposal.ts` | 131 | 1 | RESERVED | `RESERVED(#1581 … expires 2027-01-31)` header. |
 | 6 | `projections/bisect.ts` | 123 | 1 | RESERVED | `RESERVED(#1555 … expires 2027-01-31)` header. |
-| 7 | `core/dispatch.economy-seam.ts` | 239 | 1 | CLASS-ALLOWLIST | Test-invoked source-lint enforcement gate (INV-17 Axis-2). Exports `lintDispatchEconomyBypass` / `lintMiddlewareEconomySeam` / `lintEconomySeam`, run by its pin test against `dispatch.ts` / `middleware.ts` source. Not meant for prod import. |
+| 7 | `dispatch/core/dispatch.economy-seam.ts` | 239 | 1 | CLASS-ALLOWLIST | Test-invoked source-lint enforcement gate (INV-17 Axis-2). Exports `lintDispatchEconomyBypass` / `lintMiddlewareEconomySeam` / `lintEconomySeam`, run by its pin test against `dispatch.ts` / `middleware.ts` source. Not meant for prod import. |
 | 8 | `architecture/contract-seam.ts` | 66 | 1 | CLASS-ALLOWLIST | Test-invoked source-lint gate (DR-10). Exports `lintSeamComments`; the sole `invariant-schema.ts` mention is a comment, not an import. |
 | 9 | `projections/gwt.ts` | 117 | 1 | CLASS-ALLOWLIST | Given-When-Then test-harness DSL for projection reducers (T044, DR-10). Pure test infra. |
 | 10 | `benchmarks/event-factories.ts` | 133 | 2 | CLASS-ALLOWLIST | Benchmark test-data factory (gate/skill event fixtures). Only test importers; benchmark tests still run. |

@@ -3,7 +3,7 @@
 // Pins the registry-vs-dispatch parity contract for `exarchos_view`. Every
 // action dispatched through `projections/views/composite.ts` MUST be registered in
 // `TOOL_REGISTRY.viewActions`. Without this parity:
-//   1. Per-action Zod validation at `core/dispatch.ts:801` is silently
+//   1. Per-action Zod validation at `dispatch/core/dispatch.ts:801` is silently
 //      skipped for the unregistered action (DR-5 hole).
 //   2. `exarchos_view describe` cannot surface the action's schema — the
 //      handler reads schemas from the registry, so unregistered actions
@@ -21,7 +21,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { DispatchContext } from '../../core/dispatch.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import { EventStore } from '../../events/store.js';
 import { TOOL_REGISTRY } from '../../registry.js';
 import { handleView } from './composite.js';

@@ -23,7 +23,7 @@ import * as path from 'node:path';
 
 import { EventStore } from '../events/store.js';
 import { orchestrateLogger } from '../logger.js';
-import type { DispatchContext } from '../core/dispatch.js';
+import type { DispatchContext } from '../dispatch/core/dispatch.js';
 import { handleOrchestrate } from './composite.js';
 import type { ResolvedVerificationRuntime } from '../config/test-runtime-resolver.js';
 import { resolveConfig } from '../config/resolve.js';

@@ -630,7 +630,7 @@ describe('DR-26 — SDK generation seam: a direct SDK import fails the rule', ()
     // anything to do with the SDK". Without this arm the kill fixture above
     // would also pass against a rule that rejected every module in `adapters/`.
     const throughSeam = [
-      "import { createV1McpServer, createV1StdioServerTransport } from '../sdk/seam.js';",
+      "import { createV1McpServer, createV1StdioServerTransport } from '../contract/sdk/seam.js';",
       '',
       'export function boot(): ReturnType<typeof createV1McpServer> {',
       "  const s = createV1McpServer({ name: 'ok', version: '0.0.0' });",

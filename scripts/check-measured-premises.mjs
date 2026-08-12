@@ -714,8 +714,8 @@ function walkTypeScript(dir, out) {
 
 /**
  * The owned SDK seam (DR-26, task 052). Nothing under this directory is a
- * DIRECT-import subject: `sdk/seam.ts` is the sanctioned importer and
- * `sdk/brand.ts` is its generation vocabulary. Counting them would make the
+ * DIRECT-import subject: `contract/sdk/seam.ts` is the sanctioned importer and
+ * `contract/sdk/brand.ts` is its generation vocabulary. Counting them would make the
  * denominator include the very module that closes it — and would hand task 053
  * a migration target that must not be migrated.
  */

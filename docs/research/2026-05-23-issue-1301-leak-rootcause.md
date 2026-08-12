@@ -41,7 +41,7 @@ Code's file-tool layer, outside this repo)?
    code path by which it resolves to the main worktree root.
 
 3. **Orchestrate layer file-writes** — `grep` for `writeFile*`/`openSync`/
-   `createWriteStream` across `src/orchestrate/` and `src/core/` returns only:
+   `createWriteStream` across `src/orchestrate/` and `src/dispatch/core/` returns only:
    - `new-project.ts`, `init/seed-exarchos-config.ts`, `init/writers/*` —
      project scaffolding (orchestrator-side, not agent-isolated writes).
    - `generate-traceability.ts` — orchestrator report writer to a
@@ -49,7 +49,7 @@ Code's file-tool layer, outside this repo)?
    None of these is a `task-isolated` agent file-write surface.
 
 4. **Agent dispatch / spawn** — `grep` for `spawn`/`exec.*claude`/`Task(`/
-   `subagent`/`child_process` in `composite.ts` and `core/dispatch.ts` returns
+   `subagent`/`child_process` in `composite.ts` and `dispatch/core/dispatch.ts` returns
    **nothing**. The MCP server is a stdio tool layer; it emits events, runs
    gates, and provisions worktrees. **It never spawns the agent and never
    resolves the agent's individual file-tool write targets.** That resolution

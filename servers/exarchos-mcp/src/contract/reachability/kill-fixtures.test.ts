@@ -17,7 +17,7 @@ import {
 import { SOURCE_ROOT, resolveRouterSources, type RouterSource } from './dispatch-routes.js';
 import { EFFECT_PROVIDERS } from './providers.js';
 import { buildBindingTable } from '../bindings/binding-table.js';
-import { COMPOSITE_HANDLER_LOADERS } from '../../core/dispatch.js';
+import { COMPOSITE_HANDLER_LOADERS } from '../../dispatch/core/dispatch.js';
 import { compile, type CompiledContract } from '../compiler/compile.js';
 import { deriveMetaModel } from '../compiler/meta-model.js';
 import { PROOF_FIXTURES_FILE } from '../compiler/generate.js';

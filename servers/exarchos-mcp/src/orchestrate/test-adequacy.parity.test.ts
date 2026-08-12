@@ -28,8 +28,8 @@ vi.mock('./test-adequacy.js', async (importOriginal) => {
 });
 
 import { EventStore } from '../events/store.js';
-import type { DispatchContext, CompositeHandler } from '../core/dispatch.js';
-import { stubCompositeHandler } from '../core/dispatch.js';
+import type { DispatchContext, CompositeHandler } from '../dispatch/core/dispatch.js';
+import { stubCompositeHandler } from '../dispatch/core/dispatch.js';
 import type { ToolResult } from '../format.js';
 import {
   callCli as harnessCallCli,

@@ -29,7 +29,7 @@ const RAW_MAP: Readonly<Record<AgentPosture, ReadonlySet<Capability>>> = {
   // fs:read plus the readonly tier of the Exarchos MCP surface so the
   // reviewer can consult `exarchos_view` and other read-only composite
   // actions; mutating actions remain blocked at the dispatch layer
-  // (`core/dispatch.ts` readonly action allowlist).
+  // (`dispatch/core/dispatch.ts` readonly action allowlist).
   //
   // Updated in #1333: `mcp:exarchos:readonly` joined the read-only trust
   // tier when the resolver became the single source of truth for capability

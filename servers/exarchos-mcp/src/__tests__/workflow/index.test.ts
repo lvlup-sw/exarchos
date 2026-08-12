@@ -27,16 +27,16 @@ const {
 // Two things made that wrong once DR-0's migration landed: production no longer
 // imports those paths (so the mock intercepted nothing and every registration
 // assertion silently saw an empty map), and naming an SDK package outside
-// `sdk/seam.ts` is exactly what DR-26's `SDK_SEAM_BOUNDARY` rule forbids.
+// `contract/sdk/seam.ts` is exactly what DR-26's `SDK_SEAM_BOUNDARY` rule forbids.
 //
 // Mocking the seam is also the more durable boundary on its own merits: the
 // next SDK move changes one module rather than every test that stubs it, which
 // is the whole reason the seam exists.
-vi.mock('../../sdk/seam.js', async (importOriginal) => {
+vi.mock('../../contract/sdk/seam.js', async (importOriginal) => {
   // Constants (method names, protocol version) are pass-through: they are
   // vocabulary, not behaviour, and stubbing them would let a typo in the real
   // module pass here.
-  const actual = await importOriginal<typeof import('../../sdk/seam.js')>();
+  const actual = await importOriginal<typeof import('../../contract/sdk/seam.js')>();
   return {
     ...actual,
     createV2McpServer: vi.fn().mockImplementation(() => ({

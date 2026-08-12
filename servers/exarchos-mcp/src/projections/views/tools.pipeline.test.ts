@@ -18,7 +18,7 @@ import { EventStore } from '../../events/store.js';
 import { handleViewPipeline, resetMaterializerCache } from './tools.js';
 import { handleView } from './composite.js';
 import { deriveRepoKey } from '../../utils/paths.js';
-import type { DispatchContext } from '../../core/dispatch.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 import type { QualityHintsConfig } from '../../capabilities/resolver.js';
 

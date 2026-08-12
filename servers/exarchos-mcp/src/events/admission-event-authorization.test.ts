@@ -13,7 +13,7 @@ import {
   mintDispatchContext,
   runWithDispatchContext,
 } from '../dispatch/dispatch-context.js';
-import { dispatch } from '../core/dispatch.js';
+import { dispatch } from '../dispatch/core/dispatch.js';
 import { EventStore } from './store.js';
 import { buildValidatedEvent } from './event-factory.js';
 import { INTERNAL_ADMISSION_EVENT_TYPES } from './schemas.js';

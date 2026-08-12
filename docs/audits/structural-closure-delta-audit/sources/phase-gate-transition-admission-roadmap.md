@@ -989,7 +989,7 @@ The v2.12 task set defines versioned runtime event contracts and reusable storag
 - `servers/exarchos-mcp/src/describe/handler.ts`
 - `servers/exarchos-mcp/src/adapters/schema-to-flags.ts`
 - `servers/exarchos-mcp/src/adapters/generated-transition-admission.test.ts`
-- `servers/exarchos-mcp/src/core/dispatch.ts`
+- `servers/exarchos-mcp/src/dispatch/core/dispatch.ts`
 
 **Testing Strategy:** `exampleTests: true`, `propertyTests: true`, `benchmarks: false`, `testLayer: acceptance`, `characterizationRequired: true`; property: the generated CLI presentation and MCP action expose the same canonical contract by construction.
 **Tests:** `GeneratedFacade_DeniedDecision_MatchesContract`
@@ -1321,7 +1321,7 @@ The v2.12 task set defines versioned runtime event contracts and reusable storag
 **Files:**
 - `servers/exarchos-mcp/src/event-store/tools.ts`
 - `servers/exarchos-mcp/src/registry.ts`
-- `servers/exarchos-mcp/src/core/dispatch.ts`
+- `servers/exarchos-mcp/src/dispatch/core/dispatch.ts`
 - `servers/exarchos-mcp/src/event-store/admission-event-authorization.test.ts`
 
 **Testing Strategy:** `exampleTests: true`, `propertyTests: true`, `benchmarks: false`, `testLayer: acceptance`, `characterizationRequired: true`; property: generic append can never create reserved admission facts or self-assert trusted issuer metadata.
@@ -1660,7 +1660,7 @@ The v2.12 task set defines versioned runtime event contracts and reusable storag
 - `servers/exarchos-mcp/src/dispatch/caller-identity.ts`
 - `servers/exarchos-mcp/src/dispatch/caller-identity.test.ts`
 - `servers/exarchos-mcp/src/capabilities/resolver.ts`
-- `servers/exarchos-mcp/src/core/dispatch.ts`
+- `servers/exarchos-mcp/src/dispatch/core/dispatch.ts`
 - `servers/exarchos-mcp/src/adapters/mcp.ts`
 - `servers/exarchos-mcp/src/adapters/cli.ts`
 

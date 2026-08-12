@@ -3,7 +3,7 @@
 // For every built-in workflow type, iterate every phase declared by its
 // HSM definition, call `computeNextActions({phase, workflowType}, hsm)`,
 // and assert the result validates as a `NextAction[]` (per the schema in
-// `schemas/envelope.ts` → `next-action.ts`).
+// `contract/schemas/envelope.ts` → `next-action.ts`).
 //
 // This is the "no rogue verbs" gate for Wave 0: every HATEOAS hint that
 // `wrap()` could ever embed in an envelope must conform to the canonical
@@ -21,7 +21,7 @@
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
 import { computeNextActions } from '../../next-actions-computer.js';
-import { NextActionSchema } from '../../schemas/envelope.js';
+import { NextActionSchema } from '../../contract/schemas/envelope.js';
 import { getHSMDefinition } from '../../workflow/state-machine.js';
 
 const BUILT_IN_WORKFLOW_TYPES: readonly string[] = [

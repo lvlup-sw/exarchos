@@ -121,7 +121,7 @@ import type {
   V2RequestId as RequestId,
   V2Result as Result,
   V2Request as Request,
-} from '../../sdk/seam.js';
+} from '../../contract/sdk/seam.js';
 import type { TaskStorePort, CreateTaskParams } from './port.js';
 import { isTaskTerminal } from './port.js';
 

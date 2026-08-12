@@ -30,7 +30,7 @@ import {
 import { handleList } from '../../workflow/tools.js';
 import { handleCancel } from '../../workflow/cancel.js';
 import { EventStore } from '../../events/store.js';
-import type { DispatchContext } from '../../core/dispatch.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import {
   loadTopology,
   __resetTopologyCacheForTesting,

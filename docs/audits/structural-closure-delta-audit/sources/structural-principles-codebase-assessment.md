@@ -98,7 +98,7 @@ Evidence:
 - `package.json:24-35`
 - `servers/exarchos-mcp/src/registry.test.ts:2418-2467`
 - `servers/exarchos-mcp/src/registry.construction.test.ts:59-167`
-- `servers/exarchos-mcp/src/schemas/envelope.ts:145-176`
+- `servers/exarchos-mcp/src/contract/schemas/envelope.ts:145-176`
 
 These controls prevent several forms of drift. In particular, registry construction rejects incompatible field shapes, and the action registry cannot omit an output schema silently.
 
@@ -118,7 +118,7 @@ The same boundary is commonly represented in:
 - CLI rendering;
 - documentation.
 
-The repository tests these representations for consistency, but it still pays the maintenance cost of multiple editable sources. `format.ts` and `schemas/envelope.ts`, for example, describe matching result surfaces independently.
+The repository tests these representations for consistency, but it still pays the maintenance cost of multiple editable sources. `format.ts` and `contract/schemas/envelope.ts`, for example, describe matching result surfaces independently.
 
 Not every action's success payload is strongly specific. The registry requires an output schema, but some schemas remain permissive or use generic records and unknown values.
 

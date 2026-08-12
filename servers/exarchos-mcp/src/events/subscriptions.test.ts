@@ -18,7 +18,7 @@ import { makeTempDir, rmrf } from '../test-helpers/temp-dir.js';
 import { runInspectFollow, type FollowSubscribe } from '../cli/follow-loop.js';
 import { tasksFollow } from '../mcp/tasks-methods.js';
 import { handleViewWait, type WaitDeps } from '../projections/views/lifecycle/wait.js';
-import type { DispatchContext } from '../core/dispatch.js';
+import type { DispatchContext } from '../dispatch/core/dispatch.js';
 import type { Frame } from '../ndjson/frames.js';
 
 // ─── Test helpers ────────────────────────────────────────────────────────────

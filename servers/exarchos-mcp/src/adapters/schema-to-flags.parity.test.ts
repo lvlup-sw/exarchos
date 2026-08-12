@@ -3,7 +3,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { type DispatchContext } from '../core/dispatch.js';
+import { type DispatchContext } from '../dispatch/core/dispatch.js';
 import { EventStore } from '../events/store.js';
 import type { ToolResult } from '../format.js';
 import { callCli, callMcp } from '../__tests__/parity-harness.js';
@@ -193,7 +193,7 @@ describe('CLI/MCP argument coercion failure parity (DR-5)', () => {
 // ─── F-024 sidecar-coverage: parametrize across all 5 composite tools ───────
 //
 // The three malformed-args tests above only exercised `exarchos_workflow`.
-// The dispatch-level Zod validation lives in `core/dispatch.ts` and is
+// The dispatch-level Zod validation lives in `dispatch/core/dispatch.ts` and is
 // supposed to apply uniformly to every composite tool; this parametrized
 // block proves that empirically rather than relying on the single-tool
 // sample.

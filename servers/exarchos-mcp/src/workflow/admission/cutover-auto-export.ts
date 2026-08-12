@@ -29,7 +29,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
 
-import { ADMISSION_STREAM_ID } from '../../core/infra-streams.js';
+import { ADMISSION_STREAM_ID } from '../../dispatch/core/infra-streams.js';
 import { AdmissionCutoverReadyData } from '../../events/schemas.js';
 import { atomicWriteFile } from '../../utils/atomic-write.js';
 import {
@@ -118,7 +118,7 @@ const state: AutoExportState = {
  * Install (or, with `undefined`, tear down) the auto-export wiring: stores the
  * config, resets the first-time latch and counters, and registers
  * {@link maybeExportCutoverReadiness} for the observer's durable-append
- * success seam. Called from lifecycle wiring (`core/context.ts`) with the real
+ * success seam. Called from lifecycle wiring (`dispatch/core/context.ts`) with the real
  * EventStore + stateDir; tests call it with fakes and tear down after.
  */
 export function configureCutoverAutoExport(

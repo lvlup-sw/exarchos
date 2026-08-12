@@ -106,7 +106,7 @@ The onboard/doctor reconciler (`detect → DesiredState → diff → apply`) alr
 - **New doctor check (12th):** `verificationToolchainResolvable` — confirms `test`/`typecheck`/`mutation` resolve (or report remediation). **Today no doctor check covers test/typecheck/mutation availability** (confirmed gap). `doctor --fix` seeds missing commands via the same `apply`.
 - **DesiredState carries the verification-policy defaults** (R2), so `onboard` writes sensible tier defaults and `doctor --fix` reconciles drift.
 - **T0 characterization** (the issue's Feathers baseline) must additionally pin the *verification-gate outputs* before the fold, so the refactor is guarded.
-**Files:** `core/onboarding/reconcile.ts` (T1), `orchestrate/doctor/checks/verification-toolchain.ts` (new), `doctor/index.ts` `ALL_CHECKS`.
+**Files:** `dispatch/core/onboarding/reconcile.ts` (T1), `orchestrate/doctor/checks/verification-toolchain.ts` (new), `doctor/index.ts` `ALL_CHECKS`.
 **Invariants:** INV-4 (runtime resolution, never gen-time — the #1510 decision already states this), INV-2 (one reconciler core, two callers), INV-6.
 
 ### R10 — Governance: score trend + token telemetry

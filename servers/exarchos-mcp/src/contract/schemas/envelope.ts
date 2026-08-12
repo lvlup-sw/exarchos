@@ -10,7 +10,7 @@
 // (DIM-1: dispatch core is single-source for action contracts).
 
 import { z } from 'zod';
-import { NextAction as NextActionZ } from '../next-action.js';
+import { NextAction as NextActionZ } from '../../next-action.js';
 
 /**
  * Zod schema for a single HATEOAS `next_actions[]` entry.

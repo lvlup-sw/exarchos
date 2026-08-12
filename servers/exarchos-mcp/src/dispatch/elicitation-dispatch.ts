@@ -17,7 +17,7 @@
 //   5. Returns the elicited value so dispatch can retry the action with
 //      the now-complete payload.
 //
-// Resolution priority is documented in `core/dispatch.ts`:
+// Resolution priority is documented in `dispatch/core/dispatch.ts`:
 // explicit > roots > cwd > elicitation > INVALID_INPUT.
 
 import type { z } from 'zod';
@@ -79,7 +79,7 @@ export interface PerformElicitationOpts {
  * Both events land on the per-operation pseudo-stream
  * `elicitation/<operationId>`.
  *
- * Callers (notably `core/dispatch.ts`) are responsible for re-running the
+ * Callers (notably `dispatch/core/dispatch.ts`) are responsible for re-running the
  * Zod validation pass after splicing the elicited value back into the
  * payload — this helper produces the value; it does not retry the action.
  */

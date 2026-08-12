@@ -32,7 +32,7 @@ export interface CorrectionsPayload {
  * Economy-enforcement `_meta` conventions (DR-1, Task 003).
  *
  * The dispatch-core response-economy seam (`enforceResponseEconomy`,
- * `core/dispatch.ts`) stamps exactly one of these markers on the envelope
+ * `dispatch/core/dispatch.ts`) stamps exactly one of these markers on the envelope
  * `_meta` after measuring `data` against the action's resolved budget
  * (`resolveEconomyBudget`, `registry.ts`):
  *

@@ -30,7 +30,7 @@ import {
   connectV2Client,
   connectV2Server,
   type V2Client,
-} from './sdk/seam.js';
+} from './contract/sdk/seam.js';
 import { createServer } from './index.js';
 import { estimateTokens } from './architecture/description-budget.js';
 import { TOOL_REGISTRY } from './registry.js';

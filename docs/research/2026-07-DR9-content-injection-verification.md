@@ -181,7 +181,7 @@ Independent of the §6 go/no-go, Task 017 extracts the inline `content` construc
 
 - It is the structural split point between the **contract** (`structuredContent`, the canonical envelope) and its **presentation** (`content`, a rendering of it) — the first instance of the split the system-design §05 facade-codegen generalizes across facades (spec "Presentation seam (§05 down-payment)", line 174).
 - Deferring the *rendering* must **not** defer the *split point* (spec acceptance, line 118). On a DEFER verdict `renderContent` simply stays byte-identical; a future GO fills the same seam with the lean rendering with no re-plumbing.
-- Discipline reminder for Task 017: capping/economy logic lives in the shared core (`core/economy.ts`, `core/dispatch.ts`), never in the adapter; `renderContent` only *renders*. New response shapes fall out of the shared envelope + `renderContent`, never a hand-added `cli-format.ts` branch.
+- Discipline reminder for Task 017: capping/economy logic lives in the shared core (`dispatch/core/economy.ts`, `dispatch/core/dispatch.ts`), never in the adapter; `renderContent` only *renders*. New response shapes fall out of the shared envelope + `renderContent`, never a hand-added `cli-format.ts` branch.
 
 ---
 

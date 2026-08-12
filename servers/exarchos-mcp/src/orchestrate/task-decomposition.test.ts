@@ -1102,12 +1102,12 @@ describe('checkParallelSafety', () => {
       {
         id: 'T-01',
         isParallel: true,
-        files: ['src/shared/utils.ts', 'src/shared/utils.test.ts'],
+        files: ['src/contract/shared/utils.ts', 'src/contract/shared/utils.test.ts'],
       },
       {
         id: 'T-02',
         isParallel: true,
-        files: ['src/shared/utils.ts', 'src/shared/format.test.ts'],
+        files: ['src/contract/shared/utils.ts', 'src/contract/shared/format.test.ts'],
       },
     ];
 
@@ -1116,7 +1116,7 @@ describe('checkParallelSafety', () => {
     expect(result.safe).toBe(false);
     expect(result.conflicts.length).toBeGreaterThan(0);
     // Should mention the conflicting file
-    expect(result.conflicts[0]).toContain('src/shared/utils.ts');
+    expect(result.conflicts[0]).toContain('src/contract/shared/utils.ts');
     // Should mention both task IDs
     expect(result.conflicts[0]).toContain('T-01');
     expect(result.conflicts[0]).toContain('T-02');

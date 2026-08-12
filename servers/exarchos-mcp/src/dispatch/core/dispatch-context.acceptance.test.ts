@@ -23,17 +23,18 @@ import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
-import { EventStore } from '../events/store.js';
-import { InMemoryBackend } from '../storage/memory-backend.js';
+import { EventStore } from '../../events/store.js';
+import { InMemoryBackend } from '../../storage/memory-backend.js';
 import type { DispatchContext } from './dispatch.js';
-import type { StorageBackend } from '../storage/backend.js';
+import type { StorageBackend } from '../../storage/backend.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-// servers/exarchos-mcp/src/core/dispatch-context.acceptance.test.ts → src/
-const SRC_DIR = resolve(__dirname, '..');
+// servers/exarchos-mcp/src/dispatch/core/dispatch-context.acceptance.test.ts → src/
+// Task 014 moved core/ into dispatch/core/, so reaching src/ costs two hops.
+const SRC_DIR = resolve(__dirname, '..', '..');
 
 const EXCLUDED_SEGMENTS = new Set(['storage', '__shims__', '__tests__']);
 
@@ -103,10 +104,10 @@ describe('DR-2 acceptance — storage handle DI through DispatchContext', () => 
 
   it('DispatchContext_StorageHandle_InjectedNotAmbient', () => {
     // ─── Sub-assertion 1: type-shape — `storage` is declared on the
-    // `DispatchContext` interface in `core/dispatch.ts`.
+    // `DispatchContext` interface in `dispatch/core/dispatch.ts`.
     //
     // Type-erasure makes runtime introspection of an interface impossible,
-    // so this assertion reads `core/dispatch.ts` and grep-asserts that
+    // so this assertion reads `dispatch/core/dispatch.ts` and grep-asserts that
     // the declared interface body contains a `storage` field annotated
     // with `StorageBackend`. The companion `assertType` below pins the
     // shape statically — but tsc excludes test files from the typecheck

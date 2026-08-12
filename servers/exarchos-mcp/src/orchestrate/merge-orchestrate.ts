@@ -40,7 +40,7 @@ import * as path from 'node:path';
 import { z } from 'zod';
 
 import type { ToolResult } from '../format.js';
-import type { DispatchContext } from '../core/dispatch.js';
+import type { DispatchContext } from '../dispatch/core/dispatch.js';
 import {
   mergePreflight as defaultMergePreflight,
   type GitExec,

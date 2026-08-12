@@ -36,7 +36,7 @@
 import { z } from 'zod';
 import { AsOfSchema, CheckpointHandoffSchema, WorkflowTypeSchema } from './workflow/schemas.js';
 import { agentSpecSchema as agentSpecSchemaForRegistry } from './agents/handler.js';
-import { EnvelopeSchema } from './schemas/envelope.js';
+import { EnvelopeSchema } from './contract/schemas/envelope.js';
 import {
   AcquireWorktreeOutputSchema,
   ReleaseWorktreeOutputSchema,
@@ -568,7 +568,7 @@ export interface ToolAction {
    * Dispatch-layer metadata (#1440 Op 2, preview-4 T2, design §4.3).
    * Sibling-level (not under `cli`) because the Tasks dispatch-core is
    * shared between CLI and MCP facades (INV-2). Advisory only — the
-   * binding opt-in gate stays at `core/dispatch.ts:927-954`. Surfaced
+   * binding opt-in gate stays at `dispatch/core/dispatch.ts:927-954`. Surfaced
    * via `exarchos_view describe` so clients can enumerate
    * task-suitable actions.
    */
@@ -1350,7 +1350,7 @@ export const MetaDeprecationSchema = z.object({
 
 // Wave 0 / Task G.2 (#1340): consolidate the three v2.10.0-preview.2
 // standalone envelope constants onto the canonical `EnvelopeSchema(data)`
-// factory from `schemas/envelope.ts`. Each surface remains as a named
+// factory from `contract/schemas/envelope.ts`. Each surface remains as a named
 // export so any downstream consumer that typed-imported the constants
 // directly continues to compile through one release window; canonical
 // replacement is `EnvelopeSchema` itself (callers should migrate to it
@@ -1646,7 +1646,7 @@ const workflowActions: readonly BuiltinToolAction[] = [
     // long-running multi-step verb (merge verification, synthesis
     // metadata backfill, review force-resolve, transition) that benefits
     // from Tasks-augmented dispatch. The annotation is advisory — the
-    // binding opt-in gate stays at `core/dispatch.ts:927-954`.
+    // binding opt-in gate stays at `dispatch/core/dispatch.ts:927-954`.
     dispatch: { taskSuitable: true, taskTtlSuggestionMs: 60_000 },
     outputSchema: vacuityWaiver('exarchos_workflow.cleanup'),
     annotations: COMPENSABLE_LOCAL,
@@ -1688,7 +1688,7 @@ const workflowActions: readonly BuiltinToolAction[] = [
     // T9 (#1440 Op 2, preview-4 design §4.3): full state rebuild is a
     // long-running projection fold (latest snapshot + every event since)
     // that benefits from Tasks-augmented dispatch. Advisory — the
-    // binding opt-in gate stays at `core/dispatch.ts:927-954`.
+    // binding opt-in gate stays at `dispatch/core/dispatch.ts:927-954`.
     dispatch: { taskSuitable: true, taskTtlSuggestionMs: 60_000 },
     outputSchema: vacuityWaiver('exarchos_workflow.rehydrate'),
     annotations: LOCAL_MUTATION_IDEMPOTENT,
@@ -2573,7 +2573,7 @@ const orchestrateActions: readonly BuiltinToolAction[] = [
     // orchestration (preflight → execute → optional rollback) is the
     // canonical long-running verb and benefits from Tasks-augmented
     // dispatch. Advisory — the binding opt-in gate stays at
-    // `core/dispatch.ts:927-954`.
+    // `dispatch/core/dispatch.ts:927-954`.
     dispatch: { taskSuitable: true, taskTtlSuggestionMs: 60_000 },
     // DR-5 (task 076): `merge-orchestrate` is promoted to a top-level verb from
     // HERE, the registry declaration — not by a hand-written
@@ -3189,7 +3189,7 @@ const orchestrateActions: readonly BuiltinToolAction[] = [
     // The synthesize phase itself is multi-step (branch staging, PR open,
     // CI wait) so the verb that gates it benefits from Tasks-augmented
     // dispatch. Advisory — the binding opt-in gate stays at
-    // `core/dispatch.ts:927-954`.
+    // `dispatch/core/dispatch.ts:927-954`.
     dispatch: { taskSuitable: true, taskTtlSuggestionMs: 60_000 },
     outputSchema: vacuityWaiver('exarchos_orchestrate.request_synthesize'),
     annotations: LOCAL_MUTATION,
@@ -4012,7 +4012,7 @@ const viewActions: readonly BuiltinToolAction[] = [
   // T1 (#1446 residue) — three view actions dispatched through
   // `projections/views/composite.ts` but previously absent from TOOL_REGISTRY.viewActions.
   // Without the registry entry, per-action Zod validation at
-  // `core/dispatch.ts:801` is silently skipped (DR-5 hole) and
+  // `dispatch/core/dispatch.ts:801` is silently skipped (DR-5 hole) and
   // `exarchos_view describe` cannot surface their schemas. Registering them
   // here closes both gaps. Schemas mirror the args the composite.ts handlers
   // route today (see `projections/views/composite.ts` cases for each action).

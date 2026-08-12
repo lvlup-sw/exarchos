@@ -66,12 +66,12 @@ Issues: #1001, #1003, #1011
 **testingStrategy:** `{ exampleTests: true, propertyTests: false, benchmarks: false, testLayer: "integration", characterizationRequired: true }`
 
 1. [RED] Write characterization tests verifying current dispatch behavior
-   - File: `servers/exarchos-mcp/src/core/dispatch.test.ts`
+   - File: `servers/exarchos-mcp/src/dispatch/core/dispatch.test.ts`
    - Test: `dispatch_compositeHandler_receivesDispatchContext` — verify handler receives full ctx
    - Expected failure: handler currently receives `(args, stateDir)` not `(args, ctx)`
 
 2. [GREEN] Change `CompositeHandler` type from `(args, stateDir: string) => Promise<ToolResult>` to `(args, ctx: DispatchContext) => Promise<ToolResult>`
-   - File: `servers/exarchos-mcp/src/core/dispatch.ts` (line 16-19)
+   - File: `servers/exarchos-mcp/src/dispatch/core/dispatch.ts` (line 16-19)
    - Update `dispatch()` line 133: change `builtInHandler(a, ctx.stateDir)` to `builtInHandler(a, ctx)`
 
 3. [GREEN] Update all 5 composite handler signatures to accept `ctx: DispatchContext`
@@ -177,12 +177,12 @@ Issues: #1001, #1003, #1011
 **testingStrategy:** `{ exampleTests: true, propertyTests: false, benchmarks: false, testLayer: "integration", characterizationRequired: false }`
 
 1. [RED] Write test verifying `initializeContext` no longer calls any configureXxx functions
-   - File: `servers/exarchos-mcp/src/core/context.test.ts`
+   - File: `servers/exarchos-mcp/src/dispatch/core/context.test.ts`
    - Test: `initializeContext_noConfigureXxxCalls_eventStoreOnlyInContext` — verify no configureXxx imports exist
    - Expected failure: context.ts still imports and calls configureXxx
 
-2. [GREEN] Remove all configureXxx imports and calls from `core/context.ts`
-   - File: `servers/exarchos-mcp/src/core/context.ts` (lines 8-14, 47-54)
+2. [GREEN] Remove all configureXxx imports and calls from `dispatch/core/context.ts`
+   - File: `servers/exarchos-mcp/src/dispatch/core/context.ts` (lines 8-14, 47-54)
    - Remove: `configureWorkflowEventStore`, `configureNextActionEventStore`, `configureCancelEventStore`, `configureCleanupEventStore`, `configureQueryEventStore`, `configureQualityEventStore`
    - Keep: `configureCleanupSnapshotStore` (SnapshotStore is out of scope)
    - Keep: `configureStateStoreBackend` (StorageBackend is out of scope)

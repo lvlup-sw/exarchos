@@ -19,8 +19,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { EventStore } from '../events/store.js';
-import type { CompositeHandler, DispatchContext } from '../core/dispatch.js';
-import { stubCompositeHandler } from '../core/dispatch.js';
+import type { CompositeHandler, DispatchContext } from '../dispatch/core/dispatch.js';
+import { stubCompositeHandler } from '../dispatch/core/dispatch.js';
 import type { ToolResult } from '../format.js';
 
 import {

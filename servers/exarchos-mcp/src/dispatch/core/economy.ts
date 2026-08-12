@@ -22,8 +22,8 @@
 // never an inventory-hiding error.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { getQualityHintThreshold, type QualityHintsConfig } from '../capabilities/resolver.js';
-import type { NextAction } from '../next-action.js';
+import { getQualityHintThreshold, type QualityHintsConfig } from '../../capabilities/resolver.js';
+import type { NextAction } from '../../next-action.js';
 
 /** Deterministic default item cap applied when the caller omits `limit`. */
 export const DEFAULT_VIEW_ITEM_CAP = 50;

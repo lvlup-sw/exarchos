@@ -38,7 +38,7 @@ import {
   type WorkflowEvent,
 } from './schemas.js';
 import { rmrfAsync } from '../test-helpers/temp-dir.js';
-import type { DispatchContext } from '../core/dispatch.js';
+import type { DispatchContext } from '../dispatch/core/dispatch.js';
 import { handleExecuteMerge } from '../orchestrate/execute-merge.js';
 // Side-effect: register `merge-orchestrator@v1` so the executor's Phase A
 // `decide` closure can resolve the reducer against a real EventStore.

@@ -33,9 +33,9 @@ import { z } from 'zod';
 import { parseDocument, stringify as stringifyYaml, isSeq, isMap } from 'yaml';
 import type { YAMLSeq } from 'yaml';
 
-import type { DispatchContext } from '../../core/dispatch.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import type { ToolResult } from '../../format.js';
-import { EnvelopeSchema } from '../../schemas/envelope.js';
+import { EnvelopeSchema } from '../../contract/schemas/envelope.js';
 import { InvariantEntryV3Schema } from '../../architecture/invariant-schema.js';
 // DR-6 — the catalog's primary-key rule has ONE authority, in the loader.
 import {

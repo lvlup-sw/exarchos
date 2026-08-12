@@ -33,7 +33,7 @@
     "searchRoots": [
       "servers/exarchos-mcp/src/registry.ts",
       "servers/exarchos-mcp/src/adapters/cli.ts",
-      "servers/exarchos-mcp/src/core/dispatch.ts",
+      "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "commands/",
       "skills-src/",
       "skills/",
@@ -152,7 +152,7 @@
         "line": 87,
         "symbol": "handleEventAppend, fireHookIfConfigured, pushToChannelIfConfigured, envelopeWrap"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -196,7 +196,7 @@
         "line": 107,
         "symbol": "handleBatchAppend, ctx.hookRunner, new Date().toISOString, classifyPriority, ctx.channelEmitter.push, envelopeWrap"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -242,7 +242,7 @@
         "line": 158,
         "symbol": "handleEventDescribe, envelopeWrap"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -286,7 +286,7 @@
         "line": 98,
         "symbol": "handleEventQuery, envelopeWrap"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -330,7 +330,7 @@
         "line": 512,
         "symbol": "adaptCtx(handleAcquireWorktree)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "withCappedShape(AcquireWorktreeOutputSchema)",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -374,7 +374,7 @@
         "line": 482,
         "symbol": "adaptCtx(handleAddPrComment)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -418,7 +418,7 @@
         "line": 427,
         "symbol": "adapt(handleAgentSpec)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -462,7 +462,7 @@
         "line": 434,
         "symbol": "adaptArgsWithEventStore(handleAssessRefactorScope)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -506,7 +506,7 @@
         "line": 393,
         "symbol": "adaptWithEventStoreAndConfig(handleAssessStack)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -550,7 +550,7 @@
         "line": 479,
         "symbol": "adaptCtx(handleCheckCi)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -594,7 +594,7 @@
         "line": 449,
         "symbol": "adaptArgs(handleCheckCoderabbit)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -638,7 +638,7 @@
         "line": 419,
         "symbol": "adaptWithEventStore(handleContextEconomy)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -682,7 +682,7 @@
         "line": 406,
         "symbol": "adaptLadderGate('check_contract_drift', 'D1', handleContractDrift)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -726,7 +726,7 @@
         "line": 423,
         "symbol": "adaptWithEventStore(handleCheckConvergence)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -770,7 +770,7 @@
         "line": 433,
         "symbol": "adaptArgs(handleCheckCoverageThresholds)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -814,7 +814,7 @@
         "line": 394,
         "symbol": "adaptWithEventStore(handleDesignCompleteness)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -858,7 +858,7 @@
         "line": 426,
         "symbol": "adaptWithEventStore(handleCheckEventEmissions)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -902,7 +902,7 @@
         "line": 399,
         "symbol": "adaptWithEventStore(handleCheckExplorationDepth)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -946,7 +946,7 @@
         "line": 417,
         "symbol": "adaptLadderGate('check_integration_suite', 'D2', handleCheckIntegrationSuite)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -990,7 +990,7 @@
         "line": 456,
         "symbol": "adaptWithEventStore(handleCheckInvariantConformance)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -1034,7 +1034,7 @@
         "line": 407,
         "symbol": "adaptLadderGate('check_mock_boundary', 'D1', handleMockBoundary)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -1078,7 +1078,7 @@
         "line": 420,
         "symbol": "adaptWithEventStore(handleOperationalResilience)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -1122,7 +1122,7 @@
         "line": 395,
         "symbol": "adaptWithEventStore(handlePlanCoverage)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -1166,7 +1166,7 @@
         "line": 450,
         "symbol": "adaptArgs(handleCheckPolishScope)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -1210,7 +1210,7 @@
         "line": 415,
         "symbol": "adaptWithEventStore(handlePostMerge)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -1254,7 +1254,7 @@
         "line": 435,
         "symbol": "adaptArgs(handleCheckPrComments)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -1298,7 +1298,7 @@
         "line": 424,
         "symbol": "adaptWithEventStore(handleProvenanceChain)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -1342,7 +1342,7 @@
         "line": 422,
         "symbol": "adaptWithEventStoreAndConfig(handleReviewVerdict)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -1386,7 +1386,7 @@
         "line": 418,
         "symbol": "adaptWithEventStore(handleSecurityScan)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -1430,7 +1430,7 @@
         "line": 416,
         "symbol": "adaptLadderGate('check_static_analysis', 'D2', handleStaticAnalysis)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -1474,7 +1474,7 @@
         "line": 425,
         "symbol": "adaptWithEventStore(handleTaskDecomposition)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -1518,7 +1518,7 @@
         "line": 405,
         "symbol": "adaptLadderGate('check_test_adequacy', 'D1', handleTestAdequacy)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -1562,7 +1562,7 @@
         "line": 421,
         "symbol": "adaptWithEventStore(handleWorkflowDeterminism)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -1606,7 +1606,7 @@
         "line": 440,
         "symbol": "adaptArgsWithEventStore(handleClassifyReviewItems)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -1650,7 +1650,7 @@
         "line": 487,
         "symbol": "async (args, _stateDir, ctx) => {\n    if (!ctx) throw new Error('DispatchContext required for this handler');\n    const typedArgs = args as unknown as Omit<HandleCreateIssueArgs, 'listIssuesByMarker'> &\n      Partial<Pick<HandleCreateIssueArgs, 'listIssuesByMarker'>>;\n    // Lazy provider creation: only construct the VCS provider if the\n    // caller hasn't injected a `listIssuesByMarker` (e.g. tests that\n    // stub the recovery probe directly). Avoids surfacing provider\n    // bootstrap errors before the handler's own input guards run.\n    const listIssuesByMarker =\n      typedArgs.listIssuesByMarker ??\n      (async (operationId: string) => {\n        const provider = await createVcsProvider({ config: ctx.projectConfig });\n        return provider.searchIssuesByMarker(operationId);\n      });\n    return handleCreateIssue({ ...typedArgs, listIssuesByMarker }, ctx);\n  }"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -1694,7 +1694,7 @@
         "line": 477,
         "symbol": "adaptCtx(handleCreatePr)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -1738,7 +1738,7 @@
         "line": 438,
         "symbol": "adaptArgs(handleDebugReviewGate)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -1784,7 +1784,7 @@
         "line": null,
         "symbol": "handleDescribe"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -1828,7 +1828,7 @@
         "line": 455,
         "symbol": "adaptWithOptionalEventStore(handleDiscoverBridge)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -1872,7 +1872,7 @@
         "line": null,
         "symbol": "handleDoctor"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -1916,7 +1916,7 @@
         "line": 439,
         "symbol": "adaptArgsWithStateDirAndEventStore(handleExtractFixTasks)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -1960,7 +1960,7 @@
         "line": 428,
         "symbol": "adapt(handleExtractTask)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -2004,7 +2004,7 @@
         "line": 475,
         "symbol": "adaptArgsWithStateDirAndEventStore(handleFinalizeOneshot)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -2048,7 +2048,7 @@
         "line": 441,
         "symbol": "adaptArgs(handleGenerateTraceability)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -2092,7 +2092,7 @@
         "line": 481,
         "symbol": "adaptCtx(handleGetPrComments)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -2136,7 +2136,7 @@
         "line": null,
         "symbol": "handleAdd"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -2180,7 +2180,7 @@
         "line": null,
         "symbol": "handleScaffold"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -2224,7 +2224,7 @@
         "line": 432,
         "symbol": "adaptWithOptionalEventStore(handleInvestigationTimer)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -2268,7 +2268,7 @@
         "line": 480,
         "symbol": "adaptCtx(handleListPrs)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -2312,7 +2312,7 @@
         "line": 506,
         "symbol": "adaptCtx(handleMergeOrchestrate)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -2356,7 +2356,7 @@
         "line": 478,
         "symbol": "adaptCtx(handleMergePr)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -2400,7 +2400,7 @@
         "line": null,
         "symbol": "adaptLadderGate(MUTATION_GATE_NAME, D1, handleMutationAdequacy)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -2444,7 +2444,7 @@
         "line": 451,
         "symbol": "adaptArgs(handleNeedsSchemaSync)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -2488,7 +2488,7 @@
         "line": null,
         "symbol": "handleOnboard"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -2532,7 +2532,7 @@
         "line": 446,
         "symbol": "adaptArgsWithEventStore(handlePostDelegationCheck)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -2576,7 +2576,7 @@
         "line": 448,
         "symbol": "adaptArgsWithStateDirAndEventStore(handlePreSynthesisCheck)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -2620,7 +2620,7 @@
         "line": 391,
         "symbol": "adaptWithCtx(handlePrepareDelegation)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -2664,7 +2664,7 @@
         "line": 454,
         "symbol": "adaptWithEventStore(handlePrepareReview)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -2708,7 +2708,7 @@
         "line": 392,
         "symbol": "adaptWithEventStoreAndConfig(handlePrepareSynthesis)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -2752,7 +2752,7 @@
         "line": 473,
         "symbol": "handlePruneStaleWorkflows as ActionHandler"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -2796,7 +2796,7 @@
         "line": 514,
         "symbol": "adaptCtx(handlePruneWorktrees)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "withCappedShape(PruneWorktreesOutputSchema)",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -2840,7 +2840,7 @@
         "line": 447,
         "symbol": "adaptArgsWithEventStore(handleReconcileState)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -2884,7 +2884,7 @@
         "line": 513,
         "symbol": "adaptCtx(handleReleaseWorktree)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "withCappedShape(ReleaseWorktreeOutputSchema)",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -2928,7 +2928,7 @@
         "line": 474,
         "symbol": "adaptArgsWithStateDirAndEventStore(handleRequestSynthesize)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -2972,7 +2972,7 @@
         "line": 429,
         "symbol": "adapt(handleReviewDiff)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -3016,7 +3016,7 @@
         "line": 390,
         "symbol": "adaptWithEventStore(handleReviewTriage)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -3060,7 +3060,7 @@
         "line": null,
         "symbol": "handleRunbook"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -3104,7 +3104,7 @@
         "line": 431,
         "symbol": "adaptWithOptionalEventStore(handleSelectDebugTrack)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -3148,7 +3148,7 @@
         "line": 520,
         "symbol": "adaptCtx(handleSerializeMerge)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "withCappedShape(SerializeMergeOutputSchema)",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -3192,7 +3192,7 @@
         "line": 444,
         "symbol": "adaptSetupWorktree()"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -3236,7 +3236,7 @@
         "line": 442,
         "symbol": "adaptArgs(handleSpecCoverageCheck)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -3280,7 +3280,7 @@
         "line": 387,
         "symbol": "adaptWithEventStore(handleTaskClaim)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -3324,7 +3324,7 @@
         "line": 388,
         "symbol": "adaptWithEventStore(handleTaskComplete)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -3368,7 +3368,7 @@
         "line": 389,
         "symbol": "adaptWithEventStore(handleTaskFail)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -3412,7 +3412,7 @@
         "line": 436,
         "symbol": "adaptWithOptionalEventStore(handleValidatePrBody)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -3456,7 +3456,7 @@
         "line": 437,
         "symbol": "adaptArgs(handleValidatePrStack)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -3500,7 +3500,7 @@
         "line": 445,
         "symbol": "adaptArgs(handleVerifyDelegationSaga)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -3544,7 +3544,7 @@
         "line": 452,
         "symbol": "adaptArgs(handleVerifyDocLinks)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -3588,7 +3588,7 @@
         "line": 453,
         "symbol": "adaptArgsWithStateDirAndEventStore(handleVerifyReviewTriage)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -3632,7 +3632,7 @@
         "line": 430,
         "symbol": "adapt(handleVerifyWorktree)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -3676,7 +3676,7 @@
         "line": 443,
         "symbol": "adapt(handleVerifyWorktreeBaseline)"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -3720,7 +3720,7 @@
         "line": 22,
         "symbol": "handleSyncNow"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -3764,7 +3764,7 @@
         "line": 263,
         "symbol": "wrapView, handleViewCodeQuality"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -3808,7 +3808,7 @@
         "line": 390,
         "symbol": "wrapView, handleViewConvergence"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -3852,7 +3852,7 @@
         "line": 253,
         "symbol": "wrapView, handleViewDelegationReadiness"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -3896,7 +3896,7 @@
         "line": 236,
         "symbol": "wrapView, handleViewDelegationTimeline"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -3942,7 +3942,7 @@
         "line": 471,
         "symbol": "wrapView, handleDescribe"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -3986,7 +3986,7 @@
         "line": 293,
         "symbol": "wrapView, handleViewEvalResults"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -4032,7 +4032,7 @@
         "line": 460,
         "symbol": "wrapView, handleViewExport"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "withCappedShape(ExportOutputSchema)",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -4078,7 +4078,7 @@
         "line": 451,
         "symbol": "wrapView, handleViewInspect"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "withCappedShape(InspectOutputSchema)",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -4122,7 +4122,7 @@
         "line": 400,
         "symbol": "wrapView, handleViewInvariantsEffective"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -4168,7 +4168,7 @@
         "line": 114,
         "symbol": "wrapView, handleViewPipeline, deriveRepoKey, process.cwd"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -4212,7 +4212,7 @@
         "line": 380,
         "symbol": "wrapView, handleViewProvenance"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -4258,7 +4258,7 @@
         "line": 423,
         "symbol": "wrapView, withLaunchLivenessAffordance, handleViewPs"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "withCappedShape(PsOutputSchema)",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -4302,7 +4302,7 @@
         "line": 330,
         "symbol": "wrapView, handleViewQualityAttribution"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -4346,7 +4346,7 @@
         "line": 312,
         "symbol": "wrapView, handleViewQualityCorrelation"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -4390,7 +4390,7 @@
         "line": 283,
         "symbol": "wrapView, handleViewQualityHints"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -4434,7 +4434,7 @@
         "line": 351,
         "symbol": "wrapView, handleViewSessionProvenance"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -4478,7 +4478,7 @@
         "line": 370,
         "symbol": "wrapView, handleViewShepherdStatus"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -4522,7 +4522,7 @@
         "line": 183,
         "symbol": "wrapView, handleStackPlace"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -4566,7 +4566,7 @@
         "line": 173,
         "symbol": "wrapView, handleStackStatus"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -4610,7 +4610,7 @@
         "line": 360,
         "symbol": "wrapView, handleViewSynthesisReadiness"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -4656,7 +4656,7 @@
         "line": 145,
         "symbol": "wrapView, handleViewTasks"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -4700,7 +4700,7 @@
         "line": 226,
         "symbol": "wrapView, handleViewTeamPerformance"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -4744,7 +4744,7 @@
         "line": 199,
         "symbol": "wrapView, handleViewTelemetry"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "withCappedShape(TelemetryViewOutputSchema)",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -4790,7 +4790,7 @@
         "line": 442,
         "symbol": "wrapView, handleViewWait"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "withCappedShape(WaitOutputSchema)",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -4836,7 +4836,7 @@
         "line": 161,
         "symbol": "wrapView, handleViewWorkflowStatus"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -4880,7 +4880,7 @@
         "line": 417,
         "symbol": "wrapView, handleViewWorktrees"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "withCappedShape(WorktreesOutputSchema)",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -4924,7 +4924,7 @@
         "line": 142,
         "symbol": "envelopeWrap, handleCancel"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -4968,7 +4968,7 @@
         "line": 154,
         "symbol": "import, process.cwd, loadExarchosConfig, workflowLogger.warn, envelopeWrap, handleCheckpoint"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -5012,7 +5012,7 @@
         "line": 144,
         "symbol": "envelopeWrap, handleCleanup"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -5058,7 +5058,7 @@
         "line": 215,
         "symbol": "envelopeWrap, handleDescribe"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -5104,7 +5104,7 @@
         "line": 148,
         "symbol": "envelopeWrap, handleFeedback"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -5150,7 +5150,7 @@
         "line": 58,
         "symbol": "envelopeWrap, handleGet"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -5196,7 +5196,7 @@
         "line": 44,
         "symbol": "deriveRepoKey, process.cwd, envelopeWrap, handleInit"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -5240,7 +5240,7 @@
         "line": 146,
         "symbol": "envelopeWrap, handleReconcileState"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -5284,7 +5284,7 @@
         "line": 203,
         "symbol": "envelopeWrap, handleRehydrate"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "EnvelopeSchema(z.unknown())",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -5330,7 +5330,7 @@
         "line": 60,
         "symbol": "Number.isInteger, envelopeWrap, handleTransition, Object.keys"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "WorkflowTransitionOutputSchema",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -5376,7 +5376,7 @@
         "line": 121,
         "symbol": "envelopeWrap, handleUpdate"
       },
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "WorkflowUpdateOutputSchema",
       "representationClass": "canonical",
       "disposition": "partial",
@@ -10807,24 +10807,24 @@
         "state": "present",
         "evidence": [
           "30831d05f67c44b80e45391b67ed29f11dda4276:servers/exarchos-mcp/src/registry.ts",
-          "30831d05f67c44b80e45391b67ed29f11dda4276:servers/exarchos-mcp/src/core/dispatch.ts"
+          "30831d05f67c44b80e45391b67ed29f11dda4276:servers/exarchos-mcp/src/dispatch/core/dispatch.ts"
         ]
       },
       "candidate": {
         "state": "present",
         "evidence": [
           "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:servers/exarchos-mcp/src/registry.ts",
-          "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:servers/exarchos-mcp/src/core/dispatch.ts"
+          "13cf9642b9c3ec5dec5a4bcfdbfc5ac6904a75f5:servers/exarchos-mcp/src/dispatch/core/dispatch.ts"
         ]
       },
       "canonicalSource": "servers/exarchos-mcp/src/registry.ts",
       "derivativeSources": [
-        "servers/exarchos-mcp/src/core/dispatch.ts",
+        "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
         "servers/exarchos-mcp/src/adapters/mcp.ts",
         "servers/exarchos-mcp/src/adapters/cli.ts"
       ],
       "handler": "dispatch output validation",
-      "dispatch": "servers/exarchos-mcp/src/core/dispatch.ts",
+      "dispatch": "servers/exarchos-mcp/src/dispatch/core/dispatch.ts",
       "outputContract": "Action outputSchema plus shared structured success/error envelope.",
       "representationClass": "checked",
       "disposition": "partial",

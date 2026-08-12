@@ -4,7 +4,7 @@
 //
 //     explicit > roots > cwd
 //
-// The dispatch path (see `core/dispatch.ts`) only invokes
+// The dispatch path (see `dispatch/core/dispatch.ts`) only invokes
 // `resolveWorkspace` when the caller's payload omits `featureId`; an
 // explicitly-supplied id always wins. When the client has declared the
 // `roots` capability via `notifications/roots/list_changed`, the

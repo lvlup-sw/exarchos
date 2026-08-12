@@ -34,7 +34,7 @@ import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as nodePath from 'node:path';
 
-import type { DispatchContext } from '../../core/dispatch.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import type { ToolResult } from '../../format.js';
 import { handleAmend } from './amend.js';
 import type { ScaffoldDeps } from './scaffold.js';

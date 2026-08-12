@@ -7,19 +7,19 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as os from 'node:os';
 import { z } from 'zod';
-import { EventStore } from '../events/store.js';
-import type { ToolResult } from '../format.js';
+import { EventStore } from '../../events/store.js';
+import type { ToolResult } from '../../format.js';
 import {
   registerCustomTool,
   clearCustomTools,
   setCustomToolActionHandler,
-} from '../registry.js';
-import type { CompositeTool } from '../registry.js';
+} from '../../registry.js';
+import type { CompositeTool } from '../../registry.js';
 import type { DispatchContext } from './dispatch.js';
 import { extractSingleMissingRequiredField } from './dispatch.js';
-import { InMemoryBackend } from '../storage/memory-backend.js';
-import type { StorageBackend } from '../storage/backend.js';
-import { rmrfAsync } from '../test-helpers/temp-dir.js';
+import { InMemoryBackend } from '../../storage/memory-backend.js';
+import type { StorageBackend } from '../../storage/backend.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 describe('dispatch', () => {
   let tmpDir: string;
@@ -1224,7 +1224,7 @@ describe('dispatch', () => {
       const restore = stubCompositeHandler('exarchos_workflow', oneShot);
       try {
         const { EventSourcedTaskStore } = await import(
-          '../projections/task-store/event-sourced-task-store.js'
+          '../../projections/task-store/event-sourced-task-store.js'
         );
         const taskStore = new EventSourcedTaskStore(eventStore);
         const ctx: DispatchContext = {
@@ -1267,7 +1267,7 @@ describe('dispatch', () => {
       const restore = stubCompositeHandler('exarchos_workflow', oneShot);
       try {
         const { EventSourcedTaskStore } = await import(
-          '../projections/task-store/event-sourced-task-store.js'
+          '../../projections/task-store/event-sourced-task-store.js'
         );
         const taskStore = new EventSourcedTaskStore(eventStore);
         const ctx: DispatchContext = {

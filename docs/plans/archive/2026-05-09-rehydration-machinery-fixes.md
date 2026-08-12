@@ -70,10 +70,10 @@ Invariants (INV-1, INV-2, phasePlaybook null contract) all pass — no spec rewo
 
 ### F-05 [LOW — observability polish, optional]: Add `workflowLogger.warn` to session-machinery interceptor catch
 
-**Problem**: `servers/exarchos-mcp/src/core/interceptors/session-machinery.ts:169` swallows interceptor errors silently. Documented as observability-only by design, but unlike sibling swallow paths in `handleRehydrate` and `buildDegradedResponse`, this catch emits no log signal at all — T-12 interceptor regressions would be invisible to oncall.
+**Problem**: `servers/exarchos-mcp/src/dispatch/core/interceptors/session-machinery.ts:169` swallows interceptor errors silently. Documented as observability-only by design, but unlike sibling swallow paths in `handleRehydrate` and `buildDegradedResponse`, this catch emits no log signal at all — T-12 interceptor regressions would be invisible to oncall.
 
 **Files**:
-- `servers/exarchos-mcp/src/core/interceptors/session-machinery.ts:169` — add `workflowLogger.warn({ err, ctx: ... }, 'session-machinery interceptor swallowed error')` inside the catch
+- `servers/exarchos-mcp/src/dispatch/core/interceptors/session-machinery.ts:169` — add `workflowLogger.warn({ err, ctx: ... }, 'session-machinery interceptor swallowed error')` inside the catch
 
 **Acceptance**:
 - `npm run typecheck` passes

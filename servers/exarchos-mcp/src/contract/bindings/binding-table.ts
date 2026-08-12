@@ -24,7 +24,7 @@
 //     through a config / the wire.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { COMPOSITE_HANDLER_LOADERS, type CompositeHandler } from '../../core/dispatch.js';
+import { COMPOSITE_HANDLER_LOADERS, type CompositeHandler } from '../../dispatch/core/dispatch.js';
 
 /**
  * A lazy loader for a composite tool's REAL handler. A function — never a

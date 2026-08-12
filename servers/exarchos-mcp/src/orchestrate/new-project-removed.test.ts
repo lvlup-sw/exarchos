@@ -31,7 +31,7 @@ const LIVE_PATH_FILES: readonly string[] = [
     .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))
     .map((f) => join(__dirname, 'onboard', f)),
   // shared reconcile engine
-  join(__dirname, '..', 'core', 'onboarding', 'reconcile.ts'),
+  join(__dirname, '..', 'dispatch', 'core', 'onboarding', 'reconcile.ts'),
 ];
 
 describe('new-project removed (DR-3, task 017)', () => {

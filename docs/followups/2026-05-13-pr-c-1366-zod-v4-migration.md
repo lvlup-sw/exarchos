@@ -56,7 +56,7 @@ Plus `z.toJSONSchema` (the new v4 native converter) replaces `zod-to-json-schema
 |---|---|
 | `servers/exarchos-mcp/src/adapters/json-schema.ts` | Replace upstream call: `return z.toJSONSchema(schema, { target: 'draft-2020-12', ...opts })`. Drop `JSON_SCHEMA_2020_12_URI` export (no longer needed for relabel). Drop the relabel section of the source comment. Add a forward note: "Native 2020-12 emission via Zod v4; replaces relabel from #1366 era." |
 
-### Schema declarations (`servers/exarchos-mcp/src/schemas/envelope.ts`)
+### Schema declarations (`servers/exarchos-mcp/src/contract/schemas/envelope.ts`)
 
 The `EnvelopeSchema` factory and supporting schemas migrate to v4:
 - `z.discriminatedUnion('success', [...])` — verify shape preserved
@@ -123,13 +123,13 @@ The big file. Areas:
 | C2.6 | Run `npx vitest run src/adapters/json-schema.test.ts` — expect GREEN |
 | C2.7 | Commit as `feat(pr-c): bump zod to v4 + rewrite json-schema adapter for native 2020-12 (#1366)` |
 
-### Phase 3 — Schema foundation: `schemas/envelope.ts` (1 agent, 1–2 hours)
+### Phase 3 — Schema foundation: `contract/schemas/envelope.ts` (1 agent, 1–2 hours)
 
 | Task | Action |
 |---|---|
 | C3.1 | Update `EnvelopeSchema`, `SuccessEnvelopeSchema`, `ErrorEnvelopeSchema`, `NextActionSchema`, `PerfMetricsSchema`, etc. for Zod v4 syntax |
 | C3.2 | Tighten `Envelope<T>.success` to `z.literal(true)` (success branch); this resolves the v3 narrowing issue and is more precise |
-| C3.3 | Run `npx vitest run src/schemas/envelope.test.ts`. Expect GREEN. |
+| C3.3 | Run `npx vitest run src/contract/schemas/envelope.test.ts`. Expect GREEN. |
 | C3.4 | Commit as `refactor(pr-c): migrate envelope schemas to Zod v4 (#1366)` |
 
 ### Phase 4 — Registry surface: `registry.ts` (1 agent, 2–4 hours)

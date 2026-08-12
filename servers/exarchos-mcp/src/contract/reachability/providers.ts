@@ -5,7 +5,7 @@
 // action's mutating effect. The two authorities it bridges do not name each
 // other:
 //
-//   • dispatch (`core/dispatch.ts::COMPOSITE_HANDLER_LOADERS`) maps a composite
+//   • dispatch (`dispatch/core/dispatch.ts::COMPOSITE_HANDLER_LOADERS`) maps a composite
 //     TOOL → the module it dynamically imports (`exarchos_workflow` →
 //     `workflow/composite.ts`); and
 //   • the effect ledger (`architecture/effect-ledger.ts::EFFECT_OWNERSHIP`) maps
@@ -66,7 +66,7 @@ export interface EffectProvider {
  * perform a mutating effect. Each entry is backed by exactly one live
  * `EFFECT_OWNERSHIP` rule (asserted by {@link validateEffectProviders}).
  *
- * Sourced from `core/dispatch.ts::COMPOSITE_HANDLER_LOADERS`:
+ * Sourced from `dispatch/core/dispatch.ts::COMPOSITE_HANDLER_LOADERS`:
  *   exarchos_workflow    → import('../workflow/composite.js')     → workflow/
  *   exarchos_event       → import('../events/composite.js')       → events/
  *   exarchos_orchestrate → import('../orchestrate/composite.js')  → orchestrate/

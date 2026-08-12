@@ -11,7 +11,7 @@
 // until T040/T041 populate it from HSM transitions.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { DispatchContext } from '../../core/dispatch.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import { EventStore } from '../../events/store.js';
 
 // Mock every handler invoked by `handleView` so we exercise only the

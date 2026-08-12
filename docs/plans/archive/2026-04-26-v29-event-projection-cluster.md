@@ -21,7 +21,7 @@ For Fix 1's enforcement, the **canonical EventStore composition root** is:
 | File | Why |
 |------|-----|
 | `servers/exarchos-mcp/src/index.ts` | Long-running MCP server entrypoint |
-| `servers/exarchos-mcp/src/core/context.ts` | `initializeContext` — shared with embedded callers |
+| `servers/exarchos-mcp/src/dispatch/core/context.ts` | `initializeContext` — shared with embedded callers |
 | `servers/exarchos-mcp/src/cli-commands/assemble-context.ts` | CLI subprocess (separate process — PID lock works) |
 | `servers/exarchos-mcp/src/cli-commands/pre-compact.ts` | Claude Code pre-compact hook (separate process) |
 | `servers/exarchos-mcp/src/evals/run-evals-cli.ts` | Eval runner CLI (separate process) |
@@ -37,7 +37,7 @@ All other `new EventStore(...)` outside `**/*.test.ts`, `**/__tests__/**`, `**/*
 
 #### T1.1 RED — Composition-root validation script
 
-- Add `scripts/check-event-store-composition-root.mjs` walking `servers/exarchos-mcp/src/**/*.ts` and failing on any `new EventStore(...)` outside the documented allowlist (5 entries: `index.ts`, `core/context.ts`, `cli-commands/{assemble-context, pre-compact}.ts`, `evals/run-evals-cli.ts`). Test/bench files excluded automatically.
+- Add `scripts/check-event-store-composition-root.mjs` walking `servers/exarchos-mcp/src/**/*.ts` and failing on any `new EventStore(...)` outside the documented allowlist (5 entries: `index.ts`, `dispatch/core/context.ts`, `cli-commands/{assemble-context, pre-compact}.ts`, `evals/run-evals-cli.ts`). Test/bench files excluded automatically.
 - Confirm script fires on `views/tools.ts:143` and `review/tools.ts:110` against current HEAD.
 - Confirm script does NOT fire on the five composition-root files.
 - Wire the script into `npm run validate`.
@@ -64,7 +64,7 @@ All other `new EventStore(...)` outside `**/*.test.ts`, `**/__tests__/**`, `**/*
 
 #### T1.4 REFACTOR — Document the composition root invariant
 
-- Short comment on `views/tools.ts` (where `getOrCreateEventStore` lived) explaining that EventStore is injected, with cross-reference to `core/context.ts:initializeContext`.
+- Short comment on `views/tools.ts` (where `getOrCreateEventStore` lived) explaining that EventStore is injected, with cross-reference to `dispatch/core/context.ts:initializeContext`.
 - Same on `review/tools.ts` for `emitRoutedEvents`.
 - No code changes — only the comments.
 

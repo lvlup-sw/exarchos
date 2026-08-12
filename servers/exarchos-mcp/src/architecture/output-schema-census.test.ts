@@ -37,7 +37,7 @@ import {
 } from './output-schema-census.js';
 import type { CensusableAction, CensusableTool } from './output-schema-census.js';
 import { TOOL_REGISTRY } from '../registry.js';
-import { EnvelopeSchema } from '../schemas/envelope.js';
+import { EnvelopeSchema } from '../contract/schemas/envelope.js';
 
 // ─── Authority A — the declaration form, read from registry source text ──────
 //

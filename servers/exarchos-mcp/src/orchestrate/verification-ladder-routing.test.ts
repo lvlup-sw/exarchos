@@ -40,7 +40,7 @@ vi.mock('./mock-boundary.js', async (importOriginal) => {
 });
 
 import { EventStore } from '../events/store.js';
-import type { DispatchContext } from '../core/dispatch.js';
+import type { DispatchContext } from '../dispatch/core/dispatch.js';
 import { handleOrchestrate } from './composite.js';
 import { gateRunnerObservationSource } from './gate-runner.js';
 import { rmrf } from '../test-helpers/temp-dir.js';

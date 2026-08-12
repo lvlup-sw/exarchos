@@ -42,7 +42,7 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { EventStore } from '../events/store.js';
-import type { DispatchContext } from '../core/dispatch.js';
+import type { DispatchContext } from '../dispatch/core/dispatch.js';
 
 import { handleMergeOrchestrate } from './merge-orchestrate.js';
 import type { MergePreflightResult, GitExec } from './pure/merge-preflight.js';

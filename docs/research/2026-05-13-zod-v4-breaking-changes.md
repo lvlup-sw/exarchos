@@ -31,7 +31,7 @@ All claims cite either the Zod v4 migration guide
 | `z.preprocess(...)` constructors | **6** sites (full list §5) |
 | `z.record(...)` sites | **41** (none with single-arg form — already migrated, see §6) |
 | `z.string().{email,url,uuid,…}` chained-format sites | **20** (full list §7) |
-| `z.discriminatedUnion(...)` sites | **4** sites (`registry.ts`, `ndjson/frames.ts`, `schemas/envelope.ts`, `event-store/schemas.ts`) |
+| `z.discriminatedUnion(...)` sites | **4** sites (`registry.ts`, `ndjson/frames.ts`, `contract/schemas/envelope.ts`, `event-store/schemas.ts`) |
 | `.parse()` / `.safeParse()` sites | **1230** (most should be transparent on migration) |
 | `.passthrough()` sites | 16 |
 | `.strict()` sites | 41 (mostly in `config/yaml-schema.ts` and `config/validation.ts`) |
@@ -210,9 +210,9 @@ servers/exarchos-mcp/src/registry.ts:420
 servers/exarchos-mcp/src/registry.ts:436
 servers/exarchos-mcp/src/registry.ts:448
 servers/exarchos-mcp/src/registry.ts:486
-servers/exarchos-mcp/src/schemas/envelope.ts:122             (doc-comment ref)
-servers/exarchos-mcp/src/schemas/envelope.ts:126
-servers/exarchos-mcp/src/schemas/envelope.ts:153
+servers/exarchos-mcp/src/contract/schemas/envelope.ts:122             (doc-comment ref)
+servers/exarchos-mcp/src/contract/schemas/envelope.ts:126
+servers/exarchos-mcp/src/contract/schemas/envelope.ts:153
 servers/exarchos-mcp/src/adapters/schema-to-flags.ts:88
 servers/exarchos-mcp/src/adapters/schema-to-flags.ts:90
 servers/exarchos-mcp/src/adapters/schema-to-flags.ts:92
@@ -237,13 +237,13 @@ with a slightly different internal shape:
 | v3 access | v4 access | Notes |
 |---|---|---|
 | `s._def.typeName` (e.g. `'ZodOptional'`, `'ZodEffects'`) | `s._zod.def.type` (e.g. `'optional'`, `'pipe'`) | **type-name strings change** — see §8 |
-| `s._def.innerType` (Optional/Default/Nullable wrapper) | `s._zod.def.innerType` | preserved, same semantics — `core/schemas.d.ts:797-832` |
+| `s._def.innerType` (Optional/Default/Nullable wrapper) | `s._zod.def.innerType` | preserved, same semantics — `dispatch/core/schemas.d.ts:797-832` |
 | `s._def.effect` (Effects wrapper) | **dropped** — no Effects class. Preprocess is `ZodPipe`; access via `s._zod.def.in` (ZodTransform), `s._zod.def.out` (wrapped schema) | requires rewrite — see §5 |
 | `s._def.values` (ZodEnum) | `s._zod.def.entries` (returns the enum members object) | v4 calls this `entries`; the array form is `Object.keys(entries)` or `Object.values(entries)` |
 | `s._def.value` (ZodLiteral) | `s._zod.def.values[0]` (literal is single-element array in v4 core; classic `z.literal(x)` still produces one with `.values = [x]`) | the v4 SDK compat shim already handles both at `node_modules/@modelcontextprotocol/sdk/dist/esm/server/zod-compat.js:181-208` |
 | `s._def.options` (ZodUnion) | `s._zod.def.options` | preserved |
 | `s._def.schema` (ZodEffects inner) | **dropped** — use ZodPipe traversal | see §5 |
-| `s._def.defaultValue` (ZodDefault) | `s._zod.def.defaultValue` | `core/schemas.d.ts:832` — note that in v4 it may be a getter or value |
+| `s._def.defaultValue` (ZodDefault) | `s._zod.def.defaultValue` | `dispatch/core/schemas.d.ts:832` — note that in v4 it may be a getter or value |
 
 **Full call-site list (`file:line` plus current code excerpt):**
 

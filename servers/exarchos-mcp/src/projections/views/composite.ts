@@ -5,7 +5,7 @@
 
 import { type ToolResult } from '../../format.js';
 import type { NextAction } from '../../next-action.js';
-import type { DispatchContext } from '../../core/dispatch.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import { handleDescribe } from '../../describe/handler.js';
 import { TOOL_REGISTRY } from '../../registry.js';
 import { envelopeWrap } from '../../envelope-wrap.js';
@@ -113,7 +113,7 @@ export async function handleView(
   // liveness arms. `WaitDeps` is the superset (it extends `WorktreeViewDeps`
   // with the generic-`wait` subscription/deadline seams) so one param threads
   // both the worktree ps/wait scope AND the generic wait's phase/status/operation
-  // predicates. Production dispatch (`core/dispatch.ts`) calls `handleView(args,
+  // predicates. Production dispatch (`dispatch/core/dispatch.ts`) calls `handleView(args,
   // ctx)` with no third argument, so the real OS-backed defaults are wired; only
   // the named lifecycle tests thread it. Other action arms ignore it. An extra
   // optional parameter keeps `handleView` assignable to `CompositeHandler`.

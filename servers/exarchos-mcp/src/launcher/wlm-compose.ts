@@ -38,7 +38,7 @@
  * is untouched by this module — composition, not replacement (DR-3).
  */
 
-import type { DispatchContext } from '../core/dispatch.js';
+import type { DispatchContext } from '../dispatch/core/dispatch.js';
 import type { ToolResult } from '../format.js';
 import {
   WorktreeManager,
