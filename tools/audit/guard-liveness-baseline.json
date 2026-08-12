@@ -1,6 +1,6 @@
 {
   "capturedAt": "2026-08-12",
-  "trackedFiles": 3311,
+  "trackedFiles": 3317,
   "surfaces": {
     "depcruise:no-domain-core-to-io-adapters:from": {
       "kind": "module-set",
@@ -18,7 +18,7 @@
     },
     "codeowners:*": {
       "kind": "ownership",
-      "matched": 3311
+      "matched": 3317
     },
     "codeowners:servers/exarchos-mcp/": {
       "kind": "ownership",
@@ -79,10 +79,6 @@
     "package.files:.claude-plugin": {
       "kind": "packaging",
       "matched": 1
-    },
-    "package.files:CLAUDE.md.template": {
-      "kind": "packaging",
-      "matched": 0
     },
     "package.files:AGENTS.md": {
       "kind": "packaging",

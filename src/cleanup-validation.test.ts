@@ -9,10 +9,26 @@ import { fileURLToPath } from 'node:url';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 describe('Cleanup Validation', () => {
-  it('WorkspaceConfig_RootPackageJson_HasWorkspacesField', () => {
+  it('WorkspaceConfig_RootPackageJson_DeclaresNoDeadWorkspaceGlob', () => {
+    // This assertion used to require `workspaces: ["packages/*"]`. That became
+    // false when `packages/create-exarchos` was deleted and nothing replaced
+    // it: the glob matched no directory, so npm resolved an empty workspace set
+    // and the declaration described a layout the repository no longer had.
+    //
+    // A glob pointing at nothing is not inert. It invites tooling to treat this
+    // as a monorepo root, and it is the kind of declaration a reader trusts
+    // precisely because it is committed. The remedy is deletion rather than
+    // repointing — the nested server package carries its own lockfile and is
+    // deliberately not an npm workspace.
     const pkg = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf-8'));
-    expect(pkg.workspaces).toBeDefined();
-    expect(pkg.workspaces).toContain('packages/*');
+    const workspaces: string[] = pkg.workspaces ?? [];
+
+    for (const glob of workspaces) {
+      const root = glob.replace(/\/\*+$/, '');
+      expect(existsSync(resolve(ROOT, root)), `workspace glob "${glob}" matches no directory`).toBe(
+        true,
+      );
+    }
   });
 
   it('CompanionDir_DoesNotExist_RemovedFromRepo', () => {

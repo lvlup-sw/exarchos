@@ -29,11 +29,13 @@ const baseline = JSON.parse(
  * Surfaces known to match nothing TODAY, each with the task that removes it.
  * This is a defect list, not an allowance: when the entry is fixed the set
  * shrinks and the equality assertion below demands this list shrink with it.
+ *
+ * Currently empty, and it earned that. The one entry here — a `files[]` naming
+ * `CLAUDE.md.template`, which does not exist — was removed by the
+ * dead-declaration task, and the equality assertion is what forced this list to
+ * be emptied rather than left carrying a defect that no longer exists.
  */
-const KNOWN_DEAD: Record<string, string> = {
-  'package.files:CLAUDE.md.template':
-    'the file does not exist; the shipped package declares it anyway. Removed by the dead-declaration task.',
-};
+const KNOWN_DEAD: Record<string, string> = {};
 
 const entries = Object.entries(baseline.surfaces);
 
