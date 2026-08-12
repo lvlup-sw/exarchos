@@ -2,7 +2,7 @@
  * Tests for the read-time upcasting choke-point CI gate (#1556).
  *
  * The gate forbids direct backend reads (`.queryEvents(` /
- * `.queryEventsByType(`) outside the event-store/storage substrate, so every
+ * `.queryEventsByType(`) outside the events/storage substrate, so every
  * reader folds rows through `migrateEvents` (read-time schema evolution
  * cannot be silently skipped).
  */
@@ -53,7 +53,7 @@ describe('check-query-upcast-choke-point CLI (#1556)', () => {
 
   it('Detects_QueryEventsByType_OutsideSubstrate_ExitsNonZero', () => {
     const { srcRoot, cleanup } = makeFixtureSrc({
-      'views/some-view.ts':
+      'projections/views/some-view.ts':
         'export function scan(backend: any) {\n' +
         "  return backend.queryEventsByType('task.assigned', 'feat');\n" +
         '}\n',
@@ -69,9 +69,9 @@ describe('check-query-upcast-choke-point CLI (#1556)', () => {
 
   it('Allows_EventStoreAndStorageSubstrate_ExitsZero', () => {
     const { srcRoot, cleanup } = makeFixtureSrc({
-      'event-store/store.ts':
+      'events/store.ts':
         'export function q(backend: any, id: string) { return backend.queryEvents(id); }\n',
-      'event-store/atomic-appender.ts':
+      'events/atomic-appender.ts':
         'export function seq(backend: any, id: string) { return backend.queryEvents(id); }\n',
       'storage/sqlite-backend.ts':
         'export class B { queryEvents(id: string) { return []; } }\n',
