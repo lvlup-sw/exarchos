@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1146,
-    "parsedFiles": 1101,
+    "testFiles": 1147,
+    "parsedFiles": 1102,
     "shellFiles": 45,
-    "cases": 12671,
+    "cases": 12680,
     "dynamicTitles": 130,
     "unparseableFiles": 0
   },
@@ -10650,6 +10650,57 @@
         {
           "suite": "isScannableFile",
           "name": "accepts shipped .ts and rejects test/decl/bench files",
+          "dynamic": false
+        }
+      ]
+    },
+    "servers/exarchos-mcp/src/architecture/verb-registration.test.ts": {
+      "file": "servers/exarchos-mcp/src/architecture/verb-registration.test.ts",
+      "runner": "vitest:nested",
+      "cases": [
+        {
+          "suite": "VerbRegistration_AfterRegrouping_EveryActionStillRegisters",
+          "name": "the registry is non-empty and every id is well formed",
+          "dynamic": false
+        },
+        {
+          "suite": "VerbRegistration_AfterRegrouping_EveryActionStillRegisters",
+          "name": "no duplicate action ids",
+          "dynamic": false
+        },
+        {
+          "suite": "VerbRegistration_AfterRegrouping_EveryActionStillRegisters",
+          "name": "matches the checked-in snapshot exactly",
+          "dynamic": false
+        },
+        {
+          "suite": "VerbRegistration_AfterRegrouping_EveryActionStillRegisters",
+          "name": "every composite still exists where the registry expects it",
+          "dynamic": false
+        },
+        {
+          "suite": "VerbRegistration_AfterRegrouping_EveryActionStillRegisters",
+          "name": "every registered action has a dispatch branch in its composite",
+          "dynamic": false
+        },
+        {
+          "suite": "VerbRegistration_DroppedHandler_FailsTheSnapshot",
+          "name": "dropping one action from the observed set fails the comparison",
+          "dynamic": false
+        },
+        {
+          "suite": "VerbRegistration_DroppedHandler_FailsTheSnapshot",
+          "name": "renaming one action fails the comparison",
+          "dynamic": false
+        },
+        {
+          "suite": "VerbRegistration_DroppedHandler_FailsTheSnapshot",
+          "name": "the orphan check really detects an unroutable action",
+          "dynamic": false
+        },
+        {
+          "suite": "VerbRegistration_DroppedHandler_FailsTheSnapshot",
+          "name": "the composite scan is reading real switch branches, not matching everything",
           "dynamic": false
         }
       ]
