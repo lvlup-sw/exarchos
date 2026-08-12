@@ -7,7 +7,7 @@
     "testFiles": 1145,
     "parsedFiles": 1100,
     "shellFiles": 45,
-    "cases": 12657,
+    "cases": 12661,
     "dynamicTitles": 130,
     "unparseableFiles": 0
   },
@@ -69305,6 +69305,26 @@
         {
           "suite": "BuildGraph_AfterUnification_DeclaredPackageSetMatchesTheManifestSet",
           "name": "each declared manifest has its own lockfile beside it",
+          "dynamic": false
+        },
+        {
+          "suite": "ManifestSet_EveryTrackedPackageJson_IsClassifiedRetainedOrRetired",
+          "name": "every manifest carries an explicit disposition",
+          "dynamic": false
+        },
+        {
+          "suite": "ManifestSet_EveryTrackedPackageJson_IsClassifiedRetainedOrRetired",
+          "name": "a retired package leaves no CI paths-filter behind",
+          "dynamic": false
+        },
+        {
+          "suite": "ManifestSet_EveryTrackedPackageJson_IsClassifiedRetainedOrRetired",
+          "name": "evals-pkg is retained, and the CI filter that depends on it still exists",
+          "dynamic": false
+        },
+        {
+          "suite": "ManifestSet_EveryTrackedPackageJson_IsClassifiedRetainedOrRetired",
+          "name": "the heavy eval dependency stays out of the product install closure",
           "dynamic": false
         },
         {

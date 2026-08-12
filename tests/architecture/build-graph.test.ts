@@ -28,22 +28,28 @@ const ROOT_CONFIG = path.join(REPO_ROOT, 'vitest.config.ts');
  * is not in this table fails the first test — which is the point: a fifth
  * package cannot appear without someone saying what it is.
  */
-const DECLARED_PACKAGES: Readonly<Record<string, { role: string; why: string }>> = {
+const DECLARED_PACKAGES: Readonly<
+  Record<string, { role: string; disposition: 'retained' | 'retired'; why: string }>
+> = {
   'package.json': {
     role: 'product',
+    disposition: 'retained',
     why: 'The exarchos CLI and its build/test entry points — the package a user installs.',
   },
   'servers/exarchos-mcp/package.json': {
     role: 'product',
+    disposition: 'retained',
     why: 'The MCP server workspace. Shipped as part of the product, with its own dependency closure so the server can be built without the root tool chain.',
   },
   'servers/exarchos-mcp/evals-pkg/package.json': {
     role: 'tool',
-    why: 'Opt-in promptfoo eval harness, isolated so its heavy Playwright/Chromium postinstall stays out of the product install closure. Named in ci.yml’s prompts: paths-filter. Classified in full by task 011a.',
+    disposition: 'retained',
+    why: 'RETAINED (task 011a). Opt-in promptfoo eval harness, isolated so the heavy eval-only dependency stays OUT of the default MCP-server install (DR-3). The graders resolve promptfoo from THIS package at runtime, and ci.yml names it in the prompts: paths-filter so a change here still fires RUN_EVALS. Retiring it would delete a live eval capability and orphan that filter.',
   },
   'documentation/package.json': {
     role: 'tool',
-    why: 'Documentation site toolchain. Scoped to task 039’s skeleton reduction.',
+    disposition: 'retained',
+    why: 'Documentation site toolchain. Retained here and scoped to task 039’s skeleton reduction, which owns the decision about what the documentation tree becomes.',
   },
 };
 
@@ -82,6 +88,68 @@ describe('BuildGraph_AfterUnification_DeclaredPackageSetMatchesTheManifestSet', 
     for (const manifest of Object.keys(DECLARED_PACKAGES)) {
       const lock = path.join(REPO_ROOT, path.dirname(manifest), 'package-lock.json');
       expect(existsSync(lock), `${manifest} has no package-lock.json beside it`).toBe(true);
+    }
+  });
+});
+
+describe('ManifestSet_EveryTrackedPackageJson_IsClassifiedRetainedOrRetired', () => {
+  // Task 011a. A fifth manifest must not be able to appear unnoticed: every
+  // tracked package.json is the product, a declared tool package, or explicitly
+  // retired. There is no fourth state, and "nobody got round to it" is not one.
+  it('every manifest carries an explicit disposition', () => {
+    const tracked = trackedManifests();
+    for (const manifest of tracked) {
+      const meta = DECLARED_PACKAGES[manifest];
+      expect(meta, `${manifest} is tracked but unclassified`).toBeDefined();
+      expect(['retained', 'retired'], `${manifest}: unknown disposition`).toContain(
+        meta?.disposition,
+      );
+    }
+  });
+
+  it('a retired package leaves no CI paths-filter behind', () => {
+    // The plan's condition: retired "with its CI filter removed in the same
+    // change". A filter naming a package that no longer exists is a gate that
+    // can never fire, which reads as green.
+    const ci = readFileSync(path.join(REPO_ROOT, '.github/workflows/ci.yml'), 'utf8');
+    for (const [manifest, meta] of Object.entries(DECLARED_PACKAGES)) {
+      if (meta.disposition !== 'retired') continue;
+      const dir = path.dirname(manifest);
+      expect(ci, `${manifest} is retired but ci.yml still filters on ${dir}`).not.toContain(dir);
+    }
+  });
+
+  it('evals-pkg is retained, and the CI filter that depends on it still exists', () => {
+    // Retained "under a declared home": the package states its own purpose, and
+    // the filter that makes a change to it fire RUN_EVALS is still wired. If
+    // either half disappears the eval lane stops firing silently.
+    const meta = DECLARED_PACKAGES['servers/exarchos-mcp/evals-pkg/package.json'];
+    expect(meta?.disposition).toBe('retained');
+    const ci = readFileSync(path.join(REPO_ROOT, '.github/workflows/ci.yml'), 'utf8');
+    expect(ci).toContain('servers/exarchos-mcp/evals-pkg/**');
+
+    const manifest = JSON.parse(
+      readFileSync(path.join(REPO_ROOT, 'servers/exarchos-mcp/evals-pkg/package.json'), 'utf8'),
+    ) as { private?: boolean; description?: string; dependencies?: Record<string, string> };
+    // `private` is what keeps an opt-in tool package off the registry.
+    expect(manifest.private).toBe(true);
+    expect(manifest.dependencies?.promptfoo).toBeDefined();
+    expect((manifest.description ?? '').length).toBeGreaterThan(40);
+  });
+
+  it('the heavy eval dependency stays out of the product install closure', () => {
+    // The entire reason this package exists (DR-3). If promptfoo appears in
+    // either product manifest, the isolation has failed and every install pays
+    // for it.
+    for (const productManifest of ['package.json', 'servers/exarchos-mcp/package.json']) {
+      const pkg = JSON.parse(readFileSync(path.join(REPO_ROOT, productManifest), 'utf8')) as {
+        dependencies?: Record<string, string>;
+        devDependencies?: Record<string, string>;
+      };
+      expect(
+        { ...pkg.dependencies, ...pkg.devDependencies }.promptfoo,
+        `${productManifest} pulls promptfoo into the product install closure`,
+      ).toBeUndefined();
     }
   });
 });
