@@ -672,6 +672,18 @@ The author named this coupling directly as a code smell. It is semantic, self-co
 - `ArtifactDir_LegacyDesignPrefix_StillClassifiesAsTwoArtifact`
 - `PlanArtifactExistsGuard_ConfiguredPrefix_ResolvesAgainstIt`
 **Verification:** Add `artifacts.specDir` (default `docs/specs/`) and the legacy design prefix to the `.exarchos.yml` schema. Replace `UNIFIED_SPEC_DIR` and `LEGACY_DESIGN_DIR` literals and the `planArtifactExists` guard's literal with resolved values. A scan test asserts no module retains a hard-coded artifact-path literal. Characterization first: capture current classification behavior across the existing corpus, then prove the default path is unchanged.
+
+> **Corrected during execution (2026-08-11).** Two premises here were false against the tree.
+> **(1) `planArtifactExists` holds no literal.** It is `makeArtifactGuard('plan', …)` over
+> `isTypedArtifactReference` — `typeof value === 'string' && value.trim().length > 0`
+> (`workflow/guards.ts:120`). It never touches a path, so it is directory-agnostic already and
+> needed no change; the planned `PlanArtifactExistsGuard_ConfiguredPrefix_ResolvesAgainstIt`
+> test was dropped rather than written against behaviour that does not exist.
+> **(2) The scan test cannot be absolute.** ~10 agent-facing prose mentions live in tool
+> descriptions and phase playbooks, which shape agent behaviour without gating it. The shipped
+> test is two-tiered: functional uses (path construction, prefix comparison, directory
+> constants) are held to a closed two-file allowlist; prose is pinned as a budget the docs move
+> retires. The functional surface was 5 sites, not the broad coupling assumed here.
 **Dependencies:** 001
 **Parallelizable:** Yes
 
@@ -695,6 +707,20 @@ The author's future docs exodus mounts the artifact directory as a **symlink**. 
 **Verification:** Given `artifacts.specDir` points at a symlink outside the repository, classification resolves and the stored path is POSIX-normalized (INV-16). The third test is the load-bearing one: a missing artifact directory must **not** change `_meta.workflowExists`, because existence is the projection's answer and never a filesystem stat — the rule the state-source-integrity RCA exists to protect.
 **Dependencies:** 005
 **Parallelizable:** No
+
+> **Corrected during execution (2026-08-11).** The stated file
+> `tests/integration/config/artifact-dir-symlink.test.ts` is collected by **no vitest project**
+> — the root config includes `tests/architecture/**` and `tests/outcome/**` but never
+> `tests/integration/**` — so a test authored there passes by never executing. It also needs the
+> MCP workspace's `bun:sqlite` alias to construct an `EventStore`. Shipped instead at
+> `servers/exarchos-mcp/src/config/artifact-dir-symlink.test.ts`, co-located per the repo
+> convention. **Any later task whose Files list names `tests/integration/**` inherits this bug.**
+>
+> `ArtifactDir_MissingDirectory_DoesNotAffectWorkflowExistence` needed teeth it did not have as
+> specified: `handleRehydrate` never receives a repo root, so a missing directory is trivially
+> invisible to it and the test would pass for the wrong reason. It now pins `process.cwd()` at
+> an artifact-less repo. Kill-probe run: a mutant resolving `workflowExists` from `existsSync`
+> fails three assertions, including both named cases.
 
 ### Task 007: Remove dead declarations
 
@@ -773,6 +799,21 @@ Sweeping **before** the move keeps the structural diff smaller; task 053 retarge
 **Verification:** Resolve each of the 103 entries as a deletion or a written justification carrying an owner and an expiry. Every deletion is gated on the task 004 census. The allowlist ends empty or fully justified; a bare entry fails the gate, so the ratchet cannot silently re-accumulate.
 **Dependencies:** 004, 007
 **Parallelizable:** No
+
+> **Corrected during execution (2026-08-11).** The ledger was in better shape than assumed and
+> the gate was in worse. All 103 entries already carried an owner, a deadline and a rationale,
+> knip still flags every one (zero stale), and none had expired — so there was nothing to sweep
+> in the sense meant here. The gate itself was **RED**: two comment-hygiene kill fixtures from
+> the sibling overhaul landed on this branch with no exemption. Fixed; now 105 findings, all
+> allowlisted.
+>
+> Both named tests were already covered in substance by `scripts/audit/knip-diff.test.ts`
+> (schema conformance at `:112`, bare-entry rejection at `:108`), so the shipped
+> `tests/architecture/dead-code-allowlist.test.ts` is additive: it checks what a
+> `rationale.length > 0` schema cannot. **Residue:** 59 entries state no condition under which
+> they could ever be removed, 45 of them saying only "forward-compat surface". Every one is an
+> exported TYPE, so retiring them is a census-gated deletion sweep, not a rationale rewrite —
+> padding the prose would move the measurement without moving the claim. Pinned at ≤59.
 
 ## Phase 1 — Structural movement and enforcement (zero semantic edits)
 
@@ -1791,4 +1832,8 @@ The `references:` keys name **source and test** paths, not just docs, and are as
 - [ ] No task depends on a task that lands after it; Phase 0 fully precedes Phase 1
 - [ ] Every deletion task depends on the census (004) and, for prose, the destination reconciliation (037a)
 - [ ] Open questions resolved (`content/` grouping, `install/` placement) or explicitly scheduled (`evals/` and `evals-pkg` in 010/011a, generators in 022a)
-- [ ] Ready for `plan-review`
+- [x] Ready for `plan-review` — **WAIVED by the operator on 2026-08-11**, recorded on the
+  workflow stream as decision `plan-review-waived`. The gate never ran. Revision 2 of this
+  document already absorbed an independent 3-voter adversarial panel that refuted revision 1
+  on ~25 HIGH gaps, so the plan has had adversarial scrutiny — it simply arrived through a
+  different door than the workflow's own gate.
