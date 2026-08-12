@@ -33,6 +33,14 @@ The task header is `### Task <id>:` (**h3**) — the single depth every plan-aut
 **Parallelizable:** [Yes/No]
 ```
 
+### Ordinals are artifact metadata, not code
+
+`Implements:`, the task id and every `DR-N` above are fields of **this document** and of the `task.completed` event. They are how the provenance chain links a requirement to its implementation, and they belong in both places.
+
+They do **not** belong in code. A comment states its constraint in words and names no planning ordinal — no `DR-N`, `task N`, `T-N`, `wave N`, `slice N`, `epic #N`, `INV-N`, and no `docs/{specs,designs,plans}/…` path. A reader of the source cannot resolve them, and they are renumbered as the plan is revised, so a citation that was accurate when written silently stops being so. Durable external references (a URL, `owner/repo#123`, a CVE, an RFC section) are unaffected — they name something outside this repository's planning cycle.
+
+Write the verification prose accordingly: describe the behavior a task must produce, so an implementer copying the task's language into a comment writes the constraint rather than the ordinal.
+
 ## Risk Tier and Boundary Tag
 
 Each task carries two orthogonal verification-routing signals. The planner **always stamps `riskTier`

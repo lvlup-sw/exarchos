@@ -77,6 +77,21 @@ git merge-base --is-ancestor "[integration-tip]" HEAD \
 ### Test Files:
 - `[path/to/file.test.ts]` - [Test file to create/modify]
 
+## Code Comments
+
+A comment states its constraint **in words** and names no planning ordinal. `DR-N`, `task N`, `T-N`, `wave N`, `slice N`, `epic #N`, `INV-N` and `docs/specs/…` paths do not belong in code — they identify this workflow's planning artifacts, which a future reader cannot resolve and which get renumbered. Write what is true of the code:
+
+```ts
+// ✅ the bytes are fsync'd before the rename, so a crash mid-write cannot expose a partial file
+// ❌ DR-7 / task 014: fsync before rename
+```
+
+Durable external references stay welcome anywhere: a URL, `owner/repo#123`, a CVE, an RFC section. These name something outside this repository's planning cycle and a reader can follow them.
+
+Provenance ordinals belong in the **completion event**, not the source. Report `implements: ["DR-N"]` through `task_complete` (see Provenance Reporting) — that is what the provenance chain reads, so a comment repeating it adds nothing and rots independently.
+
+This applies to test files exactly as it does to production.
+
 ## Verification (tier-conditional)
 
 <!--
@@ -239,7 +254,7 @@ When completing a task, include structured provenance data in your completion re
 
 ### Required Fields
 
-1. **implements** — Design requirement IDs you implemented (e.g., `["DR-1", "DR-3"]`)
+1. **implements** — Design requirement IDs you implemented (e.g., `["DR-1", "DR-3"]`). This is where a DR ordinal belongs. It is carried by the event, never by a code comment — see Code Comments.
 2. **tests** — Tests written, each with name and file path
 3. **files** — Files created or modified
 4. **acceptanceTestRef** — (optional) Task ID of the parent acceptance test, if this task has an `acceptanceTestRef` field
@@ -423,6 +438,7 @@ describe('validateEmail', () => {
 - [ ] Tests pass when run with the project test command
 - [ ] Kill-probe holds: at least one test goes red when the implementation is reverted
 - [ ] No extra code beyond requirements
+- [ ] No comment names a planning ordinal (`DR-N`, `task N`, `INV-N`, a `docs/specs/…` path)
 - [ ] All tests in worktree pass
 ```
 

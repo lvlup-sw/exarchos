@@ -110,6 +110,8 @@ exarchos_orchestrate({
 
 Each task follows the TDD format in `references/task-template.md`.
 
+`Implements: DR-N` and the task id are fields of the spec and of the `task.completed` event — that is where the provenance chain reads them. They must not be carried into code comments, which state their constraint in words and name no planning ordinal; see *Ordinals are artifact metadata, not code* in `references/task-template.md`. Write each task's verification prose as a description of the behavior to produce, so an implementer echoing that language writes the constraint rather than the ordinal.
+
 **Granularity Guidelines:**
 - Each task: 2-5 minutes of focused work
 - One test = one behavior
