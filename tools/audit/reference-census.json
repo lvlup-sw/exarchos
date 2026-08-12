@@ -1,0 +1,603 @@
+{
+  "capturedAt": "2026-08-12",
+  "trackedFiles": 3314,
+  "scannedFiles": 3196,
+  "namedFilesIncluded": [
+    ".github/CODEOWNERS",
+    ".gitattributes",
+    ".npmignore",
+    ".exarchos.yml"
+  ],
+  "subtrees": {
+    "docs/designs": {
+      "disposition": "delete",
+      "ownFiles": 136,
+      "externalReferrers": 297,
+      "referrersByKind": {
+        "code": 76,
+        "config": 3,
+        "snapshot": 1,
+        "markdownLive": 31,
+        "markdownArchival": 182,
+        "other": 4
+      },
+      "liveReferrers": 115,
+      "sampleReferrers": [
+        ".exarchos.yml",
+        ".exarchos/invariants.md",
+        "CHANGELOG.md",
+        "docs/adrs/2026-05-24-hook-layer-observe-only.md",
+        "docs/adrs/distributed-sdlc-pipeline.md",
+        "docs/adrs/system-index.md",
+        "docs/architecture/invariants/references/INV-1-event-sourcing.md",
+        "docs/architecture/invariants/references/INV-2-facade-equivalence.md",
+        "docs/architecture/invariants/references/INV-5b-output-contract.md",
+        "docs/architecture/projections.md",
+        "docs/architecture/runtime.md",
+        "docs/assets/demo-scripts/checkpoint.sh"
+      ],
+      "sampleLiveCodeReferrers": [
+        "scripts/check-single-workflow-fold.mjs",
+        "scripts/lib/comment-classifier.test.ts",
+        "servers/exarchos-mcp/src/__tests__/integration/elicitation-roundtrip.fixture.ts",
+        "servers/exarchos-mcp/src/__tests__/integration/elicitation-roundtrip.test.ts",
+        "servers/exarchos-mcp/src/__tests__/integration/ideate-update-action.test.ts",
+        "servers/exarchos-mcp/src/__tests__/integration/tools-list.test.ts",
+        "servers/exarchos-mcp/src/__tests__/workflow/integration.test.ts",
+        "servers/exarchos-mcp/src/adapters/cli-format.ts"
+      ]
+    },
+    "docs/plans": {
+      "disposition": "delete",
+      "ownFiles": 171,
+      "externalReferrers": 95,
+      "referrersByKind": {
+        "code": 37,
+        "config": 3,
+        "snapshot": 1,
+        "markdownLive": 20,
+        "markdownArchival": 30,
+        "other": 4
+      },
+      "liveReferrers": 65,
+      "sampleReferrers": [
+        ".claude-plugin/packaging-policy.json",
+        "docs/assets/demo-scripts/checkpoint.sh",
+        "docs/assets/demo-scripts/plan.sh",
+        "docs/assets/demo-scripts/rehydrate.sh",
+        "docs/bugs/2026-02-05-workflow-state-partial-update-overwrites.md",
+        "docs/bugs/2026-02-06-workflow-state-testing-gaps.md",
+        "docs/bugs/2026-04-30-agency-csl-auto-pr-wave1.md",
+        "docs/bugs/2026-05-04-check-task-decomposition-parser-false-positives.md",
+        "docs/designs/archive/2026-01-05-context-exhaustion-mitigation.md",
+        "docs/designs/archive/2026-01-06-repo-management.md",
+        "docs/designs/archive/2026-02-12-progressive-disclosure-hooks.md",
+        "docs/designs/archive/2026-02-18-context-reload.md"
+      ],
+      "sampleLiveCodeReferrers": [
+        "servers/exarchos-mcp/src/__tests__/correlation-acceptance.test.ts",
+        "servers/exarchos-mcp/src/__tests__/event-store/single-composition-root.test.ts",
+        "servers/exarchos-mcp/src/__tests__/skills/prune.test.ts",
+        "servers/exarchos-mcp/src/__tests__/workflow/integration.test.ts",
+        "servers/exarchos-mcp/src/adapters/cli-format.test.ts",
+        "servers/exarchos-mcp/src/agents/build-pipeline.test.ts",
+        "servers/exarchos-mcp/src/agents/generate-agents.test.ts",
+        "servers/exarchos-mcp/src/agents/generate-agents.ts"
+      ]
+    },
+    "docs/research": {
+      "disposition": "delete",
+      "ownFiles": 67,
+      "externalReferrers": 97,
+      "referrersByKind": {
+        "code": 20,
+        "config": 2,
+        "snapshot": 1,
+        "markdownLive": 6,
+        "markdownArchival": 68,
+        "other": 0
+      },
+      "liveReferrers": 29,
+      "sampleReferrers": [
+        ".exarchos/invariants.md",
+        "CHANGELOG.md",
+        "agent-principles.md",
+        "docs/adrs/2026-05-24-hook-layer-observe-only.md",
+        "docs/architecture/runtime.md",
+        "docs/audits/2026-07-21-phase-gate-transition-admission.md",
+        "docs/audits/structural-closure-delta-audit/2026-07-23-structural-closure-delta-audit.md",
+        "docs/audits/structural-closure-delta-audit/remediation-backlog.json",
+        "docs/audits/structural-closure-delta-audit/sources/agent-principles.md",
+        "docs/audits/structural-closure-delta-audit/sources/phase-gate-redesign-strategy.md",
+        "docs/audits/structural-closure-delta-audit/sources/phase-gate-transition-admission-roadmap.md",
+        "docs/audits/structural-closure-delta-audit/sources/phase-gate-transition-admission.md"
+      ],
+      "sampleLiveCodeReferrers": [
+        "servers/exarchos-mcp/scripts/cli-vocab-guard.ts",
+        "servers/exarchos-mcp/src/adapters/json-schema.ts",
+        "servers/exarchos-mcp/src/adapters/mcp.test.ts",
+        "servers/exarchos-mcp/src/adapters/mcp.ts",
+        "servers/exarchos-mcp/src/agents/adapters/codex.test.ts",
+        "servers/exarchos-mcp/src/agents/adapters/codex.ts",
+        "servers/exarchos-mcp/src/agents/adapters/copilot.test.ts",
+        "servers/exarchos-mcp/src/architecture/description-budget.ts"
+      ]
+    },
+    "docs/audits": {
+      "disposition": "delete",
+      "ownFiles": 41,
+      "externalReferrers": 10,
+      "referrersByKind": {
+        "code": 0,
+        "config": 0,
+        "snapshot": 0,
+        "markdownLive": 0,
+        "markdownArchival": 10,
+        "other": 0
+      },
+      "liveReferrers": 0,
+      "sampleReferrers": [
+        "docs/bugs/2026-02-06-workflow-state-testing-gaps.md",
+        "docs/designs/archive/2026-02-20-io-hardening.md",
+        "docs/plans/archive/2026-02-06-testing-gaps.md",
+        "docs/plans/archive/2026-02-20-io-hardening.plan.md",
+        "docs/research/2026-04-19-e2e-testing-strategy.md",
+        "docs/research/2026-07-23-phase-gate-v212-dogfood-remediation.md",
+        "docs/specs/2026-07-23-structural-closure-delta-audit.md",
+        "docs/specs/2026-08-04-wiring-closure-and-unified-integration-suite.md",
+        "docs/specs/2026-08-05-design-knowledge-graph.md",
+        "docs/specs/2026-08-05-event-taxonomy-v2.md"
+      ],
+      "sampleLiveCodeReferrers": []
+    },
+    "docs/adrs": {
+      "disposition": "delete",
+      "ownFiles": 11,
+      "externalReferrers": 39,
+      "referrersByKind": {
+        "code": 7,
+        "config": 1,
+        "snapshot": 0,
+        "markdownLive": 3,
+        "markdownArchival": 27,
+        "other": 1
+      },
+      "liveReferrers": 12,
+      "sampleReferrers": [
+        ".claude-plugin/packaging-policy.json",
+        "docs/architecture/invariants/references/INV-3-basileus-forward.md",
+        "docs/designs/archive/2026-02-05-distributed-agentic-sdlc.md",
+        "docs/designs/archive/2026-02-28-adversarial-convergence-gates.md",
+        "docs/designs/archive/2026-03-06-release-hardening.md",
+        "docs/designs/archive/2026-03-08-vitepress-docs.md",
+        "docs/designs/archive/2026-03-10-neuroanatomy-workflow-refinements.md",
+        "docs/designs/archive/2026-04-18-solver-aided-governance.md",
+        "docs/designs/archive/2026-05-07-milestone-16-mcp-alignment.md",
+        "docs/designs/archive/2026-05-31-harness-binding-and-lifecycle-hooks.md",
+        "docs/plans/archive/2026-01-05-cicd-phase0-completion.md",
+        "docs/plans/archive/2026-02-10-arch-rigor.md"
+      ],
+      "sampleLiveCodeReferrers": [
+        "servers/exarchos-mcp/src/adapters/hooks.ts",
+        "servers/exarchos-mcp/src/architecture/invariants-loader.test.ts",
+        "servers/exarchos-mcp/src/cli-commands/session-start.ts",
+        "servers/exarchos-mcp/src/cli-commands/subagent-stop.ts",
+        "src/build-hooks.ts",
+        "src/hooks-validation.test.ts",
+        "src/plugin-validation.test.ts"
+      ]
+    },
+    "docs/rca": {
+      "disposition": "delete",
+      "ownFiles": 11,
+      "externalReferrers": 51,
+      "referrersByKind": {
+        "code": 11,
+        "config": 4,
+        "snapshot": 1,
+        "markdownLive": 18,
+        "markdownArchival": 14,
+        "other": 3
+      },
+      "liveReferrers": 37,
+      "sampleReferrers": [
+        ".claude/scripts/workflow-state.sh",
+        ".github/workflows/benchmark-gate.yml",
+        ".github/workflows/ci.yml",
+        ".github/workflows/eval-gate.yml",
+        ".github/workflows/release.yml",
+        "CLAUDE.md",
+        "docs/designs/archive/2026-01-27-debug-workflow.md",
+        "docs/designs/archive/2026-02-24-audit-validation-and-checkpointing.md",
+        "docs/designs/archive/2026-05-24-axiom-excision.md",
+        "docs/designs/archive/2026-05-31-implementer-worktree-base.md",
+        "docs/designs/archive/2026-06-17-phase-kind-binding-completion.md",
+        "docs/plans/archive/2026-04-26-eventstore-constructor-injection.md"
+      ],
+      "sampleLiveCodeReferrers": [
+        "scripts/check-event-store-composition-root.mjs",
+        "scripts/check-event-store-composition-root.test.ts",
+        "servers/exarchos-mcp/src/__tests__/event-store/single-composition-root.test.ts",
+        "servers/exarchos-mcp/src/agents/generate-agents.test.ts",
+        "servers/exarchos-mcp/src/architecture/vocabulary-lint.ts",
+        "servers/exarchos-mcp/src/orchestrate/composite.ts",
+        "servers/exarchos-mcp/src/orchestrate/worktree-baseref.ts",
+        "servers/exarchos-mcp/src/views/tools.ts"
+      ]
+    },
+    "docs/guides": {
+      "disposition": "delete",
+      "ownFiles": 10,
+      "externalReferrers": 41,
+      "referrersByKind": {
+        "code": 15,
+        "config": 2,
+        "snapshot": 0,
+        "markdownLive": 3,
+        "markdownArchival": 20,
+        "other": 1
+      },
+      "liveReferrers": 21,
+      "sampleReferrers": [
+        ".exarchos.yml",
+        ".exarchos/invariants.md",
+        ".github/workflows/ci.yml",
+        "CLAUDE.md",
+        "commands/tag.md",
+        "docs/designs/archive/2026-05-24-sdlc-catalog-authoring.md",
+        "docs/designs/archive/2026-05-24-v2.10.0-ga-completion.md",
+        "docs/designs/archive/2026-05-25-invariants-authoring-wizard.md",
+        "docs/evals/Building_resilient_prompts_using_an_evaluation_flywheel.md",
+        "docs/evals/mcp_eval_notebook.md",
+        "docs/evals/receipt_inspection.md",
+        "docs/plans/archive/2026-05-25-invariant-tier-clarity.md"
+      ],
+      "sampleLiveCodeReferrers": [
+        "eslint.envelopes.config.js",
+        "scripts/ci-topology.test.ts",
+        "scripts/guard-inventory.ts",
+        "servers/exarchos-mcp/scripts/cli-derivation-guard.ts",
+        "servers/exarchos-mcp/scripts/output-schema-ratchet-guard.ts",
+        "servers/exarchos-mcp/src/architecture/invariants-loader.test.ts",
+        "servers/exarchos-mcp/src/architecture/sdlc-catalog.ts",
+        "servers/exarchos-mcp/src/architecture/vocabulary-lint.test.ts"
+      ]
+    },
+    "docs/references": {
+      "disposition": "delete",
+      "ownFiles": 8,
+      "externalReferrers": 8,
+      "referrersByKind": {
+        "code": 0,
+        "config": 0,
+        "snapshot": 0,
+        "markdownLive": 2,
+        "markdownArchival": 6,
+        "other": 0
+      },
+      "liveReferrers": 2,
+      "sampleReferrers": [
+        "CHANGELOG.md",
+        "docs/designs/archive/2026-04-08-platform-agnostic-skills.md",
+        "docs/designs/archive/2026-05-07-milestone-16-mcp-alignment.md",
+        "docs/designs/archive/2026-05-15-wave2-wave3-polish.md",
+        "docs/research/2026-05-13-windows-dogfood-remediation.md",
+        "docs/research/2026-05-14-semantic-merge-queue-audit.md",
+        "docs/skills-authoring.md",
+        "documentation/migrating-to-call-macro.md"
+      ],
+      "sampleLiveCodeReferrers": []
+    },
+    "docs/proposals": {
+      "disposition": "delete",
+      "ownFiles": 2,
+      "externalReferrers": 18,
+      "referrersByKind": {
+        "code": 4,
+        "config": 1,
+        "snapshot": 0,
+        "markdownLive": 7,
+        "markdownArchival": 6,
+        "other": 0
+      },
+      "liveReferrers": 12,
+      "sampleReferrers": [
+        ".exarchos.yml",
+        "docs/designs/archive/2026-05-23-invariants-projection-and-extensibility.md",
+        "docs/designs/archive/2026-05-25-invariants-authoring-wizard.md",
+        "docs/guides/exarchos-yml-invariants.md",
+        "docs/plans/archive/2026-05-20-invariants-catalog-v2-implementation.md",
+        "docs/research/2026-05-23-v2-10-0-preview-4-build-review.md",
+        "docs/specs/2026-07-15-debloat-wave1-structural-enforcement-t8-baseline.md",
+        "servers/exarchos-mcp/src/architecture/invariants-loader.test.ts",
+        "servers/exarchos-mcp/src/architecture/vocabulary-lint.test.ts",
+        "servers/exarchos-mcp/src/architecture/vocabulary-lint.ts",
+        "servers/exarchos-mcp/src/config/yaml-schema.ts",
+        "skills-src/ideate/references/constraint-anchoring.md"
+      ],
+      "sampleLiveCodeReferrers": [
+        "servers/exarchos-mcp/src/architecture/invariants-loader.test.ts",
+        "servers/exarchos-mcp/src/architecture/vocabulary-lint.test.ts",
+        "servers/exarchos-mcp/src/architecture/vocabulary-lint.ts",
+        "servers/exarchos-mcp/src/config/yaml-schema.ts"
+      ]
+    },
+    "docs/bugs": {
+      "disposition": "delete",
+      "ownFiles": 8,
+      "externalReferrers": 6,
+      "referrersByKind": {
+        "code": 0,
+        "config": 0,
+        "snapshot": 0,
+        "markdownLive": 0,
+        "markdownArchival": 6,
+        "other": 0
+      },
+      "liveReferrers": 0,
+      "sampleReferrers": [
+        "docs/audits/2026-02-06-testing-gaps.md",
+        "docs/plans/archive/2026-02-06-audit-fixes.md",
+        "docs/plans/archive/2026-02-11-mcp-consistency.md",
+        "docs/plans/archive/2026-02-28-provenance-convergence-wiring.md",
+        "docs/plans/archive/2026-03-01-gate-telemetry-consolidation.md",
+        "docs/research/2026-04-19-e2e-testing-strategy.md"
+      ],
+      "sampleLiveCodeReferrers": []
+    },
+    "docs/followups": {
+      "disposition": "delete",
+      "ownFiles": 4,
+      "externalReferrers": 4,
+      "referrersByKind": {
+        "code": 1,
+        "config": 0,
+        "snapshot": 0,
+        "markdownLive": 0,
+        "markdownArchival": 3,
+        "other": 0
+      },
+      "liveReferrers": 1,
+      "sampleReferrers": [
+        "docs/plans/archive/2026-05-13-wave-0-followups-stack-execution.md",
+        "docs/research/2026-05-13-zod-v4-breaking-changes.md",
+        "docs/research/2026-05-13-zod-v4-decision-record.md",
+        "servers/exarchos-mcp/src/architecture/vocabulary-lint.ts"
+      ],
+      "sampleLiveCodeReferrers": [
+        "servers/exarchos-mcp/src/architecture/vocabulary-lint.ts"
+      ]
+    },
+    "docs/refactors": {
+      "disposition": "delete",
+      "ownFiles": 1,
+      "externalReferrers": 1,
+      "referrersByKind": {
+        "code": 0,
+        "config": 0,
+        "snapshot": 0,
+        "markdownLive": 0,
+        "markdownArchival": 1,
+        "other": 0
+      },
+      "liveReferrers": 0,
+      "sampleReferrers": [
+        "docs/plans/archive/2026-05-08-rehydration-machinery-plan.md"
+      ],
+      "sampleLiveCodeReferrers": []
+    },
+    "docs/runbooks": {
+      "disposition": "delete",
+      "ownFiles": 2,
+      "externalReferrers": 3,
+      "referrersByKind": {
+        "code": 0,
+        "config": 0,
+        "snapshot": 0,
+        "markdownLive": 1,
+        "markdownArchival": 2,
+        "other": 0
+      },
+      "liveReferrers": 1,
+      "sampleReferrers": [
+        "CHANGELOG.md",
+        "docs/designs/archive/2026-05-16-correlation-consumer-wiring.md",
+        "docs/research/2026-05-23-v2-10-0-preview-4-build-review.md"
+      ],
+      "sampleLiveCodeReferrers": []
+    },
+    "docs/contexts": {
+      "disposition": "delete",
+      "ownFiles": 2,
+      "externalReferrers": 8,
+      "referrersByKind": {
+        "code": 1,
+        "config": 0,
+        "snapshot": 0,
+        "markdownLive": 0,
+        "markdownArchival": 7,
+        "other": 0
+      },
+      "liveReferrers": 1,
+      "sampleReferrers": [
+        "docs/designs/archive/2026-05-06-checkpoint-handoff-enrichment.md",
+        "docs/designs/archive/2026-05-08-checkpoint-handoff-bundle.md",
+        "docs/designs/archive/2026-05-15-v2-10-0-preview-4-feature-freeze.md",
+        "docs/designs/archive/2026-05-24-axiom-excision.md",
+        "docs/research/2026-05-07-checkpoint-cluster-fitness.md",
+        "docs/research/2026-05-07-vcsprovider-thread-reply-fitness.md",
+        "docs/research/2026-05-18-invariant-content-audit.md",
+        "servers/exarchos-mcp/src/architecture/vocabulary-lint.ts"
+      ],
+      "sampleLiveCodeReferrers": [
+        "servers/exarchos-mcp/src/architecture/vocabulary-lint.ts"
+      ]
+    },
+    "docs/market": {
+      "disposition": "delete",
+      "ownFiles": 1,
+      "externalReferrers": 4,
+      "referrersByKind": {
+        "code": 0,
+        "config": 0,
+        "snapshot": 0,
+        "markdownLive": 0,
+        "markdownArchival": 4,
+        "other": 0
+      },
+      "liveReferrers": 0,
+      "sampleReferrers": [
+        "docs/designs/archive/2026-03-06-release-hardening.md",
+        "docs/designs/archive/2026-03-08-vitepress-docs.md",
+        "docs/research/2026-04-25-marketing-positioning.md",
+        "docs/research/2026-04-25-readme-amendments.md"
+      ],
+      "sampleLiveCodeReferrers": []
+    },
+    "docs/migrations": {
+      "disposition": "delete",
+      "ownFiles": 1,
+      "externalReferrers": 6,
+      "referrersByKind": {
+        "code": 1,
+        "config": 0,
+        "snapshot": 0,
+        "markdownLive": 0,
+        "markdownArchival": 5,
+        "other": 0
+      },
+      "liveReferrers": 1,
+      "sampleReferrers": [
+        "docs/audits/2026-07-21-phase-gate-transition-admission.md",
+        "docs/audits/structural-closure-delta-audit/sources/phase-gate-transition-admission-roadmap.md",
+        "docs/audits/structural-closure-delta-audit/sources/phase-gate-transition-admission.md",
+        "docs/designs/archive/2026-04-23-rehydrate-foundation.md",
+        "docs/specs/2026-07-21-phase-gate-transition-admission-roadmap.md",
+        "scripts/migration-followups.test.ts"
+      ],
+      "sampleLiveCodeReferrers": [
+        "scripts/migration-followups.test.ts"
+      ]
+    },
+    "docs/evals": {
+      "disposition": "re-home",
+      "ownFiles": 114,
+      "externalReferrers": 13,
+      "referrersByKind": {
+        "code": 4,
+        "config": 3,
+        "snapshot": 0,
+        "markdownLive": 0,
+        "markdownArchival": 6,
+        "other": 0
+      },
+      "liveReferrers": 7,
+      "sampleReferrers": [
+        ".coderabbit.yaml",
+        ".exarchos/comment-policy.json",
+        "docs/audits/structural-closure-delta-audit/codebase-metrics.json",
+        "docs/research/2026-08-04-coordination-pull-vs-push-sota.md",
+        "docs/research/2026-08-04-theoretical-optimum-coordination.md",
+        "docs/specs/2026-07-09-1670-delegation-empirical-testing.md",
+        "docs/specs/2026-07-10-1677-verification-pillar-benchmarks.md",
+        "docs/specs/2026-08-11-comment-hygiene-enforcement.md",
+        "docs/specs/2026-08-11-exarchos-repo-structure-cleanup.md",
+        "scripts/lib/comment-policy.test.ts",
+        "servers/exarchos-mcp/src/evals/benchmarks/exp1-binary-driver.ts",
+        "servers/exarchos-mcp/src/evals/benchmarks/seeded-defects/catch-rate-driver.ts"
+      ],
+      "sampleLiveCodeReferrers": [
+        "scripts/lib/comment-policy.test.ts",
+        "servers/exarchos-mcp/src/evals/benchmarks/exp1-binary-driver.ts",
+        "servers/exarchos-mcp/src/evals/benchmarks/seeded-defects/catch-rate-driver.ts",
+        "vitest.config.ts"
+      ]
+    },
+    "docs/schemas": {
+      "disposition": "re-home",
+      "ownFiles": 3,
+      "externalReferrers": 9,
+      "referrersByKind": {
+        "code": 0,
+        "config": 0,
+        "snapshot": 1,
+        "markdownLive": 4,
+        "markdownArchival": 4,
+        "other": 0
+      },
+      "liveReferrers": 5,
+      "sampleReferrers": [
+        "CHANGELOG.md",
+        "docs/designs/archive/2026-01-06-workflow-phase-restructuring.md",
+        "docs/plans/archive/2026-02-13-skills-content-modernization.plan.md",
+        "docs/specs/2026-07-15-debloat-wave1-structural-enforcement.md",
+        "docs/specs/2026-08-11-exarchos-repo-structure-cleanup.md",
+        "skills-src/checkpoint/SKILL.md",
+        "skills/standard/checkpoint/SKILL.md",
+        "test/migration/__fixtures__/batch-baselines/checkpoint.md",
+        "test/migration/__snapshots__/snapshots.test.ts.snap"
+      ],
+      "sampleLiveCodeReferrers": []
+    },
+    "docs/assets": {
+      "disposition": "re-home",
+      "ownFiles": 21,
+      "externalReferrers": 5,
+      "referrersByKind": {
+        "code": 0,
+        "config": 0,
+        "snapshot": 0,
+        "markdownLive": 2,
+        "markdownArchival": 3,
+        "other": 0
+      },
+      "liveReferrers": 2,
+      "sampleReferrers": [
+        "README.md",
+        "agent-principles.md",
+        "docs/audits/structural-closure-delta-audit/sources/agent-principles.md",
+        "docs/designs/archive/2026-03-08-vitepress-docs.md",
+        "docs/specs/2026-08-11-exarchos-repo-structure-cleanup.md"
+      ],
+      "sampleLiveCodeReferrers": []
+    },
+    "docs/architecture": {
+      "disposition": "re-home",
+      "ownFiles": 13,
+      "externalReferrers": 80,
+      "referrersByKind": {
+        "code": 26,
+        "config": 5,
+        "snapshot": 0,
+        "markdownLive": 4,
+        "markdownArchival": 45,
+        "other": 0
+      },
+      "liveReferrers": 35,
+      "sampleReferrers": [
+        ".exarchos/invariants.md",
+        ".github/workflows/ci.yml",
+        "CHANGELOG.md",
+        "CLAUDE.md",
+        "docs/audits/2026-07-21-phase-gate-transition-admission.md",
+        "docs/audits/structural-closure-delta-audit/2026-07-23-structural-closure-delta-audit.md",
+        "docs/audits/structural-closure-delta-audit/contracts.json",
+        "docs/audits/structural-closure-delta-audit/remediation-backlog.json",
+        "docs/audits/structural-closure-delta-audit/ship-surface.json",
+        "docs/audits/structural-closure-delta-audit/sources/phase-gate-transition-admission-roadmap.md",
+        "docs/audits/structural-closure-delta-audit/sources/phase-gate-transition-admission.md",
+        "docs/audits/structural-closure-delta-audit/v3-lowering.json"
+      ],
+      "sampleLiveCodeReferrers": [
+        "scripts/docs-check.test.ts",
+        "servers/exarchos-mcp/src/architecture/catalog-sources.ts",
+        "servers/exarchos-mcp/src/architecture/invariant-schema.test.ts",
+        "servers/exarchos-mcp/src/architecture/invariant-schema.ts",
+        "servers/exarchos-mcp/src/architecture/invariants-loader.test.ts",
+        "servers/exarchos-mcp/src/architecture/invariants-loader.ts",
+        "servers/exarchos-mcp/src/architecture/project-catalog.test.ts",
+        "servers/exarchos-mcp/src/architecture/resolve-effective-catalog.test.ts"
+      ]
+    }
+  }
+}
