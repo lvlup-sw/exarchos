@@ -149,6 +149,77 @@ one place, and it throws rather than guessing when it cannot be found. Relocatin
 the subject tree (task 019 folds `servers/exarchos-mcp/src/` up to `src/`) is a
 one-line change to `SUBJECT_SRC_REL`.
 
+## Status: inversions landed, the physical move is blocked on guard discovery
+
+Every inversion is applied and green. **No movable module carries an uninverted
+edge into the subject any more** — re-run `measure-conformance-extraction.mjs`
+and the only VALUE rows left are the five `bindings/*` composition-root modules
+(by design), plus the two stayers and the stated-exception fixture.
+
+The move itself was executed end-to-end and then **deliberately reverted**. It is
+worth recording exactly how far it got and what stopped it, because the blocker
+is real and belongs to another task.
+
+`move-conformance.mjs` performs the move: 39 files (22 modules + 17 tests), 100
+arithmetic specifier rewrites. Applying it and repairing the fallout left the
+extracted suite at **15 of 16 files green**. What was repaired along the way:
+
+- **Seven test files carried stale root computations** — `'../../../..'`,
+  `resolve(HERE, '..')`, `resolve(MCP_PACKAGE_ROOT, '..', '..')`. Every one
+  still resolved to a real directory at the new depth, so each would have gone
+  vacuous rather than red. `subject-root.ts` (plus a `SUBJECT_PACKAGE_ROOT`
+  export) replaces all of them.
+- **Five stale path literals in no import position** — the codemod's declared
+  blind spot. A fixture root, a docs path, a census key, and `wave1-exit`'s four
+  governed-artifact paths.
+- **`contract-seam-doc.test.ts` had to move back.** It reads
+  `invariant-schema.ts` **by path rather than by import**, so the movable-closure
+  analysis — which follows imports — could not see that its subject stayed
+  behind. A second instance of the same class: `contract-seam.test.ts` lints the
+  same file and needed re-pointing at the subject tree.
+- **Four CI steps** invoke these tests by path from `servers/exarchos-mcp`. Two
+  had to split, because a single step now spans both workspaces and dropping
+  either half would recreate #1711's skipped-as-passed.
+
+### The blocker
+
+`wave1-exit.test.ts` asserts every Wave-1 guard is present in
+`buildGuardInventory()` and hosted on an unfiltered CI path. The inventory
+discovers guard artifacts through exactly three channels:
+
+1. `scripts/enforcer-wiring-manifest.json` — `scripts/check-*|lint-*` primaries;
+2. the `**Files:**` entries of `docs/specs/2026-08-06-internal-mechanics-overhaul.md`;
+3. `servers/exarchos-mcp/scripts/`.
+
+A census that moves to `tools/conformance/src/` is visible to **none** of them.
+Channel 2 is a dated record of shipped work and must not be rewritten to point at
+today's tree; channel 1 is scoped to shell/mjs primaries; channel 3 is a single
+directory. So after the move, G2, G3 and G5 fall out of the inventory entirely and
+their exit proof fails — not because the guards stopped working, but because
+nothing can find them.
+
+Closing that gap means giving guard discovery a fourth channel, or a
+relocation-aware resolution step, and re-baselining `guard-inventory.test.ts`
+(which itself names `.../architecture/output-schema-census.ts`). That is a change
+to how the repository knows what its guards ARE — squarely
+**task 042 ("Retarget the audit configs and assert glob liveness")**, not a
+side effect of an extraction.
+
+Completing the move ahead of that would leave three Wave-1 exit guards
+undiscoverable, which is strictly worse than not moving: the same
+"honest-partial beats complete-but-blind" rule this task already applies to its
+module set, applied one level up.
+
+### What is owed to finish it
+
+1. Task 042's guard-discovery channel for `tools/conformance/`.
+2. Re-run `node tools/audit/move-conformance.mjs --apply`.
+3. Re-apply the repairs listed above (they are mechanical and enumerated).
+4. A `conformance` project in the root `vitest.config.ts` — the moved tests match
+   no existing project glob, and a test that matches no project passes by never
+   executing.
+5. Re-point `desc:budget-guard` at the moved CLI.
+
 ## Acceptance condition
 
 Identical census verdicts before and after. The 39 co-located test files already
