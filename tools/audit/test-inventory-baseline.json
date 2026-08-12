@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1141,
-    "parsedFiles": 1096,
+    "testFiles": 1142,
+    "parsedFiles": 1097,
     "shellFiles": 45,
-    "cases": 12599,
+    "cases": 12612,
     "dynamicTitles": 130,
     "unparseableFiles": 0
   },
@@ -11911,6 +11911,77 @@
           "suite": "command phase-transition canonical pattern (#1370 PR-2 F2; DR-3 fold-in)",
           "name": "<dynamic-case-3>",
           "dynamic": true
+        }
+      ]
+    },
+    "servers/exarchos-mcp/src/config/artifact-dir-symlink.test.ts": {
+      "file": "servers/exarchos-mcp/src/config/artifact-dir-symlink.test.ts",
+      "runner": "vitest:nested",
+      "cases": [
+        {
+          "suite": "ArtifactDir_SymlinkedOutOfTree_ResolvesAndClassifies",
+          "name": "follows a symlink that leaves the repository",
+          "dynamic": false
+        },
+        {
+          "suite": "ArtifactDir_SymlinkedOutOfTree_ResolvesAndClassifies",
+          "name": "classification is unaffected by the link — it reads the artifact map, not disk",
+          "dynamic": false
+        },
+        {
+          "suite": "ArtifactDir_SymlinkedOutOfTree_ResolvesAndClassifies",
+          "name": "a dangling symlink degrades to the unresolved path instead of throwing",
+          "dynamic": false
+        },
+        {
+          "suite": "ArtifactDir_WindowsSeparators_IsStoredPosixNormalized",
+          "name": "normalizes backslash-authored config to the POSIX storage form (INV-16)",
+          "dynamic": false
+        },
+        {
+          "suite": "ArtifactDir_WindowsSeparators_IsStoredPosixNormalized",
+          "name": "a backslash-authored prefix still matches a POSIX-recorded artifact path",
+          "dynamic": false
+        },
+        {
+          "suite": "ArtifactDir_WindowsSeparators_IsStoredPosixNormalized",
+          "name": "every resolved on-disk path is POSIX-separated",
+          "dynamic": false
+        },
+        {
+          "suite": "ArtifactDir_WindowsSeparators_IsStoredPosixNormalized",
+          "name": "all separator forms of the same directory resolve to one path",
+          "dynamic": false
+        },
+        {
+          "suite": "ArtifactDir_MissingDirectory_DoesNotAffectWorkflowExistence",
+          "name": "a tracked workflow still reports workflowExists with NO artifact directory on disk",
+          "dynamic": false
+        },
+        {
+          "suite": "ArtifactDir_MissingDirectory_DoesNotAffectWorkflowExistence",
+          "name": "a never-started feature reports workflowExists:false even WITH the directory present",
+          "dynamic": false
+        },
+        {
+          "suite": "ArtifactDir_MissingDirectory_DoesNotAffectWorkflowExistence",
+          "name": "a dangling symlinked artifact directory does not change the verdict",
+          "dynamic": false
+        },
+        {
+          "suite": "Rehydrate_WorkflowInitializedBeforeChange_StillResolves",
+          "name": "a workflow recorded under the pre-DR-6 default rehydrates unchanged",
+          "dynamic": false
+        },
+        {
+          "suite": "Rehydrate_WorkflowInitializedBeforeChange_StillResolves",
+          "name": "a pre-collapse two-artifact workflow still completes on the old path",
+          "dynamic": false
+        },
+        {
+          "suite": "Rehydrate_WorkflowInitializedBeforeChange_StillResolves",
+          "name": "an explicitly configured directory reaches the classifier through the context",
+          "dynamic": false
         }
       ]
     },

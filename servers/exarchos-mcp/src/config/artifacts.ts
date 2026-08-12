@@ -1,3 +1,6 @@
+import * as nodeFs from 'node:fs';
+import * as nodePath from 'node:path';
+
 /**
  * The directories a workflow's authored artifacts live under (DR-6).
  *
@@ -81,4 +84,34 @@ export function resolveArtifactDirs(config?: ArtifactsConfigInput): ArtifactDirs
     specDir: specDir === '' ? DEFAULT_SPEC_DIR : specDir,
     legacyDesignDir: legacyDesignDir === '' ? DEFAULT_LEGACY_DESIGN_DIR : legacyDesignDir,
   });
+}
+
+/** Rewrite a path to POSIX separators (INV-16). Storage form, on every OS. */
+export function toPosixPath(p: string): string {
+  return p.replace(/\\/g, '/');
+}
+
+/**
+ * Absolute on-disk location of a configured artifact directory, with symlinks
+ * resolved (DR-11).
+ *
+ * The coming docs exodus mounts the artifact directory as a symlink pointing
+ * outside the repository, so a consumer that must actually READ the directory —
+ * the eval corpus loader is the only one today — has to follow the link. The
+ * returned path is POSIX-normalized so it is comparable on every platform.
+ *
+ * Deliberately total on a missing directory: it returns the unresolved absolute
+ * path rather than throwing. A caller may then fail on its own terms, and more
+ * importantly nothing here can be mistaken for an existence check. Whether a
+ * workflow exists is the event projection's answer and never a filesystem stat
+ * (`docs/rca/2026-05-30-state-source-integrity.md`); a configured directory
+ * that is absent, dangling, or unreadable changes nothing about that.
+ */
+export function resolveArtifactDirPath(repoRoot: string, dir: string): string {
+  const joined = nodePath.resolve(repoRoot, normalizeArtifactDir(dir));
+  try {
+    return toPosixPath(nodeFs.realpathSync(joined));
+  } catch {
+    return toPosixPath(joined);
+  }
 }
