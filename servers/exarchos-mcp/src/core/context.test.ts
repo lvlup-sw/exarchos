@@ -481,13 +481,13 @@ describe('initializeContext — topology loader wired at startup (T58, DR-7)', (
     // test and the once-per-startup-per-process semantics would be
     // unobservable (it would look as though the second startup never
     // emitted, but actually the FIRST test already populated the cache).
-    const { __resetTopologyCacheForTesting } = await import('../topology/loader.js');
+    const { __resetTopologyCacheForTesting } = await import('../workflow/topology/loader.js');
     __resetTopologyCacheForTesting();
   });
 
   afterEach(async () => {
     await rmrfAsync(tmpDir);
-    const { __resetTopologyCacheForTesting } = await import('../topology/loader.js');
+    const { __resetTopologyCacheForTesting } = await import('../workflow/topology/loader.js');
     __resetTopologyCacheForTesting();
   });
 
@@ -538,7 +538,7 @@ phases:
     //     `_substrate` stream (the advisory branch is gone)
     //   - `getTopology()` still throws (no successful load → no cache)
     const { initializeContext } = await import('./context.js');
-    const { getTopology } = await import('../topology/loader.js');
+    const { getTopology } = await import('../workflow/topology/loader.js');
 
     const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ctx-topo-proj-'));
     await fs.writeFile(path.join(projectRoot, 'topology.yaml'), PARTIAL_TOPOLOGY, 'utf-8');
@@ -567,7 +567,7 @@ phases:
     // fail here (it would also drag the YAML loader into the cold-start
     // import graph, blowing the DR-5 / task 021 p95=250ms budget).
     const { initializeContext } = await import('./context.js');
-    const { getTopology } = await import('../topology/loader.js');
+    const { getTopology } = await import('../workflow/topology/loader.js');
 
     await initializeContext(tmpDir);
 
@@ -580,7 +580,7 @@ phases:
     // back to the v2.9 single-signal heuristic when no contract is loaded;
     // the lifecycle hook honors the same "advisory, not required" stance.
     const { initializeContext } = await import('./context.js');
-    const { getTopology } = await import('../topology/loader.js');
+    const { getTopology } = await import('../workflow/topology/loader.js');
 
     const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ctx-topo-empty-'));
 

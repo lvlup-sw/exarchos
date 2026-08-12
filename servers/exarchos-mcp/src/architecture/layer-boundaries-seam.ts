@@ -330,12 +330,11 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
   allowance('shared', [], 'Foundation leaf — shared value types/helpers; imports no first-party directory.'),
   allowance('ndjson', [], 'Foundation leaf — NDJSON framing primitives; imports no first-party directory.'),
   allowance('schemas', [], 'Foundation leaf — shared schema declarations; imports no first-party directory.'),
-  allowance('topology', [], 'Foundation leaf — topology reads; imports no first-party directory.'),
 
   // ── peripheral layers: bounded, intentional dependency surfaces ────────────
   allowance('runtime', ['utils'], 'Runtime resource reads lean only on the utils foundation.'),
   allowance('onramp', ['utils'], 'Onboarding scaffold leans only on the utils foundation.'),
-  allowance('pruner', ['topology'], 'Pruner safeguards read only the topology layer.'),
+  allowance('pruner', ['workflow'], 'Pruner safeguards read the topology contract, which task 013 folded into workflow/.'),
   allowance('hooks', ['config'], 'Hook wiring reads only config; hooks are an advisory side-channel.'),
   allowance('runbooks', ['adapters'], 'Runbooks render only through the adapters IO facade.'),
   allowance(

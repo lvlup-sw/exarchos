@@ -51378,120 +51378,6 @@
         }
       ]
     },
-    "servers/exarchos-mcp/src/topology/loader.dr7-removal.test.ts": {
-      "file": "servers/exarchos-mcp/src/topology/loader.dr7-removal.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "Topology_LoadWithMissingContracts_ThrowsAndAggregatesPhaseIds_DR7",
-          "name": "throws when any phase lacks a staleness block, naming the offending phase",
-          "dynamic": false
-        },
-        {
-          "suite": "Topology_LoadWithMissingContracts_ThrowsAndAggregatesPhaseIds_DR7",
-          "name": "aggregates ALL missing phase IDs in the thrown error (not first-fail)",
-          "dynamic": false
-        },
-        {
-          "suite": "Topology_LoadWithMissingContracts_ThrowsAndAggregatesPhaseIds_DR7",
-          "name": "includes an INV-5a self-correction breadcrumb instructing operator to add staleness blocks",
-          "dynamic": false
-        },
-        {
-          "suite": "Topology_LoadWithMissingContracts_ThrowsAndAggregatesPhaseIds_DR7",
-          "name": "still loads a complete topology (every phase has a staleness block) without throwing",
-          "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/topology/loader.test.ts": {
-      "file": "servers/exarchos-mcp/src/topology/loader.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "TopologyLoader_LoadOnce_ReturnsImmutableTopology",
-          "name": "reads topology.yaml, parses through Zod, returns frozen object",
-          "dynamic": false
-        },
-        {
-          "suite": "TopologyLoader_LoadOnce_ReturnsImmutableTopology",
-          "name": "subsequent calls return the same cached instance",
-          "dynamic": false
-        },
-        {
-          "suite": "TopologyLoader_LoadOnce_ReturnsImmutableTopology",
-          "name": "getTopology() throws when called before loadTopology()",
-          "dynamic": false
-        },
-        {
-          "suite": "TopologyLoader_LoadOnce_ReturnsImmutableTopology",
-          "name": "getTopology() returns the cached topology after loadTopology()",
-          "dynamic": false
-        },
-        {
-          "suite": "Topology_ConcurrentFirstLoad_SharesPromiseAndReturnsOneInstance",
-          "name": "N concurrent loadTopology() calls converge on the same cached Topology instance",
-          "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/topology/phase-contract.acceptance.test.ts": {
-      "file": "servers/exarchos-mcp/src/topology/phase-contract.acceptance.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "PhaseContract_LoaderAndScorer_HonorsTypedContractAndEmitsMissingEvent",
-          "name": "complete contracts: pruner uses contract; scorer reduces over declared signals; no missing-event",
-          "dynamic": false
-        },
-        {
-          "suite": "PhaseContract_LoaderAndScorer_HonorsTypedContractAndEmitsMissingEvent",
-          "name": "partial contracts: loader THROWS (v2.11 hard-cut); no advisory-fallback path remains",
-          "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/topology/phase-contract.test.ts": {
-      "file": "servers/exarchos-mcp/src/topology/phase-contract.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "PhaseContractSchema_validation",
-          "name": "accepts a well-formed contract",
-          "dynamic": false
-        },
-        {
-          "suite": "PhaseContractSchema_validation",
-          "name": "rejects a contract missing `expectedMaxDwellMinutes`",
-          "dynamic": false
-        },
-        {
-          "suite": "PhaseContractSchema_validation",
-          "name": "rejects a contract missing `signals`",
-          "dynamic": false
-        },
-        {
-          "suite": "PhaseContractSchema_validation",
-          "name": "rejects a wrong-type field (`expectedMaxDwellMinutes: \"thirty\"`)",
-          "dynamic": false
-        },
-        {
-          "suite": "PhaseContractSchema_validation",
-          "name": "rejects `freshnessRequires` outside the {all, any} enum",
-          "dynamic": false
-        },
-        {
-          "suite": "PhaseContractSchema_validation",
-          "name": "rejects unknown signal `name` values",
-          "dynamic": false
-        },
-        {
-          "suite": "TopologySchema_validation_includes_phase_name_in_errors",
-          "name": "error path references the phase name when a contract is malformed",
-          "dynamic": false
-        }
-      ]
-    },
     "servers/exarchos-mcp/src/tsconfig-strictness.test.ts": {
       "file": "servers/exarchos-mcp/src/tsconfig-strictness.test.ts",
       "runner": "vitest:nested",
@@ -63674,6 +63560,120 @@
         {
           "suite": "exarchos_workflow.update — canonical state-mutation action (Wave 0)",
           "name": "WorkflowUpdate_ReservedField_EnvelopeCarriesTypedData",
+          "dynamic": false
+        }
+      ]
+    },
+    "servers/exarchos-mcp/src/workflow/topology/loader.dr7-removal.test.ts": {
+      "file": "servers/exarchos-mcp/src/workflow/topology/loader.dr7-removal.test.ts",
+      "runner": "vitest:nested",
+      "cases": [
+        {
+          "suite": "Topology_LoadWithMissingContracts_ThrowsAndAggregatesPhaseIds_DR7",
+          "name": "throws when any phase lacks a staleness block, naming the offending phase",
+          "dynamic": false
+        },
+        {
+          "suite": "Topology_LoadWithMissingContracts_ThrowsAndAggregatesPhaseIds_DR7",
+          "name": "aggregates ALL missing phase IDs in the thrown error (not first-fail)",
+          "dynamic": false
+        },
+        {
+          "suite": "Topology_LoadWithMissingContracts_ThrowsAndAggregatesPhaseIds_DR7",
+          "name": "includes an INV-5a self-correction breadcrumb instructing operator to add staleness blocks",
+          "dynamic": false
+        },
+        {
+          "suite": "Topology_LoadWithMissingContracts_ThrowsAndAggregatesPhaseIds_DR7",
+          "name": "still loads a complete topology (every phase has a staleness block) without throwing",
+          "dynamic": false
+        }
+      ]
+    },
+    "servers/exarchos-mcp/src/workflow/topology/loader.test.ts": {
+      "file": "servers/exarchos-mcp/src/workflow/topology/loader.test.ts",
+      "runner": "vitest:nested",
+      "cases": [
+        {
+          "suite": "TopologyLoader_LoadOnce_ReturnsImmutableTopology",
+          "name": "reads topology.yaml, parses through Zod, returns frozen object",
+          "dynamic": false
+        },
+        {
+          "suite": "TopologyLoader_LoadOnce_ReturnsImmutableTopology",
+          "name": "subsequent calls return the same cached instance",
+          "dynamic": false
+        },
+        {
+          "suite": "TopologyLoader_LoadOnce_ReturnsImmutableTopology",
+          "name": "getTopology() throws when called before loadTopology()",
+          "dynamic": false
+        },
+        {
+          "suite": "TopologyLoader_LoadOnce_ReturnsImmutableTopology",
+          "name": "getTopology() returns the cached topology after loadTopology()",
+          "dynamic": false
+        },
+        {
+          "suite": "Topology_ConcurrentFirstLoad_SharesPromiseAndReturnsOneInstance",
+          "name": "N concurrent loadTopology() calls converge on the same cached Topology instance",
+          "dynamic": false
+        }
+      ]
+    },
+    "servers/exarchos-mcp/src/workflow/topology/phase-contract.acceptance.test.ts": {
+      "file": "servers/exarchos-mcp/src/workflow/topology/phase-contract.acceptance.test.ts",
+      "runner": "vitest:nested",
+      "cases": [
+        {
+          "suite": "PhaseContract_LoaderAndScorer_HonorsTypedContractAndEmitsMissingEvent",
+          "name": "complete contracts: pruner uses contract; scorer reduces over declared signals; no missing-event",
+          "dynamic": false
+        },
+        {
+          "suite": "PhaseContract_LoaderAndScorer_HonorsTypedContractAndEmitsMissingEvent",
+          "name": "partial contracts: loader THROWS (v2.11 hard-cut); no advisory-fallback path remains",
+          "dynamic": false
+        }
+      ]
+    },
+    "servers/exarchos-mcp/src/workflow/topology/phase-contract.test.ts": {
+      "file": "servers/exarchos-mcp/src/workflow/topology/phase-contract.test.ts",
+      "runner": "vitest:nested",
+      "cases": [
+        {
+          "suite": "PhaseContractSchema_validation",
+          "name": "accepts a well-formed contract",
+          "dynamic": false
+        },
+        {
+          "suite": "PhaseContractSchema_validation",
+          "name": "rejects a contract missing `expectedMaxDwellMinutes`",
+          "dynamic": false
+        },
+        {
+          "suite": "PhaseContractSchema_validation",
+          "name": "rejects a contract missing `signals`",
+          "dynamic": false
+        },
+        {
+          "suite": "PhaseContractSchema_validation",
+          "name": "rejects a wrong-type field (`expectedMaxDwellMinutes: \"thirty\"`)",
+          "dynamic": false
+        },
+        {
+          "suite": "PhaseContractSchema_validation",
+          "name": "rejects `freshnessRequires` outside the {all, any} enum",
+          "dynamic": false
+        },
+        {
+          "suite": "PhaseContractSchema_validation",
+          "name": "rejects unknown signal `name` values",
+          "dynamic": false
+        },
+        {
+          "suite": "TopologySchema_validation_includes_phase_name_in_errors",
+          "name": "error path references the phase name when a contract is malformed",
           "dynamic": false
         }
       ]

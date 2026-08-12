@@ -16,7 +16,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { scoreStaleness } from './score.js';
-import type { PhaseContract } from '../topology/phase-contract.js';
+import type { PhaseContract } from '../workflow/topology/phase-contract.js';
 
 const ALL_CONTRACT: PhaseContract = {
   expectedMaxDwellMinutes: 60,

@@ -65,10 +65,10 @@
     "servers/exarchos-mcp/src/projections/views/lifecycle/s6-recovery.acceptance.test.ts",
     "servers/exarchos-mcp/src/projections/views/materializer.property.test.ts",
     "servers/exarchos-mcp/src/projections/views/parity.test.ts",
-    "servers/exarchos-mcp/src/topology/phase-contract.acceptance.test.ts",
     "servers/exarchos-mcp/src/workflow/feedback.parity.test.ts",
     "servers/exarchos-mcp/src/workflow/playbooks.property.test.ts",
     "servers/exarchos-mcp/src/workflow/state-machine.property.test.ts",
-    "servers/exarchos-mcp/src/workflow/tools.update.race.test.ts"
+    "servers/exarchos-mcp/src/workflow/tools.update.race.test.ts",
+    "servers/exarchos-mcp/src/workflow/topology/phase-contract.acceptance.test.ts"
   ]
 }

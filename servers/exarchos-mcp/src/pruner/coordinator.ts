@@ -12,7 +12,7 @@
  * surfaces the missing-contract case loudly rather than silently falling
  * back. The v2.9 single-signal heuristic was deleted in Phase 5c.
  */
-import type { Topology } from '../topology/phase-contract.js';
+import type { Topology } from '../workflow/topology/phase-contract.js';
 import { scoreStaleness, type StalenessState, type StalenessScore } from './score.js';
 
 /**

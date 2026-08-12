@@ -28,7 +28,7 @@
  * The scorer accepts numeric minutes rather than ISO timestamps so it
  * stays clock-free; the handler layer (T48) does the timestamp math.
  */
-import type { PhaseContract, StalenessSignalName } from '../topology/phase-contract.js';
+import type { PhaseContract, StalenessSignalName } from '../workflow/topology/phase-contract.js';
 
 /**
  * Pre-computed per-signal minute deltas. The scorer reads only the

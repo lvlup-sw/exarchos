@@ -157,7 +157,7 @@ invariants:
         https://jeremydmiller.com/2023/12/06/building-a-critter-stack-applicati\
         on-wolverines-aggregate-handler-workflow-ftw/"
     references:
-      - servers/exarchos-mcp/src/topology/phase-contract.ts
+      - servers/exarchos-mcp/src/workflow/topology/phase-contract.ts
       - servers/exarchos-mcp/src/workflow/hsm-definitions.ts
       - docs/architecture/runtime.md#§3-L4
 

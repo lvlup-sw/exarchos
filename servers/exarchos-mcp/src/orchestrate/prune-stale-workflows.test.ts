@@ -8,7 +8,7 @@ import {
 } from './prune-stale-workflows.js';
 import { orchestrateLogger } from '../logger.js';
 import type { ToolResult } from '../format.js';
-import type { Topology } from '../topology/phase-contract.js';
+import type { Topology } from '../workflow/topology/phase-contract.js';
 
 // #1334 (β-07/β-08): the handler now calls `getTopology()` to obtain the
 // typed phase contracts that drive staleness scoring. The handler test
@@ -18,7 +18,7 @@ import type { Topology } from '../topology/phase-contract.js';
 // to exercise the "topology not loaded" skip path (β-08).
 const mockGetTopology = vi.fn<() => Topology>();
 
-vi.mock('../topology/loader.js', () => ({
+vi.mock('../workflow/topology/loader.js', () => ({
   getTopology: () => mockGetTopology(),
   loadTopology: vi.fn(),
   __resetTopologyCacheForTesting: vi.fn(),

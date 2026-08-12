@@ -34,7 +34,7 @@ import type { DispatchContext } from '../../core/dispatch.js';
 import {
   loadTopology,
   __resetTopologyCacheForTesting,
-} from '../../topology/loader.js';
+} from '../../workflow/topology/loader.js';
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────

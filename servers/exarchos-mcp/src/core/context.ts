@@ -22,7 +22,7 @@ import {
 import { configureCutoverAutoExport } from '../workflow/admission/cutover-auto-export.js';
 import { configureCleanupSnapshotStore } from '../workflow/cleanup.js';
 import { configureStateStoreBackend } from '../workflow/state-store.js';
-import { loadTopology } from '../topology/loader.js';
+import { loadTopology } from '../workflow/topology/loader.js';
 import { assertRegistrationWeldsAtStartup } from '../events/registration-validate.js';
 
 // ─── Config Detection ──────────────────────────────────────────────────────

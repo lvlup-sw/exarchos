@@ -32,7 +32,7 @@ import { fileURLToPath } from 'node:url';
 import { scoreStaleness } from './score.js';
 import { scoreEntryThroughTopology } from './coordinator.js';
 import * as scoreModule from './score.js';
-import type { PhaseContract, Topology } from '../topology/phase-contract.js';
+import type { PhaseContract, Topology } from '../workflow/topology/phase-contract.js';
 
 describe('Pruner_PostDR7_NoSingleSignalHeuristic_TypedContractOnly', () => {
   it('pruner module source contains no single-signal heuristic markers', () => {

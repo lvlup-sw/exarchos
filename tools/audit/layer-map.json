@@ -1,11 +1,11 @@
 {
   "capturedAt": "2026-08-12",
-  "tree": "b017264ed6b2e134af311fb42a55f74b34605628",
+  "tree": "c36b7036b8d9d4e0fb2ba10bb6c1ae0fa79c91d5",
   "source": "servers/exarchos-mcp/src",
   "authority": "docs/system-design.html is the canonical L1-L9 architecture; this file maps the tree onto it. Task 044 asserts THIS mapping, not set equality, which is why the 11 targets -> 9 published layers relation is written out rather than inferred.",
   "counts": {
-    "directories": 49,
-    "mapped": 38,
+    "directories": 48,
+    "mapped": 37,
     "exceptions": 11,
     "targets": 11,
     "publishedLayers": 9
@@ -326,12 +326,6 @@
       "destination": "tools/test-helpers/",
       "reason": "Lexers and temp-dir helpers consumed only by tests."
     },
-    "topology": {
-      "disposition": "mapped",
-      "target": "workflow",
-      "layer": "L4",
-      "reason": "Phase-contract loader and staleness signal: workflow-primitive data."
-    },
     "utils": {
       "disposition": "exception",
       "destination": "(unresolved — task 020)",
@@ -347,7 +341,7 @@
       "disposition": "mapped",
       "target": "workflow",
       "layer": "L4",
-      "reason": "State machines, phase contracts, guards, checkpoint — L4 itself."
+      "reason": "State machines, phase contracts, guards, checkpoint — L4 itself. Task 013 folded topology/ in: the phase-contract loader and staleness signal are workflow-primitive data, not a layer of their own."
     },
     "workspace": {
       "disposition": "mapped",

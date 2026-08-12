@@ -449,14 +449,14 @@
   },
   {
     "symbol": "PhaseEntry",
-    "file": "servers/exarchos-mcp/src/topology/phase-contract.ts",
+    "file": "servers/exarchos-mcp/src/workflow/topology/phase-contract.ts",
     "owner": "@reedsalus",
     "expires": "2026-10-31",
     "rationale": "Topology phase-contract type (DR-7 staleness); forward-compat surface."
   },
   {
     "symbol": "StalenessSignal",
-    "file": "servers/exarchos-mcp/src/topology/phase-contract.ts",
+    "file": "servers/exarchos-mcp/src/workflow/topology/phase-contract.ts",
     "owner": "@reedsalus",
     "expires": "2026-10-31",
     "rationale": "Topology phase-contract type (DR-7 staleness); forward-compat surface."

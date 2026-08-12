@@ -20,7 +20,7 @@ import * as path from 'node:path';
 import {
   loadTopology,
   __resetTopologyCacheForTesting,
-} from '../topology/loader.js';
+} from '../workflow/topology/loader.js';
 import { scoreStaleness } from './score.js';
 
 function writeTopology(yamlBody: string): string {

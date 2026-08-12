@@ -1044,7 +1044,7 @@ function registerLedger(): readonly EffectOwnershipRule[] {
     rule('filesystem', 'sync/', 'sync-fs', 'outbox writes; idempotent by op id', 'outbox reconciliation'),
     rule('filesystem', 'runtime/', 'runtime-fs', 'runtime resource reads; read-only', 'none'),
     rule('filesystem', 'projections/telemetry/', 'telemetry-fs', 'append-only telemetry; best-effort', 'none: telemetry is advisory'),
-    rule('filesystem', 'topology/', 'topology-fs', 'topology reads; read-only', 'none'),
+    rule('filesystem', 'workflow/topology/', 'topology-fs', 'topology reads; read-only', 'none'),
     rule('filesystem', 'cli-commands/', 'cli-fs', 'worktree reads/writes; per-command', 'none: read-mostly'),
     rule('filesystem', 'adapters/', 'adapters-fs', 'adapter io; caller owns idempotency', 'caller-owned'),
     rule('filesystem', 'onramp/', 'onramp-fs', 'onboarding scaffold writes; idempotent', 'scaffold is re-runnable'),

@@ -22,7 +22,7 @@
  */
 import * as fs from 'node:fs/promises';
 import { parse as parseYaml } from 'yaml';
-import { logger } from '../logger.js';
+import { logger } from '../../logger.js';
 import { TopologySchema, type Topology } from './phase-contract.js';
 
 const topologyLogger = logger.child({ subsystem: 'topology' });

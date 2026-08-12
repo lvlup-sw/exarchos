@@ -7,7 +7,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { scoreEntryThroughTopology } from './coordinator.js';
-import type { Topology } from '../topology/phase-contract.js';
+import type { Topology } from '../workflow/topology/phase-contract.js';
 
 const topology: Topology = Object.freeze({
   phases: Object.freeze({
