@@ -37,7 +37,7 @@
       "disposition": "gating",
       "workflow": ".github/workflows/ci.yml",
       "diffDependent": false,
-      "rationale": "test-mcp step (DR-5), BLOCKING (task 009): `node scripts/check-coverage-ratchet.mjs` (no `--observe`) now fails the job on a coverage regression beyond its floored epsilon. The live coverage baseline (servers/exarchos-mcp/coverage-baseline.json — totals + run-ids + measured spread from 3 green CI runs on this feature branch: 29622454248, 29623082084, 29624088763) was captured and the observe flag dropped in the same change. Its scripts/ self-test (check-coverage-ratchet.test.sh) re-asserts unfiltered in grep-gates (DR-10)."
+      "rationale": "test-mcp step (DR-5), BLOCKING (task 009): `node scripts/check-coverage-ratchet.mjs` (no `--observe`) now fails the job on a coverage regression beyond its floored epsilon. The live coverage baseline (tools/audit/coverage-baseline.json — totals + run-ids + measured spread from 3 green CI runs on this feature branch: 29622454248, 29623082084, 29624088763) was captured and the observe flag dropped in the same change. Its scripts/ self-test (check-coverage-ratchet.test.sh) re-asserts unfiltered in grep-gates (DR-10)."
     },
     {
       "script": "scripts/check-design-completeness.sh",

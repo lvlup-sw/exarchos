@@ -3,7 +3,7 @@
  *
  * Verifies that the #1719 coverage substrate is present on the base branch before
  * dispatching consolidation tasks. Asserts both:
- *   - servers/exarchos-mcp/coverage-baseline.json exists
+ *   - tools/audit/coverage-baseline.json exists
  *   - scripts/check-coverage-ratchet.mjs exists
  *
  * Exit 0 ("substrate present") when BOTH files exist.
@@ -31,7 +31,7 @@ export interface SubstrateCheckDeps {
  * so tests can point at arbitrary trees.
  */
 export function checkBaseSubstrate(deps: SubstrateCheckDeps, repoRoot: string): number {
-  const coverageBaseline = path.join(repoRoot, 'servers', 'exarchos-mcp', 'coverage-baseline.json');
+  const coverageBaseline = path.join(repoRoot, 'tools', 'audit', 'coverage-baseline.json');
   const coverageRatchet = path.join(repoRoot, 'scripts', 'check-coverage-ratchet.mjs');
 
   const coverageBaselineExists = deps.fileExists(coverageBaseline);

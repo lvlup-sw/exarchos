@@ -4,7 +4,7 @@
  *
  * Compares `coverage-summary.json` totals (produced by the vitest `v8`
  * provider's `json-summary` reporter — see `servers/exarchos-mcp/vitest.config.ts`)
- * against a checked-in baseline (`servers/exarchos-mcp/coverage-baseline.json`),
+ * against a checked-in baseline (`tools/audit/coverage-baseline.json`),
  * one comparison per standard v8/istanbul metric (`lines`, `statements`,
  * `functions`, `branches`).
  *
@@ -45,7 +45,7 @@
  *                       `servers/exarchos-mcp/coverage/coverage-summary.json`
  *                       (repo-relative).
  *   --baseline <path>  Path to the baseline JSON. Default
- *                       `servers/exarchos-mcp/coverage-baseline.json`.
+ *                       `tools/audit/coverage-baseline.json`.
  *   --observe          Log the verdict; always exit 0.
  *   --help             Show usage.
  */
@@ -63,7 +63,12 @@ const DEFAULT_SUMMARY = path.join(
   'coverage',
   'coverage-summary.json',
 );
-const DEFAULT_BASELINE = path.join(REPO_ROOT, 'servers', 'exarchos-mcp', 'coverage-baseline.json');
+// DR-2 (task 011) — the baseline sits with the other audit oracles under
+// `tools/audit/`, not beside the workspace it measures. Phase 1 relocates that
+// workspace; a baseline living inside it would have to move with it, and a
+// coverage ratchet that moves whenever the code moves is one more thing that
+// can silently stop governing.
+const DEFAULT_BASELINE = path.join(REPO_ROOT, 'tools', 'audit', 'coverage-baseline.json');
 
 const EXIT_PASS = 0;
 const EXIT_REGRESSION = 1;

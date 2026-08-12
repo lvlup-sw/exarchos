@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1144,
-    "parsedFiles": 1099,
+    "testFiles": 1145,
+    "parsedFiles": 1100,
     "shellFiles": 45,
-    "cases": 12640,
+    "cases": 12657,
     "dynamicTitles": 130,
     "unparseableFiles": 0
   },
@@ -69284,6 +69284,97 @@
         {
           "suite": "benchmark baseline",
           "name": "BenchmarkBaseline_PinnedBinary_RecordsItsDeferralExplicitly",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/build-graph.test.ts": {
+      "file": "tests/architecture/build-graph.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "BuildGraph_AfterUnification_DeclaredPackageSetMatchesTheManifestSet",
+          "name": "every tracked manifest is declared, and every declaration is tracked",
+          "dynamic": false
+        },
+        {
+          "suite": "BuildGraph_AfterUnification_DeclaredPackageSetMatchesTheManifestSet",
+          "name": "every declared package states a role and a reason",
+          "dynamic": false
+        },
+        {
+          "suite": "BuildGraph_AfterUnification_DeclaredPackageSetMatchesTheManifestSet",
+          "name": "each declared manifest has its own lockfile beside it",
+          "dynamic": false
+        },
+        {
+          "suite": "BuildGraph_BunSqliteAlias_ResolvesInEveryProject",
+          "name": "every project that needs the alias declares it",
+          "dynamic": false
+        },
+        {
+          "suite": "BuildGraph_BunSqliteAlias_ResolvesInEveryProject",
+          "name": "every declaration resolves to the SAME shim",
+          "dynamic": false
+        },
+        {
+          "suite": "BuildGraph_BunSqliteAlias_ResolvesInEveryProject",
+          "name": "the shim exists on disk",
+          "dynamic": false
+        },
+        {
+          "suite": "BuildGraph_BunSqliteAlias_ResolvesInEveryProject",
+          "name": "the root unit tier still does not collect the core suite",
+          "dynamic": false
+        },
+        {
+          "suite": "BuildGraph_CoreTestTier_RetainsItsDeclaredTimeoutPolicy",
+          "name": "keeps the 60 s per-test and per-hook budget chosen for the Windows runner",
+          "dynamic": false
+        },
+        {
+          "suite": "BuildGraph_CoreTestTier_RetainsItsDeclaredTimeoutPolicy",
+          "name": "keeps the forks pool",
+          "dynamic": false
+        },
+        {
+          "suite": "BuildGraph_CoreTestTier_RetainsItsDeclaredTimeoutPolicy",
+          "name": "keeps the type-test and bench includes",
+          "dynamic": false
+        },
+        {
+          "suite": "BuildGraph_CoreTestTier_RetainsItsDeclaredTimeoutPolicy",
+          "name": "keeps the EXARCHOS_SMOKE_ONLY exclusion toggle and its defaults",
+          "dynamic": false
+        },
+        {
+          "suite": "BuildGraph_CoreTestTier_RetainsItsDeclaredTimeoutPolicy",
+          "name": "keeps benchmark.outputJson",
+          "dynamic": false
+        },
+        {
+          "suite": "BuildGraph_CoreTestTier_RetainsItsDeclaredTimeoutPolicy",
+          "name": "the root tiers still declare their own timeouts rather than inheriting a default",
+          "dynamic": false
+        },
+        {
+          "suite": "BuildGraph_CoverageRatchet_StillReceivesItsInputs",
+          "name": "the v8 provider emits json-summary, the artifact the ratchet reads",
+          "dynamic": false
+        },
+        {
+          "suite": "BuildGraph_CoverageRatchet_StillReceivesItsInputs",
+          "name": "reportOnFailure stays true so a red run still produces the summary",
+          "dynamic": false
+        },
+        {
+          "suite": "BuildGraph_CoverageRatchet_StillReceivesItsInputs",
+          "name": "the baseline sits with the other audit oracles and the ratchet defaults to it",
+          "dynamic": false
+        },
+        {
+          "suite": "BuildGraph_CoverageRatchet_StillReceivesItsInputs",
+          "name": "the baseline carries the provenance the ratchet refuses to run without",
           "dynamic": false
         }
       ]

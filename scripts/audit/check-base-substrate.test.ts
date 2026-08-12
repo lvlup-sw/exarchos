@@ -63,7 +63,7 @@ describe('checkBaseSubstrate', () => {
     checkBaseSubstrate(deps, '/custom/repo');
     // Build expected paths with path.join so the assertion matches the source's
     // native separators on every OS (Windows uses `\`, not `/`) — #1699 lane fix.
-    expect(fileChecks).toContainEqual(path.join('/custom/repo', 'servers', 'exarchos-mcp', 'coverage-baseline.json'));
+    expect(fileChecks).toContainEqual(path.join('/custom/repo', 'tools', 'audit', 'coverage-baseline.json'));
     expect(fileChecks).toContainEqual(path.join('/custom/repo', 'scripts', 'check-coverage-ratchet.mjs'));
   });
 
