@@ -1,0 +1,489 @@
+{
+  "capturedAt": "2026-08-12",
+  "base": "origin/main",
+  "disposition": "inventory-only",
+  "dispositionRationale": "Pruning is withdrawn. One of these worktrees held the only copy of an unlanded comment-prose implementation, found incidentally; there is no cheap way to know which others do. An inventory is reversible and a prune is not.",
+  "worktrees": {
+    "total": 67,
+    "carryingUniqueWork": 66,
+    "missingDirectory": 0,
+    "countingCaveat": "This repository merges by squash, which rewrites history: the original commits never appear on the base branch, so a fully-shipped branch still reports commits ahead. The count therefore OVERSTATES how much unique work exists. That is the safe direction for an inventory — it can only make a branch look more valuable than it is, never less — but it means the number cannot be used to justify deletion. Telling shipped from unshipped needs a patch-level comparison, which is deliberately not attempted here.",
+    "records": [
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos",
+        "branch": "main",
+        "directoryPresent": true,
+        "commitsNotOnBase": "0",
+        "carriesUniqueWork": false
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-a0a9ae03bd2cd9ef1",
+        "branch": "feat/e1-e5-disposition",
+        "directoryPresent": true,
+        "commitsNotOnBase": "2",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-a1230356ad2442ab1",
+        "branch": "worktree-agent-a1230356ad2442ab1",
+        "directoryPresent": true,
+        "commitsNotOnBase": "9",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-a18b7896c72702e76",
+        "branch": "worktree-agent-a18b7896c72702e76",
+        "directoryPresent": true,
+        "commitsNotOnBase": "8",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-a1a5a9f4cfdfce9fa",
+        "branch": "task/v2-12-001-unified-shape-parsers",
+        "directoryPresent": true,
+        "commitsNotOnBase": "4",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-a1b04a9f750133593",
+        "branch": "task/imo-089-mutation-runner-cwd",
+        "directoryPresent": true,
+        "commitsNotOnBase": "60",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-a1b1f9d0815761102",
+        "branch": "task/imo-074-resolved-path-predicates",
+        "directoryPresent": true,
+        "commitsNotOnBase": "61",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-a1fe32bc3d6330107",
+        "branch": "task/v2-12-011-ps-pinned-queries",
+        "directoryPresent": true,
+        "commitsNotOnBase": "40",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-a213c63d308ae1759",
+        "branch": "fix/v2-12-eventquery-bounded-path",
+        "directoryPresent": true,
+        "commitsNotOnBase": "74",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-a25ab54453efa140b",
+        "branch": "worktree-agent-a25ab54453efa140b",
+        "directoryPresent": true,
+        "commitsNotOnBase": "3",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-a2cc4b34b3bf3d9bc",
+        "branch": "task/v2-12-006-discover-skill-emissions",
+        "directoryPresent": true,
+        "commitsNotOnBase": "4",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-a2cc8bc18c257f23b",
+        "branch": "task/v2-12-017-rollback-remnant-retire",
+        "directoryPresent": true,
+        "commitsNotOnBase": "64",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-a306887a81721ad7b",
+        "branch": "task/imo-091-ci-lane-fail-closed",
+        "directoryPresent": true,
+        "commitsNotOnBase": "24",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-a30d855c10ec8a106",
+        "branch": "task/imo-090-transition-dryrun",
+        "directoryPresent": true,
+        "commitsNotOnBase": "25",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-a340cf671f016f423",
+        "branch": "task/v2-12-003-task-decomposition-fixes",
+        "directoryPresent": true,
+        "commitsNotOnBase": "4",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-a355d3bff2353354f",
+        "branch": "task/imo-073-amend-splice",
+        "directoryPresent": true,
+        "commitsNotOnBase": "78",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-a3880c639178789ef",
+        "branch": "task/v2-12-009-retry-class-contract",
+        "directoryPresent": true,
+        "commitsNotOnBase": "63",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-a3d9bba3e1f15f7e9",
+        "branch": "task/v2-12-025-phase-gates-toolchain-resolver",
+        "directoryPresent": true,
+        "commitsNotOnBase": "64",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-a3de4b67b2481ab4b",
+        "branch": "task/v2-12-016-wlm-win32-liveness",
+        "directoryPresent": true,
+        "commitsNotOnBase": "27",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-a4acbe39d3be6c2fa",
+        "branch": "task/v2-12-014-merge-serializer-hardening",
+        "directoryPresent": true,
+        "commitsNotOnBase": "25",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-a4aeb73ca8de3d62a",
+        "branch": "task/promotion-path",
+        "directoryPresent": true,
+        "commitsNotOnBase": "263",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-a4b2b331f783951cf",
+        "branch": "task/wcfix-admission",
+        "directoryPresent": true,
+        "commitsNotOnBase": "246",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-a508a77518bfb668f",
+        "branch": "task/v2-12-019-checkpoint-context-path",
+        "directoryPresent": true,
+        "commitsNotOnBase": "25",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-a53aeee818e49f25d",
+        "branch": "task/wcfix-cli-meta",
+        "directoryPresent": true,
+        "commitsNotOnBase": "261",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-a565eba2404a12e32",
+        "branch": "fix/v2-12-context-rot-bounded-tail",
+        "directoryPresent": true,
+        "commitsNotOnBase": "74",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-a58c07c32365f3a40",
+        "branch": "task/wcfix-cli-generation",
+        "directoryPresent": true,
+        "commitsNotOnBase": "259",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-a5e9d9056ed4d1dd1",
+        "branch": "task/v2-12-012-launcher-typed-contract",
+        "directoryPresent": true,
+        "commitsNotOnBase": "53",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-a624961d44bf1b2cb",
+        "branch": "task/imo-093-waiver-horizon-stagger",
+        "directoryPresent": true,
+        "commitsNotOnBase": "88",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-a626a66276d83c269",
+        "branch": "task/imo-085-correctness-residue",
+        "directoryPresent": true,
+        "commitsNotOnBase": "9",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-a67be9afa69761595",
+        "branch": "task/v2-12-013-context-rot-gate",
+        "directoryPresent": true,
+        "commitsNotOnBase": "58",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-a6ffdcc84c52c4c17",
+        "branch": "task/imo-082-handler-throw-census",
+        "directoryPresent": true,
+        "commitsNotOnBase": "61",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-a76c81350f58213b2",
+        "branch": "task/v2-12-008-jsonrpc-error-model",
+        "directoryPresent": true,
+        "commitsNotOnBase": "59",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-a775953e833315390",
+        "branch": "task/imo-081-detectors-by-meaning",
+        "directoryPresent": true,
+        "commitsNotOnBase": "25",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-a8317517ea732076d",
+        "branch": "task/v2-12-020-conform-shrink-lows",
+        "directoryPresent": true,
+        "commitsNotOnBase": "30",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-a868be9fa85090822",
+        "branch": "task/wcfix-views",
+        "directoryPresent": true,
+        "commitsNotOnBase": "246",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-a8db1bd220ed6d30e",
+        "branch": "task/imo-092-capped-shape-totality",
+        "directoryPresent": true,
+        "commitsNotOnBase": "2",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-a8ff520df78ecd988",
+        "branch": "task/imo-084-count-as-literal-sweep",
+        "directoryPresent": true,
+        "commitsNotOnBase": "60",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-a9428caf30a6d2042",
+        "branch": "task/v2-12-022-prune-builtin-topology",
+        "directoryPresent": true,
+        "commitsNotOnBase": "25",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-a9c589914b386308b",
+        "branch": "task/imo-086-inv4-skills-guard",
+        "directoryPresent": true,
+        "commitsNotOnBase": "78",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-a9d306e1a1503822a",
+        "branch": "worktree-agent-a9d306e1a1503822a",
+        "directoryPresent": true,
+        "commitsNotOnBase": "18",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-aa019a4cd06692126",
+        "branch": "task/imo-072-lexer-dedup",
+        "directoryPresent": true,
+        "commitsNotOnBase": "60",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-aa064b56b9cb46a5a",
+        "branch": "worktree-agent-aa064b56b9cb46a5a",
+        "directoryPresent": true,
+        "commitsNotOnBase": "7",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-aa2f8ca130c3f047d",
+        "branch": "task/v2-12-004-grep-gate-empty-selection",
+        "directoryPresent": true,
+        "commitsNotOnBase": "4",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-aa35a4bd129089d0a",
+        "branch": "task/imo-078-verdict-fidelity",
+        "directoryPresent": true,
+        "commitsNotOnBase": "7",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-aa93ee6d130c95959",
+        "branch": "task/imo-079-floors-and-roots",
+        "directoryPresent": true,
+        "commitsNotOnBase": "29",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-aaaf3f750fe4da4b8",
+        "branch": "task/v2-12-023-sync-marketplace-cache",
+        "directoryPresent": true,
+        "commitsNotOnBase": "25",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-aac46ce2d486f0096",
+        "branch": "task/imo-083-vacuous-outputschemas",
+        "directoryPresent": true,
+        "commitsNotOnBase": "79",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-aafc7fe6a2d64ebb6",
+        "branch": "task/wcfix-durability",
+        "directoryPresent": true,
+        "commitsNotOnBase": "246",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-ab91f1cc182242e3c",
+        "branch": "task/imo-088-synthesis-wiring",
+        "directoryPresent": true,
+        "commitsNotOnBase": "26",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-abba5f8f5911e1d00",
+        "branch": "task/imo-075-event-name-grammar",
+        "directoryPresent": true,
+        "commitsNotOnBase": "90",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-abed57e49c074a24b",
+        "branch": "task/v2-12-007-caller-posture-handshake",
+        "directoryPresent": true,
+        "commitsNotOnBase": "25",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-ac7773234d2d8e0de",
+        "branch": "worktree-agent-ac7773234d2d8e0de",
+        "directoryPresent": true,
+        "commitsNotOnBase": "3",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-acb9b87a24e393849",
+        "branch": "task/imo-088-synthesis-repo-root",
+        "directoryPresent": true,
+        "commitsNotOnBase": "23",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-acffb8767bd00884b",
+        "branch": "task/v2-12-002-implements-precedence",
+        "directoryPresent": true,
+        "commitsNotOnBase": "14",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-ad1235e5c12392f62",
+        "branch": "task/imo-071-batch-append-validation",
+        "directoryPresent": true,
+        "commitsNotOnBase": "60",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-addf2b6f7452b6671",
+        "branch": "task/imo-077-waiver-ledger-extract",
+        "directoryPresent": true,
+        "commitsNotOnBase": "60",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-adfa9b51b7910a92a",
+        "branch": "task/v2-12-021-colocate-event-store-tests",
+        "directoryPresent": true,
+        "commitsNotOnBase": "50",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-ae22d6e992529a596",
+        "branch": "task/v2-12-024-mcp-test-typecheck",
+        "directoryPresent": true,
+        "commitsNotOnBase": "19",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-ae282f4568b3a5d02",
+        "branch": "task/v2-12-015-state-fingerprint",
+        "directoryPresent": true,
+        "commitsNotOnBase": "25",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-ae360ee30d556a93b",
+        "branch": "task/v2-12-005-scope-claim-gate",
+        "directoryPresent": true,
+        "commitsNotOnBase": "8",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-aeebfbe0c1b6c56d8",
+        "branch": "fix/v2-12-checkpoint-path-containment",
+        "directoryPresent": true,
+        "commitsNotOnBase": "74",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-af3f3cc2ddab548ea",
+        "branch": "task/v2-12-026-stale-projection-reverify",
+        "directoryPresent": true,
+        "commitsNotOnBase": "72",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-af4735e8127b1e5f8",
+        "branch": "task/imo-080-guard-inventory-reach",
+        "directoryPresent": true,
+        "commitsNotOnBase": "26",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-af8f77f449247f91c",
+        "branch": "task/v2-12-010-bounded-event-queries",
+        "directoryPresent": true,
+        "commitsNotOnBase": "25",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/agent-afdf5a9bc07c2fd55",
+        "branch": "fix/v2-12-hardening-cluster",
+        "directoryPresent": true,
+        "commitsNotOnBase": "76",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/exarchos-overhaul-staging",
+        "branch": "worktree-exarchos-overhaul-staging",
+        "directoryPresent": true,
+        "commitsNotOnBase": "8",
+        "carriesUniqueWork": true
+      },
+      {
+        "path": "/home/reedsalus/Documents/code/lvlup-sw/exarchos/.claude/worktrees/wiring-closure-split",
+        "branch": "tmp-1751-rebuild",
+        "directoryPresent": true,
+        "commitsNotOnBase": "2",
+        "carriesUniqueWork": true
+      }
+    ]
+  },
+  "branches": {
+    "total": 408,
+    "mergedIntoBase": 21,
+    "unmerged": 387,
+    "note": "Counted only. Deletion of merged branches is a separate decision and is not taken here."
+  }
+}

@@ -357,12 +357,20 @@ Revision 1's premise was false in four distinct ways. This requirement resolves 
 - The 103 entries in `scripts/audit/knip-allowlist.json` are each resolved as a deletion or a written justification carrying an owner and an expiry; the allowlist ends **empty or justified**, with no bare entries.
 - The detector is **retargeted onto the new tree after the moves** so it is not stale on arrival, and re-run; findings introduced by the move are resolved, not allowlisted.
 - Dead declarations are removed: `workspaces: ["packages/*"]`, the `CLAUDE.md.template` entry in `files[]`, and any other manifest entry that resolves to nothing. A test asserts every path in `package.json files[]` exists.
-- The stale worktrees and merged branches are pruned. **Measured: 66 worktrees (64 of them
-  `agent-*`) and 408 local branches** — the two named in an earlier revision
-  (`feat/taxonomy-v2-task-01{2,4}`) do not exist, and `git worktree prune` finds nothing
-  because every registered directory is still on disk. Removal is gated on a per-worktree
-  unmerged-work check, since at least one holds the only copy of unlanded work that the
-  comment-hygiene spec depends on.
+- **Worktrees and branches are inventoried, not pruned.** Removal is withdrawn on the author's
+  instruction, and measurement supports it: of **67 worktrees, 66 carry commits absent from
+  `origin/main`** — several 60 to 74 commits deep — and **387 of 408 local branches are
+  unmerged**. One of them held the only copy of an unlanded `comment-prose` implementation,
+  found incidentally while looking for something else; there is no cheap way to know which
+  others are similar without reading them. The two worktrees an earlier revision named
+  (`feat/taxonomy-v2-task-01{2,4}`) do not exist at all, and `git worktree prune` reports
+  nothing because every registered directory is still on disk — so the tool this task would
+  have leaned on cannot see the debt either.
+  The ahead-count **overstates** unique work, because this repository squash-merges and the
+  original commits never land on the base branch. That is the safe direction for an inventory
+  and the wrong direction for a deletion warrant: it can only make a branch look more valuable
+  than it is. `tools/audit/worktree-inventory.json` records the state; disposing of any of it
+  is a separate human decision, out of scope here.
 - Nothing referenced at runtime, by a test, by CI or by a governance control is deleted — every deletion is preceded by the DR-7 reference census.
 
 #### DR-9: Complexity is reduced where measurement proves it, and locality is fixed
@@ -575,7 +583,15 @@ Two Phase 0 preconditions revision 1 asserted but never established: benchmark a
 - `tools/audit/pinned-binary.md`
 **Tests:**
 - `BenchmarkBaseline_AtGreenTree_RecordsValuesEnvironmentAndNoiseBand`
-**Verification:** Record every benchmark's value, the environment metadata (OS, core count, Node version), the threshold, and an explicit definition of "within noise" — later tasks assert against **this file**, not against an unstated intuition. Then pin the pre-refactor `exarchos` binary and record its version and path: it drives this workflow for the whole refactor, so the tool doing the work is never the tree being changed. **Note:** the currently-installed binary (2026-07-20) predates the WFQ-006 gate fix (2026-08-06) and must be rebuilt before pinning, or every local gate runs stale logic.
+**Verification:** Record every benchmark's value, the environment metadata (OS, core count, Node version), the threshold, and an explicit definition of "within noise" — later tasks assert against **this file**, not against an unstated intuition. Then pin the pre-refactor `exarchos` binary and record its version and path: it drives this workflow for the whole refactor, so the tool doing the work is never the tree being changed.
+
+**Status 2026-08-11 — the baseline is captured; the pin is DEFERRED, blocked on a release.**
+
+Nine benchmarks recorded at `b88df6f47` with environment metadata. The noise band is derived **per benchmark from its own measured relative margin of error**, doubled for a two-run comparison and floored at 5%, because the measured spread across these nine is roughly thirtyfold: `Append_100Events_Sequential` reports ±14.89% and genuinely cannot resolve a 10% change, while `Materialize_1000MixedEvents_PipelineView` at ±0.52% can. A single global percentage would wave through a real regression in the stable benchmarks and cry wolf on every run of the volatile ones. The file states its own limits — one run, one workstation, describing within-run rather than run-to-run variance — so a single breach prompts a re-measure rather than proving a regression.
+
+A **prior baseline did exist**, contrary to an earlier framing: `benchmarks/baselines.json`, generated 2026-02-16 at `858a1b4`. It covered two benchmarks rather than nine and carried no environment metadata or noise definition, so it could not support the "unchanged within noise" claim it was cited for. It is acknowledged and left in place; retiring or repointing it belongs with task 042.
+
+The **pin cannot be taken yet**. The installed build predates the WFQ-006 gate fix, so pinning it would drive every local gate through stale logic; and building from the working tree gives an unreleased binary that nobody else can reproduce, which is most of what a pin is for. It therefore depends on this branch merging and a release being cut — a release-cadence decision. Phase 0 is safe without it, since nothing here moves product source. **Phase 1 is where the pin becomes load-bearing**, because that is where the engine's own source relocates; entering Phase 1 unpinned means accepting that a bad move can disable the tool performing the move. The gate is recorded in `tools/audit/pinned-binary.md` and asserted by the accompanying test, so the gap stays visible rather than reading as done.
 **Dependencies:** 001
 **Parallelizable:** Yes
 
@@ -696,18 +712,20 @@ The author's future docs exodus mounts the artifact directory as a **symlink**. 
 **Dependencies:** 004
 **Parallelizable:** Yes
 
-### Task 008: Prune stale worktrees and merged branches
+### Task 008: Inventory worktrees and branches (no removal)
 
-**Risk Tier:** medium
+**Risk Tier:** low
 **Test Layer:** integration
 **Implements:** DR-8
 **Testing Strategy:** exampleTests true, propertyTests false, benchmarks false, characterizationRequired true.
 **Files:**
-- `tools/audit/worktree-hygiene.md`
+- `tools/audit/measure-worktree-inventory.mjs`
 - `tools/audit/worktree-inventory.json`
+- `tests/architecture/worktree-inventory.test.ts`
 **Tests:**
-- `WorktreeHygiene_AfterPrune_NoOrphanedWorktreeRemains`
-- `WorktreeHygiene_WorktreeCarryingUnmergedWork_IsNotRemoved`
+- `WorktreeInventory_EveryRegisteredWorktree_IsRecorded`
+- `WorktreeInventory_Disposition_IsInventoryOnly`
+- `WorktreeInventory_AheadCount_CarriesTheSquashMergeCaveat`
 **Verification:** **Corrected 2026-08-11 — the measured scale is two orders of magnitude off
 the original framing, and in both directions.** `git worktree list` reports **66** entries, of
 which **64** are `agent-*` worktrees under `.claude/worktrees/`, alongside **408** local
@@ -716,18 +734,24 @@ with branches `feat/taxonomy-v2-task-01{2,4}` — **do not exist**; `git worktre
 no `taxonomy-v2` entry. `git worktree prune --dry-run` reports nothing prunable, because every
 registered directory is still present on disk, so the plumbing command cannot find this debt.
 
-Inventory all 66 before removing any. Removal is gated on a per-worktree unmerged-work check,
-not on age: at least one of these worktrees holds the only copy of an unlanded
-`comment-prose.ts` implementation, which is a live input to the comment-hygiene work (see
-`docs/specs/2026-08-11-comment-hygiene-enforcement.md`, task 003). Anything carrying commits
-absent from `main` is preserved to a branch and recorded in the inventory before its worktree
-is released. Reconcile against `exarchos_view worktrees` so no in-flight workflow loses its
-isolation, and note that `prune_worktrees` is capability-gated in this repository — expect the
-manual `git worktree remove` fallback.
+**Removal is withdrawn on the author's instruction, and the measurement supports it.** Of the
+**67** registered worktrees, **66 carry commits absent from `origin/main`**, several 60 to 74
+deep, and **387 of 408** local branches are unmerged. One of them held the only copy of an
+unlanded `comment-prose` implementation, found incidentally while looking for something else
+(see `docs/specs/2026-08-11-comment-hygiene-enforcement.md`, task 003) — and there is no cheap
+way to know which others are similar without reading them. An inventory is reversible; a prune
+is not.
 
-The 408 local branches are triaged in the same pass: merged branches are deleted, unmerged
-ones are listed with their divergence so the decision is explicit rather than implied by a
-glob.
+**The ahead-count overstates unique work and must not be read as a deletion warrant.** This
+repository squash-merges, which rewrites history, so a fully-shipped branch still reports
+commits ahead of the base. That bias runs in the safe direction for an inventory — it can only
+make a branch look more valuable than it is — but separating shipped from unshipped needs a
+patch-level comparison, which is deliberately not attempted here.
+
+So this task records and stops: `tools/audit/worktree-inventory.json` holds every worktree, its
+branch, whether its directory is present, and its divergence; the branch count is split merged
+against unmerged. Nothing is deleted, moved, or written into any worktree. Disposing of any of
+it is a separate human decision and is out of scope.
 **Dependencies:** 004
 **Parallelizable:** Yes
 
