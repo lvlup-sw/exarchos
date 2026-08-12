@@ -27,6 +27,7 @@ import {
   type RiskTier,
 } from '../../orchestrate/prepare-delegation.js';
 import { parseTaskStamps, type TaskStamp } from '../../orchestrate/parse-task-stamps.js';
+import { DEFAULT_SPEC_DIR } from '../../config/artifacts.js';
 
 // ─── Corpus parsing ──────────────────────────────────────────────────────────
 //
@@ -98,7 +99,7 @@ interface Row {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../../../../');
-const SPECS_DIR = path.join(REPO_ROOT, 'docs/specs');
+const SPECS_DIR = path.join(REPO_ROOT, DEFAULT_SPEC_DIR);
 
 /** Load every spec, parse via the production parser, keep those with a stamp. */
 function loadCorpus(): { specPaths: string[]; tasks: CorpusTask[] } {

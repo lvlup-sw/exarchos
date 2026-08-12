@@ -41,6 +41,7 @@ import {
   connectV2Client,
 } from '../../sdk/seam.js';
 import { parseTaskStamps } from '../../orchestrate/parse-task-stamps.js';
+import { DEFAULT_SPEC_DIR } from '../../config/artifacts.js';
 import { stampProvenance, type ProvenanceStamped } from '../provenance.js';
 
 // ─── Pure diff core (the graded / kill-probe surface) ────────────────────────
@@ -785,7 +786,7 @@ export async function main(): Promise<void> {
   try {
     const result = await runExp1({
       binariesDir: process.env['EXP1_BINARIES_DIR'] ?? '/tmp/1670-exp1',
-      specsDir: path.join(repoRoot, 'docs/specs'),
+      specsDir: path.join(repoRoot, DEFAULT_SPEC_DIR),
       serverRoot: path.join(workRoot, 'serverroot'),
     });
     fs.mkdirSync(outDir, { recursive: true });

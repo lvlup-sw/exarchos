@@ -1,4 +1,5 @@
 import type { ProjectConfig, VerificationPolicyOverlay } from './yaml-schema.js';
+import { DEFAULT_ARTIFACT_DIRS, resolveArtifactDirs, type ArtifactDirs } from './artifacts.js';
 import { DEFAULT_MAX_ITERATIONS } from '../orchestrate/escalation-policy.js';
 import type { RiskTier } from '../workflow/verification-policy.js';
 
@@ -131,6 +132,13 @@ export interface ResolvedProjectConfig {
   readonly escalation: {
     readonly maxIterations: number;
   };
+  /**
+   * Where authored workflow artifacts live (DR-6). Prefixes, already
+   * POSIX-normalized and trailing-slashed by `resolveArtifactDirs`, matched
+   * against the repo-relative paths in a workflow's artifact map. Always fully
+   * resolved (defaults applied).
+   */
+  readonly artifacts: ArtifactDirs;
 }
 
 // ─── Default Values ─────────────────────────────────────────────────────────
@@ -256,6 +264,7 @@ export const DEFAULTS: ResolvedProjectConfig = deepFreeze({
   escalation: {
     maxIterations: DEFAULT_MAX_ITERATIONS,
   },
+  artifacts: DEFAULT_ARTIFACT_DIRS,
 });
 
 // ─── Tier→Model Policy Validation (DR-1, #1672) ─────────────────────────────
@@ -530,6 +539,7 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
     escalation: {
       maxIterations: project.escalation?.maxIterations ?? DEFAULTS.escalation.maxIterations,
     },
+    artifacts: resolveArtifactDirs(project.artifacts),
   };
 
   return deepFreeze(resolved);

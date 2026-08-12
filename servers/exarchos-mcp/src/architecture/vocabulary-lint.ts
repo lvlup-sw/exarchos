@@ -21,6 +21,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadInvariantIds } from './invariants-loader.js';
 import type { ExarchosConfig } from '../config/exarchos-config-schema.js';
+import { DEFAULT_SPEC_DIR, DEFAULT_LEGACY_DESIGN_DIR } from '../config/artifacts.js';
 
 export interface VocabularyFinding {
   file: string;
@@ -212,9 +213,13 @@ function walkDirectory(
  * so it must be classified the same way — never retroactively linted.
  */
 export const DATED_RECORD_TREES: readonly string[] = Object.freeze([
-  'docs/designs/',
+  // The two artifact prefixes come from their owner (DR-6) rather than being
+  // re-typed here, so a default change cannot leave the lint walking a tree it
+  // is meant to skip. This scans Exarchos's own tree, so it uses the built-in
+  // defaults deliberately — not a consuming project's configured directories.
+  DEFAULT_LEGACY_DESIGN_DIR,
   'docs/plans/',
-  'docs/specs/',
+  DEFAULT_SPEC_DIR,
   'docs/research/',
   'docs/rca/',
   'docs/contexts/',

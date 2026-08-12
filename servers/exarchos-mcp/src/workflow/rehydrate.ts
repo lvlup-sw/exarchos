@@ -56,6 +56,7 @@ import {
   toProjectionDegradedMeta,
 } from '../projections/freshness.js';
 import { planRehydrationSource } from './rehydrate-precedence.js';
+import { DEFAULT_ARTIFACT_DIRS, type ArtifactDirs } from '../config/artifacts.js';
 
 /**
  * Artifact layout of a resuming workflow (DR-9, #1581 task 020).
@@ -72,43 +73,41 @@ import { planRehydrationSource } from './rehydrate-precedence.js';
 export type ArtifactLayout = 'unified' | 'two-artifact';
 
 /**
- * The legacy design-doc directory. The collapsed flow never emits an artifact
- * here (it writes `docs/specs/`), so a `design` artifact under this prefix is
- * the unambiguous signal that the workflow predates the collapse and must
- * complete two-artifact. Kept as a prefix match (not an exact dir) so nested
- * or date-partitioned legacy layouts (`docs/designs/2026-…`) still classify.
- */
-const LEGACY_DESIGN_DIR = 'docs/designs/';
-
-/** The unified-spec directory the post-collapse flow writes to. */
-const UNIFIED_SPEC_DIR = 'docs/specs/';
-
-/**
  * Classify a workflow's artifact layout from its recorded artifact map
  * (DR-9, task 020). Pure — reads only the projected `artifacts` record, never
  * the filesystem (a resuming workflow's path of record is the event-folded
  * artifact map, not what happens to exist on disk).
  *
  * Discrimination order (first match wins):
- *   1. Any artifact under `docs/specs/`, or an explicit `spec` key ⇒ `'unified'`
+ *   1. Any artifact under `dirs.specDir`, or an explicit `spec` key ⇒ `'unified'`
  *      (the workflow already adopted the collapsed artifact — keep it there).
- *   2. A `design` artifact under `docs/designs/` ⇒ `'two-artifact'` (it started
- *      under the old convention; the new flow never produces that path, so its
- *      presence is the legacy signal — complete old-path, do not migrate).
+ *   2. A `design` artifact under `dirs.legacyDesignDir` ⇒ `'two-artifact'` (it
+ *      started under the old convention; the new flow never produces that path,
+ *      so its presence is the legacy signal — complete old-path, do not migrate).
  *   3. Otherwise ⇒ `'unified'` (the forward default: fresh features with no
  *      artifacts yet, and any future layout, use the collapsed path).
+ *
+ * Both prefixes arrive by injection rather than as module literals (DR-6), so a
+ * project that keeps its specs elsewhere classifies against its own layout.
+ * Purity survives: `dirs` is a value, not a config read. Callers that have no
+ * resolved config get the built-in defaults, which is why omitting the argument
+ * is byte-identical to the pre-DR-6 behaviour.
+ *
+ * Prefix match, not exact-dir, so nested or date-partitioned legacy layouts
+ * (`docs/designs/2026-…`) still classify.
  */
 export function classifyArtifactLayout(
   artifacts: Readonly<Record<string, string>>,
+  dirs: ArtifactDirs = DEFAULT_ARTIFACT_DIRS,
 ): ArtifactLayout {
   const values = Object.values(artifacts);
   const hasUnifiedSpec =
     typeof artifacts.spec === 'string' ||
-    values.some((p) => p.includes(UNIFIED_SPEC_DIR));
+    values.some((p) => p.includes(dirs.specDir));
   if (hasUnifiedSpec) return 'unified';
 
   const designPath = artifacts.design;
-  if (typeof designPath === 'string' && designPath.includes(LEGACY_DESIGN_DIR)) {
+  if (typeof designPath === 'string' && designPath.includes(dirs.legacyDesignDir)) {
     return 'two-artifact';
   }
 
@@ -138,6 +137,12 @@ export interface RehydrateArgs {
 export interface RehydrateContext {
   readonly eventStore: EventStore;
   readonly stateDir: string;
+  /**
+   * Artifact directories resolved from the project's `.exarchos.yml` (DR-6).
+   * Optional so in-process callers (tests, embedded CLI hosts) need not plumb
+   * config through; omitting it uses the built-in defaults.
+   */
+  readonly artifactDirs?: ArtifactDirs | undefined;
 }
 
 /**
@@ -412,7 +417,7 @@ export async function handleRehydrate(
   ctx: RehydrateContext,
 ): Promise<ToolResult> {
   const { featureId } = args;
-  const { eventStore, stateDir } = ctx;
+  const { eventStore, stateDir, artifactDirs } = ctx;
 
   // T055 (DR-18) — corrupt-snapshot degradation. Scoped strictly around the
   // snapshot-read + schema-validation step. Three failure modes degrade to
@@ -750,7 +755,7 @@ export async function handleRehydrate(
   // `workflowExists`) — no event-schema bump, forwarded verbatim by envelopeWrap.
   const meta: Record<string, unknown> = {
     workflowExists: !streamIsEmpty,
-    artifactLayout: classifyArtifactLayout(document.artifacts),
+    artifactLayout: classifyArtifactLayout(document.artifacts, artifactDirs),
     // P04-06 (EFF-004) — surface the source the deterministic precedence chose
     // (`event-fold` / `summary-snapshot`) so callers can see WHICH authoritative
     // surface answered, not just that the read succeeded. Makes the declared

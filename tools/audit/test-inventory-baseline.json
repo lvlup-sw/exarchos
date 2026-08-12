@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1138,
-    "parsedFiles": 1093,
+    "testFiles": 1141,
+    "parsedFiles": 1096,
     "shellFiles": 45,
-    "cases": 12564,
-    "dynamicTitles": 128,
+    "cases": 12599,
+    "dynamicTitles": 130,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -11911,6 +11911,117 @@
           "suite": "command phase-transition canonical pattern (#1370 PR-2 F2; DR-3 fold-in)",
           "name": "<dynamic-case-3>",
           "dynamic": true
+        }
+      ]
+    },
+    "servers/exarchos-mcp/src/config/artifacts.test.ts": {
+      "file": "servers/exarchos-mcp/src/config/artifacts.test.ts",
+      "runner": "vitest:nested",
+      "cases": [
+        {
+          "suite": "classifyArtifactLayout — characterization of the pre-DR-6 default",
+          "name": "ArtifactDir_NoConfiguration_DefaultsToDocsSpecs: $name",
+          "dynamic": false
+        },
+        {
+          "suite": "classifyArtifactLayout — characterization of the pre-DR-6 default",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "classifyArtifactLayout — characterization of the pre-DR-6 default",
+          "name": "ArtifactDir_NoConfiguration_DefaultsToDocsSpecs: explicit defaults agree with omission",
+          "dynamic": false
+        },
+        {
+          "suite": "classifyArtifactLayout — characterization of the pre-DR-6 default",
+          "name": "ArtifactDir_NoConfiguration_DefaultsToDocsSpecs: an empty `artifacts:` block resolves to the shipped literals",
+          "dynamic": false
+        },
+        {
+          "suite": "classifyArtifactLayout — characterization of the pre-DR-6 default",
+          "name": "ArtifactDir_NoConfiguration_DefaultsToDocsSpecs: classifies this repository’s real spec corpus as unified",
+          "dynamic": false
+        },
+        {
+          "suite": "classifyArtifactLayout — configured prefixes",
+          "name": "ArtifactDir_ConfiguredPrefix_ClassifiesUnifiedSpecCorrectly",
+          "dynamic": false
+        },
+        {
+          "suite": "classifyArtifactLayout — configured prefixes",
+          "name": "ArtifactDir_ConfiguredPrefix_ClassifiesUnifiedSpecCorrectly: the OLD default no longer wins on its own",
+          "dynamic": false
+        },
+        {
+          "suite": "classifyArtifactLayout — configured prefixes",
+          "name": "ArtifactDir_LegacyDesignPrefix_StillClassifiesAsTwoArtifact",
+          "dynamic": false
+        },
+        {
+          "suite": "classifyArtifactLayout — configured prefixes",
+          "name": "ArtifactDir_LegacyDesignPrefix_StillClassifiesAsTwoArtifact: a renamed legacy tree is honoured",
+          "dynamic": false
+        },
+        {
+          "suite": "classifyArtifactLayout — configured prefixes",
+          "name": "is stable under any configured prefix: the explicit `spec` key always wins",
+          "dynamic": false
+        },
+        {
+          "suite": "classifyArtifactLayout — configured prefixes",
+          "name": "is stable under any configured prefix: a path under the configured dir always classifies unified",
+          "dynamic": false
+        },
+        {
+          "suite": "normalizeArtifactDir",
+          "name": "appends exactly one trailing slash",
+          "dynamic": false
+        },
+        {
+          "suite": "normalizeArtifactDir",
+          "name": "collapses duplicate separators and strips a leading ./",
+          "dynamic": false
+        },
+        {
+          "suite": "normalizeArtifactDir",
+          "name": "trims surrounding whitespace",
+          "dynamic": false
+        },
+        {
+          "suite": "normalizeArtifactDir",
+          "name": "returns empty for blank or separator-only input rather than a match-everything prefix",
+          "dynamic": false
+        },
+        {
+          "suite": "normalizeArtifactDir",
+          "name": "the trailing slash prevents a sibling-directory false match",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveArtifactDirs — a blank prefix fails back, never open",
+          "name": "rejects %o in favour of the default",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveArtifactDirs — a blank prefix fails back, never open",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "resolveArtifactDirs — a blank prefix fails back, never open",
+          "name": "returns a frozen record",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveConfig — artifacts block",
+          "name": "defaults to the shipped literals when no `artifacts:` block is present",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveConfig — artifacts block",
+          "name": "normalizes a configured block through to the resolved config",
+          "dynamic": false
         }
       ]
     },
@@ -68988,6 +69099,37 @@
         }
       ]
     },
+    "tests/architecture/artifact-dir-literals.test.ts": {
+      "file": "tests/architecture/artifact-dir-literals.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "artifact-directory literals have exactly one owner (DR-6)",
+          "name": "the scan is not vacuous",
+          "dynamic": false
+        },
+        {
+          "suite": "artifact-directory literals have exactly one owner (DR-6)",
+          "name": "ArtifactDir_NoModuleRetainsAHardCodedLiteral: no unowned functional use",
+          "dynamic": false
+        },
+        {
+          "suite": "artifact-directory literals have exactly one owner (DR-6)",
+          "name": "ArtifactDir_NoModuleRetainsAHardCodedLiteral: the owner really does declare them",
+          "dynamic": false
+        },
+        {
+          "suite": "artifact-directory literals have exactly one owner (DR-6)",
+          "name": "ArtifactDir_NoModuleRetainsAHardCodedLiteral: rehydrate no longer declares its own",
+          "dynamic": false
+        },
+        {
+          "suite": "artifact-directory literals have exactly one owner (DR-6)",
+          "name": "agent-facing prose stays within its pinned budget",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/architecture/baseline-green.test.ts": {
       "file": "tests/architecture/baseline-green.test.ts",
       "runner": "vitest:root",
@@ -69158,6 +69300,57 @@
         {
           "suite": "reference census",
           "name": "ReferenceCensus_ReHomedSubtrees_AreMeasuredButNotGated",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/test-inventory.test.ts": {
+      "file": "tests/architecture/test-inventory.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "test inventory",
+          "name": "TestInventory_AtBaseline_RecordsEveryDiscoveredTestId",
+          "dynamic": false
+        },
+        {
+          "suite": "test inventory",
+          "name": "TestInventory_Discovery_FoundEveryTrackedTestFile",
+          "dynamic": false
+        },
+        {
+          "suite": "test inventory",
+          "name": "TestInventory_MissingFile_NamesTheMissingSource",
+          "dynamic": false
+        },
+        {
+          "suite": "test inventory",
+          "name": "TestInventory_RelocatedFile_ReconcilesViaTheRelocationMap",
+          "dynamic": false
+        },
+        {
+          "suite": "test inventory",
+          "name": "TestInventory_Identity_IsIndependentOfFilePath",
+          "dynamic": false
+        },
+        {
+          "suite": "test inventory",
+          "name": "TestInventory_CountingSemantics_AreStatedNotAssumed",
+          "dynamic": false
+        },
+        {
+          "suite": "test inventory",
+          "name": "TestInventory_ShellSuites_AreRecordedAtFileGranularity",
+          "dynamic": false
+        },
+        {
+          "suite": "test inventory",
+          "name": "TestInventory_DynamicTitles_AreMarkedRatherThanGuessed",
+          "dynamic": false
+        },
+        {
+          "suite": "test inventory",
+          "name": "TestInventory_BothRunners_AreRepresented",
           "dynamic": false
         }
       ]

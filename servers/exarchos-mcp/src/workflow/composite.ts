@@ -260,7 +260,12 @@ export async function handleWorkflow(
       return envelopeWrap(
         await handleRehydrate(
           rest as unknown as Parameters<typeof handleRehydrate>[0],
-          { stateDir, eventStore },
+          // DR-6: classify against the project's configured artifact
+          // directories. Read from the already-resolved dispatch config rather
+          // than re-loading `.exarchos.yml` here; when the dispatcher started
+          // without a projectRoot there is no config at all, and the classifier
+          // falls back to the built-in defaults.
+          { stateDir, eventStore, artifactDirs: ctx.projectConfig?.artifacts },
         ),
         startedAt,
         { cacheHintsResolver: ctx.capabilityResolver },

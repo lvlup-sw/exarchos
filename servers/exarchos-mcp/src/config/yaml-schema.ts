@@ -261,10 +261,28 @@ const VerificationConfig = z
  */
 export type VerificationPolicyOverlay = z.infer<typeof VerificationPolicyConfig>;
 
+/**
+ * Where authored workflow artifacts live (DR-6). Both prefixes are relative to
+ * the project root — an absolute path is rejected, because these are matched
+ * against the repo-relative paths recorded in a workflow's artifact map, and an
+ * absolute prefix could never match one. The resolver (`config/artifacts.ts`)
+ * POSIX-normalizes whatever separator form arrives and appends the trailing
+ * slash, so an operator may write `docs/specs`, `docs/specs/`, or `docs\specs`.
+ */
+const ArtifactsConfig = z.object({
+  'spec-dir': z.string().min(1).refine((v) => !/^([a-zA-Z]:)?[\\/]/.test(v), {
+    message: 'spec-dir must be relative to the project root, not absolute',
+  }).optional(),
+  'legacy-design-dir': z.string().min(1).refine((v) => !/^([a-zA-Z]:)?[\\/]/.test(v), {
+    message: 'legacy-design-dir must be relative to the project root, not absolute',
+  }).optional(),
+}).strict();
+
 // ─── Top-Level Project Config ──────────────────────────────────────────────
 
 export const ProjectConfigSchema = z.object({
   agents: AgentsConfig.optional(),
+  artifacts: ArtifactsConfig.optional(),
   review: ReviewConfig.optional(),
   vcs: VcsConfig.optional(),
   workflow: WorkflowConfig.optional(),
