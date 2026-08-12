@@ -1,11 +1,11 @@
 // ─── Shared response-economy kit (DR-1) ──────────────────────────────────────
 //
-// Generalized out of `views/output-cap.ts` (DR-3): the deterministic
+// Generalized out of `projections/views/output-cap.ts` (DR-3): the deterministic
 // output-cap + measured-size-summary primitives now live in the shared core so
 // every dispatch path — not just the two inventory views — can reuse them. The
-// `pipeline` (`views/tools.ts`) and `worktrees`
+// `pipeline` (`projections/views/tools.ts`) and `worktrees`
 // (`orchestrate/worktree/handlers.ts`) views are the first consumers, unchanged
-// in behavior; `views/output-cap.ts` remains as a re-export shim.
+// in behavior; `projections/views/output-cap.ts` remains as a re-export shim.
 //
 // Two guards, applied in order by a consumer:
 //
@@ -13,7 +13,7 @@
 //      inventory never dumps every row.
 //   2. A MEASURED-size summary: if the capped payload's serialized size —
 //      estimated the SAME way the telemetry middleware does (`Math.ceil(bytes/4)`,
-//      `telemetry/middleware.ts`) — still exceeds the resolved
+//      `projections/telemetry/middleware.ts`) — still exceeds the resolved
 //      `qualityHints.outputTokenThreshold`, return a counts-by-group summary
 //      (plus a small first page) instead of per-item detail.
 //
@@ -42,7 +42,7 @@ export const SUMMARY_FIRST_PAGE_ITEMS = 10;
 /**
  * Estimate output tokens the SAME way the telemetry middleware does:
  * `Math.ceil(byteLength / 4)` over `JSON.stringify(payload)`. Kept byte-for-byte
- * identical to `telemetry/middleware.ts` so the presentation guard and the D3
+ * identical to `projections/telemetry/middleware.ts` so the presentation guard and the D3
  * gate agree on what "over threshold" means.
  */
 export function estimateOutputTokens(payload: unknown): number {

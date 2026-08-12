@@ -12,7 +12,7 @@
  *     phase ID and an INV-5a self-correction breadcrumb.
  *   - The pre-v2.11 advisory branch (warn-and-emit `phase.contract_missing`
  *     with single-signal heuristic fallback in the pruner) was removed in
- *     this phase. The event TYPE remains registered in `event-store/schemas.ts`
+ *     this phase. The event TYPE remains registered in `events/schemas.ts`
  *     for replay of v2.10-era events; the loader no longer emits it.
  *
  * Design notes:

@@ -146,7 +146,7 @@ export interface MergeActionMetadata {
  *                                   cannot resolve.
  *
  * Reserved values not yet emitted by the current producer; see the schema
- * comment on `MergeRollbackData.recoveryError` in `event-store/schemas.ts`
+ * comment on `MergeRollbackData.recoveryError` in `events/schemas.ts`
  * for the producer-coverage caveat.
  */
 export interface MergeRecoveryContext {

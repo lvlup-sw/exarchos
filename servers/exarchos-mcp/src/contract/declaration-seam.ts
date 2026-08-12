@@ -21,7 +21,7 @@
 // ## Zero storage imports, deliberately
 //
 // This module imports exactly one thing — the envelope it hands out. If the
-// accessor imported `registry.ts` or `event-store/schemas.ts`, the seam would
+// accessor imported `registry.ts` or `events/schemas.ts`, the seam would
 // be a passthrough for the coupling it exists to close, and #1258 would have to
 // edit the accessor to relocate. Enforced, not asserted: the live census in
 // `architecture/layer-boundaries-seam.ts` reports this module's storage imports

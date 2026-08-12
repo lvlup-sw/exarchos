@@ -17,7 +17,7 @@
 // include a `merge.completed` event in the two-event split — only
 // `merge.requested` and `merge.executed`. The `merge.completed` event type is
 // referenced in the projection's phase machine for the eventual full
-// lifecycle, but it is NOT yet registered in `event-store/schemas.ts`'s
+// lifecycle, but it is NOT yet registered in `events/schemas.ts`'s
 // `EventTypes` table. Adding it would be out of scope per the Wave 4 prompt
 // ("Do NOT add new event types beyond `merge.requested`"). The migration
 // therefore pins the canonical post-migration sequence as:

@@ -7,7 +7,7 @@
 //
 // ── Why this is a separate module, and why it imports NOTHING ───────────────
 // This file is one of the two authorities the census's suite compares, and the other is the live
-// event catalog (`event-store/schemas.ts`). Two authorities a test compares have to be genuinely
+// event catalog (`events/schemas.ts`). Two authorities a test compares have to be genuinely
 // independent, which means neither may be reachable from the other in the static import graph —
 // otherwise they are one authority wearing two names and the comparison cannot disagree with
 // itself. `report-coupling-seed-pin.ts` states the same rule for the same reason, and DR-30's

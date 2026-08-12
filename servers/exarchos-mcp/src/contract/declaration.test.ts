@@ -68,7 +68,7 @@ describe('Declaration', () => {
     // ── The compile half ──────────────────────────────────────────────────
     // "Existing registrations compile untouched" is proven by `tsc` passing
     // over the whole `src/**` tree with ZERO edits to any registration site —
-    // `registry.ts`, `event-store/schemas.ts` and the CLI hints are byte-
+    // `registry.ts`, `events/schemas.ts` and the CLI hints are byte-
     // identical on this branch. That is a real, gate-enforced proof
     // (`npm run typecheck`), but it is not one vitest can make, because vitest
     // strips types without checking them. Stating it plainly rather than

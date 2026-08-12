@@ -13,7 +13,7 @@
 // the effective capability set from posture + runtime handshake. The
 // `spec.legacy_capabilities_array` deprecation event/envelope path that
 // existed in the v2.10 migration window has been removed (the event type
-// remains historically registered in `event-store/schemas.ts` for archival
+// remains historically registered in `events/schemas.ts` for archival
 // replay, but is no longer emitted).
 
 import { z } from 'zod';

@@ -2,7 +2,7 @@
  * Task event schemas for #1272 (EventSourcedTaskStore).
  *
  * These four `task.*` event types are the durable substrate for the
- * `EventSourcedTaskStore` (servers/exarchos-mcp/src/task-store/) which
+ * `EventSourcedTaskStore` (servers/exarchos-mcp/src/projections/task-store/) which
  * implements the SDK `TaskStore` interface as a projection over the
  * event store. Each event is emitted by the EventSourcedTaskStore's
  * lifecycle methods (`createTask`, `getTask`, `getTaskResult`,

@@ -172,7 +172,7 @@ describe('view handlers — #1440 Op 1 idempotency cross-check (T1 audit)', () =
   // `*.polled` events. If a future edit introduces a write surface this
   // test fails BEFORE the per-handler test, surfacing the regression at
   // the design-invariant level.
-  const VIEWS_DIR = path.resolve(__dirname, '..', 'views');
+  const VIEWS_DIR = path.resolve(__dirname, '..', 'projections', 'views');
   const FOLLOW_TARGETS = [
     'pipeline-view.ts',
     'convergence-view.ts',

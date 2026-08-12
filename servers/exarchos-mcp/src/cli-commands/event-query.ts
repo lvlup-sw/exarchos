@@ -10,7 +10,7 @@ import type { Frame } from '../ndjson/frames.js';
 // This module implements the core streaming loop used when a caller passes
 // `--follow` to `exarchos event query`. The CLI adapter (see
 // `adapters/cli.ts`) parses the flag and delegates here; the MCP tool
-// continues to use the one-shot query path in `event-store/tools.ts`.
+// continues to use the one-shot query path in `events/tools.ts`.
 //
 // The handler is intentionally small and framework-free: it accepts an
 // `AsyncIterable<WorkflowEvent>` as its event source so tests can drive it

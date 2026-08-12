@@ -671,7 +671,7 @@ export const PHASE_BLOCKED_CODE = 'PHASE_BLOCKED';
 
 /**
  * The diagnostic payload of a fail-closed gate-set boundary block. Field shape
- * matches the `phase.blocked` event schema (`event-store/schemas.ts`):
+ * matches the `phase.blocked` event schema (`events/schemas.ts`):
  * `{ phase, kind, reason, error: { code, message } }`.
  */
 export interface PhaseBlockedInfo {
@@ -843,7 +843,7 @@ function computeDesyncBlockers(
 // ─── Wave Scoping (re-export) ───────────────────────────────────────────────
 //
 // WFQ-002: the wave-scoping core moved beside the projection it scopes
-// (`views/delegation-readiness-view.ts`) so the `delegation_readiness` view
+// (`projections/views/delegation-readiness-view.ts`) so the `delegation_readiness` view
 // action and this handler share ONE implementation. Re-exported here because
 // `computeScopedWorktrees` is part of this module's established public
 // surface and its unit tests import it from here.

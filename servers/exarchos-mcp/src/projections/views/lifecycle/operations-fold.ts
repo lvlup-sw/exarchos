@@ -6,7 +6,7 @@
 // adds to the registry tomorrow — with ZERO surface-specific code in this
 // file. The whole per-surface contract (which event starts an instance, which
 // event(s) terminate it, how to derive its instance key) lives in
-// `event-store/liveness-registry.ts` (task 004); this module contributes
+// `events/liveness-registry.ts` (task 004); this module contributes
 // exactly one thing on top of that registry: iterate every descriptor,
 // delegate the pairing to the registry's own `computeInFlightInstances`
 // helper, and shape the survivors into a uniform row a `ps` consumer (task

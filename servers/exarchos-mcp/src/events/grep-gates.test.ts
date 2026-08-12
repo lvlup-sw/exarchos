@@ -24,7 +24,7 @@ const __dirname = dirname(__filename);
 // Anchor walks at servers/exarchos-mcp/src so the gate's reach matches
 // what we care about (production handlers + tests, not docs / scripts /
 // node_modules). Computed relative to this test file: this file lives
-// at servers/exarchos-mcp/src/event-store/grep-gates.test.ts; the src
+// at servers/exarchos-mcp/src/events/grep-gates.test.ts; the src
 // root is two levels up.
 const SRC_ROOT = join(__dirname, '..');
 
@@ -77,8 +77,8 @@ describe('Grep Gates (Wave 1, R-1, #1313)', () => {
     //     regex literal.
     const exempt = new Set<string>([
       join(SRC_ROOT, 'storage', 'sqlite-backend.ts'),
-      join(SRC_ROOT, 'event-store', 'event-migration.ts'),
-      join(SRC_ROOT, 'event-store', 'grep-gates.test.ts'),
+      join(SRC_ROOT, 'events', 'event-migration.ts'),
+      join(SRC_ROOT, 'events', 'grep-gates.test.ts'),
     ]);
 
     const matches: Array<{ file: string; line: number; text: string }> = [];

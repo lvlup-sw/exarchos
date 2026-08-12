@@ -493,7 +493,7 @@ describe('View Handlers', () => {
   // Each handler in Group A (`telemetry`, `delegation_timeline`, `code_quality`)
   // must thread the new `operationId / correlationId / causationId` optional
   // filter args into `EventStore.queryEvents` so callers can slice the view by
-  // dispatch boundary. Telemetry is exercised in `telemetry/tools.test.ts`
+  // dispatch boundary. Telemetry is exercised in `projections/telemetry/tools.test.ts`
   // because its handler lives in a different file (no materializer hop). The
   // other two actions plumb through `queryDeltaEvents` and are exercised here
   // against real EventStore + tmpDir fixtures so the filter behavior is
@@ -1256,7 +1256,7 @@ describe('View Handlers', () => {
   // authoritative source for plan-state facts (review status, declared task
   // count, declared task list) and use events only for execution facts.
   //
-  // Spec deviation note: the plan (Fix 2 / T2.2) names `views/composite.test.ts`
+  // Spec deviation note: the plan (Fix 2 / T2.2) names `projections/views/composite.test.ts`
   // as the test file. composite.test.ts mocks every handler in `./tools.js`, so
   // tests there cannot actually exercise the handler logic that pulls from
   // state.json. tools.test.ts is the existing handler-integration test surface

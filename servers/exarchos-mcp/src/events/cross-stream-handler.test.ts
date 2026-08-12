@@ -12,7 +12,7 @@ import { rmrfAsync } from '../test-helpers/temp-dir.js';
  *
  * The plan specified this test under `src/team/coordinator.test.ts`. There is
  * no `team/` directory in the repo today; the actual `team.disbanded`
- * emission site is `event-store/tools.ts::handleEventAppend` (the C11
+ * emission site is `events/tools.ts::handleEventAppend` (the C11
  * router-interception path landed in v2.9). The contract tested here is
  * identical to what a future coordinator module would assert: when a caller
  * appends `team.disbanded`, the handler MUST recompute `tasksCompleted` by

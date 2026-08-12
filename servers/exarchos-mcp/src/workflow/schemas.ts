@@ -2,9 +2,9 @@ import { z } from 'zod';
 import { coercedStringArray } from '../coerce.js';
 
 // T4 (#1240) — handoff payload shape for the checkpoint dispatch input.
-// This MIRRORS `event-store/schemas.ts:HandoffEntryData` exactly (same
+// This MIRRORS `events/schemas.ts:HandoffEntryData` exactly (same
 // per-field byte caps, same optionality). It is intentionally redefined
-// here rather than imported because `event-store/schemas.ts` already
+// here rather than imported because `events/schemas.ts` already
 // imports `WorkflowTypeSchema` from this file, and pulling
 // `HandoffEntryData` from there would create a circular import. The two
 // schemas describe the same data on two different surfaces (dispatch
@@ -552,7 +552,7 @@ export const CheckpointInputSchema = z.object({
   featureId: FeatureIdSchema,
   summary: z.string().optional(),
   // T4 (#1240) — optional handoff payload validated with per-field byte
-  // caps (DIM-7). Mirrors `event-store/schemas.ts:HandoffEntryData`
+  // caps (DIM-7). Mirrors `events/schemas.ts:HandoffEntryData`
   // exactly; see the `CheckpointHandoffSchema` declaration above for
   // the cycle-avoidance rationale. Backward compat: pre-#1240 callers
   // that omit this field continue to work unchanged.

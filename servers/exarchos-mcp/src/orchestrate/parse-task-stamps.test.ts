@@ -53,14 +53,14 @@ describe('parseTaskStamps', () => {
       '#### Task 001: x',
       '**Risk Tier:** medium',
       '**Files:**',
-      '- `servers/exarchos-mcp/src/event-store/schemas.ts`',
-      '- `servers/exarchos-mcp/src/event-store/schemas.test.ts`',
+      '- `servers/exarchos-mcp/src/events/schemas.ts`',
+      '- `servers/exarchos-mcp/src/events/schemas.test.ts`',
       '**Dependencies:** None',
     ].join('\n');
     const [task] = parseTaskStamps(md);
     expect(task.files).toEqual([
-      'servers/exarchos-mcp/src/event-store/schemas.ts',
-      'servers/exarchos-mcp/src/event-store/schemas.test.ts',
+      'servers/exarchos-mcp/src/events/schemas.ts',
+      'servers/exarchos-mcp/src/events/schemas.test.ts',
     ]);
   });
 

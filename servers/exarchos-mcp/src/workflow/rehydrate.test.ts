@@ -272,7 +272,7 @@ describe('handleRehydrate — cold probe is side-effect-free (CB-2)', () => {
  * successful rehydrate the handler must append a `workflow.rehydrated` event
  * to the stream with the canonical data payload
  *   `{ projectionSequence, deliveryPath, tokenEstimate }`
- * registered at `event-store/schemas.ts` (T008, `WorkflowRehydratedData`).
+ * registered at `events/schemas.ts` (T008, `WorkflowRehydratedData`).
  *
  * The `deliveryPath` field (enum `direct|ndjson|snapshot`) is carried from
  * the handler args so CLI / MCP / session-start call sites can differentiate
@@ -805,7 +805,7 @@ describe('handleRehydrate — phasePlaybook composition (T-20)', () => {
  * for degraded paths and checkpoint composition.
  *
  * The schema fields were added in T-10 (`WorkflowRehydratedData` in
- * `event-store/schemas.ts`). T-21 wires emission only.
+ * `events/schemas.ts`). T-21 wires emission only.
  */
 describe('handleRehydrate — workflow.rehydrated extended fields (T-21)', () => {
   it('RehydrateHandler_DelegatePhase_EmitsHasPlaybookAndComposedTrue', async () => {

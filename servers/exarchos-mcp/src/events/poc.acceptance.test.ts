@@ -47,7 +47,7 @@ import { rmrfAsync } from '../test-helpers/temp-dir.js';
 // hard-cut, so spec.ts no longer mentions the appender — the consumer set
 // drops back to the four substrate-internal files.
 //
-// v2.10.0-preview.2 Wave 3 (#1314): the new `event-store/index.ts` barrel
+// v2.10.0-preview.2 Wave 3 (#1314): the new `events/index.ts` barrel
 // re-exports `AtomicAppender` (plus the Wave 3 typed errors) for Wave 4
 // consumers. The barrel is a re-export site, NOT a behavioral change to
 // the consumer set — it's still the substrate-internal cluster plus the
@@ -60,10 +60,10 @@ import { rmrfAsync } from '../test-helpers/temp-dir.js';
 // cluster. This is the canonical "consumer outside the storage cluster"
 // the AC3 gate has been waiting for since Wave 3.
 const EXPECTED_CONSUMERS = [
-  'src/event-store/atomic-appender.ts',
-  'src/event-store/index.ts',
-  'src/event-store/store.ts',
-  'src/event-store/tools.ts',
+  'src/events/atomic-appender.ts',
+  'src/events/index.ts',
+  'src/events/store.ts',
+  'src/events/tools.ts',
   'src/orchestrate/execute-merge.ts',
   'src/orchestrate/merge-orchestrate.ts',
   'src/orchestrate/worktree/manager.ts',
@@ -83,7 +83,7 @@ const BENCH_APPEND_COUNT = 5000;
 
 /**
  * Resolve `servers/exarchos-mcp/src` from this file's URL. The test
- * sits at `src/event-store/poc.acceptance.test.ts`, so two `..` jumps
+ * sits at `src/events/poc.acceptance.test.ts`, so two `..` jumps
  * land at `src/`.
  */
 function resolveSrcRoot(): string {

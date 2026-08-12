@@ -590,7 +590,7 @@ export const EVENT_CATALOG_SOURCES: {
   readonly phaseExpectedEvents: string;
   readonly proseRoot: string;
 } = Object.freeze({
-  authority: 'servers/exarchos-mcp/src/event-store/schemas.ts',
+  authority: 'servers/exarchos-mcp/src/events/schemas.ts',
   // Where the per-event emission facts are DECLARED since task 011 (DR-2). `schemas.ts` still
   // exports `EVENT_EMISSION_REGISTRY` — it is still the authority binding, and the row's
   // representation id is unchanged — but its value is now
@@ -601,7 +601,7 @@ export const EVENT_CATALOG_SOURCES: {
   // should: the empty-denominator guard threw rather than reporting a clean catalog of nothing.
   // The fix is to measure the structural fact — the tier/lifecycle pair each event declares —
   // and to derive the source through the SHIPPED derivation rather than restating it here.
-  annotations: 'servers/exarchos-mcp/src/event-store/event-annotations.ts',
+  annotations: 'servers/exarchos-mcp/src/events/event-annotations.ts',
   autoEmits: 'servers/exarchos-mcp/src/registry.ts',
   phaseExpectedEvents: 'servers/exarchos-mcp/src/orchestrate/check-event-emissions.ts',
   // The AUTHORED skills tree. `skills/<runtime>/` is generated from it, so
@@ -679,7 +679,7 @@ export const EVENT_CATALOG_REPRESENTATION_IDS: {
   readonly phaseExpectedEvents: string;
   readonly prose: string;
 } = Object.freeze({
-  authority: 'EVENT_EMISSION_REGISTRY (`event-store/schemas.ts`)',
+  authority: 'EVENT_EMISSION_REGISTRY (`events/schemas.ts`)',
   autoEmits: 'the registry `autoEmits` rows',
   phaseExpectedEvents: 'PHASE_EXPECTED_EVENTS (`orchestrate/check-event-emissions.ts`)',
   prose: 'skill prose naming events to emit',

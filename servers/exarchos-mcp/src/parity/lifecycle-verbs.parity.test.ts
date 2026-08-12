@@ -234,7 +234,7 @@ const REGISTRY_SRC = readFileSync(path.join(HERE, '..', 'registry.ts'), 'utf8');
 function assertSharedSchemaFieldsSoT(): void {
   // The SoT import itself.
   expect(
-    REGISTRY_SRC.includes(`from './views/lifecycle/schema-fields.js'`),
+    REGISTRY_SRC.includes(`from './projections/views/lifecycle/schema-fields.js'`),
     'registry.ts must import the shared lifecycle schema-fields SoT',
   ).toBe(true);
 

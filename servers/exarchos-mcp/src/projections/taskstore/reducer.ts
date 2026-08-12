@@ -12,7 +12,7 @@
  * together merged feature-A's task `001` into feature-B's. The scope must match
  * the key space. Do not restore the cross-stream reading of this comment.
  *
- * ## Event-to-status map (matches `event-store/schemas.ts`)
+ * ## Event-to-status map (matches `events/schemas.ts`)
  *
  *   - `task.assigned`   → status `'assigned'`, seeds title/branch/worktree/assignee
  *   - `task.claimed`    → status `'claimed'`, sets agentId/claimedAt

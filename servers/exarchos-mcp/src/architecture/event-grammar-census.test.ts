@@ -1,4 +1,4 @@
-// @oracle-sources: ../event-store/schemas.ts, ./event-grammar-concessions.ts
+// @oracle-sources: ../events/schemas.ts, ./event-grammar-concessions.ts
 //
 // DR-3 / task 015 — the event-name grammar census and its two-way ratchet.
 //

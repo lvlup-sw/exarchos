@@ -1631,7 +1631,7 @@ describe('handlePrepareDelegation', () => {
         featureId: 'test-feature',
         tasks: [
           // high: matches the **/*schema* high-risk glob.
-          { id: 'task-1', title: 'edit schema', files: ['src/event-store/schemas.ts'] },
+          { id: 'task-1', title: 'edit schema', files: ['src/events/schemas.ts'] },
           // medium default — must not lower the max.
           { id: 'task-2', title: 'Add tests' },
         ],
@@ -1695,7 +1695,7 @@ describe('handlePrepareDelegation', () => {
       const args = {
         featureId: 'test-feature',
         riskTier: 'low' as const,
-        tasks: [{ id: 'task-1', title: 'edit schema', files: ['src/event-store/schemas.ts'] }],
+        tasks: [{ id: 'task-1', title: 'edit schema', files: ['src/events/schemas.ts'] }],
       };
 
       const result = await handlePrepareDelegation(args, STATE_DIR, makeCtx(mockStore, STATE_DIR));
@@ -2864,7 +2864,7 @@ describe('deriveRiskTier — high rules', () => {
     // A single file that matches a high-risk glob is enough — even when no
     // other high signal (deps/file-count/acceptance) is present.
     const cases: TaskInput[] = [
-      { id: 's-1', title: 'edit schema', files: ['src/event-store/schemas.ts'] },
+      { id: 's-1', title: 'edit schema', files: ['src/events/schemas.ts'] },
       { id: 's-2', title: 'edit types', files: ['src/types/foo.ts'] },
       { id: 's-3', title: 'edit dts', files: ['dist/index.d.ts'] },
       { id: 's-4', title: 'edit api', files: ['src/api/handler.ts'] },
@@ -2949,7 +2949,7 @@ describe('deriveRiskTier — low / medium / override', () => {
     const wouldBeHigh: TaskInput = {
       id: 'o-1',
       title: 'edit schema',
-      files: ['src/event-store/schemas.ts'],
+      files: ['src/events/schemas.ts'],
       riskTier: 'low',
     };
     expect(deriveRiskTier(wouldBeHigh)).toBe('low');

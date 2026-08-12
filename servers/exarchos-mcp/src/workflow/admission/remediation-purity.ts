@@ -20,12 +20,12 @@
  * Import specifiers that would give a module the ability to WRITE admission
  * state (or perform any external effect). A remediation/explanation module that
  * imports any of these is, by construction, no longer pure data. Matched as a
- * substring of the resolved specifier (so `../../event-store/atomic-appender.js`
- * is caught by `event-store`).
+ * substring of the resolved specifier (so `../../events/atomic-appender.js`
+ * is caught by `events/`).
  */
 export const FORBIDDEN_IMPORT_MARKERS: readonly string[] = Object.freeze([
   // Persistence / event log — the state-mutation substrate.
-  'event-store',
+  'events/',
   'atomic-appender',
   // The transition chokepoint itself (VALUES only — the sole state mutator).
   './transition-command',

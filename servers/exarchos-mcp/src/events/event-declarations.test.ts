@@ -2,7 +2,7 @@
 //
 // @oracle-sources: ./schemas.ts, ../architecture/authority-topology.ts
 //
-// The two authorities, and why they are two. `event-store/schemas.ts` owns the event UNIVERSE —
+// The two authorities, and why they are two. `events/schemas.ts` owns the event UNIVERSE —
 // which types exist and what each one's emission source is. `architecture/authority-topology.ts`
 // owns the BOUNDARY record — who the `event-catalog` authority is and what is bound to it. They
 // sit in different layers, neither imports the other, and they are maintained by different tasks,

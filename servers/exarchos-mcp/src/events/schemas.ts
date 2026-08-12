@@ -155,7 +155,7 @@ export const EventTypes = [
   'tool.action_errored',
   // #1262 — per-turn output-token sample emitted by the telemetry middleware
   // when an agent turn completes. The `output_tokens_high` quality hint
-  // (catalog: `telemetry/quality-hints.ts`) fires off this stream when a
+  // (catalog: `projections/telemetry/quality-hints.ts`) fires off this stream when a
   // turn's `outputTokens` crosses the configured threshold.
   'turn.completed',
   // #1525 W2 Half 1 — per-subagent output-token total emitted by the restored
@@ -384,7 +384,7 @@ export const EventTypes = [
   // `task.completed`/`task.failed` family above, these four describe the
   // SDK-protocol task lifecycle (see
   // `@modelcontextprotocol/sdk/experimental/tasks/interfaces.ts:TaskStore`).
-  // The EventSourcedTaskStore in `src/task-store/event-sourced-task-store.ts`
+  // The EventSourcedTaskStore in `src/projections/task-store/event-sourced-task-store.ts`
   // emits these to durably back the in-memory projection it serves to the
   // SDK; reads project state from the event stream alone (INV-1 event-sourcing
   // integrity — see the REPLAY acceptance test in
@@ -524,7 +524,7 @@ const customEventTypes = new Set<string>();
  * vocabulary in a task whose whole purpose is to have one. Exporting it is what makes the pattern
  * REACHABLE from the built-in corpus for the first time; the divergence that reachability exposes
  * is recorded (owned, dated, shrink-only) by the census, deliberately NOT reconciled here — see
- * the FINDING header in `event-store/event-name.ts`.
+ * the FINDING header in `events/event-name.ts`.
  */
 export const EVENT_NAME_PATTERN = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$/;
 
@@ -1239,7 +1239,7 @@ export const ToolActionErroredData = z.object({
 // #1262 — per-turn output-token sample (CodeRabbit F2).
 //
 // Emitted by the telemetry middleware when an agent turn completes. The
-// telemetry projection (`telemetry/telemetry-projection.ts`) folds
+// telemetry projection (`projections/telemetry/telemetry-projection.ts`) folds
 // `turnId` + `outputTokens` into `view.turns` for the `output_tokens_high`
 // quality hint. Anything else on the payload is ignored by the projection
 // today, so the schema is `.passthrough()` to keep the door open for
@@ -2762,9 +2762,9 @@ export const ElicitationDeclinedData = z.object({
 
 // ─── EventSourcedTaskStore lifecycle (#1272) ───────────────────────────────
 //
-// Emitted by `src/task-store/event-sourced-task-store.ts` to durably back
+// Emitted by `src/projections/task-store/event-sourced-task-store.ts` to durably back
 // the SDK `TaskStore` projection. See the file header on
-// `task-store/event-sourced-task-store.ts` for the lifecycle map and the
+// `projections/task-store/event-sourced-task-store.ts` for the lifecycle map and the
 // REPLAY acceptance test in `event-sourced-task-store.test.ts` for the
 // INV-1 event-sourcing-integrity contract these schemas enforce.
 //
@@ -2857,7 +2857,7 @@ export const TaskCancelledData = z.object({
  *     mirrors `worktree.passed` until further split is needed.
  *
  * Inherits `operationId` from the active `DispatchContext` (B1 / #1291)
- * via the `stampWithDispatchContext` helper in `event-store/store.ts`,
+ * via the `stampWithDispatchContext` helper in `events/store.ts`,
  * so no manual correlation threading is required at the emit site.
  */
 export const DispatchPreflightData = z.object({

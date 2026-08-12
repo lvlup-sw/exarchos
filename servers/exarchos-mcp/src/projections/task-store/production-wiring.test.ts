@@ -18,8 +18,11 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// Task 012 moved this file one level deeper (task-store/ -> projections/task-store/),
+// so reaching src/ now costs two hops, not one.
 const SRC_DIR = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
+  '..',
   '..',
 );
 

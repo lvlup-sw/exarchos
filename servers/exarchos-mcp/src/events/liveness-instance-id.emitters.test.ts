@@ -202,7 +202,7 @@ describe('DR-2 liveness emitters', () => {
     // brackets the injected mutation run with the INV-10 liveness pair, stamping
     // `args.operationId` as the canonical `instanceId` on BOTH events (mirroring the
     // now-deleted run-mutation CLI shim, whose liveness surface this handler owns —
-    // see `event-store/liveness-registry.ts`). Every seam is injected so no real
+    // see `events/liveness-registry.ts`). Every seam is injected so no real
     // toolchain resolution, git diff, or mutation subprocess runs.
     {
       const { store, stateDir } = await makeStore('dr2-mutation-');

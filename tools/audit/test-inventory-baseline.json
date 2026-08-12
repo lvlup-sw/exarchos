@@ -5141,22 +5141,22 @@
       "runner": "vitest:nested",
       "cases": [
         {
-          "suite": "views/tools.ts composite error paths > HandleViewShepherdStatus_QueryThrowsNonError_ReturnsViewError",
+          "suite": "projections/views/tools.ts composite error paths > HandleViewShepherdStatus_QueryThrowsNonError_ReturnsViewError",
           "name": "should return VIEW_ERROR when queryDeltaEvents throws a string error",
           "dynamic": false
         },
         {
-          "suite": "views/tools.ts composite error paths > HandleViewConvergence_QueryThrowsError_ReturnsViewError",
+          "suite": "projections/views/tools.ts composite error paths > HandleViewConvergence_QueryThrowsError_ReturnsViewError",
           "name": "should return VIEW_ERROR when queryDeltaEvents throws an Error",
           "dynamic": false
         },
         {
-          "suite": "views/tools.ts composite error paths > HandleViewProvenance_QueryThrowsError_ReturnsViewError",
+          "suite": "projections/views/tools.ts composite error paths > HandleViewProvenance_QueryThrowsError_ReturnsViewError",
           "name": "should return VIEW_ERROR when queryDeltaEvents throws an Error",
           "dynamic": false
         },
         {
-          "suite": "views/tools.ts composite error paths > HandleViewAction_UnknownAction_ReturnsUnknownAction",
+          "suite": "projections/views/tools.ts composite error paths > HandleViewAction_UnknownAction_ReturnsUnknownAction",
           "name": "should return UNKNOWN_ACTION for an unrecognized action string",
           "dynamic": false
         }

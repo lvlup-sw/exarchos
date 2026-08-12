@@ -17,7 +17,7 @@ import {
  * The measurement that forced it: with the old edge in place, the module set reachable from the
  * shared workflow IR was 189 modules and included three legacy guard modules
  * (`built-in-workflow-ir.structure.test.ts`, exit-proof b); with the edge inverted it is 38 and
- * includes none. That edge was the sole reason `event-store/schemas.ts` could not name the DR-2
+ * includes none. That edge was the sole reason `events/schemas.ts` could not name the DR-2
  * registration types.
  */
 export type MechanicalGateClass =

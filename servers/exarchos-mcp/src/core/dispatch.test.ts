@@ -1393,7 +1393,7 @@ describe('dispatch', () => {
   });
 
   // T1 (#1446 residue) — DR-5 dispatch validation for the three view
-  // actions that were dispatched through `views/composite.ts` but missing
+  // actions that were dispatched through `projections/views/composite.ts` but missing
   // from `TOOL_REGISTRY.viewActions`. Before T1, dispatching with bad args
   // returned the generic "unknown action" error from dispatch.ts:650-657
   // (action not in registry), so callers could not distinguish "the action

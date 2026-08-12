@@ -294,6 +294,6 @@ export const shepherdStatusProjection: ViewProjection<ShepherdStatusState> = {
   },
 };
 
-// Note: the live `handleViewShepherdStatus` lives in `views/tools.ts`;
+// Note: the live `handleViewShepherdStatus` lives in `projections/views/tools.ts`;
 // this file owns only the projection + state shapes that the live handler
 // re-exports through that module.

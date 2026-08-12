@@ -14,7 +14,7 @@ import { rmrfAsync } from '../test-helpers/temp-dir.js';
  * Append a raw sidecar JSONL line ({streamId}.hook-events.jsonl) directly.
  * Mirrors the sidecar wire format the merger consumes (same local-helper
  * pattern as sidecar-scheduler.test.ts) — the former
- * `event-store/hook-event-writer.ts` producer was deleted as dead code (#1713).
+ * `events/hook-event-writer.ts` producer was deleted as dead code (#1713).
  */
 async function writeSidecarLine(
   stateDir: string,

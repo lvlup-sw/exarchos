@@ -3,7 +3,7 @@
  *
  * Used by both the rehydration projection reducer
  * (`projections/rehydration/reducer.ts`) and the pipeline view projection
- * (`views/pipeline-view.ts`) so both surfaces compute taskCount /
+ * (`projections/views/pipeline-view.ts`) so both surfaces compute taskCount /
  * completedCount / per-id status from a single ranking table.
  *
  * Canonical vocabulary mirrors the workflow-side `TaskSchema.status` enum

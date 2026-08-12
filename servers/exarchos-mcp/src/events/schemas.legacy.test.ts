@@ -272,7 +272,7 @@ describe('TaskCompletedData', () => {
   it('should parse valid task completion with artifacts', () => {
     const data = TaskCompletedData.parse({
       taskId: 'task-001',
-      artifacts: ['src/event-store/schemas.ts', 'src/__tests__/event-store/schemas.test.ts'],
+      artifacts: ['src/events/schemas.ts', 'src/__tests__/event-store/schemas.test.ts'],
       duration: 3600,
     });
     expect(data.taskId).toBe('task-001');
@@ -432,13 +432,13 @@ describe('EventTypes', () => {
     // test/typecheck/install runtime resolver. Earlier (83) was
     // merge.preflight / merge.executed / merge.rollback (T03, DR-MO-2). When
     // new event types are added, bump this number alongside their registration
-    // in `event-store/schemas.ts`.
+    // in `events/schemas.ts`.
     // PR3/T7 (#1364): bumped 103 → 104 to include `tool.action_errored`,
     // which splits structured action-level failures off of `tool.errored`
     // (transport/protocol failures only).
     // #1262: bumped 104 → 105 to include `turn.completed`, which carries
     // the per-turn output-token sample the `output_tokens_high` quality
-    // hint fires on (see `telemetry/quality-hints.ts`).
+    // hint fires on (see `projections/telemetry/quality-hints.ts`).
     // #1290: bumped 105 → 106 to include `workspace.resolved`, emitted
     // by `workspace/discovery.ts` on roots-based or cwd-walk featureId
     // inference at the dispatch boundary.
@@ -453,7 +453,7 @@ describe('EventTypes', () => {
     // `task.result` + `task.cancelled`, emitted by the
     // EventSourcedTaskStore (SDK `TaskStore` interface as a projection
     // over the event store; see
-    // `src/task-store/event-sourced-task-store.ts`).
+    // `src/projections/task-store/event-sourced-task-store.ts`).
     // #1261: bumped 113 → 115 to include `dispatch.preflight` +
     // `stash.detected`, emitted by `orchestrate/dispatch-guard.ts`.
     // #1437: bumped 115 → 116 to include `migration.correlation_backfill_progress`,

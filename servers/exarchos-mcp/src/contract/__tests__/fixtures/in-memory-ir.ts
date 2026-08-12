@@ -33,7 +33,7 @@
 // Relocation is not "the same table behind a new name" — it is the table
 // ceasing to exist at its old address. So {@link STORE_BEFORE_RELOCATION}
 // exports a storage-internal binding (`REGISTRY_TABLE`, standing in for
-// `registry.ts`'s `TOOL_REGISTRY` / `event-store/schemas.ts`'s
+// `registry.ts`'s `TOOL_REGISTRY` / `events/schemas.ts`'s
 // `EVENT_EMISSION_REGISTRY`), and {@link STORE_AFTER_RELOCATION} does NOT: the
 // declarations now live in the IR, reached through {@link openInMemoryIr}.
 // Both variants export the same `openStore(): DeclarationSource`, which is the

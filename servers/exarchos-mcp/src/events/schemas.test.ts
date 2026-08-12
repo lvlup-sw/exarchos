@@ -520,7 +520,7 @@ describe('EventTypes', () => {
   it('EventTypes_HasExpectedCount', () => {
     // Bumped from 104 → 105 with #1262: `turn.completed` carries the
     // per-turn output-token sample the `output_tokens_high` quality hint
-    // fires on (see `telemetry/quality-hints.ts`).
+    // fires on (see `projections/telemetry/quality-hints.ts`).
     // Previous (103 → 104): PR3/T7 (#1364) `tool.action_errored` splits
     // structured action-level failures out from `tool.errored` (which now
     // counts transport/protocol failures only).
@@ -547,8 +547,8 @@ describe('EventTypes', () => {
     //   task.cancelled (#1272 — EventSourcedTaskStore lifecycle; SDK
     //   `TaskStore` interface as a projection over the event store).
     //   Distinct from the orchestrated-task family above; see
-    //   `event-store/task-events.test.ts` for the schema-shape contracts
-    //   and `task-store/event-sourced-task-store.test.ts` for the
+    //   `events/task-events.test.ts` for the schema-shape contracts
+    //   and `projections/task-store/event-sourced-task-store.test.ts` for the
     //   end-to-end lifecycle + REPLAY (INV-1) acceptance test.
     // Bumped 113 → 115: dispatch.preflight + stash.detected (#1261 —
     //   dispatch-guard preflight observability emitted by
@@ -4700,7 +4700,7 @@ describe('Export event contract (DR-6, lifecycle-verbs task 012)', () => {
       {
         label: 'export.executed (with tolerated missingArtifacts)',
         schema: executed!,
-        payload: { ...validExecuted(), missingArtifacts: ['artifacts/plan.md', 'artifacts/review.json'] },
+        payload: { ...validExecuted(), missingArtifacts: ['artifacts/plan.md', 'storage/artifacts/review.json'] },
       },
       {
         label: 'export.executed (empty missingArtifacts — nothing missing)',

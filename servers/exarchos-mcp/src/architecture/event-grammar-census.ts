@@ -8,7 +8,7 @@
  * The DR-3 event-name grammar census and its two-way ratchet (task 015).
  *
  * ── What this measures, and why it cannot be done at compile time ───────────
- * Task 014 shipped the grammar (`event-store/event-name.ts`): a template-literal type that decides
+ * Task 014 shipped the grammar (`events/event-name.ts`): a template-literal type that decides
  * well-formedness at compile time, and a clause-for-clause runtime twin, {@link classifyEventName},
  * that returns WHICH clause a name breaks. Its compile-time proof
  * `_EventName_EveryRegisteredType_IsWellFormed` already quantifies over the whole `EventType`
@@ -545,7 +545,7 @@ export function auditEventGrammarRatchet(
         message:
           `'${clause}' is a recorded grammar concession, but the DR-3 grammar no longer makes ` +
           'that concession — no such clause is derived from WORD_SEPARATORS in ' +
-          'event-store/event-name.ts. The record is cover for a rule that is gone: DELETE the ' +
+          'events/event-name.ts. The record is cover for a rule that is gone: DELETE the ' +
           'EVENT_GRAMMAR_CONCESSIONS entry.',
       });
     } else if (exercisedBy.length === 0) {

@@ -22,7 +22,7 @@
  * This CONSUMES P01-02's freshness verdict (`assessProjectionFreshness`) rather
  * than inventing a second degradation signal — the same `projection-behind` /
  * `projection-ahead` reasons the view surface stamps on `_meta.projectionDegraded`
- * (see `views/composite.ts`).
+ * (see `projections/views/composite.ts`).
  */
 import {
   assessProjectionFreshness,

@@ -14,7 +14,7 @@ import { NextAction } from '../next-action.js';
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * The REAL token formula, reproduced verbatim from `telemetry/middleware.ts`
+ * The REAL token formula, reproduced verbatim from `projections/telemetry/middleware.ts`
  * (lines 121–128): the middleware serializes the result, falls back to `'{}'`
  * on a `JSON.stringify` throw, measures UTF-8 bytes, and divides by 4 rounding
  * up. `estimateOutputTokens` is the extracted, shared form of exactly this —

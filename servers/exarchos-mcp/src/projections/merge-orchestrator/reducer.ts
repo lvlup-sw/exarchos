@@ -103,7 +103,7 @@ function extractRecoveryError(
  * Flatten the preflight failure surface into a single operator-facing string.
  *
  * The `merge.preflight` event carries `failureReasons: string[]` (per
- * `MergePreflightData` in `event-store/schemas.ts`); we collapse that into one
+ * `MergePreflightData` in `events/schemas.ts`); we collapse that into one
  * comma-joined string so the projection's `reason` field stays a simple
  * string — matching the audit/observability shape downstream tooling expects.
  * Returns `undefined` when no actionable reason is present.

@@ -122,7 +122,7 @@ export function createCliDispatchContext(ctx: DispatchContext): DispatchContext 
  *   first (e.g. a failed/cancelled workflow while waiting for `completed`).
  *
  * The codes ride `result.error.code` from the `wait` handler
- * (`views/lifecycle/wait.ts`); the exit codes (17/18) sit above the 0-3 generic
+ * (`projections/views/lifecycle/wait.ts`); the exit codes (17/18) sit above the 0-3 generic
  * band so they never alias SUCCESS/INVALID_INPUT/HANDLER_ERROR/UNCAUGHT.
  */
 export const ERROR_CODE_EXIT_CODES: Readonly<Record<string, number>> = {

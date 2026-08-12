@@ -42,7 +42,7 @@ const CYCLE_BASELINE_PATH = path.join(REPO_ROOT, 'scripts', 'audit', 'cycle-base
 // Paths in the depcruise graph are relative to the run cwd (the MCP package
 // root), so first-party modules are `src/…`.
 const SRC_PREFIX = 'src';
-const PROJECTION = 'src/views/workflow-state-projection.ts';
+const PROJECTION = 'src/projections/views/workflow-state-projection.ts';
 const STATE_STORE = 'src/workflow/state-store.ts';
 
 const DEPCRUISE_TIMEOUT_MS = 120_000;
@@ -337,15 +337,15 @@ describe('runForbiddenEdgeCensus', () => {
     });
 
   const rule: ForbiddenEdgeRule = {
-    from: 'src/views/projection.ts',
+    from: 'src/projections/views/projection.ts',
     to: 'src/workflow/store.ts',
     reason: 'would re-form the mutual cycle.',
   };
 
   it('flags a present forbidden edge as FORBIDDEN_RUNTIME_EDGE', () => {
     const json = graph([
-      ['src/workflow/store.ts', 'src/views/projection.ts'], // legal one-way edge
-      ['src/views/projection.ts', 'src/workflow/store.ts'], // the forbidden back-edge
+      ['src/workflow/store.ts', 'src/projections/views/projection.ts'], // legal one-way edge
+      ['src/projections/views/projection.ts', 'src/workflow/store.ts'], // the forbidden back-edge
     ]);
     const result = runForbiddenEdgeCensus(json, [rule], 'src');
     expect(result.ok).toBe(false);
@@ -353,7 +353,7 @@ describe('runForbiddenEdgeCensus', () => {
   });
 
   it('passes when the forbidden edge is absent but both endpoints exist', () => {
-    const json = graph([['src/workflow/store.ts', 'src/views/projection.ts']]);
+    const json = graph([['src/workflow/store.ts', 'src/projections/views/projection.ts']]);
     const result = runForbiddenEdgeCensus(json, [rule], 'src');
     expect(result.ok).toBe(true);
     expect(result.diagnostics).toEqual([]);
@@ -361,7 +361,7 @@ describe('runForbiddenEdgeCensus', () => {
 
   it('flags a rule whose endpoint is absent from the graph as STALE_FORBIDDEN_EDGE', () => {
     // `store.ts` never appears (renamed away) — the guard protects nothing.
-    const json = graph([['src/views/projection.ts', 'src/other/leaf.ts']]);
+    const json = graph([['src/projections/views/projection.ts', 'src/other/leaf.ts']]);
     const result = runForbiddenEdgeCensus(json, [rule], 'src');
     expect(result.ok).toBe(false);
     const stale = result.diagnostics.find((d) => d.code === 'STALE_FORBIDDEN_EDGE');

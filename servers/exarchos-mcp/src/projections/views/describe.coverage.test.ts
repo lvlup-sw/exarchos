@@ -1,7 +1,7 @@
 // ─── T1 (#1446 residue) — Describe coverage parity ──────────────────────────
 //
 // Pins the registry-vs-dispatch parity contract for `exarchos_view`. Every
-// action dispatched through `views/composite.ts` MUST be registered in
+// action dispatched through `projections/views/composite.ts` MUST be registered in
 // `TOOL_REGISTRY.viewActions`. Without this parity:
 //   1. Per-action Zod validation at `core/dispatch.ts:801` is silently
 //      skipped for the unregistered action (DR-5 hole).
@@ -29,7 +29,7 @@ import { handleView } from './composite.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /**
- * Parse `views/composite.ts` and return every action name handled by a
+ * Parse `projections/views/composite.ts` and return every action name handled by a
  * `case 'xxx':` arm inside the `handleView` switch (NOT case arms anywhere
  * else in the file — `composite.ts` includes other helper switches whose
  * cases must not pollute the action surface). Excludes `describe` (the

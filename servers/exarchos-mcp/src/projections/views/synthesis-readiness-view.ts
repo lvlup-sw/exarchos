@@ -203,6 +203,6 @@ export const synthesisReadinessProjection: ViewProjection<SynthesisReadinessStat
   },
 };
 
-// Note: the live `handleViewSynthesisReadiness` lives in `views/tools.ts`;
+// Note: the live `handleViewSynthesisReadiness` lives in `projections/views/tools.ts`;
 // this file owns only the projection + state shapes that the live handler
 // re-exports through that module.

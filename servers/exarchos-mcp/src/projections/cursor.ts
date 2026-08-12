@@ -9,7 +9,7 @@
  *
  * The input is assumed to already be in **`(timestamp, sequence)`** order — the
  * exact ordering `EventStore.query(streamId)` produces for a single stream (see
- * `event-store/store.ts`). For a single stream `sequence` is monotonic and
+ * `events/store.ts`). For a single stream `sequence` is monotonic and
  * `timestamp` is non-decreasing, so the two bound forms reduce to a simple
  * inclusive filter:
  *

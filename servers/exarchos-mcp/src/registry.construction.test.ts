@@ -4,7 +4,7 @@
 // strict object and THROWS when two actions declare the same field name with a
 // divergent contract (base kind / enum value set / default). The lifecycle
 // verbs (`ps`/`wait`/`inspect`/`export`) all source their shared field names
-// from `views/lifecycle/schema-fields.ts`; this contract test composes the REAL
+// from `projections/views/lifecycle/schema-fields.ts`; this contract test composes the REAL
 // `exarchos_view` registration PLUS a probe action carrying every shared shape
 // and asserts registration constructs without throwing — and that the shapes
 // whose names ALSO exist on shipped view actions match the existing base type

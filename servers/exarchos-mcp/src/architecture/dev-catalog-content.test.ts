@@ -217,7 +217,7 @@ describe('dev-catalog v3 content — CR-2 mode:check enforcement', () => {
   it('inv13_executedOutsideOrchestrateScope_producesNoFinding', () => {
     // Scope guard: an executed emission outside the orchestrate handler tree is
     // out of range, so the two-event proxy does not fire on it.
-    const outOfScope = diffFor('servers/exarchos-mcp/src/telemetry/foo.ts', [
+    const outOfScope = diffFor('servers/exarchos-mcp/src/projections/telemetry/foo.ts', [
       `    await emit(eventStore, featureId, 'merge.executed', { mergeSha });`,
     ]);
     expect(evaluateTree(checkTreeOf('INV-13'), outOfScope)).toEqual([]);

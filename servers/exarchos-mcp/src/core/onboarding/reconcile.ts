@@ -874,7 +874,7 @@ export async function apply(plan: ReconcilePlan, ctx: ApplyCtx): Promise<Reconci
 
 /**
  * The trigger discriminator carried on both halves of the split — mirrors the
- * `OnboardTriggerSchema` enum in `event-store/schemas.ts` (`onboard` reconciles
+ * `OnboardTriggerSchema` enum in `events/schemas.ts` (`onboard` reconciles
  * an existing repo, `onboard-new` scaffolds, `doctor-fix` applies the structured
  * doctor diff). Derived from the event data type so the two never drift.
  */
@@ -887,7 +887,7 @@ export type OnboardTrigger = OnboardRequested['trigger'];
  * (Task 010's `onboard` handler), keeping `reconcile.ts` harness-neutral (INV-2).
  *
  * The two-event split only ever emits these two types; `data` is the validated
- * payload shape from `event-store/schemas.ts`.
+ * payload shape from `events/schemas.ts`.
  */
 export type EmittedEvent =
   | { readonly type: 'onboard.requested'; readonly data: OnboardRequested }

@@ -83,7 +83,7 @@ function countTrackedModules(root: string): number {
 
 describe('resolveTarget', () => {
   it('resolves a sibling-directory specifier to a .ts module', () => {
-    expect(resolveTarget('workflow/foo.ts', '../event-store/store.js')).toBe('event-store/store.ts');
+    expect(resolveTarget('workflow/foo.ts', '../events/store.js')).toBe('events/store.ts');
   });
 
   it('resolves a nested module specifier relative to its own directory', () => {
@@ -121,8 +121,8 @@ describe('detectLayerEdges', () => {
        import { z } from 'zod';`, lexModule,
     );
     expect(edges).toHaveLength(1);
-    expect(edges[0]?.targetLayer).toBe('event-store');
-    expect(edges[0]?.targetModule).toBe('event-store/store.ts');
+    expect(edges[0]?.targetLayer).toBe('events');
+    expect(edges[0]?.targetModule).toBe('events/store.ts');
     expect(edges[0]?.sourceLayer).toBe('workflow');
   });
 
@@ -556,7 +556,7 @@ describe('EXIT PROOF — the live declaration seam (DR-1)', () => {
     if (seeded === undefined) return;
 
     expect(seeded.contractImports.length, 'the fixture must read as a CONSUMER').toBeGreaterThan(0);
-    expect(seeded.storageImports.map((i) => i.storageModule)).toEqual(['event-store/schemas.ts']);
+    expect(seeded.storageImports.map((i) => i.storageModule)).toEqual(['events/schemas.ts']);
 
     const live = await scanDeclarationSeam(SRC_ROOT, lexModule);
     const result = runDeclarationSeamCensus({ ...live, usages: [...live.usages, seeded] });

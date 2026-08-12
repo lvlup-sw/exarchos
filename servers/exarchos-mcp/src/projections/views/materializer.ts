@@ -93,7 +93,7 @@ export class ViewMaterializer {
   private cacheHits = 0;
   private cacheMisses = 0;
   // Cache-bypass counter (#1448 item 5 / PR #1447 DIM-2 audit). Incremented by
-  // `materializeFiltered` in `views/tools.ts`, which skips the LRU cache entirely
+  // `materializeFiltered` in `projections/views/tools.ts`, which skips the LRU cache entirely
   // for correlation-filtered queries. Tracked on a separate axis from hits/misses
   // so the existing hit-rate calculation stays well-defined; otherwise a healthy
   // hitRate could mask thousands of invisible bypass calls.
@@ -349,7 +349,7 @@ export class ViewMaterializer {
   }
 
   /**
-   * Record a cache bypass (called by `materializeFiltered` in `views/tools.ts`).
+   * Record a cache bypass (called by `materializeFiltered` in `projections/views/tools.ts`).
    * Increments the `bypasses` counter exposed via `getCacheStats()`.
    *
    * Cache-bypass paths skip the LRU entirely, so without this counter their
@@ -393,7 +393,7 @@ export class ViewMaterializer {
    *
    * Used by:
    *  - correlation-filtered view queries (`materializeFiltered` in
-   *    `views/tools.ts` delegates here — #1437), and
+   *    `projections/views/tools.ts` delegates here — #1437), and
    *  - `asOf` bounded-fold reads (#1555) on both the `get` and `view`
    *    surfaces, where the caller has already trimmed the list to
    *    `events[0..N]` via `boundEvents`/`resolveAsOfEvents`.

@@ -5,7 +5,7 @@
  * (`task-store@v1`) folds `task.*` events from **one** workflow stream into an
  * indexed view of task records keyed by `taskId`. This is the canonical
  * replacement for the ad-hoc fold-in-view patterns previously living in
- * `views/task-detail-view.ts` and `views/workflow-status-view.ts` (see Task
+ * `projections/views/task-detail-view.ts` and `projections/views/workflow-status-view.ts` (see Task
  * 2A.7 for the wire-through).
  *
  * ## The key space
@@ -31,7 +31,7 @@
  *   - `failed`       ← `task.failed`
  *
  * There is intentionally no `pending` or `cancelled` — neither `task.pending`
- * nor `task.cancelled` exist in `event-store/schemas.ts`, and the TaskStore
+ * nor `task.cancelled` exist in `events/schemas.ts`, and the TaskStore
  * projection's contract is "what the events say happened". Plan-derived
  * pending tasks live on the rehydration document's `taskProgress` (a
  * different projection with a different contract); they do NOT belong here.
@@ -48,7 +48,7 @@ export type TaskStatus =
 /**
  * A single task's projected state. Pass-through fields are optional so the
  * record progressively gains shape as more events fold in. Fields are copied
- * from the corresponding event's `data` payload (see `event-store/schemas.ts`
+ * from the corresponding event's `data` payload (see `events/schemas.ts`
  * — `TaskAssignedData`, `TaskClaimedData`, `TaskProgressedData`,
  * `TaskCompletedData`, `TaskFailedData`).
  */

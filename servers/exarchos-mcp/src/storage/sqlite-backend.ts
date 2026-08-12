@@ -60,7 +60,7 @@ export interface AtomicAppendEvent {
 
 /**
  * Shape of an entry returned from `lookupIdempotencyClaim`. Mirrors
- * `PublicPersistedEvent` from `event-store/atomic-appender.ts` — kept here
+ * `PublicPersistedEvent` from `events/atomic-appender.ts` — kept here
  * as a structural alias so the storage module does not import from the
  * event-store module (one-way dependency: event-store → storage).
  */

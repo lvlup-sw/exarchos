@@ -3,7 +3,7 @@
  *
  * The SEEDED SUBJECT for DR-1's kill probe: a declaration consumer that bypasses
  * the seam and reads registry storage directly. It imports the declaration
- * envelope (which makes it a consumer) AND `event-store/schemas.js` (which is a
+ * envelope (which makes it a consumer) AND `events/schemas.js` (which is a
  * declared declaration store), which is exactly the pair
  * {@link ../layer-boundaries-seam.js}'s declaration-seam census must reject.
  *

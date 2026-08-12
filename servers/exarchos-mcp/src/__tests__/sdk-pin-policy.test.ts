@@ -28,7 +28,7 @@
 // had nothing to implement against.
 //
 // Task 051 designed the replacement: the store contract is now OWNED
-// (`task-store/port.ts`), and `task-store/attach.ts` makes the one genuinely
+// (`projections/task-store/port.ts`), and `projections/task-store/attach.ts` makes the one genuinely
 // missing surface — the constructor option, which a v2 server ignores SILENTLY
 // — impossible to ship by accident. What the migration deliberately gives up is
 // the `tasks/*` wire surface, which v2 does not serve at all; per operator

@@ -2,7 +2,7 @@
 //
 // @oracle-sources: ./schemas.ts, the emission-site and consumer-fold measurement recorded in event-annotations
 //
-// The authorities, and what task 011 did to them. `event-store/schemas.ts` owns the event
+// The authorities, and what task 011 did to them. `events/schemas.ts` owns the event
 // UNIVERSE. It used to own the DECLARED emission source as well — 170 hand-written entries
 // accreted over dozens of prior PRs — and task 010's assertions here were a genuine two-authority
 // comparison: the tier/lifecycle judgment in `event-annotations.ts` was derived from a different

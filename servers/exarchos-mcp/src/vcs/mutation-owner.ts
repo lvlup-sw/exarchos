@@ -76,7 +76,7 @@ const VCS_EVENT_TYPES: readonly string[] = [VCS_REQUESTED, VCS_EXECUTED, VCS_COM
 /**
  * Register the three VCS-ledger event types via the event-store's runtime
  * registration seam (idempotent — only registers a name the allowlist does not
- * already carry). Using the seam avoids editing `event-store/schemas.ts`, the
+ * already carry). Using the seam avoids editing `events/schemas.ts`, the
  * same "registration seam, not source edit" posture P04-01's ledger asks for.
  */
 export function ensureVcsMutationEventTypes(): void {

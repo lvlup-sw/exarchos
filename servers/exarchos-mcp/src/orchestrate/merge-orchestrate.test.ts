@@ -362,7 +362,7 @@ describe('handleMergeOrchestrate (T12 — preflight-fail abort)', () => {
 //
 // The helper at `pure/merge-preflight.ts` attaches an optional `debug` field
 // to `MergePreflightResult` when `EXARCHOS_PREFLIGHT_DEBUG=1 && !ancestry.passed`.
-// The schema at `event-store/schemas.ts:MergePreflightData.debug` declares an
+// The schema at `events/schemas.ts:MergePreflightData.debug` declares an
 // optional `MergePreflightDebugData` branch. The handler is the missing link:
 // these tests assert that `preflight.debug`, when present on the helper's
 // return value, is threaded through to `event.data.debug` on the appended

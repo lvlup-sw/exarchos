@@ -620,7 +620,7 @@ describe('handleCheckpoint — materializes rehydration projection (T034, DR-6)'
 //
 // T4 of the checkpoint-handoff bundle wires `handleCheckpoint` to accept a
 // formal `handoff` field on its input (validated against `HandoffEntryData`
-// from `event-store/schemas.ts`, exported by T1) and persist it on the
+// from `events/schemas.ts`, exported by T1) and persist it on the
 // emitted `workflow.checkpoint` event's `data.handoff`. Backward compatibility
 // is mandatory — pre-#1240 callers (no `handoff`) must continue to work and
 // produce events whose `data` has no `handoff` key.

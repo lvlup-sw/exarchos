@@ -844,7 +844,7 @@ export async function handleMergeOrchestrate(
   // executor's local git merge. The executor's `merge.executed` append is
   // the Phase C outcome record — the orchestrator does not emit a
   // separate terminal event. Emitting the terminal marker is the EXECUTOR's
-  // job: `merge.completed` is registered in `event-store/schemas.ts` and is
+  // job: `merge.completed` is registered in `events/schemas.ts` and is
   // appended by `handleExecuteMerge` (`execute-merge.ts`) immediately after
   // its `merge.executed` append, under its own idempotency key. The
   // `merge-orchestrator@v1` projection folds it as the transition into the

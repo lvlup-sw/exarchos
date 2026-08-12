@@ -601,9 +601,9 @@ export async function handleViewTasks(
 // only summary fields. The per-entry `hasMore` here is the stack-position
 // EVICTION flag (unrelated to page-level paging) and is deliberately retained.
 // `detail: true` restores the full {@link PipelineViewState} row. The type is
-// declared locally in `views/tools.ts` on purpose — the exported
+// declared locally in `projections/views/tools.ts` on purpose — the exported
 // `PipelineViewState`/`PipelineSummary` declarations stay in
-// `views/pipeline-view.ts` (chain-A territory).
+// `projections/views/pipeline-view.ts` (chain-A territory).
 interface CompactPipelineEntry {
   readonly featureId: string;
   readonly workflowType: string;
@@ -721,13 +721,13 @@ export async function handleViewPipeline(
   },
   stateDir: string,
   eventStore: EventStore,
-  // DR-3 — the resolved `.exarchos.yml` slice threaded from `views/composite.ts`
+  // DR-3 — the resolved `.exarchos.yml` slice threaded from `projections/views/composite.ts`
   // so `qualityHints.outputTokenThreshold` drives the measured-size summary.
   // Optional so existing internal callers (and tests) that omit it keep the
   // item-cap-only behavior (fail-open: no config ⇒ default threshold).
   config?: QualityHintsConfig,
   // DR-6 — the memoized CALLER repo key, computed once per server process and
-  // threaded by `views/composite.ts` (`deriveRepoKey(ctx.cwd ?? process.cwd())`).
+  // threaded by `projections/views/composite.ts` (`deriveRepoKey(ctx.cwd ?? process.cwd())`).
   // Absent for direct handler calls (tests/internal), which therefore stay
   // UNSCOPED by construction — preserving today's semantics without a per-suite
   // edit. See the pinned scope-resolution precedence below.
@@ -740,7 +740,7 @@ export async function handleViewPipeline(
     // member (`workflow`/`worktree`) here. GA rejected out-of-subset scopes; the
     // widening must not silently coerce them to unscoped. Reject with a
     // structured, self-correcting `INVALID_INPUT` (mirroring how `ps` rejects the
-    // pipeline-only `repo` member — see `views/lifecycle/ps.ts`) rather than a
+    // pipeline-only `repo` member — see `projections/views/lifecycle/ps.ts`) rather than a
     // silent fall-through to the default caller-key / unscoped branch.
     if (args.scope !== undefined && args.scope !== 'repo' && args.scope !== 'all') {
       const outOfSubset = args.scope;
@@ -1089,7 +1089,7 @@ function compactTaskDetail(t: TaskDetail): CompactTaskDetail {
 // Each migrated view carries a DR-2-style token-budget test and rides Task 003's
 // dispatch-core backstop. Additive / backward-compatible: `detail: true` returns
 // today's full projection, so existing default-shape consumers keep reading the
-// same fields. `telemetry`'s handler lives in `telemetry/tools.ts` (out of this
+// same fields. `telemetry`'s handler lives in `projections/telemetry/tools.ts` (out of this
 // file); its `--compact` reduction is Task 014.
 
 interface AnalyticScope {

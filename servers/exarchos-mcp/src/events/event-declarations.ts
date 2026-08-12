@@ -37,7 +37,7 @@
 //
 // ## Additivity — the hard constraint
 //
-// `event-store/schemas.ts` is NOT touched by this task: not the tuple, not the registry, not
+// `events/schemas.ts` is NOT touched by this task: not the tuple, not the registry, not
 // `registerEventType`. Lifting is a projection *out of* those values, so every existing
 // registration site and every existing consumer compiles unchanged. The proofs at the bottom of
 // this file pin the half of that claim `tsc` can check.

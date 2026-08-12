@@ -165,7 +165,8 @@ describe('validateExample against the LIVE registry — seeded drift FAILS', () 
 // This is the WFQ-011 drift guard. Reverting any of the skills-src corrections
 // made in P02-07 re-introduces a documented example that this walk rejects.
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = path.resolve(HERE, '../../../../');
+// Task 012 moved this file one level deeper (quality/ -> projections/quality/).
+const REPO_ROOT = path.resolve(HERE, '../../../../../');
 
 function walkMarkdown(dir: string): string[] {
   const out: string[] = [];

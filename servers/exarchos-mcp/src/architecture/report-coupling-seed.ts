@@ -50,7 +50,7 @@
 //
 // ── How to shrink it ────────────────────────────────────────────────────────
 // Re-couple the event so the model no longer has to remember it: give it a handler-owned append
-// and re-annotate its tier in `event-store/event-annotations.ts`. Then MOVE its line from
+// and re-annotate its tier in `events/event-annotations.ts`. Then MOVE its line from
 // {@link REPORT_COUPLING_SEED} to {@link REPORT_COUPLING_RETIRED}, swapping `expires` for
 // `retiredAt: '<the date it stopped being report-coupled>'`. That is the only supported edit.
 // Entries are never ADDED to either map — an addition changes the seed key set, and the pinned

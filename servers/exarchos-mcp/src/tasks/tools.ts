@@ -112,7 +112,7 @@ export function isBlockingGate(gateName: string): boolean {
  * Reset the shared materializer cache used by the task module. The
  * constructor-injection refactor (#1182) deleted the module-global
  * EventStore this used to also clear, but the materializer cache in
- * `views/tools.ts` is still shared across tests in the same process and
+ * `projections/views/tools.ts` is still shared across tests in the same process and
  * needs to be cleared between cases for proper isolation. Per CR review
  * 4178011813 — a no-op shim was misleading; do the actual reset.
  */

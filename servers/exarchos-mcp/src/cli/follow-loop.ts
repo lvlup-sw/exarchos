@@ -240,7 +240,7 @@ export async function runFollowLoop(
 // projection for the `workflow_status` / `shepherd_status` view actions.
 // `inspect --follow` is a DIFFERENT shape: it tails ONE workflow's raw event
 // stream live over the DR-1 cursor-pump subscription (see
-// `event-store/subscriptions.ts`), framing each delivered event as an NDJSON
+// `events/subscriptions.ts`), framing each delivered event as an NDJSON
 // `event` frame. Both streaming facades — the CLI NDJSON carrier and the MCP
 // Tasks arm (`mcp/tasks-methods.ts`) — drive this SAME core over the SAME
 // subscription contract, so they emit byte-identical frame streams (INV-2).

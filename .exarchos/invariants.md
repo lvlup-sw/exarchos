@@ -83,7 +83,7 @@ invariants:
         https://dl.acm.org/doi/10.1145/356842.356846"
       - "SQLite WAL documentation: https://sqlite.org/wal.html"
     references:
-      - servers/exarchos-mcp/src/event-store/atomic-appender.ts
+      - servers/exarchos-mcp/src/events/atomic-appender.ts
       - servers/exarchos-mcp/src/storage/sqlite-backend.ts
       - servers/exarchos-mcp/test/process/multi-process-append.test.ts
       - docs/architecture/runtime.md#§4
@@ -131,7 +131,7 @@ invariants:
       - "Greg Young, *Versioning in an Event Sourced System* (Leanpub):
         https://leanpub.com/esversioning"
     references:
-      - servers/exarchos-mcp/src/event-store/atomic-appender.ts
+      - servers/exarchos-mcp/src/events/atomic-appender.ts
       - docs/architecture/runtime.md#§4
 
   - id: INV-9
@@ -341,7 +341,7 @@ invariants:
         https://www.youtube.com/watch?v=FKFu78ZEIi8"
     references:
       - servers/exarchos-mcp/src/orchestrate/merge-orchestrate.ts
-      - servers/exarchos-mcp/src/event-store/atomic-appender.ts
+      - servers/exarchos-mcp/src/events/atomic-appender.ts
       - docs/architecture/runtime.md#§4-process-manager-handlers
 
   - id: INV-14

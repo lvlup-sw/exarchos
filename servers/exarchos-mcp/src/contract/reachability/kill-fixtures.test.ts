@@ -198,7 +198,7 @@ describe('KILL: route — breaking the SHIPPED dispatch wiring drops the census'
       (text) => text.replace("case 'cancel':", "case 'cancel_moved_away':"),
     );
     const viewsFile = mutatedSource(
-      path.join(SOURCE_ROOT, 'views', 'composite.ts'),
+      path.join(SOURCE_ROOT, 'projections', 'views', 'composite.ts'),
       'views-composite-moved.ts',
       (text) => text.replace("case 'pipeline':", "case 'cancel':\n    case 'pipeline':"),
     );

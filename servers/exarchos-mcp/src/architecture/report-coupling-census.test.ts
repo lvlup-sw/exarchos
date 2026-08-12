@@ -7,7 +7,7 @@
 // The set-equality assertions below compare THREE MUTUALLY UNREACHABLE authorities, which is what
 // makes them falsifiable rather than a restatement of one representation:
 //
-//   1. `../event-store/event-annotations.ts` — the LIVE event-store graph. Both halves of the
+//   1. `../events/event-annotations.ts` — the LIVE event-store graph. Both halves of the
 //      "two authorities" argument in the census header live under this one root: the registration
 //      objects, and the `source` column `schemas.ts` declares. They are two REPRESENTATIONS that
 //      DR-2 is collapsing, but the DR-30 detector is right that they are ONE static-import
@@ -19,7 +19,7 @@
 //   3. `./report-coupling-seed-pin.ts` — the frozen key-set digest. Imports nothing, deliberately,
 //      so it cannot observe the thing it pins.
 //
-// @oracle-sources: ../event-store/event-annotations.ts, ./report-coupling-seed.ts, ./report-coupling-seed-pin.ts
+// @oracle-sources: ../events/event-annotations.ts, ./report-coupling-seed.ts, ./report-coupling-seed-pin.ts
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
 import { EVENT_EMISSION_REGISTRY, EventTypes } from '../events/schemas.js';

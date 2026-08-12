@@ -147,7 +147,7 @@ const SerializeMergeData = z
   })
   .passthrough();
 
-/** One folded workflow-summary row (mirrors `views/lifecycle/workflow-fold.ts`
+/** One folded workflow-summary row (mirrors `projections/views/lifecycle/workflow-fold.ts`
  *  `WorkflowFoldRow`) — the `ps` scope:'workflow'|'all' workflows section. */
 const WorkflowFoldRowSchema = z
   .object({
@@ -159,7 +159,7 @@ const WorkflowFoldRowSchema = z
   })
   .passthrough();
 
-/** One folded in-flight liveness instance (mirrors `views/lifecycle/operations-fold.ts`
+/** One folded in-flight liveness instance (mirrors `projections/views/lifecycle/operations-fold.ts`
  *  `InFlightOperation`) — the `ps` scope:'all' operations section. */
 const InFlightOperationSchema = z
   .object({

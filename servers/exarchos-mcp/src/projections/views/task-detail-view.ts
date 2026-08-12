@@ -10,7 +10,7 @@
  *
  * Post-2A.7 this view delegates to `taskStoreReducer.apply`. The view's
  * public `TaskDetail` type is preserved as a stable consumer-facing shape
- * (the `views/tools.ts` envelope keys off `TASK_DETAIL_VIEW`); internally
+ * (the `projections/views/tools.ts` envelope keys off `TASK_DETAIL_VIEW`); internally
  * the view state stores a thin `TaskStoreState` mirror that the
  * materializer can keep in sync per stream.
  */
@@ -29,7 +29,7 @@ export const TASK_DETAIL_VIEW = 'task-detail';
 // ─── Task Detail ───────────────────────────────────────────────────────────
 
 /**
- * Public view shape consumed by `views/tools.ts`. Mirrors `TaskRecord`
+ * Public view shape consumed by `projections/views/tools.ts`. Mirrors `TaskRecord`
  * from the canonical projection; kept as a separate type so future
  * view-only fields can be added without widening the reducer's surface.
  */

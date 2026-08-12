@@ -1162,7 +1162,7 @@ describe('TOOL_REGISTRY', () => {
     });
 
     // T1 (#1446 residue) — register the view actions that are
-    // dispatched through `views/composite.ts` today but were never added to
+    // dispatched through `projections/views/composite.ts` today but were never added to
     // `TOOL_REGISTRY.viewActions`. Without the registry entry, per-action
     // Zod validation at `core/dispatch.ts:801` is silently skipped and
     // `exarchos_view describe` under-lists the dispatched surface.

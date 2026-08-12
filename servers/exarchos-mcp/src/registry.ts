@@ -3741,7 +3741,7 @@ const viewActions: readonly BuiltinToolAction[] = [
       // `{repo, all}` subset and REJECTS the `ps`-only members (`workflow`/
       // `worktree`) at the handler with a structured `INVALID_INPUT` (mirroring
       // how `ps` rejects the pipeline-only `repo` member) — never a silent
-      // coerce to unscoped (see the subset guard in `views/tools.ts`).
+      // coerce to unscoped (see the subset guard in `projections/views/tools.ts`).
       scope: lifecycleScopeField.optional(),
     }),
     phases: ALL_PHASES,
@@ -4010,12 +4010,12 @@ const viewActions: readonly BuiltinToolAction[] = [
     annotations: READ_ONLY_LOCAL,
   },
   // T1 (#1446 residue) — three view actions dispatched through
-  // `views/composite.ts` but previously absent from TOOL_REGISTRY.viewActions.
+  // `projections/views/composite.ts` but previously absent from TOOL_REGISTRY.viewActions.
   // Without the registry entry, per-action Zod validation at
   // `core/dispatch.ts:801` is silently skipped (DR-5 hole) and
   // `exarchos_view describe` cannot surface their schemas. Registering them
   // here closes both gaps. Schemas mirror the args the composite.ts handlers
-  // route today (see `views/composite.ts` cases for each action).
+  // route today (see `projections/views/composite.ts` cases for each action).
   {
     name: 'session_provenance',
     description: 'Per-session provenance roll-up (tokens, tools, cost attribution) — query by sessionId or workflowId, optionally narrowed by metric',

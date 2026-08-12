@@ -13,7 +13,7 @@
 //      registering a subscription (the "already past `--phase plan-review`"
 //      case: exit 0, no floor tick consumed).
 //   2. SUBSCRIPTION — otherwise register a DR-1 cursor-pump subscription
-//      (`event-store/subscriptions.ts`) filtered to the predicate's event types,
+//      (`events/subscriptions.ts`) filtered to the predicate's event types,
 //      seeded at the precheck head so no event is missed in the gap. The
 //      subscription's two wake tiers do the work: Tier-1 (in-process post-commit
 //      hook) resolves an own-process transition with no floor tick; Tier-2 (the

@@ -7,7 +7,7 @@
  * rehydration reducer, and returns the canonical {@link RehydrationDocument}.
  * On successful hydrate, appends a `workflow.rehydrated` event to the stream
  * carrying `{ projectionSequence, deliveryPath, tokenEstimate }` per the
- * registered schema in `event-store/schemas.ts` (T008). Envelope wrapping
+ * registered schema in `events/schemas.ts` (T008). Envelope wrapping
  * (DR-7) happens at the composite boundary — this handler returns a raw
  * {@link ToolResult} matching the sibling-handler convention established by
  * `handleInit` / `handleGet` (positional `(input, stateDir, eventStore)`
@@ -121,7 +121,7 @@ export interface RehydrateArgs {
    * Transport mode for the rehydration document, recorded on the emitted
    * `workflow.rehydrated` event (`WorkflowRehydratedData.deliveryPath`).
    *
-   * Narrowed to the enum registered in `event-store/schemas.ts`:
+   * Narrowed to the enum registered in `events/schemas.ts`:
    *   - `"direct"`  — document returned by value (in-process / MCP direct).
    *   - `"ndjson"`  — streamed line-by-line over a transport boundary.
    *   - `"snapshot"` — materialized from a snapshot file (cold reload).
@@ -228,7 +228,7 @@ export async function hydrateFromSnapshotThenTail<State, Event>(
  *   - `event-stream-unavailable` — T056: eventStore.query raised.
  *
  * The wire contract is enforced by `WorkflowProjectionDegradedCause` in
- * `event-store/schemas.ts`; this union enforces the same set at the helper
+ * `events/schemas.ts`; this union enforces the same set at the helper
  * call sites so a typo at the emission point is a compile error, not a
  * runtime Zod failure.
  */
@@ -779,7 +779,7 @@ export async function handleRehydrate(
   // authoritative log above. The returned `document` is therefore event-derived
   // and trustworthy, but the CACHE was stale/contradictory, so we stamp the
   // P01-02 freshness verdict on `_meta.projectionDegraded` — the SAME durable
-  // degradation signal the view surface uses (see `views/composite.ts`) — rather
+  // degradation signal the view surface uses (see `projections/views/composite.ts`) — rather
   // than inventing a second one. This guarantees a contradictory projection is
   // never silently trusted: the answer is authoritative AND explicitly flagged.
   if (plan.degraded && plan.freshness !== undefined) {

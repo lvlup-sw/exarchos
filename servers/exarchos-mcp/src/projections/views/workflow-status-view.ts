@@ -14,7 +14,7 @@ export const WORKFLOW_STATUS_VIEW = 'workflow-status';
 
 /**
  * Internal projection state. Public callers receive the strip-down version
- * via `views/tools.ts` (the `_seen*` fields and the embedded `_taskStore`
+ * via `projections/views/tools.ts` (the `_seen*` fields and the embedded `_taskStore`
  * are deleted before the view envelope is returned).
  *
  * Post-Wave-2A.7 (#1284) the task-count surface is derived from an embedded

@@ -50,7 +50,7 @@ describe('initializeBackend (Phase 4 hardening)', () => {
     // supports.
     //
     // We use the loader seam rather than `vi.mock('./storage/sqlite-backend.js')`
-    // because `event-store/atomic-appender.ts` static-imports the same
+    // because `events/atomic-appender.ts` static-imports the same
     // module — mocking it module-wide cascades and breaks the static
     // graph before `initializeBackend()` is even reachable.
     const { initializeBackend } = await import('./index.js');

@@ -35,7 +35,7 @@ afterEach(async () => {
   }
 });
 
-describe('views/tools.ts composite error paths', () => {
+describe('projections/views/tools.ts composite error paths', () => {
   // ─── T-12.1: ShepherdStatus — queryDeltaEvents throws non-Error ───────────
 
   describe('HandleViewShepherdStatus_QueryThrowsNonError_ReturnsViewError', () => {

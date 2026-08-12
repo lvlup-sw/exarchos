@@ -9,7 +9,7 @@
  * payload (INV-2):
  *
  *   - NOW: a CLI / `exarchos_view` export verb (INV-5c) — see
- *     `views/effective-catalog.ts` and the `invariants_effective` view action.
+ *     `projections/views/effective-catalog.ts` and the `invariants_effective` view action.
  *   - LATER: an MCP Resource (`resources/exarchos-invariants/effective`) once
  *     #1275 lands. Until then the facade simply re-exposes this function's
  *     output; see the SEAM comment at the view facade.

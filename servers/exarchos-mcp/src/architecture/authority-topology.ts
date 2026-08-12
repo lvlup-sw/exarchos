@@ -511,7 +511,7 @@ export const AUTHORITY_TOPOLOGY: Readonly<Record<ContractBoundaryId, AuthorityTo
       boundary: 'event-catalog',
       authority: Object.freeze({ kind: 'single', authority: 'EVENT_EMISSION_REGISTRY' }),
       representations: Object.freeze([
-        authoritative('EVENT_EMISSION_REGISTRY (`event-store/schemas.ts`)'),
+        authoritative('EVENT_EMISSION_REGISTRY (`events/schemas.ts`)'),
         unbound(
           'the registry `autoEmits` rows',
           'declared alongside the emission registry rather than projected from it — an action whose ' +

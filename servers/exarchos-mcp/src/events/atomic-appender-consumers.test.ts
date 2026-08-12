@@ -34,7 +34,7 @@ import { fileURLToPath } from 'node:url';
  */
 
 const FROZEN_IMPORT_BASELINE = [
-  'src/event-store/store.ts',
+  'src/events/store.ts',
   // WLM operational-core (#1578): the serialize_merge optimistic lease claims
   // the worktrees stream via the AtomicAppender decide seam.
   'src/orchestrate/worktree/merge-serializer.ts',
@@ -42,7 +42,7 @@ const FROZEN_IMPORT_BASELINE = [
 
 /**
  * Resolve `servers/exarchos-mcp/src` from this file's URL. The test sits
- * at `src/event-store/atomic-appender-consumers.test.ts`, so two `..`
+ * at `src/events/atomic-appender-consumers.test.ts`, so two `..`
  * jumps land at `src/`.
  */
 function resolveSrcRoot(): string {

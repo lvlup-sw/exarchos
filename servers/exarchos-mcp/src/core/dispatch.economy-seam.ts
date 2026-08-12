@@ -26,7 +26,7 @@
  * `coreHandler(...)` call (that false-negative is covered by a regression
  * fixture). A future execution mode that ships a bare `coreHandler(...)` fails
  * this gate, mirroring the event-upcasting
- * (`event-store/store.upcast-seam.test.ts`) and merge-orchestrate no-bypass
+ * (`events/store.upcast-seam.test.ts`) and merge-orchestrate no-bypass
  * gates already in this codebase.
  *
  * NOTE: the checks are anchored to THIS code's identifiers (`coreHandler`,
@@ -178,7 +178,7 @@ const MW_RETURNS_RAW_RE = /return\s+rawResult\b/;
  * `rawResult` — every `withTelemetry(coreHandler)` site in dispatch() would be
  * a silent bypass while the Axis-A scan still passes.
  *
- * @param filePath Path to `telemetry/middleware.ts`.
+ * @param filePath Path to `projections/telemetry/middleware.ts`.
  * @param source  Optional source text (dependency injection for tests).
  */
 export function lintMiddlewareEconomySeam(

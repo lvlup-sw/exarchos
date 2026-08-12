@@ -5,7 +5,7 @@
  * folds one event over an explicit initial state and asserts a transition on
  * the phase machine documented in `types.ts`.
  *
- * Naming note: this worktree's `event-store/schemas.ts` ships `merge.rollback`
+ * Naming note: this worktree's `events/schemas.ts` ships `merge.rollback`
  * as the canonical recovery event (the #1306 rename to `merge.recovered` is
  * a separate epic; preview.2 keeps `merge.rollback`). The reducer's `any →
  * recovering` transition is exercised with `merge.rollback` here; if/when
@@ -28,7 +28,7 @@ import type { WorkflowEvent } from '../../events/schemas.js';
  *
  * NOTE: we deliberately cast — the reducer's unit tests do NOT run events
  * through `WorkflowEventBase.parse`, so an event whose `type` isn't yet
- * registered in `event-store/schemas.ts` (e.g. `merge.completed`,
+ * registered in `events/schemas.ts` (e.g. `merge.completed`,
  * `merge.requested` in preview.2) can still be folded for unit coverage.
  */
 function makeEvent<T extends Record<string, unknown>>(

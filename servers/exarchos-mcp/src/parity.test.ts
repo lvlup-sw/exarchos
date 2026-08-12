@@ -2,8 +2,8 @@
 //
 // Closes the second half of the #1109 verification checklist: identical
 // event log → identical ToolResult envelope from CLI invocation and MCP
-// invocation. The existing per-tool parity suites (`views/parity.test.ts`,
-// `workflow/parity.test.ts`, `event-store/parity.test.ts`) cover empty
+// invocation. The existing per-tool parity suites (`projections/views/parity.test.ts`,
+// `workflow/parity.test.ts`, `events/parity.test.ts`) cover empty
 // or trivial state. The C9 tests here drive the assertion through the
 // concrete bug-cluster shapes: a duplicate-task.completed event log for
 // `workflow_status` (the C4 dedup target), and a no-handoff invocation

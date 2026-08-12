@@ -17,7 +17,7 @@ export const PIPELINE_VIEW = 'pipeline';
  * materializer lookup, `BUILTIN_VIEW_NAMES`, telemetry, and benchmarks are all
  * keyed on it and MUST NOT move. Only the persisted snapshot FILENAME is
  * versioned, via the SnapshotStore namespace map wired at the registration seam
- * (`views/tools.ts`), so new servers read/write `<streamId>.pipeline-v2.snapshot.json`
+ * (`projections/views/tools.ts`), so new servers read/write `<streamId>.pipeline-v2.snapshot.json`
  * and simply ignore pre-upgrade `<streamId>.pipeline.snapshot.json` files — the
  * stream re-folds once and picks up `repoRoot`. This deliberately avoids
  * bumping `EVENT_SCHEMA_VERSION` (which drives event-migration, not view

@@ -395,7 +395,7 @@ export function runForbiddenEdgeCensus(
  */
 export const FORBIDDEN_RUNTIME_EDGES: readonly ForbiddenEdgeRule[] = Object.freeze([
   {
-    from: 'src/views/workflow-state-projection.ts',
+    from: 'src/projections/views/workflow-state-projection.ts',
     to: 'src/workflow/state-store.ts',
     reason:
       'The store value-imports the projection (folds events through its apply), so a ' +

@@ -23,7 +23,7 @@
 // `core/dispatch.ts` is a separate concern (a startup-time wiring container
 // for storage / capability resolver / etc.); this module's value is the
 // per-call correlation packet that gets carried forward through the
-// AsyncLocalStorage stamping path inside `event-store/store.ts`.
+// AsyncLocalStorage stamping path inside `events/store.ts`.
 //
 // Threading strategy: rather than re-typing 98 `eventStore.append` callsites
 // to take an explicit `DispatchContext` argument (a refactor that would

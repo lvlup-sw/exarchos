@@ -507,7 +507,7 @@ async function loadCompositeHandler(tool: string): Promise<CompositeHandler | un
 // action descriptor (`economy` block, `registry.ts`) and ENFORCED at the shared
 // dispatch core, so both facades (CLI + MCP) inherit the cap by construction
 // (INV-2). The seam (`enforceResponseEconomy`) runs post-handler, immediately
-// BEFORE the telemetry middleware's `injectPerf` (`telemetry/middleware.ts`) —
+// BEFORE the telemetry middleware's `injectPerf` (`projections/telemetry/middleware.ts`) —
 // the same seam that already measures response bytes/tokens — so the cap and the
 // reported `_perf` size agree by construction: the middleware measures the value
 // the seam returns.

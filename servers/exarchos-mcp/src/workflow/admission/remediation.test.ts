@@ -224,7 +224,7 @@ describe('remediation is data, never a mutation', () => {
     ].join('\n');
     const verdict = auditRemediationPurity('tainted.ts', tainted);
     expect(verdict.ok).toBe(false);
-    expect(verdict.forbidden.map((f) => f.marker)).toContain('event-store');
+    expect(verdict.forbidden.map((f) => f.marker)).toContain('events/');
   });
 
   it('Structural_Census_IgnoresErasedTypeOnlyImports_ButCatchesValueImports', () => {

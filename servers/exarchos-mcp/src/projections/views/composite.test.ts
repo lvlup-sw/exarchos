@@ -959,7 +959,7 @@ describe('handleView', () => {
 
 // ─── DR-7 (Task 018) — launcher-session liveness answered from launch.* events ─
 //
-// The `ps` view action routes through `views/composite.ts` to the real WLM
+// The `ps` view action routes through `projections/views/composite.ts` to the real WLM
 // worktree handler (only the `tools.js` / `stack` / `telemetry` modules are
 // mocked at the top of this file). This pins the DR-7 contract at the composite
 // surface: a launcher-spawned session's liveness is answered from the

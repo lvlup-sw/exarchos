@@ -149,7 +149,7 @@ describe('DR-12 kill — widened census sees merge and branch-create', () => {
         const b = z.enum(['merge', 'idle']).optional();
       `,
       // event-store/liveness-registry.ts — surface union + object field.
-      'event-store/liveness-registry.ts': `
+      'events/liveness-registry.ts': `
         export type LivenessSurface = 'merge' | 'launch' | 'mutation' | 'prune';
         const entry = { surface: 'merge', ttlMs: 1000 };
       `,
@@ -167,7 +167,7 @@ describe('DR-12 kill — widened census sees merge and branch-create', () => {
         switch (strategy) { case 'merge': return 'noFastForward'; }
       `,
       // views/lifecycle/wait.ts — nested quotes inside a double-quoted string.
-      'views/lifecycle/wait.ts': `
+      'projections/views/lifecycle/wait.ts': `
         const shape = { expectedShape: { until: "'merge' | 'idle'" } };
         const fix = { params: { action: 'wait', until: 'merge' } };
       `,
@@ -195,7 +195,7 @@ describe('DR-12 kill — widened census sees merge and branch-create', () => {
         const c = gitExec(repoRoot, ['checkout', baseRef, '--', ...basePaths]);
       `,
       // Index access / extractor call shapes.
-      'views/tools.ts': `
+      'projections/views/tools.ts': `
         const x = typeof e['branch'] === 'string' ? { branch: e['branch'] as string } : {};
         const y = extractString(event.data, 'branch');
       `,

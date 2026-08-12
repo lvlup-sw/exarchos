@@ -411,7 +411,7 @@ describe('HandleOrchestrate_PrepareDelegation_StampsRiskTierBoundaryAndVerificat
           // (a) high tier via a high-risk schema glob — NOT a boundary glob and
           // NOT a boundary testLayer, so this cleanly exercises the pure-high
           // base sequence (riskTier and boundaryTouching are orthogonal axes).
-          { id: 't-high', title: 'edit schema', files: ['src/event-store/schemas.ts'] },
+          { id: 't-high', title: 'edit schema', files: ['src/events/schemas.ts'] },
           // (a2) high tier via testLayer 'acceptance'. Per the boundary policy,
           // the acceptance layer ALSO marks the task boundary-touching, so its
           // sequence is base-high + contract_drift + mock_boundary.
@@ -607,7 +607,7 @@ describe('HandleOrchestrate_PrepareDelegation_PersistsWorkflowRiskTier (DR-2)', 
         nativeIsolation: true,
         tasks: [
           // high via the **/*schema* glob; medium default — max-of-tiers ⇒ high.
-          { id: 't-high', title: 'edit schema', files: ['src/event-store/schemas.ts'] },
+          { id: 't-high', title: 'edit schema', files: ['src/events/schemas.ts'] },
           { id: 't-medium', title: 'Add validation logic', files: ['src/validate.ts'] },
         ],
       },

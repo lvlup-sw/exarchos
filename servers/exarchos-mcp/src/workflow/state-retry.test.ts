@@ -34,7 +34,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 // source level (DR-2's "grep gate or test").
 describe('DR-2 retry contract — plain append surface is not retry-wrapped', () => {
   it('EventAppendHandlers_NotWrappedInWithStateRetry', () => {
-    for (const rel of ['../event-store/tools.ts', '../event-store/store.ts']) {
+    for (const rel of ['../events/tools.ts', '../events/store.ts']) {
       const src = readFileSync(path.join(here, rel), 'utf8');
       expect(src).not.toContain('withStateRetry');
     }

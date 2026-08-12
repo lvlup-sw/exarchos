@@ -16,7 +16,7 @@
  *
  * This module is the rung-3 half. It enumerates the live registry, partitions it by derived
  * coupling, and lays a shrink-only membership ratchet over the measurement. It reuses the existing
- * instrument rather than adding one: the population comes from `event-store/event-annotations.ts`'s
+ * instrument rather than adding one: the population comes from `events/event-annotations.ts`'s
  * `reportCoupledEventTypes` (task 010), the disagreement tooth from the same module's
  * `tierSourceDisagreements`, and the audit vocabulary and three-teeth shape from
  * `architecture/output-schema-census.ts` (G2, DR-4) — `EMPTY_CENSUS` / `UNTRUSTWORTHY_CENSUS` /
@@ -165,7 +165,7 @@ export function censusReportCoupling(
         message:
           `'${eventType}' is a registered event type with no DR-2 annotation, so its coupling ` +
           'cannot be derived and the census cannot prove it is not report-coupled. Annotate it in ' +
-          'event-store/event-annotations.ts with a tier and a lifecycle.',
+          'events/event-annotations.ts with a tier and a lifecycle.',
       });
       continue;
     }
@@ -229,7 +229,7 @@ export function censusReportCoupling(
       message:
         'The report-coupling census enumerated ZERO registrations. A census with an empty ' +
         'denominator proves nothing and MUST fail rather than report clean. Check that ' +
-        'event-store/schemas.ts still resolves and still exports a non-empty EventTypes.',
+        'events/schemas.ts still resolves and still exports a non-empty EventTypes.',
     });
   }
 

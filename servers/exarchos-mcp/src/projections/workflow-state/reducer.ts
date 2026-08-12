@@ -2,7 +2,7 @@
  * `workflow-state@v1` canonical reducer — Wave 3 / #1554 (DR-1).
  *
  * Promotes the existing {@link workflowStateProjection} (a `ViewProjection`
- * living in `views/workflow-state-projection.ts`, already the materializer's
+ * living in `projections/views/workflow-state-projection.ts`, already the materializer's
  * workflow-state fold) to a registered {@link ProjectionReducer}. This is the
  * **single canonical left-fold** that derives a feature's `WorkflowStateView`
  * from its event stream (INV-1: one left-fold). Every reader — `resolveWorkflowState`,

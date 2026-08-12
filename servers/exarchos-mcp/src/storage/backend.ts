@@ -183,7 +183,7 @@ export interface StorageBackend {
 
   /**
    * Change token consumed by the Tier-2 cross-process poll floor
-   * (`event-store/subscriptions.ts`). The floor loop re-reads this on every
+   * (`events/subscriptions.ts`). The floor loop re-reads this on every
    * tick and drains its cursor ONLY when the value changed since the last
    * read — so a foreign writer's commit is delivered without re-scanning the
    * event log every tick.

@@ -339,22 +339,28 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
   allowance('hooks', ['config'], 'Hook wiring reads only config; hooks are an advisory side-channel.'),
   allowance('runbooks', ['adapters'], 'Runbooks render only through the adapters IO facade.'),
   allowance(
-    'task-store',
-    ['event-store', 'sdk'],
-    'The task store persists only via the event store. The `sdk` edge is DR-0 / ' +
-      'task 051: `task-store/attach.ts` describes how a store binds to each SDK ' +
-      'generation, so it names `SdkGeneration` — and that vocabulary has ONE ' +
-      'authority (`sdk/brand.ts`, which itself imports nothing). Re-declaring the ' +
-      'generation union locally to dodge this edge would install the second ' +
-      'authority the brand exists to prevent. `task-store/port.ts` deliberately ' +
-      'keeps ZERO imports, so the SDK-facing surface is confined to `attach.ts`.',
+    'projections',
+    [
+      'adapters', 'architecture', 'capabilities', 'config', 'core', 'describe',
+      'dispatch', 'events', 'orchestrate', 'schemas', 'sdk', 'stack', 'storage',
+      'utils', 'workflow',
+    ],
+    'The WIDEST allowance in this table, and deliberately so: task 012 folded ' +
+      'views/, telemetry/, quality/, session/ and task-store/ into projections/, so this ' +
+      'layer now carries the UNION of five directories\' import surfaces. Every edge here ' +
+      'existed before the fold — `views/` has always called into orchestrate and workflow — ' +
+      'but each was invisible to this census while the five had separate layer names and ' +
+      'their couplings read as ordinary cross-layer traffic. Phase 1 is a pure move with ' +
+      'zero semantic edits, so the surface is RECORDED here rather than narrowed. That the ' +
+      'read side reaches the verb layer at all is the finding; acting on it is separate work, ' +
+      'and this row is what keeps it measurable in the meantime.',
   ),
-  allowance('stack', ['event-store', 'views'], 'Stack renders event-store state through views.'),
+  allowance('stack', ['events', 'projections'], 'Stack renders event state through the projections layer.'),
   allowance(
     'cli',
-    ['event-store', 'ndjson', 'sdk', 'task-store'],
-    'CLI surface reads event-store state and frames it as NDJSON. The `sdk` and ' +
-      '`task-store` edges are DR-26 / task 053: `cli/follow-loop.ts` and ' +
+    ['events', 'ndjson', 'sdk', 'projections'],
+    'CLI surface reads event state and frames it as NDJSON. The `sdk` and ' +
+      '`projections` edges are DR-26 / task 053: `cli/follow-loop.ts` and ' +
       '`cli/follow-formatter.ts` render the protocol `Task` payload and ask whether ' +
       'a status is terminal. Both used to reach `@modelcontextprotocol/sdk` DIRECTLY, ' +
       'so the coupling is not new — it was invisible to this census, which resolves ' +
@@ -365,8 +371,8 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
   ),
   allowance(
     'workspace',
-    ['capabilities', 'event-store', 'storage'],
-    'Workspace resolves capabilities and persists via event-store/storage.',
+    ['capabilities', 'events', 'storage'],
+    'Workspace resolves capabilities and persists via events/storage.',
   ),
   allowance(
     'agents',
@@ -778,7 +784,7 @@ export const DECLARATION_SEAM: DeclarationSeamRule = Object.freeze({
         'is exactly why a declaration consumer must not read it directly.',
     ),
     storageSite(
-      'event-store/schemas.ts',
+      'events/schemas.ts',
       'EVENT_EMISSION_REGISTRY',
       'Holds the EVENT declarations: the emission source of every registered event type, and ' +
         'the store `registerEventType` writes through (DR-1 task 008 lifts it into the envelope).',
@@ -790,10 +796,10 @@ export const DECLARATION_SEAM: DeclarationSeamRule = Object.freeze({
   // decay into cover for a violation.
   sourceAdapters: Object.freeze([
     {
-      module: 'event-store/event-declarations.ts',
+      module: 'events/event-declarations.ts',
       note:
         'DR-1 task 008 — the EVENT declaration lift. Reads `EventTypes` + `EVENT_EMISSION_REGISTRY` ' +
-        'out of `event-store/schemas.ts` and projects them into `Declaration<\'event\', …>`, which is ' +
+        'out of `events/schemas.ts` and projects them into `Declaration<\'event\', …>`, which is ' +
         'the one job that necessarily names both sides of the seam. The exemption is narrow: this ' +
         'module exports no store handle and no write path, so consumers reach the catalog through ' +
         '`openEventDeclarationSeam` and never acquire a storage import of their own. #1258 replaces ' +

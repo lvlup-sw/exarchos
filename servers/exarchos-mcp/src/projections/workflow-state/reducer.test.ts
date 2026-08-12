@@ -125,7 +125,7 @@ describe('projection registry — domain singularity (#1554-1)', () => {
 
 describe('workflow-state@v1 exhaustiveness (#1554-2)', () => {
   // Compile-time exhaustiveness is enforced by the `never`-assignment `default`
-  // in the canonical fold (`views/workflow-state-projection.ts`): adding an
+  // in the canonical fold (`projections/views/workflow-state-projection.ts`): adding an
   // `EventTypes` entry without a case is a `npm run typecheck` error. These
   // tests are the EXECUTABLE companion — they prove the explicit no-op set
   // stays complete at runtime (the throwing default never fires for a built-in).

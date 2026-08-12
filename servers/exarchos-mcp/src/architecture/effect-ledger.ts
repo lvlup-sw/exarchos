@@ -968,7 +968,7 @@ function registerLedger(): readonly EffectOwnershipRule[] {
     rule('filesystem', 'index.ts', 'server-entry-fs', 'startup read-only', 'none'),
     rule(
       'filesystem',
-      'artifacts/',
+      'storage/artifacts/',
       'artifact-store-fs',
       'content-addressed: idempotent by digest',
       'orphan artifacts are GC-swept; no compensation needed',
@@ -982,7 +982,7 @@ function registerLedger(): readonly EffectOwnershipRule[] {
     ),
     rule(
       'filesystem',
-      'event-store/',
+      'events/',
       'event-store-fs',
       'append-only; sequence-guarded idempotency',
       'atomic append; a failed append leaves the log unchanged',
@@ -1017,7 +1017,7 @@ function registerLedger(): readonly EffectOwnershipRule[] {
     ),
     rule(
       'filesystem',
-      'session/',
+      'projections/session/',
       'session-fs',
       'session state writes; idempotent by session id',
       'session teardown removes state',
@@ -1031,7 +1031,7 @@ function registerLedger(): readonly EffectOwnershipRule[] {
     ),
     rule(
       'filesystem',
-      'views/',
+      'projections/views/',
       'view-fs',
       'read-only derived views; idempotent',
       'none: views are derived',
@@ -1043,7 +1043,7 @@ function registerLedger(): readonly EffectOwnershipRule[] {
     rule('filesystem', 'agents/', 'agents-fs', 'agent definition reads; read-only', 'none'),
     rule('filesystem', 'sync/', 'sync-fs', 'outbox writes; idempotent by op id', 'outbox reconciliation'),
     rule('filesystem', 'runtime/', 'runtime-fs', 'runtime resource reads; read-only', 'none'),
-    rule('filesystem', 'telemetry/', 'telemetry-fs', 'append-only telemetry; best-effort', 'none: telemetry is advisory'),
+    rule('filesystem', 'projections/telemetry/', 'telemetry-fs', 'append-only telemetry; best-effort', 'none: telemetry is advisory'),
     rule('filesystem', 'topology/', 'topology-fs', 'topology reads; read-only', 'none'),
     rule('filesystem', 'cli-commands/', 'cli-fs', 'worktree reads/writes; per-command', 'none: read-mostly'),
     rule('filesystem', 'adapters/', 'adapters-fs', 'adapter io; caller owns idempotency', 'caller-owned'),

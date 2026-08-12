@@ -2,7 +2,7 @@
 //
 // The shared dot-path mutation + plain-object helpers and the `StateStoreError`
 // type, extracted here (DR-4, debloat task 009) to break the runtime import
-// cycle between `state-store.ts` and `views/workflow-state-projection.ts`. Both
+// cycle between `state-store.ts` and `projections/views/workflow-state-projection.ts`. Both
 // sides previously reached into `state-store.ts` for these primitives while
 // `state-store.ts` imported the projection's `apply` — a genuine mutual
 // runtime cycle (dependency-cruiser SCC).

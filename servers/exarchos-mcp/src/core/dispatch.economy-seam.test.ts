@@ -9,7 +9,7 @@ import {
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const DISPATCH_PATH = path.join(here, 'dispatch.ts');
-const MIDDLEWARE_PATH = path.join(here, '..', 'telemetry', 'middleware.ts');
+const MIDDLEWARE_PATH = path.join(here, '..', 'projections', 'telemetry', 'middleware.ts');
 
 describe('economy-seam no-bypass gate (INV-17 Axis-2)', () => {
   // The live proof: every result-producing branch of the real dispatch() and
