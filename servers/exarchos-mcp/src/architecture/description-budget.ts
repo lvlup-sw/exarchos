@@ -18,8 +18,20 @@
  * wrapper (`description-budget-cli.ts`) and the co-located vitest both call —
  * single source of truth for the budgets and the estimate.
  */
-import { TOOL_REGISTRY, buildToolDescription } from '../registry.js';
 import type { CompositeTool } from '../registry.js';
+
+/**
+ * How a composite tool's full description is rendered.
+ *
+ * The registry's own `buildToolDescription` is what this measures in practice,
+ * but it arrives as a port rather than an import: this module is conformance
+ * code and must not reach into the tree it inspects. The composition root binds
+ * the real builder.
+ */
+export type ToolDescriptionBuilder = (
+  tool: CompositeTool,
+  slim: boolean,
+) => string;
 
 /**
  * What a single audited description is. Each composite tool contributes
@@ -116,7 +128,10 @@ export function estimateTokens(text: string): number {
 }
 
 /** Measure every description a single composite tool contributes. */
-function measureTool(tool: CompositeTool): DescriptionEntry[] {
+function measureTool(
+  tool: CompositeTool,
+  buildToolDescription: ToolDescriptionBuilder,
+): DescriptionEntry[] {
   const out: DescriptionEntry[] = [];
 
   const push = (kind: DescriptionKind, name: string, text: string): void => {
@@ -147,15 +162,16 @@ function measureTool(tool: CompositeTool): DescriptionEntry[] {
 /**
  * Audit a set of composite tools against {@link DESCRIPTION_BUDGETS}.
  *
- * Defaults to the live {@link TOOL_REGISTRY}; the `tools` parameter is the
- * seam the co-located test uses to plant an over-budget description without
- * mutating the real registry.
+ * The `tools` parameter is the seam the co-located test uses to plant an
+ * over-budget description without mutating the real registry; the composition
+ * root supplies the live registry and its description builder.
  */
 export function auditDescriptionBudgets(
-  tools: readonly CompositeTool[] = TOOL_REGISTRY,
+  tools: readonly CompositeTool[],
+  buildToolDescription: ToolDescriptionBuilder,
 ): BudgetReport {
   const entries = tools
-    .flatMap(measureTool)
+    .flatMap((tool) => measureTool(tool, buildToolDescription))
     .sort((a, b) => b.tokens - a.tokens);
   const offenders = entries.filter((e) => e.overBudget);
   return { entries, offenders, pass: offenders.length === 0 };

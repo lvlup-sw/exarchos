@@ -85,8 +85,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { ClosureDiagnostic, HopStatus } from '../contract/reachability/graph.js';
+import { BOUNDARY_DERIVATIONS } from './bindings/index.js';
 import {
-  BOUNDARY_DERIVATIONS,
   CONTRACT_BOUNDARIES,
   ENFORCEMENT_WAVES,
   checkTopologyTotality,

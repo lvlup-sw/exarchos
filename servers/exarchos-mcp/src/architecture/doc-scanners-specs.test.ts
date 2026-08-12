@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 import { datedRecordTrees } from './vocabulary-lint.js';
-import { ARTIFACT_DIRS } from './bindings.js';
+import { ARTIFACT_DIRS } from './bindings/index.js';
 import { handleVerifyDocLinks } from '../verbs/gates/verify-doc-links.js';
 import { getPlaybook } from '../workflow/playbooks.js';
 

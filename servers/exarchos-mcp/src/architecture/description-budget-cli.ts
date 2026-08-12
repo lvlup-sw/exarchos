@@ -12,9 +12,10 @@
  * piped consumer can otherwise truncate the report). Mirrors
  * `vocabulary-lint-cli.ts`.
  */
-import { auditDescriptionBudgets, formatBudgetReport } from './description-budget.js';
+import { formatBudgetReport } from './description-budget.js';
+import { auditLiveDescriptionBudgets } from './bindings/index.js';
 
-const report = auditDescriptionBudgets();
+const report = auditLiveDescriptionBudgets();
 
 process.stdout.write(`${formatBudgetReport(report)}\n`);
 

@@ -19,7 +19,6 @@ import { DECLARATION_KINDS } from '../contract/declaration.js';
 import { scanGovernedSources } from '../../scripts/cli-derivation-guard.js';
 import {
   AUTHORITY_TOPOLOGY,
-  BOUNDARY_DERIVATIONS,
   CONTRACT_BOUNDARIES,
   DECLARATION_KIND_BOUNDARIES,
   SDK_GENERATION_REPRESENTATIONS,
@@ -29,6 +28,7 @@ import {
   topologyRows,
   unboundRepresentations,
 } from './authority-topology.js';
+import { BOUNDARY_DERIVATIONS } from './bindings/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PACKAGE_JSON = path.resolve(__dirname, '../../package.json');
@@ -107,7 +107,7 @@ describe('authority topology — required properties', () => {
     }
 
     // The live table is well-formed end to end.
-    expect(codesOf(checkTopologyTotality())).toEqual([]);
+    expect(codesOf(checkTopologyTotality(topologyRows(), BOUNDARY_DERIVATIONS))).toEqual([]);
   });
 
   it('AuthorityTopology_RowWithoutEnforceFrom_FailsTotality', () => {
@@ -159,7 +159,7 @@ describe('authority topology — derived boundaries', () => {
     // omitted outright. Drop it and the bridge must notice — otherwise a
     // boundary can go missing and take its unbound representations with it.
     const withoutSdk = topologyRows().filter((row) => row.boundary !== 'sdk-generation');
-    const report = checkTopologyTotality(withoutSdk);
+    const report = checkTopologyTotality(withoutSdk, BOUNDARY_DERIVATIONS);
 
     expect(report.ok).toBe(false);
     expect(codesOf(report)).toContain('MISSING_DERIVED_BOUNDARY');
@@ -170,7 +170,7 @@ describe('authority topology — derived boundaries', () => {
     // Same tooth, on the other bridge: the cli-surface row is required by the
     // `cli-verb` declaration kind.
     const withoutCli = topologyRows().filter((row) => row.boundary !== 'cli-surface');
-    const report = checkTopologyTotality(withoutCli);
+    const report = checkTopologyTotality(withoutCli, BOUNDARY_DERIVATIONS);
 
     expect(codesOf(report)).toContain('MISSING_DERIVED_BOUNDARY');
     expect(report.diagnostics.some((d) => d.subject === 'cli-surface')).toBe(true);

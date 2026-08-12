@@ -7,7 +7,8 @@ import {
   DESCRIPTION_BUDGETS,
   ACTION_BUDGET_RATCHET_TARGET,
 } from './description-budget.js';
-import { TOOL_REGISTRY } from '../registry.js';
+import { TOOL_REGISTRY, buildToolDescription } from '../registry.js';
+import { auditLiveDescriptionBudgets } from './bindings/index.js';
 import type { CompositeTool, ToolAction } from '../registry.js';
 
 /**
@@ -60,7 +61,7 @@ describe('auditDescriptionBudgets — planted over-budget descriptions', () => {
       actions: [makeAction('bloated', 'z'.repeat(overBy))],
     });
 
-    const report = auditDescriptionBudgets([tool]);
+    const report = auditDescriptionBudgets([tool], buildToolDescription);
 
     expect(report.pass).toBe(false);
     expect(report.offenders).toHaveLength(1);
@@ -79,7 +80,7 @@ describe('auditDescriptionBudgets — planted over-budget descriptions', () => {
       slimDescription: 'z'.repeat(overBy),
     });
 
-    const report = auditDescriptionBudgets([tool]);
+    const report = auditDescriptionBudgets([tool], buildToolDescription);
 
     expect(report.pass).toBe(false);
     expect(report.offenders.some((e) => e.kind === 'tool.slim')).toBe(true);
@@ -92,7 +93,7 @@ describe('auditDescriptionBudgets — planted over-budget descriptions', () => {
       description: 'z'.repeat(overBy),
     });
 
-    const report = auditDescriptionBudgets([tool]);
+    const report = auditDescriptionBudgets([tool], buildToolDescription);
 
     expect(report.pass).toBe(false);
     expect(report.offenders.some((e) => e.kind === 'tool.base')).toBe(true);
@@ -107,7 +108,7 @@ describe('auditDescriptionBudgets — planted over-budget descriptions', () => {
     );
     const tool = makeTool({ name: 'exarchos_wide', actions });
 
-    const report = auditDescriptionBudgets([tool]);
+    const report = auditDescriptionBudgets([tool], buildToolDescription);
 
     const full = report.entries.find((e) => e.kind === 'tool.full');
     expect(full).toBeDefined();
@@ -119,7 +120,7 @@ describe('auditDescriptionBudgets — planted over-budget descriptions', () => {
 
 describe('auditDescriptionBudgets — live registry surface', () => {
   it('PASSES on the current TOOL_REGISTRY (budgets are green today)', () => {
-    const report = auditDescriptionBudgets();
+    const report = auditLiveDescriptionBudgets();
     // If this fails, a description grew past its budget — read the report and
     // either trim the description or move the budget in DESCRIPTION_BUDGETS
     // with rationale. Never silently raise it.
@@ -128,7 +129,7 @@ describe('auditDescriptionBudgets — live registry surface', () => {
   });
 
   it('measures every enforced kind against the live surface', () => {
-    const report = auditDescriptionBudgets();
+    const report = auditLiveDescriptionBudgets();
     const kinds = new Set(report.entries.map((e) => e.kind));
     expect(kinds.has('action')).toBe(true);
     expect(kinds.has('tool.base')).toBe(true);
@@ -155,7 +156,7 @@ describe('formatBudgetReport', () => {
       name: 'exarchos_planted',
       actions: [makeAction('bloated', 'z'.repeat(overBy))],
     });
-    const text = formatBudgetReport(auditDescriptionBudgets([tool]));
+    const text = formatBudgetReport(auditDescriptionBudgets([tool], buildToolDescription));
     expect(text).toContain('OVER budget');
     expect(text).toContain('exarchos_planted.bloated');
     expect(text).toContain(String(ACTION_BUDGET_RATCHET_TARGET));
@@ -167,7 +168,7 @@ describe('formatBudgetReport', () => {
       slimDescription: 'short',
       actions: [makeAction('ok', 'a concise action description')],
     });
-    const text = formatBudgetReport(auditDescriptionBudgets([tool]));
+    const text = formatBudgetReport(auditDescriptionBudgets([tool], buildToolDescription));
     expect(text).toContain('within budget (clean)');
   });
 });

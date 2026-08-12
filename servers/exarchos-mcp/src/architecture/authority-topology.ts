@@ -82,11 +82,10 @@
 // The annotation form yields the same literal element types.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import {
-  DECLARATION_KINDS,
-  type AuthorityId,
-  type DeclarationKind,
-  type RepresentationId,
+import type {
+  AuthorityId,
+  DeclarationKind,
+  RepresentationId,
 } from '../contract/declaration.js';
 import type { SdkGeneration } from './sdk-generation-seam.js';
 
@@ -318,13 +317,24 @@ const DECLARATION_KIND_REQUIRED: readonly ContractBoundaryId[] = Object.freeze(
 /** The boundary the SDK-generation bridge requires. */
 const SDK_GENERATION_REQUIRED: readonly ContractBoundaryId[] = Object.freeze(['sdk-generation']);
 
-/** Every declared derivation bridge. */
-export const BOUNDARY_DERIVATIONS: readonly BoundaryDerivation[] = Object.freeze([
+/**
+ * Every declared derivation bridge.
+ *
+ * The declaration kinds arrive as a parameter rather than as an import: this
+ * module is conformance code and must not reach into the tree it inspects, so
+ * the composition root supplies the real `DECLARATION_KINDS`. Reading the local
+ * {@link DECLARATION_KIND_BOUNDARIES} keys instead would make the bridge
+ * self-referential — the census would be asserting the table covers itself.
+ */
+export function boundaryDerivations(
+  declarationKinds: readonly DeclarationKind[],
+): readonly BoundaryDerivation[] {
+  return Object.freeze([
   Object.freeze({
     id: 'declaration-kinds',
     sourceModule: 'contract/declaration.ts',
     domain: 'DECLARATION_KINDS / DeclarationKind',
-    members: DECLARATION_KINDS,
+    members: declarationKinds,
     requires: DECLARATION_KIND_REQUIRED,
     note:
       'Every declaration kind DR-1 unifies crosses a contract boundary, so the kind union ' +
@@ -342,7 +352,8 @@ export const BOUNDARY_DERIVATIONS: readonly BoundaryDerivation[] = Object.freeze
       'protocol authority contested. The row it requires is the one an earlier revision ' +
       'of this table omitted outright.',
   }),
-]);
+  ]);
+}
 
 // ─── Helpers for the row table ───────────────────────────────────────────────
 
@@ -851,13 +862,20 @@ function impliedAuthorityKind(count: number): BoundaryAuthority['kind'] {
  * — so whether the copies agree never enters this computation. Only the count
  * does.
  *
+ * Both parameters are required. `derivations` cannot default to the live bridge
+ * table any more — that table now needs the upstream declaration kinds, which
+ * only the composition root can supply — and defaulting `rows` alone while its
+ * neighbour is required is not expressible. Making both explicit is the better
+ * shape regardless: a census whose denominator arrives by default is one edit
+ * away from silently ranging over nothing.
+ *
  * @param rows - the rows to check. `unknown[]` so a row missing `enforceFrom`
  *   (unrepresentable in typed code) can still be fed in from a store or fixture.
  * @param derivations - the bridges whose required boundaries must be covered.
  */
 export function checkTopologyTotality(
-  rows: readonly unknown[] = topologyRows(),
-  derivations: readonly BoundaryDerivation[] = BOUNDARY_DERIVATIONS,
+  rows: readonly unknown[],
+  derivations: readonly BoundaryDerivation[],
 ): TotalityReport {
   const diagnostics: TotalityDiagnostic[] = [];
 
