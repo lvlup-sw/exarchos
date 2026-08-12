@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1145,
-    "parsedFiles": 1100,
+    "testFiles": 1146,
+    "parsedFiles": 1101,
     "shellFiles": 45,
-    "cases": 12661,
+    "cases": 12671,
     "dynamicTitles": 130,
     "unparseableFiles": 0
   },
@@ -69476,6 +69476,62 @@
         {
           "suite": "DeadCodeAllowlist_BareEntry_IsRejected",
           "name": "an entry with neither expiry nor permanent is rejected",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/depcruise-rule-liveness.test.ts": {
+      "file": "tests/architecture/depcruise-rule-liveness.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "DepcruiseRule_AfterRetarget_MatchesNonEmptyModuleSet",
+          "name": "the rule still exists and is error severity",
+          "dynamic": false
+        },
+        {
+          "suite": "DepcruiseRule_AfterRetarget_MatchesNonEmptyModuleSet",
+          "name": "the scan itself is not vacuous",
+          "dynamic": false
+        },
+        {
+          "suite": "DepcruiseRule_AfterRetarget_MatchesNonEmptyModuleSet",
+          "name": "the `from` side matches a NON-EMPTY set of live modules",
+          "dynamic": false
+        },
+        {
+          "suite": "DepcruiseRule_AfterRetarget_MatchesNonEmptyModuleSet",
+          "name": "the `to` side matches a NON-EMPTY set of live modules",
+          "dynamic": false
+        },
+        {
+          "suite": "DepcruiseRule_AfterRetarget_MatchesNonEmptyModuleSet",
+          "name": "every directory the `from` alternation names actually exists",
+          "dynamic": false
+        },
+        {
+          "suite": "DepcruiseRule_AfterRetarget_MatchesNonEmptyModuleSet",
+          "name": "the `pathNot` exclusion still excludes something",
+          "dynamic": false
+        },
+        {
+          "suite": "DepcruiseRule_SeededViolation_StillFails",
+          "name": "a seeded core → adapters edge is caught",
+          "dynamic": false
+        },
+        {
+          "suite": "DepcruiseRule_SeededViolation_StillFails",
+          "name": "a test file in the core is exempt, per pathNot",
+          "dynamic": false
+        },
+        {
+          "suite": "DepcruiseRule_SeededViolation_StillFails",
+          "name": "an edge that leaves the governed set is NOT caught",
+          "dynamic": false
+        },
+        {
+          "suite": "DepcruiseRule_SeededViolation_StillFails",
+          "name": "the rule is the one static analysis actually runs",
           "dynamic": false
         }
       ]
