@@ -123,7 +123,7 @@ describe('Dispatch-seam containment census', () => {
   // its old direct path is no longer authorized by anything.
   it('PlantedUnauthorizedDispatchSite_FailsCensus', () => {
     const diagnostics = runDispatchSeamCensus([
-      { module: 'adapters/mcp.ts' },
+      { module: 'adapters/mcp/mcp.ts' },
       { module: 'contract/cli/generated-client.ts' },
       { module: 'cli-commands/rogue-direct-dispatch.ts' },
     ]);
@@ -140,12 +140,12 @@ describe('Dispatch-seam containment census', () => {
   // deviation must not quietly come back.
   it('RegressedCliAdapterDispatchImport_FailsCensus', () => {
     const diagnostics = runDispatchSeamCensus([
-      { module: 'adapters/mcp.ts' },
+      { module: 'adapters/mcp/mcp.ts' },
       { module: 'contract/cli/generated-client.ts' },
-      { module: 'adapters/cli.ts' },
+      { module: 'adapters/cli/cli.ts' },
     ]);
     expect(diagnostics).toContainEqual(
-      expect.objectContaining({ code: 'UNAUTHORIZED_DISPATCH_SITE', module: 'adapters/cli.ts' }),
+      expect.objectContaining({ code: 'UNAUTHORIZED_DISPATCH_SITE', module: 'adapters/cli/cli.ts' }),
     );
   });
 
@@ -154,7 +154,7 @@ describe('Dispatch-seam containment census', () => {
   it('StaleProjection_FailsCensus', () => {
     const diagnostics = runDispatchSeamCensus([{ module: 'contract/cli/generated-client.ts' }]);
     expect(
-      diagnostics.some((d) => d.code === 'STALE_DISPATCH_PROJECTION' && d.module === 'adapters/mcp.ts'),
+      diagnostics.some((d) => d.code === 'STALE_DISPATCH_PROJECTION' && d.module === 'adapters/mcp/mcp.ts'),
     ).toBe(true);
   });
 });

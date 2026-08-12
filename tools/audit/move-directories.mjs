@@ -27,14 +27,70 @@ const APPLY = process.argv.includes('--apply');
 // Task 017 — L7 lifecycle verbs. (Task 012's table, kept for reference:
 // artifacts->storage/artifacts, event-store->events, and the five
 // views/telemetry/quality/session/task-store folds into projections/.)
-const MOVES = {
-  'cli-commands': 'lifecycle',
+const MOVES = {};
+
+/**
+ * oldRelativeFilePath -> newRelativeFilePath (both relative to src/).
+ *
+ * A WITHIN-directory regroup cannot be expressed by the directory table above,
+ * which keys on the first path segment: `adapters/cli.ts` and
+ * `adapters/mcp.ts` share a segment and split to different destinations. File
+ * moves are consulted first and are exact — a path either appears here or it
+ * does not move.
+ *
+ * Task 018 — split L8 so INV-2 is a directory-level fact: the contract is the
+ * invocation surface, the CLI is a client of it. `json-schema.ts` stays at the
+ * `adapters/` root: 14+ consumers across contract/, capabilities/, describe/,
+ * projections/ and events/ read it, so filing it under either surface would
+ * manufacture a cross-surface edge where none exists today.
+ */
+const FILE_MOVES = {
+  'adapters/mcp.ts': 'adapters/mcp/mcp.ts',
+  'adapters/mcp.test.ts': 'adapters/mcp/mcp.test.ts',
+  'adapters/remote-mcp.ts': 'adapters/mcp/remote-mcp.ts',
+  'adapters/remote-mcp.test.ts': 'adapters/mcp/remote-mcp.test.ts',
+
+  'adapters/cli.ts': 'adapters/cli/cli.ts',
+  'adapters/cli.test.ts': 'adapters/cli/cli.test.ts',
+  'adapters/cli.correlation-flags.test.ts': 'adapters/cli/cli.correlation-flags.test.ts',
+  'adapters/cli-format.ts': 'adapters/cli/cli-format.ts',
+  'adapters/cli-format.test.ts': 'adapters/cli/cli-format.test.ts',
+  'adapters/cli-doctor.test.ts': 'adapters/cli/cli-doctor.test.ts',
+  'adapters/cli-doctor-adapter.test.ts': 'adapters/cli/cli-doctor-adapter.test.ts',
+  'adapters/cli-init.test.ts': 'adapters/cli/cli-init.test.ts',
+  'adapters/cli-install-skills.test.ts': 'adapters/cli/cli-install-skills.test.ts',
+  'adapters/cli-launcher.test.ts': 'adapters/cli/cli-launcher.test.ts',
+  'adapters/cli-long-running.test.ts': 'adapters/cli/cli-long-running.test.ts',
+  'adapters/cli-merge-orchestrate.test.ts': 'adapters/cli/cli-merge-orchestrate.test.ts',
+  'adapters/checkpoint-cli-flags.test.ts': 'adapters/cli/checkpoint-cli-flags.test.ts',
+  'adapters/hooks.ts': 'adapters/cli/hooks.ts',
+  'adapters/hooks.test.ts': 'adapters/cli/hooks.test.ts',
+  'adapters/schema-introspection.ts': 'adapters/cli/schema-introspection.ts',
+  'adapters/schema-introspection.test.ts': 'adapters/cli/schema-introspection.test.ts',
+  'adapters/schema-to-flags.ts': 'adapters/cli/schema-to-flags.ts',
+  'adapters/schema-to-flags.test.ts': 'adapters/cli/schema-to-flags.test.ts',
+  'adapters/schema-to-flags.parity.test.ts': 'adapters/cli/schema-to-flags.parity.test.ts',
 };
 
-/** Map an absolute path through the move table. Returns the same path if unmoved. */
+/** Map an absolute path through the move tables. Returns the same path if unmoved. */
 function mapAbs(abs) {
   const rel = path.relative(SRC, abs);
   if (rel.startsWith('..') || path.isAbsolute(rel)) return abs; // outside src/
+  const relPosix = rel.split(path.sep).join('/');
+  // Exact file moves win over the directory table: a within-directory regroup
+  // splits paths that share a first segment.
+  //
+  // Specifiers are matched extension-insensitively. Under NodeNext a `.ts`
+  // module is imported as `.js`, so a resolved specifier arrives here with an
+  // extension the table's keys never carry — an exact-only lookup silently
+  // reports every such import as unmoved, which type-checks as a missing
+  // module rather than a wrong path.
+  if (relPosix in FILE_MOVES) return path.join(SRC, FILE_MOVES[relPosix]);
+  const asTs = relPosix.replace(/\.(js|mjs|cjs)$/, '.ts');
+  if (asTs !== relPosix && asTs in FILE_MOVES) {
+    const ext = /\.(js|mjs|cjs)$/.exec(relPosix)[0];
+    return path.join(SRC, FILE_MOVES[asTs].replace(/\.ts$/, ext));
+  }
   const parts = rel.split(path.sep);
   const head = parts[0];
   if (!(head in MOVES)) return abs;
@@ -88,10 +144,16 @@ if (!APPLY) {
   process.exit(0);
 }
 
-// 1) git mv the directories FIRST so history follows the content.
+// 1) git mv FIRST so history follows the content — directories, then files.
 for (const [from, to] of Object.entries(MOVES)) {
   const dest = path.join(SRC, to);
   fs.mkdirSync(path.dirname(dest), { recursive: true });
+  execFileSync('git', ['-C', ROOT, 'mv', path.join(SRC_REL, from), path.join(SRC_REL, to)], {
+    stdio: 'inherit',
+  });
+}
+for (const [from, to] of Object.entries(FILE_MOVES)) {
+  fs.mkdirSync(path.dirname(path.join(SRC, to)), { recursive: true });
   execFileSync('git', ['-C', ROOT, 'mv', path.join(SRC_REL, from), path.join(SRC_REL, to)], {
     stdio: 'inherit',
   });
@@ -101,4 +163,7 @@ for (const [from, to] of Object.entries(MOVES)) {
 for (const [oldAbs, content] of edits) {
   fs.writeFileSync(mapAbs(oldAbs), content, 'utf8');
 }
-console.log(`applied: ${Object.keys(MOVES).length} directory moves, ${specsChanged} specifier rewrites`);
+console.log(
+  `applied: ${Object.keys(MOVES).length} directory moves, ` +
+    `${Object.keys(FILE_MOVES).length} file moves, ${specsChanged} specifier rewrites`,
+);

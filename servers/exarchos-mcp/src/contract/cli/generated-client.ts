@@ -7,7 +7,7 @@
 // only address an action the compiled contract actually contains.
 //
 // What "generated" buys here — and what the old hand-assembled call sites in
-// `adapters/cli.ts` could not: an action is addressed by its stable contract
+// `adapters/cli/cli.ts` could not: an action is addressed by its stable contract
 // `ActionId` (`<tool>.<action>`), and the id is verified against
 // `deriveCliSurface(compileForCli())` — the SAME derivation the checked-in
 // `generated/cli-surface.json` baseline and its drift guard pin — before any
@@ -19,14 +19,14 @@
 // target an action the contract does not know by construction.
 //
 // The Commander tree's SHAPE (groups, command names, flags) remains
-// presentation authored in `adapters/cli.ts`; behavior stays in the shared
+// presentation authored in `adapters/cli/cli.ts`; behavior stays in the shared
 // dispatch core. This seam owns exactly one concern: contract-verified
 // addressing of the shared handler.
 //
 // COLD-START DISCIPLINE (DR-5): the contract compiler pulls
 // `zod-to-json-schema` and the full meta-model graph — several MB the CLI's
 // static import graph deliberately excludes (see the lazy-import notes in
-// `adapters/cli.ts`). The surface is therefore compiled LAZILY on the first
+// `adapters/cli/cli.ts`). The surface is therefore compiled LAZILY on the first
 // invocation and memoized for the life of the process; importing this module
 // costs only the `core/dispatch` edge the CLI already paid before DR-25.
 // ────────────────────────────────────────────────────────────────────────────

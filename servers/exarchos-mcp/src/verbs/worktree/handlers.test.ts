@@ -26,7 +26,7 @@ import type { ProcessTableSource, ProcessRecord } from './pure/probe.js';
 import type { InFlightMerge, InFlightPrune, WorktreeEntry } from './projections/worktrees.js';
 import { emitLaunchExecutingStarted, emitLaunchExecuted } from '../../launcher/liveness.js';
 import { callCli, callMcp } from '../../__tests__/parity-harness.js';
-import { extractSchemaFields } from '../../adapters/schema-to-flags.js';
+import { extractSchemaFields } from '../../adapters/cli/schema-to-flags.js';
 import { TOOL_REGISTRY } from '../../registry.js';
 
 // ─── Deterministic injected deps ─────────────────────────────────────────────

@@ -28,7 +28,7 @@ import {
   commanderErrorToResult,
   applyExitOverrideRecursively,
   type CliExitCode,
-} from '../adapters/cli.js';
+} from '../adapters/cli/cli.js';
 
 // ─── Callers ────────────────────────────────────────────────────────────────
 

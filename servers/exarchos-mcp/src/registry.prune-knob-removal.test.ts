@@ -11,7 +11,7 @@ import { describe, it, expect } from 'vitest';
 import { Command } from 'commander';
 import { TOOL_REGISTRY, buildRegistrationSchema } from './registry.js';
 import type { ToolAction, CompositeTool } from './registry.js';
-import { addFlagsFromSchema } from './adapters/schema-to-flags.js';
+import { addFlagsFromSchema } from './adapters/cli/schema-to-flags.js';
 
 /** The real, un-mocked `exarchos_orchestrate` composite tool. */
 function orchestrateTool(): CompositeTool {

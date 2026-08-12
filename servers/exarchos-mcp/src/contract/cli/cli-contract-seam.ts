@@ -170,7 +170,7 @@ export const DISPATCH_SEAM_MODULE = 'dispatch/core/dispatch.ts';
  * rejects a module claimed by both).
  */
 export const CONTRACT_PROJECTIONS: readonly string[] = Object.freeze([
-  'adapters/mcp.ts',
+  'adapters/mcp/mcp.ts',
   'contract/cli/generated-client.ts',
 ]);
 
@@ -815,7 +815,7 @@ export function deriveCliClassification(
  * and tsx-safe); the census callers `await` it under the test runtime.
  */
 export async function collectLiveCliCommands(): Promise<readonly LiveCliCommand[]> {
-  const { buildCli } = await import('../../adapters/cli.js');
+  const { buildCli } = await import('../../adapters/cli/cli.js');
   const program = buildCli({
     stateDir: '/tmp/exarchos-cli-census',
     // The census only walks the REGISTERED command tree — no dispatch runs — so a

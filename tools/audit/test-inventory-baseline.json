@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1147,
-    "parsedFiles": 1102,
+    "testFiles": 1148,
+    "parsedFiles": 1103,
     "shellFiles": 45,
-    "cases": 12680,
+    "cases": 12684,
     "dynamicTitles": 130,
     "unparseableFiles": 0
   },
@@ -5856,8 +5856,34 @@
         }
       ]
     },
-    "servers/exarchos-mcp/src/adapters/checkpoint-cli-flags.test.ts": {
-      "file": "servers/exarchos-mcp/src/adapters/checkpoint-cli-flags.test.ts",
+    "servers/exarchos-mcp/src/adapters/adapter-direction.test.ts": {
+      "file": "servers/exarchos-mcp/src/adapters/adapter-direction.test.ts",
+      "runner": "vitest:nested",
+      "cases": [
+        {
+          "suite": "AdapterDirection_McpImportingCli_IsRejected (INV-2, task 018)",
+          "name": "no module under adapters/mcp/ imports adapters/cli/",
+          "dynamic": false
+        },
+        {
+          "suite": "AdapterDirection_McpImportingCli_IsRejected (INV-2, task 018)",
+          "name": "the detector REJECTS a planted mcp -> cli import",
+          "dynamic": false
+        },
+        {
+          "suite": "AdapterDirection_McpImportingCli_IsRejected (INV-2, task 018)",
+          "name": "the allowed direction — cli/ importing mcp/ — is NOT flagged",
+          "dynamic": false
+        },
+        {
+          "suite": "AdapterDirection_McpImportingCli_IsRejected (INV-2, task 018)",
+          "name": "the live cli/ surface DOES call into mcp/ (the rule has a real subject)",
+          "dynamic": false
+        }
+      ]
+    },
+    "servers/exarchos-mcp/src/adapters/cli/checkpoint-cli-flags.test.ts": {
+      "file": "servers/exarchos-mcp/src/adapters/cli/checkpoint-cli-flags.test.ts",
       "runner": "vitest:nested",
       "cases": [
         {
@@ -5887,8 +5913,8 @@
         }
       ]
     },
-    "servers/exarchos-mcp/src/adapters/cli-doctor-adapter.test.ts": {
-      "file": "servers/exarchos-mcp/src/adapters/cli-doctor-adapter.test.ts",
+    "servers/exarchos-mcp/src/adapters/cli/cli-doctor-adapter.test.ts": {
+      "file": "servers/exarchos-mcp/src/adapters/cli/cli-doctor-adapter.test.ts",
       "runner": "vitest:nested",
       "cases": [
         {
@@ -5933,8 +5959,8 @@
         }
       ]
     },
-    "servers/exarchos-mcp/src/adapters/cli-doctor.test.ts": {
-      "file": "servers/exarchos-mcp/src/adapters/cli-doctor.test.ts",
+    "servers/exarchos-mcp/src/adapters/cli/cli-doctor.test.ts": {
+      "file": "servers/exarchos-mcp/src/adapters/cli/cli-doctor.test.ts",
       "runner": "vitest:nested",
       "cases": [
         {
@@ -5964,8 +5990,8 @@
         }
       ]
     },
-    "servers/exarchos-mcp/src/adapters/cli-format.test.ts": {
-      "file": "servers/exarchos-mcp/src/adapters/cli-format.test.ts",
+    "servers/exarchos-mcp/src/adapters/cli/cli-format.test.ts": {
+      "file": "servers/exarchos-mcp/src/adapters/cli/cli-format.test.ts",
       "runner": "vitest:nested",
       "cases": [
         {
@@ -6095,8 +6121,8 @@
         }
       ]
     },
-    "servers/exarchos-mcp/src/adapters/cli-init.test.ts": {
-      "file": "servers/exarchos-mcp/src/adapters/cli-init.test.ts",
+    "servers/exarchos-mcp/src/adapters/cli/cli-init.test.ts": {
+      "file": "servers/exarchos-mcp/src/adapters/cli/cli-init.test.ts",
       "runner": "vitest:nested",
       "cases": [
         {
@@ -6126,8 +6152,8 @@
         }
       ]
     },
-    "servers/exarchos-mcp/src/adapters/cli-install-skills.test.ts": {
-      "file": "servers/exarchos-mcp/src/adapters/cli-install-skills.test.ts",
+    "servers/exarchos-mcp/src/adapters/cli/cli-install-skills.test.ts": {
+      "file": "servers/exarchos-mcp/src/adapters/cli/cli-install-skills.test.ts",
       "runner": "vitest:nested",
       "cases": [
         {
@@ -6147,8 +6173,8 @@
         }
       ]
     },
-    "servers/exarchos-mcp/src/adapters/cli-launcher.test.ts": {
-      "file": "servers/exarchos-mcp/src/adapters/cli-launcher.test.ts",
+    "servers/exarchos-mcp/src/adapters/cli/cli-launcher.test.ts": {
+      "file": "servers/exarchos-mcp/src/adapters/cli/cli-launcher.test.ts",
       "runner": "vitest:nested",
       "cases": [
         {
@@ -6178,8 +6204,8 @@
         }
       ]
     },
-    "servers/exarchos-mcp/src/adapters/cli-long-running.test.ts": {
-      "file": "servers/exarchos-mcp/src/adapters/cli-long-running.test.ts",
+    "servers/exarchos-mcp/src/adapters/cli/cli-long-running.test.ts": {
+      "file": "servers/exarchos-mcp/src/adapters/cli/cli-long-running.test.ts",
       "runner": "vitest:nested",
       "cases": [
         {
@@ -6199,8 +6225,8 @@
         }
       ]
     },
-    "servers/exarchos-mcp/src/adapters/cli-merge-orchestrate.test.ts": {
-      "file": "servers/exarchos-mcp/src/adapters/cli-merge-orchestrate.test.ts",
+    "servers/exarchos-mcp/src/adapters/cli/cli-merge-orchestrate.test.ts": {
+      "file": "servers/exarchos-mcp/src/adapters/cli/cli-merge-orchestrate.test.ts",
       "runner": "vitest:nested",
       "cases": [
         {
@@ -6230,8 +6256,8 @@
         }
       ]
     },
-    "servers/exarchos-mcp/src/adapters/cli.correlation-flags.test.ts": {
-      "file": "servers/exarchos-mcp/src/adapters/cli.correlation-flags.test.ts",
+    "servers/exarchos-mcp/src/adapters/cli/cli.correlation-flags.test.ts": {
+      "file": "servers/exarchos-mcp/src/adapters/cli/cli.correlation-flags.test.ts",
       "runner": "vitest:nested",
       "cases": [
         {
@@ -6251,8 +6277,8 @@
         }
       ]
     },
-    "servers/exarchos-mcp/src/adapters/cli.test.ts": {
-      "file": "servers/exarchos-mcp/src/adapters/cli.test.ts",
+    "servers/exarchos-mcp/src/adapters/cli/cli.test.ts": {
+      "file": "servers/exarchos-mcp/src/adapters/cli/cli.test.ts",
       "runner": "vitest:nested",
       "cases": [
         {
@@ -6462,8 +6488,8 @@
         }
       ]
     },
-    "servers/exarchos-mcp/src/adapters/hooks.test.ts": {
-      "file": "servers/exarchos-mcp/src/adapters/hooks.test.ts",
+    "servers/exarchos-mcp/src/adapters/cli/hooks.test.ts": {
+      "file": "servers/exarchos-mcp/src/adapters/cli/hooks.test.ts",
       "runner": "vitest:nested",
       "cases": [
         {
@@ -6543,212 +6569,8 @@
         }
       ]
     },
-    "servers/exarchos-mcp/src/adapters/json-schema-migration.test.ts": {
-      "file": "servers/exarchos-mcp/src/adapters/json-schema-migration.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "EmittedSchemas_Use2020_12ForAllCallSites_PerFile",
-          "name": "describe/handler.ts emits 2020-12 $schema (no explicit target)",
-          "dynamic": false
-        },
-        {
-          "suite": "EmittedSchemas_Use2020_12ForAllCallSites_PerFile",
-          "name": "runbooks/handler.ts emits 2020-12 $schema for resolved step schemas (no explicit target)",
-          "dynamic": false
-        },
-        {
-          "suite": "EmittedSchemas_Use2020_12ForAllCallSites_PerFile",
-          "name": "adapters/schema-introspection.ts emits 2020-12 $schema via resolveSchemaRef (no explicit target)",
-          "dynamic": false
-        },
-        {
-          "suite": "EmittedSchemas_Use2020_12ForAllCallSites_PerFile",
-          "name": "projections/rehydration/fingerprint.ts preserves draft-07 (caller passes explicit `target: draft-07`)",
-          "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/adapters/json-schema.test.ts": {
-      "file": "servers/exarchos-mcp/src/adapters/json-schema.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "adapters/json-schema wrapper",
-          "name": "zodToJsonSchema_DefaultTarget_EmitsNative2020Draft",
-          "dynamic": false
-        },
-        {
-          "suite": "adapters/json-schema wrapper",
-          "name": "zodToJsonSchema_RespectsCallerOpts_PassesThroughToUpstream",
-          "dynamic": false
-        },
-        {
-          "suite": "adapters/json-schema wrapper",
-          "name": "zodToJsonSchema_ExplicitTarget_OverridesDefault",
-          "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/adapters/mcp.test.ts": {
-      "file": "servers/exarchos-mcp/src/adapters/mcp.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "createMcpServer",
-          "name": "CreateMcpServer_RegistersAllTools_FromRegistry",
-          "dynamic": false
-        },
-        {
-          "suite": "createMcpServer",
-          "name": "CreateMcpServer_TrustedContext_ReplacesPreexistingCallerIdentity",
-          "dynamic": false
-        },
-        {
-          "suite": "createMcpServer",
-          "name": "MCPHandler_ThreadsResolverAuthoritativeCallerSnapshot",
-          "dynamic": false
-        },
-        {
-          "suite": "createMcpServer",
-          "name": "CreateMcpServer_HandlerReturns_McpToolResult",
-          "dynamic": false
-        },
-        {
-          "suite": "createMcpServer",
-          "name": "createMcpServer_declaresChannelCapability",
-          "dynamic": false
-        },
-        {
-          "suite": "createMcpServer",
-          "name": "createMcpServer_exposesServerForNotifications",
-          "dynamic": false
-        },
-        {
-          "suite": "createMcpServer",
-          "name": "MCPDispatch_AllowsReadAction_UnderReadonly",
-          "dynamic": false
-        },
-        {
-          "suite": "createMcpServer",
-          "name": "MCPDispatch_RejectsMutatingAction_UnderReadonly",
-          "dynamic": false
-        },
-        {
-          "suite": "createMcpServer",
-          "name": "MCPDispatch_RejectsAppend_UnderReadonly",
-          "dynamic": false
-        },
-        {
-          "suite": "createMcpServer",
-          "name": "MCPDispatch_RejectsTaskComplete_UnderReadonly",
-          "dynamic": false
-        },
-        {
-          "suite": "createMcpServer",
-          "name": "MCPDispatch_AllowsView_UnderReadonly",
-          "dynamic": false
-        },
-        {
-          "suite": "createMcpServer",
-          "name": "MCPDispatch_BothCaps_KeepsFullAccess",
-          "dynamic": false
-        },
-        {
-          "suite": "createMcpServer",
-          "name": "READ_ONLY_ACTIONS_ExposesAllowlistShape",
-          "dynamic": false
-        },
-        {
-          "suite": "createMcpServer",
-          "name": "toMcpResult_SuccessEnvelope_ReturnsTextAndStructuredContent",
-          "dynamic": false
-        },
-        {
-          "suite": "createMcpServer",
-          "name": "toMcpResult_ErrorEnvelope_ReturnsTextAndStructuredContentWithIsErrorTrue",
-          "dynamic": false
-        },
-        {
-          "suite": "createMcpServer",
-          "name": "toMcpResult_StructuredContentRoundTripsThroughEnvelopeSchema",
-          "dynamic": false
-        },
-        {
-          "suite": "createMcpServer",
-          "name": "toMcpResult_RenderContentSeam_BytesIdenticalToInline",
-          "dynamic": false
-        },
-        {
-          "suite": "createMcpServer",
-          "name": "MCPHandler_DispatchResultMatchesPerActionSchema_PassesThrough",
-          "dynamic": false
-        },
-        {
-          "suite": "createMcpServer",
-          "name": "MCPHandler_DispatchResultViolatesPerActionSchema_ReturnsInternalErrorEnvelopeWithIssuePath",
-          "dynamic": false
-        },
-        {
-          "suite": "createMcpServer",
-          "name": "MCPHandler_OutputShape_ContainsStructuredContent_NotTextOnly",
-          "dynamic": false
-        },
-        {
-          "suite": "createMcpServer",
-          "name": "MCPServer_RegisterTool_PassesOutputSchemaPerTool",
-          "dynamic": false
-        },
-        {
-          "suite": "createMcpServer",
-          "name": "MCPServer_ToolsListAnnotations_AggregatesActionAnnotationsPerTool",
-          "dynamic": false
-        },
-        {
-          "suite": "createMcpServer",
-          "name": "CreateMcpServer_OninitializedFires_CallsCapabilityResolverSnapshot",
-          "dynamic": false
-        },
-        {
-          "suite": "createMcpServer",
-          "name": "CreateMcpServer_RootsListChangedNotificationHandler_IsRegistered",
-          "dynamic": false
-        },
-        {
-          "suite": "createMcpServer",
-          "name": "CreateMcpServer_NoCapabilityResolver_SkipsHandshakeWiring",
-          "dynamic": false
-        },
-        {
-          "suite": "createMcpServer",
-          "name": "CreateMcpServer_SlimRegistration_UsesSlimDescriptions",
-          "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/adapters/remote-mcp.test.ts": {
-      "file": "servers/exarchos-mcp/src/adapters/remote-mcp.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "RemoteMcpAdapter (DR-6 skeleton)",
-          "name": "RemoteMcpAdapter_Interface_CompilesAsTypeShape",
-          "dynamic": false
-        },
-        {
-          "suite": "RemoteMcpAdapter (DR-6 skeleton)",
-          "name": "NotImplementedRemoteMcpAdapter_Dispatch_ThrowsNotImplementedError",
-          "dynamic": false
-        },
-        {
-          "suite": "RemoteMcpAdapter (DR-6 skeleton)",
-          "name": "NotImplementedRemoteMcpAdapter_Close_ResolvesNoop",
-          "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/adapters/schema-introspection.test.ts": {
-      "file": "servers/exarchos-mcp/src/adapters/schema-introspection.test.ts",
+    "servers/exarchos-mcp/src/adapters/cli/schema-introspection.test.ts": {
+      "file": "servers/exarchos-mcp/src/adapters/cli/schema-introspection.test.ts",
       "runner": "vitest:nested",
       "cases": [
         {
@@ -6818,8 +6640,8 @@
         }
       ]
     },
-    "servers/exarchos-mcp/src/adapters/schema-to-flags.parity.test.ts": {
-      "file": "servers/exarchos-mcp/src/adapters/schema-to-flags.parity.test.ts",
+    "servers/exarchos-mcp/src/adapters/cli/schema-to-flags.parity.test.ts": {
+      "file": "servers/exarchos-mcp/src/adapters/cli/schema-to-flags.parity.test.ts",
       "runner": "vitest:nested",
       "cases": [
         {
@@ -6854,8 +6676,8 @@
         }
       ]
     },
-    "servers/exarchos-mcp/src/adapters/schema-to-flags.test.ts": {
-      "file": "servers/exarchos-mcp/src/adapters/schema-to-flags.test.ts",
+    "servers/exarchos-mcp/src/adapters/cli/schema-to-flags.test.ts": {
+      "file": "servers/exarchos-mcp/src/adapters/cli/schema-to-flags.test.ts",
       "runner": "vitest:nested",
       "cases": [
         {
@@ -7026,6 +6848,210 @@
         {
           "suite": "asOf flag classification (T8, #1555)",
           "name": "coercedAsOfString_roundTripsThroughGetInputSchema",
+          "dynamic": false
+        }
+      ]
+    },
+    "servers/exarchos-mcp/src/adapters/json-schema-migration.test.ts": {
+      "file": "servers/exarchos-mcp/src/adapters/json-schema-migration.test.ts",
+      "runner": "vitest:nested",
+      "cases": [
+        {
+          "suite": "EmittedSchemas_Use2020_12ForAllCallSites_PerFile",
+          "name": "describe/handler.ts emits 2020-12 $schema (no explicit target)",
+          "dynamic": false
+        },
+        {
+          "suite": "EmittedSchemas_Use2020_12ForAllCallSites_PerFile",
+          "name": "runbooks/handler.ts emits 2020-12 $schema for resolved step schemas (no explicit target)",
+          "dynamic": false
+        },
+        {
+          "suite": "EmittedSchemas_Use2020_12ForAllCallSites_PerFile",
+          "name": "adapters/schema-introspection.ts emits 2020-12 $schema via resolveSchemaRef (no explicit target)",
+          "dynamic": false
+        },
+        {
+          "suite": "EmittedSchemas_Use2020_12ForAllCallSites_PerFile",
+          "name": "projections/rehydration/fingerprint.ts preserves draft-07 (caller passes explicit `target: draft-07`)",
+          "dynamic": false
+        }
+      ]
+    },
+    "servers/exarchos-mcp/src/adapters/json-schema.test.ts": {
+      "file": "servers/exarchos-mcp/src/adapters/json-schema.test.ts",
+      "runner": "vitest:nested",
+      "cases": [
+        {
+          "suite": "adapters/json-schema wrapper",
+          "name": "zodToJsonSchema_DefaultTarget_EmitsNative2020Draft",
+          "dynamic": false
+        },
+        {
+          "suite": "adapters/json-schema wrapper",
+          "name": "zodToJsonSchema_RespectsCallerOpts_PassesThroughToUpstream",
+          "dynamic": false
+        },
+        {
+          "suite": "adapters/json-schema wrapper",
+          "name": "zodToJsonSchema_ExplicitTarget_OverridesDefault",
+          "dynamic": false
+        }
+      ]
+    },
+    "servers/exarchos-mcp/src/adapters/mcp/mcp.test.ts": {
+      "file": "servers/exarchos-mcp/src/adapters/mcp/mcp.test.ts",
+      "runner": "vitest:nested",
+      "cases": [
+        {
+          "suite": "createMcpServer",
+          "name": "CreateMcpServer_RegistersAllTools_FromRegistry",
+          "dynamic": false
+        },
+        {
+          "suite": "createMcpServer",
+          "name": "CreateMcpServer_TrustedContext_ReplacesPreexistingCallerIdentity",
+          "dynamic": false
+        },
+        {
+          "suite": "createMcpServer",
+          "name": "MCPHandler_ThreadsResolverAuthoritativeCallerSnapshot",
+          "dynamic": false
+        },
+        {
+          "suite": "createMcpServer",
+          "name": "CreateMcpServer_HandlerReturns_McpToolResult",
+          "dynamic": false
+        },
+        {
+          "suite": "createMcpServer",
+          "name": "createMcpServer_declaresChannelCapability",
+          "dynamic": false
+        },
+        {
+          "suite": "createMcpServer",
+          "name": "createMcpServer_exposesServerForNotifications",
+          "dynamic": false
+        },
+        {
+          "suite": "createMcpServer",
+          "name": "MCPDispatch_AllowsReadAction_UnderReadonly",
+          "dynamic": false
+        },
+        {
+          "suite": "createMcpServer",
+          "name": "MCPDispatch_RejectsMutatingAction_UnderReadonly",
+          "dynamic": false
+        },
+        {
+          "suite": "createMcpServer",
+          "name": "MCPDispatch_RejectsAppend_UnderReadonly",
+          "dynamic": false
+        },
+        {
+          "suite": "createMcpServer",
+          "name": "MCPDispatch_RejectsTaskComplete_UnderReadonly",
+          "dynamic": false
+        },
+        {
+          "suite": "createMcpServer",
+          "name": "MCPDispatch_AllowsView_UnderReadonly",
+          "dynamic": false
+        },
+        {
+          "suite": "createMcpServer",
+          "name": "MCPDispatch_BothCaps_KeepsFullAccess",
+          "dynamic": false
+        },
+        {
+          "suite": "createMcpServer",
+          "name": "READ_ONLY_ACTIONS_ExposesAllowlistShape",
+          "dynamic": false
+        },
+        {
+          "suite": "createMcpServer",
+          "name": "toMcpResult_SuccessEnvelope_ReturnsTextAndStructuredContent",
+          "dynamic": false
+        },
+        {
+          "suite": "createMcpServer",
+          "name": "toMcpResult_ErrorEnvelope_ReturnsTextAndStructuredContentWithIsErrorTrue",
+          "dynamic": false
+        },
+        {
+          "suite": "createMcpServer",
+          "name": "toMcpResult_StructuredContentRoundTripsThroughEnvelopeSchema",
+          "dynamic": false
+        },
+        {
+          "suite": "createMcpServer",
+          "name": "toMcpResult_RenderContentSeam_BytesIdenticalToInline",
+          "dynamic": false
+        },
+        {
+          "suite": "createMcpServer",
+          "name": "MCPHandler_DispatchResultMatchesPerActionSchema_PassesThrough",
+          "dynamic": false
+        },
+        {
+          "suite": "createMcpServer",
+          "name": "MCPHandler_DispatchResultViolatesPerActionSchema_ReturnsInternalErrorEnvelopeWithIssuePath",
+          "dynamic": false
+        },
+        {
+          "suite": "createMcpServer",
+          "name": "MCPHandler_OutputShape_ContainsStructuredContent_NotTextOnly",
+          "dynamic": false
+        },
+        {
+          "suite": "createMcpServer",
+          "name": "MCPServer_RegisterTool_PassesOutputSchemaPerTool",
+          "dynamic": false
+        },
+        {
+          "suite": "createMcpServer",
+          "name": "MCPServer_ToolsListAnnotations_AggregatesActionAnnotationsPerTool",
+          "dynamic": false
+        },
+        {
+          "suite": "createMcpServer",
+          "name": "CreateMcpServer_OninitializedFires_CallsCapabilityResolverSnapshot",
+          "dynamic": false
+        },
+        {
+          "suite": "createMcpServer",
+          "name": "CreateMcpServer_RootsListChangedNotificationHandler_IsRegistered",
+          "dynamic": false
+        },
+        {
+          "suite": "createMcpServer",
+          "name": "CreateMcpServer_NoCapabilityResolver_SkipsHandshakeWiring",
+          "dynamic": false
+        },
+        {
+          "suite": "createMcpServer",
+          "name": "CreateMcpServer_SlimRegistration_UsesSlimDescriptions",
+          "dynamic": false
+        }
+      ]
+    },
+    "servers/exarchos-mcp/src/adapters/mcp/remote-mcp.test.ts": {
+      "file": "servers/exarchos-mcp/src/adapters/mcp/remote-mcp.test.ts",
+      "runner": "vitest:nested",
+      "cases": [
+        {
+          "suite": "RemoteMcpAdapter (DR-6 skeleton)",
+          "name": "RemoteMcpAdapter_Interface_CompilesAsTypeShape",
+          "dynamic": false
+        },
+        {
+          "suite": "RemoteMcpAdapter (DR-6 skeleton)",
+          "name": "NotImplementedRemoteMcpAdapter_Dispatch_ThrowsNotImplementedError",
+          "dynamic": false
+        },
+        {
+          "suite": "RemoteMcpAdapter (DR-6 skeleton)",
+          "name": "NotImplementedRemoteMcpAdapter_Close_ResolvesNoop",
           "dynamic": false
         }
       ]

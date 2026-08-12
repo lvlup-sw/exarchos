@@ -46,7 +46,7 @@ import {
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { createMcpServer } from '../../adapters/mcp.js';
+import { createMcpServer } from '../../adapters/mcp/mcp.js';
 import { createInMemoryResolver } from '../../capabilities/resolver.js';
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import { EventStore } from '../../events/store.js';

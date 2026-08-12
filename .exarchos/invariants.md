@@ -453,7 +453,7 @@ invariants:
         must be covered by a governed, unexpired row in CLI_CONTRACT_DEVIATIONS
         carrying an owner, a rationale, a retirement condition and an expiry.
         Flag a new direct-dispatch path with no ledger row, behavior added to
-        adapters/cli.ts or adapters/mcp.ts beyond presentation, and any verb
+        adapters/cli/cli.ts or adapters/mcp/mcp.ts beyond presentation, and any verb
         lacking a registered outputSchema. Do NOT accept a passing parity
         fixture as evidence that two hand-written surfaces are equal by
         construction.
@@ -475,7 +475,7 @@ invariants:
       carriers (the parity harnesses plus each action's registered Zod
       outputSchema) is the WITNESS of that construction, never the invariant
       itself: a suite of green parity fixtures does not make two hand-written
-      surfaces equal. The shipped `adapters/cli.ts` meets this framing for
+      surfaces equal. The shipped `adapters/cli/cli.ts` meets this framing for
       dispatch ADDRESSING: every api-action call site addresses its action by
       contract ActionId through the generated client
       (`contract/cli/generated-client.ts`, a contract projection) which verifies
@@ -542,7 +542,7 @@ invariants:
       - docs/architecture/invariants/references/INV-3-basileus-forward.md
       - servers/exarchos-mcp/src/verbs/gates/check-invariant-conformance.ts
       - servers/exarchos-mcp/src/capabilities/resolver.ts
-      - servers/exarchos-mcp/src/adapters/remote-mcp.ts
+      - servers/exarchos-mcp/src/adapters/mcp/remote-mcp.ts
 
   - id: INV-4
     dimension: platform-agnosticity
@@ -641,7 +641,7 @@ invariants:
       - docs/architecture/invariants/references/INV-5a-input-ergonomics.md
       - servers/exarchos-mcp/src/verbs/gates/check-invariant-conformance.ts
       - servers/exarchos-mcp/src/registry.ts
-      - servers/exarchos-mcp/src/adapters/schema-to-flags.ts
+      - servers/exarchos-mcp/src/adapters/cli/schema-to-flags.ts
 
   - id: INV-5b
     dimension: output-contract
@@ -700,7 +700,7 @@ invariants:
       - docs/architecture/invariants/references/INV-5c-aspire-verbs.md
       - servers/exarchos-mcp/src/verbs/gates/check-invariant-conformance.ts
       - servers/exarchos-mcp/src/describe/handler.ts
-      - servers/exarchos-mcp/src/adapters/cli.ts
+      - servers/exarchos-mcp/src/adapters/cli/cli.ts
 
   - id: INV-5d
     dimension: action-discriminator
@@ -731,7 +731,7 @@ invariants:
       - docs/architecture/invariants/references/INV-5d-action-discriminator.md
       - servers/exarchos-mcp/src/verbs/gates/check-invariant-conformance.ts
       - servers/exarchos-mcp/src/registry.ts
-      - servers/exarchos-mcp/src/adapters/mcp.ts
+      - servers/exarchos-mcp/src/adapters/mcp/mcp.ts
 
   - id: INV-6
     dimension: workload-agnosticism

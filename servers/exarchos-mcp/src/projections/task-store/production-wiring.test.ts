@@ -10,7 +10,7 @@
  * This is a static-analysis test: it walks the `src/` tree and asserts
  * that `new InMemoryTaskStore(` appears nowhere outside test fixtures.
  * Pair test: `EventSourcedTaskStore_IsWiredAtCanonicalSite` asserts the
- * production composer (`adapters/mcp.ts:createMcpServer`) imports +
+ * production composer (`adapters/mcp/mcp.ts:createMcpServer`) imports +
  * instantiates the event-sourced variant.
  */
 import { describe, it, expect } from 'vitest';
@@ -79,8 +79,8 @@ describe('Production wiring — no InMemoryTaskStore (#1272)', () => {
     // receive an `EventSourcedTaskStore` instance backed by
     // `ctx.eventStore`. Asserted as a textual presence-check (the
     // composer's runtime behavior is exercised end-to-end by
-    // `adapters/mcp.test.ts`).
-    const composerPath = path.join(SRC_DIR, 'adapters', 'mcp.ts');
+    // `adapters/mcp/mcp.test.ts`).
+    const composerPath = path.join(SRC_DIR, 'adapters', 'mcp', 'mcp.ts');
     const text = await readFile(composerPath, 'utf8');
     expect(
       text,

@@ -1,17 +1,17 @@
-import { zodToJsonSchema } from './json-schema.js';
-import { getFullRegistry } from '../registry.js';
+import { zodToJsonSchema } from '../json-schema.js';
+import { getFullRegistry } from '../../registry.js';
 import {
   serializeTopology,
   listWorkflowTypes,
-} from '../workflow/state-machine.js';
-import type { SerializedTopology, WorkflowTypeSummary } from '../workflow/state-machine.js';
-import { serializeEventCatalog } from '../events/schemas.js';
-import type { EventCatalog } from '../events/schemas.js';
+} from '../../workflow/state-machine.js';
+import type { SerializedTopology, WorkflowTypeSummary } from '../../workflow/state-machine.js';
+import { serializeEventCatalog } from '../../events/schemas.js';
+import type { EventCatalog } from '../../events/schemas.js';
 import {
   serializePlaybooks,
   listPlaybookWorkflowTypes,
-} from '../workflow/playbooks.js';
-import type { SerializedPlaybooks } from '../workflow/playbooks.js';
+} from '../../workflow/playbooks.js';
+import type { SerializedPlaybooks } from '../../workflow/playbooks.js';
 
 /**
  * Resolves a schema reference (e.g., "workflow.init") to its JSON Schema representation.

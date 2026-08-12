@@ -1,7 +1,7 @@
 /**
  * Task 1.6 — Compiled-binary MCP integration test.
  *
- * Phase progression: RED asserted 2.4.0 vs observed 1.1.0 drift in adapters/mcp.ts;
+ * Phase progression: RED asserted 2.4.0 vs observed 1.1.0 drift in adapters/mcp/mcp.ts;
  * GREEN synced the duplicated SERVER_VERSION and the integration tests now pass.
  *
  * Proves the artifact produced by `scripts/build-binary.ts` (task 1.4) actually
@@ -60,7 +60,7 @@ describe('Compiled binary MCP integration (task 1.6)', () => {
       expect(info).toBeDefined();
       // Name must match the canonical constant exported by src/index.ts.
       // A divergence here indicates a drift in the server-identity block of
-      // src/adapters/mcp.ts relative to the source-of-truth export.
+      // src/adapters/mcp/mcp.ts relative to the source-of-truth export.
       expect(info!.name).toBe(SERVER_NAME);
       // The compiled binary's advertised version must equal the canonical
       // SERVER_VERSION from src/index.ts. This is the TDD gate: the JS

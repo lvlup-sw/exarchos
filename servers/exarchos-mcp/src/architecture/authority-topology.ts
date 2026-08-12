@@ -441,7 +441,7 @@ export const AUTHORITY_TOPOLOGY: Readonly<Record<ContractBoundaryId, AuthorityTo
         kind: 'contested',
         candidates: Object.freeze([
           'registry',
-          'adapters/cli.ts hand-written `.command()` literals',
+          'adapters/cli/cli.ts hand-written `.command()` literals',
         ]),
       }),
       representations: Object.freeze([
@@ -452,7 +452,7 @@ export const AUTHORITY_TOPOLOGY: Readonly<Record<ContractBoundaryId, AuthorityTo
           'commands are projected from the registry descriptors + CLI hints, so a registry change moves them',
         ),
         authoritative(
-          "the 10 hand-written `.command('…')` literals in `adapters/cli.ts`",
+          "the 10 hand-written `.command('…')` literals in `adapters/cli/cli.ts`",
         ),
       ]),
       enforceFrom: Object.freeze({
@@ -463,7 +463,7 @@ export const AUTHORITY_TOPOLOGY: Readonly<Record<ContractBoundaryId, AuthorityTo
       provenance: Object.freeze({ kind: 'derived', from: 'declaration-kinds' }),
       measured:
         'Re-measured 2026-08-08 (task 076): exactly 10 `.command(\'…\')` literals in ' +
-        '`adapters/cli.ts` — doctor, version, feedback, schema, topology, emissions, mcp, onboard, ' +
+        '`adapters/cli/cli.ts` — doctor, version, feedback, schema, topology, emissions, mcp, onboard, ' +
         'init, install-skills. Was ELEVEN until task 076 deleted the hand-written ' +
         '`merge-orchestrate` promotion and moved it onto the registry\'s `cli.topLevel` hint, ' +
         'where it is now a BOUND representation rather than a second authoritative one. The row ' +

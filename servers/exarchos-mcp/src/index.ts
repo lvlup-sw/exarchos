@@ -27,8 +27,8 @@ import { initializeContext } from './dispatch/core/context.js';
 // NOTE: `createMcpServer` is intentionally NOT imported at the top level —
 // task 021 made MCP SDK loading dynamic to keep CLI cold-start under the
 // 250ms p95 budget. See dynamic import at `createServer()` below.
-import { buildCli, runCli, resolvePackageVersion } from './adapters/cli.js';
-import { isHookCommand, handleHookCommand } from './adapters/hooks.js';
+import { buildCli, runCli, resolvePackageVersion } from './adapters/cli/cli.js';
+import { isHookCommand, handleHookCommand } from './adapters/cli/hooks.js';
 import type { DispatchContext } from './dispatch/core/dispatch.js';
 
 // NOTE: `./adapters/mcp.js` and the MCP SDK are intentionally NOT imported at
@@ -214,7 +214,7 @@ export function registerBackendCleanup(backend: StorageBackend): void {
  * (e.g. `exarchos wf status`) do not pay the ~60ms MCP-SDK module-load cost.
  *
  * For new code, prefer `initializeContext()` +
- * `import('./adapters/mcp.js').createMcpServer()` directly.
+ * `import('./adapters/mcp/mcp.js').createMcpServer()` directly.
  */
 export async function createServer(
   stateDir: string,
@@ -258,7 +258,7 @@ export async function createServer(
 
   // Lazy-load the MCP adapter so the CLI cold-start path doesn't incur the
   // MCP-SDK import cost. See module-level note on top of file.
-  const { createMcpServer } = await import('./adapters/mcp.js');
+  const { createMcpServer } = await import('./adapters/mcp/mcp.js');
   return createMcpServer(ctx);
 }
 

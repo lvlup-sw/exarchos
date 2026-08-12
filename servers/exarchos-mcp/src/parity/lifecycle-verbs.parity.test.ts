@@ -50,7 +50,7 @@ import {
   resolveExitCode,
   ERROR_CODE_EXIT_CODES,
   CLI_EXIT_CODES,
-} from '../adapters/cli.js';
+} from '../adapters/cli/cli.js';
 import {
   callCli as harnessCallCli,
   callMcp as harnessCallMcp,

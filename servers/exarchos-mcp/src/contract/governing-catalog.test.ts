@@ -231,7 +231,7 @@ describe('DR-26 — INV-11 keeps spatial write confinement EXCLUDED', () => {
  * generation.
  */
 const REPOINTED_CITATION_SITES: readonly string[] = Object.freeze([
-  'adapters/cli.ts',
+  'adapters/cli/cli.ts',
   'registry.ts',
   'workflow/composite.ts',
   'contract/cli/cli-contract-seam.ts',

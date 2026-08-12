@@ -4,7 +4,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { getFullRegistry } from './registry.js';
-import { buildCli } from './adapters/cli.js';
+import { buildCli } from './adapters/cli/cli.js';
 import { EventStore } from './events/store.js';
 import { rmrfAsync } from './test-helpers/temp-dir.js';
 import type { DispatchContext } from './dispatch/core/dispatch.js';
@@ -123,7 +123,7 @@ async function enumerateMcpRegisteredActions(): Promise<Map<string, Set<string>>
   const spy = vi.spyOn(V2_MCP_SERVER_CLASS.prototype, 'registerTool');
   const out = new Map<string, Set<string>>();
   try {
-    const { createMcpServer } = await import('./adapters/mcp.js');
+    const { createMcpServer } = await import('./adapters/mcp/mcp.js');
     createMcpServer(ctx);
     for (const call of spy.mock.calls) {
       const toolName = call[0] as string;

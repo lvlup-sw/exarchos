@@ -4,7 +4,7 @@
 // `cli-contract-seam.ts` when the DR-25 primary resolution made it a
 // PRODUCTION import target: `generated-client.ts` lazily imports THIS module to
 // verify every CLI-addressed ActionId against the derived surface, while the
-// census half (which dynamically imports `adapters/cli.js` to walk the live
+// census half (which dynamically imports `adapters/cli/cli.js` to walk the live
 // Commander tree) stays in the seam. Splitting them keeps the runtime import
 // graph acyclic — adapter → generated client → surface derivation, with the
 // census sitting outside that chain (the `import-cycles` gate counts dynamic
@@ -89,7 +89,7 @@ export interface CliSurface {
   readonly commands: readonly CliCommand[];
 }
 
-/** Kebab-case an input-schema property, matching `adapters/schema-to-flags.toKebab`. */
+/** Kebab-case an input-schema property, matching `adapters/cli/schema-to-flags.toKebab`. */
 function toKebab(camel: string): string {
   return camel.replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase();
 }

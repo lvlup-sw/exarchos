@@ -31,7 +31,7 @@ import * as path from 'node:path';
 import type { DispatchContext } from './dispatch/core/dispatch.js';
 import { EventStore } from './events/store.js';
 import type { ToolResult } from './format.js';
-import { CLI_EXIT_CODES } from './adapters/cli.js';
+import { CLI_EXIT_CODES } from './adapters/cli/cli.js';
 import { resetMaterializerCache } from './projections/views/tools.js';
 import {
   callCli as harnessCallCli,

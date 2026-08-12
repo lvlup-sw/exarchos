@@ -73,8 +73,8 @@ describe('versioned packaging (Task 022, DR-4)', () => {
       rootVersion,
     );
     expect(
-      serverVersionLiteral('servers/exarchos-mcp/src/adapters/mcp.ts'),
-      'adapters/mcp.ts SERVER_VERSION',
+      serverVersionLiteral('servers/exarchos-mcp/src/adapters/mcp/mcp.ts'),
+      'adapters/mcp/mcp.ts SERVER_VERSION',
     ).toBe(rootVersion);
   });
 

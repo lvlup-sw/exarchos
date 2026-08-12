@@ -2,7 +2,7 @@
   "$comment": [
     "DR-5 / G1 policy data for servers/exarchos-mcp/scripts/cli-derivation-guard.ts —",
     "command names tolerated as hand-written string literals in the CLI composition root",
-    "servers/exarchos-mcp/src/adapters/cli.ts, each with an OWNER and an ENFORCED expiry.",
+    "servers/exarchos-mcp/src/adapters/cli/cli.ts, each with an OWNER and an ENFORCED expiry.",
     "",
     "Every file named in this comment must be a repo-relative path that EXISTS: the guard",
     "refuses to read this policy otherwise. (An earlier revision pointed at a",
@@ -47,7 +47,7 @@
     "── KILL FIXTURE — DO NOT ADD 'merge-orchestrate' HERE ──────────────────────",
     "It is the guard's live failing subject: merge_orchestrate is declared BOTH as a registry",
     "action (with posture: 'shared-mutating') and by hand in",
-    "servers/exarchos-mcp/src/adapters/cli.ts. An earlier revision of this policy allowlisted",
+    "servers/exarchos-mcp/src/adapters/cli/cli.ts. An earlier revision of this policy allowlisted",
     "it, which neutralized the exact rejection DR-5 requires. The guard REFUSES to read this",
     "file at all if the name appears in EITHER map (see KILL_FIXTURE_COMMANDS in",
     "servers/exarchos-mcp/scripts/cli-derivation-guard.ts). The remedy is to delete the",

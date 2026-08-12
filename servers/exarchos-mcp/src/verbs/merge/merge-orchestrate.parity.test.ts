@@ -43,7 +43,7 @@ import {
   normalize as harnessNormalize,
   applyExitOverrideRecursively,
 } from '../../__tests__/parity-harness.js';
-import { buildCli } from '../../adapters/cli.js';
+import { buildCli } from '../../adapters/cli/cli.js';
 
 import { handleMergeOrchestrate } from './merge-orchestrate.js';
 import type { MergePreflightResult } from '../pure/merge-preflight.js';

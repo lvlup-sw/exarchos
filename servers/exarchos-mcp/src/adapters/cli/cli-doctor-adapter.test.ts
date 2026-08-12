@@ -40,12 +40,12 @@ import * as os from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 import { buildCli, CLI_EXIT_CODES } from './cli.js';
-import { EventStore } from '../events/store.js';
-import * as dispatchModule from '../dispatch/core/dispatch.js';
-import type { DispatchContext } from '../dispatch/core/dispatch.js';
-import { DoctorOutputSchema } from '../verbs/doctor/schema.js';
-import { rmrf, rmrfAsync } from '../test-helpers/temp-dir.js';
-import { expectedTrustedContext } from '../test-helpers/trusted-context.js';
+import { EventStore } from '../../events/store.js';
+import * as dispatchModule from '../../dispatch/core/dispatch.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
+import { DoctorOutputSchema } from '../../verbs/doctor/schema.js';
+import { rmrf, rmrfAsync } from '../../test-helpers/temp-dir.js';
+import { expectedTrustedContext } from '../../test-helpers/trusted-context.js';
 
 // ─── Harness ─────────────────────────────────────────────────────────────────
 
@@ -262,9 +262,9 @@ describe('doctor CLI-adapter — default exit-code contract (#1337)', () => {
 /** Path to the CLI entry module that carries the shebang. */
 function indexModulePath(): string {
   // cli-doctor-adapter.test.ts lives at servers/exarchos-mcp/src/adapters/, so
-  // the CLI entry is one directory up at servers/exarchos-mcp/src/index.ts.
+  // the CLI entry is two directories up at servers/exarchos-mcp/src/index.ts.
   const here = path.dirname(fileURLToPath(import.meta.url));
-  return path.resolve(here, '..', 'index.ts');
+  return path.resolve(here, '..', '..', 'index.ts');
 }
 
 /** Locate the compiled host binary, or null when it has not been built. */

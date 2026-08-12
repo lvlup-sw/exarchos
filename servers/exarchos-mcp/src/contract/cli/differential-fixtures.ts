@@ -6,7 +6,7 @@
 // into `structuredContent`; the generated CLI client renders the SAME
 // `ToolResult` via the SAME `toEnvelope` to stdout, and resolves its process
 // exit code from the SAME frozen P03-02 exit-code authority (`exitCodeForError`,
-// which `adapters/cli.resolveExitCode` now delegates to). So for any dispatched
+// which `adapters/cli/cli.resolveExitCode` now delegates to). So for any dispatched
 // result the two surfaces cannot disagree — this table is the differential
 // witness the co-located test drives through BOTH surfaces.
 //
@@ -18,7 +18,7 @@
 // not be read as doing so — that over-reading is exactly the vacuity DR-25
 // names. The real-handler witness (a registered composite driven over the real
 // Commander tree AND the real MCP server, compared end to end) lives in
-// `adapters/cli.test.ts` → `Cli_GeneratedClient_AgreesWithMcpViaRealHandler`.
+// `adapters/cli/cli.test.ts` → `Cli_GeneratedClient_AgreesWithMcpViaRealHandler`.
 // The two are complementary: this table gives cheap breadth across every
 // failure family; that test gives depth through the real seam.
 //

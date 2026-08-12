@@ -1,6 +1,6 @@
 // DR-5 / G1 — the source-level CLI derivation guard, and its two self-tests.
 //
-// @oracle-sources: ../src/adapters/cli.ts, the task-020 specification's hand-enumerated kill-fixture list of 11 literal command names
+// @oracle-sources: ../src/adapters/cli/cli.ts, the task-020 specification's hand-enumerated kill-fixture list of 11 literal command names
 //
 // The two authorities are genuinely independent: one is the live composition
 // root parsed by the guard, the other is a human enumeration written down in the
@@ -328,7 +328,7 @@ describe('cli-derivation-guard (DR-5 / G1)', () => {
     const seededSource = `${readFileSync(governedSourcePath(), 'utf8')}\n${KILL_FIXTURE_SOURCE}\n`;
     const scan = scanSourceForCommandSites(
       seededSource,
-      'servers/exarchos-mcp/src/adapters/cli.ts',
+      'servers/exarchos-mcp/src/adapters/cli/cli.ts',
     );
 
     const sites = scan.literals.filter((s) => s.name === 'merge-orchestrate');
@@ -338,7 +338,7 @@ describe('cli-derivation-guard (DR-5 / G1)', () => {
 
     expect(site.kind).toBe('literal');
     expect(site.expression).toBe("'merge-orchestrate'");
-    expect(site.file).toBe('servers/exarchos-mcp/src/adapters/cli.ts');
+    expect(site.file).toBe('servers/exarchos-mcp/src/adapters/cli/cli.ts');
 
     // Rejected under the shipped allowlist.
     const reported = findDerivationViolations(scan, readAllowlist());
@@ -503,7 +503,7 @@ describe('cli-derivation-guard (DR-5 / G1)', () => {
     const references = extractPolicyFileReferences(commentText);
     expect(references.length).toBeGreaterThan(0);
     expect(references).toContain(GUARD_MODULE_PATH);
-    expect(references).toContain('servers/exarchos-mcp/src/adapters/cli.ts');
+    expect(references).toContain('servers/exarchos-mcp/src/adapters/cli/cli.ts');
     // The renamed-away path is gone from the shipped data.
     expect(references).not.toContain(RENAMED_AWAY_MODULE_PATH);
     expect(findPolicyReferenceProblems(commentText)).toEqual([]);

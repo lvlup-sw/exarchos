@@ -14,7 +14,7 @@
 //     below actively proves that the handler the dispatcher cached is the
 //     genuine module export rather than a `stubCompositeHandler` install.
 //   • the wire envelope is produced by the SAME carrier adapter the CLI
-//     facade uses (`format.ts::toEnvelope`, called at `adapters/cli.ts`
+//     facade uses (`format.ts::toEnvelope`, called at `adapters/cli/cli.ts`
 //     `emitResult`), so envelope conformance is asserted against the shape a
 //     real caller observes — not against a test-local re-wrap.
 //

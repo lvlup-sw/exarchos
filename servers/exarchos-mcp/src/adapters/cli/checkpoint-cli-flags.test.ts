@@ -36,9 +36,9 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import type { DispatchContext } from '../dispatch/core/dispatch.js';
-import { EventStore } from '../events/store.js';
-import type { ToolResult } from '../format.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
+import { EventStore } from '../../events/store.js';
+import type { ToolResult } from '../../format.js';
 import { buildCli, applyExitOverrideRecursively, CLI_EXIT_CODES } from './cli.js';
 
 // ─── Fixtures ──────────────────────────────────────────────────────────────
@@ -67,7 +67,7 @@ async function runWfCheckpointCli(
   argv: readonly string[],
 ): Promise<RunResult> {
   // Lazy-import the dispatch module so we can swap its export with a spy.
-  const dispatchMod = await import('../dispatch/core/dispatch.js');
+  const dispatchMod = await import('../../dispatch/core/dispatch.js');
   const captured: Record<string, unknown>[] = [];
   const dispatchSpy = vi
     .spyOn(dispatchMod, 'dispatch')

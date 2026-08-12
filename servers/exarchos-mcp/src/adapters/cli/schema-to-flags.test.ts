@@ -10,7 +10,7 @@ import {
   toCamel,
   formatZodError,
 } from './schema-to-flags.js';
-import { AsOfSchema, GetInputSchema } from '../workflow/schemas.js';
+import { AsOfSchema, GetInputSchema } from '../../workflow/schemas.js';
 
 // ─── Task 6: extractSchemaFields ────────────────────────────────────────────
 

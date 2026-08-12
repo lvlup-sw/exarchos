@@ -159,7 +159,7 @@ function representation(m: MeasuredBoundary, id: string): MeasuredRepresentation
 describe('authority census — the CLI-surface row, live', () => {
   it('AuthorityCensus_CliSurfaceRow_FailsLiveAgainstTheTree', () => {
     // ── 1. The tree, read now ────────────────────────────────────────────────
-    // Task 020's guard, reused unchanged: it reads `adapters/cli.ts` off disk,
+    // Task 020's guard, reused unchanged: it reads `adapters/cli/cli.ts` off disk,
     // parses it, and classifies each `.command(` argument. A string literal
     // bakes the name into the composition root; a computed expression takes it
     // from a registry declaration. That distinction is invisible in the built
@@ -198,13 +198,13 @@ describe('authority census — the CLI-surface row, live', () => {
     const cli = measureCliSurface(scan);
     expect(cli.authority).toEqual({
       kind: 'contested',
-      candidates: ['registry', 'adapters/cli.ts hand-written `.command()` literals'],
+      candidates: ['registry', 'adapters/cli/cli.ts hand-written `.command()` literals'],
     });
     expect(
       cli.representations.filter((r) => r.binding.kind === 'authoritative').map((r) => r.id),
     ).toEqual([
       'registry action descriptor (TOOL_REGISTRY)',
-      "the 10 hand-written `.command('…')` literals in `adapters/cli.ts`",
+      "the 10 hand-written `.command('…')` literals in `adapters/cli/cli.ts`",
     ]);
     // The derived loops are NOT reported as a second authority — they are bound
     // to the registry, which is what makes the finding narrow rather than a

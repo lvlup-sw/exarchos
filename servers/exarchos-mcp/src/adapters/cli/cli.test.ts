@@ -3,12 +3,12 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { fileURLToPath } from 'node:url';
-import type { ToolResult } from '../format.js';
+import type { ToolResult } from '../../format.js';
 
 // ─── Mocks ──────────────────────────────────────────────────────────────────
 
 // Mock dispatch to capture calls without invoking real handlers
-vi.mock('../dispatch/core/dispatch.js', () => ({
+vi.mock('../../dispatch/core/dispatch.js', () => ({
   dispatch: vi.fn<(tool: string, args: Record<string, unknown>, ctx: unknown) => Promise<ToolResult>>(
     async () => ({
       success: true,
@@ -57,7 +57,7 @@ vi.mock('./schema-introspection.js', () => ({
 }));
 
 // Mock MCP adapter and transport for mcp command test
-vi.mock('./mcp.js', () => ({
+vi.mock('../mcp/mcp.js', () => ({
   createMcpServer: vi.fn(() => ({
     connect: vi.fn(async () => {}),
   })),
@@ -65,7 +65,7 @@ vi.mock('./mcp.js', () => ({
 
 // DR-26 (task 053): the `mcp` sub-command now draws its stdio transport from
 // the owned SDK seam, so this mock follows the production import. It is
-// PARTIAL on purpose — `adapters/mcp.ts` also imports the seam, and stubbing
+// PARTIAL on purpose — `adapters/mcp/mcp.ts` also imports the seam, and stubbing
 // the module wholesale would replace `createV2McpServer` too, breaking the
 // DR-25 real-handler block at the bottom of this file. Only the transport
 // constructor is stubbed, which is exactly what the superseded
@@ -75,8 +75,8 @@ vi.mock('./mcp.js', () => ({
 // thing in this suite that would seize the real stdio streams if it were ever
 // invoked, and a mock left aimed at a module the production path no longer
 // imports is stale cover — it reads as a defense and defends nothing.
-vi.mock('../contract/sdk/seam.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../contract/sdk/seam.js')>();
+vi.mock('../../contract/sdk/seam.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../contract/sdk/seam.js')>();
   return { ...actual, createV2StdioServerTransport: vi.fn(() => ({})) };
 });
 
@@ -90,10 +90,10 @@ import {
   CLI_EXIT_CODES,
   CLI_PROMOTED_ACTION_IDS,
 } from './cli.js';
-import { dispatch } from '../dispatch/core/dispatch.js';
-import { TOOL_REGISTRY, getFullRegistry } from '../registry.js';
-import type { CompositeTool } from '../registry.js';
-import type { DispatchContext } from '../dispatch/core/dispatch.js';
+import { dispatch } from '../../dispatch/core/dispatch.js';
+import { TOOL_REGISTRY, getFullRegistry } from '../../registry.js';
+import type { CompositeTool } from '../../registry.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import { CommanderError } from 'commander';
 import {
   auditCliContract,
@@ -109,13 +109,13 @@ import {
   type ContractDeviation,
   type DeviationAnnotationSite,
   type DispatchSite,
-} from '../contract/cli/cli-contract-seam.js';
+} from '../../contract/cli/cli-contract-seam.js';
 import {
   contractActionIds,
   invokeContractAction,
   UnknownContractActionError,
-} from '../contract/cli/generated-client.js';
-import { CONTRACT_EXIT_CODES, exitCodeForError } from '../contract/error-families.js';
+} from '../../contract/cli/generated-client.js';
+import { CONTRACT_EXIT_CODES, exitCodeForError } from '../../contract/error-families.js';
 
 // ─── Test Helpers ────────────────────────────────────────────────────────────
 
@@ -451,7 +451,7 @@ describe('version subcommand', () => {
    */
   function readPkgVersion(): string {
     const here = path.dirname(fileURLToPath(import.meta.url));
-    const pkgPath = path.resolve(here, '..', '..', 'package.json');
+    const pkgPath = path.resolve(here, '..', '..', '..', 'package.json');
     const raw = fs.readFileSync(pkgPath, 'utf8');
     return JSON.parse(raw).version as string;
   }
@@ -531,7 +531,7 @@ describe('init command (DR-5 rename stub)', () => {
 
     await program.parseAsync(['node', 'exarchos', 'init']);
 
-    const { dispatch } = await import('../dispatch/core/dispatch.js');
+    const { dispatch } = await import('../../dispatch/core/dispatch.js');
     expect(dispatch).not.toHaveBeenCalled();
 
     stderrSpy.mockRestore();
@@ -558,7 +558,7 @@ describe('init command (DR-5 rename stub)', () => {
 
     await program.parseAsync(['node', 'exarchos', 'init', '--runtime', 'copilot']);
 
-    const { dispatch } = await import('../dispatch/core/dispatch.js');
+    const { dispatch } = await import('../../dispatch/core/dispatch.js');
     expect(dispatch).not.toHaveBeenCalled();
 
     stderrSpy.mockRestore();
@@ -872,7 +872,7 @@ describe('commanderErrorToResult mapping table (F-024-CMDR)', () => {
 // `cli-install-skills.test.ts`; here we only assert the verb is present + that
 // the bridge is never dispatched to.
 
-vi.mock('../lifecycle/install-skills-bridge.js', () => ({
+vi.mock('../../lifecycle/install-skills-bridge.js', () => ({
   runInstallSkills: vi.fn(async () => {}),
 }));
 
@@ -915,7 +915,7 @@ describe('install-skills subcommand (DR-5 rename stub)', () => {
     ]);
 
     const { runInstallSkills } = await import(
-      '../lifecycle/install-skills-bridge.js'
+      '../../lifecycle/install-skills-bridge.js'
     );
     expect(runInstallSkills).not.toHaveBeenCalled();
     expect(process.exitCode).toBe(CLI_EXIT_CODES.HANDLER_ERROR);
@@ -1223,7 +1223,7 @@ describe('DR-25: CLI api-action dispatch path is generated, and the deviation is
     const moduleNames = sites.map((s) => s.module);
     expect(moduleNames).not.toContain('adapters/cli.ts');
     expect(moduleNames).toContain('contract/cli/generated-client.ts');
-    expect(moduleNames).toContain('adapters/mcp.ts');
+    expect(moduleNames).toContain('adapters/mcp/mcp.ts');
     expect([...moduleNames].sort()).toEqual([...AUTHORIZED_DISPATCH_PROJECTIONS].sort());
     expect(CONTRACT_PROJECTIONS).toContain('contract/cli/generated-client.ts');
 
@@ -1486,23 +1486,23 @@ describe('DR-25: generated CLI client agrees with MCP through a real handler', (
   it('Cli_GeneratedClient_AgreesWithMcpViaRealHandler', async () => {
     // ── Escape the file-wide mocks and load the REAL graph.
     const mockedDispatchCallsBefore = vi.mocked(dispatch).mock.calls.length;
-    vi.doUnmock('../dispatch/core/dispatch.js');
+    vi.doUnmock('../../dispatch/core/dispatch.js');
     vi.doUnmock('./cli-format.js');
-    vi.doUnmock('./mcp.js');
+    vi.doUnmock('../mcp/mcp.js');
     vi.resetModules();
 
     const { buildCli: realBuildCli } = await import('./cli.js');
-    const { dispatch: realDispatch } = await import('../dispatch/core/dispatch.js');
-    const { createMcpServer } = await import('./mcp.js');
-    const { EventStore } = await import('../events/store.js');
-    const { normalize } = await import('../__tests__/parity-harness.js');
-    const { makeTempDir, rmrfAsync } = await import('../test-helpers/temp-dir.js');
+    const { dispatch: realDispatch } = await import('../../dispatch/core/dispatch.js');
+    const { createMcpServer } = await import('../mcp/mcp.js');
+    const { EventStore } = await import('../../events/store.js');
+    const { normalize } = await import('../../__tests__/parity-harness.js');
+    const { makeTempDir, rmrfAsync } = await import('../../test-helpers/temp-dir.js');
     const {
       createV2Client,
       createV2LinkedTransportPair,
       connectV2Client,
       connectV2Server,
-    } = await import('../contract/sdk/seam.js');
+    } = await import('../../contract/sdk/seam.js');
 
     // ── The contract descriptor BOTH seams are driven from. The CLI command
     //    path (group + command name + required flags) and the MCP tool/action
@@ -1646,7 +1646,7 @@ describe('DR-25: generated CLI client agrees with MCP through a real handler', (
       //    not compile cannot be addressed at all (fail loud = a TYPED
       //    UNKNOWN_ACTION envelope with a stable exit code, never an uncaught
       //    throw — an escaped exception crashes the compiled binary).
-      const generatedClient = await import('../contract/cli/generated-client.js');
+      const generatedClient = await import('../../contract/cli/generated-client.js');
       const direct = await generatedClient.invokeContractAction(
         command.actionId,
         { featureId },

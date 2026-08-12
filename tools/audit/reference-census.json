@@ -1,7 +1,7 @@
 {
   "capturedAt": "2026-08-12",
-  "trackedFiles": 3342,
-  "scannedFiles": 3223,
+  "trackedFiles": 3343,
+  "scannedFiles": 3224,
   "namedFilesIncluded": [
     ".github/CODEOWNERS",
     ".gitattributes",
@@ -44,7 +44,7 @@
         "servers/exarchos-mcp/src/__tests__/integration/ideate-update-action.test.ts",
         "servers/exarchos-mcp/src/__tests__/integration/tools-list.test.ts",
         "servers/exarchos-mcp/src/__tests__/workflow/integration.test.ts",
-        "servers/exarchos-mcp/src/adapters/cli-format.ts"
+        "servers/exarchos-mcp/src/adapters/cli/cli-format.ts"
       ]
     },
     "docs/plans": {
@@ -79,7 +79,7 @@
         "servers/exarchos-mcp/src/__tests__/event-store/single-composition-root.test.ts",
         "servers/exarchos-mcp/src/__tests__/skills/prune.test.ts",
         "servers/exarchos-mcp/src/__tests__/workflow/integration.test.ts",
-        "servers/exarchos-mcp/src/adapters/cli-format.test.ts",
+        "servers/exarchos-mcp/src/adapters/cli/cli-format.test.ts",
         "servers/exarchos-mcp/src/agents/build-pipeline.test.ts",
         "servers/exarchos-mcp/src/agents/generate-agents.test.ts",
         "servers/exarchos-mcp/src/agents/generate-agents.ts"
@@ -115,8 +115,8 @@
       "sampleLiveCodeReferrers": [
         "servers/exarchos-mcp/scripts/cli-vocab-guard.ts",
         "servers/exarchos-mcp/src/adapters/json-schema.ts",
-        "servers/exarchos-mcp/src/adapters/mcp.test.ts",
-        "servers/exarchos-mcp/src/adapters/mcp.ts",
+        "servers/exarchos-mcp/src/adapters/mcp/mcp.test.ts",
+        "servers/exarchos-mcp/src/adapters/mcp/mcp.ts",
         "servers/exarchos-mcp/src/agents/adapters/codex.test.ts",
         "servers/exarchos-mcp/src/agents/adapters/codex.ts",
         "servers/exarchos-mcp/src/agents/adapters/copilot.test.ts",
@@ -178,7 +178,7 @@
         "docs/plans/archive/2026-02-10-arch-rigor.md"
       ],
       "sampleLiveCodeReferrers": [
-        "servers/exarchos-mcp/src/adapters/hooks.ts",
+        "servers/exarchos-mcp/src/adapters/cli/hooks.ts",
         "servers/exarchos-mcp/src/architecture/invariants-loader.test.ts",
         "servers/exarchos-mcp/src/lifecycle/session-start.ts",
         "servers/exarchos-mcp/src/lifecycle/subagent-stop.ts",

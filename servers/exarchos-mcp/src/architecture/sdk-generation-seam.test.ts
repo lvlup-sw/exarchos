@@ -124,7 +124,7 @@ describe('DR-0 — MCP SDK generation seam', () => {
     // now rests on the cross-generation vs same-generation brand fixtures below,
     // which are the stronger proof and do not depend on v1 existing.
     const findings = lintSdkGenerationMixing(
-      'src/adapters/mcp.ts',
+      'src/adapters/mcp/mcp.ts',
       MIXED_IMPORT_FIXTURE,
       parseModuleSpecifiers,
     );
@@ -132,7 +132,7 @@ describe('DR-0 — MCP SDK generation seam', () => {
     expect(findings).toHaveLength(1);
     expect(findings[0]!.severity).toBe('HIGH');
     expect(findings[0]!.source).toBe('sdk-generation-seam');
-    expect(findings[0]!.file).toBe('src/adapters/mcp.ts');
+    expect(findings[0]!.file).toBe('src/adapters/mcp/mcp.ts');
     // The message must name both offending generations so the fix is obvious
     // from CI output alone.
     expect(findings[0]!.message).toContain('@modelcontextprotocol/sdk/inMemory.js');
@@ -165,7 +165,7 @@ describe('DR-0 — MCP SDK generation seam', () => {
   it('CollectSdkImports_StaticDynamicAndTypeOnly_AreAllSeen', () => {
     // The migration hazard does not care how the module is pulled in, so the
     // scanner must see static imports, type-only imports, dynamic import()
-    // and re-exports alike. `adapters/cli.ts` reaches the SDK through a
+    // and re-exports alike. `adapters/cli/cli.ts` reaches the SDK through a
     // dynamic import, so missing that form would leave a real hole.
     const source = `
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';

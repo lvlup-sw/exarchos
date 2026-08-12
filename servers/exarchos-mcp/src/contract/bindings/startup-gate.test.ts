@@ -45,7 +45,7 @@ describe('MCP bootstrap — binding gate blocks startup, not first call (P03-04)
   });
 
   it('CreateMcpServer_RefusesToStart_WhenBindingGateFails', async () => {
-    const { createMcpServer } = await import('../../adapters/mcp.js');
+    const { createMcpServer } = await import('../../adapters/mcp/mcp.js');
     // A fully valid ctx: the ONLY reason to throw is the seeded binding gate.
     expect(() => createMcpServer(ctx)).toThrow(SEEDED);
   });

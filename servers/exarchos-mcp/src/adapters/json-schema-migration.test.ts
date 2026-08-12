@@ -25,7 +25,7 @@ import { describe, it, expect } from 'vitest';
 
 import { handleDescribe } from '../describe/handler.js';
 import { handleRunbook } from '../runbooks/handler.js';
-import { resolveSchemaRef } from './schema-introspection.js';
+import { resolveSchemaRef } from './cli/schema-introspection.js';
 import { computePrefixFingerprint } from '../projections/rehydration/fingerprint.js';
 import { StableSectionsSchema } from '../projections/rehydration/schema.js';
 import { zodToJsonSchema } from './json-schema.js';

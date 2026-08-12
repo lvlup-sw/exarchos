@@ -815,7 +815,7 @@ export function measureEventCatalog(sources: EventCatalogSources): EventCatalogM
 /** The registry-side authority id task 024's committed row uses. */
 export const CLI_REGISTRY_AUTHORITY = 'registry';
 /** The literal-side authority id task 024's committed row uses. */
-export const CLI_LITERAL_AUTHORITY = 'adapters/cli.ts hand-written `.command()` literals';
+export const CLI_LITERAL_AUTHORITY = 'adapters/cli/cli.ts hand-written `.command()` literals';
 
 /**
  * Build the CLI-surface row from task 020's live scan.
@@ -892,7 +892,7 @@ export function measureCliSurface(scan: DerivationScan): MeasuredBoundary {
       // Formatted to reproduce the committed row's id EXACTLY, count included —
       // so a drift in the live count changes the census tuple rather than
       // hiding inside a number nothing compares.
-      id: `the ${scan.literals.length} hand-written \`.command('…')\` literals in \`adapters/cli.ts\``,
+      id: `the ${scan.literals.length} hand-written \`.command('…')\` literals in \`adapters/cli/cli.ts\``,
       binding: { kind: 'authoritative' },
       sites: scan.literals.map(toSite('literal')),
     });
@@ -920,7 +920,7 @@ export function measureCliSurface(scan: DerivationScan): MeasuredBoundary {
     representations,
     siteCount: representations.reduce((total, r) => total + r.sites.length, 0),
     measured:
-      `Measured LIVE from \`adapters/cli.ts\` by task 020's \`cli-derivation-guard\`: ` +
+      `Measured LIVE from \`adapters/cli/cli.ts\` by task 020's \`cli-derivation-guard\`: ` +
       `${scan.sites.length} \`.command(\` site(s) — ${scan.derived.length} derived from a registry ` +
       `declaration, ${scan.literals.length} with the name BAKED as a string literal. The baked ` +
       'names are a second authoritative representation: nothing derives them from the registry, ' +

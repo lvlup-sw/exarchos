@@ -21,24 +21,24 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
 import { buildCli, CLI_EXIT_CODES } from './cli.js';
-import { EventStore } from '../events/store.js';
-import type { DispatchContext } from '../dispatch/core/dispatch.js';
-import { rmrfAsync } from '../test-helpers/temp-dir.js';
-import { WorktreeManager, WORKTREES_STREAM } from '../verbs/worktree/manager.js';
-import { LAUNCH_EXECUTED } from '../launcher/liveness.js';
-import { deriveWorktreePath } from '../launcher/topology.js';
+import { EventStore } from '../../events/store.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
+import { WorktreeManager, WORKTREES_STREAM } from '../../verbs/worktree/manager.js';
+import { LAUNCH_EXECUTED } from '../../launcher/liveness.js';
+import { deriveWorktreePath } from '../../launcher/topology.js';
 import type {
   AsyncSpawnRequest,
   ChildHandle,
   SpawnExit,
-} from '../utils/process.js';
-import type { SpawnHarnessChildFn } from '../launcher/lifecycle-core.js';
+} from '../../utils/process.js';
+import type { SpawnHarnessChildFn } from '../../launcher/lifecycle-core.js';
 import type {
   SignalRegistrar,
   SignalListener,
   TrappedSignal,
-} from '../launcher/signals.js';
-import type { LauncherWiringOverrides } from '../launcher/production-deps.js';
+} from '../../launcher/signals.js';
+import type { LauncherWiringOverrides } from '../../launcher/production-deps.js';
 
 // ── git + event-store helpers (mirror lifecycle.test.ts) ─────────────────────
 

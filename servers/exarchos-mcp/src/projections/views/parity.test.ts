@@ -30,7 +30,7 @@ import * as os from 'node:os';
 import { EventStore } from '../../events/store.js';
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import type { ToolResult } from '../../format.js';
-import { CLI_EXIT_CODES } from '../../adapters/cli.js';
+import { CLI_EXIT_CODES } from '../../adapters/cli/cli.js';
 import { TOOL_REGISTRY } from '../../registry.js';
 import { resetMaterializerCache } from './tools.js';
 import {

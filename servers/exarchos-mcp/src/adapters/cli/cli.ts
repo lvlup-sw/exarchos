@@ -2,8 +2,8 @@ import { Command, CommanderError } from 'commander';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getFullRegistry } from '../registry.js';
-import type { CompositeTool, ToolAction } from '../registry.js';
+import { getFullRegistry } from '../../registry.js';
+import type { CompositeTool, ToolAction } from '../../registry.js';
 // DR-25 / governing INV-2 — this adapter does NOT import the runtime `dispatch`
 // value. Every api-action call site addresses its action by contract ActionId
 // through the generated client (`invokeContractAction`), the ONE
@@ -12,12 +12,12 @@ import type { CompositeTool, ToolAction } from '../registry.js';
 // runs is constructed, not hand-coordinated. The Commander tree below remains
 // hand-authored PRESENTATION (groups, command names, flags); addressing and
 // behavior live behind the seam.
-import { invokeContractAction } from '../contract/cli/generated-client.js';
-import type { DispatchContext } from '../dispatch/core/dispatch.js';
-import { deriveLocalOperatorIdentity } from '../dispatch/caller-identity.js';
-import type { ToolResult } from '../format.js';
-import { toEnvelope } from '../format.js';
-import { exitCodeForError } from '../contract/error-families.js';
+import { invokeContractAction } from '../../contract/cli/generated-client.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
+import { deriveLocalOperatorIdentity } from '../../dispatch/caller-identity.js';
+import type { ToolResult } from '../../format.js';
+import { toEnvelope } from '../../format.js';
+import { exitCodeForError } from '../../contract/error-families.js';
 import {
   addFlagsFromSchema,
   coerceFlags,
@@ -27,14 +27,14 @@ import {
   buildInvalidInput,
   VALIDATION_ERROR_CODE,
 } from './schema-to-flags.js';
-import { TIER1_HARNESSES } from '../launcher/harness-registry.js';
-import { runLauncherVerb, renderDryRunPlan, isDryRunPlan } from '../launcher/verb.js';
+import { TIER1_HARNESSES } from '../../launcher/harness-registry.js';
+import { runLauncherVerb, renderDryRunPlan, isDryRunPlan } from '../../launcher/verb.js';
 import {
   makeLauncherLifecycleDeps,
   recoverBeforeLaunch,
   type LauncherWiringOverrides,
-} from '../launcher/production-deps.js';
-import type { FollowSubcommand } from '../cli/follow-formatter.js';
+} from '../../launcher/production-deps.js';
+import type { FollowSubcommand } from '../../cli/follow-formatter.js';
 import { prettyPrint, printError, toCliResult } from './cli-format.js';
 // NOTE: `./schema-introspection.js` is intentionally NOT imported at the top
 // level. It pulls `zod-to-json-schema`, the state-machine topology serializer,
@@ -488,7 +488,7 @@ export function buildCli(ctx: DispatchContext, options?: BuildCliOptions): Comma
         return;
       }
 
-      const { handleVersionCheck } = await import('../lifecycle/version.js');
+      const { handleVersionCheck } = await import('../../lifecycle/version.js');
       const exitCode = await handleVersionCheck({
         pluginRoot: opts.checkPluginRoot,
         binaryVersion: packageVersion,
@@ -635,7 +635,7 @@ export function buildCli(ctx: DispatchContext, options?: BuildCliOptions): Comma
       const [
         { createMcpServer },
         { createV2StdioServerTransport, connectV2Server },
-      ] = await Promise.all([import('./mcp.js'), import('../contract/sdk/seam.js')]);
+      ] = await Promise.all([import('../mcp/mcp.js'), import('../../contract/sdk/seam.js')]);
       const server = createMcpServer(ctx);
       // DR-26: the transport is drawn through the seam and the PAIRING goes
       // through `connectV2Server`, which is where the generation brand is
@@ -1147,7 +1147,7 @@ function registerActionCommand(
       let pollIntervalMs: number | undefined;
       try {
         const { loadExarchosConfig } = await import(
-          '../config/load-exarchos-config.js'
+          '../../config/load-exarchos-config.js'
         );
         const loaded = loadExarchosConfig(process.cwd());
         pollIntervalMs = loaded?.config.cli?.followPollIntervalMs;
@@ -1168,7 +1168,7 @@ function registerActionCommand(
       process.once('SIGINT', onSigint);
 
       try {
-        const { runFollowLoop } = await import('../cli/follow-loop.js');
+        const { runFollowLoop } = await import('../../cli/follow-loop.js');
         // #1440 Op 1 (T7): the routing now flows directly from
         // `action.name` since `VIEW_FOLLOW_ACTIONS` and the
         // `FollowSubcommand` union are kept in lockstep — both
@@ -1260,7 +1260,7 @@ function registerActionCommand(
       }
       try {
         const { runEventQueryFollow, pollingEventSource } = await import(
-          '../lifecycle/event-query.js'
+          '../../lifecycle/event-query.js'
         );
         const source = pollingEventSource({
           store: ctx.eventStore,
@@ -1324,9 +1324,9 @@ function registerActionCommand(
       process.once('SIGINT', onSigint);
       try {
         const { runInspectFollow, defaultFollowClock } = await import(
-          '../cli/follow-loop.js'
+          '../../cli/follow-loop.js'
         );
-        const { NdjsonEncoder } = await import('../ndjson/encoder.js');
+        const { NdjsonEncoder } = await import('../../ndjson/encoder.js');
         const encoder = new NdjsonEncoder(process.stdout);
         const handle = runInspectFollow({
           subscribe: (filter, onEvent, options) =>

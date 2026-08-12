@@ -286,7 +286,7 @@ export const BOUNDARY_HOP_EVIDENCE: BoundaryHopEvidence = Object.freeze({
       oracle: Object.freeze({
         module: 'servers/exarchos-mcp/scripts/authority-live-proof.ts',
         entrypoint: 'measureCliSurfaceLive',
-        subjects: Object.freeze(['servers/exarchos-mcp/src/adapters/cli.ts']),
+        subjects: Object.freeze(['servers/exarchos-mcp/src/adapters/cli/cli.ts']),
       }),
       why: 'task 026 parses the governed composition root and classifies every `.command(…)` site, so the SECOND authoritative representation is counted from the tree rather than transcribed.',
     }),
@@ -297,7 +297,7 @@ export const BOUNDARY_HOP_EVIDENCE: BoundaryHopEvidence = Object.freeze({
       oracle: Object.freeze({
         module: 'servers/exarchos-mcp/scripts/authority-live-proof.ts',
         entrypoint: 'measureCliSurfaceLive',
-        subjects: Object.freeze(['servers/exarchos-mcp/src/adapters/cli.ts']),
+        subjects: Object.freeze(['servers/exarchos-mcp/src/adapters/cli/cli.ts']),
       }),
       why: 'the same scan decides each representation\'s binding from its own site classification (all-derived is bound, anything else is not) — the binding claim is measured, not declared.',
     }),

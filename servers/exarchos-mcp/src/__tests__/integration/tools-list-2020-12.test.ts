@@ -77,7 +77,7 @@ import {
   createV2LinkedTransportPair,
   createV2McpServer,
 } from '../../contract/sdk/seam.js';
-import { createMcpServer } from '../../adapters/mcp.js';
+import { createMcpServer } from '../../adapters/mcp/mcp.js';
 import { EventStore } from '../../events/store.js';
 import { TOOL_REGISTRY } from '../../registry.js';
 import { EnvelopeSchema } from '../../contract/schemas/envelope.js';

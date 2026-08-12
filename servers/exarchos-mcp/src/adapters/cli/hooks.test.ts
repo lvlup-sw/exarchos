@@ -4,18 +4,18 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // handlers (guard, task-gate, teammate-gate, subagent-context) stay retired.
 // #1525 W2 Half 1: the `subagent-stop` observer is RESTORED (now three lifecycle
 // observers) to capture per-subagent token telemetry — still observe-only.
-vi.mock('../lifecycle/session-end.js', () => ({
+vi.mock('../../lifecycle/session-end.js', () => ({
   handleSessionEnd: vi.fn(),
 }));
-vi.mock('../lifecycle/session-start.js', () => ({
+vi.mock('../../lifecycle/session-start.js', () => ({
   handleSessionStart: vi.fn(),
 }));
-vi.mock('../lifecycle/subagent-stop.js', () => ({
+vi.mock('../../lifecycle/subagent-stop.js', () => ({
   handleSubagentStop: vi.fn(),
 }));
 
 // Mock the workflow state-store module (re-exports resolveStateDir)
-vi.mock('../workflow/state-store.js', () => ({
+vi.mock('../../workflow/state-store.js', () => ({
   resolveStateDir: vi.fn(),
 }));
 
@@ -77,16 +77,16 @@ describe('handleHookCommand', () => {
     savedPluginRoot = process.env.EXARCHOS_PLUGIN_ROOT;
     delete process.env.EXARCHOS_PLUGIN_ROOT;
 
-    const stateStore = await import('../workflow/state-store.js');
+    const stateStore = await import('../../workflow/state-store.js');
     vi.mocked(stateStore.resolveStateDir).mockReturnValue('/mock/state-dir');
 
-    const sessionEnd = await import('../lifecycle/session-end.js');
+    const sessionEnd = await import('../../lifecycle/session-end.js');
     vi.mocked(sessionEnd.handleSessionEnd).mockResolvedValue({ ended: true });
 
-    const sessionStart = await import('../lifecycle/session-start.js');
+    const sessionStart = await import('../../lifecycle/session-start.js');
     vi.mocked(sessionStart.handleSessionStart).mockResolvedValue({ continue: true });
 
-    const subagentStop = await import('../lifecycle/subagent-stop.js');
+    const subagentStop = await import('../../lifecycle/subagent-stop.js');
     vi.mocked(subagentStop.handleSubagentStop).mockResolvedValue({ continue: true });
   });
 
@@ -159,7 +159,7 @@ describe('handleHookCommand', () => {
   });
 
   it('handleHookCommand_SubagentStop_RoutesToHandler_ReturnsHandledTrue', async () => {
-    const subagentStop = await import('../lifecycle/subagent-stop.js');
+    const subagentStop = await import('../../lifecycle/subagent-stop.js');
     const result = await handleHookCommand(
       'subagent-stop',
       ['node', 'exarchos', 'subagent-stop'],
@@ -176,7 +176,7 @@ describe('handleHookCommand', () => {
   it('handleHookCommand_SessionStart_ForwardsDirective', async () => {
     // Exercises the argv `--directive` parse + `{ directive }` passthrough so the
     // binding-injection contract is locked.
-    const { handleSessionStart } = await import('../lifecycle/session-start.js');
+    const { handleSessionStart } = await import('../../lifecycle/session-start.js');
     await handleHookCommand(
       'session-start',
       ['node', 'exarchos', 'session-start', '--directive', 'Route SDLC through exarchos_* tools.'],
@@ -193,7 +193,7 @@ describe('handleHookCommand', () => {
   });
 
   it('handleHookCommand_OperationalError_ReturnsExitCode1', async () => {
-    const { handleSessionEnd } = await import('../lifecycle/session-end.js');
+    const { handleSessionEnd } = await import('../../lifecycle/session-end.js');
     vi.mocked(handleSessionEnd).mockResolvedValueOnce({
       error: { code: 'IO_ERROR', message: 'disk full' },
     });

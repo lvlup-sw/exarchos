@@ -86,7 +86,7 @@ import {
   connectV2Server,
   type V2Client,
 } from '../../contract/sdk/seam.js';
-import { createMcpServer } from '../../adapters/mcp.js';
+import { createMcpServer } from '../../adapters/mcp/mcp.js';
 import { EventStore } from '../../events/store.js';
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 

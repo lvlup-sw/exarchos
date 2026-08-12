@@ -14,7 +14,7 @@ import {
   assertNever,
   type FailureLayer,
 } from './error-families.js';
-import { CLI_EXIT_CODES, ERROR_CODE_EXIT_CODES } from '../adapters/cli.js';
+import { CLI_EXIT_CODES, ERROR_CODE_EXIT_CODES } from '../adapters/cli/cli.js';
 
 describe('error-families — six-layer exit proof', () => {
   // The CORE exit proof (P03-02 exit-proof): every one of the six failure

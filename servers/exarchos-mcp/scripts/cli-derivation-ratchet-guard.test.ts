@@ -33,7 +33,7 @@
 // that it is really wired (`resolveToday()` agrees with an independently
 // computed UTC day), never what verdict it produces.
 //
-// @oracle-sources: ./cli-derivation-allowlist.json, ./cli-derivation-seed-pin.ts, ../src/adapters/cli.ts parsed by the TypeScript compiler
+// @oracle-sources: ./cli-derivation-allowlist.json, ./cli-derivation-seed-pin.ts, ../src/adapters/cli/cli.ts parsed by the TypeScript compiler
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import * as path from 'node:path';

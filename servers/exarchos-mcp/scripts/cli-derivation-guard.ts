@@ -45,7 +45,7 @@
 // than derivation; the DR-14 cast census counted the English word "as" in
 // comments; DR-27's scanner counted substrings. A regex here would join that
 // list on day one, and the failure is already demonstrable: a naive
-// `/\.command\(/` over `adapters/cli.ts` reports 15 sites, not 14, because a
+// `/\.command\(/` over `adapters/cli/cli.ts` reports 15 sites, not 14, because a
 // JSDoc block at `cli.ts:55` writes `program.command(...)` in PROSE.
 //
 // Comments are not "blanked" by a stripping pass here — a hand-rolled stripper
@@ -117,7 +117,7 @@ export const REPO_ROOT = path.resolve(HERE, '..', '..', '..');
  * {@link scanGovernedSources}).
  */
 export const GOVERNED_SOURCES: readonly string[] = Object.freeze([
-  'servers/exarchos-mcp/src/adapters/cli.ts',
+  'servers/exarchos-mcp/src/adapters/cli/cli.ts',
 ]);
 
 /** Repo-relative location of the allowlist data file. */

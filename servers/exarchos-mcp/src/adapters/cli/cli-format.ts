@@ -9,7 +9,7 @@ import type {
   CorrectionsPayload,
   Envelope,
   ErrorEnvelope,
-} from '../format.js';
+} from '../../format.js';
 
 // ─── Format Inference ───────────────────────────────────────────────────────
 

@@ -32,15 +32,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import type { ToolResult } from '../format.js';
-import type { DispatchContext } from '../dispatch/core/dispatch.js';
+import type { ToolResult } from '../../format.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 
 // ─── Mocks ──────────────────────────────────────────────────────────────────
 
 // Default mock for the unit tests below. The end-to-end smoke test in the
 // last describe block UN-mocks dispatch (vi.doUnmock) so it can exercise
 // the real handler chain against a real EventStore.
-vi.mock('../dispatch/core/dispatch.js', () => ({
+vi.mock('../../dispatch/core/dispatch.js', () => ({
   dispatch: vi.fn<(tool: string, args: Record<string, unknown>, ctx: unknown) => Promise<ToolResult>>(
     async () => ({ success: true, data: { mocked: true } }),
   ),
@@ -60,9 +60,9 @@ vi.mock('./cli-format.js', () => ({
 }));
 
 import { buildCli } from './cli.js';
-import { dispatch } from '../dispatch/core/dispatch.js';
-import { rmrfAsync } from '../test-helpers/temp-dir.js';
-import { expectedTrustedContext } from '../test-helpers/trusted-context.js';
+import { dispatch } from '../../dispatch/core/dispatch.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
+import { expectedTrustedContext } from '../../test-helpers/trusted-context.js';
 
 function createTestContext(): DispatchContext {
   return {
@@ -207,7 +207,7 @@ describe.skipIf(process.platform === 'win32')('CLI correlation filter — end-to
   beforeEach(async () => {
     // Clear the per-file dispatch mock for this block; we want the REAL
     // dispatch implementation here.
-    vi.doUnmock('../dispatch/core/dispatch.js');
+    vi.doUnmock('../../dispatch/core/dispatch.js');
     vi.resetModules();
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'exarchos-cli-corr-flag-'));
     stdoutChunks = [];
@@ -225,9 +225,9 @@ describe.skipIf(process.platform === 'win32')('CLI correlation filter — end-to
     // Restore the per-file mock for the next describe block. Vitest
     // executes describe blocks in source order within a file, but a
     // beforeEach reset keeps things deterministic regardless.
-    vi.doMock('../dispatch/core/dispatch.js', async () => {
-      const real = await vi.importActual<typeof import('../dispatch/core/dispatch.js')>(
-        '../dispatch/core/dispatch.js',
+    vi.doMock('../../dispatch/core/dispatch.js', async () => {
+      const real = await vi.importActual<typeof import('../../dispatch/core/dispatch.js')>(
+        '../../dispatch/core/dispatch.js',
       );
       return real;
     });
@@ -238,7 +238,7 @@ describe.skipIf(process.platform === 'win32')('CLI correlation filter — end-to
     // module subtree. Without re-import, the mocked `dispatch` would
     // still be wired into the `buildCli` action callback.
     const { buildCli: buildCliReal } = await import('./cli.js');
-    const { EventStore } = await import('../events/store.js');
+    const { EventStore } = await import('../../events/store.js');
 
     const store = new EventStore(tmpDir);
     const TELEMETRY_STREAM = 'telemetry';

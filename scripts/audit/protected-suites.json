@@ -20,7 +20,7 @@
   ],
   "files": [
     "servers/exarchos-mcp/src/__tests__/parity-harness.ts",
-    "servers/exarchos-mcp/src/adapters/schema-to-flags.parity.test.ts",
+    "servers/exarchos-mcp/src/adapters/cli/schema-to-flags.parity.test.ts",
     "servers/exarchos-mcp/src/architecture/resolve-effective-catalog.characterization.test.ts",
     "servers/exarchos-mcp/src/capabilities/resolver.acceptance.test.ts",
     "servers/exarchos-mcp/src/dispatch/core/dispatch-context.acceptance.test.ts",

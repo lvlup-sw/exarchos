@@ -31,7 +31,7 @@
 // binary's runtime) or Vitest's alias shim. Bun is already a CI dependency in the
 // MCP jobs, so `bun run scripts/cli-vocab-guard.ts` is the natural invocation.
 
-import { buildCli } from '../src/adapters/cli.js';
+import { buildCli } from '../src/adapters/cli/cli.js';
 import type { DispatchContext } from '../src/dispatch/core/dispatch.js';
 import type { Command } from 'commander';
 

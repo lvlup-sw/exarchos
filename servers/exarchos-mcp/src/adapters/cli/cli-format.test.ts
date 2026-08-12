@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { prettyPrint, printError, toCliResult } from './cli-format.js';
-import { toEnvelope } from '../format.js';
-import type { Envelope, ToolResult } from '../format.js';
-import type { NextAction } from '../next-action.js';
+import { toEnvelope } from '../../format.js';
+import type { Envelope, ToolResult } from '../../format.js';
+import type { NextAction } from '../../next-action.js';
 
 describe('prettyPrint', () => {
   let stdoutSpy: ReturnType<typeof vi.spyOn>;

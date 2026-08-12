@@ -38,7 +38,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { CLI_EXIT_CODES } from '../adapters/cli.js';
+import { CLI_EXIT_CODES } from '../adapters/cli/cli.js';
 import { type DispatchContext } from '../dispatch/core/dispatch.js';
 import { EventStore } from '../events/store.js';
 import { createInMemoryResolver } from '../capabilities/resolver.js';

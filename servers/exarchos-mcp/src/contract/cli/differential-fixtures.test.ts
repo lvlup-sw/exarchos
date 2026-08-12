@@ -17,7 +17,7 @@ vi.mock('../../dispatch/core/dispatch.js', () => ({
   ),
 }));
 
-vi.mock('../../adapters/cli-format.js', () => ({
+vi.mock('../../adapters/cli/cli-format.js', () => ({
   prettyPrint: vi.fn(),
   printError: vi.fn(),
   toCliResult: vi.fn((env: unknown, format: string) => {
@@ -27,7 +27,7 @@ vi.mock('../../adapters/cli-format.js', () => ({
   }),
 }));
 
-import { buildCli, resolveExitCode } from '../../adapters/cli.js';
+import { buildCli, resolveExitCode } from '../../adapters/cli/cli.js';
 import { dispatch } from '../../dispatch/core/dispatch.js';
 import { toEnvelope } from '../../format.js';
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';

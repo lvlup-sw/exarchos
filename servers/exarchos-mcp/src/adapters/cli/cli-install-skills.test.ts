@@ -17,12 +17,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // The bridge must NEVER be reached by the stub. Mock it with a recorder so the
 // test can assert zero invocations (no install side effect).
-vi.mock('../lifecycle/install-skills-bridge.js', () => ({
+vi.mock('../../lifecycle/install-skills-bridge.js', () => ({
   runInstallSkills: vi.fn(async () => {}),
 }));
 
 import { buildCli, CLI_EXIT_CODES } from './cli.js';
-import type { DispatchContext } from '../dispatch/core/dispatch.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -60,7 +60,7 @@ describe('exarchos install-skills CLI (DR-5 rename stub)', () => {
     // No install side effect runs from the stub (DR-5 acceptance criterion):
     // the bridge is never reached.
     const { runInstallSkills } = await import(
-      '../lifecycle/install-skills-bridge.js'
+      '../../lifecycle/install-skills-bridge.js'
     );
     expect(runInstallSkills).not.toHaveBeenCalled();
     // Non-zero, not "command not found".
@@ -97,7 +97,7 @@ describe('exarchos install-skills CLI (DR-5 rename stub)', () => {
     ]);
 
     const { runInstallSkills } = await import(
-      '../lifecycle/install-skills-bridge.js'
+      '../../lifecycle/install-skills-bridge.js'
     );
     expect(runInstallSkills).not.toHaveBeenCalled();
     expect(process.exitCode).toBe(CLI_EXIT_CODES.HANDLER_ERROR);

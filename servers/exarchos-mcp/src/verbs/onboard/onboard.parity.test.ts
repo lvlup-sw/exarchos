@@ -51,7 +51,7 @@ import {
   MCP_ONBOARD_SURFACE,
   stampOnboardSurface,
   surfaceOnboardCliAdvisory,
-} from '../../adapters/mcp.js';
+} from '../../adapters/mcp/mcp.js';
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 import { BLOCK_DRIFT_CHECK_NAME } from './block-drift.js';
 import { RETIRED_HOOKS_CHECK_NAME } from './hooks.js';

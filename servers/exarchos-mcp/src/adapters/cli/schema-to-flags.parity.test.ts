@@ -3,11 +3,11 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { type DispatchContext } from '../dispatch/core/dispatch.js';
-import { EventStore } from '../events/store.js';
-import type { ToolResult } from '../format.js';
-import { callCli, callMcp } from '../__tests__/parity-harness.js';
-import { rmrfAsync } from '../test-helpers/temp-dir.js';
+import { type DispatchContext } from '../../dispatch/core/dispatch.js';
+import { EventStore } from '../../events/store.js';
+import type { ToolResult } from '../../format.js';
+import { callCli, callMcp } from '../../__tests__/parity-harness.js';
+import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
 // ─── Task 024: CLI-vs-MCP Argument Coercion Failure Parity (DR-5) ────────────
 // These tests prove that when users provide malformed arguments — missing a

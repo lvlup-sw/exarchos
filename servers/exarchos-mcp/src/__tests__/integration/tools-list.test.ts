@@ -27,7 +27,7 @@ import {
   type V2Client,
   type V2InMemoryTransport,
 } from '../../contract/sdk/seam.js';
-import { createMcpServer } from '../../adapters/mcp.js';
+import { createMcpServer } from '../../adapters/mcp/mcp.js';
 import { EventStore } from '../../events/store.js';
 import { TOOL_REGISTRY } from '../../registry.js';
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';

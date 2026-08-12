@@ -25,7 +25,7 @@ import type { NextAction } from '../../next-action.js';
 import {
   formatValidationError,
   buildInvalidInput,
-} from '../../adapters/schema-to-flags.js';
+} from '../../adapters/cli/schema-to-flags.js';
 import { runSessionMachineryConsumedInterceptor } from './interceptors/session-machinery.js';
 import { evaluateInstallFreshness } from '../../install/freshness-gate.js';
 import {

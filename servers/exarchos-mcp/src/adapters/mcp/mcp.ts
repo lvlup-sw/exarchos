@@ -4,31 +4,31 @@ import {
   createV2McpServer,
   V2_ROOTS_LIST_CHANGED_NOTIFICATION_METHOD,
   type V2McpServer,
-} from '../contract/sdk/seam.js';
+} from '../../contract/sdk/seam.js';
 import {
   getFullRegistry,
   buildRegistrationSchema,
   buildToolDescription,
-} from '../registry.js';
-import type { ToolAction } from '../registry.js';
-import { toEnvelope } from '../format.js';
-import type { Envelope, ErrorEnvelope } from '../format.js';
-import { dispatch } from '../dispatch/core/dispatch.js';
-import type { DispatchContext } from '../dispatch/core/dispatch.js';
-import { handleRootsListChanged } from '../mcp/notifications.js';
-import { createElicitationClient } from '../mcp/elicitation-method.js';
-import type { RootsClient } from '../workspace/discovery.js';
-import { EnvelopeSchema } from '../contract/schemas/envelope.js';
-import { logger } from '../logger.js';
-import { EventSourcedTaskStore } from '../projections/task-store/event-sourced-task-store.js';
-import { attachTaskStoreToV2, describeTaskWireGap } from '../projections/task-store/attach.js';
-import type { NextAction } from '../next-action.js';
-import type { ToolResult } from '../format.js';
+} from '../../registry.js';
+import type { ToolAction } from '../../registry.js';
+import { toEnvelope } from '../../format.js';
+import type { Envelope, ErrorEnvelope } from '../../format.js';
+import { dispatch } from '../../dispatch/core/dispatch.js';
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
+import { handleRootsListChanged } from '../../mcp/notifications.js';
+import { createElicitationClient } from '../../mcp/elicitation-method.js';
+import type { RootsClient } from '../../workspace/discovery.js';
+import { EnvelopeSchema } from '../../contract/schemas/envelope.js';
+import { logger } from '../../logger.js';
+import { EventSourcedTaskStore } from '../../projections/task-store/event-sourced-task-store.js';
+import { attachTaskStoreToV2, describeTaskWireGap } from '../../projections/task-store/attach.js';
+import type { NextAction } from '../../next-action.js';
+import type { ToolResult } from '../../format.js';
 import {
   deriveMcpCallerIdentity,
   type McpCallerRuntimeContext,
-} from '../dispatch/caller-identity.js';
-import { assertBindingsAtStartup } from '../contract/bindings/verify-bindings.js';
+} from '../../dispatch/caller-identity.js';
+import { assertBindingsAtStartup } from '../../contract/bindings/verify-bindings.js';
 
 // ─── DR-6: onboard CLI/MCP parity split — surface stamp + advisory carrier ───
 //
@@ -234,7 +234,7 @@ export function toMcpResult(env: Envelope<unknown> | ErrorEnvelope) {
 // SERVER_NAME / SERVER_VERSION exports in src/index.ts — task 1.6's compiled
 // binary integration test asserts that the version advertised over MCP's
 // initialize handshake matches the index.ts export, so drift here is caught
-// in CI. A static `import { SERVER_VERSION } from '../index.js'` would pull
+// in CI. A static `import { SERVER_VERSION } from '../../index.js'` would pull
 // the full index graph (event-store, backend init, hooks, CLI) into every
 // caller of this adapter, so the values are duplicated intentionally; the
 // integration test pins them together.

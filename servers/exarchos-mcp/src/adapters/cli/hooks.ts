@@ -71,7 +71,7 @@ export async function handleHookCommand(
 
   // Lightweight hook router — avoids importing cli.ts which transitively
   // pulls in promptfoo/playwright via eval handlers.
-  const { resolveStateDir } = await import('../workflow/state-store.js');
+  const { resolveStateDir } = await import('../../workflow/state-store.js');
 
   let stdinData: Record<string, unknown>;
   try {
@@ -87,15 +87,15 @@ export async function handleHookCommand(
 
   const handlers: Record<string, () => Promise<HandlerResult>> = {
     'session-start': async () => {
-      const { handleSessionStart } = await import('../lifecycle/session-start.js');
+      const { handleSessionStart } = await import('../../lifecycle/session-start.js');
       return handleSessionStart(stdinData, resolveStateDir(), { directive });
     },
     'session-end': async () => {
-      const { handleSessionEnd } = await import('../lifecycle/session-end.js');
+      const { handleSessionEnd } = await import('../../lifecycle/session-end.js');
       return handleSessionEnd(stdinData, resolveStateDir());
     },
     'subagent-stop': async () => {
-      const { handleSubagentStop } = await import('../lifecycle/subagent-stop.js');
+      const { handleSubagentStop } = await import('../../lifecycle/subagent-stop.js');
       return handleSubagentStop(stdinData, resolveStateDir());
     },
   };
