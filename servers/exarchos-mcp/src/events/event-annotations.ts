@@ -654,7 +654,7 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     consumedBy: ['telemetry'],
   },
   // #1525 — the restored SubagentStop hook resolves teammate identity and appends. The append is
-  // owned by exarchos code (`cli-commands/subagent-stop.ts`), which is why the registry records
+  // owned by exarchos code (`lifecycle/subagent-stop.ts`), which is why the registry records
   // it `auto` and not `hook`; the hook is the TRIGGER, not the author.
   'subagent.tokens_used': {
     lifecycle: 'active',

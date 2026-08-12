@@ -488,7 +488,7 @@ export function buildCli(ctx: DispatchContext, options?: BuildCliOptions): Comma
         return;
       }
 
-      const { handleVersionCheck } = await import('../cli-commands/version.js');
+      const { handleVersionCheck } = await import('../lifecycle/version.js');
       const exitCode = await handleVersionCheck({
         pluginRoot: opts.checkPluginRoot,
         binaryVersion: packageVersion,
@@ -1260,7 +1260,7 @@ function registerActionCommand(
       }
       try {
         const { runEventQueryFollow, pollingEventSource } = await import(
-          '../cli-commands/event-query.js'
+          '../lifecycle/event-query.js'
         );
         const source = pollingEventSource({
           store: ctx.eventStore,

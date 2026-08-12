@@ -39,7 +39,7 @@ export type HookResult =
   | { handled: false };
 
 /**
- * Handle a hook command by dispatching to the appropriate cli-commands handler.
+ * Handle a hook command by dispatching to the appropriate lifecycle handler.
  *
  * @param command     - The hook command name (e.g. 'session-start', 'session-end')
  * @param argv        - Full process.argv array
@@ -87,15 +87,15 @@ export async function handleHookCommand(
 
   const handlers: Record<string, () => Promise<HandlerResult>> = {
     'session-start': async () => {
-      const { handleSessionStart } = await import('../cli-commands/session-start.js');
+      const { handleSessionStart } = await import('../lifecycle/session-start.js');
       return handleSessionStart(stdinData, resolveStateDir(), { directive });
     },
     'session-end': async () => {
-      const { handleSessionEnd } = await import('../cli-commands/session-end.js');
+      const { handleSessionEnd } = await import('../lifecycle/session-end.js');
       return handleSessionEnd(stdinData, resolveStateDir());
     },
     'subagent-stop': async () => {
-      const { handleSubagentStop } = await import('../cli-commands/subagent-stop.js');
+      const { handleSubagentStop } = await import('../lifecycle/subagent-stop.js');
       return handleSubagentStop(stdinData, resolveStateDir());
     },
   };

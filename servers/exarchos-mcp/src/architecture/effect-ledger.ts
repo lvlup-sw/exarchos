@@ -958,7 +958,7 @@ function registerLedger(): readonly EffectOwnershipRule[] {
     ),
     rule(
       'process',
-      'cli-commands/',
+      'lifecycle/',
       'cli-process-owner',
       'per-command: CLI verification runners own re-run semantics',
       'none: verification is read-only over the worktree',
@@ -1045,7 +1045,7 @@ function registerLedger(): readonly EffectOwnershipRule[] {
     rule('filesystem', 'runtime/', 'runtime-fs', 'runtime resource reads; read-only', 'none'),
     rule('filesystem', 'projections/telemetry/', 'telemetry-fs', 'append-only telemetry; best-effort', 'none: telemetry is advisory'),
     rule('filesystem', 'workflow/topology/', 'topology-fs', 'topology reads; read-only', 'none'),
-    rule('filesystem', 'cli-commands/', 'cli-fs', 'worktree reads/writes; per-command', 'none: read-mostly'),
+    rule('filesystem', 'lifecycle/', 'cli-fs', 'worktree reads/writes; per-command', 'none: read-mostly'),
     rule('filesystem', 'adapters/', 'adapters-fs', 'adapter io; caller owns idempotency', 'caller-owned'),
     rule('filesystem', 'onramp/', 'onramp-fs', 'onboarding scaffold writes; idempotent', 'scaffold is re-runnable'),
     rule('filesystem', 'workspace/', 'workspace-fs', 'workspace reads/writes; idempotent by path', 'caller-owned'),

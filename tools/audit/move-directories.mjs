@@ -24,14 +24,11 @@ const SRC = path.join(ROOT, SRC_REL);
 const APPLY = process.argv.includes('--apply');
 
 /** oldDirName -> newRelativeDirPath (both relative to src/) */
+// Task 017 — L7 lifecycle verbs. (Task 012's table, kept for reference:
+// artifacts->storage/artifacts, event-store->events, and the five
+// views/telemetry/quality/session/task-store folds into projections/.)
 const MOVES = {
-  'artifacts': 'storage/artifacts',
-  'event-store': 'events',
-  'views': 'projections/views',
-  'telemetry': 'projections/telemetry',
-  'quality': 'projections/quality',
-  'session': 'projections/session',
-  'task-store': 'projections/task-store',
+  'cli-commands': 'lifecycle',
 };
 
 /** Map an absolute path through the move table. Returns the same path if unmoved. */

@@ -11327,329 +11327,6 @@
         }
       ]
     },
-    "servers/exarchos-mcp/src/cli-commands/event-query.test.ts": {
-      "file": "servers/exarchos-mcp/src/cli-commands/event-query.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "event query --follow (T042, DR-9)",
-          "name": "EventQueryCli_WithFollow_EmitsOneLinePerEvent",
-          "dynamic": false
-        },
-        {
-          "suite": "event query --follow (T042, DR-9)",
-          "name": "EventQueryCli_StreamClose_EmitsEndFrame",
-          "dynamic": false
-        },
-        {
-          "suite": "event query --follow (T042, DR-9)",
-          "name": "EventQueryCli_IdleFollow_EmitsHeartbeat",
-          "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/cli-commands/install-skills-bridge.test.ts": {
-      "file": "servers/exarchos-mcp/src/cli-commands/install-skills-bridge.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "install-skills-bridge",
-          "name": "Bridge_Default_UsesEmbeddedRuntimes",
-          "dynamic": false
-        },
-        {
-          "suite": "install-skills-bridge",
-          "name": "Bridge_DiskFlagSet_LoadsFromFilesystem",
-          "dynamic": false
-        },
-        {
-          "suite": "install-skills-bridge",
-          "name": "Bridge_EmbeddedAndDisk_ProduceIdenticalRuntimes",
-          "dynamic": false
-        },
-        {
-          "suite": "install-skills-bridge",
-          "name": "shouldLoadFromDisk_OnlyTrueWhenEnvVarIsExactlyOne",
-          "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/cli-commands/run-tests.test.ts": {
-      "file": "servers/exarchos-mcp/src/cli-commands/run-tests.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "handleRunTests",
-          "name": "RunTests_ResolvedCommand_ExecsItAndReturnsExitCode",
-          "dynamic": false
-        },
-        {
-          "suite": "handleRunTests",
-          "name": "RunTests_TestProcessFails_PropagatesNonZeroExitCode",
-          "dynamic": false
-        },
-        {
-          "suite": "handleRunTests",
-          "name": "RunTests_Unresolved_SkipsVisiblyAndExitsZero",
-          "dynamic": false
-        },
-        {
-          "suite": "handleRunTests",
-          "name": "RunTests_MalformedConfig_SurfacesErrorAndExitsNonZero",
-          "dynamic": false
-        },
-        {
-          "suite": "handleRunTests",
-          "name": "RunTests_DryRun_PrintsResolvedCommandWithoutExecuting",
-          "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/cli-commands/session-end.test.ts": {
-      "file": "servers/exarchos-mcp/src/cli-commands/session-end.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "session-end command > input validation",
-          "name": "handleSessionEnd_MissingSessionId_ReturnsError",
-          "dynamic": false
-        },
-        {
-          "suite": "session-end command > input validation",
-          "name": "handleSessionEnd_MissingTranscriptPath_ReturnsError",
-          "dynamic": false
-        },
-        {
-          "suite": "session-end command > input validation",
-          "name": "handleSessionEnd_EmptyStdin_ReturnsError",
-          "dynamic": false
-        },
-        {
-          "suite": "session-end command > input validation",
-          "name": "handleSessionEnd_NonStringSessionId_ReturnsError",
-          "dynamic": false
-        },
-        {
-          "suite": "session-end command > input validation",
-          "name": "handleSessionEnd_NonStringTranscriptPath_ReturnsError",
-          "dynamic": false
-        },
-        {
-          "suite": "session-end command > extraction",
-          "name": "handleSessionEnd_ValidTranscript_WritesSessionEventsFile",
-          "dynamic": false
-        },
-        {
-          "suite": "session-end command > extraction",
-          "name": "handleSessionEnd_ValidTranscript_UpdatesManifestWithCompletion",
-          "dynamic": false
-        },
-        {
-          "suite": "session-end command > extraction",
-          "name": "handleSessionEnd_ValidTranscript_SessionEventsContainToolAndTurnAndSummary",
-          "dynamic": false
-        },
-        {
-          "suite": "session-end command > extraction",
-          "name": "handleSessionEnd_TranscriptNotFound_ReturnsErrorGracefully",
-          "dynamic": false
-        },
-        {
-          "suite": "session-end command > extraction",
-          "name": "handleSessionEnd_AlreadyExtracted_SkipsReextraction",
-          "dynamic": false
-        },
-        {
-          "suite": "session-end command > extraction",
-          "name": "handleSessionEnd_ParseTranscriptThrows_ReturnsExtractionError",
-          "dynamic": false
-        },
-        {
-          "suite": "session-end command > extraction",
-          "name": "handleSessionEnd_NoEndReason_DefaultsToUnknown",
-          "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/cli-commands/session-start.test.ts": {
-      "file": "servers/exarchos-mcp/src/cli-commands/session-start.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "session-start command",
-          "name": "handleSessionStart_MissingSessionId_FailOpenNoError",
-          "dynamic": false
-        },
-        {
-          "suite": "session-start command",
-          "name": "handleSessionStart_MissingSessionIdWithDirective_StillOrients",
-          "dynamic": false
-        },
-        {
-          "suite": "session-start command",
-          "name": "handleSessionStart_ValidInput_WritesManifestEntry",
-          "dynamic": false
-        },
-        {
-          "suite": "session-start command",
-          "name": "handleSessionStart_NeverWritesEventsFile",
-          "dynamic": false
-        },
-        {
-          "suite": "session-start command",
-          "name": "handleSessionStart_WithDirective_ReturnsAdditionalContext",
-          "dynamic": false
-        },
-        {
-          "suite": "session-start command",
-          "name": "handleSessionStart_DuplicateSession_Idempotent",
-          "dynamic": false
-        },
-        {
-          "suite": "session-start command",
-          "name": "handleSessionStart_Observer_NeverReturnsPolicyError",
-          "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/cli-commands/subagent-stop.test.ts": {
-      "file": "servers/exarchos-mcp/src/cli-commands/subagent-stop.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "handleSubagentStop (#1525 W2 H1-A)",
-          "name": "SubagentStop_ResolvesTeammate_ByWorktreeMatch_EmitsAtom",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSubagentStop (#1525 W2 H1-A)",
-          "name": "SubagentStop_NoWorktreeMatch_FailsOpen_NoEmit",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSubagentStop (#1525 W2 H1-A)",
-          "name": "SubagentStop_MissingAgentIdOrTranscript_FailsOpen",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSubagentStop (#1525 W2 H1-A)",
-          "name": "SubagentStop_TranscriptReaderReturnsNull_NoEmit",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSubagentStop (#1525 W2 H1-A)",
-          "name": "SubagentStop_DedupesByAgentId_OnRetry",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSubagentStop (#1525 W2 H1-A)",
-          "name": "resolveTeammateByWorktree_FromDispatched_CarriesFirstTaskId",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSubagentStop (#1525 W2 H1-A)",
-          "name": "resolveTeammateByWorktree_NoMatch_ReturnsNull",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSubagentStop (#1525 W2 H1-A)",
-          "name": "resolveTeammateByWorktree_ReusedWorktree_PrefersMostRecentStream",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSubagentStop (#1525 W2 H1-A)",
-          "name": "SubagentStop_ZeroOutputTokens_NoEmit",
-          "dynamic": false
-        },
-        {
-          "suite": "handleSubagentStop (#1525 W2 H1-A)",
-          "name": "SubagentStop_MalformedPayload_FailsOpen",
-          "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/cli-commands/verify-worktree-boundary.test.ts": {
-      "file": "servers/exarchos-mcp/src/cli-commands/verify-worktree-boundary.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "handleVerifyWorktreeBoundary",
-          "name": "VerifyWorktreeBoundary_RelativePathInsideWorktree_Allows",
-          "dynamic": false
-        },
-        {
-          "suite": "handleVerifyWorktreeBoundary",
-          "name": "VerifyWorktreeBoundary_AbsolutePathInsideWorktree_Allows",
-          "dynamic": false
-        },
-        {
-          "suite": "handleVerifyWorktreeBoundary",
-          "name": "VerifyWorktreeBoundary_AbsoluteMainRepoPath_Denies",
-          "dynamic": false
-        },
-        {
-          "suite": "handleVerifyWorktreeBoundary",
-          "name": "VerifyWorktreeBoundary_DotDotEscape_Denies",
-          "dynamic": false
-        },
-        {
-          "suite": "handleVerifyWorktreeBoundary",
-          "name": "VerifyWorktreeBoundary_SiblingWorktreePath_Denies",
-          "dynamic": false
-        },
-        {
-          "suite": "handleVerifyWorktreeBoundary",
-          "name": "VerifyWorktreeBoundary_NotebookPath_Guarded",
-          "dynamic": false
-        },
-        {
-          "suite": "handleVerifyWorktreeBoundary",
-          "name": "VerifyWorktreeBoundary_NoFilePath_Allows",
-          "dynamic": false
-        },
-        {
-          "suite": "handleVerifyWorktreeBoundary",
-          "name": "VerifyWorktreeBoundary_NonStringFilePath_AllowsWithoutThrowing",
-          "dynamic": false
-        },
-        {
-          "suite": "handleVerifyWorktreeBoundary",
-          "name": "VerifyWorktreeBoundary_MalformedJson_AllowsWithStderr",
-          "dynamic": false
-        },
-        {
-          "suite": "handleVerifyWorktreeBoundary",
-          "name": "VerifyWorktreeBoundary_NoGitToplevel_ConfinesToCwd",
-          "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/cli-commands/version.test.ts": {
-      "file": "servers/exarchos-mcp/src/cli-commands/version.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "version subcommand",
-          "name": "VersionCheck_PluginRootCompatible_ExitsZero",
-          "dynamic": false
-        },
-        {
-          "suite": "version subcommand",
-          "name": "VersionCheck_PluginRootIncompatible_ExitsNonZeroWithMessage",
-          "dynamic": false
-        },
-        {
-          "suite": "version subcommand",
-          "name": "VersionCheck_PluginRootMissingMetadata_ExitsZeroWithWarning",
-          "dynamic": false
-        },
-        {
-          "suite": "version subcommand",
-          "name": "VersionCheck_PluginRootMissing_ExitsZeroWithWarning",
-          "dynamic": false
-        }
-      ]
-    },
     "servers/exarchos-mcp/src/cli/cli-follow-expansion.test.ts": {
       "file": "servers/exarchos-mcp/src/cli/cli-follow-expansion.test.ts",
       "runner": "vitest:nested",
@@ -26188,6 +25865,329 @@
         {
           "suite": "plugin-compat library > compareSemver",
           "name": "tolerates a leading v prefix",
+          "dynamic": false
+        }
+      ]
+    },
+    "servers/exarchos-mcp/src/lifecycle/event-query.test.ts": {
+      "file": "servers/exarchos-mcp/src/lifecycle/event-query.test.ts",
+      "runner": "vitest:nested",
+      "cases": [
+        {
+          "suite": "event query --follow (T042, DR-9)",
+          "name": "EventQueryCli_WithFollow_EmitsOneLinePerEvent",
+          "dynamic": false
+        },
+        {
+          "suite": "event query --follow (T042, DR-9)",
+          "name": "EventQueryCli_StreamClose_EmitsEndFrame",
+          "dynamic": false
+        },
+        {
+          "suite": "event query --follow (T042, DR-9)",
+          "name": "EventQueryCli_IdleFollow_EmitsHeartbeat",
+          "dynamic": false
+        }
+      ]
+    },
+    "servers/exarchos-mcp/src/lifecycle/install-skills-bridge.test.ts": {
+      "file": "servers/exarchos-mcp/src/lifecycle/install-skills-bridge.test.ts",
+      "runner": "vitest:nested",
+      "cases": [
+        {
+          "suite": "install-skills-bridge",
+          "name": "Bridge_Default_UsesEmbeddedRuntimes",
+          "dynamic": false
+        },
+        {
+          "suite": "install-skills-bridge",
+          "name": "Bridge_DiskFlagSet_LoadsFromFilesystem",
+          "dynamic": false
+        },
+        {
+          "suite": "install-skills-bridge",
+          "name": "Bridge_EmbeddedAndDisk_ProduceIdenticalRuntimes",
+          "dynamic": false
+        },
+        {
+          "suite": "install-skills-bridge",
+          "name": "shouldLoadFromDisk_OnlyTrueWhenEnvVarIsExactlyOne",
+          "dynamic": false
+        }
+      ]
+    },
+    "servers/exarchos-mcp/src/lifecycle/run-tests.test.ts": {
+      "file": "servers/exarchos-mcp/src/lifecycle/run-tests.test.ts",
+      "runner": "vitest:nested",
+      "cases": [
+        {
+          "suite": "handleRunTests",
+          "name": "RunTests_ResolvedCommand_ExecsItAndReturnsExitCode",
+          "dynamic": false
+        },
+        {
+          "suite": "handleRunTests",
+          "name": "RunTests_TestProcessFails_PropagatesNonZeroExitCode",
+          "dynamic": false
+        },
+        {
+          "suite": "handleRunTests",
+          "name": "RunTests_Unresolved_SkipsVisiblyAndExitsZero",
+          "dynamic": false
+        },
+        {
+          "suite": "handleRunTests",
+          "name": "RunTests_MalformedConfig_SurfacesErrorAndExitsNonZero",
+          "dynamic": false
+        },
+        {
+          "suite": "handleRunTests",
+          "name": "RunTests_DryRun_PrintsResolvedCommandWithoutExecuting",
+          "dynamic": false
+        }
+      ]
+    },
+    "servers/exarchos-mcp/src/lifecycle/session-end.test.ts": {
+      "file": "servers/exarchos-mcp/src/lifecycle/session-end.test.ts",
+      "runner": "vitest:nested",
+      "cases": [
+        {
+          "suite": "session-end command > input validation",
+          "name": "handleSessionEnd_MissingSessionId_ReturnsError",
+          "dynamic": false
+        },
+        {
+          "suite": "session-end command > input validation",
+          "name": "handleSessionEnd_MissingTranscriptPath_ReturnsError",
+          "dynamic": false
+        },
+        {
+          "suite": "session-end command > input validation",
+          "name": "handleSessionEnd_EmptyStdin_ReturnsError",
+          "dynamic": false
+        },
+        {
+          "suite": "session-end command > input validation",
+          "name": "handleSessionEnd_NonStringSessionId_ReturnsError",
+          "dynamic": false
+        },
+        {
+          "suite": "session-end command > input validation",
+          "name": "handleSessionEnd_NonStringTranscriptPath_ReturnsError",
+          "dynamic": false
+        },
+        {
+          "suite": "session-end command > extraction",
+          "name": "handleSessionEnd_ValidTranscript_WritesSessionEventsFile",
+          "dynamic": false
+        },
+        {
+          "suite": "session-end command > extraction",
+          "name": "handleSessionEnd_ValidTranscript_UpdatesManifestWithCompletion",
+          "dynamic": false
+        },
+        {
+          "suite": "session-end command > extraction",
+          "name": "handleSessionEnd_ValidTranscript_SessionEventsContainToolAndTurnAndSummary",
+          "dynamic": false
+        },
+        {
+          "suite": "session-end command > extraction",
+          "name": "handleSessionEnd_TranscriptNotFound_ReturnsErrorGracefully",
+          "dynamic": false
+        },
+        {
+          "suite": "session-end command > extraction",
+          "name": "handleSessionEnd_AlreadyExtracted_SkipsReextraction",
+          "dynamic": false
+        },
+        {
+          "suite": "session-end command > extraction",
+          "name": "handleSessionEnd_ParseTranscriptThrows_ReturnsExtractionError",
+          "dynamic": false
+        },
+        {
+          "suite": "session-end command > extraction",
+          "name": "handleSessionEnd_NoEndReason_DefaultsToUnknown",
+          "dynamic": false
+        }
+      ]
+    },
+    "servers/exarchos-mcp/src/lifecycle/session-start.test.ts": {
+      "file": "servers/exarchos-mcp/src/lifecycle/session-start.test.ts",
+      "runner": "vitest:nested",
+      "cases": [
+        {
+          "suite": "session-start command",
+          "name": "handleSessionStart_MissingSessionId_FailOpenNoError",
+          "dynamic": false
+        },
+        {
+          "suite": "session-start command",
+          "name": "handleSessionStart_MissingSessionIdWithDirective_StillOrients",
+          "dynamic": false
+        },
+        {
+          "suite": "session-start command",
+          "name": "handleSessionStart_ValidInput_WritesManifestEntry",
+          "dynamic": false
+        },
+        {
+          "suite": "session-start command",
+          "name": "handleSessionStart_NeverWritesEventsFile",
+          "dynamic": false
+        },
+        {
+          "suite": "session-start command",
+          "name": "handleSessionStart_WithDirective_ReturnsAdditionalContext",
+          "dynamic": false
+        },
+        {
+          "suite": "session-start command",
+          "name": "handleSessionStart_DuplicateSession_Idempotent",
+          "dynamic": false
+        },
+        {
+          "suite": "session-start command",
+          "name": "handleSessionStart_Observer_NeverReturnsPolicyError",
+          "dynamic": false
+        }
+      ]
+    },
+    "servers/exarchos-mcp/src/lifecycle/subagent-stop.test.ts": {
+      "file": "servers/exarchos-mcp/src/lifecycle/subagent-stop.test.ts",
+      "runner": "vitest:nested",
+      "cases": [
+        {
+          "suite": "handleSubagentStop (#1525 W2 H1-A)",
+          "name": "SubagentStop_ResolvesTeammate_ByWorktreeMatch_EmitsAtom",
+          "dynamic": false
+        },
+        {
+          "suite": "handleSubagentStop (#1525 W2 H1-A)",
+          "name": "SubagentStop_NoWorktreeMatch_FailsOpen_NoEmit",
+          "dynamic": false
+        },
+        {
+          "suite": "handleSubagentStop (#1525 W2 H1-A)",
+          "name": "SubagentStop_MissingAgentIdOrTranscript_FailsOpen",
+          "dynamic": false
+        },
+        {
+          "suite": "handleSubagentStop (#1525 W2 H1-A)",
+          "name": "SubagentStop_TranscriptReaderReturnsNull_NoEmit",
+          "dynamic": false
+        },
+        {
+          "suite": "handleSubagentStop (#1525 W2 H1-A)",
+          "name": "SubagentStop_DedupesByAgentId_OnRetry",
+          "dynamic": false
+        },
+        {
+          "suite": "handleSubagentStop (#1525 W2 H1-A)",
+          "name": "resolveTeammateByWorktree_FromDispatched_CarriesFirstTaskId",
+          "dynamic": false
+        },
+        {
+          "suite": "handleSubagentStop (#1525 W2 H1-A)",
+          "name": "resolveTeammateByWorktree_NoMatch_ReturnsNull",
+          "dynamic": false
+        },
+        {
+          "suite": "handleSubagentStop (#1525 W2 H1-A)",
+          "name": "resolveTeammateByWorktree_ReusedWorktree_PrefersMostRecentStream",
+          "dynamic": false
+        },
+        {
+          "suite": "handleSubagentStop (#1525 W2 H1-A)",
+          "name": "SubagentStop_ZeroOutputTokens_NoEmit",
+          "dynamic": false
+        },
+        {
+          "suite": "handleSubagentStop (#1525 W2 H1-A)",
+          "name": "SubagentStop_MalformedPayload_FailsOpen",
+          "dynamic": false
+        }
+      ]
+    },
+    "servers/exarchos-mcp/src/lifecycle/verify-worktree-boundary.test.ts": {
+      "file": "servers/exarchos-mcp/src/lifecycle/verify-worktree-boundary.test.ts",
+      "runner": "vitest:nested",
+      "cases": [
+        {
+          "suite": "handleVerifyWorktreeBoundary",
+          "name": "VerifyWorktreeBoundary_RelativePathInsideWorktree_Allows",
+          "dynamic": false
+        },
+        {
+          "suite": "handleVerifyWorktreeBoundary",
+          "name": "VerifyWorktreeBoundary_AbsolutePathInsideWorktree_Allows",
+          "dynamic": false
+        },
+        {
+          "suite": "handleVerifyWorktreeBoundary",
+          "name": "VerifyWorktreeBoundary_AbsoluteMainRepoPath_Denies",
+          "dynamic": false
+        },
+        {
+          "suite": "handleVerifyWorktreeBoundary",
+          "name": "VerifyWorktreeBoundary_DotDotEscape_Denies",
+          "dynamic": false
+        },
+        {
+          "suite": "handleVerifyWorktreeBoundary",
+          "name": "VerifyWorktreeBoundary_SiblingWorktreePath_Denies",
+          "dynamic": false
+        },
+        {
+          "suite": "handleVerifyWorktreeBoundary",
+          "name": "VerifyWorktreeBoundary_NotebookPath_Guarded",
+          "dynamic": false
+        },
+        {
+          "suite": "handleVerifyWorktreeBoundary",
+          "name": "VerifyWorktreeBoundary_NoFilePath_Allows",
+          "dynamic": false
+        },
+        {
+          "suite": "handleVerifyWorktreeBoundary",
+          "name": "VerifyWorktreeBoundary_NonStringFilePath_AllowsWithoutThrowing",
+          "dynamic": false
+        },
+        {
+          "suite": "handleVerifyWorktreeBoundary",
+          "name": "VerifyWorktreeBoundary_MalformedJson_AllowsWithStderr",
+          "dynamic": false
+        },
+        {
+          "suite": "handleVerifyWorktreeBoundary",
+          "name": "VerifyWorktreeBoundary_NoGitToplevel_ConfinesToCwd",
+          "dynamic": false
+        }
+      ]
+    },
+    "servers/exarchos-mcp/src/lifecycle/version.test.ts": {
+      "file": "servers/exarchos-mcp/src/lifecycle/version.test.ts",
+      "runner": "vitest:nested",
+      "cases": [
+        {
+          "suite": "version subcommand",
+          "name": "VersionCheck_PluginRootCompatible_ExitsZero",
+          "dynamic": false
+        },
+        {
+          "suite": "version subcommand",
+          "name": "VersionCheck_PluginRootIncompatible_ExitsNonZeroWithMessage",
+          "dynamic": false
+        },
+        {
+          "suite": "version subcommand",
+          "name": "VersionCheck_PluginRootMissingMetadata_ExitsZeroWithWarning",
+          "dynamic": false
+        },
+        {
+          "suite": "version subcommand",
+          "name": "VersionCheck_PluginRootMissing_ExitsZeroWithWarning",
           "dynamic": false
         }
       ]

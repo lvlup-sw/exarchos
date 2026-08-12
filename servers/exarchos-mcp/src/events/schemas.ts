@@ -159,7 +159,7 @@ export const EventTypes = [
   // turn's `outputTokens` crosses the configured threshold.
   'turn.completed',
   // #1525 W2 Half 1 — per-subagent output-token total emitted by the restored
-  // SubagentStop hook (`cli-commands/subagent-stop.ts`). The handler parses the
+  // SubagentStop hook (`lifecycle/subagent-stop.ts`). The handler parses the
   // subagent's own transcript, sums output tokens, and resolves teammate identity
   // by matching the subagent cwd to a dispatched worktree before appending to the
   // feature stream. Folded by team-performance / delegation-timeline.

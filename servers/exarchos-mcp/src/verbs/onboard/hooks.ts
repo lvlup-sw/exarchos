@@ -14,7 +14,7 @@
  * `exarchos session-start --directive '<orientation>'` on `startup|resume`; the
  * handler echoes the directive as `additionalContext` so injection-capable hosts
  * are soft-bound to route SDLC through the `exarchos_*` MCP tools (see
- * `cli-commands/session-start.ts` and `hooks/hooks.json`).
+ * `lifecycle/session-start.ts` and `hooks/hooks.json`).
  *
  * Idempotent by construction: the binding is identified by a `command` that
  * references `exarchos session-start`. Re-running finds the existing entry and

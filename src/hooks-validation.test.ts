@@ -154,9 +154,12 @@ describe('enforcement-handler excision grep-sweep (#1476)', () => {
   // this test itself, which legitimately names them to assert absence).
   it('NoSourceReferences_ToRetiredEnforcementSubcommands', () => {
     const patterns = [
-      'cli-commands/guard',
-      'cli-commands/gates',
-      'cli-commands/subagent-context',
+      // Task 017 moved `cli-commands/` to `lifecycle/`. Left pinned to the old
+      // directory these three could never match again — a resurrected handler
+      // would land under the new name and pass unseen.
+      'lifecycle/guard',
+      'lifecycle/gates',
+      'lifecycle/subagent-context',
       'task-gate',
       'teammate-gate',
       'handleGuard',

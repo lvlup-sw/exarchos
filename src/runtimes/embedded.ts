@@ -273,7 +273,7 @@ function deepFreeze<T>(value: T): T {
 /**
  * Frozen array of validated `RuntimeMap` entries embedded into the
  * compiled binary. The bridge in
- * `servers/exarchos-mcp/src/cli-commands/install-skills-bridge.js`
+ * `servers/exarchos-mcp/src/lifecycle/install-skills-bridge.js`
  * prefers this array over reading `runtimes/*.yaml` from disk so
  * `install-skills` works inside the single-file binary, where the
  * YAML directory does not ship.

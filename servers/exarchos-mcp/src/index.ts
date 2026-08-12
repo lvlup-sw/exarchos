@@ -360,7 +360,7 @@ async function main() {
   // deliberately NOT a HOOK_COMMAND: that set is observe-only (#1476 ADR) and
   // never executes a workload; run-tests runs the suite, so it lives here.
   if (process.argv[2] === 'run-tests') {
-    const { handleRunTests } = await import('./cli-commands/run-tests.js');
+    const { handleRunTests } = await import('./lifecycle/run-tests.js');
     process.exitCode = handleRunTests(process.argv.slice(3), { cwd: process.cwd() });
     return;
   }
@@ -373,7 +373,7 @@ async function main() {
   // backend, and it must stay fast (it runs before every agent file write).
   if (process.argv[2] === 'verify-worktree-boundary') {
     const { handleVerifyWorktreeBoundary } = await import(
-      './cli-commands/verify-worktree-boundary.js'
+      './lifecycle/verify-worktree-boundary.js'
     );
     // Read the hook payload from stdin. Guard against an interactive TTY (no
     // piped input): `fs.readFileSync(0)` would block forever waiting on the

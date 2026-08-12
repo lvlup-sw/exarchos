@@ -16,7 +16,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-// Walk up from servers/exarchos-mcp/src/cli-commands → repo root.
+// Walk up from servers/exarchos-mcp/src/lifecycle → repo root.
 const REPO_ROOT = resolve(__dirname, '..', '..', '..', '..');
 const RUNTIMES_DIR = resolve(REPO_ROOT, 'runtimes');
 

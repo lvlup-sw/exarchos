@@ -1,7 +1,7 @@
 {
   "capturedAt": "2026-08-12",
-  "trackedFiles": 3314,
-  "scannedFiles": 3196,
+  "trackedFiles": 3342,
+  "scannedFiles": 3223,
   "namedFilesIncluded": [
     ".github/CODEOWNERS",
     ".gitattributes",
@@ -12,16 +12,16 @@
     "docs/designs": {
       "disposition": "delete",
       "ownFiles": 136,
-      "externalReferrers": 297,
+      "externalReferrers": 301,
       "referrersByKind": {
-        "code": 76,
+        "code": 80,
         "config": 3,
         "snapshot": 1,
         "markdownLive": 31,
         "markdownArchival": 182,
         "other": 4
       },
-      "liveReferrers": 115,
+      "liveReferrers": 119,
       "sampleReferrers": [
         ".exarchos.yml",
         ".exarchos/invariants.md",
@@ -50,16 +50,16 @@
     "docs/plans": {
       "disposition": "delete",
       "ownFiles": 171,
-      "externalReferrers": 95,
+      "externalReferrers": 96,
       "referrersByKind": {
-        "code": 37,
+        "code": 38,
         "config": 3,
         "snapshot": 1,
         "markdownLive": 20,
         "markdownArchival": 30,
         "other": 4
       },
-      "liveReferrers": 65,
+      "liveReferrers": 66,
       "sampleReferrers": [
         ".claude-plugin/packaging-policy.json",
         "docs/assets/demo-scripts/checkpoint.sh",
@@ -180,8 +180,8 @@
       "sampleLiveCodeReferrers": [
         "servers/exarchos-mcp/src/adapters/hooks.ts",
         "servers/exarchos-mcp/src/architecture/invariants-loader.test.ts",
-        "servers/exarchos-mcp/src/cli-commands/session-start.ts",
-        "servers/exarchos-mcp/src/cli-commands/subagent-stop.ts",
+        "servers/exarchos-mcp/src/lifecycle/session-start.ts",
+        "servers/exarchos-mcp/src/lifecycle/subagent-stop.ts",
         "src/build-hooks.ts",
         "src/hooks-validation.test.ts",
         "src/plugin-validation.test.ts"
@@ -190,16 +190,16 @@
     "docs/rca": {
       "disposition": "delete",
       "ownFiles": 11,
-      "externalReferrers": 51,
+      "externalReferrers": 53,
       "referrersByKind": {
-        "code": 11,
+        "code": 13,
         "config": 4,
         "snapshot": 1,
         "markdownLive": 18,
         "markdownArchival": 14,
         "other": 3
       },
-      "liveReferrers": 37,
+      "liveReferrers": 39,
       "sampleReferrers": [
         ".claude/scripts/workflow-state.sh",
         ".github/workflows/benchmark-gate.yml",
@@ -220,8 +220,8 @@
         "servers/exarchos-mcp/src/__tests__/event-store/single-composition-root.test.ts",
         "servers/exarchos-mcp/src/agents/generate-agents.test.ts",
         "servers/exarchos-mcp/src/architecture/vocabulary-lint.ts",
-        "servers/exarchos-mcp/src/verbs/composite.ts",
-        "servers/exarchos-mcp/src/verbs/team/worktree-baseref.ts",
+        "servers/exarchos-mcp/src/config/artifact-dir-symlink.test.ts",
+        "servers/exarchos-mcp/src/config/artifacts.ts",
         "servers/exarchos-mcp/src/projections/views/tools.ts"
       ]
     },
@@ -482,16 +482,16 @@
     "docs/evals": {
       "disposition": "re-home",
       "ownFiles": 114,
-      "externalReferrers": 13,
+      "externalReferrers": 14,
       "referrersByKind": {
         "code": 4,
-        "config": 3,
+        "config": 4,
         "snapshot": 0,
         "markdownLive": 0,
         "markdownArchival": 6,
         "other": 0
       },
-      "liveReferrers": 7,
+      "liveReferrers": 8,
       "sampleReferrers": [
         ".coderabbit.yaml",
         ".exarchos/comment-policy.json",
@@ -516,16 +516,16 @@
     "docs/schemas": {
       "disposition": "re-home",
       "ownFiles": 3,
-      "externalReferrers": 9,
+      "externalReferrers": 10,
       "referrersByKind": {
         "code": 0,
-        "config": 0,
+        "config": 1,
         "snapshot": 1,
         "markdownLive": 4,
         "markdownArchival": 4,
         "other": 0
       },
-      "liveReferrers": 5,
+      "liveReferrers": 6,
       "sampleReferrers": [
         "CHANGELOG.md",
         "docs/designs/archive/2026-01-06-workflow-phase-restructuring.md",
@@ -535,7 +535,8 @@
         "skills-src/checkpoint/SKILL.md",
         "skills/standard/checkpoint/SKILL.md",
         "test/migration/__fixtures__/batch-baselines/checkpoint.md",
-        "test/migration/__snapshots__/snapshots.test.ts.snap"
+        "test/migration/__snapshots__/snapshots.test.ts.snap",
+        "tools/audit/test-inventory-baseline.json"
       ],
       "sampleLiveCodeReferrers": []
     },

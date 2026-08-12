@@ -7,7 +7,7 @@
  * report (CI annotations or rich CLI output) to stderr. Exit code reflects
  * regression-layer pass/fail; capability-layer failures are advisory.
  *
- * Replaces the deleted `cli-commands/eval-run.ts` handler that was wired
+ * Replaces the deleted `lifecycle/eval-run.ts` handler that was wired
  * through the MCP-server stdin-JSON router (also removed in v2.9). The
  * workflow file `.github/workflows/eval-gate.yml` invokes this script
  * directly via `node dist/evals/run-evals-cli.js`.

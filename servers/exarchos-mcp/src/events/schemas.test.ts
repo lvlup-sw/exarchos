@@ -583,7 +583,7 @@ describe('EventTypes', () => {
     //   gate status as `phase.exited` on advance).
     // Bumped 125 → 126: subagent.tokens_used (#1525 W2 Half 1 — per-subagent
     //   output-token total emitted by the restored SubagentStop hook
-    //   `cli-commands/subagent-stop.ts`, folded by team-performance /
+    //   `lifecycle/subagent-stop.ts`, folded by team-performance /
     //   delegation-timeline for the token-reduction acceptance gate).
     // Bumped 126 → 127: merge.recovered (#1306 — successor to merge.rollback,
     //   dual-emitted during the v2.11.x deprecation window; legacy removed v2.12).

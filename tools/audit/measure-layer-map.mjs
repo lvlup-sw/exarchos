@@ -38,7 +38,7 @@ const MAP = {
   pruner:       M('verbs', 'Prune coordinator and scoring are a composite-tool action.'),
   stack:        M('verbs', 'Stack tools are composite-tool actions.'),
   tasks:        M('verbs', 'Task tools are composite-tool actions.'),
-  'cli-commands': M('verbs', 'Command bodies invoked by the CLI adapter; the logic is verb-shaped, the surface is not.'),
+  lifecycle:    M('lifecycle', 'Command bodies invoked by the CLI adapter; the logic is verb-shaped, the surface is not. Task 017 moved it from `cli-commands/` to its L7 target.'),
   describe:     M('lifecycle', 'L7 names describe explicitly among its generic windows over the log.'),
   runbooks:     M('lifecycle', 'Resolved here per plan: runbooks are generic operator windows, the same shape as ps/describe/wait/export.'),
   sync:         M('lifecycle', 'Outbox and sync handler are lifecycle-shaped generic windows, not workflow primitives.'),

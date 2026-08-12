@@ -5,7 +5,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';
-import { handleVerifyWorktreeBoundary } from '../../cli-commands/verify-worktree-boundary.js';
+import { handleVerifyWorktreeBoundary } from '../../lifecycle/verify-worktree-boundary.js';
 
 /**
  * #1301 worktree-escape leak-shape regression pin (DR-4, WLM slice-3 task-013).
@@ -20,7 +20,7 @@ import { handleVerifyWorktreeBoundary } from '../../cli-commands/verify-worktree
  * hook), the guarantee lives in the resolver/dispatch core — INV-4.
  *
  * WHY THIS FILE EXISTS (non-duplication): the existing unit suite
- * (`cli-commands/verify-worktree-boundary.test.ts`) pins the boundary DECISION
+ * (`lifecycle/verify-worktree-boundary.test.ts`) pins the boundary DECISION
  * comprehensively, but by design STUBS both real seams — `gitToplevel` and
  * `realpath` — "so the unit tests never touch git or the filesystem". That
  * leaves the load-bearing property from the guard's own doc comment untested:

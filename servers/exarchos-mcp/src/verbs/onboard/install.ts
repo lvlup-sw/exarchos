@@ -137,7 +137,7 @@ export interface InstallStepDeps {
   readonly runCommand?: (command: string, cwd: string) => Promise<void>;
   /**
    * Override the bridge invocation (the cross-package `installSkills` reach).
-   * Defaults to a dynamic import of `cli-commands/install-skills-bridge.js`.
+   * Defaults to a dynamic import of `lifecycle/install-skills-bridge.js`.
    * Tests do NOT need to override this — they steer behavior via `copyDir` /
    * `spawn` / `resolveSkillsSource` which thread through to the real seam.
    */
@@ -242,12 +242,12 @@ function defaultRunCommand(command: string, cwd: string): Promise<void> {
  *
  * The bridge is dynamically imported (the same pattern `adapters/cli.ts` uses);
  * being JS, tsc (`allowJs: false`) never resolves into it while bun's
- * `--compile` bundler follows it at build time. The `../../cli-commands/`
+ * `--compile` bundler follows it at build time. The `../../lifecycle/`
  * specifier is TWO hops up from `verbs/onboard/` (onboard → orchestrate →
- * src, then into `cli-commands/`).
+ * src, then into `lifecycle/`).
  */
 async function defaultRunSkillsInstall(opts: SkillsInstallOpts): Promise<void> {
-  const bridge = (await import('../../cli-commands/install-skills-bridge.js')) as {
+  const bridge = (await import('../../lifecycle/install-skills-bridge.js')) as {
     runInstallSkills: (
       o: { agent?: string },
       deps?: {

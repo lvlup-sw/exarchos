@@ -12,12 +12,8 @@
  *            `path:line  excerpt` rows).
  *   Exit 2 — usage / environment error.
  *
- * Composition root (allowlist):
- *   - servers/exarchos-mcp/src/index.ts
- *   - servers/exarchos-mcp/src/dispatch/core/context.ts
- *   - servers/exarchos-mcp/src/cli-commands/assemble-context.ts
- *   - servers/exarchos-mcp/src/cli-commands/subagent-stop.ts
- *   - servers/exarchos-mcp/src/evals/run-evals-cli.ts
+ * Composition root: see ALLOWLIST below — it is the single statement of the
+ * set, and the failure message derives from it rather than restating it.
  *
  * Excluded automatically (test/bench surface):
  *   - **\/*.test.ts
@@ -53,14 +49,13 @@ const DEFAULT_SRC_ROOT = path.join(
 const ALLOWLIST = new Set([
   'index.ts',
   path.join('dispatch', 'core', 'context.ts'),
-  path.join('cli-commands', 'assemble-context.ts'),
   // #1525 W2 Half 1 — the subagent-stop hook is a process entry point (invoked as
   // a fresh `exarchos subagent-stop` subprocess by Claude Code's SubagentStop
   // hook), so there is no parent composition root to receive the store from. Like
   // assemble-context, it legitimately constructs its own EventStore to append the
   // token-telemetry atom; production construction is guarded by `deps.eventStore`
   // injection for tests.
-  path.join('cli-commands', 'subagent-stop.ts'),
+  path.join('lifecycle', 'subagent-stop.ts'),
   path.join('evals', 'run-evals-cli.ts'),
   // Wiring-closure review disposition — these two construct stores that are
   // NOT the app state store, so the #1182 rogue-instance hazard (PID-lock
@@ -227,8 +222,10 @@ function main() {
   process.stderr.write(
     `Found ${violations.length} rogue \`new EventStore\` instantiation(s) outside the composition root.\n`,
   );
+  // Derived from ALLOWLIST, not restated: the hand-written version had drifted
+  // to name a file deleted before task 015 while omitting three live entries.
   process.stderr.write(
-    'Composition root files (allowed): index.ts, dispatch/core/context.ts, cli-commands/assemble-context.ts, evals/run-evals-cli.ts\n',
+    `Composition root files (allowed): ${[...ALLOWLIST].map((p) => p.split(path.sep).join('/')).join(', ')}\n`,
   );
   process.stderr.write('Test/bench files are excluded automatically.\n\n');
   for (const v of violations) {

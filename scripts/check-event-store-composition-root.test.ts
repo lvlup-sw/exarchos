@@ -9,7 +9,7 @@
  *     extended to invoke it.
  *   - GREEN: a Node script walks `servers/exarchos-mcp/src/**` looking
  *     for `new EventStore(...)` outside the documented composition root
- *     (4 entries: index.ts, core/context.ts, cli-commands/assemble-context.ts,
+ *     (4 entries: index.ts, core/context.ts, lifecycle/subagent-stop.ts,
  *     evals/run-evals-cli.ts) and outside
  *     test/bench files. Exit 0 = clean, 1 = violations, 2 = env errors.
  *
@@ -81,7 +81,7 @@ describe('check-event-store-composition-root CLI (Fix 1, #1182)', () => {
       'dispatch/core/context.ts':
         "import { EventStore } from '../event-store/store.js';\n" +
         'export const store = new EventStore("/tmp");\n',
-      'cli-commands/assemble-context.ts':
+      'lifecycle/subagent-stop.ts':
         "import { EventStore } from '../event-store/store.js';\n" +
         'export const store = new EventStore("/tmp");\n',
     });

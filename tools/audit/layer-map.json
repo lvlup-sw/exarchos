@@ -1,6 +1,6 @@
 {
   "capturedAt": "2026-08-12",
-  "tree": "3722bfc619e7aefacfc6a72d96f88285feb7f10d",
+  "tree": "13b0eecc7f7165ebf4d09dbada5d3db000f14587",
   "source": "servers/exarchos-mcp/src",
   "authority": "docs/system-design.html is the canonical L1-L9 architecture; this file maps the tree onto it. Task 044 asserts THIS mapping, not set equality, which is why the 11 targets -> 9 published layers relation is written out rather than inferred.",
   "counts": {
@@ -122,12 +122,6 @@
       "layer": "L8",
       "reason": "Follow-loop and formatter are CLI adapter surface."
     },
-    "cli-commands": {
-      "disposition": "mapped",
-      "target": "verbs",
-      "layer": "L6",
-      "reason": "Command bodies invoked by the CLI adapter; the logic is verb-shaped, the surface is not."
-    },
     "commands": {
       "disposition": "exception",
       "destination": "(stays test-adjacent)",
@@ -202,6 +196,12 @@
       "target": "runtime",
       "layer": "L9",
       "reason": "plugin-compat is a single runtime-compatibility shim."
+    },
+    "lifecycle": {
+      "disposition": "mapped",
+      "target": "lifecycle",
+      "layer": "L7",
+      "reason": "Command bodies invoked by the CLI adapter; the logic is verb-shaped, the surface is not. Task 017 moved it from `cli-commands/` to its L7 target."
     },
     "mcp": {
       "disposition": "mapped",

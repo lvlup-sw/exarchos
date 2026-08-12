@@ -53,7 +53,7 @@ export const LEGACY_SHAPE_DEBT: readonly string[] = Object.freeze([
   'servers/exarchos-mcp/src/storage/artifacts/index.test.ts',
   'servers/exarchos-mcp/src/capabilities/elicitation.test.ts',
   'servers/exarchos-mcp/src/capabilities/shared-mutating-gate.test.ts',
-  'servers/exarchos-mcp/src/cli-commands/install-skills-bridge.test.ts',
+  'servers/exarchos-mcp/src/lifecycle/install-skills-bridge.test.ts',
   'servers/exarchos-mcp/src/coerce.test.ts',
   'servers/exarchos-mcp/src/config/exarchos-config-schema.test.ts',
   'servers/exarchos-mcp/src/config/resolve.test.ts',

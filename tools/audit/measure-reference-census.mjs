@@ -61,6 +61,22 @@ const SCAN_EXTENSIONS = new Set([
 /** Extensionless governance files no extension filter can see. */
 const NAMED_FILES = ['.github/CODEOWNERS', '.gitattributes', '.npmignore', '.exarchos.yml'];
 
+/**
+ * This instrument's own output, excluded from its own scan.
+ *
+ * The report embeds referrer paths verbatim in `sampleReferrers`, so once it
+ * has been written it holds subtree-qualified paths as plain text — and the
+ * next run reads it back as a live `config` referrer of exactly the subtrees
+ * it is measuring. That is a feedback loop, not a finding: a record OF
+ * references is not itself a reference a reader would follow. Same reasoning
+ * as the sibling-reference exclusion below.
+ *
+ * For the same reason this comment names no subtree path literally: prose in
+ * THIS file is scanned too, and a worked example here would re-create the loop
+ * one level up.
+ */
+const SELF_OUTPUT = 'tools/audit/reference-census.json';
+
 function trackedFiles() {
   return execFileSync('git', ['ls-files', '-z'], {
     cwd: REPO_ROOT,
@@ -78,7 +94,9 @@ function main() {
 
   const tracked = trackedFiles();
   const scanned = tracked.filter(
-    (rel) => SCAN_EXTENSIONS.has(path.extname(rel)) || NAMED_FILES.includes(rel),
+    (rel) =>
+      rel !== SELF_OUTPUT &&
+      (SCAN_EXTENSIONS.has(path.extname(rel)) || NAMED_FILES.includes(rel)),
   );
 
   const subtrees = [...PROSE_SUBTREES, ...REHOMED_SUBTREES];

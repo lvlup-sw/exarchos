@@ -483,7 +483,7 @@ describe('EventTypes', () => {
     // the executeTransition boundary (workflow/state-machine.ts).
     // #1525 W2 Half 1 (task H1-C): bumped 125 → 126 to include
     // `subagent.tokens_used`, the per-subagent output-token total emitted by the
-    // restored SubagentStop hook (cli-commands/subagent-stop.ts).
+    // restored SubagentStop hook (lifecycle/subagent-stop.ts).
     // #1306: bumped 126 → 127 to include `merge.recovered` (successor to
     // `merge.rollback`, dual-emitted during the v2.11.x deprecation window).
     // #1308 T8: bumped 127 → 128 to include `merge.retry_attempt` (bounded

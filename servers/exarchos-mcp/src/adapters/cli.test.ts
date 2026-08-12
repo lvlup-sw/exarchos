@@ -872,7 +872,7 @@ describe('commanderErrorToResult mapping table (F-024-CMDR)', () => {
 // `cli-install-skills.test.ts`; here we only assert the verb is present + that
 // the bridge is never dispatched to.
 
-vi.mock('../cli-commands/install-skills-bridge.js', () => ({
+vi.mock('../lifecycle/install-skills-bridge.js', () => ({
   runInstallSkills: vi.fn(async () => {}),
 }));
 
@@ -915,7 +915,7 @@ describe('install-skills subcommand (DR-5 rename stub)', () => {
     ]);
 
     const { runInstallSkills } = await import(
-      '../cli-commands/install-skills-bridge.js'
+      '../lifecycle/install-skills-bridge.js'
     );
     expect(runInstallSkills).not.toHaveBeenCalled();
     expect(process.exitCode).toBe(CLI_EXIT_CODES.HANDLER_ERROR);

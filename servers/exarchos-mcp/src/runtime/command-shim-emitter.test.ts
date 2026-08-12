@@ -9,7 +9,7 @@ import {
 // cannot import this in PRODUCTION code (`rootDir: ./src`), so the coupling
 // between the shim's command set and the root SoT is enforced TEST-ONLY. This
 // `../../../../src/...` reach into the repo root is an established test pattern
-// (see cli-commands/install-skills-bridge.test.ts).
+// (see lifecycle/install-skills-bridge.test.ts).
 import { canonicalCommandSet } from '../../../../src/config/canonical-skills.js';
 
 // ─── In-memory fs stub ─────────────────────────────────────────────────────
