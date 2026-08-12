@@ -79,7 +79,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { censusOutputSchemas } from './output-schema-census.js';
+import { censusLiveOutputSchemas } from './bindings/output-schema.js';
 import { VACUITY_ALLOWLIST_IDS } from '../output-schema-vacuity-allowlist.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -311,19 +311,27 @@ const MUTATIONS: readonly Mutation[] = Object.freeze([
       'an emptied registry. "No unwaived vacuity" becomes true for the worst ' +
       'possible reason, and the PROCESS must exit non-zero rather than report clean.',
     verdict: 'red',
+    // The stub shadows the BINDING, not the census module. Task 018a inverted
+    // the census's subjects into ports, so the guard no longer calls
+    // `censusOutputSchemas` directly — it calls `censusLiveOutputSchemas`, which
+    // supplies the live registry. A stub still aimed at the census module would
+    // resolve, load, and shadow a function the guard never calls: the probe
+    // would go VACUOUS rather than red, which is precisely the failure this
+    // case exists to detect.
     sidecars: (source) => {
-      const censusUrl = new Map(
+      const bindingUrl = new Map(
         guardSpecifiers(source).map((s) => [s.specifier, s.realUrl]),
-      ).get(specifierFor(source, 'output-schema-census'));
-      if (censusUrl === undefined) throw new Error('census specifier did not resolve');
+      ).get(specifierFor(source, 'bindings/output-schema'));
+      if (bindingUrl === undefined) throw new Error('binding specifier did not resolve');
       return new Map([
         [
           'census-over-an-empty-subject.ts',
           [
-            `import { censusOutputSchemas as real } from '${censusUrl}';`,
-            `export * from '${censusUrl}';`,
-            'export function censusOutputSchemas() {',
-            '  return real([]);',
+            `export * from '${bindingUrl}';`,
+            'export function censusLiveOutputSchemas() {',
+            "  return { ok: false, total: 0, vacuousCount: 0, substantiveCount: 0,",
+            '    vacuous: [], substantive: [], records: [],',
+            "    diagnostics: [{ code: 'EMPTY_CENSUS', message: 'seeded empty subject' }] };",
             '}',
             '',
           ].join('\n'),
@@ -333,7 +341,7 @@ const MUTATIONS: readonly Mutation[] = Object.freeze([
     overrides: (source, dir) =>
       new Map([
         [
-          specifierFor(source, 'output-schema-census'),
+          specifierFor(source, 'bindings/output-schema'),
           pathToFileURL(join(dir, 'census-over-an-empty-subject.ts')).href,
         ],
       ]),
@@ -411,7 +419,7 @@ describe('DR-4 / G2 self-test: guard-execution failure cannot pass as success', 
     // derived on both sides, never written as a literal. Task 068 grew the
     // denominator and task 069 shrank the numerator during this very wave, each
     // reading as a guard failure where a count had been hard-coded.
-    const liveTotal = censusOutputSchemas().total;
+    const liveTotal = censusLiveOutputSchemas().total;
     const liveWaived = VACUITY_ALLOWLIST_IDS.length;
     expect(liveWaived).toBeGreaterThan(0);
     expect(liveTotal).toBeGreaterThan(liveWaived);

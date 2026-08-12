@@ -23,10 +23,12 @@
  * number the checker would then compare against. A derivation that reports a
  * value it cannot stand behind is the defect DR-27 exists to remove.
  */
-import { censusOutputSchemas } from '../servers/exarchos-mcp/src/architecture/output-schema-census.js';
-import { censusReportCoupling } from '../servers/exarchos-mcp/src/architecture/report-coupling-census.js';
+import { censusLiveOutputSchemas } from '../servers/exarchos-mcp/src/architecture/bindings/output-schema.js';
+import {
+  censusLiveEventNameGrammar,
+  censusLiveReportCoupling,
+} from '../servers/exarchos-mcp/src/architecture/bindings/events.js';
 import { EventTypes } from '../servers/exarchos-mcp/src/events/schemas.js';
-import { censusEventNameGrammar } from '../servers/exarchos-mcp/src/architecture/event-grammar-census.js';
 
 /** The derivation names this entrypoint answers. Keys match the annotation names. */
 export interface TsDerivedValues {
@@ -39,8 +41,8 @@ export interface TsDerivedValues {
 }
 
 export function deriveTsPremises(): TsDerivedValues {
-  const census = censusOutputSchemas();
-  const grammar = censusEventNameGrammar();
+  const census = censusLiveOutputSchemas();
+  const grammar = censusLiveEventNameGrammar();
 
   if (!census.ok) {
     const detail = census.diagnostics
@@ -54,7 +56,7 @@ export function deriveTsPremises(): TsDerivedValues {
   // Same fail-closed rule, applied to G3's census (task 013). The spec asserted "25 report-coupled
   // types" as bare prose in two places; DR-27's whole point is that a number nothing derives is an
   // unbound claim, and this census is the artifact that derives it.
-  const coupling = censusReportCoupling();
+  const coupling = censusLiveReportCoupling();
 
   if (!coupling.ok) {
     const detail = coupling.diagnostics.map((d) => `[${d.code}] ${d.message}`).join('\n');

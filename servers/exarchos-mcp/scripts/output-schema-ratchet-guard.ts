@@ -65,13 +65,13 @@ import {
   auditVacuityExpiry,
   auditVacuityRatchetAsOf,
   auditVacuitySeedIntegrity,
-  censusOutputSchemas,
   formatVacuityAllowlistAudit,
   formatVacuityExpiryAudit,
   formatVacuitySeedIntegrityAudit,
   isoDayUtc,
   type CensusableTool,
 } from '../src/architecture/output-schema-census.js';
+import { censusLiveOutputSchemas } from '../src/architecture/bindings/output-schema.js';
 import {
   VACUITY_ALLOWLIST,
   VACUITY_ALLOWLIST_IDS,
@@ -80,6 +80,7 @@ import {
 } from '../src/output-schema-vacuity-allowlist.js';
 import {
   VACUITY_EXPIRY_HORIZON,
+  VACUITY_SEED_DIGEST_ALGORITHM,
   VACUITY_SEED_KEY_SET_DIGEST,
 } from '../src/output-schema-seed-pin.js';
 
@@ -141,12 +142,14 @@ export function runGuard(options: GuardOptions = {}): number {
   const pinnedDigest = options.pinnedDigest ?? LIVE_SUBJECT.pinnedDigest;
 
   const report =
-    options.tools === undefined ? censusOutputSchemas() : censusOutputSchemas(options.tools);
+    options.tools === undefined
+      ? censusLiveOutputSchemas()
+      : censusLiveOutputSchemas(options.tools);
 
   const verdict = auditVacuityRatchetAsOf(
     today,
     auditVacuityAllowlist(report, waived),
-    auditVacuitySeedIntegrity(waived, retired, pinnedDigest),
+    auditVacuitySeedIntegrity(waived, retired, pinnedDigest, VACUITY_SEED_DIGEST_ALGORITHM),
     auditVacuityExpiry(today, entries, horizon),
   );
 

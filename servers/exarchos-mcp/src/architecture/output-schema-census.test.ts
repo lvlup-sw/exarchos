@@ -29,13 +29,16 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import {
-  censusOutputSchemas,
   classifyOutputSchema,
   countByReason,
   formatOutputSchemaCensus,
-  acceptsEveryValue,
 } from './output-schema-census.js';
 import type { CensusableAction, CensusableTool } from './output-schema-census.js';
+import {
+  censusLiveOutputSchemas,
+  OUTPUT_SCHEMA_PORTS,
+} from './bindings/output-schema.js';
+import { acceptsEveryValue } from '../contract/schemas/schema-totality.js';
 import { TOOL_REGISTRY } from '../registry.js';
 import { EnvelopeSchema } from '../contract/schemas/envelope.js';
 
@@ -180,7 +183,7 @@ describe('DR-4: outputSchema vacuity census', () => {
     ];
 
     for (const composition of compositions) {
-      const report = censusOutputSchemas(composition.tools);
+      const report = censusLiveOutputSchemas(composition.tools);
       expect(report.total).toBe(composition.total);
       expect(report.vacuousCount).toBe(composition.vacuous);
       expect(report.substantiveCount).toBe(composition.substantive);
@@ -194,12 +197,12 @@ describe('DR-4: outputSchema vacuity census', () => {
 
     // Distinct compositions must yield distinct counts; a constant-returning
     // implementation collapses them to one value.
-    const measured = compositions.map((c) => censusOutputSchemas(c.tools).vacuousCount);
+    const measured = compositions.map((c) => censusLiveOutputSchemas(c.tools).vacuousCount);
     expect(new Set(measured).size).toBeGreaterThan(1);
 
     // The same derivation holds on the live registry: the partition is
     // exhaustive and the denominator is the enumerated action count.
-    const live = censusOutputSchemas();
+    const live = censusLiveOutputSchemas();
     const liveActions = TOOL_REGISTRY.reduce((n, t) => n + t.actions.length, 0);
     expect(live.total).toBe(liveActions);
     expect(live.vacuousCount + live.substantiveCount).toBe(live.total);
@@ -211,20 +214,20 @@ describe('DR-4: outputSchema vacuity census', () => {
     // emptied registry all present the census with zero declarations. Reporting
     // "0 vacuous — clean" there would be the instrument silently dying green,
     // so an empty subject MUST fail.
-    const noTools = censusOutputSchemas([]);
+    const noTools = censusLiveOutputSchemas([]);
     expect(noTools.total).toBe(0);
     expect(noTools.ok).toBe(false);
     expect(noTools.diagnostics.map((d) => d.code)).toContain('EMPTY_CENSUS');
 
     // Tools present but declaring no actions is the same empty denominator.
-    const emptyTools = censusOutputSchemas([tool('t1', []), tool('t2', [])]);
+    const emptyTools = censusLiveOutputSchemas([tool('t1', []), tool('t2', [])]);
     expect(emptyTools.total).toBe(0);
     expect(emptyTools.ok).toBe(false);
     expect(emptyTools.diagnostics.map((d) => d.code)).toContain('EMPTY_CENSUS');
 
     // A single declaration is enough to clear the guard — the tooth bites only
     // on emptiness, not on smallness.
-    const oneDeclaration = censusOutputSchemas([tool('t', [action('a', VACUOUS_ENVELOPE)])]);
+    const oneDeclaration = censusLiveOutputSchemas([tool('t', [action('a', VACUOUS_ENVELOPE)])]);
     expect(oneDeclaration.total).toBe(1);
     expect(oneDeclaration.ok).toBe(true);
     expect(oneDeclaration.diagnostics).toHaveLength(0);
@@ -233,7 +236,7 @@ describe('DR-4: outputSchema vacuity census', () => {
     // something real to measure rather than an accidentally-empty one. The
     // second authority independently confirms the subject is non-empty: the
     // registry source really does carry declaration sites.
-    const live = censusOutputSchemas();
+    const live = censusLiveOutputSchemas();
     expect(live.total).toBeGreaterThan(0);
     expect(live.ok).toBe(true);
     expect(readDeclarationSites().length).toBeGreaterThan(0);
@@ -242,7 +245,7 @@ describe('DR-4: outputSchema vacuity census', () => {
   it('OutputSchemaCensus_TypedDeclarations_ClassifiedSubstantive', () => {
     // The typed declarations are the migration template every vacuous one is
     // meant to grow into. They must never be swept into the vacuous bucket.
-    expect(classifyOutputSchema(TYPED_ENVELOPE)).toEqual({
+    expect(classifyOutputSchema(TYPED_ENVELOPE, OUTPUT_SCHEMA_PORTS)).toEqual({
       classification: 'substantive',
       reason: 'typed-data',
     });
@@ -254,7 +257,7 @@ describe('DR-4: outputSchema vacuity census', () => {
     const cappedFromSource = readDeclarationSites()
       .filter((s) => isCappedShapeRhs(s.rhs))
       .map((s) => s.action);
-    const substantiveFromCensus = censusOutputSchemas()
+    const substantiveFromCensus = censusLiveOutputSchemas()
       .records.filter((r) => r.classification === 'substantive')
       .map((r) => r.action);
 
@@ -267,7 +270,7 @@ describe('DR-4: outputSchema vacuity census', () => {
     const capped = EnvelopeSchema(
       z.union([z.object({ items: z.array(z.string()) }), z.object({ summary: z.string() })]),
     );
-    expect(classifyOutputSchema(capped).classification).toBe('substantive');
+    expect(classifyOutputSchema(capped, OUTPUT_SCHEMA_PORTS).classification).toBe('substantive');
 
     // The counterpart to the template: `z.unknown()` and `z.any()` are the two
     // structural escape hatches, and BOTH are vacuous. Classifying only the
@@ -275,7 +278,9 @@ describe('DR-4: outputSchema vacuity census', () => {
     expect(acceptsEveryValue(z.unknown())).toBe(true);
     expect(acceptsEveryValue(z.any())).toBe(true);
     expect(acceptsEveryValue(z.object({ items: z.array(z.string()) }))).toBe(false);
-    expect(classifyOutputSchema(EnvelopeSchema(z.any())).classification).toBe('vacuous');
+    expect(
+      classifyOutputSchema(EnvelopeSchema(z.any()), OUTPUT_SCHEMA_PORTS).classification,
+    ).toBe('vacuous');
   });
 
   it('OutputSchemaCensus_AliasedVacuousSchema_CountedVacuous', () => {
@@ -283,7 +288,7 @@ describe('DR-4: outputSchema vacuity census', () => {
     // expression to a name and the grep goes quiet while the contract stays
     // exactly total over every shape. The census reads the schema object, so
     // the alias resolves to the same verdict.
-    expect(classifyOutputSchema(ALIASED_VACUOUS_ENVELOPE)).toEqual({
+    expect(classifyOutputSchema(ALIASED_VACUOUS_ENVELOPE, OUTPUT_SCHEMA_PORTS)).toEqual({
       classification: 'vacuous',
       reason: 'unknown-data',
     });
@@ -291,7 +296,7 @@ describe('DR-4: outputSchema vacuity census', () => {
     // Same for an intersection wrapper: constraining `_meta` adds substance to
     // a DIFFERENT field. The payload contract is untouched, so `data` is still
     // vacuous — reported apart so the gap stays auditable.
-    expect(classifyOutputSchema(WRAPPED_VACUOUS_ENVELOPE)).toEqual({
+    expect(classifyOutputSchema(WRAPPED_VACUOUS_ENVELOPE, OUTPUT_SCHEMA_PORTS)).toEqual({
       classification: 'vacuous',
       reason: 'wrapped-unknown-data',
     });
@@ -307,7 +312,7 @@ describe('DR-4: outputSchema vacuity census', () => {
     const namedBindings = readDeclarationSites().filter((s) => isNamedBindingRhs(s.rhs));
     expect(namedBindings.length).toBeGreaterThan(0);
 
-    const byAction = new Map(censusOutputSchemas().records.map((r) => [r.action, r]));
+    const byAction = new Map(censusLiveOutputSchemas().records.map((r) => [r.action, r]));
     for (const site of namedBindings) {
       expect(byAction.get(site.action)?.classification).toBe('vacuous');
     }
@@ -320,19 +325,19 @@ describe('DR-4: outputSchema vacuity census', () => {
     // nothing must not read as proving typedness, so an unreadable envelope is
     // counted vacuous AND raised — the census reports itself untrustworthy.
     const alien = z.object({ whatever: z.string() });
-    expect(classifyOutputSchema(alien)).toEqual({
+    expect(classifyOutputSchema(alien, OUTPUT_SCHEMA_PORTS)).toEqual({
       classification: 'vacuous',
       reason: 'unreadable-envelope',
     });
 
-    const report = censusOutputSchemas([tool('t', [action('a', alien)])]);
+    const report = censusLiveOutputSchemas([tool('t', [action('a', alien)])]);
     expect(report.ok).toBe(false);
     expect(report.vacuousCount).toBe(1);
     expect(report.diagnostics.map((d) => d.code)).toContain('UNREADABLE_OUTPUT_SCHEMA');
 
     // No live declaration trips this today — the census understands every
     // envelope shape currently registered.
-    expect(countByReason(censusOutputSchemas())['unreadable-envelope']).toBe(0);
+    expect(countByReason(censusLiveOutputSchemas())['unreadable-envelope']).toBe(0);
   });
 
   it('OutputSchemaCensus_LiveRegistry_ReportsMeasuredVacuousCount', () => {
@@ -340,7 +345,7 @@ describe('DR-4: outputSchema vacuity census', () => {
     // introduction — that count is its proof of a live subject. The figures
     // below were MEASURED, not chosen, and they RECONCILE against the
     // independent source-text authority rather than restating the census.
-    const report = censusOutputSchemas();
+    const report = censusLiveOutputSchemas();
     const sites = readDeclarationSites();
     const literalVacuousSites = sites.filter((s) => s.rhs === LITERAL_VACUOUS_RHS).length;
     const cappedSites = sites.filter((s) => isCappedShapeRhs(s.rhs)).length;
@@ -496,7 +501,7 @@ describe('acceptsEveryValue — totality is semantic, not spelling', () => {
     const laundered = EnvelopeSchema(
       z.union([z.unknown(), z.object({ truncated: z.boolean() })]),
     );
-    expect(classifyOutputSchema(laundered)).toMatchObject({ classification: 'vacuous' });
+    expect(classifyOutputSchema(laundered, OUTPUT_SCHEMA_PORTS)).toMatchObject({ classification: 'vacuous' });
   });
 
   it('acceptsEveryValue_DeeplyNestedTotalBranch_TerminatesAndIsTotal', () => {

@@ -1,3 +1,9 @@
+// RESERVED(issue: #1473, owner: exarchos, expires: 2027-02-28) — the composition root for
+// DR-3's event-name grammar census and G3's report-coupling ratchet. It inherits their
+// disposition: no production importer by design, because it binds instruments that govern the
+// event registry rather than participating in it. Its consumers are those censuses' own suites
+// and the CI guards that run them. Deleted when both censuses are.
+//
 /**
  * Bindings lifted from the event subsystem — the registry, the name grammar and
  * the emission-source tables.

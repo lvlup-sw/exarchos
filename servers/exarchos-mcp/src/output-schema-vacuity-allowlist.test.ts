@@ -48,14 +48,16 @@ import {
   unregisteredActionOutputSchema,
 } from './output-schema-declaration.js';
 import {
-  censusOutputSchemas,
-  auditVacuityAllowlist,
-  auditVacuityRatchet,
-  auditVacuitySeedIntegrity,
   formatVacuityAllowlistAudit,
   formatVacuitySeedIntegrityAudit,
-  vacuitySeedDigest,
 } from './architecture/output-schema-census.js';
+import {
+  auditLiveVacuityAllowlist,
+  auditLiveVacuityRatchet,
+  auditLiveVacuitySeedIntegrity,
+  censusLiveOutputSchemas,
+  liveVacuitySeedDigest,
+} from './architecture/bindings/output-schema.js';
 import type { CensusableAction, CensusableTool } from './architecture/output-schema-census.js';
 import { TOOL_REGISTRY } from './registry.js';
 import { EnvelopeSchema } from './contract/schemas/envelope.js';
@@ -110,7 +112,7 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
 
     // Every live declaration went through one of them — the closed set is not
     // aspirational, it is the state of the registry right now.
-    const unbranded = censusOutputSchemas()
+    const unbranded = censusLiveOutputSchemas()
       .records.map((r) => r.id)
       .filter((id, i, ids) => ids.indexOf(id) === i);
     expect(unbranded.length).toBeGreaterThan(0);
@@ -197,7 +199,7 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
     // …and it is still exactly as vacuous as before, so the census and the
     // runtime ratchet keep seeing it — the nominal split changed WHO may call
     // the escape, not what it produces.
-    expect(censusOutputSchemas([tool('custom', [action('run', escape)])]).vacuous).toEqual([
+    expect(censusLiveOutputSchemas([tool('custom', [action('run', escape)])]).vacuous).toEqual([
       'custom.run',
     ]);
 
@@ -254,22 +256,22 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
     // edit, so it never has to be regenerated for legitimate work.
 
     // Baseline: the seed was {a, b}, nothing retired yet.
-    const pinned = vacuitySeedDigest(['t.a', 't.b']);
-    expect(auditVacuitySeedIntegrity(['t.a', 't.b'], [], pinned).ok).toBe(true);
+    const pinned = liveVacuitySeedDigest(['t.a', 't.b']);
+    expect(auditLiveVacuitySeedIntegrity(['t.a', 't.b'], [], pinned).ok).toBe(true);
 
     // THE SWAP. `a` out, `c` in — same cardinality, and the membership audit is
     // clean against the swapped registry because both halves moved together.
-    const swappedRegistry = censusOutputSchemas([
+    const swappedRegistry = censusLiveOutputSchemas([
       tool('t', [action('a', substantive()), action('b', vacuous()), action('c', vacuous())]),
     ]);
-    const membership = auditVacuityAllowlist(swappedRegistry, ['t.b', 't.c']);
+    const membership = auditLiveVacuityAllowlist(swappedRegistry, ['t.b', 't.c']);
     expect(membership.ok).toBe(true);
     expect(membership.unwaived).toEqual([]);
     expect(membership.stale).toEqual([]);
     expect(membership.waived).toHaveLength(2);
 
     // …and THAT is what the pin catches. Same count, different set.
-    const swapped = auditVacuitySeedIntegrity(['t.b', 't.c'], [], pinned);
+    const swapped = auditLiveVacuitySeedIntegrity(['t.b', 't.c'], [], pinned);
     expect(swapped.ok).toBe(false);
     expect(swapped.keySetSize).toBe(2);
     expect(swapped.digest).not.toBe(pinned);
@@ -279,7 +281,7 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
 
     // Composed, the ratchet fails even though its membership half is green —
     // this is the whole reason the two halves are not the same check.
-    const composed = auditVacuityRatchet(membership, swapped);
+    const composed = auditLiveVacuityRatchet(membership, swapped);
     expect(membership.ok).toBe(true);
     expect(composed.ok).toBe(false);
     expect(composed.findings.map((f) => f.code)).toEqual(['SEED_KEY_SET_DRIFT']);
@@ -287,22 +289,22 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
     // THE LEGAL EDIT: pay `a` down and MOVE its entry to the graveyard. The
     // union is unchanged, so the pin is unchanged — the pin costs nothing on
     // the happy path, which is what stops it from becoming a regenerate ritual.
-    const paidDown = auditVacuitySeedIntegrity(['t.b'], ['t.a'], pinned);
+    const paidDown = auditLiveVacuitySeedIntegrity(['t.b'], ['t.a'], pinned);
     expect(paidDown.ok).toBe(true);
     expect(paidDown.digest).toBe(pinned);
     expect(paidDown.keySetSize).toBe(2);
 
     // Deleting instead of retiring destroys the prior state, so it fails too —
     // otherwise a swap could be spelled as delete-then-add across two commits.
-    const deletedNotRetired = auditVacuitySeedIntegrity(['t.b'], [], pinned);
+    const deletedNotRetired = auditLiveVacuitySeedIntegrity(['t.b'], [], pinned);
     expect(deletedNotRetired.ok).toBe(false);
     expect(deletedNotRetired.findings.map((f) => f.code)).toEqual(['SEED_KEY_SET_DRIFT']);
 
     // Retiring an entry WITHOUT paying it down is not an escape from the
     // membership half: retired ids are not waivers, so the still-vacuous
     // declaration comes back as unwaived. The two halves only clear together.
-    const retiredButUnfixed = auditVacuityAllowlist(
-      censusOutputSchemas([tool('t', [action('a', vacuous()), action('b', vacuous())])]),
+    const retiredButUnfixed = auditLiveVacuityAllowlist(
+      censusLiveOutputSchemas([tool('t', [action('a', vacuous()), action('b', vacuous())])]),
       ['t.b'],
     );
     expect(retiredButUnfixed.unwaived).toEqual(['t.a']);
@@ -310,7 +312,7 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
 
     // An id parked in BOTH maps is absorbed by the set union, so it would be
     // invisible to the digest alone. It is its own finding.
-    const both = auditVacuitySeedIntegrity(['t.a', 't.b'], ['t.a'], pinned);
+    const both = auditLiveVacuitySeedIntegrity(['t.a', 't.b'], ['t.a'], pinned);
     expect(both.digest).toBe(pinned);
     expect(both.overlapping).toEqual(['t.a']);
     expect(both.ok).toBe(false);
@@ -318,14 +320,14 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
 
     // The digest is over a SET: re-sorting the literal or writing an id twice
     // must not move it, or every reformat would look like tampering.
-    expect(vacuitySeedDigest(['t.b', 't.a'])).toBe(pinned);
-    expect(vacuitySeedDigest(['t.a', 't.b', 't.a'])).toBe(pinned);
-    expect(vacuitySeedDigest(['t.a'])).not.toBe(pinned);
+    expect(liveVacuitySeedDigest(['t.b', 't.a'])).toBe(pinned);
+    expect(liveVacuitySeedDigest(['t.a', 't.b', 't.a'])).toBe(pinned);
+    expect(liveVacuitySeedDigest(['t.a'])).not.toBe(pinned);
 
     // THE LIVE TRIPLE. The seed is 112 ids across the two maps, it hashes to the
     // frozen pin, and the pin is a literal in a module that imports nothing —
     // it cannot have been computed from what it is checking.
-    const liveSeed = auditVacuitySeedIntegrity();
+    const liveSeed = auditLiveVacuitySeedIntegrity();
     expect(liveSeed.keySetSize).toBe(
       new Set([...VACUITY_ALLOWLIST_IDS, ...VACUITY_RETIRED_IDS]).size,
     );
@@ -346,7 +348,7 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
     );
     // …and the retired id is genuinely paid down, not parked: the membership
     // half would report it `UNWAIVED_VACUITY` if its schema were still vacuous.
-    expect(censusOutputSchemas().substantive).toContain(
+    expect(censusLiveOutputSchemas().substantive).toContain(
       'exarchos_orchestrate.check_invariant_conformance',
     );
 
@@ -364,15 +366,15 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
     ).toEqual([]);
 
     // And the whole ratchet is green against the live triple.
-    expect(auditVacuityRatchet().ok).toBe(true);
+    expect(auditLiveVacuityRatchet().ok).toBe(true);
   });
 
   it('OutputSchema_AllowlistSeed_DerivedFromCensusNotLiteral', () => {
-    // The seed is `censusOutputSchemas().vacuous` — the census's sorted,
+    // The seed is `censusLiveOutputSchemas().vacuous` — the census's sorted,
     // deduplicated id list — and this re-derives it. Authority A is the static
     // data file; authority B is the live schema-object walk. Neither is
     // computed from the other, so agreement is evidence rather than a tautology.
-    const live = censusOutputSchemas();
+    const live = censusLiveOutputSchemas();
     expect(live.total).toBeGreaterThan(0);
     expect(live.ok).toBe(true);
 
@@ -416,15 +418,15 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
     // threshold cannot see the swap. Membership can.
     const seed = ['t.a', 't.b'];
 
-    const before = censusOutputSchemas([
+    const before = censusLiveOutputSchemas([
       tool('t', [action('a', vacuous()), action('b', vacuous()), action('c', substantive())]),
     ]);
-    const clean = auditVacuityAllowlist(before, seed);
+    const clean = auditLiveVacuityAllowlist(before, seed);
     expect(clean.ok).toBe(true);
     expect(clean.unwaived).toEqual([]);
     expect(clean.stale).toEqual([]);
 
-    const swapped = censusOutputSchemas([
+    const swapped = censusLiveOutputSchemas([
       tool('t', [action('a', substantive()), action('b', vacuous()), action('c', vacuous())]),
     ]);
     // The count is IDENTICAL — this is what makes the swap invisible to a
@@ -432,7 +434,7 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
     expect(swapped.vacuousCount).toBe(before.vacuousCount);
     expect(swapped.total).toBe(before.total);
 
-    const audit = auditVacuityAllowlist(swapped, seed);
+    const audit = auditLiveVacuityAllowlist(swapped, seed);
     expect(audit.ok).toBe(false);
     expect(audit.unwaived).toEqual(['t.c']);
     expect(audit.stale).toEqual(['t.a']);
@@ -445,25 +447,25 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
     // that way in the first place. What the runtime audit still catches is the
     // half it can see: `t.a` may be deleted from the list, but only because it
     // is genuinely no longer vacuous.
-    const shrunk = auditVacuityAllowlist(swapped, ['t.b', 't.c']);
+    const shrunk = auditLiveVacuityAllowlist(swapped, ['t.b', 't.c']);
     expect(shrunk.stale).toEqual([]);
     expect(shrunk.unwaived).toEqual([]);
 
     // The permitted direction: pay a waiver down and DELETE its entry. Leaving
     // the paid-down entry parked is itself a failure, which is what makes the
     // list shrink-only instead of merely bounded.
-    const paidDown = censusOutputSchemas([
+    const paidDown = censusLiveOutputSchemas([
       tool('t', [action('a', substantive()), action('b', vacuous()), action('c', substantive())]),
     ]);
-    expect(auditVacuityAllowlist(paidDown, ['t.b']).ok).toBe(true);
-    const parked = auditVacuityAllowlist(paidDown, seed);
+    expect(auditLiveVacuityAllowlist(paidDown, ['t.b']).ok).toBe(true);
+    const parked = auditLiveVacuityAllowlist(paidDown, seed);
     expect(parked.ok).toBe(false);
     expect(parked.stale).toEqual(['t.a']);
 
     // A waiver for a declaration that no longer exists is stale too — deleting
     // the action does not license leaving the entry behind.
-    const deleted = auditVacuityAllowlist(
-      censusOutputSchemas([tool('t', [action('b', vacuous())])]),
+    const deleted = auditLiveVacuityAllowlist(
+      censusLiveOutputSchemas([tool('t', [action('b', vacuous())])]),
       seed,
     );
     expect(deleted.stale).toEqual(['t.a']);
@@ -471,7 +473,7 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
     // The live pair is clean. This is the assertion that would redden if the
     // registry grew an unwaived vacuous declaration, and its denominator is
     // real: the audit ran over the whole registry, not an empty subject.
-    const liveAudit = auditVacuityAllowlist();
+    const liveAudit = auditLiveVacuityAllowlist();
     expect(liveAudit.total).toBeGreaterThan(0);
     expect(liveAudit.unwaived).toEqual([]);
     expect(liveAudit.stale).toEqual([]);
@@ -483,7 +485,7 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
     // emptied registry makes every set difference trivially empty, so "no
     // unwaived vacuity" becomes true for the worst possible reason. It must
     // fail instead.
-    const empty = auditVacuityAllowlist(censusOutputSchemas([]), ['t.a']);
+    const empty = auditLiveVacuityAllowlist(censusLiveOutputSchemas([]), ['t.a']);
     expect(empty.total).toBe(0);
     expect(empty.unwaived).toEqual([]);
     expect(empty.ok).toBe(false);
@@ -491,15 +493,15 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
 
     // Same for tools that declare no actions — the denominator, not the tool
     // count, is what has to be non-empty.
-    const noActions = auditVacuityAllowlist(censusOutputSchemas([tool('t', [])]), []);
+    const noActions = auditLiveVacuityAllowlist(censusLiveOutputSchemas([tool('t', [])]), []);
     expect(noActions.ok).toBe(false);
     expect(noActions.findings.map((f) => f.code)).toContain('EMPTY_CENSUS');
 
     // An empty ALLOWLIST over a non-empty census is a different verdict: the
     // subject is real, so the vacuity it finds is reported as unwaived rather
     // than swallowed by the emptiness guard.
-    const noWaivers = auditVacuityAllowlist(
-      censusOutputSchemas([tool('t', [action('a', vacuous())])]),
+    const noWaivers = auditLiveVacuityAllowlist(
+      censusLiveOutputSchemas([tool('t', [action('a', vacuous())])]),
       [],
     );
     expect(noWaivers.total).toBe(1);
@@ -508,8 +510,8 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
 
     // A census that could not read an envelope is not a trustworthy input
     // either — proving nothing must not read as proving compliance.
-    const unreadable = auditVacuityAllowlist(
-      censusOutputSchemas([tool('t', [action('a', withCappedShape(z.object({ x: z.string() })))])]),
+    const unreadable = auditLiveVacuityAllowlist(
+      censusLiveOutputSchemas([tool('t', [action('a', withCappedShape(z.object({ x: z.string() })))])]),
       ['t.a'],
     );
     expect(unreadable.ok).toBe(false);
@@ -517,8 +519,8 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
 
     // One declaration is enough to clear the guard: the tooth bites on
     // emptiness, not on smallness.
-    const one = auditVacuityAllowlist(
-      censusOutputSchemas([tool('t', [action('a', vacuous())])]),
+    const one = auditLiveVacuityAllowlist(
+      censusLiveOutputSchemas([tool('t', [action('a', vacuous())])]),
       ['t.a'],
     );
     expect(one.total).toBe(1);

@@ -51,7 +51,7 @@
     "test:all": "vitest run",
     "test:outcome": "vitest run --project outcome",
     "test:run": "npm run test:unit",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tools/conformance",
     "version:sync": "bash scripts/sync-versions.sh",
     "version:check": "bash scripts/sync-versions.sh --check",
     "validate": "node scripts/run-validate.mjs",

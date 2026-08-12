@@ -40,18 +40,20 @@ import {
   type GuardOptions,
 } from './output-schema-ratchet-guard.js';
 import {
-  auditVacuityAllowlist,
-  auditVacuityExpiry,
-  auditVacuityRatchet,
-  auditVacuityRatchetAsOf,
-  auditVacuitySeedIntegrity,
-  censusOutputSchemas,
   formatVacuityExpiryAudit,
   isIsoDay,
   isoDayUtc,
   type CensusableAction,
   type CensusableTool,
 } from '../src/architecture/output-schema-census.js';
+import {
+  auditLiveVacuityAllowlist,
+  auditLiveVacuityExpiry,
+  auditLiveVacuityRatchet,
+  auditLiveVacuityRatchetAsOf,
+  auditLiveVacuitySeedIntegrity,
+  censusLiveOutputSchemas,
+} from '../src/architecture/bindings/output-schema.js';
 import {
   VACUITY_ALLOWLIST,
   VACUITY_ALLOWLIST_IDS,
@@ -125,7 +127,7 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
     // real owners and the real dates, read from the generated data file. The
     // denominator is the live list, not an empty filter — asserted below against
     // `VACUITY_ALLOWLIST_IDS.length` and `toBeGreaterThan(0)`.
-    const live = auditVacuityExpiry(FIRST_DEAD_DAY);
+    const live = auditLiveVacuityExpiry(FIRST_DEAD_DAY);
     expect(live.entryCount).toBe(VACUITY_ALLOWLIST_IDS.length);
     expect(live.entryCount).toBeGreaterThan(0);
     expect(live.ok).toBe(false);
@@ -157,7 +159,7 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
     const plantedEntries: Readonly<Record<string, VacuityWaiverEntry>> = {
       'exarchos_view.tasks': { owner: 'views', expires: '2026-08-06' },
     };
-    const planted = auditVacuityExpiry(SEEDED_ON, plantedEntries);
+    const planted = auditLiveVacuityExpiry(SEEDED_ON, plantedEntries);
     expect(planted.entryCount).toBe(1);
     expect(planted.ok).toBe(false);
     expect(planted.expired).toEqual(['exarchos_view.tasks']);
@@ -168,7 +170,7 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
     // The boundary is INCLUSIVE of the expiry day, matching the field's
     // documented meaning ("the date after which the waiver is expired"). An
     // off-by-one here silently buys or destroys a day of every waiver's life.
-    const onTheDay = auditVacuityExpiry(SEEDED_ON, {
+    const onTheDay = auditLiveVacuityExpiry(SEEDED_ON, {
       'exarchos_view.tasks': { owner: 'views', expires: SEEDED_ON },
     });
     expect(onTheDay.expired).toEqual([]);
@@ -179,7 +181,7 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
     // The other side of the kill fixture, and the reason it is evidence: the
     // guard is not simply red. The SAME live seed, the SAME code path, one day
     // earlier — green.
-    const lastLive = auditVacuityExpiry(LAST_LIVE_DAY);
+    const lastLive = auditLiveVacuityExpiry(LAST_LIVE_DAY);
     expect(lastLive.entryCount).toBe(VACUITY_ALLOWLIST_IDS.length);
     expect(lastLive.ok).toBe(true);
     expect(lastLive.expired).toEqual([]);
@@ -188,7 +190,7 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
     expect(lastLive.daysToHorizon).toBe(0);
 
     // …and on the seeding day, with the countdown derived rather than written.
-    const atSeeding = auditVacuityExpiry(SEEDED_ON);
+    const atSeeding = auditLiveVacuityExpiry(SEEDED_ON);
     expect(atSeeding.ok).toBe(true);
     expect(atSeeding.daysToHorizon).toBe(205);
     expect(formatVacuityExpiryAudit(atSeeding)).toContain('OK');
@@ -214,7 +216,7 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
     // else; the proportion is what matters here, so both terms are read from
     // the live artifacts and the assertion tracks the tree.
     const liveWaived = VACUITY_ALLOWLIST_IDS.length;
-    const liveTotal = censusOutputSchemas().total;
+    const liveTotal = censusLiveOutputSchemas().total;
     expect(liveWaived).toBeGreaterThan(0);
     expect(liveTotal).toBeGreaterThan(liveWaived);
     expect(green.out).toContain(`${liveWaived} waived of ${liveTotal} declaration(s)`);
@@ -240,7 +242,7 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
 
     // The blanket bump, as data: every live entry re-dated far into the future.
     // Not one of them is expired at any plausible `today`, and every one fails.
-    const bumped = auditVacuityExpiry(SEEDED_ON, reDated('2099-01-01'));
+    const bumped = auditLiveVacuityExpiry(SEEDED_ON, reDated('2099-01-01'));
     expect(bumped.entryCount).toBe(VACUITY_ALLOWLIST_IDS.length);
     expect(bumped.expired).toEqual([]);
     expect(bumped.beyondHorizon).toEqual([...VACUITY_ALLOWLIST_IDS]);
@@ -250,7 +252,7 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
 
     // A SINGLE entry inching one day past the horizon fails just as hard — the
     // tooth is not a "most of them moved" heuristic.
-    const oneDayOver = auditVacuityExpiry(SEEDED_ON, {
+    const oneDayOver = auditLiveVacuityExpiry(SEEDED_ON, {
       'exarchos_view.tasks': { owner: 'views', expires: '2027-03-01' },
     });
     expect(oneDayOver.beyondHorizon).toEqual(['exarchos_view.tasks']);
@@ -259,7 +261,7 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
     // Pulling a date FORWARD is always legal: it only shortens the debt's life,
     // which is the direction the ratchet wants. Without this the tooth would be
     // "no edits", not "no renewals".
-    const earlier = auditVacuityExpiry(SEEDED_ON, {
+    const earlier = auditLiveVacuityExpiry(SEEDED_ON, {
       'exarchos_view.tasks': { owner: 'views', expires: '2026-09-01' },
     });
     expect(earlier.ok).toBe(true);
@@ -301,7 +303,7 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
     // declarations makes "no unwaived vacuity" true the same way. Both are what
     // a moved module or a broken import looks like, and both must FAIL rather
     // than report clean.
-    const noEntries = auditVacuityExpiry(SEEDED_ON, {});
+    const noEntries = auditLiveVacuityExpiry(SEEDED_ON, {});
     expect(noEntries.entryCount).toBe(0);
     expect(noEntries.expired).toEqual([]);
     expect(noEntries.ok).toBe(false);
@@ -319,7 +321,7 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
 
     // ONE entry and ONE declaration clear both guards — the tooth bites on
     // emptiness, not on smallness, so it cannot be satisfied by shrinking.
-    const one = auditVacuityExpiry(SEEDED_ON, {
+    const one = auditLiveVacuityExpiry(SEEDED_ON, {
       'exarchos_view.tasks': { owner: 'views', expires: LAST_LIVE_DAY },
     });
     expect(one.entryCount).toBe(1);
@@ -340,7 +342,7 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
     // date cannot be compared has no deadline at all. Both must fail rather than
     // read as "in date" — the shape check task 055 shipped only asserted the
     // string's PUNCTUATION, which is presence, not substance.
-    const unowned = auditVacuityExpiry(SEEDED_ON, {
+    const unowned = auditLiveVacuityExpiry(SEEDED_ON, {
       'exarchos_view.tasks': { owner: '   ', expires: LAST_LIVE_DAY },
     });
     expect(unowned.malformed).toEqual(['exarchos_view.tasks']);
@@ -357,7 +359,7 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
     expect(isIsoDay('2027-02-28')).toBe(true);
 
     for (const bad of ['2027-02-31', '2027-13-01', 'next wave', '']) {
-      const audit = auditVacuityExpiry(SEEDED_ON, {
+      const audit = auditLiveVacuityExpiry(SEEDED_ON, {
         'exarchos_view.tasks': { owner: 'views', expires: bad },
       });
       expect(audit.malformed, bad).toEqual(['exarchos_view.tasks']);
@@ -366,19 +368,19 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
 
     // An unreadable CLOCK or an unreadable HORIZON disables the comparison
     // itself, so both fail closed rather than reporting the waivers live.
-    expect(auditVacuityExpiry('someday').findings.map((f) => f.code)).toContain(
+    expect(auditLiveVacuityExpiry('someday').findings.map((f) => f.code)).toContain(
       'UNREADABLE_CLOCK',
     );
-    expect(auditVacuityExpiry(SEEDED_ON, VACUITY_ALLOWLIST, 'eventually').ok).toBe(false);
+    expect(auditLiveVacuityExpiry(SEEDED_ON, VACUITY_ALLOWLIST, 'eventually').ok).toBe(false);
     expect(
-      auditVacuityExpiry(SEEDED_ON, VACUITY_ALLOWLIST, 'eventually').findings.map((f) => f.code),
+      auditLiveVacuityExpiry(SEEDED_ON, VACUITY_ALLOWLIST, 'eventually').findings.map((f) => f.code),
     ).toContain('MALFORMED_HORIZON');
     expect(isoDayUtc(new Date(Number.NaN))).toBe('');
 
     // The LIVE seed is well-formed on every axis — the assertion that would
     // redden if a hand-edited entry ever lost its owner or its date, with a real
     // denominator rather than an empty `every()`.
-    const liveWellFormed = auditVacuityExpiry(SEEDED_ON);
+    const liveWellFormed = auditLiveVacuityExpiry(SEEDED_ON);
     // DERIVED, not literal (task 018). This line carried `toBe(111)` beside the
     // derived assertion below — a trip-wire that says nothing the next line does
     // not already say, and that reddens on the next legitimate paydown. The
@@ -428,7 +430,7 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
     // That is what keeps the unit suite deterministic while the gate is
     // time-dependent — and it is a property someone could quietly destroy by
     // giving `today` a `new Date()` default, so it is pinned here.
-    const structural = auditVacuityRatchet();
+    const structural = auditLiveVacuityRatchet();
     expect(structural.expiry).toBeUndefined();
     expect(structural.ok).toBe(true);
     expect(structural.findings).toEqual([]);
@@ -447,7 +449,7 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
     // findings are the concatenation — no half is silently dropped when another
     // is clean. A composition that reported only the first failure would hide
     // the other two behind whichever repair came first.
-    const whole = auditVacuityRatchetAsOf(SEEDED_ON);
+    const whole = auditLiveVacuityRatchetAsOf(SEEDED_ON);
     expect(whole.expiry).toBeDefined();
     // DERIVED, not literal (task 018) — same trip-wire as above. What this
     // assertion is for is that the expiry half really was CARRIED into the
@@ -458,15 +460,15 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
     expect(whole.ok).toBe(true);
     expect(whole.findings).toEqual([]);
 
-    const swappedRegistry = censusOutputSchemas([
+    const swappedRegistry = censusLiveOutputSchemas([
       tool('t', [action('a', substantive()), action('b', vacuous()), action('c', vacuous())]),
     ]);
-    const failing = auditVacuityRatchetAsOf(
+    const failing = auditLiveVacuityRatchetAsOf(
       FIRST_DEAD_DAY,
       // membership: `t.a` paid down but still waived, `t.c` newly vacuous
-      auditVacuityAllowlist(swappedRegistry, ['t.a', 't.b']),
-      auditVacuitySeedIntegrity(['t.a', 't.b'], [], 'a-digest-that-is-not-theirs'),
-      auditVacuityExpiry(FIRST_DEAD_DAY, {
+      auditLiveVacuityAllowlist(swappedRegistry, ['t.a', 't.b']),
+      auditLiveVacuitySeedIntegrity(['t.a', 't.b'], [], 'a-digest-that-is-not-theirs'),
+      auditLiveVacuityExpiry(FIRST_DEAD_DAY, {
         'exarchos_view.tasks': { owner: 'views', expires: '2026-01-01' },
       }),
     );

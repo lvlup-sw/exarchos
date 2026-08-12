@@ -48,20 +48,21 @@
  */
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import { TOOL_REGISTRY } from '../registry.js';
-import { extractEnvelopeDataSchema } from '../verbs/worktree/schemas.js';
-import { acceptsEveryValue } from '../contract/schemas/schema-totality.js';
-import {
-  VACUITY_ALLOWLIST,
-  VACUITY_ALLOWLIST_IDS,
-  VACUITY_RETIRED_IDS,
-  type VacuityWaiverEntry,
-} from '../output-schema-vacuity-allowlist.js';
-import {
-  VACUITY_EXPIRY_HORIZON,
-  VACUITY_SEED_DIGEST_ALGORITHM,
-  VACUITY_SEED_KEY_SET_DIGEST,
-} from '../output-schema-seed-pin.js';
+import type { VacuityWaiverEntry } from '../output-schema-vacuity-allowlist.js';
+
+/**
+ * The shipped schema behaviours this census measures against.
+ *
+ * They arrive as ports rather than imports: this module is conformance code and
+ * must not reach into the tree it inspects, and `registry.ts` is a DR-1
+ * declaration store besides. The composition root binds the real functions.
+ */
+export interface OutputSchemaPorts {
+  /** Walk a declared `outputSchema` to its success-branch `data` sub-schema. */
+  readonly extractEnvelopeData: (outputSchema: z.ZodType) => z.ZodType | undefined;
+  /** Whether a schema accepts every value — the totality predicate. */
+  readonly acceptsEveryValue: (schema: z.ZodType) => boolean;
+}
 
 /**
  * The census's subject, stated STRUCTURALLY rather than as `CompositeTool`.
@@ -155,15 +156,11 @@ export interface OutputSchemaCensusReport {
   readonly diagnostics: readonly CensusDiagnostic[];
 }
 
-/**
- * Does this sub-schema accept every value?
- *
- * Re-exported from the leaf module so the census keeps owning one explicit
- * definition of "accepts everything" for its consumers, while `withCappedShape`
- * — which cannot import this module without closing an import cycle — shares the
- * same predicate rather than a second copy of it.
- */
-export { acceptsEveryValue };
+// `acceptsEveryValue` used to be re-exported from here so that consumers and
+// `withCappedShape` shared one definition of "accepts everything". The predicate
+// lives in `contract/schemas/schema-totality.ts` and always did; this module now
+// receives it as a port instead, so the re-export would be a second name for a
+// leaf that every consumer can import directly. Consumers take it from there.
 
 /** What {@link readEnvelopeData} recovered from a declared `outputSchema`. */
 interface EnvelopeData {
@@ -185,8 +182,11 @@ interface EnvelopeData {
  * Returns `undefined` when neither branch yields a `data` field — the caller
  * fails closed on that.
  */
-function readEnvelopeData(outputSchema: z.ZodType): EnvelopeData | undefined {
-  const direct = extractEnvelopeDataSchema(outputSchema);
+function readEnvelopeData(
+  outputSchema: z.ZodType,
+  ports: OutputSchemaPorts,
+): EnvelopeData | undefined {
+  const direct = ports.extractEnvelopeData(outputSchema);
   if (direct !== undefined) return { data: direct, wrapped: false };
 
   if (outputSchema instanceof z.ZodIntersection) {
@@ -195,7 +195,7 @@ function readEnvelopeData(outputSchema: z.ZodType): EnvelopeData | undefined {
     // `instanceof` guard rather than a type assertion.
     for (const operand of [outputSchema.def.left, outputSchema.def.right]) {
       if (!(operand instanceof z.ZodType)) continue;
-      const nested = readEnvelopeData(operand);
+      const nested = readEnvelopeData(operand, ports);
       if (nested !== undefined) return { data: nested.data, wrapped: true };
     }
   }
@@ -204,15 +204,18 @@ function readEnvelopeData(outputSchema: z.ZodType): EnvelopeData | undefined {
 }
 
 /** Classify a single declared `outputSchema`. Fails closed on an unreadable shape. */
-export function classifyOutputSchema(outputSchema: z.ZodType): {
+export function classifyOutputSchema(
+  outputSchema: z.ZodType,
+  ports: OutputSchemaPorts,
+): {
   classification: VacuityClass;
   reason: VacuityReason;
 } {
-  const envelope = readEnvelopeData(outputSchema);
+  const envelope = readEnvelopeData(outputSchema, ports);
   if (envelope === undefined) {
     return { classification: 'vacuous', reason: 'unreadable-envelope' };
   }
-  if (!acceptsEveryValue(envelope.data)) {
+  if (!ports.acceptsEveryValue(envelope.data)) {
     return { classification: 'substantive', reason: 'typed-data' };
   }
   return {
@@ -230,7 +233,8 @@ export function classifyOutputSchema(outputSchema: z.ZodType): {
  * exercise the empty-subject failure) without mutating the real registry.
  */
 export function censusOutputSchemas(
-  tools: readonly CensusableTool[] = TOOL_REGISTRY,
+  tools: readonly CensusableTool[],
+  ports: OutputSchemaPorts,
 ): OutputSchemaCensusReport {
   const records: OutputSchemaRecord[] = [];
   const diagnostics: CensusDiagnostic[] = [];
@@ -238,7 +242,7 @@ export function censusOutputSchemas(
   for (const tool of tools) {
     for (const action of tool.actions) {
       const id = `${tool.name}.${action.name}`;
-      const { classification, reason } = classifyOutputSchema(action.outputSchema);
+      const { classification, reason } = classifyOutputSchema(action.outputSchema, ports);
       records.push({ tool: tool.name, action: action.name, id, classification, reason });
       if (reason === 'unreadable-envelope') {
         diagnostics.push({
@@ -390,8 +394,8 @@ export interface VacuityAllowlistAudit {
  *      shrink-only rather than merely bounded.
  */
 export function auditVacuityAllowlist(
-  report: OutputSchemaCensusReport = censusOutputSchemas(),
-  allowlist: readonly string[] = VACUITY_ALLOWLIST_IDS,
+  report: OutputSchemaCensusReport,
+  allowlist: readonly string[],
 ): VacuityAllowlistAudit {
   const findings: VacuityAllowlistFinding[] = [];
 
@@ -508,9 +512,12 @@ export interface VacuitySeedIntegrityAudit {
  * so re-sorting the allowlist literal or writing an id twice must not move the
  * digest. Only membership does.
  */
-export function vacuitySeedDigest(ids: readonly string[]): string {
+export function vacuitySeedDigest(
+  ids: readonly string[],
+  digestAlgorithm: string,
+): string {
   const canonical = [...new Set(ids)].sort().join('\n');
-  return createHash(VACUITY_SEED_DIGEST_ALGORITHM).update(canonical, 'utf8').digest('hex');
+  return createHash(digestAlgorithm).update(canonical, 'utf8').digest('hex');
 }
 
 /**
@@ -532,16 +539,17 @@ export function vacuitySeedDigest(ids: readonly string[]): string {
  *     alive for a declaration someone believes is retired.
  */
 export function auditVacuitySeedIntegrity(
-  waived: readonly string[] = VACUITY_ALLOWLIST_IDS,
-  retired: readonly string[] = VACUITY_RETIRED_IDS,
-  pinnedDigest: string = VACUITY_SEED_KEY_SET_DIGEST,
+  waived: readonly string[],
+  retired: readonly string[],
+  pinnedDigest: string,
+  digestAlgorithm: string,
 ): VacuitySeedIntegrityAudit {
   const findings: VacuitySeedFinding[] = [];
 
   const waivedSet = new Set(waived);
   const overlapping = [...new Set(retired)].filter((id) => waivedSet.has(id)).sort();
   const keySet = [...new Set([...waived, ...retired])].sort();
-  const digest = vacuitySeedDigest(keySet);
+  const digest = vacuitySeedDigest(keySet, digestAlgorithm);
 
   if (digest !== pinnedDigest) {
     findings.push({
@@ -720,8 +728,8 @@ function daysBetween(from: string, to: string): number {
  */
 export function auditVacuityExpiry(
   today: string,
-  entries: Readonly<Record<string, VacuityWaiverEntry>> = VACUITY_ALLOWLIST,
-  horizon: string = VACUITY_EXPIRY_HORIZON,
+  entries: Readonly<Record<string, VacuityWaiverEntry>>,
+  horizon: string,
 ): VacuityExpiryAudit {
   const findings: VacuityExpiryFinding[] = [];
   const ids = Object.keys(entries).sort();
@@ -874,8 +882,8 @@ export interface VacuityRatchetVerdict {
  * {@link auditVacuityRatchetAsOf} adds the expiry half at a named instant.
  */
 export function auditVacuityRatchet(
-  membership: VacuityAllowlistAudit = auditVacuityAllowlist(),
-  seed: VacuitySeedIntegrityAudit = auditVacuitySeedIntegrity(),
+  membership: VacuityAllowlistAudit,
+  seed: VacuitySeedIntegrityAudit,
 ): VacuityRatchetVerdict {
   const findings: VacuityRatchetFinding[] = [...membership.findings, ...seed.findings];
   return Object.freeze({
@@ -898,9 +906,9 @@ export function auditVacuityRatchet(
  */
 export function auditVacuityRatchetAsOf(
   today: string,
-  membership: VacuityAllowlistAudit = auditVacuityAllowlist(),
-  seed: VacuitySeedIntegrityAudit = auditVacuitySeedIntegrity(),
-  expiry: VacuityExpiryAudit = auditVacuityExpiry(today),
+  membership: VacuityAllowlistAudit,
+  seed: VacuitySeedIntegrityAudit,
+  expiry: VacuityExpiryAudit,
 ): VacuityRatchetVerdict {
   const findings: VacuityRatchetFinding[] = [
     ...membership.findings,
