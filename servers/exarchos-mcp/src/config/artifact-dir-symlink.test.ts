@@ -1,3 +1,16 @@
+/**
+ * Artifact directory against real filesystem state (DR-6, DR-11, task 006).
+ *
+ * Two independent authorities, per DR-30. `./artifacts.ts` is the shipped
+ * resolver — it computes a path from a configured string. `real-filesystem-
+ * symlink-state` is the operating system: every expectation here is checked
+ * against what the kernel reports for a symlink this test actually created, not
+ * against a second reading of the module. A resolver that mis-follows a link
+ * disagrees with the OS immediately, which is the whole point of building the
+ * link for real instead of mocking `realpathSync`.
+ *
+ * @oracle-sources: ./artifacts.ts, real-filesystem-symlink-state
+ */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, mkdir, writeFile, symlink, rm, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';

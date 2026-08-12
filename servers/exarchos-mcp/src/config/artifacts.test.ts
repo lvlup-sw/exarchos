@@ -1,3 +1,18 @@
+/**
+ * Artifact-directory resolution and classification (DR-6, task 005).
+ *
+ * Two independent authorities, per DR-30. `./artifacts.ts` is the shipped
+ * resolver — it computes. `characterization-corpus-captured-pre-dr6` is the
+ * hand-authored expectation table below, transcribed from the literal-based
+ * classifier BEFORE the extraction; it reads nothing and computes nothing, so
+ * it cannot agree with the resolver by construction. Neither reaches the other.
+ *
+ * The classifier itself (`../workflow/rehydrate.ts`) is deliberately NOT
+ * declared: it imports `./artifacts.ts`, so naming both would be one authority
+ * wearing two names.
+ *
+ * @oracle-sources: ./artifacts.ts, characterization-corpus-captured-pre-dr6
+ */
 import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
