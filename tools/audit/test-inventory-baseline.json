@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1143,
-    "parsedFiles": 1098,
+    "testFiles": 1144,
+    "parsedFiles": 1099,
     "shellFiles": 45,
-    "cases": 12627,
+    "cases": 12640,
     "dynamicTitles": 130,
     "unparseableFiles": 0
   },
@@ -69411,6 +69411,77 @@
         {
           "suite": "guard liveness",
           "name": "GuardLiveness_EverySurfaceClass_IsRepresented",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/layer-map.test.ts": {
+      "file": "tests/architecture/layer-map.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "LayerMap_EveryCoreDirectory_MapsToALayerOrAStatedException",
+          "name": "the scan is not vacuous",
+          "dynamic": false
+        },
+        {
+          "suite": "LayerMap_EveryCoreDirectory_MapsToALayerOrAStatedException",
+          "name": "every directory on disk has an entry",
+          "dynamic": false
+        },
+        {
+          "suite": "LayerMap_EveryCoreDirectory_MapsToALayerOrAStatedException",
+          "name": "every entry names a directory that exists",
+          "dynamic": false
+        },
+        {
+          "suite": "LayerMap_EveryCoreDirectory_MapsToALayerOrAStatedException",
+          "name": "every mapped directory names exactly one real target and a reason",
+          "dynamic": false
+        },
+        {
+          "suite": "LayerMap_EveryCoreDirectory_MapsToALayerOrAStatedException",
+          "name": "every exception states a destination AND a reason",
+          "dynamic": false
+        },
+        {
+          "suite": "LayerMap_EveryCoreDirectory_MapsToALayerOrAStatedException",
+          "name": "no directory is both mapped and excepted",
+          "dynamic": false
+        },
+        {
+          "suite": "LayerMap_EveryCoreDirectory_MapsToALayerOrAStatedException",
+          "name": "the recorded counts match the live tree",
+          "dynamic": false
+        },
+        {
+          "suite": "the 11 targets → 9 published layers relation (what task 044 asserts)",
+          "name": "publishes exactly nine layers, L1 through L9",
+          "dynamic": false
+        },
+        {
+          "suite": "the 11 targets → 9 published layers relation (what task 044 asserts)",
+          "name": "declares exactly eleven targets",
+          "dynamic": false
+        },
+        {
+          "suite": "the 11 targets → 9 published layers relation (what task 044 asserts)",
+          "name": "L5 is the one layer served by two directories — contract and dispatch",
+          "dynamic": false
+        },
+        {
+          "suite": "the 11 targets → 9 published layers relation (what task 044 asserts)",
+          "name": "install is a declared non-layer peer, not a tenth layer",
+          "dynamic": false
+        },
+        {
+          "suite": "the 11 targets → 9 published layers relation (what task 044 asserts)",
+          "name": "every target except install belongs to exactly one published layer",
+          "dynamic": false
+        },
+        {
+          "suite": "the 11 targets → 9 published layers relation (what task 044 asserts)",
+          "name": "every target a directory maps to is a target the layer table knows",
           "dynamic": false
         }
       ]
