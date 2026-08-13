@@ -204,7 +204,7 @@ describe('extractSessionModelUsage', () => {
     const { events } = parseStreamJson(DELEG_TRANSCRIPT);
     const usage = extractSessionModelUsage(events);
     expect(Object.keys(usage)).toEqual(['claude-sonnet-5']);
-    expect(usage['claude-sonnet-5'].outputTokens).toBeGreaterThan(0);
+    expect(usage['claude-sonnet-5']?.outputTokens).toBeGreaterThan(0);
   });
 });
 

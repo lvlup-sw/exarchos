@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -69,6 +70,8 @@ const TIER_OWNER: Readonly<Record<string, string | null>> = {
 type ResolvedProject = { name: string; include: string[]; collectedTiers: Set<string> };
 
 let projects: ResolvedProject[] = [];
+/** Every repo-relative path any project resolved, across all projects. */
+let collectedFiles: string[] = [];
 
 beforeAll(async () => {
   const vitest = await createVitest('test', { watch: false });
@@ -79,6 +82,7 @@ beforeAll(async () => {
       const collectedTiers = new Set<string>();
       for (const file of testFiles) {
         const rel = file.replace(/\\/g, '/').replace(`${root}/`, '');
+        collectedFiles.push(rel);
         if (!rel.startsWith('tests/')) continue;
         const tier = rel.slice('tests/'.length).split('/')[0];
         if (tier) collectedTiers.add(tier);
@@ -96,6 +100,7 @@ beforeAll(async () => {
 
 afterAll(() => {
   projects = [];
+  collectedFiles = [];
 });
 
 /** Tier directories that exist on disk. */
@@ -249,15 +254,55 @@ describe('TestTree', () => {
     const cfg = JSON.parse(
       readFileSync(join(TESTS_ROOT, 'tsconfig.json'), 'utf8').replace(/^\s*\/\/.*$/gm, ''),
     ) as { exclude?: string[] };
-    const tiers = (cfg.exclude ?? []).filter((e) => !e.startsWith('../'));
-    expect(tiers.sort(), 'a tier was added to the typecheck exemption').toEqual([
+    const local = (cfg.exclude ?? []).filter((e) => !e.startsWith('../'));
+
+    // The list holds two categories and conflating them is how a debt exemption
+    // would slip in wearing a not-code label. DEBT may only shrink. NOT_CODE is
+    // fixed, and each entry has to earn its place below.
+    const NOT_CODE = ['evals/**/runs/**', 'evals/**/tasks/*/oracle.ts'];
+    const debt = local.filter((e) => !NOT_CODE.includes(e)).sort();
+    expect(debt, 'a tier was added to the typecheck exemption').toEqual([
       'integration/**',
       'unit/**',
     ]);
+    expect(local.filter((e) => NOT_CODE.includes(e)).sort(), 'the not-code exclusion changed').toEqual(
+      [...NOT_CODE].sort(),
+    );
+
     // An exemption naming a tier that does not exist is spent config pretending
     // to be a concession.
-    for (const t of tiers) {
+    for (const t of debt) {
       expect(existsSync(join(TESTS_ROOT, t.replace('/**', ''))), `exempted tier ${t} does not exist`).toBe(true);
     }
+  });
+
+  it('CapturedEvalRuns_AfterMove_RemainExcludedFromCollection', () => {
+    // Task 033 moved the captured eval artifacts under `tests/`, where the test
+    // globs actually reach. Each one is a verbatim record of what a model wrote,
+    // driven by a module-load harness that calls `process.exit` — reaching a
+    // vitest worker, it would take the worker down rather than fail an
+    // assertion. The exclusion that stops that used to be anchored on `docs/`,
+    // which this move would have left matching nothing.
+    //
+    // Asserting the glob string would prove only that a line exists. This asks
+    // the resolved runner what it actually collects.
+    const runFiles = execFileSync('git', ['ls-files', 'tests/evals'], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+      maxBuffer: 64 * 1024 * 1024,
+    })
+      .split('\n')
+      .filter((f) => f.includes('/runs/') && /\.test\.ts$/.test(f));
+
+    // Denominator first: with no captured artifacts on disk this test would
+    // pass by having nothing to exclude.
+    expect(runFiles.length, 'no captured run artifacts found — this guard is vacuous').toBeGreaterThan(0);
+
+    const collected = new Set<string>();
+    for (const p of projects) for (const t of p.collectedTiers) collected.add(t);
+    expect(collected.has('evals'), 'the evals tier is collected by no project').toBe(true);
+
+    const collectedRunFiles = collectedFiles.filter((f) => f.includes('/runs/'));
+    expect(collectedRunFiles, 'a captured run artifact reached a vitest project').toEqual([]);
   });
 });

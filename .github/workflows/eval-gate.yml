@@ -6,7 +6,7 @@ on:
       - 'skills/**'
       - 'commands/**'
       - 'rules/**'
-      - 'evals/**'
+      - 'tests/evals/**'
       - 'src/workflow/playbooks.ts'
       - 'src/cli-commands/**'
       - 'src/verbs/team/prepare-delegation.ts'
@@ -93,7 +93,7 @@ jobs:
           echo '{"ci": true, "layer": "regression"}' | bun dist/evals/run-evals-cli.js
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          EVALS_DIR: ./evals
+          EVALS_DIR: ./tests/evals
 
       - name: Run Capability Evals (advisory)
         continue-on-error: true
@@ -101,4 +101,4 @@ jobs:
           echo '{"ci": true, "layer": "capability"}' | bun dist/evals/run-evals-cli.js
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          EVALS_DIR: ../../evals
+          EVALS_DIR: ../../tests/evals

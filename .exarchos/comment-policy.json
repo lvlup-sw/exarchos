@@ -182,7 +182,7 @@
       "reason": "Rule fixtures carry verbatim offender text."
     },
     {
-      "glob": "docs/evals/**/runs/**",
+      "glob": "tests/evals/**/runs/**",
       "reason": "Verbatim captured agent output. This is evidence of what an agent produced, not authored code: rewriting it would destroy the record, and blocking on it would fail the tree for something no author wrote."
     }
   ],

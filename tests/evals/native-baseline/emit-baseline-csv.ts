@@ -12,8 +12,8 @@
 // are DERIVED from the fixtures here, not hand-authored, and the provenance
 // columns are produced by the same helper every other #1670 artifact uses.
 //
-//   tsx docs/evals/native-baseline/emit-baseline-csv.ts          # regenerate
-//   tsx docs/evals/native-baseline/emit-baseline-csv.ts --check  # verify no drift
+//   tsx tests/evals/native-baseline/emit-baseline-csv.ts          # regenerate
+//   tsx tests/evals/native-baseline/emit-baseline-csv.ts --check  # verify no drift
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';

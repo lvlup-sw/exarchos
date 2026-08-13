@@ -1,15 +1,21 @@
 import { defineConfig, configDefaults } from 'vitest/config';
 import { fileURLToPath } from 'node:url';
 
-// Captured eval ARTIFACTS live under a run dir (`docs/evals/**/runs/<task>__<arm>__r<rep>/`)
+// Captured eval ARTIFACTS live under a run dir (`tests/evals/**/runs/<task>__<arm>__r<rep>/`)
 // and include agent-authored `*.test.ts` / `test.ts` files that are verbatim records,
 // not project tests (they use a module-load harness with `process.exit`, not
 // describe/it). Excluding the RUN dirs keeps that intent durable so no future glob
 // change can collect them (and their `process.exit` can never reach a worker). The
-// eval GRADERS themselves (e.g. `docs/evals/quality-ab/grade.ts`) do ship genuine
+// eval GRADERS themselves (e.g. `tests/evals/quality-ab/grade.ts`) do ship genuine
 // vitest tests directly beside the grader (never under `runs/`); those are collected
-// by the `unit` project's explicit `docs/evals/**/*.test.ts` include below.
-const EXCLUDE = [...configDefaults.exclude, 'docs/**/runs/**'];
+// by the `unit` project's `tests/evals/**/*.test.ts` include below.
+//
+// The glob is keyed on `runs/` at any depth rather than on the eval tree, because
+// this exclusion is what stands between a `process.exit` and a vitest worker: task
+// 033 moved these artifacts out of `docs/`, and a `docs/`-anchored exclusion would
+// have gone vacuous at exactly the moment the files it protects arrived somewhere
+// the test globs actually reach.
+const EXCLUDE = [...configDefaults.exclude, '**/runs/**'];
 
 export default defineConfig({
   test: {
@@ -64,7 +70,6 @@ export default defineConfig({
           // < core (Windows headroom on a real filesystem + SQLite) 60s.
           testTimeout: 5000,
           include: [
-            'benchmarks/**/*.test.ts',
             'tests/scripts/**/*.test.ts',
             // Black-box tests for top-level git-hook samples (e.g. the opt-in
             // pre-push ship-gate hook). They drive the `.sample` script via
@@ -90,12 +95,14 @@ export default defineConfig({
             'tests/e2e/**/*.test.ts',
             'tests/smoke/**/*.test.ts',
             'tests/migration/**/*.test.ts',
+            // Task 033 landed here: the ICPC benchmark suite from the former
+            // top-level `benchmarks/`, and both eval trees — the suite datasets
+            // from the former `evals/` plus the eval GRADER tests (the harness
+            // that scores an eval) from the former `docs/evals/`. Grader tests
+            // sit directly beside their grader; the captured run artifacts they
+            // score do NOT — those live under `runs/` and are excluded above.
             'tests/benchmarks/**/*.test.ts',
             'tests/evals/**/*.test.ts',
-            // Eval GRADER tests (the harness that scores an eval), directly beside
-            // the grader — NOT the captured run artifacts (those stay under
-            // `runs/`, excluded above). e.g. `docs/evals/quality-ab/grade.test.ts`.
-            'docs/evals/**/*.test.ts',
           ],
           // `scripts/core/**` are the core suite's own guard tests and run in
           // the `core` project at its budget, not this one.

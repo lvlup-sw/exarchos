@@ -2,7 +2,7 @@
 """Generate the #1675 gate-catch-rate figure SVG from the committed CSV.
 
 One figure, two panels, mirroring the #1670 / bifrost benchmark charting standard
-(`docs/evals/data/2026-07-09/generate_charts.py`):
+(`tests/evals/data/2026-07-09/generate_charts.py`):
 
     chart-gate-catch-rate.svg
         Panel A — per-gate true-positive catch rate (on seeded defects) and
@@ -17,7 +17,7 @@ that regenerates deterministically from committed data with no network. The wall
 ms is a machine-dependent snapshot baked into the committed CSV, so this script
 reproduces IDENTICAL bytes from that CSV on every run (it never re-drives the gates).
 
-    python3 docs/evals/data/2026-07-10/generate_charts.py
+    python3 tests/evals/data/2026-07-10/generate_charts.py
 
 GitHub palette + transparent background, so the SVG sits correctly in both light and
 dark GitHub themes.

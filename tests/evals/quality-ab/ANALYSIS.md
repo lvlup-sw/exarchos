@@ -130,5 +130,5 @@ durability, and did not (here) change whether the code was right the first time.
 ```bash
 # 1. set up run dirs (SPEC.md + stub) outside the repo, dispatch agents per arm
 # 2. grade the produced impls against the hidden oracles:
-tsx docs/evals/quality-ab/grade.ts <runsBaseDir>
+tsx tests/evals/quality-ab/grade.ts <runsBaseDir>
 ```

@@ -12,8 +12,11 @@ function parseFrontmatter(content: string): { meta: Record<string, string>; body
     return { meta: {}, body: content };
   }
 
+  // Both groups are non-optional in the pattern, so a match participates in
+  // both — the fallbacks satisfy the checker without inventing a second story
+  // about what a matched frontmatter block can look like.
   const meta: Record<string, string> = {};
-  const lines = match[1].split('\n');
+  const lines = (match[1] ?? '').split('\n');
   for (const line of lines) {
     const colonIdx = line.indexOf(':');
     if (colonIdx === -1) continue;
@@ -22,7 +25,7 @@ function parseFrontmatter(content: string): { meta: Record<string, string>; body
     meta[key] = value;
   }
 
-  return { meta, body: match[2] };
+  return { meta, body: match[2] ?? content };
 }
 
 /**

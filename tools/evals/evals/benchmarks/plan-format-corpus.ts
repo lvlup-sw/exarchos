@@ -310,7 +310,7 @@ function main(): void {
   out.push('');
 
   const report = out.join('\n');
-  const outDir = path.join(REPO_ROOT, 'docs/evals');
+  const outDir = path.join(REPO_ROOT, 'tests/evals');
   fs.mkdirSync(outDir, { recursive: true });
   const mdPath = path.join(outDir, '2026-07-09-1636-plan-format-corpus.md');
   const jsonPath = path.join(outDir, '2026-07-09-1636-plan-format-corpus.json');

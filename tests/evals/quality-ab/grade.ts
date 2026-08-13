@@ -26,7 +26,7 @@
 //                       mutation engine — so the adequacy figure is measured, not
 //                       claimed (DR-7 fail-honest).
 //
-// Run: tsx docs/evals/quality-ab/grade.ts <baseRunsDir> [tasksDir]
+// Run: tsx tests/evals/quality-ab/grade.ts <baseRunsDir> [tasksDir]
 //
 // ⚠️ ORACLE ISOLATION (eval integrity). The hidden oracles under `tasks/*/oracle.ts`
 // are the answer key. They are committed for GRADE-TIME reproducibility only — an
@@ -328,6 +328,12 @@ export interface GradeRunOptions {
 export async function gradeRun(baseDir: string, run: string, options: GradeRunOptions): Promise<RunResult> {
   const runDir = path.join(baseDir, run);
   const [task, arm, repRaw] = run.split('__');
+  // A run directory is `<task>__<arm>__r<rep>`. Refuse a name that is not,
+  // rather than grading with an empty task or arm — a silently mislabelled row
+  // is worse than a missing one, because it still gets averaged in.
+  if (task === undefined || arm === undefined || repRaw === undefined) {
+    throw new Error(`Malformed run directory name (want <task>__<arm>__r<rep>): ${run}`);
+  }
   const rep = repRaw.replace(/^r/, '');
   const oracle = gradeOracle(runDir, task, options.tasksDir);
   const adequacy = await gradeAdequacy(runDir, task, {
@@ -437,9 +443,10 @@ export async function gradeAll(
   lines.push('');
   lines.push('| task | arm | runs | mean oracle pass rate | typecheck ok | wrote tests | adequacy (killed/probed) |');
   lines.push('|---|---|---|---|---|---|---|');
-  for (const key of Object.keys(agg).sort()) {
+  // `Object.entries` rather than keys + subscript: the value comes back
+  // non-optional, which is what the whole row below reads.
+  for (const [key, a] of Object.entries(agg).sort(([l], [r]) => (l < r ? -1 : l > r ? 1 : 0))) {
     const [task, arm] = key.split('::');
-    const a = agg[key];
     const adq = a.adequacyProbedRuns > 0 ? `${a.adequacyScoreSum}/${a.adequacyProbedRuns} (${((a.adequacyScoreSum / a.adequacyProbedRuns) * 100).toFixed(0)}%)` : '— none probed';
     lines.push(`| ${task} | ${arm} | ${a.runs} | ${((a.oracleRate / a.runs) * 100).toFixed(0)}% | ${a.typecheckOk}/${a.runs} | ${a.wroteTests}/${a.runs} | ${adq} |`);
   }

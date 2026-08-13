@@ -84,10 +84,10 @@ The distribution is derived **only** from subagents actually observed in a real 
 ## Reproduce
 
 ```
-tsx docs/evals/native-baseline/harness.ts <specPath> --model sonnet   # live run (spawns claude)
-npx vitest run docs/evals/native-baseline/harness.test.ts             # parser fidelity + fail-honest, vs the captured fixtures
-tsx docs/evals/native-baseline/emit-baseline-csv.ts                    # regenerate the CSV from the fixtures
-tsx docs/evals/native-baseline/emit-baseline-csv.ts --check           # CI: fail if the committed CSV drifts from the fixtures
+tsx tests/evals/native-baseline/harness.ts <specPath> --model sonnet   # live run (spawns claude)
+npx vitest run tests/evals/native-baseline/harness.test.ts             # parser fidelity + fail-honest, vs the captured fixtures
+tsx tests/evals/native-baseline/emit-baseline-csv.ts                    # regenerate the CSV from the fixtures
+tsx tests/evals/native-baseline/emit-baseline-csv.ts --check           # CI: fail if the committed CSV drifts from the fixtures
 ```
 
 [`exp2-native-baseline.csv`](../data/2026-07-09/exp2-native-baseline.csv) is **derived from the captured fixtures**, not hand-authored: [`emit-baseline-csv.ts`](./emit-baseline-csv.ts) reduces the transcripts through the same parser the tests pin and stamps every row through the Task-001 provenance helper (`stampProvenance`, which rejects an incomplete pin), so `source=measured` + `binaryTag`/`gitSha`/`date`/`modelIds` are guaranteed present and a reader can regenerate or invalidate the table.

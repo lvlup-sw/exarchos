@@ -87,7 +87,7 @@ describe('benchmark baseline', () => {
     const superseded = (baseline as unknown as { supersedes?: { file: string; entries: number } })
       .supersedes;
 
-    expect(superseded?.file).toBe('benchmarks/baselines.json');
+    expect(superseded?.file).toBe('tests/benchmarks/baselines.json');
     expect(superseded?.entries).toBeLessThan(entries.length);
     expect(fs.existsSync(path.join(REPO_ROOT, superseded!.file))).toBe(true);
   });

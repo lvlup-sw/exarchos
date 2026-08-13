@@ -97,12 +97,12 @@ describe('toJsonl', () => {
     }
 
     // First line should be the passing arm
-    const first = JSON.parse(lines[0]);
+    const first = JSON.parse(lines[0] ?? '');
     expect(first.id).toBe('icpc-2025-A-exarchos');
     expect(first.passed).toBe(true);
 
     // Second line should be the failing arm
-    const second = JSON.parse(lines[1]);
+    const second = JSON.parse(lines[1] ?? '');
     expect(second.id).toBe('icpc-2025-A-vanilla-plan');
     expect(second.passed).toBe(false);
   });

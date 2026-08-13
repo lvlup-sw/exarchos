@@ -7,7 +7,7 @@ import { EvalSuiteConfigSchema, EvalCaseSchema } from '../types.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Navigate from tools/evals/evals/__tests__/ to repo root
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
-const SUITE_DIR = path.join(REPO_ROOT, 'evals', 'reliability');
+const SUITE_DIR = path.join(REPO_ROOT, 'tests', 'evals', 'reliability');
 
 const REQUIRED_CATEGORIES = ['stall', 'loop', 'budget', 'phase', 'recovery', 'compaction'];
 

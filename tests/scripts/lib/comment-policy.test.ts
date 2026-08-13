@@ -152,7 +152,7 @@ describe('the repository policy datum', () => {
     // author wrote.
     const policy = loadPolicy(REPO_POLICY);
 
-    expect(isExempt(policy, 'docs/evals/some-suite/runs/2026-08-01/output.md')).toBe(true);
+    expect(isExempt(policy, 'tests/evals/some-suite/runs/2026-08-01/output.md')).toBe(true);
   });
 
   it('Policy_OwnSourcesAndFixtures_AreExempt', () => {
@@ -168,7 +168,7 @@ describe('the repository policy datum', () => {
     const policy = loadPolicy(REPO_POLICY);
 
     expect(isExempt(policy, 'src/registry.ts')).toBe(false);
-    expect(isExempt(policy, 'docs/evals/harness/grader.ts')).toBe(false);
+    expect(isExempt(policy, 'tests/evals/harness/grader.ts')).toBe(false);
   });
 
   it('Policy_MeasuredBelowFloor_ShipsDisabledWithItsNumber', () => {

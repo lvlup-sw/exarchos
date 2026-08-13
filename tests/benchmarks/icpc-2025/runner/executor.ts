@@ -62,11 +62,10 @@ function buildEnv(arm: ArmConfig): Record<string, string> {
 function parseTokenUsage(stderr: string): { input: number; output: number } | undefined {
   const inputMatch = stderr.match(/"input_tokens"\s*:\s*(\d+)/);
   const outputMatch = stderr.match(/"output_tokens"\s*:\s*(\d+)/);
-  if (inputMatch && outputMatch) {
-    return {
-      input: parseInt(inputMatch[1], 10),
-      output: parseInt(outputMatch[1], 10),
-    };
+  const input = inputMatch?.[1];
+  const output = outputMatch?.[1];
+  if (input !== undefined && output !== undefined) {
+    return { input: parseInt(input, 10), output: parseInt(output, 10) };
   }
   return undefined;
 }
@@ -140,7 +139,11 @@ export async function spawnSession(
 
     const timeoutId = setTimeout(() => {
       timedOut = true;
-      if (child.kill) {
+      // `typeof`, not truthiness: the declared type says `kill` is always
+      // present, so a plain check reads as always-true to the checker. The
+      // guard is here for the EventEmitter stand-ins the tests inject, which
+      // genuinely lack it.
+      if (typeof child.kill === 'function') {
         (child as ChildProcess).kill('SIGTERM');
         // Escalate to SIGKILL if SIGTERM is ignored
         escalationId = setTimeout(() => {
@@ -176,7 +179,11 @@ export async function spawnSession(
       }
 
       const solutionPath = findSolutionFile(config.outputDir, config.language);
-      const tokenUsage = parseTokenUsage(stderrData);
+      const parsedUsage = parseTokenUsage(stderrData);
+      // `tokenUsage` is optional on `SessionResult`, so under
+      // `exactOptionalPropertyTypes` "no usage parsed" has to mean the key is
+      // absent, not present-and-undefined. Spread it once and reuse.
+      const usage = parsedUsage === undefined ? {} : { tokenUsage: parsedUsage };
 
       // Signal-terminated process (exitCode is null when killed by signal)
       if (signal != null) {
@@ -184,7 +191,7 @@ export async function spawnSession(
           wallClockSeconds,
           iterationCount: 0,
           exitReason: 'error',
-          tokenUsage,
+          ...usage,
           error: `Process terminated by signal ${signal}`,
         });
         return;
@@ -196,7 +203,7 @@ export async function spawnSession(
           wallClockSeconds,
           iterationCount: 0,
           exitReason: 'error',
-          tokenUsage,
+          ...usage,
           error: `Process exited with code ${exitCode}`,
         });
         return;
@@ -207,7 +214,7 @@ export async function spawnSession(
           wallClockSeconds,
           iterationCount: 0,
           exitReason: 'no_solution',
-          tokenUsage,
+          ...usage,
         });
         return;
       }
@@ -217,7 +224,7 @@ export async function spawnSession(
         wallClockSeconds,
         iterationCount: 1,
         exitReason: 'completed',
-        tokenUsage,
+        ...usage,
       });
     });
 

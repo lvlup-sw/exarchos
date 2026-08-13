@@ -30,10 +30,14 @@ function parseMetaJson(filePath: string): MetaJson {
     throw new Error(`Invalid meta.json at ${filePath}: timeLimit must be a number`);
   }
 
+  // `tags` is optional, so under `exactOptionalPropertyTypes` it has to be
+  // ABSENT when there is nothing to report — an explicit `undefined` is a
+  // different claim. The guards above already narrowed title/timeLimit.
+  const tags = meta['tags'];
   return {
-    title: meta['title'] as string,
-    timeLimit: meta['timeLimit'] as number,
-    tags: Array.isArray(meta['tags']) ? (meta['tags'] as string[]) : undefined,
+    title: meta['title'],
+    timeLimit: meta['timeLimit'],
+    ...(Array.isArray(tags) ? { tags: tags.filter((t) => typeof t === 'string') } : {}),
   };
 }
 

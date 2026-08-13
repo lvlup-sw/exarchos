@@ -337,7 +337,9 @@ export function resolveSubagentModels(
   sessionModelUsage: Readonly<Record<string, ModelUsageEntry>>,
 ): SubagentObservation[] {
   const sessionModels = Object.keys(sessionModelUsage);
-  const soleModel = sessionModels.length === 1 ? sessionModels[0] : null;
+  // `?? null` keeps the "sole model or nothing" shape the whole function rests
+  // on — a `string | undefined` here would widen every observation's `model`.
+  const soleModel = sessionModels.length === 1 ? (sessionModels[0] ?? null) : null;
   return subagents.map((s) => {
     if (s.model !== null || soleModel === null) return s;
     return { ...s, model: soleModel, modelSource: 'session-single' as ModelSource };
@@ -354,7 +356,7 @@ export function extractSessionModelUsage(
 ): Readonly<Record<string, ModelUsageEntry>> {
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const e = events[i];
-    if (e.type === 'result' && e.modelUsage) return e.modelUsage;
+    if (e?.type === 'result' && e.modelUsage) return e.modelUsage;
   }
   return {};
 }
@@ -716,7 +718,9 @@ async function main(): Promise<void> {
     process.exit(2);
   }
   const modelIdx = process.argv.indexOf('--model');
-  const model = modelIdx >= 0 ? process.argv[modelIdx + 1] : 'sonnet';
+  // `--model` with no value falls back to the default rather than passing
+  // `undefined` through to an optional field that means "not specified".
+  const model = (modelIdx >= 0 ? process.argv[modelIdx + 1] : 'sonnet') ?? 'sonnet';
   const specText = fs.readFileSync(specPath, 'utf-8');
 
   const { record, transcript, malformedLines } = await runNativeBaseline({

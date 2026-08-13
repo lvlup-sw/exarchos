@@ -77,14 +77,14 @@ Every raw-data artifact is stamped with `{ binaryTag, gitSha, modelIds, date }` 
 npx vitest run servers/exarchos-mcp/src/evals/benchmarks/exp1-binary-driver.test.ts
 
 # Exp 2 — native-baseline parser fidelity + fail-honest (vs captured fixtures)
-npx vitest run docs/evals/native-baseline/harness.test.ts
-#   live run: tsx docs/evals/native-baseline/harness.ts <specPath> --model sonnet
+npx vitest run tests/evals/native-baseline/harness.test.ts
+#   live run: tsx tests/evals/native-baseline/harness.ts <specPath> --model sonnet
 
 # Exp 3 — under-specified E-vs-N capture + mechanical grading
-npx vitest run docs/evals/quality-ab/run-underspec.test.ts docs/evals/quality-ab/grade.test.ts
+npx vitest run tests/evals/quality-ab/run-underspec.test.ts tests/evals/quality-ab/grade.test.ts
 
 # Figures — regenerate the SVGs from the committed CSVs (pure stdlib, no network)
-python3 docs/evals/data/2026-07-09/generate_charts.py
+python3 tests/evals/data/2026-07-09/generate_charts.py
 ```
 
 ## Supersedes

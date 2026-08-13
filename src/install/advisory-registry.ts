@@ -417,7 +417,7 @@ export const ADVISORY_REGISTRY: readonly AdvisoryEntry[] = [
     ciPathFiltered: true,
     ciFilterRationale:
       'eval-gate.yml is path-filtered at the trigger: `on.pull_request.paths` narrows to ' +
-      'skills/**, commands/**, rules/**, evals/**, a handful of src ' +
+      'skills/**, commands/**, rules/**, tests/evals/**, a handful of src ' +
       'paths and the workflow file itself. A PR that regresses agent behaviour without ' +
       'touching one of those paths never runs the capability suite. Softened a SECOND time ' +
       'in code: run-evals-cli.ts returns 0 whenever `layer === \'capability\'`, regardless ' +

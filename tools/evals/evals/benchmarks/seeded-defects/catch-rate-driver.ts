@@ -541,7 +541,7 @@ export function toCsv(report: CatchRateReport, provenance: Provenance): string {
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '../../../../..');
-const CSV_OUT = path.join(REPO_ROOT, 'docs/evals/data/2026-07-10/gate-catch-rate.csv');
+const CSV_OUT = path.join(REPO_ROOT, 'tests/evals/data/2026-07-10/gate-catch-rate.csv');
 
 function resolveProvenance(): Provenance {
   const git = realGit(REPO_ROOT, ['rev-parse', 'HEAD']);

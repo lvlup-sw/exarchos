@@ -110,10 +110,10 @@ jobs:
               # Authored sources and the tree they render to. These were
               # `skills/`, `commands/` and `rules/` until the DR-4 block moved
               # them, after which this lane fired on prompt changes only by
-              # accident — through `evals/**`.
+              # accident — through `tests/evals/**`.
               - 'content/**'
               - 'rendered/**'
-              - 'evals/**'
+              - 'tests/evals/**'
               - 'tools/evals/evals/**'
               # Opt-in eval package (DR-3): owns the promptfoo dep the graders
               # dynamic-import. A change here must still fire RUN_EVALS / the

@@ -37,7 +37,7 @@
 // sees, passed inline. The oracle is copied in only at grade time (by grade.ts)
 // and removed again.
 //
-// Run:  tsx docs/evals/quality-ab/run-underspec.ts [reps]
+// Run:  tsx tests/evals/quality-ab/run-underspec.ts [reps]
 //   env QAB_REPS=<n>          replicates per cell (default 2)
 //   env QAB_MODELS=opus,sonnet   models to run (default opus,sonnet)
 //   env QAB_SKIP_EXISTING=0   re-dispatch cells that already produced an impl
@@ -61,14 +61,14 @@ import type { RiskTier } from '../../../src/workflow/verification-policy.js';
 import { stampProvenance, type Provenance } from '../../../tools/evals/evals/provenance.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const QAB = __dirname; // docs/evals/quality-ab
+const QAB = __dirname; // tests/evals/quality-ab
 const TASKS_DIR = path.join(QAB, 'tasks');
 // Nest under the existing `runs/` tree so vitest's `docs/**/runs/**` exclude
 // covers any agent-authored `*.test.ts` here (their module-load `process.exit`
 // harness must never be collected as a project test). The full-spec grader's
 // `discoverRunDirs` ignores the `underspec/` subdir (not a `__[EN]__r<n>` name).
 const RUNS_DIR = path.join(QAB, 'runs', 'underspec');
-const DATA_DIR = path.resolve(REPO_ROOT, 'docs/evals/data/2026-07-09');
+const DATA_DIR = path.resolve(REPO_ROOT, 'tests/evals/data/2026-07-09');
 const CSV_PATH = path.join(DATA_DIR, 'exp3-underspec-ab.csv');
 
 // ─── Study matrix ─────────────────────────────────────────────────────────────
@@ -237,11 +237,17 @@ const FILE_BLOCK_RE = /===FILE:\s*([^\s=]+)\s*===\r?\n([\s\S]*?)\r?\n?===ENDFILE
 export function parseProducedFiles(result: string): Map<string, string> {
   const files = new Map<string, string>();
   for (const m of result.matchAll(FILE_BLOCK_RE)) {
-    const name = m[1].trim();
+    // Both groups are non-optional in `FILE_BLOCK_RE`, so a match participates
+    // in both; skipping a block that somehow lacks either keeps the documented
+    // "returns an empty map when nothing parses" contract instead of writing a
+    // file named `undefined`.
+    const rawName = m[1];
     let body = m[2];
+    if (rawName === undefined || body === undefined) continue;
+    const name = rawName.trim();
     // Strip a whole-body ```lang … ``` fence if the model wrapped the file.
     const fenced = body.match(/^\s*```[a-zA-Z]*\r?\n([\s\S]*?)\r?\n?```\s*$/);
-    if (fenced) body = fenced[1];
+    if (fenced?.[1] !== undefined) body = fenced[1];
     files.set(name, body.endsWith('\n') ? body : body + '\n');
   }
   return files;

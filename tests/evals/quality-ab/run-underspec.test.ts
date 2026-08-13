@@ -324,7 +324,7 @@ describe('buildCsv — provenance-stamped rows; blocked cells stay empty', () =>
     expect(lines[1]).toContain('claude-opus-4-8|claude-sonnet-5');
     expect(lines[1]).toContain('measured');
     // blocked row: empty metric cells, never a fabricated number
-    const blockedFields = lines[2].split(',');
+    const blockedFields = (lines[2] ?? '').split(',');
     expect(blockedFields[5]).toBe('blocked'); // status
     expect(blockedFields[6]).toBe(''); // oraclePassed empty
     expect(blockedFields[12]).toBe(''); // adequacyScore empty
@@ -354,18 +354,19 @@ describe('aggregate — per model×task×arm summary over ok cells', () => {
     ];
     const agg = aggregate(rows);
     expect(agg).toHaveLength(1);
-    expect(agg[0].key).toBe('opus::parse-duration::E');
-    expect(agg[0].runs).toBe(3);
-    expect(agg[0].okRuns).toBe(2);
-    expect(agg[0].blocked).toBe(1);
-    expect(agg[0].adequacyProbed).toBe(2);
-    expect(agg[0].adequacyKilled).toBe(1);
-    expect(agg[0].oracleMeanPct).toBe(100);
+    const [group] = agg;
+    expect(group?.key).toBe('opus::parse-duration::E');
+    expect(group?.runs).toBe(3);
+    expect(group?.okRuns).toBe(2);
+    expect(group?.blocked).toBe(1);
+    expect(group?.adequacyProbed).toBe(2);
+    expect(group?.adequacyKilled).toBe(1);
+    expect(group?.oracleMeanPct).toBe(100);
   });
 
   it('leaves oracleMeanPct null when every cell in a group is blocked', () => {
     const rows = [row({ status: 'blocked', oracleRate: null })];
-    expect(aggregate(rows)[0].oracleMeanPct).toBeNull();
+    expect(aggregate(rows)[0]?.oracleMeanPct).toBeNull();
   });
 });
 

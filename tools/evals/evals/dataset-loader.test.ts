@@ -164,7 +164,7 @@ describe('loadDataset', () => {
 
 describe('loadDataset_RealDatasets', () => {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
-  const REPO_EVALS_DIR = path.resolve(__dirname, '../../../evals');
+  const REPO_EVALS_DIR = path.resolve(__dirname, '../../../tests/evals');
 
   it('LoadDataset_BrainstormingGolden_ParsesWithoutErrors', async () => {
     // Arrange

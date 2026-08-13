@@ -22,7 +22,7 @@ import { fileURLToPath } from 'node:url';
 import { gradeAdequacy, gradeRun, type ProbeFn } from './grade.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const QAB = __dirname; // docs/evals/quality-ab
+const QAB = __dirname; // tests/evals/quality-ab
 
 // Generous per-test timeout: each case spawns git + tsx subprocesses (avoids the
 // vitest 5s default spawn-timeout flake on process-spawning tests).
@@ -128,8 +128,14 @@ describe.skipIf(WIN32)('gradeRun — characterization: adequacy is additive, exi
   // Deterministic probe seam so this test pins the EXISTING metrics (oracle /
   // typecheck / wroteTests) without depending on the real kill-probe's timing;
   // the real gate's correctness is covered by the discrimination suite above.
+  // `verdict` is the authority on a `ProbeResult`; `passed` and `disposition`
+  // are derived from it and were simply absent from this double, which predates
+  // that union. Stating all three consistently keeps the stand-in from
+  // asserting a shape the real probe can never produce.
   const fixedProbe: ProbeFn = async () => ({
+    verdict: { kind: 'passed', probedTests: ['test.ts'] },
     passed: true,
+    disposition: 'proved',
     probedTests: ['test.ts'],
     redObserved: true,
     restoredClean: true,

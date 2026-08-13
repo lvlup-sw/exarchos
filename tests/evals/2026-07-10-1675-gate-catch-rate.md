@@ -90,7 +90,7 @@ npx vitest run src/evals/benchmarks/seeded-defects/catch-rate-driver.test.ts
 bun run src/evals/benchmarks/seeded-defects/catch-rate-driver.ts
 
 # Regenerate the figure byte-identically from the committed CSV (pure stdlib):
-python3 docs/evals/data/2026-07-10/generate_charts.py
+python3 tests/evals/data/2026-07-10/generate_charts.py
 ```
 
 Note: the driver's wall-clock ms columns are host-dependent, so a re-drive reproduces the table **shape** (100% TPR / 0% FPR / 0 invalid across all five gates), not identical millisecond values. The chart, by contrast, reproduces byte-for-byte because it reads only the committed CSV.

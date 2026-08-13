@@ -775,13 +775,13 @@ export async function runExp1(opts: {
 }
 
 /**
- * CLI entry: `tsx src/evals/benchmarks/exp1-binary-driver.ts` — regenerates the
- * committed artifacts under `docs/evals/data/2026-07-09/`. Binaries are resolved
+ * CLI entry: `tsx tools/evals/evals/benchmarks/exp1-binary-driver.ts` — regenerates
+ * the committed artifacts under `tests/evals/data/2026-07-09/`. Binaries are resolved
  * from `EXP1_BINARIES_DIR` (default `/tmp/1670-exp1`), each built per task 003.
  */
 export async function main(): Promise<void> {
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
-  const outDir = path.join(repoRoot, 'docs/evals/data/2026-07-09');
+  const outDir = path.join(repoRoot, 'tests/evals/data/2026-07-09');
   const workRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'exp1-run-'));
   try {
     const result = await runExp1({

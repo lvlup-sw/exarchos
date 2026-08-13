@@ -39,7 +39,11 @@ export interface RunConfig {
  */
 export interface RunnerDeps {
   loadCorpus: (corpusDir: string) => ProblemDefinition[];
-  loadArm: (armsDir: string, armId: string) => ArmConfig;
+  // `ArmId`, not `string`. The only call site iterates `config.arms`, which is
+  // already `ArmId[]`, and the real `loadArm` accepts nothing wider — declaring
+  // `string` made the injection point advertise a contract the implementation
+  // it is injected with cannot honour.
+  loadArm: (armsDir: string, armId: ArmId) => ArmConfig;
   spawnSession: (
     problem: ProblemDefinition,
     arm: ArmConfig,
@@ -277,16 +281,22 @@ async function main(): Promise<void> {
     ? armList.filter((a): a is ArmId => validArms.includes(a as ArmId))
     : validArms;
 
+  // `problems`, `model` and `resumeRunId` are optional on `RunConfig`, so under
+  // `exactOptionalPropertyTypes` "flag not given" has to mean the key is absent
+  // — writing `undefined` is the different claim that it was given as nothing.
+  const problems = getFlagList('problem');
+  const model = getFlag('model');
+  const resumeRunId = getFlag('resume');
   const config: RunConfig = {
-    corpusDir: getFlag('corpus') ?? 'benchmarks/icpc-2025/problems',
-    armsDir: getFlag('arms-dir') ?? 'benchmarks/icpc-2025/arms',
-    resultsDir: getFlag('results') ?? 'benchmarks/icpc-2025/results',
-    reportsDir: getFlag('reports') ?? 'benchmarks/icpc-2025/reports',
+    corpusDir: getFlag('corpus') ?? 'tests/benchmarks/icpc-2025/problems',
+    armsDir: getFlag('arms-dir') ?? 'tests/benchmarks/icpc-2025/arms',
+    resultsDir: getFlag('results') ?? 'tests/benchmarks/icpc-2025/results',
+    reportsDir: getFlag('reports') ?? 'tests/benchmarks/icpc-2025/reports',
     arms,
-    problems: getFlagList('problem').length > 0 ? getFlagList('problem') : undefined,
+    ...(problems.length > 0 ? { problems } : {}),
     language: getFlag('language') ?? 'cpp',
-    model: getFlag('model'),
-    resumeRunId: getFlag('resume'),
+    ...(model === undefined ? {} : { model }),
+    ...(resumeRunId === undefined ? {} : { resumeRunId }),
     sessionTimeout: parseInt(getFlag('timeout') ?? '600', 10) || 600,
   };
 

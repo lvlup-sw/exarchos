@@ -10,7 +10,7 @@ import { JudgeCalibratedDataSchema } from '../../../src/events/schemas.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Resolve the repo-root evals/ directory (tools/evals/evals -> ../../../../evals)
-const REPO_EVALS_DIR = path.resolve(__dirname, '../../../evals');
+const REPO_EVALS_DIR = path.resolve(__dirname, '../../../tests/evals');
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 

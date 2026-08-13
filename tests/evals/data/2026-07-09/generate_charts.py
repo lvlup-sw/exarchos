@@ -24,7 +24,7 @@ exactly what DR-6 asks for: charts that "regenerate deterministically from commi
 data" with "no network access." So this script is data-driven, pure stdlib, and
 reproduces identical bytes on every run.
 
-    python3 docs/evals/data/2026-07-09/generate_charts.py
+    python3 tests/evals/data/2026-07-09/generate_charts.py
 
 GitHub palette + transparent background, so the SVGs sit correctly in both light and
 dark GitHub themes (the FG gray reads on either).

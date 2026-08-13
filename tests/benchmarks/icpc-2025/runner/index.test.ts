@@ -119,10 +119,12 @@ describe('runner orchestrator', () => {
     const run = await runBenchmark(config, deps);
 
     expect(run.problems).toHaveLength(1);
-    expect(run.problems[0].problemId).toBe('p1');
-    expect(run.problems[0].title).toBe('Problem p1');
-    expect(run.problems[0].arms).toHaveLength(1);
-    expect(run.problems[0].arms[0].arm).toBe('vanilla-plan');
+    const [problem] = run.problems;
+    expect(problem).toBeDefined();
+    expect(problem?.problemId).toBe('p1');
+    expect(problem?.title).toBe('Problem p1');
+    expect(problem?.arms).toHaveLength(1);
+    expect(problem?.arms[0]?.arm).toBe('vanilla-plan');
     expect(run.language).toBe('cpp');
     expect(run.runId).toBeDefined();
     expect(deps.spawnSession).toHaveBeenCalledOnce();
@@ -184,7 +186,7 @@ describe('runner orchestrator', () => {
     const run = await runBenchmark(config, deps);
 
     expect(run.problems).toHaveLength(1);
-    const armResults = run.problems[0].arms;
+    const armResults = run.problems[0]?.arms ?? [];
     expect(armResults).toHaveLength(2);
 
     // vanilla-plan should have error verdict

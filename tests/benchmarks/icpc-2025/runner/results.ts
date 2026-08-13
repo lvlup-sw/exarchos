@@ -34,10 +34,10 @@ export function computeVerdict(sampleResults: SampleResult[]): Verdict {
 
   const verdicts = sampleResults.map((s) => s.verdict);
 
-  // CE takes priority
-  if (verdicts.some((v) => v === 'ce')) {
-    return 'ce';
-  }
+  // No `ce` check here. `SampleVerdict` is pass/fail/tle/rte — a compile failure
+  // is an ARM-level outcome decided by `runSolution`, so a sample can never
+  // carry it and the guard that used to sit here could never fire.
+  // `computeVerdict_AnyCe_ReturnsCe` already asserts the real behaviour.
 
   const hasPass = verdicts.some((v) => v === 'pass');
   const allPass = verdicts.every((v) => v === 'pass');
@@ -97,32 +97,26 @@ export function aggregateResults(problems: ProblemResult[]): AggregateStats {
   const timeSums: Record<string, number> = {};
   const armCounts: Record<string, number> = {};
 
+  // `Record<string, number>` indexes to `number | undefined` under
+  // `noUncheckedIndexedAccess`, and the `in` check above does not narrow a later
+  // subscript. Reading through a local with a `?? 0` seed says the same thing the
+  // seeding block said, in a form the checker can follow.
   for (const problem of problems) {
     for (const arm of problem.arms) {
-      if (!(arm.arm in totalSolved)) {
-        totalSolved[arm.arm] = 0;
-        tokenSums[arm.arm] = 0;
-        timeSums[arm.arm] = 0;
-        armCounts[arm.arm] = 0;
-      }
-
-      if (arm.verdict === 'pass') {
-        totalSolved[arm.arm]++;
-      }
-
-      tokenSums[arm.arm] += arm.metrics.totalTokens;
-      timeSums[arm.arm] += arm.metrics.wallClockSeconds;
-      armCounts[arm.arm]++;
+      const id = arm.arm;
+      totalSolved[id] = (totalSolved[id] ?? 0) + (arm.verdict === 'pass' ? 1 : 0);
+      tokenSums[id] = (tokenSums[id] ?? 0) + arm.metrics.totalTokens;
+      timeSums[id] = (timeSums[id] ?? 0) + arm.metrics.wallClockSeconds;
+      armCounts[id] = (armCounts[id] ?? 0) + 1;
     }
   }
 
   const meanTokens: Record<string, number> = {};
   const meanTime: Record<string, number> = {};
 
-  for (const armId of Object.keys(armCounts)) {
-    const count = armCounts[armId];
-    meanTokens[armId] = count > 0 ? tokenSums[armId] / count : 0;
-    meanTime[armId] = count > 0 ? timeSums[armId] / count : 0;
+  for (const [armId, count] of Object.entries(armCounts)) {
+    meanTokens[armId] = count > 0 ? (tokenSums[armId] ?? 0) / count : 0;
+    meanTime[armId] = count > 0 ? (timeSums[armId] ?? 0) / count : 0;
   }
 
   return {

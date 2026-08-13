@@ -151,7 +151,9 @@ export async function runSolution(
       exitCode: null,
       timedOut: false,
       compiled: false,
-      compileError: compileResult.error,
+      // Optional under `exactOptionalPropertyTypes`: omit it when the compiler
+      // gave no message rather than asserting the message is `undefined`.
+      ...(compileResult.error === undefined ? {} : { compileError: compileResult.error }),
     };
   }
 

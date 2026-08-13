@@ -43,14 +43,14 @@ function createMockProcess(opts: {
   const stderrEmitter = createEventEmitter();
 
   // Assign pipe() no-ops
-  (stdoutEmitter as Record<string, unknown>)['pipe'] = vi.fn().mockReturnValue(stdoutEmitter);
-  (stderrEmitter as Record<string, unknown>)['pipe'] = vi.fn().mockReturnValue(stderrEmitter);
+  stdoutEmitter['pipe'] = vi.fn().mockReturnValue(stdoutEmitter);
+  stderrEmitter['pipe'] = vi.fn().mockReturnValue(stderrEmitter);
 
-  (proc as Record<string, unknown>)['stdout'] = stdoutEmitter;
-  (proc as Record<string, unknown>)['stderr'] = stderrEmitter;
-  (proc as Record<string, unknown>)['stdin'] = { write: vi.fn(), end: vi.fn() };
-  (proc as Record<string, unknown>)['pid'] = 12345;
-  (proc as Record<string, unknown>)['kill'] = vi.fn().mockReturnValue(true);
+  proc['stdout'] = stdoutEmitter;
+  proc['stderr'] = stderrEmitter;
+  proc['stdin'] = { write: vi.fn(), end: vi.fn() };
+  proc['pid'] = 12345;
+  proc['kill'] = vi.fn().mockReturnValue(true);
 
   const finish = (): void => {
     if (opts.stdout) {
@@ -65,8 +65,16 @@ function createMockProcess(opts: {
   return { process: proc, finish };
 }
 
-function createEventEmitter(): EventEmitter {
-  return new EventEmitter();
+/** An `EventEmitter` that also accepts the properties a ChildProcess carries. */
+type MockChildProcess = EventEmitter & Record<string, unknown>;
+
+function createEventEmitter(): MockChildProcess {
+  // One assertion here rather than one at every assignment below. A
+  // ChildProcess stand-in has to grow stdout/stderr/stdin/pid/kill and
+  // EventEmitter declares none of them, so each `emitter['x'] = …` would
+  // otherwise need its own — and EventEmitter does not overlap
+  // `Record<string, unknown>` well enough for a direct one to be allowed.
+  return new EventEmitter() as MockChildProcess;
 }
 
 describe('executor', () => {
@@ -207,11 +215,11 @@ describe('executor', () => {
       const proc = createEventEmitter();
       const stdoutEmitter = createEventEmitter();
       const stderrEmitter = createEventEmitter();
-      (proc as Record<string, unknown>)['stdout'] = stdoutEmitter;
-      (proc as Record<string, unknown>)['stderr'] = stderrEmitter;
-      (proc as Record<string, unknown>)['stdin'] = { write: vi.fn(), end: vi.fn() };
-      (proc as Record<string, unknown>)['pid'] = 12345;
-      (proc as Record<string, unknown>)['kill'] = vi.fn().mockImplementation(() => {
+      proc['stdout'] = stdoutEmitter;
+      proc['stderr'] = stderrEmitter;
+      proc['stdin'] = { write: vi.fn(), end: vi.fn() };
+      proc['pid'] = 12345;
+      proc['kill'] = vi.fn().mockImplementation(() => {
         proc.emit('close', 137);
         return true;
       });

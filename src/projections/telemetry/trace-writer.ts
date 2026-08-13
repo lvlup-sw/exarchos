@@ -18,7 +18,7 @@ export interface TraceEntry {
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 const MAX_SUMMARY_BYTES = 2048;
-const DEFAULT_CAPTURE_DIR = 'evals/captured';
+const DEFAULT_CAPTURE_DIR = 'tests/evals/captured';
 
 // ─── Truncation ─────────────────────────────────────────────────────────────
 
@@ -37,7 +37,7 @@ function truncate(value: unknown, maxBytes: number): string {
  * Writes tool call traces to session-scoped JSONL files.
  *
  * Opt-in via `EXARCHOS_EVAL_CAPTURE=1`. Output directory defaults to
- * `evals/captured` but can be overridden with `EXARCHOS_EVAL_CAPTURE_DIR`.
+ * `tests/evals/captured` but can be overridden with `EXARCHOS_EVAL_CAPTURE_DIR`.
  *
  * Env vars are read lazily on each call so that tests can stub them after
  * module import. Zero performance impact when disabled — the env var check

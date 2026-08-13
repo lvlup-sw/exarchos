@@ -47,5 +47,48 @@
   // for the tiers that ARE green. `TestsTsconfig_ExcludedTiers_OnlyShrink`
   // keeps this list from quietly growing, and it is the whole of the debt:
   // delete an entry once that tier compiles.
-  "exclude": ["../node_modules", "../dist", "unit/**", "integration/**"]
+  // Two kinds of entry live here and they are not the same concession.
+  //
+  // `unit/` and `integration/` are DEBT. They arrived wholesale in task 030 and
+  // are NOT yet checked. The 925 files it moved had never been type-checked
+  // anywhere — the root config excludes `**/*.test.ts` — and putting them under
+  // this program surfaces 2,801 errors across 482 files (789 of them once
+  // `noUncheckedIndexedAccess` is discounted): partial `DispatchContext` test
+  // doubles, `Envelope<unknown>` passed where `ToolResult` is wanted, and
+  // `exactOptionalPropertyTypes` mismatches. That is latent debt the move
+  // EXPOSED rather than caused, and paying it means semantic edits to over half
+  // the test tree — its own task, not a rider on a mechanical relocation.
+  // Excluding them holds the line exactly where it was before the move instead
+  // of relaxing the shared strictness for the tiers that ARE green.
+  //
+  // The other two entries are NOT code — nothing here is debt to pay off. Both
+  // only resolve inside a materialized run directory, under `tsx`, which is a
+  // different module resolution from this program's.
+  //
+  // `evals/**/runs/**` are captured eval artifacts: verbatim records of what a
+  // model wrote, scored as-is by the grader beside them. They are evidence, so
+  // editing one to satisfy a compiler would falsify the measurement they exist
+  // to support, and they carry a `process.exit` module-load harness rather than
+  // describe/it. Vitest excludes them for that second reason; this excludes them
+  // for the first.
+  //
+  // `evals/**/tasks/*/oracle.ts` are the hidden graders. Each imports
+  // `./impl.ts` — the candidate implementation, which is materialized beside it
+  // per run and is deliberately absent from the tree — and each is run as
+  // `tsx oracle.ts` from that directory. Committing an `impl.ts` to satisfy the
+  // import would hand the graded agent the answer.
+  //
+  // Task 033 moved all of it under `tests/`, which is the only reason a
+  // typechecker can see any of it at all.
+  //
+  // `TestsTsconfig_ExcludedTiers_OnlyShrink` holds both lists, separately: the
+  // debt list may only shrink, and the not-code list is fixed.
+  "exclude": [
+    "../node_modules",
+    "../dist",
+    "unit/**",
+    "integration/**",
+    "evals/**/runs/**",
+    "evals/**/tasks/*/oracle.ts"
+  ]
 }

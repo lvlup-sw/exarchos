@@ -18,7 +18,7 @@
     "singleRunCaveat": "One run on one machine. The bands describe within-run variance, not run-to-run variance, which is typically larger. Treat a single breach as a prompt to re-measure rather than as proof of regression."
   },
   "supersedes": {
-    "file": "benchmarks/baselines.json",
+    "file": "tests/benchmarks/baselines.json",
     "generated": "2026-02-16",
     "commit": "858a1b4",
     "entries": 2,

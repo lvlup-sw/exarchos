@@ -28,7 +28,7 @@ const REPO_ROOT = resolve(__dirname, '../..');
 const SHELL_TEST = join(REPO_ROOT, 'tests/scripts/get-exarchos.test.sh');
 
 describe.skipIf(process.platform === 'win32')('scripts/get-exarchos.sh (shell harness)', () => {
-  it('passes the full scripts/get-exarchos.test.sh suite', () => {
+  it('passes the full tests/scripts/get-exarchos.test.sh suite', () => {
     expect(existsSync(SHELL_TEST)).toBe(true);
 
     const result = spawnSync('bash', [SHELL_TEST], {
