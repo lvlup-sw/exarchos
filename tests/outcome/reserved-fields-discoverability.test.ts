@@ -30,6 +30,23 @@ import {
   handleUpdate,
 } from '../../src/workflow/tools.js';
 import { handleDescribe } from '../../src/describe/handler.js';
+
+/**
+ * Read the `ReservedFieldErrorData` block off an envelope error.
+ *
+ * The block is attached at runtime but is not part of the envelope's declared
+ * error shape, so this narrows to it instead of asserting a property the type
+ * denies. Returning `undefined` when it is absent keeps "the block is missing"
+ * a visible failure rather than a silently-empty object.
+ */
+function reservedFieldData(
+  err: unknown,
+): { rejectedPath?: unknown; rule?: unknown; alternateWritePath?: unknown } | undefined {
+  if (err === null || typeof err !== 'object' || !('data' in err)) return undefined;
+  const data = err.data;
+  if (data === null || typeof data !== 'object') return undefined;
+  return { ...data };
+}
 import { TOOL_REGISTRY } from '../../src/registry.js';
 
 const workflowTool = TOOL_REGISTRY.find((t) => t.name === 'exarchos_workflow');
@@ -109,19 +126,18 @@ describe('reserved-fields discoverability outcome (#1360)', () => {
       expect(updateResult.success).toBe(false);
       expect(updateResult.error?.code).toBe('RESERVED_FIELD');
 
-      const errData = updateResult.error?.data as {
-        rejectedPath?: unknown;
-        rule?: unknown;
-        alternateWritePath?: unknown;
-      } | undefined;
-      expect(errData).toBeDefined();
-      expect(errData!.rejectedPath).toBe('workflowType');
-      expect(typeof errData!.rule).toBe('string');
-      expect((errData!.rule as string).length).toBeGreaterThan(0);
+      // `ReservedFieldErrorData` rides on the error at runtime but is absent
+      // from the envelope's declared error shape, so it is reached by
+      // narrowing rather than by asserting a property the type denies.
+      const errData = reservedFieldData(updateResult.error);
+      expect(errData, 'no typed data block on the RESERVED_FIELD error').toBeDefined();
+      expect(errData?.rejectedPath).toBe('workflowType');
+      expect(typeof errData?.rule).toBe('string');
+      expect(String(errData?.rule).length).toBeGreaterThan(0);
       // alternateWritePath may be a populated string or null; both shapes
       // are contract-compliant per `ReservedFieldErrorData`. For
       // `workflowType` the descriptor provides a populated alternate.
-      const altPath = errData!.alternateWritePath;
+      const altPath = errData?.alternateWritePath;
       expect(altPath === null || typeof altPath === 'string').toBe(true);
       if (typeof altPath === 'string') {
         expect(altPath.length).toBeGreaterThan(0);
@@ -160,17 +176,13 @@ describe('reserved-fields discoverability outcome (#1360)', () => {
       expect(updateResult.success).toBe(false);
       expect(updateResult.error?.code).toBe('RESERVED_FIELD');
 
-      const errData = updateResult.error?.data as {
-        rejectedPath?: unknown;
-        rule?: unknown;
-        alternateWritePath?: unknown;
-      } | undefined;
-      expect(errData).toBeDefined();
-      expect(errData!.rejectedPath).toBe('_meta');
-      expect(typeof errData!.rule).toBe('string');
-      expect((errData!.rule as string).length).toBeGreaterThan(0);
+      const errData = reservedFieldData(updateResult.error);
+      expect(errData, 'no typed data block on the RESERVED_FIELD error').toBeDefined();
+      expect(errData?.rejectedPath).toBe('_meta');
+      expect(typeof errData?.rule).toBe('string');
+      expect(String(errData?.rule).length).toBeGreaterThan(0);
 
-      const altPath = errData!.alternateWritePath;
+      const altPath = errData?.alternateWritePath;
       expect(altPath === null || typeof altPath === 'string').toBe(true);
       if (typeof altPath === 'string') {
         expect(altPath.length).toBeGreaterThan(0);

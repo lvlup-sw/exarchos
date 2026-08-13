@@ -280,7 +280,11 @@ export async function assertActionParity(
     });
   }
 
-  const mcpResult: ToolResult = await harnessCallMcp(
+  // Left to inference: the harness returns `ErrorEnvelope | Envelope<unknown>`,
+  // whose `_eventHints` is wider than `ToolResult`'s. Only `.success` and the
+  // normalized comparison are used here, so narrowing it to `ToolResult` bought
+  // nothing and did not typecheck.
+  const mcpResult = await harnessCallMcp(
     fixture.mcpCtx,
     'exarchos_workflow',
     { action: spec.action, ...spec.args },

@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1154,
-    "parsedFiles": 1109,
+    "testFiles": 1155,
+    "parsedFiles": 1110,
     "shellFiles": 45,
-    "cases": 12741,
+    "cases": 12746,
     "dynamicTitles": 131,
     "unparseableFiles": 0
   },
@@ -66672,6 +66672,37 @@
         {
           "suite": "test inventory",
           "name": "TestInventory_EveryTestBearingRoot_IsRepresented",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/test-tree-contract.test.ts": {
+      "file": "tests/architecture/test-tree-contract.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "TestTree",
+          "name": "EveryTierDirectory_IsCollectedByExactlyOneProject",
+          "dynamic": false
+        },
+        {
+          "suite": "TestTree",
+          "name": "GlobsNamingTheTestTree_AreScopedToOneTier",
+          "dynamic": false
+        },
+        {
+          "suite": "TestTree",
+          "name": "WhatTheRunnerCollects_MatchesWhoTheGlobsSayOwnsIt",
+          "dynamic": false
+        },
+        {
+          "suite": "TestTree",
+          "name": "EveryProjectNamedInAScript_Exists",
+          "dynamic": false
+        },
+        {
+          "suite": "TestTree",
+          "name": "TheTestTree_IsTypecheckedByItsOwnTsconfig",
           "dynamic": false
         }
       ]

@@ -53,6 +53,16 @@ export default defineConfig({
             'test/migration/**/*.test.ts',
             'test/smoke/**/*.test.ts',
             'test/e2e/**/*.test.ts',
+            // The DR-5 destination tiers whose policy is this one's. Declared
+            // before the moves (029) so tasks 030-033 relocate files into a
+            // tree that is already collected — the alternative is a window in
+            // which a moved file is collected by nobody and passes by never
+            // running, which is the exact failure DR-5 exists to prevent.
+            'tests/e2e/**/*.test.ts',
+            'tests/smoke/**/*.test.ts',
+            'tests/migration/**/*.test.ts',
+            'tests/benchmarks/**/*.test.ts',
+            'tests/evals/**/*.test.ts',
             // Eval GRADER tests (the harness that scores an eval), directly beside
             // the grader — NOT the captured run artifacts (those stay under
             // `runs/`, excluded above). e.g. `docs/evals/quality-ab/grade.test.ts`.
@@ -112,6 +122,13 @@ export default defineConfig({
             // shape. Separate from `test/core/` so fixture files live alongside
             // the tests without conflicting with the compiled-binary suite.
             'tests/core/**/*.test.ts',
+            // The DR-5 destination for the product core's own tests (tasks
+            // 030/031). They keep THIS project's policy, not the root `unit`
+            // tier's: the `bun:sqlite` alias and the 60s Windows headroom are
+            // properties of the code under test, and they do not stop applying
+            // because a file moved out from beside its subject.
+            'tests/unit/**/*.test.ts',
+            'tests/integration/**/*.test.ts',
             // The layer map sent `evals/`, `bench/`, `benchmarks/` and
             // `test-helpers/` out of the product tree and into `tools/`. They
             // were part of this suite before the move and still are — without
@@ -165,7 +182,9 @@ export default defineConfig({
       {
         test: {
           name: 'process',
-          include: ['test/process/**/*.test.ts'],
+          // `tests/process/**` is the DR-5 destination (task 032); declared now
+          // so the move lands in a collected tree.
+          include: ['test/process/**/*.test.ts', 'tests/process/**/*.test.ts'],
           exclude: EXCLUDE,
           testTimeout: 15000,
           setupFiles: ['./test/setup/global.ts'],

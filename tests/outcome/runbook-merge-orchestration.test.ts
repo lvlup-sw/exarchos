@@ -85,12 +85,13 @@ describe('MERGE_ORCHESTRATION runbook outcome (#1363)', () => {
     // HSM transition (workflow). Each step carries `seq` for operator
     // traceability.
     expect(detail.steps).toHaveLength(3);
-    expect(detail.steps[0].tool).toBe('exarchos_orchestrate');
-    expect(detail.steps[0].action).toBe('merge_orchestrate');
-    expect(detail.steps[1].tool).toBe('exarchos_orchestrate');
-    expect(detail.steps[1].action).toBe('merge_orchestrate');
-    expect(detail.steps[2].tool).toBe('exarchos_workflow');
-    expect(detail.steps[2].action).toBe('transition');
+    const [preflight, realMerge, transition] = detail.steps;
+    expect(preflight?.tool).toBe('exarchos_orchestrate');
+    expect(preflight?.action).toBe('merge_orchestrate');
+    expect(realMerge?.tool).toBe('exarchos_orchestrate');
+    expect(realMerge?.action).toBe('merge_orchestrate');
+    expect(transition?.tool).toBe('exarchos_workflow');
+    expect(transition?.action).toBe('transition');
   });
 
   it('Runbook_OtherPhases_StillPopulated', async () => {

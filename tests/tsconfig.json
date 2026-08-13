@@ -1,0 +1,27 @@
+{
+  // The root tsconfig excludes `**/*.test.ts` outright, so until now no test
+  // file in the repository was type-checked at all — a test could reference a
+  // deleted export and only the runner would notice, and only if it ran.
+  //
+  // This config is the DR-5 "tests/ is typechecked by a real tsconfig include"
+  // clause. It covers the consolidated tree as it fills up: cheap today at a
+  // few dozen files, and each move task in 030-033 keeps it green rather than
+  // discovering the debt at the end.
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    // Tests import the subject tree, so the program has to span both roots.
+    "rootDir": ".."
+  },
+  // Deliberately no `**/*.test.ts` exclusion — checking the tests is the point.
+  //
+  // The ambient declarations come along explicitly: `bun:sqlite` is a virtual
+  // module that only resolves under Bun, and the subject tree reaches it
+  // transitively. An ambient `.d.ts` outside this `include` is not picked up by
+  // being imported, so without this the whole storage layer fails to resolve.
+  "include": ["**/*.ts", "../src/**/*.d.ts"],
+  "exclude": ["../node_modules", "../dist"]
+}

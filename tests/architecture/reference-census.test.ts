@@ -107,6 +107,7 @@ describe('reference census', () => {
     // The distinction that makes the gate usable: docs/audits carries archival
     // mentions and is still clear, because a dated record is out of scope.
     const audits = census.subtrees['docs/audits'];
+    if (!audits) throw new Error('docs/audits is absent from the census');
 
     expect(audits.referrersByKind.markdownArchival).toBeGreaterThan(0);
     expect(audits.liveReferrers).toBe(0);

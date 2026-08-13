@@ -81,8 +81,10 @@ describe('preflight debug payload (#1362 phase 1)', () => {
         expect(result.passed).toBe(false);
         expect(result.ancestry.passed).toBe(false);
 
-        // No debug block when env var is unset.
-        expect((result as Record<string, unknown>).debug).toBeUndefined();
+        // No debug block when env var is unset. The debug block is attached at
+        // runtime and absent from the declared result type, so reach it by
+        // narrowing rather than by asserting a property the type denies.
+        expect('debug' in result ? result.debug : undefined).toBeUndefined();
       } finally {
         if (prior !== undefined) process.env.EXARCHOS_PREFLIGHT_DEBUG = prior;
       }
@@ -107,18 +109,24 @@ describe('preflight debug payload (#1362 phase 1)', () => {
         expect(result.passed).toBe(false);
         expect(result.ancestry.passed).toBe(false);
 
-        // Debug block MUST be attached and structurally complete.
-        const debug = (result as { debug?: Record<string, unknown> }).debug;
-        expect(debug).toBeDefined();
-        expect(typeof debug!.gitVersion).toBe('string');
-        expect(typeof debug!.repoRoot).toBe('string');
-        expect(typeof debug!.worktreeList).toBe('string');
-        expect(debug!.refsHeadsSource).toBeDefined();
-        expect(debug!.refsHeadsTarget).toBeDefined();
-        expect(Array.isArray(debug!.mergeBaseCommand)).toBe(true);
-        expect(typeof debug!.mergeBaseExitCode).toBe('number');
-        expect(typeof debug!.mergeBaseStdout).toBe('string');
-        expect(typeof debug!.mergeBaseStderr).toBe('string');
+        // Debug block MUST be attached and structurally complete. It is
+        // attached at runtime and absent from the declared result type, so it
+        // is reached by narrowing rather than by asserting a property the type
+        // denies.
+        expect('debug' in result, 'no debug block attached').toBe(true);
+        const debug: Record<string, unknown> =
+          'debug' in result && result.debug !== null && typeof result.debug === 'object'
+            ? { ...result.debug }
+            : {};
+        expect(typeof debug.gitVersion).toBe('string');
+        expect(typeof debug.repoRoot).toBe('string');
+        expect(typeof debug.worktreeList).toBe('string');
+        expect(debug.refsHeadsSource).toBeDefined();
+        expect(debug.refsHeadsTarget).toBeDefined();
+        expect(Array.isArray(debug.mergeBaseCommand)).toBe(true);
+        expect(typeof debug.mergeBaseExitCode).toBe('number');
+        expect(typeof debug.mergeBaseStdout).toBe('string');
+        expect(typeof debug.mergeBaseStderr).toBe('string');
       } finally {
         if (prior === undefined) delete process.env.EXARCHOS_PREFLIGHT_DEBUG;
         else process.env.EXARCHOS_PREFLIGHT_DEBUG = prior;

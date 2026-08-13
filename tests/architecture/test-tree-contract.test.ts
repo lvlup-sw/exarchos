@@ -1,0 +1,229 @@
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { createVitest } from 'vitest/node';
+
+/**
+ * The consolidated test tree is only worth having if every tier in it is
+ * actually run, exactly once.
+ *
+ * Two failures are being guarded, and both are silent. A tier collected by NO
+ * project passes by never executing — the shape that hid four oracles earlier
+ * in this workflow. A tier collected by TWO runs its tests twice under two
+ * different policies, so a file needing the 60s Windows headroom also runs
+ * under the 5s budget and fails there for reasons unrelated to the code.
+ *
+ * Most tiers are still empty while tasks 030-033 move files into them, so the
+ * mapping cannot be read off what the runner currently collects. It comes from
+ * the RESOLVED include globs instead — read back out of a real Vitest instance
+ * rather than off the config source, so what is asserted is what the runner
+ * actually resolved. Where a tier does hold files, the two views are then
+ * required to agree.
+ */
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = resolve(__dirname, '../../');
+const TESTS_ROOT = join(REPO_ROOT, 'tests');
+
+/**
+ * Which project owns each tier. Project names describe RUNTIME POLICY (alias,
+ * timeout, pool); directory names describe TEST KIND. They are deliberately not
+ * the same axis, so the mapping is written down rather than inferred from a
+ * name collision.
+ */
+const TIER_OWNER: Readonly<Record<string, string | null>> = {
+  // The product core's own tests: `bun:sqlite` alias + Windows headroom.
+  unit: 'core',
+  integration: 'core',
+  core: 'core',
+  // Root-package tiers: fast, no SQLite.
+  architecture: 'unit',
+  e2e: 'unit',
+  smoke: 'unit',
+  migration: 'unit',
+  benchmarks: 'unit',
+  evals: 'unit',
+  // Tiers whose policy is their whole reason for existing.
+  process: 'process',
+  outcome: 'outcome',
+  acceptance: 'acceptance',
+  // `support` holds fixtures and shell suites. `null` is a claim with teeth:
+  // vitest must collect nothing here, so a stray `.test.ts` fixture that would
+  // execute as a test is a failure rather than a surprise.
+  support: null,
+};
+
+type ResolvedProject = { name: string; include: string[]; collectedTiers: Set<string> };
+
+let projects: ResolvedProject[] = [];
+
+beforeAll(async () => {
+  const vitest = await createVitest('test', { watch: false });
+  try {
+    const root = REPO_ROOT.replace(/\\/g, '/');
+    for (const project of vitest.projects) {
+      const { testFiles } = await project.globTestFiles();
+      const collectedTiers = new Set<string>();
+      for (const file of testFiles) {
+        const rel = file.replace(/\\/g, '/').replace(`${root}/`, '');
+        if (!rel.startsWith('tests/')) continue;
+        const tier = rel.slice('tests/'.length).split('/')[0];
+        if (tier) collectedTiers.add(tier);
+      }
+      projects.push({
+        name: project.name,
+        include: [...(project.config.include ?? [])],
+        collectedTiers,
+      });
+    }
+  } finally {
+    await vitest.close();
+  }
+}, 120_000);
+
+afterAll(() => {
+  projects = [];
+});
+
+/** Tier directories that exist on disk. */
+function tierDirs(): string[] {
+  return readdirSync(TESTS_ROOT, { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .map((e) => e.name)
+    .sort();
+}
+
+/**
+ * Projects whose resolved globs cover `tests/<tier>/`.
+ *
+ * Every glob naming this tree is of the form `tests/<tier>/**` + a suffix, so a
+ * prefix comparison is exact. `GlobsNamingTheTestTree_AreScopedToOneTier` is
+ * what keeps that true — without it, one broader glob would quietly invalidate
+ * this.
+ */
+function ownersByGlob(tier: string): string[] {
+  const prefix = `tests/${tier}/`;
+  return projects
+    .filter((p) => p.include.some((g) => g.startsWith(prefix)))
+    .map((p) => p.name)
+    .sort();
+}
+
+describe('TestTree', () => {
+  it('EveryTierDirectory_IsCollectedByExactlyOneProject', () => {
+    expect(projects.length, 'no projects resolved').toBeGreaterThan(0);
+
+    const dirs = tierDirs();
+    expect(dirs.length, 'no tier directories found under tests/').toBeGreaterThan(0);
+
+    // A new tier appearing with no declared owner is the ungoverned case, and
+    // it has to fail here rather than when a file first lands in it.
+    const undeclared = dirs.filter((d) => !(d in TIER_OWNER));
+    expect(undeclared, 'tier directories with no declared owning project').toEqual([]);
+
+    for (const tier of dirs) {
+      const expected = TIER_OWNER[tier];
+      const actual = ownersByGlob(tier);
+      if (expected === null) {
+        expect(actual, `tests/${tier}/ must be collected by no project`).toEqual([]);
+      } else {
+        expect(actual, `tests/${tier}/ must be collected by exactly one project`).toEqual([
+          expected,
+        ]);
+      }
+    }
+  });
+
+  it('GlobsNamingTheTestTree_AreScopedToOneTier', () => {
+    // The premise the mapping rests on. A glob like `tests/**/*.test.ts` would
+    // collect every tier at once, and the prefix comparison would not notice.
+    const offenders: string[] = [];
+    for (const p of projects) {
+      for (const g of p.include) {
+        if (!g.startsWith('tests/')) continue;
+        const segment = g.slice('tests/'.length).split('/')[0] ?? '';
+        if (segment === '' || segment.includes('*')) offenders.push(`${p.name}: ${g}`);
+      }
+    }
+    expect(offenders, 'include globs spanning more than one tier').toEqual([]);
+  });
+
+  it('WhatTheRunnerCollects_MatchesWhoTheGlobsSayOwnsIt', () => {
+    // Calibration. The mapping above is read off resolved globs; the authority
+    // on what RUNS is what the collector returned. Where both can see the same
+    // tier — the ones already holding files — they must agree, or the glob
+    // reading means nothing for the empty tiers.
+    const collectedBy = new Map<string, string[]>();
+    for (const p of projects) {
+      for (const tier of p.collectedTiers) {
+        collectedBy.set(tier, [...(collectedBy.get(tier) ?? []), p.name].sort());
+      }
+    }
+
+    expect(
+      collectedBy.size,
+      'the runner collects nothing under tests/, so there is nothing to calibrate against',
+    ).toBeGreaterThan(0);
+
+    for (const [tier, observed] of collectedBy) {
+      expect(
+        observed,
+        `runner and resolved globs disagree about who collects tests/${tier}/`,
+      ).toEqual(ownersByGlob(tier));
+    }
+  });
+
+  it('EveryProjectNamedInAScript_Exists', () => {
+    // `test:unit` carried `--project integration` against a project that was
+    // never defined. vitest only errors when NO filter matches, so the dead
+    // half was silently dropped on every run and the script read as if it
+    // covered a tier it did not.
+    const pkg = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8')) as {
+      scripts?: Record<string, string>;
+    };
+
+    const defined = new Set(projects.map((p) => p.name));
+    expect(defined.size, 'no projects resolved').toBeGreaterThan(0);
+
+    const dangling: string[] = [];
+    for (const [name, body] of Object.entries(pkg.scripts ?? {})) {
+      for (const m of body.matchAll(/--project[= ]([\w-]+)/g)) {
+        const project = m[1];
+        if (project && !defined.has(project)) dangling.push(`${name}: --project ${project}`);
+      }
+    }
+    expect(dangling, 'npm scripts filtering on projects that do not exist').toEqual([]);
+  });
+
+  it('TheTestTree_IsTypecheckedByItsOwnTsconfig', () => {
+    // Until this config existed the root tsconfig excluded `**/*.test.ts`
+    // outright, so no test in the repository was type-checked at all — a test
+    // could name a deleted export and only the runner would notice, and only if
+    // it ran.
+    const cfgPath = join(TESTS_ROOT, 'tsconfig.json');
+    expect(existsSync(cfgPath), 'tests/tsconfig.json is absent').toBe(true);
+
+    const cfg = JSON.parse(
+      // Strip line comments so the config can stay commented for readers.
+      readFileSync(cfgPath, 'utf8').replace(/^\s*\/\/.*$/gm, ''),
+    ) as { include?: string[]; exclude?: string[] };
+
+    expect(cfg.include, 'tests/tsconfig.json declares no include').toBeDefined();
+    expect(cfg.include, 'tests/tsconfig.json no longer covers the whole tree').toContain('**/*.ts');
+    // The exclusion that would make this config vacuous is the one the root
+    // config carries, so name it rather than trusting it stays absent.
+    expect(
+      (cfg.exclude ?? []).filter((e) => e.includes('*.test.ts')),
+      'tests/tsconfig.json excludes the tests it exists to check',
+    ).toEqual([]);
+
+    const pkg = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8')) as {
+      scripts?: Record<string, string>;
+    };
+    expect(
+      pkg.scripts?.typecheck ?? '',
+      'the tests tsconfig exists but no script runs it',
+    ).toContain('-p tests');
+  });
+});
