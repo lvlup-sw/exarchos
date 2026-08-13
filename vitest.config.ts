@@ -35,7 +35,7 @@ export default defineConfig({
           testTimeout: 5000,
           include: [
             'benchmarks/**/*.test.ts',
-            'scripts/**/*.test.ts',
+            'tests/scripts/**/*.test.ts',
             // Black-box tests for top-level git-hook samples (e.g. the opt-in
             // pre-push ship-gate hook). They drive the `.sample` script via
             // `sh` and assert exit codes — no MCP-package deps, so they run in
@@ -70,7 +70,7 @@ export default defineConfig({
           ],
           // `scripts/core/**` are the core suite's own guard tests and run in
           // the `core` project at its budget, not this one.
-          exclude: [...EXCLUDE, 'scripts/core/**'],
+          exclude: [...EXCLUDE],
         },
       },
       {
@@ -111,7 +111,6 @@ export default defineConfig({
             // anchor a trivial runtime `expect`; include them so they are still
             // discoverable when run explicitly.
             'src/**/*.type-test.ts',
-            'scripts/core/**/*.test.ts',
             // `test/core/**` holds integration tests that spawn the compiled
             // binary over real stdio transport. Kept outside `src/` so they are
             // not unit-test-adjacent and do not trigger the `bun:sqlite` alias —

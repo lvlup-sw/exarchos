@@ -121,8 +121,13 @@ function readPatternEntry(raw, where) {
     pattern,
     flags,
     enabled: entry.enabled,
-    remedy: typeof entry.remedy === 'string' ? entry.remedy : undefined,
-    disabledReason: typeof entry.disabledReason === 'string' ? entry.disabledReason : undefined,
+    // Omitted rather than set to `undefined`: under `exactOptionalPropertyTypes`
+    // an optional property and one explicitly holding `undefined` are different
+    // types, and only the first is what "absent" means here.
+    ...(typeof entry.remedy === 'string' ? { remedy: entry.remedy } : {}),
+    ...(typeof entry.disabledReason === 'string'
+      ? { disabledReason: entry.disabledReason }
+      : {}),
   };
 }
 
@@ -153,7 +158,9 @@ export function compilePattern(entry) {
 function globToRegExp(glob) {
   let out = '';
   for (let i = 0; i < glob.length; i += 1) {
-    const ch = glob[i];
+    // `charAt`, not `[i]`: the index is in range by the loop condition, and this
+    // says so in the type instead of leaving a `string | undefined` to unwrap.
+    const ch = glob.charAt(i);
     if (ch === '*') {
       if (glob[i + 1] === '*') {
         // `**/` should also match zero directories, so `a/**/b` matches `a/b`.

@@ -14,7 +14,16 @@
     "declarationMap": false,
     "sourceMap": false,
     // Tests import the subject tree, so the program has to span both roots.
-    "rootDir": ".."
+    "rootDir": "..",
+    // Task 031 brought the script suites in, and their subjects are `.mjs`
+    // gates with no declarations. Without this every one of those imports is
+    // an implicit `any`, which also erases the contextual type of each callback
+    // passed to them — one untyped module was producing errors in both classes.
+    // `checkJs` stays off: the gates are not in this program to be checked,
+    // only to be read for inference, which is the same posture the scripts
+    // tsconfig takes toward them.
+    "allowJs": true,
+    "checkJs": false
   },
   // Deliberately no `**/*.test.ts` exclusion — checking the tests is the point.
   //

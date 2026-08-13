@@ -28,7 +28,7 @@ jobs:
   # of four host classes (zero-dep prefix unfiltered, deps-tail unfiltered,
   # deps-unfiltered suite-shaped, deps-filtered). The decision table, the
   # two-surface subset rule, and the non-blocking allowlist contract
-  # (scripts/ci-topology.test.ts) are documented ONCE, canonically, at
+  # (tests/scripts/ci-topology.test.ts) are documented ONCE, canonically, at
   # docs/guides/ci-gate-hosting.md — cite it at each gate's wiring site,
   # do not restate it here. `pr-body-check.yml` is a separate workflow,
   # outside this aggregator's contract (see the guide's out-of-scope note).
@@ -86,7 +86,7 @@ jobs:
               - 'package.json'
               - 'tsconfig.json'
               - '.github/workflows/ci.yml'
-              # `scripts/release-workflow.test.ts` (root suite) parses
+              # `tests/scripts/release-workflow.test.ts` (root suite) parses
               # release.yml — a release.yml-only PR must run the root suite
               # or the workflow's own contract test never fires on the PR
               # that changes it.
@@ -122,7 +122,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # fetch-depth: 0 — the DR-8 legacy-hash manifest test
-      # (scripts/generate-legacy-skill-hashes.test.ts, part of the root unit suite)
+      # (tests/scripts/generate-legacy-skill-hashes.test.ts, part of the root unit suite)
       # derives render hashes from release tags via `git show <tag>:<path>`. The
       # default shallow, tagless checkout makes `git tag --list 'v2.*'` empty →
       # enumerateReleaseRefs() returns [] → the suite reds. Full history brings the
@@ -148,7 +148,7 @@ jobs:
       # here as a config-rot guard + second enforcement of the spawn-shim /
       # URL.pathname anti-patterns (the grep-gate is the primary CI enforcer).
       - run: npm run lint:windows
-      - run: bash scripts/check-eslint-windows.test.sh
+      - run: bash tests/scripts/check-eslint-windows.test.sh
 
       - run: npm run test:run
 
@@ -448,7 +448,7 @@ jobs:
   # below (with a fail-closed skip guard mirroring the MCP DR-5 guard).
   #
   # Install prerequisites mirror `test-root`: the root `unit` vitest project
-  # includes `scripts/**/*.test.ts` (e.g. `scripts/build-binary.test.ts`,
+  # includes `scripts/**/*.test.ts` (e.g. `tests/scripts/build-binary.test.ts`,
   # which shells out to `bun build --compile`), so bun + the MCP server's
   # runtime deps must be present for the bundler to resolve
   # pino/commander/@modelcontextprotocol/sdk/zod/yaml. `shell: bash` is set
@@ -495,7 +495,7 @@ jobs:
       # The MCP server's deps must be present so `bun build --compile` can
       # resolve `pino`, `commander`, `@modelcontextprotocol/sdk`, `zod`, and
       # `yaml` when bundling `src/index.ts` (exercised by
-      # `scripts/build-binary.test.ts`, part of the root `unit` project run by
+      # `tests/scripts/build-binary.test.ts`, part of the root `unit` project run by
       # `npm run test:run`).
       - run: npm run test:run
 
@@ -509,7 +509,7 @@ jobs:
   # DRIFT CONTRACT:
   #   - The `matrix.target` list below MUST match the `os-arch` names
   #     derived from `TARGETS` in `scripts/build-binary.ts`.
-  #   - `scripts/ci-binary-matrix.test.ts` is the drift enforcement gate:
+  #   - `tests/scripts/ci-binary-matrix.test.ts` is the drift enforcement gate:
   #     if this matrix or `TARGETS` is edited without the other, that
   #     test fails `npm run test:run`.
   #   - The script itself rejects unknown `--target <name>` values with
@@ -522,7 +522,7 @@ jobs:
   #
   # DISPOSITION (DR-4, wave-S enforcement-substrate spec): NON-BLOCKING —
   # not in `ci-gate.needs`, and recorded as such (with this rationale) in
-  # the `scripts/ci-topology.test.ts` non-blocking allowlist. Rationale:
+  # the `tests/scripts/ci-topology.test.ts` non-blocking allowlist. Rationale:
   # release-lane compile evidence, not a per-PR gate — the standing reason
   # the `--minify` A/B comparison was dropped (#1703). Measured over the
   # last 60 completed `ci.yml` runs (2026-07-17): 300/300 per-target job
@@ -592,7 +592,7 @@ jobs:
   # validate-no-legacy
   # ─────────────────────────────────────────────────────────────────────
   # Runs scripts/validate-no-legacy.sh, which rolls up two checks:
-  #   1. The NoLegacy_* shell assertion suite (scripts/validate-no-legacy.test.sh)
+  #   1. The NoLegacy_* shell assertion suite (tests/scripts/validate-no-legacy.test.sh)
   #      — pins obsolete v2.8 install artifacts as deleted/archived.
   #   2. `knip` (files + dependencies + exports + types) via the allowlist-diff
   #      wrapper (scripts/audit/knip-diff.ts) — detects unused modules, deps,
@@ -707,7 +707,7 @@ jobs:
       # against seeded fixtures in a tmpdir — it says nothing about production
       # code. Paths resolve from the script's own location, not the cwd.
       - name: withSession idempotency gate self-test (#1342 P1.D)
-        run: bash scripts/check-withsession-idempotency.test.sh
+        run: bash tests/scripts/check-withsession-idempotency.test.sh
 
       - name: BEGIN IMMEDIATE substrate-only (#1342 P1.E)
         run: bash scripts/check-begin-immediate-substrate.sh src
@@ -716,7 +716,7 @@ jobs:
       # that scan this checkout to catch false positives on the legitimate
       # in-substrate `.immediate()` call site.
       - name: BEGIN IMMEDIATE substrate gate self-test (#1342 P1.E)
-        run: bash scripts/check-begin-immediate-substrate.test.sh
+        run: bash tests/scripts/check-begin-immediate-substrate.test.sh
 
       # Event-sourcing read-path structural gates (v2.11.0 Wave 3). Each is a
       # zero-dependency node script that scans src for an
@@ -743,13 +743,13 @@ jobs:
         run: node scripts/check-windows-portability.mjs
 
       - name: Windows-portability gate self-test (#1623)
-        run: bash scripts/check-windows-portability.test.sh
+        run: bash tests/scripts/check-windows-portability.test.sh
 
       - name: WLM wiring gate — DR-1 retry adapter + DR-2 skills reroute (task-004)
         run: node scripts/check-wlm-wiring.mjs
 
       - name: WLM wiring gate self-test (task-004)
-        run: bash scripts/check-wlm-wiring.test.sh
+        run: bash tests/scripts/check-wlm-wiring.test.sh
 
       # v2.12 proof-substrate ownership census (DR-5). Exact typed dispositions
       # reject new direct gate emitters, provider registrations, and custom-shell
@@ -758,7 +758,7 @@ jobs:
         run: node scripts/check-gate-runner-ownership.mjs
 
       - name: Gate-runner ownership census self-test (v2.12 DR-5)
-        run: bash scripts/check-gate-runner-ownership.test.sh
+        run: bash tests/scripts/check-gate-runner-ownership.test.sh
 
       # ── Wave-S zero-dep register + node-only re-asserts (DR-9, DR-10) ──────
       # Zero-dependency node (uses the node set up above; no install) on the
@@ -778,9 +778,9 @@ jobs:
       # the bun-dependent check-mutation-gate.test.sh re-assert lives in the tsx
       # tail below (after the MCP install + a bun setup).
       - name: check-type-debt self-test re-assert (DR-10)
-        run: bash scripts/check-type-debt.test.sh
+        run: bash tests/scripts/check-type-debt.test.sh
       - name: check-coverage-ratchet self-test re-assert (DR-10)
-        run: bash scripts/check-coverage-ratchet.test.sh
+        run: bash tests/scripts/check-coverage-ratchet.test.sh
 
       # Enforcer-wiring gate (task 011, DR-5/DR-8). Zero-dependency node
       # script: reconciles every scripts/check-*|lint-* primary against
@@ -791,7 +791,7 @@ jobs:
       # continue-on-error), and diff-dependent-gate-without-`synchronize`. Lives
       # on this unfiltered host so it fires on every PR (DR-8: a gate in a
       # path-filtered job is skipped-as-passed). Self-tests: the four
-      # `EnforcerWiring_*` cases in scripts/check-enforcer-wiring.test.ts, run by
+      # `EnforcerWiring_*` cases in tests/scripts/check-enforcer-wiring.test.ts, run by
       # the root unit suite (test-root).
       - name: Enforcer wiring gate (DR-5/DR-8, task 011)
         run: node scripts/check-enforcer-wiring.mjs
@@ -802,7 +802,7 @@ jobs:
       # the tool-missing + unparseable-output fail-closed paths on THIS
       # unfiltered host, where they fire on every PR. Pure node, no install.
       - name: Enforcer-wiring gate self-test (DR-8, task 015)
-        run: bash scripts/check-enforcer-wiring.test.sh
+        run: bash tests/scripts/check-enforcer-wiring.test.sh
 
       # Plugin-packaging gate (task 064, DR-24). Previously reachable ONLY as
       # step 1 of the `npm run validate` && chain, which no workflow invokes
@@ -821,7 +821,7 @@ jobs:
       # This `.test.sh` asserts the fail-closed + non-empty-denominator paths on
       # THIS unfiltered host. See docs/guides/ci-gate-hosting.md.
       - name: Plugin-packaging gate self-test (DR-10, task 064)
-        run: bash scripts/validate-plugin.test.sh
+        run: bash tests/scripts/validate-plugin.test.sh
 
       # The aggregating `npm run validate` runner (task 064, DR-24). Runs every
       # step declared in scripts/validate-manifest.json instead of
@@ -835,7 +835,7 @@ jobs:
         run: node scripts/run-validate.mjs --list
 
       - name: npm-ci-retry helper tests
-        run: bash scripts/npm-ci-retry.test.sh
+        run: bash tests/scripts/npm-ci-retry.test.sh
 
       # TEMP diagnostic (RCA 2026-05-30-state-source-integrity): the MCP `npm ci`
       # wedges fetching native artifacts. Probe each host with hard timeouts to
@@ -917,7 +917,7 @@ jobs:
       # scripts-only PR that skips the filtered test-root suite still proves
       # the gate is provably failable.
       - name: Error-envelope lint self-test (#1706 DR-2)
-        run: bash scripts/lint-envelopes.test.sh
+        run: bash tests/scripts/lint-envelopes.test.sh
 
       # The RULE's own self-test, as distinct from the wrapper's. `lint-envelopes.test.sh`
       # above covers the wrapper's exit codes against one violating fixture; these 18
@@ -957,7 +957,7 @@ jobs:
       # Uses the root vitest installed above. DR-1 host class: deps tail,
       # unfiltered.
       - name: CI-topology conformance test (DR-2)
-        run: npx --no-install vitest run scripts/ci-topology.test.ts
+        run: npx --no-install vitest run tests/scripts/ci-topology.test.ts
 
       # ── `scripts/` typechecks (task 066, DR-24) ────────────────────────────
       # Both `scripts/` trees were compiled by NOTHING: `tsconfig.json` and
@@ -987,7 +987,7 @@ jobs:
       # asserts the resolved file set against a stated coverage floor, and
       # carries the zero-file kill fixture.
       - name: scripts/ typecheck coverage self-test (task 066, DR-24)
-        run: npx --no-install vitest run scripts/tsconfig-scripts-coverage.test.ts
+        run: npx --no-install vitest run tests/scripts/tsconfig-scripts-coverage.test.ts
 
       # DR-14 cast-census scope (task 022's finding, folded into task 066): the
       # census roots must cover every tree the tsconfig projects compile, so a
@@ -1009,7 +1009,7 @@ jobs:
         with:
           bun-version: 1.3.13
       - name: check-mutation-gate self-test re-assert (DR-10)
-        run: bash scripts/check-mutation-gate.test.sh
+        run: bash tests/scripts/check-mutation-gate.test.sh
 
       - name: Prefix-fingerprint gate — rehydration stable-prefix drift (DR-12)
         run: node scripts/check-prefix-fingerprint.mjs
@@ -1033,7 +1033,7 @@ jobs:
       # as success). Includes the rev-3 kill fixture — a document already proven
       # wrong, which the checker must still report as drifted.
       - name: Measured-premise gate self-test (DR-27)
-        run: npx --no-install vitest run scripts/check-measured-premises.test.ts
+        run: npx --no-install vitest run tests/scripts/check-measured-premises.test.ts
 
       # No-circular runtime import-cycle ratchet (task 010, DR-4/DR-8). Runs the
       # ROOT-hoisted dependency-cruiser over src, computes
@@ -1044,7 +1044,7 @@ jobs:
       # (exit 2). Blocking, NOT advisory: the shared config ships `no-circular` at
       # `warn` so the dogfooded runBoundaryLint stays green; the ratchet lives here.
       # Uses the root tsx + depcruise installed by the two steps above. Self-tests:
-      # the four named DR-4 failure-mode cases in scripts/audit/cycle-gate.test.ts,
+      # the four named DR-4 failure-mode cases in tests/scripts/audit/cycle-gate.test.ts,
       # run by the root unit suite (test-root).
       - name: No-circular cycle ratchet (DR-4/DR-8, task 010)
         run: npx --no-install tsx scripts/audit/cycle-gate.ts
@@ -1058,10 +1058,10 @@ jobs:
       # stub) — so depcruise/knip need not even be resolvable. Uses the root tsx
       # installed by the two steps above.
       - name: Cycle-gate ratchet self-test (DR-8, task 015)
-        run: bash scripts/audit/cycle-gate.test.sh
+        run: bash tests/scripts/audit/cycle-gate.test.sh
 
       - name: Knip-diff gate self-test (DR-8, task 015)
-        run: bash scripts/audit/knip-diff.test.sh
+        run: bash tests/scripts/audit/knip-diff.test.sh
 
       # Module-intent gate (task 013, DR-7/DR-8). Delegates reachability to the
       # vendored scripts/audit/refgraph.mjs detector, then requires every
@@ -1073,7 +1073,7 @@ jobs:
       # a scan crash / unparseable detector output / unreadable module (DR-8) —
       # never passes on partial evidence. Zero-dependency node; refgraph.mjs is
       # itself pure node:fs. Self-tests: the DR-7/DR-8 cases in
-      # scripts/check-module-intent.test.ts, run by the root unit suite (test-root).
+      # tests/scripts/check-module-intent.test.ts, run by the root unit suite (test-root).
       - name: Module-intent gate (DR-7/DR-8, task 013)
         run: node scripts/check-module-intent.mjs
 
@@ -1084,7 +1084,7 @@ jobs:
       # `--refgraph` seam: a missing detector / a garbage-emitting stub). Pure
       # node, no install.
       - name: Module-intent gate self-test (DR-8, task 015)
-        run: bash scripts/check-module-intent.test.sh
+        run: bash tests/scripts/check-module-intent.test.sh
 
       # Wave-1 guard inventory + CI-reachability proof (DR-24, task 063). Parses
       # this workflow, both package.json script tables, both vitest configs and
@@ -1101,7 +1101,7 @@ jobs:
       # the root install above), not the zero-dep prefix.
       # See docs/guides/ci-gate-hosting.md.
       - name: Wave-1 guard-inventory reachability proof (DR-24, task 063)
-        run: npx --no-install vitest run scripts/guard-inventory.test.ts
+        run: npx --no-install vitest run tests/scripts/guard-inventory.test.ts
 
       # Cast-census self-test re-assert (DR-24, task 063 finding). The DR-14 cast
       # budget is the constraint every task in this wave is judged against, and
@@ -1116,7 +1116,7 @@ jobs:
       # step adds no new repo-wide assertion. Same DR-10 pattern as the
       # `.test.sh` re-asserts above.
       - name: Cast-census self-test re-assert (DR-24, unfiltered)
-        run: npx --no-install vitest run scripts/tsconfig-strictness/count-casts.test.ts
+        run: npx --no-install vitest run tests/scripts/tsconfig-strictness/count-casts.test.ts
 
       # G2 `outputSchema` vacuity ratchet (DR-4, task 017). Runs all four teeth
       # against the live triple: membership (allowlist vs census, both
@@ -1170,7 +1170,7 @@ jobs:
       - name: outputSchema ratchet self-tests re-assert (DR-4/DR-24, unfiltered)
         run: >-
           npx --no-install vitest run
-          scripts/core/output-schema-ratchet-guard.test.ts
+          tests/core/scripts/output-schema-ratchet-guard.test.ts
           src/output-schema-vacuity-allowlist.test.ts
 
       # THE WHOLE extracted conformance suite, unfiltered — G2's census and
@@ -1255,9 +1255,9 @@ jobs:
       - name: CLI derivation guard + ratchet self-tests re-assert (DR-5/DR-24, unfiltered)
         run: >-
           npx --no-install vitest run
-          scripts/core/cli-derivation-ratchet-guard.test.ts
-          scripts/core/cli-derivation-guard.test.ts
-          scripts/core/cli-vocab-guard.test.ts
+          tests/core/scripts/cli-derivation-ratchet-guard.test.ts
+          tests/core/scripts/cli-derivation-guard.test.ts
+          tests/core/scripts/cli-vocab-guard.test.ts
 
       # G3 report-coupled ratchet (DR-2, task 013). Enumerates the live event
       # registry, derives each registration's coupling through the DR-2 tier
@@ -1380,7 +1380,7 @@ jobs:
   # executed, both failures in the "Run process-fidelity suite" step and
   # consistent with the known SQLITE_BUSY flake cluster. That is above the
   # spec's 2% blocking threshold, so this job stays non-blocking and is
-  # recorded (with this measured rate) in the `scripts/ci-topology.test.ts`
+  # recorded (with this measured rate) in the `tests/scripts/ci-topology.test.ts`
   # non-blocking allowlist. Follow-up to burn down the flake and flip this to
   # blocking: lvlup-sw/exarchos#1718. Host class: deps, unfiltered,
   # suite-shaped — see docs/guides/ci-gate-hosting.md.

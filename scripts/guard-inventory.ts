@@ -319,7 +319,7 @@ export function needsList(job: WorkflowJob | undefined): string[] {
 /**
  * The `changes.outputs.<key>` set a job's `if:` gates on, parsed out of the raw
  * `if:` text. Never a hardcoded job→key table — the same derivation
- * `scripts/ci-topology.test.ts` uses, for the same reason.
+ * `tests/scripts/ci-topology.test.ts` uses, for the same reason.
  */
 export function pathFilterKeys(job: WorkflowJob | undefined): string[] {
   const ifText = job?.if ?? '';
@@ -1165,6 +1165,9 @@ export function selfTestCandidates(artifact: string): string[] {
   const base = artifact.replace(/\.[cm]?[jt]s$/, '').replace(/\.sh$/, '');
   const bases = [base];
   if (base.startsWith('src/')) bases.push(`tests/unit/${base.slice('src/'.length)}`);
+  else if (base.startsWith('scripts/core/'))
+    bases.push(`tests/core/scripts/${base.slice('scripts/core/'.length)}`);
+  else if (base.startsWith('scripts/')) bases.push(`tests/scripts/${base.slice('scripts/'.length)}`);
   return bases.flatMap((b) => [`${b}.test.ts`, `${b}.test.mts`, `${b}.test.mjs`, `${b}.test.sh`]);
 }
 
@@ -1553,7 +1556,7 @@ export function vitestPathOperands(tail: string): string[] {
  *
  * A `vitest run <explicit paths>` step counts only when one of those paths is a
  * prefix of the test file; otherwise the single-file re-assert steps
- * (`npx --no-install vitest run scripts/ci-topology.test.ts`) would each read as
+ * (`npx --no-install vitest run tests/scripts/ci-topology.test.ts`) would each read as
  * running the whole suite.
  */
 function jobRunsSuiteFor(

@@ -185,13 +185,16 @@ describe('test inventory', () => {
     // and a discovery bounded to one of them would drop the rest in silence.
     const roots = new Set(fileEntries.map((e) => e.file.split('/')[0]));
 
-    for (const root of ['scripts', 'test', 'tests', 'tools']) {
+    for (const root of ['test', 'tests', 'tools']) {
       expect(roots, `no test file inventoried under ${root}/`).toContain(root);
     }
-    // `src/` is the one root that must hold NONE: task 030 lifted every
-    // co-located suite out of it, and DR-5 is the standing promise that none
-    // comes back. Asserted here rather than merely dropped from the list above,
-    // so the discovery keeps a live opinion about `src/` either way.
+    // `src/` and `scripts/` are the roots that must hold NONE: task 030 lifted
+    // every co-located suite out of the first and task 031 out of the second,
+    // and DR-5 is the standing promise that none comes back. Asserted here
+    // rather than merely dropped from the list above, so the discovery keeps a
+    // live opinion about each one either way — a root that is simply removed
+    // from the list stops being watched instead of starting to be enforced.
     expect(roots, 'a test file has re-appeared under src/ (DR-5)').not.toContain('src');
+    expect(roots, 'a test file has re-appeared under scripts/ (DR-5)').not.toContain('scripts');
   });
 });

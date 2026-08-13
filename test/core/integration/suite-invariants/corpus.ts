@@ -29,6 +29,17 @@ export interface ScanRoot {
   readonly dir: string;
   /** True for the three roots DR-30 mandates by name. */
   readonly mandatedByDr30: boolean;
+  /**
+   * Repo-relative prefixes inside this root that the corpus does NOT govern.
+   *
+   * The symmetric half of "follow the files": a root's membership must survive
+   * a move unchanged in BOTH directions. Following a governed file into its new
+   * root stops debt being discharged by relocation; excluding an ungoverned one
+   * that lands in a governed root stops debt being *manufactured* by it. Only
+   * relocation may use this — a file that genuinely belongs to the root has to
+   * declare its authorities or take a registered, expiring gap.
+   */
+  readonly excludePrefixes?: readonly string[];
 }
 
 export const SCAN_ROOTS: readonly ScanRoot[] = Object.freeze([
@@ -56,7 +67,19 @@ export const SCAN_ROOTS: readonly ScanRoot[] = Object.freeze([
   // package's suites — migration, smoke, e2e, architecture — which DR-30 never
   // governed, silently widening the corpus rather than following it.
   { id: 'test', dir: path.join(REPO_ROOT, 'test/core'), mandatedByDr30: true },
-  { id: 'tests', dir: path.join(REPO_ROOT, 'tests/core'), mandatedByDr30: false },
+  // `tests/core/scripts/` is excluded because task 031 put it there. Those five
+  // guards lived at `scripts/core/`, a tree DR-30 never covered — the corpus is
+  // `src` plus the core's test tiers, and root `scripts/` was named as outside
+  // it. Landing inside a governed root is a fact about where the move chose to
+  // put them, not about what they are, and admitting them would post six new
+  // shape violations that no code change caused. Annotating them is real work
+  // and worth doing; it is DR-30's, not this move's.
+  {
+    id: 'tests',
+    dir: path.join(REPO_ROOT, 'tests/core'),
+    mandatedByDr30: false,
+    excludePrefixes: ['tests/core/scripts/'],
+  },
   // Task 019 routed the eval suite out of the product tree. Following it keeps
   // the corpus at the membership it had the day before the move, for the same
   // reason `tools/conformance` is followed below: leaving the root out would
@@ -111,7 +134,9 @@ export function loadCorpus(): readonly CorpusFile[] {
   for (const root of SCAN_ROOTS) {
     if (!existsSync(root.dir)) continue;
     for (const abs of walk(root.dir, []).sort()) {
-      files.push({ abs, rel: toRel(abs), root: root.id, source: readFileSync(abs, 'utf8') });
+      const rel = toRel(abs);
+      if (root.excludePrefixes?.some((p) => rel.startsWith(p))) continue;
+      files.push({ abs, rel, root: root.id, source: readFileSync(abs, 'utf8') });
     }
   }
   cached = Object.freeze(files.sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0)));

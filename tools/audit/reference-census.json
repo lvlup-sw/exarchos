@@ -38,7 +38,7 @@
       ],
       "sampleLiveCodeReferrers": [
         "scripts/check-single-workflow-fold.mjs",
-        "scripts/lib/comment-classifier.test.ts",
+        "tests/scripts/lib/comment-classifier.test.ts",
         "src/__tests__/integration/elicitation-roundtrip.fixture.ts",
         "src/__tests__/integration/elicitation-roundtrip.test.ts",
         "src/__tests__/integration/ideate-update-action.test.ts",
@@ -216,7 +216,7 @@
       ],
       "sampleLiveCodeReferrers": [
         "scripts/check-event-store-composition-root.mjs",
-        "scripts/check-event-store-composition-root.test.ts",
+        "tests/scripts/check-event-store-composition-root.test.ts",
         "src/__tests__/event-store/single-composition-root.test.ts",
         "src/architecture/vocabulary-lint.ts",
         "src/config/artifact-dir-symlink.test.ts",
@@ -254,7 +254,7 @@
       ],
       "sampleLiveCodeReferrers": [
         "eslint.envelopes.config.js",
-        "scripts/ci-topology.test.ts",
+        "tests/scripts/ci-topology.test.ts",
         "scripts/core/cli-derivation-guard.ts",
         "scripts/core/output-schema-ratchet-guard.ts",
         "scripts/guard-inventory.ts",
@@ -473,10 +473,10 @@
         "docs/audits/structural-closure-delta-audit/sources/phase-gate-transition-admission.md",
         "docs/designs/archive/2026-04-23-rehydrate-foundation.md",
         "docs/specs/2026-07-21-phase-gate-transition-admission-roadmap.md",
-        "scripts/migration-followups.test.ts"
+        "tests/scripts/migration-followups.test.ts"
       ],
       "sampleLiveCodeReferrers": [
-        "scripts/migration-followups.test.ts"
+        "tests/scripts/migration-followups.test.ts"
       ]
     },
     "docs/evals": {
@@ -502,12 +502,12 @@
         "docs/specs/2026-07-10-1677-verification-pillar-benchmarks.md",
         "docs/specs/2026-08-11-comment-hygiene-enforcement.md",
         "docs/specs/2026-08-11-exarchos-repo-structure-cleanup.md",
-        "scripts/lib/comment-policy.test.ts",
+        "tests/scripts/lib/comment-policy.test.ts",
         "tools/audit/test-inventory-baseline.json",
         "tools/evals/evals/benchmarks/exp1-binary-driver.ts"
       ],
       "sampleLiveCodeReferrers": [
-        "scripts/lib/comment-policy.test.ts",
+        "tests/scripts/lib/comment-policy.test.ts",
         "tools/evals/evals/benchmarks/exp1-binary-driver.ts",
         "tools/evals/evals/benchmarks/seeded-defects/catch-rate-driver.ts",
         "vitest.config.ts"
@@ -590,7 +590,7 @@
         "docs/audits/structural-closure-delta-audit/v3-lowering.json"
       ],
       "sampleLiveCodeReferrers": [
-        "scripts/docs-check.test.ts",
+        "tests/scripts/docs-check.test.ts",
         "src/architecture/catalog-sources.ts",
         "src/architecture/contract-seam-doc.test.ts",
         "src/architecture/invariant-schema.test.ts",

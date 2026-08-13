@@ -14,6 +14,358 @@
   "unparseable": [],
   "relocations": [
     {
+      "from": "hooks/pre-push.test.ts",
+      "to": "tools/git-hooks/pre-push.test.ts"
+    },
+    {
+      "from": "scripts/audit/check-base-substrate.test.ts",
+      "to": "tests/scripts/audit/check-base-substrate.test.ts"
+    },
+    {
+      "from": "scripts/audit/check-no-duplicate-suites.test.ts",
+      "to": "tests/scripts/audit/check-no-duplicate-suites.test.ts"
+    },
+    {
+      "from": "scripts/audit/check-protected.test.ts",
+      "to": "tests/scripts/audit/check-protected.test.ts"
+    },
+    {
+      "from": "scripts/audit/consolidate-suite.test.ts",
+      "to": "tests/scripts/audit/consolidate-suite.test.ts"
+    },
+    {
+      "from": "scripts/audit/cycle-gate.test.sh",
+      "to": "tests/scripts/audit/cycle-gate.test.sh"
+    },
+    {
+      "from": "scripts/audit/cycle-gate.test.ts",
+      "to": "tests/scripts/audit/cycle-gate.test.ts"
+    },
+    {
+      "from": "scripts/audit/knip-diff.test.sh",
+      "to": "tests/scripts/audit/knip-diff.test.sh"
+    },
+    {
+      "from": "scripts/audit/knip-diff.test.ts",
+      "to": "tests/scripts/audit/knip-diff.test.ts"
+    },
+    {
+      "from": "scripts/audit/manifest-gate-ci.test.ts",
+      "to": "tests/scripts/audit/manifest-gate-ci.test.ts"
+    },
+    {
+      "from": "scripts/audit/register-entry-schema.test.ts",
+      "to": "tests/scripts/audit/register-entry-schema.test.ts"
+    },
+    {
+      "from": "scripts/build-binary.test.ts",
+      "to": "tests/scripts/build-binary.test.ts"
+    },
+    {
+      "from": "scripts/build-release-manifest.test.ts",
+      "to": "tests/scripts/build-release-manifest.test.ts"
+    },
+    {
+      "from": "scripts/check-begin-immediate-substrate.test.sh",
+      "to": "tests/scripts/check-begin-immediate-substrate.test.sh"
+    },
+    {
+      "from": "scripts/check-benchmark-regression.test.sh",
+      "to": "tests/scripts/check-benchmark-regression.test.sh"
+    },
+    {
+      "from": "scripts/check-coverage-ratchet.test.sh",
+      "to": "tests/scripts/check-coverage-ratchet.test.sh"
+    },
+    {
+      "from": "scripts/check-enforcer-wiring.test.sh",
+      "to": "tests/scripts/check-enforcer-wiring.test.sh"
+    },
+    {
+      "from": "scripts/check-enforcer-wiring.test.ts",
+      "to": "tests/scripts/check-enforcer-wiring.test.ts"
+    },
+    {
+      "from": "scripts/check-eslint-windows.test.sh",
+      "to": "tests/scripts/check-eslint-windows.test.sh"
+    },
+    {
+      "from": "scripts/check-event-store-composition-root.test.ts",
+      "to": "tests/scripts/check-event-store-composition-root.test.ts"
+    },
+    {
+      "from": "scripts/check-gate-runner-ownership.test.sh",
+      "to": "tests/scripts/check-gate-runner-ownership.test.sh"
+    },
+    {
+      "from": "scripts/check-golden-fixture-note.test.ts",
+      "to": "tests/scripts/check-golden-fixture-note.test.ts"
+    },
+    {
+      "from": "scripts/check-measured-premises.test.ts",
+      "to": "tests/scripts/check-measured-premises.test.ts"
+    },
+    {
+      "from": "scripts/check-module-intent.test.sh",
+      "to": "tests/scripts/check-module-intent.test.sh"
+    },
+    {
+      "from": "scripts/check-module-intent.test.ts",
+      "to": "tests/scripts/check-module-intent.test.ts"
+    },
+    {
+      "from": "scripts/check-mutation-gate.test.sh",
+      "to": "tests/scripts/check-mutation-gate.test.sh"
+    },
+    {
+      "from": "scripts/check-no-state-json.test.ts",
+      "to": "tests/scripts/check-no-state-json.test.ts"
+    },
+    {
+      "from": "scripts/check-prefix-fingerprint.test.ts",
+      "to": "tests/scripts/check-prefix-fingerprint.test.ts"
+    },
+    {
+      "from": "scripts/check-prose-lint.test.ts",
+      "to": "tests/scripts/check-prose-lint.test.ts"
+    },
+    {
+      "from": "scripts/check-query-upcast-choke-point.test.ts",
+      "to": "tests/scripts/check-query-upcast-choke-point.test.ts"
+    },
+    {
+      "from": "scripts/check-single-workflow-fold.test.ts",
+      "to": "tests/scripts/check-single-workflow-fold.test.ts"
+    },
+    {
+      "from": "scripts/check-type-debt.test.sh",
+      "to": "tests/scripts/check-type-debt.test.sh"
+    },
+    {
+      "from": "scripts/check-windows-portability.test.sh",
+      "to": "tests/scripts/check-windows-portability.test.sh"
+    },
+    {
+      "from": "scripts/check-withsession-idempotency.test.sh",
+      "to": "tests/scripts/check-withsession-idempotency.test.sh"
+    },
+    {
+      "from": "scripts/check-wlm-wiring.test.sh",
+      "to": "tests/scripts/check-wlm-wiring.test.sh"
+    },
+    {
+      "from": "scripts/ci-binary-matrix.test.ts",
+      "to": "tests/scripts/ci-binary-matrix.test.ts"
+    },
+    {
+      "from": "scripts/ci-topology.test.ts",
+      "to": "tests/scripts/ci-topology.test.ts"
+    },
+    {
+      "from": "scripts/ci-workflow-shape.test.ts",
+      "to": "tests/scripts/ci-workflow-shape.test.ts"
+    },
+    {
+      "from": "scripts/codegen-runtimes.test.ts",
+      "to": "tests/scripts/codegen-runtimes.test.ts"
+    },
+    {
+      "from": "scripts/coderabbit-review-gate-workflow.test.sh",
+      "to": "tests/scripts/coderabbit-review-gate-workflow.test.sh"
+    },
+    {
+      "from": "scripts/coderabbit-review-gate.test.sh",
+      "to": "tests/scripts/coderabbit-review-gate.test.sh"
+    },
+    {
+      "from": "scripts/core/cli-derivation-guard.test.ts",
+      "to": "tests/core/scripts/cli-derivation-guard.test.ts"
+    },
+    {
+      "from": "scripts/core/cli-derivation-ratchet-guard.test.ts",
+      "to": "tests/core/scripts/cli-derivation-ratchet-guard.test.ts"
+    },
+    {
+      "from": "scripts/core/cli-vocab-guard.test.ts",
+      "to": "tests/core/scripts/cli-vocab-guard.test.ts"
+    },
+    {
+      "from": "scripts/core/generate-docs.test.ts",
+      "to": "tests/core/scripts/generate-docs.test.ts"
+    },
+    {
+      "from": "scripts/core/output-schema-ratchet-guard.test.ts",
+      "to": "tests/core/scripts/output-schema-ratchet-guard.test.ts"
+    },
+    {
+      "from": "scripts/docs-check.test.ts",
+      "to": "tests/scripts/docs-check.test.ts"
+    },
+    {
+      "from": "scripts/generate-legacy-skill-hashes.test.ts",
+      "to": "tests/scripts/generate-legacy-skill-hashes.test.ts"
+    },
+    {
+      "from": "scripts/get-exarchos.ps1.test.ts",
+      "to": "tests/scripts/get-exarchos.ps1.test.ts"
+    },
+    {
+      "from": "scripts/get-exarchos.test.sh",
+      "to": "tests/scripts/get-exarchos.test.sh"
+    },
+    {
+      "from": "scripts/get-exarchos.test.ts",
+      "to": "tests/scripts/get-exarchos.test.ts"
+    },
+    {
+      "from": "scripts/github-config.test.sh",
+      "to": "tests/scripts/github-config.test.sh"
+    },
+    {
+      "from": "scripts/guard-inventory.test.ts",
+      "to": "tests/scripts/guard-inventory.test.ts"
+    },
+    {
+      "from": "scripts/installer-verify.test.ts",
+      "to": "tests/scripts/installer-verify.test.ts"
+    },
+    {
+      "from": "scripts/lib/comment-classifier.precision.test.ts",
+      "to": "tests/scripts/lib/comment-classifier.precision.test.ts"
+    },
+    {
+      "from": "scripts/lib/comment-classifier.test.ts",
+      "to": "tests/scripts/lib/comment-classifier.test.ts"
+    },
+    {
+      "from": "scripts/lib/comment-fixtures.test.ts",
+      "to": "tests/scripts/lib/comment-fixtures.test.ts"
+    },
+    {
+      "from": "scripts/lib/comment-policy.test.ts",
+      "to": "tests/scripts/lib/comment-policy.test.ts"
+    },
+    {
+      "from": "scripts/lib/comment-prose.test.ts",
+      "to": "tests/scripts/lib/comment-prose.test.ts"
+    },
+    {
+      "from": "scripts/lint-envelopes.test.sh",
+      "to": "tests/scripts/lint-envelopes.test.sh"
+    },
+    {
+      "from": "scripts/lint-inv6.test.ts",
+      "to": "tests/scripts/lint-inv6.test.ts"
+    },
+    {
+      "from": "scripts/lint-test-first-drift.test.ts",
+      "to": "tests/scripts/lint-test-first-drift.test.ts"
+    },
+    {
+      "from": "scripts/migration-followups.test.ts",
+      "to": "tests/scripts/migration-followups.test.ts"
+    },
+    {
+      "from": "scripts/npm-ci-retry.test.sh",
+      "to": "tests/scripts/npm-ci-retry.test.sh"
+    },
+    {
+      "from": "scripts/release-workflow.test.ts",
+      "to": "tests/scripts/release-workflow.test.ts"
+    },
+    {
+      "from": "scripts/run-validate.test.ts",
+      "to": "tests/scripts/run-validate.test.ts"
+    },
+    {
+      "from": "scripts/sync-versions.test.sh",
+      "to": "tests/scripts/sync-versions.test.sh"
+    },
+    {
+      "from": "scripts/tsconfig-scripts-coverage.test.ts",
+      "to": "tests/scripts/tsconfig-scripts-coverage.test.ts"
+    },
+    {
+      "from": "scripts/tsconfig-strictness/count-casts.test.ts",
+      "to": "tests/scripts/tsconfig-strictness/count-casts.test.ts"
+    },
+    {
+      "from": "scripts/validate-all-skills.test.sh",
+      "to": "tests/scripts/validate-all-skills.test.sh"
+    },
+    {
+      "from": "scripts/validate-debug-skill.test.sh",
+      "to": "tests/scripts/validate-debug-skill.test.sh"
+    },
+    {
+      "from": "scripts/validate-delegation-skill.test.sh",
+      "to": "tests/scripts/validate-delegation-skill.test.sh"
+    },
+    {
+      "from": "scripts/validate-dotnet-standards.test.sh",
+      "to": "tests/scripts/validate-dotnet-standards.test.sh"
+    },
+    {
+      "from": "scripts/validate-frontmatter.test.sh",
+      "to": "tests/scripts/validate-frontmatter.test.sh"
+    },
+    {
+      "from": "scripts/validate-installation.test.sh",
+      "to": "tests/scripts/validate-installation.test.sh"
+    },
+    {
+      "from": "scripts/validate-misc-skills.test.sh",
+      "to": "tests/scripts/validate-misc-skills.test.sh"
+    },
+    {
+      "from": "scripts/validate-no-legacy.test.sh",
+      "to": "tests/scripts/validate-no-legacy.test.sh"
+    },
+    {
+      "from": "scripts/validate-phase-coverage.test.sh",
+      "to": "tests/scripts/validate-phase-coverage.test.sh"
+    },
+    {
+      "from": "scripts/validate-phase-names.test.sh",
+      "to": "tests/scripts/validate-phase-names.test.sh"
+    },
+    {
+      "from": "scripts/validate-planning-skill.test.sh",
+      "to": "tests/scripts/validate-planning-skill.test.sh"
+    },
+    {
+      "from": "scripts/validate-plugin.test.sh",
+      "to": "tests/scripts/validate-plugin.test.sh"
+    },
+    {
+      "from": "scripts/validate-plugin.test.ts",
+      "to": "tests/scripts/validate-plugin.test.ts"
+    },
+    {
+      "from": "scripts/validate-quality-review-skill.test.sh",
+      "to": "tests/scripts/validate-quality-review-skill.test.sh"
+    },
+    {
+      "from": "scripts/validate-refactor-skill.test.sh",
+      "to": "tests/scripts/validate-refactor-skill.test.sh"
+    },
+    {
+      "from": "scripts/validate-refactor.test.sh",
+      "to": "tests/scripts/validate-refactor.test.sh"
+    },
+    {
+      "from": "scripts/validate-rm.test.sh",
+      "to": "tests/scripts/validate-rm.test.sh"
+    },
+    {
+      "from": "scripts/validate-synthesis-skill.test.sh",
+      "to": "tests/scripts/validate-synthesis-skill.test.sh"
+    },
+    {
+      "from": "scripts/validate-worktree-skill.test.sh",
+      "to": "tests/scripts/validate-worktree-skill.test.sh"
+    },
+    {
       "from": "skills-src/delegate/references/fixer-prompt.md.test.sh",
       "to": "content/delivery/skills/delegate/references/fixer-prompt.md.test.sh"
     },
@@ -30,8 +382,16 @@
       "to": "tools/skill-validators/validate-frontmatter.test.sh"
     },
     {
-      "from": "hooks/pre-push.test.ts",
-      "to": "tools/git-hooks/pre-push.test.ts"
+      "from": "src/__tests__/benchmarks/baselines-schema.test.ts",
+      "to": "tests/unit/benchmarks/baselines-schema.test.ts"
+    },
+    {
+      "from": "src/__tests__/correlation-acceptance.test.ts",
+      "to": "tests/unit/correlation-acceptance.test.ts"
+    },
+    {
+      "from": "src/__tests__/event-store/single-composition-root.test.ts",
+      "to": "tests/unit/event-store/single-composition-root.test.ts"
     },
     {
       "from": "src/__tests__/integration/__goldens__/tools-list.golden.json",
@@ -100,6 +460,102 @@
     {
       "from": "src/__tests__/integration/tools-list.test.ts",
       "to": "tests/integration/tools-list.test.ts"
+    },
+    {
+      "from": "src/__tests__/mcp-tools.integration.test.ts",
+      "to": "tests/unit/mcp-tools.integration.test.ts"
+    },
+    {
+      "from": "src/__tests__/parity-harness.test.ts",
+      "to": "tests/unit/parity-harness.test.ts"
+    },
+    {
+      "from": "src/__tests__/parity-harness.ts",
+      "to": "tests/unit/parity-harness.ts"
+    },
+    {
+      "from": "src/__tests__/sdk-patch-policy.test.ts",
+      "to": "tests/unit/sdk-patch-policy.test.ts"
+    },
+    {
+      "from": "src/__tests__/sdk-pin-policy.test.ts",
+      "to": "tests/unit/sdk-pin-policy.test.ts"
+    },
+    {
+      "from": "src/__tests__/skills/oneshot.test.ts",
+      "to": "tests/unit/skills/oneshot.test.ts"
+    },
+    {
+      "from": "src/__tests__/skills/prune.test.ts",
+      "to": "tests/unit/skills/prune.test.ts"
+    },
+    {
+      "from": "src/__tests__/stack/handlers.test.ts",
+      "to": "tests/unit/stack/handlers.test.ts"
+    },
+    {
+      "from": "src/__tests__/tasks/handlers.test.ts",
+      "to": "tests/unit/tasks/handlers.test.ts"
+    },
+    {
+      "from": "src/__tests__/views/tools-error-paths.test.ts",
+      "to": "tests/unit/views/tools-error-paths.test.ts"
+    },
+    {
+      "from": "src/__tests__/views/workflow-status-view.test.ts",
+      "to": "tests/unit/views/workflow-status-view.test.ts"
+    },
+    {
+      "from": "src/__tests__/workflow/boundary.test.ts",
+      "to": "tests/unit/workflow/boundary.test.ts"
+    },
+    {
+      "from": "src/__tests__/workflow/bridge-events.test.ts",
+      "to": "tests/unit/workflow/bridge-events.test.ts"
+    },
+    {
+      "from": "src/__tests__/workflow/cancel-saga-paths.test.ts",
+      "to": "tests/unit/workflow/cancel-saga-paths.test.ts"
+    },
+    {
+      "from": "src/__tests__/workflow/cancel.test.ts",
+      "to": "tests/unit/workflow/cancel.test.ts"
+    },
+    {
+      "from": "src/__tests__/workflow/circuit-breaker.test.ts",
+      "to": "tests/unit/workflow/circuit-breaker.test.ts"
+    },
+    {
+      "from": "src/__tests__/workflow/event-store-split.test.ts",
+      "to": "tests/unit/workflow/event-store-split.test.ts"
+    },
+    {
+      "from": "src/__tests__/workflow/events.test.ts",
+      "to": "tests/unit/workflow/events.test.ts"
+    },
+    {
+      "from": "src/__tests__/workflow/idempotency.test.ts",
+      "to": "tests/unit/workflow/idempotency.test.ts"
+    },
+    {
+      "from": "src/__tests__/workflow/index.test.ts",
+      "to": "tests/unit/workflow/index.test.ts"
+    },
+    {
+      "from": "src/__tests__/workflow/integration.test.ts",
+      "to": "tests/unit/workflow/integration.test.ts"
+    },
+    {
+      "from": "src/__tests__/workflow/reconcile-guard-e2e.test.ts",
+      "to": "tests/unit/workflow/reconcile-guard-e2e.test.ts"
+    },
+    {
+      "from": "src/__tests__/workflow/scaffolding.test.ts",
+      "to": "tests/unit/workflow/scaffolding.test.ts"
+    },
+    {
+      "from": "src/__tests__/workflow/state-store-resolve.test.ts",
+      "to": "tests/unit/workflow/state-store-resolve.test.ts"
     },
     {
       "from": "src/adapters/adapter-direction.test.ts",
@@ -294,10 +750,6 @@
       "to": "tests/unit/architecture/vocabulary-lint.test.ts"
     },
     {
-      "from": "src/__tests__/benchmarks/baselines-schema.test.ts",
-      "to": "tests/unit/benchmarks/baselines-schema.test.ts"
-    },
-    {
       "from": "src/cli/cli-follow-expansion.test.ts",
       "to": "tests/unit/cli/cli-follow-expansion.test.ts"
     },
@@ -394,6 +846,14 @@
       "to": "tests/unit/config/yaml-schema.test.ts"
     },
     {
+      "from": "src/contract/__tests__/fixtures/in-memory-ir.ts",
+      "to": "tests/unit/contract/fixtures/in-memory-ir.ts"
+    },
+    {
+      "from": "src/contract/__tests__/relocation-proof.test.ts",
+      "to": "tests/unit/contract/relocation-proof.test.ts"
+    },
+    {
       "from": "src/contract/authority-collector.test.ts",
       "to": "tests/unit/contract/authority-collector.test.ts"
     },
@@ -486,10 +946,6 @@
       "to": "tests/unit/contract/error-families.type-test.ts"
     },
     {
-      "from": "src/contract/__tests__/fixtures/in-memory-ir.ts",
-      "to": "tests/unit/contract/fixtures/in-memory-ir.ts"
-    },
-    {
       "from": "src/contract/governing-catalog.test.ts",
       "to": "tests/unit/contract/governing-catalog.test.ts"
     },
@@ -546,10 +1002,6 @@
       "to": "tests/unit/contract/reachability/providers.test.ts"
     },
     {
-      "from": "src/contract/__tests__/relocation-proof.test.ts",
-      "to": "tests/unit/contract/relocation-proof.test.ts"
-    },
-    {
       "from": "src/contract/request-context.test.ts",
       "to": "tests/unit/contract/request-context.test.ts"
     },
@@ -564,10 +1016,6 @@
     {
       "from": "src/contract/shared/validation.test.ts",
       "to": "tests/unit/contract/shared/validation.test.ts"
-    },
-    {
-      "from": "src/__tests__/correlation-acceptance.test.ts",
-      "to": "tests/unit/correlation-acceptance.test.ts"
     },
     {
       "from": "src/describe/handler-config.test.ts",
@@ -662,8 +1110,20 @@
       "to": "tests/unit/envelope-wrap.test.ts"
     },
     {
-      "from": "src/__tests__/event-store/single-composition-root.test.ts",
-      "to": "tests/unit/event-store/single-composition-root.test.ts"
+      "from": "src/events/__tests__/gate-details-schema.test.ts",
+      "to": "tests/unit/events/gate-details-schema.test.ts"
+    },
+    {
+      "from": "src/events/__tests__/refinement-schema.test.ts",
+      "to": "tests/unit/events/refinement-schema.test.ts"
+    },
+    {
+      "from": "src/events/__tests__/remediation-schemas.test.ts",
+      "to": "tests/unit/events/remediation-schemas.test.ts"
+    },
+    {
+      "from": "src/events/__tests__/transition-admission-events.test.ts",
+      "to": "tests/unit/events/transition-admission-events.test.ts"
     },
     {
       "from": "src/events/admission-append-idempotency.test.ts",
@@ -774,10 +1234,6 @@
       "to": "tests/unit/events/event-registration.test.ts"
     },
     {
-      "from": "src/events/__tests__/gate-details-schema.test.ts",
-      "to": "tests/unit/events/gate-details-schema.test.ts"
-    },
-    {
       "from": "src/events/golden-log-replay.test.ts",
       "to": "tests/unit/events/golden-log-replay.test.ts"
     },
@@ -806,20 +1262,12 @@
       "to": "tests/unit/events/poc.acceptance.test.ts"
     },
     {
-      "from": "src/events/__tests__/refinement-schema.test.ts",
-      "to": "tests/unit/events/refinement-schema.test.ts"
-    },
-    {
       "from": "src/events/registration-validate.boot.test.ts",
       "to": "tests/unit/events/registration-validate.boot.test.ts"
     },
     {
       "from": "src/events/registration-validate.test.ts",
       "to": "tests/unit/events/registration-validate.test.ts"
-    },
-    {
-      "from": "src/events/__tests__/remediation-schemas.test.ts",
-      "to": "tests/unit/events/remediation-schemas.test.ts"
     },
     {
       "from": "src/events/replay-determinism.test.ts",
@@ -888,10 +1336,6 @@
     {
       "from": "src/events/tools.test.ts",
       "to": "tests/unit/events/tools.test.ts"
-    },
-    {
-      "from": "src/events/__tests__/transition-admission-events.test.ts",
-      "to": "tests/unit/events/transition-admission-events.test.ts"
     },
     {
       "from": "src/events/with-session.test.ts",
@@ -1254,10 +1698,6 @@
       "to": "tests/unit/logger.test.ts"
     },
     {
-      "from": "src/__tests__/mcp-tools.integration.test.ts",
-      "to": "tests/unit/mcp-tools.integration.test.ts"
-    },
-    {
       "from": "src/mcp/notifications.test.ts",
       "to": "tests/unit/mcp/notifications.test.ts"
     },
@@ -1300,14 +1740,6 @@
     {
       "from": "src/output-schema-vacuity-allowlist.test.ts",
       "to": "tests/unit/output-schema-vacuity-allowlist.test.ts"
-    },
-    {
-      "from": "src/__tests__/parity-harness.test.ts",
-      "to": "tests/unit/parity-harness.test.ts"
-    },
-    {
-      "from": "src/__tests__/parity-harness.ts",
-      "to": "tests/unit/parity-harness.ts"
     },
     {
       "from": "src/parity.test.ts",
@@ -1366,16 +1798,16 @@
       "to": "tests/unit/projections/project-at.test.ts"
     },
     {
+      "from": "src/projections/quality/__tests__/flywheel-integration.test.ts",
+      "to": "tests/unit/projections/quality/flywheel-integration.test.ts"
+    },
+    {
       "from": "src/projections/quality/attribution.test.ts",
       "to": "tests/unit/projections/quality/attribution.test.ts"
     },
     {
       "from": "src/projections/quality/calibrated-correlation.test.ts",
       "to": "tests/unit/projections/quality/calibrated-correlation.test.ts"
-    },
-    {
-      "from": "src/projections/quality/__tests__/flywheel-integration.test.ts",
-      "to": "tests/unit/projections/quality/flywheel-integration.test.ts"
     },
     {
       "from": "src/projections/quality/hints.test.ts",
@@ -2106,24 +2538,28 @@
       "to": "tests/unit/runtime/workspace/discovery.test.ts"
     },
     {
-      "from": "src/__tests__/sdk-patch-policy.test.ts",
-      "to": "tests/unit/sdk-patch-policy.test.ts"
+      "from": "src/storage/__tests__/backend-contract.test.ts",
+      "to": "tests/unit/storage/backend-contract.test.ts"
     },
     {
-      "from": "src/__tests__/sdk-pin-policy.test.ts",
-      "to": "tests/unit/sdk-pin-policy.test.ts"
+      "from": "src/storage/__tests__/lifecycle-sqlite.test.ts",
+      "to": "tests/unit/storage/lifecycle-sqlite.test.ts"
     },
     {
-      "from": "src/__tests__/skills/oneshot.test.ts",
-      "to": "tests/unit/skills/oneshot.test.ts"
+      "from": "src/storage/__tests__/no-legacy-runtime-deps.test.ts",
+      "to": "tests/unit/storage/no-legacy-runtime-deps.test.ts"
     },
     {
-      "from": "src/__tests__/skills/prune.test.ts",
-      "to": "tests/unit/skills/prune.test.ts"
+      "from": "src/storage/__tests__/schema-migration.test.ts",
+      "to": "tests/unit/storage/schema-migration.test.ts"
     },
     {
-      "from": "src/__tests__/stack/handlers.test.ts",
-      "to": "tests/unit/stack/handlers.test.ts"
+      "from": "src/storage/__tests__/sqlite-backend-bun-import.test.ts",
+      "to": "tests/unit/storage/sqlite-backend-bun-import.test.ts"
+    },
+    {
+      "from": "src/storage/__tests__/wal-concurrency.test.ts",
+      "to": "tests/unit/storage/wal-concurrency.test.ts"
     },
     {
       "from": "src/storage/artifacts/artifact-path.test.ts",
@@ -2138,20 +2574,12 @@
       "to": "tests/unit/storage/artifacts/index.test.ts"
     },
     {
-      "from": "src/storage/__tests__/backend-contract.test.ts",
-      "to": "tests/unit/storage/backend-contract.test.ts"
-    },
-    {
       "from": "src/storage/backend.test.ts",
       "to": "tests/unit/storage/backend.test.ts"
     },
     {
       "from": "src/storage/lifecycle-atomic.test.ts",
       "to": "tests/unit/storage/lifecycle-atomic.test.ts"
-    },
-    {
-      "from": "src/storage/__tests__/lifecycle-sqlite.test.ts",
-      "to": "tests/unit/storage/lifecycle-sqlite.test.ts"
     },
     {
       "from": "src/storage/lifecycle.no-jsonl-comments.test.ts",
@@ -2166,14 +2594,6 @@
       "to": "tests/unit/storage/memory-backend.test.ts"
     },
     {
-      "from": "src/storage/__tests__/no-legacy-runtime-deps.test.ts",
-      "to": "tests/unit/storage/no-legacy-runtime-deps.test.ts"
-    },
-    {
-      "from": "src/storage/__tests__/schema-migration.test.ts",
-      "to": "tests/unit/storage/schema-migration.test.ts"
-    },
-    {
       "from": "src/storage/sidecar-merger.test.ts",
       "to": "tests/unit/storage/sidecar-merger.test.ts"
     },
@@ -2186,10 +2606,6 @@
       "to": "tests/unit/storage/snapshot-retention.test.ts"
     },
     {
-      "from": "src/storage/__tests__/sqlite-backend-bun-import.test.ts",
-      "to": "tests/unit/storage/sqlite-backend-bun-import.test.ts"
-    },
-    {
       "from": "src/storage/sqlite-backend.pragma.test.ts",
       "to": "tests/unit/storage/sqlite-backend.pragma.test.ts"
     },
@@ -2200,10 +2616,6 @@
     {
       "from": "src/storage/sqlite-backend.test.ts",
       "to": "tests/unit/storage/sqlite-backend.test.ts"
-    },
-    {
-      "from": "src/storage/__tests__/wal-concurrency.test.ts",
-      "to": "tests/unit/storage/wal-concurrency.test.ts"
     },
     {
       "from": "src/sync/composite.test.ts",
@@ -2220,10 +2632,6 @@
     {
       "from": "src/sync/sync-handler.test.ts",
       "to": "tests/unit/sync/sync-handler.test.ts"
-    },
-    {
-      "from": "src/__tests__/tasks/handlers.test.ts",
-      "to": "tests/unit/tasks/handlers.test.ts"
     },
     {
       "from": "src/tasks/tools.evidence-bypass.test.ts",
@@ -2302,6 +2710,18 @@
       "to": "tests/unit/vcs/worktree-provisioner.test.ts"
     },
     {
+      "from": "src/verbs/__tests__/dispatch-shape.kill-fixture.test.ts",
+      "to": "tests/unit/verbs/dispatch-shape.kill-fixture.test.ts"
+    },
+    {
+      "from": "src/verbs/__tests__/fixtures/README.md",
+      "to": "tests/unit/verbs/fixtures/README.md"
+    },
+    {
+      "from": "src/verbs/__tests__/fixtures/prepare-review-pre-dr25.json",
+      "to": "tests/unit/verbs/fixtures/prepare-review-pre-dr25.json"
+    },
+    {
       "from": "src/verbs/composite.onboard-dispatch.test.ts",
       "to": "tests/unit/verbs/composite.onboard-dispatch.test.ts"
     },
@@ -2312,10 +2732,6 @@
     {
       "from": "src/verbs/config-gate-integration.test.ts",
       "to": "tests/unit/verbs/config-gate-integration.test.ts"
-    },
-    {
-      "from": "src/verbs/__tests__/dispatch-shape.kill-fixture.test.ts",
-      "to": "tests/unit/verbs/dispatch-shape.kill-fixture.test.ts"
     },
     {
       "from": "src/verbs/docs-onboard-sweep.test.ts",
@@ -2416,14 +2832,6 @@
     {
       "from": "src/verbs/doctor/schema.test.ts",
       "to": "tests/unit/verbs/doctor/schema.test.ts"
-    },
-    {
-      "from": "src/verbs/__tests__/fixtures/README.md",
-      "to": "tests/unit/verbs/fixtures/README.md"
-    },
-    {
-      "from": "src/verbs/__tests__/fixtures/prepare-review-pre-dr25.json",
-      "to": "tests/unit/verbs/fixtures/prepare-review-pre-dr25.json"
     },
     {
       "from": "src/verbs/gates/assess-refactor-scope.test.ts",
@@ -3194,20 +3602,16 @@
       "to": "tests/unit/verbs/worktree/worktree-schemas.test.ts"
     },
     {
-      "from": "src/__tests__/views/tools-error-paths.test.ts",
-      "to": "tests/unit/views/tools-error-paths.test.ts"
-    },
-    {
-      "from": "src/__tests__/views/workflow-status-view.test.ts",
-      "to": "tests/unit/views/workflow-status-view.test.ts"
-    },
-    {
       "from": "src/workflow/__fixtures__/guard-classification.ts",
       "to": "tests/unit/workflow/__fixtures__/guard-classification.ts"
     },
     {
       "from": "src/workflow/__fixtures__/transition-admission-corpus.ts",
       "to": "tests/unit/workflow/__fixtures__/transition-admission-corpus.ts"
+    },
+    {
+      "from": "src/workflow/__tests__/single-composer-guard.test.ts",
+      "to": "tests/unit/workflow/single-composer-guard.test.ts"
     },
     {
       "from": "src/workflow/admission/admission-algebra.test.ts",
@@ -3354,14 +3758,6 @@
       "to": "tests/unit/workflow/admission/workflow-builder.type-test.ts"
     },
     {
-      "from": "src/__tests__/workflow/boundary.test.ts",
-      "to": "tests/unit/workflow/boundary.test.ts"
-    },
-    {
-      "from": "src/__tests__/workflow/bridge-events.test.ts",
-      "to": "tests/unit/workflow/bridge-events.test.ts"
-    },
-    {
       "from": "src/workflow/cancel-process-manager.integration.test.ts",
       "to": "tests/unit/workflow/cancel-process-manager.integration.test.ts"
     },
@@ -3374,16 +3770,8 @@
       "to": "tests/unit/workflow/cancel-process-manager.test.ts"
     },
     {
-      "from": "src/__tests__/workflow/cancel-saga-paths.test.ts",
-      "to": "tests/unit/workflow/cancel-saga-paths.test.ts"
-    },
-    {
       "from": "src/workflow/cancel.envelope.test.ts",
       "to": "tests/unit/workflow/cancel.envelope.test.ts"
-    },
-    {
-      "from": "src/__tests__/workflow/cancel.test.ts",
-      "to": "tests/unit/workflow/cancel.test.ts"
     },
     {
       "from": "src/workflow/capabilities/elicitation.test.ts",
@@ -3420,10 +3808,6 @@
     {
       "from": "src/workflow/checkpoint.test.ts",
       "to": "tests/unit/workflow/checkpoint.test.ts"
-    },
-    {
-      "from": "src/__tests__/workflow/circuit-breaker.test.ts",
-      "to": "tests/unit/workflow/circuit-breaker.test.ts"
     },
     {
       "from": "src/workflow/cleanup.composite.test.ts",
@@ -3464,14 +3848,6 @@
     {
       "from": "src/workflow/event-injection.test.ts",
       "to": "tests/unit/workflow/event-injection.test.ts"
-    },
-    {
-      "from": "src/__tests__/workflow/event-store-split.test.ts",
-      "to": "tests/unit/workflow/event-store-split.test.ts"
-    },
-    {
-      "from": "src/__tests__/workflow/events.test.ts",
-      "to": "tests/unit/workflow/events.test.ts"
     },
     {
       "from": "src/workflow/feedback.parity.test.ts",
@@ -3526,20 +3902,8 @@
       "to": "tests/unit/workflow/hsm-transition-guard.test.ts"
     },
     {
-      "from": "src/__tests__/workflow/idempotency.test.ts",
-      "to": "tests/unit/workflow/idempotency.test.ts"
-    },
-    {
       "from": "src/workflow/implement-reachability.test.ts",
       "to": "tests/unit/workflow/implement-reachability.test.ts"
-    },
-    {
-      "from": "src/__tests__/workflow/index.test.ts",
-      "to": "tests/unit/workflow/index.test.ts"
-    },
-    {
-      "from": "src/__tests__/workflow/integration.test.ts",
-      "to": "tests/unit/workflow/integration.test.ts"
     },
     {
       "from": "src/workflow/migration.legacy.test.ts",
@@ -3598,10 +3962,6 @@
       "to": "tests/unit/workflow/query.test.ts"
     },
     {
-      "from": "src/__tests__/workflow/reconcile-guard-e2e.test.ts",
-      "to": "tests/unit/workflow/reconcile-guard-e2e.test.ts"
-    },
-    {
       "from": "src/workflow/reconcile-state.test.ts",
       "to": "tests/unit/workflow/reconcile-state.test.ts"
     },
@@ -3626,20 +3986,12 @@
       "to": "tests/unit/workflow/review-contract.test.ts"
     },
     {
-      "from": "src/__tests__/workflow/scaffolding.test.ts",
-      "to": "tests/unit/workflow/scaffolding.test.ts"
-    },
-    {
       "from": "src/workflow/schemas.legacy.test.ts",
       "to": "tests/unit/workflow/schemas.legacy.test.ts"
     },
     {
       "from": "src/workflow/schemas.test.ts",
       "to": "tests/unit/workflow/schemas.test.ts"
-    },
-    {
-      "from": "src/workflow/__tests__/single-composer-guard.test.ts",
-      "to": "tests/unit/workflow/single-composer-guard.test.ts"
     },
     {
       "from": "src/workflow/state-machine.legacy.test.ts",
@@ -3656,10 +4008,6 @@
     {
       "from": "src/workflow/state-retry.test.ts",
       "to": "tests/unit/workflow/state-retry.test.ts"
-    },
-    {
-      "from": "src/__tests__/workflow/state-store-resolve.test.ts",
-      "to": "tests/unit/workflow/state-store-resolve.test.ts"
     },
     {
       "from": "src/workflow/state-store.legacy.test.ts",
@@ -4678,8 +5026,8 @@
         }
       ]
     },
-    "scripts/audit/check-base-substrate.test.ts": {
-      "file": "scripts/audit/check-base-substrate.test.ts",
+    "tests/scripts/audit/check-base-substrate.test.ts": {
+      "file": "tests/scripts/audit/check-base-substrate.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -4719,8 +5067,8 @@
         }
       ]
     },
-    "scripts/audit/check-no-duplicate-suites.test.ts": {
-      "file": "scripts/audit/check-no-duplicate-suites.test.ts",
+    "tests/scripts/audit/check-no-duplicate-suites.test.ts": {
+      "file": "tests/scripts/audit/check-no-duplicate-suites.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -4755,8 +5103,8 @@
         }
       ]
     },
-    "scripts/audit/check-protected.test.ts": {
-      "file": "scripts/audit/check-protected.test.ts",
+    "tests/scripts/audit/check-protected.test.ts": {
+      "file": "tests/scripts/audit/check-protected.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -4916,8 +5264,8 @@
         }
       ]
     },
-    "scripts/audit/consolidate-suite.test.ts": {
-      "file": "scripts/audit/consolidate-suite.test.ts",
+    "tests/scripts/audit/consolidate-suite.test.ts": {
+      "file": "tests/scripts/audit/consolidate-suite.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -5032,8 +5380,8 @@
         }
       ]
     },
-    "scripts/audit/cycle-gate.test.ts": {
-      "file": "scripts/audit/cycle-gate.test.ts",
+    "tests/scripts/audit/cycle-gate.test.ts": {
+      "file": "tests/scripts/audit/cycle-gate.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -5118,8 +5466,8 @@
         }
       ]
     },
-    "scripts/audit/knip-diff.test.ts": {
-      "file": "scripts/audit/knip-diff.test.ts",
+    "tests/scripts/audit/knip-diff.test.ts": {
+      "file": "tests/scripts/audit/knip-diff.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -5304,8 +5652,8 @@
         }
       ]
     },
-    "scripts/audit/manifest-gate-ci.test.ts": {
-      "file": "scripts/audit/manifest-gate-ci.test.ts",
+    "tests/scripts/audit/manifest-gate-ci.test.ts": {
+      "file": "tests/scripts/audit/manifest-gate-ci.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -5365,8 +5713,8 @@
         }
       ]
     },
-    "scripts/audit/register-entry-schema.test.ts": {
-      "file": "scripts/audit/register-entry-schema.test.ts",
+    "tests/scripts/audit/register-entry-schema.test.ts": {
+      "file": "tests/scripts/audit/register-entry-schema.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -5456,8 +5804,8 @@
         }
       ]
     },
-    "scripts/build-binary.test.ts": {
-      "file": "scripts/build-binary.test.ts",
+    "tests/scripts/build-binary.test.ts": {
+      "file": "tests/scripts/build-binary.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -5472,8 +5820,8 @@
         }
       ]
     },
-    "scripts/build-release-manifest.test.ts": {
-      "file": "scripts/build-release-manifest.test.ts",
+    "tests/scripts/build-release-manifest.test.ts": {
+      "file": "tests/scripts/build-release-manifest.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -5528,8 +5876,8 @@
         }
       ]
     },
-    "scripts/check-enforcer-wiring.test.ts": {
-      "file": "scripts/check-enforcer-wiring.test.ts",
+    "tests/scripts/check-enforcer-wiring.test.ts": {
+      "file": "tests/scripts/check-enforcer-wiring.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -5599,8 +5947,8 @@
         }
       ]
     },
-    "scripts/check-event-store-composition-root.test.ts": {
-      "file": "scripts/check-event-store-composition-root.test.ts",
+    "tests/scripts/check-event-store-composition-root.test.ts": {
+      "file": "tests/scripts/check-event-store-composition-root.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -5645,8 +5993,8 @@
         }
       ]
     },
-    "scripts/check-golden-fixture-note.test.ts": {
-      "file": "scripts/check-golden-fixture-note.test.ts",
+    "tests/scripts/check-golden-fixture-note.test.ts": {
+      "file": "tests/scripts/check-golden-fixture-note.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -5691,8 +6039,8 @@
         }
       ]
     },
-    "scripts/check-measured-premises.test.ts": {
-      "file": "scripts/check-measured-premises.test.ts",
+    "tests/scripts/check-measured-premises.test.ts": {
+      "file": "tests/scripts/check-measured-premises.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -5787,8 +6135,8 @@
         }
       ]
     },
-    "scripts/check-module-intent.test.ts": {
-      "file": "scripts/check-module-intent.test.ts",
+    "tests/scripts/check-module-intent.test.ts": {
+      "file": "tests/scripts/check-module-intent.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -5853,8 +6201,8 @@
         }
       ]
     },
-    "scripts/check-no-state-json.test.ts": {
-      "file": "scripts/check-no-state-json.test.ts",
+    "tests/scripts/check-no-state-json.test.ts": {
+      "file": "tests/scripts/check-no-state-json.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -5909,8 +6257,8 @@
         }
       ]
     },
-    "scripts/check-prefix-fingerprint.test.ts": {
-      "file": "scripts/check-prefix-fingerprint.test.ts",
+    "tests/scripts/check-prefix-fingerprint.test.ts": {
+      "file": "tests/scripts/check-prefix-fingerprint.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -5935,8 +6283,8 @@
         }
       ]
     },
-    "scripts/check-prose-lint.test.ts": {
-      "file": "scripts/check-prose-lint.test.ts",
+    "tests/scripts/check-prose-lint.test.ts": {
+      "file": "tests/scripts/check-prose-lint.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -5961,8 +6309,8 @@
         }
       ]
     },
-    "scripts/check-query-upcast-choke-point.test.ts": {
-      "file": "scripts/check-query-upcast-choke-point.test.ts",
+    "tests/scripts/check-query-upcast-choke-point.test.ts": {
+      "file": "tests/scripts/check-query-upcast-choke-point.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -6007,8 +6355,8 @@
         }
       ]
     },
-    "scripts/check-single-workflow-fold.test.ts": {
-      "file": "scripts/check-single-workflow-fold.test.ts",
+    "tests/scripts/check-single-workflow-fold.test.ts": {
+      "file": "tests/scripts/check-single-workflow-fold.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -6063,8 +6411,8 @@
         }
       ]
     },
-    "scripts/ci-binary-matrix.test.ts": {
-      "file": "scripts/ci-binary-matrix.test.ts",
+    "tests/scripts/ci-binary-matrix.test.ts": {
+      "file": "tests/scripts/ci-binary-matrix.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -6089,8 +6437,8 @@
         }
       ]
     },
-    "scripts/ci-topology.test.ts": {
-      "file": "scripts/ci-topology.test.ts",
+    "tests/scripts/ci-topology.test.ts": {
+      "file": "tests/scripts/ci-topology.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -6140,8 +6488,8 @@
         }
       ]
     },
-    "scripts/ci-workflow-shape.test.ts": {
-      "file": "scripts/ci-workflow-shape.test.ts",
+    "tests/scripts/ci-workflow-shape.test.ts": {
+      "file": "tests/scripts/ci-workflow-shape.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -6151,8 +6499,8 @@
         }
       ]
     },
-    "scripts/codegen-runtimes.test.ts": {
-      "file": "scripts/codegen-runtimes.test.ts",
+    "tests/scripts/codegen-runtimes.test.ts": {
+      "file": "tests/scripts/codegen-runtimes.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -6182,8 +6530,8 @@
         }
       ]
     },
-    "scripts/core/cli-derivation-guard.test.ts": {
-      "file": "scripts/core/cli-derivation-guard.test.ts",
+    "tests/core/scripts/cli-derivation-guard.test.ts": {
+      "file": "tests/core/scripts/cli-derivation-guard.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -6223,8 +6571,8 @@
         }
       ]
     },
-    "scripts/core/cli-derivation-ratchet-guard.test.ts": {
-      "file": "scripts/core/cli-derivation-ratchet-guard.test.ts",
+    "tests/core/scripts/cli-derivation-ratchet-guard.test.ts": {
+      "file": "tests/core/scripts/cli-derivation-ratchet-guard.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -6289,8 +6637,8 @@
         }
       ]
     },
-    "scripts/core/cli-vocab-guard.test.ts": {
-      "file": "scripts/core/cli-vocab-guard.test.ts",
+    "tests/core/scripts/cli-vocab-guard.test.ts": {
+      "file": "tests/core/scripts/cli-vocab-guard.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -6355,8 +6703,8 @@
         }
       ]
     },
-    "scripts/core/generate-docs.test.ts": {
-      "file": "scripts/core/generate-docs.test.ts",
+    "tests/core/scripts/generate-docs.test.ts": {
+      "file": "tests/core/scripts/generate-docs.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -6391,8 +6739,8 @@
         }
       ]
     },
-    "scripts/core/output-schema-ratchet-guard.test.ts": {
-      "file": "scripts/core/output-schema-ratchet-guard.test.ts",
+    "tests/core/scripts/output-schema-ratchet-guard.test.ts": {
+      "file": "tests/core/scripts/output-schema-ratchet-guard.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -6432,8 +6780,8 @@
         }
       ]
     },
-    "scripts/docs-check.test.ts": {
-      "file": "scripts/docs-check.test.ts",
+    "tests/scripts/docs-check.test.ts": {
+      "file": "tests/scripts/docs-check.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -6498,8 +6846,8 @@
         }
       ]
     },
-    "scripts/generate-legacy-skill-hashes.test.ts": {
-      "file": "scripts/generate-legacy-skill-hashes.test.ts",
+    "tests/scripts/generate-legacy-skill-hashes.test.ts": {
+      "file": "tests/scripts/generate-legacy-skill-hashes.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -6534,8 +6882,8 @@
         }
       ]
     },
-    "scripts/get-exarchos.ps1.test.ts": {
-      "file": "scripts/get-exarchos.ps1.test.ts",
+    "tests/scripts/get-exarchos.ps1.test.ts": {
+      "file": "tests/scripts/get-exarchos.ps1.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -6565,19 +6913,19 @@
         }
       ]
     },
-    "scripts/get-exarchos.test.ts": {
-      "file": "scripts/get-exarchos.test.ts",
+    "tests/scripts/get-exarchos.test.ts": {
+      "file": "tests/scripts/get-exarchos.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
           "suite": "scripts/get-exarchos.sh (shell harness)",
-          "name": "passes the full scripts/get-exarchos.test.sh suite",
+          "name": "passes the full tests/scripts/get-exarchos.test.sh suite",
           "dynamic": false
         }
       ]
     },
-    "scripts/guard-inventory.test.ts": {
-      "file": "scripts/guard-inventory.test.ts",
+    "tests/scripts/guard-inventory.test.ts": {
+      "file": "tests/scripts/guard-inventory.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -6882,8 +7230,8 @@
         }
       ]
     },
-    "scripts/installer-verify.test.ts": {
-      "file": "scripts/installer-verify.test.ts",
+    "tests/scripts/installer-verify.test.ts": {
+      "file": "tests/scripts/installer-verify.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -7008,8 +7356,8 @@
         }
       ]
     },
-    "scripts/lib/comment-classifier.precision.test.ts": {
-      "file": "scripts/lib/comment-classifier.precision.test.ts",
+    "tests/scripts/lib/comment-classifier.precision.test.ts": {
+      "file": "tests/scripts/lib/comment-classifier.precision.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -7059,8 +7407,8 @@
         }
       ]
     },
-    "scripts/lib/comment-classifier.test.ts": {
-      "file": "scripts/lib/comment-classifier.test.ts",
+    "tests/scripts/lib/comment-classifier.test.ts": {
+      "file": "tests/scripts/lib/comment-classifier.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -7225,8 +7573,8 @@
         }
       ]
     },
-    "scripts/lib/comment-fixtures.test.ts": {
-      "file": "scripts/lib/comment-fixtures.test.ts",
+    "tests/scripts/lib/comment-fixtures.test.ts": {
+      "file": "tests/scripts/lib/comment-fixtures.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -7261,8 +7609,8 @@
         }
       ]
     },
-    "scripts/lib/comment-policy.test.ts": {
-      "file": "scripts/lib/comment-policy.test.ts",
+    "tests/scripts/lib/comment-policy.test.ts": {
+      "file": "tests/scripts/lib/comment-policy.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -7382,8 +7730,8 @@
         }
       ]
     },
-    "scripts/lib/comment-prose.test.ts": {
-      "file": "scripts/lib/comment-prose.test.ts",
+    "tests/scripts/lib/comment-prose.test.ts": {
+      "file": "tests/scripts/lib/comment-prose.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -7463,8 +7811,8 @@
         }
       ]
     },
-    "scripts/lint-inv6.test.ts": {
-      "file": "scripts/lint-inv6.test.ts",
+    "tests/scripts/lint-inv6.test.ts": {
+      "file": "tests/scripts/lint-inv6.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -7524,8 +7872,8 @@
         }
       ]
     },
-    "scripts/lint-test-first-drift.test.ts": {
-      "file": "scripts/lint-test-first-drift.test.ts",
+    "tests/scripts/lint-test-first-drift.test.ts": {
+      "file": "tests/scripts/lint-test-first-drift.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -7555,8 +7903,8 @@
         }
       ]
     },
-    "scripts/migration-followups.test.ts": {
-      "file": "scripts/migration-followups.test.ts",
+    "tests/scripts/migration-followups.test.ts": {
+      "file": "tests/scripts/migration-followups.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -7586,8 +7934,8 @@
         }
       ]
     },
-    "scripts/release-workflow.test.ts": {
-      "file": "scripts/release-workflow.test.ts",
+    "tests/scripts/release-workflow.test.ts": {
+      "file": "tests/scripts/release-workflow.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -7617,8 +7965,8 @@
         }
       ]
     },
-    "scripts/run-validate.test.ts": {
-      "file": "scripts/run-validate.test.ts",
+    "tests/scripts/run-validate.test.ts": {
+      "file": "tests/scripts/run-validate.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -7698,8 +8046,8 @@
         }
       ]
     },
-    "scripts/tsconfig-scripts-coverage.test.ts": {
-      "file": "scripts/tsconfig-scripts-coverage.test.ts",
+    "tests/scripts/tsconfig-scripts-coverage.test.ts": {
+      "file": "tests/scripts/tsconfig-scripts-coverage.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -7729,8 +8077,8 @@
         }
       ]
     },
-    "scripts/tsconfig-strictness/count-casts.test.ts": {
-      "file": "scripts/tsconfig-strictness/count-casts.test.ts",
+    "tests/scripts/tsconfig-strictness/count-casts.test.ts": {
+      "file": "tests/scripts/tsconfig-strictness/count-casts.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -7820,8 +8168,8 @@
         }
       ]
     },
-    "scripts/validate-plugin.test.ts": {
-      "file": "scripts/validate-plugin.test.ts",
+    "tests/scripts/validate-plugin.test.ts": {
+      "file": "tests/scripts/validate-plugin.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -74139,198 +74487,198 @@
       "runner": "shell",
       "cases": []
     },
-    "scripts/audit/cycle-gate.test.sh": {
-      "file": "scripts/audit/cycle-gate.test.sh",
+    "tests/scripts/audit/cycle-gate.test.sh": {
+      "file": "tests/scripts/audit/cycle-gate.test.sh",
       "runner": "shell",
       "cases": []
     },
-    "scripts/audit/knip-diff.test.sh": {
-      "file": "scripts/audit/knip-diff.test.sh",
+    "tests/scripts/audit/knip-diff.test.sh": {
+      "file": "tests/scripts/audit/knip-diff.test.sh",
       "runner": "shell",
       "cases": []
     },
-    "scripts/check-begin-immediate-substrate.test.sh": {
-      "file": "scripts/check-begin-immediate-substrate.test.sh",
+    "tests/scripts/check-begin-immediate-substrate.test.sh": {
+      "file": "tests/scripts/check-begin-immediate-substrate.test.sh",
       "runner": "shell",
       "cases": []
     },
-    "scripts/check-benchmark-regression.test.sh": {
-      "file": "scripts/check-benchmark-regression.test.sh",
+    "tests/scripts/check-benchmark-regression.test.sh": {
+      "file": "tests/scripts/check-benchmark-regression.test.sh",
       "runner": "shell",
       "cases": []
     },
-    "scripts/check-coverage-ratchet.test.sh": {
-      "file": "scripts/check-coverage-ratchet.test.sh",
+    "tests/scripts/check-coverage-ratchet.test.sh": {
+      "file": "tests/scripts/check-coverage-ratchet.test.sh",
       "runner": "shell",
       "cases": []
     },
-    "scripts/check-enforcer-wiring.test.sh": {
-      "file": "scripts/check-enforcer-wiring.test.sh",
+    "tests/scripts/check-enforcer-wiring.test.sh": {
+      "file": "tests/scripts/check-enforcer-wiring.test.sh",
       "runner": "shell",
       "cases": []
     },
-    "scripts/check-eslint-windows.test.sh": {
-      "file": "scripts/check-eslint-windows.test.sh",
+    "tests/scripts/check-eslint-windows.test.sh": {
+      "file": "tests/scripts/check-eslint-windows.test.sh",
       "runner": "shell",
       "cases": []
     },
-    "scripts/check-gate-runner-ownership.test.sh": {
-      "file": "scripts/check-gate-runner-ownership.test.sh",
+    "tests/scripts/check-gate-runner-ownership.test.sh": {
+      "file": "tests/scripts/check-gate-runner-ownership.test.sh",
       "runner": "shell",
       "cases": []
     },
-    "scripts/check-module-intent.test.sh": {
-      "file": "scripts/check-module-intent.test.sh",
+    "tests/scripts/check-module-intent.test.sh": {
+      "file": "tests/scripts/check-module-intent.test.sh",
       "runner": "shell",
       "cases": []
     },
-    "scripts/check-mutation-gate.test.sh": {
-      "file": "scripts/check-mutation-gate.test.sh",
+    "tests/scripts/check-mutation-gate.test.sh": {
+      "file": "tests/scripts/check-mutation-gate.test.sh",
       "runner": "shell",
       "cases": []
     },
-    "scripts/check-type-debt.test.sh": {
-      "file": "scripts/check-type-debt.test.sh",
+    "tests/scripts/check-type-debt.test.sh": {
+      "file": "tests/scripts/check-type-debt.test.sh",
       "runner": "shell",
       "cases": []
     },
-    "scripts/check-windows-portability.test.sh": {
-      "file": "scripts/check-windows-portability.test.sh",
+    "tests/scripts/check-windows-portability.test.sh": {
+      "file": "tests/scripts/check-windows-portability.test.sh",
       "runner": "shell",
       "cases": []
     },
-    "scripts/check-withsession-idempotency.test.sh": {
-      "file": "scripts/check-withsession-idempotency.test.sh",
+    "tests/scripts/check-withsession-idempotency.test.sh": {
+      "file": "tests/scripts/check-withsession-idempotency.test.sh",
       "runner": "shell",
       "cases": []
     },
-    "scripts/check-wlm-wiring.test.sh": {
-      "file": "scripts/check-wlm-wiring.test.sh",
+    "tests/scripts/check-wlm-wiring.test.sh": {
+      "file": "tests/scripts/check-wlm-wiring.test.sh",
       "runner": "shell",
       "cases": []
     },
-    "scripts/coderabbit-review-gate-workflow.test.sh": {
-      "file": "scripts/coderabbit-review-gate-workflow.test.sh",
+    "tests/scripts/coderabbit-review-gate-workflow.test.sh": {
+      "file": "tests/scripts/coderabbit-review-gate-workflow.test.sh",
       "runner": "shell",
       "cases": []
     },
-    "scripts/coderabbit-review-gate.test.sh": {
-      "file": "scripts/coderabbit-review-gate.test.sh",
+    "tests/scripts/coderabbit-review-gate.test.sh": {
+      "file": "tests/scripts/coderabbit-review-gate.test.sh",
       "runner": "shell",
       "cases": []
     },
-    "scripts/get-exarchos.test.sh": {
-      "file": "scripts/get-exarchos.test.sh",
+    "tests/scripts/get-exarchos.test.sh": {
+      "file": "tests/scripts/get-exarchos.test.sh",
       "runner": "shell",
       "cases": []
     },
-    "scripts/github-config.test.sh": {
-      "file": "scripts/github-config.test.sh",
+    "tests/scripts/github-config.test.sh": {
+      "file": "tests/scripts/github-config.test.sh",
       "runner": "shell",
       "cases": []
     },
-    "scripts/lint-envelopes.test.sh": {
-      "file": "scripts/lint-envelopes.test.sh",
+    "tests/scripts/lint-envelopes.test.sh": {
+      "file": "tests/scripts/lint-envelopes.test.sh",
       "runner": "shell",
       "cases": []
     },
-    "scripts/npm-ci-retry.test.sh": {
-      "file": "scripts/npm-ci-retry.test.sh",
+    "tests/scripts/npm-ci-retry.test.sh": {
+      "file": "tests/scripts/npm-ci-retry.test.sh",
       "runner": "shell",
       "cases": []
     },
-    "scripts/sync-versions.test.sh": {
-      "file": "scripts/sync-versions.test.sh",
+    "tests/scripts/sync-versions.test.sh": {
+      "file": "tests/scripts/sync-versions.test.sh",
       "runner": "shell",
       "cases": []
     },
-    "scripts/validate-all-skills.test.sh": {
-      "file": "scripts/validate-all-skills.test.sh",
+    "tests/scripts/validate-all-skills.test.sh": {
+      "file": "tests/scripts/validate-all-skills.test.sh",
       "runner": "shell",
       "cases": []
     },
-    "scripts/validate-debug-skill.test.sh": {
-      "file": "scripts/validate-debug-skill.test.sh",
+    "tests/scripts/validate-debug-skill.test.sh": {
+      "file": "tests/scripts/validate-debug-skill.test.sh",
       "runner": "shell",
       "cases": []
     },
-    "scripts/validate-delegation-skill.test.sh": {
-      "file": "scripts/validate-delegation-skill.test.sh",
+    "tests/scripts/validate-delegation-skill.test.sh": {
+      "file": "tests/scripts/validate-delegation-skill.test.sh",
       "runner": "shell",
       "cases": []
     },
-    "scripts/validate-dotnet-standards.test.sh": {
-      "file": "scripts/validate-dotnet-standards.test.sh",
+    "tests/scripts/validate-dotnet-standards.test.sh": {
+      "file": "tests/scripts/validate-dotnet-standards.test.sh",
       "runner": "shell",
       "cases": []
     },
-    "scripts/validate-frontmatter.test.sh": {
-      "file": "scripts/validate-frontmatter.test.sh",
+    "tests/scripts/validate-frontmatter.test.sh": {
+      "file": "tests/scripts/validate-frontmatter.test.sh",
       "runner": "shell",
       "cases": []
     },
-    "scripts/validate-installation.test.sh": {
-      "file": "scripts/validate-installation.test.sh",
+    "tests/scripts/validate-installation.test.sh": {
+      "file": "tests/scripts/validate-installation.test.sh",
       "runner": "shell",
       "cases": []
     },
-    "scripts/validate-misc-skills.test.sh": {
-      "file": "scripts/validate-misc-skills.test.sh",
+    "tests/scripts/validate-misc-skills.test.sh": {
+      "file": "tests/scripts/validate-misc-skills.test.sh",
       "runner": "shell",
       "cases": []
     },
-    "scripts/validate-no-legacy.test.sh": {
-      "file": "scripts/validate-no-legacy.test.sh",
+    "tests/scripts/validate-no-legacy.test.sh": {
+      "file": "tests/scripts/validate-no-legacy.test.sh",
       "runner": "shell",
       "cases": []
     },
-    "scripts/validate-phase-coverage.test.sh": {
-      "file": "scripts/validate-phase-coverage.test.sh",
+    "tests/scripts/validate-phase-coverage.test.sh": {
+      "file": "tests/scripts/validate-phase-coverage.test.sh",
       "runner": "shell",
       "cases": []
     },
-    "scripts/validate-phase-names.test.sh": {
-      "file": "scripts/validate-phase-names.test.sh",
+    "tests/scripts/validate-phase-names.test.sh": {
+      "file": "tests/scripts/validate-phase-names.test.sh",
       "runner": "shell",
       "cases": []
     },
-    "scripts/validate-planning-skill.test.sh": {
-      "file": "scripts/validate-planning-skill.test.sh",
+    "tests/scripts/validate-planning-skill.test.sh": {
+      "file": "tests/scripts/validate-planning-skill.test.sh",
       "runner": "shell",
       "cases": []
     },
-    "scripts/validate-plugin.test.sh": {
-      "file": "scripts/validate-plugin.test.sh",
+    "tests/scripts/validate-plugin.test.sh": {
+      "file": "tests/scripts/validate-plugin.test.sh",
       "runner": "shell",
       "cases": []
     },
-    "scripts/validate-quality-review-skill.test.sh": {
-      "file": "scripts/validate-quality-review-skill.test.sh",
+    "tests/scripts/validate-quality-review-skill.test.sh": {
+      "file": "tests/scripts/validate-quality-review-skill.test.sh",
       "runner": "shell",
       "cases": []
     },
-    "scripts/validate-refactor-skill.test.sh": {
-      "file": "scripts/validate-refactor-skill.test.sh",
+    "tests/scripts/validate-refactor-skill.test.sh": {
+      "file": "tests/scripts/validate-refactor-skill.test.sh",
       "runner": "shell",
       "cases": []
     },
-    "scripts/validate-refactor.test.sh": {
-      "file": "scripts/validate-refactor.test.sh",
+    "tests/scripts/validate-refactor.test.sh": {
+      "file": "tests/scripts/validate-refactor.test.sh",
       "runner": "shell",
       "cases": []
     },
-    "scripts/validate-rm.test.sh": {
-      "file": "scripts/validate-rm.test.sh",
+    "tests/scripts/validate-rm.test.sh": {
+      "file": "tests/scripts/validate-rm.test.sh",
       "runner": "shell",
       "cases": []
     },
-    "scripts/validate-synthesis-skill.test.sh": {
-      "file": "scripts/validate-synthesis-skill.test.sh",
+    "tests/scripts/validate-synthesis-skill.test.sh": {
+      "file": "tests/scripts/validate-synthesis-skill.test.sh",
       "runner": "shell",
       "cases": []
     },
-    "scripts/validate-worktree-skill.test.sh": {
-      "file": "scripts/validate-worktree-skill.test.sh",
+    "tests/scripts/validate-worktree-skill.test.sh": {
+      "file": "tests/scripts/validate-worktree-skill.test.sh",
       "runner": "shell",
       "cases": []
     },

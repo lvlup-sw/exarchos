@@ -44,6 +44,14 @@ const TIER_OWNER: Readonly<Record<string, string | null>> = {
   migration: 'unit',
   benchmarks: 'unit',
   evals: 'unit',
+  // The build/gate scripts' own suites (task 031). `unit`, not `core`, because
+  // that is the project that collected them while they sat in scripts/ — they
+  // test tooling, not the product, so the `bun:sqlite` alias and the 60s
+  // Windows headroom are not theirs to inherit. Routing them through
+  // `tests/unit/` would have handed them both, silently, via that tier's
+  // existing glob. The five core-tier guards went to `tests/core/scripts/`
+  // instead, which is nested inside the `core` tier and keeps its policy.
+  scripts: 'unit',
   // Tiers whose policy is their whole reason for existing.
   process: 'process',
   outcome: 'outcome',

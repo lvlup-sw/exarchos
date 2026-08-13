@@ -113,9 +113,9 @@ jobs:
   #      signed release manifest, keeping the 11-asset count deterministic)
   #
   # Enforcement gates:
-  #   - `scripts/release-workflow.test.ts` — this file (list 2 + 4)
-  #   - `scripts/ci-binary-matrix.test.ts` — ci.yml + package.json (list 3)
-  #   - `scripts/build-binary.test.ts`     — TARGETS shape (list 1)
+  #   - `tests/scripts/release-workflow.test.ts` — this file (list 2 + 4)
+  #   - `tests/scripts/ci-binary-matrix.test.ts` — ci.yml + package.json (list 3)
+  #   - `tests/scripts/build-binary.test.ts`     — TARGETS shape (list 1)
   # Editing any one without the others will fail `npm run test:run`.
   #
   # The `.sha512` sidecar filename convention — `<binary>.sha512` — is
