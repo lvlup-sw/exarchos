@@ -257,7 +257,7 @@ export function parseTaskBlocks(content: string): TaskBlock[] {
  *   Before T-02 the heading line was skipped wholesale and `**Phase:**`
  *   terminated the scan, so these template-verbatim tasks scored
  *   `Description: 0 words` and hard-FAILED the gate (`needsRework`). See
- *   `skills-src/plan/references/task-template.md`.
+ *   `content/design/skills/plan/references/task-template.md`.
  * - Standard plan shape (`**Goal:**` + paragraph followed
  *   by `**Files:**`, `**Tests:**`, etc.) — Goal prose counts as description.
  * - Legacy explicit `**Description:**` shape — Description prose counts.

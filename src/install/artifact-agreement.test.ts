@@ -186,12 +186,12 @@ describe('standard artifacts agree — real repo (exit proof a)', () => {
   });
 
   it('SkillTree_SourceRenderAndEmitted_Agree', () => {
-    // Render the authored skills-src into a throwaway tree, then digest it
+    // Render the authored content into a throwaway tree, then digest it
     // against the committed skills/ tree that flows into package/install/cache.
     const outDir = mkdtempSync(join(tmpdir(), 'p0307-skills-'));
     mkdirSync(outDir, { recursive: true });
     buildAllSkills({
-      srcDir: join(REPO_ROOT, 'skills-src'),
+      srcDir: join(REPO_ROOT, 'content'),
       outDir,
       runtimesDir: join(REPO_ROOT, 'runtimes'),
     });

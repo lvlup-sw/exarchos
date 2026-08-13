@@ -9,7 +9,7 @@ const REPO_ROOT = path.resolve(__dirname, '../..');
 const IDEATE_COMMAND = path.join(REPO_ROOT, 'commands/ideate.md');
 const IDEATE_SKILL = path.join(
   REPO_ROOT,
-  'skills-src/ideate/SKILL.md',
+  'content/design/skills/ideate/SKILL.md',
 );
 const INVARIANTS_DOC = path.join(REPO_ROOT, '.exarchos/invariants.md');
 

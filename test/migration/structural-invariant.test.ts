@@ -4,7 +4,7 @@
  * The platform-agnostic skills migration is complete only when the
  * filesystem reflects the post-collapse layout:
  *
- *   - `skills-src/<name>/SKILL.md` — single source of truth per skill.
+ *   - `content/<name>/SKILL.md` — single source of truth per skill.
  *   - Procedural skills render ONCE to `skills/standard/<name>/SKILL.md`
  *     (runtime-neutral; the collapse dropped their redundant per-runtime
  *     copies). There are 16 procedural skills, including the
@@ -14,10 +14,10 @@
  *     runtime × 6 runtimes = 18 variants.
  *   - Total: 16 standard + 18 per-runtime = 34 rendered `SKILL.md` files.
  *   - No top-level `skills/<name>/SKILL.md` legacy sources — those have
- *     been moved into `skills-src/` and rendered under `skills/standard/`
+ *     been moved into `content/` and rendered under `skills/standard/`
  *     or `skills/<runtime>/`.
- *   - No stray `skills-src/<runtime>/` subdirectories — the generated
- *     tree lives only under `skills/`, and `skills-src/` is source-only.
+ *   - No stray `content/<runtime>/` subdirectories — the generated
+ *     tree lives only under `skills/`, and `content/` is source-only.
  *
  * This test enforces those invariants so a future refactor cannot
  * accidentally reintroduce the legacy layout. The test-fixtures tree
@@ -40,7 +40,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const SKILLS_DIR = join(REPO_ROOT, 'skills');
-const SKILLS_SRC_DIR = join(REPO_ROOT, 'skills-src');
+const SKILLS_SRC_DIR = join(REPO_ROOT, 'content');
 
 const RUNTIME_NAMES = [
   'generic',
@@ -139,15 +139,15 @@ describe('task 018 — post-migration structural invariants', () => {
   });
 
   it('PostMigration_SkillsSrcTree_ContainsNoCommittedGeneratedFiles', () => {
-    // `skills-src/` must NOT contain any subdirectory named after a
+    // `content/` must NOT contain any subdirectory named after a
     // runtime (generic, claude, codex, opencode, copilot, cursor). The
-    // generated tree lives only under `skills/`, not `skills-src/`.
+    // generated tree lives only under `skills/`, not `content/`.
     expect(existsSync(SKILLS_SRC_DIR)).toBe(true);
     for (const rt of RUNTIME_NAMES) {
       const runtimeDir = join(SKILLS_SRC_DIR, rt);
       expect(
         existsSync(runtimeDir),
-        `skills-src/${rt}/ must not exist (generated tree leaked into sources)`,
+        `content/${rt}/ must not exist (generated tree leaked into sources)`,
       ).toBe(false);
     }
   });
@@ -155,7 +155,7 @@ describe('task 018 — post-migration structural invariants', () => {
   it('PostMigration_LegacyTopLevelSkillsGone_NotPresent', () => {
     // For every canonical skill verb, no top-level `skills/<verb>/`
     // legacy directory may remain. The skill's home is now
-    // `skills-src/<verb>/SKILL.md`, rendered to `skills/standard/<verb>/`
+    // `content/<verb>/SKILL.md`, rendered to `skills/standard/<verb>/`
     // (procedural) or `skills/<runtime>/<verb>/` (orchestration). Any
     // leftover top-level directory (even if it only contains stale
     // `.test.sh` fixture files) is a signal that the cutover pass missed

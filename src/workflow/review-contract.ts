@@ -1,7 +1,7 @@
 // ─── Review Contract (Single Source of Truth) ───────────────────────────
 //
 // Review dimension names are derived from the skill folder names under
-// `skills-src/`. The engine, the phase playbook, and every consumer that
+// `content/`. The engine, the phase playbook, and every consumer that
 // describes the review-state contract MUST reference the constants in this
 // file rather than hardcoding strings. This prevents the drift that caused
 // GitHub issues #1073, #1074, #1075 — where PR #1045 introduced new
@@ -13,13 +13,13 @@
  * Required review dimensions per workflow type.
  *
  * The dimension key MUST match the skill folder name (kebab-case) under
- * `skills-src/`. This keeps three things aligned by construction:
- *   1. The skill an agent runs          (`skills-src/<name>/SKILL.md`)
+ * `content/`. This keeps three things aligned by construction:
+ *   1. The skill an agent runs          (`content/<name>/SKILL.md`)
  *   2. The state key the agent writes   (`reviews[<name>].status`)
  *   3. The dimension the engine expects (`_requiredReviews: [<name>, …]`)
  *
  * If you need to add a required dimension for a workflow type, add its
- * skill folder under `skills-src/<name>/` first, then add the name here.
+ * skill folder under `content/<name>/` first, then add the name here.
  * Do not introduce new dimension naming conventions.
  */
 export const REQUIRED_REVIEWS_BY_WORKFLOW_TYPE: Readonly<Record<string, readonly string[]>> = {
@@ -28,7 +28,7 @@ export const REQUIRED_REVIEWS_BY_WORKFLOW_TYPE: Readonly<Record<string, readonly
 
 /**
  * A review dimension name. Dimensions are dynamic — they vary per workflow type
- * and risk tier and MUST equal a `skills-src/<name>/` folder — so this is the
+ * and risk tier and MUST equal a `content/<name>/` folder — so this is the
  * open `string` type, not a closed literal union. This is the single place the
  * type is named; the phase-kind layer re-exports it for the `ResolvedGate`
  * `review` family rather than re-declaring the dimension vocabulary (which would
@@ -56,7 +56,7 @@ export type ReviewRiskTier = 'low' | 'medium' | 'high';
  * picks it up by construction.
  *
  * Like {@link REQUIRED_REVIEWS_BY_WORKFLOW_TYPE}, every dimension key MUST equal
- * a skill folder name under `skills-src/` (here `skills-src/mutation-adequacy/`).
+ * a skill folder name under `content/` (here `content/review/skills/mutation-adequacy/`).
  */
 export const REQUIRED_REVIEWS_BY_TIER: Readonly<Record<ReviewRiskTier, readonly string[]>> = {
   low: [],

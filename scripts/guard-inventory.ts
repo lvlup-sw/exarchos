@@ -51,7 +51,7 @@
 //       surface. Only the implementation surface is a structural fact about the
 //       guard's own path, so {@link auditGuardInventory} enforces THAT half and
 //       reports the other half as unproven. Concretely: `dispatch-shape.ts`'s
-//       prose-binding test reads `skills-src/**`, which is outside its host job's
+//       prose-binding test reads `content/**`, which is outside its host job's
 //       `mcp` filter — a real two-surface violation this instrument cannot see.
 //     - Whether a job is a REQUIRED branch-protection check. That is repo
 //       settings, out-of-repo, and not YAML-assertable (ci.yml says so itself in

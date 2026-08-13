@@ -349,7 +349,7 @@ describe('scanRegistryActions (DR-4/DR-5)', () => {
 // proves the constant is correctly LEFT ALONE:
 //
 //   - `scanRepoDefaults` walks a POSITIVE four-root allowlist
-//     (docs/architecture, docs/guides, skills-src, commands) and NEVER reads
+//     (docs/architecture, docs/guides, content, commands) and NEVER reads
 //     `DATED_RECORD_TREES`. So archiving `docs/plans` + `docs/designs` (already
 //     outside the allowlist, archive subtree included) cannot change the scanned
 //     surface — the scan roots are invariant to archival.
@@ -363,7 +363,7 @@ describe('scanRepoDefaults / DATED_RECORD_TREES archival-invariance (DR-18, task
   const SCAN_ROOTS = [
     'docs/architecture',
     'docs/guides',
-    'skills-src',
+    'content',
     'commands',
   ] as const;
 
@@ -381,7 +381,7 @@ describe('scanRepoDefaults / DATED_RECORD_TREES archival-invariance (DR-18, task
     // Live surfaces (scanned):
     seed('docs/architecture/a.md', 'INV-9001');
     seed('docs/guides/g.md', 'INV-9002');
-    seed('skills-src/s/SKILL.md', 'INV-9003');
+    seed('content/s/SKILL.md', 'INV-9003');
     seed('commands/c.md', 'INV-9004');
     // Archived dated-record trees (NOT scanned) — the archival destination and
     // its parent, each seeded to prove neither is ever reached:

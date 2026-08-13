@@ -13,7 +13,7 @@ npm run test:run       # the `unit` project ONLY — not the whole root suite
 npx vitest run         # every root project (unit + process + outcome + conformance)
 npm run test:conformance   # just the extracted conformance suite (tools/conformance/)
 npm run typecheck      # tsc --noEmit, root AND tools/conformance
-npm run build:skills   # render skills-src/ → skills/<runtime>/ + command-aliases/<runtime>/
+npm run build:skills   # render content/ → skills/<runtime>/ + command-aliases/<runtime>/
 npm run skills:guard   # CI: fails if generated skills/ or command-aliases/ drift from sources
 
 cd servers/exarchos-mcp && npm run test:run   # MCP server tests (build via root `npm run build`)
@@ -36,9 +36,9 @@ Orientation only — deep detail lives in `docs/architecture/`, `docs/guides/`, 
 - **Installer** — `scripts/get-exarchos.{sh,ps1}` download the single-file binary from GitHub
   Releases; `.claude-plugin/` packaging registers commands/skills/rules/agents + the `exarchos`
   MCP server.
-- **Content layers** — Commands (`commands/*.md`); Skills authored at `skills-src/<name>/SKILL.md`
+- **Content layers** — Commands (`commands/*.md`); Skills authored at `content/<name>/SKILL.md`
   (`{{TOKEN}}` placeholders + `references/`) and rendered per-runtime to `skills/<runtime>/`; Rules
-  (`rules/*.md` — safety only; domain rules live in `skills-src/*/references/`). Structured
+  (`rules/*.md` — safety only; domain rules live in `content/*/skills/*/references/`). Structured
   Markdown, not executable code.
 - **Skills renderer** (`src/build-skills.ts`) — `npm run build:skills` substitutes placeholders
   from `runtimes/<name>.yaml`, copies `references/` verbatim into every variant, honors
@@ -71,12 +71,12 @@ Orientation only — deep detail lives in `docs/architecture/`, `docs/guides/`, 
 
 - **Co-located tests** — `foo.test.ts` beside `foo.ts`; Vitest (`import { describe, it, expect, vi } from 'vitest'`).
 - **Strict TypeScript** — no `any`; use `unknown` + type guards. (ESM / NodeNext / Node ≥20 per `package.json` + `tsconfig.json`.)
-- **Skills are source-of-truth at `skills-src/`** — edit there, run `npm run build:skills`, commit
+- **Skills are source-of-truth at `content/`** — edit there, run `npm run build:skills`, commit
   both source and the regenerated `skills/` tree. Direct edits to `skills/<runtime>/**` fail
   `skills:guard`.
 - **Skill frontmatter** — `name` (kebab-case), `description` (≤1,024 chars), `metadata`. Skills that
   invoke Exarchos MCP tools MUST set `metadata.mcp-server: exarchos`; utility/standards skills are exempt.
-- **Reference files** (`skills-src/<skill>/references/*.md`) MUST NOT carry YAML frontmatter —
+- **Reference files** (`content/<skill>/references/*.md`) MUST NOT carry YAML frontmatter —
   frontmatter is reserved for entry points (`SKILL.md`, `commands/*.md`, `rules/*.md`).
 
 ## Workflow Dispatch

@@ -60,7 +60,7 @@
 // ── The two authorities (DR-30) ─────────────────────────────────────────────
 //
 //   the skill markdown  — hand-authored English + a Markdown table, read from
-//                         `skills-src/` (the AUTHORING surface). Deliberately
+//                         `content/` (the AUTHORING surface). Deliberately
 //                         NOT a rendered `skills/<runtime>/` copy: binding a
 //                         generated artifact would only re-check the renderer,
 //                         and the drift this test exists to catch happens where
@@ -71,7 +71,7 @@
 // module imports it. The comparison can genuinely disagree, and
 // `ProseBinding_SeededProseDrift_FailsTheBinding` proves it does.
 //
-// @oracle-sources: ../../../skills-src/delegate/references/parallel-strategy.md, ./dispatch-shape.ts
+// @oracle-sources: ../../../content/delivery/skills/delegate/references/parallel-strategy.md, ./dispatch-shape.ts
 //
 // Implements: DR-25.
 
@@ -81,19 +81,14 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { POSTURE_DISPATCH_MAP, type DispatchShape } from './dispatch-shape.js';
+import { skillReference as resolveSkillReference } from '../../../tools/test-helpers/content-tree.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 /** repository root — `src/runtime/agents` is four levels down. */
 const REPO_ROOT = path.resolve(HERE, '../../..');
 
 /** The authoring surface. `skills/<runtime>/**` is a render of THIS file. */
-const SKILL_SOURCE = path.join(
-  REPO_ROOT,
-  'skills-src',
-  'delegate',
-  'references',
-  'parallel-strategy.md',
-);
+const SKILL_SOURCE = resolveSkillReference('delegate', 'parallel-strategy.md');
 
 /** Repo-relative, forward-slashed — so a failure message reads the same on
  *  every machine and in CI logs rather than quoting a worktree path. */
@@ -528,7 +523,7 @@ describe('Delegate skill prose ⇄ POSTURE_DISPATCH_MAP (DR-25, task 056)', () =
     // The AUTHORING surface. A rendered `skills/<runtime>/` copy would make
     // this a test of the renderer, not of the contract.
     const segments = path.relative(REPO_ROOT, SKILL_SOURCE).split(path.sep);
-    expect(segments[0]).toBe('skills-src');
+    expect(segments[0]).toBe('content');
 
     const markdown = readFileSync(SKILL_SOURCE, 'utf8');
     const parsed = parseProseDispatchTable(markdown, SKILL_LABEL);

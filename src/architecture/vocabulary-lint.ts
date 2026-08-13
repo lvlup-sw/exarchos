@@ -191,7 +191,7 @@ function walkDirectory(
  * Default scan: walks the *live normative* invariant-vocabulary surfaces from
  * the repo root and returns aggregated findings:
  *
- *   - `skills-src/` and `commands/` — templated surfaces rendered into skills
+ *   - `content/` and `commands/` — templated surfaces rendered into skills
  *     and command bodies that instruct agents using `INV-*` vocabulary.
  *   - `docs/architecture/` — the catalog itself plus its reference prose.
  *   - `docs/guides/` — consumer-facing guides that cite `INV-*` IDs.
@@ -246,7 +246,7 @@ export function scanRepoDefaults(
     [
       path.join(root, 'docs/architecture'),
       path.join(root, 'docs/guides'),
-      path.join(root, 'skills-src'),
+      path.join(root, 'content'),
       path.join(root, 'commands'),
     ],
     options,
@@ -259,7 +259,7 @@ export function scanRepoDefaults(
 // `coverage: n/a` marker; both the DIM-* entries and the `axiom_overlap`
 // field are now gone, so the scan has no work to do. The token scanner
 // above still recognizes the `DIM-\d+` shape so a stale DIM-N reference in
-// `docs/`, `skills-src/`, or `commands/` surfaces as an unknown-invariant
+// `docs/`, `content/`, or `commands/` surfaces as an unknown-invariant
 // finding.
 
 // ─── Registry action corpus (DR-4/DR-5, issue #1706 task 004) ─────────────

@@ -610,7 +610,7 @@ export const AUTHORITY_TOPOLOGY: Readonly<Record<ContractBoundaryId, AuthorityTo
         ),
         unbound(
           'delegate skill prose',
-          'Markdown under `skills-src/`; restates posture rules a fourth time with no binding',
+          'Markdown under `content/`; restates posture rules a fourth time with no binding',
         ),
       ]),
       enforceFrom: Object.freeze({

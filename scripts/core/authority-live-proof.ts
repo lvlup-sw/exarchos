@@ -606,7 +606,7 @@ export const EVENT_CATALOG_SOURCES: {
   phaseExpectedEvents: 'src/verbs/gates/check-event-emissions.ts',
   // The AUTHORED skills tree. `skills/<runtime>/` is generated from it, so
   // measuring both would count one representation several times.
-  proseRoot: 'skills-src',
+  proseRoot: 'content',
 });
 
 export interface EventCatalogSources {

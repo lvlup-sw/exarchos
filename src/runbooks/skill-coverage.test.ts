@@ -2,17 +2,23 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { skillDir } from '../../tools/test-helpers/content-tree.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-// Read from skills-src/ (canonical source) rather than skills/<runtime>/.
+// Read from content/ (canonical source) rather than skills/<runtime>/.
 // Runbook references are semantic content invariant across runtimes — they
 // live in the source body and are rendered byte-identically into every
 // runtime variant — so source-of-truth is the right tree to assert against.
-const skillsDir = resolve(__dirname, '../../skills-src');
+const skillsDir = resolve(__dirname, '../../content');
 
+/**
+ * Reads `<skill>/<rest…>` from the authored tree. The leading segment is a
+ * skill name, not a directory under the content root: the domain that owns it
+ * sits between the two, and is looked up rather than spelled out.
+ */
 function readSkillFile(relativePath: string): string {
-  const fullPath = resolve(skillsDir, relativePath);
-  return readFileSync(fullPath, 'utf-8');
+  const [name, ...rest] = relativePath.split('/');
+  return readFileSync(resolve(skillDir(name), ...rest), 'utf-8');
 }
 
 function assertRunbookReference(content: string, runbookId: string): void {

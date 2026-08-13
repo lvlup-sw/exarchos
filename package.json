@@ -22,8 +22,7 @@
     "AGENTS.md",
     "!**/*.test.sh",
     "!**/*.test.ts",
-    "!**/test-fixtures",
-    "!**/trigger-tests"
+    "!**/test-fixtures"
   ],
   "scripts": {
     "build": "npm run codegen:runtimes && tsc && npm run build:binary && npm run build:release-verifier && npm run build:skills && npm run build:hooks",
@@ -37,8 +36,8 @@
     "build:hooks": "node dist/install/build-hooks.js",
     "lint": "eslint \"src/**/*.ts\" \"tools/conformance/src/**/*.ts\"",
     "quality-check": "npm run lint:invariants && npm run lint:test-first-drift",
-    "lint:inv6": "node scripts/lint-inv6.mjs skills-src/",
-    "lint:test-first-drift": "node scripts/lint-test-first-drift.mjs commands agents skills-src",
+    "lint:inv6": "node scripts/lint-inv6.mjs content/",
+    "lint:test-first-drift": "node scripts/lint-test-first-drift.mjs commands agents content",
     "lint:invariants": "tsx src/architecture/vocabulary-lint-cli.ts",
     "lint:envelopes": "node scripts/lint-envelopes.mjs",
     "cli:vocab-guard": "bun run scripts/core/cli-vocab-guard.ts",

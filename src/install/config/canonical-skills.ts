@@ -3,7 +3,7 @@
  *
  * `COMMAND_TO_SKILL` is the single authoritative mapping from a canonical
  * workflow command name (the `commands/<name>.md` slash command, e.g. `/ideate`)
- * to the underlying skill directory name(s) under `skills-src/<dir>/` that the
+ * to the underlying skill directory name(s) under `content/<dir>/` that the
  * command delegates to. Downstream consumers (T2 alias emission, T5 docs) read
  * this map instead of re-deriving it, so there is exactly one place the mapping
  * lives.

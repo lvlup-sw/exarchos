@@ -72,13 +72,13 @@ function writeRuntimeFixtures(runtimesDir: string): void {
 
 /** Build a standard happy-path fixture tree rooted at `root`. */
 function writeHappyFixture(root: string): void {
-  mkdirSync(join(root, 'skills-src', 'foo'), { recursive: true });
+  mkdirSync(join(root, 'content', 'foo'), { recursive: true });
   // {{TASK_TOOL}} classifies `foo` as an orchestration skill (DR-2) so it
   // renders once per runtime (6 variants) under `skills/<runtime>/foo/`. The
   // CLI tests below assert the per-runtime path and the 6-variant count; a
   // procedural skill would collapse to a single `skills/standard/foo/` render.
   writeFileSync(
-    join(root, 'skills-src', 'foo', 'SKILL.md'),
+    join(root, 'content', 'foo', 'SKILL.md'),
     'Hello {{AGENT_LABEL}} {{TASK_TOOL}}',
   );
   writeRuntimeFixtures(join(root, 'runtimes'));
@@ -151,7 +151,7 @@ describe('build-skills CLI — task 008', () => {
 
     await runMain([], deps);
 
-    // Default paths: srcDir='skills-src', outDir='skills', runtimesDir='runtimes'.
+    // Default paths: srcDir='content', outDir='skills', runtimesDir='runtimes'.
     expect(existsSync(join(root, 'skills', 'claude', 'foo', 'SKILL.md'))).toBe(true);
     expect(deps.exitCode).toBeNull(); // success does not call exit
   });
@@ -159,8 +159,8 @@ describe('build-skills CLI — task 008', () => {
   it('BuildSkillsCli_OnError_ExitsNonZeroWithMessage', async () => {
     // Missing runtimes directory → loadAllRuntimes throws → CLI exits 1.
     const root = makeTempDir();
-    mkdirSync(join(root, 'skills-src', 'foo'), { recursive: true });
-    writeFileSync(join(root, 'skills-src', 'foo', 'SKILL.md'), 'Hello {{AGENT_LABEL}}');
+    mkdirSync(join(root, 'content', 'foo'), { recursive: true });
+    writeFileSync(join(root, 'content', 'foo', 'SKILL.md'), 'Hello {{AGENT_LABEL}}');
     // No `runtimes/` dir at all.
     const deps = makeDeps(root);
 

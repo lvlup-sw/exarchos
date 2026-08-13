@@ -51,12 +51,12 @@ const SKILLS_WITH_PHASE_TRANSITIONS: ReadonlyArray<{
   // Rationale section of the unified docs/specs/ artifact WITHIN the `plan`
   // phase, records `artifacts.spec`, and chains to `plan` without a transition.
   // `plan` owns the `plan → plan-review` transition. (Was: ideate → plan.)
-  { name: 'plan', file: 'skills-src/plan/SKILL.md', mechanism: /action:\s*["']transition["']/, expectedTargets: ['plan-review', 'delegate'] },
+  { name: 'plan', file: 'content/design/skills/plan/SKILL.md', mechanism: /action:\s*["']transition["']/, expectedTargets: ['plan-review', 'delegate'] },
   // `oneshot` transitions are HSM-automatic (choice state at finalize), not a
   // model-emitted `transition` call — its canonical marker is `finalize_oneshot`.
-  { name: 'oneshot', file: 'skills-src/oneshot/SKILL.md', mechanism: /finalize_oneshot/, expectedTargets: ['implementing'] },
-  { name: 'review', file: 'skills-src/review/SKILL.md', mechanism: /action:\s*["']transition["']/, expectedTargets: ['synthesize', 'delegate', 'blocked'] },
-  { name: 'synthesize', file: 'skills-src/synthesize/SKILL.md', mechanism: /action:\s*["']transition["']/, expectedTargets: ['completed'] },
+  { name: 'oneshot', file: 'content/delivery/skills/oneshot/SKILL.md', mechanism: /finalize_oneshot/, expectedTargets: ['implementing'] },
+  { name: 'review', file: 'content/review/skills/review/SKILL.md', mechanism: /action:\s*["']transition["']/, expectedTargets: ['synthesize', 'delegate', 'blocked'] },
+  { name: 'synthesize', file: 'content/synthesis/skills/synthesize/SKILL.md', mechanism: /action:\s*["']transition["']/, expectedTargets: ['completed'] },
 ];
 
 /** Escape regex metacharacters so dynamic target strings are matched literally. */

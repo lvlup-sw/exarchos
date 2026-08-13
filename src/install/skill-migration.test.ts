@@ -1,7 +1,7 @@
 /**
  * Tests for the VCS MCP action migration in skill templates.
  *
- * Verifies that actionable `gh` CLI commands in skills-src/ have been
+ * Verifies that actionable `gh` CLI commands in content/ have been
  * migrated to `exarchos_orchestrate({ action: "..." })` MCP action
  * references, and that VCS provider preambles are present in affected
  * skills.
@@ -14,10 +14,11 @@ import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
+import { skillPath as resolveSkillPath, skillReference as resolveSkillReference } from '../../tools/test-helpers/content-tree.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const SKILLS_SRC_DIR = resolve(__dirname, '../../skills-src');
+const SKILLS_SRC_DIR = resolve(__dirname, '../../content');
 
 /** Path relative to `SKILLS_SRC_DIR`, forward-slash-normalized so it is
  * platform-stable for both display and equality checks against literal
@@ -289,6 +290,11 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
     // Files that are allowed to keep gh pr list references:
     // - prune references (safeguards use gh internally)
     // - github-native-stacking.md (Graphite mapping table kept for reference)
+    //
+    // Matched on the path *below the skill*, never on the path below the
+    // content root: the capability domain that owns a skill is not part of
+    // this exception's meaning, and pinning it there is what silently
+    // un-exempts these files the next time a skill is regrouped.
     const ALLOWED_FILES = [
       'prune/references/safeguards.md',
       'prune/SKILL.md',
@@ -296,7 +302,7 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
 
     for (const file of files) {
       const relPath = relToSkillsSrc(file);
-      if (ALLOWED_FILES.some((allowed) => relPath === allowed)) continue;
+      if (ALLOWED_FILES.some((allowed) => relPath.endsWith(allowed))) continue;
 
       const content = readFileSync(file, 'utf8');
       const lines = content.split('\n');
@@ -412,7 +418,7 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
    * Verify that MCP action references exist in skills that previously used gh commands.
    */
   it('McpActionReferences_PresentInMigratedSkills', () => {
-    const synthSkillPath = join(SKILLS_SRC_DIR, 'synthesize', 'SKILL.md');
+    const synthSkillPath = resolveSkillPath('synthesize');
     const content = readFileSync(synthSkillPath, 'utf8');
 
     // Should reference create_pr and merge_pr actions
@@ -421,7 +427,7 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
   });
 
   it('McpActionReferences_ListPrs_PresentInMigratedSkills', () => {
-    const synthSkillPath = join(SKILLS_SRC_DIR, 'synthesize', 'SKILL.md');
+    const synthSkillPath = resolveSkillPath('synthesize');
     const content = readFileSync(synthSkillPath, 'utf8');
 
     // Should reference list_prs action
@@ -429,7 +435,7 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
   });
 
   it('McpActionReferences_CreateIssue_PresentInDogfood', () => {
-    const dogfoodPath = join(SKILLS_SRC_DIR, 'dogfood', 'SKILL.md');
+    const dogfoodPath = resolveSkillPath('dogfood');
     const content = readFileSync(dogfoodPath, 'utf8');
 
     // Should reference create_issue action
@@ -437,12 +443,7 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
   });
 
   it('McpActionReferences_CheckCi_PresentInTroubleshooting', () => {
-    const troublePath = join(
-      SKILLS_SRC_DIR,
-      'synthesize',
-      'references',
-      'troubleshooting.md',
-    );
+    const troublePath = resolveSkillReference('synthesize', 'troubleshooting.md');
     const content = readFileSync(troublePath, 'utf8');
 
     // Should reference check_ci action

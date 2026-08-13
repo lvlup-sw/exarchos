@@ -2,7 +2,7 @@
  * Placeholder vocabulary lint for the platform-agnostic skills tree.
  *
  * Enforces a canonical set of `{{TOKEN}}` names that the skill source
- * authors are allowed to use. The lint walks `skills-src/` (or any
+ * authors are allowed to use. The lint walks `content/` (or any
  * equivalent root passed via `sourcesDir`), pulls every `{{TOKEN}}`
  * reference out of every `SKILL.md` (and runtime-override
  * `SKILL.<runtime>.md`) file, and flags any identifier that is not a
@@ -40,7 +40,7 @@ import {
 } from './skill-vocabulary.js';
 
 /**
- * Canonical vocabulary of placeholder tokens that `skills-src/` sources
+ * Canonical vocabulary of placeholder tokens that `content/` sources
  * may reference. Derived as the union of `placeholders` keys across
  * every runtime YAML under `runtimes/` (verified in Task 024 GREEN
  * against the current six-runtime set; all six define exactly these
@@ -48,7 +48,7 @@ import {
  *
  * Expandable: adding a new entry here and to every `runtimes/*.yaml`
  * is enough to introduce a new token without code changes elsewhere.
- * Removing an entry requires sweeping `skills-src/` for any remaining
+ * Removing an entry requires sweeping `content/` for any remaining
  * references first — the lint will catch stragglers.
  */
 export const DEFAULT_PLACEHOLDER_VOCABULARY: readonly string[] = [
@@ -165,7 +165,7 @@ export interface LintPlaceholdersOptions {
   /**
    * Opt-in switch for the collapsed-vocabulary rules (prefix token in a
    * procedural skill, orchestration token in a procedural skill). Defaults to
-   * `false` so the current build stays green while `skills-src/` procedural
+   * `false` so the current build stays green while `content/` procedural
    * skills still carry `MCP_PREFIX`/`COMMAND_PREFIX` tokens — those are only
    * rewritten to logical prose in a later task, which flips this flag on. When
    * `false` the collapsed-vocabulary pass does not run at all, so the result is
@@ -197,7 +197,7 @@ export interface LintPlaceholdersOptions {
  *   - anything that is not named `SKILL.md`
  *
  * @param opts.sourcesDir - Root of the skill source tree (e.g.
- *   `skills-src/`). Must exist; a missing root returns `passed: true`
+ *   `content/`). Must exist; a missing root returns `passed: true`
  *   with an empty finding list so the lint is a no-op on empty
  *   projects rather than a hard error (the empty-tree failure mode is
  *   the responsibility of `buildAllSkills`, not the lint).

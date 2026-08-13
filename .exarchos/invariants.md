@@ -557,9 +557,9 @@ invariants:
       # Diff-precise mode:check (issue #1466). Generated runtime variants under
       # skills/<runtime>/** are build output of `npm run build:skills`; a diff
       # touching any of them is a direct edit to generated output (source of
-      # truth is skills-src/). The `scope` combinator narrows the fileGlob to
+      # truth is content/). The `scope` combinator narrows the fileGlob to
       # the generated tree; the grep fires on the hunk header so any touched
-      # generated file is flagged. skills-src/** is excluded by the glob.
+      # generated file is flagged. content/** is excluded by the glob.
       mode: check
       check:
         scope:
@@ -570,7 +570,7 @@ invariants:
     axis: substrate
     cost-of-load: reference-only
     applies-to:
-      - skills-src
+      - content
       - runtimes
       - skills-renderer
       - commands
@@ -585,7 +585,7 @@ invariants:
       exists, and a retirement condition. Conformance plus shim minimization —
       not render-parity across N runtime variants — is the metric, because a
       byte-perfect per-harness render proves the artifacts match, not that the
-      guarantee holds. Source-of-truth edits go to skills-src/; everything under
+      guarantee holds. Source-of-truth edits go to content/; everything under
       skills/** is generated build output and is never edited directly.
       Runtime-specific text is tokenized via {{TOKEN}} placeholders or guarded
       via <!-- requires:* --> blocks. INV-4 owns the *harness* axis; INV-6 owns
@@ -604,7 +604,7 @@ invariants:
     references:
       - docs/architecture/invariants/references/INV-4-platform-agnosticity.md
       - src/verbs/gates/check-invariant-conformance.ts
-      - skills-src/SKILL_AUTHORING.md
+      - content/_shared/SKILL_AUTHORING.md
 
   - id: INV-5a
     dimension: input-ergonomics
@@ -740,7 +740,7 @@ invariants:
     enforcement:
       # mode:audit, not check: scripts/lint-inv6.mjs is a deliberately-advisory
       # literal scan with a frontmatter-declaration escape hatch a diff-grep
-      # cannot replicate (legitimate prose in skills-src references workflow
+      # cannot replicate (legitimate prose in content references workflow
       # types). The judgment stays with the reviewer; the script remains the
       # out-of-band advisory lint.
       mode: audit
@@ -754,7 +754,7 @@ invariants:
     applies-to:
       - runtime-substrate
       - topology
-      - skills-src
+      - content
       - playbooks
     summary: >
       The runtime makes no assumption about which workload is executing.
@@ -762,7 +762,7 @@ invariants:
       type. Workflow-type-specific concerns belong in topology.yaml, not the
       catalog. Skills describe behaviors; playbooks/commands describe workflows.
       Operational projection: scripts/lint-inv6.mjs grep for workflow-typed
-      literals in skills-src/.
+      literals in content/.
     citations:
       - "AWP runtime-agnostic protocol:
         https://github.com/veegee82/agent-workflow-protocol/blob/main/docs/runt\
@@ -983,7 +983,7 @@ The catalog gates behind the `.exarchos.yml: invariants.devCatalog: enabled` fla
 
 ## Vocabulary
 
-The vocabulary-lint scanner (`src/architecture/vocabulary-lint.ts`, exposed via `npm run lint:invariants`) walks the live normative surfaces — `docs/architecture/`, `docs/guides/`, `skills-src/`, and `commands/` — for tokens matching `/\b(INV-\d+[a-d]?|DIM-\d+)\b/` and cross-checks against the IDs declared here. Dated record trees under `docs/` (designs, plans, research, rca, contexts, followups, proposals) are intentionally out of scope so retired vocabulary (e.g. the `DIM-*` dimensions removed in #1477) does not fail the lint forever; the `DIM-\d+` shape is retained in the regex so a stray reference in a live surface still surfaces. Unknown references are findings; the vocabulary lint is enforcing (exits non-zero on findings).
+The vocabulary-lint scanner (`src/architecture/vocabulary-lint.ts`, exposed via `npm run lint:invariants`) walks the live normative surfaces — `docs/architecture/`, `docs/guides/`, `content/`, and `commands/` — for tokens matching `/\b(INV-\d+[a-d]?|DIM-\d+)\b/` and cross-checks against the IDs declared here. Dated record trees under `docs/` (designs, plans, research, rca, contexts, followups, proposals) are intentionally out of scope so retired vocabulary (e.g. the `DIM-*` dimensions removed in #1477) does not fail the lint forever; the `DIM-\d+` shape is retained in the regex so a stray reference in a live surface still surfaces. Unknown references are findings; the vocabulary lint is enforcing (exits non-zero on findings).
 
 ## Consumers
 

@@ -39,7 +39,7 @@ describe('RenderSkill_CallMacroWithTwoRuntimes_ProducesFacadeAppropriateInvocati
     // Render the {{CALL}} macro source under the MCP-preferred runtime.
     // render() with runtime pre-processes CALL macros via renderCallMacros().
     const rendered = render(CALL_MACRO_SOURCE, claudeRuntime.placeholders, {
-      sourcePath: 'skills-src/test-skill/SKILL.md',
+      sourcePath: 'content/test-skill/SKILL.md',
       runtimeName: claudeRuntime.name,
       runtime: claudeRuntime,
     });
@@ -66,7 +66,7 @@ describe('RenderSkill_CallMacroWithTwoRuntimes_ProducesFacadeAppropriateInvocati
     // Render the {{CALL}} macro source under the CLI-preferred runtime.
     // render() with runtime pre-processes CALL macros via renderCallMacros().
     const rendered = render(CALL_MACRO_SOURCE, genericRuntime.placeholders, {
-      sourcePath: 'skills-src/test-skill/SKILL.md',
+      sourcePath: 'content/test-skill/SKILL.md',
       runtimeName: genericRuntime.name,
       runtime: genericRuntime,
     });

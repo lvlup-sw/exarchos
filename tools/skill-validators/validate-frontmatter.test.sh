@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # validate-frontmatter.test.sh — Fixture-based tests for SKILL.md frontmatter validation
 #
-# Usage: bash skills/validate-frontmatter.test.sh
+# Usage: bash tools/skill-validators/validate-frontmatter.test.sh
 # Must be run from the repository root.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 VALIDATOR="${SCRIPT_DIR}/validate-frontmatter.sh"
-FIXTURES="${SCRIPT_DIR}/test-fixtures"
+# Fixtures are test support and live with the tests, not beside the validator.
+FIXTURES="${REPO_ROOT}/tests/support/skill-fixtures"
 
 # Colors
 GREEN='\033[0;32m'

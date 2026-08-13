@@ -56,15 +56,15 @@ Use these prefixes for branch names:
 
 ## Editing skills
 
-Skill source lives at `skills-src/<name>/SKILL.md`. The `skills/<runtime>/...` tree is generated from it — don't edit those files directly; they get overwritten on every build.
+Skill source lives at `content/<name>/SKILL.md`. The `skills/<runtime>/...` tree is generated from it — don't edit those files directly; they get overwritten on every build.
 
 To add or change a skill:
 
-1. Edit `skills-src/<name>/SKILL.md` (or anything under `skills-src/<name>/references/`).
+1. Edit `content/<name>/SKILL.md` (or anything under `content/<name>/references/`).
 2. Run `npm run build:skills` to regenerate the per-runtime variants.
 3. Commit both the source and the regenerated `skills/` tree.
 
-CI runs `skills:guard` on every push and fails your PR if `skills/` is out of sync with `skills-src/`. That catches forgotten rebuilds and stale direct edits in one shot.
+CI runs `skills:guard` on every push and fails your PR if `skills/` is out of sync with `content/`. That catches forgotten rebuilds and stale direct edits in one shot.
 
 See [`docs/skills-authoring.md`](docs/skills-authoring.md) for the full workflow: placeholder vocabulary, adding a runtime, and the structural-override escape hatch.
 

@@ -26,11 +26,12 @@ import { dirname, join, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { COMMAND_TO_SKILL, COMMAND_ONLY, canonicalCommandSet } from './canonical-skills.js';
+import { findSkillDir } from '../../../tools/test-helpers/content-tree.js';
 
 // `src/config/` → repo root is two levels up.
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 const commandsDir = join(repoRoot, 'commands');
-const skillsSrcDir = join(repoRoot, 'skills-src');
+const skillsSrcDir = join(repoRoot, 'content');
 
 /** Matches a skill *entry-point* reference, e.g. `@skills/spec-review/SKILL.md`. */
 const SKILL_REF = /@skills\/([^/]+)\/SKILL\.md/g;
@@ -110,12 +111,12 @@ describe('canonical-skills map (T1, #1472)', () => {
     }
   });
 
-  it('references only skill dirs that exist under skills-src/<dir>/SKILL.md', () => {
+  it('references only skill dirs that exist under content/<dir>/SKILL.md', () => {
     for (const [command, dirs] of Object.entries(COMMAND_TO_SKILL)) {
       for (const dir of dirs) {
         expect(
-          existsSync(join(skillsSrcDir, dir, 'SKILL.md')),
-          `COMMAND_TO_SKILL["${command}"] points at missing skills-src/${dir}/SKILL.md`,
+          findSkillDir(dir) !== undefined,
+          `COMMAND_TO_SKILL["${command}"] points at missing content/${dir}/SKILL.md`,
         ).toBe(true);
       }
     }

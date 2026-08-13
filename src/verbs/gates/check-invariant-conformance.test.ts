@@ -402,7 +402,7 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
       // …and the directive travels with the payload for a consumer that reached
       // the action without the skill. Every noun in it is read from
       // AUDIT_DELIVERY_OBLIGATIONS, so it cannot drift from what the closure
-      // guard checks `skills-src/review/SKILL.md` against.
+      // guard checks `content/review/skills/review/SKILL.md` against.
       expect(data.report).toContain('USER-AUDIT');
       expect(data.report).toContain('auditPrompt');
       expect(data.report).toContain('check_review_verdict');

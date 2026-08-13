@@ -586,7 +586,7 @@ describe('task_complete evidence field', () => {
     // `worktreePath` are the trigger for the rehydration projection's
     // merge-pending detour and the HSM `mergePendingEntry` guard. Pre-fix the
     // handler silently dropped these fields from `args.result`, so the
-    // documented auto-detour (`skills-src/delegate/SKILL.md` § "Worktree-
+    // documented auto-detour (`content/delivery/skills/delegate/SKILL.md` § "Worktree-
     // Bearing Tasks") never fired end-to-end. This test pins the forwarding.
     const store = new EventStore(tempDir);
     await store.append('wf-wt-1', {

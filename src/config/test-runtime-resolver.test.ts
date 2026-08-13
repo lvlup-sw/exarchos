@@ -910,7 +910,7 @@ describe('resolveTestRuntime', () => {
     // paste, or a doc anchor the caller can follow. We accept either form
     // so future docs reorganization doesn't constrain the message.
     const hasInlineYamlExample = /test:\s/.test(message);
-    const hasDocLink = /https?:\/\/|skills-src\/|docs\//.test(message);
+    const hasDocLink = /https?:\/\/|content\/|docs\//.test(message);
     expect(
       hasInlineYamlExample || hasDocLink,
       `remediation must include an inline YAML example (a "test:" key) or a doc link, got: ${message}`,

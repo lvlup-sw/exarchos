@@ -116,7 +116,7 @@ const SAFE_COMMAND_PATTERN = /^[a-zA-Z0-9_\- :.=\/+,@"'\\]+$/;
 const UNRESOLVED_REMEDIATION =
   'No project markers detected. Add a .exarchos.yml at the repo root, ' +
   'for example: `test: pytest`, `typecheck: pyright`, `install: pip install -e .`. ' +
-  'See skills-src/checkpoint/SKILL.md for the full configuration reference, ' +
+  'See content/continuity/skills/checkpoint/SKILL.md for the full configuration reference, ' +
   'or pass an override (test/typecheck/install) to this resolver.';
 
 function assertSafe(label: string, value: string): void {

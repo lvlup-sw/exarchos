@@ -98,7 +98,7 @@ check "WiringGate_WrappedIdioms_Pass" 0 "$wrapped_exit"
 [[ "$wrapped_exit" == "0" ]] || cat /tmp/wlm-wrapped.out
 
 # ── WiringGate_SkillRawMergeOrchestrate_Fails ───────────────────────────────
-# A skills-src fixture directing raw `merge_orchestrate` at an integration
+# A content fixture directing raw `merge_orchestrate` at an integration
 # merge (no serialize_merge caveat on the same line) must fail the gate.
 mkdir -p "$TMP/badskill/some-skill"
 cat > "$TMP/badskill/some-skill/SKILL.md" <<'EOF'

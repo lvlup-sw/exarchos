@@ -2,7 +2,7 @@
  * Task 016 — Batch migration tests for the simple skills.
  *
  * After the canary proof on brainstorming/ideate (task 015), this wave
- * migrated the remaining simple skills into `skills-src/<name>/` sources.
+ * migrated the remaining simple skills into `content/<name>/` sources.
  * The renderer must produce byte-identical renders for every one of them,
  * and must never leak Claude-specific syntax into the runtime-neutral
  * fallback variant.
@@ -58,7 +58,7 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const REPO_ROOT = resolve(__dirname, '..', '..');
-const SRC_DIR = join(REPO_ROOT, 'skills-src');
+const SRC_DIR = join(REPO_ROOT, 'content');
 const RUNTIMES_DIR = join(REPO_ROOT, 'runtimes');
 const BASELINE_DIR = join(
   REPO_ROOT,

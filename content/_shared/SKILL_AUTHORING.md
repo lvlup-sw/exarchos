@@ -1,6 +1,6 @@
 # Skill Authoring Guide
 
-Skill source lives under `skills-src/<name>/SKILL.md` (plus optional
+Skill source lives under `content/<domain>/skills/<name>/SKILL.md` (plus optional
 `references/` and `SKILL.<runtime>.md` overrides). The renderer
 (`src/build-skills.ts`) emits per-runtime variants under
 `skills/<runtime>/<name>/` from a single source.

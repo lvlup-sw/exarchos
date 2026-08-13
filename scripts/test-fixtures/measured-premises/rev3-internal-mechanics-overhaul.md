@@ -896,8 +896,8 @@ Re-plan trigger: Wave 1 exit (all five guards green against their kill fixtures,
 
 ### Task 048: Document read-only dispatch in the delegate skill references
 **Risk Tier:** low · **Boundary Touching:** false · **Implements:** DR-25
-**Files:** `skills-src/delegate/references/workflow-steps.md`, `skills-src/delegate/references/parallel-strategy.md`
-**Detail:** The references cover worktree-isolated implementers and the anonymous async path; read-only dispatch (reviewers, researchers, the `prepare_review` panel) is undocumented — the gap the 2026-08-07 incident fell through. Edit `skills-src/`, run `npm run build:skills`, commit both source and the regenerated tree.
+**Files:** `content/delivery/skills/delegate/references/workflow-steps.md`, `content/delivery/skills/delegate/references/parallel-strategy.md`
+**Detail:** The references cover worktree-isolated implementers and the anonymous async path; read-only dispatch (reviewers, researchers, the `prepare_review` panel) is undocumented — the gap the 2026-08-07 incident fell through. Edit `content/`, run `npm run build:skills`, commit both source and the regenerated tree.
 **Verification:** low — static; `npm run skills:guard` must pass (the generated tree may not drift).
 **Dependencies:** 046 · **Parallelizable:** Yes
 

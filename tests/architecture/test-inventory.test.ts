@@ -47,6 +47,23 @@ const fileEntries = Object.values(inventory.files);
 /** The id used for reconciliation — deliberately free of the file path. */
 const idOf = (entry: FileEntry, c: Case): string => `${entry.runner}::${c.suite}::${c.name}`;
 
+/**
+ * Test files git currently tracks. Discovery is by extension over tracked
+ * files rather than by a runner glob, because a glob is the thing that goes
+ * stale silently.
+ */
+function trackedTestFiles(): string[] {
+  return execFileSync('git', ['ls-files', '-z'], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    maxBuffer: 128 * 1024 * 1024,
+  })
+    .split('\0')
+    .filter((rel) =>
+      /\.(test|spec|bench)\.(ts|tsx|mts|cts|js|mjs|cjs|jsx)$|\.test\.sh$/.test(rel),
+    );
+}
+
 describe('test inventory', () => {
   it('TestInventory_AtBaseline_RecordsEveryDiscoveredTestId', () => {
     expect(inventory.totals.testFiles).toBe(fileEntries.length);
@@ -56,18 +73,7 @@ describe('test inventory', () => {
   });
 
   it('TestInventory_Discovery_FoundEveryTrackedTestFile', () => {
-    // Discovery is by extension over tracked files rather than by a runner
-    // glob. A glob is exactly what goes stale — four oracles in this very
-    // workflow were collected by no project until that was noticed.
-    const tracked = execFileSync('git', ['ls-files', '-z'], {
-      cwd: REPO_ROOT,
-      encoding: 'utf8',
-      maxBuffer: 128 * 1024 * 1024,
-    })
-      .split('\0')
-      .filter((rel) => /\.(test|spec|bench)\.(ts|tsx|mts|cts|js|mjs|cjs|jsx)$|\.test\.sh$/.test(rel));
-
-    const missing = tracked.filter((rel) => inventory.files[rel] === undefined);
+    const missing = trackedTestFiles().filter((rel) => inventory.files[rel] === undefined);
 
     expect(missing, 'tracked test files absent from the inventory').toEqual([]);
   });
@@ -75,21 +81,37 @@ describe('test inventory', () => {
   it('TestInventory_MissingFile_NamesTheMissingSource', () => {
     // Reconciliation is `oracle − relocations`. A file that vanished with no
     // relocation entry must be named, not summarised as a count.
-    const current = new Set(Object.keys(inventory.files));
+    //
+    // The comparison is baseline-against-reality. An earlier version built the
+    // "current" set out of the baseline's own keys and then filtered those same
+    // keys by absence from it, so `dropped` was empty by construction and this
+    // oracle could not fail for any input — including a genuinely deleted test.
+    const current = new Set(trackedTestFiles());
+    const relocated = new Map(inventory.relocations.map((r) => [r.from, r.to]));
+    const isAccountedFor = (rel: string): boolean => {
+      if (current.has(rel)) return true;
+      const to = relocated.get(rel);
+      return to !== undefined && current.has(to);
+    };
+
+    const dropped = Object.keys(inventory.files).filter((rel) => !isAccountedFor(rel));
+
+    expect(dropped, 'baseline test files neither tracked nor relocated').toEqual([]);
+  });
+
+  it('TestInventory_SeededDisappearance_IsReportedByName', () => {
+    // The kill probe for the reconciliation above. A path the baseline knows
+    // and reality does not must come back named — asserting only that the
+    // result is an array, as an earlier version did, passes on every input.
+    const current = new Set(trackedTestFiles());
     const relocated = new Map(inventory.relocations.map((r) => [r.from, r.to]));
 
-    const dropped = Object.keys(inventory.files).filter(
+    const phantom = 'src/__vanished__.test.ts';
+    const missing = [phantom, ...Object.keys(inventory.files).slice(0, 3)].filter(
       (rel) => !current.has(rel) && !relocated.has(rel),
     );
 
-    expect(dropped).toEqual([]);
-
-    // And the reconciliation actually discriminates: a seeded disappearance is
-    // reported by name rather than silently absorbed.
-    const seededMissing = ['src/registry.test.ts'].filter(
-      (rel) => !current.has(rel) && !relocated.has(rel),
-    );
-    expect(Array.isArray(seededMissing)).toBe(true);
+    expect(missing).toContain(phantom);
   });
 
   it('TestInventory_RelocatedFile_ReconcilesViaTheRelocationMap', () => {

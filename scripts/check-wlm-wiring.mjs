@@ -25,7 +25,7 @@
  *   is itself a failure.
  *
  *   Rule 2 — no raw `merge_orchestrate` directive for an INTEGRATION merge in
- *   `skills-src/` (DR-2). Every current legitimate co-mention of
+ *   `content/` (DR-2). Every current legitimate co-mention of
  *   `merge_orchestrate` with integration-branch language is paired with
  *   `serialize_merge` on the SAME line (the caveat). A line naming
  *   `merge_orchestrate` in an integration-branch/-ref/-merge context WITHOUT
@@ -41,7 +41,7 @@
  *   --src-root <path>     Root containing `orchestrate/` + `workflow/` for
  *                          Rule 1 (default: repo `src`).
  *   --skills-root <path>  Root containing skill sources for Rule 2 (default:
- *                          repo `skills-src`).
+ *                          repo `content`).
  *   --help                Show usage.
  *
  * The scope-pin checks for each rule are suppressed when its root is
@@ -57,7 +57,7 @@ import process from 'node:process';
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, '..');
 const DEFAULT_SRC_ROOT = path.join(REPO_ROOT, 'src');
-const DEFAULT_SKILLS_ROOT = path.join(REPO_ROOT, 'skills-src');
+const DEFAULT_SKILLS_ROOT = path.join(REPO_ROOT, 'content');
 
 function parseArgs(argv) {
   let srcRoot = DEFAULT_SRC_ROOT;

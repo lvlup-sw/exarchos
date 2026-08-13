@@ -373,7 +373,7 @@ describe('discoverSofteningSites', () => {
       repoRoot: REPO_ROOT,
       fs: memFs({
         'package.json': pkg({
-          'lint:rogue': 'node scripts/lint-rogue.mjs skills-src/',
+          'lint:rogue': 'node scripts/lint-rogue.mjs content/',
           guard: 'node dist/guard.js && (npm run lint:rogue || true) && npm run other',
         }),
       }),
@@ -503,7 +503,7 @@ describe('discoverSofteningSites', () => {
 describe('resolveEnforcementRefs / principalTarget', () => {
   it('EnforcementRefs_ResolveThroughNpmRunChains', () => {
     const scripts = {
-      'lint:inv6': 'node scripts/lint-inv6.mjs skills-src/',
+      'lint:inv6': 'node scripts/lint-inv6.mjs content/',
       guard: 'npm run lint:inv6',
     };
     expect(resolveEnforcementRefs('npm run guard', scripts)).toEqual(['scripts/lint-inv6.mjs']);

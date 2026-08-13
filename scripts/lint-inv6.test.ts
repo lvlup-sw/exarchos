@@ -100,7 +100,7 @@ describe('lint-inv6', () => {
   });
 
   it('LintINV6_RunsAdvisoryAgainstRealCatalog_ExitsZero', () => {
-    const { stdout, status } = runLint('skills-src/');
+    const { stdout, status } = runLint('content/');
     expect(status, 'lint must exit 0 even with findings (advisory)').toBe(0);
     const out = JSON.parse(stdout) as LintOutput;
     expect(Array.isArray(out.findings)).toBe(true);
@@ -376,7 +376,7 @@ describe('lint-inv6 — literal narrowing (T-22)', () => {
     // `featureId` being re-added to the literal set — is visible as a test
     // failure rather than silently ballooning findings back toward
     // "unreachable zero" territory.
-    const { stdout, status } = runLint('skills-src/');
+    const { stdout, status } = runLint('content/');
     expect(status).toBe(0);
     const out = JSON.parse(stdout) as LintOutput;
     expect(Array.isArray(out.findings)).toBe(true);
@@ -400,17 +400,17 @@ describe('lint-inv6 — literal narrowing (T-22)', () => {
     // (workflow-machinery) skill — the escape hatch the script already
     // implements. Prove (b) covers the WHOLE remainder by declaring the
     // hatch on every currently-flagged skill in a TEMP COPY of the real
-    // tree (skills-src/ itself is never touched) and showing findings drop
+    // tree (content/ itself is never touched) and showing findings drop
     // to exactly zero. If some residual finding were neither (a) nor (b),
     // it would still be present here.
-    const before = JSON.parse(runLint('skills-src/').stdout) as LintOutput;
+    const before = JSON.parse(runLint('content/').stdout) as LintOutput;
     const flaggedFiles = [...new Set(before.findings.map((f) => f.file))];
     expect(
       flaggedFiles.length,
       'sanity: the real tree must have residual findings for this test to be meaningful',
     ).toBeGreaterThan(0);
 
-    const skillsSrcRoot = path.join(REPO_ROOT, 'skills-src');
+    const skillsSrcRoot = path.join(REPO_ROOT, 'content');
     const tmpdir = fs.mkdtempSync(path.join(os.tmpdir(), 'lint-inv6-escape-hatch-'));
     try {
       fs.cpSync(skillsSrcRoot, tmpdir, { recursive: true });

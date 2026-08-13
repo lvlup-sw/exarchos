@@ -184,13 +184,13 @@ function main() {
   };
   surfaces['lint:inv6'] = {
     kind: 'lint-scope',
-    matched: tracked.filter((rel) => rel.startsWith('skills-src/') && rel.endsWith('.md')).length,
+    matched: tracked.filter((rel) => rel.startsWith('content/') && rel.endsWith('.md')).length,
   };
   surfaces['lint:test-first-drift'] = {
     kind: 'lint-scope',
     matched: tracked.filter(
       (rel) =>
-        (rel.startsWith('commands/') || rel.startsWith('agents/') || rel.startsWith('skills-src/')) &&
+        (rel.startsWith('commands/') || rel.startsWith('agents/') || rel.startsWith('content/')) &&
         rel.endsWith('.md'),
     ).length,
   };

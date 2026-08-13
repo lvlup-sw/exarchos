@@ -82,7 +82,7 @@ export interface DoctorRuntime {
 }
 
 export interface DoctorSkills {
-  /** Cheap drift detection over the skills-src → skills pipeline. Returns
+  /** Cheap drift detection over the content → skills pipeline. Returns
    * `{inSync:true}` when generated output matches source, otherwise
    * `{inSync:false, driftedPaths}` listing representative drifted files.
    * Must honor `signal` (AbortController) and stay within 2000ms
@@ -219,7 +219,7 @@ const DEFAULT_GIT: DoctorGit = {
 /** Resolve a root by walking up from `startDir` until `marker` is found.
  *
  * `startDir` defaults to this module's directory — correct for locating the
- * plugin's OWN artifacts (its `package.json`, its `skills-src/`). For a
+ * plugin's OWN artifacts (its `package.json`, its `content/`). For a
  * USER-project artifact (e.g. `.exarchos.yml`) callers MUST pass
  * `process.cwd()`: in plugin mode the module lives under the plugin cache
  * (`~/.claude/plugins/...`), which has no `.exarchos.yml` ancestor, so a
@@ -245,7 +245,7 @@ async function findRepoRoot(
   return null;
 }
 
-/** Lightweight drift heuristic: for each `skills-src/<name>/SKILL.md`,
+/** Lightweight drift heuristic: for each `content/<name>/SKILL.md`,
  * if any matching `skills/<runtime>/<name>/SKILL.md` has an older mtime,
  * treat that skill as drifted. Fast and avoids spawning `npm run
  * skills:guard` (which re-renders everything and would exceed the 2000ms
@@ -253,9 +253,9 @@ async function findRepoRoot(
 async function defaultSkillsGuardStatus(
   signal?: AbortSignal,
 ): Promise<{ inSync: boolean; driftedPaths?: string[] }> {
-  const root = await findRepoRoot('skills-src');
+  const root = await findRepoRoot('content');
   if (root === null) return { inSync: true }; // nothing to check
-  const srcRoot = join(root, 'skills-src');
+  const srcRoot = join(root, 'content');
   const outRoot = join(root, 'skills');
   let srcSkills: string[];
   try {

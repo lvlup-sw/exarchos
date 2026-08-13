@@ -368,7 +368,7 @@ describe('checkAcceptanceCriteria', () => {
   });
 
   // ─── #1493 parity with scripts/check-design-completeness.sh ───────────────
-  // The template (skills-src/ideate/references/design-template.md) mandates
+  // The template (content/design/skills/ideate/references/design-template.md) mandates
   // a standalone bold `**Acceptance criteria:**` header. The TS parser previously
   // only accepted a bullet-prefixed `- acceptance criteria` form, producing a
   // false-positive "missing acceptance criteria" advisory on template-conformant

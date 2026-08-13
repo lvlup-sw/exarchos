@@ -69,8 +69,8 @@ describe('doc scanners include docs/specs/ (DR-9, task 019)', () => {
     // NAME docs/designs/ + docs/plans/ in "don't do this" / legacy-migration
     // prose, which a blunt `not.toContain` would false-flag.
     const liveSurfaces: ReadonlyArray<{ command: string; skill: string }> = [
-      { command: 'commands/ideate.md', skill: 'skills-src/ideate/SKILL.md' },
-      { command: 'commands/plan.md', skill: 'skills-src/plan/SKILL.md' },
+      { command: 'commands/ideate.md', skill: 'content/design/skills/ideate/SKILL.md' },
+      { command: 'commands/plan.md', skill: 'content/design/skills/plan/SKILL.md' },
     ];
     for (const { command, skill } of liveSurfaces) {
       const cmdBody = readFileSync(join(REPO_ROOT, command), 'utf8');

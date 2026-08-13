@@ -23,11 +23,11 @@
  * this audit actually COMPARES are independent of each other:
  *   A. the Zod objects the live tool registry constructs at import time — what
  *      the boundary really declares;
- *   B. the reader documents on disk under skills-src, which are not in the
+ *   B. the reader documents on disk under content, which are not in the
  *      import graph at all and are read as text at audit time.
  * Neither is computed from the other, so their agreement is evidence.
  */
-// @oracle-sources: ../registry.ts, the reader documents on disk that each obligation names under skills-src which are read as text at audit time and appear nowhere in the static import graph
+// @oracle-sources: ../registry.ts, the reader documents on disk that each obligation names under content which are read as text at audit time and appear nowhere in the static import graph
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
 import { EnvelopeSchema } from '../contract/schemas/envelope.js';
@@ -174,8 +174,8 @@ describe('audit-delivery closure — kill fixtures', () => {
   });
 
   /**
-   * HALF 1, THE INSTRUCTION. The shape `skills-src/shepherd/SKILL.md` had (and
-   * `skills-src/review/SKILL.md` did not even have): the document INVOKES the
+   * HALF 1, THE INSTRUCTION. The shape `content/synthesis/skills/shepherd/SKILL.md` had (and
+   * `content/review/skills/review/SKILL.md` did not even have): the document INVOKES the
    * action and never names what it returns. Invoking is not being instructed.
    */
   it('AuditDeliveryClosure_ReaderThatOnlyInvokesTheGate_IsRed', () => {

@@ -42,7 +42,7 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const REPO_ROOT = resolve(__dirname, '..', '..');
-const SRC_DIR = join(REPO_ROOT, 'skills-src');
+const SRC_DIR = join(REPO_ROOT, 'content');
 const RUNTIMES_DIR = join(REPO_ROOT, 'runtimes');
 const BASELINE_PATH = join(
   REPO_ROOT,

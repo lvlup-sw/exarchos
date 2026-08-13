@@ -2,7 +2,7 @@
 //
 // The guard (scripts/lint-test-first-drift.mjs) is the standing defense that
 // keeps test-FIRST framing (Iron Law / NO PRODUCTION CODE / unconditional RGR
-// templates) from creeping back into commands/ + agents/ + skills-src/ after the
+// templates) from creeping back into commands/ + agents/ + content/ after the
 // Phase-4 excision. This test is the enforcing CI wiring: a seeded fixture MUST
 // fail, the shipped tree MUST pass. (Co-located with the script so the vitest
 // 'unit' project's `scripts/**/*.test.ts` include picks it up.)
@@ -34,7 +34,7 @@ describe('test-first drift guard (#1591)', () => {
     const { code, findings } = runGuard([
       join(REPO_ROOT, 'commands'),
       join(REPO_ROOT, 'agents'),
-      join(REPO_ROOT, 'skills-src'),
+      join(REPO_ROOT, 'content'),
     ]);
     expect(findings, JSON.stringify(findings, null, 2)).toHaveLength(0);
     expect(code).toBe(0);

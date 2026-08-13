@@ -73,7 +73,7 @@ function baseline() {
     },
     scripts: {
       guard: 'node dist/x.js && (npm run lint:advisory || true) && npm run other',
-      'lint:advisory': 'node scripts/lint-advisory.mjs skills-src/',
+      'lint:advisory': 'node scripts/lint-advisory.mjs content/',
       other: 'echo ok',
     } as Record<string, string>,
     workflows: {

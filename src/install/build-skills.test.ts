@@ -119,11 +119,11 @@ describe('render — task 004: error handling', () => {
     const body = 'line 1\nline 2 with {{NOPE}}\nline 3';
     const placeholders = { X: 'x' };
     expect(() =>
-      render(body, placeholders, { sourcePath: 'skills-src/foo/SKILL.md', runtimeName: 'claude' }),
+      render(body, placeholders, { sourcePath: 'content/foo/SKILL.md', runtimeName: 'claude' }),
     ).toThrowError(/\{\{NOPE\}\}/);
     expect(() =>
-      render(body, placeholders, { sourcePath: 'skills-src/foo/SKILL.md', runtimeName: 'claude' }),
-    ).toThrowError(/skills-src\/foo\/SKILL\.md:2/);
+      render(body, placeholders, { sourcePath: 'content/foo/SKILL.md', runtimeName: 'claude' }),
+    ).toThrowError(/content\/foo\/SKILL\.md:2/);
   });
 
   it('Render_UnknownPlaceholder_ErrorListsKnownTokens', () => {
@@ -376,7 +376,7 @@ function writeRuntimeFixtures(
 describe('buildAllSkills — task 007', () => {
   it('BuildAllSkills_OneSkillOneRuntime_GeneratesCorrectPath', () => {
     const root = makeTempDir();
-    const srcDir = join(root, 'skills-src');
+    const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
@@ -393,7 +393,7 @@ describe('buildAllSkills — task 007', () => {
 
   it('BuildAllSkills_SixRuntimes_GeneratesSixVariants', () => {
     const root = makeTempDir();
-    const srcDir = join(root, 'skills-src');
+    const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
@@ -412,7 +412,7 @@ describe('buildAllSkills — task 007', () => {
 
   it('BuildAllSkills_ReferencesSubdirectory_CopiedToEachVariant', () => {
     const root = makeTempDir();
-    const srcDir = join(root, 'skills-src');
+    const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'runtimes');
     mkdirSync(join(srcDir, 'foo', 'references'), { recursive: true });
@@ -441,7 +441,7 @@ describe('buildAllSkills — task 007', () => {
 
   it('BuildAllSkills_RuntimeSpecificOverrideFile_PrefersOverride', () => {
     const root = makeTempDir();
-    const srcDir = join(root, 'skills-src');
+    const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
@@ -468,7 +468,7 @@ describe('buildAllSkills — task 007', () => {
 
   it('BuildAllSkills_CleansStaleOutput_RemovesOrphanedVariants', () => {
     const root = makeTempDir();
-    const srcDir = join(root, 'skills-src');
+    const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
@@ -490,7 +490,7 @@ describe('buildAllSkills — task 007', () => {
 
   it('BuildAllSkills_EmptySourceDir_Throws', () => {
     const root = makeTempDir();
-    const srcDir = join(root, 'skills-src');
+    const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'runtimes');
     mkdirSync(srcDir, { recursive: true }); // exists but empty (no SKILL.md files)
@@ -501,7 +501,7 @@ describe('buildAllSkills — task 007', () => {
 
   it('BuildAllSkills_RuntimeWithNoPlaceholders_CopiesUnchanged', () => {
     const root = makeTempDir();
-    const srcDir = join(root, 'skills-src');
+    const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
@@ -1068,7 +1068,7 @@ describe('buildAllSkills — task 009: render-time CALL macro failures', () => {
 
   it('BuildAllSkills_CallMacroWithUnknownAction_FailsFast', () => {
     const root = makeTempDir();
-    const srcDir = join(root, 'skills-src');
+    const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
     mkdirSync(join(srcDir, 'bad-action'), { recursive: true });
     writeFileSync(
@@ -1091,7 +1091,7 @@ describe('buildAllSkills — task 009: render-time CALL macro failures', () => {
 
   it('BuildAllSkills_CallMacroArgsFailSchema_FailsFast', () => {
     const root = makeTempDir();
-    const srcDir = join(root, 'skills-src');
+    const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
     mkdirSync(join(srcDir, 'bad-args'), { recursive: true });
     // T5a.1/DR-4 (#1259, v2.11): the prior fixture used `set` (removed in
@@ -1128,7 +1128,7 @@ describe('buildAllSkills — task 009: render-time CALL macro failures', () => {
 //   - Render idempotency (back-to-back builds produce byte-identical output)
 //
 // Each test below uses synthetic fixtures so the assertions don't couple to
-// the real `skills-src/delegate/**` migration that lands in the source-
+// the real `content/delivery/skills/delegate/**` migration that lands in the source-
 // migration GREEN commit (commit 7 of the GREEN sequence).
 // -----------------------------------------------------------------------------
 
@@ -1282,7 +1282,7 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
 
   it('BuildSkills_SubagentCompletionHookToken_RendersPerRuntime', () => {
     const root = makeTempDir();
-    const srcDir = join(root, 'skills-src');
+    const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
@@ -1316,7 +1316,7 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
 
   it('BuildSkills_SubagentResultApiToken_RendersPerRuntime', () => {
     const root = makeTempDir();
-    const srcDir = join(root, 'skills-src');
+    const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
@@ -1365,7 +1365,7 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
     // and the missing token, rather than only crashing at the per-runtime
     // render step (which would name the file but not point at the YAML).
     const root = makeTempDir();
-    const srcDir = join(root, 'skills-src');
+    const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
@@ -1395,7 +1395,7 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
 
   it('BuildSkills_RequiresGuard_ElidesUnsupportedSection', () => {
     const root = makeTempDir();
-    const srcDir = join(root, 'skills-src');
+    const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
@@ -1440,7 +1440,7 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
 
   it('BuildSkills_RequiresNativeGuard_AdvisoryRuntimeElides', () => {
     const root = makeTempDir();
-    const srcDir = join(root, 'skills-src');
+    const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
@@ -1473,7 +1473,7 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
 
   it('BuildSkills_UnknownGuardCapability_FailsBuild', () => {
     const root = makeTempDir();
-    const srcDir = join(root, 'skills-src');
+    const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
@@ -1508,7 +1508,7 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
     // The inner guard's evaluation MUST NOT contribute the inner block to the
     // output even though, evaluated in isolation, the inner cap is supported.
     const root = makeTempDir();
-    const srcDir = join(root, 'skills-src');
+    const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
@@ -1550,7 +1550,7 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
 
   it('BuildSkills_OrphanReferenceFile_NotCopied', () => {
     const root = makeTempDir();
-    const srcDir = join(root, 'skills-src');
+    const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'runtimes');
     mkdirSync(join(srcDir, 'foo', 'references'), { recursive: true });
@@ -1587,7 +1587,7 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
 
   it('BuildSkills_RenderIdempotent', () => {
     const root = makeTempDir();
-    const srcDir = join(root, 'skills-src');
+    const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'runtimes');
     mkdirSync(join(srcDir, 'foo', 'references'), { recursive: true });
@@ -1804,7 +1804,7 @@ describe('buildAllSkills — Wave B: post-render vocabulary lint', () => {
     // OpenCode does not declare the cap, so the guard elides the entire
     // block; `TaskList` never appears in OpenCode's render either.
     const root = makeTempDir();
-    const srcDir = join(root, 'skills-src');
+    const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
@@ -1840,7 +1840,7 @@ describe('buildAllSkills — Wave B: post-render vocabulary lint', () => {
     // build must throw with a diagnostic naming the term, source path,
     // line number, and runtime.
     const root = makeTempDir();
-    const srcDir = join(root, 'skills-src');
+    const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
@@ -1888,7 +1888,7 @@ describe('buildAllSkills — Wave B: post-render vocabulary lint', () => {
     // either lives in its legitimate Claude home or is invisible to the
     // non-Claude runtime.
     const root = makeTempDir();
-    const srcDir = join(root, 'skills-src');
+    const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
@@ -1937,7 +1937,7 @@ describe('buildAllSkills — Wave B: post-render vocabulary lint', () => {
     // suspenders: confirm an OpenCode render that contains the literal
     // capability identifier passes the lint cleanly.
     const root = makeTempDir();
-    const srcDir = join(root, 'skills-src');
+    const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
@@ -1973,7 +1973,7 @@ describe('buildAllSkills — Wave B: post-render vocabulary lint', () => {
 
 // -----------------------------------------------------------------------------
 // Wave C — P4 prose layer: extend the renderer pipeline + vocabulary lint to
-// cover reference files (skills-src/<name>/references/*.md).
+// cover reference files (content/<name>/references/*.md).
 //
 // Wave A applied token expansion + guard elision + Claude-only-block elision
 // only to SKILL.md. Wave B added the post-render vocabulary lint, also only
@@ -2102,7 +2102,7 @@ describe('buildAllSkills — Wave C: reference rendering + lint', () => {
     // references/foo.md — a broken reference for whichever runtime an agent
     // happens to load.
     const root = makeTempDir();
-    const srcDir = join(root, 'skills-src');
+    const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'runtimes');
     mkdirSync(join(srcDir, 'foo', 'references'), { recursive: true });
@@ -2157,7 +2157,7 @@ describe('buildAllSkills — Wave C: reference rendering + lint', () => {
     // it works in SKILL.md. The Claude render keeps the inner block; the
     // OpenCode render drops it entirely.
     const root = makeTempDir();
-    const srcDir = join(root, 'skills-src');
+    const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'runtimes');
     mkdirSync(join(srcDir, 'foo', 'references'), { recursive: true });
@@ -2202,7 +2202,7 @@ describe('buildAllSkills — Wave C: reference rendering + lint', () => {
     // must survive in the Claude render and elide wholesale in non-Claude
     // renders, matching SKILL.md semantics.
     const root = makeTempDir();
-    const srcDir = join(root, 'skills-src');
+    const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'runtimes');
     mkdirSync(join(srcDir, 'foo', 'references'), { recursive: true });
@@ -2249,7 +2249,7 @@ describe('buildAllSkills — Wave C: reference rendering + lint', () => {
     // reference file path (not the SKILL.md path) so authors can jump
     // straight to the offender.
     const root = makeTempDir();
-    const srcDir = join(root, 'skills-src');
+    const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'runtimes');
     mkdirSync(join(srcDir, 'foo', 'references'), { recursive: true });
@@ -2287,12 +2287,12 @@ describe('buildAllSkills — Wave C: reference rendering + lint', () => {
   });
 
   it('VocabularyLint_RealDelegationReferences_AllRuntimesPass', () => {
-    // Regression gate: build the real `skills-src/` tree against the real
+    // Regression gate: build the real `content/` tree against the real
     // `runtimes/` YAMLs and confirm Wave C's source migration + renderer
     // extension keeps every runtime free of forbidden Claude-only prose.
     // This test pins the migrated state so future PRs to references can't
     // silently re-introduce a leak.
-    const REPO_SRC_DIR = resolve(__dirname, '../../skills-src');
+    const REPO_SRC_DIR = resolve(__dirname, '../../content');
     const REPO_RUNTIMES_DIR_C = resolve(__dirname, '../../runtimes');
     const root = makeTempDir();
     const outDir = join(root, 'skills-out');
@@ -2366,14 +2366,14 @@ describe('classifySkill — task 001: procedural vs orchestration', () => {
       'Prefix {{MCP_PREFIX}}exarchos_workflow, but also {{TASK_TOOL}} for spawning.';
     let err: Error | undefined;
     try {
-      assertProceduralSkill(body, 'skills-src/foo/SKILL.md');
+      assertProceduralSkill(body, 'content/foo/SKILL.md');
     } catch (e) {
       err = e as Error;
     }
     expect(err).toBeDefined();
     expect(err!.message).toMatch(/orchestration token/i);
     expect(err!.message).toContain('TASK_TOOL');
-    expect(err!.message).toContain('skills-src/foo/SKILL.md');
+    expect(err!.message).toContain('content/foo/SKILL.md');
   });
 
   it('classifySkill_RequiresBlockInProceduralSource_FailsBuild', () => {
@@ -2395,20 +2395,20 @@ describe('classifySkill — task 001: procedural vs orchestration', () => {
 
     let err: Error | undefined;
     try {
-      assertProceduralSkill(body, 'skills-src/bar/SKILL.md');
+      assertProceduralSkill(body, 'content/bar/SKILL.md');
     } catch (e) {
       err = e as Error;
     }
     expect(err).toBeDefined();
     expect(err!.message).toMatch(/requires|capability guard/i);
-    expect(err!.message).toContain('skills-src/bar/SKILL.md');
+    expect(err!.message).toContain('content/bar/SKILL.md');
   });
 
   it('assertProceduralSkill_CleanProceduralSource_DoesNotThrow', () => {
     // Prefix-only, guard-free source is a valid procedural skill.
     const body = 'Use {{MCP_PREFIX}}exarchos_view and {{COMMAND_PREFIX}}review.';
     expect(() =>
-      assertProceduralSkill(body, 'skills-src/ok/SKILL.md'),
+      assertProceduralSkill(body, 'content/ok/SKILL.md'),
     ).not.toThrow();
   });
 
@@ -2435,7 +2435,7 @@ describe('classifySkill — task 001: procedural vs orchestration', () => {
 // Task 002: prefix tokens stay in the required-coverage set.
 //
 // The collapsed-vocabulary rewrite retires `MCP_PREFIX`/`COMMAND_PREFIX` from
-// procedural `skills-src/` sources in a *later* task. Until then the renderer
+// procedural `content/` sources in a *later* task. Until then the renderer
 // still consumes them, so `assertRuntimeTokenCoverage` must keep requiring
 // every runtime YAML to declare them — dropping them from `RuntimeTokenKey`
 // early would silently un-cover every runtime map.
@@ -2511,7 +2511,7 @@ const ALL_RUNTIME_NAMES = ['generic', 'claude', 'codex', 'opencode', 'copilot', 
 describe('buildAllSkills — task 003: classification-driven emission', () => {
   it('buildAllSkills_ProceduralSkill_EmitsSingleStandardVariant', () => {
     const root = makeTempDir();
-    const srcDir = join(root, 'skills-src');
+    const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'runtimes');
     mkdirSync(join(srcDir, 'proc'), { recursive: true });
@@ -2553,7 +2553,7 @@ describe('buildAllSkills — task 003: classification-driven emission', () => {
 
   it('buildAllSkills_OrchestrationSkill_EmitsPerRuntimeVariants', () => {
     const root = makeTempDir();
-    const srcDir = join(root, 'skills-src');
+    const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'runtimes');
     mkdirSync(join(srcDir, 'orch'), { recursive: true });
@@ -2577,7 +2577,7 @@ describe('buildAllSkills — task 003: classification-driven emission', () => {
 
   it('skillsGuard_StandardTreeDrift_Fails', () => {
     const root = makeTempDir();
-    const srcDir = join(root, 'skills-src');
+    const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'runtimes');
     // Procedural skill (logical prose, no fork tokens) → renders to
@@ -2613,7 +2613,7 @@ describe('buildAllSkills — task 003: classification-driven emission', () => {
 
   it('chainToken_TargetSkillMissing_FailsBuild', () => {
     const root = makeTempDir();
-    const srcDir = join(root, 'skills-src');
+    const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
     const runtimesDir = join(root, 'runtimes');
     mkdirSync(join(srcDir, 'chainer'), { recursive: true });

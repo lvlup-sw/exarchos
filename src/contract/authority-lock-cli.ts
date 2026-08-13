@@ -4,7 +4,7 @@
 // tree. Running this CLI is the human approval gesture: it writes a lock with
 // `approved: true` for every authority at its current digest/version.
 //
-// Usage (from servers/exarchos-mcp):
+// Usage (from the repository root):
 //   npx tsx src/contract/authority-lock-cli.ts
 //
 // After ANY intentional change to a frozen authority (schema module, invariant

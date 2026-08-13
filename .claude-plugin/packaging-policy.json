@@ -73,7 +73,7 @@
     },
     {
       "path": "skills",
-      "because": "The target of plugin.json's `skills` field — the RENDERED tree, not skills-src/."
+      "because": "The target of plugin.json's `skills` field — the RENDERED tree, not content/."
     }
   ],
   "requiredFiles": [

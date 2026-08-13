@@ -92,7 +92,7 @@ export interface ReviewAdapterRegistry {
 // ─── Review Classification (Issue #1159 Phase 2) ────────────────────────────
 // classify_review_items groups parsed ActionItems by file and recommends a
 // dispatch strategy per group. Replaces the prose direct-vs-delegate
-// heuristic in skills-src/shepherd/references/fix-strategies.md.
+// heuristic in content/synthesis/skills/shepherd/references/fix-strategies.md.
 
 export type DispatchRecommendation = 'direct' | 'delegate-fixer' | 'delegate-scaffolder';
 

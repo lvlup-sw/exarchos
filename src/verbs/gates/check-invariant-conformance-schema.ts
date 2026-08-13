@@ -70,7 +70,7 @@ export const AuditProjectionStatusSchema = z.enum([
  *
  * `auditPrompt` + `auditInvariantIds` are the audit-mode delivery pair, and they
  * are declared REQUIRED on purpose: the reader instructed to act on the prompt
- * (`skills-src/review/SKILL.md`, "Invariant conformance — audit-mode judgment")
+ * (`content/review/skills/review/SKILL.md`, "Invariant conformance — audit-mode judgment")
  * needs the enumerable id list to know when it has finished, and a field a
  * reader is told to iterate must be guaranteed to exist. `audit-delivery-closure.ts`
  * checks exactly this pairing against this schema, so renaming either field here

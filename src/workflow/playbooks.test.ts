@@ -486,7 +486,7 @@ describe('Review contract consistency across playbooks and tools.ts', () => {
   });
 
   it('ReviewContract_FeatureWorkflow_UsesSkillFolderNames', () => {
-    // The dimension names MUST match skill folder names under skills-src/
+    // The dimension names MUST match skill folder names under content/
     // so the skill an agent runs and the state key it writes are identical.
     // Changing this assertion requires renaming skill folders too.
     expect(getRequiredReviews('feature')).toEqual(['review']);

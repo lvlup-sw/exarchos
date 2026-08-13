@@ -1,7 +1,7 @@
 /**
  * Tests for the placeholder vocabulary lint.
  *
- * The lint walks a source skill tree (`skills-src/`), extracts every
+ * The lint walks a source skill tree (`content/`), extracts every
  * `{{TOKEN}}` reference from every `SKILL.md` (and runtime-override
  * `SKILL.<runtime>.md`) file, and flags any token name that is not in
  * the canonical vocabulary. References (`references/**`) are skipped
@@ -372,12 +372,12 @@ describe('placeholder-lint — task 002 (collapsed-vocabulary rules)', () => {
 });
 
 describe('placeholder-lint — Task 006 (real procedural tree rewritten to logical prose)', () => {
-  const SKILLS_SRC = join(__dirname, '../../skills-src');
+  const SKILLS_SRC = join(__dirname, '../../content');
 
   it('lintPlaceholders_RewrittenProceduralTree_NoPrefixTokens', () => {
     // After Task 006 the 16 procedural skills render once from logical prose
     // (`exarchos:exarchos_*` / bare verbs) and carry NO prefix tokens. With
-    // collapsed-vocabulary enforcement ON, the REAL `skills-src/` tree lints
+    // collapsed-vocabulary enforcement ON, the REAL `content/` tree lints
     // clean: zero collapsed-vocabulary violations. The 3 orchestration skills
     // (`ideate`/`delegate`/`refactor`) legitimately keep prefix tokens, but the
     // rules key on the source's derived class so those raise no violation.

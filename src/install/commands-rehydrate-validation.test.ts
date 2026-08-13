@@ -5,7 +5,7 @@
  *
  * DR-3 (harness conform-and-shrink, Task 007): the fat `commands/rehydrate.md`
  * body was collapsed into a thin shim and its invocation + Output Format
- * content migrated into `skills-src/rehydrate/SKILL.md`. This suite now pins
+ * content migrated into `content/continuity/skills/rehydrate/SKILL.md`. This suite now pins
  * that contract in its new home — the skill source.
  *
  * Prior legacy invocation:
@@ -25,9 +25,10 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { skillPath as resolveSkillPath } from '../../tools/test-helpers/content-tree.js';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../..');
-const skillPath = join(repoRoot, 'skills-src', 'rehydrate', 'SKILL.md');
+const skillPath = resolveSkillPath('rehydrate');
 
 describe('RehydrateSkill_InvocationReturnsDocument (T043, DR-5; DR-3 fold-in)', () => {
   const body = readFileSync(skillPath, 'utf-8');

@@ -30,7 +30,7 @@ const SRC_ROOT = join(__dirname, '../../src');
 
 // Repository root — one level above SRC_ROOT since task 019 made `src/`
 // a direct child of it. The action-set gate (Wave 5 / Task 5.4) scans
-// `commands/` and `skills-src/` at the repo root in addition to the core's
+// `commands/` and `content/` at the repo root in addition to the core's
 // workflow surfaces.
 const REPO_ROOT = join(SRC_ROOT, '..');
 
@@ -116,9 +116,9 @@ describe('Grep Gates (Wave 1, R-1, #1313)', () => {
     // the MCP schema boundary.
     //
     // Scope: workflow-mutation TS code (`src/workflow/`)
-    // plus the two agent-facing content trees (`commands/`, `skills-src/`).
+    // plus the two agent-facing content trees (`commands/`, `content/`).
     // The generated `skills/` tree is intentionally NOT scanned — it
-    // mirrors `skills-src/` via `npm run build:skills` and is already
+    // mirrors `content/` via `npm run build:skills` and is already
     // protected by `npm run skills:guard`. Scanning it again would
     // double-count violations and obscure the actionable source.
     //
@@ -168,11 +168,11 @@ describe('Grep Gates (Wave 1, R-1, #1313)', () => {
       }
     }
 
-    // ── Scope 2: agent-facing markdown (commands + skills-src) ───────
+    // ── Scope 2: agent-facing markdown (commands + content) ───────
     {
       const accept = (f: string) => f.endsWith('.md');
       const excludeDirs = new Set<string>(['node_modules', 'dist']);
-      for (const root of [join(REPO_ROOT, 'commands'), join(REPO_ROOT, 'skills-src')]) {
+      for (const root of [join(REPO_ROOT, 'commands'), join(REPO_ROOT, 'content')]) {
         for (const file of walk(root, accept, excludeDirs)) {
           const contents = readFileSync(file, 'utf-8');
           contents.split('\n').forEach((text, i) => {

@@ -141,7 +141,7 @@ const ALLOWLIST_CLASSES = [
       'architecture/vcs-ownership.ts':
         'VCS mutation bypass census (P04-05): fails when git/worktree mutation occurs outside the declared owner surface. Test-invoked structural gate, same class as effect-ledger.',
       'projections/quality/skill-example-validator.ts':
-        'Documentation-vs-schema drift gate (P02-07): extracts tool-invocation examples from skills-src/ and commands/ and validates them against the live TOOL_REGISTRY projection. Test-invoked gate machinery — deliberately not a production import target so shipped code never depends on doc parsing.',
+        'Documentation-vs-schema drift gate (P02-07): extracts tool-invocation examples from content/ and commands/ and validates them against the live TOOL_REGISTRY projection. Test-invoked gate machinery — deliberately not a production import target so shipped code never depends on doc parsing.',
       'contract/compiler/generate.ts':
         'Contract-artifact generator entry point (P03-03): regenerates the checked-in proof-fixture baseline and is invoked by its co-located drift guard. Build/gate machinery — the shipped server consumes the generated baseline, never the generator.',
       'workflow/admission/remediation-purity.ts':

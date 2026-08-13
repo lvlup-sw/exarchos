@@ -19,7 +19,7 @@ import { SUBJECT_SRC_ROOT, fromRepoRoot } from './subject-root.js';
 // Live surfaces that must carry zero functional axiom coupling. Dated record
 // trees under docs/ (designs, plans, research, …) are point-in-time artifacts
 // and are intentionally out of scope — see vocabulary-lint scanRepoDefaults.
-const SCAN_ROOTS = [SUBJECT_SRC_ROOT, fromRepoRoot('skills-src'), fromRepoRoot('commands')];
+const SCAN_ROOTS = [SUBJECT_SRC_ROOT, fromRepoRoot('content'), fromRepoRoot('commands')];
 const CONFIG_FILE = fromRepoRoot('.exarchos.yml');
 
 const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', 'coverage']);

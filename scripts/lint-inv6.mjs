@@ -3,7 +3,7 @@
 //
 // ADVISORY(control: inv6-workflow-agnosticism) — non-blocking INV-6 grep lint; governance (owner, promotion/removal thresholds, expiry, kill fixture, unfiltered CI path) is enumerated in src/install/advisory-registry.ts (ADVISORY_REGISTRY), P07-07.
 //
-// Walks SKILL.md files under a given directory (default: skills-src/) and
+// Walks SKILL.md files under a given directory (default: content/) and
 // flags those whose body contains workflow-typed literals but whose
 // frontmatter does NOT declare `metadata.workflow-type:`. Skills under a
 // `_shared/` directory are exempt by convention.
@@ -128,7 +128,7 @@ function hasDiscriminatingContext(line, literal, insideFence) {
   return false;
 }
 
-const argDir = process.argv[2] ?? 'skills-src/';
+const argDir = process.argv[2] ?? 'content/';
 const rootDir = path.resolve(process.cwd(), argDir);
 
 function walkSkillFiles(dir) {

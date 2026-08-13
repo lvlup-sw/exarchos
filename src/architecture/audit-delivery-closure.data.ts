@@ -76,7 +76,7 @@ export interface AuditDeliveryObligation {
   readonly reentry: AuditReentrySeam;
   /**
    * Repo-relative reader documents that MUST carry the instruction. These are
-   * SOURCES (`skills-src/**`), never rendered outputs — the rendered tree is
+   * SOURCES (`content/**`), never rendered outputs — the rendered tree is
    * generated from them and a rule pinned to a generated file would be repaired
    * by re-running the generator.
    */
@@ -101,7 +101,7 @@ export const AUDIT_DELIVERY_OBLIGATIONS: readonly AuditDeliveryObligation[] =
       field: 'auditPrompt',
       enumerator: 'auditInvariantIds',
       reentry: { action: 'check_review_verdict', parameter: 'pluginFindings' },
-      readers: ['skills-src/review/SKILL.md'],
+      readers: ['content/review/skills/review/SKILL.md'],
       expectation:
         'judge every id in auditInvariantIds against the diff and re-enter each ' +
         'violation as a pluginFinding on check_review_verdict',

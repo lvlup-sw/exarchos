@@ -7,7 +7,7 @@
  *
  * DR-3 (harness conform-and-shrink, Task 007): the fat `commands/checkpoint.md`
  * body was collapsed into a thin shim and its structured-handoff output
- * template migrated into `skills-src/checkpoint/SKILL.md`. This suite now pins
+ * template migrated into `content/continuity/skills/checkpoint/SKILL.md`. This suite now pins
  * the block in its new home — the skill source — so the contract cannot silently
  * regress after the command→skill fold.
  *
@@ -28,9 +28,10 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { skillPath as resolveSkillPath } from '../../tools/test-helpers/content-tree.js';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../..');
-const skillPath = join(repoRoot, 'skills-src', 'checkpoint', 'SKILL.md');
+const skillPath = resolveSkillPath('checkpoint');
 
 describe('CheckpointSkill_HouseRulesBlock (T-31, P3; DR-3 fold-in)', () => {
   const body = readFileSync(skillPath, 'utf-8');

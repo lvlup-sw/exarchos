@@ -29,7 +29,7 @@ import {
   utimesSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadAllRuntimes } from './runtimes/load.js';
 import { emitCommandAliases } from './build-command-aliases.js';
@@ -1288,7 +1288,7 @@ export interface BuildReport {
  *
  * Throws if `srcDir` contains no `SKILL.md` files.
  *
- * @param opts.srcDir - Source root (e.g. `skills-src/`).
+ * @param opts.srcDir - Source root (e.g. `content/`).
  * @param opts.outDir - Per-runtime output root (e.g. `skills/`). Each
  *   runtime gets a subdirectory named after its `RuntimeMap.name`.
  * @param opts.runtimesDir - Directory containing runtime YAML files
@@ -1388,7 +1388,10 @@ export function buildAllSkills(opts: {
   const vocabularyFindings: VocabularyLintFinding[] = [];
 
   for (const skillDir of skillDirs) {
-    const skillRel = relative(opts.srcDir, skillDir);
+    // Sources are grouped by capability domain; the rendered tree is flat.
+    // A harness resolves a skill by its bare name, so the domain a skill is
+    // authored under must not leak into the path it renders to.
+    const skillName = basename(skillDir);
     const sourcePath = toPosix(join(skillDir, 'SKILL.md'));
     const body = readFileSync(sourcePath, 'utf8');
 
@@ -1416,7 +1419,7 @@ export function buildAllSkills(opts: {
 
     for (const rt of targetRuntimes) {
       const written = writtenByRuntime.get(rt.name)!;
-      const outSkillDir = join(opts.outDir, rt.name, skillRel);
+      const outSkillDir = join(opts.outDir, rt.name, skillName);
       const outSkillFile = join(outSkillDir, 'SKILL.md');
       mkdirSync(outSkillDir, { recursive: true });
 
@@ -1860,7 +1863,7 @@ function renderLinkedReferences(
  * Exported so the collapsed-vocabulary work (harness conform-and-shrink) can
  * pin, in a unit test, that the prefix tokens (`MCP_PREFIX`/`COMMAND_PREFIX`)
  * stay in the required-coverage set for as long as they are still consumed —
- * they are only retired from `skills-src/` in a later rewrite task, so dropping
+ * they are only retired from `content/` in a later rewrite task, so dropping
  * them from `RuntimeTokenKey` early would silently un-cover every runtime YAML.
  */
 export function assertRuntimeTokenCoverage(runtimes: RuntimeMap[]): void {
@@ -1979,7 +1982,7 @@ export function main(_argv: string[], deps: MainDeps = {}): void {
   const { cwd, exit, log, errLog } = resolveMainDeps(deps);
 
   const root = cwd();
-  const srcDir = join(root, 'skills-src');
+  const srcDir = join(root, 'content');
   const outDir = join(root, 'skills');
   const runtimesDir = join(root, 'runtimes');
   const commandsDir = join(root, 'commands');
@@ -2054,7 +2057,7 @@ function countRuntimesFromOutDir(outDir: string): number {
 // yields `file://C:\repo\dist\build-skills.js`, which never equals the
 // `file:///C:/repo/dist/build-skills.js` form of `import.meta.url` — so the
 // guard silently failed and `npm run build:skills` was a no-op that still
-// exited 0, leaving `skills/` stale against `skills-src/`.
+// exited 0, leaving `skills/` stale against `content/`.
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   main(process.argv.slice(2));
 }

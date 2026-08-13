@@ -1,9 +1,9 @@
 // ─── Oneshot workflow skill structural tests (T14) ──────────────────────────
 //
 // These tests assert structural and frontmatter invariants of the canonical
-// `skills-src/oneshot/SKILL.md` source — NOT the generated runtime
+// `content/delivery/skills/oneshot/SKILL.md` source — NOT the generated runtime
 // variants under `skills/<runtime>/`. Per CLAUDE.md, source-of-truth for
-// skills lives in `skills-src/`; the renderer (T19) produces byte-identical
+// skills lives in `content/`; the renderer (T19) produces byte-identical
 // per-runtime copies of the body, so semantic invariants only need to be
 // checked once on the source.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -12,10 +12,11 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { skillPath as resolveSkillPath } from '../../../tools/test-helpers/content-tree.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const skillsSrcDir = resolve(__dirname, '../../../skills-src');
-const skillPath = resolve(skillsSrcDir, 'oneshot/SKILL.md');
+const skillsSrcDir = resolve(__dirname, '../../../content');
+const skillPath = resolveSkillPath('oneshot');
 
 function readSkill(): string {
   return readFileSync(skillPath, 'utf-8');

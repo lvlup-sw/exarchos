@@ -50,7 +50,7 @@ jobs:
           filters: |
             root:
               - 'src/**'
-              - 'skills-src/**'
+              - 'content/**'
               - 'skills/**'
               - 'runtimes/**'
               # Projection roots (DR-22): these directories/files are part of
@@ -153,7 +153,7 @@ jobs:
       # skills:guard — rebuild the generated skills tree in-place and
       # fail if `git diff skills/` is non-empty. Prevents drift from
       # direct edits to generated files and from forgotten rebuilds
-      # after a skills-src/ change. Depends on `dist/skills-guard.js`
+      # after a content/ change. Depends on `dist/skills-guard.js`
       # produced by the earlier `npm ci` (`prepare` → `tsc`). This also
       # closes the DR-22 drift-guard requirement for `command-aliases/`
       # and `agents/`: `runHooksGuard`'s sibling, `runSkillsGuard`,
@@ -883,7 +883,7 @@ jobs:
       # using the BOTH dep trees installed by the two steps above. See
       # docs/guides/ci-gate-hosting.md.
 
-      # DR-8 vocabulary-lint: scans skills-src/, commands/, docs/architecture/,
+      # DR-8 vocabulary-lint: scans content/, commands/, docs/architecture/,
       # docs/guides/ (broader than any path filter) via a tsx entrypoint that
       # needs both dep trees — exactly what this tail already installs, so the
       # marginal cost is one tsx invocation. DR-1 host class: deps tail,
@@ -1339,7 +1339,7 @@ jobs:
       # guard's self-test runs in the same CI job as the guard" for free.
       #
       # Must be UNFILTERED: the obligation binds a file under
-      # the `mcp` filter to one under `skills-src/**`, so EITHER path
+      # the `mcp` filter to one under `content/**`, so EITHER path
       # filter would skip-as-passed on exactly the PR that breaks the binding
       # from the other side. Rides the deps tail — it walks live Zod objects.
       # See docs/guides/ci-gate-hosting.md.

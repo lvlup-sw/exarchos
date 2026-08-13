@@ -7,7 +7,7 @@
 // test-first ordering from commands/, agents/, and the skill sources. The drift
 // returned last time precisely because nothing guarded these surfaces — and the
 // first pass guarded only commands/ + agents/, leaving the skill sources
-// (skills-src/) uncovered, where two residual mandates survived silently. This
+// (content/) uncovered, where two residual mandates survived silently. This
 // lint fails CI when the retired framing reappears:
 //   1. iron-law                  — the literal "Iron Law"
 //   2. no-production-code-first  — "NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST"
@@ -17,9 +17,9 @@
 //      high-tier opt-in lane). Rules 1 and 2 are never allowlisted.
 //
 // Scope: every *.md under the scanned directories (default: commands/ agents/
-// skills-src/). skills-src/ is the source-of-truth for skills; guarding it (not
+// content/). content/ is the source-of-truth for skills; guarding it (not
 // the generated skills/<runtime>/ trees) catches drift at the authoring layer,
-// mirroring how lint:inv6 scans skills-src/.
+// mirroring how lint:inv6 scans content/.
 // Output: JSON to stdout: { findings: [...], advisory: false }.
 // Exit code: 1 when findings exist (enforcing), else 0.
 //
@@ -29,7 +29,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-const DEFAULT_DIRS = ['commands', 'agents', 'skills-src'];
+const DEFAULT_DIRS = ['commands', 'agents', 'content'];
 const OPT_IN_MARKER = '<!-- ladder-rgr-optin -->';
 
 const RULES = {

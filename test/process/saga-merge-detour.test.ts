@@ -2,7 +2,7 @@
 // Regression test for #1208 — task.completed{worktreePath} must auto-detour the
 // rehydration envelope's `next_actions` so a `merge_orchestrate` verb is
 // surfaced. Per the documented behavior in
-// `skills-src/delegate/SKILL.md` § "Worktree-Bearing Tasks: Auto-Detour to
+// `content/delivery/skills/delegate/SKILL.md` § "Worktree-Bearing Tasks: Auto-Detour to
 // merge-pending", a runtime that consumes `next_actions` should be able to
 // dispatch the worktree merge automatically — without manual operator
 // intervention. Pre-fix the rehydrate envelope returns `next_actions: []` and
@@ -134,7 +134,7 @@ describe('#1208 — task.completed{worktreePath} auto-detours to merge-pending',
           (view.content as Array<{ text: string }>)[0].text,
         ) as { next_actions?: NextActionShape[] };
 
-        // The expected behavior per #1208 + skills-src/delegate/SKILL.md:
+        // The expected behavior per #1208 + content/delivery/skills/delegate/SKILL.md:
         // a `merge_orchestrate` verb (with idempotency-key
         // `<streamId>:merge_orchestrate:<taskId>`) MUST be surfaced after a
         // worktree-bearing task.completed.

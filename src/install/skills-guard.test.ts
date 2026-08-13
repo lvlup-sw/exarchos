@@ -9,7 +9,7 @@
  * Implements: DR-1 (guard), DR-10 (stale-output path).
  *
  * Isolation strategy: each test provisions a temp directory, runs
- * `git init` inside it, lays down a minimal `skills-src/` + `runtimes/`
+ * `git init` inside it, lays down a minimal `content/` + `runtimes/`
  * fixture tree, runs one build so `skills/` exists, commits everything,
  * and then hands that directory to `runSkillsGuard({ cwd })`. Tests
  * never touch the repo's own `skills/` tree.
@@ -107,7 +107,7 @@ function writeRuntimeFixtures(runtimesDir: string): void {
 /**
  * Provision a temp directory that looks like a real project root:
  *   - `git init` with committer identity set locally
- *   - `skills-src/foo/SKILL.md` source
+ *   - `content/foo/SKILL.md` source
  *   - `runtimes/*.yaml` fixtures
  *   - `skills/` generated from an initial `buildAllSkills()` call
  *   - all of the above committed, so `git diff` starts clean
@@ -115,20 +115,20 @@ function writeRuntimeFixtures(runtimesDir: string): void {
 function provisionProject(): string {
   const root = makeTempDir();
 
-  mkdirSync(join(root, 'skills-src', 'foo'), { recursive: true });
+  mkdirSync(join(root, 'content', 'foo'), { recursive: true });
   // `foo` carries an orchestration token ({{TASK_TOOL}}) so it classifies as
   // an orchestration skill and renders per-runtime under `skills/<runtime>/foo/`
   // (DR-2). The skills-guard drift tests below assert against those per-runtime
   // paths; a procedural skill would collapse to `skills/standard/foo/` instead.
   writeFileSync(
-    join(root, 'skills-src', 'foo', 'SKILL.md'),
+    join(root, 'content', 'foo', 'SKILL.md'),
     'Hello {{AGENT_LABEL}} {{TASK_TOOL}}\n',
   );
   writeRuntimeFixtures(join(root, 'runtimes'));
 
   // Seed the `skills/` tree so the guard has something to compare against.
   buildAllSkills({
-    srcDir: join(root, 'skills-src'),
+    srcDir: join(root, 'content'),
     outDir: join(root, 'skills'),
     runtimesDir: join(root, 'runtimes'),
   });
@@ -170,13 +170,13 @@ function provisionProject(): string {
 function provisionProjectWithCallMacro(): string {
   const root = makeTempDir();
 
-  mkdirSync(join(root, 'skills-src', 'foo'), { recursive: true });
+  mkdirSync(join(root, 'content', 'foo'), { recursive: true });
   // Multi-key args stress-test JSON key-ordering determinism — the
   // invariant we are locking in is that `JSON.stringify` on the parsed
   // args object produces the same bytes every build, regardless of how
   // many times we re-render.
   writeFileSync(
-    join(root, 'skills-src', 'foo', 'SKILL.md'),
+    join(root, 'content', 'foo', 'SKILL.md'),
     [
       // {{TASK_TOOL}} makes `foo` an orchestration skill so it renders
       // per-runtime; the determinism assertions below target the claude
@@ -192,7 +192,7 @@ function provisionProjectWithCallMacro(): string {
   writeRuntimeFixtures(join(root, 'runtimes'));
 
   buildAllSkills({
-    srcDir: join(root, 'skills-src'),
+    srcDir: join(root, 'content'),
     outDir: join(root, 'skills'),
     runtimesDir: join(root, 'runtimes'),
   });
@@ -232,7 +232,7 @@ describe('skills-guard — task 023', () => {
     // the source change — the guard should still fire because the
     // regenerated `skills/` tree now differs from HEAD.
     writeFileSync(
-      join(root, 'skills-src', 'foo', 'SKILL.md'),
+      join(root, 'content', 'foo', 'SKILL.md'),
       'Hello {{AGENT_LABEL}} — updated\n',
     );
 
@@ -247,7 +247,7 @@ describe('skills-guard — task 023', () => {
 
     // Force a drift by editing the source without rebuilding.
     writeFileSync(
-      join(root, 'skills-src', 'foo', 'SKILL.md'),
+      join(root, 'content', 'foo', 'SKILL.md'),
       'Hello {{AGENT_LABEL}} — changed\n',
     );
 
@@ -476,7 +476,7 @@ describe('skills-guard — task 011 CALL macro determinism', () => {
     // would cause this second guard to fail even though nothing
     // changed in the source.
     buildAllSkills({
-      srcDir: join(root, 'skills-src'),
+      srcDir: join(root, 'content'),
       outDir: join(root, 'skills'),
       runtimesDir: join(root, 'runtimes'),
     });
@@ -555,11 +555,11 @@ function writeAliasRuntimeFixtures(runtimesDir: string): void {
 function provisionProjectWithAliases(): string {
   const root = makeTempDir();
 
-  mkdirSync(join(root, 'skills-src', 'foo'), { recursive: true });
+  mkdirSync(join(root, 'content', 'foo'), { recursive: true });
   // Orchestration token keeps `foo` on the per-runtime path (see
   // `provisionProject`); the alias tree is what these tests actually diff.
   writeFileSync(
-    join(root, 'skills-src', 'foo', 'SKILL.md'),
+    join(root, 'content', 'foo', 'SKILL.md'),
     'Hello {{AGENT_LABEL}} {{TASK_TOOL}}\n',
   );
   writeAliasRuntimeFixtures(join(root, 'runtimes'));
@@ -578,7 +578,7 @@ function provisionProjectWithAliases(): string {
   }
 
   buildAllSkills({
-    srcDir: join(root, 'skills-src'),
+    srcDir: join(root, 'content'),
     outDir: join(root, 'skills'),
     runtimesDir: join(root, 'runtimes'),
   });

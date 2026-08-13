@@ -1,6 +1,6 @@
 // ─── Skill / Command Example Validator ──────────────────────────────────────
 //
-// Documentation across `skills-src/**` and `commands/**` embeds tool-invocation
+// Documentation across `content/**` and `commands/**` embeds tool-invocation
 // examples of the form:
 //
 //     exarchos_workflow({ action: "describe", actions: ["update", "init"] })

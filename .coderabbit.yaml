@@ -18,9 +18,9 @@ reviews:
     - "!**/*.min.js"
     - "!**/*.md"                                          # markdown is prose/process content, not code review
     # Generated artifacts — deterministically rendered from sources and guarded by
-    # `npm run skills:guard`. Review the SOURCES (skills-src/, commands/, servers/),
+    # `npm run skills:guard`. Review the SOURCES (content/, commands/, servers/),
     # not the renders, so a content-only change doesn't blow past CodeRabbit's file cap.
-    - "!skills/**"                                        # per-runtime renders of skills-src/ (build:skills)
+    - "!skills/**"                                        # per-runtime renders of content/ (build:skills)
     - "!command-aliases/**"                               # rendered from commands/ + canonical-skills
     - "!agents/**"                                        # generated agent files (build:skills generate:agents)
     - "!.claude-plugin/plugin.json"                       # generated plugin manifest
@@ -45,7 +45,7 @@ reviews:
       instructions: "Prioritize security: auth, input validation, error handling."
     - path: "docs/**"
       instructions: "Check for accuracy and completeness. Light review only."
-    - path: "skills-src/*/references/**/*.md"
+    - path: "content/*/skills/*/references/**/*.md"
       instructions: |
         Reference files are includes, not standalone skill entry points.
         Do NOT require YAML frontmatter on these files.

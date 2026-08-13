@@ -26,7 +26,7 @@
  * each ref as a safe superset for provenance matching, and prefers it when a
  * clean procedural-vs-orchestration split is not readily derivable at a
  * historical ref. It is not: the procedural/orchestration classification lives
- * in `skills-src/` metadata that has moved across releases, and reconstructing
+ * in `content/` metadata that has moved across releases, and reconstructing
  * it per-tag is fragile. Hashing every render is provenance-safe (a superset
  * can only make a consumer file *more* likely to match a known-good render,
  * never less), so this generator hashes ALL renders. The only directory

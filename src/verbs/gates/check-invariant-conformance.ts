@@ -27,7 +27,7 @@
 // things changed:
 //   • `auditInvariantIds` accompanies the prompt — the reader's enumerable
 //     checklist, so "I read it" and "I answered all of it" are distinguishable;
-//   • `skills-src/review/SKILL.md` carries the instruction to judge each id and
+//   • `content/review/skills/review/SKILL.md` carries the instruction to judge each id and
 //     re-enter violations as `pluginFindings` on `check_review_verdict`, and
 //     `architecture/audit-delivery-closure.ts` holds that pairing to its declared
 //     obligation against the LIVE outputSchema;
@@ -152,7 +152,7 @@ interface CheckInvariantConformanceResult {
   readonly auditPrompt: string;
   /**
    * Every invariant id rendered into {@link auditPrompt}, ascending — the
-   * reader's enumerable checklist. `skills-src/review/SKILL.md` instructs the
+   * reader's enumerable checklist. `content/review/skills/review/SKILL.md` instructs the
    * reviewer to return a judgment for each of these and to re-enter violations
    * as `pluginFindings` on `check_review_verdict`; `audit-delivery-closure.ts`
    * holds that pairing to its declared obligation.
@@ -462,7 +462,7 @@ export async function handleCheckInvariantConformance(
  * Append the audit-mode obligation to the human/agent-readable `report`.
  *
  * Every noun in this block is read from `AUDIT_DELIVERY_OBLIGATIONS` — the same
- * record `audit-delivery-closure.ts` checks `skills-src/review/SKILL.md`
+ * record `audit-delivery-closure.ts` checks `content/review/skills/review/SKILL.md`
  * against — so the runtime directive and the skill step are two representations
  * bound to ONE authority rather than two hand-maintained copies of a rule.
  * Renaming the re-entry seam in the data file changes both, and leaves neither

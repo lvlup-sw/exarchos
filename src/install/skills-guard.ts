@@ -1,11 +1,11 @@
 /**
- * CI `skills:guard` check — detects drift between `skills-src/` sources
+ * CI `skills:guard` check — detects drift between `content/` sources
  * and the committed `skills/` generated tree.
  *
  * Runs `buildAllSkills()` in-process against the project root, then
  * invokes `git diff --exit-code skills/`. A non-empty diff means either:
  *
- *   1. A developer changed `skills-src/` but forgot to run
+ *   1. A developer changed `content/` but forgot to run
  *      `npm run build:skills` and commit the regenerated output, or
  *   2. A developer hand-edited a generated file under `skills/`
  *      (which the build has just overwritten).
@@ -120,7 +120,7 @@ function defaultRegenerateAgents(cwd: string): void {
  * ### Determinism contract
  *
  * The guard's correctness relies on `buildAllSkills()` being a pure
- * function of `(skills-src/, runtimes/*.yaml)`: running it twice on
+ * function of `(content/, runtimes/*.yaml)`: running it twice on
  * identical inputs must produce byte-identical output. Two specific
  * rendering paths need to uphold this:
  *
@@ -146,7 +146,7 @@ function defaultRegenerateAgents(cwd: string): void {
  * place.
  *
  * @param opts.cwd - Absolute path to the project root. Must contain
- *   `skills-src/`, `runtimes/`, and a git repo whose HEAD tracks the
+ *   `content/`, `runtimes/`, and a git repo whose HEAD tracks the
  *   current state of `skills/`.
  */
 export function runSkillsGuard(opts: SkillsGuardOptions): SkillsGuardResult {
@@ -166,7 +166,7 @@ export function runSkillsGuard(opts: SkillsGuardOptions): SkillsGuardResult {
   let skillsBuildFailed = false;
   try {
     buildAllSkills({
-      srcDir: join(cwd, 'skills-src'),
+      srcDir: join(cwd, 'content'),
       outDir: join(cwd, 'skills'),
       runtimesDir: join(cwd, 'runtimes'),
     });

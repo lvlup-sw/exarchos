@@ -435,7 +435,7 @@ ${riskLine}
 **Description:** Reconcile the planning SoT reference files with the verification ladder so the prose no longer mandates universal test ordering on every task.
 
 **Files:**
-- \`skills-src/plan/SKILL.md\`
+- \`content/design/skills/plan/SKILL.md\`
 `;
 
     it('ValidateTaskStructure_LowTierNoTests_StatusPass', () => {
@@ -658,7 +658,7 @@ present without requiring a literal Description field-header marker.`;
   // ─── T-02 (#1486): task-template.md parity ──────────────────────────────
   //
   // A task authored VERBATIM from
-  // `skills-src/plan/references/task-template.md` puts the
+  // `content/design/skills/plan/references/task-template.md` puts the
   // brief description IN the `### Task [N]: [Brief Description]` heading and
   // immediately follows it with `**Phase:**` — there is NO `**Goal:**` or
   // `**Description:**` introducer. Under the pre-T-02 contract the heading

@@ -133,7 +133,7 @@ describe('dev-catalog v3 content — CR-2 mode:check enforcement', () => {
 
   it('inv4_editingSkillsSrcOnly_producesNoFinding', () => {
     const e = entry('INV-4');
-    const clean = diffFor('skills-src/ideate/SKILL.md', [
+    const clean = diffFor('content/design/skills/ideate/SKILL.md', [
       'edit to source-of-truth is fine',
     ]);
     const findings = evaluateTree(

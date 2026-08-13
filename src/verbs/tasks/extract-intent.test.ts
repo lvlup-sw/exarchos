@@ -98,7 +98,7 @@ describe('extract-intent (DR-1 #1593)', () => {
     // type. `deriveIntent` takes no workflowType (proven by its arity / call
     // shape), and the persist path is type-blind — so a `feature` and a
     // `oneshot` workflow store byte-identical `artifacts.intent`.
-    const intent = deriveIntent(['servers/a.ts', 'skills-src/x/SKILL.md', 'docs/y.md']);
+    const intent = deriveIntent(['servers/a.ts', 'content/x/SKILL.md', 'docs/y.md']);
 
     const featureId = 'intent-agnostic-feature';
     const oneshotId = 'intent-agnostic-oneshot';

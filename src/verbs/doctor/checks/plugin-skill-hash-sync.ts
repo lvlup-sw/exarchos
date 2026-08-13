@@ -1,5 +1,5 @@
 /**
- * plugin-skill-hash-sync — surfaces the skills-src → skills drift
+ * plugin-skill-hash-sync — surfaces the content → skills drift
  * condition that `npm run skills:guard` enforces in CI, as a lightweight
  * diagnostic. The probe performs the detection (mtime heuristic by
  * default); this check only projects the result into a CheckResult.

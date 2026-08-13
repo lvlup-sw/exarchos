@@ -5,7 +5,7 @@
  * be a *thin shim*: its body carries no duplicated procedure — just a short
  * directive that delegates to the backing skill(s) via `@skills/<dir>/SKILL.md`.
  * The fat procedure bodies were migrated INTO the corresponding
- * `skills-src/<verb>/SKILL.md` sources so the skill is the single source of
+ * `content/<verb>/SKILL.md` sources so the skill is the single source of
  * truth. No command file is deleted this cycle (older-Claude compatibility).
  *
  * **Command-only** surfaces (`autocompact`, `tag` — declared in `COMMAND_ONLY`,
@@ -22,6 +22,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { findSkillDir } from '../../tools/test-helpers/content-tree.js';
 import {
   COMMAND_TO_SKILL,
   COMMAND_ONLY,
@@ -30,7 +31,7 @@ import {
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../..');
 const commandsDir = join(repoRoot, 'commands');
-const skillsSrcDir = join(repoRoot, 'skills-src');
+const skillsSrcDir = join(repoRoot, 'content');
 
 /** Matches a skill *entry-point* reference, e.g. `@skills/discover/SKILL.md`. */
 const SKILL_REF = /@skills\/([^/]+)\/SKILL\.md/g;
@@ -82,7 +83,7 @@ describe('commands tree — thin-shim collapse (DR-3, Task 007)', () => {
         lines.length,
         `commands/${command}.md body has ${lines.length} non-blank lines ` +
           `(> ${MAX_SHIM_BODY_LINES}); it should be a thin shim — migrate its ` +
-          `procedure into skills-src/${command}/SKILL.md.`,
+          `procedure into content/${command}/SKILL.md.`,
       ).toBeLessThanOrEqual(MAX_SHIM_BODY_LINES);
 
       expect(
@@ -156,8 +157,8 @@ describe('commands tree — thin-shim collapse (DR-3, Task 007)', () => {
           expect(referencedSkills(commandBody(verb))).toEqual(sorted(skills));
           for (const dir of skills) {
             expect(
-              existsSync(join(skillsSrcDir, dir, 'SKILL.md')),
-              `/${verb} resolves to missing skills-src/${dir}/SKILL.md`,
+              findSkillDir(dir) !== undefined,
+              `/${verb} resolves to missing content/${dir}/SKILL.md`,
             ).toBe(true);
           }
         } else {

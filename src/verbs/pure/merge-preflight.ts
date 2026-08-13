@@ -316,7 +316,7 @@ function adaptToDispatchGuardExec(
  *   2. A link to the runbook section in the delegate skill that
  *      documents the manual rebase + rollback procedure. The anchor
  *      `#when-integration-advances-mid-wave` is the slugified heading
- *      added in `skills-src/delegate/SKILL.md` under task T-15.
+ *      added in `content/delivery/skills/delegate/SKILL.md` under task T-15.
  *
  * No auto-rebase is invoked here; per the plan, automation is deferred
  * to issue #1119.
@@ -335,7 +335,7 @@ function formatAncestryRemediation(
   return (
     `source branch ${sourceBranch} is not a descendant of ${targetBranch}. ` +
     `Rebase manually with: git rebase ${targetBranch} (run from the ${sourceBranch} worktree). ` +
-    `Runbook: skills-src/delegate/SKILL.md#when-integration-advances-mid-wave`
+    `Runbook: content/delivery/skills/delegate/SKILL.md#when-integration-advances-mid-wave`
   );
 }
 

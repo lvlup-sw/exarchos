@@ -162,7 +162,7 @@ describe('validateExample against the LIVE registry — seeded drift FAILS', () 
 });
 
 // ─── Exit-proof (b): every real documented example agrees with live schemas ──
-// This is the WFQ-011 drift guard. Reverting any of the skills-src corrections
+// This is the WFQ-011 drift guard. Reverting any of the content corrections
 // made in P02-07 re-introduces a documented example that this walk rejects.
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // Task 012 moved this file one level deeper (quality/ -> projections/quality/).
@@ -180,9 +180,9 @@ function walkMarkdown(dir: string): string[] {
 
 describe('live documentation ↔ registered schema agreement (WFQ-011 drift guard)', () => {
   const oracle = buildOracleFromRegistry(TOOL_REGISTRY);
-  const docRoots = ['skills-src', 'commands'].map((r) => path.join(REPO_ROOT, r));
+  const docRoots = ['content', 'commands'].map((r) => path.join(REPO_ROOT, r));
 
-  it('every exarchos_* example in skills-src/ and commands/ validates clean', () => {
+  it('every exarchos_* example in content/ and commands/ validates clean', () => {
     const failures: string[] = [];
     let exampleCount = 0;
     for (const root of docRoots) {

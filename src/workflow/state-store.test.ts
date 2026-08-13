@@ -845,7 +845,7 @@ describe('applyDotPath array replacement (#1003)', () => {
 
 // ─── T-17 (DR-8c): documented array-insertion syntax in workflow_set ─────────
 //
-// `skills-src/checkpoint/SKILL.md` previously documented `tasks[id=001]`
+// `content/continuity/skills/checkpoint/SKILL.md` previously documented `tasks[id=001]`
 // as the pattern for editing a single task in place. The parser does NOT
 // support keyed array access — `parsePath` only recognizes numeric brackets
 // (`[\d+]`). The supported insertion patterns are:
@@ -869,7 +869,7 @@ describe('applyDotPath array append syntax (T-17)', () => {
     };
 
     // Act — append by writing at index === current array length.
-    // This is the syntax `skills-src/checkpoint/SKILL.md` documents.
+    // This is the syntax `content/continuity/skills/checkpoint/SKILL.md` documents.
     applyDotPath(obj, 'tasks[2]', {
       id: 'T-003',
       title: 'New follow-up',
@@ -891,7 +891,7 @@ describe('applyDotPath array append syntax (T-17)', () => {
     // possible failure mode — caller saw `success: true` while the actual
     // task was untouched. The parser now throws a clear error so callers
     // get loud feedback and can switch to the by-index form documented in
-    // skills-src/checkpoint/SKILL.md.
+    // content/continuity/skills/checkpoint/SKILL.md.
     const obj: Record<string, unknown> = {
       tasks: [{ id: 'T-001', status: 'pending' }],
     };

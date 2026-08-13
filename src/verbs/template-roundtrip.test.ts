@@ -59,9 +59,9 @@ import {
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
 const TEMPLATES = {
-  design: resolve(REPO_ROOT, 'skills-src/ideate/references/design-template.md'),
-  plan: resolve(REPO_ROOT, 'skills-src/plan/references/plan-document-template.md'),
-  task: resolve(REPO_ROOT, 'skills-src/plan/references/task-template.md'),
+  design: resolve(REPO_ROOT, 'content/design/skills/ideate/references/design-template.md'),
+  plan: resolve(REPO_ROOT, 'content/design/skills/plan/references/plan-document-template.md'),
+  task: resolve(REPO_ROOT, 'content/design/skills/plan/references/task-template.md'),
 } as const;
 
 // ─── Fenced-block extraction ─────────────────────────────────────────────────

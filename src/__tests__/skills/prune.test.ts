@@ -1,7 +1,7 @@
 /**
  * Structural tests for the prune skill.
  *
- * Validates the skills-src/prune/SKILL.md frontmatter and body
+ * Validates the content/remediation/skills/prune/SKILL.md frontmatter and body
  * against the conventions documented in CLAUDE.md and the T5 task spec
  * in docs/plans/archive/2026-04-11-oneshot-and-pruning.md:
  *
@@ -11,7 +11,7 @@
  *   - body references the prune_stale_workflows orchestrate action
  *   - body documents both dry-run and apply phases
  *
- * Reads from skills-src/ (canonical source) per the same convention used
+ * Reads from content/ (canonical source) per the same convention used
  * by runbooks/skill-coverage.test.ts. The generated skills/ tree is
  * verified separately by the skills-guard CI check.
  */
@@ -25,7 +25,7 @@ import { parse as parseYaml } from 'yaml';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const skillPath = resolve(
   __dirname,
-  '../../../skills-src/prune/SKILL.md');
+  '../../../content/remediation/skills/prune/SKILL.md');
 
 interface SkillFrontmatter {
   name?: unknown;

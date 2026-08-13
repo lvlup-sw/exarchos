@@ -1,7 +1,7 @@
 // ─── Review Classification (Issue #1159 Phase 2) ────────────────────────────
 //
 // Promotes the prose direct-vs-delegate heuristic from
-// skills-src/shepherd/references/fix-strategies.md into a structured
+// content/synthesis/skills/shepherd/references/fix-strategies.md into a structured
 // orchestrate action. Consumers pass a list of ActionItems (typically the
 // `actionItems` returned by assess_stack) and receive a list of file-keyed
 // groups, each with a recommended dispatch strategy:

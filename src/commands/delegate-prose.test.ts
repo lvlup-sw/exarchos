@@ -12,7 +12,7 @@ const REPO_ROOT = path.resolve(__dirname, '../..');
 // its new home. `delegate` is an ORCHESTRATION skill, so its auto-chain uses the
 // per-runtime `{{CHAIN}}` render token rather than a literal, harness-specific
 // slash-command invocation.
-const DELEGATE_SKILL = path.join(REPO_ROOT, 'skills-src/delegate/SKILL.md');
+const DELEGATE_SKILL = path.join(REPO_ROOT, 'content/delivery/skills/delegate/SKILL.md');
 
 describe('delegate skill canonical event + transition discipline (#1370 PR-2; DR-3 fold-in)', () => {
   it('DelegateCommand_DispatchBlock_InstructsTaskAssignedEventEmission', () => {
@@ -55,7 +55,7 @@ describe('delegate skill canonical event + transition discipline (#1370 PR-2; DR
     const body = fs.readFileSync(DELEGATE_SKILL, 'utf8');
     // Normal/--fixes mode auto-chains to `review`. (The `--pr-fixes → synthesize`
     // auto-chain was deprecated and superseded by the `shepherd` skill for PR
-    // feedback workflows — see `skills-src/delegate/SKILL.md` "Deprecated" note —
+    // feedback workflows — see `content/delivery/skills/delegate/SKILL.md` "Deprecated" note —
     // so delegate no longer documents a synthesize target.)
     expect(
       body,

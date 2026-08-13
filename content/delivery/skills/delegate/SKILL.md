@@ -438,7 +438,7 @@ The merge-orchestrator reports an ancestry failure of the form:
 ```text
 source branch <feature-branch> is not a descendant of <integration-branch>.
 Rebase manually with: git rebase <integration-branch> (run from the <feature-branch> worktree).
-Runbook: skills-src/delegate/SKILL.md#when-integration-advances-mid-wave
+Runbook: content/delivery/skills/delegate/SKILL.md#when-integration-advances-mid-wave
 ```
 
 This means the integration branch advanced (typically because an earlier

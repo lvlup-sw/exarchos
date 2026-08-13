@@ -128,7 +128,7 @@ export function deepMerge(
  * name and silently wrote to a bogus top-level key, returning success
  * while the actual task was untouched. The parser now throws so callers
  * get loud feedback and reach for the supported by-index form documented
- * in `skills-src/checkpoint/SKILL.md`.
+ * in `content/continuity/skills/checkpoint/SKILL.md`.
  */
 function parsePath(dotPath: string): Array<string | number> {
   const segments: Array<string | number> = [];
@@ -161,7 +161,7 @@ function parsePath(dotPath: string): Array<string | number> {
           `The parser only recognizes numeric brackets, e.g. "tasks[0].status". ` +
           `To edit one task, first read tasks (action: "get", query: "tasks"), ` +
           `then write to its array index. To append, write to "tasks[<length>]". ` +
-          `See skills-src/checkpoint/SKILL.md for the supported patterns.`,
+          `See content/continuity/skills/checkpoint/SKILL.md for the supported patterns.`,
       );
     }
 
