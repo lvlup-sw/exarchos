@@ -150,6 +150,18 @@ jobs:
       # `test-mcp` filled before the extraction; the five Wave-1 guards keep
       # their individually-named UNFILTERED hosts on `grep-gates`.
       - run: npm run test:conformance
+
+      # End-to-end install acceptance (task 028). Its own step for the same
+      # reason as conformance above — `npm run test:run` is the `unit` project
+      # only, so this project is collected by nothing without it.
+      #
+      # It materializes HEAD's TRACKED content into a scratch dir and runs the
+      # real installer over that, which is the only vantage point from which a
+      # gitignored payload, an unflattened skill tree, or a hook registered
+      # twice is visible. Every other check reads the working tree, where an
+      # untracked file resolves exactly like a shipped one.
+      - run: npm run test:acceptance
+
       # render:guard — the single drift gate over everything the build
       # generates. Re-renders content/ and fails if any generated tree differs
       # from what is committed: the rendered/ artifact trees (skills, commands,

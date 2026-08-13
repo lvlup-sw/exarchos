@@ -198,6 +198,26 @@ export default defineConfig({
         },
       },
       {
+        test: {
+          // End-to-end install acceptance (task 028). Separate from every tier
+          // above because it materializes HEAD into a scratch dir and runs the
+          // real installer over it — seconds of wall-time, and none of it
+          // shares the working tree.
+          //
+          // `passWithNoTests` is deliberately ABSENT: this project exists to
+          // prove the published contract still installs, and a glob that
+          // matched nothing would report exactly the same green as a contract
+          // that holds.
+          name: 'acceptance',
+          include: ['tests/acceptance/**/*.test.ts'],
+          exclude: EXCLUDE,
+          testTimeout: 120000,
+          // The install writes into a scratch HOME and the archive step shells
+          // out to git; serializing keeps those off each other's back.
+          fileParallelism: false,
+        },
+      },
+      {
         // The extracted conformance suite (task 018a). Its own project rather
         // than an `unit` include, because it reads and parses the subject tree
         // and is an order of magnitude slower per file than a unit test.

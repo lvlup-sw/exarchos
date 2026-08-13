@@ -51,6 +51,7 @@
     "test:all": "vitest run",
     "test:outcome": "vitest run --project outcome",
     "test:conformance": "vitest run --project conformance",
+    "test:acceptance": "vitest run --project acceptance",
     "test:core": "vitest run --project core",
     "test:coverage": "vitest run --project core --coverage",
     "test:run": "npm run test:unit",
