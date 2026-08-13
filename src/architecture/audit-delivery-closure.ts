@@ -380,9 +380,11 @@ function contractFindingCode(state: ContractFieldState): ClosureFindingCode {
  * where the runner was launched).
  */
 function defaultReadReader(repoRelativePath: string): string | undefined {
-  // `src/architecture/` → repo root is four levels up
-  // (architecture → src → exarchos-mcp → servers → root).
-  const url = new URL(`../../../../${repoRelativePath}`, import.meta.url);
+  // `src/architecture/<file>` → repo root is two levels up. It was four while
+  // this module lived inside `servers/exarchos-mcp/`; the fold removed those
+  // two segments. An over-deep walk still names a real directory, so it
+  // surfaces as "declared reader does not exist" rather than as a path error.
+  const url = new URL(`../../${repoRelativePath}`, import.meta.url);
   try {
     return readFileSync(fileURLToPath(url), 'utf8');
   } catch {
