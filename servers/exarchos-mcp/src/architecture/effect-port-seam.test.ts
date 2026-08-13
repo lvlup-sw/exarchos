@@ -6,6 +6,7 @@ import {
   runEffectPortCensus,
   footprintOf,
   moduleFootprint,
+  CONFORMANCE_EFFECT_PORTS,
   NARROW_EFFECT_PORTS,
   type EffectPortRule,
 } from './effect-port-seam.js';
@@ -13,6 +14,8 @@ import { scanEffectOccurrences, type EffectOccurrence } from './effect-ledger.js
 import { lexModule } from '../test-helpers/module-lexer.js';
 
 const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+/** `<repo>/tools/conformance/src` — `src/` is three levels below the repo root. */
+const CONFORMANCE_SRC_ROOT = join(SRC_ROOT, '..', '..', '..', 'tools', 'conformance', 'src');
 
 describe('footprintOf / moduleFootprint', () => {
   it('collects the distinct effect classes of a module from occurrences', () => {
@@ -94,6 +97,31 @@ describe('EXIT PROOF — live narrow effect ports', () => {
   it('every declared port module performs at least one of its declared classes (no phantom)', async () => {
     const occurrences = await scanEffectOccurrences(SRC_ROOT, lexModule);
     for (const rule of NARROW_EFFECT_PORTS) {
+      const actual = footprintOf(rule.module, occurrences);
+      for (const cls of rule.port) {
+        expect(actual.has(cls), `${rule.module} does not perform declared ${cls}`).toBe(true);
+      }
+    }
+  });
+});
+
+// ── The same proof over the extracted conformance package (task 018a) ────────
+//
+// Two curated port modules moved out of the subject tree. The census keys a
+// module relative to the root it scans, so governing them means a second pass
+// over the second root — not a shorter rule table. Both teeth are asserted
+// here exactly as above: no diagnostic, and no phantom rule.
+describe('EXIT PROOF — live narrow effect ports (conformance package)', () => {
+  it('(a) every curated conformance module holds exactly its declared narrow port', async () => {
+    const result = await auditEffectPorts(CONFORMANCE_SRC_ROOT, lexModule, CONFORMANCE_EFFECT_PORTS);
+    expect(result.diagnostics).toEqual([]);
+    expect(result.ok).toBe(true);
+    expect(result.ruleCount).toBeGreaterThan(0);
+  });
+
+  it('every declared conformance port module performs its declared classes (no phantom)', async () => {
+    const occurrences = await scanEffectOccurrences(CONFORMANCE_SRC_ROOT, lexModule);
+    for (const rule of CONFORMANCE_EFFECT_PORTS) {
       const actual = footprintOf(rule.module, occurrences);
       for (const cls of rule.port) {
         expect(actual.has(cls), `${rule.module} does not perform declared ${cls}`).toBe(true);

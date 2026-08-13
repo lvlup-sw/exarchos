@@ -102,6 +102,23 @@ export default defineConfig({
           passWithNoTests: true,
         },
       },
+      {
+        // The extracted conformance suite (task 018a). Its own project rather
+        // than an `unit` include, because it reads and parses the subject tree
+        // and is an order of magnitude slower per file than a unit test.
+        //
+        // `passWithNoTests` is deliberately ABSENT. This suite is the repo's
+        // enforcement layer, so a glob that matches nothing must fail: a
+        // conformance project that collects zero files is exactly the
+        // silent-green outcome the suite exists to prevent, and this package
+        // has just moved.
+        test: {
+          name: 'conformance',
+          include: ['tools/conformance/src/**/*.test.ts'],
+          exclude: EXCLUDE,
+          testTimeout: 30000,
+        },
+      },
     ],
   },
 });

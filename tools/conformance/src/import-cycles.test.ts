@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { spawnCommandSync } from '../utils/process.js';
+import { spawnCommandSync } from '../../../servers/exarchos-mcp/src/utils/process.js';
+import { REPO_ROOT, SUBJECT_PACKAGE_ROOT } from './subject-root.js';
 import {
   detectRuntimeCycles,
   runtimeEdgeExists,
@@ -31,11 +31,9 @@ import {
 // skipped (INV-4 degrade discipline) ONLY when the local binary is genuinely
 // absent — never a false failure, never a silent pass in CI where it is present.
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-// here = <repo>/servers/exarchos-mcp/src/architecture → up 2 to the package root.
-const MCP_PACKAGE_ROOT = path.resolve(here, '..', '..');
-// up 2 more to the repo root, where `.dependency-cruiser.cjs` lives.
-const REPO_ROOT = path.resolve(MCP_PACKAGE_ROOT, '..', '..');
+// depcruise is run FROM the subject package, so its graph paths stay `src/…`
+// exactly as they were before this census was extracted.
+const MCP_PACKAGE_ROOT = SUBJECT_PACKAGE_ROOT;
 const DEPCRUISE_CONFIG = path.join(REPO_ROOT, '.dependency-cruiser.cjs');
 const CYCLE_BASELINE_PATH = path.join(REPO_ROOT, 'scripts', 'audit', 'cycle-baseline.json');
 

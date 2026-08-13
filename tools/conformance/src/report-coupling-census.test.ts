@@ -19,13 +19,13 @@
 //   3. `./report-coupling-seed-pin.ts` — the frozen key-set digest. Imports nothing, deliberately,
 //      so it cannot observe the thing it pins.
 //
-// @oracle-sources: ../events/event-annotations.ts, ./report-coupling-seed.ts, ./report-coupling-seed-pin.ts
+// @oracle-sources: ../../../servers/exarchos-mcp/src/events/event-annotations.ts, ./report-coupling-seed.ts, ./report-coupling-seed-pin.ts
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
-import { EVENT_EMISSION_REGISTRY, EventTypes } from '../events/schemas.js';
-import { ANNOTATED_EVENTS, EVENT_ANNOTATIONS } from '../events/event-annotations.js';
-import type { EventAnnotationSource } from '../events/event-declarations.js';
-import type { EventRegistration } from '../events/event-registration.js';
+import { EVENT_EMISSION_REGISTRY, EventTypes } from '../../../servers/exarchos-mcp/src/events/schemas.js';
+import { ANNOTATED_EVENTS, EVENT_ANNOTATIONS } from '../../../servers/exarchos-mcp/src/events/event-annotations.js';
+import type { EventAnnotationSource } from '../../../servers/exarchos-mcp/src/events/event-declarations.js';
+import type { EventRegistration } from '../../../servers/exarchos-mcp/src/events/event-registration.js';
 import {
   auditLiveReportCouplingRatchet,
   censusLiveReportCoupling,

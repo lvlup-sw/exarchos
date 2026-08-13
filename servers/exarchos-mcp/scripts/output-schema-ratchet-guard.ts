@@ -70,8 +70,8 @@ import {
   formatVacuitySeedIntegrityAudit,
   isoDayUtc,
   type CensusableTool,
-} from '../src/architecture/output-schema-census.js';
-import { censusLiveOutputSchemas } from '../src/architecture/bindings/output-schema.js';
+} from '../../../tools/conformance/src/output-schema-census.js';
+import { censusLiveOutputSchemas } from '../../../tools/conformance/src/bindings/output-schema.js';
 import {
   VACUITY_ALLOWLIST,
   VACUITY_ALLOWLIST_IDS,
@@ -82,7 +82,7 @@ import {
   VACUITY_EXPIRY_HORIZON,
   VACUITY_SEED_DIGEST_ALGORITHM,
   VACUITY_SEED_KEY_SET_DIGEST,
-} from '../src/output-schema-seed-pin.js';
+} from '../../../tools/conformance/src/output-schema-seed-pin.js';
 
 /**
  * The live artifacts this guard governs, named once so the self-test can assert

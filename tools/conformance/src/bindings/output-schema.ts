@@ -20,20 +20,20 @@
  * contract module (`contract/declaration.ts`, `contract/declaration-seam.ts`).
  * See `./README.md`.
  */
-import { TOOL_REGISTRY } from '../../registry.js';
-import { extractEnvelopeDataSchema } from '../../verbs/worktree/schemas.js';
-import { acceptsEveryValue } from '../../contract/schemas/schema-totality.js';
+import { TOOL_REGISTRY } from '../../../../servers/exarchos-mcp/src/registry.js';
+import { extractEnvelopeDataSchema } from '../../../../servers/exarchos-mcp/src/verbs/worktree/schemas.js';
+import { acceptsEveryValue } from '../../../../servers/exarchos-mcp/src/contract/schemas/schema-totality.js';
 import {
   VACUITY_ALLOWLIST,
   VACUITY_ALLOWLIST_IDS,
   VACUITY_RETIRED_IDS,
   type VacuityWaiverEntry,
-} from '../../output-schema-vacuity-allowlist.js';
+} from '../../../../servers/exarchos-mcp/src/output-schema-vacuity-allowlist.js';
 import {
   VACUITY_EXPIRY_HORIZON,
   VACUITY_SEED_DIGEST_ALGORITHM,
   VACUITY_SEED_KEY_SET_DIGEST,
-} from '../../output-schema-seed-pin.js';
+} from '../output-schema-seed-pin.js';
 import {
   auditVacuityAllowlist,
   auditVacuityExpiry,

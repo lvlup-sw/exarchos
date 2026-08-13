@@ -9,7 +9,7 @@ import {
   stripComments,
   VCS_MUTATION_OWNERS,
   type VcsOwnershipDiagnostic,
-} from './vcs-ownership.js';
+} from '../../../../tools/conformance/src/vcs-ownership.js';
 
 const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -299,7 +299,7 @@ describe('DR-12 live tree — the widened census is green and load-bearing', () 
     // Without this the census could be green merely because the new rules never
     // match anything — a vacuous pass. `local-git-merge.ts` is the module DR-12
     // names as "invisible by design"; it must now be visible.
-    const { scanVcsMutationSites } = await import('./vcs-ownership.js');
+    const { scanVcsMutationSites } = await import('../../../../tools/conformance/src/vcs-ownership.js');
     const sites = await scanVcsMutationSites(SRC_ROOT);
     const kinds = new Set(sites.map((s) => s.mutation));
     expect(kinds.has('merge')).toBe(true);
@@ -310,7 +310,7 @@ describe('DR-12 live tree — the widened census is green and load-bearing', () 
   });
 
   it('every declared owner still claims a live site (STALE_VCS_OWNER ratchet intact)', async () => {
-    const { scanVcsMutationSites } = await import('./vcs-ownership.js');
+    const { scanVcsMutationSites } = await import('../../../../tools/conformance/src/vcs-ownership.js');
     const sites = await scanVcsMutationSites(SRC_ROOT);
     const liveModules = new Set(sites.map((s) => s.module));
     for (const owner of VCS_MUTATION_OWNERS) {

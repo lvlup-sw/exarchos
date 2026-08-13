@@ -28,8 +28,8 @@
     "rationale": "DR-1 kill-probe corpus fixture read via fs at test runtime (not imported): layer-boundaries-seam.test.ts:492 does readFile(VIOLATOR_FIXTURE) and runs the SHIPPED detector over its source text. Same class as swallows.fixture.ts above. Deliberately NOT promoted to a knip `entry` and NOT added to `ignore`: both change what knip's graph considers reachable, and this fixture imports EVENT_EMISSION_REGISTRY precisely because it is the seam BYPASS being falsified - laundering that import into a live use would weaken the very census the fixture exists to fail. An allowlist row exempts the finding without touching the graph."
   },
   {
-    "symbol": "servers/exarchos-mcp/src/architecture/__fixtures__/swallows.fixture.ts",
-    "file": "servers/exarchos-mcp/src/architecture/__fixtures__/swallows.fixture.ts",
+    "symbol": "tools/conformance/src/__fixtures__/swallows.fixture.ts",
+    "file": "tools/conformance/src/__fixtures__/swallows.fixture.ts",
     "owner": "@reedsalus",
     "expires": "2026-11-30",
     "rationale": "delivery-safety corpus fixture read via fs at test runtime (not imported) - the live-tree scan in delivery-safety.test.ts consumes it by path."

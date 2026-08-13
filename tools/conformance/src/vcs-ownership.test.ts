@@ -1,6 +1,4 @@
 import { describe, it, expect } from 'vitest';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
 import {
   auditVcsOwnership,
   runVcsOwnershipCensus,
@@ -11,8 +9,10 @@ import {
   VCS_MUTATION_OWNERS,
   type VcsMutationSite,
 } from './vcs-ownership.js';
+import { SUBJECT_SRC_ROOT } from './subject-root.js';
 
-const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+/** The tree this census governs — the subject's, not this package's. */
+const SRC_ROOT = SUBJECT_SRC_ROOT;
 
 describe('detectVcsMutationSites', () => {
   it('detects worktree add / worktree remove / branch delete argument vectors', () => {

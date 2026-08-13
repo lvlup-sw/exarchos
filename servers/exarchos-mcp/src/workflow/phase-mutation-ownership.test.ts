@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readdir, readFile } from 'node:fs/promises';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { maskLiteralsAndComments } from '../architecture/delivery-safety.js';
+import { maskLiteralsAndComments } from '../../../../tools/conformance/src/delivery-safety.js';
 
 /**
  * T-11 / DR-7 — single phase-mutation authority, asserted STRUCTURALLY.

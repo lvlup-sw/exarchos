@@ -1,4 +1,4 @@
-// @oracle-sources: ../events/schemas.ts, ./event-grammar-concessions.ts
+// @oracle-sources: ../../../servers/exarchos-mcp/src/events/schemas.ts, ./event-grammar-concessions.ts
 //
 // DR-3 / task 015 — the event-name grammar census and its two-way ratchet.
 //
@@ -21,8 +21,8 @@ import {
   getValidEventTypes,
   registerEventType,
   unregisterEventType,
-} from '../events/schemas.js';
-import { classifyEventName, WORD_SEPARATORS } from '../events/event-name.js';
+} from '../../../servers/exarchos-mcp/src/events/schemas.js';
+import { classifyEventName, WORD_SEPARATORS } from '../../../servers/exarchos-mcp/src/events/event-name.js';
 import { censusLiveEventNameGrammar } from './bindings/events.js';
 import {
   auditEventGrammarRatchet,

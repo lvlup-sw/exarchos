@@ -18,17 +18,17 @@
  * workspace and does not carry its `bun:sqlite` alias, so the import would not
  * resolve there.
  *
- * @oracle-sources: ../registry.ts, live-composite-dispatch-sources
+ * @oracle-sources: ../../../servers/exarchos-mcp/src/registry.ts, live-composite-dispatch-sources
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
 import * as path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { TOOL_REGISTRY } from '../registry.js';
+import { TOOL_REGISTRY } from '../../../servers/exarchos-mcp/src/registry.js';
+import { fromRepoRoot, SUBJECT_SRC_ROOT } from './subject-root.js';
 
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SRC = path.resolve(HERE, '..');
-const BASELINE = path.resolve(SRC, '../../../tools/audit/verb-registration-baseline.json');
+const BASELINE = fromRepoRoot('tools/audit/verb-registration-baseline.json');
+/** Composite handler paths are declared relative to the SUBJECT's source root. */
+const SRC = SUBJECT_SRC_ROOT;
 
 /** Every `<tool>.<action>` id the registry advertises, sorted. */
 function registeredActionIds(): string[] {

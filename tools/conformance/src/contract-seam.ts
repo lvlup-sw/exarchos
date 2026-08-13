@@ -12,7 +12,7 @@
  * Strategos.Contracts — it is a pure source-text check.
  */
 import fs from 'node:fs';
-import type { PluginFinding } from '../review/check-catalog.js';
+import type { PluginFinding } from '../../../servers/exarchos-mcp/src/review/check-catalog.js';
 
 /** Matches `export const FooSchema = ...` declarations. */
 const EXPORTED_SCHEMA_RE = /^export\s+const\s+([A-Za-z0-9_]+Schema)\b/;

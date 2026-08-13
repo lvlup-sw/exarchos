@@ -72,7 +72,7 @@
 // into "the self-test broke", which is the lesson 017 was careful not to teach.
 // The mutation probes below are structural and therefore date-independent.
 //
-// @oracle-sources: ../output-schema-vacuity-allowlist.ts, the exit status and stdout/stderr of a separate OS process running the shipped guard entrypoint under tsx
+// @oracle-sources: ../../../servers/exarchos-mcp/src/output-schema-vacuity-allowlist.ts, the exit status and stdout/stderr of a separate OS process running the shipped guard entrypoint under tsx
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -80,12 +80,12 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { censusLiveOutputSchemas } from './bindings/output-schema.js';
-import { VACUITY_ALLOWLIST_IDS } from '../output-schema-vacuity-allowlist.js';
+import { REPO_ROOT, SUBJECT_PACKAGE_ROOT } from './subject-root.js';
+import { VACUITY_ALLOWLIST_IDS } from '../../../servers/exarchos-mcp/src/output-schema-vacuity-allowlist.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-/** `servers/exarchos-mcp` */
-const MCP_ROOT = resolve(HERE, '..', '..');
-const REPO_ROOT = resolve(MCP_ROOT, '..', '..');
+/** `servers/exarchos-mcp` — the subject package, which is no longer this one. */
+const MCP_ROOT = SUBJECT_PACKAGE_ROOT;
 /** The artifact ci.yml invokes. Its reachability is guard-inventory's claim; its EXECUTION is this file's. */
 const GUARD_PATH = join(MCP_ROOT, 'scripts', 'output-schema-ratchet-guard.ts');
 

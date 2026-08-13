@@ -202,13 +202,30 @@ export const NARROW_EFFECT_PORTS: readonly EffectPortRule[] = Object.freeze([
     ['filesystem'],
     'Read-only source-scan gate; reads files only — no process/network port.',
   ),
+]);
+
+/**
+ * The same rules for the modules that task 018a moved OUT of the subject tree
+ * into `tools/conformance/`.
+ *
+ * They are a separate table because the census keys a module by its path
+ * relative to the root being scanned, and these two now live under a different
+ * root. Keeping them in {@link NARROW_EFFECT_PORTS} would make them phantom
+ * rules — which is exactly what the extraction made them, and what
+ * `STALE_EFFECT_PORT` caught.
+ *
+ * The alternative was to delete the two entries. That would have been a silent
+ * weakening: both modules still read the filesystem, and the property that they
+ * never grow a process or network port is no less true for their having moved.
+ */
+export const CONFORMANCE_EFFECT_PORTS: readonly EffectPortRule[] = Object.freeze([
   port(
-    'architecture/vcs-ownership.ts',
+    'vcs-ownership.ts',
     ['filesystem'],
     'Read-only source-scan gate; reads files only — no process/network port.',
   ),
   port(
-    'architecture/contract-seam.ts',
+    'contract-seam.ts',
     ['filesystem'],
     'Read-only schema source-lint; reads files only — no process/network port.',
   ),

@@ -54,17 +54,17 @@
 // `authority-census.ts` is deliberately NOT listed — it imports the topology, so
 // naming it would be one authority wearing two names. DR-30's own check caught
 // that when this header first listed all three, which is the invariant working.
-// @oracle-sources: ../authority-topology.ts, ../../../../../scripts/guard-inventory.ts
+// @oracle-sources: ./authority-topology.ts, ../../../scripts/guard-inventory.ts
 import { describe, it, expect } from 'vitest';
 
-import { runAuthorityCensus } from '../authority-census.js';
+import { runAuthorityCensus } from './authority-census.js';
 import {
   AUTHORITY_TOPOLOGY,
   topologyRows,
   type AuthorityTopologyRow,
   type BoundaryRepresentation,
-} from '../authority-topology.js';
-import { buildGuardInventory } from '../../../../../scripts/guard-inventory.js';
+} from './authority-topology.js';
+import { buildGuardInventory } from '../../../scripts/guard-inventory.js';
 
 // ─── The five Wave-1 guards, transcribed from §3a ────────────────────────────
 
@@ -77,10 +77,13 @@ import { buildGuardInventory } from '../../../../../scripts/guard-inventory.js';
  */
 const WAVE1_GUARDS: readonly { readonly id: string; readonly artifact: string }[] = [
   { id: 'G1 — CLI derivation guard (DR-5)', artifact: 'servers/exarchos-mcp/scripts/cli-derivation-guard.ts' },
-  { id: 'G2 — outputSchema non-vacuity ratchet (DR-4)', artifact: 'servers/exarchos-mcp/src/architecture/output-schema-census.ts' },
-  { id: 'G3 — event coupling union (DR-2)', artifact: 'servers/exarchos-mcp/src/architecture/report-coupling-census.ts' },
+  { id: 'G2 — outputSchema non-vacuity ratchet (DR-4)', artifact: 'tools/conformance/src/output-schema-census.ts' },
+  { id: 'G3 — event coupling union (DR-2)', artifact: 'tools/conformance/src/report-coupling-census.ts' },
+  // G4 stayed in the subject tree: `effect-ledger.ts` has seven production
+  // consumers, so task 018a could not extract it without inverting the
+  // dependency direction between `src/` and `tools/`.
   { id: 'G4 — effect ledger bijection (DR-7)', artifact: 'servers/exarchos-mcp/src/architecture/effect-ledger.ts' },
-  { id: 'G5 — authority-topology census (DR-6)', artifact: 'servers/exarchos-mcp/src/architecture/authority-census.ts' },
+  { id: 'G5 — authority-topology census (DR-6)', artifact: 'tools/conformance/src/authority-census.ts' },
 ];
 
 /**

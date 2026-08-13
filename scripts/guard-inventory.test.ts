@@ -164,12 +164,14 @@ describe('Wave-1 guard inventory — CI reachability proof (DR-24, task 063)', (
 
     // The four guard families this task was dispatched against must each be
     // PRESENT — an inventory that cannot see them proves nothing about them.
+    // Two of the four moved to `tools/conformance/` in task 018a and are now
+    // found by channel 4 rather than by the spec's file list.
     const artifacts = new Set(liveInventory.guards.map((g) => g.artifact));
     for (const named of [
       'servers/exarchos-mcp/src/agents/dispatch-shape.ts',
-      'servers/exarchos-mcp/src/architecture/output-schema-census.ts',
+      'tools/conformance/src/output-schema-census.ts',
       'servers/exarchos-mcp/scripts/cli-derivation-guard.ts',
-      'servers/exarchos-mcp/src/architecture/authority-topology.ts',
+      'tools/conformance/src/authority-topology.ts',
     ]) {
       expect(artifacts, `${named} is missing from the inventory`).toContain(named);
     }
@@ -351,10 +353,19 @@ describe('Path-filtered hosting (#1711 skipped-as-passed)', () => {
       expect(keys.size, `${artifact} reported filtered with no derived filter key`).toBeGreaterThan(0);
     }
 
-    // The whole Wave-1 in-tree guard population sits in the `mcp`-filtered lane —
-    // the standing finding this criterion exists to surface. G5's census is the
-    // named instance: it is unenforced on every PR that touches no MCP path.
-    expect(liveAudit.pathFilteredOnly).toContain('servers/exarchos-mcp/src/architecture/authority-topology.ts');
+    // Much of the in-tree guard population sits in the `mcp`-filtered lane — the
+    // standing finding this criterion exists to surface. `layer-boundaries-seam`
+    // is the named instance: it is unenforced on every PR that touches no MCP
+    // path.
+    //
+    // It used to be G5's `authority-topology.ts`. Task 018a extracted that
+    // census to `tools/conformance/`, and the unfiltered whole-suite host the
+    // extraction required cleared the condition for it — so the example was
+    // re-pointed at a guard that still exhibits it rather than deleted, which
+    // would have quietly dropped the criterion's only live subject.
+    expect(liveAudit.pathFilteredOnly).toContain(
+      'servers/exarchos-mcp/src/architecture/layer-boundaries-seam.ts',
+    );
 
     // Not silently accepted: the same condition, with the guard's own source
     // outside the filter and no unfiltered pull_request host re-asserting it,
@@ -504,9 +515,9 @@ describe('Guard-suite discovery (channel 4)', () => {
    * very mechanism the test is trying to falsify.
    */
   const RELOCATING_CENSUSES = [
-    'servers/exarchos-mcp/src/architecture/output-schema-census.ts',
-    'servers/exarchos-mcp/src/architecture/report-coupling-census.ts',
-    'servers/exarchos-mcp/src/architecture/authority-census.ts',
+    'tools/conformance/src/output-schema-census.ts',
+    'tools/conformance/src/report-coupling-census.ts',
+    'tools/conformance/src/authority-census.ts',
   ];
 
   it('GuardSuite_WithTheSpecChannelDark_StillDiscoversEveryConformanceCensus', () => {
@@ -531,15 +542,25 @@ describe('Guard-suite discovery (channel 4)', () => {
     expect(withoutSpec.guards.some((g) => g.channels.includes('wave1-spec'))).toBe(false);
   });
 
-  it('GuardSuite_EveryDeclaredRoot_IsCoveredByTwoChannelsToday', () => {
-    // Channel overlap is the design ("a guard has to hide from all of them to
-    // escape"), and it is also this change's own safety property: every census
-    // channel 4 discovers is one channel 2 already knew about, so the inventory
-    // gained members without losing or re-verdicting any.
+  it('GuardSuite_AfterTheRelocation_IsTheSoleSurvivingChannel', () => {
+    // The predicted failure, now measured. Before task 018a these three were
+    // discovered by `wave1-spec` alone; channel 4 was added so the move would be
+    // survivable, and the move then happened. The spec's `**Files:**` paths no
+    // longer resolve, so channel 2 has dropped them — and `conformance-suite` is
+    // the only reason they are still in the inventory at all.
+    //
+    // This is what the channel is FOR, so it is asserted rather than left as a
+    // property of the moment: if some future change re-broadens another channel
+    // over `tools/conformance/`, that is fine and this test says so by failing
+    // in the direction of MORE coverage, which a reviewer will read.
     for (const census of RELOCATING_CENSUSES) {
       const record = liveInventory.guards.find((g) => g.artifact === census);
-      expect(record?.channels, `${census} channels`).toEqual(['conformance-suite', 'wave1-spec']);
+      expect(record?.channels, `${census} channels`).toEqual(['conformance-suite']);
     }
+    // The spec channel is still alive for everything that did NOT move — this is
+    // the control that keeps the assertion above from passing because channel 2
+    // broke outright.
+    expect(liveInventory.guards.some((g) => g.channels.includes('wave1-spec'))).toBe(true);
   });
 
   it('GuardSuite_RootThatCannotBeRead_ThrowsRatherThanContributingZero', () => {
@@ -551,7 +572,7 @@ describe('Guard-suite discovery (channel 4)', () => {
     // nothing. `bindings/` is a real directory of six real modules, none of them
     // self-tested — so it is a readable root whose guard count is genuinely zero.
     expect(() =>
-      scanGuardSuiteRoots(REPO_ROOT, ['servers/exarchos-mcp/src/architecture/bindings']),
+      scanGuardSuiteRoots(REPO_ROOT, ['tools/conformance/src/bindings']),
     ).toThrow(/contributed ZERO guards/);
   });
 
@@ -568,7 +589,7 @@ describe('Guard-suite discovery (channel 4)', () => {
     // delete a guard.
     const scan = scanGuardSuiteRoots();
     expect(scan.modulesWithoutSelfTest).toContain(
-      'servers/exarchos-mcp/src/architecture/bindings/registry.ts',
+      'tools/conformance/src/bindings/registry.ts',
     );
     expect(liveInventory.suiteModulesWithoutSelfTest).toEqual(scan.modulesWithoutSelfTest);
     // Disjoint by construction — a module cannot be both.

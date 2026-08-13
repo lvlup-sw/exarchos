@@ -258,6 +258,11 @@ describe('DR-14: noUncheckedIndexedAccess ratchet (root)', () => {
     'servers/exarchos-mcp/src',
     'scripts',
     'servers/exarchos-mcp/scripts',
+    // Task 018a's extracted conformance package — a fifth typechecked tree
+    // (`tsc --noEmit -p tools/conformance`, wired into `npm run typecheck`).
+    // Without it the extraction would have carried ~6 counted casts out of the
+    // census's jurisdiction, which the below-baseline floor caught.
+    'tools/conformance/src',
   ];
 
   it('FixWave_CastBudget_MeasuredAndWithinDeclaredLimit', () => {

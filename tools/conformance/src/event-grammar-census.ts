@@ -80,7 +80,7 @@ import type {
   EventNameDefect,
   EventNameVerdict,
   WordSeparator,
-} from '../events/event-name.js';
+} from '../../../servers/exarchos-mcp/src/events/event-name.js';
 import {
   EVENT_GRAMMAR_CONCESSIONS,
   type GrammarConcessionEntry,

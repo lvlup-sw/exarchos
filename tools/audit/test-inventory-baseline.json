@@ -1,5 +1,5 @@
 {
-  "capturedAt": "2026-08-12",
+  "capturedAt": "2026-08-13",
   "discovery": "extension-based over tracked files; not a runner glob",
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
@@ -7,7 +7,7 @@
     "testFiles": 1148,
     "parsedFiles": 1103,
     "shellFiles": 45,
-    "cases": 12684,
+    "cases": 12693,
     "dynamicTitles": 130,
     "unparseableFiles": 0
   },
@@ -2698,6 +2698,41 @@
         {
           "suite": "Non-empty denominator",
           "name": "GuardInventory_LiveTableRendersOneRowPerGuard",
+          "dynamic": false
+        },
+        {
+          "suite": "Guard-suite discovery (channel 4)",
+          "name": "GuardSuite_WithTheSpecChannelDark_StillDiscoversEveryConformanceCensus",
+          "dynamic": false
+        },
+        {
+          "suite": "Guard-suite discovery (channel 4)",
+          "name": "GuardSuite_AfterTheRelocation_IsTheSoleSurvivingChannel",
+          "dynamic": false
+        },
+        {
+          "suite": "Guard-suite discovery (channel 4)",
+          "name": "GuardSuite_RootThatCannotBeRead_ThrowsRatherThanContributingZero",
+          "dynamic": false
+        },
+        {
+          "suite": "Guard-suite discovery (channel 4)",
+          "name": "GuardSuite_RootThatMatchesNothing_ThrowsRatherThanShrinkingTheInventory",
+          "dynamic": false
+        },
+        {
+          "suite": "Guard-suite discovery (channel 4)",
+          "name": "GuardSuite_EmptyRootList_ThrowsRatherThanContributingNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "Guard-suite discovery (channel 4)",
+          "name": "GuardSuite_ModuleWithoutSelfTest_IsReportedNotSilentlyDropped",
+          "dynamic": false
+        },
+        {
+          "suite": "Guard-suite discovery (channel 4)",
+          "name": "GuardSuite_DeclaredRoots_AllExistOnDisk",
           "dynamic": false
         },
         {
@@ -8148,32 +8183,6 @@
         }
       ]
     },
-    "servers/exarchos-mcp/src/architecture/__tests__/wave1-exit.test.ts": {
-      "file": "servers/exarchos-mcp/src/architecture/__tests__/wave1-exit.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "Wave 1 exit — the five guards (task 027, DR-6 / DR-24)",
-          "name": "Wave1Exit_AllFiveGuards_BlockOnSeededViolation",
-          "dynamic": false
-        },
-        {
-          "suite": "Wave 1 exit — the five guards (task 027, DR-6 / DR-24)",
-          "name": "Wave1Exit_EachGuardSelfTest_RunsInSameCiJob",
-          "dynamic": false
-        },
-        {
-          "suite": "Wave 1 exit — the five guards (task 027, DR-6 / DR-24)",
-          "name": "Wave1Exit_AllGuardsOnUnfilteredPaths",
-          "dynamic": false
-        },
-        {
-          "suite": "Wave 1 exit — the five guards (task 027, DR-6 / DR-24)",
-          "name": "Wave1Exit_NoGuardIsUnreachable",
-          "dynamic": false
-        }
-      ]
-    },
     "servers/exarchos-mcp/src/architecture/adapter-ownership-seam.test.ts": {
       "file": "servers/exarchos-mcp/src/architecture/adapter-ownership-seam.test.ts",
       "runner": "vitest:nested",
@@ -8372,290 +8381,6 @@
         }
       ]
     },
-    "servers/exarchos-mcp/src/architecture/authority-census.test.ts": {
-      "file": "servers/exarchos-mcp/src/architecture/authority-census.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "authority census — closure",
-          "name": "AuthorityCensus_UnboundRepresentation_FailsClosure",
-          "dynamic": false
-        },
-        {
-          "suite": "authority census — closure",
-          "name": "AuthorityCensus_TwoAuthoritativeRepresentations_FailsClosure",
-          "dynamic": false
-        },
-        {
-          "suite": "authority census — closure",
-          "name": "AuthorityCensus_ZeroRowsEnumerated_FailsClosed",
-          "dynamic": false
-        },
-        {
-          "suite": "authority census — closure",
-          "name": "AuthorityCensus_RowBeforeItsEnforceFromWave_DoesNotBlock",
-          "dynamic": false
-        },
-        {
-          "suite": "authority census — the enforcement hop",
-          "name": "ReachabilityCensus_OrphanRepresentation_ResolvesCleanAndProvesTheDirection",
-          "dynamic": false
-        },
-        {
-          "suite": "authority census — the enforcement hop",
-          "name": "AuthorityCensus_AlreadyEnforcedByAForwardOnlyInstrument_IsAStaleException",
-          "dynamic": false
-        },
-        {
-          "suite": "authority census — the enforcement hop",
-          "name": "AuthorityCensus_AlreadyEnforcedClaim_CountsAtEveryWave",
-          "dynamic": false
-        },
-        {
-          "suite": "authority census — the two-way ratchet on `bound`",
-          "name": "AuthorityCensus_BoundRepresentationNamingANonAuthority_IsAStaleException",
-          "dynamic": false
-        },
-        {
-          "suite": "authority census — the two-way ratchet on `bound`",
-          "name": "AuthorityCensus_RepresentationRelabelledOnOneRowOnly_IsAmbiguous",
-          "dynamic": false
-        },
-        {
-          "suite": "authority census — vocabulary",
-          "name": "AuthorityCensus_FindingKinds_AreTheReachabilityCensusKinds",
-          "dynamic": false
-        },
-        {
-          "suite": "authority census — vocabulary",
-          "name": "AuthorityCensus_EveryHopOfEveryRow_DeclaresItsEvidenceClass",
-          "dynamic": false
-        },
-        {
-          "suite": "authority census — vocabulary",
-          "name": "AuthorityCensus_LiveMeasuredRows_AreTwoAndTheOtherSixStayDeclared",
-          "dynamic": false
-        },
-        {
-          "suite": "authority census — vocabulary",
-          "name": "AuthorityCensus_EvidenceInheritedFromAnotherRow_FailsTheAudit",
-          "dynamic": false
-        },
-        {
-          "suite": "authority census — vocabulary",
-          "name": "AuthorityCensus_EmptyEvidenceMap_FailsRatherThanPassingClean",
-          "dynamic": false
-        },
-        {
-          "suite": "authority census — vocabulary",
-          "name": "AuthorityCensus_NotApplicableEvidence_IsCheckedAgainstTheRow",
-          "dynamic": false
-        },
-        {
-          "suite": "authority census — vocabulary",
-          "name": "AuthorityCensus_EvidenceFindingKinds_AreTheImportedVocabulary",
-          "dynamic": false
-        },
-        {
-          "suite": "authority census — vocabulary",
-          "name": "WaveOrdering_EveryWave_IsOrderedByItsPositionInEnforcementWaves",
-          "dynamic": false
-        },
-        {
-          "suite": "authority census — the live topology",
-          "name": "AuthorityCensus_LiveTopology_ReportsTheMeasuredFindingPopulation",
-          "dynamic": false
-        },
-        {
-          "suite": "authority census — the live topology",
-          "name": "AuthorityCensus_LiveTopology_BlocksPerRowFromItsOwnEnforceFromWave",
-          "dynamic": false
-        },
-        {
-          "suite": "authority census — the live topology",
-          "name": "AuthorityCensus_ActionContractRow_ClaimsAnInstrumentThatDoesNotDischargeG5",
-          "dynamic": false
-        },
-        {
-          "suite": "authority census — the live topology",
-          "name": "AuthorityCensus_PhaseExpectedEvents_IsReportedUnboundOnBothRowsCarryingIt",
-          "dynamic": false
-        },
-        {
-          "suite": "authority census — the live topology",
-          "name": "AuthorityCensus_EveryLiveRow_ResolvesEveryHopItCarries",
-          "dynamic": false
-        },
-        {
-          "suite": "authority census — the live topology",
-          "name": "AuthorityCensus_MalformedRowInTheSubject_FailsRatherThanBeingDropped",
-          "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/architecture/authority-live-proof.test.ts": {
-      "file": "servers/exarchos-mcp/src/architecture/authority-live-proof.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "authority census — the CLI-surface row, live",
-          "name": "AuthorityCensus_CliSurfaceRow_FailsLiveAgainstTheTree",
-          "dynamic": false
-        },
-        {
-          "suite": "authority census — the event-catalog row, live",
-          "name": "AuthorityCensus_EventCatalogRow_FailsLiveAgainstTheTree",
-          "dynamic": false
-        },
-        {
-          "suite": "authority census — the live proof fails closed",
-          "name": "AuthorityCensus_LiveProof_ZeroSubjectsResolved_FailsClosed",
-          "dynamic": false
-        },
-        {
-          "suite": "authority census — the live proof fails closed",
-          "name": "AuthorityCensus_LiveProof_UpgradesEvidenceForTwoRowsOnly",
-          "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/architecture/authority-topology.test.ts": {
-      "file": "servers/exarchos-mcp/src/architecture/authority-topology.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "authority topology — required properties",
-          "name": "AuthorityTopology_EveryRow_NamesExactlyOneAuthorityOrRecordsContested",
-          "dynamic": false
-        },
-        {
-          "suite": "authority topology — required properties",
-          "name": "AuthorityTopology_RowWithoutEnforceFrom_FailsTotality",
-          "dynamic": false
-        },
-        {
-          "suite": "authority topology — required properties",
-          "name": "AuthorityTopology_ZeroRowsResolved_FailsClosed",
-          "dynamic": false
-        },
-        {
-          "suite": "authority topology — derived boundaries",
-          "name": "BoundaryDerivations_EveryDeclarationKind_ForcesABoundaryRow",
-          "dynamic": false
-        },
-        {
-          "suite": "authority topology — derived boundaries",
-          "name": "BoundaryDerivations_RequiredBoundaryMissingFromRows_FailsTotality",
-          "dynamic": false
-        },
-        {
-          "suite": "authority topology — derived boundaries",
-          "name": "BoundaryDerivations_DeclarationKindRowDropped_FailsTotality",
-          "dynamic": false
-        },
-        {
-          "suite": "authority topology — derived boundaries",
-          "name": "RowProvenance_DerivedClaimNoBridgeProduces_IsStaleCover",
-          "dynamic": false
-        },
-        {
-          "suite": "authority topology — derived boundaries",
-          "name": "RowProvenance_DeclaredRowWithoutRationale_FailsTotality",
-          "dynamic": false
-        },
-        {
-          "suite": "authority topology — derived boundaries",
-          "name": "RowProvenance_EveryDeclaredRow_StatesWhyItIsNotDerivable",
-          "dynamic": false
-        },
-        {
-          "suite": "authority topology — plural authority",
-          "name": "AuthorityTopology_TwoAuthoritativeRepresentations_CannotBeRecordedAsSingle",
-          "dynamic": false
-        },
-        {
-          "suite": "authority topology — plural authority",
-          "name": "AuthorityTopology_ContestedWithTwoAuthoritativeRepresentations_IsWellFormed",
-          "dynamic": false
-        },
-        {
-          "suite": "authority topology — plural authority",
-          "name": "AuthorityTopology_ContestedWithOneCandidate_IsNotAContest",
-          "dynamic": false
-        },
-        {
-          "suite": "authority topology — the rows",
-          "name": "AuthorityTopology_EveryBoundary_CarriesExactlyOneRowKeyedByItself",
-          "dynamic": false
-        },
-        {
-          "suite": "authority topology — the rows",
-          "name": "AuthorityTopology_EveryRow_IsStructurallyValidFromUntypedInput",
-          "dynamic": false
-        },
-        {
-          "suite": "authority topology — the rows",
-          "name": "AuthorityTopology_UnenforcedRows_CarryAWaveAndADriver",
-          "dynamic": false
-        },
-        {
-          "suite": "authority topology — the rows",
-          "name": "AuthorityTopology_AlreadyEnforcedRow_HasNoUnboundRepresentation",
-          "dynamic": false
-        },
-        {
-          "suite": "authority topology — the rows",
-          "name": "AuthorityTopology_ContestedAndUnboundRows_AreTheOpenOnes",
-          "dynamic": false
-        },
-        {
-          "suite": "authority topology — the rows",
-          "name": "AuthorityTopology_EveryRow_PinsItsBindingComposition",
-          "dynamic": false
-        },
-        {
-          "suite": "authority topology — the rows",
-          "name": "AuthorityTopology_CliSurfaceRow_RecordsTheHandWrittenLiteralsAsASecondAuthority",
-          "dynamic": false
-        },
-        {
-          "suite": "authority topology — the rows",
-          "name": "AuthorityTopology_EffectEventRow_RecordsNoAuthority",
-          "dynamic": false
-        },
-        {
-          "suite": "authority topology — sdk-generation row vs the package manifest",
-          "name": "SdkGenerationRow_RecognisedGenerations_AreRecordedAsContested",
-          "dynamic": false
-        },
-        {
-          "suite": "authority topology — sdk-generation row vs the package manifest",
-          "name": "SdkGenerationRow_EveryGeneration_ContributesAnAuthoritativeRepresentation",
-          "dynamic": false
-        },
-        {
-          "suite": "authority topology — sdk-generation row vs the package manifest",
-          "name": "SdkGenerationRow_MeasuredState_RecordsTheDisagreementWithTheSpecTable",
-          "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/architecture/axiom-retirement.test.ts": {
-      "file": "servers/exarchos-mcp/src/architecture/axiom-retirement.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "axiom retirement (#1477)",
-          "name": "WorkingTree_NoFunctionalAxiomRefs_GrepClean",
-          "dynamic": false
-        },
-        {
-          "suite": "axiom retirement (#1477)",
-          "name": "ExarchosYml_NoPluginsAxiomBlock_Removed",
-          "dynamic": false
-        }
-      ]
-    },
     "servers/exarchos-mcp/src/architecture/catalog-merge.test.ts": {
       "file": "servers/exarchos-mcp/src/architecture/catalog-merge.test.ts",
       "runner": "vitest:nested",
@@ -8826,129 +8551,6 @@
         {
           "suite": "invariants-v3 contract-seam doc",
           "name": "ContractSeamDoc_EnumeratesEveryV3Type",
-          "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/architecture/contract-seam.test.ts": {
-      "file": "servers/exarchos-mcp/src/architecture/contract-seam.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "lintSeamComments",
-          "name": "SeamLint_RealSchema_NoFindings",
-          "dynamic": false
-        },
-        {
-          "suite": "lintSeamComments",
-          "name": "SeamLint_V3TypeMissingSeamComment_Fails",
-          "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/architecture/delivery-safety.test.ts": {
-      "file": "servers/exarchos-mcp/src/architecture/delivery-safety.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "findSilentSwallows — detection",
-          "name": "flags a bare empty catch block",
-          "dynamic": false
-        },
-        {
-          "suite": "findSilentSwallows — detection",
-          "name": "flags an empty catch with a bound binding",
-          "dynamic": false
-        },
-        {
-          "suite": "findSilentSwallows — detection",
-          "name": "flags empty .catch() handler forms",
-          "dynamic": false
-        },
-        {
-          "suite": "findSilentSwallows — no false positives",
-          "name": "does NOT flag a catch that handles the error",
-          "dynamic": false
-        },
-        {
-          "suite": "findSilentSwallows — no false positives",
-          "name": "does NOT flag \"catch {}\" inside a comment or string",
-          "dynamic": false
-        },
-        {
-          "suite": "maskLiteralsAndComments",
-          "name": "preserves length and newlines while blanking literal/comment content",
-          "dynamic": false
-        },
-        {
-          "suite": "auditDeliverySafety — live required-delivery modules",
-          "name": "the real required-delivery modules contain zero silent swallows",
-          "dynamic": false
-        },
-        {
-          "suite": "auditDeliverySafety — live required-delivery modules",
-          "name": "scans exactly the declared required-delivery modules",
-          "dynamic": false
-        },
-        {
-          "suite": "auditDeliverySafety — live required-delivery modules",
-          "name": "FAILS when a required module is replaced by one that silently swallows",
-          "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/architecture/description-budget.test.ts": {
-      "file": "servers/exarchos-mcp/src/architecture/description-budget.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "estimateTokens",
-          "name": "approximates one token per four characters, rounding up",
-          "dynamic": false
-        },
-        {
-          "suite": "auditDescriptionBudgets — planted over-budget descriptions",
-          "name": "FAILS when an action description exceeds the action budget",
-          "dynamic": false
-        },
-        {
-          "suite": "auditDescriptionBudgets — planted over-budget descriptions",
-          "name": "FAILS when a slim tool description exceeds the slim budget",
-          "dynamic": false
-        },
-        {
-          "suite": "auditDescriptionBudgets — planted over-budget descriptions",
-          "name": "FAILS when a base tool description exceeds the base budget",
-          "dynamic": false
-        },
-        {
-          "suite": "auditDescriptionBudgets — planted over-budget descriptions",
-          "name": "does NOT enforce the derived tool.full string (measured-only)",
-          "dynamic": false
-        },
-        {
-          "suite": "auditDescriptionBudgets — live registry surface",
-          "name": "PASSES on the current TOOL_REGISTRY (budgets are green today)",
-          "dynamic": false
-        },
-        {
-          "suite": "auditDescriptionBudgets — live registry surface",
-          "name": "measures every enforced kind against the live surface",
-          "dynamic": false
-        },
-        {
-          "suite": "auditDescriptionBudgets — live registry surface",
-          "name": "keeps the action budget at or above the R-E ratchet target",
-          "dynamic": false
-        },
-        {
-          "suite": "formatBudgetReport",
-          "name": "flags offenders and names the ratchet target when over budget",
-          "dynamic": false
-        },
-        {
-          "suite": "formatBudgetReport",
-          "name": "reports clean when all descriptions are within budget",
           "dynamic": false
         }
       ]
@@ -9345,151 +8947,15 @@
           "suite": "EXIT PROOF — live narrow effect ports",
           "name": "every declared port module performs at least one of its declared classes (no phantom)",
           "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/architecture/event-grammar-census.test.ts": {
-      "file": "servers/exarchos-mcp/src/architecture/event-grammar-census.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
+        },
         {
-          "suite": "EventGrammarCensus_LiveRegistry_IsWellFormed",
-          "name": "enumerates a non-empty subject",
+          "suite": "EXIT PROOF — live narrow effect ports (conformance package)",
+          "name": "(a) every curated conformance module holds exactly its declared narrow port",
           "dynamic": false
         },
         {
-          "suite": "EventGrammarCensus_LiveRegistry_IsWellFormed",
-          "name": "enumerates the RUNTIME registry, not the compile-time union",
-          "dynamic": false
-        },
-        {
-          "suite": "EventGrammarCensus_LiveRegistry_IsWellFormed",
-          "name": "accepts every registered name",
-          "dynamic": false
-        },
-        {
-          "suite": "EventGrammarCensus_LiveRegistry_IsWellFormed",
-          "name": "the ratchet passes on the live tree, in both directions",
-          "dynamic": false
-        },
-        {
-          "suite": "EventGrammarCensus_ConcessionTable_IsExactlyTheLiveConcessions",
-          "name": "records every clause the grammar derives, and no others",
-          "dynamic": false
-        },
-        {
-          "suite": "EventGrammarCensus_ConcessionTable_IsExactlyTheLiveConcessions",
-          "name": "every recorded concession is exercised by at least one live name",
-          "dynamic": false
-        },
-        {
-          "suite": "EventGrammarCensus_ConcessionTable_IsExactlyTheLiveConcessions",
-          "name": "every recorded concession carries an owner and a real deadline",
-          "dynamic": false
-        },
-        {
-          "suite": "EventGrammarCensus_ShippedPatternDivergence_IsMeasuredNotAsserted",
-          "name": "reports a live divergence between the two authorities",
-          "dynamic": false
-        },
-        {
-          "suite": "EventGrammarCensus_ShippedPatternDivergence_IsMeasuredNotAsserted",
-          "name": "the divergence is exactly the snake_case concession, derived two independent ways",
-          "dynamic": false
-        },
-        {
-          "suite": "EventGrammarCensus_ShippedPatternDivergence_IsMeasuredNotAsserted",
-          "name": "measures the validators, NOT the text — a substring scan disagrees in both directions",
-          "dynamic": false
-        },
-        {
-          "suite": "EventGrammarCensus_EmptyDenominator_Fails",
-          "name": "an emptied census reports EMPTY_CENSUS rather than a clean run",
-          "dynamic": false
-        },
-        {
-          "suite": "EventGrammarCensus_EmptyDenominator_Fails",
-          "name": "the ratchet fails on an emptied census instead of inheriting its silence",
-          "dynamic": false
-        },
-        {
-          "suite": "EventGrammarCensus_EmptyDenominator_Fails",
-          "name": "an emptied concession table reports EMPTY_ALLOWLIST",
-          "dynamic": false
-        },
-        {
-          "suite": "EventGrammarCensus_EmptyDenominator_Fails",
-          "name": "an untrustworthy census is not read as a passing ratchet",
-          "dynamic": false
-        },
-        {
-          "suite": "EventGrammarCensus_ForwardTooth_RejectsARealMalformedRegistration",
-          "name": "finds a malformed name that `registerEventType` accepted for real",
-          "dynamic": false
-        },
-        {
-          "suite": "EventGrammarCensus_ForwardTooth_RejectsARealMalformedRegistration",
-          "name": "restores the live verdict once the malformed registration is gone",
-          "dynamic": false
-        },
-        {
-          "suite": "EventGrammarCensus_ForwardTooth_RejectsARealMalformedRegistration",
-          "name": "reports the offending segment when the classifier can localise it",
-          "dynamic": false
-        },
-        {
-          "suite": "EventGrammarCensus_StaleTooth_RejectsCoverWithNoLiveSubject",
-          "name": "a recorded concession no live name exercises is STALE_SEED_ENTRY",
-          "dynamic": false
-        },
-        {
-          "suite": "EventGrammarCensus_StaleTooth_RejectsCoverWithNoLiveSubject",
-          "name": "an entry for a clause the grammar no longer derives is STALE_SEED_ENTRY",
-          "dynamic": false
-        },
-        {
-          "suite": "EventGrammarCensus_StaleTooth_RejectsCoverWithNoLiveSubject",
-          "name": "a divergence record that the repaired pattern no longer justifies is STALE_SEED_ENTRY",
-          "dynamic": false
-        },
-        {
-          "suite": "EventGrammarCensus_GrowthTooth_RejectsUnrecordedWidening",
-          "name": "an exercised concession with no entry is UNSEEDED_GRAMMAR_CONCESSION",
-          "dynamic": false
-        },
-        {
-          "suite": "EventGrammarCensus_GrowthTooth_RejectsUnrecordedWidening",
-          "name": "an entry understating its clause`s divergence is UNSEEDED_GRAMMAR_CONCESSION",
-          "dynamic": false
-        },
-        {
-          "suite": "EventGrammarCensus_Expiry_IsEnforcedNotDecorative",
-          "name": "a lapsed entry is EXPIRED_SEED_ENTRY",
-          "dynamic": false
-        },
-        {
-          "suite": "EventGrammarCensus_Expiry_IsEnforcedNotDecorative",
-          "name": "an entry is live THROUGH its expiry day and dead the next",
-          "dynamic": false
-        },
-        {
-          "suite": "EventGrammarCensus_Expiry_IsEnforcedNotDecorative",
-          "name": "an unowned or undated entry is MALFORMED_SEED_ENTRY",
-          "dynamic": false
-        },
-        {
-          "suite": "EventGrammarCensus_Expiry_IsEnforcedNotDecorative",
-          "name": "an unreadable clock fails closed rather than reading every entry as live",
-          "dynamic": false
-        },
-        {
-          "suite": "EventGrammarCensus_ConcessionUsage_IsSegmentScoped",
-          "name": "a separator in the NAMESPACE is a defect, not an exercise of the concession",
-          "dynamic": false
-        },
-        {
-          "suite": "EventGrammarCensus_ConcessionUsage_IsSegmentScoped",
-          "name": "a separator in a tail segment is an exercise of the concession",
+          "suite": "EXIT PROOF — live narrow effect ports (conformance package)",
+          "name": "every declared conformance port module performs its declared classes (no phantom)",
           "dynamic": false
         }
       ]
@@ -9531,97 +8997,6 @@
         {
           "suite": "globToRegExp (shared, FIX-3)",
           "name": "GlobToRegExp_DoubleStarSlash_MatchesZeroDepth",
-          "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/architecture/import-cycles.test.ts": {
-      "file": "servers/exarchos-mcp/src/architecture/import-cycles.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "runtime import cycles (dependency-cruiser acceptance)",
-          "name": "importGraph_DepcruiseRuntimeEdges_ZeroUnbaselinedCycles",
-          "dynamic": false
-        },
-        {
-          "suite": "runtime import cycles (dependency-cruiser acceptance)",
-          "name": "stateStoreProjectionSeam_NoRuntimeBackEdge",
-          "dynamic": false
-        },
-        {
-          "suite": "runtime import cycles (dependency-cruiser acceptance)",
-          "name": "forbiddenRuntimeEdges_LiveGraph_NoPresentOrStaleRule",
-          "dynamic": false
-        },
-        {
-          "suite": "detectRuntimeCycles",
-          "name": "DetectRuntimeCycles_MutualRuntimePair_ReportsCycle",
-          "dynamic": false
-        },
-        {
-          "suite": "detectRuntimeCycles",
-          "name": "DetectRuntimeCycles_AcyclicGraph_ReportsNone",
-          "dynamic": false
-        },
-        {
-          "suite": "detectRuntimeCycles",
-          "name": "DetectRuntimeCycles_TypeOnlyBackEdge_ExcludedFromCycles",
-          "dynamic": false
-        },
-        {
-          "suite": "detectRuntimeCycles",
-          "name": "DetectRuntimeCycles_DynamicImportBackEdge_CountsAsRuntime",
-          "dynamic": false
-        },
-        {
-          "suite": "detectRuntimeCycles",
-          "name": "DetectRuntimeCycles_ThirdPartyEdges_Ignored",
-          "dynamic": false
-        },
-        {
-          "suite": "detectRuntimeCycles",
-          "name": "UnbaselinedCycleEdges_BaselineCoversEdges_ReturnsEmpty",
-          "dynamic": false
-        },
-        {
-          "suite": "detectRuntimeCycles",
-          "name": "UnbaselinedCycleEdges_PartialBaseline_ReturnsUncoveredEdge",
-          "dynamic": false
-        },
-        {
-          "suite": "detectRuntimeCycles",
-          "name": "PhantomBaselineEntries_EdgeMatchesNoLiveCycle_ReportsEntry",
-          "dynamic": false
-        },
-        {
-          "suite": "detectRuntimeCycles",
-          "name": "PhantomBaselineEntries_EveryEntryLive_ReturnsEmpty",
-          "dynamic": false
-        },
-        {
-          "suite": "runForbiddenEdgeCensus",
-          "name": "flags a present forbidden edge as FORBIDDEN_RUNTIME_EDGE",
-          "dynamic": false
-        },
-        {
-          "suite": "runForbiddenEdgeCensus",
-          "name": "passes when the forbidden edge is absent but both endpoints exist",
-          "dynamic": false
-        },
-        {
-          "suite": "runForbiddenEdgeCensus",
-          "name": "flags a rule whose endpoint is absent from the graph as STALE_FORBIDDEN_EDGE",
-          "dynamic": false
-        },
-        {
-          "suite": "runForbiddenEdgeCensus",
-          "name": "firstPartyModules returns every local source and resolved target node",
-          "dynamic": false
-        },
-        {
-          "suite": "runForbiddenEdgeCensus",
-          "name": "the shipped FORBIDDEN_RUNTIME_EDGES registry is non-empty and well-formed",
           "dynamic": false
         }
       ]
@@ -10159,103 +9534,6 @@
         }
       ]
     },
-    "servers/exarchos-mcp/src/architecture/output-schema-census.selftest.test.ts": {
-      "file": "servers/exarchos-mcp/src/architecture/output-schema-census.selftest.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "DR-4 / G2 self-test: guard-execution failure cannot pass as success",
-          "name": "OutputSchemaRatchetGuard_ShippedEntrypoint_ProducesAVerdictOverANonEmptySubject",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-4 / G2 self-test: guard-execution failure cannot pass as success",
-          "name": "OutputSchemaRatchetGuard_SameSourceUnderADifferentName_StillEnforces",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-4 / G2 self-test: guard-execution failure cannot pass as success",
-          "name": "OutputSchemaRatchetGuard_BrokenMechanism_RedensTheProcessNotJustTheLibrary",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-4 / G2 self-test: guard-execution failure cannot pass as success",
-          "name": "OutputSchemaRatchetGuard_LegacyFilenamePredicate_GoesSilentlyGreen",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-4 / G2 self-test: guard-execution failure cannot pass as success",
-          "name": "OutputSchemaRatchetGuard_ImportedRatherThanInvoked_DoesNotSelfExecute",
-          "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/architecture/output-schema-census.test.ts": {
-      "file": "servers/exarchos-mcp/src/architecture/output-schema-census.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "DR-4: outputSchema vacuity census",
-          "name": "OutputSchemaCensus_VacuousDeclarations_AreDerivedNotLiteral",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-4: outputSchema vacuity census",
-          "name": "OutputSchemaCensus_ZeroDeclarationsEnumerated_FailsClosed",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-4: outputSchema vacuity census",
-          "name": "OutputSchemaCensus_TypedDeclarations_ClassifiedSubstantive",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-4: outputSchema vacuity census",
-          "name": "OutputSchemaCensus_AliasedVacuousSchema_CountedVacuous",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-4: outputSchema vacuity census",
-          "name": "OutputSchemaCensus_UnreadableEnvelope_FailsClosed",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-4: outputSchema vacuity census",
-          "name": "OutputSchemaCensus_LiveRegistry_ReportsMeasuredVacuousCount",
-          "dynamic": false
-        },
-        {
-          "suite": "acceptsEveryValue — totality is semantic, not spelling",
-          "name": "acceptsEveryValue_%s_IsTotal",
-          "dynamic": false
-        },
-        {
-          "suite": "acceptsEveryValue — totality is semantic, not spelling",
-          "name": "<dynamic-case-1>",
-          "dynamic": true
-        },
-        {
-          "suite": "acceptsEveryValue — totality is semantic, not spelling",
-          "name": "acceptsEveryValue_%s_IsNotTotal",
-          "dynamic": false
-        },
-        {
-          "suite": "acceptsEveryValue — totality is semantic, not spelling",
-          "name": "<dynamic-case-2>",
-          "dynamic": true
-        },
-        {
-          "suite": "acceptsEveryValue — totality is semantic, not spelling",
-          "name": "classifyOutputSchema_EnvelopeOverATotalUnion_IsVacuous",
-          "dynamic": false
-        },
-        {
-          "suite": "acceptsEveryValue — totality is semantic, not spelling",
-          "name": "acceptsEveryValue_DeeplyNestedTotalBranch_TerminatesAndIsTotal",
-          "dynamic": false
-        }
-      ]
-    },
     "servers/exarchos-mcp/src/architecture/project-catalog.test.ts": {
       "file": "servers/exarchos-mcp/src/architecture/project-catalog.test.ts",
       "runner": "vitest:nested",
@@ -10273,97 +9551,6 @@
         {
           "suite": "projectCatalog",
           "name": "ProjectCatalog_DelegateDocsOnlyTask_NoCodeInvariantInjection",
-          "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/architecture/report-coupling-census.test.ts": {
-      "file": "servers/exarchos-mcp/src/architecture/report-coupling-census.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "G3 report-coupling census (DR-2, task 013)",
-          "name": "ReportCouplingCensus_LiveRegistry_IsCleanAndNonEmpty",
-          "dynamic": false
-        },
-        {
-          "suite": "G3 report-coupling census (DR-2, task 013)",
-          "name": "ReportCouplingCensus_SeedEqualsTheLivePopulation_DerivedNotTranscribed",
-          "dynamic": false
-        },
-        {
-          "suite": "G3 report-coupling census (DR-2, task 013)",
-          "name": "ReportCouplingRatchet_LiveTree_Passes",
-          "dynamic": false
-        },
-        {
-          "suite": "G3 kill fixtures — the ratchet must be able to go red",
-          "name": "ReportCouplingRatchet_SeededAdditionalReportCoupling_IsRejected",
-          "dynamic": false
-        },
-        {
-          "suite": "G3 kill fixtures — the ratchet must be able to go red",
-          "name": "ReportCouplingCensus_ZeroRegistrations_FailsRatherThanReportingClean",
-          "dynamic": false
-        },
-        {
-          "suite": "G3 kill fixtures — the ratchet must be able to go red",
-          "name": "ReportCouplingCensus_UnannotatedRegistration_FailsClosed",
-          "dynamic": false
-        },
-        {
-          "suite": "G3 kill fixtures — the ratchet must be able to go red",
-          "name": "ReportCouplingCensus_SeededTierSourceDisagreement_IsRejected",
-          "dynamic": false
-        },
-        {
-          "suite": "G3 kill fixtures — the ratchet must be able to go red",
-          "name": "ReportCouplingSeed_PaidDownEntry_MustMoveRatherThanLinger",
-          "dynamic": false
-        },
-        {
-          "suite": "G3 kill fixtures — the ratchet must be able to go red",
-          "name": "ReportCouplingSeed_LapsedExpiry_Fails",
-          "dynamic": false
-        },
-        {
-          "suite": "G3 kill fixtures — the ratchet must be able to go red",
-          "name": "ReportCouplingSeedIntegrity_InPlaceSwap_TripsThePin",
-          "dynamic": false
-        },
-        {
-          "suite": "G3 kill fixtures — the ratchet must be able to go red",
-          "name": "ReportCouplingSeedIntegrity_LegalPaydownMove_LeavesThePinUnchanged",
-          "dynamic": false
-        },
-        {
-          "suite": "G3 kill fixtures — the ratchet must be able to go red",
-          "name": "ReportCouplingSeedIntegrity_PaydownRecordedAsACopy_IsCaught",
-          "dynamic": false
-        },
-        {
-          "suite": "G3 measures coupling, not the declared source column",
-          "name": "ReportCouplingCensus_DerivedModelWithDeclaredAuto_CountsAsReportCoupled",
-          "dynamic": false
-        },
-        {
-          "suite": "G3 measures coupling, not the declared source column",
-          "name": "ReportCouplingCensus_DerivedAutoWithDeclaredModel_IsNotReportCoupled",
-          "dynamic": false
-        },
-        {
-          "suite": "G3 policy is data the guard reads",
-          "name": "ReportCouplingSeed_EveryEntry_CarriesAnOwnerAndAnIsoExpiry",
-          "dynamic": false
-        },
-        {
-          "suite": "G3 policy is data the guard reads",
-          "name": "ReportCouplingSeed_BlockedByExemption_IsPinnedAtTheTwoTeamTypes",
-          "dynamic": false
-        },
-        {
-          "suite": "G3 policy is data the guard reads",
-          "name": "ReportCouplingSeedDigest_IsSetValued_NotOrderOrDuplicateSensitive",
           "dynamic": false
         }
       ]
@@ -10610,123 +9797,6 @@
         {
           "suite": "DR-12 live tree — the widened census is green and load-bearing",
           "name": "dropping a DR-12 owner turns the live census RED (the new owners are load-bearing)",
-          "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/architecture/vcs-ownership.test.ts": {
-      "file": "servers/exarchos-mcp/src/architecture/vcs-ownership.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "detectVcsMutationSites",
-          "name": "detects worktree add / worktree remove / branch delete argument vectors",
-          "dynamic": false
-        },
-        {
-          "suite": "detectVcsMutationSites",
-          "name": "does NOT count a mutation that appears only in a comment",
-          "dynamic": false
-        },
-        {
-          "suite": "detectVcsMutationSites",
-          "name": "does NOT count a git read (worktree list) as a mutation",
-          "dynamic": false
-        },
-        {
-          "suite": "detectVcsMutationSites",
-          "name": "matches either quote style but not a mismatched pair",
-          "dynamic": false
-        },
-        {
-          "suite": "stripComments",
-          "name": "removes line + block comments but preserves string-literal content",
-          "dynamic": false
-        },
-        {
-          "suite": "runVcsOwnershipCensus — verdict logic",
-          "name": "flags a mutation site no owner claims as DIRECT_VCS_BYPASS",
-          "dynamic": false
-        },
-        {
-          "suite": "runVcsOwnershipCensus — verdict logic",
-          "name": "flags an owner that claims nothing as STALE_VCS_OWNER",
-          "dynamic": false
-        },
-        {
-          "suite": "runVcsOwnershipCensus — verdict logic",
-          "name": "passes when every site is owned and every owner claims a site",
-          "dynamic": false
-        },
-        {
-          "suite": "EXIT PROOF — live VCS-ownership census",
-          "name": "(a) the live shipped source has ZERO direct bypasses and no stale owner",
-          "dynamic": false
-        },
-        {
-          "suite": "EXIT PROOF — live VCS-ownership census",
-          "name": "(a) a planted direct bypass in a non-owner module FAILS the census against the live sites",
-          "dynamic": false
-        },
-        {
-          "suite": "EXIT PROOF — live VCS-ownership census",
-          "name": "every declared owner corresponds to a real module path present in the scan root",
-          "dynamic": false
-        },
-        {
-          "suite": "isScannableFile",
-          "name": "accepts shipped .ts and rejects test/decl/bench files",
-          "dynamic": false
-        }
-      ]
-    },
-    "servers/exarchos-mcp/src/architecture/verb-registration.test.ts": {
-      "file": "servers/exarchos-mcp/src/architecture/verb-registration.test.ts",
-      "runner": "vitest:nested",
-      "cases": [
-        {
-          "suite": "VerbRegistration_AfterRegrouping_EveryActionStillRegisters",
-          "name": "the registry is non-empty and every id is well formed",
-          "dynamic": false
-        },
-        {
-          "suite": "VerbRegistration_AfterRegrouping_EveryActionStillRegisters",
-          "name": "no duplicate action ids",
-          "dynamic": false
-        },
-        {
-          "suite": "VerbRegistration_AfterRegrouping_EveryActionStillRegisters",
-          "name": "matches the checked-in snapshot exactly",
-          "dynamic": false
-        },
-        {
-          "suite": "VerbRegistration_AfterRegrouping_EveryActionStillRegisters",
-          "name": "every composite still exists where the registry expects it",
-          "dynamic": false
-        },
-        {
-          "suite": "VerbRegistration_AfterRegrouping_EveryActionStillRegisters",
-          "name": "every registered action has a dispatch branch in its composite",
-          "dynamic": false
-        },
-        {
-          "suite": "VerbRegistration_DroppedHandler_FailsTheSnapshot",
-          "name": "dropping one action from the observed set fails the comparison",
-          "dynamic": false
-        },
-        {
-          "suite": "VerbRegistration_DroppedHandler_FailsTheSnapshot",
-          "name": "renaming one action fails the comparison",
-          "dynamic": false
-        },
-        {
-          "suite": "VerbRegistration_DroppedHandler_FailsTheSnapshot",
-          "name": "the orphan check really detects an unroutable action",
-          "dynamic": false
-        },
-        {
-          "suite": "VerbRegistration_DroppedHandler_FailsTheSnapshot",
-          "name": "the composite scan is reading real switch branches, not matching everything",
           "dynamic": false
         }
       ]
@@ -70042,6 +69112,981 @@
         {
           "suite": "telemetry action/transport split outcome (#1364)",
           "name": "Telemetry_AfterJsThrow_IncrementsTransportErrors",
+          "dynamic": false
+        }
+      ]
+    },
+    "tools/conformance/src/authority-census.test.ts": {
+      "file": "tools/conformance/src/authority-census.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "authority census — closure",
+          "name": "AuthorityCensus_UnboundRepresentation_FailsClosure",
+          "dynamic": false
+        },
+        {
+          "suite": "authority census — closure",
+          "name": "AuthorityCensus_TwoAuthoritativeRepresentations_FailsClosure",
+          "dynamic": false
+        },
+        {
+          "suite": "authority census — closure",
+          "name": "AuthorityCensus_ZeroRowsEnumerated_FailsClosed",
+          "dynamic": false
+        },
+        {
+          "suite": "authority census — closure",
+          "name": "AuthorityCensus_RowBeforeItsEnforceFromWave_DoesNotBlock",
+          "dynamic": false
+        },
+        {
+          "suite": "authority census — the enforcement hop",
+          "name": "ReachabilityCensus_OrphanRepresentation_ResolvesCleanAndProvesTheDirection",
+          "dynamic": false
+        },
+        {
+          "suite": "authority census — the enforcement hop",
+          "name": "AuthorityCensus_AlreadyEnforcedByAForwardOnlyInstrument_IsAStaleException",
+          "dynamic": false
+        },
+        {
+          "suite": "authority census — the enforcement hop",
+          "name": "AuthorityCensus_AlreadyEnforcedClaim_CountsAtEveryWave",
+          "dynamic": false
+        },
+        {
+          "suite": "authority census — the two-way ratchet on `bound`",
+          "name": "AuthorityCensus_BoundRepresentationNamingANonAuthority_IsAStaleException",
+          "dynamic": false
+        },
+        {
+          "suite": "authority census — the two-way ratchet on `bound`",
+          "name": "AuthorityCensus_RepresentationRelabelledOnOneRowOnly_IsAmbiguous",
+          "dynamic": false
+        },
+        {
+          "suite": "authority census — vocabulary",
+          "name": "AuthorityCensus_FindingKinds_AreTheReachabilityCensusKinds",
+          "dynamic": false
+        },
+        {
+          "suite": "authority census — vocabulary",
+          "name": "AuthorityCensus_EveryHopOfEveryRow_DeclaresItsEvidenceClass",
+          "dynamic": false
+        },
+        {
+          "suite": "authority census — vocabulary",
+          "name": "AuthorityCensus_LiveMeasuredRows_AreTwoAndTheOtherSixStayDeclared",
+          "dynamic": false
+        },
+        {
+          "suite": "authority census — vocabulary",
+          "name": "AuthorityCensus_EvidenceInheritedFromAnotherRow_FailsTheAudit",
+          "dynamic": false
+        },
+        {
+          "suite": "authority census — vocabulary",
+          "name": "AuthorityCensus_EmptyEvidenceMap_FailsRatherThanPassingClean",
+          "dynamic": false
+        },
+        {
+          "suite": "authority census — vocabulary",
+          "name": "AuthorityCensus_NotApplicableEvidence_IsCheckedAgainstTheRow",
+          "dynamic": false
+        },
+        {
+          "suite": "authority census — vocabulary",
+          "name": "AuthorityCensus_EvidenceFindingKinds_AreTheImportedVocabulary",
+          "dynamic": false
+        },
+        {
+          "suite": "authority census — vocabulary",
+          "name": "WaveOrdering_EveryWave_IsOrderedByItsPositionInEnforcementWaves",
+          "dynamic": false
+        },
+        {
+          "suite": "authority census — the live topology",
+          "name": "AuthorityCensus_LiveTopology_ReportsTheMeasuredFindingPopulation",
+          "dynamic": false
+        },
+        {
+          "suite": "authority census — the live topology",
+          "name": "AuthorityCensus_LiveTopology_BlocksPerRowFromItsOwnEnforceFromWave",
+          "dynamic": false
+        },
+        {
+          "suite": "authority census — the live topology",
+          "name": "AuthorityCensus_ActionContractRow_ClaimsAnInstrumentThatDoesNotDischargeG5",
+          "dynamic": false
+        },
+        {
+          "suite": "authority census — the live topology",
+          "name": "AuthorityCensus_PhaseExpectedEvents_IsReportedUnboundOnBothRowsCarryingIt",
+          "dynamic": false
+        },
+        {
+          "suite": "authority census — the live topology",
+          "name": "AuthorityCensus_EveryLiveRow_ResolvesEveryHopItCarries",
+          "dynamic": false
+        },
+        {
+          "suite": "authority census — the live topology",
+          "name": "AuthorityCensus_MalformedRowInTheSubject_FailsRatherThanBeingDropped",
+          "dynamic": false
+        }
+      ]
+    },
+    "tools/conformance/src/authority-live-proof.test.ts": {
+      "file": "tools/conformance/src/authority-live-proof.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "authority census — the CLI-surface row, live",
+          "name": "AuthorityCensus_CliSurfaceRow_FailsLiveAgainstTheTree",
+          "dynamic": false
+        },
+        {
+          "suite": "authority census — the event-catalog row, live",
+          "name": "AuthorityCensus_EventCatalogRow_FailsLiveAgainstTheTree",
+          "dynamic": false
+        },
+        {
+          "suite": "authority census — the live proof fails closed",
+          "name": "AuthorityCensus_LiveProof_ZeroSubjectsResolved_FailsClosed",
+          "dynamic": false
+        },
+        {
+          "suite": "authority census — the live proof fails closed",
+          "name": "AuthorityCensus_LiveProof_UpgradesEvidenceForTwoRowsOnly",
+          "dynamic": false
+        }
+      ]
+    },
+    "tools/conformance/src/authority-topology.test.ts": {
+      "file": "tools/conformance/src/authority-topology.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "authority topology — required properties",
+          "name": "AuthorityTopology_EveryRow_NamesExactlyOneAuthorityOrRecordsContested",
+          "dynamic": false
+        },
+        {
+          "suite": "authority topology — required properties",
+          "name": "AuthorityTopology_RowWithoutEnforceFrom_FailsTotality",
+          "dynamic": false
+        },
+        {
+          "suite": "authority topology — required properties",
+          "name": "AuthorityTopology_ZeroRowsResolved_FailsClosed",
+          "dynamic": false
+        },
+        {
+          "suite": "authority topology — derived boundaries",
+          "name": "BoundaryDerivations_EveryDeclarationKind_ForcesABoundaryRow",
+          "dynamic": false
+        },
+        {
+          "suite": "authority topology — derived boundaries",
+          "name": "BoundaryDerivations_RequiredBoundaryMissingFromRows_FailsTotality",
+          "dynamic": false
+        },
+        {
+          "suite": "authority topology — derived boundaries",
+          "name": "BoundaryDerivations_DeclarationKindRowDropped_FailsTotality",
+          "dynamic": false
+        },
+        {
+          "suite": "authority topology — derived boundaries",
+          "name": "RowProvenance_DerivedClaimNoBridgeProduces_IsStaleCover",
+          "dynamic": false
+        },
+        {
+          "suite": "authority topology — derived boundaries",
+          "name": "RowProvenance_DeclaredRowWithoutRationale_FailsTotality",
+          "dynamic": false
+        },
+        {
+          "suite": "authority topology — derived boundaries",
+          "name": "RowProvenance_EveryDeclaredRow_StatesWhyItIsNotDerivable",
+          "dynamic": false
+        },
+        {
+          "suite": "authority topology — plural authority",
+          "name": "AuthorityTopology_TwoAuthoritativeRepresentations_CannotBeRecordedAsSingle",
+          "dynamic": false
+        },
+        {
+          "suite": "authority topology — plural authority",
+          "name": "AuthorityTopology_ContestedWithTwoAuthoritativeRepresentations_IsWellFormed",
+          "dynamic": false
+        },
+        {
+          "suite": "authority topology — plural authority",
+          "name": "AuthorityTopology_ContestedWithOneCandidate_IsNotAContest",
+          "dynamic": false
+        },
+        {
+          "suite": "authority topology — the rows",
+          "name": "AuthorityTopology_EveryBoundary_CarriesExactlyOneRowKeyedByItself",
+          "dynamic": false
+        },
+        {
+          "suite": "authority topology — the rows",
+          "name": "AuthorityTopology_EveryRow_IsStructurallyValidFromUntypedInput",
+          "dynamic": false
+        },
+        {
+          "suite": "authority topology — the rows",
+          "name": "AuthorityTopology_UnenforcedRows_CarryAWaveAndADriver",
+          "dynamic": false
+        },
+        {
+          "suite": "authority topology — the rows",
+          "name": "AuthorityTopology_AlreadyEnforcedRow_HasNoUnboundRepresentation",
+          "dynamic": false
+        },
+        {
+          "suite": "authority topology — the rows",
+          "name": "AuthorityTopology_ContestedAndUnboundRows_AreTheOpenOnes",
+          "dynamic": false
+        },
+        {
+          "suite": "authority topology — the rows",
+          "name": "AuthorityTopology_EveryRow_PinsItsBindingComposition",
+          "dynamic": false
+        },
+        {
+          "suite": "authority topology — the rows",
+          "name": "AuthorityTopology_CliSurfaceRow_RecordsTheHandWrittenLiteralsAsASecondAuthority",
+          "dynamic": false
+        },
+        {
+          "suite": "authority topology — the rows",
+          "name": "AuthorityTopology_EffectEventRow_RecordsNoAuthority",
+          "dynamic": false
+        },
+        {
+          "suite": "authority topology — sdk-generation row vs the package manifest",
+          "name": "SdkGenerationRow_RecognisedGenerations_AreRecordedAsContested",
+          "dynamic": false
+        },
+        {
+          "suite": "authority topology — sdk-generation row vs the package manifest",
+          "name": "SdkGenerationRow_EveryGeneration_ContributesAnAuthoritativeRepresentation",
+          "dynamic": false
+        },
+        {
+          "suite": "authority topology — sdk-generation row vs the package manifest",
+          "name": "SdkGenerationRow_MeasuredState_RecordsTheDisagreementWithTheSpecTable",
+          "dynamic": false
+        }
+      ]
+    },
+    "tools/conformance/src/axiom-retirement.test.ts": {
+      "file": "tools/conformance/src/axiom-retirement.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "axiom retirement (#1477)",
+          "name": "WorkingTree_NoFunctionalAxiomRefs_GrepClean",
+          "dynamic": false
+        },
+        {
+          "suite": "axiom retirement (#1477)",
+          "name": "ExarchosYml_NoPluginsAxiomBlock_Removed",
+          "dynamic": false
+        }
+      ]
+    },
+    "tools/conformance/src/contract-seam.test.ts": {
+      "file": "tools/conformance/src/contract-seam.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "lintSeamComments",
+          "name": "SeamLint_RealSchema_NoFindings",
+          "dynamic": false
+        },
+        {
+          "suite": "lintSeamComments",
+          "name": "SeamLint_V3TypeMissingSeamComment_Fails",
+          "dynamic": false
+        }
+      ]
+    },
+    "tools/conformance/src/delivery-safety.test.ts": {
+      "file": "tools/conformance/src/delivery-safety.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "findSilentSwallows — detection",
+          "name": "flags a bare empty catch block",
+          "dynamic": false
+        },
+        {
+          "suite": "findSilentSwallows — detection",
+          "name": "flags an empty catch with a bound binding",
+          "dynamic": false
+        },
+        {
+          "suite": "findSilentSwallows — detection",
+          "name": "flags empty .catch() handler forms",
+          "dynamic": false
+        },
+        {
+          "suite": "findSilentSwallows — no false positives",
+          "name": "does NOT flag a catch that handles the error",
+          "dynamic": false
+        },
+        {
+          "suite": "findSilentSwallows — no false positives",
+          "name": "does NOT flag \"catch {}\" inside a comment or string",
+          "dynamic": false
+        },
+        {
+          "suite": "maskLiteralsAndComments",
+          "name": "preserves length and newlines while blanking literal/comment content",
+          "dynamic": false
+        },
+        {
+          "suite": "auditDeliverySafety — live required-delivery modules",
+          "name": "the real required-delivery modules contain zero silent swallows",
+          "dynamic": false
+        },
+        {
+          "suite": "auditDeliverySafety — live required-delivery modules",
+          "name": "scans exactly the declared required-delivery modules",
+          "dynamic": false
+        },
+        {
+          "suite": "auditDeliverySafety — live required-delivery modules",
+          "name": "FAILS when a required module is replaced by one that silently swallows",
+          "dynamic": false
+        }
+      ]
+    },
+    "tools/conformance/src/description-budget.test.ts": {
+      "file": "tools/conformance/src/description-budget.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "estimateTokens",
+          "name": "approximates one token per four characters, rounding up",
+          "dynamic": false
+        },
+        {
+          "suite": "auditDescriptionBudgets — planted over-budget descriptions",
+          "name": "FAILS when an action description exceeds the action budget",
+          "dynamic": false
+        },
+        {
+          "suite": "auditDescriptionBudgets — planted over-budget descriptions",
+          "name": "FAILS when a slim tool description exceeds the slim budget",
+          "dynamic": false
+        },
+        {
+          "suite": "auditDescriptionBudgets — planted over-budget descriptions",
+          "name": "FAILS when a base tool description exceeds the base budget",
+          "dynamic": false
+        },
+        {
+          "suite": "auditDescriptionBudgets — planted over-budget descriptions",
+          "name": "does NOT enforce the derived tool.full string (measured-only)",
+          "dynamic": false
+        },
+        {
+          "suite": "auditDescriptionBudgets — live registry surface",
+          "name": "PASSES on the current TOOL_REGISTRY (budgets are green today)",
+          "dynamic": false
+        },
+        {
+          "suite": "auditDescriptionBudgets — live registry surface",
+          "name": "measures every enforced kind against the live surface",
+          "dynamic": false
+        },
+        {
+          "suite": "auditDescriptionBudgets — live registry surface",
+          "name": "keeps the action budget at or above the R-E ratchet target",
+          "dynamic": false
+        },
+        {
+          "suite": "formatBudgetReport",
+          "name": "flags offenders and names the ratchet target when over budget",
+          "dynamic": false
+        },
+        {
+          "suite": "formatBudgetReport",
+          "name": "reports clean when all descriptions are within budget",
+          "dynamic": false
+        }
+      ]
+    },
+    "tools/conformance/src/event-grammar-census.test.ts": {
+      "file": "tools/conformance/src/event-grammar-census.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "EventGrammarCensus_LiveRegistry_IsWellFormed",
+          "name": "enumerates a non-empty subject",
+          "dynamic": false
+        },
+        {
+          "suite": "EventGrammarCensus_LiveRegistry_IsWellFormed",
+          "name": "enumerates the RUNTIME registry, not the compile-time union",
+          "dynamic": false
+        },
+        {
+          "suite": "EventGrammarCensus_LiveRegistry_IsWellFormed",
+          "name": "accepts every registered name",
+          "dynamic": false
+        },
+        {
+          "suite": "EventGrammarCensus_LiveRegistry_IsWellFormed",
+          "name": "the ratchet passes on the live tree, in both directions",
+          "dynamic": false
+        },
+        {
+          "suite": "EventGrammarCensus_ConcessionTable_IsExactlyTheLiveConcessions",
+          "name": "records every clause the grammar derives, and no others",
+          "dynamic": false
+        },
+        {
+          "suite": "EventGrammarCensus_ConcessionTable_IsExactlyTheLiveConcessions",
+          "name": "every recorded concession is exercised by at least one live name",
+          "dynamic": false
+        },
+        {
+          "suite": "EventGrammarCensus_ConcessionTable_IsExactlyTheLiveConcessions",
+          "name": "every recorded concession carries an owner and a real deadline",
+          "dynamic": false
+        },
+        {
+          "suite": "EventGrammarCensus_ShippedPatternDivergence_IsMeasuredNotAsserted",
+          "name": "reports a live divergence between the two authorities",
+          "dynamic": false
+        },
+        {
+          "suite": "EventGrammarCensus_ShippedPatternDivergence_IsMeasuredNotAsserted",
+          "name": "the divergence is exactly the snake_case concession, derived two independent ways",
+          "dynamic": false
+        },
+        {
+          "suite": "EventGrammarCensus_ShippedPatternDivergence_IsMeasuredNotAsserted",
+          "name": "measures the validators, NOT the text — a substring scan disagrees in both directions",
+          "dynamic": false
+        },
+        {
+          "suite": "EventGrammarCensus_EmptyDenominator_Fails",
+          "name": "an emptied census reports EMPTY_CENSUS rather than a clean run",
+          "dynamic": false
+        },
+        {
+          "suite": "EventGrammarCensus_EmptyDenominator_Fails",
+          "name": "the ratchet fails on an emptied census instead of inheriting its silence",
+          "dynamic": false
+        },
+        {
+          "suite": "EventGrammarCensus_EmptyDenominator_Fails",
+          "name": "an emptied concession table reports EMPTY_ALLOWLIST",
+          "dynamic": false
+        },
+        {
+          "suite": "EventGrammarCensus_EmptyDenominator_Fails",
+          "name": "an untrustworthy census is not read as a passing ratchet",
+          "dynamic": false
+        },
+        {
+          "suite": "EventGrammarCensus_ForwardTooth_RejectsARealMalformedRegistration",
+          "name": "finds a malformed name that `registerEventType` accepted for real",
+          "dynamic": false
+        },
+        {
+          "suite": "EventGrammarCensus_ForwardTooth_RejectsARealMalformedRegistration",
+          "name": "restores the live verdict once the malformed registration is gone",
+          "dynamic": false
+        },
+        {
+          "suite": "EventGrammarCensus_ForwardTooth_RejectsARealMalformedRegistration",
+          "name": "reports the offending segment when the classifier can localise it",
+          "dynamic": false
+        },
+        {
+          "suite": "EventGrammarCensus_StaleTooth_RejectsCoverWithNoLiveSubject",
+          "name": "a recorded concession no live name exercises is STALE_SEED_ENTRY",
+          "dynamic": false
+        },
+        {
+          "suite": "EventGrammarCensus_StaleTooth_RejectsCoverWithNoLiveSubject",
+          "name": "an entry for a clause the grammar no longer derives is STALE_SEED_ENTRY",
+          "dynamic": false
+        },
+        {
+          "suite": "EventGrammarCensus_StaleTooth_RejectsCoverWithNoLiveSubject",
+          "name": "a divergence record that the repaired pattern no longer justifies is STALE_SEED_ENTRY",
+          "dynamic": false
+        },
+        {
+          "suite": "EventGrammarCensus_GrowthTooth_RejectsUnrecordedWidening",
+          "name": "an exercised concession with no entry is UNSEEDED_GRAMMAR_CONCESSION",
+          "dynamic": false
+        },
+        {
+          "suite": "EventGrammarCensus_GrowthTooth_RejectsUnrecordedWidening",
+          "name": "an entry understating its clause`s divergence is UNSEEDED_GRAMMAR_CONCESSION",
+          "dynamic": false
+        },
+        {
+          "suite": "EventGrammarCensus_Expiry_IsEnforcedNotDecorative",
+          "name": "a lapsed entry is EXPIRED_SEED_ENTRY",
+          "dynamic": false
+        },
+        {
+          "suite": "EventGrammarCensus_Expiry_IsEnforcedNotDecorative",
+          "name": "an entry is live THROUGH its expiry day and dead the next",
+          "dynamic": false
+        },
+        {
+          "suite": "EventGrammarCensus_Expiry_IsEnforcedNotDecorative",
+          "name": "an unowned or undated entry is MALFORMED_SEED_ENTRY",
+          "dynamic": false
+        },
+        {
+          "suite": "EventGrammarCensus_Expiry_IsEnforcedNotDecorative",
+          "name": "an unreadable clock fails closed rather than reading every entry as live",
+          "dynamic": false
+        },
+        {
+          "suite": "EventGrammarCensus_ConcessionUsage_IsSegmentScoped",
+          "name": "a separator in the NAMESPACE is a defect, not an exercise of the concession",
+          "dynamic": false
+        },
+        {
+          "suite": "EventGrammarCensus_ConcessionUsage_IsSegmentScoped",
+          "name": "a separator in a tail segment is an exercise of the concession",
+          "dynamic": false
+        }
+      ]
+    },
+    "tools/conformance/src/import-cycles.test.ts": {
+      "file": "tools/conformance/src/import-cycles.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "runtime import cycles (dependency-cruiser acceptance)",
+          "name": "importGraph_DepcruiseRuntimeEdges_ZeroUnbaselinedCycles",
+          "dynamic": false
+        },
+        {
+          "suite": "runtime import cycles (dependency-cruiser acceptance)",
+          "name": "stateStoreProjectionSeam_NoRuntimeBackEdge",
+          "dynamic": false
+        },
+        {
+          "suite": "runtime import cycles (dependency-cruiser acceptance)",
+          "name": "forbiddenRuntimeEdges_LiveGraph_NoPresentOrStaleRule",
+          "dynamic": false
+        },
+        {
+          "suite": "detectRuntimeCycles",
+          "name": "DetectRuntimeCycles_MutualRuntimePair_ReportsCycle",
+          "dynamic": false
+        },
+        {
+          "suite": "detectRuntimeCycles",
+          "name": "DetectRuntimeCycles_AcyclicGraph_ReportsNone",
+          "dynamic": false
+        },
+        {
+          "suite": "detectRuntimeCycles",
+          "name": "DetectRuntimeCycles_TypeOnlyBackEdge_ExcludedFromCycles",
+          "dynamic": false
+        },
+        {
+          "suite": "detectRuntimeCycles",
+          "name": "DetectRuntimeCycles_DynamicImportBackEdge_CountsAsRuntime",
+          "dynamic": false
+        },
+        {
+          "suite": "detectRuntimeCycles",
+          "name": "DetectRuntimeCycles_ThirdPartyEdges_Ignored",
+          "dynamic": false
+        },
+        {
+          "suite": "detectRuntimeCycles",
+          "name": "UnbaselinedCycleEdges_BaselineCoversEdges_ReturnsEmpty",
+          "dynamic": false
+        },
+        {
+          "suite": "detectRuntimeCycles",
+          "name": "UnbaselinedCycleEdges_PartialBaseline_ReturnsUncoveredEdge",
+          "dynamic": false
+        },
+        {
+          "suite": "detectRuntimeCycles",
+          "name": "PhantomBaselineEntries_EdgeMatchesNoLiveCycle_ReportsEntry",
+          "dynamic": false
+        },
+        {
+          "suite": "detectRuntimeCycles",
+          "name": "PhantomBaselineEntries_EveryEntryLive_ReturnsEmpty",
+          "dynamic": false
+        },
+        {
+          "suite": "runForbiddenEdgeCensus",
+          "name": "flags a present forbidden edge as FORBIDDEN_RUNTIME_EDGE",
+          "dynamic": false
+        },
+        {
+          "suite": "runForbiddenEdgeCensus",
+          "name": "passes when the forbidden edge is absent but both endpoints exist",
+          "dynamic": false
+        },
+        {
+          "suite": "runForbiddenEdgeCensus",
+          "name": "flags a rule whose endpoint is absent from the graph as STALE_FORBIDDEN_EDGE",
+          "dynamic": false
+        },
+        {
+          "suite": "runForbiddenEdgeCensus",
+          "name": "firstPartyModules returns every local source and resolved target node",
+          "dynamic": false
+        },
+        {
+          "suite": "runForbiddenEdgeCensus",
+          "name": "the shipped FORBIDDEN_RUNTIME_EDGES registry is non-empty and well-formed",
+          "dynamic": false
+        }
+      ]
+    },
+    "tools/conformance/src/output-schema-census.selftest.test.ts": {
+      "file": "tools/conformance/src/output-schema-census.selftest.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "DR-4 / G2 self-test: guard-execution failure cannot pass as success",
+          "name": "OutputSchemaRatchetGuard_ShippedEntrypoint_ProducesAVerdictOverANonEmptySubject",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-4 / G2 self-test: guard-execution failure cannot pass as success",
+          "name": "OutputSchemaRatchetGuard_SameSourceUnderADifferentName_StillEnforces",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-4 / G2 self-test: guard-execution failure cannot pass as success",
+          "name": "OutputSchemaRatchetGuard_BrokenMechanism_RedensTheProcessNotJustTheLibrary",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-4 / G2 self-test: guard-execution failure cannot pass as success",
+          "name": "OutputSchemaRatchetGuard_LegacyFilenamePredicate_GoesSilentlyGreen",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-4 / G2 self-test: guard-execution failure cannot pass as success",
+          "name": "OutputSchemaRatchetGuard_ImportedRatherThanInvoked_DoesNotSelfExecute",
+          "dynamic": false
+        }
+      ]
+    },
+    "tools/conformance/src/output-schema-census.test.ts": {
+      "file": "tools/conformance/src/output-schema-census.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "DR-4: outputSchema vacuity census",
+          "name": "OutputSchemaCensus_VacuousDeclarations_AreDerivedNotLiteral",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-4: outputSchema vacuity census",
+          "name": "OutputSchemaCensus_ZeroDeclarationsEnumerated_FailsClosed",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-4: outputSchema vacuity census",
+          "name": "OutputSchemaCensus_TypedDeclarations_ClassifiedSubstantive",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-4: outputSchema vacuity census",
+          "name": "OutputSchemaCensus_AliasedVacuousSchema_CountedVacuous",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-4: outputSchema vacuity census",
+          "name": "OutputSchemaCensus_UnreadableEnvelope_FailsClosed",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-4: outputSchema vacuity census",
+          "name": "OutputSchemaCensus_LiveRegistry_ReportsMeasuredVacuousCount",
+          "dynamic": false
+        },
+        {
+          "suite": "acceptsEveryValue — totality is semantic, not spelling",
+          "name": "acceptsEveryValue_%s_IsTotal",
+          "dynamic": false
+        },
+        {
+          "suite": "acceptsEveryValue — totality is semantic, not spelling",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "acceptsEveryValue — totality is semantic, not spelling",
+          "name": "acceptsEveryValue_%s_IsNotTotal",
+          "dynamic": false
+        },
+        {
+          "suite": "acceptsEveryValue — totality is semantic, not spelling",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "acceptsEveryValue — totality is semantic, not spelling",
+          "name": "classifyOutputSchema_EnvelopeOverATotalUnion_IsVacuous",
+          "dynamic": false
+        },
+        {
+          "suite": "acceptsEveryValue — totality is semantic, not spelling",
+          "name": "acceptsEveryValue_DeeplyNestedTotalBranch_TerminatesAndIsTotal",
+          "dynamic": false
+        }
+      ]
+    },
+    "tools/conformance/src/report-coupling-census.test.ts": {
+      "file": "tools/conformance/src/report-coupling-census.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "G3 report-coupling census (DR-2, task 013)",
+          "name": "ReportCouplingCensus_LiveRegistry_IsCleanAndNonEmpty",
+          "dynamic": false
+        },
+        {
+          "suite": "G3 report-coupling census (DR-2, task 013)",
+          "name": "ReportCouplingCensus_SeedEqualsTheLivePopulation_DerivedNotTranscribed",
+          "dynamic": false
+        },
+        {
+          "suite": "G3 report-coupling census (DR-2, task 013)",
+          "name": "ReportCouplingRatchet_LiveTree_Passes",
+          "dynamic": false
+        },
+        {
+          "suite": "G3 kill fixtures — the ratchet must be able to go red",
+          "name": "ReportCouplingRatchet_SeededAdditionalReportCoupling_IsRejected",
+          "dynamic": false
+        },
+        {
+          "suite": "G3 kill fixtures — the ratchet must be able to go red",
+          "name": "ReportCouplingCensus_ZeroRegistrations_FailsRatherThanReportingClean",
+          "dynamic": false
+        },
+        {
+          "suite": "G3 kill fixtures — the ratchet must be able to go red",
+          "name": "ReportCouplingCensus_UnannotatedRegistration_FailsClosed",
+          "dynamic": false
+        },
+        {
+          "suite": "G3 kill fixtures — the ratchet must be able to go red",
+          "name": "ReportCouplingCensus_SeededTierSourceDisagreement_IsRejected",
+          "dynamic": false
+        },
+        {
+          "suite": "G3 kill fixtures — the ratchet must be able to go red",
+          "name": "ReportCouplingSeed_PaidDownEntry_MustMoveRatherThanLinger",
+          "dynamic": false
+        },
+        {
+          "suite": "G3 kill fixtures — the ratchet must be able to go red",
+          "name": "ReportCouplingSeed_LapsedExpiry_Fails",
+          "dynamic": false
+        },
+        {
+          "suite": "G3 kill fixtures — the ratchet must be able to go red",
+          "name": "ReportCouplingSeedIntegrity_InPlaceSwap_TripsThePin",
+          "dynamic": false
+        },
+        {
+          "suite": "G3 kill fixtures — the ratchet must be able to go red",
+          "name": "ReportCouplingSeedIntegrity_LegalPaydownMove_LeavesThePinUnchanged",
+          "dynamic": false
+        },
+        {
+          "suite": "G3 kill fixtures — the ratchet must be able to go red",
+          "name": "ReportCouplingSeedIntegrity_PaydownRecordedAsACopy_IsCaught",
+          "dynamic": false
+        },
+        {
+          "suite": "G3 measures coupling, not the declared source column",
+          "name": "ReportCouplingCensus_DerivedModelWithDeclaredAuto_CountsAsReportCoupled",
+          "dynamic": false
+        },
+        {
+          "suite": "G3 measures coupling, not the declared source column",
+          "name": "ReportCouplingCensus_DerivedAutoWithDeclaredModel_IsNotReportCoupled",
+          "dynamic": false
+        },
+        {
+          "suite": "G3 policy is data the guard reads",
+          "name": "ReportCouplingSeed_EveryEntry_CarriesAnOwnerAndAnIsoExpiry",
+          "dynamic": false
+        },
+        {
+          "suite": "G3 policy is data the guard reads",
+          "name": "ReportCouplingSeed_BlockedByExemption_IsPinnedAtTheTwoTeamTypes",
+          "dynamic": false
+        },
+        {
+          "suite": "G3 policy is data the guard reads",
+          "name": "ReportCouplingSeedDigest_IsSetValued_NotOrderOrDuplicateSensitive",
+          "dynamic": false
+        }
+      ]
+    },
+    "tools/conformance/src/vcs-ownership.test.ts": {
+      "file": "tools/conformance/src/vcs-ownership.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "detectVcsMutationSites",
+          "name": "detects worktree add / worktree remove / branch delete argument vectors",
+          "dynamic": false
+        },
+        {
+          "suite": "detectVcsMutationSites",
+          "name": "does NOT count a mutation that appears only in a comment",
+          "dynamic": false
+        },
+        {
+          "suite": "detectVcsMutationSites",
+          "name": "does NOT count a git read (worktree list) as a mutation",
+          "dynamic": false
+        },
+        {
+          "suite": "detectVcsMutationSites",
+          "name": "matches either quote style but not a mismatched pair",
+          "dynamic": false
+        },
+        {
+          "suite": "stripComments",
+          "name": "removes line + block comments but preserves string-literal content",
+          "dynamic": false
+        },
+        {
+          "suite": "runVcsOwnershipCensus — verdict logic",
+          "name": "flags a mutation site no owner claims as DIRECT_VCS_BYPASS",
+          "dynamic": false
+        },
+        {
+          "suite": "runVcsOwnershipCensus — verdict logic",
+          "name": "flags an owner that claims nothing as STALE_VCS_OWNER",
+          "dynamic": false
+        },
+        {
+          "suite": "runVcsOwnershipCensus — verdict logic",
+          "name": "passes when every site is owned and every owner claims a site",
+          "dynamic": false
+        },
+        {
+          "suite": "EXIT PROOF — live VCS-ownership census",
+          "name": "(a) the live shipped source has ZERO direct bypasses and no stale owner",
+          "dynamic": false
+        },
+        {
+          "suite": "EXIT PROOF — live VCS-ownership census",
+          "name": "(a) a planted direct bypass in a non-owner module FAILS the census against the live sites",
+          "dynamic": false
+        },
+        {
+          "suite": "EXIT PROOF — live VCS-ownership census",
+          "name": "every declared owner corresponds to a real module path present in the scan root",
+          "dynamic": false
+        },
+        {
+          "suite": "isScannableFile",
+          "name": "accepts shipped .ts and rejects test/decl/bench files",
+          "dynamic": false
+        }
+      ]
+    },
+    "tools/conformance/src/verb-registration.test.ts": {
+      "file": "tools/conformance/src/verb-registration.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "VerbRegistration_AfterRegrouping_EveryActionStillRegisters",
+          "name": "the registry is non-empty and every id is well formed",
+          "dynamic": false
+        },
+        {
+          "suite": "VerbRegistration_AfterRegrouping_EveryActionStillRegisters",
+          "name": "no duplicate action ids",
+          "dynamic": false
+        },
+        {
+          "suite": "VerbRegistration_AfterRegrouping_EveryActionStillRegisters",
+          "name": "matches the checked-in snapshot exactly",
+          "dynamic": false
+        },
+        {
+          "suite": "VerbRegistration_AfterRegrouping_EveryActionStillRegisters",
+          "name": "every composite still exists where the registry expects it",
+          "dynamic": false
+        },
+        {
+          "suite": "VerbRegistration_AfterRegrouping_EveryActionStillRegisters",
+          "name": "every registered action has a dispatch branch in its composite",
+          "dynamic": false
+        },
+        {
+          "suite": "VerbRegistration_DroppedHandler_FailsTheSnapshot",
+          "name": "dropping one action from the observed set fails the comparison",
+          "dynamic": false
+        },
+        {
+          "suite": "VerbRegistration_DroppedHandler_FailsTheSnapshot",
+          "name": "renaming one action fails the comparison",
+          "dynamic": false
+        },
+        {
+          "suite": "VerbRegistration_DroppedHandler_FailsTheSnapshot",
+          "name": "the orphan check really detects an unroutable action",
+          "dynamic": false
+        },
+        {
+          "suite": "VerbRegistration_DroppedHandler_FailsTheSnapshot",
+          "name": "the composite scan is reading real switch branches, not matching everything",
+          "dynamic": false
+        }
+      ]
+    },
+    "tools/conformance/src/wave1-exit.test.ts": {
+      "file": "tools/conformance/src/wave1-exit.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "Wave 1 exit — the five guards (task 027, DR-6 / DR-24)",
+          "name": "Wave1Exit_AllFiveGuards_BlockOnSeededViolation",
+          "dynamic": false
+        },
+        {
+          "suite": "Wave 1 exit — the five guards (task 027, DR-6 / DR-24)",
+          "name": "Wave1Exit_EachGuardSelfTest_RunsInSameCiJob",
+          "dynamic": false
+        },
+        {
+          "suite": "Wave 1 exit — the five guards (task 027, DR-6 / DR-24)",
+          "name": "Wave1Exit_AllGuardsOnUnfilteredPaths",
+          "dynamic": false
+        },
+        {
+          "suite": "Wave 1 exit — the five guards (task 027, DR-6 / DR-24)",
+          "name": "Wave1Exit_NoGuardIsUnreachable",
           "dynamic": false
         }
       ]

@@ -149,7 +149,66 @@ one place, and it throws rather than guessing when it cannot be found. Relocatin
 the subject tree (task 019 folds `servers/exarchos-mcp/src/` up to `src/`) is a
 one-line change to `SUBJECT_SRC_REL`.
 
-## Status: inversions landed, the physical move is blocked on guard discovery
+## Status: LANDED
+
+The move is applied. `tools/conformance/` is a real package of 15 test files /
+186 tests; 24 files / 315 tests stay in `servers/exarchos-mcp/src/architecture/`.
+The pre-move architecture suite was 39 files / 499 tests, so **file count is
+conserved exactly and no test case was dropped** — the two extra tests are the
+new conformance-package effect-port proof described below.
+
+Three things were learned in the applying that the plan did not predict. Each is
+recorded here rather than in a commit message, because each is a rule for the
+next extraction rather than a fact about this one.
+
+### 1. The closure was computed in only one direction, and it was the wrong half
+
+`measure-conformance-movable.mjs` grew the STAYS set upward: *a module stays if
+it VALUE-depends on a stayer*. That rule is real — moving such a module would
+leave an uninverted runtime edge into the subject, which DR-1 permits only in
+`bindings/`.
+
+It is not sufficient. The set must also be closed DOWNWARD: *a module stays if a
+stayer depends on it*. Without that half the partition classified
+`sdk-generation-seam.ts` movable while `layer-boundaries-seam.ts` — a stayer —
+imported three of its **values**. Applying the move produced a `src/` →
+`tools/` edge: shipped source importing from a dev-tooling package, the exact
+inversion this task exists to avoid. `tsc --rootDir` rejected it.
+
+The downward rule counts **type edges too**, and that distinction is load-bearing
+in the other direction from the upward rule. A type-only import erases at
+runtime, so it cannot create the DR-1 edge — but it still pulls the target into
+the program, so `--rootDir` still fails. `test-helpers/module-specifier-parser.ts`
+is the live instance: its import of `sdk-generation-seam`'s types is
+`import type`, and it broke the build anyway.
+
+Both fixpoints now run in the script. `sdk-generation-seam.ts` stays.
+
+### 2. Tests co-locate; a sibling `tests/` tree would have un-governed the suite
+
+The first application put tests in `tools/conformance/tests/`. That is a second
+convention, and three mechanisms already define a guard as a module with a
+**co-located** self-test — `selfTestCandidates`, `resolveHosts`, and the new
+guard-suite channel, one of which is DR-24 itself. Under the split layout every
+extracted census resolves to no self-test: an unreachable guard, or the same
+convention threaded through all three. Tests moved beside their subjects, which
+is also the repo-wide rule (CLAUDE.md).
+
+### 3. A census whose subject stayed must stay with it
+
+`contract-seam-doc.test.ts` passes the import-following movability filter because
+it reaches `invariant-schema.ts` **by path, not by import**. Its subject is
+pinned in `src/`, so it is now an explicit non-member of `MOVING_TESTS` rather
+than something the closure can be trusted to catch.
+
+`effect-port-seam.ts`'s curated port table hit the mirror image: two of its five
+declared modules moved out of the tree it scans, turning both rules phantom.
+Deleting them would have been a silent weakening — both modules still read the
+filesystem, and "never grows a process or network port" is no less true for
+their having moved. The rules moved to a second table
+(`CONFORMANCE_EFFECT_PORTS`) evaluated in a second pass over the second root.
+
+## How it was unblocked (the guard-discovery gap, recorded below)
 
 Every inversion is applied and green. **No movable module carries an uninverted
 edge into the subject any more** — re-run `measure-conformance-extraction.mjs`
@@ -210,15 +269,51 @@ undiscoverable, which is strictly worse than not moving: the same
 "honest-partial beats complete-but-blind" rule this task already applies to its
 module set, applied one level up.
 
-### What is owed to finish it
+### How it was closed
 
-1. Task 042's guard-discovery channel for `tools/conformance/`.
-2. Re-run `node tools/audit/move-conformance.mjs --apply`.
-3. Re-apply the repairs listed above (they are mechanical and enumerated).
-4. A `conformance` project in the root `vitest.config.ts` — the moved tests match
-   no existing project glob, and a test that matches no project passes by never
-   executing.
-5. Re-point `desc:budget-guard` at the moved CLI.
+1. **Channel 4** (`GUARD_SUITE_ROOTS` in `scripts/guard-inventory.ts`). Under a
+   declared guard-suite root, a non-test module with a co-located self-test is a
+   guard. It fails closed three ways — unreadable root, root yielding zero
+   guards, empty root list — because a discovery channel that contributes
+   nothing is indistinguishable from one that was never needed. It was landed
+   and proven BEFORE the move, over the pre-move tree, so the move retargeted
+   one constant instead of introducing an untested mechanism mid-flight.
+2. `node tools/audit/move-conformance.mjs --apply`.
+3. The enumerated repairs, plus the three findings above that the plan missed.
+4. A `conformance` project in the root `vitest.config.ts`, deliberately WITHOUT
+   `passWithNoTests` — a glob that matches nothing must fail for the enforcement
+   suite above all.
+5. `desc:budget-guard` re-pointed at the moved CLI.
+
+### The path-pinned registers the move invalidated
+
+Every one of these was a real gate that would have gone quiet, and none of them
+is reachable by following imports. They are listed because the list itself is
+the finding — a directory move breaks governance in more places than a compiler
+can see.
+
+| Register | What broke | Repair |
+| --- | --- | --- |
+| `wave1-exit.test.ts` `WAVE1_GUARDS` | G2/G3/G5 pinned by old path | retargeted |
+| `guard-inventory.test.ts` | named guards + the `pathFilteredOnly` example | retargeted; the example moved to `layer-boundaries-seam` because the extraction's unfiltered host cleared the old one |
+| `effect-port-seam.ts` `NARROW_EFFECT_PORTS` | 2 of 5 rules went phantom | second table + second pass |
+| `legacy-shape-debt.ts` | 4 debt entries dangling | retargeted, not deleted |
+| `@oracle-sources` (DR-30) | 2 annotations unresolvable | retargeted |
+| `knip-allowlist.json` | fixture entry dangling | retargeted |
+| `count-casts` `CENSUS_ROOTS` | ~6 casts left the census's jurisdiction | fifth root added |
+| `check-module-intent` | `output-schema-seed-pin.ts` became dead-in-prod | moved into the package, as this doc always intended |
+| `output-schema-ratchet-guard.test.ts` | 2 path literals | retargeted |
+| test-inventory baseline | 15 relocated test files | regenerated after `git add` |
+
+Four CI steps in the unfiltered `grep-gates` job named these tests by path.
+Rather than splitting each, the conformance half collapsed into ONE step that
+runs the whole package (`npm run test:conformance`). The reason is the
+two-surface subset rule, not brevity: `tools/conformance/**` matches no
+`dorny/paths-filter` key, so the package's only other host (`test-root`, filtered
+on `root`) is armed by no PR that edits it — #1711's skipped-as-passed aimed at
+the enforcement suite itself. Widening `root` was rejected for the reason already
+recorded in `GUARD_EXEMPTIONS`: that key also arms `test-windows-root`, the lane
+#1699 has never proven green.
 
 ## Acceptance condition
 

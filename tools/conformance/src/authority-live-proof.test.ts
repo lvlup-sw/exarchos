@@ -13,7 +13,7 @@
 // `runAuthorityCensus`, with its own finding kinds, its own closure rule and its
 // own per-row `blocking` schedule. Only the evidence class of its input changes.
 //
-// @oracle-sources: ../../scripts/authority-live-proof.ts, ./authority-topology.ts
+// @oracle-sources: ../../../servers/exarchos-mcp/scripts/authority-live-proof.ts, ./authority-topology.ts
 //
 // The two authorities are independent in both senses DR-30 asks about. STATIC:
 // `authority-live-proof.ts` imports only `node:*`, `typescript` and task 020's
@@ -30,8 +30,8 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, mkdtempSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
-import { EVENT_EMISSION_REGISTRY } from '../events/schemas.js';
-import { PHASE_EXPECTED_EVENTS } from '../verbs/gates/check-event-emissions.js';
+import { EVENT_EMISSION_REGISTRY } from '../../../servers/exarchos-mcp/src/events/schemas.js';
+import { PHASE_EXPECTED_EVENTS } from '../../../servers/exarchos-mcp/src/verbs/gates/check-event-emissions.js';
 import { topologyRows, type AuthorityTopologyRow } from './authority-topology.js';
 import {
   runAuthorityCensus,
@@ -45,11 +45,11 @@ import {
   scanSourceForCommandSites,
   GOVERNED_SOURCES,
   REPO_ROOT,
-} from '../../scripts/cli-derivation-guard.js';
+} from '../../../servers/exarchos-mcp/scripts/cli-derivation-guard.js';
 // The namespace import is what lets the evidence table's `oracle.entrypoint`
 // be resolved BY NAME against the oracle's real exports (below) rather than
 // compared against a string another list also restates.
-import * as liveProof from '../../scripts/authority-live-proof.js';
+import * as liveProof from '../../../servers/exarchos-mcp/scripts/authority-live-proof.js';
 import {
   EVENT_CATALOG_REPRESENTATION_IDS,
   EVENT_CATALOG_SOURCES,
@@ -70,7 +70,7 @@ import {
   type MeasuredBoundary,
   type MeasuredRepresentation,
   type MeasuredSite,
-} from '../../scripts/authority-live-proof.js';
+} from '../../../servers/exarchos-mcp/scripts/authority-live-proof.js';
 
 /** The live composition root task 020's guard governs. */
 function governedSourcePath(): string {

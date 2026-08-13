@@ -87,7 +87,7 @@ import {
   IMPLEMENTER_PROMPT_TEMPLATE,
   VERIFICATION_NOTE_PLACEHOLDER,
 } from '../../agents/definitions.js';
-import { estimateTokens } from '../../architecture/description-budget.js';
+import { estimateTokens } from '../../../../../tools/conformance/src/description-budget.js';
 import * as fsp from 'node:fs/promises';
 import * as os from 'node:os';
 import * as nodePath from 'node:path';

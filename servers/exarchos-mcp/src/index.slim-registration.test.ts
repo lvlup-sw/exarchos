@@ -32,7 +32,7 @@ import {
   type V2Client,
 } from './contract/sdk/seam.js';
 import { createServer } from './index.js';
-import { estimateTokens } from './architecture/description-budget.js';
+import { estimateTokens } from '../../../tools/conformance/src/description-budget.js';
 import { TOOL_REGISTRY } from './registry.js';
 
 // The DR-6 acceptance ceiling for the serialized registration descriptions.

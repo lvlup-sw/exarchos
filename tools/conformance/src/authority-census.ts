@@ -84,7 +84,7 @@
 // cast-free idiom `authority-topology.ts` and `contract/declaration.ts` use.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import type { ClosureDiagnostic, HopStatus } from '../contract/reachability/graph.js';
+import type { ClosureDiagnostic, HopStatus } from '../../../servers/exarchos-mcp/src/contract/reachability/graph.js';
 import { BOUNDARY_DERIVATIONS } from './bindings/index.js';
 import {
   CONTRACT_BOUNDARIES,

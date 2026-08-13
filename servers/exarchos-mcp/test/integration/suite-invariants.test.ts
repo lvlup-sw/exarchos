@@ -259,7 +259,11 @@ describe('DR-30 part 2 — the real corpus', () => {
 
     // All three DR-30-mandated roots are present and non-empty.
     const mandated = SCAN_ROOTS.filter((r) => r.mandatedByDr30).map((r) => r.id);
-    expect(mandated).toEqual(['repo/src', 'mcp/src', 'mcp/test']);
+    // `tools/conformance` joined the mandated set when task 018a extracted the
+    // suite out of `mcp/src`. It is mandated rather than optional because these
+    // files were already governed here — dropping the mandate would have let a
+    // directory move discharge DR-30 coverage.
+    expect(mandated).toEqual(['repo/src', 'mcp/src', 'mcp/test', 'tools/conformance']);
     for (const id of mandated) {
       expect(corpus.filter((f) => f.root === id).length).toBeGreaterThan(0);
     }

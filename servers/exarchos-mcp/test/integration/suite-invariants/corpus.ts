@@ -32,6 +32,13 @@ export const SCAN_ROOTS: readonly ScanRoot[] = Object.freeze([
   { id: 'mcp/src', dir: path.join(MCP_ROOT, 'src'), mandatedByDr30: true },
   { id: 'mcp/test', dir: path.join(MCP_ROOT, 'test'), mandatedByDr30: true },
   { id: 'mcp/tests', dir: path.join(MCP_ROOT, 'tests'), mandatedByDr30: false },
+  // Task 018a extracted the conformance suite out of `mcp/src`. Following it
+  // keeps the corpus at the same membership it had the day before the move —
+  // these files were governed here, they still carry their `@oracle-sources`
+  // annotations, and four of them still carry entries in the shape-debt
+  // register. Leaving the root out would have discharged that debt by
+  // relocation, which is the one way a shrink-only register can grow slack.
+  { id: 'tools/conformance', dir: path.join(REPO_ROOT, 'tools/conformance/src'), mandatedByDr30: true },
 ]);
 
 const SKIP_DIRS = new Set(['node_modules', 'dist', '.git', 'coverage', '.worktrees']);

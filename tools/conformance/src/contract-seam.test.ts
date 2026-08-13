@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { lintSeamComments } from './contract-seam.js';
+import { fromSubjectSrc } from './subject-root.js';
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const SCHEMA_PATH = path.join(here, 'invariant-schema.ts');
+// The lint MOVED here; its subject did not. `invariant-schema.ts` has production
+// consumers (the `invariants_add`/`amend` verbs), so task 018a left it in the
+// subject tree — this path has to cross the package boundary deliberately.
+const SCHEMA_PATH = fromSubjectSrc('architecture', 'invariant-schema.ts');
 
 describe('lintSeamComments', () => {
   // The real schema module has a `// contract-shaped:` comment above every

@@ -22,12 +22,11 @@
 // this census was built to expose, and that disagreement is pinned below rather
 // than smoothed over.
 //
-// @oracle-sources: ../registry.ts, the Zod schema objects the live tool registry constructs at module-import time and the census walks structurally
+// @oracle-sources: ../../../servers/exarchos-mcp/src/registry.ts, the Zod schema objects the live tool registry constructs at module-import time and the census walks structurally
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
+import { fromSubjectSrc } from './subject-root.js';
 import {
   classifyOutputSchema,
   countByReason,
@@ -38,9 +37,9 @@ import {
   censusLiveOutputSchemas,
   OUTPUT_SCHEMA_PORTS,
 } from './bindings/output-schema.js';
-import { acceptsEveryValue } from '../contract/schemas/schema-totality.js';
-import { TOOL_REGISTRY } from '../registry.js';
-import { EnvelopeSchema } from '../contract/schemas/envelope.js';
+import { acceptsEveryValue } from '../../../servers/exarchos-mcp/src/contract/schemas/schema-totality.js';
+import { TOOL_REGISTRY } from '../../../servers/exarchos-mcp/src/registry.js';
+import { EnvelopeSchema } from '../../../servers/exarchos-mcp/src/contract/schemas/envelope.js';
 
 // ─── Authority A — the declaration form, read from registry source text ──────
 //
@@ -59,7 +58,7 @@ import { EnvelopeSchema } from '../contract/schemas/envelope.js';
 // still distinguishes them — which is what keeps the "aliased vacuity" finding
 // auditable from the source side rather than only from the object walk.
 
-const REGISTRY_SRC = resolve(dirname(fileURLToPath(import.meta.url)), '../registry.ts');
+const REGISTRY_SRC = fromSubjectSrc('registry.ts');
 
 interface DeclarationSite {
   /** Action name this `outputSchema:` belongs to. */

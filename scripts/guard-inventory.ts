@@ -191,6 +191,11 @@ export const MCP_SCRIPTS_DIR = 'servers/exarchos-mcp/scripts';
  * the inventory — which is the whole failure mode channel 4 exists to prevent.
  */
 export const GUARD_SUITE_ROOTS: readonly string[] = Object.freeze([
+  'tools/conformance/src',
+  // The 18 modules task 018a left behind: the invariants-catalog subsystem and
+  // the shared utilities production imports. Still self-tested censuses, so
+  // still guards — they just are not extractable without inverting the
+  // dependency direction between `src/` and `tools/`.
   'servers/exarchos-mcp/src/architecture',
 ]);
 /** The aggregator that decides which `ci.yml` job can fail a PR. */

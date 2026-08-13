@@ -27,7 +27,7 @@
 // really wired (`resolveToday()` agrees with an independently computed UTC day),
 // never what verdict it produces.
 //
-// @oracle-sources: ../src/output-schema-vacuity-allowlist.ts, ../src/output-schema-seed-pin.ts, the Zod schema objects the live tool registry constructs at module-import time and the census walks structurally
+// @oracle-sources: ../src/output-schema-vacuity-allowlist.ts, ../../../tools/conformance/src/output-schema-seed-pin.ts, the Zod schema objects the live tool registry constructs at module-import time and the census walks structurally
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -45,7 +45,7 @@ import {
   isoDayUtc,
   type CensusableAction,
   type CensusableTool,
-} from '../src/architecture/output-schema-census.js';
+} from '../../../tools/conformance/src/output-schema-census.js';
 import {
   auditLiveVacuityAllowlist,
   auditLiveVacuityExpiry,
@@ -53,7 +53,7 @@ import {
   auditLiveVacuityRatchetAsOf,
   auditLiveVacuitySeedIntegrity,
   censusLiveOutputSchemas,
-} from '../src/architecture/bindings/output-schema.js';
+} from '../../../tools/conformance/src/bindings/output-schema.js';
 import {
   VACUITY_ALLOWLIST,
   VACUITY_ALLOWLIST_IDS,
@@ -63,7 +63,7 @@ import {
 import {
   VACUITY_EXPIRY_HORIZON,
   VACUITY_SEED_KEY_SET_DIGEST,
-} from '../src/output-schema-seed-pin.js';
+} from '../../../tools/conformance/src/output-schema-seed-pin.js';
 import {
   unregisteredActionOutputSchema,
   withCappedShape,
@@ -71,8 +71,9 @@ import {
 import { EnvelopeSchema } from '../src/contract/schemas/envelope.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const CENSUS_SRC = resolve(HERE, '..', 'src', 'architecture', 'output-schema-census.ts');
-const PIN_SRC = resolve(HERE, '..', 'src', 'output-schema-seed-pin.ts');
+/** Extracted to `tools/conformance/` by task 018a; the guard still reads its source. */
+const CENSUS_SRC = resolve(HERE, '..', '..', '..', 'tools', 'conformance', 'src', 'output-schema-census.ts');
+const PIN_SRC = resolve(HERE, '..', '..', '..', 'tools', 'conformance', 'src', 'output-schema-seed-pin.ts');
 
 /** The day the 112 waivers were seeded. Every "before the deadline" verdict uses it. */
 const SEEDED_ON = '2026-08-07';

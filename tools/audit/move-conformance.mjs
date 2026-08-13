@@ -35,14 +35,21 @@ function movableModules() {
   return list.filter((m) => m !== '__fixtures__/declaration-seam-violator.fixture.ts');
 }
 
-/** Tests that move: those importing no architecture module that stays behind. */
+/**
+ * Tests that move: those importing no architecture module that stays behind.
+ *
+ * `contract-seam-doc.test.ts` is deliberately ABSENT despite passing that
+ * filter. It reaches `invariant-schema.ts` by PATH rather than by import, so an
+ * import-following closure analysis cannot see that its subject stays behind.
+ * The subject is pinned in `src/` by production consumers, so the test stays
+ * with it.
+ */
 const MOVING_TESTS = [
   '__tests__/wave1-exit.test.ts',
   'authority-census.test.ts',
   'authority-live-proof.test.ts',
   'authority-topology.test.ts',
   'axiom-retirement.test.ts',
-  'contract-seam-doc.test.ts',
   'contract-seam.test.ts',
   'delivery-safety.test.ts',
   'description-budget.test.ts',
@@ -51,7 +58,6 @@ const MOVING_TESTS = [
   'output-schema-census.selftest.test.ts',
   'output-schema-census.test.ts',
   'report-coupling-census.test.ts',
-  'sdk-generation-seam.test.ts',
   'vcs-ownership.test.ts',
   'verb-registration.test.ts',
 ];
@@ -62,11 +68,18 @@ for (const m of movableModules()) {
   MOVES.set(`${ARCH_REL}/${m}`, `${PKG_REL}/src/${m}`);
 }
 for (const t of MOVING_TESTS) {
-  // `__tests__/wave1-exit.test.ts` flattens: the package separates tests from
-  // sources by directory, so a nested `__tests__` inside it would be a second,
-  // redundant convention.
+  // Tests land BESIDE their subject, not in a sibling `tests/` tree, and
+  // `__tests__/wave1-exit.test.ts` flattens up to join them.
+  //
+  // This is not only the repo-wide convention (CLAUDE.md) — three mechanisms
+  // define a guard as a module with a CO-LOCATED self-test, and one of them is
+  // DR-24 itself. `selfTestCandidates`, `resolveHosts` and the guard-suite
+  // channel all resolve `foo.ts` -> `foo.test.ts` as siblings, so a split tree
+  // would leave every extracted census with no discoverable self-test: an
+  // unreachable guard, or a second layout convention threaded through all
+  // three. The directory split buys nothing that pays for that.
   const flat = t.replace(/^__tests__\//, '');
-  MOVES.set(`${ARCH_REL}/${t}`, `${PKG_REL}/tests/${flat}`);
+  MOVES.set(`${ARCH_REL}/${t}`, `${PKG_REL}/src/${flat}`);
 }
 
 /** Map an absolute path through the table. Returns the same path if unmoved. */

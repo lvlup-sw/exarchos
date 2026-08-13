@@ -48,7 +48,7 @@
  */
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import type { VacuityWaiverEntry } from '../output-schema-vacuity-allowlist.js';
+import type { VacuityWaiverEntry } from '../../../servers/exarchos-mcp/src/output-schema-vacuity-allowlist.js';
 
 /**
  * The shipped schema behaviours this census measures against.

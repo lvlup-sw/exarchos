@@ -40,7 +40,7 @@ import {
   phantomBaselineEntries,
   edgeKey,
   type RuntimeCycle,
-} from '../../servers/exarchos-mcp/src/architecture/import-cycles.js';
+} from '../../tools/conformance/src/import-cycles.js';
 
 /** Repo-relative source root the ratchet governs (matches import-cycles default). */
 export const SRC_PREFIX = 'servers/exarchos-mcp/src';

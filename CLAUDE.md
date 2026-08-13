@@ -9,8 +9,10 @@ agents working **on the Exarchos codebase**.
 
 ```bash
 npm run build          # tsc + bun → dist/ (MCP server + CLI bundles)
-npm run test:run       # vitest single run
-npm run typecheck      # tsc --noEmit
+npm run test:run       # the `unit` project ONLY — not the whole root suite
+npx vitest run         # every root project (unit + process + outcome + conformance)
+npm run test:conformance   # just the extracted conformance suite (tools/conformance/)
+npm run typecheck      # tsc --noEmit, root AND tools/conformance
 npm run build:skills   # render skills-src/ → skills/<runtime>/ + command-aliases/<runtime>/
 npm run skills:guard   # CI: fails if generated skills/ or command-aliases/ drift from sources
 

@@ -69,6 +69,20 @@ export const REPO_ROOT: string = findRepoRoot(
 /** Absolute path to the root of the source tree under inspection. */
 export const SUBJECT_SRC_ROOT: string = path.join(REPO_ROOT, SUBJECT_SRC_REL);
 
+/**
+ * The package directory containing {@link SUBJECT_SRC_ROOT} — where the subject's
+ * own `package.json`, `scripts/` and `tsconfig.json` live.
+ *
+ * Derived from `SUBJECT_SRC_REL` rather than declared separately, so the two
+ * cannot drift: task 019's one-line edit moves both.
+ */
+export const SUBJECT_PACKAGE_ROOT: string = path.dirname(SUBJECT_SRC_ROOT);
+
+/** Resolve a path relative to the subject's package root. */
+export function fromSubjectPackage(...segments: readonly string[]): string {
+  return path.join(SUBJECT_PACKAGE_ROOT, ...segments);
+}
+
 /** Resolve a path relative to the repository root. */
 export function fromRepoRoot(...segments: readonly string[]): string {
   return path.join(REPO_ROOT, ...segments);

@@ -27,7 +27,7 @@
 // imports nothing and cannot observe either of the other two. Their agreement is
 // the claim; their disagreement is the finding.
 //
-// @oracle-sources: ./output-schema-vacuity-allowlist.ts, ./output-schema-seed-pin.ts, the Zod schema objects the live tool registry constructs at module-import time and the census walks structurally
+// @oracle-sources: ./output-schema-vacuity-allowlist.ts, ../../../tools/conformance/src/output-schema-seed-pin.ts, the Zod schema objects the live tool registry constructs at module-import time and the census walks structurally
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -39,7 +39,7 @@ import {
   VACUITY_RETIRED,
   VACUITY_RETIRED_IDS,
 } from './output-schema-vacuity-allowlist.js';
-import { VACUITY_SEED_KEY_SET_DIGEST } from './output-schema-seed-pin.js';
+import { VACUITY_SEED_KEY_SET_DIGEST } from '../../../tools/conformance/src/output-schema-seed-pin.js';
 import {
   isDeclaredOutputSchema,
   isExtensionOutputSchema,
@@ -50,15 +50,15 @@ import {
 import {
   formatVacuityAllowlistAudit,
   formatVacuitySeedIntegrityAudit,
-} from './architecture/output-schema-census.js';
+} from '../../../tools/conformance/src/output-schema-census.js';
 import {
   auditLiveVacuityAllowlist,
   auditLiveVacuityRatchet,
   auditLiveVacuitySeedIntegrity,
   censusLiveOutputSchemas,
   liveVacuitySeedDigest,
-} from './architecture/bindings/output-schema.js';
-import type { CensusableAction, CensusableTool } from './architecture/output-schema-census.js';
+} from '../../../tools/conformance/src/bindings/output-schema.js';
+import type { CensusableAction, CensusableTool } from '../../../tools/conformance/src/output-schema-census.js';
 import { TOOL_REGISTRY } from './registry.js';
 import { EnvelopeSchema } from './contract/schemas/envelope.js';
 

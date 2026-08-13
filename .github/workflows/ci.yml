@@ -143,6 +143,14 @@ jobs:
       - run: bash scripts/check-eslint-windows.test.sh
 
       - run: npm run test:run
+
+      # The extracted conformance suite (task 018a). `npm run test:run` is the
+      # `unit` project ONLY, so the `conformance` project needs its own step or
+      # it is collected by nothing — the silent-green shape this suite exists to
+      # catch, applied to the suite itself. This is the WHOLESALE host, the role
+      # `test-mcp` filled before the extraction; the five Wave-1 guards keep
+      # their individually-named UNFILTERED hosts on `grep-gates`.
+      - run: npm run test:conformance
       # skills:guard — rebuild the generated skills tree in-place and
       # fail if `git diff skills/` is non-empty. Prevents drift from
       # direct edits to generated files and from forgotten rebuilds
@@ -1198,14 +1206,35 @@ jobs:
       # It must be hosted HERE and not only on the `mcp`-filtered `test-mcp`: a
       # self-test for an unfiltered gate that is itself path-filtered is #1711's
       # skipped-as-passed on exactly the PR that breaks the gate.
+      #
+      # SPLIT ACROSS TWO WORKSPACES by task 018a. The census and its selftest
+      # moved to `tools/conformance` (root vitest, `conformance` project); the
+      # ratchet guard's own test and the allowlist test stayed with the subject.
+      # Both halves must remain hosted here — dropping either recreates the
+      # skipped-as-passed hole this step was written to close.
       - name: outputSchema ratchet self-tests re-assert (DR-4/DR-24, unfiltered)
         working-directory: servers/exarchos-mcp
         run: >-
           npx --no-install vitest run
           scripts/output-schema-ratchet-guard.test.ts
-          src/architecture/output-schema-census.test.ts
-          src/architecture/output-schema-census.selftest.test.ts
           src/output-schema-vacuity-allowlist.test.ts
+
+      # THE WHOLE extracted conformance suite, unfiltered — G2's census and
+      # selftest, G3, G5, and every other census task 018a moved out.
+      #
+      # One step for the package rather than one per guard, and the reason is
+      # the two-surface subset rule rather than brevity. These censuses now live
+      # under `tools/conformance/**`, which no `dorny/paths-filter` key matches,
+      # so their only other host (`test-root`, filtered on `root`) is armed by
+      # NO PR that edits them: #1711's skipped-as-passed, pointed at the
+      # enforcement suite itself. An unfiltered host clears it for the whole
+      # package at once, and cannot go stale as the package grows.
+      #
+      # The alternative was widening `root` to cover `tools/conformance/**`.
+      # Rejected for the reason already recorded in GUARD_EXEMPTIONS: that key
+      # also arms `test-windows-root`, the lane #1699 has never proven green.
+      - name: Conformance suite — every extracted census (DR-2/DR-4/DR-6/DR-24, unfiltered)
+        run: npm run test:conformance
 
       # G1 CLI-derivation allowlist ratchet (DR-5, task 023). Parses the CLI
       # composition root, derives the hand-written-literal population from that
@@ -1292,9 +1321,9 @@ jobs:
       # not the zero-dep prefix: it resolves the MCP TypeScript source through
       # the MCP vitest installed by the two steps above.
       # See docs/guides/ci-gate-hosting.md.
-      - name: G3 report-coupled ratchet (DR-2, task 013)
-        working-directory: servers/exarchos-mcp
-        run: npx --no-install vitest run src/architecture/report-coupling-census.test.ts
+      # G3's census moved to `tools/conformance` by task 018a and is now hosted
+      # by the whole-suite step above, which is unfiltered for the same reason
+      # this step was.
 
       # G4 effect-ledger bijection (DR-7) and G5 authority-topology census (DR-6),
       # hosted UNFILTERED — added by task 027 at the Wave-1 exit.
@@ -1313,12 +1342,16 @@ jobs:
       # for four waves, which is the contradiction rev 3 was written to remove.
       # What changes is that the guard now RUNS on every PR instead of only on
       # `mcp`-touching ones.
-      - name: G4 effect-ledger + G5 authority census self-tests (DR-6/DR-7/DR-24, unfiltered)
+      #
+      # SPLIT ACROSS TWO WORKSPACES by task 018a. G5's census moved to
+      # `tools/conformance`; G4's `effect-ledger.ts` did NOT — it has seven
+      # production consumers, so extracting it would have inverted the
+      # dependency direction between `src/` and `tools/`.
+      - name: G4 effect-ledger self-test (DR-7/DR-24, unfiltered)
         working-directory: servers/exarchos-mcp
-        run: >-
-          npx --no-install vitest run
-          src/architecture/effect-ledger.test.ts
-          src/architecture/authority-census.test.ts
+        run: npx --no-install vitest run src/architecture/effect-ledger.test.ts
+
+      # G5's census moved with G3's; the whole-suite step above hosts it.
 
       # DR-3 event-name grammar census + two-way ratchet (task 015). Enumerates
       # the LIVE registry at runtime — `getValidEventTypes()`, so custom
@@ -1340,15 +1373,10 @@ jobs:
       # own accord after the seeded expiry (2027-02-28) — that is the deadline
       # working, and the repair is retiring the concession, never re-dating it.
       #
-      # Must be UNFILTERED: the census lives under `servers/exarchos-mcp/**` but
-      # governs a repo-wide naming contract, and an `mcp`-filtered host
-      # skips-as-passed on exactly the PRs #1711 describes. Rides the deps tail,
-      # not the zero-dep prefix — it resolves the MCP TypeScript source through
-      # the MCP vitest installed by the two steps above.
+      # DR-3's event-name grammar census also moved to `tools/conformance` and
+      # is hosted by the whole-suite step above — unfiltered, as it must be: the
+      # census governs a repo-wide naming contract.
       # See docs/guides/ci-gate-hosting.md.
-      - name: DR-3 event-name grammar ratchet (task 015)
-        working-directory: servers/exarchos-mcp
-        run: npx --no-install vitest run src/architecture/event-grammar-census.test.ts
 
       # Audit-delivery closure (DR-4/DR-24, task 069). Holds every declared
       # delivery obligation to BOTH halves: the producing action's live

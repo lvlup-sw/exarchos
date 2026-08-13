@@ -23,11 +23,11 @@
  * number the checker would then compare against. A derivation that reports a
  * value it cannot stand behind is the defect DR-27 exists to remove.
  */
-import { censusLiveOutputSchemas } from '../servers/exarchos-mcp/src/architecture/bindings/output-schema.js';
+import { censusLiveOutputSchemas } from '../tools/conformance/src/bindings/output-schema.js';
 import {
   censusLiveEventNameGrammar,
   censusLiveReportCoupling,
-} from '../servers/exarchos-mcp/src/architecture/bindings/events.js';
+} from '../tools/conformance/src/bindings/events.js';
 import { EventTypes } from '../servers/exarchos-mcp/src/events/schemas.js';
 
 /** The derivation names this entrypoint answers. Keys match the annotation names. */

@@ -86,8 +86,8 @@ import type {
   AuthorityId,
   DeclarationKind,
   RepresentationId,
-} from '../contract/declaration.js';
-import type { SdkGeneration } from './sdk-generation-seam.js';
+} from '../../../servers/exarchos-mcp/src/contract/declaration.js';
+import type { SdkGeneration } from '../../../servers/exarchos-mcp/src/architecture/sdk-generation-seam.js';
 
 // ─── The boundary domain ─────────────────────────────────────────────────────
 

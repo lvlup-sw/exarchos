@@ -14,19 +14,13 @@ import { describe, it, expect } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import path from 'node:path';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = path.resolve(__dirname, '../../../..');
+import { SUBJECT_SRC_ROOT, fromRepoRoot } from './subject-root.js';
 
 // Live surfaces that must carry zero functional axiom coupling. Dated record
 // trees under docs/ (designs, plans, research, …) are point-in-time artifacts
 // and are intentionally out of scope — see vocabulary-lint scanRepoDefaults.
-const SCAN_ROOTS = [
-  path.join(REPO_ROOT, 'servers/exarchos-mcp/src'),
-  path.join(REPO_ROOT, 'skills-src'),
-  path.join(REPO_ROOT, 'commands'),
-];
-const CONFIG_FILE = path.join(REPO_ROOT, '.exarchos.yml');
+const SCAN_ROOTS = [SUBJECT_SRC_ROOT, fromRepoRoot('skills-src'), fromRepoRoot('commands')];
+const CONFIG_FILE = fromRepoRoot('.exarchos.yml');
 
 const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', 'coverage']);
 

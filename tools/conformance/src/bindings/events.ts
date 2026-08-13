@@ -18,16 +18,16 @@ import {
   EventTypes,
   getValidEventTypes,
   isBuiltInEventType,
-} from '../../events/schemas.js';
-import { classifyEventName, WORD_SEPARATORS } from '../../events/event-name.js';
-import type { WordSeparator } from '../../events/event-name.js';
+} from '../../../../servers/exarchos-mcp/src/events/schemas.js';
+import { classifyEventName, WORD_SEPARATORS } from '../../../../servers/exarchos-mcp/src/events/event-name.js';
+import type { WordSeparator } from '../../../../servers/exarchos-mcp/src/events/event-name.js';
 import {
   ANNOTATED_EVENTS,
   tierSourceDisagreements,
   type DeclaredEmissionSources,
-} from '../../events/event-annotations.js';
-import { resolveEmissionSource } from '../../events/event-registration.js';
-import type { EventAnnotationSource } from '../../events/event-declarations.js';
+} from '../../../../servers/exarchos-mcp/src/events/event-annotations.js';
+import { resolveEmissionSource } from '../../../../servers/exarchos-mcp/src/events/event-registration.js';
+import type { EventAnnotationSource } from '../../../../servers/exarchos-mcp/src/events/event-declarations.js';
 import {
   censusEventNameGrammar,
   type EventGrammarCensusReport,

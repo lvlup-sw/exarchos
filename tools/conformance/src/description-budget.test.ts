@@ -7,9 +7,9 @@ import {
   DESCRIPTION_BUDGETS,
   ACTION_BUDGET_RATCHET_TARGET,
 } from './description-budget.js';
-import { TOOL_REGISTRY, buildToolDescription } from '../registry.js';
+import { TOOL_REGISTRY, buildToolDescription } from '../../../servers/exarchos-mcp/src/registry.js';
 import { auditLiveDescriptionBudgets } from './bindings/index.js';
-import type { CompositeTool, ToolAction } from '../registry.js';
+import type { CompositeTool, ToolAction } from '../../../servers/exarchos-mcp/src/registry.js';
 
 /**
  * Minimal valid action used to assemble synthetic tools for the planted-bloat

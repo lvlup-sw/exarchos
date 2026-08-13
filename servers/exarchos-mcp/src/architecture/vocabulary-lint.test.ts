@@ -13,7 +13,7 @@ import {
   type RegistryLoader,
   type RegistryToolLike,
 } from './vocabulary-lint.js';
-import { ARTIFACT_DIRS } from './bindings/index.js';
+import { ARTIFACT_DIRS } from '../../../../tools/conformance/src/bindings/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../../..');

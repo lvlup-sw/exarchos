@@ -7,8 +7,10 @@ import {
   auditDeliverySafety,
   REQUIRED_DELIVERY_MODULES,
 } from './delivery-safety.js';
+import { SUBJECT_SRC_ROOT } from './subject-root.js';
 
-const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+/** The census's own fixtures, which moved into this package with it. */
+const FIXTURE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '__fixtures__');
 
 describe('findSilentSwallows — detection', () => {
   it('flags a bare empty catch block', () => {
@@ -74,7 +76,7 @@ describe('maskLiteralsAndComments', () => {
 
 describe('auditDeliverySafety — live required-delivery modules', () => {
   it('the real required-delivery modules contain zero silent swallows', async () => {
-    const result = await auditDeliverySafety(SRC_ROOT);
+    const result = await auditDeliverySafety(SUBJECT_SRC_ROOT);
     expect(result.findings).toEqual([]);
     expect(result.ok).toBe(true);
   });
@@ -86,8 +88,7 @@ describe('auditDeliverySafety — live required-delivery modules', () => {
 
   it('FAILS when a required module is replaced by one that silently swallows', async () => {
     // Point the audit at a fixture module planted with a silent swallow.
-    const fixtureRoot = join(SRC_ROOT, 'architecture', '__fixtures__');
-    const result = await auditDeliverySafety(fixtureRoot, ['swallows.fixture.ts']);
+    const result = await auditDeliverySafety(FIXTURE_ROOT, ['swallows.fixture.ts']);
     expect(result.ok).toBe(false);
     expect(result.findings.length).toBeGreaterThan(0);
     expect(result.findings[0]?.finding.kind).toBe('empty-catch');
