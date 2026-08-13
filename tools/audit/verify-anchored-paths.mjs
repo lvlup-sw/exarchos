@@ -21,7 +21,7 @@ import { execFileSync } from 'node:child_process';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
-const SELF_DIR_EXPR = String.raw`(?:__dirname|(?:path\.)?dirname\(\s*fileURLToPath\(\s*import\.meta\.url\s*\)\s*\)|fileURLToPath\(\s*new URL\(\s*'\.'\s*,\s*import\.meta\.url\s*\)\s*\))`;
+const SELF_DIR_EXPR = String.raw`(?:__dirname|(?:[A-Za-z_$][\w$]*\.)?dirname\(\s*fileURLToPath\(\s*import\.meta\.url\s*\)\s*\)|fileURLToPath\(\s*new URL\(\s*'\.'\s*,\s*import\.meta\.url\s*\)\s*\))`;
 const SELF_DIR_BINDING = new RegExp(
   String.raw`(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*${SELF_DIR_EXPR}`,
   'g',
@@ -29,7 +29,7 @@ const SELF_DIR_BINDING = new RegExp(
 const STRINGS = /'([^']*)'/g;
 // `const ROOT = resolve(<base>, '..', '..')` — a root derived from another anchor.
 const DERIVED_BINDING =
-  /(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:path\.)?(?:resolve|join)\(\s*([A-Za-z_$][\w$]*)\s*,\s*((?:'[^']*'\s*,?\s*)+)\)/g;
+  /(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:[A-Za-z_$][\w$]*\.)?(?:resolve|join)\(\s*([A-Za-z_$][\w$]*)\s*,\s*((?:'[^']*'\s*,?\s*)+)\)/g;
 
 /** Blank out line and block comments so prose about these idioms is not scanned. */
 function stripComments(text) {
@@ -76,7 +76,7 @@ for (const rel of tracked) {
   }
   for (const [name, base] of derived) {
     const CALL2 = new RegExp(
-      String.raw`\b(?:path\.)?(?:resolve|join)\(\s*${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\s*,\s*((?:'[^']*'\s*,?\s*)+)\)`,
+      String.raw`\b(?:[A-Za-z_$][\w$]*\.)?(?:resolve|join)\(\s*${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\s*,\s*((?:'[^']*'\s*,?\s*)+)\)`,
       'g',
     );
     for (const m of src.matchAll(CALL2)) {
@@ -91,7 +91,7 @@ for (const rel of tracked) {
   }
   const alternatives = [...anchors].map((a) => a.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
   const CALL = new RegExp(
-    String.raw`\b(?:path\.)?(?:resolve|join)\(\s*(?:${alternatives}|${SELF_DIR_EXPR})\s*,\s*((?:'[^']*'\s*,?\s*)+)\)`,
+    String.raw`\b(?:[A-Za-z_$][\w$]*\.)?(?:resolve|join)\(\s*(?:${alternatives}|${SELF_DIR_EXPR})\s*,\s*((?:'[^']*'\s*,?\s*)+)\)`,
     'g',
   );
 

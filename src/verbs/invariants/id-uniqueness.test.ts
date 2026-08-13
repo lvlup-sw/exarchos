@@ -94,7 +94,7 @@ function makeCtx(): DispatchContext {
 /** Repo root of the exarchos checkout this test runs from. */
 const REPO_ROOT = nodePath.resolve(
   nodePath.dirname(fileURLToPath(import.meta.url)),
-  '../../../../..',
+  '../../..',
 );
 
 /** The REAL committed dev catalog — the subject of the original probe. */
