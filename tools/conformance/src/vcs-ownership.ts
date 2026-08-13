@@ -137,7 +137,7 @@ export interface VcsOwnershipResult {
  * until it is consciously declared here (or, better, routed through the owner).
  */
 export const VCS_MUTATION_OWNERS: readonly string[] = Object.freeze([
-  'launcher/create-worktree.ts',
+  'runtime/launcher/create-worktree.ts',
   'verbs/merge/local-git-merge.ts',
   'verbs/pure/execute-merge.ts',
   'vcs/mutation-owner.ts',
