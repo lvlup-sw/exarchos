@@ -40,8 +40,8 @@
     "vendor:sync:pm-detector": "tsx scripts/core/sync-vendor-pm-detector.ts",
     "vendor:check:pm-detector": "tsx scripts/core/sync-vendor-pm-detector.ts --check",
     "desc:budget-guard": "tsx tools/conformance/src/description-budget-cli.ts",
-    "skills:guard": "node dist/install/skills-guard.js && (npm run lint:inv6 || true) && npm run lint:test-first-drift",
-    "hooks:guard": "node dist/install/hooks-guard.js",
+    "skills:guard": "npm run render:guard",
+    "hooks:guard": "npm run render:guard",
     "prepare": "tsc",
     "bench": "vitest bench",
     "bench:plan-format": "tsx tools/evals/evals/benchmarks/plan-format-corpus.ts",
@@ -62,7 +62,8 @@
     "docs:dev": "cd documentation && npm run docs:dev",
     "docs:build": "cd documentation && npm run docs:build",
     "docs:preview": "cd documentation && npm run docs:preview",
-    "lint:windows": "npm run lint"
+    "lint:windows": "npm run lint",
+    "render:guard": "node dist/install/render-guard.js && npm run runtimes:guard && (npm run lint:inv6 || true) && npm run lint:test-first-drift"
   },
   "keywords": [
     "claude-code-plugin",

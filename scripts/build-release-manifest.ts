@@ -142,7 +142,7 @@ export const GENERATED_AT_BUILD_PATHS = ['src/install/runtimes/embedded.ts'] as 
 export const MAX_REPORTED_MODIFIED_PATHS = 16;
 
 /** Pathspec for the rendered skill tree (P05-04 `skill` dimension). */
-export const SKILL_TREE_ROOTS = ['skills'] as const;
+export const SKILL_TREE_ROOTS = ['rendered/skills'] as const;
 
 /** Path of the P03-01 approved contract-authority lockfile, repo-relative. */
 export const CONTRACT_LOCK_PATH = 'src/contract/contract-authority.lock.json';

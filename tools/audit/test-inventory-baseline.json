@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) \u2014 path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1152,
-    "parsedFiles": 1107,
+    "testFiles": 1153,
+    "parsedFiles": 1108,
     "shellFiles": 45,
-    "cases": 12733,
+    "cases": 12738,
     "dynamicTitles": 131,
     "unparseableFiles": 0
   },
@@ -22208,6 +22208,11 @@
       "file": "src/install/namespacing-validation.test.ts",
       "runner": "vitest:root",
       "cases": [
+        {
+          "suite": "Command namespacing",
+          "name": "scanRoots_AreNonEmpty",
+          "dynamic": false
+        },
         {
           "suite": "Command namespacing",
           "name": "scanCommandFiles_UnNamespacedSkillInvocations_ReportsViolations",
@@ -66523,6 +66528,32 @@
         {
           "suite": "reference census",
           "name": "ReferenceCensus_ReHomedSubtrees_AreMeasuredButNotGated",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/render-guard.test.ts": {
+      "file": "tests/architecture/render-guard.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "RenderGuard",
+          "name": "ConfiguredScope_MatchesNonEmptyFileSet",
+          "dynamic": false
+        },
+        {
+          "suite": "RenderGuard",
+          "name": "CleanTree_Passes",
+          "dynamic": false
+        },
+        {
+          "suite": "RenderGuard",
+          "name": "DriftInRenderedTree_FailsClosed",
+          "dynamic": false
+        },
+        {
+          "suite": "RenderGuard",
+          "name": "DriftInHarnessDotDirectory_FailsClosed",
           "dynamic": false
         }
       ]

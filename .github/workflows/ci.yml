@@ -150,35 +150,20 @@ jobs:
       # `test-mcp` filled before the extraction; the five Wave-1 guards keep
       # their individually-named UNFILTERED hosts on `grep-gates`.
       - run: npm run test:conformance
-      # skills:guard — rebuild the generated skills tree in-place and
-      # fail if `git diff skills/` is non-empty. Prevents drift from
-      # direct edits to generated files and from forgotten rebuilds
-      # after a content/ change. Depends on `dist/skills-guard.js`
-      # produced by the earlier `npm ci` (`prepare` → `tsc`). This also
-      # closes the DR-22 drift-guard requirement for `command-aliases/`
-      # and `agents/`: `runHooksGuard`'s sibling, `runSkillsGuard`,
-      # regenerates and diffs BOTH the `command-aliases/**` tree (from
-      # `commands/`) and every per-runtime `agents/**` output tree (from
-      # `src/runtime/agents/`) — see src/skills-guard.ts.
-      - run: npm run skills:guard
-
-      # hooks:guard (DR-22) — rebuild the generated `hooks/` + `binding/`
-      # trees in-place from `content/harness/hooks/` / `content/harness/binding/` and fail if
-      # `git diff hooks/ binding/` is non-empty. Mirrors `skills:guard`
-      # above; without this step (and without `hooks/**` / `content/harness/hooks/**`
-      # / `binding/**` / `content/harness/binding/**` in the `changes.root` path
-      # filter above) a PR that deletes or mutates a shipped hook passed
-      # CI green, unobserved. Depends on `dist/hooks-guard.js` produced
-      # by the earlier `npm ci` (`prepare` → `tsc`).
-      - run: npm run hooks:guard
-
-      # runtimes:guard — re-run `scripts/codegen-runtimes.ts` and fail
-      # if `git diff src/install/runtimes/embedded.ts` is non-empty. The
-      # embedded module is what the compiled binary uses to resolve
-      # runtimes (#1213 review-item #4 reversal, #1214); CI must catch
-      # any drift between `content/harness/runtimes/*.yaml` and the checked-in
-      # generated module before it leaks into a release.
-      - run: npm run runtimes:guard
+      # render:guard — the single drift gate over everything the build
+      # generates. Re-renders content/ and fails if any generated tree differs
+      # from what is committed: the rendered/ artifact trees (skills, commands,
+      # rules, agents, command-aliases), the plugin-root hooks/ and binding/
+      # output, the per-harness agent dot-directories, and the embedded runtime
+      # module codegen'd from content/harness/runtimes/*.yaml.
+      #
+      # It replaces skills:guard, hooks:guard and runtimes:guard, which each
+      # covered one slice. Consolidating them also lets the guard assert its own
+      # liveness: every declared scope must resolve to a non-empty tree, so a
+      # guard that has stopped watching fails instead of reporting one confident
+      # success. Depends on dist/install/render-guard.js from the earlier
+      # `npm ci` (`prepare` -> `tsc`).
+      - run: npm run render:guard
 
       # desc:budget-guard — MCP description token-budget gate (#1321, R-E).
       # Tool/action descriptions cost every agent on every `tools/list` call;

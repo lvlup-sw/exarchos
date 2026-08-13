@@ -332,9 +332,9 @@ describe('CI path-filter & guard coverage (DR-22)', () => {
     // `hooks:guard` must actually execute in some job (a real CI step, not
     // just an npm script that exists but is never wired in).
     const jobNamesWithHooksGuard = Object.entries(workflow.jobs)
-      .filter(([, job]) => jobRunsNpmScript(job, 'hooks:guard'))
+      .filter(([, job]) => jobRunsNpmScript(job, 'render:guard'))
       .map(([name]) => name);
-    expect(jobNamesWithHooksGuard.length, 'no CI job runs "npm run hooks:guard"').toBeGreaterThan(
+    expect(jobNamesWithHooksGuard.length, 'no CI job runs "npm run render:guard"').toBeGreaterThan(
       0,
     );
 
@@ -343,7 +343,7 @@ describe('CI path-filter & guard coverage (DR-22)', () => {
     // it (the exact DR-22 failure mode).
     for (const jobName of jobNamesWithHooksGuard) {
       const keys = pathFilterKeys(workflow.jobs[jobName]);
-      expect(keys, `job "${jobName}" running hooks:guard is not gated on any changes.outputs key`).toContain(
+      expect(keys, `job "${jobName}" running render:guard is not gated on any changes.outputs key`).toContain(
         'root',
       );
     }
@@ -356,11 +356,11 @@ describe('CI path-filter & guard coverage (DR-22)', () => {
     // — see the runSkillsGuard implementation). Assert it actually runs in
     // CI and is gated on `root`, same as hooks:guard above.
     const jobNamesWithSkillsGuard = Object.entries(workflow.jobs)
-      .filter(([, job]) => jobRunsNpmScript(job, 'skills:guard'))
+      .filter(([, job]) => jobRunsNpmScript(job, 'render:guard'))
       .map(([name]) => name);
     expect(
       jobNamesWithSkillsGuard.length,
-      'no CI job runs "npm run skills:guard"',
+      'no CI job runs "npm run render:guard"',
     ).toBeGreaterThan(0);
 
     for (const jobName of jobNamesWithSkillsGuard) {
