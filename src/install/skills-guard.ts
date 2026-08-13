@@ -22,6 +22,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
+import { runCommandSync } from '../utils/process.js';
 import { buildAllSkills } from './build-skills.js';
 import { emitCommandAliases } from './build-command-aliases.js';
 import { resolveMainDeps, type MainDeps } from './cli-helpers.js';
@@ -100,13 +101,11 @@ const REMEDIATION_ALIASES =
  * exception into a structured `SkillsGuardResult`.
  */
 function defaultRegenerateAgents(cwd: string): void {
-  const scriptPath = join(
-    cwd,
-    'src',
-    'agents',
-    'generate-agents.ts',
-  );
-  execFileSync('npx', ['tsx', scriptPath, cwd], {
+  const scriptPath = join(cwd, 'src', 'runtime', 'agents', 'generate-agents.ts');
+  // `runCommandSync`, not `execFileSync`: `npx` is a .cmd shim on Windows and
+  // execFile cannot launch one (#1623). This module only came under the lint
+  // that enforces it when task 019 folded the installer into the linted tree.
+  runCommandSync('npx', ['tsx', scriptPath, cwd], {
     cwd,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
