@@ -44,6 +44,7 @@ const ROOT_PACKAGE_JSON = path.join(REPO_ROOT, 'package.json');
 const GENERATOR_PATH = path.join(
   REPO_ROOT,
   'src',
+  'runtime',
   'agents',
   'generate-agents.ts',
 );

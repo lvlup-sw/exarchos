@@ -51,7 +51,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /** Absolute path to the compiled CLI entry (tsc emits dist/index.js from src/index.ts). */
-const CLI_BIN = path.resolve(__dirname, '../../../servers/exarchos-mcp/dist/index.js');
+const CLI_BIN = path.resolve(__dirname, '../../../dist/index.js');
 
 /** Number of timed samples. Task spec requires 50. */
 const SAMPLE_COUNT = 50;

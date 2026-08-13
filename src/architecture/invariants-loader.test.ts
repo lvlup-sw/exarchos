@@ -445,11 +445,14 @@ describe('invariants-loader', () => {
     expect(
       loadInvariants(INVARIANTS_DOC, { scope: 'all' }, relative).length,
     ).toBeGreaterThan(0);
-    // (c) wrong explicit root ⇒ no match
+    // (c) wrong explicit root ⇒ no match. The root named here must EXIST and
+    // be wrong: a non-existent one would pass for the trivial reason that
+    // nothing is there, which is a weaker test than the one intended. (It used
+    // to name `servers/`, real until task 019 removed it.)
     expect(
       loadInvariants(
         INVARIANTS_DOC,
-        { scope: 'all', configRoot: path.join(REPO_ROOT, 'servers') },
+        { scope: 'all', configRoot: path.join(REPO_ROOT, 'scripts') },
         relative,
       ),
     ).toEqual([]);

@@ -13,10 +13,14 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-/** `servers/exarchos-mcp` */
+/**
+ * The core's root. It was `servers/exarchos-mcp` until task 019 folded the
+ * package into the repository, so the two roots below are now the same
+ * directory — the name is kept because callers read by intent.
+ */
 export const MCP_ROOT = path.resolve(HERE, '../../../..');
 /** repository root */
-export const REPO_ROOT = path.resolve(MCP_ROOT, '..', '..');
+export const REPO_ROOT = MCP_ROOT;
 
 export interface ScanRoot {
   /** Stable id used in the reported denominator table. */

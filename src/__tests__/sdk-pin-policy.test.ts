@@ -83,12 +83,11 @@ import { describe, it, expect } from 'vitest';
 import { parseModuleSpecifiers } from '../../tools/test-helpers/module-specifier-parser.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
-// src/__tests__ → servers/exarchos-mcp
+// src/__tests__ → the repository root. Task 019 dissolved the nested
+// `servers/exarchos-mcp` package, so the package root and the repository root
+// are now the same directory and there is ONE manifest.
 const packageRoot = join(here, '../..');
 const packageJsonPath = join(packageRoot, 'package.json');
-// servers/exarchos-mcp → the monorepo root.
-const repoRoot = join(packageRoot, '..', '..');
-const repoPackageJsonPath = join(repoRoot, 'package.json');
 
 /** The v2 packages. DR-0's migration landed on these three and only these. */
 const V2_PACKAGES = [
@@ -279,21 +278,14 @@ describe('MCP SDK pin policy (#1292, DR-0)', () => {
         `to add back.`,
     ).toBeUndefined();
 
-    // A v1 declaration at the MONOREPO ROOT is not a separate concern: npm
-    // hoists it into a `node_modules/` above this package, so a root
-    // declaration silently satisfies a v1 import here even with the package
-    // manifest clean. That is precisely the state task 049 shipped — the
-    // package manifest had dropped v1, the root manifest still carried it in
-    // `devDependencies`, and `test/process/_helpers.ts` resolved through the
-    // hoist. Reachability is the property under test and both manifests
-    // determine it, so both are checked.
-    expect(
-      readAllDeclaredDeps(repoPackageJsonPath)[V1_PACKAGE],
-      `${V1_PACKAGE} (v1) is still declared at the MONOREPO ROOT. npm hoists it ` +
-        `into a \`node_modules/\` this package resolves through, so a v1 import ` +
-        `here would resolve and the two-generation hazard stays open — the ` +
-        `package-level removal alone does not close it.`,
-    ).toBeUndefined();
+    // There used to be a SECOND assertion here, against the monorepo-root
+    // manifest. Its reason was hoisting: a v1 declaration at the root landed in
+    // a `node_modules/` that the nested package resolved through, so the
+    // package manifest could be clean while a v1 import still resolved — which
+    // is exactly the state task 049 shipped. Task 019 dissolved the nested
+    // package, so there is one manifest and nothing above it to hoist from.
+    // The assertion above is now the whole property, and a duplicate reading
+    // the same file would assert nothing extra.
 
     const { moduleCount, modulesOutsideSrc, v1Sites } = importSitesInPackage();
 

@@ -29,7 +29,8 @@ import {
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = path.join(HERE, 'fixtures');
 const MCP_ROOT = path.resolve(HERE, '../../../../..');
-const REPO_ROOT = path.resolve(MCP_ROOT, '../..');
+// Same directory as MCP_ROOT since task 019 dissolved the nested package.
+const REPO_ROOT = MCP_ROOT;
 
 describe('seeded-defect corpus', () => {
   it('SeededCorpus_EveryClass_HasFiveDefectsAndFiveControls', () => {

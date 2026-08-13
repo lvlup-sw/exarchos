@@ -28,11 +28,11 @@ const __dirname = dirname(__filename);
 // root is two levels up.
 const SRC_ROOT = join(__dirname, '../../src');
 
-// Repository root — two levels above SRC_ROOT (src
-// → servers/exarchos-mcp → servers → <repo>). The action-set gate
-// (Wave 5 / Task 5.4) scans `commands/` and `skills-src/` at the repo
-// root in addition to the MCP server's workflow surfaces.
-const REPO_ROOT = join(SRC_ROOT, '..', '..', '..');
+// Repository root — one level above SRC_ROOT since task 019 made `src/`
+// a direct child of it. The action-set gate (Wave 5 / Task 5.4) scans
+// `commands/` and `skills-src/` at the repo root in addition to the core's
+// workflow surfaces.
+const REPO_ROOT = join(SRC_ROOT, '..');
 
 /**
  * Walk a directory recursively and yield absolute paths of files matching
