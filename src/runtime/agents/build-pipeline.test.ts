@@ -110,7 +110,7 @@ describe('build pipeline wiring (Task 6)', () => {
         generateAgents,
         '`generate:agents` must invoke src/runtime/agents/generate-agents.ts',
       ).toMatch(
-        /servers\/exarchos-mcp\/src\/agents\/generate-agents\.ts/,
+        /src\/runtime\/agents\/generate-agents\.ts/,
       );
     });
   });

@@ -296,19 +296,48 @@ describe('DR-0 / task 050 — SDK patch lifetime policy', () => {
    * `patch-package` only runs if it is wired to run. A patch file that is never
    * applied is indistinguishable, on the wire, from no patch at all.
    */
-  it('PatchLifetime_PatchPackage_IsInstalledAndWiredToPostinstall', () => {
+  it('PatchLifetime_PatchPackageWiring_MatchesWhetherAnyPatchExists', () => {
+    // The applier and the patches it applies live or die together, so this is a
+    // BICONDITIONAL rather than a one-sided requirement. Both arms are real:
+    //
+    //   patches present, no applier — patches/ sits in the tree describing
+    //     corrections nothing performs, and npm reports nothing. Whatever the
+    //     patch guaranteed is lost silently on the wire.
+    //
+    //   applier present, no patches — an orphan `postinstall` runs on every
+    //     install of the PUBLISHED product to apply nothing. Task 019 hit this
+    //     arm: the old server package was never published, so its no-op
+    //     postinstall was harmless there and would not have been here.
+    //
+    // The rule above already states the policy ("the patch — and patch-package
+    // with it, if nothing else needs it — must go too"); this holds the live
+    // manifest to it in both directions.
     const pkg = readPackageJson();
     const dependencies = readDependencies();
-    expect(dependencies['patch-package']).toBeDefined();
-
     const scripts = pkg['scripts'];
-    expect(isRecord(scripts)).toBe(true);
     if (!isRecord(scripts)) throw new Error('package.json scripts is not an object');
-    const postinstall = scripts['postinstall'];
-    expect(
-      postinstall,
-      'patches/ exists but nothing applies it — postinstall must run patch-package',
-    ).toBe('patch-package');
+
+    const patchCount = readPatchFilenames().length;
+    const applierDeclared = dependencies['patch-package'] !== undefined;
+    const postinstallApplies =
+      typeof scripts['postinstall'] === 'string' &&
+      scripts['postinstall'].includes('patch-package');
+
+    if (patchCount > 0) {
+      expect(
+        applierDeclared,
+        `${patchCount} patch file(s) exist but patch-package is not a dependency`,
+      ).toBe(true);
+      expect(
+        postinstallApplies,
+        `${patchCount} patch file(s) exist but nothing applies them — postinstall must run patch-package`,
+      ).toBe(true);
+    } else {
+      expect(
+        postinstallApplies,
+        'no patches remain, so postinstall must not run patch-package on every install of the published product',
+      ).toBe(false);
+    }
   });
 
   /**

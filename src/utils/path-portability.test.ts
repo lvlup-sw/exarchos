@@ -55,6 +55,21 @@ describe('no hardcoded ~/.claude/ path constructions in production code', () => 
    * Scan all .ts files (excluding tests and utils/paths.ts) for hardcoded
    * path constructions like '.claude', 'workflow-state' etc.
    */
+  /**
+   * Modules that legitimately spell these paths out: they WRITE config whose
+   * value is a path for another process to read, so there is no helper call to
+   * make — the literal is the payload, not a path this process resolves.
+   *
+   * Named individually rather than by directory. The old form excluded any
+   * path containing `init/writers`, which is a LOCATION rather than the
+   * property being exempted, so folding the installer in alongside brought a
+   * second config writer under the rule that the directory test could not see.
+   */
+  const CONFIG_WRITERS: ReadonlyMap<string, string> = new Map([
+    ['verbs/init/writers/claude-code.ts', 'writes WORKFLOW_STATE_DIR into the generated Claude Code config'],
+    ['install/install-skills.ts', 'writes the MCP registration (with WORKFLOW_STATE_DIR) into ~/.claude.json'],
+  ]);
+
   function findHardcodedPaths(dir: string): Array<{ file: string; line: number; content: string }> {
     const violations: Array<{ file: string; line: number; content: string }> = [];
     const patterns = [
@@ -75,8 +90,7 @@ describe('no hardcoded ~/.claude/ path constructions in production code', () => 
           !entry.name.endsWith('.test.ts') &&
           !entry.name.endsWith('.d.ts') &&
           fullPath !== path.resolve(srcDir, 'utils', 'paths.ts') &&
-          // Init writers legitimately construct config entries with path values
-          !fullPath.includes(path.join('init', 'writers'))
+          !CONFIG_WRITERS.has(path.relative(srcDir, fullPath).split(path.sep).join('/'))
         ) {
           const content = fs.readFileSync(fullPath, 'utf-8');
           const lines = content.split('\n');
@@ -98,6 +112,23 @@ describe('no hardcoded ~/.claude/ path constructions in production code', () => 
     walk(dir);
     return violations;
   }
+
+  it('every config-writer exemption resolves and still spells a path out', () => {
+    // An exemption whose file moved stops excluding anything, and the rule
+    // silently widens. Both halves are checked so the next move fails here.
+    expect(CONFIG_WRITERS.size).toBeGreaterThan(0);
+    for (const [rel, reason] of CONFIG_WRITERS) {
+      const abs = path.resolve(srcDir, rel);
+      expect(fs.existsSync(abs), `exempted config writer ${rel} does not exist (${reason})`).toBe(
+        true,
+      );
+      const content = fs.readFileSync(abs, 'utf-8');
+      expect(
+        /['"]\.claude['"],\s*['"](workflow-state|teams|tasks)['"]/.test(content),
+        `${rel} is exempted but no longer constructs such a path — drop the exemption`,
+      ).toBe(true);
+    }
+  });
 
   it('no hardcoded workflow-state path constructions remain', () => {
     const violations = findHardcodedPaths(srcDir);

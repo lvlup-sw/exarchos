@@ -64,6 +64,25 @@ describe('Logger Factory', () => {
 });
 
 describe('No Console in Production Code', () => {
+  // WHY this rule exists: the MCP server speaks JSON-RPC over stdio, so a
+  // stray `console.log` does not merely add noise — it writes bytes onto the
+  // protocol channel and corrupts the frame. That is why the whole product
+  // tree logs through pino (stderr) instead.
+  //
+  // The installer is a different contract on the same tree. `exarchos install`
+  // is an interactive terminal program whose stdout IS its output, and task
+  // 019 folded it in alongside the server, so scanning `src/` now covers both.
+  // These files print because printing is their job; each is named
+  // individually, with the reason, rather than exempting `src/install/**`
+  // wholesale — a directory-wide exemption would also cover the installer's
+  // non-presentation modules, which are held to the rule like everything else.
+  const TERMINAL_OUTPUT_MODULES: ReadonlyMap<string, string> = new Map([
+    ['install/wizard/wizard.ts', 'the interactive install wizard — its prompts and summary ARE the product output'],
+    ['install/cli-helpers.ts', 'injectable `deps.log ?? console.log` default for CLI-facing operations'],
+    ['install/install-skills.ts', 'injectable `opts.log ?? console.log` default for the skills installer'],
+    ['install/runtimes/load.ts', 'injectable `deps.warn ?? console.warn` default for runtime-descriptor loading'],
+  ]);
+
   it('NoConsoleInProduction_SourceFilesClean', async () => {
     // Scan production source files for console.error/console.warn/console.log
     const srcDir = path.resolve(import.meta.dirname, '.');
@@ -71,17 +90,36 @@ describe('No Console in Production Code', () => {
 
     const violations: string[] = [];
     for (const file of files) {
+      const rel = path.relative(srcDir, file).split(path.sep).join('/');
+      if (TERMINAL_OUTPUT_MODULES.has(rel)) continue;
       const content = await fs.readFile(file, 'utf-8');
       const lines = content.split('\n');
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         if (/console\.(log|error|warn|info|debug)\s*\(/.test(line) && !line.trimStart().startsWith('//')) {
-          violations.push(`${path.relative(srcDir, file)}:${i + 1}: ${line.trim()}`);
+          violations.push(`${rel}:${i + 1}: ${line.trim()}`);
         }
       }
     }
 
     expect(violations).toEqual([]);
+  });
+
+  it('NoConsoleInProduction_EveryExemptionIsLiveAndStillPrints', async () => {
+    // An exemption for a file that moved, or that no longer prints, silently
+    // widens the rule — the same failure mode the fold produced elsewhere in
+    // this tree. Both halves are checked: the path resolves, and it still
+    // contains the console call the exemption was granted for.
+    const srcDir = path.resolve(import.meta.dirname, '.');
+    expect(TERMINAL_OUTPUT_MODULES.size).toBeGreaterThan(0);
+    for (const [rel, reason] of TERMINAL_OUTPUT_MODULES) {
+      const content = await fs.readFile(path.join(srcDir, rel), 'utf-8').catch(() => null);
+      expect(content, `exempted module ${rel} does not exist (${reason})`).not.toBeNull();
+      expect(
+        /console\.(log|error|warn|info|debug)\s*\(/.test(content ?? ''),
+        `${rel} is exempted but no longer prints — drop the exemption`,
+      ).toBe(true);
+    }
   });
 });
 
