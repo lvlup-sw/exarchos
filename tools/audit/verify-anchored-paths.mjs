@@ -21,7 +21,7 @@ import { execFileSync } from 'node:child_process';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
-const SELF_DIR_EXPR = String.raw`(?:__dirname|(?:[A-Za-z_$][\w$]*\.)?dirname\(\s*fileURLToPath\(\s*import\.meta\.url\s*\)\s*\)|fileURLToPath\(\s*new URL\(\s*'\.'\s*,\s*import\.meta\.url\s*\)\s*\))`;
+const SELF_DIR_EXPR = String.raw`(?:__dirname|import\.meta\.dirname|(?:[A-Za-z_$][\w$]*\.)?dirname\(\s*fileURLToPath\(\s*import\.meta\.url\s*\)\s*\)|fileURLToPath\(\s*new URL\(\s*'\.'\s*,\s*import\.meta\.url\s*\)\s*\))`;
 const SELF_DIR_BINDING = new RegExp(
   String.raw`(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*${SELF_DIR_EXPR}`,
   'g',

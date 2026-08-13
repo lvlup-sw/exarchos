@@ -12,7 +12,7 @@ import * as path from 'node:path';
 
 // This file is at src/runtime/agents/plugin.test.ts
 // Plugin root is at ../../.claude-plugin/ (relative to repo root)
-const REPO_ROOT = path.resolve(import.meta.dirname, '../../../../');
+const REPO_ROOT = path.resolve(import.meta.dirname, '../../..');
 const PLUGIN_JSON_PATH = path.join(REPO_ROOT, '.claude-plugin', 'plugin.json');
 const AGENTS_DIR = path.join(REPO_ROOT, 'agents');
 
@@ -46,7 +46,7 @@ describe('Plugin Manifest', () => {
 
   it('PluginManifest_GenerateAgentsScript_Exists', () => {
     // Arrange: read package.json
-    const pkgPath = path.resolve(import.meta.dirname, '../../package.json');
+    const pkgPath = path.resolve(import.meta.dirname, '../../../package.json');
     const raw = fs.readFileSync(pkgPath, 'utf-8');
     const pkg = JSON.parse(raw);
 

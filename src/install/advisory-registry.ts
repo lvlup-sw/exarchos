@@ -1519,7 +1519,7 @@ export function probeEvalCapabilityLayer(
   advisory: AdvisoryEntry,
   opts: LocalKillProbeOptions,
 ): KillProbeResult {
-  const cli = join(opts.repoRoot, 'src', 'evals', 'run-evals-cli.ts');
+  const cli = join(opts.repoRoot, 'tools', 'evals', 'evals', 'run-evals-cli.ts');
   if (!existsSync(cli)) return missingControl(advisory, cli);
   const src = readFileSync(cli, 'utf8');
   const structurallyIntact =

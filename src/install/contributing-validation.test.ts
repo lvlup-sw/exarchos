@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const repoRoot = join(import.meta.dirname, '..');
+const repoRoot = join(import.meta.dirname, '../..');
 const contributingPath = join(repoRoot, 'CONTRIBUTING.md');
 
 function readContributing(): string {
