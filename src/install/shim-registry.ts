@@ -302,9 +302,13 @@ export const SHIM_REGISTRY: readonly ShimEntry[] = [
  * ratchet's scope by design (add the root here to bring it in).
  */
 export const SHIM_SCAN_ROOTS: readonly string[] = [
-  'src',
+  // The installer tree was its own top-level `src/` before task 019 folded it
+  // in; naming a bare `src` here would make the runtime root below a subset of
+  // it rather than a peer.
+  'src/install',
+  // Subsumes `agents/adapters`, which the fold moved underneath it — the two
+  // were sibling trees in the old server package and were listed separately.
   'src/runtime',
-  'src/runtime/agents/adapters',
 ];
 
 /**
@@ -316,10 +320,16 @@ export const SHIM_SCAN_ROOTS: readonly string[] = [
  * very hole DR-14 closes — a renderer one directory over would be invisible.
  * The whole product source tree is scanned instead.
  */
-export const RENDERER_SCAN_ROOTS: readonly string[] = ['src', 'src'];
+// One root since task 019: this was the two source trees, which are now one.
+export const RENDERER_SCAN_ROOTS: readonly string[] = ['src'];
 
-/** This module's own repo-relative path — excluded from its own marker scan. */
-const SELF_PATH = 'src/shim-registry.ts';
+/**
+ * This module's own repo-relative path — excluded from its own marker scan.
+ * Exported so a real-tree test can assert it still points at a file that
+ * exists: a stale value here fails OPEN (the module starts matching itself)
+ * rather than loudly, which is exactly how a move would slip past.
+ */
+export const SELF_PATH = 'src/install/shim-registry.ts';
 
 // ─── Marker parsing ──────────────────────────────────────────────────────────
 
@@ -453,16 +463,22 @@ function toPosix(p: string): string {
  * production source, as POSIX-repo-relative {@link DiscoveredShim}s. This
  * module's own file is excluded so its documentation/regex can never be
  * mistaken for a live shim.
+ *
+ * Each file is visited once even when the roots nest, matching
+ * {@link discoverRenderers}. Without that, a root listed under another silently
+ * doubles every marker it contains, and the duplicate reads as a second shim.
  */
 export function discoverShims(opts: DiscoverShimsOptions): DiscoveredShim[] {
   const fs = opts.fs ?? DEFAULT_FS;
   const roots = opts.roots ?? SHIM_SCAN_ROOTS;
   const found: DiscoveredShim[] = [];
+  const seen = new Set<string>();
   for (const root of roots) {
     const absRoot = join(opts.repoRoot, root);
     for (const abs of fs.listTsFiles(absRoot)) {
       const rel = toPosix(relative(opts.repoRoot, abs));
-      if (rel === SELF_PATH) continue;
+      if (rel === SELF_PATH || seen.has(rel)) continue;
+      seen.add(rel);
       const source = fs.readFile(abs);
       if (!source.includes('SHIM' + '(')) continue;
       found.push(...parseShimMarkers(source, rel));

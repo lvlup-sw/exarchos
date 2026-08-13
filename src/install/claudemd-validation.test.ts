@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const repoRoot = join(import.meta.dirname, '..');
+const repoRoot = join(import.meta.dirname, '../..');
 
 describe('CLAUDE.md validation', () => {
   const content = readFileSync(join(repoRoot, 'CLAUDE.md'), 'utf-8');

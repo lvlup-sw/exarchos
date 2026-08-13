@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const repoRoot = join(import.meta.dirname, '..');
+const repoRoot = join(import.meta.dirname, '../..');
 
 describe('Server source paths', () => {
   it('serverSourcePath_afterMove_resolvesCorrectly', () => {
@@ -31,7 +31,9 @@ describe('Server source paths', () => {
   it('manifest_afterMove_referencesNewDevEntryPoint', () => {
     const manifest = JSON.parse(readFileSync(join(repoRoot, 'manifest.json'), 'utf-8'));
     const exarchos = manifest.components.mcpServers.find((s: any) => s.id === 'exarchos');
-    expect(exarchos.devEntryPoint).toContain('servers/exarchos-mcp/');
+    // Task 019 dissolved the nested server package: the dev entry point is the
+    // product's own build output, not a path inside a workspace.
+    expect(exarchos.devEntryPoint).toBe('dist/index.js');
     expect(exarchos.devEntryPoint).not.toContain('plugins/exarchos');
   });
 });

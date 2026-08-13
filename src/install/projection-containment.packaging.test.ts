@@ -188,6 +188,6 @@ describe('projection roots are actually shipped (package.json files[])', () => {
     const runtimeSpec = PROJECTION_ROOT_SPECS.find((s) => s.kind === 'runtime');
     expect(runtimeSpec?.shipped.via).toBe('embedded-binary');
     // The embedded table is the shipped carrier; runtimes:guard enforces parity.
-    expect(existsSync(join(repoRoot, 'src', 'runtimes', 'embedded.ts'))).toBe(true);
+    expect(existsSync(join(repoRoot, 'src', 'install', 'runtimes', 'embedded.ts'))).toBe(true);
   });
 });

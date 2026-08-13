@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,6 +7,7 @@ import {
   SHIM_REGISTRY,
   SHIM_SCAN_ROOTS,
   RENDERER_SCAN_ROOTS,
+  SELF_PATH,
   RENDERER_PORT_TYPE,
   RENDERER_RENDER_MEMBER,
   APPROVED_CAPABILITY_REASONS,
@@ -223,12 +224,33 @@ describe('discoverShims (injected fs)', () => {
 
   it('discoverShims_ExcludesSelfModule', () => {
     const fs: ShimDiscoveryFs = {
-      listTsFiles: () => ['/repo/src/shim-registry.ts'],
+      listTsFiles: () => [`/repo/${SELF_PATH}`],
       // Even if the module contained a marker, it must be skipped.
       readFile: () => `// ${MARK}runtimes: cursor, capability: x)`,
     };
     const found = discoverShims({ repoRoot: '/repo', roots: ['src'], fs });
     expect(found).toEqual([]);
+  });
+
+  it('discoverShims_NestedRoots_VisitsEachFileOnce', () => {
+    // `src/runtime` contains `src/runtime/agents/adapters`; listing both must
+    // not report the same marker twice.
+    const fs: ShimDiscoveryFs = {
+      listTsFiles: (absRoot) =>
+        absRoot.endsWith('adapters')
+          ? ['/repo/src/runtime/agents/adapters/cursor.ts']
+          : ['/repo/src/runtime/agents/adapters/cursor.ts', '/repo/src/runtime/other.ts'],
+      readFile: (abs) =>
+        abs.endsWith('cursor.ts')
+          ? `// ${MARK}runtimes: cursor, capability: slash-command-native)`
+          : 'no marker here',
+    };
+    const found = discoverShims({
+      repoRoot: '/repo',
+      roots: ['src/runtime', 'src/runtime/agents/adapters'],
+      fs,
+    });
+    expect(found).toHaveLength(1);
   });
 });
 
@@ -336,7 +358,8 @@ function withTempRepo(
 }
 
 /** Roots used against the temp trees below (mirrors the real root shape). */
-const TEMP_ROOTS = ['src', 'src'];
+// One root since task 019 folded the two source trees together.
+const TEMP_ROOTS = ['src'];
 
 /** A complete, valid registry row for the seeded renderer. */
 function rendererEntry(over: Partial<ShimEntry> = {}): ShimEntry {
@@ -721,6 +744,17 @@ describe('DR-14 live tree — the inventory reflects the shipped renderers', () 
       expect(APPROVED_CAPABILITY_REASONS).toContain(row?.capability);
       expect(row?.expires).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     }
+  });
+
+  it('ScanRoots_RealRepo_EveryConfiguredRootExists', () => {
+    // A root that no longer exists scans nothing and reports nothing, so the
+    // ratchet stays green while governing an empty tree. Task 019 left three
+    // such stale path constants in this module alone; assert the roots are
+    // real so the next move fails here instead of going quiet.
+    for (const root of [...SHIM_SCAN_ROOTS, ...RENDERER_SCAN_ROOTS]) {
+      expect(existsSync(join(REPO_ROOT, root)), `scan root ${root} does not exist`).toBe(true);
+    }
+    expect(existsSync(join(REPO_ROOT, SELF_PATH)), `${SELF_PATH} does not exist`).toBe(true);
   });
 
   it('ShimRatchet_RealRepo_IsGreen', () => {
