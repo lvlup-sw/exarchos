@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) \u2014 path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1149,
-    "parsedFiles": 1104,
+    "testFiles": 1150,
+    "parsedFiles": 1105,
     "shellFiles": 45,
-    "cases": 12716,
+    "cases": 12721,
     "dynamicTitles": 131,
     "unparseableFiles": 0
   },
@@ -28,6 +28,10 @@
     {
       "from": "skills/validate-frontmatter.test.sh",
       "to": "tools/skill-validators/validate-frontmatter.test.sh"
+    },
+    {
+      "from": "hooks/pre-push.test.ts",
+      "to": "tools/git-hooks/pre-push.test.ts"
     }
   ],
   "files": {
@@ -970,37 +974,6 @@
         {
           "suite": "",
           "name": "noHandlerThrow_UnresolvableFactoryReturnShape_ReportsUnresolvedHandler",
-          "dynamic": false
-        }
-      ]
-    },
-    "hooks/pre-push.test.ts": {
-      "file": "hooks/pre-push.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "pre-push ship-gate hook (DR-5, #1597)",
-          "name": "HookSample_Exists",
-          "dynamic": false
-        },
-        {
-          "suite": "pre-push ship-gate hook (DR-5, #1597)",
-          "name": "PrePushHook_BlockingFinding_BlocksPush",
-          "dynamic": false
-        },
-        {
-          "suite": "pre-push ship-gate hook (DR-5, #1597)",
-          "name": "PrePushHook_Pass_AllowsPush",
-          "dynamic": false
-        },
-        {
-          "suite": "pre-push ship-gate hook (DR-5, #1597)",
-          "name": "PrePushHook_VerbUnavailable_DegradesOpen",
-          "dynamic": false
-        },
-        {
-          "suite": "pre-push ship-gate hook (DR-5, #1597)",
-          "name": "PrePushHook_InconclusiveVerb_DegradesOpen",
           "dynamic": false
         }
       ]
@@ -20542,7 +20515,7 @@
         },
         {
           "suite": "EFF-012 \u2014 onboarding install converges per supported runtime",
-          "name": "discovers the supported runtimes from runtimes/*.yaml",
+          "name": "discovers the supported runtimes from content/harness/runtimes/*.yaml",
           "dynamic": false
         },
         {
@@ -20644,7 +20617,7 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "hooks-src/hooks.json source (#1485 T5; shrink DR-7)",
+          "suite": "content/harness/hooks/hooks.json source (#1485 T5; shrink DR-7)",
           "name": "HooksSource_ContainsSessionStartAndSubagentStop_NoSessionEnd",
           "dynamic": false
         },
@@ -23526,27 +23499,27 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "runtimes/claude.yaml presence",
+          "suite": "content/harness/runtimes/claude.yaml presence",
           "name": "LoadAllRuntimes_ClaudeYamlPresent_HasClaudeCapabilities",
           "dynamic": false
         },
         {
-          "suite": "runtimes/claude.yaml presence",
+          "suite": "content/harness/runtimes/claude.yaml presence",
           "name": "ClaudeYaml_HooksDescriptor_IsClaudeJsonInjecting",
           "dynamic": false
         },
         {
-          "suite": "runtimes/claude.yaml presence",
+          "suite": "content/harness/runtimes/claude.yaml presence",
           "name": "ClaudeYaml_McpPrefix_MatchesPluginNaming",
           "dynamic": false
         },
         {
-          "suite": "runtimes/claude.yaml presence",
+          "suite": "content/harness/runtimes/claude.yaml presence",
           "name": "ClaudeYaml_SpawnAgentCall_UsesTaskTool",
           "dynamic": false
         },
         {
-          "suite": "runtimes/claude.yaml presence",
+          "suite": "content/harness/runtimes/claude.yaml presence",
           "name": "ClaudeYaml_ChainToken_UsesSkillInvocation",
           "dynamic": false
         }
@@ -23557,17 +23530,17 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "runtimes/codex.yaml presence",
+          "suite": "content/harness/runtimes/codex.yaml presence",
           "name": "LoadAllRuntimes_CodexYamlPresent_HasSubagents",
           "dynamic": false
         },
         {
-          "suite": "runtimes/codex.yaml presence",
+          "suite": "content/harness/runtimes/codex.yaml presence",
           "name": "CodexYaml_SpawnAgentCall_UsesMultiAgentPrimitive",
           "dynamic": false
         },
         {
-          "suite": "runtimes/codex.yaml presence",
+          "suite": "content/harness/runtimes/codex.yaml presence",
           "name": "CodexYaml_SkillsInstallPath_AgentsStandard",
           "dynamic": false
         }
@@ -23578,17 +23551,17 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "runtimes/copilot.yaml presence",
+          "suite": "content/harness/runtimes/copilot.yaml presence",
           "name": "LoadAllRuntimes_CopilotYamlPresent_HasSubagents",
           "dynamic": false
         },
         {
-          "suite": "runtimes/copilot.yaml presence",
+          "suite": "content/harness/runtimes/copilot.yaml presence",
           "name": "CopilotYaml_SpawnAgentCall_UsesLocalTaskAgentPrimitive",
           "dynamic": false
         },
         {
-          "suite": "runtimes/copilot.yaml presence",
+          "suite": "content/harness/runtimes/copilot.yaml presence",
           "name": "CopilotYaml_SkillsInstallPath_CopilotConfig",
           "dynamic": false
         }
@@ -23599,27 +23572,27 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "runtimes/cursor.yaml presence",
+          "suite": "content/harness/runtimes/cursor.yaml presence",
           "name": "CursorYaml_HasSubagents_True",
           "dynamic": false
         },
         {
-          "suite": "runtimes/cursor.yaml presence",
+          "suite": "content/harness/runtimes/cursor.yaml presence",
           "name": "CursorYaml_SpawnAgentCall_UsesNativeTaskTool",
           "dynamic": false
         },
         {
-          "suite": "runtimes/cursor.yaml presence",
+          "suite": "content/harness/runtimes/cursor.yaml presence",
           "name": "CursorYaml_SpawnAgentCall_ReferencesGeneratedAgentName",
           "dynamic": false
         },
         {
-          "suite": "runtimes/cursor.yaml presence",
+          "suite": "content/harness/runtimes/cursor.yaml presence",
           "name": "CursorYaml_SupportedCapabilities_SixNativeTwoAdvisory",
           "dynamic": false
         },
         {
-          "suite": "runtimes/cursor.yaml presence",
+          "suite": "content/harness/runtimes/cursor.yaml presence",
           "name": "CursorYaml_AdapterAlignment_MatchesSupportLevels",
           "dynamic": false
         }
@@ -23630,7 +23603,7 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "runtimes/generic.yaml presence",
+          "suite": "content/harness/runtimes/generic.yaml presence",
           "name": "LoadAllRuntimes_GenericYamlPresent_HasCanonicalCapabilities",
           "dynamic": false
         }
@@ -23641,17 +23614,17 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "runtimes/opencode.yaml presence",
+          "suite": "content/harness/runtimes/opencode.yaml presence",
           "name": "LoadAllRuntimes_OpencodeYamlPresent_HasSubagents",
           "dynamic": false
         },
         {
-          "suite": "runtimes/opencode.yaml presence",
+          "suite": "content/harness/runtimes/opencode.yaml presence",
           "name": "OpencodeYaml_SpawnAgentCall_MatchesClaudeTaskSyntax",
           "dynamic": false
         },
         {
-          "suite": "runtimes/opencode.yaml presence",
+          "suite": "content/harness/runtimes/opencode.yaml presence",
           "name": "OpencodeYaml_SkillsInstallPath_GlobalConfig",
           "dynamic": false
         }
@@ -36540,12 +36513,12 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "runtimes/claude.yaml supportedCapabilities",
+          "suite": "content/harness/runtimes/claude.yaml supportedCapabilities",
           "name": "ClaudeYaml_SupportedCapabilities_AllElevenAreNative",
           "dynamic": false
         },
         {
-          "suite": "runtimes/claude.yaml supportedCapabilities",
+          "suite": "content/harness/runtimes/claude.yaml supportedCapabilities",
           "name": "ClaudeYaml_AdapterAlignment_MatchesSupportLevels",
           "dynamic": false
         }
@@ -36556,17 +36529,17 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "runtimes/codex.yaml supportedCapabilities (Task 7b)",
+          "suite": "content/harness/runtimes/codex.yaml supportedCapabilities (Task 7b)",
           "name": "CodexYaml_SupportedCapabilities_SixNativeTwoAdvisory",
           "dynamic": false
         },
         {
-          "suite": "runtimes/codex.yaml supportedCapabilities (Task 7b)",
+          "suite": "content/harness/runtimes/codex.yaml supportedCapabilities (Task 7b)",
           "name": "CodexYaml_SupportedCapabilities_ExcludesClaudeOnlyCapabilities",
           "dynamic": false
         },
         {
-          "suite": "runtimes/codex.yaml supportedCapabilities (Task 7b)",
+          "suite": "content/harness/runtimes/codex.yaml supportedCapabilities (Task 7b)",
           "name": "CodexYaml_AdapterAlignment_MatchesSupportLevels",
           "dynamic": false
         }
@@ -36577,27 +36550,27 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "runtimes/copilot.yaml \u2014 local task --agent primitive",
+          "suite": "content/harness/runtimes/copilot.yaml \u2014 local task --agent primitive",
           "name": "CopilotYaml_SpawnAgentCall_UsesLocalTaskAgentNotDelegate",
           "dynamic": false
         },
         {
-          "suite": "runtimes/copilot.yaml \u2014 local task --agent primitive",
+          "suite": "content/harness/runtimes/copilot.yaml \u2014 local task --agent primitive",
           "name": "CopilotYaml_SpawnAgentCall_ReferencesGeneratedAgentName",
           "dynamic": false
         },
         {
-          "suite": "runtimes/copilot.yaml \u2014 local task --agent primitive",
+          "suite": "content/harness/runtimes/copilot.yaml \u2014 local task --agent primitive",
           "name": "CopilotYaml_SupportedCapabilities_SixNativeTwoAdvisory",
           "dynamic": false
         },
         {
-          "suite": "runtimes/copilot.yaml \u2014 local task --agent primitive",
+          "suite": "content/harness/runtimes/copilot.yaml \u2014 local task --agent primitive",
           "name": "CopilotYaml_AdapterAlignment_MatchesSupportLevels",
           "dynamic": false
         },
         {
-          "suite": "runtimes/copilot.yaml \u2014 local task --agent primitive",
+          "suite": "content/harness/runtimes/copilot.yaml \u2014 local task --agent primitive",
           "name": "CopilotYaml_StaleJustificationComment_Removed",
           "dynamic": false
         }
@@ -36608,17 +36581,17 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "runtimes/opencode.yaml supportedCapabilities",
+          "suite": "content/harness/runtimes/opencode.yaml supportedCapabilities",
           "name": "OpencodeYaml_SupportedCapabilities_SixNativeTwoAdvisory",
           "dynamic": false
         },
         {
-          "suite": "runtimes/opencode.yaml supportedCapabilities",
+          "suite": "content/harness/runtimes/opencode.yaml supportedCapabilities",
           "name": "OpencodeYaml_AdapterAlignment_MatchesSupportLevels",
           "dynamic": false
         },
         {
-          "suite": "runtimes/opencode.yaml supportedCapabilities",
+          "suite": "content/harness/runtimes/opencode.yaml supportedCapabilities",
           "name": "OpencodeYaml_SpawnAgentCall_ReferencesGeneratedAgentName",
           "dynamic": false
         }
@@ -66375,6 +66348,37 @@
         }
       ]
     },
+    "tests/architecture/harness-on-ramps.test.ts": {
+      "file": "tests/architecture/harness-on-ramps.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "HarnessOnRamps",
+          "name": "AfterMove_RuntimeCodegenStillResolves",
+          "dynamic": false
+        },
+        {
+          "suite": "HarnessOnRamps",
+          "name": "AfterMove_HooksAndBindingSourcesResolve",
+          "dynamic": false
+        },
+        {
+          "suite": "HarnessOnRamps",
+          "name": "RetiredSourceRoots_AreGone",
+          "dynamic": false
+        },
+        {
+          "suite": "GitHookSample",
+          "name": "AfterRelocation_IsStillCollectedAndPasses",
+          "dynamic": false
+        },
+        {
+          "suite": "GitHookSample",
+          "name": "IsNotPublishedAsPartOfTheGeneratedHooksTree",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/architecture/layer-map.test.ts": {
       "file": "tests/architecture/layer-map.test.ts",
       "runner": "vitest:root",
@@ -70199,6 +70203,37 @@
         {
           "suite": "Schema Property Tests > GradeResult_ScoreRange_AlwaysInBounds",
           "name": "parsed score is always between 0 and 1",
+          "dynamic": false
+        }
+      ]
+    },
+    "tools/git-hooks/pre-push.test.ts": {
+      "file": "tools/git-hooks/pre-push.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "pre-push ship-gate hook (DR-5, #1597)",
+          "name": "HookSample_Exists",
+          "dynamic": false
+        },
+        {
+          "suite": "pre-push ship-gate hook (DR-5, #1597)",
+          "name": "PrePushHook_BlockingFinding_BlocksPush",
+          "dynamic": false
+        },
+        {
+          "suite": "pre-push ship-gate hook (DR-5, #1597)",
+          "name": "PrePushHook_Pass_AllowsPush",
+          "dynamic": false
+        },
+        {
+          "suite": "pre-push ship-gate hook (DR-5, #1597)",
+          "name": "PrePushHook_VerbUnavailable_DegradesOpen",
+          "dynamic": false
+        },
+        {
+          "suite": "pre-push ship-gate hook (DR-5, #1597)",
+          "name": "PrePushHook_InconclusiveVerb_DegradesOpen",
           "dynamic": false
         }
       ]

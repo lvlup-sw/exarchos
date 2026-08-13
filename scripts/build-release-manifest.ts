@@ -122,7 +122,7 @@ export const SOURCE_TREE_ROOTS = [
  *   (which never runs codegen). Excluding it is what keeps a legitimate release
  *   from reporting itself as modified. `runtimes:guard` separately enforces
  *   that the checked-in copy has not drifted, so this exclusion cannot be used
- *   to smuggle an edit: a real edit to `runtimes/*.yaml` still lands in
+ *   to smuggle an edit: a real edit to `content/harness/runtimes/*.yaml` still lands in
  *   `SOURCE_TREE_ROOTS` and still reddens the state.
  *
  * The only other write on that path is `mkdirSync(outdir)` for `dist/bin`,

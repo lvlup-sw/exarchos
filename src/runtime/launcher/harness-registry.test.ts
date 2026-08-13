@@ -62,7 +62,7 @@ describe('harness-registry (DR-1, DR-4)', () => {
   it('Registry_EnumMapsRuntimeId', () => {
     // The load-bearing divergence: claude-code → claude.
     expect(HARNESS_RUNTIME_ID['claude-code']).toBe('claude');
-    // The other four map to their like-named runtimes/<id>.yaml basenames.
+    // The other four map to their like-named content/harness/runtimes/<id>.yaml basenames.
     expect(HARNESS_RUNTIME_ID.codex).toBe('codex');
     expect(HARNESS_RUNTIME_ID.cursor).toBe('cursor');
     expect(HARNESS_RUNTIME_ID.copilot).toBe('copilot');

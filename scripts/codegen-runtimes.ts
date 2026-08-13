@@ -2,12 +2,12 @@
 /**
  * Codegen for the embedded runtimes module (#1213, #1214).
  *
- * Reads `runtimes/*.yaml` at build time, validates every entry against
+ * Reads `content/harness/runtimes/*.yaml` at build time, validates every entry against
  * `RuntimeMapSchema`, and emits a typed TS module
  * `src/install/runtimes/embedded.ts` that exports a frozen `EMBEDDED_RUNTIMES`
  * array. The emitted module is the runtime-side source of truth used by
  * the install-skills bridge from inside the compiled binary, where the
- * `runtimes/` directory is not on disk (the YAML files are not part of
+ * `content/harness/runtimes/` directory is not on disk (the YAML files are not part of
  * the bundled artifact graph).
  *
  * ── Why a codegen step instead of a `Bun.embeddedFiles`-style trick ─────
@@ -19,7 +19,7 @@
  * the emitted module is plain JSON-shaped TypeScript, deeply frozen.
  *
  * ── Determinism contract ──────────────────────────────────────────────
- * The emitted file MUST be a pure function of `runtimes/*.yaml` so
+ * The emitted file MUST be a pure function of `content/harness/runtimes/*.yaml` so
  * `runtimes:guard` (CI) can re-run codegen and `git diff --exit-code`
  * the result. We enforce determinism by:
  *
@@ -78,7 +78,7 @@ export function renderEmbeddedRuntimesModule(runtimes: readonly RuntimeMap[]): s
   const inlined = JSON.stringify(sorted, null, 2);
 
   return `// GENERATED FILE — DO NOT EDIT. Regenerate via \`npm run codegen:runtimes\`.
-// Source: runtimes/*.yaml (validated against RuntimeMapSchema).
+// Source: content/harness/runtimes/*.yaml (validated against RuntimeMapSchema).
 // Drift is enforced by \`npm run runtimes:guard\` (CI).
 import type { RuntimeMap } from './types.js';
 
@@ -102,7 +102,7 @@ function deepFreeze<T>(value: T): T {
  * Frozen array of validated \`RuntimeMap\` entries embedded into the
  * compiled binary. The bridge in
  * \`src/lifecycle/install-skills-bridge.js\`
- * prefers this array over reading \`runtimes/*.yaml\` from disk so
+ * prefers this array over reading \`content/harness/runtimes/*.yaml\` from disk so
  * \`install-skills\` works inside the single-file binary, where the
  * YAML directory does not ship.
  *
@@ -159,7 +159,7 @@ export function generateEmbeddedRuntimesModule(opts: {
 if (import.meta.main) {
   const root = repoRoot();
   generateEmbeddedRuntimesModule({
-    runtimesDir: resolve(root, 'runtimes'),
+    runtimesDir: resolve(root, 'content/harness/runtimes'),
     outFile: resolve(root, 'src/install/runtimes/embedded.ts'),
   });
   console.log(`Wrote src/install/runtimes/embedded.ts`);

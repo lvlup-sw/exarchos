@@ -5,7 +5,7 @@
  * truth each:
  *
  *  1. **Binding block** (universal, runtime-neutral — DR-5) — the orientation
- *     directive (`binding-src/binding.md`) is now placeholder-free logical
+ *     directive (`content/harness/binding/binding.md`) is now placeholder-free logical
  *     prose (`exarchos:exarchos_*`), so it collapses to ONE block that serves
  *     every harness's always-loaded instructions surface. Output lands at a
  *     single `<bindingOutDir>/standard/block.md` (no per-runtime fork); consumer
@@ -54,7 +54,7 @@ export const HOOKS_SOURCE_FILE = 'hooks.json';
 /**
  * Byte cap on the baked SessionStart `--directive` payload (DR-7: "≤ 4 KiB").
  * The neutral binding block is ~0.5 KiB today; the guard fails the build loudly
- * if a future edit to `binding-src/binding.md` blows past the on-ramp budget
+ * if a future edit to `content/harness/binding/binding.md` blows past the on-ramp budget
  * rather than silently shipping an oversized hook command.
  */
 export const MAX_DIRECTIVE_BYTES = 4096;
@@ -78,8 +78,8 @@ export interface HooksBuildReport {
 /**
  * Render binding blocks + active hook artifacts for every runtime.
  *
- * @param opts.srcDir        Hook templates root (`hooks-src/`).
- * @param opts.bindingSrcDir Binding directive root (`binding-src/`).
+ * @param opts.srcDir        Hook templates root (`content/harness/hooks/`).
+ * @param opts.bindingSrcDir Binding directive root (`content/harness/binding/`).
  * @param opts.outDir        Hook artifact output root (`hooks/`).
  * @param opts.bindingOutDir Binding block output root (`binding/`).
  * @param opts.runtimesDir   Directory of runtime YAML files.
@@ -130,7 +130,7 @@ export function buildAllHooks(opts: {
   if (directiveBytes > MAX_DIRECTIVE_BYTES) {
     throw new Error(
       `buildAllHooks: SessionStart --directive payload is ${directiveBytes} bytes, ` +
-        `exceeding the ${MAX_DIRECTIVE_BYTES}-byte (4 KiB) cap — shrink binding-src/binding.md.`,
+        `exceeding the ${MAX_DIRECTIVE_BYTES}-byte (4 KiB) cap — shrink content/harness/binding/binding.md.`,
     );
   }
 
@@ -214,7 +214,7 @@ export function oneLineDirective(rendered: string): string {
 
 /**
  * Build the Claude plugin bundle's `hooks.json` (DR-7) — the single active hook
- * artifact post-shrink. The source template (`hooks-src/hooks.json`) already
+ * artifact post-shrink. The source template (`content/harness/hooks/hooks.json`) already
  * carries exactly what the bundle ships: the `SubagentStop` token-attribution
  * seam and the auto-loaded `SessionStart` on-ramp; `SessionEnd` was dropped from
  * the source because the launcher's `launch.*` events are now the session-
@@ -223,7 +223,7 @@ export function oneLineDirective(rendered: string): string {
  *
  * This is **claude-template-hardcoded**: there is NO `canInjectContext` capability
  * lookup (that consumption is retired — the field is deprecated in
- * `runtimes/types.ts`). Only the Claude runtime reaches this renderer, and the
+ * `content/harness/runtimes/types.ts`). Only the Claude runtime reaches this renderer, and the
  * Claude plugin's SessionStart hook can always return orientation context, so the
  * directive is baked unconditionally.
  *
@@ -338,11 +338,11 @@ export function main(_argv: string[], deps: MainDeps = {}): void {
   let report: HooksBuildReport;
   try {
     report = buildAllHooks({
-      srcDir: join(root, 'hooks-src'),
-      bindingSrcDir: join(root, 'binding-src'),
+      srcDir: join(root, 'content/harness/hooks'),
+      bindingSrcDir: join(root, 'content/harness/binding'),
       outDir: join(root, 'hooks'),
       bindingOutDir: join(root, 'binding'),
-      runtimesDir: join(root, 'runtimes'),
+      runtimesDir: join(root, 'content/harness/runtimes'),
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

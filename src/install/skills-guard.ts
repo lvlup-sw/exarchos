@@ -131,7 +131,7 @@ function defaultRegenerateAgents(cwd: string): void {
  * ### Determinism contract
  *
  * The guard's correctness relies on `buildAllSkills()` being a pure
- * function of `(content/, runtimes/*.yaml)`: running it twice on
+ * function of `(content/, content/harness/runtimes/*.yaml)`: running it twice on
  * identical inputs must produce byte-identical output. Two specific
  * rendering paths need to uphold this:
  *
@@ -157,7 +157,7 @@ function defaultRegenerateAgents(cwd: string): void {
  * place.
  *
  * @param opts.cwd - Absolute path to the project root. Must contain
- *   `content/`, `runtimes/`, and a git repo whose HEAD tracks the
+ *   `content/`, `content/harness/runtimes/`, and a git repo whose HEAD tracks the
  *   current state of `skills/`.
  */
 export function runSkillsGuard(opts: SkillsGuardOptions): SkillsGuardResult {
@@ -179,7 +179,7 @@ export function runSkillsGuard(opts: SkillsGuardOptions): SkillsGuardResult {
     buildAllSkills({
       srcDir: join(cwd, 'content'),
       outDir: join(cwd, 'skills'),
-      runtimesDir: join(cwd, 'runtimes'),
+      runtimesDir: join(cwd, 'content/harness/runtimes'),
     });
   } catch (err) {
     skillsBuildFailed = true;
@@ -253,7 +253,7 @@ export function runSkillsGuard(opts: SkillsGuardOptions): SkillsGuardResult {
   let aliasesBuildFailed = false;
   try {
     emitCommandAliases({
-      runtimesDir: join(cwd, 'runtimes'),
+      runtimesDir: join(cwd, 'content/harness/runtimes'),
       commandsDir: join(cwd, 'commands'),
       outDir: join(cwd, 'command-aliases'),
     });

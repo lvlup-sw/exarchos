@@ -481,10 +481,10 @@ describe('atomicCopyTreeSync — the atomic copyDir seam', () => {
 
 // ─── EFF-012: idempotent retry + rollback across the supported runtimes ───────
 
-/** Read the declared runtime ids from the repo-root `runtimes/*.yaml`. */
+/** Read the declared runtime ids from the repo-root `content/harness/runtimes/*.yaml`. */
 function declaredRuntimes(): string[] {
   const here = path.dirname(fileURLToPath(import.meta.url));
-  const runtimesDir = path.resolve(here, '../../runtimes');
+  const runtimesDir = path.resolve(here, '../../content/harness/runtimes');
   const names: string[] = [];
   for (const file of fs.readdirSync(runtimesDir)) {
     if (!file.endsWith('.yaml')) continue;
@@ -498,7 +498,7 @@ function declaredRuntimes(): string[] {
 describe('EFF-012 — onboarding install converges per supported runtime', () => {
   const runtimes = declaredRuntimes();
 
-  it('discovers the supported runtimes from runtimes/*.yaml', () => {
+  it('discovers the supported runtimes from content/harness/runtimes/*.yaml', () => {
     // Guards the loop below against silently testing zero runtimes.
     expect(runtimes).toEqual(
       expect.arrayContaining(['claude', 'codex', 'copilot', 'cursor', 'generic', 'opencode']),

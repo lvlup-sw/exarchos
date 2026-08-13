@@ -1,5 +1,5 @@
 /**
- * Presence test for `runtimes/cursor.yaml`.
+ * Presence test for `content/harness/runtimes/cursor.yaml`.
  *
  * Cursor 2.5 (early 2026) shipped native sub-agents: Markdown with YAML
  * frontmatter at `.cursor/agents/<name>.md`, invoked via the `Task` tool.
@@ -24,7 +24,7 @@ import { loadRuntime } from './load.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const RUNTIMES_DIR = resolve(__dirname, '../../../runtimes');
+const RUNTIMES_DIR = resolve(__dirname, '../../../content/harness/runtimes');
 const CURSOR_YAML = resolve(RUNTIMES_DIR, 'cursor.yaml');
 
 /**
@@ -40,7 +40,7 @@ function loadCursorYamlRaw(): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
-describe('runtimes/cursor.yaml presence', () => {
+describe('content/harness/runtimes/cursor.yaml presence', () => {
   it('CursorYaml_HasSubagents_True', () => {
     const runtime = loadRuntime(CURSOR_YAML);
     // Cursor 2.5+ ships native sub-agents — the stale `false` claim must be gone.

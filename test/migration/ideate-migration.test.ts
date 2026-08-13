@@ -17,7 +17,7 @@
  *      the generic fallback variant must NOT contain any Claude-native
  *      syntax that came from `{{MCP_PREFIX}}`, `{{COMMAND_PREFIX}}`, or
  *      `{{CHAIN}}` substitution. It must use the LCD values from
- *      `runtimes/generic.yaml`.
+ *      `content/harness/runtimes/generic.yaml`.
  *
  *   3. `Migration_Ideate_AllSixVariantsHaveIdenticalDescriptionFrontmatter` —
  *      the skill frontmatter must be identical across all 6 runtime
@@ -43,7 +43,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const SRC_DIR = join(REPO_ROOT, 'content');
-const RUNTIMES_DIR = join(REPO_ROOT, 'runtimes');
+const RUNTIMES_DIR = join(REPO_ROOT, 'content/harness/runtimes');
 const BASELINE_PATH = join(
   REPO_ROOT,
   'test',

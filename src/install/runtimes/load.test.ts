@@ -11,7 +11,7 @@ const FIXTURES_DIR = join(__dirname, '__fixtures__');
 const VALID_FIXTURE = join(FIXTURES_DIR, 'valid.yaml');
 const INVALID_FIXTURE = join(FIXTURES_DIR, 'invalid.yaml');
 const MALFORMED_FIXTURE = join(FIXTURES_DIR, 'malformed.yaml');
-const REPO_RUNTIMES_DIR = resolve(__dirname, '../../../runtimes');
+const REPO_RUNTIMES_DIR = resolve(__dirname, '../../../content/harness/runtimes');
 
 const REQUIRED_RUNTIMES = [
   'generic',
@@ -140,7 +140,7 @@ describe('loadAllRuntimes', () => {
   });
 
   it('LoadAllRuntimes_PreferredFacadeAssignments_MatchCapabilityMatrix', () => {
-    // Loads every YAML file shipped in `runtimes/` at the repo root and
+    // Loads every YAML file shipped in `content/harness/runtimes/` at the repo root and
     // asserts that each runtime declares the `preferredFacade` value dictated
     // by the DR-1 capability matrix. MCP-native hosts (Claude Code, Cursor,
     // Codex) default to `mcp`; runtimes whose MCP support is thin or absent

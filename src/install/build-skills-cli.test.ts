@@ -81,7 +81,7 @@ function writeHappyFixture(root: string): void {
     join(root, 'content', 'foo', 'SKILL.md'),
     'Hello {{AGENT_LABEL}} {{TASK_TOOL}}',
   );
-  writeRuntimeFixtures(join(root, 'runtimes'));
+  writeRuntimeFixtures(join(root, 'content/harness/runtimes'));
 }
 
 /**
@@ -161,7 +161,7 @@ describe('build-skills CLI — task 008', () => {
     const root = makeTempDir();
     mkdirSync(join(root, 'content', 'foo'), { recursive: true });
     writeFileSync(join(root, 'content', 'foo', 'SKILL.md'), 'Hello {{AGENT_LABEL}}');
-    // No `runtimes/` dir at all.
+    // No `content/harness/runtimes/` dir at all.
     const deps = makeDeps(root);
 
     await runMain([], deps);

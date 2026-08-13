@@ -1161,7 +1161,7 @@ function placeholderError(
   return new Error(
     `unknown placeholder {{${tokenName}}} in ${sourcePath}:${line}. ` +
       `Known placeholders: [${knownList}]. ` +
-      `Add it to runtimes/${runtimeName}.yaml or remove it from source.`,
+      `Add it to content/harness/runtimes/${runtimeName}.yaml or remove it from source.`,
   );
 }
 
@@ -1326,7 +1326,7 @@ export function buildAllSkills(opts: {
   //
   // Vocabulary is derived from the union of placeholder keys across
   // every loaded runtime map. In production the union collapses to the
-  // canonical `RuntimeTokenKey` vocabulary declared in `runtimes/*.yaml`:
+  // canonical `RuntimeTokenKey` vocabulary declared in `content/harness/runtimes/*.yaml`:
   // the two PREFIX tokens (MCP_PREFIX, COMMAND_PREFIX), which are NOT
   // orchestration tokens, plus the five ORCHESTRATION tokens (TASK_TOOL,
   // CHAIN, SPAWN_AGENT_CALL, SUBAGENT_COMPLETION_HOOK, SUBAGENT_RESULT_API).
@@ -1891,7 +1891,7 @@ export function assertRuntimeTokenCoverage(runtimes: RuntimeMap[]): void {
   );
   throw new Error(
     `[build:skills] runtime token coverage check failed:\n${lines.join('\n')}\n\n` +
-      `Add the token to every runtimes/*.yaml placeholders map. ` +
+      `Add the token to every content/harness/runtimes/*.yaml placeholders map. ` +
       `Required tokens (from RuntimeTokenKey in src/runtimes/types.ts): ` +
       `[${[...RuntimeTokenKey].join(', ')}].`,
   );
@@ -1985,7 +1985,7 @@ export function main(_argv: string[], deps: MainDeps = {}): void {
   const root = cwd();
   const srcDir = join(root, 'content');
   const outDir = join(root, 'skills');
-  const runtimesDir = join(root, 'runtimes');
+  const runtimesDir = join(root, 'content/harness/runtimes');
   const commandsDir = join(root, 'commands');
   const aliasOutDir = join(root, 'command-aliases');
 

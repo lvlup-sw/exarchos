@@ -1,5 +1,5 @@
 /**
- * Presence test for `runtimes/codex.yaml`.
+ * Presence test for `content/harness/runtimes/codex.yaml`.
  *
  * Codex CLI exposes a first-class multi-agent surface via the `spawn_agent`
  * / `close_agent` / `wait_agent` / `send_input` / `resume_agent` tool
@@ -19,10 +19,10 @@ import { loadRuntime } from './load.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const RUNTIMES_DIR = resolve(__dirname, '../../../runtimes');
+const RUNTIMES_DIR = resolve(__dirname, '../../../content/harness/runtimes');
 const CODEX_YAML = resolve(RUNTIMES_DIR, 'codex.yaml');
 
-describe('runtimes/codex.yaml presence', () => {
+describe('content/harness/runtimes/codex.yaml presence', () => {
   it('LoadAllRuntimes_CodexYamlPresent_HasSubagents', () => {
     const runtime = loadRuntime(CODEX_YAML);
 

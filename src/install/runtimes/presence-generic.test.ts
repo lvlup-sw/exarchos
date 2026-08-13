@@ -1,5 +1,5 @@
 /**
- * Presence test for `runtimes/generic.yaml`.
+ * Presence test for `content/harness/runtimes/generic.yaml`.
  *
  * This is the lowest-common-denominator runtime map: no subagents, no slash
  * commands, no hooks, no skill chaining. Any target runtime the installer
@@ -18,10 +18,10 @@ const __dirname = dirname(__filename);
 
 // Production runtimes directory lives at the repo root of the worktree. From
 // `src/runtimes/` that's two levels up.
-const RUNTIMES_DIR = resolve(__dirname, '../../../runtimes');
+const RUNTIMES_DIR = resolve(__dirname, '../../../content/harness/runtimes');
 const GENERIC_YAML = resolve(RUNTIMES_DIR, 'generic.yaml');
 
-describe('runtimes/generic.yaml presence', () => {
+describe('content/harness/runtimes/generic.yaml presence', () => {
   it('LoadAllRuntimes_GenericYamlPresent_HasCanonicalCapabilities', () => {
     const runtime = loadRuntime(GENERIC_YAML);
 

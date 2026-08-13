@@ -8,7 +8,7 @@
  * Strategy:
  *   1. Snapshot the committed `skills/claude/**\/SKILL.md` tree in-memory.
  *   2. Run `buildAllSkills()` into a fresh temp output directory using the
- *      real `content/` and `runtimes/` trees at the repo root.
+ *      real `content/` and `content/harness/runtimes/` trees at the repo root.
  *   3. Compare each freshly-rendered `SKILL.md` under `<tempdir>/skills/claude/`
  *      against the committed version. Any difference is a regression.
  *
@@ -45,7 +45,7 @@ const __dirname = dirname(__filename);
 // Repo root — `src/` is one directory below the project root.
 const REPO_ROOT = resolve(__dirname, '../..');
 const REPO_SKILLS_SRC = join(REPO_ROOT, 'content');
-const REPO_RUNTIMES = join(REPO_ROOT, 'runtimes');
+const REPO_RUNTIMES = join(REPO_ROOT, 'content/harness/runtimes');
 const REPO_SKILLS_CLAUDE = join(REPO_ROOT, 'skills', 'claude');
 
 const tempDirs: string[] = [];

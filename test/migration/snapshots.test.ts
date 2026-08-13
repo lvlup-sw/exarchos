@@ -57,7 +57,7 @@ const __dirname = dirname(__filename);
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const SKILLS_DIR = join(REPO_ROOT, 'skills');
 const SKILLS_SRC_DIR = join(REPO_ROOT, 'content');
-const RUNTIMES_DIR = join(REPO_ROOT, 'runtimes');
+const RUNTIMES_DIR = join(REPO_ROOT, 'content/harness/runtimes');
 const SNAPSHOTS_DIR = join(__dirname, '__snapshots__');
 const SNAPSHOT_FILE = join(SNAPSHOTS_DIR, 'snapshots.test.ts.snap');
 

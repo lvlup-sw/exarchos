@@ -5,7 +5,7 @@
 //
 // Implements:
 //   - DR-1: the `exarchos <harness>` launcher verb resolves a schema-enum
-//     harness value to a runtime id (`claude-code` → `runtimes/claude.yaml`);
+//     harness value to a runtime id (`claude-code` → `content/harness/runtimes/claude.yaml`);
 //     an unknown value yields a structured error carrying `validTargets`.
 //   - DR-4: one shared abstraction — per-harness variation is *declarative
 //     data* (a closed `command/args/cwd/env` shape), never behavior. No
@@ -32,7 +32,7 @@ export const TIER1_HARNESSES = [
 export type HarnessTarget = (typeof TIER1_HARNESSES)[number];
 
 /**
- * Runtime id — the basename of the runtime map under `runtimes/<id>.yaml`.
+ * Runtime id — the basename of the runtime map under `content/harness/runtimes/<id>.yaml`.
  * `claude-code` maps to `claude`; the other four share their name with their
  * runtime file.
  */
@@ -148,7 +148,7 @@ export interface HarnessDescriptor {
 /**
  * Enum → runtime-id map (DR-1). Only `claude-code` diverges from its own name;
  * the other four are identity mappings that still correspond to real
- * `runtimes/<id>.yaml` basenames.
+ * `content/harness/runtimes/<id>.yaml` basenames.
  */
 export const HARNESS_RUNTIME_ID: Readonly<Record<HarnessTarget, RuntimeId>> = {
   'claude-code': 'claude',
@@ -162,7 +162,7 @@ export const HARNESS_RUNTIME_ID: Readonly<Record<HarnessTarget, RuntimeId>> = {
  * Declarative per-harness spawn descriptors, one per Tier-1 harness.
  *
  * `command` is the primary CLI binary name each harness is detected/launched by
- * (see `runtimes/<id>.yaml` → `detection.binaries[0]`); Cursor's primary
+ * (see `content/harness/runtimes/<id>.yaml` → `detection.binaries[0]`); Cursor's primary
  * binary is `cursor-agent` (the `cursor` GUI shim is a fallback, not the launch
  * target). `cwd`/`args`/`env` carry declarative defaults; the lifecycle
  * orchestrator (later tasks) overlays the derived worktree path and any

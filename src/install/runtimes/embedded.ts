@@ -1,5 +1,5 @@
 // GENERATED FILE — DO NOT EDIT. Regenerate via `npm run codegen:runtimes`.
-// Source: runtimes/*.yaml (validated against RuntimeMapSchema).
+// Source: content/harness/runtimes/*.yaml (validated against RuntimeMapSchema).
 // Drift is enforced by `npm run runtimes:guard` (CI).
 import type { RuntimeMap } from './types.js';
 
@@ -274,7 +274,7 @@ function deepFreeze<T>(value: T): T {
  * Frozen array of validated `RuntimeMap` entries embedded into the
  * compiled binary. The bridge in
  * `src/lifecycle/install-skills-bridge.js`
- * prefers this array over reading `runtimes/*.yaml` from disk so
+ * prefers this array over reading `content/harness/runtimes/*.yaml` from disk so
  * `install-skills` works inside the single-file binary, where the
  * YAML directory does not ship.
  *

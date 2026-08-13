@@ -1,6 +1,6 @@
 // ─── codex.yaml supportedCapabilities contract tests (Task 7b) ─────────────
 //
-// Asserts that `runtimes/codex.yaml` declares a `supportedCapabilities` map
+// Asserts that `content/harness/runtimes/codex.yaml` declares a `supportedCapabilities` map
 // that mirrors the `codexAdapter.supportLevels` three-state classification
 // from Task 4f. The YAML map is the user-facing surface that downstream
 // consumers (skill renderer, capability-matrix README generator, install
@@ -36,7 +36,7 @@ const __dirname = dirname(__filename);
 
 // src/runtime/runtimes → repo root is four parents up.
 const REPO_ROOT = resolve(__dirname, '../../..');
-const CODEX_YAML_PATH = resolve(REPO_ROOT, 'runtimes', 'codex.yaml');
+const CODEX_YAML_PATH = resolve(REPO_ROOT, 'content/harness/runtimes', 'codex.yaml');
 
 interface CodexYamlShape {
   readonly supportedCapabilities?: Record<string, string>;
@@ -53,7 +53,7 @@ function loadCodexYaml(): CodexYamlShape {
   return parsed as CodexYamlShape;
 }
 
-describe('runtimes/codex.yaml supportedCapabilities (Task 7b)', () => {
+describe('content/harness/runtimes/codex.yaml supportedCapabilities (Task 7b)', () => {
   it('CodexYaml_SupportedCapabilities_SixNativeTwoAdvisory', () => {
     const yaml = loadCodexYaml();
 

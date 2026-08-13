@@ -56,7 +56,7 @@ const HooksDescriptorSchema = z
      * `launch.*` lifecycle. The field is retained only as a `none`-profile
      * consistency constraint (see the `.refine` below) and for the descriptor
      * type-tests; no rendering logic reads it. Removing it entirely would touch
-     * every `runtimes/*.yaml` + `embedded.ts` and is out of this task's scope.
+     * every `content/harness/runtimes/*.yaml` + `embedded.ts` and is out of this task's scope.
      */
     canInjectContext: z.boolean(),
     sessionStartEvent: z.string().nullable(),

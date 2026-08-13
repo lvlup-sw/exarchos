@@ -253,7 +253,7 @@ function cleanStaleAliasFiles(root: string, keep: Set<string>): void {
  * `main()` and the `skills:guard` drift check, so both regenerate the
  * `command-aliases/**` tree identically before reporting or diffing.
  *
- * @param opts.runtimesDir - Directory of `runtimes/<name>.yaml` maps.
+ * @param opts.runtimesDir - Directory of `content/harness/runtimes/<name>.yaml` maps.
  * @param opts.commandsDir - Directory of canonical `commands/<name>.md`.
  * @param opts.outDir - Output root (`command-aliases/`).
  * @returns The {@link CommandAliasReport} from the emission pass.

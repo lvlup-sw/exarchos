@@ -40,7 +40,7 @@ export default defineConfig({
             // pre-push ship-gate hook). They drive the `.sample` script via
             // `sh` and assert exit codes — no MCP-package deps, so they run in
             // the root `unit` project rather than `servers/exarchos-mcp`.
-            'hooks/**/*.test.ts',
+            'tools/git-hooks/**/*.test.ts',
             // Structural oracles captured before the six-directory move
             // (baseline, test inventory, guard liveness, reference census).
             // They are authored at their POST-move home so the move does not

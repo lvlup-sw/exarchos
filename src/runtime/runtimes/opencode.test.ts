@@ -2,7 +2,7 @@
 //
 // Two assertions:
 //
-//   1. `runtimes/opencode.yaml` declares a `supportedCapabilities` YAML
+//   1. `content/harness/runtimes/opencode.yaml` declares a `supportedCapabilities` YAML
 //      mapping (NOT a list) that mirrors `OpenCodeAdapter.supportLevels`.
 //      OpenCode classifies five capabilities as `native`
 //      (fs:read/fs:write/shell:exec/subagent:spawn/mcp:exarchos) and two
@@ -33,11 +33,11 @@ import type { Capability } from '../agents/capabilities.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// `runtimes/opencode.yaml` lives at the repo root, four levels up from this
+// `content/harness/runtimes/opencode.yaml` lives at the repo root, four levels up from this
 // test file (src/runtime/runtimes/opencode.test.ts).
 const OPENCODE_YAML_PATH = resolve(
   __dirname,
-  '../../../runtimes/opencode.yaml');
+  '../../../content/harness/runtimes/opencode.yaml');
 
 /** OpenCode's expected support classification (mirrors OpenCodeAdapter). */
 const EXPECTED_NATIVE = [
@@ -73,7 +73,7 @@ function loadOpencodeYaml(): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
-describe('runtimes/opencode.yaml supportedCapabilities', () => {
+describe('content/harness/runtimes/opencode.yaml supportedCapabilities', () => {
   it('OpencodeYaml_SupportedCapabilities_SixNativeTwoAdvisory', () => {
     const data = loadOpencodeYaml();
     const supported = data.supportedCapabilities;

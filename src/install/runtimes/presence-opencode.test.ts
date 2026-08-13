@@ -1,5 +1,5 @@
 /**
- * Presence test for `runtimes/opencode.yaml`.
+ * Presence test for `content/harness/runtimes/opencode.yaml`.
  *
  * OpenCode is a Claude-Code-compatible runtime that supports subagents
  * (via a `Task`-shaped tool) and slash commands but does not expose the
@@ -17,10 +17,10 @@ import { loadRuntime } from './load.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const RUNTIMES_DIR = resolve(__dirname, '../../../runtimes');
+const RUNTIMES_DIR = resolve(__dirname, '../../../content/harness/runtimes');
 const OPENCODE_YAML = resolve(RUNTIMES_DIR, 'opencode.yaml');
 
-describe('runtimes/opencode.yaml presence', () => {
+describe('content/harness/runtimes/opencode.yaml presence', () => {
   it('LoadAllRuntimes_OpencodeYamlPresent_HasSubagents', () => {
     const runtime = loadRuntime(OPENCODE_YAML);
 

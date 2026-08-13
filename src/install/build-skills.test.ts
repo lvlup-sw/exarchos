@@ -41,7 +41,7 @@ import { execSync } from 'node:child_process';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const REPO_RUNTIMES_DIR = resolve(__dirname, '../../runtimes');
+const REPO_RUNTIMES_DIR = resolve(__dirname, '../../content/harness/runtimes');
 
 const tempDirs: string[] = [];
 
@@ -138,7 +138,7 @@ describe('render — task 004: error handling', () => {
     expect(err).toBeDefined();
     // Alphabetically sorted: APPLE, MANGO, ZEBRA
     expect(err!.message).toContain('APPLE, MANGO, ZEBRA');
-    expect(err!.message).toContain('runtimes/claude.yaml');
+    expect(err!.message).toContain('content/harness/runtimes/claude.yaml');
   });
 
   it('Render_UnresolvedPostRender_ThrowsViaAssert', () => {
@@ -378,7 +378,7 @@ describe('buildAllSkills — task 007', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
-    const runtimesDir = join(root, 'runtimes');
+    const runtimesDir = join(root, 'content/harness/runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
     // {{TASK_TOOL}} → orchestration skill → per-runtime render (DR-2).
     writeFileSync(join(srcDir, 'foo', 'SKILL.md'), 'Hello {{AGENT_LABEL}} {{TASK_TOOL}}');
@@ -395,7 +395,7 @@ describe('buildAllSkills — task 007', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
-    const runtimesDir = join(root, 'runtimes');
+    const runtimesDir = join(root, 'content/harness/runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
     // {{TASK_TOOL}} → orchestration skill → one variant per runtime (DR-2).
     writeFileSync(join(srcDir, 'foo', 'SKILL.md'), '{{AGENT_LABEL}} {{TASK_TOOL}}');
@@ -414,7 +414,7 @@ describe('buildAllSkills — task 007', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
-    const runtimesDir = join(root, 'runtimes');
+    const runtimesDir = join(root, 'content/harness/runtimes');
     mkdirSync(join(srcDir, 'foo', 'references'), { recursive: true });
     // Wave A: references must be linked from the rendered SKILL.md to be
     // copied (orphan pruning). The original task-007 contract — every
@@ -443,7 +443,7 @@ describe('buildAllSkills — task 007', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
-    const runtimesDir = join(root, 'runtimes');
+    const runtimesDir = join(root, 'content/harness/runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
     // {{TASK_TOOL}} → orchestration skill: per-runtime rendering + the
     // per-runtime `SKILL.<runtime>.md` override hatch (DR-2). Overrides are an
@@ -470,7 +470,7 @@ describe('buildAllSkills — task 007', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
-    const runtimesDir = join(root, 'runtimes');
+    const runtimesDir = join(root, 'content/harness/runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
     // {{TASK_TOOL}} → orchestration skill → per-runtime render (DR-2).
     writeFileSync(join(srcDir, 'foo', 'SKILL.md'), '{{AGENT_LABEL}} {{TASK_TOOL}}');
@@ -492,7 +492,7 @@ describe('buildAllSkills — task 007', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
-    const runtimesDir = join(root, 'runtimes');
+    const runtimesDir = join(root, 'content/harness/runtimes');
     mkdirSync(srcDir, { recursive: true }); // exists but empty (no SKILL.md files)
     writeRuntimeFixtures(runtimesDir);
 
@@ -503,7 +503,7 @@ describe('buildAllSkills — task 007', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
-    const runtimesDir = join(root, 'runtimes');
+    const runtimesDir = join(root, 'content/harness/runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
     // Body with no tokens at all → a procedural skill (no orchestration
     // tokens) that collapses to the single `skills/standard/foo/` render.
@@ -1196,7 +1196,7 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
 
   /**
    * Per-runtime supportedCapabilities maps used across the tests. These
-   * mirror the real shape of `runtimes/*.yaml` so guard semantics behave
+   * mirror the real shape of `content/harness/runtimes/*.yaml` so guard semantics behave
    * identically to production.
    */
   const SUPPORTED_BY_RUNTIME: Record<string, Record<string, 'native' | 'advisory'>> = {
@@ -1284,7 +1284,7 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
-    const runtimesDir = join(root, 'runtimes');
+    const runtimesDir = join(root, 'content/harness/runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
     writeFileSync(
       join(srcDir, 'foo', 'SKILL.md'),
@@ -1318,7 +1318,7 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
-    const runtimesDir = join(root, 'runtimes');
+    const runtimesDir = join(root, 'content/harness/runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
     writeFileSync(
       join(srcDir, 'foo', 'SKILL.md'),
@@ -1367,7 +1367,7 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
-    const runtimesDir = join(root, 'runtimes');
+    const runtimesDir = join(root, 'content/harness/runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
     writeFileSync(
       join(srcDir, 'foo', 'SKILL.md'),
@@ -1397,7 +1397,7 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
-    const runtimesDir = join(root, 'runtimes');
+    const runtimesDir = join(root, 'content/harness/runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
     // Body has a section that depends on `team:agent-teams` capability.
     // Claude has it (native); OpenCode does not declare it at all → elide.
@@ -1442,7 +1442,7 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
-    const runtimesDir = join(root, 'runtimes');
+    const runtimesDir = join(root, 'content/harness/runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
     writeFileSync(
       join(srcDir, 'foo', 'SKILL.md'),
@@ -1475,7 +1475,7 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
-    const runtimesDir = join(root, 'runtimes');
+    const runtimesDir = join(root, 'content/harness/runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
     writeFileSync(
       join(srcDir, 'foo', 'SKILL.md'),
@@ -1510,7 +1510,7 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
-    const runtimesDir = join(root, 'runtimes');
+    const runtimesDir = join(root, 'content/harness/runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
     writeFileSync(
       join(srcDir, 'foo', 'SKILL.md'),
@@ -1552,7 +1552,7 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
-    const runtimesDir = join(root, 'runtimes');
+    const runtimesDir = join(root, 'content/harness/runtimes');
     mkdirSync(join(srcDir, 'foo', 'references'), { recursive: true });
     // Link to references/foo.md is INSIDE a guard for team:agent-teams.
     // Claude has it (link survives → file copied); OpenCode does not (link
@@ -1589,7 +1589,7 @@ describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
-    const runtimesDir = join(root, 'runtimes');
+    const runtimesDir = join(root, 'content/harness/runtimes');
     mkdirSync(join(srcDir, 'foo', 'references'), { recursive: true });
     writeFileSync(
       join(srcDir, 'foo', 'SKILL.md'),
@@ -1806,7 +1806,7 @@ describe('buildAllSkills — Wave B: post-render vocabulary lint', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
-    const runtimesDir = join(root, 'runtimes');
+    const runtimesDir = join(root, 'content/harness/runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
     writeFileSync(
       join(srcDir, 'foo', 'SKILL.md'),
@@ -1842,7 +1842,7 @@ describe('buildAllSkills — Wave B: post-render vocabulary lint', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
-    const runtimesDir = join(root, 'runtimes');
+    const runtimesDir = join(root, 'content/harness/runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
     writeFileSync(
       join(srcDir, 'foo', 'SKILL.md'),
@@ -1890,7 +1890,7 @@ describe('buildAllSkills — Wave B: post-render vocabulary lint', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
-    const runtimesDir = join(root, 'runtimes');
+    const runtimesDir = join(root, 'content/harness/runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
     writeFileSync(
       join(srcDir, 'foo', 'SKILL.md'),
@@ -1939,7 +1939,7 @@ describe('buildAllSkills — Wave B: post-render vocabulary lint', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
-    const runtimesDir = join(root, 'runtimes');
+    const runtimesDir = join(root, 'content/harness/runtimes');
     mkdirSync(join(srcDir, 'foo'), { recursive: true });
     writeFileSync(
       join(srcDir, 'foo', 'SKILL.md'),
@@ -2104,7 +2104,7 @@ describe('buildAllSkills — Wave C: reference rendering + lint', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
-    const runtimesDir = join(root, 'runtimes');
+    const runtimesDir = join(root, 'content/harness/runtimes');
     mkdirSync(join(srcDir, 'foo', 'references'), { recursive: true });
     writeFileSync(
       join(srcDir, 'foo', 'SKILL.md'),
@@ -2159,7 +2159,7 @@ describe('buildAllSkills — Wave C: reference rendering + lint', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
-    const runtimesDir = join(root, 'runtimes');
+    const runtimesDir = join(root, 'content/harness/runtimes');
     mkdirSync(join(srcDir, 'foo', 'references'), { recursive: true });
     writeFileSync(
       join(srcDir, 'foo', 'SKILL.md'),
@@ -2204,7 +2204,7 @@ describe('buildAllSkills — Wave C: reference rendering + lint', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
-    const runtimesDir = join(root, 'runtimes');
+    const runtimesDir = join(root, 'content/harness/runtimes');
     mkdirSync(join(srcDir, 'foo', 'references'), { recursive: true });
     writeFileSync(
       join(srcDir, 'foo', 'SKILL.md'),
@@ -2251,7 +2251,7 @@ describe('buildAllSkills — Wave C: reference rendering + lint', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
-    const runtimesDir = join(root, 'runtimes');
+    const runtimesDir = join(root, 'content/harness/runtimes');
     mkdirSync(join(srcDir, 'foo', 'references'), { recursive: true });
     writeFileSync(
       join(srcDir, 'foo', 'SKILL.md'),
@@ -2288,12 +2288,12 @@ describe('buildAllSkills — Wave C: reference rendering + lint', () => {
 
   it('VocabularyLint_RealDelegationReferences_AllRuntimesPass', () => {
     // Regression gate: build the real `content/` tree against the real
-    // `runtimes/` YAMLs and confirm Wave C's source migration + renderer
+    // `content/harness/runtimes/` YAMLs and confirm Wave C's source migration + renderer
     // extension keeps every runtime free of forbidden Claude-only prose.
     // This test pins the migrated state so future PRs to references can't
     // silently re-introduce a leak.
     const REPO_SRC_DIR = resolve(__dirname, '../../content');
-    const REPO_RUNTIMES_DIR_C = resolve(__dirname, '../../runtimes');
+    const REPO_RUNTIMES_DIR_C = resolve(__dirname, '../../content/harness/runtimes');
     const root = makeTempDir();
     const outDir = join(root, 'skills-out');
 
@@ -2513,7 +2513,7 @@ describe('buildAllSkills — task 003: classification-driven emission', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
-    const runtimesDir = join(root, 'runtimes');
+    const runtimesDir = join(root, 'content/harness/runtimes');
     mkdirSync(join(srcDir, 'proc'), { recursive: true });
     // Logical-prose source (no fork tokens) → procedural, and passes the
     // collapsed-vocabulary enforcement. References a linked reference file so we
@@ -2555,7 +2555,7 @@ describe('buildAllSkills — task 003: classification-driven emission', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
-    const runtimesDir = join(root, 'runtimes');
+    const runtimesDir = join(root, 'content/harness/runtimes');
     mkdirSync(join(srcDir, 'orch'), { recursive: true });
     // An orchestration token flips the class → per-runtime rendering.
     writeFileSync(
@@ -2579,7 +2579,7 @@ describe('buildAllSkills — task 003: classification-driven emission', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
-    const runtimesDir = join(root, 'runtimes');
+    const runtimesDir = join(root, 'content/harness/runtimes');
     // Procedural skill (logical prose, no fork tokens) → renders to
     // `skills/standard/proc/`.
     mkdirSync(join(srcDir, 'proc'), { recursive: true });
@@ -2615,7 +2615,7 @@ describe('buildAllSkills — task 003: classification-driven emission', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
     const outDir = join(root, 'skills');
-    const runtimesDir = join(root, 'runtimes');
+    const runtimesDir = join(root, 'content/harness/runtimes');
     mkdirSync(join(srcDir, 'chainer'), { recursive: true });
     // CHAIN to a target that is neither a canonical verb nor an on-disk skill.
     writeFileSync(

@@ -24,7 +24,7 @@
 //
 // Out of scope (owned by later tasks):
 //   • Task 6 wires `npm run generate:agents` to call this entry point.
-//   • Task 7a–7e populate `runtimes/<name>.yaml` from adapter shapes.
+//   • Task 7a–7e populate `content/harness/runtimes/<name>.yaml` from adapter shapes.
 // ────────────────────────────────────────────────────────────────────────────
 
 import * as fs from 'node:fs';

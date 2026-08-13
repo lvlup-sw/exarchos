@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const REPO_RUNTIMES_DIR = resolve(__dirname, '../../runtimes');
+const REPO_RUNTIMES_DIR = resolve(__dirname, '../../content/harness/runtimes');
 
 /**
  * Fixture: a skill source body containing a single {{CALL}} macro invocation.

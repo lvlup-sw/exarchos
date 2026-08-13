@@ -141,7 +141,7 @@ function codegenEmbeddedRuntimes(): void {
   const here = dirname(fileURLToPath(import.meta.url));
   const root = resolve(here, '..');
   generateEmbeddedRuntimesModule({
-    runtimesDir: resolve(root, 'runtimes'),
+    runtimesDir: resolve(root, 'content/harness/runtimes'),
     outFile: resolve(root, 'src/install/runtimes/embedded.ts'),
   });
 }

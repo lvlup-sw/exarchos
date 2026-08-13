@@ -1,6 +1,6 @@
 // ─── runtimes/claude.yaml supportedCapabilities tests ──────────────────────
 //
-// Asserts that `runtimes/claude.yaml` declares a `supportedCapabilities`
+// Asserts that `content/harness/runtimes/claude.yaml` declares a `supportedCapabilities`
 // YAML mapping (NOT a list) that mirrors `claudeAdapter.supportLevels`.
 // This declaration is consumed by the prose renderer (Tasks 8/9) to gate
 // `<!-- requires:* -->` and `<!-- requires:native:* -->` blocks.
@@ -18,11 +18,11 @@ import { claudeAdapter } from '../agents/adapters/claude.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// `runtimes/claude.yaml` lives at the repo root, four levels up from this
+// `content/harness/runtimes/claude.yaml` lives at the repo root, four levels up from this
 // test file (src/runtime/runtimes/claude.test.ts).
 const CLAUDE_YAML_PATH = resolve(
   __dirname,
-  '../../../runtimes/claude.yaml');
+  '../../../content/harness/runtimes/claude.yaml');
 
 const REQUIRED_CAPABILITY_KEYS = [
   'fs:read',
@@ -51,7 +51,7 @@ function loadClaudeYaml(): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
-describe('runtimes/claude.yaml supportedCapabilities', () => {
+describe('content/harness/runtimes/claude.yaml supportedCapabilities', () => {
   it('ClaudeYaml_SupportedCapabilities_AllElevenAreNative', () => {
     const data = loadClaudeYaml();
     const supported = data.supportedCapabilities;

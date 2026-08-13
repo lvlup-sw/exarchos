@@ -1,5 +1,5 @@
 /**
- * Presence test for `runtimes/claude.yaml`.
+ * Presence test for `content/harness/runtimes/claude.yaml`.
  *
  * Claude Code is the reference runtime: it supports every capability we
  * care about (subagents via `Task`, slash commands, hooks, skill chaining
@@ -17,10 +17,10 @@ import { loadRuntime } from './load.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const RUNTIMES_DIR = resolve(__dirname, '../../../runtimes');
+const RUNTIMES_DIR = resolve(__dirname, '../../../content/harness/runtimes');
 const CLAUDE_YAML = resolve(RUNTIMES_DIR, 'claude.yaml');
 
-describe('runtimes/claude.yaml presence', () => {
+describe('content/harness/runtimes/claude.yaml presence', () => {
   it('LoadAllRuntimes_ClaudeYamlPresent_HasClaudeCapabilities', () => {
     const runtime = loadRuntime(CLAUDE_YAML);
 

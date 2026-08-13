@@ -9,7 +9,7 @@
  * Implements: DR-1 (guard), DR-10 (stale-output path).
  *
  * Isolation strategy: each test provisions a temp directory, runs
- * `git init` inside it, lays down a minimal `content/` + `runtimes/`
+ * `git init` inside it, lays down a minimal `content/` + `content/harness/runtimes/`
  * fixture tree, runs one build so `skills/` exists, commits everything,
  * and then hands that directory to `runSkillsGuard({ cwd })`. Tests
  * never touch the repo's own `skills/` tree.
@@ -108,7 +108,7 @@ function writeRuntimeFixtures(runtimesDir: string): void {
  * Provision a temp directory that looks like a real project root:
  *   - `git init` with committer identity set locally
  *   - `content/foo/SKILL.md` source
- *   - `runtimes/*.yaml` fixtures
+ *   - `content/harness/runtimes/*.yaml` fixtures
  *   - `skills/` generated from an initial `buildAllSkills()` call
  *   - all of the above committed, so `git diff` starts clean
  */
@@ -124,13 +124,13 @@ function provisionProject(): string {
     join(root, 'content', 'foo', 'SKILL.md'),
     'Hello {{AGENT_LABEL}} {{TASK_TOOL}}\n',
   );
-  writeRuntimeFixtures(join(root, 'runtimes'));
+  writeRuntimeFixtures(join(root, 'content/harness/runtimes'));
 
   // Seed the `skills/` tree so the guard has something to compare against.
   buildAllSkills({
     srcDir: join(root, 'content'),
     outDir: join(root, 'skills'),
-    runtimesDir: join(root, 'runtimes'),
+    runtimesDir: join(root, 'content/harness/runtimes'),
   });
 
   // Initialize git and commit everything so `git diff` starts clean.
@@ -189,12 +189,12 @@ function provisionProjectWithCallMacro(): string {
       '',
     ].join('\n'),
   );
-  writeRuntimeFixtures(join(root, 'runtimes'));
+  writeRuntimeFixtures(join(root, 'content/harness/runtimes'));
 
   buildAllSkills({
     srcDir: join(root, 'content'),
     outDir: join(root, 'skills'),
-    runtimesDir: join(root, 'runtimes'),
+    runtimesDir: join(root, 'content/harness/runtimes'),
   });
 
   const gitEnv = {
@@ -478,7 +478,7 @@ describe('skills-guard — task 011 CALL macro determinism', () => {
     buildAllSkills({
       srcDir: join(root, 'content'),
       outDir: join(root, 'skills'),
-      runtimesDir: join(root, 'runtimes'),
+      runtimesDir: join(root, 'content/harness/runtimes'),
     });
 
     const secondResult = runSkillsGuard({ cwd: root, regenerateAgents: noopRegenerateAgents });
@@ -562,7 +562,7 @@ function provisionProjectWithAliases(): string {
     join(root, 'content', 'foo', 'SKILL.md'),
     'Hello {{AGENT_LABEL}} {{TASK_TOOL}}\n',
   );
-  writeAliasRuntimeFixtures(join(root, 'runtimes'));
+  writeAliasRuntimeFixtures(join(root, 'content/harness/runtimes'));
 
   // One command file per map entry so `buildCommandAliases` finds its
   // lifted `description` source for every canonical name.
@@ -580,12 +580,12 @@ function provisionProjectWithAliases(): string {
   buildAllSkills({
     srcDir: join(root, 'content'),
     outDir: join(root, 'skills'),
-    runtimesDir: join(root, 'runtimes'),
+    runtimesDir: join(root, 'content/harness/runtimes'),
   });
 
   // Seed the alias tree exactly as `build:skills`'s main() does.
   buildCommandAliases({
-    runtimes: loadAllRuntimes(join(root, 'runtimes')),
+    runtimes: loadAllRuntimes(join(root, 'content/harness/runtimes')),
     commandsDir,
     outDir: join(root, 'command-aliases'),
   });

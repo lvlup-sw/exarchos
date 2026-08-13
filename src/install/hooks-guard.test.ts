@@ -130,20 +130,20 @@ const gitEnv = {
 };
 
 /**
- * Provision a temp project: hooks-src/, runtimes/, a seeded hooks/ tree,
+ * Provision a temp project: content/harness/hooks/, runtimes/, a seeded hooks/ tree,
  * all committed so `git diff` starts clean.
  */
 function provisionProject(): string {
   const root = makeTempDir();
-  writeHooksSource(join(root, 'hooks-src'));
-  writeBindingSource(join(root, 'binding-src'));
-  writeRuntimeFixtures(join(root, 'runtimes'));
+  writeHooksSource(join(root, 'content/harness/hooks'));
+  writeBindingSource(join(root, 'content/harness/binding'));
+  writeRuntimeFixtures(join(root, 'content/harness/runtimes'));
   buildAllHooks({
-    srcDir: join(root, 'hooks-src'),
-    bindingSrcDir: join(root, 'binding-src'),
+    srcDir: join(root, 'content/harness/hooks'),
+    bindingSrcDir: join(root, 'content/harness/binding'),
     outDir: join(root, 'hooks'),
     bindingOutDir: join(root, 'binding'),
-    runtimesDir: join(root, 'runtimes'),
+    runtimesDir: join(root, 'content/harness/runtimes'),
   });
   execSync('git init -q -b main', { cwd: root, env: gitEnv });
   execSync('git add -A', { cwd: root, env: gitEnv });
@@ -191,7 +191,7 @@ function shrunkRuntimeYaml(name: string, hooksLines: string[]): string {
  */
 function provisionShrunkProject(): { root: string; outDir: string } {
   const root = makeTempDir();
-  const srcDir = join(root, 'hooks-src');
+  const srcDir = join(root, 'content/harness/hooks');
   mkdirSync(srcDir, { recursive: true });
   writeFileSync(
     join(srcDir, 'hooks.json'),
@@ -214,9 +214,9 @@ function provisionShrunkProject(): { root: string; outDir: string } {
   // renderer never reads it (opencode falls through to a note).
   writeFileSync(join(srcDir, 'opencode-plugin.ts.tmpl'), 'export const X = 1;\n');
 
-  writeBindingSource(join(root, 'binding-src'));
+  writeBindingSource(join(root, 'content/harness/binding'));
 
-  const runtimesDir = join(root, 'runtimes');
+  const runtimesDir = join(root, 'content/harness/runtimes');
   mkdirSync(runtimesDir, { recursive: true });
   writeFileSync(
     join(runtimesDir, 'claude.yaml'),
@@ -265,7 +265,7 @@ function provisionShrunkProject(): { root: string; outDir: string } {
   const outDir = join(root, 'hooks');
   buildAllHooks({
     srcDir,
-    bindingSrcDir: join(root, 'binding-src'),
+    bindingSrcDir: join(root, 'content/harness/binding'),
     outDir,
     bindingOutDir: join(root, 'binding'),
     runtimesDir,
@@ -289,7 +289,7 @@ describe('runHooksGuard — #1476 T10', () => {
     // Mutate the source AFTER committing — the committed hooks/ tree is now
     // stale relative to what the build would produce.
     writeFileSync(
-      join(root, 'hooks-src', 'hooks.json'),
+      join(root, 'content/harness/hooks', 'hooks.json'),
       JSON.stringify(
         {
           hooks: {

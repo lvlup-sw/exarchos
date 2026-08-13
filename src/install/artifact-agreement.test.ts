@@ -164,7 +164,7 @@ describe('assertArtifactsAgree', () => {
 describe('standard artifacts agree — real repo (exit proof a)', () => {
   it('BindingBlock_SourceRenderAndEmitted_Agree', () => {
     const directive = readFileSync(
-      join(REPO_ROOT, 'binding-src', BINDING_SOURCE_FILE),
+      join(REPO_ROOT, 'content/harness/binding', BINDING_SOURCE_FILE),
       'utf8',
     );
     const artifact: Artifact = {
@@ -193,7 +193,7 @@ describe('standard artifacts agree — real repo (exit proof a)', () => {
     buildAllSkills({
       srcDir: join(REPO_ROOT, 'content'),
       outDir,
-      runtimesDir: join(REPO_ROOT, 'runtimes'),
+      runtimesDir: join(REPO_ROOT, 'content/harness/runtimes'),
     });
 
     // The committed `skills/` tree carries NON-generated auxiliary files

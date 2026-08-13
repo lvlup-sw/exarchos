@@ -8,7 +8,7 @@
  * lifecycle **hooks** (`hooks/hooks.json` + `hooks/<runtime>/HOOKS.md`), the
  * plugin **manifest** (`.claude-plugin/plugin.json`), the always-loaded
  * **instruction** surface (`AGENTS.md`), and the **runtime** capability maps
- * (`runtimes/*.yaml`, baked into the single-file binary). Each of those is a
+ * (`content/harness/runtimes/*.yaml`, baked into the single-file binary). Each of those is a
  * *projection* that must survive the trip into the packaged/installed artifact.
  *
  * Two properties, per the work package, are load-bearing and distinct:
@@ -312,7 +312,7 @@ export function assertContainment(inputs: ContainmentInputs): ContainmentResult 
  *   - `npm-files`       — the projection's root directory/file must appear in
  *     `package.json` `files[]` (what `npm pack` / the plugin bundle ships).
  *   - `embedded-binary` — the projection is baked INTO the single-file binary
- *     (shipped as `dist/bin`) rather than as loose files. `runtimes/*.yaml` are
+ *     (shipped as `dist/bin`) rather than as loose files. `content/harness/runtimes/*.yaml` are
  *     codegen'd into `src/runtimes/embedded.ts` and compiled in; `runtimes:guard`
  *     enforces the embedded table equals the YAML source, so the binary carries
  *     the authoritative runtime maps and the loose YAML need not ship.
@@ -409,14 +409,14 @@ export const PROJECTION_ROOT_SPECS: readonly ProjectionRootSpec[] = [
     // Runtime capability maps — the projection that drives every other
     // projection. Shipped baked into the binary via codegen'd embedded.ts.
     kind: 'runtime',
-    root: 'runtimes',
+    root: 'content/harness/runtimes',
     rootKind: 'dir',
-    include: (rel) => rel.startsWith('runtimes/') && rel.endsWith('.yaml'),
+    include: (rel) => rel.startsWith('content/harness/runtimes/') && rel.endsWith('.yaml'),
     shipped: {
       via: 'embedded-binary',
       entry: 'dist/bin',
       note:
-        'runtimes/*.yaml are codegen\'d into src/runtimes/embedded.ts and compiled into the ' +
+        'content/harness/runtimes/*.yaml are codegen\'d into src/runtimes/embedded.ts and compiled into the ' +
         'single-file binary (dist/bin); runtimes:guard enforces embedded-vs-YAML parity',
     },
   },

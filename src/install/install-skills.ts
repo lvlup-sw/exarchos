@@ -128,7 +128,7 @@ export interface InstallSkillsOpts {
    * cloned the repo and walked only the root level (missing the
    * per-runtime trees) and (b) used its own per-agent home-dir mapping
    * (`github-copilot` → `~/.agents/skills`) that does not align with
-   * our `runtimes/*.yaml` `skillsInstallPath` values. Copying locally
+   * our `content/harness/runtimes/*.yaml` `skillsInstallPath` values. Copying locally
    * sidesteps both bugs.
    *
    * When `undefined`, `installSkills()` does NOT auto-detect — the
@@ -230,7 +230,7 @@ export interface InstallSkillsError extends Error {
  * We do not use `os.homedir()` directly so tests can pass a deterministic
  * home. Handles the no-marker case (returns input unchanged), a bare `~`
  * or `$HOME` (returns home), and the `~/...` / `$HOME/...` prefixes. The
- * `$HOME` form is recognized because `runtimes/codex.yaml` and any future
+ * `$HOME` form is recognized because `content/harness/runtimes/codex.yaml` and any future
  * shell-literal-style entry will not otherwise be expanded by the
  * local-copy fast path (the upstream shell-out used to mask this because
  * its child shell expanded `$HOME` itself, but the in-process copy never
@@ -1293,7 +1293,7 @@ export async function installSkills(opts: InstallSkillsOpts): Promise<void> {
   // walked only the root level (finding just `design-invariants`,
   // missing every skill under `skills/<runtime>/`) and used its own
   // per-agent home-dir mapping that does not match our
-  // `runtimes/*.yaml` `skillsInstallPath` values. We sidestep both
+  // `content/harness/runtimes/*.yaml` `skillsInstallPath` values. We sidestep both
   // bugs by copying the rendered per-runtime tree directly to the
   // runtime's canonical install path when a local skills source is
   // available. The shell-out path below is retained as a fallback so

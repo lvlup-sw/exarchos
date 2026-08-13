@@ -28,9 +28,9 @@ import { RuntimeMapSchema } from '../src/install/runtimes/types.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..');
-const RUNTIMES_DIR = join(REPO_ROOT, 'runtimes');
+const RUNTIMES_DIR = join(REPO_ROOT, 'content/harness/runtimes');
 
-/** Copy the real `runtimes/*.yaml` into a fresh tmp dir so the codegen
+/** Copy the real `content/harness/runtimes/*.yaml` into a fresh tmp dir so the codegen
  *  has a stable input independent of any concurrent test mutating the
  *  workspace.
  */

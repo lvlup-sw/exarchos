@@ -1,4 +1,4 @@
-// ─── Per-harness on-ramps + runtimes/*.yaml lifecycle semantics (DR-1, DR-3) ──
+// ─── Per-harness on-ramps + content/harness/runtimes/*.yaml lifecycle semantics (DR-1, DR-3) ──
 //
 // Two guarantees, one file:
 //
@@ -8,7 +8,7 @@
 //      `harness-registry.type-test.ts`, inherited because every on-ramp output
 //      is typed `HarnessDescriptor`; the runtime checks here are belt-and-braces.)
 //
-//   2. Every Tier-1 `runtimes/*.yaml` now frames `isolation:worktree` as
+//   2. Every Tier-1 `content/harness/runtimes/*.yaml` now frames `isolation:worktree` as
 //      **launcher-managed lifecycle** (the launcher owns the harness process +
 //      top-level worktree lifecycle) and carries **no space-enforcement /
 //      P-S-N / confinement claim** (space enforcement is an explicit non-goal —
@@ -31,7 +31,7 @@ const REPO_ROOT = resolve(__dirname, '../../..');
 const RUNTIME_IDS = TIER1_HARNESSES.map((t) => HARNESS_RUNTIME_ID[t]);
 
 function runtimeYamlPath(runtimeId: string): string {
-  return resolve(REPO_ROOT, 'runtimes', `${runtimeId}.yaml`);
+  return resolve(REPO_ROOT, 'content/harness/runtimes', `${runtimeId}.yaml`);
 }
 
 function readRuntimeYaml(runtimeId: string): string {

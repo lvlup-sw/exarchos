@@ -52,7 +52,7 @@ jobs:
               - 'src/**'
               - 'content/**'
               - 'skills/**'
-              - 'runtimes/**'
+              - 'content/harness/runtimes/**'
               # Projection roots (DR-22): these directories/files are part of
               # the shipped surface (see `files` in package.json) and are
               # regenerated + drift-checked by `skills:guard` / `hooks:guard`
@@ -65,9 +65,9 @@ jobs:
               - 'command-aliases/**'
               - 'commands/**'
               - 'hooks/**'
-              - 'hooks-src/**'
+              - 'content/harness/hooks/**'
               - 'binding/**'
-              - 'binding-src/**'
+              - 'content/harness/binding/**'
               - '.claude-plugin/**'
               # The agent-generator sources under the MCP workspace feed the
               # rendered `agents/**` projection above; a change there must
@@ -163,10 +163,10 @@ jobs:
       - run: npm run skills:guard
 
       # hooks:guard (DR-22) — rebuild the generated `hooks/` + `binding/`
-      # trees in-place from `hooks-src/` / `binding-src/` and fail if
+      # trees in-place from `content/harness/hooks/` / `content/harness/binding/` and fail if
       # `git diff hooks/ binding/` is non-empty. Mirrors `skills:guard`
-      # above; without this step (and without `hooks/**` / `hooks-src/**`
-      # / `binding/**` / `binding-src/**` in the `changes.root` path
+      # above; without this step (and without `hooks/**` / `content/harness/hooks/**`
+      # / `binding/**` / `content/harness/binding/**` in the `changes.root` path
       # filter above) a PR that deletes or mutates a shipped hook passed
       # CI green, unobserved. Depends on `dist/hooks-guard.js` produced
       # by the earlier `npm ci` (`prepare` → `tsc`).
@@ -176,7 +176,7 @@ jobs:
       # if `git diff src/install/runtimes/embedded.ts` is non-empty. The
       # embedded module is what the compiled binary uses to resolve
       # runtimes (#1213 review-item #4 reversal, #1214); CI must catch
-      # any drift between `runtimes/*.yaml` and the checked-in
+      # any drift between `content/harness/runtimes/*.yaml` and the checked-in
       # generated module before it leaks into a release.
       - run: npm run runtimes:guard
 

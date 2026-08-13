@@ -5,7 +5,7 @@
  * deterministic: no child processes, no filesystem, no environment leakage.
  *
  * Fixtures are built as in-memory `RuntimeMap` arrays and passed via the
- * `runtimes` dep — we do not touch the `runtimes/` directory on disk.
+ * `runtimes` dep — we do not touch the `content/harness/runtimes/` directory on disk.
  *
  * Implements: DR-7 (install-skills CLI scaffold), DR-9 (docs), DR-10 (errors).
  */
@@ -557,7 +557,7 @@ describe('registerExarchosInClaudeJson (#1217)', () => {
 describe('installSkills command aliases (T3, #1471/#1472)', () => {
   /**
    * opencode runtime fixture: declares `commandsInstallPath`, mirroring the
-   * real `runtimes/opencode.yaml`. The other fields match the production map
+   * real `content/harness/runtimes/opencode.yaml`. The other fields match the production map
    * closely enough for the install path resolution.
    */
   const OPENCODE = makeRuntime({

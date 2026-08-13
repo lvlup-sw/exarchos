@@ -1,7 +1,7 @@
 /**
  * Runtime YAML loader.
  *
- * Reads `runtimes/<name>.yaml` files from disk, parses them via `js-yaml`,
+ * Reads `content/harness/runtimes/<name>.yaml` files from disk, parses them via `js-yaml`,
  * and validates them against `RuntimeMapSchema`. On any failure path
  * (missing file, malformed YAML, schema violation) a descriptive `Error` is
  * thrown that always names the offending file and — for schema failures —
@@ -131,7 +131,7 @@ export function loadRuntime(path: string): RuntimeMap {
  *   - Individual file failures (parse, schema) propagate as-is.
  */
 export function loadAllRuntimes(
-  runtimesDir = 'runtimes',
+  runtimesDir = 'content/harness/runtimes',
   deps: LoadAllRuntimesDeps = {},
 ): RuntimeMap[] {
   const warn = deps.warn ?? ((msg: string) => console.warn(msg));

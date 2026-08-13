@@ -203,7 +203,7 @@ export function generateClaudeAgentMarkdown(spec: AgentSpec): string {
 
 /**
  * Claude is the reference runtime: every capability the spec model
- * defines today is `native`. Mirrored in `runtimes/claude.yaml`.
+ * defines today is `native`. Mirrored in `content/harness/runtimes/claude.yaml`.
  */
 const CLAUDE_SUPPORT_LEVELS = buildSupportMap('native');
 

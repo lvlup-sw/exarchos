@@ -5,7 +5,7 @@ import { loadAllRuntimes } from './load.js';
 // #1485: assert every runtime's hooks descriptor matches design §4.3. The data
 // is also drift-guarded (runtimes:guard) and exercised via the renderer
 // integration test; these assertions lock the per-runtime capability values.
-const RUNTIMES_DIR = resolve(__dirname, '../../../runtimes');
+const RUNTIMES_DIR = resolve(__dirname, '../../../content/harness/runtimes');
 
 const EXPECTED: Record<string, { profile: string; canInjectContext: boolean; start: string | null; end: string | null }> = {
   claude: { profile: 'claude-json', canInjectContext: true, start: 'SessionStart', end: 'SessionEnd' },

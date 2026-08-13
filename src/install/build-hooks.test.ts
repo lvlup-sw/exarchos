@@ -6,7 +6,7 @@
  * token-attribution seam + the auto-loaded SessionStart on-ramp, no SessionEnd).
  * Every other runtime's active artifact is retired in favour of the launcher's
  * `launch.*` lifecycle, so codex (`claude-json`) and opencode (`opencode-plugin`)
- * fall through to a deferred HOOKS.md note. Tested against the REAL runtimes/ topology.
+ * fall through to a deferred HOOKS.md note. Tested against the REAL content/harness/runtimes/ topology.
  */
 
 import { describe, it, expect, afterEach } from 'vitest';
@@ -16,9 +16,9 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 const REPO_ROOT = resolve(__dirname, '../..');
-const HOOKS_SRC = join(REPO_ROOT, 'hooks-src');
-const BINDING_SRC = join(REPO_ROOT, 'binding-src');
-const RUNTIMES = join(REPO_ROOT, 'runtimes');
+const HOOKS_SRC = join(REPO_ROOT, 'content/harness/hooks');
+const BINDING_SRC = join(REPO_ROOT, 'content/harness/binding');
+const RUNTIMES = join(REPO_ROOT, 'content/harness/runtimes');
 
 const tempDirs: string[] = [];
 function freshOut(): { outDir: string; bindingOutDir: string } {
@@ -52,7 +52,7 @@ afterEach(() => {
   while (tempDirs.length) rmSync(tempDirs.pop()!, { recursive: true, force: true });
 });
 
-describe('hooks-src/hooks.json source (#1485 T5; shrink DR-7)', () => {
+describe('content/harness/hooks/hooks.json source (#1485 T5; shrink DR-7)', () => {
   it('HooksSource_ContainsSessionStartAndSubagentStop_NoSessionEnd', () => {
     // DR-7: SessionEnd is retired (the launcher owns session lifecycle). The
     // source template ships only the SessionStart on-ramp + the SubagentStop

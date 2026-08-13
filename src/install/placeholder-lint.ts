@@ -42,11 +42,11 @@ import {
 /**
  * Canonical vocabulary of placeholder tokens that `content/` sources
  * may reference. Derived as the union of `placeholders` keys across
- * every runtime YAML under `runtimes/` (verified in Task 024 GREEN
+ * every runtime YAML under `content/harness/runtimes/` (verified in Task 024 GREEN
  * against the current six-runtime set; all six define exactly these
  * five keys).
  *
- * Expandable: adding a new entry here and to every `runtimes/*.yaml`
+ * Expandable: adding a new entry here and to every `content/harness/runtimes/*.yaml`
  * is enough to introduce a new token without code changes elsewhere.
  * Removing an entry requires sweeping `content/` for any remaining
  * references first — the lint will catch stragglers.
@@ -418,7 +418,7 @@ function lineOf(source: string, offset: number): number {
  *   1. Unknown placeholder tokens — always hard failures, always
  *      reported. The section names every offending `{{token}}` with its
  *      `file:line`, lists the canonical vocabulary, and points at the
- *      remediation (add the token to `runtimes/*.yaml` or remove it
+ *      remediation (add the token to `content/harness/runtimes/*.yaml` or remove it
  *      from the source).
  *
  *   2. Deprecated `mcp__...` references — informational during the
@@ -466,7 +466,7 @@ function formatMessage(
     const sortedVocab = [...vocabulary].sort().join(', ');
     lines.push(`Canonical vocabulary: [${sortedVocab}]`);
     lines.push(
-      'To fix: add the token to every runtimes/*.yaml placeholders map, or remove it from the source.',
+      'To fix: add the token to every content/harness/runtimes/*.yaml placeholders map, or remove it from the source.',
     );
   }
 

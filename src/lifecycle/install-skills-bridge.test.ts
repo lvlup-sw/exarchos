@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // Walk up from src/lifecycle → repo root.
 const REPO_ROOT = resolve(__dirname, '../..');
-const RUNTIMES_DIR = resolve(REPO_ROOT, 'runtimes');
+const RUNTIMES_DIR = resolve(REPO_ROOT, 'content/harness/runtimes');
 
 describe('install-skills-bridge', () => {
   it('Bridge_Default_UsesEmbeddedRuntimes', async () => {

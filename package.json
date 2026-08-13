@@ -29,7 +29,7 @@
     "build:binary": "bun run scripts/build-binary.ts --all",
     "build:release-verifier": "bun build src/install/release/release-verify-cli.ts --target=node --format=esm --banner \"#!/usr/bin/env node\" --outfile dist/release-verify.js",
     "codegen:runtimes": "bun run scripts/codegen-runtimes.ts",
-    "runtimes:guard": "npm run codegen:runtimes && git diff --exit-code -- src/install/runtimes/embedded.ts || (echo 'src/install/runtimes/embedded.ts is out of sync with runtimes/*.yaml — run npm run codegen:runtimes' && exit 1)",
+    "runtimes:guard": "npm run codegen:runtimes && git diff --exit-code -- src/install/runtimes/embedded.ts || (echo 'src/install/runtimes/embedded.ts is out of sync with content/harness/runtimes/*.yaml — run npm run codegen:runtimes' && exit 1)",
     "generate:agents": "tsx src/runtime/agents/generate-agents.ts",
     "generate:docs": "tsx scripts/core/generate-docs.ts",
     "build:skills": "npm run generate:agents && node dist/install/build-skills.js",

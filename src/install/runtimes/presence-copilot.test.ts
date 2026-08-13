@@ -1,5 +1,5 @@
 /**
- * Presence test for `runtimes/copilot.yaml`.
+ * Presence test for `content/harness/runtimes/copilot.yaml`.
  *
  * GitHub Copilot CLI exposes the `task` tool with a `--agent <name>`
  * programmatic flag that locally spawns a custom agent in the current
@@ -25,10 +25,10 @@ import { loadRuntime } from './load.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const RUNTIMES_DIR = resolve(__dirname, '../../../runtimes');
+const RUNTIMES_DIR = resolve(__dirname, '../../../content/harness/runtimes');
 const COPILOT_YAML = resolve(RUNTIMES_DIR, 'copilot.yaml');
 
-describe('runtimes/copilot.yaml presence', () => {
+describe('content/harness/runtimes/copilot.yaml presence', () => {
   it('LoadAllRuntimes_CopilotYamlPresent_HasSubagents', () => {
     const runtime = loadRuntime(COPILOT_YAML);
 

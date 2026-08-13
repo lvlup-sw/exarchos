@@ -1,12 +1,12 @@
 /**
  * CI `hooks:guard` check (#1476 T10) — detects drift between the
- * `hooks-src/` source and the committed `hooks/` generated tree.
+ * `content/harness/hooks/` source and the committed `hooks/` generated tree.
  *
  * Mirrors `skills-guard.ts`: runs `buildAllHooks()` in-process against the
  * project root, then invokes `git diff --exit-code hooks/`. A non-empty diff
  * means either:
  *
- *   1. A developer changed `hooks-src/` but forgot to run
+ *   1. A developer changed `content/harness/hooks/` but forgot to run
  *      `npm run build:hooks` and commit the regenerated output, or
  *   2. A developer hand-edited a generated file under `hooks/` (which the
  *      build has just overwritten).
@@ -42,7 +42,7 @@ const REMEDIATION =
  * call `process.exit` — the CLI wrapper handles exit.
  *
  * @param opts.cwd - Absolute path to the project root. Must contain
- *   `hooks-src/`, `runtimes/`, and a git repo whose HEAD tracks the current
+ *   `content/harness/hooks/`, `content/harness/runtimes/`, and a git repo whose HEAD tracks the current
  *   state of `hooks/`.
  */
 export function runHooksGuard(opts: HooksGuardOptions): HooksGuardResult {
@@ -54,11 +54,11 @@ export function runHooksGuard(opts: HooksGuardOptions): HooksGuardResult {
   let buildDetail = '';
   try {
     buildAllHooks({
-      srcDir: join(cwd, 'hooks-src'),
-      bindingSrcDir: join(cwd, 'binding-src'),
+      srcDir: join(cwd, 'content/harness/hooks'),
+      bindingSrcDir: join(cwd, 'content/harness/binding'),
       outDir: join(cwd, 'hooks'),
       bindingOutDir: join(cwd, 'binding'),
-      runtimesDir: join(cwd, 'runtimes'),
+      runtimesDir: join(cwd, 'content/harness/runtimes'),
     });
   } catch (err) {
     buildFailed = true;

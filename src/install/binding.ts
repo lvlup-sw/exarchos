@@ -3,7 +3,7 @@
  * bundle, DR-5).
  *
  * The cross-harness "use Exarchos for SDLC" orientation directive has a single
- * source of truth — `binding-src/binding.md` — rendered into a single,
+ * source of truth — `content/harness/binding/binding.md` — rendered into a single,
  * runtime-neutral marker-fenced block. The directive prose now uses the logical
  * `exarchos:exarchos_*` tool form (Anthropic's harness-neutral `Server:tool`
  * convention) instead of a per-harness `{{MCP_PREFIX}}` token, so ONE block
@@ -19,7 +19,7 @@
 
 import { render } from './build-skills.js';
 
-/** Source-of-truth directive filename under `binding-src/`. */
+/** Source-of-truth directive filename under `content/harness/binding/`. */
 export const BINDING_SOURCE_FILE = 'binding.md';
 
 /** Fence opening the generated binding region. */

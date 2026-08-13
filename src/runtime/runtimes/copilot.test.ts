@@ -33,11 +33,11 @@ import { CopilotAdapter } from '../agents/adapters/copilot.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// `runtimes/copilot.yaml` lives at the repo root, four levels up from this
+// `content/harness/runtimes/copilot.yaml` lives at the repo root, four levels up from this
 // test file (src/runtime/runtimes/copilot.test.ts).
 const COPILOT_YAML_PATH = resolve(
   __dirname,
-  '../../../runtimes/copilot.yaml');
+  '../../../content/harness/runtimes/copilot.yaml');
 
 function loadCopilotYamlText(): string {
   return readFileSync(COPILOT_YAML_PATH, 'utf8');
@@ -62,7 +62,7 @@ function bareAgentName(adapterPath: string): string {
   return filename.replace(/\.agent\.md$/, '');
 }
 
-describe('runtimes/copilot.yaml — local task --agent primitive', () => {
+describe('content/harness/runtimes/copilot.yaml — local task --agent primitive', () => {
   it('CopilotYaml_SpawnAgentCall_UsesLocalTaskAgentNotDelegate', () => {
     const data = loadCopilotYaml();
     const placeholders = data.placeholders as Record<string, unknown>;
