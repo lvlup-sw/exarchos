@@ -85,8 +85,13 @@ const CLI_TIMEOUT_MS = EXEC_TIMEOUT_MS * 2;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = findRepoRoot(__dirname);
+// The baseline travelled with `parity/` into the extracted conformance
+// package (task 018a). Built segment-wise, so the literal passes that followed
+// the move could not see it.
 const BASELINE_PATH = path.join(
   REPO_ROOT,
+  'tools',
+  'conformance',
   'src',
   'parity',
   '__tests__',

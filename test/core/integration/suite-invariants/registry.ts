@@ -57,13 +57,23 @@ export const SHAPE_RATCHET: readonly ShapeRatchetEntry[] = Object.freeze([
  * root from being quietly emptied — deleting or relocating a root would
  * otherwise turn the whole meta-test vacuous while keeping it green.
  * Observed 2026-08-05: repo/src 60, mcp/src 849, mcp/test 9, mcp/tests 2.
+ *
+ * Re-stated after task 019 folded the two source trees into one. The `src`
+ * floor is the SUM of the two it replaces (48 + 680), so the merge relaxes
+ * nothing — the same number of files must still be there. The `test` and
+ * `tests` roots follow the dissolved package's suites to their new addresses
+ * under `core`, so their floors are unchanged: same files, same obligation.
+ * `tools/evals` is the eval suite the same move routed out of the product
+ * tree, tracked here so relocation cannot discharge its annotation debt.
+ *
+ * Observed 2026-08-13: src 899, test 13, tests 2, tools/evals 9.
  */
 export const CORPUS_FLOORS: readonly { readonly root: string; readonly floor: number }[] =
   Object.freeze([
-    { root: 'repo/src', floor: 48 },
-    { root: 'mcp/src', floor: 680 },
-    { root: 'mcp/test', floor: 7 },
-    { root: 'mcp/tests', floor: 2 },
+    { root: 'src', floor: 728 },
+    { root: 'test', floor: 7 },
+    { root: 'tests', floor: 2 },
+    { root: 'tools/evals', floor: 7 },
   ]);
 
 /** Observed 2026-08-05: 327 of 920 files match ≥1 covered shape. */

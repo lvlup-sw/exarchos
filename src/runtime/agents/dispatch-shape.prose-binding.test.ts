@@ -71,7 +71,7 @@
 // module imports it. The comparison can genuinely disagree, and
 // `ProseBinding_SeededProseDrift_FailsTheBinding` proves it does.
 //
-// @oracle-sources: ../../../../skills-src/delegate/references/parallel-strategy.md, ./dispatch-shape.ts
+// @oracle-sources: ../../../skills-src/delegate/references/parallel-strategy.md, ./dispatch-shape.ts
 //
 // Implements: DR-25.
 

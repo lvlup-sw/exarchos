@@ -28,15 +28,15 @@
 //   ./fixtures/prepare-review-pre-dr25.json — a payload produced by code that
 //       predates the guard entirely. It cannot have been shaped to agree with
 //       a validator that did not exist when it was captured.
-//   ../../agents/dispatch-shape.ts          — the table, the resolver, and the
+//   ../../runtime/agents/dispatch-shape.ts          — the table, the resolver, and the
 //       guard under test.
-//   ../../agents/adapters/codex.ts          — the Codex runtime's OWN
+//   ../../runtime/agents/adapters/codex.ts          — the Codex runtime's OWN
 //       capability declaration, written by adapter authors with no knowledge of
 //       the posture table.
 //
 // None of the three reaches either of the others in the static import graph.
 //
-// @oracle-sources: ./fixtures/prepare-review-pre-dr25.json, ../../agents/dispatch-shape.ts, ../../agents/adapters/codex.ts
+// @oracle-sources: ./fixtures/prepare-review-pre-dr25.json, ../../runtime/agents/dispatch-shape.ts, ../../runtime/agents/adapters/codex.ts
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { readFileSync, mkdtempSync } from 'node:fs';

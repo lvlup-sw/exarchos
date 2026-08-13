@@ -1,6 +1,6 @@
 // Co-located tests for the DR-1 event declaration bridge (task 008).
 //
-// @oracle-sources: ./schemas.ts, ../../../../tools/conformance/src/authority-topology.ts
+// @oracle-sources: ./schemas.ts, ../../tools/conformance/src/authority-topology.ts
 //
 // The two authorities, and why they are two. `events/schemas.ts` owns the event UNIVERSE —
 // which types exist and what each one's emission source is. `architecture/authority-topology.ts`

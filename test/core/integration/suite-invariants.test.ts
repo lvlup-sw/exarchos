@@ -263,7 +263,9 @@ describe('DR-30 part 2 — the real corpus', () => {
     // suite out of `mcp/src`. It is mandated rather than optional because these
     // files were already governed here — dropping the mandate would have let a
     // directory move discharge DR-30 coverage.
-    expect(mandated).toEqual(['repo/src', 'mcp/src', 'mcp/test', 'tools/conformance']);
+    // The two `src` roots became one when task 019 dissolved the nested
+    // package — they had already been the same directory, walked twice.
+    expect(mandated).toEqual(['src', 'test', 'tools/evals', 'tools/conformance']);
     for (const id of mandated) {
       expect(corpus.filter((f) => f.root === id).length).toBeGreaterThan(0);
     }

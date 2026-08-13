@@ -27,7 +27,7 @@
 // imports nothing and cannot observe either of the other two. Their agreement is
 // the claim; their disagreement is the finding.
 //
-// @oracle-sources: ./output-schema-vacuity-allowlist.ts, ../../../tools/conformance/src/output-schema-seed-pin.ts, the Zod schema objects the live tool registry constructs at module-import time and the census walks structurally
+// @oracle-sources: ./output-schema-vacuity-allowlist.ts, ../tools/conformance/src/output-schema-seed-pin.ts, the Zod schema objects the live tool registry constructs at module-import time and the census walks structurally
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';

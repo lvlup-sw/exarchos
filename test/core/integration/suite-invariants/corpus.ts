@@ -32,10 +32,22 @@ export interface ScanRoot {
 }
 
 export const SCAN_ROOTS: readonly ScanRoot[] = Object.freeze([
-  { id: 'repo/src', dir: path.join(REPO_ROOT, 'src'), mandatedByDr30: true },
-  { id: 'mcp/src', dir: path.join(MCP_ROOT, 'src'), mandatedByDr30: true },
-  { id: 'mcp/test', dir: path.join(MCP_ROOT, 'test'), mandatedByDr30: true },
-  { id: 'mcp/tests', dir: path.join(MCP_ROOT, 'tests'), mandatedByDr30: false },
+  // ONE `src` root since task 019. It was two — the installer tree and the
+  // server tree — and both now resolve to the same directory, so declaring
+  // both walked every file twice and doubled the denominator this register
+  // exists to ratchet.
+  { id: 'src', dir: path.join(REPO_ROOT, 'src'), mandatedByDr30: true },
+  // The dissolved package's `test/` and `tests/` trees landed under `core/`.
+  // Naming the whole `test/`+`tests/` trees instead would sweep in the ROOT
+  // package's suites — migration, smoke, e2e, architecture — which DR-30 never
+  // governed, silently widening the corpus rather than following it.
+  { id: 'test', dir: path.join(REPO_ROOT, 'test/core'), mandatedByDr30: true },
+  { id: 'tests', dir: path.join(REPO_ROOT, 'tests/core'), mandatedByDr30: false },
+  // Task 019 routed the eval suite out of the product tree. Following it keeps
+  // the corpus at the membership it had the day before the move, for the same
+  // reason `tools/conformance` is followed below: leaving the root out would
+  // discharge shape-annotation debt by relocation.
+  { id: 'tools/evals', dir: path.join(REPO_ROOT, 'tools/evals'), mandatedByDr30: true },
   // Task 018a extracted the conformance suite out of `mcp/src`. Following it
   // keeps the corpus at the same membership it had the day before the move —
   // these files were governed here, they still carry their `@oracle-sources`

@@ -72,7 +72,7 @@
  * extent, and the anti-vacuity teeth below fail specifically on a regression
  * back to either narrowing.
  *
- * @oracle-sources: ../../package.json, ../test-helpers/module-specifier-parser.ts
+ * @oracle-sources: ../../package.json, ../../tools/test-helpers/module-specifier-parser.ts
  */
 
 import { readFileSync, readdirSync } from 'node:fs';
