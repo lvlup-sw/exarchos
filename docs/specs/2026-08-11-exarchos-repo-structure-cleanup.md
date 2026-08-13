@@ -1260,7 +1260,15 @@ Repinning `plugin.json` is a sanctioned clean break. Only an end-to-end install 
 
 ### Task 030: Move the co-located core tests
 
-The largest single mechanical operation in the plan: 907 files.
+907 files — and, measured 2026-08-13, **not** the mechanical operation this task was written as.
+
+> **Premises corrected before execution (measured against `worktree-exarchos-overhaul-staging`).**
+>
+> 1. **The move is not purely mechanical.** 138 of the 907 movers derive a filesystem path from their own location (`import.meta.dirname`, `__dirname`, `fileURLToPath(import.meta.url)`) across 291 occurrences. Two kinds hide inside that number, and only one is a depth change. A test whose anchor reaches the **repo root** (`path.resolve(__dirname, '../..')`) just needs more `../`. A test whose anchor IS **its own subject** does not: `src/adapters/adapter-direction.test.ts:30` reads `const ADAPTERS = dirname(fileURLToPath(import.meta.url))` because that directory *is* `src/adapters/`. Relocated, it scans the test directory, finds nothing, and **passes** — the third time this workflow has turned a guard vacuous rather than red. Do not classify these by hand: compute what each expression resolved to **before** the move and rewrite so it resolves to the **same absolute path after**, which covers both kinds uniformly.
+> 2. **Rewrite on the AST, never a regex.** `src/architecture/dev-catalog-content.test.ts` carries `import.meta.url` inside template strings at `:184`, `:193`, `:402` and `:448` — those are code samples the test asserts *on*, not expressions to retarget. `tools/audit/measure-test-inventory.mjs` already parses with the TypeScript compiler; reuse that.
+> 3. **Closure runs in both directions.** `src/__tests__/parity-harness.ts` is a traveler, and `tests/core/parity-actions.ts` — outside the move set — imports it. Importers that stay must be rewritten too, counting type-only edges.
+> 4. **`protected-suites.json` does not exist, and its guard is dead.** The real path is `scripts/audit/protected-suites.json`, not `tools/audit/`; the file is absent entirely; `PROTECTED_ROOTS` was already retargeted to `['src', 'tools/conformance/src']` in `61fa6d938`, so the `generatedFrom: servers/exarchos-mcp/src` premise is spent; and `scripts/audit/check-protected.mjs` is referenced by **neither CI nor `package.json`**. It exits 2 fail-closed on the missing inventory, but nothing invokes it. The work here is to add `tests/` to `PROTECTED_ROOTS` and give the guard a live host.
+> 5. **The relocation ledger is not a new file.** It is `relocations[]` inside `tools/audit/test-inventory-baseline.json` (5 entries as of `e8520ed`). The generator re-emits it **empty** on every run, so a wholesale regen silently discards it — append, and refuse to write if any file disappeared.
 
 **Risk Tier:** high
 **Boundary Touching:** true
@@ -1269,12 +1277,13 @@ The largest single mechanical operation in the plan: 907 files.
 **Testing Strategy:** exampleTests true, propertyTests false, benchmarks false, characterizationRequired true.
 **Files:**
 - `tests/unit/`, `tests/integration/`
-- `tools/audit/protected-suites.json`
-- `tools/audit/test-relocation-map.json`
+- `scripts/audit/check-protected.mjs`, `scripts/audit/protected-suites.json`
+- `tools/audit/test-inventory-baseline.json` (`relocations[]`)
 **Tests:**
 - `TestInventory_AfterCoreTestMove_EveryBaselineIdReconcilesViaTheMap`
 - `ProtectedSuites_AfterMove_EveryPinnedPathResolves`
-**Verification:** Move the 928 test files from under `servers/` into `tests/`, mirroring the layer structure, updating relative imports and fixture paths in the same change and appending every old→new pair to the relocation map. **`protected-suites.json` is retargeted in this task, not later**: it pins ~50 explicit test paths plus `generatedFrom: servers/exarchos-mcp/src`, and revision 1 left it dangling across exactly the window in which every test file moved. Reconcile against the task 002 oracle **here**, not three tasks later — localizing a loss of 928 files' worth of ids is far cheaper now.
+- `SelfAnchoredTest_AfterMove_StillResolvesToItsSubject`
+**Verification:** Move the 907 test files under `src/` into `tests/`, mirroring the layer structure, rewriting relative imports **and** self-anchored path expressions in the same change, and appending every old→new pair to the relocation ledger. Reconcile against the task 002 oracle **here**, not three tasks later — localizing a loss of 907 files' worth of ids is far cheaper now. **Verify per-test, not by count:** capture `vitest --reporter=json` before, map old→new paths, and require every test id to keep its status. A test that went vacuous keeps the totals identical, so a pass count cannot see it — which is precisely the failure premise 1 describes.
 **Dependencies:** 029
 **Parallelizable:** No
 
