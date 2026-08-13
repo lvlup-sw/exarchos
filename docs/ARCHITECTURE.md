@@ -66,6 +66,38 @@ the repo root.
 real decision about who owns each helper, and that belongs to task 020, where the moves happen.
 It is recorded as unresolved rather than forced into a bucket that would have to be undone.
 
+## Authored and generated artifact kinds
+
+Content splits in two. `content/` holds what a human writes; everything a build produces is
+generator output, committed so the published package needs no build step. Each kind is
+classified explicitly, because assuming a whole directory is one or the other is what put live
+files inside a generated tree in the first place.
+
+| Kind | Classification | Source | Emitted to | Producer |
+|------|----------------|--------|------------|----------|
+| `skills` | authored → rendered per runtime | `content/<domain>/skills/` | `skills/<runtime>/` | `build-skills.ts` |
+| `commands` | authored → flattened | `content/<domain>/commands/` | `commands/` | `build-authored-artifacts.ts` |
+| `rules` | authored → flattened | `content/<domain>/rules/` | `rules/` | `build-authored-artifacts.ts` |
+| `command-aliases` | generated from command frontmatter | `commands/*.md` + `COMMAND_TO_SKILL` | `command-aliases/<runtime>/` | `build-command-aliases.ts` |
+| `agents` | generated from TypeScript | `ALL_AGENT_SPECS` | `agents/` | `generate-agents.ts` |
+| `binding`, `hooks` | authored → generated into place | `content/harness/` | plugin root | `build-hooks.ts` |
+
+**Commands and rules get a generator rather than shipping from where they are authored.** They
+carry no placeholders and no per-runtime variance, so the question looked like it had a third
+answer — leave them where they are. It does not: a harness resolves a command by its bare name
+from one flat directory, and `plugin.json` declares a single path per kind. Authoring by
+capability and resolving by flat name cannot both hold unless something flattens, which is the
+same reason the skills renderer stopped propagating its source-relative path. The generator is a
+copy, and that is the whole point — the transformation being performed is the flattening.
+
+The rule that keeps this honest: **a path may not be declared under a generated root unless
+something emits it.** Declaring an output directory that no producer writes is not a harmless
+forward reference; it is a broken path that resolves for nobody, and it is asserted against
+rather than left to review.
+
+Because the flat trees are now output, editing one directly is discarded by the next build.
+`skills:guard` regenerates and diffs them so that discard is a red signal instead of a surprise.
+
 ## Judgement calls worth knowing about
 
 A few placements are defensible rather than obvious, and are recorded here so a later reader

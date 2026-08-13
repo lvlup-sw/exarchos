@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) \u2014 path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1148,
-    "parsedFiles": 1103,
+    "testFiles": 1149,
+    "parsedFiles": 1104,
     "shellFiles": 45,
-    "cases": 12707,
+    "cases": 12716,
     "dynamicTitles": 131,
     "unparseableFiles": 0
   },
@@ -65912,6 +65912,37 @@
         }
       ]
     },
+    "tests/architecture/artifact-kind-classification.test.ts": {
+      "file": "tests/architecture/artifact-kind-classification.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "ArtifactKinds",
+          "name": "EveryKind_IsClassifiedAuthoredOrGenerated",
+          "dynamic": false
+        },
+        {
+          "suite": "ArtifactKinds",
+          "name": "EveryAuthoredKind_HasSourcesUnderContent",
+          "dynamic": false
+        },
+        {
+          "suite": "ArtifactKinds",
+          "name": "NoAuthoredSource_LivesInsideAnEmittedTree",
+          "dynamic": false
+        },
+        {
+          "suite": "RenderedTree",
+          "name": "EveryDeclaredPath_HasAProducer",
+          "dynamic": false
+        },
+        {
+          "suite": "RenderedTree",
+          "name": "EveryPluginDeclaredPath_ResolvesAndIsProduced",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/architecture/baseline-green.test.ts": {
       "file": "tests/architecture/baseline-green.test.ts",
       "runner": "vitest:root",
@@ -66127,6 +66158,26 @@
         {
           "suite": "ContentDomains",
           "name": "NoSkillName_IsClaimedByTwoDomains",
+          "dynamic": false
+        },
+        {
+          "suite": "ContentDomains \u2014 commands and rules",
+          "name": "EveryCommandAndRule_LivesUnderADeclaredDomain",
+          "dynamic": false
+        },
+        {
+          "suite": "ContentDomains \u2014 commands and rules",
+          "name": "NoCommandName_IsClaimedByTwoDomains",
+          "dynamic": false
+        },
+        {
+          "suite": "ContentDomains \u2014 commands and rules",
+          "name": "EveryAuthoredCommand_ReachesTheFlatShippedTree",
+          "dynamic": false
+        },
+        {
+          "suite": "CommandAliases",
+          "name": "AfterMove_StillDeriveFromCommandFrontmatter",
           "dynamic": false
         },
         {

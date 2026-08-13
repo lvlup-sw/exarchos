@@ -84,6 +84,95 @@ describe('ContentDomains', () => {
   });
 });
 
+describe('ContentDomains — commands and rules', () => {
+  /** Every authored artifact of a kind, as `{ domain, file }`. */
+  function authoredOfKind(kind: string): Array<{ domain: string; file: string }> {
+    return directoriesIn(CONTENT_ROOT).flatMap((domain) => {
+      const kindDir = join(CONTENT_ROOT, domain, kind);
+      if (!existsSync(kindDir)) return [];
+      return readdirSync(kindDir)
+        .filter((f) => f.endsWith('.md'))
+        .map((file) => ({ domain, file }));
+    });
+  }
+
+  it('EveryCommandAndRule_LivesUnderADeclaredDomain', () => {
+    const artifacts = [...authoredOfKind('commands'), ...authoredOfKind('rules')];
+    expect(artifacts.length).toBeGreaterThan(0);
+
+    const offenders = artifacts
+      .filter((a) => !(DECLARED_DOMAINS as readonly string[]).includes(a.domain))
+      .map((a) => `content/${a.domain}/…/${a.file}`);
+    expect(offenders).toEqual([]);
+  });
+
+  it('NoCommandName_IsClaimedByTwoDomains', () => {
+    // The emit is flat, so a duplicated name is a last-writer-wins overwrite.
+    // The generator throws on this; the assertion keeps the tree from
+    // reaching that state in the first place.
+    for (const kind of ['commands', 'rules']) {
+      const byName = new Map<string, string[]>();
+      for (const { domain, file } of authoredOfKind(kind)) {
+        byName.set(file, [...(byName.get(file) ?? []), domain]);
+      }
+      const collisions = [...byName.entries()]
+        .filter(([, domains]) => domains.length > 1)
+        .map(([file, domains]) => `${kind}/${file} claimed by ${domains.join(', ')}`);
+      expect(collisions).toEqual([]);
+    }
+  });
+
+  it('EveryAuthoredCommand_ReachesTheFlatShippedTree', () => {
+    // `plugin.json` declares one flat directory per kind, so an authored
+    // command that never lands there is authored into the void.
+    const authored = authoredOfKind('commands').map((a) => a.file).sort();
+    const shipped = readdirSync(join(REPO_ROOT, 'commands'))
+      .filter((f) => f.endsWith('.md'))
+      .sort();
+    expect(shipped).toEqual(authored);
+  });
+});
+
+describe('CommandAliases', () => {
+  it('AfterMove_StillDeriveFromCommandFrontmatter', () => {
+    // Aliases lift the `description:` out of a command's frontmatter. If the
+    // move had broken the read path, the generator would have thrown; this
+    // pins the actual content relationship rather than the file's existence.
+    const aliasRoot = join(REPO_ROOT, 'command-aliases');
+    const runtimes = directoriesIn(aliasRoot);
+    expect(runtimes.length).toBeGreaterThan(0);
+
+    const descriptionOf = (body: string): string | undefined =>
+      /^description:\s*(.+?)\s*$/m.exec(body)?.[1];
+
+    let compared = 0;
+    for (const runtime of runtimes) {
+      for (const file of readdirSync(join(aliasRoot, runtime))) {
+        if (!file.endsWith('.md')) continue;
+        const sourcePath = join(CONTENT_ROOT_COMMANDS_BY_NAME.get(file) ?? '', '');
+        if (sourcePath === '') continue;
+        const alias = descriptionOf(readFileSync(join(aliasRoot, runtime, file), 'utf8'));
+        const source = descriptionOf(readFileSync(sourcePath, 'utf8'));
+        expect(alias, `alias ${runtime}/${file} lost its description`).toBeDefined();
+        expect(alias).toBe(source);
+        compared += 1;
+      }
+    }
+    expect(compared, 'no alias was actually compared').toBeGreaterThan(0);
+  });
+});
+
+/** Authored command sources keyed by their flat filename. */
+const CONTENT_ROOT_COMMANDS_BY_NAME = new Map<string, string>(
+  (existsSync(CONTENT_ROOT) ? readdirSync(CONTENT_ROOT) : []).flatMap((domain) => {
+    const dir = join(CONTENT_ROOT, domain, 'commands');
+    if (!existsSync(dir)) return [];
+    return readdirSync(dir)
+      .filter((f) => f.endsWith('.md'))
+      .map((f) => [f, join(dir, f)] as [string, string]);
+  }),
+);
+
 describe('SkillFixtures', () => {
   const VALIDATOR_DIR = join(REPO_ROOT, 'tools/skill-validators');
   const FIXTURES_DIR = join(REPO_ROOT, 'tests/support/skill-fixtures');

@@ -33,6 +33,7 @@ import { basename, dirname, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadAllRuntimes } from './runtimes/load.js';
 import { emitCommandAliases } from './build-command-aliases.js';
+import { emitAuthoredArtifacts } from './build-authored-artifacts.js';
 import { canonicalCommandSet } from './config/canonical-skills.js';
 import type { RuntimeMap, RuntimeTokenName, SupportedCapabilityName } from './runtimes/types.js';
 import { RuntimeTokenKey, SupportedCapabilityKey } from './runtimes/types.js';
@@ -1990,8 +1991,15 @@ export function main(_argv: string[], deps: MainDeps = {}): void {
 
   let report: BuildReport;
   let aliasFilesWritten = 0;
+  let authoredFilesWritten = 0;
   try {
     report = buildAllSkills({ srcDir, outDir, runtimesDir });
+
+    // Commands and rules are authored per domain like skills, but carry no
+    // placeholders, so their emit is a flatten-copy. It runs before the alias
+    // pass, which reads the flat `commands/` tree this produces.
+    const authoredReport = emitAuthoredArtifacts({ contentDir: srcDir, outRoot: root });
+    authoredFilesWritten = Object.values(authoredReport.written).reduce((a, b) => a + b, 0);
 
     // T2 (#1472): emit canonical-name command alias files for any runtime
     // declaring `capabilities.canonicalCommandAliases` (opencode this
@@ -2021,6 +2029,9 @@ export function main(_argv: string[], deps: MainDeps = {}): void {
   );
   if (report.overridesUsed.length > 0) {
     log(`[build:skills] used ${report.overridesUsed.length} runtime override(s)`);
+  }
+  if (authoredFilesWritten > 0) {
+    log(`[build:skills] wrote ${authoredFilesWritten} authored artifact(s)`);
   }
   if (aliasFilesWritten > 0) {
     log(`[build:skills] wrote ${aliasFilesWritten} canonical command alias(es)`);

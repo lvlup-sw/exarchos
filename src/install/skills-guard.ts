@@ -25,6 +25,7 @@ import { join } from 'node:path';
 import { runCommandSync } from '../utils/process.js';
 import { buildAllSkills } from './build-skills.js';
 import { emitCommandAliases } from './build-command-aliases.js';
+import { emitAuthoredArtifacts } from './build-authored-artifacts.js';
 import { resolveMainDeps, type MainDeps } from './cli-helpers.js';
 
 /**
@@ -89,6 +90,16 @@ const REMEDIATION_AGENTS =
  */
 const REMEDIATION_ALIASES =
   "Generated command aliases are stale. Run 'npm run build:skills' and commit the result.";
+
+/**
+ * Remediation for the flat `commands/` and `rules/` trees. These became
+ * generator output when their sources moved under `content/<domain>/`, so an
+ * edit made directly to the flat tree is silently discarded by the next build.
+ * Guarding them is what turns that discard into a red signal.
+ */
+const REMEDIATION_AUTHORED =
+  "Generated commands/ or rules/ are stale, or were edited directly instead of " +
+  "under content/<domain>/. Run 'npm run build:skills' and commit the result.";
 
 /**
  * Default production regenerator. Spawns `tsx` against
@@ -203,6 +214,30 @@ export function runSkillsGuard(opts: SkillsGuardOptions): SkillsGuardResult {
       'skills (orchestration residual)',
     );
     if (residualDiff !== null) failures.push(residualDiff);
+  }
+
+  // ─── Authored flat-tree check (commands/, rules/) ─────────────────
+
+  // Regenerated before the alias check below, which reads the flat
+  // `commands/` tree this pass produces. Same reasoning as the aliases: the
+  // committed tree would always match an un-regenerated copy of itself, so
+  // the guard has to rebuild before it diffs.
+  let authoredBuildFailed = false;
+  try {
+    emitAuthoredArtifacts({ contentDir: join(cwd, 'content'), outRoot: cwd });
+  } catch (err) {
+    authoredBuildFailed = true;
+    const detail = err instanceof Error ? err.message : String(err);
+    failures.push(
+      `[skills:guard] authored-artifact emission failed: ${detail}\n${REMEDIATION_AUTHORED}`,
+    );
+  }
+
+  if (!authoredBuildFailed) {
+    for (const tree of ['commands', 'rules']) {
+      const diff = checkGitDiff(cwd, `${tree}/`, REMEDIATION_AUTHORED, tree);
+      if (diff !== null) failures.push(diff);
+    }
   }
 
   // ─── Command-aliases check (T4, #1472) ────────────────────────────
