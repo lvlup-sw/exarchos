@@ -14,8 +14,8 @@ import { scanEffectOccurrences, type EffectOccurrence } from './effect-ledger.js
 import { lexModule } from '../../tools/test-helpers/module-lexer.js';
 
 const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-/** `<repo>/tools/conformance/src` — `src/` is three levels below the repo root. */
-const CONFORMANCE_SRC_ROOT = join(SRC_ROOT, '..', '..', '..', 'tools', 'conformance', 'src');
+/** `<repo>/tools/conformance/src` — `src/` sits directly beneath the repo root. */
+const CONFORMANCE_SRC_ROOT = join(SRC_ROOT, '..', 'tools', 'conformance', 'src');
 
 describe('footprintOf / moduleFootprint', () => {
   it('collects the distinct effect classes of a module from occurrences', () => {

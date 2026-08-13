@@ -332,15 +332,27 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
   allowance('schemas', [], 'Foundation leaf — shared schema declarations; imports no first-party directory.'),
 
   // ── peripheral layers: bounded, intentional dependency surfaces ────────────
-  allowance('runtime', ['utils'], 'Runtime resource reads lean only on the utils foundation.'),
-  allowance('onramp', ['utils'], 'Onboarding scaffold leans only on the utils foundation.'),
+  // L9 "Cooperative agents" per `tools/audit/layer-map.json`. The narrow
+  // `['utils']` surface described an earlier tenant — a handful of runtime
+  // resource readers — before task 019 moved `agents/` and `launcher/`
+  // underneath, which is where the map puts them. None of these edges is new;
+  // they were UNGOVERNED as top-level directories and this row is the first
+  // thing to see them. Cooperative agents drive worktrees and launches, so
+  // reaching verbs/workflow/events is the layer's job, not a leak.
+  allowance(
+    'runtime',
+    ['dispatch', 'events', 'storage', 'utils', 'verbs', 'workflow'],
+    'L9 cooperative agents — drives launches and worktrees through the dispatch core, the verb surface, the workflow primitives and the event store.',
+  ),
   allowance('pruner', ['workflow'], 'Pruner safeguards read the topology contract, which task 013 folded into workflow/.'),
   allowance('hooks', ['config'], 'Hook wiring reads only config; hooks are an advisory side-channel.'),
   allowance('runbooks', ['adapters'], 'Runbooks render only through the adapters IO facade.'),
   allowance(
     'projections',
     [
-      'adapters', 'architecture', 'capabilities', 'config', 'contract', 'describe',
+      // `capabilities` is gone from this set because task 020 moved it under
+      // `workflow/`, which projections already reaches.
+      'adapters', 'architecture', 'config', 'contract', 'describe',
       'dispatch', 'events', 'verbs', 'stack', 'storage', 'utils', 'workflow',
     ],
     'The WIDEST allowance in this table, and deliberately so: task 012 folded ' +
@@ -367,16 +379,13 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
       'census structurally cannot see. `task-store` carries `isTaskTerminal` because ' +
       'v2 deleted the SDK predicate; it is generation-neutral and imports nothing.',
   ),
-  allowance(
-    'workspace',
-    ['capabilities', 'events', 'storage'],
-    'Workspace resolves capabilities and persists via events/storage.',
-  ),
-  allowance(
-    'agents',
-    ['capabilities', 'utils', 'workflow'],
-    'Agent definition loading resolves capabilities/workflow through the utils foundation.',
-  ),
+  // `workspace` and `agents` had rows here until task 019/020 re-parented both
+  // under `runtime/`, and `capabilities` under `workflow/`. A layer is this
+  // census's FIRST path segment, so none of the three is a layer any more and
+  // rows naming them could match nothing. Their edges did not disappear with
+  // the rows — they are counted under `runtime` above, whose surface is stated
+  // from the live tree. Removing a row that can no longer match is the second
+  // ratchet tooth doing its job, not a relaxation.
 ]);
 
 // ════════════════════════════════════════════════════════════════════════════

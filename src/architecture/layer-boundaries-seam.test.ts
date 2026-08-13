@@ -58,8 +58,8 @@ import { parseModuleSpecifiers } from '../../tools/test-helpers/module-specifier
 
 const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-/** The repository root — `src` is three levels down. */
-const REPO_ROOT = join(SRC_ROOT, '..', '..', '..');
+/** The repository root — `src` sits directly beneath it since the task-019 fold. */
+const REPO_ROOT = join(SRC_ROOT, '..');
 
 /**
  * Modules git tracks under `root`, counted independently of the walker.

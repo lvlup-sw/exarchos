@@ -31,6 +31,16 @@ const STRINGS = /'([^']*)'/g;
 const DERIVED_BINDING =
   /(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:[A-Za-z_$][\w$]*\.)?(?:resolve|join)\(\s*([A-Za-z_$][\w$]*)\s*,\s*((?:'[^']*'\s*,?\s*)+)\)/g;
 
+// The same shape, but anchored on the INLINE self-dir expression instead of a
+// named binding: `const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')`.
+// Without this the binding is never recorded, so neither it NOR anything
+// derived from it is ever resolved — which is how a root three levels above
+// the repo sat in the tree reporting zero escapes.
+const INLINE_DERIVED_BINDING = new RegExp(
+  String.raw`(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:[A-Za-z_$][\w$]*\.)?(?:resolve|join)\(\s*${SELF_DIR_EXPR}\s*,\s*((?:'[^']*'\s*,?\s*)+)\)`,
+  'g',
+);
+
 /** Blank out line and block comments so prose about these idioms is not scanned. */
 function stripComments(text) {
   return text.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' ')).replace(/\/\/[^\n]*/g, '');
@@ -67,6 +77,11 @@ for (const rel of tracked) {
   // a root that is one hop short lands INSIDE the repo — so it is neither
   // missing nor escaped, and only resolving the second hop reveals it.
   const derived = new Map();
+  for (const [, name, args] of src.matchAll(INLINE_DERIVED_BINDING)) {
+    const segs = [...args.matchAll(STRINGS)].map((s) => s[1]);
+    if (!segs.length || segs.some((s) => s.includes('${'))) continue;
+    derived.set(name, path.resolve(dir, ...segs));
+  }
   for (const [, name, baseName, args] of src.matchAll(DERIVED_BINDING)) {
     if (!anchors.has(baseName) && !derived.has(baseName)) continue;
     const segs = [...args.matchAll(STRINGS)].map((s) => s[1]);

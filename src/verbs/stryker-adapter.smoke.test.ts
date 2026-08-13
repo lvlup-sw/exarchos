@@ -53,9 +53,12 @@ import {
   MAX_MUTATE_FILES,
 } from '../../scripts/core/stryker-adapter.mjs';
 
+// Task 019 dissolved the nested server package, so the package root and the
+// repository root are now the same directory and the adapter moved under
+// `scripts/core/` with the rest of that package's scripts.
 const REAL_SERVER_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const REPO_ROOT = path.resolve(REAL_SERVER_DIR, '..', '..');
-const ADAPTER_SCRIPT = path.join(REAL_SERVER_DIR, 'scripts', 'stryker-adapter.mjs');
+const REPO_ROOT = REAL_SERVER_DIR;
+const ADAPTER_SCRIPT = path.join(REAL_SERVER_DIR, 'scripts', 'core', 'stryker-adapter.mjs');
 
 function runNode(args: readonly string[], cwd: string): { status: number | null; stdout: string; stderr: string } {
   try {
