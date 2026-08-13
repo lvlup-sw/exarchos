@@ -69,7 +69,13 @@ Orientation only — deep detail lives in `docs/architecture/`, `docs/guides/`, 
 
 ## Conventions
 
-- **Co-located tests** — `foo.test.ts` beside `foo.ts`; Vitest (`import { describe, it, expect, vi } from 'vitest'`).
+- **All tests live in `tests/`** (DR-5) — never beside their subject. Pick the tier by what the
+  test *is*, then let the tier decide its runtime policy: `acceptance`, `architecture`,
+  `benchmarks`, `core`, `e2e`, `evals`, `helpers`, `integration`, `migration`, `outcome`,
+  `process`, `scripts`, `smoke`, `support`, `unit`. Vitest
+  (`import { describe, it, expect, vi } from 'vitest'`); shell suites are `*.test.sh`.
+  Tier → vitest project is declared in `tests/architecture/test-tree-contract.test.ts`, which
+  fails if a tier is collected by no project or by two.
 - **Strict TypeScript** — no `any`; use `unknown` + type guards. (ESM / NodeNext / Node ≥20 per `package.json` + `tsconfig.json`.)
 - **Skills are source-of-truth at `content/`** — edit there, run `npm run build:skills`, commit
   both source and the regenerated `skills/` tree. Direct edits to `skills/<runtime>/**` fail

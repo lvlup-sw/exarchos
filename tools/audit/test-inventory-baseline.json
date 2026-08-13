@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1155,
-    "parsedFiles": 1110,
+    "testFiles": 1156,
+    "parsedFiles": 1111,
     "shellFiles": 45,
-    "cases": 12749,
+    "cases": 12755,
     "dynamicTitles": 131,
     "unparseableFiles": 0
   },
@@ -4168,6 +4168,350 @@
     {
       "from": "src/workflow/verification-policy.test.ts",
       "to": "tests/unit/workflow/verification-policy.test.ts"
+    },
+    {
+      "from": "test/core/integration/_harness.ts",
+      "to": "tests/core/integration/_harness.ts"
+    },
+    {
+      "from": "test/core/integration/governance/denied-transition.test.ts",
+      "to": "tests/core/integration/governance/denied-transition.test.ts"
+    },
+    {
+      "from": "test/core/integration/governance/evidence-provenance.test.ts",
+      "to": "tests/core/integration/governance/evidence-provenance.test.ts"
+    },
+    {
+      "from": "test/core/integration/governance/gate-before-completion.test.ts",
+      "to": "tests/core/integration/governance/gate-before-completion.test.ts"
+    },
+    {
+      "from": "test/core/integration/governance/merge-idempotency.test.ts",
+      "to": "tests/core/integration/governance/merge-idempotency.test.ts"
+    },
+    {
+      "from": "test/core/integration/public-root/actions.test.ts",
+      "to": "tests/core/integration/public-root/actions.test.ts"
+    },
+    {
+      "from": "test/core/integration/suite-invariants.test.ts",
+      "to": "tests/core/integration/suite-invariants.test.ts"
+    },
+    {
+      "from": "test/core/integration/suite-invariants/LIMITATIONS.md",
+      "to": "tests/core/integration/suite-invariants/LIMITATIONS.md"
+    },
+    {
+      "from": "test/core/integration/suite-invariants/corpus.ts",
+      "to": "tests/core/integration/suite-invariants/corpus.ts"
+    },
+    {
+      "from": "test/core/integration/suite-invariants/detectors.ts",
+      "to": "tests/core/integration/suite-invariants/detectors.ts"
+    },
+    {
+      "from": "test/core/integration/suite-invariants/fixtures.ts",
+      "to": "tests/core/integration/suite-invariants/fixtures.ts"
+    },
+    {
+      "from": "test/core/integration/suite-invariants/legacy-shape-debt.ts",
+      "to": "tests/core/integration/suite-invariants/legacy-shape-debt.ts"
+    },
+    {
+      "from": "test/core/integration/suite-invariants/regenerate-baseline.ts",
+      "to": "tests/core/integration/suite-invariants/regenerate-baseline.ts"
+    },
+    {
+      "from": "test/core/integration/suite-invariants/registry.ts",
+      "to": "tests/core/integration/suite-invariants/registry.ts"
+    },
+    {
+      "from": "test/core/integration/suite-invariants/shapes.ts",
+      "to": "tests/core/integration/suite-invariants/shapes.ts"
+    },
+    {
+      "from": "test/core/integration/suite-invariants/source-view.ts",
+      "to": "tests/core/integration/suite-invariants/source-view.ts"
+    },
+    {
+      "from": "test/core/packaged/containment.test.ts",
+      "to": "tests/core/packaged/containment.test.ts"
+    },
+    {
+      "from": "test/core/process/_helpers.test.ts",
+      "to": "tests/core/process/_helpers.test.ts"
+    },
+    {
+      "from": "test/core/process/_helpers.ts",
+      "to": "tests/core/process/_helpers.ts"
+    },
+    {
+      "from": "test/core/process/compiled-binary-mcp.test.ts",
+      "to": "tests/core/process/compiled-binary-mcp.test.ts"
+    },
+    {
+      "from": "test/core/process/multi-process-append.driver.mjs",
+      "to": "tests/core/process/multi-process-append.driver.mjs"
+    },
+    {
+      "from": "test/core/process/multi-process-append.test.ts",
+      "to": "tests/core/process/multi-process-append.test.ts"
+    },
+    {
+      "from": "test/core/process/packaged-proof.test.ts",
+      "to": "tests/core/process/packaged-proof.test.ts"
+    },
+    {
+      "from": "test/core/process/promotion-kill.driver.mjs",
+      "to": "tests/core/process/promotion-kill.driver.mjs"
+    },
+    {
+      "from": "test/core/process/promotion-kill.test.ts",
+      "to": "tests/core/process/promotion-kill.test.ts"
+    },
+    {
+      "from": "test/core/process/reserved-event-append.test.ts",
+      "to": "tests/core/process/reserved-event-append.test.ts"
+    },
+    {
+      "from": "test/e2e/fresh-install-bootstrap.test.ts",
+      "to": "tests/e2e/fresh-install-bootstrap.test.ts"
+    },
+    {
+      "from": "test/fixtures/__helpers__/mock-mcp-server.mjs",
+      "to": "tests/helpers/__helpers__/mock-mcp-server.mjs"
+    },
+    {
+      "from": "test/fixtures/cli-runner.test.ts",
+      "to": "tests/helpers/cli-runner.test.ts"
+    },
+    {
+      "from": "test/fixtures/cli-runner.ts",
+      "to": "tests/helpers/cli-runner.ts"
+    },
+    {
+      "from": "test/fixtures/event-replay.test.ts",
+      "to": "tests/helpers/event-replay.test.ts"
+    },
+    {
+      "from": "test/fixtures/event-replay.ts",
+      "to": "tests/helpers/event-replay.ts"
+    },
+    {
+      "from": "test/fixtures/hermetic.test.ts",
+      "to": "tests/helpers/hermetic.test.ts"
+    },
+    {
+      "from": "test/fixtures/hermetic.ts",
+      "to": "tests/helpers/hermetic.ts"
+    },
+    {
+      "from": "test/fixtures/index.test.ts",
+      "to": "tests/helpers/index.test.ts"
+    },
+    {
+      "from": "test/fixtures/index.ts",
+      "to": "tests/helpers/index.ts"
+    },
+    {
+      "from": "test/fixtures/leak-detector.test.ts",
+      "to": "tests/helpers/leak-detector.test.ts"
+    },
+    {
+      "from": "test/fixtures/leak-detector.ts",
+      "to": "tests/helpers/leak-detector.ts"
+    },
+    {
+      "from": "test/fixtures/mcp-client.test.ts",
+      "to": "tests/helpers/mcp-client.test.ts"
+    },
+    {
+      "from": "test/fixtures/mcp-client.ts",
+      "to": "tests/helpers/mcp-client.ts"
+    },
+    {
+      "from": "test/fixtures/mcp-envelope.test.ts",
+      "to": "tests/helpers/mcp-envelope.test.ts"
+    },
+    {
+      "from": "test/fixtures/mcp-envelope.ts",
+      "to": "tests/helpers/mcp-envelope.ts"
+    },
+    {
+      "from": "test/fixtures/normalizers.test.ts",
+      "to": "tests/helpers/normalizers.test.ts"
+    },
+    {
+      "from": "test/fixtures/normalizers.ts",
+      "to": "tests/helpers/normalizers.ts"
+    },
+    {
+      "from": "test/fixtures/parity-contract.test.ts",
+      "to": "tests/helpers/parity-contract.test.ts"
+    },
+    {
+      "from": "test/fixtures/parity-contract.ts",
+      "to": "tests/helpers/parity-contract.ts"
+    },
+    {
+      "from": "test/fixtures/process-tracker.test.ts",
+      "to": "tests/helpers/process-tracker.test.ts"
+    },
+    {
+      "from": "test/fixtures/process-tracker.ts",
+      "to": "tests/helpers/process-tracker.ts"
+    },
+    {
+      "from": "test/fixtures/saga-driver.test.ts",
+      "to": "tests/helpers/saga-driver.test.ts"
+    },
+    {
+      "from": "test/fixtures/saga-driver.ts",
+      "to": "tests/helpers/saga-driver.ts"
+    },
+    {
+      "from": "test/migration/__fixtures__/batch-baselines/checkpoint.md",
+      "to": "tests/migration/__fixtures__/batch-baselines/checkpoint.md"
+    },
+    {
+      "from": "test/migration/__fixtures__/batch-baselines/cleanup.md",
+      "to": "tests/migration/__fixtures__/batch-baselines/cleanup.md"
+    },
+    {
+      "from": "test/migration/__fixtures__/batch-baselines/debug.md",
+      "to": "tests/migration/__fixtures__/batch-baselines/debug.md"
+    },
+    {
+      "from": "test/migration/__fixtures__/batch-baselines/dogfood.md",
+      "to": "tests/migration/__fixtures__/batch-baselines/dogfood.md"
+    },
+    {
+      "from": "test/migration/__fixtures__/batch-baselines/git-worktrees.md",
+      "to": "tests/migration/__fixtures__/batch-baselines/git-worktrees.md"
+    },
+    {
+      "from": "test/migration/__fixtures__/batch-baselines/plan.md",
+      "to": "tests/migration/__fixtures__/batch-baselines/plan.md"
+    },
+    {
+      "from": "test/migration/__fixtures__/batch-baselines/refactor.md",
+      "to": "tests/migration/__fixtures__/batch-baselines/refactor.md"
+    },
+    {
+      "from": "test/migration/__fixtures__/batch-baselines/rehydrate.md",
+      "to": "tests/migration/__fixtures__/batch-baselines/rehydrate.md"
+    },
+    {
+      "from": "test/migration/__fixtures__/batch-baselines/review.md",
+      "to": "tests/migration/__fixtures__/batch-baselines/review.md"
+    },
+    {
+      "from": "test/migration/__fixtures__/batch-baselines/shepherd.md",
+      "to": "tests/migration/__fixtures__/batch-baselines/shepherd.md"
+    },
+    {
+      "from": "test/migration/__fixtures__/batch-baselines/synthesize.md",
+      "to": "tests/migration/__fixtures__/batch-baselines/synthesize.md"
+    },
+    {
+      "from": "test/migration/__fixtures__/ideate-baseline.md",
+      "to": "tests/migration/__fixtures__/ideate-baseline.md"
+    },
+    {
+      "from": "test/migration/__snapshots__/snapshots.test.ts.snap",
+      "to": "tests/migration/__snapshots__/snapshots.test.ts.snap"
+    },
+    {
+      "from": "test/migration/batch-migration.test.ts",
+      "to": "tests/migration/batch-migration.test.ts"
+    },
+    {
+      "from": "test/migration/delegate-migration.test.ts",
+      "to": "tests/migration/delegate-migration.test.ts"
+    },
+    {
+      "from": "test/migration/ideate-migration.test.ts",
+      "to": "tests/migration/ideate-migration.test.ts"
+    },
+    {
+      "from": "test/migration/snapshots.test.ts",
+      "to": "tests/migration/snapshots.test.ts"
+    },
+    {
+      "from": "test/migration/structural-invariant.test.ts",
+      "to": "tests/migration/structural-invariant.test.ts"
+    },
+    {
+      "from": "test/process/cli/doctor.test.ts",
+      "to": "tests/process/cli/doctor.test.ts"
+    },
+    {
+      "from": "test/process/cli/emissions.test.ts",
+      "to": "tests/process/cli/emissions.test.ts"
+    },
+    {
+      "from": "test/process/cli/mcp-start-stop.test.ts",
+      "to": "tests/process/cli/mcp-start-stop.test.ts"
+    },
+    {
+      "from": "test/process/cli/onboard.test.ts",
+      "to": "tests/process/cli/onboard.test.ts"
+    },
+    {
+      "from": "test/process/cli/schema.test.ts",
+      "to": "tests/process/cli/schema.test.ts"
+    },
+    {
+      "from": "test/process/cli/topology.test.ts",
+      "to": "tests/process/cli/topology.test.ts"
+    },
+    {
+      "from": "test/process/cli/version.test.ts",
+      "to": "tests/process/cli/version.test.ts"
+    },
+    {
+      "from": "test/process/mcp-client-defaults.test.ts",
+      "to": "tests/process/mcp-client-defaults.test.ts"
+    },
+    {
+      "from": "test/process/parity-event-query.test.ts",
+      "to": "tests/process/parity-event-query.test.ts"
+    },
+    {
+      "from": "test/process/parity-workflow-describe.test.ts",
+      "to": "tests/process/parity-workflow-describe.test.ts"
+    },
+    {
+      "from": "test/process/parity-workflow-rehydrate.test.ts",
+      "to": "tests/process/parity-workflow-rehydrate.test.ts"
+    },
+    {
+      "from": "test/process/saga-merge-detour.test.ts",
+      "to": "tests/process/saga-merge-detour.test.ts"
+    },
+    {
+      "from": "test/setup/global.ts",
+      "to": "tests/helpers/global.ts"
+    },
+    {
+      "from": "test/setup/package-scripts.test.ts",
+      "to": "tests/architecture/package-scripts.test.ts"
+    },
+    {
+      "from": "test/setup/preflight.test.ts",
+      "to": "tests/helpers/preflight.test.ts"
+    },
+    {
+      "from": "test/setup/preflight.ts",
+      "to": "tests/helpers/preflight.ts"
+    },
+    {
+      "from": "test/setup/vitest-config.test.ts",
+      "to": "tests/architecture/vitest-config.test.ts"
+    },
+    {
+      "from": "test/smoke/runtime-smoke.test.ts",
+      "to": "tests/smoke/runtime-smoke.test.ts"
     }
   ],
   "files": {
@@ -4345,6 +4689,22 @@
         {
           "suite": "FreshInstall",
           "name": "PluginHooks_LoadExactlyOnce",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/agent-instructions.test.ts": {
+      "file": "tests/architecture/agent-instructions.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "AgentInstructions",
+          "name": "AgentInstructions_StatedTestConvention_MatchesTheEnforcedLayout",
+          "dynamic": false
+        },
+        {
+          "suite": "AgentInstructions",
+          "name": "AgentInstructions_TestRoot_IsTheOneTheContractEnforces",
           "dynamic": false
         }
       ]
@@ -5121,6 +5481,21 @@
         },
         {
           "suite": "test inventory",
+          "name": "TestInventory_UnexplainedLoss_NamesTheMissingFileAndBlocks",
+          "dynamic": false
+        },
+        {
+          "suite": "test inventory",
+          "name": "TestInventory_AfterFullConsolidation_ReconcilesAgainstBaseline",
+          "dynamic": false
+        },
+        {
+          "suite": "test inventory",
+          "name": "TestInventory_RenamedCases_StillReconcileAgainstTheTask002Oracle",
+          "dynamic": false
+        },
+        {
+          "suite": "test inventory",
           "name": "TestInventory_RelocatedFile_ReconcilesViaTheRelocationMap",
           "dynamic": false
         },
@@ -5188,6 +5563,11 @@
         {
           "suite": "TestTree",
           "name": "TestsTsconfig_ExcludedTiers_OnlyShrink",
+          "dynamic": false
+        },
+        {
+          "suite": "TestTree",
+          "name": "CapturedEvalRuns_AfterMove_RemainExcludedFromCollection",
           "dynamic": false
         }
       ]

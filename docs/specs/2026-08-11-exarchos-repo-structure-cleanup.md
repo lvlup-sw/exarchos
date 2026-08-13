@@ -1382,6 +1382,16 @@ Repinning `plugin.json` is a sanctioned clean break. Only an end-to-end install 
 
 ### Task 034: Reconcile the test inventory after consolidation
 
+> **Premises corrected during execution (measured 2026-08-13).**
+>
+> 1. **The reconciliation this task names cannot be done on paths, and attempting it passes vacuously.** Every move task regenerates the baseline, so `files` already holds post-move paths — filter it by a former root and you get nothing, and a reconciliation over nothing is green without checking anything. Written that way the check reported `src/` clean while asserting over an empty set. The population has to be the relocation ledger's `from` side, which is the only surface that still remembers where a test started.
+> 2. **Task 032 never appended its relocations.** 86 renames out of `test/` are absent from the ledger. The omission was invisible for exactly the reason above: 032 also regenerated the baseline, so nothing was left pointing at `test/` for anything to fail on. Backfilled from `git diff-tree -M` on `13dfb3b1a` rather than recomputed, so the ledger records what happened. The generator's `relocations: []` re-emit on every run is the mechanism, and it will do this again to the next task that forgets.
+> 3. **The path chain cannot reach task 002 at all.** It would need every intermediate task's move table; `tools/audit/move-table.mjs` covers task 019 only, and tasks 012–018 moved directories *within* the core (`src/adapters/` split, `src/core/` dissolved). Composing what exists resolves 671 of 1,138 and leaves 467 stranded mid-chain. This is precisely why the oracle declares a path-independent identity — the reconciliation belongs on ids, and the path/ledger check is the narrower thing that catches a future loss.
+> 4. **The declared id is `(suite, name, runner)` and `runner` is not stable across task 019.** The nested vitest package dissolved, so `vitest:nested` ceased to exist and every test that carried it reads as lost — 10,986 of them. A cross-019 reconciliation drops the runner; shell suites, which contribute no cases, reconcile at file granularity instead.
+> 5. **Result: 63 ids differ, across 26 files, and every one is a rename with its file intact.** No test file and no test case was lost between task 002 and the consolidated tree. 61 match their replacement on token overlap ≥ 0.5; the two that do not are `TsconfigServer_*` → `TsconfigRoot_*`, renamed when the server project became the product project. Recorded in `tools/audit/test-inventory-reconciliation.json` and re-checked every run, so re-renaming or deleting one fails rather than quietly re-opening the gap.
+> 6. **The existing kill probe drove a different filter from the check it claims to prove.** `TestInventory_MissingFile_NamesTheMissingSource` followed a relocation to its destination and required the destination to exist; `TestInventory_SeededDisappearance_IsReportedByName` asked only whether a relocation was present. So the probe stayed green regardless of whether the real reconciliation still worked. Both now call one `unaccountedFor`.
+> 7. **`docs/` is not yet test-free.** `docs/schemas/workflow-state.schema.json.test.sh` is live, and DR-7 re-homes it to `src/` with the rest of `docs/schemas/` in task 038. Pinned by name rather than dropped from the watch list, so 038 has to come back and say so, and a second test appearing under `docs/` fails now.
+
 **Risk Tier:** high
 **Boundary Touching:** true
 **Test Layer:** acceptance
@@ -1399,6 +1409,11 @@ Repinning `plugin.json` is a sanctioned clean break. Only an end-to-end install 
 ### Task 035: Retire the co-location rule from the agent instructions
 
 `CLAUDE.md` and `AGENTS.md` currently mandate the exact convention this workflow retires. Left stale, they would misdirect every future agent — including the ones this repository dispatches on itself.
+
+> **Premises corrected during execution (measured 2026-08-13).**
+>
+> 1. **Asserting the old sentence is gone is half a test** — it passes on prose that says nothing at all. The tier list in each document is therefore parsed back out and required to equal the tier directories on disk in BOTH directions, so a tier added to the tree without being documented fails, and so does a documented tier that no longer exists. Probed by creating an undocumented tier: it names the drift.
+> 2. **`AGENTS.md` is stale well beyond the test convention.** Its Code Organization table still lists `servers/exarchos-mcp/`, `skills/`, `commands/` and `rules/` as live directories — task 019 folded the first into `src/` and the DR-4 block moved the rest into `content/` + `rendered/`. That is task 054's rewrite, not this task's, and is left alone rather than half-corrected here.
 
 **Risk Tier:** low
 **Test Layer:** unit

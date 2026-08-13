@@ -8,7 +8,7 @@ Exarchos is local agent governance for Claude Code. It provides event-sourced SD
 
 - **Languages:** TypeScript (strict mode, ESM), Bash, Markdown (structured with YAML frontmatter)
 - **Runtime:** Node.js >= 20, Bun (bundler)
-- **Testing:** Vitest (co-located `*.test.ts`), bash integration tests (co-located `*.test.sh`)
+- **Testing:** Vitest `*.test.ts` and bash `*.test.sh`, all under `tests/` in one tier per kind — never beside their subject (DR-5). Tiers: `acceptance`, `architecture`, `benchmarks`, `core`, `e2e`, `evals`, `helpers`, `integration`, `migration`, `outcome`, `process`, `scripts`, `smoke`, `support`, `unit`
 - **MCP Framework:** `@modelcontextprotocol/sdk` + `zod`
 - **Build:** `tsc` for type checking, `bun build` for bundling MCP server and CLI
 - **Tools:** Claude Code CLI, GitHub CLI (`gh`) for PRs

@@ -38,9 +38,21 @@ type Inventory = {
   files: Record<string, FileEntry>;
 };
 
+type Reconciliation = {
+  originCommit: string;
+  originIds: number;
+  currentIds: number;
+  renames: { from: string; fromFile: string; to: string; toFile: string; similarity: number }[];
+};
+
 const inventory = JSON.parse(
   fs.readFileSync(path.join(REPO_ROOT, 'tools/audit/test-inventory-baseline.json'), 'utf8'),
 ) as Inventory;
+
+/** The task 034 audit of the task 002 capture against the consolidated tree. */
+const reconciliation = JSON.parse(
+  fs.readFileSync(path.join(REPO_ROOT, 'tools/audit/test-inventory-reconciliation.json'), 'utf8'),
+) as Reconciliation;
 
 const fileEntries = Object.values(inventory.files);
 
@@ -52,6 +64,9 @@ const idOf = (entry: FileEntry, c: Case): string => `${entry.runner}::${c.suite}
  * files rather than by a runner glob, because a glob is the thing that goes
  * stale silently.
  */
+/** What the inventory counts as a test file. One definition, three readers. */
+const IS_TEST_FILE = /\.(test|spec|bench)\.(ts|tsx|mts|cts|js|mjs|cjs|jsx)$|\.test\.sh$/;
+
 function trackedTestFiles(): string[] {
   return execFileSync('git', ['ls-files', '-z'], {
     cwd: REPO_ROOT,
@@ -59,10 +74,48 @@ function trackedTestFiles(): string[] {
     maxBuffer: 128 * 1024 * 1024,
   })
     .split('\0')
-    .filter((rel) =>
-      /\.(test|spec|bench)\.(ts|tsx|mts|cts|js|mjs|cjs|jsx)$|\.test\.sh$/.test(rel),
-    );
+    .filter((rel) => IS_TEST_FILE.test(rel));
 }
+
+/**
+ * Reconciliation, as ONE function.
+ *
+ * The check and its kill probe used to inline two different filters — the real
+ * one followed a relocation to its destination and confirmed the destination
+ * exists, the probe only asked whether a relocation was present. So the probe
+ * could stay green while the check it claims to prove was broken, which is the
+ * failure mode a kill probe exists to rule out. Both now call this.
+ *
+ * A baseline path is accounted for when it is still tracked, or when a
+ * relocation points at something that is.
+ */
+function unaccountedFor(
+  baselinePaths: readonly string[],
+  current: ReadonlySet<string>,
+  relocations: readonly { from: string; to: string }[],
+): string[] {
+  const relocated = new Map(relocations.map((r) => [r.from, r.to]));
+  return baselinePaths.filter((rel) => {
+    if (current.has(rel)) return false;
+    const to = relocated.get(rel);
+    return to === undefined || !current.has(to);
+  });
+}
+
+/**
+ * The roots DR-5 emptied, and the task that emptied each. Every one must hold
+ * zero tracked test files, and every test that was in it must reconcile.
+ *
+ * `docs/evals` is a subtree rather than a top-level root, so it is matched by
+ * prefix like the others rather than by first path segment.
+ */
+const FORMER_TEST_ROOTS: ReadonlyArray<{ prefix: string; task: string }> = [
+  { prefix: 'src/', task: '030' },
+  { prefix: 'scripts/', task: '031' },
+  { prefix: 'test/', task: '032' },
+  { prefix: 'benchmarks/', task: '033' },
+  { prefix: 'docs/evals/', task: '033' },
+];
 
 describe('test inventory', () => {
   it('TestInventory_AtBaseline_RecordsEveryDiscoveredTestId', () => {
@@ -86,32 +139,124 @@ describe('test inventory', () => {
     // "current" set out of the baseline's own keys and then filtered those same
     // keys by absence from it, so `dropped` was empty by construction and this
     // oracle could not fail for any input — including a genuinely deleted test.
-    const current = new Set(trackedTestFiles());
-    const relocated = new Map(inventory.relocations.map((r) => [r.from, r.to]));
-    const isAccountedFor = (rel: string): boolean => {
-      if (current.has(rel)) return true;
-      const to = relocated.get(rel);
-      return to !== undefined && current.has(to);
-    };
-
-    const dropped = Object.keys(inventory.files).filter((rel) => !isAccountedFor(rel));
+    const dropped = unaccountedFor(
+      Object.keys(inventory.files),
+      new Set(trackedTestFiles()),
+      inventory.relocations,
+    );
 
     expect(dropped, 'baseline test files neither tracked nor relocated').toEqual([]);
   });
 
   it('TestInventory_SeededDisappearance_IsReportedByName', () => {
-    // The kill probe for the reconciliation above. A path the baseline knows
-    // and reality does not must come back named — asserting only that the
-    // result is an array, as an earlier version did, passes on every input.
+    // The kill probe for the reconciliation above, driving the SAME function
+    // rather than a re-implementation of it — the earlier version asked only
+    // whether a relocation existed, so it stayed green regardless of whether
+    // the real check still followed one to a destination that exists.
     const current = new Set(trackedTestFiles());
-    const relocated = new Map(inventory.relocations.map((r) => [r.from, r.to]));
-
     const phantom = 'src/__vanished__.test.ts';
-    const missing = [phantom, ...Object.keys(inventory.files).slice(0, 3)].filter(
-      (rel) => !current.has(rel) && !relocated.has(rel),
+
+    const missing = unaccountedFor(
+      [phantom, ...Object.keys(inventory.files).slice(0, 3)],
+      current,
+      inventory.relocations,
     );
 
     expect(missing).toContain(phantom);
+  });
+
+  it('TestInventory_UnexplainedLoss_NamesTheMissingFileAndBlocks', () => {
+    // Task 034. Two distinct losses a consolidation can suffer, and the
+    // reconciliation has to name the file in both — a count would say only
+    // that something went, which is the report that made an earlier oracle
+    // unusable.
+    const current = new Set(trackedTestFiles());
+    const real = Object.keys(inventory.files)[0];
+    expect(real, 'the baseline is empty — nothing to reconcile').toBeDefined();
+
+    // (a) a file that simply vanished, with no relocation at all.
+    const vanished = 'tests/unit/__never-existed__.test.ts';
+    expect(unaccountedFor([vanished], current, inventory.relocations)).toEqual([vanished]);
+
+    // (b) the subtler one: a relocation IS recorded, but it points at a
+    // destination that does not exist. A membership-only check calls this
+    // accounted for, and the test is gone just the same.
+    const danglingFrom = 'tests/unit/__moved-nowhere__.test.ts';
+    expect(
+      unaccountedFor([danglingFrom], current, [
+        ...inventory.relocations,
+        { from: danglingFrom, to: 'tests/unit/__also-not-here__.test.ts' },
+      ]),
+      'a relocation pointing at a missing destination was treated as accounted for',
+    ).toEqual([danglingFrom]);
+
+    // And the converse, so the two above are not passing because the function
+    // simply reports everything: a file that IS tracked reconciles clean.
+    expect(unaccountedFor([real!], current, inventory.relocations)).toEqual([]);
+  });
+
+  it('TestInventory_AfterFullConsolidation_ReconcilesAgainstBaseline', () => {
+    // Task 034. Tasks 030-033 emptied five roots between them. Two things have
+    // to hold for each, and neither implies the other: nothing tracked is left
+    // in it, and every test that WAS there is accounted for.
+    //
+    // The population is the relocation ledger's `from` side, not the baseline's
+    // keys. Every move task regenerates the baseline, so `files` already holds
+    // post-move paths — filtering it by a former root yields nothing, and a
+    // reconciliation over nothing passes without checking anything. The ledger
+    // is the only side that still remembers where a test started.
+    const current = new Set(trackedTestFiles());
+    const tracked = trackedTestFiles();
+
+    for (const { prefix, task } of FORMER_TEST_ROOTS) {
+      const left = tracked.filter((f) => f.startsWith(prefix));
+      expect(left, `test files remain under ${prefix} (task ${task}, DR-5)`).toEqual([]);
+
+      // Test files only. The ledger also carries the non-test travellers each
+      // move took along — fixtures, `.type-test.ts`, a README — and those are
+      // invisible to a discovery scoped to test extensions, so including them
+      // would report every one as lost.
+      const fromHere = inventory.relocations
+        .filter((r) => r.from.startsWith(prefix) && IS_TEST_FILE.test(r.from))
+        .map((r) => r.from);
+      // Denominator: a root with no ledger entries would satisfy the check
+      // below by having nothing in it to reconcile.
+      expect(
+        fromHere.length,
+        `the ledger records no relocation out of ${prefix} — this root is unwatched, not clean`,
+      ).toBeGreaterThan(0);
+
+      expect(
+        unaccountedFor(fromHere, current, inventory.relocations),
+        `tests lost from ${prefix} (task ${task})`,
+      ).toEqual([]);
+    }
+  });
+
+  it('TestInventory_RenamedCases_StillReconcileAgainstTheTask002Oracle', () => {
+    // Task 034. The other half of the reconciliation: a test can survive as a
+    // FILE and still lose cases, because a renamed case has a new id and the
+    // path-independent identity cannot tell that from a deletion.
+    //
+    // The one-time audit against the task 002 capture found 63 such ids across
+    // 26 files, every one of them a rename with its file intact and no case
+    // actually lost. `test-inventory-reconciliation.json` records each pair;
+    // this re-checks them, so re-renaming or deleting one fails here instead of
+    // quietly re-opening the gap the audit closed.
+    const current = new Set(
+      fileEntries.flatMap((e) => e.cases.map((c) => `${c.suite}::${c.name}`)),
+    );
+
+    expect(reconciliation.renames.length, 'the reconciliation ledger is empty').toBeGreaterThan(0);
+
+    const resurrected = reconciliation.renames.filter((r) => current.has(r.from));
+    expect(resurrected.map((r) => r.from), 'a retired case id is live again — re-audit').toEqual([]);
+
+    const missingDestinations = reconciliation.renames.filter((r) => !current.has(r.to));
+    expect(
+      missingDestinations.map((r) => `${r.from}  ->  ${r.to}`),
+      'a rename destination no longer exists — the case was lost after all',
+    ).toEqual([]);
   });
 
   it('TestInventory_RelocatedFile_ReconcilesViaTheRelocationMap', () => {
@@ -196,9 +341,26 @@ describe('test inventory', () => {
     // from the list stops being watched instead of starting to be enforced.
     expect(roots, 'a test file has re-appeared under src/ (DR-5)').not.toContain('src');
     expect(roots, 'a test file has re-appeared under scripts/ (DR-5)').not.toContain('scripts');
-    // `test/` is gone outright as of task 032 — not emptied but dissolved, so
-    // this also catches the root being recreated rather than merely refilled.
-    expect(roots, 'the test/ root has come back (DR-5)').not.toContain('test');
-    expect(fs.existsSync(path.join(REPO_ROOT, 'test')), 'the test/ directory has come back').toBe(false);
+    // `test/`, `benchmarks/` and `evals/` are gone outright — not emptied but
+    // dissolved (032, 033) — so this also catches a root being recreated rather
+    // than merely refilled. `docs/` survives, but with no test under it: the
+    // eval graders moved to `tests/evals/` and DR-7 reduces what is left to the
+    // VitePress skeleton.
+    for (const gone of ['test', 'benchmarks', 'evals']) {
+      expect(roots, `the ${gone}/ root has come back (DR-5)`).not.toContain(gone);
+      expect(
+        fs.existsSync(path.join(REPO_ROOT, gone)),
+        `the ${gone}/ directory has come back`,
+      ).toBe(false);
+    }
+    // `docs/` survives and still holds exactly ONE test: the schema suite that
+    // DR-7 re-homes to `src/` with the rest of `docs/schemas/` in task 038.
+    // Pinned by name rather than dropped from the watch list, so that move has
+    // to come back here and say so — and so a SECOND test appearing under
+    // `docs/` fails now instead of arriving unobserved.
+    const underDocs = fileEntries.map((e) => e.file).filter((f) => f.startsWith('docs/'));
+    expect(underDocs, 'an unexpected test appeared under docs/ (DR-5, DR-7)').toEqual([
+      'docs/schemas/workflow-state.schema.json.test.sh',
+    ]);
   });
 });
