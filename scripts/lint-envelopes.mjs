@@ -17,7 +17,7 @@
  * never let a throw abnormally complete it. This wrapper is pure plumbing — it
  * owns none of that rule logic, only invocation + exit-code propagation.
  *
- * Default target: `servers/exarchos-mcp/src/orchestrate/**\/*.ts` — the
+ * Default target: `servers/exarchos-mcp/src/verbs/**\/*.ts` — the
  * registration-set surface the rule type-checks. `--target`/`--config` exist
  * ONLY for testability (`scripts/lint-envelopes.test.sh` drives controlled
  * fixtures through the real wrapper without depending on the real tree's
@@ -39,7 +39,7 @@ import process from 'node:process';
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, '..');
 const DEFAULT_CONFIG = path.join(REPO_ROOT, 'eslint.envelopes.config.js');
-const DEFAULT_TARGET = 'servers/exarchos-mcp/src/orchestrate/**/*.ts';
+const DEFAULT_TARGET = 'servers/exarchos-mcp/src/verbs/**/*.ts';
 
 const EXIT_CLEAN = 0;
 const EXIT_VIOLATION = 1;
@@ -50,7 +50,7 @@ function printUsage() {
     'Usage: node scripts/lint-envelopes.mjs [--config <path>] [--target <glob>]\n' +
       '\n' +
       '  --config <path>   ESLint flat-config file (default: eslint.envelopes.config.js).\n' +
-      '  --target <glob>   File(s) to lint (default: servers/exarchos-mcp/src/orchestrate/**/*.ts).\n' +
+      '  --target <glob>   File(s) to lint (default: servers/exarchos-mcp/src/verbs/**/*.ts).\n' +
       '                    Both flags exist for testability only.\n',
   );
 }

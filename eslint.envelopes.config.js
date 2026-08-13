@@ -17,7 +17,7 @@ import noHandlerThrow from './eslint-rules/no-handler-throw.js';
  *     on the UNFILTERED `grep-gates` lane — the two-surface hosting rule in
  *     `docs/guides/ci-gate-hosting.md`.
  *
- * The lint glob is scoped to `servers/exarchos-mcp/src/orchestrate/**` — the
+ * The lint glob is scoped to `servers/exarchos-mcp/src/verbs/**` — the
  * registration-set surface (`composite.ts` owns `ACTION_HANDLERS` + the six
  * special-cased branches) — to bound the type-aware run's cost (the #1721
  * whole-tree OOM class). `parserOptions.project` points at the MCP server's
@@ -37,10 +37,10 @@ export default tseslint.config(
     // `ts.Program` `parserOptions.project` builds below — linting them here
     // would error with "file not in project". They carry no ACTION_HANDLERS
     // registration surface anyway.
-    ignores: ['servers/exarchos-mcp/src/orchestrate/**/*.test.ts'],
+    ignores: ['servers/exarchos-mcp/src/verbs/**/*.test.ts'],
   },
   {
-    files: ['servers/exarchos-mcp/src/orchestrate/**/*.ts'],
+    files: ['servers/exarchos-mcp/src/verbs/**/*.ts'],
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: {

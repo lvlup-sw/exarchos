@@ -1,28 +1,28 @@
 {
-  "capturedAt": "2026-08-12",
-  "trackedFiles": 3317,
+  "capturedAt": "2026-08-13",
+  "trackedFiles": 3357,
   "surfaces": {
     "depcruise:no-domain-core-to-io-adapters:from": {
       "kind": "module-set",
-      "matched": 92,
+      "matched": 94,
       "detail": {
-        "pattern": "^servers/exarchos-mcp/src/(event-store|workflow)/"
+        "pattern": "^servers/exarchos-mcp/src/(events|workflow)/"
       }
     },
     "depcruise:no-domain-core-to-io-adapters:to": {
       "kind": "module-set",
-      "matched": 27,
+      "matched": 28,
       "detail": {
         "pattern": "^servers/exarchos-mcp/src/adapters/"
       }
     },
     "codeowners:*": {
       "kind": "ownership",
-      "matched": 3317
+      "matched": 3357
     },
     "codeowners:servers/exarchos-mcp/": {
       "kind": "ownership",
-      "matched": 1647
+      "matched": 1621
     },
     "codeowners:scripts/": {
       "kind": "ownership",
@@ -101,7 +101,7 @@
     },
     "lint:eslint-cli-glob": {
       "kind": "lint-scope",
-      "matched": 1549,
+      "matched": 1523,
       "detail": {
         "glob": "servers/exarchos-mcp/src/**/*.ts"
       }

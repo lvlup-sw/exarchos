@@ -18,13 +18,15 @@
         "scripts/measured-premises-derive.ts",
         "scripts/**/*.test.ts",
         "test/**/*.test.ts",
-        "test/fixtures/__helpers__/mock-mcp-server.mjs"
+        "test/fixtures/__helpers__/mock-mcp-server.mjs",
+        "tools/conformance/src/**/*.test.ts"
       ],
       "project": [
         "src/**/*.ts",
         "scripts/**/*.ts",
         "test/**/*.ts",
-        "test/**/*.mjs"
+        "test/**/*.mjs",
+        "tools/conformance/src/**/*.ts"
       ]
     },
     "servers/exarchos-mcp": {

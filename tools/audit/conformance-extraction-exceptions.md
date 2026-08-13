@@ -305,6 +305,30 @@ can see.
 | `output-schema-ratchet-guard.test.ts` | 2 path literals | retargeted |
 | test-inventory baseline | 15 relocated test files | regenerated after `git add` |
 
+### Two guards were ALREADY dead before the move, and only the retarget found them
+
+Task 042's own subject, met head-on. Neither is a consequence of the extraction;
+both were surfaced by going looking.
+
+- **`lint:envelopes` had been matching zero files.** Both its flat-config `files`
+  key and `scripts/lint-envelopes.mjs`'s default target named
+  `servers/exarchos-mcp/src/orchestrate/**`, a directory task 015 renamed to
+  `verbs/`. The gate has been failing closed (eslint exit 2) rather than passing
+  green — the fail-closed design working — but the config was stale and the lint
+  was running over nothing. Retargeted: **122 source files, 0 findings.**
+- **knip could not see `tools/conformance/`.** Its root workspace `project`
+  covers `src`, `scripts` and `test`, so dead code in the extracted package would
+  have gone unreported forever. The gate reported this ITSELF, as a
+  `stale-entry` warning against the retargeted `swallows.fixture.ts` allowlist
+  row — an entry pointing at a file knip no longer scanned. Scope widened;
+  the warning cleared.
+
+The ESLint scope widening folded in from the comment-hygiene spec took BOTH
+gates, as that spec insists: the flat-config `files` key *and* the `lint`
+script's CLI glob, which bounds the run regardless of what the config admits.
+The required pre-widening findings baseline over the newly-linted directory is
+**zero**, measured rather than assumed.
+
 Four CI steps in the unfiltered `grep-gates` job named these tests by path.
 Rather than splitting each, the conformance half collapsed into ONE step that
 runs the whole package (`npm run test:conformance`). The reason is the

@@ -33,7 +33,7 @@
     "generate:agents": "tsx servers/exarchos-mcp/src/agents/generate-agents.ts",
     "build:skills": "npm run generate:agents && node dist/build-skills.js",
     "build:hooks": "node dist/build-hooks.js",
-    "lint": "eslint \"servers/exarchos-mcp/src/**/*.ts\"",
+    "lint": "eslint \"servers/exarchos-mcp/src/**/*.ts\" \"tools/conformance/src/**/*.ts\"",
     "quality-check": "npm run lint:invariants && npm run lint:test-first-drift",
     "lint:inv6": "node scripts/lint-inv6.mjs skills-src/",
     "lint:test-first-drift": "node scripts/lint-test-first-drift.mjs commands agents skills-src",
