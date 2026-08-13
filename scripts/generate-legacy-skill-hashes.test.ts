@@ -140,13 +140,14 @@ describe('generate-legacy-skill-hashes (Task 023, DR-8)', () => {
     // tracked file with garbage AND drop in an untracked probe render.
     const tracked = path.join(
       REPO_ROOT,
+      'rendered',
       'skills',
       'claude',
       'ideate',
       'SKILL.md',
     );
     const original = readFileSync(tracked);
-    const probeDir = path.join(REPO_ROOT, 'skills', 'claude', '__wt_probe__');
+    const probeDir = path.join(REPO_ROOT, 'rendered', 'skills', 'claude', '__wt_probe__');
     const probeFile = path.join(probeDir, 'SKILL.md');
 
     try {

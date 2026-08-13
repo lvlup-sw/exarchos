@@ -19,13 +19,13 @@
     "code-review"
   ],
   "agents": [
-    "./agents/implementer.md",
-    "./agents/fixer.md",
-    "./agents/reviewer.md",
-    "./agents/scaffolder.md"
+    "./rendered/agents/implementer.md",
+    "./rendered/agents/fixer.md",
+    "./rendered/agents/reviewer.md",
+    "./rendered/agents/scaffolder.md"
   ],
-  "commands": "./commands/",
-  "skills": "./skills/",
+  "commands": "./rendered/commands/",
+  "skills": "./rendered/skills/",
   "mcpServers": {
     "exarchos": {
       "type": "stdio",

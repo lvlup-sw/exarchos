@@ -245,23 +245,42 @@ async function findRepoRoot(
   return null;
 }
 
-/** Lightweight drift heuristic: for each `content/<name>/SKILL.md`,
- * if any matching `skills/<runtime>/<name>/SKILL.md` has an older mtime,
- * treat that skill as drifted. Fast and avoids spawning `npm run
- * skills:guard` (which re-renders everything and would exceed the 2000ms
- * probe budget). */
+/** Lightweight drift heuristic: for each authored
+ * `content/<domain>/skills/<name>/SKILL.md`, if any matching
+ * `rendered/skills/<runtime>/<name>/SKILL.md` has an older mtime, treat that
+ * skill as drifted. Fast, and avoids spawning `npm run skills:guard` (which
+ * re-renders everything and would exceed the 2000ms probe budget).
+ *
+ * Sources sit one level deeper than the flat name they render to, so the
+ * domain has to be walked rather than assumed away. Reading the domain as if
+ * it were the skill finds no SKILL.md at all, and a probe that stats nothing
+ * reports perfect sync. */
 async function defaultSkillsGuardStatus(
   signal?: AbortSignal,
 ): Promise<{ inSync: boolean; driftedPaths?: string[] }> {
   const root = await findRepoRoot('content');
   if (root === null) return { inSync: true }; // nothing to check
   const srcRoot = join(root, 'content');
-  const outRoot = join(root, 'skills');
-  let srcSkills: string[];
+  const outRoot = join(root, 'rendered', 'skills');
+  let srcSkills: Array<{ name: string; path: string }>;
   try {
-    srcSkills = (await nodeFs.readdir(srcRoot, { withFileTypes: true }))
-      .filter((d) => d.isDirectory() && !d.name.startsWith('_'))
+    const domains = (await nodeFs.readdir(srcRoot, { withFileTypes: true }))
+      .filter((d) => d.isDirectory())
       .map((d) => d.name);
+    srcSkills = [];
+    for (const domain of domains) {
+      let names: string[];
+      try {
+        names = (await nodeFs.readdir(join(srcRoot, domain, 'skills'), { withFileTypes: true }))
+          .filter((d) => d.isDirectory())
+          .map((d) => d.name);
+      } catch {
+        continue; // a domain need not carry skills
+      }
+      for (const name of names) {
+        srcSkills.push({ name, path: join(srcRoot, domain, 'skills', name, 'SKILL.md') });
+      }
+    }
   } catch {
     return { inSync: true };
   }
@@ -281,18 +300,19 @@ async function defaultSkillsGuardStatus(
       err.name = 'AbortError';
       throw err;
     }
-    const srcPath = join(srcRoot, skill, 'SKILL.md');
     let srcMtime: number;
     try {
-      srcMtime = (await nodeFs.stat(srcPath)).mtimeMs;
+      srcMtime = (await nodeFs.stat(skill.path)).mtimeMs;
     } catch {
       continue;
     }
     for (const runtime of runtimes) {
-      const outPath = join(outRoot, runtime, skill, 'SKILL.md');
+      const outPath = join(outRoot, runtime, skill.name, 'SKILL.md');
       try {
         const outMtime = (await nodeFs.stat(outPath)).mtimeMs;
-        if (outMtime < srcMtime) drifted.push(`skills/${runtime}/${skill}/SKILL.md`);
+        if (outMtime < srcMtime) {
+          drifted.push(`rendered/skills/${runtime}/${skill.name}/SKILL.md`);
+        }
       } catch {
         // runtime may not render every skill; skip missing entries
       }

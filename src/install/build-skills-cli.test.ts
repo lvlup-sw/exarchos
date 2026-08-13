@@ -152,7 +152,7 @@ describe('build-skills CLI — task 008', () => {
     await runMain([], deps);
 
     // Default paths: srcDir='content', outDir='skills', runtimesDir='runtimes'.
-    expect(existsSync(join(root, 'skills', 'claude', 'foo', 'SKILL.md'))).toBe(true);
+    expect(existsSync(join(root, 'rendered', 'skills', 'claude', 'foo', 'SKILL.md'))).toBe(true);
     expect(deps.exitCode).toBeNull(); // success does not call exit
   });
 

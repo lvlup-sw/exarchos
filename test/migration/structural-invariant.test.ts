@@ -39,7 +39,7 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const REPO_ROOT = resolve(__dirname, '..', '..');
-const SKILLS_DIR = join(REPO_ROOT, 'skills');
+const SKILLS_DIR = join(REPO_ROOT, 'rendered/skills');
 const SKILLS_SRC_DIR = join(REPO_ROOT, 'content');
 
 const RUNTIME_NAMES = [

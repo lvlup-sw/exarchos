@@ -15,8 +15,8 @@ describe('Core Plugin Structure', () => {
       expect(plugin.name).toBe('exarchos');
       expect(plugin.version).toBe(pkgVersion);
       expect(plugin.author).toEqual({ name: 'LevelUp Software' });
-      expect(plugin.commands).toBe('./commands/');
-      expect(plugin.skills).toBe('./skills/');
+      expect(plugin.commands).toBe('./rendered/commands/');
+      expect(plugin.skills).toBe('./rendered/skills/');
       // hooks/hooks.json is auto-loaded by Claude Code — declaring it in plugin.json causes duplicates
       expect(plugin.hooks).toBeUndefined();
       expect(plugin.mcpServers).toBeDefined();

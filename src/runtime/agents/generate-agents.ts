@@ -271,7 +271,7 @@ function updatePluginJson(
   // through atomicWriteFile (temp + fsync + rename) via writePluginManifest
   // so concurrent readers never observe a partial write.
   const manifest = readPluginManifest(pluginJsonPath);
-  manifest.agents = specs.map((s) => `./agents/${s.id}.md`);
+  manifest.agents = specs.map((s) => `./rendered/agents/${s.id}.md`);
   writePluginManifest(pluginJsonPath, manifest);
 }
 

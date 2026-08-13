@@ -58,7 +58,7 @@ const __dirname = dirname(__filename);
 /** Absolute path to the repo root, derived from this file's location. */
 const REPO_ROOT = resolve(__dirname, '..', '..');
 /** Absolute path to the committed `skills/` tree. */
-const SKILLS_DIR = join(REPO_ROOT, 'skills');
+const SKILLS_DIR = join(REPO_ROOT, 'rendered/skills');
 
 /**
  * Runtimes recognised by the smoke harness. Kept in sync with

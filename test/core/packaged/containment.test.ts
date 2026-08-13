@@ -374,7 +374,7 @@ describe('seeded packed-artifact defects', () => {
    */
   it('an unauthored projection added to the tarball fails verification', () => {
     const scratch = scratchCopy('smuggled');
-    const smuggled = 'agents/t29-not-in-the-source-tree.md';
+    const smuggled = 'rendered/agents/t29-not-in-the-source-tree.md';
     fs.writeFileSync(path.join(scratch, smuggled), '# smuggled agent\n', 'utf8');
 
     const result = verifyPackedContainment({ repoRoot: REPO_ROOT, packageDir: scratch });

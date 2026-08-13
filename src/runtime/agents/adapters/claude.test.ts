@@ -48,7 +48,7 @@ describe('Claude adapter', () => {
 
   it('ClaudeAdapter_AgentFilePath_ReturnsAgentsPath', () => {
     expect(claudeAdapter.agentFilePath('implementer')).toBe(
-      'agents/implementer.md',
+      'rendered/agents/implementer.md',
     );
   });
 
@@ -70,7 +70,7 @@ describe('Claude adapter', () => {
   it('ClaudeAdapter_LowerAllFourSpecs_AllProduceValidOutput', () => {
     for (const spec of [IMPLEMENTER, FIXER, REVIEWER, SCAFFOLDER]) {
       const out = claudeAdapter.lowerSpec(spec);
-      expect(out.path).toBe(`agents/${spec.id}.md`);
+      expect(out.path).toBe(`rendered/agents/${spec.id}.md`);
       expect(out.contents.length).toBeGreaterThan(0);
       expect(out.contents.startsWith('---\n')).toBe(true);
     }

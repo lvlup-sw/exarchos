@@ -2578,7 +2578,7 @@ describe('buildAllSkills — task 003: classification-driven emission', () => {
   it('skillsGuard_StandardTreeDrift_Fails', () => {
     const root = makeTempDir();
     const srcDir = join(root, 'content');
-    const outDir = join(root, 'skills');
+    const outDir = join(root, 'rendered', 'skills');
     const runtimesDir = join(root, 'content/harness/runtimes');
     // Procedural skill (logical prose, no fork tokens) → renders to
     // `skills/standard/proc/`.
@@ -2608,7 +2608,7 @@ describe('buildAllSkills — task 003: classification-driven emission', () => {
     expect(result.ok).toBe(false);
     expect(result.exitCode).not.toBe(0);
     // The drift is attributed to the standard tree, naming the file.
-    expect(result.message).toMatch(/skills\/standard\/proc\/SKILL\.md/);
+    expect(result.message).toMatch(/rendered\/skills\/standard\/proc\/SKILL\.md/);
   });
 
   it('chainToken_TargetSkillMissing_FailsBuild', () => {

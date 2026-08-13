@@ -34,7 +34,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const REPO_ROOT = resolve(__dirname, '../..');
 const REPO_RUNTIMES_DIR = join(REPO_ROOT, 'content/harness/runtimes');
-const REPO_COMMANDS_DIR = join(REPO_ROOT, 'commands');
+const REPO_COMMANDS_DIR = join(REPO_ROOT, 'rendered/commands');
 
 const tempDirs: string[] = [];
 

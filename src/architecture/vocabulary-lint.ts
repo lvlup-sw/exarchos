@@ -246,8 +246,10 @@ export function scanRepoDefaults(
     [
       path.join(root, 'docs/architecture'),
       path.join(root, 'docs/guides'),
+      // Authored commands live under `content/<domain>/commands/`, so the
+      // content root already covers them. Scanning the rendered copy too would
+      // report every finding twice.
       path.join(root, 'content'),
-      path.join(root, 'commands'),
     ],
     options,
   );

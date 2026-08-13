@@ -266,7 +266,7 @@ describe('checkShippedCoverage', () => {
     'agents',
     'commands',
     'skills',
-    'command-aliases',
+    'rendered',
     'hooks',
     '.claude-plugin',
     'AGENTS.md',
@@ -280,11 +280,11 @@ describe('checkShippedCoverage', () => {
   });
 
   it('fails, naming the kind, when a projection root is absent from files[]', () => {
-    const withoutAliases = complete.filter((e) => e !== 'command-aliases');
+    const withoutAliases = complete.filter((e) => e !== 'rendered');
     const res = checkShippedCoverage(withoutAliases);
     expect(res.ok).toBe(false);
     const v = res.violations.find((x) => x.kind === 'alias');
-    expect(v?.entry).toBe('command-aliases');
+    expect(v?.entry).toBe('rendered');
     expect(v?.detail).toContain('shipped/installed artifact');
   });
 

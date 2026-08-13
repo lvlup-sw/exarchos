@@ -180,7 +180,7 @@ function walkMarkdown(dir: string): string[] {
 
 describe('live documentation ↔ registered schema agreement (WFQ-011 drift guard)', () => {
   const oracle = buildOracleFromRegistry(TOOL_REGISTRY);
-  const docRoots = ['content', 'commands'].map((r) => path.join(REPO_ROOT, r));
+  const docRoots = ['content'].map((r) => path.join(REPO_ROOT, r));
 
   it('every exarchos_* example in content/ and commands/ validates clean', () => {
     const failures: string[] = [];

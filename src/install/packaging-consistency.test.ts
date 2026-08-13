@@ -108,7 +108,7 @@ describe('versioned packaging (Task 022, DR-4)', () => {
 
   it('pluginManifest_SkillDeclarationsParse_Locally', () => {
     // Parse every shipped SKILL.md frontmatter locally — no network `npx`.
-    const skillsDir = join(repoRoot, 'skills');
+    const skillsDir = join(repoRoot, 'rendered', 'skills');
     // Intentionally-malformed fixtures live here; they are not shipped skills.
     const excludedTopDirs = new Set(['test-fixtures', 'trigger-tests']);
 

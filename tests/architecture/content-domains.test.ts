@@ -126,7 +126,7 @@ describe('ContentDomains — commands and rules', () => {
     // `plugin.json` declares one flat directory per kind, so an authored
     // command that never lands there is authored into the void.
     const authored = authoredOfKind('commands').map((a) => a.file).sort();
-    const shipped = readdirSync(join(REPO_ROOT, 'commands'))
+    const shipped = readdirSync(join(REPO_ROOT, 'rendered/commands'))
       .filter((f) => f.endsWith('.md'))
       .sort();
     expect(shipped).toEqual(authored);
@@ -138,7 +138,7 @@ describe('CommandAliases', () => {
     // Aliases lift the `description:` out of a command's frontmatter. If the
     // move had broken the read path, the generator would have thrown; this
     // pins the actual content relationship rather than the file's existence.
-    const aliasRoot = join(REPO_ROOT, 'command-aliases');
+    const aliasRoot = join(REPO_ROOT, 'rendered/command-aliases');
     const runtimes = directoriesIn(aliasRoot);
     expect(runtimes.length).toBeGreaterThan(0);
 

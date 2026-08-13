@@ -30,7 +30,7 @@ import { findSkillDir } from '../../../tools/test-helpers/content-tree.js';
 
 // `src/config/` → repo root is two levels up.
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../../..');
-const commandsDir = join(repoRoot, 'commands');
+const commandsDir = join(repoRoot, 'rendered', 'commands');
 const skillsSrcDir = join(repoRoot, 'content');
 
 /** Matches a skill *entry-point* reference, e.g. `@skills/spec-review/SKILL.md`. */

@@ -46,7 +46,7 @@ const __dirname = dirname(__filename);
 const REPO_ROOT = resolve(__dirname, '../..');
 const REPO_SKILLS_SRC = join(REPO_ROOT, 'content');
 const REPO_RUNTIMES = join(REPO_ROOT, 'content/harness/runtimes');
-const REPO_SKILLS_CLAUDE = join(REPO_ROOT, 'skills', 'claude');
+const REPO_SKILLS_CLAUDE = join(REPO_ROOT, 'rendered', 'skills', 'claude');
 
 const tempDirs: string[] = [];
 

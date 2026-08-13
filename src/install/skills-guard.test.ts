@@ -129,7 +129,7 @@ function provisionProject(): string {
   // Seed the `skills/` tree so the guard has something to compare against.
   buildAllSkills({
     srcDir: join(root, 'content'),
-    outDir: join(root, 'skills'),
+    outDir: join(root, 'rendered', 'skills'),
     runtimesDir: join(root, 'content/harness/runtimes'),
   });
 
@@ -193,7 +193,7 @@ function provisionProjectWithCallMacro(): string {
 
   buildAllSkills({
     srcDir: join(root, 'content'),
-    outDir: join(root, 'skills'),
+    outDir: join(root, 'rendered', 'skills'),
     runtimesDir: join(root, 'content/harness/runtimes'),
   });
 
@@ -219,7 +219,7 @@ describe('skills-guard — task 023', () => {
 
     expect(result.ok).toBe(true);
     expect(result.exitCode).toBe(0);
-    expect(existsSync(join(root, 'skills', 'claude', 'foo', 'SKILL.md'))).toBe(
+    expect(existsSync(join(root, 'rendered', 'skills', 'claude', 'foo', 'SKILL.md'))).toBe(
       true,
     );
   });
@@ -269,7 +269,7 @@ describe('skills-guard — task 023', () => {
     // itself will overwrite that edit, which is exactly how the guard
     // detects the drift: after build, `git diff skills/` shows the
     // generated content minus the hand-edit.
-    const generated = join(root, 'skills', 'claude', 'foo', 'SKILL.md');
+    const generated = join(root, 'rendered', 'skills', 'claude', 'foo', 'SKILL.md');
     const before = readFileSync(generated, 'utf8');
     writeFileSync(generated, before + '\n<!-- hand edit -->\n');
 
@@ -385,7 +385,7 @@ describe('skills-guard — task 13 agents/ drift', () => {
     // the guard regenerates, `git diff agents/` against HEAD will be
     // non-empty — this is exactly the same drift-detection mechanic
     // the `skills/` check already uses.
-    const agentsDir = join(root, 'agents');
+    const agentsDir = join(root, 'rendered', 'agents');
     mkdirSync(agentsDir, { recursive: true });
     writeFileSync(
       join(agentsDir, 'implementer.md'),
@@ -411,7 +411,7 @@ describe('skills-guard — task 13 agents/ drift', () => {
     // the guard to detect.
     const regenerateAgents = (cwd: string): void => {
       writeFileSync(
-        join(cwd, 'agents', 'implementer.md'),
+        join(cwd, 'rendered', 'agents', 'implementer.md'),
         'CANONICAL implementer body\n',
       );
     };
@@ -461,7 +461,7 @@ describe('skills-guard — task 011 CALL macro determinism', () => {
     // Sanity: the rendered output actually contains the expanded MCP
     // call (proves we exercised the macro path, not just a no-op).
     const rendered = readFileSync(
-      join(root, 'skills', 'claude', 'foo', 'SKILL.md'),
+      join(root, 'rendered', 'skills', 'claude', 'foo', 'SKILL.md'),
       'utf8',
     );
     expect(rendered).toContain(
@@ -477,7 +477,7 @@ describe('skills-guard — task 011 CALL macro determinism', () => {
     // changed in the source.
     buildAllSkills({
       srcDir: join(root, 'content'),
-      outDir: join(root, 'skills'),
+      outDir: join(root, 'rendered', 'skills'),
       runtimesDir: join(root, 'content/harness/runtimes'),
     });
 
@@ -501,7 +501,7 @@ describe('skills-guard — task 011 CALL macro determinism', () => {
  * So the guard cannot simply widen its diff scope; it must also
  * regenerate aliases before diffing. These tests lock that in.
  */
-const ALIASES_OPENCODE_DIR = join('command-aliases', 'opencode');
+const ALIASES_OPENCODE_DIR = join('rendered', 'command-aliases', 'opencode');
 
 /**
  * Write runtime fixtures for the alias path. Identical to
@@ -566,7 +566,7 @@ function provisionProjectWithAliases(): string {
 
   // One command file per map entry so `buildCommandAliases` finds its
   // lifted `description` source for every canonical name.
-  const commandsDir = join(root, 'commands');
+  const commandsDir = join(root, 'rendered', 'commands');
   mkdirSync(commandsDir, { recursive: true });
   for (const command of Object.keys(COMMAND_TO_SKILL)) {
     writeFileSync(
@@ -579,7 +579,7 @@ function provisionProjectWithAliases(): string {
 
   buildAllSkills({
     srcDir: join(root, 'content'),
-    outDir: join(root, 'skills'),
+    outDir: join(root, 'rendered', 'skills'),
     runtimesDir: join(root, 'content/harness/runtimes'),
   });
 
@@ -587,7 +587,7 @@ function provisionProjectWithAliases(): string {
   buildCommandAliases({
     runtimes: loadAllRuntimes(join(root, 'content/harness/runtimes')),
     commandsDir,
-    outDir: join(root, 'command-aliases'),
+    outDir: join(root, 'rendered', 'command-aliases'),
   });
 
   const gitEnv = {
@@ -630,7 +630,7 @@ describe('skills-guard — T4 command-aliases/ drift (#1472)', () => {
     // stale relative to source. The guard must regenerate + diff and fail.
     const firstCommand = Object.keys(COMMAND_TO_SKILL)[0];
     writeFileSync(
-      join(root, 'commands', `${firstCommand}.md`),
+      join(root, 'rendered', 'commands', `${firstCommand}.md`),
       [
         `---`,
         `description: Run the ${firstCommand} workflow — DESCRIPTION CHANGED.`,

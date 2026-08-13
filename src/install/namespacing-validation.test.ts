@@ -55,19 +55,32 @@ function findExplicitNameFrontmatter(dir: string): string[] {
   return violations;
 }
 
+/**
+ * Both roots are generator output now. Scanning a directory that no longer
+ * exists yields no files and therefore no violations, so these assertions
+ * would pass by never reading anything — the denominator is asserted first.
+ */
+const COMMANDS_DIR = join(repoRoot, 'rendered', 'commands');
+const SKILLS_DIR = join(repoRoot, 'rendered', 'skills');
+
 describe('Command namespacing', () => {
+  it('scanRoots_AreNonEmpty', () => {
+    expect(collectMdFiles(COMMANDS_DIR).length, 'no command files scanned').toBeGreaterThan(0);
+    expect(collectMdFiles(SKILLS_DIR).length, 'no skill files scanned').toBeGreaterThan(0);
+  });
+
   it('scanCommandFiles_UnNamespacedSkillInvocations_ReportsViolations', () => {
-    const violations = findUnNamespacedSkillCalls(join(repoRoot, 'commands'));
+    const violations = findUnNamespacedSkillCalls(COMMANDS_DIR);
     expect(violations, `Un-namespaced Skill() calls in commands:\n${violations.join('\n')}`).toHaveLength(0);
   });
 
   it('scanSkillFiles_UnNamespacedSkillInvocations_ReportsViolations', () => {
-    const violations = findUnNamespacedSkillCalls(join(repoRoot, 'skills'));
+    const violations = findUnNamespacedSkillCalls(SKILLS_DIR);
     expect(violations, `Un-namespaced Skill() calls in skills:\n${violations.join('\n')}`).toHaveLength(0);
   });
 
   it('scanCommandFiles_ExplicitNameFrontmatter_ReportsViolations', () => {
-    const violations = findExplicitNameFrontmatter(join(repoRoot, 'commands'));
+    const violations = findExplicitNameFrontmatter(COMMANDS_DIR);
     expect(
       violations,
       `Command files with explicit \`name:\` frontmatter (breaks plugin namespacing — remove the field so the loader derives it from the filename):\n${violations.join('\n')}`,

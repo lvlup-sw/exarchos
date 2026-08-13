@@ -32,8 +32,8 @@ function runGuard(dirs: string[]): { code: number; findings: Array<{ rule: strin
 describe('test-first drift guard (#1591)', () => {
   it('DriftGuard_CleanTree_Passes', () => {
     const { code, findings } = runGuard([
-      join(REPO_ROOT, 'commands'),
-      join(REPO_ROOT, 'agents'),
+      join(REPO_ROOT, 'rendered/commands'),
+      join(REPO_ROOT, 'rendered/agents'),
       join(REPO_ROOT, 'content'),
     ]);
     expect(findings, JSON.stringify(findings, null, 2)).toHaveLength(0);

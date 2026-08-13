@@ -36,31 +36,31 @@ const ARTIFACT_KINDS: readonly ArtifactKind[] = [
   {
     name: 'skills',
     classification: 'authored',
-    emittedTo: 'skills',
+    emittedTo: 'rendered/skills',
     producer: 'src/install/build-skills.ts',
   },
   {
     name: 'commands',
     classification: 'authored',
-    emittedTo: 'commands',
+    emittedTo: 'rendered/commands',
     producer: 'src/install/build-authored-artifacts.ts',
   },
   {
     name: 'rules',
     classification: 'authored',
-    emittedTo: 'rules',
+    emittedTo: 'rendered/rules',
     producer: 'src/install/build-authored-artifacts.ts',
   },
   {
     name: 'command-aliases',
     classification: 'generated',
-    emittedTo: 'command-aliases',
+    emittedTo: 'rendered/command-aliases',
     producer: 'src/install/build-command-aliases.ts',
   },
   {
     name: 'agents',
     classification: 'generated',
-    emittedTo: 'agents',
+    emittedTo: 'rendered/agents',
     producer: 'src/runtime/agents/generate-agents.ts',
   },
 ];
@@ -150,7 +150,9 @@ describe('RenderedTree', () => {
 
       // A declared directory must be someone's output. File-level declarations
       // (the agents list) are checked through the root they sit in.
-      const root = rel.split('/')[0]!;
+      const root = rel.startsWith('rendered/')
+        ? rel.split('/').slice(0, 2).join('/')
+        : rel.split('/')[0]!;
       expect(
         producedRoots.has(root),
         `plugin.json declares ${raw} under ${root}/, which no producer emits`,

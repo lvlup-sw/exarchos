@@ -70,8 +70,8 @@ function conformingFiles(): Record<string, string> {
     '.claude-plugin/plugin.json': JSON.stringify({
       name: 'exarchos',
       version: '9.9.9',
-      commands: './commands/',
-      skills: './skills/',
+      commands: './rendered/commands/',
+      skills: './rendered/skills/',
       mcpServers: { exarchos: { type: 'stdio', command: 'exarchos', args: ['mcp'] } },
     }),
     'hooks/hooks.json': JSON.stringify({
@@ -83,7 +83,7 @@ function conformingFiles(): Record<string, string> {
   };
 }
 
-const CONFORMING_DIRS = ['commands', 'skills'];
+const CONFORMING_DIRS = ['rendered/commands', 'rendered/skills'];
 
 /** An in-memory TreeReader over the maps above. */
 function memoryTree(files: Record<string, string>, dirs: string[] = CONFORMING_DIRS) {
@@ -143,8 +143,8 @@ describe('validate-plugin — the interpreter (task 064, DR-24)', () => {
   });
 
   it('ValidatePlugin_MissingRequiredDirectory_Fails', () => {
-    const report: Report = evaluatePackaging(shippedPolicy(), memoryTree(conformingFiles(), ['commands']));
-    expect(check(report, 'dir.skills')?.passed).toBe(false);
+    const report: Report = evaluatePackaging(shippedPolicy(), memoryTree(conformingFiles(), ['rendered/commands']));
+    expect(check(report, 'dir.rendered/skills')?.passed).toBe(false);
   });
 
   it('ValidatePlugin_ExtraBundledMcpServer_Fails', () => {
@@ -331,7 +331,7 @@ describe('validate-plugin — CLI (task 064, DR-24)', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'validate-plugin-fixture-'));
     try {
       fs.mkdirSync(path.join(dir, '.claude-plugin'), { recursive: true });
-      fs.mkdirSync(path.join(dir, 'commands'), { recursive: true });
+      fs.mkdirSync(path.join(dir, 'rendered', 'commands'), { recursive: true });
       fs.mkdirSync(path.join(dir, 'hooks'), { recursive: true });
       const files = conformingFiles();
       fs.writeFileSync(path.join(dir, '.claude-plugin/plugin.json'), files['.claude-plugin/plugin.json']);
@@ -349,7 +349,7 @@ describe('validate-plugin — CLI (task 064, DR-24)', () => {
       const parsed = JSON.parse(stdout) as Report & { ok: boolean };
       expect(parsed.ok).toBe(false);
       const failedIds = parsed.checks.filter((c) => !c.passed).map((c) => c.id);
-      expect(failedIds).toContain('dir.skills');
+      expect(failedIds).toContain('dir.rendered/skills');
       expect(failedIds).toContain('forbidden-file..mcp.json');
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });

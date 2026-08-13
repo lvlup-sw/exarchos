@@ -52,10 +52,10 @@ const GENERATOR_PATH = path.join(
 // Expected output paths (relative to outputRoot). 4 specs × 5 runtimes.
 const EXPECTED_FILES: readonly string[] = [
   // Claude
-  'agents/implementer.md',
-  'agents/fixer.md',
-  'agents/reviewer.md',
-  'agents/scaffolder.md',
+  'rendered/agents/implementer.md',
+  'rendered/agents/fixer.md',
+  'rendered/agents/reviewer.md',
+  'rendered/agents/scaffolder.md',
   // Codex
   '.codex/agents/implementer.toml',
   '.codex/agents/fixer.toml',

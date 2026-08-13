@@ -309,7 +309,7 @@ describe('generateAgents', () => {
     // Other runtimes have no plugin.json equivalent — only Claude agents
     // are declared.
     for (const spec of CANONICAL_SPECS) {
-      const expected = `./agents/${spec.id}.md`;
+      const expected = `./rendered/agents/${spec.id}.md`;
       expect(agents).toContain(expected);
     }
     for (const entry of agents) {

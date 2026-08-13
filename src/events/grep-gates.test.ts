@@ -172,7 +172,7 @@ describe('Grep Gates (Wave 1, R-1, #1313)', () => {
     {
       const accept = (f: string) => f.endsWith('.md');
       const excludeDirs = new Set<string>(['node_modules', 'dist']);
-      for (const root of [join(REPO_ROOT, 'commands'), join(REPO_ROOT, 'content')]) {
+      for (const root of [join(REPO_ROOT, 'rendered/commands'), join(REPO_ROOT, 'content')]) {
         for (const file of walk(root, accept, excludeDirs)) {
           const contents = readFileSync(file, 'utf-8');
           contents.split('\n').forEach((text, i) => {

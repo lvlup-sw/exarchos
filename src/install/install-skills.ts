@@ -272,12 +272,14 @@ export function findSkillsSourceDir(): string | undefined {
   const candidates: string[] = [];
 
   // Candidate 1: process.cwd()/skills.
-  candidates.push(path.join(process.cwd(), 'skills'));
+  candidates.push(path.join(process.cwd(), 'rendered', 'skills'));
 
   // Candidate 2: <binary-dir>/../../skills (dist/bin/ layout).
   try {
     if (typeof process.execPath === 'string' && process.execPath.length > 0) {
-      candidates.push(path.resolve(path.dirname(process.execPath), '..', '..', 'skills'));
+      candidates.push(
+        path.resolve(path.dirname(process.execPath), '..', '..', 'rendered', 'skills'),
+      );
     }
   } catch {
     // process.execPath is always defined under Node/Bun, but guard anyway.
@@ -287,7 +289,7 @@ export function findSkillsSourceDir(): string | undefined {
   try {
     if (typeof import.meta.url === 'string' && import.meta.url.startsWith('file:')) {
       const here = path.dirname(fileURLToPath(import.meta.url));
-      candidates.push(path.resolve(here, '../../skills'));
+      candidates.push(path.resolve(here, '../../rendered/skills'));
     }
   } catch {
     // import.meta.url may be a non-file: URL inside bun-compile output.
@@ -427,16 +429,16 @@ function isIgnorablePathProbeError(err: unknown): boolean {
 
 export function findCommandAliasesSourceDir(): string | undefined {
   const candidates: string[] = [];
-  candidates.push(path.join(process.cwd(), 'command-aliases'));
+  candidates.push(path.join(process.cwd(), 'rendered', 'command-aliases'));
   if (typeof process.execPath === 'string' && process.execPath.length > 0) {
     candidates.push(
-      path.resolve(path.dirname(process.execPath), '..', '..', 'command-aliases'),
+      path.resolve(path.dirname(process.execPath), '..', '..', 'rendered', 'command-aliases'),
     );
   }
   try {
     if (typeof import.meta.url === 'string' && import.meta.url.startsWith('file:')) {
       const here = path.dirname(fileURLToPath(import.meta.url));
-      candidates.push(path.resolve(here, '../../command-aliases'));
+      candidates.push(path.resolve(here, '../../rendered/command-aliases'));
     }
   } catch (err) {
     // A genuine non-file: URL under bun-compile output is benign; anything

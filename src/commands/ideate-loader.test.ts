@@ -6,7 +6,7 @@ import { loadInvariants } from '../architecture/invariants-loader.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../..');
-const IDEATE_COMMAND = path.join(REPO_ROOT, 'commands/ideate.md');
+const IDEATE_COMMAND = path.join(REPO_ROOT, 'rendered/commands/ideate.md');
 const IDEATE_SKILL = path.join(
   REPO_ROOT,
   'content/design/skills/ideate/SKILL.md',

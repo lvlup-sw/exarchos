@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) \u2014 path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1150,
-    "parsedFiles": 1105,
+    "testFiles": 1152,
+    "parsedFiles": 1107,
     "shellFiles": 45,
-    "cases": 12721,
+    "cases": 12733,
     "dynamicTitles": 131,
     "unparseableFiles": 0
   },
@@ -66450,6 +66450,42 @@
         }
       ]
     },
+    "tests/architecture/published-contract.test.ts": {
+      "file": "tests/architecture/published-contract.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "PluginManifest",
+          "name": "DeclaredPaths_ResolveAndHaveAProducer",
+          "dynamic": false
+        },
+        {
+          "suite": "Manifest",
+          "name": "EveryComponentSource_ExistsOnDisk",
+          "dynamic": false
+        },
+        {
+          "suite": "Manifest",
+          "name": "EveryRuleSetFile_ExistsInTheRenderedRules",
+          "dynamic": false
+        },
+        {
+          "suite": "FilesArray",
+          "name": "EveryShippedDirectory_ResolvesAfterTheMove",
+          "dynamic": false
+        },
+        {
+          "suite": "FilesArray",
+          "name": "EveryGeneratedTree_IsActuallyPublished",
+          "dynamic": false
+        },
+        {
+          "suite": "InstallSkills",
+          "name": "RootProbes_ResolveUnderTheNewLayout",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/architecture/reference-census.test.ts": {
       "file": "tests/architecture/reference-census.test.ts",
       "runner": "vitest:root",
@@ -66487,6 +66523,42 @@
         {
           "suite": "reference census",
           "name": "ReferenceCensus_ReHomedSubtrees_AreMeasuredButNotGated",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/render-routing.test.ts": {
+      "file": "tests/architecture/render-routing.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "Render",
+          "name": "DomainGroupedSource_EmitsFlatContractShapedOutput",
+          "dynamic": false
+        },
+        {
+          "suite": "Render",
+          "name": "RenderedPath_DependsOnlyOnKindAndFlatName_NotOnDomain",
+          "dynamic": false
+        },
+        {
+          "suite": "Render",
+          "name": "TwoDomainsDeclareSameFlatName_FailsAtBuildTimeNamingBothSources",
+          "dynamic": false
+        },
+        {
+          "suite": "Render",
+          "name": "DistinctNamesAcrossDomains_Succeeds",
+          "dynamic": false
+        },
+        {
+          "suite": "ArtifactKind",
+          "name": "RoutesToItsOwnRenderedRoot",
+          "dynamic": false
+        },
+        {
+          "suite": "ArtifactKind",
+          "name": "NoRenderedFile_IsHandEdited",
           "dynamic": false
         }
       ]

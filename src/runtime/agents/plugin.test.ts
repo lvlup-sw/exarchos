@@ -14,7 +14,7 @@ import * as path from 'node:path';
 // Plugin root is at ../../.claude-plugin/ (relative to repo root)
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..');
 const PLUGIN_JSON_PATH = path.join(REPO_ROOT, '.claude-plugin', 'plugin.json');
-const AGENTS_DIR = path.join(REPO_ROOT, 'agents');
+const AGENTS_DIR = path.join(REPO_ROOT, 'rendered/agents');
 
 // ─── Task 7: Plugin Manifest ─────────────────────────────────────────────
 
@@ -25,13 +25,13 @@ describe('Plugin Manifest', () => {
     const manifest = JSON.parse(raw);
 
     // Assert: agents field is an array of file paths (not a directory string —
-    // Claude Code rejects "agents": "./agents/" with validation error)
+    // Claude Code rejects "agents": "./rendered/agents/" with validation error)
     expect(manifest).toHaveProperty('agents');
     expect(Array.isArray(manifest.agents)).toBe(true);
     expect(manifest.agents.length).toBeGreaterThan(0);
     for (const entry of manifest.agents) {
       expect(typeof entry).toBe('string');
-      expect(entry).toMatch(/^\.\/agents\/.*\.md$/);
+      expect(entry).toMatch(/^\.\/rendered\/agents\/.*\.md$/);
     }
   });
 

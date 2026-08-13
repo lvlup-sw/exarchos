@@ -212,12 +212,12 @@ export const claudeAdapter: RuntimeAdapter = {
   supportLevels: CLAUDE_SUPPORT_LEVELS,
 
   agentFilePath(agentName: string): string {
-    return `agents/${agentName}.md`;
+    return `rendered/agents/${agentName}.md`;
   },
 
   lowerSpec(spec: AgentSpec): { path: string; contents: string } {
     return {
-      path: `agents/${spec.id}.md`,
+      path: `rendered/agents/${spec.id}.md`,
       contents: generateClaudeAgentMarkdown(spec),
     };
   },

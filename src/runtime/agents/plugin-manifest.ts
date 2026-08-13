@@ -21,8 +21,8 @@ import { atomicWriteFile } from '../../utils/atomic-write.js';
  *   - generate-agents.ts will rewire preflight + update via these helpers (T16)
  */
 
-/** Canonical agent path: `./agents/<kebab-id>.md`. */
-const AgentPathSchema = z.string().regex(/^\.\/agents\/[a-z0-9-]+\.md$/);
+/** Canonical agent path: `./rendered/agents/<kebab-id>.md`. */
+const AgentPathSchema = z.string().regex(/^\.\/rendered\/agents\/[a-z0-9-]+\.md$/);
 
 const AuthorSchema = z
   .object({

@@ -352,34 +352,34 @@ export const PROJECTION_ROOT_SPECS: readonly ProjectionRootSpec[] = [
     // any `references/*.md`). Excludes the intentionally-malformed frontmatter
     // fixtures and transient probe dirs, matching packaging-consistency's scan.
     kind: 'skill',
-    root: 'skills',
+    root: 'rendered/skills',
     rootKind: 'dir',
     include: (rel) => {
       const parts = rel.split('/');
-      if (parts[0] !== 'skills') return false;
-      const top = parts[1];
+      if (parts[0] !== 'rendered' || parts[1] !== 'skills') return false;
+      const top = parts[2];
       if (top === undefined || top === 'test-fixtures' || top === 'trigger-tests') return false;
       if (hasDunderSegment(rel)) return false;
-      // At least skills/<runtime>/<skill>/<file>.md.
-      return parts.length >= 4 && rel.endsWith('.md');
+      // At least rendered/skills/<runtime>/<skill>/<file>.md.
+      return parts.length >= 5 && rel.endsWith('.md');
     },
-    shipped: { via: 'npm-files', entry: 'skills' },
+    shipped: { via: 'npm-files', entry: 'rendered' },
   },
   {
     // Canonical-name command aliases (`command-aliases/<runtime>/<name>.md`).
     kind: 'alias',
-    root: 'command-aliases',
+    root: 'rendered/command-aliases',
     rootKind: 'dir',
-    include: (rel) => rel.startsWith('command-aliases/') && rel.endsWith('.md'),
-    shipped: { via: 'npm-files', entry: 'command-aliases' },
+    include: (rel) => rel.startsWith('rendered/command-aliases/') && rel.endsWith('.md'),
+    shipped: { via: 'npm-files', entry: 'rendered' },
   },
   {
     // Claude agent definitions (`agents/<id>.md`) — the copy plugin.json selects.
     kind: 'agent',
-    root: 'agents',
+    root: 'rendered/agents',
     rootKind: 'dir',
-    include: (rel) => rel.startsWith('agents/') && rel.endsWith('.md'),
-    shipped: { via: 'npm-files', entry: 'agents' },
+    include: (rel) => rel.startsWith('rendered/agents/') && rel.endsWith('.md'),
+    shipped: { via: 'npm-files', entry: 'rendered' },
   },
   {
     // Lifecycle hooks: the active Claude plugin `hooks/hooks.json` plus each

@@ -318,7 +318,7 @@ describe('Real Manifest File (E5)', () => {
 
   it('manifest_RuleSetFiles_AllExist', () => {
     const manifest = loadManifest(manifestPath);
-    const rulesDir = path.join(repoRoot, 'rules');
+    const rulesDir = path.join(repoRoot, 'rendered', 'rules');
 
     for (const ruleSet of manifest.components.ruleSets) {
       for (const file of ruleSet.files) {

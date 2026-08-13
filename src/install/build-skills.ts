@@ -1388,6 +1388,26 @@ export function buildAllSkills(opts: {
   // listing every offender, rather than failing at the first hit.
   const vocabularyFindings: VocabularyLintFinding[] = [];
 
+  // Flattening introduces a namespace hazard that grouped sources do not have:
+  // two domains may each author a `review/`, and the output has one slot for
+  // that name. Unguarded this is a last-writer-wins overwrite in which the
+  // losing skill simply never appears — no error, just a tree missing a skill.
+  // Both sources are named because knowing only the winner does not say what
+  // was lost.
+  const claimedBy = new Map<string, string>();
+  for (const skillDir of skillDirs) {
+    const name = basename(skillDir);
+    const previous = claimedBy.get(name);
+    if (previous !== undefined) {
+      throw new Error(
+        `buildAllSkills: two sources render to the same flat name '${name}' — ` +
+          `${toPosix(previous)} and ${toPosix(skillDir)}. The rendered tree has one ` +
+          `slot per name; rename one source.`,
+      );
+    }
+    claimedBy.set(name, skillDir);
+  }
+
   for (const skillDir of skillDirs) {
     // Sources are grouped by capability domain; the rendered tree is flat.
     // A harness resolves a skill by its bare name, so the domain a skill is
@@ -1984,10 +2004,10 @@ export function main(_argv: string[], deps: MainDeps = {}): void {
 
   const root = cwd();
   const srcDir = join(root, 'content');
-  const outDir = join(root, 'skills');
+  const outDir = join(root, 'rendered', 'skills');
   const runtimesDir = join(root, 'content/harness/runtimes');
-  const commandsDir = join(root, 'commands');
-  const aliasOutDir = join(root, 'command-aliases');
+  const commandsDir = join(root, 'rendered', 'commands');
+  const aliasOutDir = join(root, 'rendered', 'command-aliases');
 
   let report: BuildReport;
   let aliasFilesWritten = 0;
@@ -1998,7 +2018,10 @@ export function main(_argv: string[], deps: MainDeps = {}): void {
     // Commands and rules are authored per domain like skills, but carry no
     // placeholders, so their emit is a flatten-copy. It runs before the alias
     // pass, which reads the flat `commands/` tree this produces.
-    const authoredReport = emitAuthoredArtifacts({ contentDir: srcDir, outRoot: root });
+    const authoredReport = emitAuthoredArtifacts({
+      contentDir: srcDir,
+      outRoot: join(root, 'rendered'),
+    });
     authoredFilesWritten = Object.values(authoredReport.written).reduce((a, b) => a + b, 0);
 
     // T2 (#1472): emit canonical-name command alias files for any runtime

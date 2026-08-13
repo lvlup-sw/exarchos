@@ -203,7 +203,7 @@ describe('standard artifacts agree — real repo (exit proof a)', () => {
     // per runtime) — derived from the fresh render, not hard-coded.
     const source = readTree(outDir);
     const generatedRoots = new Set(source.map((e) => e.path.split('/')[0]));
-    const emitted = readTree(join(REPO_ROOT, 'skills')).filter((e) =>
+    const emitted = readTree(join(REPO_ROOT, 'rendered/skills')).filter((e) =>
       generatedRoots.has(e.path.split('/')[0]),
     );
 
@@ -221,7 +221,7 @@ describe('standard artifacts agree — real repo (exit proof a)', () => {
 
   // Exit proof (b) on real data: a tampered emitted copy is caught.
   it('SkillTree_TamperedEmittedCopy_Disagrees', () => {
-    const committed = readTree(join(REPO_ROOT, 'skills'));
+    const committed = readTree(join(REPO_ROOT, 'rendered/skills'));
     expect(committed.length).toBeGreaterThan(0);
     const tampered = committed.map((e, i) =>
       i === 0 ? { path: e.path, content: e.content + '\n<!-- drift -->' } : e,

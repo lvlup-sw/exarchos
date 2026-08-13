@@ -178,7 +178,7 @@ export function runSkillsGuard(opts: SkillsGuardOptions): SkillsGuardResult {
   try {
     buildAllSkills({
       srcDir: join(cwd, 'content'),
-      outDir: join(cwd, 'skills'),
+      outDir: join(cwd, 'rendered', 'skills'),
       runtimesDir: join(cwd, 'content/harness/runtimes'),
     });
   } catch (err) {
@@ -201,15 +201,15 @@ export function runSkillsGuard(opts: SkillsGuardOptions): SkillsGuardResult {
   if (!skillsBuildFailed) {
     const standardDiff = checkGitDiff(
       cwd,
-      'skills/standard/',
+      'rendered/skills/standard/',
       REMEDIATION,
-      'skills/standard',
+      'rendered/skills/standard',
     );
     if (standardDiff !== null) failures.push(standardDiff);
 
     const residualDiff = checkGitDiff(
       cwd,
-      ['skills/', ':(exclude)skills/standard/'],
+      ['rendered/skills/', ':(exclude)rendered/skills/standard/'],
       REMEDIATION,
       'skills (orchestration residual)',
     );
@@ -224,7 +224,10 @@ export function runSkillsGuard(opts: SkillsGuardOptions): SkillsGuardResult {
   // the guard has to rebuild before it diffs.
   let authoredBuildFailed = false;
   try {
-    emitAuthoredArtifacts({ contentDir: join(cwd, 'content'), outRoot: cwd });
+    emitAuthoredArtifacts({
+      contentDir: join(cwd, 'content'),
+      outRoot: join(cwd, 'rendered'),
+    });
   } catch (err) {
     authoredBuildFailed = true;
     const detail = err instanceof Error ? err.message : String(err);
@@ -234,7 +237,7 @@ export function runSkillsGuard(opts: SkillsGuardOptions): SkillsGuardResult {
   }
 
   if (!authoredBuildFailed) {
-    for (const tree of ['commands', 'rules']) {
+    for (const tree of ['rendered/commands', 'rendered/rules']) {
       const diff = checkGitDiff(cwd, `${tree}/`, REMEDIATION_AUTHORED, tree);
       if (diff !== null) failures.push(diff);
     }
@@ -254,8 +257,8 @@ export function runSkillsGuard(opts: SkillsGuardOptions): SkillsGuardResult {
   try {
     emitCommandAliases({
       runtimesDir: join(cwd, 'content/harness/runtimes'),
-      commandsDir: join(cwd, 'commands'),
-      outDir: join(cwd, 'command-aliases'),
+      commandsDir: join(cwd, 'rendered', 'commands'),
+      outDir: join(cwd, 'rendered', 'command-aliases'),
     });
   } catch (err) {
     aliasesBuildFailed = true;
@@ -268,7 +271,7 @@ export function runSkillsGuard(opts: SkillsGuardOptions): SkillsGuardResult {
   if (!aliasesBuildFailed) {
     const aliasesDiff = checkGitDiff(
       cwd,
-      'command-aliases/',
+      'rendered/command-aliases/',
       REMEDIATION_ALIASES,
       'command-aliases',
     );
@@ -310,7 +313,7 @@ export function runSkillsGuard(opts: SkillsGuardOptions): SkillsGuardResult {
     const agentsDiff = checkGitDiff(
       cwd,
       [
-        'agents/',
+        'rendered/agents/',
         '.codex/agents/',
         '.cursor/agents/',
         '.opencode/agents/',

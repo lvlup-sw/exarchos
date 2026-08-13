@@ -4,13 +4,13 @@
     "core": [
       {
         "id": "commands",
-        "source": "commands",
+        "source": "rendered/commands",
         "target": "commands",
         "type": "directory"
       },
       {
         "id": "skills",
-        "source": "skills",
+        "source": "rendered/skills",
         "target": "skills",
         "type": "directory"
       },

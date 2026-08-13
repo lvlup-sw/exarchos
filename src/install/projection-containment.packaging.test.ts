@@ -174,7 +174,7 @@ describe('projection roots are actually shipped (package.json files[])', () => {
     // `command-aliases/` is resolved at install time from the packaged root
     // (`findCommandAliasesSourceDir` probes `<pluginRoot>/command-aliases`), so
     // it MUST be in files[] or the installed opencode alias copy silently no-ops.
-    expect(files).toContain('command-aliases');
+    expect(files).toContain('rendered');
   });
 
   it('each npm-files projection root resolves to a real path on disk', () => {

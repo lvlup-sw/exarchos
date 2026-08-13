@@ -235,12 +235,16 @@ export function listSkillRenderPaths(ref, opts = {}) {
     .filter(Boolean)
     .filter((p) => {
       const parts = p.split('/');
-      // skills/<runtime>/<skill>/SKILL.md
+      // This manifest is built from HISTORICAL release tags, so both layouts
+      // are live: `skills/<runtime>/<skill>/SKILL.md` before the rendered tree
+      // was introduced, and `rendered/skills/...` after. Accepting only the
+      // current shape silently yields an empty manifest for every past release.
+      const rel = parts[0] === 'rendered' ? parts.slice(1) : parts;
       return (
-        parts.length === 4 &&
-        parts[0] === 'skills' &&
-        parts[3] === 'SKILL.md' &&
-        !EXCLUDED_RUNTIME_DIRS.has(parts[1])
+        rel.length === 4 &&
+        rel[0] === 'skills' &&
+        rel[3] === 'SKILL.md' &&
+        !EXCLUDED_RUNTIME_DIRS.has(rel[1])
       );
     })
     .sort();

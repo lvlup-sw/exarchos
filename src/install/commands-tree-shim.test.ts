@@ -30,7 +30,7 @@ import {
 } from './config/canonical-skills.js';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../..');
-const commandsDir = join(repoRoot, 'commands');
+const commandsDir = join(repoRoot, 'rendered', 'commands');
 const skillsSrcDir = join(repoRoot, 'content');
 
 /** Matches a skill *entry-point* reference, e.g. `@skills/discover/SKILL.md`. */

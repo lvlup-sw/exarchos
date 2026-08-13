@@ -141,7 +141,7 @@ describe('oneshot skill — body content invariants', () => {
 describe('oneshot skill — slash command wrapper', () => {
   const commandPath = resolve(
     __dirname,
-    '../../../commands/oneshot.md');
+    '../../../rendered/commands/oneshot.md');
 
   it('oneshotCommand_existsAndHasFrontmatter', () => {
     const raw = readFileSync(commandPath, 'utf-8');

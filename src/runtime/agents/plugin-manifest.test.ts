@@ -24,9 +24,9 @@ describe('PluginManifestSchema', () => {
       repository: 'https://example.com/repo',
       license: 'Apache-2.0',
       keywords: ['workflow'],
-      agents: ['./agents/implementer.md', './agents/reviewer.md'],
-      commands: './commands/',
-      skills: './skills/',
+      agents: ['./rendered/agents/implementer.md', './rendered/agents/reviewer.md'],
+      commands: './rendered/commands/',
+      skills: './rendered/skills/',
       mcpServers: {
         exarchos: {
           type: 'stdio',
@@ -89,13 +89,13 @@ describe('readPluginManifest', () => {
       name: 'exarchos',
       description: 'Test',
       version: '0.0.0',
-      agents: ['./agents/implementer.md', './agents/reviewer.md'],
+      agents: ['./rendered/agents/implementer.md', './rendered/agents/reviewer.md'],
       metadata: { compat: { minBinaryVersion: '2.9.0-rc.1' } },
     };
     const file = makeTmpFile(JSON.stringify(valid));
     const result = readPluginManifest(file);
     expect(result.name).toBe('exarchos');
-    expect(result.agents).toEqual(['./agents/implementer.md', './agents/reviewer.md']);
+    expect(result.agents).toEqual(['./rendered/agents/implementer.md', './rendered/agents/reviewer.md']);
     expect(result.version).toBe('0.0.0');
   });
 
@@ -156,9 +156,9 @@ describe('writePluginManifest', () => {
     description: 'Test description',
     version: '0.0.0',
     author: { name: 'Test Author' },
-    agents: ['./agents/implementer.md', './agents/reviewer.md'],
-    commands: './commands/',
-    skills: './skills/',
+    agents: ['./rendered/agents/implementer.md', './rendered/agents/reviewer.md'],
+    commands: './rendered/commands/',
+    skills: './rendered/skills/',
     metadata: { compat: { minBinaryVersion: '2.9.0-rc.1' } },
   };
 
