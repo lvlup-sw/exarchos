@@ -41,7 +41,7 @@ import process from 'node:process';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, '..');
-const DEFAULT_ROOT = path.join(REPO_ROOT, 'servers', 'exarchos-mcp');
+const DEFAULT_ROOT = path.join(REPO_ROOT);
 
 function parseArgs(argv) {
   let root = DEFAULT_ROOT;

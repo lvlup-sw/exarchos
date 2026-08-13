@@ -82,7 +82,7 @@ describe('Core Plugin Structure', () => {
       const pluginPath = join(repoRoot, '.claude-plugin', 'plugin.json');
       const plugin = JSON.parse(readFileSync(pluginPath, 'utf-8'));
 
-      const mcpIndexPath = join(repoRoot, 'servers', 'exarchos-mcp', 'src', 'index.ts');
+      const mcpIndexPath = join(repoRoot, 'src', 'index.ts');
       const mcpIndexSrc = readFileSync(mcpIndexPath, 'utf-8');
       const match = mcpIndexSrc.match(/export\s+const\s+SERVER_VERSION\s*=\s*['"]([^'"]+)['"]/);
       expect(match).not.toBeNull();

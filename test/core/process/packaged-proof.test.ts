@@ -87,8 +87,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = findRepoRoot(__dirname);
 const BASELINE_PATH = path.join(
   REPO_ROOT,
-  'servers',
-  'exarchos-mcp',
   'src',
   'parity',
   '__tests__',

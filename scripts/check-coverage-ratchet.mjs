@@ -58,8 +58,6 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, '..');
 const DEFAULT_SUMMARY = path.join(
   REPO_ROOT,
-  'servers',
-  'exarchos-mcp',
   'coverage',
   'coverage-summary.json',
 );

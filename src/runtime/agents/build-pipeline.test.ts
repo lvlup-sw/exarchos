@@ -43,8 +43,6 @@ const REPO_ROOT = path.resolve(__dirname, '../../..');
 const ROOT_PACKAGE_JSON = path.join(REPO_ROOT, 'package.json');
 const GENERATOR_PATH = path.join(
   REPO_ROOT,
-  'servers',
-  'exarchos-mcp',
   'src',
   'agents',
   'generate-agents.ts',

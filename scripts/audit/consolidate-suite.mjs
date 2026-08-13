@@ -43,7 +43,7 @@ import ts from 'typescript';
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = path.resolve(SCRIPT_DIR, '..', '..');
 /** The source root the tool governs (repo-relative default; overridable for tests). */
-export const DEFAULT_SRC_ROOT = path.join(REPO_ROOT, 'servers', 'exarchos-mcp', 'src');
+export const DEFAULT_SRC_ROOT = path.join(REPO_ROOT, 'src');
 /**
  * Against the live tree the enumeration MUST find exactly this many remaining pairs.
  * 0 since the wave-3b de-divergence campaign (#1705) consolidated all 17 duplicate-location pairs.

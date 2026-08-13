@@ -36,7 +36,7 @@ import process from 'node:process';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, '..');
-const DEFAULT_SRC_ROOT = path.join(REPO_ROOT, 'servers', 'exarchos-mcp', 'src');
+const DEFAULT_SRC_ROOT = path.join(REPO_ROOT, 'src');
 
 /** Forward-slash-normalize a path for display — matching/allowlisting still
  * uses the native-separator form (`path.sep`-split). */

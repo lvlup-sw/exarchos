@@ -91,12 +91,12 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
  * which in production is the SAME checkout, but in the self-test is a
  * throwaway fixture repo). */
 const EXARCHOS_ROOT = path.resolve(SCRIPT_DIR, '..');
-const SERVER_DIR = path.join(EXARCHOS_ROOT, 'servers', 'exarchos-mcp');
+const SERVER_DIR = path.join(EXARCHOS_ROOT);
 const MUTATION_ADEQUACY_ENTRY = path.join(SERVER_DIR, 'src', 'orchestrate', 'mutation-adequacy.ts');
 const EVENT_STORE_ENTRY = path.join(SERVER_DIR, 'src', 'event-store', 'store.ts');
 
 /** Repo-root-relative prefix this gate diff-scopes to (DR-7). */
-const SERVER_SRC_SCOPE = path.posix.join('servers', 'exarchos-mcp', 'src');
+const SERVER_SRC_SCOPE = path.posix.join('src');
 
 const EXIT_PASS = 0;
 const EXIT_GATE_FAILED = 1;

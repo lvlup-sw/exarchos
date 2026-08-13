@@ -102,8 +102,6 @@ const REMEDIATION_ALIASES =
 function defaultRegenerateAgents(cwd: string): void {
   const scriptPath = join(
     cwd,
-    'servers',
-    'exarchos-mcp',
     'src',
     'agents',
     'generate-agents.ts',

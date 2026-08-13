@@ -996,7 +996,7 @@ export function countWithCappedShapeDeclarations(source, fileName = 'source.ts')
 function resolveTsx(root) {
   const candidates = [
     path.join(root, 'node_modules', 'tsx', 'dist', 'cli.mjs'),
-    path.join(root, 'servers', 'exarchos-mcp', 'node_modules', 'tsx', 'dist', 'cli.mjs'),
+    path.join(root, 'node_modules', 'tsx', 'dist', 'cli.mjs'),
   ];
   for (const candidate of candidates) {
     if (existsSync(candidate)) return { command: process.execPath, args: [candidate] };

@@ -17,8 +17,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const MCP_ENTRY = path.join(
   REPO_ROOT,
-  'servers',
-  'exarchos-mcp',
   'src',
   'index.ts',
 );

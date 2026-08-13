@@ -144,7 +144,7 @@ export interface BinaryBuildResult {
  */
 function computeSrcNewest(repoRoot: string): number {
   const dirInputs = [
-    path.join(repoRoot, 'servers', 'exarchos-mcp', 'src'),
+    path.join(repoRoot, 'src'),
     path.join(repoRoot, 'scripts'),
     path.join(repoRoot, 'src'),
   ];
@@ -160,11 +160,11 @@ function computeSrcNewest(repoRoot: string): number {
     path.join(repoRoot, 'package-lock.json'),
     path.join(repoRoot, 'bun.lock'),
     path.join(repoRoot, 'bun.lockb'),
-    path.join(repoRoot, 'servers', 'exarchos-mcp', 'package.json'),
-    path.join(repoRoot, 'servers', 'exarchos-mcp', 'package-lock.json'),
-    path.join(repoRoot, 'servers', 'exarchos-mcp', 'bun.lock'),
-    path.join(repoRoot, 'servers', 'exarchos-mcp', 'bun.lockb'),
-    path.join(repoRoot, 'servers', 'exarchos-mcp', 'tsconfig.json'),
+    path.join(repoRoot, 'package.json'),
+    path.join(repoRoot, 'package-lock.json'),
+    path.join(repoRoot, 'bun.lock'),
+    path.join(repoRoot, 'bun.lockb'),
+    path.join(repoRoot, 'tsconfig.json'),
     path.join(repoRoot, 'tsconfig.json'),
   ];
 

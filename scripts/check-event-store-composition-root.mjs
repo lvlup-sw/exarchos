@@ -41,8 +41,6 @@ function toPosix(p) {
 }
 const DEFAULT_SRC_ROOT = path.join(
   REPO_ROOT,
-  'servers',
-  'exarchos-mcp',
   'src',
 );
 

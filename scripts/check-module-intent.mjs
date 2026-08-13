@@ -53,7 +53,7 @@ import process from 'node:process';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, '..');
-const DEFAULT_SRC_ROOT = path.join(REPO_ROOT, 'servers', 'exarchos-mcp', 'src');
+const DEFAULT_SRC_ROOT = path.join(REPO_ROOT, 'src');
 const DEFAULT_REFGRAPH = path.join(REPO_ROOT, 'scripts', 'audit', 'refgraph.mjs');
 
 const EXIT_CLEAN = 0;

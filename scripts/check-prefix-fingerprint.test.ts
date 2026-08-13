@@ -35,8 +35,6 @@ const REPO_ROOT = path.resolve(__dirname, '..');
 const SCRIPT = path.join(REPO_ROOT, 'scripts', 'check-prefix-fingerprint.mjs');
 const COMMITTED_FINGERPRINT = path.join(
   REPO_ROOT,
-  'servers',
-  'exarchos-mcp',
   'src',
   'projections',
   'rehydration',

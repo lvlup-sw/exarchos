@@ -44,8 +44,6 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, '..');
 const CLI_ENTRY = path.join(
   REPO_ROOT,
-  'servers',
-  'exarchos-mcp',
   'src',
   'projections',
   'rehydration',
@@ -77,8 +75,6 @@ function resolveTsx() {
     path.join(REPO_ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs'),
     path.join(
       REPO_ROOT,
-      'servers',
-      'exarchos-mcp',
       'node_modules',
       'tsx',
       'dist',

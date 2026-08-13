@@ -211,7 +211,7 @@ describe.skipIf(process.platform === 'win32')('stryker-adapter composed path —
   it('produces a parseable carrier with real mutant counts over a tiny 2-commit diff', () => {
     const tmpRoot = mkdtempSync(path.join(tmpdir(), 'stryker-adapter-smoke-'));
     try {
-      const serverDir = path.join(tmpRoot, 'servers', 'exarchos-mcp');
+      const serverDir = path.join(tmpRoot);
       mkdirSync(path.join(serverDir, 'src', 'fixture'), { recursive: true });
       mkdirSync(path.join(serverDir, 'scripts'), { recursive: true });
       symlinkSync(path.join(REAL_SERVER_DIR, 'node_modules'), path.join(serverDir, 'node_modules'), 'dir');

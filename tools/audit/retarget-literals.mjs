@@ -31,6 +31,15 @@ const EXCLUDED_FILES = ['tools/audit/move-table.mjs'];
 // stops at its delimiter.
 const LITERAL_RE = /servers\/exarchos-mcp(?:\/[A-Za-z0-9_.@\-/*]*)?/g;
 
+// The same path spelled SEGMENT-WISE: `path.join(ROOT, 'servers',
+// 'exarchos-mcp', 'src')`. No single string contains the package path, so
+// LITERAL_RE cannot see it — and these are the ones that keep a guard pointed
+// at a directory that no longer exists while its own self-test still passes.
+// Removing the two segments leaves the call resolving to the repo root, which
+// is what the package root became.
+const SEGMENTS_WITH_TAIL = /'servers',\s*'exarchos-mcp',\s*/g;
+const SEGMENTS_AT_END = /,\s*'servers',\s*'exarchos-mcp'(?=\s*[),])/g;
+
 const tracked = execFileSync('git', ['-C', ROOT, 'ls-files'], { encoding: 'utf8', maxBuffer: 256e6 })
   .split('\n')
   .filter(Boolean)
@@ -51,10 +60,17 @@ for (const rel of tracked) {
   } catch {
     continue;
   }
-  if (!src.includes('servers/exarchos-mcp')) continue;
+  const hasSegments = /'servers',\s*'exarchos-mcp'/.test(src);
+  if (!src.includes('servers/exarchos-mcp') && !hasSegments) continue;
 
   let n = 0;
-  const out = src.replace(LITERAL_RE, (lit) => {
+  let out = src;
+  if (hasSegments) {
+    const before = out;
+    out = out.replace(SEGMENTS_WITH_TAIL, '').replace(SEGMENTS_AT_END, '');
+    if (out !== before) n += (before.match(/'servers',\s*'exarchos-mcp'/g) ?? []).length;
+  }
+  out = out.replace(LITERAL_RE, (lit) => {
     // Trailing separators and glob tails are preserved by mapping the literal
     // as-is; the table's prefixes all end in `/` so a bare directory reference
     // still matches.
