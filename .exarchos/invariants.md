@@ -42,7 +42,7 @@ invariants:
         2013) — chapter on Event Sourcing"
     references:
       - docs/architecture/invariants/references/INV-1-event-sourcing.md
-      - servers/exarchos-mcp/src/verbs/gates/check-invariant-conformance.ts
+      - src/verbs/gates/check-invariant-conformance.ts
       - docs/architecture/projections.md
 
   - id: INV-7
@@ -83,9 +83,9 @@ invariants:
         https://dl.acm.org/doi/10.1145/356842.356846"
       - "SQLite WAL documentation: https://sqlite.org/wal.html"
     references:
-      - servers/exarchos-mcp/src/events/atomic-appender.ts
-      - servers/exarchos-mcp/src/storage/sqlite-backend.ts
-      - servers/exarchos-mcp/test/process/multi-process-append.test.ts
+      - src/events/atomic-appender.ts
+      - src/storage/sqlite-backend.ts
+      - test/core/process/multi-process-append.test.ts
       - docs/architecture/runtime.md#§4
 
   - id: INV-8
@@ -131,7 +131,7 @@ invariants:
       - "Greg Young, *Versioning in an Event Sourced System* (Leanpub):
         https://leanpub.com/esversioning"
     references:
-      - servers/exarchos-mcp/src/events/atomic-appender.ts
+      - src/events/atomic-appender.ts
       - docs/architecture/runtime.md#§4
 
   - id: INV-9
@@ -157,8 +157,8 @@ invariants:
         https://jeremydmiller.com/2023/12/06/building-a-critter-stack-applicati\
         on-wolverines-aggregate-handler-workflow-ftw/"
     references:
-      - servers/exarchos-mcp/src/workflow/topology/phase-contract.ts
-      - servers/exarchos-mcp/src/workflow/hsm-definitions.ts
+      - src/workflow/topology/phase-contract.ts
+      - src/workflow/hsm-definitions.ts
       - docs/architecture/runtime.md#§3-L4
 
   - id: INV-10
@@ -187,7 +187,7 @@ invariants:
         https://learn.microsoft.com/en-us/azure/architecture/patterns/scheduler\
         -agent-supervisor"
     references:
-      - servers/exarchos-mcp/src/verbs/merge/merge-orchestrate.ts
+      - src/verbs/merge/merge-orchestrate.ts
       - docs/architecture/runtime.md#§6
 
   - id: INV-11
@@ -245,9 +245,9 @@ invariants:
       - "anip-protocol SPEC — posture and handshake (convergent design):
         https://github.com/anip-protocol/anip/blob/main/SPEC.md"
     references:
-      - servers/exarchos-mcp/src/capabilities/resolver.ts
-      - servers/exarchos-mcp/src/agents/generate-agents.ts
-      - servers/exarchos-mcp/src/launcher/create-worktree.ts
+      - src/workflow/capabilities/resolver.ts
+      - src/runtime/agents/generate-agents.ts
+      - src/runtime/launcher/create-worktree.ts
       - docs/architecture/runtime.md#§7
 
   - id: INV-12
@@ -279,8 +279,8 @@ invariants:
         https://interaction-design.org/literature/book/the-glossary-of-human-co\
         mputer-interaction/affordances"
     references:
-      - servers/exarchos-mcp/src/next-actions-computer.ts
-      - servers/exarchos-mcp/src/format.ts
+      - src/next-actions-computer.ts
+      - src/format.ts
       - docs/architecture/runtime.md#§7
 
   - id: INV-13
@@ -306,7 +306,7 @@ invariants:
       mode: check
       check:
         scope:
-          fileGlob: "servers/exarchos-mcp/src/verbs/**"
+          fileGlob: "src/verbs/**"
         node:
           any-of:
             - kind: grep
@@ -340,8 +340,8 @@ invariants:
       - "Greg Young, *Why Event Sourced Systems Fail*:
         https://www.youtube.com/watch?v=FKFu78ZEIi8"
     references:
-      - servers/exarchos-mcp/src/verbs/merge/merge-orchestrate.ts
-      - servers/exarchos-mcp/src/events/atomic-appender.ts
+      - src/verbs/merge/merge-orchestrate.ts
+      - src/events/atomic-appender.ts
       - docs/architecture/runtime.md#§4-process-manager-handlers
 
   - id: INV-14
@@ -367,7 +367,7 @@ invariants:
       check:
         kind: grep
         pattern: "\\n\\+[^\\n]*'reset', *'--hard'"
-        fileGlob: "servers/exarchos-mcp/src/**"
+        fileGlob: "src/**"
     axis: substrate
     cost-of-load: reference-only
     applies-to:
@@ -393,7 +393,7 @@ invariants:
       - "git documentation — `git merge --abort`, `git reset --keep`:
         https://git-scm.com/docs/git-reset"
     references:
-      - servers/exarchos-mcp/src/verbs/merge/merge-orchestrate.ts
+      - src/verbs/merge/merge-orchestrate.ts
       - docs/architecture/runtime.md#§5
 
   - id: INV-15
@@ -497,9 +497,9 @@ invariants:
         https://modelcontextprotocol.io/specification/2025-06-18/server/tools"
     references:
       - docs/architecture/invariants/references/INV-2-facade-equivalence.md
-      - servers/exarchos-mcp/src/contract/cli/cli-contract-seam.ts
-      - servers/exarchos-mcp/src/contract/cli/generated-client.ts
-      - servers/exarchos-mcp/src/verbs/gates/check-invariant-conformance.ts
+      - src/contract/cli/cli-contract-seam.ts
+      - src/contract/cli/generated-client.ts
+      - src/verbs/gates/check-invariant-conformance.ts
       - docs/designs/archive/2026-05-07-milestone-16-mcp-alignment.md
 
   - id: INV-3
@@ -540,9 +540,9 @@ invariants:
         https://martinfowler.com/eaaCatalog/remoteFacade.html"
     references:
       - docs/architecture/invariants/references/INV-3-basileus-forward.md
-      - servers/exarchos-mcp/src/verbs/gates/check-invariant-conformance.ts
-      - servers/exarchos-mcp/src/capabilities/resolver.ts
-      - servers/exarchos-mcp/src/adapters/mcp/remote-mcp.ts
+      - src/verbs/gates/check-invariant-conformance.ts
+      - src/workflow/capabilities/resolver.ts
+      - src/adapters/mcp/remote-mcp.ts
 
   - id: INV-4
     dimension: platform-agnosticity
@@ -603,7 +603,7 @@ invariants:
         https://modelcontextprotocol.io/specification/2025-06-18/architecture"
     references:
       - docs/architecture/invariants/references/INV-4-platform-agnosticity.md
-      - servers/exarchos-mcp/src/verbs/gates/check-invariant-conformance.ts
+      - src/verbs/gates/check-invariant-conformance.ts
       - skills-src/SKILL_AUTHORING.md
 
   - id: INV-5a
@@ -639,9 +639,9 @@ invariants:
         https://json-schema.org/draft/2020-12/json-schema-validation"
     references:
       - docs/architecture/invariants/references/INV-5a-input-ergonomics.md
-      - servers/exarchos-mcp/src/verbs/gates/check-invariant-conformance.ts
-      - servers/exarchos-mcp/src/registry.ts
-      - servers/exarchos-mcp/src/adapters/cli/schema-to-flags.ts
+      - src/verbs/gates/check-invariant-conformance.ts
+      - src/registry.ts
+      - src/adapters/cli/schema-to-flags.ts
 
   - id: INV-5b
     dimension: output-contract
@@ -670,10 +670,10 @@ invariants:
         https://json-schema.org/draft/2020-12/json-schema-validation"
     references:
       - docs/architecture/invariants/references/INV-5b-output-contract.md
-      - servers/exarchos-mcp/src/verbs/gates/check-invariant-conformance.ts
-      - servers/exarchos-mcp/src/format.ts
-      - servers/exarchos-mcp/src/next-actions-computer.ts
-      - servers/exarchos-mcp/src/mcp/tasks-methods.ts
+      - src/verbs/gates/check-invariant-conformance.ts
+      - src/format.ts
+      - src/next-actions-computer.ts
+      - src/mcp/tasks-methods.ts
 
   - id: INV-5c
     dimension: aspire-verbs
@@ -698,9 +698,9 @@ invariants:
         https://12factor.net/admin-processes"
     references:
       - docs/architecture/invariants/references/INV-5c-aspire-verbs.md
-      - servers/exarchos-mcp/src/verbs/gates/check-invariant-conformance.ts
-      - servers/exarchos-mcp/src/describe/handler.ts
-      - servers/exarchos-mcp/src/adapters/cli/cli.ts
+      - src/verbs/gates/check-invariant-conformance.ts
+      - src/describe/handler.ts
+      - src/adapters/cli/cli.ts
 
   - id: INV-5d
     dimension: action-discriminator
@@ -729,9 +729,9 @@ invariants:
       openWorldHint) live on CompositeAction post-#1268.
     references:
       - docs/architecture/invariants/references/INV-5d-action-discriminator.md
-      - servers/exarchos-mcp/src/verbs/gates/check-invariant-conformance.ts
-      - servers/exarchos-mcp/src/registry.ts
-      - servers/exarchos-mcp/src/adapters/mcp/mcp.ts
+      - src/verbs/gates/check-invariant-conformance.ts
+      - src/registry.ts
+      - src/adapters/mcp/mcp.ts
 
   - id: INV-6
     dimension: workload-agnosticism
@@ -801,7 +801,7 @@ invariants:
       check:
         kind: grep
         pattern: "\\n\\+[^\\n]*new +URL *\\( *import\\.meta\\.url *\\) *\\.pathname"
-        fileGlob: "servers/exarchos-mcp/src/**"
+        fileGlob: "src/**"
     axis: substrate
     cost-of-load: reference-only
     applies-to:
@@ -829,9 +829,9 @@ invariants:
       - "Node.js, *fs.rm* (maxRetries/retryDelay for EBUSY/EPERM on Windows):
         https://nodejs.org/api/fs.html#fspromisesrmpath-options"
     references:
-      - servers/exarchos-mcp/src/utils/paths.ts
-      - servers/exarchos-mcp/src/utils/process.ts
-      - servers/exarchos-mcp/src/test-helpers/temp-dir.ts
+      - src/utils/paths.ts
+      - src/utils/process.ts
+      - tools/test-helpers/temp-dir.ts
       - scripts/check-windows-portability.mjs
       - .github/workflows/ci.yml
 
@@ -849,9 +849,9 @@ invariants:
       coordination uses the Ontology MCP Server (intent_register) rather than
       bespoke RPC. Strategos.Contracts via TypeSpec governs schema.
     references:
-      - servers/exarchos-mcp/src/verbs/gates/check-invariant-conformance.ts
+      - src/verbs/gates/check-invariant-conformance.ts
       - docs/research/2026-05-14-semantic-merge-queue-audit.md
-      - servers/exarchos-mcp/src/sync
+      - src/sync
   - id: INV-17
     dimension: response-economy
     axis: substrate
@@ -877,10 +877,10 @@ invariants:
       INV-17 is the response-economy specialization of that output-contract
       totality obligation."
     references:
-      - servers/exarchos-mcp/src/registry.ts
-      - servers/exarchos-mcp/src/dispatch/core/dispatch.ts
-      - servers/exarchos-mcp/src/dispatch/core/dispatch.economy-seam.ts
-      - servers/exarchos-mcp/src/dispatch/core/economy.ts
+      - src/registry.ts
+      - src/dispatch/core/dispatch.ts
+      - src/dispatch/core/dispatch.economy-seam.ts
+      - src/dispatch/core/economy.ts
       - docs/specs/2026-07-12-tool-token-economy-remediation.md
     citations:
       - "Anthropic, *Writing effective tools for AI agents / tool-use best
@@ -946,11 +946,11 @@ invariants:
 
         Report each vacuous declaration by action + file:line. The live baseline
         is enumerated by
-        `servers/exarchos-mcp/src/architecture/output-schema-census.ts` — read
+        `tools/conformance/src/output-schema-census.ts` — read
         it rather than quoting a count — and pinned shrink-only by the allowlist
-        in `servers/exarchos-mcp/src/output-schema-vacuity-allowlist.ts`, whose
+        in `src/output-schema-vacuity-allowlist.ts`, whose
         key set is frozen in
-        `servers/exarchos-mcp/src/output-schema-seed-pin.ts`. A diff adding a
+        `tools/conformance/src/output-schema-seed-pin.ts`. A diff adding a
         vacuous declaration, or moving an allowlist entry sideways rather than
         off, is a violation.
     severity:
@@ -983,12 +983,12 @@ The catalog gates behind the `.exarchos.yml: invariants.devCatalog: enabled` fla
 
 ## Vocabulary
 
-The vocabulary-lint scanner (`servers/exarchos-mcp/src/architecture/vocabulary-lint.ts`, exposed via `npm run lint:invariants`) walks the live normative surfaces — `docs/architecture/`, `docs/guides/`, `skills-src/`, and `commands/` — for tokens matching `/\b(INV-\d+[a-d]?|DIM-\d+)\b/` and cross-checks against the IDs declared here. Dated record trees under `docs/` (designs, plans, research, rca, contexts, followups, proposals) are intentionally out of scope so retired vocabulary (e.g. the `DIM-*` dimensions removed in #1477) does not fail the lint forever; the `DIM-\d+` shape is retained in the regex so a stray reference in a live surface still surfaces. Unknown references are findings; the vocabulary lint is enforcing (exits non-zero on findings).
+The vocabulary-lint scanner (`src/architecture/vocabulary-lint.ts`, exposed via `npm run lint:invariants`) walks the live normative surfaces — `docs/architecture/`, `docs/guides/`, `skills-src/`, and `commands/` — for tokens matching `/\b(INV-\d+[a-d]?|DIM-\d+)\b/` and cross-checks against the IDs declared here. Dated record trees under `docs/` (designs, plans, research, rca, contexts, followups, proposals) are intentionally out of scope so retired vocabulary (e.g. the `DIM-*` dimensions removed in #1477) does not fail the lint forever; the `DIM-\d+` shape is retained in the regex so a stray reference in a live surface still surfaces. Unknown references are findings; the vocabulary lint is enforcing (exits non-zero on findings).
 
 ## Consumers
 
 - `/exarchos:ideate` — surfaces relevant invariants as Constraints during Phase 0 (before Phase 1), before the clarifying questions.
-- `check_invariant_conformance` gate (`servers/exarchos-mcp/src/verbs/gates/check-invariant-conformance.ts`) — audits design proposals against INV-1..INV-15 (substrate runtime invariants). The audit prompt is catalog-generated (`servers/exarchos-mcp/src/architecture/audit-prompt.ts`). This gate replaced the retired `design-invariants` skill (T-23).
+- `check_invariant_conformance` gate (`src/verbs/gates/check-invariant-conformance.ts`) — audits design proposals against INV-1..INV-15 (substrate runtime invariants). The audit prompt is catalog-generated (`src/architecture/audit-prompt.ts`). This gate replaced the retired `design-invariants` skill (T-23).
 - `vocabulary-lint` — flags references to invariant IDs not registered here.
 - Future: `#1275` MCP Resources — expose this catalog as `resources/exarchos-invariants` once Resources land.
 
@@ -996,4 +996,4 @@ The vocabulary-lint scanner (`servers/exarchos-mcp/src/architecture/vocabulary-l
 
 - [`docs/architecture/projections.md`](projections.md) — projection layer specifics.
 - [`docs/architecture/runtime.md`](runtime.md) — runtime / capability resolution.
-- [`check-invariant-conformance.ts`](../../servers/exarchos-mcp/src/verbs/gates/check-invariant-conformance.ts) — the conformance gate that consumes this catalog (replaced the retired `design-invariants` skill in T-23).
+- [`check-invariant-conformance.ts`](../../src/verbs/gates/check-invariant-conformance.ts) — the conformance gate that consumes this catalog (replaced the retired `design-invariants` skill in T-23).

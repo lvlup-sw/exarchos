@@ -44,7 +44,15 @@ const LOCK_NOTE =
   'removed `@modelcontextprotocol/sdk` — the `mcp-sdk` and `mcp-protocol` ' +
   'authorities now read from `@modelcontextprotocol/server`. The protocol ' +
   'VERSION is unchanged across that move, which is the freeze corroborating ' +
-  "DR-0's no-wire-change claim rather than merely restating it). Regenerate with " +
+  "DR-0's no-wire-change claim rather than merely restating it); re-approved " +
+  'again after task 019 folded the `servers/exarchos-mcp` package into the ' +
+  'repo root — the catalog cited 54 file paths inside the dissolved package, ' +
+  'and a citation that resolves to nothing governs nothing. The retarget is ' +
+  'MECHANICAL: every reference was mapped through the fold\'s own move table ' +
+  'and verified to exist on disk, and NO invariant summary, dimension, ' +
+  'enforcement mode or audit prompt changed. The freeze re-enters through this ' +
+  'gesture because the frozen input is the catalog TEXT, which moved even ' +
+  'though nothing it asserts did). Regenerate with ' +
   '`npx tsx src/contract/authority-lock-cli.ts` after reviewing and approving ' +
   'the new authority digests, then commit this file.';
 
@@ -54,7 +62,7 @@ const LOCK_NOTE =
  * lockfile carries the provenance of the approval rather than of the tool.
  */
 export const CURRENT_APPROVER =
-  'internal-mechanics-overhaul (DR-0 task 049 — MCP SDK v1→v2 source migration)';
+  'exarchos-repo-structure-cleanup (task 019/020 — servers/ fold, catalog path retarget)';
 
 export function regenerateAuthorityLock(approvedBy = CURRENT_APPROVER): string {
   const paths = defaultSourcePaths();
