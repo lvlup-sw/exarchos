@@ -37,7 +37,7 @@ import {
   PREFIX_TOKENS,
   ORCHESTRATION_TOKENS,
   type SkillClass,
-} from './build-skills.js';
+} from './skill-vocabulary.js';
 
 /**
  * Canonical vocabulary of placeholder tokens that `skills-src/` sources
