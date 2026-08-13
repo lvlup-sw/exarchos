@@ -130,7 +130,7 @@ describe('parity: exarchos event query — CLI ↔ MCP', () => {
 
         // Terminate the MCP server BEFORE invoking the CLI. The
         // EventStore uses a per-PID lock (DR-5, see
-        // servers/exarchos-mcp/src/event-store/cli-concurrency.test.ts);
+        // src/event-store/cli-concurrency.test.ts);
         // a CLI process started while the MCP holds the lock is
         // diverted to sidecar mode or blocks. Sequentializing the
         // transports keeps the test deterministic — both transports
@@ -144,7 +144,7 @@ describe('parity: exarchos event query — CLI ↔ MCP', () => {
           command: WORKTREE_BINARY,
           args: ['event', 'query', '--stream', featureId, '--json'],
           // WORKFLOW_STATE_DIR is the load-bearing var
-          // (servers/exarchos-mcp/src/utils/paths.ts:54).
+          // (src/utils/paths.ts:54).
           env: {
             WORKFLOW_STATE_DIR: env.stateDir,
             EXARCHOS_STATE_DIR: env.stateDir,

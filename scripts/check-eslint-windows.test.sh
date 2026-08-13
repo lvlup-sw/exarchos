@@ -8,7 +8,7 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || { echo "cannot cd to repo root: $ROOT" >&2; exit 1; }
-FX="servers/exarchos-mcp/src/__eslint_selftest__.ts"
+FX="src/__eslint_selftest__.ts"
 trap 'rm -f "$FX"' EXIT
 fail=0
 

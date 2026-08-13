@@ -22,7 +22,7 @@
 // this census was built to expose, and that disagreement is pinned below rather
 // than smoothed over.
 //
-// @oracle-sources: ../../../servers/exarchos-mcp/src/registry.ts, the Zod schema objects the live tool registry constructs at module-import time and the census walks structurally
+// @oracle-sources: ../../../src/registry.ts, the Zod schema objects the live tool registry constructs at module-import time and the census walks structurally
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
@@ -37,9 +37,9 @@ import {
   censusLiveOutputSchemas,
   OUTPUT_SCHEMA_PORTS,
 } from './bindings/output-schema.js';
-import { acceptsEveryValue } from '../../../servers/exarchos-mcp/src/contract/schemas/schema-totality.js';
-import { TOOL_REGISTRY } from '../../../servers/exarchos-mcp/src/registry.js';
-import { EnvelopeSchema } from '../../../servers/exarchos-mcp/src/contract/schemas/envelope.js';
+import { acceptsEveryValue } from '../../../src/contract/schemas/schema-totality.js';
+import { TOOL_REGISTRY } from '../../../src/registry.js';
+import { EnvelopeSchema } from '../../../src/contract/schemas/envelope.js';
 
 // ─── Authority A — the declaration form, read from registry source text ──────
 //

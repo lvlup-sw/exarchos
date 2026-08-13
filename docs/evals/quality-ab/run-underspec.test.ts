@@ -35,7 +35,7 @@ import {
   type RunModelFn,
   type ModelRunResult,
 } from './run-underspec.js';
-import type { Provenance } from '../../../servers/exarchos-mcp/src/evals/provenance.js';
+import type { Provenance } from '../../../tools/evals/evals/provenance.js';
 
 const SUBPROCESS_TIMEOUT = 120_000;
 // The grading path spawns `tsx`/`git` subprocesses (oracle run + diff-scoped

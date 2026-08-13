@@ -48,7 +48,7 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 /** The tool's repo root (scripts/audit/ → repo). Overridable for fixture tests. */
 export const REPO_ROOT = path.resolve(SCRIPT_DIR, '..', '..');
 /** The governed source root, repo-RELATIVE (POSIX) — the pair-path prefix. */
-export const SRC_ROOT_REL = 'servers/exarchos-mcp/src';
+export const SRC_ROOT_REL = 'src';
 
 /** @param {string} p */
 function toPosix(p) {
@@ -142,7 +142,7 @@ export function showAtRef(ref, relPath, ctx) {
  * A bare `<srcRootRel>/<base>.test.ts` (no area subdir) has no legacy mirror and
  * is skipped. Keyed strictly on `(area, basename)`. Pure.
  * @param {string[]} paths          Repo-relative POSIX changed paths.
- * @param {string} srcRootRel       e.g. `servers/exarchos-mcp/src`.
+ * @param {string} srcRootRel       e.g. `src`.
  * @returns {string[]}              Sorted, de-duplicated pair ids.
  */
 export function deriveTouchedPairIds(paths, srcRootRel) {

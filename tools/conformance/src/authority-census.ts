@@ -84,7 +84,7 @@
 // cast-free idiom `authority-topology.ts` and `contract/declaration.ts` use.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import type { ClosureDiagnostic, HopStatus } from '../../../servers/exarchos-mcp/src/contract/reachability/graph.js';
+import type { ClosureDiagnostic, HopStatus } from '../../../src/contract/reachability/graph.js';
 import { BOUNDARY_DERIVATIONS } from './bindings/index.js';
 import {
   CONTRACT_BOUNDARIES,
@@ -284,9 +284,9 @@ export const BOUNDARY_HOP_EVIDENCE: BoundaryHopEvidence = Object.freeze({
       hop: 'authority',
       evidence: 'live-measurement',
       oracle: Object.freeze({
-        module: 'servers/exarchos-mcp/scripts/authority-live-proof.ts',
+        module: 'scripts/core/authority-live-proof.ts',
         entrypoint: 'measureCliSurfaceLive',
-        subjects: Object.freeze(['servers/exarchos-mcp/src/adapters/cli/cli.ts']),
+        subjects: Object.freeze(['src/adapters/cli/cli.ts']),
       }),
       why: 'task 026 parses the governed composition root and classifies every `.command(…)` site, so the SECOND authoritative representation is counted from the tree rather than transcribed.',
     }),
@@ -295,9 +295,9 @@ export const BOUNDARY_HOP_EVIDENCE: BoundaryHopEvidence = Object.freeze({
       hop: 'binding',
       evidence: 'live-measurement',
       oracle: Object.freeze({
-        module: 'servers/exarchos-mcp/scripts/authority-live-proof.ts',
+        module: 'scripts/core/authority-live-proof.ts',
         entrypoint: 'measureCliSurfaceLive',
-        subjects: Object.freeze(['servers/exarchos-mcp/src/adapters/cli/cli.ts']),
+        subjects: Object.freeze(['src/adapters/cli/cli.ts']),
       }),
       why: 'the same scan decides each representation\'s binding from its own site classification (all-derived is bound, anything else is not) — the binding claim is measured, not declared.',
     }),
@@ -336,18 +336,18 @@ export const BOUNDARY_HOP_EVIDENCE: BoundaryHopEvidence = Object.freeze({
       hop: 'authority',
       evidence: 'live-measurement',
       oracle: Object.freeze({
-        module: 'servers/exarchos-mcp/scripts/authority-live-proof.ts',
+        module: 'scripts/core/authority-live-proof.ts',
         entrypoint: 'measureEventCatalog',
         subjects: Object.freeze([
-          'servers/exarchos-mcp/src/events/schemas.ts',
+          'src/events/schemas.ts',
           // Added when task 011 landed. It derived `EVENT_EMISSION_REGISTRY` from the DR-2 tier
           // instead of hand-writing 170 values, so parsing `schemas.ts` for string-valued entries
           // measures a literal that no longer exists. The oracle now reads the tier/lifecycle facts
           // where they are DECLARED, and this subject list follows it — which is the whole point of
           // deriving the list from the oracle's own sources rather than restating it.
-          'servers/exarchos-mcp/src/events/event-annotations.ts',
-          'servers/exarchos-mcp/src/registry.ts',
-          'servers/exarchos-mcp/src/verbs/gates/check-event-emissions.ts',
+          'src/events/event-annotations.ts',
+          'src/registry.ts',
+          'src/verbs/gates/check-event-emissions.ts',
           'skills-src',
         ]),
       }),
@@ -358,18 +358,18 @@ export const BOUNDARY_HOP_EVIDENCE: BoundaryHopEvidence = Object.freeze({
       hop: 'binding',
       evidence: 'live-measurement',
       oracle: Object.freeze({
-        module: 'servers/exarchos-mcp/scripts/authority-live-proof.ts',
+        module: 'scripts/core/authority-live-proof.ts',
         entrypoint: 'measureEventCatalog',
         subjects: Object.freeze([
-          'servers/exarchos-mcp/src/events/schemas.ts',
+          'src/events/schemas.ts',
           // Added when task 011 landed. It derived `EVENT_EMISSION_REGISTRY` from the DR-2 tier
           // instead of hand-writing 170 values, so parsing `schemas.ts` for string-valued entries
           // measures a literal that no longer exists. The oracle now reads the tier/lifecycle facts
           // where they are DECLARED, and this subject list follows it — which is the whole point of
           // deriving the list from the oracle's own sources rather than restating it.
-          'servers/exarchos-mcp/src/events/event-annotations.ts',
-          'servers/exarchos-mcp/src/registry.ts',
-          'servers/exarchos-mcp/src/verbs/gates/check-event-emissions.ts',
+          'src/events/event-annotations.ts',
+          'src/registry.ts',
+          'src/verbs/gates/check-event-emissions.ts',
           'skills-src',
         ]),
       }),

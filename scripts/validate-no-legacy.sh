@@ -24,7 +24,7 @@
 # Entry-point allowlist policy (task 3.11 authoritative statement)
 # ─────────────────────────────────────────────────────────────────────────
 # The knip.json config declares TWO workspaces — root (".") and
-# servers/exarchos-mcp — each with its own `entry` array. An entry must
+# the single product workspace — with its own `entry` array. An entry must
 # satisfy ONE of:
 #
 #   (a) true binary / CLI script (e.g. src/skills-guard.ts, invoked via

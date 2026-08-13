@@ -5,12 +5,12 @@
  *
  * Invocation seam (documented per the task brief — read this before changing
  * it): the in-tree `mutation-adequacy` orchestrate action
- * (`servers/exarchos-mcp/src/verbs/gates/mutation-adequacy.ts`) is invoked
+ * (`src/verbs/gates/mutation-adequacy.ts`) is invoked
  * **in-process, through the real server entrypoint** (the same
  * `handleMutationAdequacy` function the MCP `exarchos_orchestrate` tool
  * dispatches to) rather than shelling out to a CLI or re-implementing its
  * logic. `handleMutationAdequacy` requires a real `EventStore`, and
- * `EventStore` (`servers/exarchos-mcp/src/events/store.ts`) unconditionally
+ * `EventStore` (`src/events/store.ts`) unconditionally
  * pulls in the SQLite backend, which imports `bun:sqlite` — a virtual module
  * scheme only Bun's runtime resolves. Plain Node (and therefore `tsx`, which
  * still executes under Node) rejects it with `ERR_UNSUPPORTED_ESM_URL_SCHEME`
@@ -31,7 +31,7 @@
  *
  * Skip/failure taxonomy (DR-7, exact):
  *   - non-`pull_request` GH event               → logged SKIP, exit 0.
- *   - server-scoped diff (`servers/exarchos-mcp/src/**`) is empty  → logged
+ *   - server-scoped diff (`src/**`) is empty  → logged
  *     SKIP, exit 0. Computed by THIS script before the handler is ever
  *     invoked (cheap, and lets the two skip reasons stay exhaustive and
  *     attributable independent of what the handler itself would have done).
@@ -259,7 +259,7 @@ function assertHeadIsCheckout(repoRoot, head) {
   return { ok: true };
 }
 
-/** `git diff --name-only <base>...<head> -- servers/exarchos-mcp/src`. */
+/** `git diff --name-only <base>...<head> -- src`. */
 function diffServerScope(repoRoot, base, head) {
   const diff = runGit(repoRoot, ['diff', '--name-only', `${base}...${head}`, '--', SERVER_SRC_SCOPE]);
   if (!diff.ok) {

@@ -6,14 +6,14 @@
       "kind": "module-set",
       "matched": 94,
       "detail": {
-        "pattern": "^servers/exarchos-mcp/src/(events|workflow)/"
+        "pattern": "^src/(events|workflow)/"
       }
     },
     "depcruise:no-domain-core-to-io-adapters:to": {
       "kind": "module-set",
       "matched": 28,
       "detail": {
-        "pattern": "^servers/exarchos-mcp/src/adapters/"
+        "pattern": "^src/adapters/"
       }
     },
     "codeowners:*": {
@@ -89,7 +89,7 @@
       "matched": 51,
       "detail": {
         "declared": 51,
-        "generatedFrom": "servers/exarchos-mcp/src"
+        "generatedFrom": "src"
       }
     },
     "invariants:references": {
@@ -103,7 +103,7 @@
       "kind": "lint-scope",
       "matched": 1523,
       "detail": {
-        "glob": "servers/exarchos-mcp/src/**/*.ts"
+        "glob": "src/**/*.ts"
       }
     },
     "lint:inv6": {

@@ -289,7 +289,7 @@ function filterGlobs(filters: Record<string, unknown>, filterName: string): stri
  * `skills:guard` / `hooks:guard` drift guards it hosts) never runs.
  *
  * Two coverage-closing additions ride the same contract:
- *   - `servers/exarchos-mcp/src/agents/**` — the agent-GENERATOR sources
+ *   - `src/runtime/agents/**` — the agent-GENERATOR sources
  *     that feed the rendered `agents/**` projection; without it a
  *     generator-only PR ships drift unobserved and `skills:guard` only
  *     fires on some LATER PR that touches the rendered output.
@@ -304,7 +304,7 @@ const REQUIRED_ROOT_PROJECTION_GLOBS = [
   'hooks/**',
   '.claude-plugin/**',
   'AGENTS.md',
-  'servers/exarchos-mcp/src/agents/**',
+  'src/runtime/agents/**',
   '.github/workflows/release.yml',
 ] as const;
 

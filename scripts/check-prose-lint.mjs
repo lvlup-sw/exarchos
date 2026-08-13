@@ -17,7 +17,7 @@
  *
  * How we reach the lint:
  *   - The canonical pattern catalog + scanner live in
- *     `servers/exarchos-mcp/src/projections/rehydration/prose-lint.ts`.
+ *     `src/projections/rehydration/prose-lint.ts`.
  *   - A tiny TS entrypoint (`prose-lint-cli.ts`, co-located with the
  *     module) calls either `lintTemplate()` or `lintProse(readFileSync(
  *     <path>))` and prints violations to stderr.

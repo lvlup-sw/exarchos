@@ -25,10 +25,10 @@ const ROOT_PACKAGE_NAME = '@lvlup-sw/exarchos';
 /**
  * The subject source tree, relative to the repository root.
  *
- * Task 019 folds `servers/exarchos-mcp/src/` up to `src/`; when it does, this
+ * Task 019 folds `src/` up to `src/`; when it does, this
  * constant is the only line that has to change.
  */
-export const SUBJECT_SRC_REL = 'servers/exarchos-mcp/src';
+export const SUBJECT_SRC_REL = 'src';
 
 function findRepoRoot(startDir: string): string {
   let dir = startDir;

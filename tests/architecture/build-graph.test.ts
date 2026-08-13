@@ -15,12 +15,12 @@ import { fileURLToPath } from 'node:url';
 // out. So the unification is DECLARATIVE — the policy and the package set are
 // written down and checked here, so a later collapse cannot drop them quietly.
 //
-// @oracle-sources: ../../servers/exarchos-mcp/vitest.config.ts, git-tracked-manifest-listing
+// @oracle-sources: ../../vitest.config.ts, git-tracked-manifest-listing
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../');
 
-const CORE_CONFIG = path.join(REPO_ROOT, 'servers/exarchos-mcp/vitest.config.ts');
+const CORE_CONFIG = path.join(REPO_ROOT, 'vitest.config.ts');
 const ROOT_CONFIG = path.join(REPO_ROOT, 'vitest.config.ts');
 
 /**
@@ -36,12 +36,12 @@ const DECLARED_PACKAGES: Readonly<
     disposition: 'retained',
     why: 'The exarchos CLI and its build/test entry points — the package a user installs.',
   },
-  'servers/exarchos-mcp/package.json': {
+  'package.json': {
     role: 'product',
     disposition: 'retained',
     why: 'The MCP server workspace. Shipped as part of the product, with its own dependency closure so the server can be built without the root tool chain.',
   },
-  'servers/exarchos-mcp/evals-pkg/package.json': {
+  'tools/evals-pkg/package.json': {
     role: 'tool',
     disposition: 'retained',
     why: 'RETAINED (task 011a). Opt-in promptfoo eval harness, isolated so the heavy eval-only dependency stays OUT of the default MCP-server install (DR-3). The graders resolve promptfoo from THIS package at runtime, and ci.yml names it in the prompts: paths-filter so a change here still fires RUN_EVALS. Retiring it would delete a live eval capability and orphan that filter.',
@@ -123,13 +123,13 @@ describe('ManifestSet_EveryTrackedPackageJson_IsClassifiedRetainedOrRetired', ()
     // Retained "under a declared home": the package states its own purpose, and
     // the filter that makes a change to it fire RUN_EVALS is still wired. If
     // either half disappears the eval lane stops firing silently.
-    const meta = DECLARED_PACKAGES['servers/exarchos-mcp/evals-pkg/package.json'];
+    const meta = DECLARED_PACKAGES['tools/evals-pkg/package.json'];
     expect(meta?.disposition).toBe('retained');
     const ci = readFileSync(path.join(REPO_ROOT, '.github/workflows/ci.yml'), 'utf8');
-    expect(ci).toContain('servers/exarchos-mcp/evals-pkg/**');
+    expect(ci).toContain('tools/evals-pkg/**');
 
     const manifest = JSON.parse(
-      readFileSync(path.join(REPO_ROOT, 'servers/exarchos-mcp/evals-pkg/package.json'), 'utf8'),
+      readFileSync(path.join(REPO_ROOT, 'tools/evals-pkg/package.json'), 'utf8'),
     ) as { private?: boolean; description?: string; dependencies?: Record<string, string> };
     // `private` is what keeps an opt-in tool package off the registry.
     expect(manifest.private).toBe(true);
@@ -141,7 +141,7 @@ describe('ManifestSet_EveryTrackedPackageJson_IsClassifiedRetainedOrRetired', ()
     // The entire reason this package exists (DR-3). If promptfoo appears in
     // either product manifest, the isolation has failed and every install pays
     // for it.
-    for (const productManifest of ['package.json', 'servers/exarchos-mcp/package.json']) {
+    for (const productManifest of ['package.json', 'package.json']) {
       const pkg = JSON.parse(readFileSync(path.join(REPO_ROOT, productManifest), 'utf8')) as {
         dependencies?: Record<string, string>;
         devDependencies?: Record<string, string>;

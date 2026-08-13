@@ -3,8 +3,8 @@
  * consolidate-suite.mjs — de-diverge duplicate-location test pairs (DR-2 / DR-6).
  *
  * A "pair" is a single unit tested from TWO directories:
- *   - legacy copy      servers/exarchos-mcp/src/__tests__/<area>/<base>.test.ts
- *   - co-located copy   servers/exarchos-mcp/src/<area>/<base>.test.ts
+ *   - legacy copy      src/__tests__/<area>/<base>.test.ts
+ *   - co-located copy   src/<area>/<base>.test.ts
  *
  * The pair identity key is strictly `(area, basename)`, so `workflow/schemas`
  * and `event-store/schemas` are DISTINCT pairs (likewise `workflow/tools` vs

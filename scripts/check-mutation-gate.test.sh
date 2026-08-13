@@ -56,16 +56,16 @@ fi
 # ── fixture repo (no network; local git only) ───────────────────────────────
 
 FIXTURE="$TMP/fixture-repo"
-mkdir -p "$FIXTURE/servers/exarchos-mcp/src"
+mkdir -p "$FIXTURE/src"
 git -C "$FIXTURE" init -q
 git -C "$FIXTURE" config user.email test@example.com
 git -C "$FIXTURE" config user.name "check-mutation-gate self-test"
-echo "export const x = 1;" > "$FIXTURE/servers/exarchos-mcp/src/fake.ts"
+echo "export const x = 1;" > "$FIXTURE/src/fake.ts"
 git -C "$FIXTURE" add -A
 git -C "$FIXTURE" commit -q -m base
 BASE_SHA="$(git -C "$FIXTURE" rev-parse HEAD)"
 
-echo "export const y = 2;" >> "$FIXTURE/servers/exarchos-mcp/src/fake.ts"
+echo "export const y = 2;" >> "$FIXTURE/src/fake.ts"
 git -C "$FIXTURE" add -A
 git -C "$FIXTURE" commit -q -m change
 HEAD_SHA="$(git -C "$FIXTURE" rev-parse HEAD)"
@@ -80,7 +80,7 @@ EOF
 
 REPORT_NOCOVERAGE="$TMP/report-nocoverage.json"
 cat > "$REPORT_NOCOVERAGE" <<'EOF'
-{"schemaVersion":"1.0","files":{"servers/exarchos-mcp/src/fake.ts":{"language":"typescript","mutants":[
+{"schemaVersion":"1.0","files":{"src/fake.ts":{"language":"typescript","mutants":[
  {"id":"1","mutatorName":"m","status":"NoCoverage","location":{"start":{"line":1,"column":1},"end":{"line":1,"column":2}}},
  {"id":"2","mutatorName":"m","status":"Killed","location":{"start":{"line":2,"column":1},"end":{"line":2,"column":2}}}
 ]}}}
@@ -88,7 +88,7 @@ EOF
 
 REPORT_ALLCOVERED="$TMP/report-allcovered.json"
 cat > "$REPORT_ALLCOVERED" <<'EOF'
-{"schemaVersion":"1.0","files":{"servers/exarchos-mcp/src/fake.ts":{"language":"typescript","mutants":[
+{"schemaVersion":"1.0","files":{"src/fake.ts":{"language":"typescript","mutants":[
  {"id":"1","mutatorName":"m","status":"Killed","location":{"start":{"line":1,"column":1},"end":{"line":1,"column":2}}},
  {"id":"2","mutatorName":"m","status":"Killed","location":{"start":{"line":2,"column":1},"end":{"line":2,"column":2}}}
 ]}}}

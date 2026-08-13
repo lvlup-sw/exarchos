@@ -24,7 +24,7 @@ const MCP_ENTRY = path.join(
 );
 
 // Spawn the MCP server with `bun` so `bun:sqlite` (imported by
-// `servers/exarchos-mcp/src/storage/sqlite-backend.ts` post-#1259) resolves
+// `src/storage/sqlite-backend.ts` post-#1259) resolves
 // natively. `node tsx` is rejected by Node 24's ESM loader on the
 // `bun:` URL scheme. Bun is already pinned in CI via `oven-sh/setup-bun@v2`
 // and in the `setup-bun` step of the binary matrix workflow.

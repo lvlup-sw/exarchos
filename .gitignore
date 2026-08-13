@@ -18,9 +18,9 @@ plugins/*/servers/*/dist/
 plugins/*/servers/*/coverage/
 
 # Stryker mutation-testing artifacts (DR-7 runner substrate, task 012)
-servers/exarchos-mcp/reports/
-servers/exarchos-mcp/.stryker-tmp/
-servers/exarchos-mcp/stryker.log
+reports/
+.stryker-tmp/
+stryker.log
 
 # Local settings
 *.local.json

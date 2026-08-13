@@ -41,7 +41,7 @@ describe('spawnMcpClient default command (v2.9 mode dispatch)', () => {
   it('spawnMcpClient_defaultCommand_spawnsExarchosMcpSubcommand', async () => {
     // v2.9 ships a single `exarchos` binary that dispatches subcommand
     // modes — `exarchos mcp` is the MCP-server entrypoint (see
-    // servers/exarchos-mcp/src/adapters/cli.ts §"MCP server mode command").
+    // src/adapters/cli.ts §"MCP server mode command").
     // Calling spawnMcpClient() with no overrides must default to spawning
     // `exarchos mcp ...`, NOT the deprecated standalone `exarchos-mcp`
     // binary that PR #1166 originally assumed.

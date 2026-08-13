@@ -2,7 +2,7 @@
 /**
  * check-module-intent — module-intent CI gate (DR-7, DR-8).
  *
- * A production module under `servers/exarchos-mcp/src` with ZERO production
+ * A production module under `src` with ZERO production
  * importers is a debloat candidate. Rather than delete blindly, DR-7 requires
  * every such dead-in-prod module to DECLARE ITS INTENT, and the declaration to
  * be honored:
@@ -39,7 +39,7 @@
  *
  * Flags (primarily for testability):
  *   --src-root <path>   Root dir the detector scans. Default
- *                       `servers/exarchos-mcp/src` (repo-relative).
+ *                       `src` (repo-relative).
  *   --refgraph <path>   Reachability detector script. Default
  *                       `scripts/audit/refgraph.mjs`.
  *   --now <YYYY-MM-DD>  "Today" for expiry comparison. Default: system clock.

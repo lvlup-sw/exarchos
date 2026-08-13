@@ -2,7 +2,7 @@
 /**
  * `.state.json` no-read/write CI gate (#1504).
  *
- * Walks `servers/exarchos-mcp/src/**` looking for raw `node:fs` reads/writes of
+ * Walks `src/**` looking for raw `node:fs` reads/writes of
  * a `<featureId>.state.json` file. The SQLite event store (+ projected
  * `workflow_state` table) is the authoritative state surface; the on-disk
  * `.state.json` is a derived stamp that goes stale and can silently SHADOW the
@@ -34,7 +34,7 @@
  *
  * Flags (primarily for testability):
  *   --src-root <path>  Root directory to walk. Defaults to
- *                      `servers/exarchos-mcp/src` relative to repo root.
+ *                      `src` relative to repo root.
  *   --help             Show usage.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';

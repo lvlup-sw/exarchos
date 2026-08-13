@@ -178,9 +178,9 @@ function main() {
   // ── lint scopes — the CLI glob is what bounds the run, not the config ──────
   surfaces['lint:eslint-cli-glob'] = {
     kind: 'lint-scope',
-    matched: tracked.filter((rel) => rel.startsWith('servers/exarchos-mcp/src/') && rel.endsWith('.ts'))
+    matched: tracked.filter((rel) => rel.startsWith('src/') && rel.endsWith('.ts'))
       .length,
-    detail: { glob: 'servers/exarchos-mcp/src/**/*.ts' },
+    detail: { glob: 'src/**/*.ts' },
   };
   surfaces['lint:inv6'] = {
     kind: 'lint-scope',

@@ -18,12 +18,12 @@
  * workspace and does not carry its `bun:sqlite` alias, so the import would not
  * resolve there.
  *
- * @oracle-sources: ../../../servers/exarchos-mcp/src/registry.ts, live-composite-dispatch-sources
+ * @oracle-sources: ../../../src/registry.ts, live-composite-dispatch-sources
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
 import * as path from 'node:path';
-import { TOOL_REGISTRY } from '../../../servers/exarchos-mcp/src/registry.js';
+import { TOOL_REGISTRY } from '../../../src/registry.js';
 import { fromRepoRoot, SUBJECT_SRC_ROOT } from './subject-root.js';
 
 const BASELINE = fromRepoRoot('tools/audit/verb-registration-baseline.json');

@@ -10,7 +10,7 @@
  *
  * CENSUS (pinned — the exclusion list below IS the census definition; the
  * baseline is regenerable from it, never hand-edited):
- *   - roots: `src/**`, `servers/exarchos-mcp/src/**`
+ *   - roots: `src/**`, `src/**`
  *   - only `*.ts` files
  *   - excluding (at any depth) `*.test.ts`, `*.bench.ts`, `*.d.ts`,
  *     `__tests__/`, `__shims__/`, `__mocks__/`, `__shared__/`, `evals/`
@@ -66,7 +66,7 @@
  *                         checked-in `scripts/type-debt-baseline.json`).
  *   --baseline <path>    Baseline file to read/write. Default: the checked-in
  *                         `scripts/type-debt-baseline.json`.
- *   --repo-root <path>   Root the census roots (`src`, `servers/exarchos-mcp/
+ *   --repo-root <path>   Root the census roots (`src`, `scripts/
  *                         src`) resolve against. Default: this repo's root.
  *                         (Testability seam — production always uses the
  *                         real repo root.)
@@ -91,7 +91,7 @@ export const EXIT_GATE_ERROR = 2;
 // ─── census definition (the exclusion list IS the census — DR-9) ───────────
 
 /** Repo-relative roots the census walks. */
-export const CENSUS_ROOTS = ['src', 'servers/exarchos-mcp/src'];
+export const CENSUS_ROOTS = ['src', 'src'];
 /** Only files matching this glob are in the typed surface the register governs. */
 export const CENSUS_EXTENSION_GLOB = '**/*.ts';
 /** Exclusion globs — see the module header for the rationale of each. */
@@ -221,7 +221,7 @@ export function enumerateCensus(repoRoot) {
     } catch (err) {
       // ENOENT — a configured root that simply does not exist in THIS tree is
       // legitimately absent (empty), not a gate error: partial trees (a
-      // repo-root check with no `servers/exarchos-mcp/src`, or a fixture with
+      // repo-root check with no `src`, or a fixture with
       // only `src/`) depend on this. Any OTHER stat failure (EACCES, EIO, …)
       // means the root IS present but unreadable — fail closed rather than
       // silently drop an entire source tree from enforcement (DR-10).

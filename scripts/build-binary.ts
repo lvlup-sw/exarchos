@@ -4,7 +4,7 @@
  * binary via `bun build --compile`.
  *
  * ── Entry-point choice ──────────────────────────────────────────────────
- * Uses `servers/exarchos-mcp/src/index.ts` — the single process entry
+ * Uses `src/index.ts` — the single process entry
  * point — rather than introducing a parallel `cli-entry.ts`. That file
  * already implements unified mode dispatch:
  *
@@ -51,7 +51,7 @@
  * ── Integration test (task 1.6) ────────────────────────────────────────
  * The artifact produced by this script — specifically the host-target
  * output at `dist/bin/exarchos-<os>-<arch>` — is the subject-under-test
- * for `servers/exarchos-mcp/test/process/compiled-binary-mcp.test.ts`.
+ * for `test/core/process/compiled-binary-mcp.test.ts`.
  * That test spawns the binary with `mcp` subcommand and performs a real
  * MCP handshake + `exarchos_workflow init` round-trip to prove the
  * compiled output behaves identically to the JS bundle. If you change
@@ -195,7 +195,7 @@ async function buildOne(target: Target, outdir: string = DEFAULT_OUTDIR): Promis
   // identity into the artifact's bytes.
   const versionDefine = `EXARCHOS_BUILD_VERSION="${readBuildVersion()}"`;
   const banner = identityBanner();
-  await $`bun build servers/exarchos-mcp/src/index.ts --compile --target=${target.bunTarget} --define ${versionDefine} --banner ${banner} --outfile ${outfile}`;
+  await $`bun build src/index.ts --compile --target=${target.bunTarget} --define ${versionDefine} --banner ${banner} --outfile ${outfile}`;
 
   console.log(`Built ${outfile}`);
 }

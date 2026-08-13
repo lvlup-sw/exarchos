@@ -13,11 +13,11 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { EventStore } from '../../servers/exarchos-mcp/src/events/store.js';
-import { handleInit } from '../../servers/exarchos-mcp/src/workflow/tools.js';
-import { dispatch } from '../../servers/exarchos-mcp/src/dispatch/core/dispatch.js';
-import { createInMemoryResolver } from '../../servers/exarchos-mcp/src/capabilities/resolver.js';
-import type { RootsClient } from '../../servers/exarchos-mcp/src/workspace/discovery.js';
+import { EventStore } from '../../src/events/store.js';
+import { handleInit } from '../../src/workflow/tools.js';
+import { dispatch } from '../../src/dispatch/core/dispatch.js';
+import { createInMemoryResolver } from '../../src/runtime/capabilities/resolver.js';
+import type { RootsClient } from '../../src/runtime/workspace/discovery.js';
 
 async function mktemp(label: string): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), `outcome-1290-${label}-`));

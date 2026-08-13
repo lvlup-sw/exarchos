@@ -16,7 +16,7 @@
 # can be the entry point depending on how the user installed.
 #
 # `supportedCapabilities` mirrors `cursorAdapter.supportLevels` in
-# `servers/exarchos-mcp/src/agents/adapters/cursor.ts` (a capability-support
+# `src/runtime/agents/adapters/cursor.ts` (a capability-support
 # signal for the prose renderer, not a space or write guarantee):
 #   - 5 native: `fs:read`, `fs:write`, `shell:exec`, `subagent:spawn`, `mcp:exarchos`
 #   - 2 advisory: `isolation:worktree` (launcher-managed lifecycle — see the

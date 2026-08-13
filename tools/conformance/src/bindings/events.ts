@@ -18,16 +18,16 @@ import {
   EventTypes,
   getValidEventTypes,
   isBuiltInEventType,
-} from '../../../../servers/exarchos-mcp/src/events/schemas.js';
-import { classifyEventName, WORD_SEPARATORS } from '../../../../servers/exarchos-mcp/src/events/event-name.js';
-import type { WordSeparator } from '../../../../servers/exarchos-mcp/src/events/event-name.js';
+} from '../../../../src/events/schemas.js';
+import { classifyEventName, WORD_SEPARATORS } from '../../../../src/events/event-name.js';
+import type { WordSeparator } from '../../../../src/events/event-name.js';
 import {
   ANNOTATED_EVENTS,
   tierSourceDisagreements,
   type DeclaredEmissionSources,
-} from '../../../../servers/exarchos-mcp/src/events/event-annotations.js';
-import { resolveEmissionSource } from '../../../../servers/exarchos-mcp/src/events/event-registration.js';
-import type { EventAnnotationSource } from '../../../../servers/exarchos-mcp/src/events/event-declarations.js';
+} from '../../../../src/events/event-annotations.js';
+import { resolveEmissionSource } from '../../../../src/events/event-registration.js';
+import type { EventAnnotationSource } from '../../../../src/events/event-declarations.js';
 import {
   censusEventNameGrammar,
   type EventGrammarCensusReport,

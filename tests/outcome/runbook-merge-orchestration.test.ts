@@ -17,7 +17,7 @@
 
 import { describe, it, expect } from 'vitest';
 
-import { handleRunbook } from '../../servers/exarchos-mcp/src/runbooks/handler.js';
+import { handleRunbook } from '../../src/runbooks/handler.js';
 
 interface RunbookSummary {
   readonly id: string;

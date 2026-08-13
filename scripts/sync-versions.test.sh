@@ -21,17 +21,17 @@ PKG_VERSION=$(node -p "require('${REPO_ROOT}/package.json').version")
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
-# Mirror the real `servers/exarchos-mcp/src/` shape under TMPDIR so the
+# Mirror the real `src/` shape under TMPDIR so the
 # script's path resolution works unchanged.
 TS_TMPDIR="$TMPDIR/mcp-src"
 mkdir -p "$TS_TMPDIR/adapters"
-cp "$REPO_ROOT/servers/exarchos-mcp/src/index.ts"                    "$TS_TMPDIR/index.ts"
-cp "$REPO_ROOT/servers/exarchos-mcp/src/adapters/mcp.ts"             "$TS_TMPDIR/adapters/mcp.ts"
+cp "$REPO_ROOT/src/index.ts"                    "$TS_TMPDIR/index.ts"
+cp "$REPO_ROOT/src/adapters/mcp.ts"             "$TS_TMPDIR/adapters/mcp.ts"
 
 # Mirror the JSON sinks too.
 cp "$REPO_ROOT/.claude-plugin/plugin.json"                "$TMPDIR/plugin.json"
 cp "$REPO_ROOT/manifest.json"                             "$TMPDIR/manifest.json"
-cp "$REPO_ROOT/servers/exarchos-mcp/package.json"         "$TMPDIR/mcp-package.json"
+cp "$REPO_ROOT/package.json"         "$TMPDIR/mcp-package.json"
 
 SYNC_ARGS=(
   --plugin-json    "$TMPDIR/plugin.json"
@@ -75,7 +75,7 @@ poison_all_sinks() {
 
 # ─── Test 0: SyncVersions_DoesNotReferenceDeletedSessionStartTs (F-01) ──────
 #
-# Regression guard: P5 deleted servers/exarchos-mcp/src/cli-commands/session-start.ts.
+# Regression guard: P5 deleted src/cli-commands/session-start.ts.
 # The sync-versions sink registry must not still reference that path, otherwise
 # `--check` mode emits a MISSING: error and `npm run version:sync` (write mode)
 # fails on the patch_quoted_after "file not found" guard, breaking the release
@@ -123,7 +123,7 @@ echo "Test 3: SyncVersions_UpdatesMcpPackageJson"
 
 MCP_VER=$(jq -r '.version' "$TMPDIR/mcp-package.json")
 if [[ "$MCP_VER" == "$PKG_VERSION" ]]; then
-  pass "servers/exarchos-mcp/package.json version → $PKG_VERSION"
+  pass "package.json version → $PKG_VERSION"
 else
   fail "mcp-package.json version=$MCP_VER, expected=$PKG_VERSION"
 fi
@@ -208,7 +208,7 @@ EXPECTED_HITS=(
   "plugin.json .version"
   "plugin.json .metadata.compat.minBinaryVersion"
   "manifest.json version"
-  "servers/exarchos-mcp/package.json version"
+  "package.json version"
   "src/index.ts SERVER_VERSION"
   "adapters/mcp.ts SERVER_VERSION"
 )

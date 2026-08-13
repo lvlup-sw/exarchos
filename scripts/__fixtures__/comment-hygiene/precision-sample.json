@@ -130,27 +130,27 @@
           "why": "negation describing present state — \"nothing was renamed — only the place the name is DECLARED moved\""
         },
         {
-          "file": "servers/exarchos-mcp/src/architecture/axiom-retirement.test.ts",
+          "file": "src/architecture/axiom-retirement.test.ts",
           "match": "was removed",
           "why": "quoted example of the phrasing under discussion, not narration by this comment"
         },
         {
-          "file": "servers/exarchos-mcp/src/architecture/import-cycles.ts",
+          "file": "src/architecture/import-cycles.ts",
           "match": "was renamed",
           "why": "failure mode — \"silently pass while the module it names was renamed away\""
         },
         {
-          "file": "servers/exarchos-mcp/src/architecture/sdk-generation-seam.ts",
+          "file": "src/architecture/sdk-generation-seam.ts",
           "match": "was moved",
           "why": "diagnostic condition — \"`SDK_SEAM_MODULE_MISSING` — the seam was moved or renamed\""
         },
         {
-          "file": "servers/exarchos-mcp/src/contract/dispatch-routes.ts",
+          "file": "src/contract/dispatch-routes.ts",
           "match": "was extracted",
           "why": "structural relative clause — \"the routing construct a route was extracted from\""
         },
         {
-          "file": "servers/exarchos-mcp/src/event-store/registration-validate.ts",
+          "file": "src/event-store/registration-validate.ts",
           "match": "was deleted",
           "why": "conditional — \"a `consumedBy` naming a reducer that was deleted still boots\""
         }

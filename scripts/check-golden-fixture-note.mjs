@@ -3,7 +3,7 @@
  * Golden-fixture PR-body marker check (task T053, DR-15).
  *
  * DR-15 ("Load-bearing golden fixtures") requires that any change to a file
- * under `servers/exarchos-mcp/tests/fixtures/load-bearing/**` be explicitly
+ * under `tests/core/fixtures/load-bearing/**` be explicitly
  * acknowledged in the PR body with the marker
  *
  *     GOLDEN-FIXTURE-UPDATE: <free-form reason>
@@ -28,7 +28,7 @@ import { readFileSync } from 'node:fs';
 import process from 'node:process';
 
 const LOAD_BEARING_PREFIX =
-  'servers/exarchos-mcp/tests/fixtures/load-bearing/';
+  'tests/core/fixtures/load-bearing/';
 const MARKER = 'GOLDEN-FIXTURE-UPDATE:';
 
 /**

@@ -23,8 +23,8 @@ import {
   generateEmbeddedRuntimesModule,
   sortRuntimes,
 } from './codegen-runtimes.js';
-import { loadAllRuntimes, REQUIRED_RUNTIME_NAMES } from '../src/runtimes/load.js';
-import { RuntimeMapSchema } from '../src/runtimes/types.js';
+import { loadAllRuntimes, REQUIRED_RUNTIME_NAMES } from '../src/install/runtimes/load.js';
+import { RuntimeMapSchema } from '../src/install/runtimes/types.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..');

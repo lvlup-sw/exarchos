@@ -70,7 +70,7 @@ export const PARITY_CONTRACT: ParitySpec[] = [
     // where the rehydration document is `{ v, projectionSequence,
     // behavioralGuidance, workflowState, taskProgress, decisions,
     // artifacts, blockers }` (see
-    // `servers/exarchos-mcp/src/workflow/rehydrate.ts`).
+    // `src/workflow/rehydrate.ts`).
     //
     // Required-equality dot-paths cover:
     //   - `success`              — boolean status; both must succeed.

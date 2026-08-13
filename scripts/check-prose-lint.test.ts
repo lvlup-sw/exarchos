@@ -6,7 +6,7 @@
  *     fail because spawning the script yields ENOENT and because the root
  *     `package.json` `validate` chain has not been extended to invoke it.
  *   - GREEN: the `.mjs` wrapper shells out to `tsx` against a co-located
- *     TS entrypoint (`servers/exarchos-mcp/src/projections/rehydration/
+ *     TS entrypoint (`src/projections/rehydration/
  *     prose-lint-cli.ts`) which calls `lintTemplate()` (default) or, when
  *     given `--template-source <path>`, runs `lintProse()` over the
  *     contents of that file. Exit 0 on no violations, 1 on violations,

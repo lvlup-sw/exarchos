@@ -96,7 +96,7 @@ function buildAdjacency(
  */
 export function detectRuntimeCycles(
   depcruiseJson: string,
-  srcPrefix = 'servers/exarchos-mcp/src',
+  srcPrefix = 'src',
 ): RuntimeCycle[] {
   const output = JSON.parse(depcruiseJson) as DepcruiseOutput;
   const adj = buildAdjacency(output, srcPrefix);
@@ -167,7 +167,7 @@ export function runtimeEdgeExists(
   depcruiseJson: string,
   from: string,
   to: string,
-  srcPrefix = 'servers/exarchos-mcp/src',
+  srcPrefix = 'src',
 ): boolean {
   const output = JSON.parse(depcruiseJson) as DepcruiseOutput;
   const adj = buildAdjacency(output, srcPrefix);
@@ -331,7 +331,7 @@ function nodesFromOutput(output: DepcruiseOutput, srcPrefix: string): Set<string
  */
 export function firstPartyModules(
   depcruiseJson: string,
-  srcPrefix = 'servers/exarchos-mcp/src',
+  srcPrefix = 'src',
 ): Set<string> {
   return nodesFromOutput(JSON.parse(depcruiseJson) as DepcruiseOutput, srcPrefix);
 }
@@ -345,7 +345,7 @@ export function firstPartyModules(
 export function runForbiddenEdgeCensus(
   depcruiseJson: string,
   rules: readonly ForbiddenEdgeRule[] = FORBIDDEN_RUNTIME_EDGES,
-  srcPrefix = 'servers/exarchos-mcp/src',
+  srcPrefix = 'src',
 ): ForbiddenEdgeResult {
   const output = JSON.parse(depcruiseJson) as DepcruiseOutput;
   const adj = buildAdjacency(output, srcPrefix);

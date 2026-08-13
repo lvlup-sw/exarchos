@@ -7,7 +7,7 @@
  *     exist; these tests fail because spawning the script yields ENOENT
  *     and because the root `package.json` `validate` chain has not been
  *     extended to invoke it.
- *   - GREEN: a Node script walks `servers/exarchos-mcp/src/**` looking
+ *   - GREEN: a Node script walks `src/**` looking
  *     for `new EventStore(...)` outside the documented composition root
  *     (4 entries: index.ts, core/context.ts, lifecycle/subagent-stop.ts,
  *     evals/run-evals-cli.ts) and outside

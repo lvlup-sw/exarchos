@@ -50,7 +50,7 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildAllSkills } from '../../src/build-skills.js';
+import { buildAllSkills } from '../../src/install/build-skills.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

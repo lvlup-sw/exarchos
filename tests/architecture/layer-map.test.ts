@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../');
-const SRC = path.join(REPO_ROOT, 'servers/exarchos-mcp/src');
+const SRC = path.join(REPO_ROOT, 'src');
 const MAP_PATH = path.join(REPO_ROOT, 'tools/audit/layer-map.json');
 
 interface MappedEntry {
@@ -81,7 +81,7 @@ describe('LayerMap_EveryCoreDirectory_MapsToALayerOrAStatedException', () => {
     const unmapped = liveDirs.filter((d) => !(d in map.directories));
     expect(
       unmapped,
-      'These exist under servers/exarchos-mcp/src/ but the layer map does not mention them. ' +
+      'These exist under src/ but the layer map does not mention them. ' +
         'Every directory must map to one of the 11 targets or carry a stated exception — a ' +
         'directory the map cannot see is one no move task knows what to do with.',
     ).toEqual([]);

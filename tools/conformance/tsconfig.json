@@ -18,7 +18,7 @@
     // transitively reaches the SQLite backend, whose `bun:sqlite` import is typed
     // only by this ambient shim. The subject's own tsconfig picks it up through
     // its `src/**/*`; this project has to name it.
-    "../../servers/exarchos-mcp/src/storage/__shims__/bun-sqlite.d.ts"
+    "../../src/storage/__shims__/bun-sqlite.d.ts"
   ],
   "exclude": ["node_modules", "**/*.test.ts"]
 }

@@ -83,7 +83,7 @@ export async function withHermeticEnv<T>(
 
     // Mutate ambient state. The load-bearing var is `WORKFLOW_STATE_DIR`
     // (the only one `resolveStateDir()` reads — see
-    // servers/exarchos-mcp/src/utils/paths.ts:54). Pre-fix only
+    // src/utils/paths.ts:54). Pre-fix only
     // `EXARCHOS_STATE_DIR` was set, which the binary silently ignored —
     // every "hermetic" test was actually reading/writing the host's
     // default state dir, invalidating F2/F3 isolation guarantees and

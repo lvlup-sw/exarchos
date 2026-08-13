@@ -1,7 +1,8 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "ignoreDependencies": [
-    "tsx"
+    "tsx",
+    "dependency-cruiser"
   ],
   "ignoreExportsUsedInFile": true,
   "tags": [
@@ -10,48 +11,40 @@
   "workspaces": {
     ".": {
       "entry": [
-        "src/build-skills.ts",
-        "src/install-skills.ts",
-        "src/skills-guard.ts",
-        "src/placeholder-lint.ts",
-        "scripts/audit/knip-diff.ts",
-        "scripts/measured-premises-derive.ts",
-        "scripts/**/*.test.ts",
-        "test/**/*.test.ts",
-        "test/fixtures/__helpers__/mock-mcp-server.mjs",
-        "tools/conformance/src/**/*.test.ts"
-      ],
-      "project": [
-        "src/**/*.ts",
-        "scripts/**/*.ts",
-        "test/**/*.ts",
-        "test/**/*.mjs",
-        "tools/conformance/src/**/*.ts"
-      ]
-    },
-    "servers/exarchos-mcp": {
-      "entry": [
         "src/index.ts",
+        "src/install/build-skills.ts",
+        "src/install/install-skills.ts",
+        "src/install/skills-guard.ts",
+        "src/install/placeholder-lint.ts",
         "src/projections/index.ts",
         "src/projections/rehydration/fingerprint-cli.ts",
         "src/projections/rehydration/prose-lint-cli.ts",
         "src/**/*.test.ts",
         "src/**/*.bench.ts",
         "src/__tests__/**/*.ts",
-        "src/bench/**/*.ts",
-        "src/benchmarks/**/*.ts",
-        "src/evals/**/*.ts"
+        "scripts/audit/knip-diff.ts",
+        "scripts/measured-premises-derive.ts",
+        "scripts/**/*.test.ts",
+        "test/**/*.test.ts",
+        "tests/core/**/*.test.ts",
+        "test/fixtures/__helpers__/mock-mcp-server.mjs",
+        "tools/conformance/src/**/*.test.ts",
+        "tools/evals/**/*.ts",
+        "tools/test-helpers/**/*.ts"
       ],
       "project": [
-        "src/**/*.ts"
-      ],
-      "ignoreDependencies": [
-        "patch-package",
-        "dependency-cruiser"
+        "src/**/*.ts",
+        "scripts/**/*.ts",
+        "test/**/*.ts",
+        "test/**/*.mjs",
+        "tests/core/**/*.ts",
+        "tools/conformance/src/**/*.ts",
+        "tools/evals/**/*.ts",
+        "tools/test-helpers/**/*.ts"
       ]
     }
   },
   "ignore": [
-    "servers/exarchos-mcp/src/mcp/elicitation-method.ts"
+    "src/mcp/elicitation-method.ts"
   ]
 }

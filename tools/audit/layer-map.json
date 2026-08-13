@@ -1,7 +1,7 @@
 {
   "capturedAt": "2026-08-12",
   "tree": "fbe20c97e23571772be627888893f1ac531ab156",
-  "source": "servers/exarchos-mcp/src",
+  "source": "src",
   "authority": "docs/system-design.html is the canonical L1-L9 architecture; this file maps the tree onto it. Task 044 asserts THIS mapping, not set equality, which is why the 11 targets -> 9 published layers relation is written out rather than inferred.",
   "counts": {
     "directories": 44,

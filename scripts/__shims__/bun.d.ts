@@ -9,7 +9,7 @@
  * `scripts/` tree under `tsc` for the first time, and `build-binary.ts`'s
  * `import { $ } from 'bun'` had never been resolved by a typechecker.
  *
- * It follows the idiom `servers/exarchos-mcp/src/storage/__shims__/bun-sqlite.d.ts`
+ * It follows the idiom `src/storage/__shims__/bun-sqlite.d.ts`
  * already established, and for the same stated reason: declaring only the surface
  * actually used is deliberately narrower than `@types/bun`'s full contract, which
  * would pull a competing `Bun` global into the project — and it keeps a

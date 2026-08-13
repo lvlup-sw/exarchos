@@ -10,7 +10,7 @@
 #      better-sqlite3 shim) expose `db.transaction(fn).immediate()` to open a
 #      BEGIN IMMEDIATE write transaction. This is the call an application layer
 #      would actually reach for, so it is the load-bearing check.
-#      See servers/exarchos-mcp/src/storage/sqlite-backend.ts (allocateSequence).
+#      See src/storage/sqlite-backend.ts (allocateSequence).
 #
 #   2. `BEGIN IMMEDIATE` — the literal SQL string, for code that issues the
 #      statement directly (e.g. `db.run("BEGIN IMMEDIATE")`) or raw *.sql.
@@ -20,8 +20,8 @@
 #      check as evidence the gate is working.
 #
 # Allowed paths (the substrate):
-#   servers/exarchos-mcp/src/storage/**
-#   servers/exarchos-mcp/src/event-store/**
+#   src/storage/**
+#   src/event-store/**
 #
 # Exempt:
 #   *.test.ts files (may reference the primitive in assertions/fixtures)
@@ -86,10 +86,10 @@ is_exempt() {
     local pattern="$3"
 
     # Allow: storage substrate
-    [[ "$abs_filepath" == */servers/exarchos-mcp/src/storage/* ]] && return 0
+    [[ "$abs_filepath" == */src/storage/* ]] && return 0
 
     # Allow: event-store substrate
-    [[ "$abs_filepath" == */servers/exarchos-mcp/src/event-store/* ]] && return 0
+    [[ "$abs_filepath" == */src/event-store/* ]] && return 0
 
     # Allow: test files (*.test.ts)
     [[ "$abs_filepath" == *.test.ts ]] && return 0
@@ -204,7 +204,7 @@ done
 echo ""
 echo "\`.immediate()\` / \`BEGIN IMMEDIATE\` are SQLite WAL substrate primitives."
 echo "They must only appear under:"
-echo "  servers/exarchos-mcp/src/storage/"
-echo "  servers/exarchos-mcp/src/event-store/"
+echo "  src/storage/"
+echo "  src/event-store/"
 echo "Application code should use the withSession() abstraction instead."
 exit 1

@@ -2,7 +2,7 @@
 /**
  * Read-time upcasting choke-point CI gate (#1556).
  *
- * Walks `servers/exarchos-mcp/src/**` looking for direct backend reads
+ * Walks `src/**` looking for direct backend reads
  * (`.queryEvents(` / `.queryEventsByType(`) outside the events substrate.
  * Those methods return RAW backend rows — they have NOT passed through the
  * `migrateEvents` upcasting seam. Every reader must go through
@@ -15,10 +15,10 @@
  *   Exit 2 — usage / environment error.
  *
  * Allowlisted substrate (these legitimately call the backend directly):
- *   - servers/exarchos-mcp/src/events/**  (store.ts is the choke point;
+ *   - src/events/**  (store.ts is the choke point;
  *     atomic-appender.ts reads internally for sequence allocation / dedup —
  *     write-path reads, never returned to consumers as upcast events)
- *   - servers/exarchos-mcp/src/storage/**      (the backends that DEFINE these
+ *   - src/storage/**      (the backends that DEFINE these
  *     methods)
  *
  * Excluded automatically (test/bench surface):
@@ -26,7 +26,7 @@
  *
  * Flags (primarily for testability):
  *   --src-root <path>  Root directory to walk. Defaults to
- *                      `servers/exarchos-mcp/src` relative to repo root.
+ *                      `src` relative to repo root.
  *   --help             Show usage.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';

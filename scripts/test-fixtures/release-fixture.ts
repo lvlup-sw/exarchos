@@ -49,11 +49,11 @@ import {
   buildReleaseManifest,
   serializeSignedManifest,
   signReleaseManifest,
-} from '../../servers/exarchos-mcp/src/release/release-manifest.js';
+} from '../../src/install/release/release-manifest.js';
 import type {
   ContractIdentity,
   SourceIdentity,
-} from '../../servers/exarchos-mcp/src/release/build-identity.js';
+} from '../../src/install/release/build-identity.js';
 
 /** Repo root, derived from this file's location (`scripts/test-fixtures/..`). */
 export function fixtureRepoRoot(): string {

@@ -86,8 +86,8 @@ import type {
   AuthorityId,
   DeclarationKind,
   RepresentationId,
-} from '../../../servers/exarchos-mcp/src/contract/declaration.js';
-import type { SdkGeneration } from '../../../servers/exarchos-mcp/src/architecture/sdk-generation-seam.js';
+} from '../../../src/contract/declaration.js';
+import type { SdkGeneration } from '../../../src/architecture/sdk-generation-seam.js';
 
 // ─── The boundary domain ─────────────────────────────────────────────────────
 
@@ -684,7 +684,7 @@ export const AUTHORITY_TOPOLOGY: Readonly<Record<ContractBoundaryId, AuthorityTo
         'correction: the spec says both generations are "imported directly", but v2 has ZERO ' +
         'production import sites — every v2 specifier in the tree is fixture TEXT inside ' +
         '`sdk-generation-seam.test.ts`. Both generations are nonetheless INSTALLED and resolvable ' +
-        '(`servers/exarchos-mcp/package.json` pins sdk@1.29.0 + core@2.0.0 + server@2.0.0), which is ' +
+        '(`package.json` pins sdk@1.29.0 + core@2.0.0 + server@2.0.0), which is ' +
         'what keeps the protocol authority contested. Note `@modelcontextprotocol/client` is in the ' +
         'seam’s v2 package list but is NOT installed.',
     }),

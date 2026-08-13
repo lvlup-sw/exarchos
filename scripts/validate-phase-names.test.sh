@@ -30,8 +30,7 @@ if [[ $EXIT_CODE -eq 0 ]]; then pass "ActualSkillDocs_ExitsZero"; else fail "Act
 setup
 # Create minimal repo structure with skills/ and symlink to real dist/
 mkdir -p "$TMPDIR_ROOT/skills/bad-skill"
-mkdir -p "$TMPDIR_ROOT/servers"
-ln -s "$REPO_ROOT/servers/exarchos-mcp" "$TMPDIR_ROOT/servers/exarchos-mcp"
+ln -s "$REPO_ROOT/dist" "$TMPDIR_ROOT/dist"
 cat > "$TMPDIR_ROOT/skills/bad-skill/SKILL.md" << 'EOF'
 ---
 name: bad-skill
@@ -52,8 +51,7 @@ teardown
 # Test 3: Single-value phase-affinity with bad value exits 1
 setup
 mkdir -p "$TMPDIR_ROOT/skills/bad-single"
-mkdir -p "$TMPDIR_ROOT/servers"
-ln -s "$REPO_ROOT/servers/exarchos-mcp" "$TMPDIR_ROOT/servers/exarchos-mcp"
+ln -s "$REPO_ROOT/dist" "$TMPDIR_ROOT/dist"
 cat > "$TMPDIR_ROOT/skills/bad-single/SKILL.md" << 'EOF'
 ---
 name: bad-single
@@ -71,8 +69,7 @@ teardown
 # Test 4: Good phase-affinity values pass
 setup
 mkdir -p "$TMPDIR_ROOT/skills/good-skill"
-mkdir -p "$TMPDIR_ROOT/servers"
-ln -s "$REPO_ROOT/servers/exarchos-mcp" "$TMPDIR_ROOT/servers/exarchos-mcp"
+ln -s "$REPO_ROOT/dist" "$TMPDIR_ROOT/dist"
 cat > "$TMPDIR_ROOT/skills/good-skill/SKILL.md" << 'EOF'
 ---
 name: good-skill
@@ -97,8 +94,7 @@ if [[ $EXIT_CODE -eq 2 ]]; then pass "UsageError_ExitsTwo"; else fail "UsageErro
 # Test 6: Test fixtures are skipped
 setup
 mkdir -p "$TMPDIR_ROOT/skills/test-fixtures/bad-fixture"
-mkdir -p "$TMPDIR_ROOT/servers"
-ln -s "$REPO_ROOT/servers/exarchos-mcp" "$TMPDIR_ROOT/servers/exarchos-mcp"
+ln -s "$REPO_ROOT/dist" "$TMPDIR_ROOT/dist"
 cat > "$TMPDIR_ROOT/skills/test-fixtures/bad-fixture/SKILL.md" << 'EOF'
 ---
 name: bad-fixture

@@ -1,6 +1,6 @@
 // Cross-root move codemod for task 018a: `architecture/` → `tools/conformance/`.
 //
-// `move-directories.mjs` maps paths WITHIN `servers/exarchos-mcp/src`. This move
+// `move-directories.mjs` maps paths WITHIN `src`. This move
 // crosses that root, so the table is keyed on REPO-RELATIVE paths and the
 // arithmetic runs over the repository rather than the source tree. The rewriting
 // rule is the same one and for the same reason: each specifier is resolved
@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const ARCH_REL = 'servers/exarchos-mcp/src/architecture';
+const ARCH_REL = 'src/architecture';
 const PKG_REL = 'tools/conformance';
 const APPLY = process.argv.includes('--apply');
 

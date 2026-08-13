@@ -16,8 +16,8 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { EventStore } from '../../servers/exarchos-mcp/src/events/store.js';
-import { dispatch } from '../../servers/exarchos-mcp/src/dispatch/core/dispatch.js';
+import { EventStore } from '../../src/events/store.js';
+import { dispatch } from '../../src/dispatch/core/dispatch.js';
 
 const tempDirs: string[] = [];
 

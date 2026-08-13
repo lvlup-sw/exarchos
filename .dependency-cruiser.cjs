@@ -1,7 +1,7 @@
 // dependency-cruiser config — SIV-3 Layer A import-boundary rules.
 //
 // This is the worked example for the boundary-lint leg that rides the Exarchos
-// static-analysis gate (servers/exarchos-mcp/src/verbs/pure/static-analysis.ts,
+// static-analysis gate (src/verbs/pure/static-analysis.ts,
 // `runBoundaryLint`). The gate detects this file at the repo root and runs
 // `npx depcruise --validate` over the configured source dirs, folding the
 // PASS/FAIL into the gate's report and counts. Absent this file, the leg SKIPs
@@ -59,11 +59,11 @@ module.exports = {
         'handlers instead of reaching into adapters from the core.',
       severity: 'error',
       from: {
-        path: '^servers/exarchos-mcp/src/(events|workflow)/',
+        path: '^src/(events|workflow)/',
         pathNot: '\\.test\\.ts$',
       },
       to: {
-        path: '^servers/exarchos-mcp/src/adapters/',
+        path: '^src/adapters/',
       },
     },
   ],

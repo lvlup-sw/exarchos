@@ -86,7 +86,7 @@ describe('test inventory', () => {
 
     // And the reconciliation actually discriminates: a seeded disappearance is
     // reported by name rather than silently absorbed.
-    const seededMissing = ['servers/exarchos-mcp/src/registry.test.ts'].filter(
+    const seededMissing = ['src/registry.test.ts'].filter(
       (rel) => !current.has(rel) && !relocated.has(rel),
     );
     expect(Array.isArray(seededMissing)).toBe(true);

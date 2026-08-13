@@ -12,7 +12,7 @@
  *
  * Two modes:
  *
- *   --regenerate   Walk the LIVE tree under `servers/exarchos-mcp/src` and
+ *   --regenerate   Walk the LIVE tree under `src` and
  *                  rewrite the committed `protected-suites.json` snapshot.
  *                  The inventory is GENERATED, never hand-listed, so it can't
  *                  silently drift from the tree it describes.
@@ -35,7 +35,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /** Repo-relative source root the inventory is generated from. */
-export const SRC_ROOT = 'servers/exarchos-mcp/src';
+export const SRC_ROOT = 'src';
 
 /**
  * The five dedicated keep-class suite suffixes (DR-5). A file is keep-class

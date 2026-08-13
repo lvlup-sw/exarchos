@@ -21,7 +21,7 @@ export interface SpawnMcpClientOpts {
    * Executable name (resolved on PATH). Defaults to `'exarchos'`.
    *
    * v2.9 ships a single `exarchos` binary with subcommand mode dispatch
-   * (see `servers/exarchos-mcp/src/adapters/cli.ts` §"MCP server mode
+   * (see `src/adapters/cli.ts` §"MCP server mode
    * command"). The MCP server is reached via `exarchos mcp`, NOT a
    * separate `exarchos-mcp` binary. To override (e.g. for tests that
    * need a mock stdio server), pass an explicit `command` AND remember
@@ -70,7 +70,7 @@ const FORCE_KILL_GRACE_MS = 3_000;
  * Defaults (v2.9 mode-dispatch pattern):
  *   - `command`: `'exarchos'` — the single shipped binary.
  *   - `args`: `['mcp', ...userArgs]` — `mcp` selects the MCP server mode
- *     (see `servers/exarchos-mcp/src/adapters/cli.ts`). Any args the
+ *     (see `src/adapters/cli.ts`). Any args the
  *     caller supplies are appended after `mcp`. When the caller overrides
  *     `command` (e.g. with `'node'` for a mock server), `args` is passed
  *     through verbatim and `mcp` is NOT prepended.
@@ -106,7 +106,7 @@ export async function spawnMcpClient(
 
   // Merge extra env with an optional state-dir shortcut. The actual env
   // var the binary reads is `WORKFLOW_STATE_DIR` (see
-  // servers/exarchos-mcp/src/utils/paths.ts:54). Pre-fix we set
+  // src/utils/paths.ts:54). Pre-fix we set
   // `EXARCHOS_STATE_DIR`, which the binary silently ignored — every
   // spawnMcpClient call quietly shared the host's default state dir
   // (`~/.exarchos/state` or `~/.claude/workflow-state`), invalidating

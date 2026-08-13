@@ -3,7 +3,7 @@
  * Build-time collector + CLI that turns REAL release build output into a
  * signed release manifest (DR-20, P05-01 step 1 + 2).
  *
- * `servers/exarchos-mcp/src/release/**` already ships the manifest wire
+ * `src/install/release/**` already ships the manifest wire
  * contract, the identity derivations, the signer and the installer-side
  * verifier — but it had ZERO production call sites: its own README names the
  * missing pieces ("a build-time collector shells out to git … the release
@@ -55,18 +55,18 @@ import { createPrivateKey } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { AuthorityLockSchema } from '../servers/exarchos-mcp/src/contract/authority-pin.js';
+import { AuthorityLockSchema } from '../src/contract/authority-pin.js';
 import {
   buildInstallIdentity,
   type DigestEntry,
   type InstallIdentity,
-} from '../servers/exarchos-mcp/src/install/install-identity.js';
+} from '../src/install/install-identity.js';
 import {
   buildSourceIdentity,
   contractIdentityFromLock,
   type ContractIdentity,
   type SourceIdentity,
-} from '../servers/exarchos-mcp/src/release/build-identity.js';
+} from '../src/install/release/build-identity.js';
 import {
   buildReleaseManifest,
   releaseAssetFromBytes,
@@ -74,7 +74,7 @@ import {
   signReleaseManifest,
   type ReleaseAsset,
   type SignedReleaseManifest,
-} from '../servers/exarchos-mcp/src/release/release-manifest.js';
+} from '../src/install/release/release-manifest.js';
 
 // ─── Repo layout constants ───────────────────────────────────────────────────
 
@@ -86,7 +86,7 @@ export function repoRootFromHere(): string {
 /**
  * The pathspecs whose files constitute "the source that produced this
  * artifact". Kept deliberately narrow and explicit: the bundled module graph
- * (`servers/exarchos-mcp/src`, `src`, `runtimes`), the build tooling that
+ * (`src`, `src`, `runtimes`), the build tooling that
  * produced it (`scripts`), and the dependency pins that fix the third-party
  * half (`package.json` / `package-lock.json` at both levels).
  *
@@ -97,14 +97,14 @@ export function repoRootFromHere(): string {
  * independent enumeration of this same list.
  */
 export const SOURCE_TREE_ROOTS = [
-  'servers/exarchos-mcp/src',
+  'src',
   'src',
   'scripts',
   'runtimes',
   'package.json',
   'package-lock.json',
-  'servers/exarchos-mcp/package.json',
-  'servers/exarchos-mcp/package-lock.json',
+  'package.json',
+  'package-lock.json',
 ] as const;
 
 /**
@@ -145,7 +145,7 @@ export const MAX_REPORTED_MODIFIED_PATHS = 16;
 export const SKILL_TREE_ROOTS = ['skills'] as const;
 
 /** Path of the P03-01 approved contract-authority lockfile, repo-relative. */
-export const CONTRACT_LOCK_PATH = 'servers/exarchos-mcp/src/contract/contract-authority.lock.json';
+export const CONTRACT_LOCK_PATH = 'src/contract/contract-authority.lock.json';
 
 /** Path of the plugin manifest digested into the P05-04 `plugin` dimension. */
 export const PLUGIN_MANIFEST_PATH = '.claude-plugin/plugin.json';
@@ -156,7 +156,7 @@ export const PLUGIN_MANIFEST_PATH = '.claude-plugin/plugin.json';
  * from the root (Node-hosted) test project. Fails closed if the declaration
  * ever moves or changes shape.
  */
-export const SCHEMA_VERSION_SOURCE = 'servers/exarchos-mcp/src/storage/sqlite-backend.ts';
+export const SCHEMA_VERSION_SOURCE = 'src/storage/sqlite-backend.ts';
 
 /** Filename shape of a published binary asset. `.sha512` sidecars are skipped. */
 export const RELEASE_ASSET_NAME_RE = /^exarchos-(linux|darwin|windows)-(x64|arm64)(\.exe)?$/;

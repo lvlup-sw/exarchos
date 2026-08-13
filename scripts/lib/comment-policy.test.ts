@@ -167,7 +167,7 @@ describe('the repository policy datum', () => {
   it('Policy_OrdinaryProductionSource_NotExempt', () => {
     const policy = loadPolicy(REPO_POLICY);
 
-    expect(isExempt(policy, 'servers/exarchos-mcp/src/registry.ts')).toBe(false);
+    expect(isExempt(policy, 'src/registry.ts')).toBe(false);
     expect(isExempt(policy, 'docs/evals/harness/grader.ts')).toBe(false);
   });
 

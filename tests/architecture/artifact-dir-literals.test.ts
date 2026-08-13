@@ -30,7 +30,7 @@ const LITERALS = ['docs/specs', 'docs/designs'] as const;
  * The single owner of the two prefixes. Every other module must import from
  * here rather than re-declaring the string.
  */
-const OWNER = 'servers/exarchos-mcp/src/config/artifacts.ts';
+const OWNER = 'src/config/artifacts.ts';
 
 /**
  * The only files allowed a functional literal.
@@ -50,12 +50,12 @@ const FUNCTIONAL_ALLOWLIST: ReadonlyArray<string> = [OWNER, 'scripts/guard-inven
  */
 const PROSE_BUDGET: Readonly<Record<string, number>> = {
   'scripts/check-measured-premises.mjs': 1,
-  'servers/exarchos-mcp/src/evals/benchmarks/plan-format-corpus.ts': 1,
-  'servers/exarchos-mcp/src/verbs/gates/design-completeness.ts': 1,
-  'servers/exarchos-mcp/src/verbs/tasks/discover-bridge.ts': 1,
-  'servers/exarchos-mcp/src/verbs/team/prepare-review.ts': 1,
-  'servers/exarchos-mcp/src/registry.ts': 1,
-  'servers/exarchos-mcp/src/workflow/playbooks.ts': 2,
+  'tools/evals/evals/benchmarks/plan-format-corpus.ts': 1,
+  'src/verbs/gates/design-completeness.ts': 1,
+  'src/verbs/tasks/discover-bridge.ts': 1,
+  'src/verbs/team/prepare-review.ts': 1,
+  'src/registry.ts': 1,
+  'src/workflow/playbooks.ts': 2,
   'test/setup/preflight.ts': 1,
   'tools/audit/measure-reference-census.mjs': 1,
 };
@@ -159,7 +159,7 @@ describe('artifact-directory literals have exactly one owner (DR-6)', () => {
 
   it('ArtifactDir_NoModuleRetainsAHardCodedLiteral: rehydrate no longer declares its own', () => {
     const rehydrate = readFileSync(
-      path.join(REPO_ROOT, 'servers/exarchos-mcp/src/workflow/rehydrate.ts'),
+      path.join(REPO_ROOT, 'src/workflow/rehydrate.ts'),
       'utf-8',
     );
     expect(stripComments(rehydrate)).not.toMatch(/const\s+(UNIFIED_SPEC_DIR|LEGACY_DESIGN_DIR)\s*=/);

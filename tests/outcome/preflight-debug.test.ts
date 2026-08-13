@@ -18,8 +18,8 @@ import { execFileSync } from 'node:child_process';
 import * as path from 'node:path';
 
 import { withTmpGit } from './_helpers/tmp-git.js';
-import { mergePreflight } from '../../servers/exarchos-mcp/src/verbs/pure/merge-preflight.js';
-import type { GitExec } from '../../servers/exarchos-mcp/src/verbs/pure/merge-preflight.js';
+import { mergePreflight } from '../../src/verbs/pure/merge-preflight.js';
+import type { GitExec } from '../../src/verbs/pure/merge-preflight.js';
 
 /** Default gitExec mirroring the handler's `defaultGitExec` (no throw, returns
  * `{ stdout, exitCode }`). Inline here so the outcome test does not depend on

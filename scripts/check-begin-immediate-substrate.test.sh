@@ -52,8 +52,8 @@ echo ""
 setup
 
 # Fixture A: application-level code leaking the substrate primitive
-mkdir -p "$TMPDIR_ROOT/servers/exarchos-mcp/src/orchestrate"
-cat > "$TMPDIR_ROOT/servers/exarchos-mcp/src/orchestrate/run-step.ts" << 'EOF'
+mkdir -p "$TMPDIR_ROOT/src/orchestrate"
+cat > "$TMPDIR_ROOT/src/orchestrate/run-step.ts" << 'EOF'
 // Application orchestration — should NOT use substrate primitives directly
 export async function runStep(db: Database, fn: () => Promise<void>) {
   await db.run(`BEGIN IMMEDIATE`);
@@ -86,8 +86,8 @@ teardown
 # --------------------------------------------------
 setup
 
-mkdir -p "$TMPDIR_ROOT/servers/exarchos-mcp/src/storage"
-cat > "$TMPDIR_ROOT/servers/exarchos-mcp/src/storage/sqlite-substrate.ts" << 'EOF'
+mkdir -p "$TMPDIR_ROOT/src/storage"
+cat > "$TMPDIR_ROOT/src/storage/sqlite-substrate.ts" << 'EOF'
 // Storage substrate — BEGIN IMMEDIATE is the WAL write-ownership primitive
 export async function withWriteLock(db: Database, fn: () => Promise<void>) {
   await db.run("BEGIN IMMEDIATE");
@@ -117,8 +117,8 @@ teardown
 # --------------------------------------------------
 setup
 
-mkdir -p "$TMPDIR_ROOT/servers/exarchos-mcp/src/event-store"
-cat > "$TMPDIR_ROOT/servers/exarchos-mcp/src/event-store/append.ts" << 'EOF'
+mkdir -p "$TMPDIR_ROOT/src/event-store"
+cat > "$TMPDIR_ROOT/src/event-store/append.ts" << 'EOF'
 // Event store append path — uses BEGIN IMMEDIATE for write serialization
 export async function appendEvent(db: Database, event: Event) {
   await db.run(`BEGIN IMMEDIATE`);
@@ -144,8 +144,8 @@ teardown
 # --------------------------------------------------
 setup
 
-mkdir -p "$TMPDIR_ROOT/servers/exarchos-mcp/src/orchestrate"
-cat > "$TMPDIR_ROOT/servers/exarchos-mcp/src/orchestrate/run-step.test.ts" << 'EOF'
+mkdir -p "$TMPDIR_ROOT/src/orchestrate"
+cat > "$TMPDIR_ROOT/src/orchestrate/run-step.test.ts" << 'EOF'
 // Integration test — may reference BEGIN IMMEDIATE in assertion strings
 import { expect, it } from 'vitest';
 it('does not emit BEGIN IMMEDIATE from application layer', () => {
@@ -171,16 +171,16 @@ teardown
 # --------------------------------------------------
 setup
 
-mkdir -p "$TMPDIR_ROOT/servers/exarchos-mcp/src/orchestrate"
-mkdir -p "$TMPDIR_ROOT/servers/exarchos-mcp/src/view"
+mkdir -p "$TMPDIR_ROOT/src/orchestrate"
+mkdir -p "$TMPDIR_ROOT/src/view"
 
-cat > "$TMPDIR_ROOT/servers/exarchos-mcp/src/orchestrate/step-a.ts" << 'EOF'
+cat > "$TMPDIR_ROOT/src/orchestrate/step-a.ts" << 'EOF'
 export async function stepA(db: Database) {
   await db.run("BEGIN IMMEDIATE");
 }
 EOF
 
-cat > "$TMPDIR_ROOT/servers/exarchos-mcp/src/view/materialize.ts" << 'EOF'
+cat > "$TMPDIR_ROOT/src/view/materialize.ts" << 'EOF'
 export async function materialize(db: Database) {
   await db.run(`BEGIN IMMEDIATE`);
 }
@@ -209,8 +209,8 @@ teardown
 # --------------------------------------------------
 setup
 
-mkdir -p "$TMPDIR_ROOT/servers/exarchos-mcp/src/orchestrate"
-cat > "$TMPDIR_ROOT/servers/exarchos-mcp/src/orchestrate/clean.ts" << 'EOF'
+mkdir -p "$TMPDIR_ROOT/src/orchestrate"
+cat > "$TMPDIR_ROOT/src/orchestrate/clean.ts" << 'EOF'
 // No substrate primitives here — uses the withSession abstraction
 export async function runClean() {
   return "ok";
@@ -236,8 +236,8 @@ teardown
 # --------------------------------------------------
 setup
 
-mkdir -p "$TMPDIR_ROOT/servers/exarchos-mcp/src/orchestrate"
-cat > "$TMPDIR_ROOT/servers/exarchos-mcp/src/orchestrate/leaky-step.ts" << 'EOF'
+mkdir -p "$TMPDIR_ROOT/src/orchestrate"
+cat > "$TMPDIR_ROOT/src/orchestrate/leaky-step.ts" << 'EOF'
 // Application orchestration — reaches for the substrate txn primitive directly.
 // The legacy literal-only check could not catch this call. The literal itself is
 // deliberately absent from this fixture: including it (even in a comment) would
@@ -269,12 +269,12 @@ teardown
 # --------------------------------------------------
 # Test 8: ImmediateCallInStorageSubstrate_ExitsZero
 # The substrate itself legitimately calls `.immediate()`. This mirrors the real
-# call site at servers/exarchos-mcp/src/storage/sqlite-backend.ts:1852.
+# call site at src/storage/sqlite-backend.ts:1852.
 # --------------------------------------------------
 setup
 
-mkdir -p "$TMPDIR_ROOT/servers/exarchos-mcp/src/storage"
-cat > "$TMPDIR_ROOT/servers/exarchos-mcp/src/storage/sqlite-backend.ts" << 'EOF'
+mkdir -p "$TMPDIR_ROOT/src/storage"
+cat > "$TMPDIR_ROOT/src/storage/sqlite-backend.ts" << 'EOF'
 // Storage substrate — legitimate owner of the immediate-txn primitive.
 export function allocateSequence(db: Database, fn: () => void) {
   const txn = db.transaction(fn);
@@ -301,8 +301,8 @@ teardown
 # --------------------------------------------------
 setup
 
-mkdir -p "$TMPDIR_ROOT/servers/exarchos-mcp/src/event-store"
-cat > "$TMPDIR_ROOT/servers/exarchos-mcp/src/event-store/atomic-appender.ts" << 'EOF'
+mkdir -p "$TMPDIR_ROOT/src/event-store"
+cat > "$TMPDIR_ROOT/src/event-store/atomic-appender.ts" << 'EOF'
 export function appendAtomic(db: Database, fn: () => void) {
   db.transaction(fn).immediate();
 }
@@ -325,8 +325,8 @@ teardown
 # --------------------------------------------------
 setup
 
-mkdir -p "$TMPDIR_ROOT/servers/exarchos-mcp/src/workflow"
-cat > "$TMPDIR_ROOT/servers/exarchos-mcp/src/workflow/state-retry.ts" << 'EOF'
+mkdir -p "$TMPDIR_ROOT/src/workflow"
+cat > "$TMPDIR_ROOT/src/workflow/state-retry.ts" << 'EOF'
 /**
  * Retry wrapper. The substrate opens its write txn via
  * `db.transaction(fn).immediate()`; this layer never does that itself.
@@ -353,8 +353,8 @@ teardown
 # --------------------------------------------------
 setup
 
-mkdir -p "$TMPDIR_ROOT/servers/exarchos-mcp/src/orchestrate"
-cat > "$TMPDIR_ROOT/servers/exarchos-mcp/src/orchestrate/fake-driver.test.ts" << 'EOF'
+mkdir -p "$TMPDIR_ROOT/src/orchestrate"
+cat > "$TMPDIR_ROOT/src/orchestrate/fake-driver.test.ts" << 'EOF'
 import { it, vi } from 'vitest';
 it('stubs the driver txn shape', () => {
   const txn = { immediate: vi.fn() };
@@ -379,8 +379,8 @@ teardown
 # --------------------------------------------------
 setup
 
-mkdir -p "$TMPDIR_ROOT/servers/exarchos-mcp/src/orchestrate"
-cat > "$TMPDIR_ROOT/servers/exarchos-mcp/src/orchestrate/scheduler.ts" << 'EOF'
+mkdir -p "$TMPDIR_ROOT/src/orchestrate"
+cat > "$TMPDIR_ROOT/src/orchestrate/scheduler.ts" << 'EOF'
 import timers from 'node:timers';
 export function schedule(fn: () => void) {
   setImmediate(fn);
@@ -402,7 +402,7 @@ teardown
 # Test 13: RealTree_ExitsZero_NoFalsePositives
 # The gate must be clean against the actual repository as it stands, with no
 # false positive on the legitimate in-substrate `.immediate()` call at
-# servers/exarchos-mcp/src/storage/sqlite-backend.ts nor on any comment line.
+# src/storage/sqlite-backend.ts nor on any comment line.
 # This is the regression that keeps the gate usable in CI.
 # --------------------------------------------------
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -430,8 +430,8 @@ fi
 # --------------------------------------------------
 setup
 
-mkdir -p "$TMPDIR_ROOT/servers/exarchos-mcp/src/orchestrate"
-cat > "$TMPDIR_ROOT/servers/exarchos-mcp/src/orchestrate/sneaky.ts" << 'EOF'
+mkdir -p "$TMPDIR_ROOT/src/orchestrate"
+cat > "$TMPDIR_ROOT/src/orchestrate/sneaky.ts" << 'EOF'
 export function sneaky(txn: any) {
   /* rationale: we really need a write txn here */ txn.immediate();
 }
@@ -455,8 +455,8 @@ teardown
 # --------------------------------------------------
 setup
 
-mkdir -p "$TMPDIR_ROOT/servers/exarchos-mcp/src/workflow"
-cat > "$TMPDIR_ROOT/servers/exarchos-mcp/src/workflow/docs.ts" << 'EOF'
+mkdir -p "$TMPDIR_ROOT/src/workflow"
+cat > "$TMPDIR_ROOT/src/workflow/docs.ts" << 'EOF'
 /**
  * Retry budget notes.
  *   - `StorageBusyError` — substrate `BEGIN IMMEDIATE` retry budget
@@ -482,8 +482,8 @@ teardown
 # --------------------------------------------------
 setup
 
-mkdir -p "$TMPDIR_ROOT/servers/exarchos-mcp/src/orchestrate"
-cat > "$TMPDIR_ROOT/servers/exarchos-mcp/src/orchestrate/private-field.ts" << 'EOF'
+mkdir -p "$TMPDIR_ROOT/src/orchestrate"
+cat > "$TMPDIR_ROOT/src/orchestrate/private-field.ts" << 'EOF'
 export class Runner {
   #db: any;
   run() { this.#db.immediate(); }
@@ -511,16 +511,16 @@ if [[ "$(id -u)" -eq 0 ]]; then
 else
 setup
 
-mkdir -p "$TMPDIR_ROOT/servers/exarchos-mcp/src/orchestrate/locked"
-cat > "$TMPDIR_ROOT/servers/exarchos-mcp/src/orchestrate/locked/hidden.ts" << 'EOF'
+mkdir -p "$TMPDIR_ROOT/src/orchestrate/locked"
+cat > "$TMPDIR_ROOT/src/orchestrate/locked/hidden.ts" << 'EOF'
 export function hidden(txn: any) {
   txn.immediate();
 }
 EOF
-chmod 000 "$TMPDIR_ROOT/servers/exarchos-mcp/src/orchestrate/locked"
+chmod 000 "$TMPDIR_ROOT/src/orchestrate/locked"
 
 OUTPUT="$(bash "$SCRIPT_UNDER_TEST" "$TMPDIR_ROOT" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
-chmod 755 "$TMPDIR_ROOT/servers/exarchos-mcp/src/orchestrate/locked"
+chmod 755 "$TMPDIR_ROOT/src/orchestrate/locked"
 
 if [[ $EXIT_CODE -eq 2 ]]; then
     pass "UnreadablePath_FailsClosed"

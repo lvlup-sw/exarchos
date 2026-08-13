@@ -16,7 +16,7 @@
  *
  * How we reach the hash:
  *   - The canonical computation lives in
- *     `servers/exarchos-mcp/src/projections/rehydration/fingerprint.ts`.
+ *     `src/projections/rehydration/fingerprint.ts`.
  *   - A tiny TS entrypoint (`fingerprint-cli.ts`, co-located with the
  *     module) prints `computePrefixFingerprint()` to stdout.
  *   - This `.mjs` shells out to `tsx` (devDep at the repo root) to execute
@@ -214,7 +214,7 @@ function main() {
       'If this divergence is intentional (you edited the stable-prefix inputs',
       'of the rehydration document), regenerate the committed hash:',
       '',
-      '  cd servers/exarchos-mcp && npx tsx src/projections/rehydration/fingerprint-cli.ts \\',
+      '  npx tsx src/projections/rehydration/fingerprint-cli.ts \\',
       '    > src/projections/rehydration/PREFIX_FINGERPRINT',
       '',
       'and commit the updated file alongside the template change.',

@@ -76,13 +76,13 @@ import { buildGuardInventory } from '../../../scripts/guard-inventory.js';
  * silently dropping out of the exit proof.
  */
 const WAVE1_GUARDS: readonly { readonly id: string; readonly artifact: string }[] = [
-  { id: 'G1 — CLI derivation guard (DR-5)', artifact: 'servers/exarchos-mcp/scripts/cli-derivation-guard.ts' },
+  { id: 'G1 — CLI derivation guard (DR-5)', artifact: 'scripts/core/cli-derivation-guard.ts' },
   { id: 'G2 — outputSchema non-vacuity ratchet (DR-4)', artifact: 'tools/conformance/src/output-schema-census.ts' },
   { id: 'G3 — event coupling union (DR-2)', artifact: 'tools/conformance/src/report-coupling-census.ts' },
   // G4 stayed in the subject tree: `effect-ledger.ts` has seven production
   // consumers, so task 018a could not extract it without inverting the
   // dependency direction between `src/` and `tools/`.
-  { id: 'G4 — effect ledger bijection (DR-7)', artifact: 'servers/exarchos-mcp/src/architecture/effect-ledger.ts' },
+  { id: 'G4 — effect ledger bijection (DR-7)', artifact: 'src/architecture/effect-ledger.ts' },
   { id: 'G5 — authority-topology census (DR-6)', artifact: 'tools/conformance/src/authority-census.ts' },
 ];
 

@@ -155,7 +155,7 @@ grep_cause "hash-mismatch" "baseline.json" "$TMP/mismatch.err"
 # regular file, not a directory) must fail closed, not be silently treated as
 # empty — otherwise an I/O fault / path drift would drop an entire source tree
 # from enforcement. (A genuinely-absent root — ENOENT — stays tolerated: every
-# fixture above lacks `servers/exarchos-mcp/src` and still runs.)
+# fixture above lacks `src` and still runs.)
 mkdir -p "$TMP/badroot"
 printf 'not a directory\n' > "$TMP/badroot/src"
 cat > "$TMP/badroot/baseline.json" <<'EOF'
@@ -171,7 +171,7 @@ grep_cause "badroot" "not a directory" "$TMP/badroot.err"
 
 # ── exclusion proof: seeded .d.ts/__shims__/.bench.ts/evals casts NOT counted ──
 mkdir -p "$TMP/excluded/src/__tests__" "$TMP/excluded/src/__shims__" \
-  "$TMP/excluded/servers/exarchos-mcp/src/evals"
+  "$TMP/excluded/tools/evals/evals"
 cat > "$TMP/excluded/src/types.d.ts" <<'EOF'
 export const x = 1 as unknown as string;
 EOF
@@ -184,7 +184,7 @@ EOF
 cat > "$TMP/excluded/src/__shims__/shim.ts" <<'EOF'
 export const x = 1 as unknown as string;
 EOF
-cat > "$TMP/excluded/servers/exarchos-mcp/src/evals/harness.ts" <<'EOF'
+cat > "$TMP/excluded/tools/evals/evals/harness.ts" <<'EOF'
 export const x = 1 as unknown as string;
 EOF
 # Every seeded file carries a cast, but every one is excluded by the census —

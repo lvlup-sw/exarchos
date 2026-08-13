@@ -249,8 +249,8 @@ teardown
 # --------------------------------------------------
 # The substrate implementation file is exempt — it IS the implementation
 setup
-mkdir -p "$TMPDIR_ROOT/servers/exarchos-mcp/src/event-store"
-cat > "$TMPDIR_ROOT/servers/exarchos-mcp/src/event-store/atomic-appender.ts" << 'EOF'
+mkdir -p "$TMPDIR_ROOT/src/event-store"
+cat > "$TMPDIR_ROOT/src/event-store/atomic-appender.ts" << 'EOF'
 // Substrate implementation — exempt from idempotency marker requirement
 export class AtomicAppender {
   async withSession(streamId, reducerId, fn, opts) {

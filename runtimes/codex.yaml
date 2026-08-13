@@ -105,7 +105,7 @@ placeholders:
   # `codexAdapter.customAgentResolutionWorks` to true and update this
   # token to invoke spawn_agent({agent_type: "exarchos-{{agent}}",
   # ...}) directly against the named TOML.
-  # See servers/exarchos-mcp/src/agents/adapters/codex.ts for the flag.
+  # See src/runtime/agents/adapters/codex.ts for the flag.
   #
   # The `message` field is JSON-string-typed in the spawn_agent function
   # call schema. `{{description}}` and `{{prompt}}` must be JSON-encoded

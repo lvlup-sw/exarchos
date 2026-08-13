@@ -44,7 +44,7 @@ capabilities:
 # Fine-grained support matrix consumed by the prose renderer (Tasks 8/9)
 # to gate `<!-- requires:* -->` and `<!-- requires:native:* -->` blocks.
 # Mirrors `OpenCodeAdapter.supportLevels` in
-# `servers/exarchos-mcp/src/agents/adapters/opencode.ts` (a capability-support
+# `src/runtime/agents/adapters/opencode.ts` (a capability-support
 # signal for the prose renderer, not a space or write guarantee). OpenCode
 # covers fs/shell/subagent-spawn/MCP natively, treats `isolation:worktree` and
 # `session:resume` as advisory (launcher-managed lifecycle, no first-class

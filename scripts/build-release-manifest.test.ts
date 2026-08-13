@@ -54,17 +54,17 @@ import {
   renderSourceStateReport,
   type EmbeddedBuildIdentity,
 } from './build-release-manifest.js';
-import { AUTHORITY_IDS } from '../servers/exarchos-mcp/src/contract/authority-pin.js';
-import { digestTree } from '../servers/exarchos-mcp/src/install/install-identity.js';
+import { AUTHORITY_IDS } from '../src/contract/authority-pin.js';
+import { digestTree } from '../src/install/install-identity.js';
 import {
   parseSignedManifest,
   type SignedReleaseManifest,
-} from '../servers/exarchos-mcp/src/release/release-manifest.js';
-import { verifyReleaseInstall } from '../servers/exarchos-mcp/src/release/installer-verify.js';
+} from '../src/install/release/release-manifest.js';
+import { verifyReleaseInstall } from '../src/install/release/installer-verify.js';
 import {
   SIGNATURE_ALGORITHM,
   TrustRootSet,
-} from '../servers/exarchos-mcp/src/extensions/trust-root.js';
+} from '../src/runtime/extensions/trust-root.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..');

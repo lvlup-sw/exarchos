@@ -71,7 +71,7 @@ assert_file_absent \
 # deleted v2.9 `src/install.ts`). A `./install` import that RESOLVES to a real
 # module is NOT legacy: the v2.10.2 onboard consolidation introduced a
 # legitimately-named reconciler step at
-# `servers/exarchos-mcp/src/orchestrate/onboard/install.ts` (a sibling of
+# `src/orchestrate/onboard/install.ts` (a sibling of
 # `new.ts` / `hooks.ts`), imported by `onboard/index.ts` and its tests. An
 # earlier version of this guard banned the import-specifier shape outright,
 # which false-positived on that real module. We therefore resolve each hit and
@@ -313,7 +313,7 @@ else
 fi
 
 # ============================================================
-# Task 3.8: Delete dead servers/exarchos-mcp/src/cli.ts + orphans
+# Task 3.8: Delete dead src/cli.ts + orphans
 # ============================================================
 
 # NoLegacy_DeadCliFileAbsent — the MCP server's stdin-JSON cli.ts entry point
@@ -321,13 +321,13 @@ fi
 # binary bundled from src/index.ts). It must be deleted.
 assert_file_absent \
   "NoLegacy_DeadCliFileAbsent" \
-  "servers/exarchos-mcp/src/cli.ts"
+  "src/cli.ts"
 
 # NoLegacy_DeadCliTestAbsent — the co-located test for the deleted cli.ts
 # must be removed alongside its subject.
 assert_file_absent \
   "NoLegacy_DeadCliTestAbsent" \
-  "servers/exarchos-mcp/src/cli.test.ts"
+  "src/cli.test.ts"
 
 # NoLegacy_OrphanedCliCommandsAbsent — handler modules in cli-commands/ that
 # were ONLY consumed by the deleted cli.ts (eval-run, eval-capture,
@@ -339,10 +339,10 @@ assert_file_absent \
 for orphan in eval-run eval-capture eval-compare eval-calibrate quality-check; do
   assert_file_absent \
     "NoLegacy_OrphanedCliCommandsAbsent ($orphan.ts)" \
-    "servers/exarchos-mcp/src/cli-commands/$orphan.ts"
+    "src/cli-commands/$orphan.ts"
   assert_file_absent \
     "NoLegacy_OrphanedCliCommandsAbsent ($orphan.test.ts)" \
-    "servers/exarchos-mcp/src/cli-commands/$orphan.test.ts"
+    "src/cli-commands/$orphan.test.ts"
 done
 
 # ============================================================
@@ -402,16 +402,16 @@ if [[ -f "$KNIP_JSON" || -f "$KNIP_JSONC" || -f "$KNIP_TS" || -n "$KNIP_IN_PKG" 
   # modules so the allowlist is not empty/degenerate. Knip paths can be
   # root-relative or workspace-relative — accept either form.
   # Required entries, stored as "logical|accepted-forms" pairs:
-  #   - MCP server entry: top-level "servers/exarchos-mcp/src/index.ts" OR
+  #   - MCP server entry: top-level "src/index.ts" OR
   #     workspace-relative "src/index.ts" (under a workspaces.<pkg> block)
   #   - build-skills: "src/build-skills.ts"
   #   - install-skills: "src/install-skills.ts"
   if [[ -f "$KNIP_JSON" ]]; then
     MISSING=""
     # MCP server index — accept either form.
-    if ! grep -qF "servers/exarchos-mcp/src/index.ts" "$KNIP_JSON" \
+    if ! grep -qF "src/index.ts" "$KNIP_JSON" \
       && ! grep -qF '"src/index.ts"' "$KNIP_JSON"; then
-      MISSING="$MISSING servers/exarchos-mcp/src/index.ts"
+      MISSING="$MISSING src/index.ts"
     fi
     if ! grep -qF "src/build-skills.ts" "$KNIP_JSON"; then
       MISSING="$MISSING src/build-skills.ts"

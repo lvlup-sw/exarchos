@@ -9,7 +9,7 @@ import { normalize } from './normalizers.js';
  * The pre-verified facts in T2's prompt named `exarchos_view event_log` as the
  * snapshot source. That action does not exist in v2.9 — the canonical event
  * log lives behind `exarchos_event { action: 'query', stream }` (composite
- * handler `handleEventQuery` in `servers/exarchos-mcp/src/event-store/tools.ts`).
+ * handler `handleEventQuery` in `src/event-store/tools.ts`).
  * The on-the-wire row is the persisted `WorkflowEvent` shape:
  *   { streamId, sequence, timestamp, type, data?, ... }
  *
@@ -93,7 +93,7 @@ const REPLAY_QUERY_PAGE_LIMIT = 500;
  * Parse the MCP `callTool` response envelope into the inner `ToolResult` that
  * exarchos handlers return. The MCP wire format is
  * `{ content: [{ type: 'text', text: JSON.stringify(toolResult) }] }`
- * (see `servers/exarchos-mcp/src/format.ts:formatResult`). This helper hides
+ * (see `src/format.ts:formatResult`). This helper hides
  * that double-encoding from the saga primitives.
  */
 function unwrapToolResult(raw: unknown): ToolResultEnvelope {

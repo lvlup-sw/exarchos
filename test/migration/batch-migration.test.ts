@@ -42,7 +42,7 @@
  */
 
 import { describe, it, expect, afterEach } from 'vitest';
-import { buildAllSkills } from '../../src/build-skills.js';
+import { buildAllSkills } from '../../src/install/build-skills.js';
 import {
   mkdtempSync,
   readFileSync,

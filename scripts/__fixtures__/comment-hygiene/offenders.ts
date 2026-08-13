@@ -12,18 +12,18 @@
  * its own kill fixtures could not be tested.
  */
 
-// Source: servers/exarchos-mcp/src/workflow/tools.ts:52
+// Source: src/workflow/tools.ts:52
 // T034 (DR-6) — checkpoint materializes the rehydration projection:
 // fold events → snapshot → emit `workflow.checkpoint_written`. Reuses the
 // helper extracted in T031 so the hydrate path is identical to the one the
 // rehydrate handler exercises.
 export const checkpointMaterializes = true;
 
-// Source: servers/exarchos-mcp/src/next-actions-computer.test.ts:204
+// Source: src/next-actions-computer.test.ts:204
 // ─── Task 008 (#1581 DR-4): post-collapse affordance integrity (INV-12) ──────
 export const affordanceIntegrity = true;
 
-// Source: servers/exarchos-mcp/src/utils/atomic-write.ts:313
+// Source: src/utils/atomic-write.ts:313
 //
 // As committed. This comment STATES ITS CONSTRAINT and would survive the rule
 // on its content alone — it is an offender only because it opens with a bare
@@ -37,7 +37,7 @@ export const affordanceIntegrity = true;
 // not claim a durable entry at all.
 export const durableRename = true;
 
-// Source: servers/exarchos-mcp/src/architecture/layer-boundaries-seam.ts (shape)
+// Source: src/architecture/layer-boundaries-seam.ts (shape)
 // Verification-ladder slice 1 (task 017): contracts are per-toolchain
 export const perToolchainContracts = true;
 
@@ -45,7 +45,7 @@ export const perToolchainContracts = true;
 // dominant risk, and Wave 1 accumulated instances of it faster than anything
 export const waveOneRisk = true;
 
-// Source: servers/exarchos-mcp/src/event-store/event-annotations.ts:161 (shape)
+// Source: src/event-store/event-annotations.ts:161 (shape)
 // DR-13 (epic #1546) resolve-then-freeze: `phase.entered` freezes the resolved
 export const resolveThenFreeze = true;
 

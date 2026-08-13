@@ -18,7 +18,7 @@
  * wrapper (`description-budget-cli.ts`) and the co-located vitest both call —
  * single source of truth for the budgets and the estimate.
  */
-import type { CompositeTool } from '../../../servers/exarchos-mcp/src/registry.js';
+import type { CompositeTool } from '../../../src/registry.js';
 
 /**
  * How a composite tool's full description is rendered.

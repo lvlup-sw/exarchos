@@ -127,7 +127,6 @@ function contextOf(
   const base: ResolutionContext = {
     workflows: [workflow],
     rootPkg: { dir: '', scripts },
-    mcpPkg: { dir: 'servers/exarchos-mcp', scripts: {} },
     suites: loadSuiteConfigs(),
     exists: (path) => Object.hasOwn(files, path),
     readScript: (path) => files[path] ?? null,
@@ -168,9 +167,9 @@ describe('Wave-1 guard inventory — CI reachability proof (DR-24, task 063)', (
     // found by channel 4 rather than by the spec's file list.
     const artifacts = new Set(liveInventory.guards.map((g) => g.artifact));
     for (const named of [
-      'servers/exarchos-mcp/src/agents/dispatch-shape.ts',
+      'src/runtime/agents/dispatch-shape.ts',
       'tools/conformance/src/output-schema-census.ts',
-      'servers/exarchos-mcp/scripts/cli-derivation-guard.ts',
+      'scripts/core/cli-derivation-guard.ts',
       'tools/conformance/src/authority-topology.ts',
     ]) {
       expect(artifacts, `${named} is missing from the inventory`).toContain(named);
@@ -186,13 +185,13 @@ describe('Wave-1 guard inventory — CI reachability proof (DR-24, task 063)', (
     // satisfied by a path-filtered host that skips-as-passed on the PRs it
     // polices — #1711, the failure this whole DR exists for.
     const cliDerivation = liveInventory.guards.find(
-      (g) => g.artifact === 'servers/exarchos-mcp/scripts/cli-derivation-guard.ts',
+      (g) => g.artifact === 'scripts/core/cli-derivation-guard.ts',
     );
     expect(cliDerivation?.enforcement).toBe('blocks');
     expect(cliDerivation?.pathFilteredOnly).toBe(false);
     expect(cliDerivation?.hosts.some((h) => h.via === 'direct')).toBe(true);
     expect(GUARD_EXEMPTIONS.map((e) => e.artifact)).not.toContain(
-      'servers/exarchos-mcp/scripts/cli-derivation-guard.ts',
+      'scripts/core/cli-derivation-guard.ts',
     );
   });
 
@@ -208,7 +207,7 @@ describe('Wave-1 guard inventory — CI reachability proof (DR-24, task 063)', (
     // remediation, exactly as task 021's kill fixture was. A guarantee must not
     // lapse because the defect it describes got fixed.
     const selfTestOnly = guard({
-      artifact: 'servers/exarchos-mcp/scripts/example-gate.ts',
+      artifact: 'scripts/core/example-gate.ts',
       runnable: true,
       hosts: [{ job: 'test-mcp', via: 'self-test', pathFiltered: false }],
       enforcement: 'unreachable',
@@ -223,7 +222,7 @@ describe('Wave-1 guard inventory — CI reachability proof (DR-24, task 063)', (
     // — not merely re-classified because its self-test is hosted. Both host
     // kinds are present, and it is the `direct` one that earns `blocks`.
     const record = liveInventory.guards.find(
-      (g) => g.artifact === 'servers/exarchos-mcp/scripts/cli-derivation-guard.ts',
+      (g) => g.artifact === 'scripts/core/cli-derivation-guard.ts',
     );
     expect(record).toBeDefined();
     expect(record?.runnable).toBe(true);
@@ -364,7 +363,7 @@ describe('Path-filtered hosting (#1711 skipped-as-passed)', () => {
     // re-pointed at a guard that still exhibits it rather than deleted, which
     // would have quietly dropped the criterion's only live subject.
     expect(liveAudit.pathFilteredOnly).toContain(
-      'servers/exarchos-mcp/src/architecture/layer-boundaries-seam.ts',
+      'src/architecture/layer-boundaries-seam.ts',
     );
 
     // Not silently accepted: the same condition, with the guard's own source
@@ -430,7 +429,7 @@ describe('Path-filtered hosting (#1711 skipped-as-passed)', () => {
           ],
         }),
       ]),
-      { exemptions: [], filterGlobs: { mcp: ['servers/exarchos-mcp/**'] } },
+      { exemptions: [], filterGlobs: { mcp: ['src/**'] } },
     );
     expect(audit.violations.join('\n')).not.toContain('[implementation-surface-outside-filter]');
     expect(audit.pathFilteredOnly).toEqual(['scripts/check-reasserted.mjs']);
@@ -628,7 +627,7 @@ describe('Derivations the inventory rests on', () => {
   });
 
   it('SpecParse_FilesLineEntries_KeepPathsAndDropProseAndDirectories', () => {
-    expect(isPathShaped('servers/exarchos-mcp/src/agents/dispatch-shape.ts')).toBe(true);
+    expect(isPathShaped('src/runtime/agents/dispatch-shape.ts')).toBe(true);
     expect(isPathShaped('AGENTS.md')).toBe(true);
     expect(isPathShaped('src/')).toBe(false);
     expect(isPathShaped('/exarchos:invariants')).toBe(false);
@@ -692,14 +691,19 @@ describe('Derivations the inventory rests on', () => {
     expect(globMatches('scripts/**/*.test.ts', 'scripts/a/b/c.test.ts')).toBe(true);
     expect(globMatches('scripts/**/*.test.ts', 'scripts/c.test.ts')).toBe(true);
     expect(globMatches('src/*.ts', 'src/a/b.ts')).toBe(false);
-    expect(globMatches('servers/exarchos-mcp/**', 'servers/exarchos-mcp/src/x.ts')).toBe(true);
-    expect(globMatches('servers/exarchos-mcp/**', 'scripts/lint-inv6.mjs')).toBe(false);
+    expect(globMatches('src/**', 'src/x.ts')).toBe(true);
+    expect(globMatches('src/**', 'scripts/lint-inv6.mjs')).toBe(false);
     expect(globMatches('AGENTS.md', 'AGENTS.md')).toBe(true);
   });
 
-  it('SuiteResolution_McpTest_IsNeverClaimedByTheRootSuite', () => {
+  it('SuiteResolution_EveryCollectedTest_ResolvesToTheOneSuite', () => {
+    // Task 019 left a single package, so the question this used to ask ("is an
+    // MCP test ever claimed by the root suite?") no longer has two answers.
+    // What still matters is that resolution is TOTAL over collected tests and
+    // NULL over everything else — a path silently resolving to no suite is an
+    // unhosted test.
     const suites = loadSuiteConfigs();
-    expect(suiteForTest('servers/exarchos-mcp/src/agents/dispatch-shape.test.ts', suites)?.suite).toBe('mcp');
+    expect(suiteForTest('src/runtime/agents/dispatch-shape.test.ts', suites)?.suite).toBe('root');
     expect(suiteForTest('scripts/ci-topology.test.ts', suites)?.suite).toBe('root');
     expect(suiteForTest('docs/whatever.md', suites)).toBeNull();
   });
@@ -724,7 +728,6 @@ describe('Derivations the inventory rests on', () => {
     const ctx: ResolutionContext = {
       workflows: [workflow],
       rootPkg: { dir: '', scripts: { outer: 'npm run inner', inner: 'node scripts/check-deep.mjs' } },
-      mcpPkg: { dir: 'servers/exarchos-mcp', scripts: {} },
       suites: loadSuiteConfigs(),
       exists: () => false,
     };
@@ -752,7 +755,6 @@ describe('Derivations the inventory rests on', () => {
     const ctx: ResolutionContext = {
       workflows: [workflow],
       rootPkg: { dir: '', scripts: {} },
-      mcpPkg: { dir: 'servers/exarchos-mcp', scripts: {} },
       suites: loadSuiteConfigs(),
       exists: () => false,
     };
@@ -779,7 +781,6 @@ describe('Derivations the inventory rests on', () => {
     const ctx: ResolutionContext = {
       workflows: [workflow],
       rootPkg: { dir: '', scripts: {} },
-      mcpPkg: { dir: 'servers/exarchos-mcp', scripts: {} },
       suites: loadSuiteConfigs(),
       exists: () => false,
     };
@@ -796,7 +797,7 @@ describe('Exclusions stay reviewable', () => {
     // `stryker-adapter.mjs` is runnable but is a toolchain adapter, not a guard —
     // it has no co-located self-test, which is DR-24's own definition. Excluding
     // it is correct; excluding it INVISIBLY would make the exclusion a hiding place.
-    expect(liveInventory.runnableWithoutSelfTest).toContain('servers/exarchos-mcp/scripts/stryker-adapter.mjs');
+    expect(liveInventory.runnableWithoutSelfTest).toContain('scripts/core/stryker-adapter.mjs');
   });
 
   it('GuardInventory_CompileTimeOnlyWave1Artifacts_AreReported', () => {
@@ -1029,7 +1030,6 @@ describe('The indirection resolver is itself measured (non-empty denominator)', 
     const index = indexShellIndirection({
       workflows: [workflowRunning('bash scripts/wrapper.sh')],
       rootPkg: { dir: '', scripts: {} },
-      mcpPkg: { dir: 'servers/exarchos-mcp', scripts: {} },
       suites: loadSuiteConfigs(),
       exists: () => true,
     });
@@ -1096,13 +1096,13 @@ describe('The live chain this task was dispatched against', () => {
     // The seeded proof that "empty" means "checked": an unwired guard added to
     // the LIVE inventory still reads unreachable and still fails the audit. The
     // resolver has not learned to say yes to everything.
-    const seeded = guard({ artifact: 'servers/exarchos-mcp/scripts/never-wired.ts', runnable: true });
+    const seeded = guard({ artifact: 'scripts/core/never-wired.ts', runnable: true });
     const seededAudit = auditGuardInventory(
       inventoryOf([...liveInventory.guards, seeded], liveInventory.indirection),
       { manifestJson: liveManifest, filterGlobs: liveFilterGlobs, exemptions: [] },
     );
     expect(seededAudit.ok).toBe(false);
-    expect(seededAudit.violations.join('\n')).toContain('servers/exarchos-mcp/scripts/never-wired.ts');
+    expect(seededAudit.violations.join('\n')).toContain('scripts/core/never-wired.ts');
     expect(seededAudit.violations.join('\n')).toContain('unwired-guard');
   });
 });

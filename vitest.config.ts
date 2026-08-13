@@ -19,24 +19,21 @@ export default defineConfig({
       {
         test: {
           name: 'unit',
-          // Root-package unit tests only. Tests under `servers/exarchos-mcp/`
-          // are owned by that workspace's own `vitest.config.ts` (which sets up
-          // the `bun:sqlite` alias and resolves `@fast-check/vitest` from the
-          // nested `node_modules/`). CI runs them via `cd servers/exarchos-mcp
-          // && npm run test:run`.
+          // Root-package unit tests only. Everything under `src/` now belongs to
+          // the `core` project below — task 019 folded the MCP server's tree
+          // into `src/`, so the glob that used to mean "the installer toolchain"
+          // would otherwise sweep ~1,560 core tests into this tier's 5s budget.
+          // That is exactly the Windows-lottery failure task 011 declared
+          // unacceptable (#1620), so `src/**` is deliberately absent here.
           //
           // Explicit per-tier timeout policy (WFQ-015): every root project
           // states its own `testTimeout` rather than leaning on vitest's
           // implicit 5000ms default, so the timeout policy is legible and
           // uniform across the tiers — unit (fast, in-memory) 5s < process
-          // (spawns real processes) 15s < outcome (real OS/git/CLI state) 30s.
-          // The nested `servers/exarchos-mcp` workspace pins a higher 60s for
-          // Windows headroom on its integration suite; both workspaces now run
-          // vitest (see test-runtime-resolver bun `test:run` honoring), so each
-          // honors its declared vitest timeout rather than a native runner's.
+          // (spawns real processes) 15s < outcome (real OS/git/CLI state) 30s
+          // < core (Windows headroom on a real filesystem + SQLite) 60s.
           testTimeout: 5000,
           include: [
-            'src/**/*.test.ts',
             'benchmarks/**/*.test.ts',
             'scripts/**/*.test.ts',
             // Black-box tests for top-level git-hook samples (e.g. the opt-in
@@ -61,7 +58,108 @@ export default defineConfig({
             // `runs/`, excluded above). e.g. `docs/evals/quality-ab/grade.test.ts`.
             'docs/evals/**/*.test.ts',
           ],
-          exclude: EXCLUDE,
+          // `scripts/core/**` are the core suite's own guard tests and run in
+          // the `core` project at its budget, not this one.
+          exclude: [...EXCLUDE, 'scripts/core/**'],
+        },
+      },
+      {
+        // The product core (task 019). Formerly the `servers/exarchos-mcp`
+        // workspace with its own vitest.config.ts; the package dissolved but
+        // its POLICY did not, because the policy is load-bearing and was chosen
+        // deliberately (task 011). Every knob below is carried over verbatim.
+        resolve: {
+          alias: {
+            // `bun:sqlite` is a virtual module that only resolves under Bun.
+            // Vitest runs under Node, so the import is redirected to a thin shim
+            // over `better-sqlite3` for the duration of test execution. The
+            // compiled binary (produced by `bun build --compile`) still imports
+            // the real `bun:sqlite` at runtime — this alias is test-only.
+            'bun:sqlite': fileURLToPath(
+              new URL('./src/storage/__shims__/bun-sqlite-node.ts', import.meta.url),
+            ),
+          },
+        },
+        test: {
+          name: 'core',
+          pool: 'forks',
+          // The default 5 s per-test / per-hook budget is comfortable on Linux
+          // but too tight on the windows-latest runner, where filesystem +
+          // better-sqlite3 + process-spawn latency is several times higher — a
+          // handful of otherwise-healthy tests time out there (#1620). This
+          // headroom does not mask a genuine hang (which still fails, just
+          // later), and has no effect on the Linux suite: fast tests finish in
+          // milliseconds and never reach the cap. Not to be re-scaled.
+          testTimeout: 60000,
+          hookTimeout: 60000,
+          include: [
+            'src/**/*.test.ts',
+            // `*.type-test.ts` files carry compile-time type assertions whose
+            // real gate is `tsc --noEmit` (their `.type-test.ts` name
+            // deliberately dodges the tsconfig `**/*.test.ts` exclude so tsc
+            // *does* check them). Vitest strips types, so these files only
+            // anchor a trivial runtime `expect`; include them so they are still
+            // discoverable when run explicitly.
+            'src/**/*.type-test.ts',
+            'scripts/core/**/*.test.ts',
+            // `test/core/**` holds integration tests that spawn the compiled
+            // binary over real stdio transport. Kept outside `src/` so they are
+            // not unit-test-adjacent and do not trigger the `bun:sqlite` alias —
+            // the binary embeds the real `bun:sqlite` at runtime.
+            'test/core/**/*.test.ts',
+            // `tests/core/**` holds golden-fixture integration tests (T052,
+            // DR-15) that replay canonical event streams and assert document
+            // shape. Separate from `test/core/` so fixture files live alongside
+            // the tests without conflicting with the compiled-binary suite.
+            'tests/core/**/*.test.ts',
+            // The layer map sent `evals/`, `bench/`, `benchmarks/` and
+            // `test-helpers/` out of the product tree and into `tools/`. They
+            // were part of this suite before the move and still are — without
+            // these two globs they are collected by NO project and pass by
+            // never executing, which is the failure mode the tree-move is most
+            // likely to introduce and least likely to show.
+            'tools/evals/**/*.test.ts',
+            'tools/test-helpers/**/*.test.ts',
+            'tools/evals/bench/**/*.bench.ts',
+          ],
+          // The composed-path Stryker smoke test (DR-7, task 012) is heavy — it
+          // spawns the real pinned Stryker binary over an isolated fixture repo
+          // (seconds of wall-time) — so it is excluded from the DEFAULT/coverage
+          // run. That keeps it from inflating the coverage-measured lane (DR-5)
+          // and from being conscripted onto the Windows leg's known spawn-flake
+          // class. It runs instead in its own dedicated Linux-only test step,
+          // which sets EXARCHOS_SMOKE_ONLY=1 to lift the exclusion for that one
+          // invocation (vitest's CLI `--exclude` is additive and cannot
+          // un-exclude, so the toggle has to live here).
+          exclude:
+            process.env.EXARCHOS_SMOKE_ONLY === '1'
+              ? [...EXCLUDE]
+              : [...EXCLUDE, 'src/verbs/stryker-adapter.smoke.test.ts'],
+          coverage: {
+            provider: 'v8',
+            // `json-summary` emits `coverage/coverage-summary.json` (per-file +
+            // `total` aggregate metrics). Without it the non-regression ratchet
+            // (`scripts/check-coverage-ratchet.mjs`, DR-5) has no artifact to
+            // read — the reporter set is the load-bearing prerequisite the
+            // ratchet's fail-closed missing-summary path exists to catch.
+            reporter: ['text', 'json', 'json-summary', 'html'],
+            // vitest's own default is `reportOnFailure: false` — the coverage
+            // report (including `coverage-summary.json`) is SKIPPED whenever any
+            // test fails. This repo carries a known set of local-only red tests,
+            // so leaving the default would mean the summary artifact silently
+            // never materializes locally, and would starve the ratchet of its
+            // input on any red CI run too. Force the report to always be written
+            // so a missing summary is a genuine reporter/tooling failure, never
+            // an artifact of unrelated red tests.
+            reportOnFailure: true,
+            include: ['src/**/*.ts'],
+            exclude: [
+              'src/**/*.test.ts',
+              'src/index.ts',
+              'src/__tests__/**',
+              'src/types.ts',
+            ],
+          },
         },
       },
       {
@@ -86,10 +184,7 @@ export default defineConfig({
         resolve: {
           alias: {
             'bun:sqlite': fileURLToPath(
-              new URL(
-                './servers/exarchos-mcp/src/storage/__shims__/bun-sqlite-node.ts',
-                import.meta.url,
-              ),
+              new URL('./src/storage/__shims__/bun-sqlite-node.ts', import.meta.url),
             ),
           },
         },
@@ -120,5 +215,11 @@ export default defineConfig({
         },
       },
     ],
+  },
+  // Carried from the dissolved core workspace. `bench` is a separate vitest
+  // mode, not a project, so it stays at the top level.
+  benchmark: {
+    include: ['src/**/*.bench.ts', 'tools/evals/bench/**/*.bench.ts'],
+    outputJson: 'benchmark-results.json',
   },
 });

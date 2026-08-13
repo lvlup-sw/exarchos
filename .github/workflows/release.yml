@@ -36,7 +36,7 @@ jobs:
     name: Publish Release
     # ubuntu-latest matches binary-matrix below — the self-hosted Azure Container
     # Apps Job runner (caj-github-runner-dev, 4 GiB / 8 GiB ephemeral) reproducibly
-    # hangs on `cd servers/exarchos-mcp && npm ci` for this workload (net RX dies
+    # hangs on a plain `npm ci` for this workload (net RX dies
     # after ~1 GB, CPU drops to near-zero until 1-hour replicaTimeout fires). The
     # same step completes in 30-45s on ubuntu-latest. See memory note
     # feedback_self_hosted_runner_npm_ci_stall.
@@ -66,7 +66,6 @@ jobs:
       # Route through the shared wrapper for the Playwright browser-download
       # skip + retry/timeout (see docs/rca/2026-05-31-npm-ci-playwright-browser-wedge.md).
       - run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
-      - run: cd servers/exarchos-mcp && bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
       - run: npm run typecheck
       - run: npm run test:run
       - run: npm run build
@@ -158,11 +157,11 @@ jobs:
           cache: npm
           # Both lockfiles must be cache keys — root deps (js-yaml,
           # @inquirer/prompts) are reachable from the MCP build entry via
-          # `servers/exarchos-mcp/src/cli-commands/install-skills-bridge.js`
+          # `src/cli-commands/install-skills-bridge.js`
           # → `../../../../src/runtimes/load.js` (added in #1213).
           cache-dependency-path: |
             package-lock.json
-            servers/exarchos-mcp/package-lock.json
+            package-lock.json
 
       - name: Install root dependencies
         # The MCP build entry transitively imports `src/runtimes/load.ts`
@@ -170,10 +169,6 @@ jobs:
         # fails with "Could not resolve: js-yaml". Route through the shared
         # wrapper for the Playwright browser-download skip + retry/timeout
         # (see docs/rca/2026-05-31-npm-ci-playwright-browser-wedge.md).
-        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
-
-      - name: Install MCP server dependencies
-        working-directory: servers/exarchos-mcp
         run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
 
       - name: Build binary for ${{ matrix.target }}
@@ -248,7 +243,7 @@ jobs:
       - uses: actions/checkout@v4
 
       # The manifest builder is a TypeScript module that imports the
-      # `servers/exarchos-mcp/src/release/**` primitives, so it needs bun
+      # `src/install/release/**` primitives, so it needs bun
       # plus that workspace's dependencies (zod) resolvable on disk.
       #
       # SHA-pinned (supply-chain hardening): this job receives
@@ -265,13 +260,9 @@ jobs:
           cache: npm
           cache-dependency-path: |
             package-lock.json
-            servers/exarchos-mcp/package-lock.json
+            package-lock.json
 
-      - name: Install root dependencies
-        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
-
-      - name: Install MCP server dependencies
-        working-directory: servers/exarchos-mcp
+      - name: Install dependencies
         run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
 
       - name: Download all binary-matrix artifacts

@@ -7,7 +7,7 @@
 // (it exits non-zero and prints `renamed → use 'exarchos onboard'`), so its old
 // "writes skills + registers MCP" contract no longer exists as a standalone
 // command. The behaviour moved INTO the onboard reconciler, whose unit/contract
-// coverage lives in `servers/exarchos-mcp/src/verbs/onboard/*.test.ts`
+// coverage lives in `src/verbs/onboard/*.test.ts`
 // (including the #1355 per-runtime manifest-parity guard in `install.test.ts`).
 //
 // What this tier asserts is the *operator-visible* end-to-end contract of the

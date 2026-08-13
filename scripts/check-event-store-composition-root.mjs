@@ -2,7 +2,7 @@
 /**
  * EventStore composition-root CI gate (Fix 1, RCA cluster #1182).
  *
- * Walks `servers/exarchos-mcp/src/**` looking for `new EventStore(...)`
+ * Walks `src/**` looking for `new EventStore(...)`
  * outside the documented composition root and outside test/bench files.
  * Failure indicates a future caller has reintroduced the rogue-instance
  * pattern that bypasses the #971 PID lock and corrupts event sequences.
@@ -23,7 +23,7 @@
  *
  * Flags (primarily for testability):
  *   --src-root <path>  Root directory to walk. Defaults to
- *                      `servers/exarchos-mcp/src` relative to repo root.
+ *                      `src` relative to repo root.
  *   --help             Show usage.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';

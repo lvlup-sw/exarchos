@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const SRC = path.join(ROOT, 'servers/exarchos-mcp/src');
+const SRC = path.join(ROOT, 'src');
 const ARCH = path.join(SRC, 'architecture');
 const STMT = /^[ \t]*(?:import|export)\s+(type\s+)?([^;]*?)\s*from\s*['"](\.[^'"]+)['"]/gm;
 

@@ -10,7 +10,7 @@
 # Exempt paths (never flagged):
 #   - **/*.test.ts          (test files exercise the contract, not implement callers)
 #   - **/__tests__/**       (test utility directories)
-#   - servers/exarchos-mcp/src/event-store/atomic-appender.ts  (substrate impl)
+#   - src/event-store/atomic-appender.ts  (substrate impl)
 #
 # Usage:
 #   check-withsession-idempotency.sh [<scan-dir>]
@@ -52,7 +52,7 @@ fi
 CONTEXT_LINES=15
 
 # Relative path suffix of the exempt substrate implementation.
-EXEMPT_SUBSTRATE="servers/exarchos-mcp/src/event-store/atomic-appender.ts"
+EXEMPT_SUBSTRATE="src/event-store/atomic-appender.ts"
 
 # ─── File discovery ──────────────────────────────────────────────────────────
 

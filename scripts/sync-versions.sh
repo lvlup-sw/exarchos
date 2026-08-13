@@ -8,7 +8,7 @@
 #     .claude-plugin/plugin.json   .version
 #                                  .metadata.compat.minBinaryVersion
 #     manifest.json                .version
-#     servers/exarchos-mcp/        .version
+#     (the nested server manifest was dissolved by task 019)
 #       package.json
 #
 #   TypeScript string literals (under <mcp-src-dir>/):
@@ -44,8 +44,12 @@ fi
 PLUGIN_JSON="${REPO_ROOT}/.claude-plugin/plugin.json"
 MANIFEST_JSON="${REPO_ROOT}/manifest.json"
 PACKAGE_JSON="${REPO_ROOT}/package.json"
-MCP_PACKAGE_JSON="${REPO_ROOT}/servers/exarchos-mcp/package.json"
-MCP_SRC_DIR="${REPO_ROOT}/servers/exarchos-mcp/src"
+# Task 019 dissolved the nested server manifest, so there is no second
+# manifest sink in this repo any more. Left empty (the -f guards below skip
+# it) rather than pointed at package.json, which would make the check compare
+# the source of truth against itself and always pass.
+MCP_PACKAGE_JSON=""
+MCP_SRC_DIR="${REPO_ROOT}/src"
 CHECK_MODE=false
 
 require_arg() {
@@ -76,8 +80,8 @@ Options:
   --plugin-json    PATH    Override .claude-plugin/plugin.json
   --manifest-json  PATH    Override manifest.json
   --package-json   PATH    Override the source-of-truth package.json
-  --mcp-package    PATH    Override servers/exarchos-mcp/package.json
-  --mcp-src-dir    DIR     Override servers/exarchos-mcp/src/ (TS sinks resolve here)
+  --mcp-package    PATH    Additional package.json sink (default: none)
+  --mcp-src-dir    DIR     Override src/ (TS sinks resolve here)
   --check                  Verify all sinks; exit 1 on drift, do not modify.
   --help                   Show this message.
 
@@ -92,7 +96,7 @@ done
 # Resolved TS-sink paths. Defined once so check-mode and write-mode share the
 # same definition (DIM-1: no divergent paths).
 INDEX_TS="${MCP_SRC_DIR}/index.ts"
-MCP_TS="${MCP_SRC_DIR}/adapters/mcp.ts"
+MCP_TS="${MCP_SRC_DIR}/adapters/mcp/mcp.ts"
 
 VERSION=$(node -e "console.log(require(process.argv[1]).version)" "${PACKAGE_JSON}")
 
@@ -144,7 +148,7 @@ patch_quoted_after() {
 ts_sites() {
   cat <<SITES
 ${INDEX_TS}|^export const SERVER_VERSION = |src/index.ts SERVER_VERSION
-${MCP_TS}|^const SERVER_VERSION = |adapters/mcp.ts SERVER_VERSION
+${MCP_TS}|^const SERVER_VERSION = |adapters/mcp/mcp.ts SERVER_VERSION
 SITES
 }
 
@@ -207,7 +211,7 @@ if [[ "$CHECK_MODE" == "true" ]]; then
   if [[ -f "$MCP_PACKAGE_JSON" ]]; then
     MCP_VER=$(jq -r '.version' "$MCP_PACKAGE_JSON")
     if [[ "$MCP_VER" != "$VERSION" ]]; then
-      echo "MISMATCH: servers/exarchos-mcp/package.json version=${MCP_VER}, expected=${VERSION}" >&2
+      echo "MISMATCH: package.json version=${MCP_VER}, expected=${VERSION}" >&2
       ERRORS=$((ERRORS + 1))
     fi
   fi
@@ -251,6 +255,6 @@ write_ts_sites
 echo "Synced version ${VERSION} to:"
 echo "  - ${PLUGIN_JSON#${REPO_ROOT}/} (.version, .metadata.compat.minBinaryVersion)"
 echo "  - ${MANIFEST_JSON#${REPO_ROOT}/} (.version)"
-echo "  - ${MCP_PACKAGE_JSON#${REPO_ROOT}/} (.version)"
+if [[ -n "$MCP_PACKAGE_JSON" ]]; then echo "  - ${MCP_PACKAGE_JSON#${REPO_ROOT}/} (.version)"; fi
 echo "  - ${INDEX_TS#${REPO_ROOT}/} (SERVER_VERSION)"
 echo "  - ${MCP_TS#${REPO_ROOT}/} (SERVER_VERSION)"

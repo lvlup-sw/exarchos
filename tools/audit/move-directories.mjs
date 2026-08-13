@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const SRC_REL = 'servers/exarchos-mcp/src';
+const SRC_REL = 'src';
 const SRC = path.join(ROOT, SRC_REL);
 const APPLY = process.argv.includes('--apply');
 

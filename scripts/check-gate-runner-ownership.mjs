@@ -11,7 +11,7 @@ import { readFile, readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const RUNTIME_ROOT = 'servers/exarchos-mcp/src';
+const RUNTIME_ROOT = 'src';
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.mjs']);
 const EXEMPTION_CATEGORIES = new Set([
   'diagnostic-observation',
@@ -33,16 +33,16 @@ const mergedRationale =
 /** @type {readonly {file:string, kind:string, count:number, owner:string, rationale:string, category:string}[]} */
 const DISPOSITIONS = Object.freeze([
   // Canonical evidence-production seams.
-  { file: 'servers/exarchos-mcp/src/verbs/gates/gate-runner.ts', kind: 'durable-runner', count: 3, owner: 'orchestrate/gate-runner', rationale: 'The canonical v2.12 runner owns normalized evidence execution and the awaited durable append.', category: 'canonical-runner' },
+  { file: 'src/verbs/gates/gate-runner.ts', kind: 'durable-runner', count: 3, owner: 'orchestrate/gate-runner', rationale: 'The canonical v2.12 runner owns normalized evidence execution and the awaited durable append.', category: 'canonical-runner' },
   // The canonical runner's own `gate.executed` append literal also matches the
   // manual-gate-event detector; it is the ONE producer that literal names.
-  { file: 'servers/exarchos-mcp/src/verbs/gates/gate-runner.ts', kind: 'manual-gate-event', count: 1, owner: 'orchestrate/gate-runner', rationale: 'appendGateExecutedSignal inside the canonical runner is THE single gate.executed producer; the literal is its own append, not a bypass.', category: 'canonical-runner' },
+  { file: 'src/verbs/gates/gate-runner.ts', kind: 'manual-gate-event', count: 1, owner: 'orchestrate/gate-runner', rationale: 'appendGateExecutedSignal inside the canonical runner is THE single gate.executed producer; the literal is its own append, not a bypass.', category: 'canonical-runner' },
   // The ownership census proves the seam live by invoking the real runner
   // twice (success + fail-closed witness) against throwaway in-memory stores.
   // Those invocations are observations of the canonical producer, not a
   // second production seam.
-  { file: 'servers/exarchos-mcp/src/verbs/gates/gate-ownership-census.ts', kind: 'durable-runner', count: 2, owner: 'orchestrate/gate-ownership-census', rationale: 'Live-witness probes drive the canonical runGate against sacrificial stores to prove success-carries-evidence and fail-closed behavior; no enforceable evidence is produced outside the runner.', category: 'diagnostic-observation' },
-  { file: 'servers/exarchos-mcp/src/verbs/gates/durable-gate-producer.ts', kind: 'durable-runner', count: 2, owner: 'orchestrate/durable-gate-producer', rationale: mergedRationale, category: 'merged-durable-producer' },
+  { file: 'src/verbs/gates/gate-ownership-census.ts', kind: 'durable-runner', count: 2, owner: 'orchestrate/gate-ownership-census', rationale: 'Live-witness probes drive the canonical runGate against sacrificial stores to prove success-carries-evidence and fail-closed behavior; no enforceable evidence is produced outside the runner.', category: 'diagnostic-observation' },
+  { file: 'src/verbs/gates/durable-gate-producer.ts', kind: 'durable-runner', count: 2, owner: 'orchestrate/durable-gate-producer', rationale: mergedRationale, category: 'merged-durable-producer' },
   ...[
     'check-integration-suite.ts',
     'contract-drift-handler.ts',
@@ -50,7 +50,7 @@ const DISPOSITIONS = Object.freeze([
     'static-analysis.ts',
     'test-adequacy-handler.ts',
   ].map((name) => ({
-    file: `servers/exarchos-mcp/src/orchestrate/${name}`,
+    file: `src/orchestrate/${name}`,
     kind: 'durable-runner',
     count: 1,
     owner: 'orchestrate/durable-gate-producer',
@@ -63,7 +63,7 @@ const DISPOSITIONS = Object.freeze([
     'provenance-chain.ts',
     'review-verdict.ts',
   ].map((name) => ({
-    file: `servers/exarchos-mcp/src/orchestrate/${name}`,
+    file: `src/orchestrate/${name}`,
     kind: 'durable-runner',
     count: 1,
     owner: 'orchestrate/gate-runner',
@@ -72,19 +72,19 @@ const DISPOSITIONS = Object.freeze([
   })),
 
   // One exhaustive provider owner and the shared benchmark taxonomy it maps.
-  { file: 'servers/exarchos-mcp/src/verbs/gates/gate-provider-registry.ts', kind: 'provider-registration', count: 4, owner: 'orchestrate/gate-provider-registry', rationale: 'The exhaustive typed registry assigns exactly one action owner to every supported GateClass.', category: 'provider-registry' },
-  { file: 'servers/exarchos-mcp/src/verbs/gates/gate-provider-registry.ts', kind: 'gate-class-definition', count: 3, owner: 'orchestrate/gate-provider-registry', rationale: 'Local phase classes extend the shared taxonomy only at the exhaustive provider registry. THREE definitions, not two: `MechanicalGateClass`, `PhaseGateClass`, and the union alias `SupportedGateClass = MechanicalGateClass | PhaseGateClass`. The alias is not a third AUTHORITY — it introduces no class of its own and changes meaning only when one of its two members changes — but the detector matches `type \\w*GateClass =` textually and cannot tell a union alias from a new taxonomy. Counted here rather than routed around: the alias arrived in 500cc832e (which moved the mechanical vocabulary out of the eval corpus) without this row being updated, so the census was reporting a real, unrecorded third definition. Recording it keeps the both-ways tooth intact — a genuinely new class in this file still trips the count.', category: 'provider-registry' },
-  { file: 'servers/exarchos-mcp/src/evals/benchmarks/seeded-defects/corpus.ts', kind: 'gate-class-definition', count: 1, owner: 'seeded-defect-corpus', rationale: 'This closed benchmark taxonomy is the shared mechanical GateClass source consumed by the provider registry.', category: 'gate-taxonomy' },
+  { file: 'src/verbs/gates/gate-provider-registry.ts', kind: 'provider-registration', count: 4, owner: 'orchestrate/gate-provider-registry', rationale: 'The exhaustive typed registry assigns exactly one action owner to every supported GateClass.', category: 'provider-registry' },
+  { file: 'src/verbs/gates/gate-provider-registry.ts', kind: 'gate-class-definition', count: 3, owner: 'orchestrate/gate-provider-registry', rationale: 'Local phase classes extend the shared taxonomy only at the exhaustive provider registry. THREE definitions, not two: `MechanicalGateClass`, `PhaseGateClass`, and the union alias `SupportedGateClass = MechanicalGateClass | PhaseGateClass`. The alias is not a third AUTHORITY — it introduces no class of its own and changes meaning only when one of its two members changes — but the detector matches `type \\w*GateClass =` textually and cannot tell a union alias from a new taxonomy. Counted here rather than routed around: the alias arrived in 500cc832e (which moved the mechanical vocabulary out of the eval corpus) without this row being updated, so the census was reporting a real, unrecorded third definition. Recording it keeps the both-ways tooth intact — a genuinely new class in this file still trips the count.', category: 'provider-registry' },
+  { file: 'tools/evals/evals/benchmarks/seeded-defects/corpus.ts', kind: 'gate-class-definition', count: 1, owner: 'seeded-defect-corpus', rationale: 'This closed benchmark taxonomy is the shared mechanical GateClass source consumed by the provider registry.', category: 'gate-taxonomy' },
 
   // Existing transition-shell topology is reserved, not newly approved. v3.0
   // retirement owns deletion; this census rejects any additional location.
   ...[
-    ['servers/exarchos-mcp/src/config/define.ts', 'guard-definition', 1],
-    ['servers/exarchos-mcp/src/config/validation.ts', 'guard-definition', 1],
-    ['servers/exarchos-mcp/src/config/register.ts', 'legacy-custom-shell', 6],
-    ['servers/exarchos-mcp/src/config/guards.ts', 'legacy-custom-shell', 1],
-    ['servers/exarchos-mcp/src/workflow/state-machine.ts', 'legacy-custom-shell', 4],
-    ['servers/exarchos-mcp/src/workflow/hsm-transition-guard.ts', 'legacy-custom-shell', 2],
+    ['src/config/define.ts', 'guard-definition', 1],
+    ['src/config/validation.ts', 'guard-definition', 1],
+    ['src/config/register.ts', 'legacy-custom-shell', 6],
+    ['src/config/guards.ts', 'legacy-custom-shell', 1],
+    ['src/workflow/state-machine.ts', 'legacy-custom-shell', 4],
+    ['src/workflow/hsm-transition-guard.ts', 'legacy-custom-shell', 2],
   ].map(([file, kind, count]) => ({
     file,
     kind,
@@ -115,20 +115,20 @@ const DISPOSITIONS = Object.freeze([
     ['task-decomposition.ts', 1],
     ['workflow-determinism.ts', 1],
   ].map(([name, count]) => ({
-    file: `servers/exarchos-mcp/src/orchestrate/${name}`,
+    file: `src/orchestrate/${name}`,
     kind: 'direct-gate-emitter',
     count,
     owner: `orchestrate/${name.replace(/\.ts$/, '')}`,
     rationale: diagnosticRationale,
     category: 'diagnostic-observation',
   })),
-  { file: 'servers/exarchos-mcp/src/verbs/vcs/assess-stack.ts', kind: 'manual-gate-event', count: 1, owner: 'orchestrate/assess-stack', rationale: 'Mirrors external CI check status for diagnostics; it does not produce admission evidence.', category: 'diagnostic-observation' },
-  { file: 'servers/exarchos-mcp/src/verbs/gates/gate-utils.ts', kind: 'manual-gate-event', count: 1, owner: 'orchestrate/gate-utils', rationale: 'Legacy compatibility event helper; canonical enforceable proof is owned by gate-runner.', category: 'diagnostic-observation' },
-  { file: 'servers/exarchos-mcp/src/benchmarks/event-factories.ts', kind: 'manual-gate-event', count: 1, owner: 'benchmarks/event-factories', rationale: 'Synthetic benchmark fixture construction cannot execute or enforce a workflow gate.', category: 'diagnostic-observation' },
-  { file: 'servers/exarchos-mcp/src/verbs/review/review-verdict.ts', kind: 'manual-gate-event', count: 1, owner: 'orchestrate/review-verdict', rationale: 'Read-only query of compatibility observations; durable review evidence is produced by the merged runner seam.', category: 'diagnostic-observation' },
-  { file: 'servers/exarchos-mcp/src/tasks/tools.ts', kind: 'manual-gate-event', count: 1, owner: 'tasks/tools', rationale: 'Read-only task status query; this path cannot emit or enforce gate evidence.', category: 'diagnostic-observation' },
-  { file: 'servers/exarchos-mcp/src/projections/telemetry/middleware.ts', kind: 'manual-gate-event', count: 1, owner: 'telemetry/middleware', rationale: 'Fire-and-forget token-budget telemetry; append failure is explicitly non-fatal and cannot affect a transition.', category: 'telemetry-observation' },
-  { file: 'servers/exarchos-mcp/src/workflow/playbooks.ts', kind: 'playbook-gate-observation', count: 17, owner: 'workflow/playbooks', rationale: 'Legacy model guidance describes compatibility observations only; it is not a provider or durable evidence path.', category: 'diagnostic-observation' },
+  { file: 'src/verbs/vcs/assess-stack.ts', kind: 'manual-gate-event', count: 1, owner: 'orchestrate/assess-stack', rationale: 'Mirrors external CI check status for diagnostics; it does not produce admission evidence.', category: 'diagnostic-observation' },
+  { file: 'src/verbs/gates/gate-utils.ts', kind: 'manual-gate-event', count: 1, owner: 'orchestrate/gate-utils', rationale: 'Legacy compatibility event helper; canonical enforceable proof is owned by gate-runner.', category: 'diagnostic-observation' },
+  { file: 'tools/evals/benchmarks/event-factories.ts', kind: 'manual-gate-event', count: 1, owner: 'benchmarks/event-factories', rationale: 'Synthetic benchmark fixture construction cannot execute or enforce a workflow gate.', category: 'diagnostic-observation' },
+  { file: 'src/verbs/review/review-verdict.ts', kind: 'manual-gate-event', count: 1, owner: 'orchestrate/review-verdict', rationale: 'Read-only query of compatibility observations; durable review evidence is produced by the merged runner seam.', category: 'diagnostic-observation' },
+  { file: 'src/tasks/tools.ts', kind: 'manual-gate-event', count: 1, owner: 'tasks/tools', rationale: 'Read-only task status query; this path cannot emit or enforce gate evidence.', category: 'diagnostic-observation' },
+  { file: 'src/projections/telemetry/middleware.ts', kind: 'manual-gate-event', count: 1, owner: 'telemetry/middleware', rationale: 'Fire-and-forget token-budget telemetry; append failure is explicitly non-fatal and cannot affect a transition.', category: 'telemetry-observation' },
+  { file: 'src/workflow/playbooks.ts', kind: 'playbook-gate-observation', count: 17, owner: 'workflow/playbooks', rationale: 'Legacy model guidance describes compatibility observations only; it is not a provider or durable evidence path.', category: 'diagnostic-observation' },
 ]);
 
 const DETECTORS = Object.freeze([
@@ -184,7 +184,7 @@ function collectFindings(relativePath, content) {
   for (const detector of DETECTORS) {
     if (
       detector.kind === 'manual-gate-event' &&
-      file === 'servers/exarchos-mcp/src/workflow/playbooks.ts'
+      file === 'src/workflow/playbooks.ts'
     ) continue;
     detector.regex.lastIndex = 0;
     for (const match of content.matchAll(detector.regex)) {
@@ -196,7 +196,7 @@ function collectFindings(relativePath, content) {
       });
     }
   }
-  if (file === 'servers/exarchos-mcp/src/workflow/playbooks.ts') {
+  if (file === 'src/workflow/playbooks.ts') {
     for (const match of content.matchAll(/gate\.executed/g)) {
       findings.push({
         file,

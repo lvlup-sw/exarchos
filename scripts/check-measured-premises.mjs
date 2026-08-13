@@ -494,7 +494,7 @@ export function checkMeasuredPremises(options) {
 // `scripts/measured-premises-derive.ts`; `scan` derivations are pure Node so
 // the common case needs no subprocess at all.
 
-const MCP_SRC = 'servers/exarchos-mcp/src';
+const MCP_SRC = 'src';
 const CLI_SOURCE = `${MCP_SRC}/adapters/cli.ts`;
 const REGISTRY_SOURCE = `${MCP_SRC}/registry.ts`;
 
@@ -503,7 +503,7 @@ const VALIDATE_MANIFEST = 'scripts/validate-manifest.json';
 const PACKAGING_POLICY = '.claude-plugin/packaging-policy.json';
 
 /** Task 023's DR-5 policy data — see the `cli-allowlisted-literals` derivation below. */
-const CLI_DERIVATION_ALLOWLIST = 'servers/exarchos-mcp/scripts/cli-derivation-allowlist.json';
+const CLI_DERIVATION_ALLOWLIST = 'scripts/core/cli-derivation-allowlist.json';
 /** @type {Record<string, { kind: 'ts' | 'scan', describe: string, fn?: (root: string) => number }>} */
 export const DERIVATIONS = {
   'output-schema-total': {

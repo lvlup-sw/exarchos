@@ -14,16 +14,16 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { EventStore } from '../../servers/exarchos-mcp/src/events/store.js';
+import { EventStore } from '../../src/events/store.js';
 import {
   handleInit,
   handleUpdate,
-} from '../../servers/exarchos-mcp/src/workflow/tools.js';
-import { handleRehydrate } from '../../servers/exarchos-mcp/src/workflow/rehydrate.js';
-import { handleViewPipeline } from '../../servers/exarchos-mcp/src/projections/views/tools.js';
+} from '../../src/workflow/tools.js';
+import { handleRehydrate } from '../../src/workflow/rehydrate.js';
+import { handleViewPipeline } from '../../src/projections/views/tools.js';
 // Side-effect import — registers the rehydration reducer with the
 // process-wide default registry. Mirrors rehydrate.test.ts.
-import '../../servers/exarchos-mcp/src/projections/rehydration/index.js';
+import '../../src/projections/rehydration/index.js';
 
 interface TaskProgressEntry {
   readonly id: string;

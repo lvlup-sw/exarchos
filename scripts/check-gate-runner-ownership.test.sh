@@ -13,14 +13,14 @@ fail=0
 check_rejected() { # name, source, diagnostic
   local name="$1" source="$2" diagnostic="$3"
   local root="$TMP/$name"
-  mkdir -p "$root/servers/exarchos-mcp/src/orchestrate"
-  printf '%s\n' "$source" > "$root/servers/exarchos-mcp/src/orchestrate/probe.ts"
+  mkdir -p "$root/src/orchestrate"
+  printf '%s\n' "$source" > "$root/src/orchestrate/probe.ts"
   set +e
   node "$GATE" --repo-root "$root" >"$root/out" 2>"$root/err"
   local status=$?
   set -e
   if [[ "$status" == "1" ]] &&
-     grep -q "servers/exarchos-mcp/src/orchestrate/probe.ts:1" "$root/err" &&
+     grep -q "src/orchestrate/probe.ts:1" "$root/err" &&
      grep -q "$diagnostic" "$root/err"; then
     echo "  ok: $name"
     pass=$((pass + 1))

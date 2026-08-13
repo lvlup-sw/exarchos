@@ -165,7 +165,7 @@
       "disposition": "gating",
       "workflow": ".github/workflows/ci.yml",
       "diffDependent": false,
-      "rationale": "grep-gates deps-tail step (#1706 DR-2, task 002): the error-envelope lint (`eslint --config eslint.envelopes.config.js` over servers/exarchos-mcp/src/orchestrate/**) runs on the UNFILTERED grep-gates lane, never the filtered test-root lint:windows step, so a registered MCP handler that lets a throw abnormally complete it (discarding a meaningful error.code) fails CI on every PR. Scans the whole orchestrate/** tree, not a PR diff, so not diffDependent."
+      "rationale": "grep-gates deps-tail step (#1706 DR-2, task 002): the error-envelope lint (`eslint --config eslint.envelopes.config.js` over src/orchestrate/**) runs on the UNFILTERED grep-gates lane, never the filtered test-root lint:windows step, so a registered MCP handler that lets a throw abnormally complete it (discarding a meaningful error.code) fails CI on every PR. Scans the whole orchestrate/** tree, not a PR diff, so not diffDependent."
     },
     {
       "script": "scripts/lint-inv6.mjs",

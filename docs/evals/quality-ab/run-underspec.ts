@@ -56,9 +56,9 @@ import {
   REPO_ROOT,
   type ProbeFn,
 } from './grade.js';
-import { buildVerificationNote } from '../../../servers/exarchos-mcp/src/agents/definitions.js';
-import type { RiskTier } from '../../../servers/exarchos-mcp/src/workflow/verification-policy.js';
-import { stampProvenance, type Provenance } from '../../../servers/exarchos-mcp/src/evals/provenance.js';
+import { buildVerificationNote } from '../../../src/runtime/agents/definitions.js';
+import type { RiskTier } from '../../../src/workflow/verification-policy.js';
+import { stampProvenance, type Provenance } from '../../../tools/evals/evals/provenance.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const QAB = __dirname; // docs/evals/quality-ab

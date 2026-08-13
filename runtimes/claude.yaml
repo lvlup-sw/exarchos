@@ -43,7 +43,7 @@ capabilities:
 # to gate `<!-- requires:* -->` and `<!-- requires:native:* -->` blocks.
 # Claude is the reference runtime — every capability is `native`. This
 # mirrors `claudeAdapter.supportLevels` in
-# `servers/exarchos-mcp/src/agents/adapters/claude.ts`.
+# `src/runtime/agents/adapters/claude.ts`.
 supportedCapabilities:
   fs:read: native
   fs:write: native

@@ -24,8 +24,8 @@ import {
 // directory, so pure tests use synthetic dirs that mirror the real layout
 // (`.../src/__tests__/<area>` for legacy, `.../src/<area>` for co-located).
 // Two specifiers that point at the same target module then normalize equal.
-const LEGACY_DIR = '/repo/servers/exarchos-mcp/src/__tests__/workflow';
-const CANON_DIR = '/repo/servers/exarchos-mcp/src/workflow';
+const LEGACY_DIR = '/repo/src/__tests__/workflow';
+const CANON_DIR = '/repo/src/workflow';
 
 // ─── AST case extraction ─────────────────────────────────────────────────────
 

@@ -36,8 +36,8 @@
 import { writeFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadAllRuntimes, REQUIRED_RUNTIME_NAMES } from '../src/runtimes/load.js';
-import type { RuntimeMap } from '../src/runtimes/types.js';
+import { loadAllRuntimes, REQUIRED_RUNTIME_NAMES } from '../src/install/runtimes/load.js';
+import type { RuntimeMap } from '../src/install/runtimes/types.js';
 
 /**
  * Sort the loaded runtimes deterministically. `REQUIRED_RUNTIME_NAMES`
@@ -101,7 +101,7 @@ function deepFreeze<T>(value: T): T {
 /**
  * Frozen array of validated \`RuntimeMap\` entries embedded into the
  * compiled binary. The bridge in
- * \`servers/exarchos-mcp/src/lifecycle/install-skills-bridge.js\`
+ * \`src/lifecycle/install-skills-bridge.js\`
  * prefers this array over reading \`runtimes/*.yaml\` from disk so
  * \`install-skills\` works inside the single-file binary, where the
  * YAML directory does not ship.

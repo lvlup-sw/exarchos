@@ -51,14 +51,14 @@
  * is the failure mode a census exists to prevent.
  */
 import { createHash } from 'node:crypto';
-import type { DeclaredEmissionSources } from '../../../servers/exarchos-mcp/src/events/event-annotations.js';
-import type { EmissionAxes } from '../../../servers/exarchos-mcp/src/events/event-registration.js';
+import type { DeclaredEmissionSources } from '../../../src/events/event-annotations.js';
+import type { EmissionAxes } from '../../../src/events/event-registration.js';
 // Type-only, and deliberately so: the union is the shipped vocabulary this
 // census reports in, and re-declaring it here would let the two drift apart
 // silently. A `import type` erases at compile time, so it creates no package
 // edge and no DR-1 storage read.
-import type { EventEmissionSource } from '../../../servers/exarchos-mcp/src/events/schemas.js';
-import type { EventAnnotationSource } from '../../../servers/exarchos-mcp/src/events/event-declarations.js';
+import type { EventEmissionSource } from '../../../src/events/schemas.js';
+import type { EventAnnotationSource } from '../../../src/events/event-declarations.js';
 
 import {
   REPORT_COUPLING_SEED,

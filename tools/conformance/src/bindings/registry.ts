@@ -5,8 +5,8 @@
  * contract module (`contract/declaration.ts`, `contract/declaration-seam.ts`).
  * See `./README.md`.
  */
-import { TOOL_REGISTRY, buildToolDescription } from '../../../../servers/exarchos-mcp/src/registry.js';
-import type { CompositeTool } from '../../../../servers/exarchos-mcp/src/registry.js';
+import { TOOL_REGISTRY, buildToolDescription } from '../../../../src/registry.js';
+import type { CompositeTool } from '../../../../src/registry.js';
 import {
   auditDescriptionBudgets,
   type BudgetReport,

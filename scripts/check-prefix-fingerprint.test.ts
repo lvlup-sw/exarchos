@@ -12,7 +12,7 @@
  * Rationale: DR-12 requires that any edit to the rehydration document's
  * stable-prefix inputs (JSON schema shape, MCP tool description bytes) be
  * caught before it silently invalidates prompt caches downstream. The hash
- * computation lives in `servers/exarchos-mcp/src/projections/rehydration/
+ * computation lives in `src/projections/rehydration/
  * fingerprint.ts`; this gate reruns it and compares against the committed
  * value. The tests below exercise the CLI contract only — the computation
  * itself is covered by `fingerprint.test.ts`.

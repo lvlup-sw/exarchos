@@ -25,7 +25,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GATE="$SCRIPT_DIR/check-coverage-ratchet.mjs"
-VITEST_CONFIG="$SCRIPT_DIR/../servers/exarchos-mcp/vitest.config.ts"
+VITEST_CONFIG="$SCRIPT_DIR/../vitest.config.ts"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 

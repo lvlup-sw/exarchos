@@ -29,10 +29,10 @@ import * as path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 import { withTmpGit } from './_helpers/tmp-git.js';
-import { EventStore } from '../../servers/exarchos-mcp/src/events/store.js';
-import { handlePrepareDelegation } from '../../servers/exarchos-mcp/src/verbs/team/prepare-delegation.js';
-import { resetMaterializerCache } from '../../servers/exarchos-mcp/src/projections/views/tools.js';
-import type { DispatchContext } from '../../servers/exarchos-mcp/src/dispatch/core/dispatch.js';
+import { EventStore } from '../../src/events/store.js';
+import { handlePrepareDelegation } from '../../src/verbs/team/prepare-delegation.js';
+import { resetMaterializerCache } from '../../src/projections/views/tools.js';
+import type { DispatchContext } from '../../src/dispatch/core/dispatch.js';
 
 function gitRun(repo: string, args: readonly string[]): void {
   execFileSync('git', ['-C', repo, ...args], { stdio: 'pipe' });

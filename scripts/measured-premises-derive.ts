@@ -28,7 +28,7 @@ import {
   censusLiveEventNameGrammar,
   censusLiveReportCoupling,
 } from '../tools/conformance/src/bindings/events.js';
-import { EventTypes } from '../servers/exarchos-mcp/src/events/schemas.js';
+import { EventTypes } from '../src/events/schemas.js';
 
 /** The derivation names this entrypoint answers. Keys match the annotation names. */
 export interface TsDerivedValues {

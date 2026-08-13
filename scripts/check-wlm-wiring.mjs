@@ -12,8 +12,8 @@
  *   invocation (a `['worktree', 'add'|'remove'|'prune', …]` argv literal,
  *   however it's dispatched — `gitRunner.run(…)`, `runCommand('git', …)`,
  *   `gitExec(…)`, a raw `execFileSync('git', …)`) anywhere under
- *   `servers/exarchos-mcp/src/orchestrate/` (recursively) or in
- *   `servers/exarchos-mcp/src/workflow/compensation.ts` must be constructed
+ *   `src/orchestrate/` (recursively) or in
+ *   `src/workflow/compensation.ts` must be constructed
  *   ONLY inside one of the 5 production files that own the DR-1 retry
  *   kernel's wrapping (`WIRED_ALLOWLIST` below) — every other file is
  *   presumed naked and flagged. Each allow-listed file is in turn required to
@@ -39,7 +39,7 @@
  *
  * Flags:
  *   --src-root <path>     Root containing `orchestrate/` + `workflow/` for
- *                          Rule 1 (default: repo `servers/exarchos-mcp/src`).
+ *                          Rule 1 (default: repo `src`).
  *   --skills-root <path>  Root containing skill sources for Rule 2 (default:
  *                          repo `skills-src`).
  *   --help                Show usage.

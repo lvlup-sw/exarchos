@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { spawnCommandSync } from '../../../servers/exarchos-mcp/src/utils/process.js';
+import { spawnCommandSync } from '../../../src/utils/process.js';
 import { REPO_ROOT, SUBJECT_PACKAGE_ROOT } from './subject-root.js';
 import {
   detectRuntimeCycles,

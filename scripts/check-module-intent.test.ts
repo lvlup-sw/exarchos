@@ -1,7 +1,7 @@
 /**
  * Tests for the module-intent CI gate (DR-7, DR-8).
  *
- * The gate FAILS a production module under `servers/exarchos-mcp/src` that has
+ * The gate FAILS a production module under `src` that has
  * zero production importers unless it declares intent — either a valid
  * `RESERVED(issue, owner, expires)` header (well-formed issue ref + owner + a
  * clean, non-past expiry) or membership in a declared allowlist class

@@ -80,7 +80,7 @@ import {
   assertMeasured,
   type Provenance,
   type ProvenanceStamped,
-} from '../../../servers/exarchos-mcp/src/evals/provenance.js';
+} from '../../../tools/evals/evals/provenance.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const NATIVE_BASELINE_DIR = __dirname;

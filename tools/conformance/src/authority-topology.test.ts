@@ -4,7 +4,7 @@
 // the live tree. Evaluating closure (and failing it) is task 025; proving the
 // failure fires live on the CLI-surface and event-catalog rows is task 026.
 //
-// @oracle-sources: ./authority-topology.ts, ../../../servers/exarchos-mcp/package.json
+// @oracle-sources: ./authority-topology.ts, ../../../package.json
 //
 // The two authorities are genuinely independent: the topology rows are a
 // committed human judgement about the tree, while `package.json` is the manifest
@@ -14,8 +14,8 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fromSubjectPackage } from './subject-root.js';
-import { DECLARATION_KINDS } from '../../../servers/exarchos-mcp/src/contract/declaration.js';
-import { scanGovernedSources } from '../../../servers/exarchos-mcp/scripts/cli-derivation-guard.js';
+import { DECLARATION_KINDS } from '../../../src/contract/declaration.js';
+import { scanGovernedSources } from '../../../scripts/core/cli-derivation-guard.js';
 import {
   AUTHORITY_TOPOLOGY,
   CONTRACT_BOUNDARIES,

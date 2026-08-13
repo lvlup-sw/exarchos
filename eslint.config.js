@@ -21,14 +21,14 @@ export default [
     // disposable worktrees at gate-run time, NEVER compiled/linted here. Ignore
     // the whole tree so a deliberately malformed fixture cannot fail repo CI.
     // (The tsconfig `exclude` keeps tsc off it too.)
-    ignores: ['servers/exarchos-mcp/src/evals/benchmarks/seeded-defects/fixtures/**'],
+    ignores: ['tools/evals/evals/benchmarks/seeded-defects/fixtures/**'],
   },
   {
     // Widened by task 042 to follow task 018a's extraction. Widening reach takes
     // BOTH this key and the `lint` script's CLI glob — the glob bounds the run
     // regardless of what the config admits, so changing one alone leaves the
     // other silently in charge.
-    files: ['servers/exarchos-mcp/src/**/*.ts', 'tools/conformance/src/**/*.ts'],
+    files: ['src/**/*.ts', 'tools/conformance/src/**/*.ts'],
     languageOptions: {
       parser: tseslint.parser,
     },

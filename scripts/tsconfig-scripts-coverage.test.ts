@@ -1,7 +1,7 @@
 // ─── The `scripts/` typecheck coverage guard (task 066, DR-24) ───────────────
 //
 // Both `scripts/` trees were compiled by NOTHING. `tsconfig.json` and
-// `servers/exarchos-mcp/tsconfig.json` both `include: ["src/**/*"]`, so every
+// `tsconfig.json` both `include: ["src/**/*"]`, so every
 // guard living under either `scripts/` directory — including
 // `cli-derivation-guard.ts`, `authority-live-proof.ts`, `cli-vocab-guard.ts` and
 // `guard-inventory.ts`, which are the enforcement code most in need of it — was
@@ -36,7 +36,7 @@
 //     each `scripts/` directory, including `scripts/audit/` and
 //     `scripts/tsconfig-strictness/`. Nothing in either tree is carved out.
 //   • Ambient `.d.ts` declarations from the sibling `src/` tree
-//     (`servers/exarchos-mcp/src/**/*.d.ts` from the root config, `src/**/*.d.ts`
+//     (`src/**/*.d.ts` from the root config, `src/**/*.d.ts`
 //     from the MCP config). Several scripts import `src/` modules, which drags
 //     `src/storage/sqlite-backend.ts` and its `bun:sqlite` shim into the program;
 //     without the shim the program fails on a module resolution that is not a
@@ -52,7 +52,7 @@
 //   • `**/*.bench.ts` and `**/__tests__/**` (MCP config) — carried over from the
 //     tsconfig it extends, for the same reason.
 //   • `.mjs` guards (`scripts/check-*.mjs`, `scripts/audit/*.mjs`,
-//     `servers/exarchos-mcp/scripts/stryker-adapter.mjs`). They are not
+//     `scripts/core/stryker-adapter.mjs`). They are not
 //     TypeScript; `allowJs` would bring them in but would also bring in
 //     everything else JavaScript in the tree, and checking untyped JS is a
 //     different project from this one. Reported, not silently skipped: see
@@ -80,13 +80,10 @@ interface ScriptsProject {
   readonly tree: string;
 }
 
+// One package since task 019: a single tsconfig covers the whole scripts/
+// tree, including the core guards now under scripts/core/.
 const PROJECTS: readonly ScriptsProject[] = [
   { config: 'tsconfig.scripts.json', base: '.', tree: 'scripts' },
-  {
-    config: 'servers/exarchos-mcp/tsconfig.scripts.json',
-    base: 'servers/exarchos-mcp',
-    tree: 'servers/exarchos-mcp/scripts',
-  },
 ];
 
 /**
@@ -100,9 +97,9 @@ const PROJECTS: readonly ScriptsProject[] = [
  */
 const REQUIRED_MEMBERS: readonly string[] = [
   // Named by the task: "exactly the enforcement code that most needs type checking".
-  'servers/exarchos-mcp/scripts/cli-derivation-guard.ts',
-  'servers/exarchos-mcp/scripts/authority-live-proof.ts',
-  'servers/exarchos-mcp/scripts/cli-vocab-guard.ts',
+  'scripts/core/cli-derivation-guard.ts',
+  'scripts/core/authority-live-proof.ts',
+  'scripts/core/cli-vocab-guard.ts',
   // The Wave-1 guard inventory (task 063) and the DR-14 cast census — both are
   // enforcement code, both live in a `scripts/` tree, neither was compiled.
   'scripts/guard-inventory.ts',

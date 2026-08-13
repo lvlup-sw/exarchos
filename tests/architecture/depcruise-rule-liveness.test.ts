@@ -52,7 +52,7 @@ function liveModules(): string[] {
       }
     }
   };
-  walk(path.join(REPO_ROOT, 'servers/exarchos-mcp/src'));
+  walk(path.join(REPO_ROOT, 'src'));
   return out;
 }
 
@@ -97,7 +97,7 @@ describe('DepcruiseRule_AfterRetarget_MatchesNonEmptyModuleSet', () => {
     const alternation = /\(([a-z0-9|_-]+)\)/.exec(rule?.from.path ?? '')?.[1];
     expect(alternation, 'from.path no longer contains a directory alternation').toBeDefined();
     for (const dir of (alternation ?? '').split('|')) {
-      const abs = path.join(REPO_ROOT, 'servers/exarchos-mcp/src', dir);
+      const abs = path.join(REPO_ROOT, 'src', dir);
       let exists = false;
       try { exists = statSync(abs).isDirectory(); } catch { exists = false; }
       expect(exists, `\`from\` names src/${dir}/, which does not exist`).toBe(true);
@@ -157,7 +157,7 @@ describe('DepcruiseRule_SeededViolation_StillFails', () => {
   it('the rule is the one static analysis actually runs', () => {
     // Liveness here is worthless if the gate stopped invoking the config.
     const staticAnalysis = readFileSync(
-      path.join(REPO_ROOT, 'servers/exarchos-mcp/src/verbs/pure/static-analysis.ts'),
+      path.join(REPO_ROOT, 'src/verbs/pure/static-analysis.ts'),
       'utf8',
     );
     expect(staticAnalysis).toMatch(/depcruise --validate/);

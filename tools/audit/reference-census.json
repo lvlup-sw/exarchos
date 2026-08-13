@@ -39,12 +39,12 @@
       "sampleLiveCodeReferrers": [
         "scripts/check-single-workflow-fold.mjs",
         "scripts/lib/comment-classifier.test.ts",
-        "servers/exarchos-mcp/src/__tests__/integration/elicitation-roundtrip.fixture.ts",
-        "servers/exarchos-mcp/src/__tests__/integration/elicitation-roundtrip.test.ts",
-        "servers/exarchos-mcp/src/__tests__/integration/ideate-update-action.test.ts",
-        "servers/exarchos-mcp/src/__tests__/integration/tools-list.test.ts",
-        "servers/exarchos-mcp/src/__tests__/workflow/integration.test.ts",
-        "servers/exarchos-mcp/src/adapters/cli/cli-format.ts"
+        "src/__tests__/integration/elicitation-roundtrip.fixture.ts",
+        "src/__tests__/integration/elicitation-roundtrip.test.ts",
+        "src/__tests__/integration/ideate-update-action.test.ts",
+        "src/__tests__/integration/tools-list.test.ts",
+        "src/__tests__/workflow/integration.test.ts",
+        "src/adapters/cli/cli-format.ts"
       ]
     },
     "docs/plans": {
@@ -75,14 +75,14 @@
         "docs/designs/archive/2026-02-18-context-reload.md"
       ],
       "sampleLiveCodeReferrers": [
-        "servers/exarchos-mcp/src/__tests__/correlation-acceptance.test.ts",
-        "servers/exarchos-mcp/src/__tests__/event-store/single-composition-root.test.ts",
-        "servers/exarchos-mcp/src/__tests__/skills/prune.test.ts",
-        "servers/exarchos-mcp/src/__tests__/workflow/integration.test.ts",
-        "servers/exarchos-mcp/src/adapters/cli/cli-format.test.ts",
-        "servers/exarchos-mcp/src/agents/build-pipeline.test.ts",
-        "servers/exarchos-mcp/src/agents/generate-agents.test.ts",
-        "servers/exarchos-mcp/src/agents/generate-agents.ts"
+        "src/__tests__/correlation-acceptance.test.ts",
+        "src/__tests__/event-store/single-composition-root.test.ts",
+        "src/__tests__/skills/prune.test.ts",
+        "src/__tests__/workflow/integration.test.ts",
+        "src/adapters/cli/cli-format.test.ts",
+        "src/runtime/agents/build-pipeline.test.ts",
+        "src/runtime/agents/generate-agents.test.ts",
+        "src/runtime/agents/generate-agents.ts"
       ]
     },
     "docs/research": {
@@ -113,14 +113,14 @@
         "docs/audits/structural-closure-delta-audit/sources/phase-gate-transition-admission.md"
       ],
       "sampleLiveCodeReferrers": [
-        "servers/exarchos-mcp/scripts/cli-vocab-guard.ts",
-        "servers/exarchos-mcp/src/adapters/json-schema.ts",
-        "servers/exarchos-mcp/src/adapters/mcp/mcp.test.ts",
-        "servers/exarchos-mcp/src/adapters/mcp/mcp.ts",
-        "servers/exarchos-mcp/src/agents/adapters/codex.test.ts",
-        "servers/exarchos-mcp/src/agents/adapters/codex.ts",
-        "servers/exarchos-mcp/src/agents/adapters/copilot.test.ts",
-        "servers/exarchos-mcp/src/architecture/description-budget.ts"
+        "scripts/core/cli-vocab-guard.ts",
+        "src/adapters/json-schema.ts",
+        "src/adapters/mcp/mcp.test.ts",
+        "src/adapters/mcp/mcp.ts",
+        "src/runtime/agents/adapters/codex.test.ts",
+        "src/runtime/agents/adapters/codex.ts",
+        "src/runtime/agents/adapters/copilot.test.ts",
+        "src/architecture/description-budget.ts"
       ]
     },
     "docs/audits": {
@@ -178,10 +178,10 @@
         "docs/plans/archive/2026-02-10-arch-rigor.md"
       ],
       "sampleLiveCodeReferrers": [
-        "servers/exarchos-mcp/src/adapters/cli/hooks.ts",
-        "servers/exarchos-mcp/src/architecture/invariants-loader.test.ts",
-        "servers/exarchos-mcp/src/lifecycle/session-start.ts",
-        "servers/exarchos-mcp/src/lifecycle/subagent-stop.ts",
+        "src/adapters/cli/hooks.ts",
+        "src/architecture/invariants-loader.test.ts",
+        "src/lifecycle/session-start.ts",
+        "src/lifecycle/subagent-stop.ts",
         "src/build-hooks.ts",
         "src/hooks-validation.test.ts",
         "src/plugin-validation.test.ts"
@@ -217,12 +217,12 @@
       "sampleLiveCodeReferrers": [
         "scripts/check-event-store-composition-root.mjs",
         "scripts/check-event-store-composition-root.test.ts",
-        "servers/exarchos-mcp/src/__tests__/event-store/single-composition-root.test.ts",
-        "servers/exarchos-mcp/src/agents/generate-agents.test.ts",
-        "servers/exarchos-mcp/src/architecture/vocabulary-lint.ts",
-        "servers/exarchos-mcp/src/config/artifact-dir-symlink.test.ts",
-        "servers/exarchos-mcp/src/config/artifacts.ts",
-        "servers/exarchos-mcp/src/projections/views/tools.ts"
+        "src/__tests__/event-store/single-composition-root.test.ts",
+        "src/runtime/agents/generate-agents.test.ts",
+        "src/architecture/vocabulary-lint.ts",
+        "src/config/artifact-dir-symlink.test.ts",
+        "src/config/artifacts.ts",
+        "src/projections/views/tools.ts"
       ]
     },
     "docs/guides": {
@@ -256,11 +256,11 @@
         "eslint.envelopes.config.js",
         "scripts/ci-topology.test.ts",
         "scripts/guard-inventory.ts",
-        "servers/exarchos-mcp/scripts/cli-derivation-guard.ts",
-        "servers/exarchos-mcp/scripts/output-schema-ratchet-guard.ts",
-        "servers/exarchos-mcp/src/architecture/invariants-loader.test.ts",
-        "servers/exarchos-mcp/src/architecture/sdlc-catalog.ts",
-        "servers/exarchos-mcp/src/architecture/vocabulary-lint.test.ts"
+        "scripts/core/cli-derivation-guard.ts",
+        "scripts/core/output-schema-ratchet-guard.ts",
+        "src/architecture/invariants-loader.test.ts",
+        "src/architecture/sdlc-catalog.ts",
+        "src/architecture/vocabulary-lint.test.ts"
       ]
     },
     "docs/references": {
@@ -309,17 +309,17 @@
         "docs/plans/archive/2026-05-20-invariants-catalog-v2-implementation.md",
         "docs/research/2026-05-23-v2-10-0-preview-4-build-review.md",
         "docs/specs/2026-07-15-debloat-wave1-structural-enforcement-t8-baseline.md",
-        "servers/exarchos-mcp/src/architecture/invariants-loader.test.ts",
-        "servers/exarchos-mcp/src/architecture/vocabulary-lint.test.ts",
-        "servers/exarchos-mcp/src/architecture/vocabulary-lint.ts",
-        "servers/exarchos-mcp/src/config/yaml-schema.ts",
+        "src/architecture/invariants-loader.test.ts",
+        "src/architecture/vocabulary-lint.test.ts",
+        "src/architecture/vocabulary-lint.ts",
+        "src/config/yaml-schema.ts",
         "skills-src/ideate/references/constraint-anchoring.md"
       ],
       "sampleLiveCodeReferrers": [
-        "servers/exarchos-mcp/src/architecture/invariants-loader.test.ts",
-        "servers/exarchos-mcp/src/architecture/vocabulary-lint.test.ts",
-        "servers/exarchos-mcp/src/architecture/vocabulary-lint.ts",
-        "servers/exarchos-mcp/src/config/yaml-schema.ts"
+        "src/architecture/invariants-loader.test.ts",
+        "src/architecture/vocabulary-lint.test.ts",
+        "src/architecture/vocabulary-lint.ts",
+        "src/config/yaml-schema.ts"
       ]
     },
     "docs/bugs": {
@@ -362,10 +362,10 @@
         "docs/plans/archive/2026-05-13-wave-0-followups-stack-execution.md",
         "docs/research/2026-05-13-zod-v4-breaking-changes.md",
         "docs/research/2026-05-13-zod-v4-decision-record.md",
-        "servers/exarchos-mcp/src/architecture/vocabulary-lint.ts"
+        "src/architecture/vocabulary-lint.ts"
       ],
       "sampleLiveCodeReferrers": [
-        "servers/exarchos-mcp/src/architecture/vocabulary-lint.ts"
+        "src/architecture/vocabulary-lint.ts"
       ]
     },
     "docs/refactors": {
@@ -427,10 +427,10 @@
         "docs/research/2026-05-07-checkpoint-cluster-fitness.md",
         "docs/research/2026-05-07-vcsprovider-thread-reply-fitness.md",
         "docs/research/2026-05-18-invariant-content-audit.md",
-        "servers/exarchos-mcp/src/architecture/vocabulary-lint.ts"
+        "src/architecture/vocabulary-lint.ts"
       ],
       "sampleLiveCodeReferrers": [
-        "servers/exarchos-mcp/src/architecture/vocabulary-lint.ts"
+        "src/architecture/vocabulary-lint.ts"
       ]
     },
     "docs/market": {
@@ -503,13 +503,13 @@
         "docs/specs/2026-08-11-comment-hygiene-enforcement.md",
         "docs/specs/2026-08-11-exarchos-repo-structure-cleanup.md",
         "scripts/lib/comment-policy.test.ts",
-        "servers/exarchos-mcp/src/evals/benchmarks/exp1-binary-driver.ts",
-        "servers/exarchos-mcp/src/evals/benchmarks/seeded-defects/catch-rate-driver.ts"
+        "tools/evals/evals/benchmarks/exp1-binary-driver.ts",
+        "tools/evals/evals/benchmarks/seeded-defects/catch-rate-driver.ts"
       ],
       "sampleLiveCodeReferrers": [
         "scripts/lib/comment-policy.test.ts",
-        "servers/exarchos-mcp/src/evals/benchmarks/exp1-binary-driver.ts",
-        "servers/exarchos-mcp/src/evals/benchmarks/seeded-defects/catch-rate-driver.ts",
+        "tools/evals/evals/benchmarks/exp1-binary-driver.ts",
+        "tools/evals/evals/benchmarks/seeded-defects/catch-rate-driver.ts",
         "vitest.config.ts"
       ]
     },
@@ -591,13 +591,13 @@
       ],
       "sampleLiveCodeReferrers": [
         "scripts/docs-check.test.ts",
-        "servers/exarchos-mcp/src/architecture/catalog-sources.ts",
-        "servers/exarchos-mcp/src/architecture/invariant-schema.test.ts",
-        "servers/exarchos-mcp/src/architecture/invariant-schema.ts",
-        "servers/exarchos-mcp/src/architecture/invariants-loader.test.ts",
-        "servers/exarchos-mcp/src/architecture/invariants-loader.ts",
-        "servers/exarchos-mcp/src/architecture/project-catalog.test.ts",
-        "servers/exarchos-mcp/src/architecture/resolve-effective-catalog.test.ts"
+        "src/architecture/catalog-sources.ts",
+        "src/architecture/invariant-schema.test.ts",
+        "src/architecture/invariant-schema.ts",
+        "src/architecture/invariants-loader.test.ts",
+        "src/architecture/invariants-loader.ts",
+        "src/architecture/project-catalog.test.ts",
+        "src/architecture/resolve-effective-catalog.test.ts"
       ]
     }
   }

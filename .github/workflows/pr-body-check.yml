@@ -86,7 +86,7 @@ jobs:
 
       # Golden-fixture PR-body marker (DR-15, task 011). Diff-dependent gate:
       # if this PR changes a file under
-      # servers/exarchos-mcp/tests/fixtures/load-bearing/**, the PR body MUST
+      # tests/core/fixtures/load-bearing/**, the PR body MUST
       # carry a `GOLDEN-FIXTURE-UPDATE: <reason>` line. Hosted here (not in the
       # path-filtered ci.yml jobs) because it needs the PR body; the
       # `synchronize` trigger above is what lets it re-run when a fixture is

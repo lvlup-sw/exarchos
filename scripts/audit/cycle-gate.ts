@@ -1,7 +1,7 @@
 /**
  * cycle-gate.ts — the DR-4/DR-8 no-circular blocking ratchet.
  *
- * Runs `dependency-cruiser` over `servers/exarchos-mcp/src`, computes the RUNTIME
+ * Runs `dependency-cruiser` over `src`, computes the RUNTIME
  * import cycles itself (Tarjan SCC via architecture/import-cycles.ts — the single
  * acceptance instrument, shared with the MCP `import-cycles.test.ts` regression),
  * and diffs them against `cycle-baseline.json`. The gate FAILS CLOSED — it exits
@@ -43,7 +43,7 @@ import {
 } from '../../tools/conformance/src/import-cycles.js';
 
 /** Repo-relative source root the ratchet governs (matches import-cycles default). */
-export const SRC_PREFIX = 'servers/exarchos-mcp/src';
+export const SRC_PREFIX = 'src';
 
 /** Thrown when depcruise output cannot be parsed into a graph (DR-8). */
 export class CycleGraphParseError extends Error {
@@ -220,7 +220,7 @@ const DEPCRUISE_CONFIG = path.join(REPO_ROOT, '.dependency-cruiser.cjs');
 
 /**
  * Run depcruise from the repo root so the emitted module paths are repo-relative
- * (`servers/exarchos-mcp/src/…`) — matching {@link SRC_PREFIX} and the baseline's
+ * (`src/…`) — matching {@link SRC_PREFIX} and the baseline's
  * documented `from`/`to` convention. Uses the ROOT-hoisted binary (task 010).
  * Mirrors knip-diff's `defaultRunKnip`: this CI gate runs on ubuntu; a spawn
  * failure (incl. win32, where Node cannot exec the shell shim directly) degrades

@@ -11,7 +11,7 @@ import {
   EXIT_USAGE,
 } from './manifest-gate-ci.mjs';
 
-const SRC = 'servers/exarchos-mcp/src';
+const SRC = 'src';
 
 // ── pure pair-derivation (no git) ────────────────────────────────────────────
 describe('deriveTouchedPairIds', () => {

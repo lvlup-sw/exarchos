@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const SRC = path.join(ROOT, 'servers/exarchos-mcp/src');
+const SRC = path.join(ROOT, 'src');
 
 // target → { layer, published }. `install` is a declared NON-layer peer.
 const TARGETS = {
@@ -97,7 +97,7 @@ for (const [target, meta] of Object.entries(TARGETS)) {
 const doc = {
   capturedAt: new Date().toISOString().slice(0, 10),
   tree: execFileSync('git', ['-C', ROOT, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
-  source: 'servers/exarchos-mcp/src',
+  source: 'src',
   authority:
     'docs/system-design.html is the canonical L1-L9 architecture; this file maps the tree onto it. ' +
     'Task 044 asserts THIS mapping, not set equality, which is why the 11 targets -> 9 published ' +

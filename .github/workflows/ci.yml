@@ -74,7 +74,7 @@ jobs:
               # trigger the root suite's `skills:guard` drift check on the
               # CAUSING PR, not only on a later PR that happens to touch the
               # rendered output.
-              - 'servers/exarchos-mcp/src/agents/**'
+              - 'src/runtime/agents/**'
               - 'AGENTS.md'
               - 'package.json'
               - 'tsconfig.json'
@@ -85,19 +85,26 @@ jobs:
               # that changes it.
               - '.github/workflows/release.yml'
             mcp:
-              - 'servers/exarchos-mcp/**'
+              - 'src/**'
+              - 'test/core/**'
+              - 'tests/core/**'
+              - 'scripts/core/**'
+              - 'tools/evals/**'
+              - 'tools/test-helpers/**'
+              - 'vitest.config.ts'
+              - 'package.json'
               - '.github/workflows/ci.yml'
             prompts:
               - 'skills/**'
               - 'commands/**'
               - 'rules/**'
               - 'evals/**'
-              - 'servers/exarchos-mcp/src/evals/**'
+              - 'tools/evals/evals/**'
               # Opt-in eval package (DR-3): owns the promptfoo dep the graders
               # dynamic-import. A change here must still fire RUN_EVALS / the
               # eval gate, so it is named alongside the eval sources above.
-              - 'servers/exarchos-mcp/evals-pkg/**'
-              - 'servers/exarchos-mcp/src/workflow/playbooks.ts'
+              - 'tools/evals-pkg/**'
+              - 'src/workflow/playbooks.ts'
 
   test-root:
     name: Root Package
@@ -119,21 +126,13 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            servers/exarchos-mcp/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.13
 
       - run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
-      # The MCP server's deps must be present so `bun build --compile`
-      # can resolve `pino`, `commander`, `@modelcontextprotocol/sdk`,
-      # `zod`, and `yaml` when bundling `servers/exarchos-mcp/src/index.ts`
-      # (exercised by `scripts/build-binary.test.ts`).
-      - run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
-        working-directory: servers/exarchos-mcp
       - run: npm run typecheck
 
       # Windows-portability lint (#1623): editor-first ESLint rules, also run
@@ -160,7 +159,7 @@ jobs:
       # and `agents/`: `runHooksGuard`'s sibling, `runSkillsGuard`,
       # regenerates and diffs BOTH the `command-aliases/**` tree (from
       # `commands/`) and every per-runtime `agents/**` output tree (from
-      # `servers/exarchos-mcp/src/agents/`) — see src/skills-guard.ts.
+      # `src/runtime/agents/`) — see src/skills-guard.ts.
       - run: npm run skills:guard
 
       # hooks:guard (DR-22) — rebuild the generated `hooks/` + `binding/`
@@ -199,15 +198,12 @@ jobs:
     env:
       RUN_EVALS: ${{ needs.changes.outputs.prompts == 'true' && '1' || '' }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-    defaults:
-      run:
-        working-directory: servers/exarchos-mcp
     steps:
       - uses: actions/checkout@v4
         with:
           # fetch-depth: 0 — the DR-7 mutation gate (check-mutation-gate.mjs,
           # observe→blocking) diffs `<base>...HEAD` (merge-base three-dot) to
-          # scope changed `servers/exarchos-mcp/src`. A shallow checkout lacks
+          # scope changed `src`. A shallow checkout lacks
           # the merge-base commit, so `git diff FETCH_HEAD...HEAD` fails with
           # "no merge base" (fail-closed). Full history makes the base-ref diff
           # resolvable in CI. Mirrors the fetch-depth:0 jobs elsewhere here.
@@ -221,9 +217,7 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            servers/exarchos-mcp/package-lock.json
+          cache-dependency-path: package-lock.json
 
       # `compiled-binary-mcp.test.ts` shells out to
       # `bun run scripts/build-binary.ts` from the repo root — bun must
@@ -232,16 +226,11 @@ jobs:
         with:
           bun-version: 1.3.13
 
-      # CodeRabbit/CI #1213: install root deps so `bun build --compile`
-      # (invoked from compiled-binary-mcp.test.ts) can resolve
-      # `js-yaml` (src/runtimes/load.ts) and `@inquirer/prompts`
-      # (src/install-skills.ts) — both declared in the root
-      # package.json but otherwise absent on the runner.
-      - name: Install root dependencies
-        working-directory: .
+      # One install: task 019 dissolved the nested workspace, so the core's
+      # dependency closure and the installer's are the same closure now.
+      - name: Install dependencies
         run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
 
-      - run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
       - run: npx tsc --noEmit
 
       # DR-5 (coverage baseline): the plain `npm run test:run` suite step BECOMES
@@ -251,7 +240,7 @@ jobs:
       # job-level derivation) so the measured lane is stable and
       # RUN_EVALS-independent; the eval lane it used to carry is preserved as
       # its own conditional step below. DR-1 host class: deps, filtered on `mcp`
-      # — scan surface servers/exarchos-mcp/** ⊆ the mcp filter; the scripts/
+      # — scan surface src/** ⊆ the mcp filter; the scripts/
       # ratchet implementation is re-asserted unfiltered by a grep-gates
       # .test.sh step (DR-10). See docs/guides/ci-gate-hosting.md.
       - name: Coverage-instrumented suite (DR-5, RUN_EVALS pinned off)
@@ -262,11 +251,11 @@ jobs:
       # DR-5 coverage non-regression ratchet, BLOCKING (task 009: the CI soak
       # is complete — 3 green observe-mode runs on this feature branch fed the
       # measured, floored-epsilon baseline at
-      # servers/exarchos-mcp/coverage-baseline.json — so `--observe` is
+      # tools/audit/coverage-baseline.json — so `--observe` is
       # dropped and a regression beyond the floored epsilon now fails this
-      # job). The path is $GITHUB_WORKSPACE-absolute because this job's
-      # default working-directory is servers/exarchos-mcp; the script resolves
-      # its own inputs from its location, not the cwd. DR-1 host class: deps,
+      # job). The path is $GITHUB_WORKSPACE-absolute because the script
+      # resolves its own inputs from its location, not the cwd. DR-1 host
+      # class: deps,
       # filtered on `mcp`. See docs/guides/ci-gate-hosting.md.
       # `if: !cancelled()` (not the implicit `success()`): the ratchet is
       # EVIDENCE that must be captured even when the coverage suite above went
@@ -288,7 +277,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: coverage-summary
-          path: servers/exarchos-mcp/coverage/coverage-summary.json
+          path: coverage/coverage-summary.json
           if-no-files-found: error
 
       # DR-5 eval-lane preservation (non-negotiable): the replaced plain-suite
@@ -309,7 +298,7 @@ jobs:
         if: ${{ !cancelled() && needs.changes.outputs.prompts == 'true' }}
         env:
           RUN_EVALS: '1'
-        run: npx vitest run src/evals/harness.test.ts src/evals/graders/llm-rubric.test.ts
+        run: npx vitest run tools/evals/evals/harness.test.ts tools/evals/evals/graders/llm-rubric.test.ts
 
       # DR-7 diff-scoped mutation gate, OBSERVE MODE, pull_request events only
       # (a push-to-main has no PR base to diff). The script self-fetches the
@@ -372,9 +361,6 @@ jobs:
     needs: changes
     if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && needs.changes.outputs.mcp == 'true'
     runs-on: windows-latest
-    defaults:
-      run:
-        working-directory: servers/exarchos-mcp
     env:
       EXARCHOS_PREFLIGHT_DEBUG: '1'
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
@@ -385,23 +371,18 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            servers/exarchos-mcp/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.13
 
-      - name: Install root dependencies
-        working-directory: .
+      - name: Install dependencies
         shell: bash
         run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
 
-      - shell: bash
-        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
       - run: npx tsc --noEmit
-      - run: npm run test:run
+      - run: npm run test:core
 
       # DR-11s (WLM #1576): zero-count guard for the worktree suite.
       # `npm run test:run` above already executes the worktree tests on this
@@ -450,10 +431,10 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────
   # test-windows-root (task 021)
   # ─────────────────────────────────────────────────────────────────────
-  # Runs the ROOT-package unit suite (`npm run test:run`) on a real
+  # Runs the root `unit` suite (`npm run test:run`) on a real
   # windows-latest host. The sibling `test-windows` lane above covers only
-  # servers/exarchos-mcp; the root package (installer surfaces, `src/`,
-  # `scripts/`) had NO Windows coverage until now. This lane closes that gap
+  # the `core` project; the root tiers (installer surfaces under
+  # `src/install/`, `scripts/`) had NO Windows coverage until now. This closes that gap
   # so root-side path/OS regressions fail here rather than shipping.
   #
   # Gated on `changes.outputs.root` — the same path filter as the Linux
@@ -495,9 +476,7 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            servers/exarchos-mcp/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -509,14 +488,9 @@ jobs:
 
       # The MCP server's deps must be present so `bun build --compile` can
       # resolve `pino`, `commander`, `@modelcontextprotocol/sdk`, `zod`, and
-      # `yaml` when bundling `servers/exarchos-mcp/src/index.ts` (exercised by
+      # `yaml` when bundling `src/index.ts` (exercised by
       # `scripts/build-binary.test.ts`, part of the root `unit` project run by
       # `npm run test:run`).
-      - name: Install MCP server dependencies
-        working-directory: servers/exarchos-mcp
-        shell: bash
-        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
-
       - run: npm run test:run
 
   # ─────────────────────────────────────────────────────────────────────
@@ -577,16 +551,14 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            servers/exarchos-mcp/package-lock.json
+          cache-dependency-path: package-lock.json
 
       # CodeRabbit/CI #1213: install root deps so `bun build --compile`
       # can resolve modules imported via the cross-tree bridge — e.g.
       # `js-yaml` (from `src/runtimes/load.ts`) and `@inquirer/prompts`
       # (from `src/install-skills.ts`) which the MCP entry point reaches
       # transitively. Both are declared in root `package.json` but were
-      # absent on the runner because only `servers/exarchos-mcp` had a
+      # absent on the runner because only the nested workspace had a
       # `npm ci`. The bundler then errored with "Could not resolve
       # 'js-yaml'" / "Could not resolve '@inquirer/prompts'".
       - name: Install root dependencies
@@ -594,15 +566,11 @@ jobs:
 
       # Install MCP-server *runtime* deps so `bun build --compile` can resolve
       # `pino`, `commander`, `@modelcontextprotocol/sdk`, `zod`, and `yaml`
-      # when bundling `servers/exarchos-mcp/src/index.ts`. `--omit=dev` skips
+      # when bundling `src/index.ts`. `--omit=dev` skips
       # the heavy dev-only tree (notably `promptfoo`, an eval-only library, and
       # `better-sqlite3`, used only by the Node test shim) — the compiled binary
       # embeds `bun:sqlite`, so none of it is needed here. Big install-time win
       # + far less exposure to the npm-ci stall (RCA 2026-05-30-state-source-integrity).
-      - name: Install MCP server dependencies
-        working-directory: servers/exarchos-mcp
-        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh" --omit=dev
-
       - name: Build binary for ${{ matrix.target }}
         run: bun run scripts/build-binary.ts --target ${{ matrix.target }}
 
@@ -643,23 +611,14 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            servers/exarchos-mcp/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies (root)
         run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
 
-      # The exports/types sweep resolves TypeScript across BOTH workspaces that
-      # knip.json declares (root + servers/exarchos-mcp), so the server's own
-      # node_modules must be present to type-resolve its source. This install
-      # stays light — promptfoo (the heavy eval-only dep whose Playwright/Chromium
-      # postinstall used to wedge `npm ci`) is out of the server's install
-      # closure, so this is a normal devDependency install.
-      - name: Install dependencies (servers/exarchos-mcp)
-        working-directory: servers/exarchos-mcp
-        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
-
+      # The exports/types sweep resolves TypeScript across the workspaces
+      # knip.json declares. Since task 019 the product is ONE package, so the
+      # single install above is the whole closure.
       - name: Run validate-no-legacy rollup
         run: bash scripts/validate-no-legacy.sh
 
@@ -694,9 +653,7 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            servers/exarchos-mcp/package-lock.json
+          cache-dependency-path: package-lock.json
 
       # The gate imports consolidate-suite.mjs, which pulls in `typescript` (a
       # ROOT devDependency) for TS-compiler-API case extraction. Only the root
@@ -715,7 +672,7 @@ jobs:
   # grep-gates
   # ─────────────────────────────────────────────────────────────────────
   # Fast pre-test structural checks that enforce architectural invariants
-  # by scanning servers/exarchos-mcp/src — no full install, no build:
+  # by scanning src — no full install, no build:
   #
   #   1. `withSession({...})` calls in production code must include
   #      `operationId` or `allowNonIdempotent: true` (#1342 P1.D).
@@ -738,7 +695,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: withSession idempotency contract (#1342 P1.D)
-        run: bash scripts/check-withsession-idempotency.sh servers/exarchos-mcp/src
+        run: bash scripts/check-withsession-idempotency.sh src
 
       # Self-test for the gate above. It exercises the gate's own matching logic
       # against seeded fixtures in a tmpdir — it says nothing about production
@@ -747,7 +704,7 @@ jobs:
         run: bash scripts/check-withsession-idempotency.test.sh
 
       - name: BEGIN IMMEDIATE substrate-only (#1342 P1.E)
-        run: bash scripts/check-begin-immediate-substrate.sh servers/exarchos-mcp/src
+        run: bash scripts/check-begin-immediate-substrate.sh src
 
       # Self-test for the gate above. Seeded-fixture cases plus RealTree_* cases
       # that scan this checkout to catch false positives on the legitimate
@@ -756,7 +713,7 @@ jobs:
         run: bash scripts/check-begin-immediate-substrate.test.sh
 
       # Event-sourcing read-path structural gates (v2.11.0 Wave 3). Each is a
-      # zero-dependency node script that scans servers/exarchos-mcp/src for an
+      # zero-dependency node script that scans src for an
       # architectural violation and exits non-zero on a regression. These
       # previously ran only via `npm run validate`, which no workflow invoked —
       # so a real regression in the event-store read path would have passed CI.
@@ -894,8 +851,8 @@ jobs:
       # ─────────────────────────────────────────────────────────────────
       # NOTE: the design's "grep-gates are root-only / zero-dependency" framing
       # is inaccurate for this job as a whole — do not rely on it. The tsx-backed
-      # gates below shell `tsx` over the MCP TypeScript source, so this job
-      # installs BOTH the root and servers/exarchos-mcp deps (steps below).
+      # gates below shell `tsx` over the product TypeScript source, so this
+      # job installs the package's dependencies (step below).
       #
       # Rehydration prefix/prose gates (task 011, DR-8). These two gates
       # previously ran ONLY via `npm run validate`, which no workflow invokes —
@@ -908,10 +865,6 @@ jobs:
       # reached transitively by fingerprint-cli.ts) before running them. Kept at
       # the end of the job so the fast install-free structural gates run first.
       - name: Install root dependencies (for tsx-backed gates)
-        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
-
-      - name: Install MCP server dependencies (for tsx-backed gates)
-        working-directory: servers/exarchos-mcp
         run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
 
       # Duplicate-location ratchet (DR-1, Task 022). An (area, basename)
@@ -939,7 +892,7 @@ jobs:
         run: npm run lint:invariants
 
       # Error-envelope lint (#1706 DR-2, task 002): scans the registration-set
-      # surface (servers/exarchos-mcp/src/orchestrate/**) via a DEDICATED
+      # surface (src/orchestrate/**) via a DEDICATED
       # type-aware flat config (eslint.envelopes.config.js — never the shared
       # eslint.config.js the filtered test-root lint:windows step loads),
       # hosted as a scripts/lint-*.mjs PRIMARY (not a bare eslint invocation)
@@ -982,8 +935,8 @@ jobs:
       # hosted only by the `root`-path-filtered test-root lane, while the surfaces they
       # SCAN sit outside that filter: `advisory-registry` walks `scripts/**` plus
       # `.github/workflows/**`, and `shim-registry` walks
-      # `servers/exarchos-mcp/src/runtime/**` (the filter names only
-      # `servers/exarchos-mcp/src/agents/**` from that tree). So a PR editing exactly
+      # `src/runtime/**` (the filter names only
+      # `src/runtime/agents/**` from that tree). So a PR editing exactly
       # what they police did not arm the job that runs them — skipped-as-passed, which
       # is the failure mode these ratchets were written to close. Hosting them here
       # makes each fire on every PR regardless of the paths touched.
@@ -1002,7 +955,7 @@ jobs:
 
       # ── `scripts/` typechecks (task 066, DR-24) ────────────────────────────
       # Both `scripts/` trees were compiled by NOTHING: `tsconfig.json` and
-      # `servers/exarchos-mcp/tsconfig.json` both `include: ["src/**/*"]`, so
+      # `tsconfig.json` both `include: ["src/**/*"]`, so
       # the guards living there — cli-derivation-guard.ts, authority-live-proof.ts,
       # cli-vocab-guard.ts, guard-inventory.ts, scripts/audit/* — were never
       # typechecked. Three separate tasks (020, 021, 026) each discovered this
@@ -1019,10 +972,6 @@ jobs:
       # deps tail, unfiltered — both dep trees are installed above. See
       # docs/guides/ci-gate-hosting.md.
       - name: Typecheck the root `scripts/` tree (task 066, DR-24)
-        run: npx tsc -p tsconfig.scripts.json
-
-      - name: Typecheck the MCP `scripts/` tree (task 066, DR-24)
-        working-directory: servers/exarchos-mcp
         run: npx tsc -p tsconfig.scripts.json
 
       # The guard's own self-test on the same host (DR-24: "each guard's
@@ -1081,7 +1030,7 @@ jobs:
         run: npx --no-install vitest run scripts/check-measured-premises.test.ts
 
       # No-circular runtime import-cycle ratchet (task 010, DR-4/DR-8). Runs the
-      # ROOT-hoisted dependency-cruiser over servers/exarchos-mcp/src, computes
+      # ROOT-hoisted dependency-cruiser over src, computes
       # the runtime cycles (Tarjan, via architecture/import-cycles.ts), and diffs
       # them against scripts/audit/cycle-baseline.json — failing CLOSED on an
       # unbaselined cycle, an expired waiver, a PHANTOM entry (baselined edge with
@@ -1184,11 +1133,11 @@ jobs:
       # registry's Zod objects — a named binding launders a source-text grep, so
       # the schema OBJECT must be walked), not the zero-dep prefix. Must be
       # UNFILTERED: the allowlist, the pin and this guard all live under
-      # `servers/exarchos-mcp/**`, but the ratchet governs a repo-wide contract
+      # the `mcp` filter, but the ratchet governs a repo-wide contract
       # and a `mcp`-filtered host skips-as-passed on any PR outside it.
       # See docs/guides/ci-gate-hosting.md.
       - name: outputSchema vacuity ratchet — G2 + enforced expiry (DR-4, task 017)
-        run: npx --no-install tsx servers/exarchos-mcp/scripts/output-schema-ratchet-guard.ts
+        run: npx --no-install tsx scripts/core/output-schema-ratchet-guard.ts
 
       # Its self-tests on the SAME host (DR-24: "each guard's self-test runs in
       # the same CI job as the guard", so guard-execution failure cannot pass as
@@ -1213,10 +1162,9 @@ jobs:
       # Both halves must remain hosted here — dropping either recreates the
       # skipped-as-passed hole this step was written to close.
       - name: outputSchema ratchet self-tests re-assert (DR-4/DR-24, unfiltered)
-        working-directory: servers/exarchos-mcp
         run: >-
           npx --no-install vitest run
-          scripts/output-schema-ratchet-guard.test.ts
+          scripts/core/output-schema-ratchet-guard.test.ts
           src/output-schema-vacuity-allowlist.test.ts
 
       # THE WHOLE extracted conformance suite, unfiltered — G2's census and
@@ -1262,10 +1210,10 @@ jobs:
       # never resolves `buildCli`, so unlike the sibling `cli-vocab-guard` it
       # needs neither Bun nor `bun:sqlite`), not the zero-dep prefix. Must be
       # UNFILTERED: the policy file, the pin and this guard all live under
-      # `servers/exarchos-mcp/**`, but a `mcp`-filtered host skips-as-passed on
+      # the `mcp` filter, but a `mcp`-filtered host skips-as-passed on
       # any PR outside it. See docs/guides/ci-gate-hosting.md.
       - name: CLI derivation allowlist ratchet — G1 shrink-only + enforced expiry (DR-5, task 023)
-        run: npx --no-install tsx servers/exarchos-mcp/scripts/cli-derivation-ratchet-guard.ts
+        run: npx --no-install tsx scripts/core/cli-derivation-ratchet-guard.ts
 
       # G1 DERIVATION entrypoint — direct and BLOCKING as of task 076 (DR-5).
       #
@@ -1283,7 +1231,7 @@ jobs:
       # resolver records `via=direct` rather than walking a shell shim. Same host
       # class as the ratchet above: deps tail, unfiltered, for the same reason.
       - name: CLI derivation guard — G1 no un-allowlisted literal commands (DR-5, task 076)
-        run: npx --no-install tsx servers/exarchos-mcp/scripts/cli-derivation-guard.ts
+        run: npx --no-install tsx scripts/core/cli-derivation-guard.ts
 
       # Its self-tests, plus the DERIVATION guard's, on the SAME host (DR-24:
       # "each guard's self-test runs in the same CI job as the guard"). These
@@ -1299,10 +1247,9 @@ jobs:
       # implementation-surface half: their only other host is the `mcp`-filtered
       # `test-mcp`, and `changes.mcp` does not arm on a workflow-only PR.
       - name: CLI derivation guard + ratchet self-tests re-assert (DR-5/DR-24, unfiltered)
-        working-directory: servers/exarchos-mcp
         run: >-
           npx --no-install vitest run
-          scripts/cli-derivation-ratchet-guard.test.ts
+          scripts/core/cli-derivation-ratchet-guard.test.ts
           scripts/cli-derivation-guard.test.ts
           scripts/cli-vocab-guard.test.ts
 
@@ -1348,7 +1295,6 @@ jobs:
       # production consumers, so extracting it would have inverted the
       # dependency direction between `src/` and `tools/`.
       - name: G4 effect-ledger self-test (DR-7/DR-24, unfiltered)
-        working-directory: servers/exarchos-mcp
         run: npx --no-install vitest run src/architecture/effect-ledger.test.ts
 
       # G5's census moved with G3's; the whole-suite step above hosts it.
@@ -1393,12 +1339,11 @@ jobs:
       # guard's self-test runs in the same CI job as the guard" for free.
       #
       # Must be UNFILTERED: the obligation binds a file under
-      # `servers/exarchos-mcp/**` to one under `skills-src/**`, so EITHER path
+      # the `mcp` filter to one under `skills-src/**`, so EITHER path
       # filter would skip-as-passed on exactly the PR that breaks the binding
       # from the other side. Rides the deps tail — it walks live Zod objects.
       # See docs/guides/ci-gate-hosting.md.
       - name: Audit-delivery closure (DR-4/DR-24, task 069)
-        working-directory: servers/exarchos-mcp
         run: npx --no-install vitest run src/architecture/audit-delivery-closure.test.ts
 
   # ─────────────────────────────────────────────────────────────────────
@@ -1443,22 +1388,15 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            servers/exarchos-mcp/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.13
 
-      # Root deps (vitest, build-binary toolchain) and MCP-server deps
-      # (pino, commander, @modelcontextprotocol/sdk, zod, yaml) must
-      # both be installed before bun-compiling the binary.
-      - name: Install root dependencies
-        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
-
-      - name: Install MCP server dependencies
-        working-directory: servers/exarchos-mcp
+      # One closure since task 019: vitest and the build-binary toolchain sit
+      # beside pino/commander/@modelcontextprotocol/zod/yaml in the same manifest.
+      - name: Install dependencies
         run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
 
       - name: Build host binary (linux-x64)
@@ -1501,22 +1439,16 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            servers/exarchos-mcp/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.13
 
-      # Root deps own vitest + the outcome project's `bun:sqlite` alias
-      # target. MCP-server deps own `better-sqlite3` (the shim's runtime
-      # dependency) plus the handlers exercised by the outcome tests.
-      - name: Install root dependencies
-        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
-
-      - name: Install MCP server dependencies
-        working-directory: servers/exarchos-mcp
+      # One closure since task 019: vitest, the outcome project's `bun:sqlite`
+      # alias target, and `better-sqlite3` (the shim's runtime dependency) all
+      # come from the same manifest.
+      - name: Install dependencies
         run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
 
       # The install-skills outcome test invokes the platform binary at

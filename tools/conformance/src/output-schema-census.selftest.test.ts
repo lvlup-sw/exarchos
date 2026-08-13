@@ -72,7 +72,7 @@
 // into "the self-test broke", which is the lesson 017 was careful not to teach.
 // The mutation probes below are structural and therefore date-independent.
 //
-// @oracle-sources: ../../../servers/exarchos-mcp/src/output-schema-vacuity-allowlist.ts, the exit status and stdout/stderr of a separate OS process running the shipped guard entrypoint under tsx
+// @oracle-sources: ../../../src/output-schema-vacuity-allowlist.ts, the exit status and stdout/stderr of a separate OS process running the shipped guard entrypoint under tsx
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -81,7 +81,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { censusLiveOutputSchemas } from './bindings/output-schema.js';
 import { REPO_ROOT, SUBJECT_PACKAGE_ROOT } from './subject-root.js';
-import { VACUITY_ALLOWLIST_IDS } from '../../../servers/exarchos-mcp/src/output-schema-vacuity-allowlist.js';
+import { VACUITY_ALLOWLIST_IDS } from '../../../src/output-schema-vacuity-allowlist.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 /** `servers/exarchos-mcp` — the subject package, which is no longer this one. */

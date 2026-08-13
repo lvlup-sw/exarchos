@@ -31,7 +31,7 @@
  *   Exit 2 — usage / environment error.
  *
  * Flags:
- *   --src-root <path>   Root to walk (default: repo `servers/exarchos-mcp`).
+ *   --src-root <path>   Root to walk (default: the repo `src` tree).
  *   --help              Show usage.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -185,7 +185,7 @@ function main() {
     // of the string tested against it — that string must be the file's
     // position in the tree the anchor is meant to describe. A real repo file
     // is always a descendant of REPO_ROOT, so `path.relative(REPO_ROOT, file)`
-    // is that position (e.g. `servers/exarchos-mcp/scripts/stryker-adapter.mjs`).
+    // is that position (e.g. `scripts/core/stryker-adapter.mjs`).
     // The self-test's synthetic fixtures pass `--src-root` OUTSIDE the repo (a
     // mktemp dir standing in for "a repo subtree"), so their
     // `path.relative(REPO_ROOT, file)` is a long, irrelevant `../…` climb — for

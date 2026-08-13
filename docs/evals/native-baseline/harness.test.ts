@@ -34,7 +34,7 @@ import {
   type SubagentObservation,
   type ClaudeRunner,
 } from './harness.js';
-import type { Provenance } from '../../../servers/exarchos-mcp/src/evals/provenance.js';
+import type { Provenance } from '../../../tools/evals/evals/provenance.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES = path.join(__dirname, 'fixtures');

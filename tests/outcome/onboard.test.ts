@@ -6,7 +6,7 @@
 // longer maps to a standalone command. The #1355 per-runtime manifest-parity
 // regression it guarded is now covered at the unit tier against the REAL
 // `installSkills` seam in
-// `servers/exarchos-mcp/src/verbs/onboard/install.test.ts`.
+// `src/verbs/onboard/install.test.ts`.
 //
 // This outcome test instead pins the operator-visible end-to-end contract of
 // the consolidated verb, run against the real bun-compiled platform binary

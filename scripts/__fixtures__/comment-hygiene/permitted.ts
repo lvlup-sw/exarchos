@@ -7,7 +7,7 @@
  * are the regression corpus it has to stay silent about.
  */
 
-// The ordinal-stripped rewrite of servers/exarchos-mcp/src/utils/atomic-write.ts:313.
+// The ordinal-stripped rewrite of src/utils/atomic-write.ts:313.
 // This is the target shape for remediation: the identifier is gone and every
 // word of the reasoning survives.
 // the bytes are fsync'd before the rename; the NAME is durable only once the

@@ -24,13 +24,13 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { EventStore } from '../../servers/exarchos-mcp/src/events/store.js';
+import { EventStore } from '../../src/events/store.js';
 import {
   handleInit,
   handleUpdate,
-} from '../../servers/exarchos-mcp/src/workflow/tools.js';
-import { handleDescribe } from '../../servers/exarchos-mcp/src/describe/handler.js';
-import { TOOL_REGISTRY } from '../../servers/exarchos-mcp/src/registry.js';
+} from '../../src/workflow/tools.js';
+import { handleDescribe } from '../../src/describe/handler.js';
+import { TOOL_REGISTRY } from '../../src/registry.js';
 
 const workflowTool = TOOL_REGISTRY.find((t) => t.name === 'exarchos_workflow');
 

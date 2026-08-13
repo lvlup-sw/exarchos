@@ -6,8 +6,8 @@
 import {
   DEFAULT_SPEC_DIR,
   DEFAULT_LEGACY_DESIGN_DIR,
-} from '../../../../servers/exarchos-mcp/src/config/artifacts.js';
-import type { ArtifactDirs } from '../../../../servers/exarchos-mcp/src/architecture/vocabulary-lint.js';
+} from '../../../../src/config/artifacts.js';
+import type { ArtifactDirs } from '../../../../src/architecture/vocabulary-lint.js';
 
 /**
  * The artifact directories the vocabulary lint treats as dated record trees,

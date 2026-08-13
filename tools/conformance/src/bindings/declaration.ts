@@ -4,7 +4,7 @@
  * This module imports a DR-1 contract module, so it must not import a
  * declaration store (`registry.ts`, `events/schemas.ts`). See `./README.md`.
  */
-import { DECLARATION_KINDS } from '../../../../servers/exarchos-mcp/src/contract/declaration.js';
+import { DECLARATION_KINDS } from '../../../../src/contract/declaration.js';
 import { boundaryDerivations } from '../authority-topology.js';
 import type { BoundaryDerivation } from '../authority-topology.js';
 

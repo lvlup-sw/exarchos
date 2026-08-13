@@ -4,6 +4,6 @@
     "noEmit": true,
     "rootDir": "."
   },
-  "include": ["scripts/**/*.ts", "servers/exarchos-mcp/src/**/*.d.ts"],
+  "include": ["scripts/**/*.ts", "src/**/*.d.ts"],
   "exclude": ["node_modules", "dist", "**/*.test.ts"]
 }

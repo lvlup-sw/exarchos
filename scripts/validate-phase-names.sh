@@ -70,7 +70,7 @@ fi
 # ============================================================
 
 # Skip gracefully if dist doesn't exist (e.g. in worktrees)
-MCP_DIST="$REPO_ROOT/servers/exarchos-mcp/dist"
+MCP_DIST="$REPO_ROOT/dist"
 if [[ ! -d "$MCP_DIST" ]]; then
     echo "## Phase Name Validation Report"
     echo ""

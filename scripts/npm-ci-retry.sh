@@ -3,7 +3,7 @@
 # Retry `npm ci` with a per-attempt timeout to survive transient registry/CDN
 # stalls on CI runners.
 #
-# Background: `servers/exarchos-mcp` pulls a heavy dependency tree (notably the
+# Background: the product package pulls a heavy dependency tree (notably the
 # eval-only `promptfoo`, plus native prebuilds like `better-sqlite3` whose
 # binaries download from GitHub Releases — outside the npm cache). A single
 # network hiccup made a plain `npm ci` hang silently until the job's 15-minute

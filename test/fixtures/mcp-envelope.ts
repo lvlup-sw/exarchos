@@ -3,7 +3,7 @@
 // MCP `tools/call` returns the envelope wrapped as a JSON-encoded text
 // content block:
 //   `{ content: [{ type: 'text', text: '<json>' }] }`
-// (see `servers/exarchos-mcp/src/format.ts:formatResult`).
+// (see `src/format.ts:formatResult`).
 //
 // This helper unwraps that double-encoding so callers can compare the inner
 // envelope structurally with the CLI's `--json` stdout. It was inlined in

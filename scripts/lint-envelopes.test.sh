@@ -5,7 +5,7 @@
 # assertions stay deterministic regardless of the real orchestrate/** tree's
 # current violation count (5 known violations at the time this gate was
 # wired — task 003 disposes of those separately). The fixtures are placed
-# under a temp subdirectory INSIDE servers/exarchos-mcp/src/orchestrate/, the
+# under a temp subdirectory INSIDE src/orchestrate/, the
 # only path both the MCP tsconfig's `include` ("src/**/*") and
 # eslint.envelopes.config.js's `files` glob cover, and pointed at via the
 # wrapper's `--target` testability flag (mirrors check-module-intent.mjs's
@@ -25,7 +25,7 @@ cd "$REPO_ROOT" || { echo "cannot cd to repo root: $REPO_ROOT" >&2; exit 1; }
 
 WRAPPER="scripts/lint-envelopes.mjs"
 FIXTURES_DIR="eslint-rules/__fixtures__"
-SELFTEST_DIR="servers/exarchos-mcp/src/orchestrate/__lint_envelopes_selftest__"
+SELFTEST_DIR="src/orchestrate/__lint_envelopes_selftest__"
 
 cleanup() { rm -rf "$SELFTEST_DIR"; }
 trap cleanup EXIT
@@ -96,7 +96,7 @@ fi
 # --print-config` with NO `--config` flag, so it resolves the DEFAULT
 # eslint.config.js exactly as `npm run lint:windows` does. ────────────────────
 printed_config="$(npx --no-install eslint --print-config \
-  servers/exarchos-mcp/src/orchestrate/composite.ts 2>"$SELFTEST_DIR/printconfig.err")"
+  src/orchestrate/composite.ts 2>"$SELFTEST_DIR/printconfig.err")"
 if echo "$printed_config" | grep -q 'no-handler-throw'; then
   echo "  FAIL: LintWindows_DoesNotLoadEnvelopesRule (rule leaked into the shared eslint.config.js)"
   fail=$((fail + 1))

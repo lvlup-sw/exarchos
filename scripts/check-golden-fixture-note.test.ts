@@ -8,7 +8,7 @@
  * exported function).
  *
  * DR-15 requires that any change to a file under
- * `servers/exarchos-mcp/tests/fixtures/load-bearing/**` be acknowledged in
+ * `tests/core/fixtures/load-bearing/**` be acknowledged in
  * the PR body with the exact marker `GOLDEN-FIXTURE-UPDATE:` so that
  * accidental or silent edits to load-bearing golden fixtures cannot land
  * without an explicit human note. The tests below encode that rule:
@@ -27,7 +27,7 @@ import { describe, it, expect } from 'vitest';
 import { checkGoldenFixtureNote } from './check-golden-fixture-note.mjs';
 
 const LOAD_BEARING_FILE =
-  'servers/exarchos-mcp/tests/fixtures/load-bearing/rehydrate-demo.events.jsonl';
+  'tests/core/fixtures/load-bearing/rehydrate-demo.events.jsonl';
 
 describe('checkGoldenFixtureNote', () => {
   it('PrBodyCheck_FixtureChangedWithoutNote_Fails', () => {
@@ -55,7 +55,7 @@ describe('checkGoldenFixtureNote', () => {
     const result = checkGoldenFixtureNote({
       changedFiles: [
         'src/foo.ts',
-        'servers/exarchos-mcp/src/workflow/rehydrate.ts',
+        'src/workflow/rehydrate.ts',
         'README.md',
       ],
       prBody: 'No marker here and that is fine',
@@ -70,7 +70,7 @@ describe('checkGoldenFixtureNote', () => {
     // "GOLDEN-FIXTURE-UPDATE: <reason>" at the start of a body line.
     const result = checkGoldenFixtureNote({
       changedFiles: [
-        'servers/exarchos-mcp/tests/fixtures/load-bearing/rehydrate-demo.expected-document.json',
+        'tests/core/fixtures/load-bearing/rehydrate-demo.expected-document.json',
       ],
       prBody: 'GOLDEN-FIXTURE-UPDATE: regenerated document after snapshot change',
     });
@@ -86,7 +86,7 @@ describe('checkGoldenFixtureNote', () => {
     // embedded mid-sentence (which the rule deliberately rejects).
     const result = checkGoldenFixtureNote({
       changedFiles: [
-        'servers/exarchos-mcp/tests/fixtures/load-bearing/rehydrate-demo.expected-document.json',
+        'tests/core/fixtures/load-bearing/rehydrate-demo.expected-document.json',
       ],
       prBody:
         'Some context paragraph.\n\n  GOLDEN-FIXTURE-UPDATE: indented under a quoted block\n\nAnd more notes.',
@@ -101,7 +101,7 @@ describe('checkGoldenFixtureNote', () => {
     // satisfy DR-15 by burying the directive inside prose.
     const result = checkGoldenFixtureNote({
       changedFiles: [
-        'servers/exarchos-mcp/tests/fixtures/load-bearing/rehydrate-demo.expected-document.json',
+        'tests/core/fixtures/load-bearing/rehydrate-demo.expected-document.json',
       ],
       prBody:
         'See note GOLDEN-FIXTURE-UPDATE: regenerated — this should not count.',
@@ -114,7 +114,7 @@ describe('checkGoldenFixtureNote', () => {
   it('PrBodyCheck_OnlyUnrelatedFixtureTouched_Passes', () => {
     // Fixtures outside `load-bearing/` are not governed by this rule.
     const result = checkGoldenFixtureNote({
-      changedFiles: ['servers/exarchos-mcp/tests/fixtures/other/sample.json'],
+      changedFiles: ['tests/core/fixtures/other/sample.json'],
       prBody: '',
     });
 

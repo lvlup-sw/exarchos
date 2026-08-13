@@ -21,7 +21,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const SRC = path.join(REPO_ROOT, 'servers/exarchos-mcp/src');
+const SRC = path.join(REPO_ROOT, 'src');
 const ARCH = path.join(SRC, 'architecture');
 // Anchored at a line start, and the clause may not contain a `;` — together
 // those keep a match inside ONE statement. An unanchored `[\s\S]*?` clause bleeds

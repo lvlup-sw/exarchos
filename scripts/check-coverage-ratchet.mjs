@@ -3,7 +3,7 @@
  * check-coverage-ratchet — coverage non-regression ratchet (DR-5, DR-10).
  *
  * Compares `coverage-summary.json` totals (produced by the vitest `v8`
- * provider's `json-summary` reporter — see `servers/exarchos-mcp/vitest.config.ts`)
+ * provider's `json-summary` reporter — see `vitest.config.ts`)
  * against a checked-in baseline (`tools/audit/coverage-baseline.json`),
  * one comparison per standard v8/istanbul metric (`lines`, `statements`,
  * `functions`, `branches`).
@@ -42,7 +42,7 @@
  *
  * Flags:
  *   --summary <path>   Path to coverage-summary.json. Default
- *                       `servers/exarchos-mcp/coverage/coverage-summary.json`
+ *                       `coverage/coverage-summary.json`
  *                       (repo-relative).
  *   --baseline <path>  Path to the baseline JSON. Default
  *                       `tools/audit/coverage-baseline.json`.

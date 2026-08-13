@@ -47,7 +47,7 @@
  *
  * Flags (primarily for testability):
  *   --src-root <path>  Root directory to walk. Defaults to
- *                      `servers/exarchos-mcp/src` relative to repo root.
+ *                      `src` relative to repo root.
  *   --help             Show usage.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';

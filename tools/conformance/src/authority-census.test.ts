@@ -5,7 +5,7 @@
 // remediates it. Proving the failure fires live against the real CLI-surface and
 // event-catalog subjects is task 026.
 //
-// @oracle-sources: ./authority-topology.ts, ../../../servers/exarchos-mcp/src/contract/reachability/graph.ts
+// @oracle-sources: ./authority-topology.ts, ../../../src/contract/reachability/graph.ts
 //
 // The two authorities are genuinely independent, in both the static and the
 // semantic sense. `authority-topology.ts`'s entire transitive import closure is
@@ -21,7 +21,7 @@ import { describe, it, expect } from 'vitest';
 import {
   evaluateClosure,
   type ReachabilityInputs,
-} from '../../../servers/exarchos-mcp/src/contract/reachability/graph.js';
+} from '../../../src/contract/reachability/graph.js';
 import {
   CONTRACT_BOUNDARIES,
   ENFORCEMENT_WAVES,

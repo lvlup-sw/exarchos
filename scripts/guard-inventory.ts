@@ -69,7 +69,7 @@
 //      author cannot forget. Note the manifest's own enumerator
 //      (`enumeratePrimaryFiles`) globs `scripts/(check|lint)-*.{mjs,sh}` at the
 //      ROOT scripts dir only: not `.ts`, not `scripts/audit/`, not
-//      `servers/exarchos-mcp/scripts/`. Channel 3 exists because of that hole.
+//      `scripts/core/`. Channel 3 exists because of that hole.
 //
 //   2. WAVE-1 SPEC ARTIFACTS. The `**Files:**` line of every Wave-1 task in
 //      `docs/specs/2026-08-06-internal-mechanics-overhaul.md`. Wave membership is
@@ -77,7 +77,7 @@
 //      placeholders that trail the Wave-1 block with no intervening header) are
 //      excluded by their own heading tag — never by a task-number range.
 //
-//   3. RUNNABLE GATES UNDER `servers/exarchos-mcp/scripts/`. A module is a guard
+//   3. RUNNABLE GATES UNDER `scripts/core/`. A module is a guard
 //      executable iff it has a STATEMENT-LEVEL `process.exit(…)` entrypoint (a
 //      real parse, not a name match or a text scan) AND a co-located self-test.
 //      The self-test half is DR-24's own definition of a guard — "each guard's
@@ -181,7 +181,7 @@ export const SPEC_PATH = 'docs/specs/2026-08-06-internal-mechanics-overhaul.md';
 /** The enforcer-wiring manifest — channel 1's denominator. */
 export const MANIFEST_PATH = 'scripts/enforcer-wiring-manifest.json';
 /** Channel 3's scan root. */
-export const MCP_SCRIPTS_DIR = 'servers/exarchos-mcp/scripts';
+export const MCP_SCRIPTS_DIR = 'scripts/core';
 /**
  * Channel 4's scan roots — the directories that ARE the conformance suite.
  *
@@ -196,7 +196,7 @@ export const GUARD_SUITE_ROOTS: readonly string[] = Object.freeze([
   // the shared utilities production imports. Still self-tested censuses, so
   // still guards — they just are not extractable without inverting the
   // dependency direction between `src/` and `tools/`.
-  'servers/exarchos-mcp/src/architecture',
+  'src/architecture',
 ]);
 /** The aggregator that decides which `ci.yml` job can fail a PR. */
 export const AGGREGATOR_JOB = 'ci-gate';
@@ -1228,7 +1228,10 @@ export function scanGuardSuiteRoots(
 
 // ─── Vitest include globs → suite identity ───────────────────────────────────
 
-export type SuiteId = 'root' | 'mcp';
+// One package since task 019. The alias is kept (rather than inlined as the
+// literal 'root') because the suite is a real concept in this file's model —
+// what collapsed is the SET of suites, not the idea of one.
+export type SuiteId = 'root';
 
 export interface VitestProject {
   /** The project's declared `name`, or `'default'` for a config with one unnamed suite. */
@@ -1360,10 +1363,7 @@ export function loadSuiteConfigs(repoRoot: string = REPO_ROOT): SuiteConfig[] {
     }
     return projects;
   };
-  return [
-    { id: 'root', dir: '', projects: read('') },
-    { id: 'mcp', dir: 'servers/exarchos-mcp', projects: read('servers/exarchos-mcp') },
-  ];
+  return [{ id: 'root', dir: '', projects: read('') }];
 }
 
 /** Which vitest suite + project(s) collect a repo-relative test path. */
@@ -1421,7 +1421,6 @@ export function runsOnPullRequest(workflow: Workflow): boolean {
 export interface ResolutionContext {
   readonly workflows: readonly LoadedWorkflow[];
   readonly rootPkg: PackageScripts;
-  readonly mcpPkg: PackageScripts;
   readonly suites: readonly SuiteConfig[];
   /** `true` for every repo-relative path that exists on disk. */
   readonly exists: (path: string) => boolean;
@@ -1457,9 +1456,7 @@ export interface ShellIndirectionIndex {
  * True when a step's expanded command text executes `artifact`.
  *
  * Matching is on the artifact path, tried both repo-relative and relative to the
- * step's working directory — so `npm run cli:vocab-guard` inside
- * `servers/exarchos-mcp` (which expands to `bun run scripts/cli-vocab-guard.ts`)
- * resolves to `servers/exarchos-mcp/scripts/cli-vocab-guard.ts`.
+ * step's working directory, so a step that sets one still resolves its artifact.
  */
 function commandExecutes(command: string, artifact: string, workingDir: string): boolean {
   const candidates = [artifact];
@@ -1509,9 +1506,7 @@ function jobRunsSuiteFor(
   for (const step of job.steps ?? []) {
     if (typeof step.run !== 'string') continue;
     const workingDir = stepWorkingDirectory(job, step);
-    const pkg = workingDir === 'servers/exarchos-mcp' ? ctx.mcpPkg : ctx.rootPkg;
-    const stepSuite: SuiteId = workingDir === 'servers/exarchos-mcp' ? 'mcp' : 'root';
-    if (stepSuite !== membership.suite) continue;
+    const pkg = ctx.rootPkg;
     const expanded = expandNpmScripts(step.run, pkg);
     for (const line of expanded.split('\n')) {
       const invocation = /(?:^|\s|&&|\|\|)(?:npx\s+(?:--no-install\s+)?)?vitest\s+run\b([^\n]*)/.exec(line);
@@ -1556,8 +1551,7 @@ export function indexShellIndirection(ctx: ResolutionContext): ShellIndirectionI
         runStepsWalked += 1;
         if (read === undefined) continue;
         const workingDir = stepWorkingDirectory(job, step);
-        const pkg = workingDir === 'servers/exarchos-mcp' ? ctx.mcpPkg : ctx.rootPkg;
-        const expanded = expandNpmScripts(step.run, pkg);
+        const expanded = expandNpmScripts(step.run, ctx.rootPkg);
         const executions: ShellExecution[] = [];
         // The step's own text is scanned for the wrapper scripts it launches; the
         // wrappers' contents are what the walk then resolves.
@@ -1654,8 +1648,7 @@ export function resolveHosts(artifact: string, ctx: ResolutionContext): GuardHos
       for (const step of job.steps ?? []) {
         if (typeof step.run !== 'string') continue;
         const workingDir = stepWorkingDirectory(job, step);
-        const pkg = workingDir === 'servers/exarchos-mcp' ? ctx.mcpPkg : ctx.rootPkg;
-        const expanded = expandNpmScripts(step.run, pkg);
+        const expanded = expandNpmScripts(step.run, ctx.rootPkg);
         const swallowed = stepSwallowsExit(job, step);
         // Self-test paths are checked FIRST: `…/x.test.sh` contains `…/x.test.`
         // but never `…/x.mjs`, so the two matches cannot alias. Checking the
@@ -1696,7 +1689,7 @@ export function resolveHosts(artifact: string, ctx: ResolutionContext): GuardHos
 
 // ─── Production reachability (the R-11 axis) ─────────────────────────────────
 
-const SOURCE_ROOTS = ['src', 'servers/exarchos-mcp/src', 'scripts', 'servers/exarchos-mcp/scripts'] as const;
+const SOURCE_ROOTS = ['src', 'src', 'scripts', 'scripts/core'] as const;
 
 function walkSourceFiles(repoRoot: string, dir: string, out: string[]): void {
   let entries: Dirent[];
@@ -1742,7 +1735,7 @@ export function enumerateProductionModules(repoRoot: string = REPO_ROOT): string
  * import. `ts.isImportDeclaration` cannot disagree with the compiler about what
  * an import is.
  *
- * The dynamic half is not optional. `servers/exarchos-mcp/src/index.ts` reaches
+ * The dynamic half is not optional. `src/index.ts` reaches
  * `adapters/mcp.ts` ONLY through `await import('./adapters/mcp.js')` — a
  * deliberate lazy edge that keeps the MCP SDK off the CLI's cold-start path. A
  * static-only scan reports the repo's MCP adapter as having no production caller,
@@ -1954,7 +1947,6 @@ export function buildGuardInventory(options: BuildOptions = {}): GuardInventory 
   const base: ResolutionContext = {
     workflows,
     rootPkg: readPackageScripts(repoRoot, ''),
-    mcpPkg: readPackageScripts(repoRoot, 'servers/exarchos-mcp'),
     suites: loadSuiteConfigs(repoRoot),
     exists: (path) => existsSync(join(repoRoot, path)),
     readScript,
