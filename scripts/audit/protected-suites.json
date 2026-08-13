@@ -22,7 +22,6 @@
     "src/__tests__/parity-harness.ts",
     "src/adapters/cli/schema-to-flags.parity.test.ts",
     "src/architecture/resolve-effective-catalog.characterization.test.ts",
-    "src/runtime/capabilities/resolver.acceptance.test.ts",
     "src/dispatch/core/dispatch-context.acceptance.test.ts",
     "src/dispatch/core/onboarding/reconcile.characterization.test.ts",
     "src/events/atomic-appender.acceptance.test.ts",
@@ -34,7 +33,8 @@
     "src/events/store.property.test.ts",
     "src/events/store.race.test.ts",
     "src/events/substrate-resilience.acceptance.test.ts",
-    "tools/conformance/src/parity/lifecycle-verbs.parity.test.ts",
+    "src/install/build-skills.acceptance.test.ts",
+    "src/install/install-skills.characterization.test.ts",
     "src/projections/views/lifecycle/s6-recovery.acceptance.test.ts",
     "src/projections/views/materializer.property.test.ts",
     "src/projections/views/parity.test.ts",
@@ -65,10 +65,12 @@
     "src/verbs/vcs/create-issue.parity.test.ts",
     "src/verbs/vcs/create-pr.parity.test.ts",
     "src/verbs/worktree/dispatch.parity.test.ts",
+    "src/workflow/capabilities/resolver.acceptance.test.ts",
     "src/workflow/feedback.parity.test.ts",
     "src/workflow/playbooks.property.test.ts",
     "src/workflow/state-machine.property.test.ts",
     "src/workflow/tools.update.race.test.ts",
-    "src/workflow/topology/phase-contract.acceptance.test.ts"
+    "src/workflow/topology/phase-contract.acceptance.test.ts",
+    "tools/conformance/src/parity/lifecycle-verbs.parity.test.ts"
   ]
 }

@@ -145,12 +145,26 @@ describe('test inventory', () => {
   });
 
   it('TestInventory_BothRunners_AreRepresented', () => {
-    // The root and nested packages collect different trees; an inventory
-    // covering one would silently under-report the other.
+    // vitest cannot see a shell suite and the shell runner cannot see a vitest
+    // one, so an inventory derived from either alone under-reports the other.
+    // This was a three-way split while a nested vitest workspace existed; task
+    // 019 dissolved that package, so the two runners are the whole population.
     const runners = new Set(fileEntries.map((e) => e.runner));
 
     expect(runners).toContain('vitest:root');
-    expect(runners).toContain('vitest:nested');
     expect(runners).toContain('shell');
+    expect(runners).not.toContain('vitest:nested');
+  });
+
+  it('TestInventory_EveryTestBearingRoot_IsRepresented', () => {
+    // What the nested-workspace assertion was really protecting: one collector
+    // covering a subset of the trees and reporting a clean total. The packages
+    // merged, but the trees did not — tests live under several top-level roots,
+    // and a discovery bounded to `src/` would drop the rest in silence.
+    const roots = new Set(fileEntries.map((e) => e.file.split('/')[0]));
+
+    for (const root of ['src', 'scripts', 'test', 'tests', 'tools']) {
+      expect(roots, `no test file inventoried under ${root}/`).toContain(root);
+    }
   });
 });

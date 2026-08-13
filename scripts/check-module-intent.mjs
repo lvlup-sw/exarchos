@@ -79,6 +79,14 @@ const basename = (rel) => segments(rel).pop() ?? rel;
 // plus `architecture/import-cycles.ts` (a task-009 sibling of contract-seam,
 // added after the 005 baseline — see its member note).
 // ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Subtrees of the scan root that this census has no jurisdiction over, because
+ * they are not entered through the engine's import graph. See the note at the
+ * classification loop; membership is asserted non-vacuous by
+ * `ModuleIntent_OutOfSubjectPrefixes_AllExist`.
+ */
+const OUT_OF_SUBJECT = ['install'];
+
 const ALLOWLIST_CLASSES = [
   {
     name: 'test-helper',
@@ -344,8 +352,22 @@ function main() {
   }
 
   // 2. Classify each dead-in-prod module.
+  //
+  // Subtrees entered from OUTSIDE the engine's import graph are skipped first.
+  // The census reads "no production importer" as "dead", which is only sound
+  // for code the engine actually calls. `tools/audit/layer-map.json` — the
+  // task-010 authority — declares `install` a non-layer peer that "installs and
+  // packages the engine rather than sitting in its call graph", so its
+  // CLI-entered modules are unreachable BY DESIGN, not dead. This census
+  // scanned `servers/exarchos-mcp/src` until task 019 folded the two trees
+  // together and pointed it at `src`, which is how a tree it never governed
+  // arrived inside its subject.
+  //
+  // The installer still deserves a reachability audit; it needs one rooted at
+  // ITS entry points, which is a different instrument than this one.
   const violations = [];
   for (const rel of dead) {
+    if (OUT_OF_SUBJECT.some((prefix) => rel === prefix || rel.startsWith(`${prefix}/`))) continue;
     const full = path.join(args.srcRoot, ...rel.split('/'));
 
     let source;

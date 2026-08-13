@@ -197,6 +197,27 @@ describe('check-module-intent CLI (DR-7/DR-8)', () => {
 
   // ── CI wiring ──────────────────────────────────────────────────────────────
 
+
+  // ── Subject scope ──────────────────────────────────────────────────────────
+
+  it('ModuleIntent_OutOfSubjectPrefixes_AllExist', () => {
+    // The census skips subtrees entered from outside the engine's import graph.
+    // A skip rule naming a directory that is gone would quietly stop skipping —
+    // or, worse, read as coverage the census does not have. Both halves are
+    // pinned: the rule is declared in the script, and its target is on disk.
+    const script = readFileSync(SCRIPT, 'utf8');
+    const declared = /const OUT_OF_SUBJECT = \[([^\]]*)\]/.exec(script);
+    expect(declared, 'OUT_OF_SUBJECT must be declared in the script').not.toBeNull();
+    const prefixes = [...(declared?.[1] ?? '').matchAll(/'([^']+)'/g)].map((m) => m[1]);
+    expect(prefixes.length).toBeGreaterThan(0);
+    for (const prefix of prefixes) {
+      expect(
+        existsSync(path.join(REPO_ROOT, 'src', prefix)),
+        `out-of-subject prefix "${prefix}" does not exist under src/`,
+      ).toBe(true);
+    }
+  });
+
   it('Wired_Into_GrepGates_CI', () => {
     const ci = readFileSync(CI_WORKFLOW, 'utf8');
     expect(ci).toMatch(/node scripts\/check-module-intent\.mjs/);

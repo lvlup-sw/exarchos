@@ -1,10 +1,11 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { describe, it, expect } from 'vitest';
 import {
   SRC_ROOT,
+  PROTECTED_ROOTS,
   isKeepClassRelPath,
   discoverProtectedFiles,
   buildInventory,
@@ -120,8 +121,27 @@ describe('buildInventory / loadInventory round trip', () => {
   it('the SHIPPED protected-suites.json conforms and matches the live tree (no drift)', () => {
     const raw = JSON.parse(readFileSync(INVENTORY_PATH, 'utf8'));
     const shipped = loadInventory(raw);
-    const live = discoverProtectedFiles(REAL_SRC_ROOT_ABS);
+    const live = PROTECTED_ROOTS.flatMap((root) =>
+      discoverProtectedFiles(path.join(REPO_ROOT, root), root),
+    ).sort();
     expect(shipped).toEqual(live);
+  });
+
+  it('PROTECTED_ROOTS_ALL_EXIST', () => {
+    // A root that no longer exists walks nothing and drops every suite under it
+    // from protection — silently, since the regenerated snapshot then matches
+    // the walk that found nothing. Task 018a moved `parity/` out of `src` and
+    // that is exactly what happened.
+    expect(PROTECTED_ROOTS.length).toBeGreaterThan(0);
+    for (const root of PROTECTED_ROOTS) {
+      expect(existsSync(path.join(REPO_ROOT, root)), `protected root ${root} does not exist`).toBe(
+        true,
+      );
+      expect(
+        discoverProtectedFiles(path.join(REPO_ROOT, root), root).length,
+        `protected root ${root} contains no keep-class suite`,
+      ).toBeGreaterThan(0);
+    }
   });
 });
 

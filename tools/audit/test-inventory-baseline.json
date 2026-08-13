@@ -7,8 +7,8 @@
     "testFiles": 1147,
     "parsedFiles": 1102,
     "shellFiles": 45,
-    "cases": 12688,
-    "dynamicTitles": 130,
+    "cases": 12701,
+    "dynamicTitles": 131,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -1145,6 +1145,11 @@
           "dynamic": false
         },
         {
+          "suite": "buildInventory / loadInventory round trip",
+          "name": "PROTECTED_ROOTS_ALL_EXIST",
+          "dynamic": false
+        },
+        {
           "suite": "findProtectedViolations — the change-set intersection",
           "name": "a clean change-set has no violations",
           "dynamic": false
@@ -2144,6 +2149,11 @@
         {
           "suite": "check-module-intent CLI (DR-7/DR-8)",
           "name": "ConformingRealTree_Pass",
+          "dynamic": false
+        },
+        {
+          "suite": "check-module-intent CLI (DR-7/DR-8)",
+          "name": "ModuleIntent_OutOfSubjectPrefixes_AllExist",
           "dynamic": false
         },
         {
@@ -3163,6 +3173,21 @@
         {
           "suite": "Shell parsing units the indirection rests on",
           "name": "ShellInterpreters_MissingEntryFailsTowardUnreachable",
+          "dynamic": false
+        },
+        {
+          "suite": "Historical spec paths resolve against the current tree",
+          "name": "GuardInventory_HistoricalPathRewrites_AllResolve",
+          "dynamic": false
+        },
+        {
+          "suite": "Historical spec paths resolve against the current tree",
+          "name": "GuardInventory_HistoricalPathRewrites_AreOrderedSpecificBeforeCatchAll",
+          "dynamic": false
+        },
+        {
+          "suite": "Historical spec paths resolve against the current tree",
+          "name": "GuardInventory_HistoricalPathRewrites_LeaveALiveCitationAlone",
           "dynamic": false
         }
       ]
@@ -4751,7 +4776,7 @@
         },
         {
           "suite": "DR-0 / task 050 — SDK patch lifetime policy",
-          "name": "PatchLifetime_PatchPackage_IsInstalledAndWiredToPostinstall",
+          "name": "PatchLifetime_PatchPackageWiring_MatchesWhetherAnyPatchExists",
           "dynamic": false
         }
       ]
@@ -23817,6 +23842,11 @@
           "dynamic": false
         },
         {
+          "suite": "discoverShims (injected fs)",
+          "name": "discoverShims_NestedRoots_VisitsEachFileOnce",
+          "dynamic": false
+        },
+        {
           "suite": "SHIM_REGISTRY — real repo (exit proof e)",
           "name": "registry entries are internally well-formed",
           "dynamic": false
@@ -23969,6 +23999,11 @@
         {
           "suite": "DR-14 live tree — the inventory reflects the shipped renderers",
           "name": "ShimRegistry_RealRepo_GovernsEveryShippedRenderer",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-14 live tree — the inventory reflects the shipped renderers",
+          "name": "ScanRoots_RealRepo_EveryConfiguredRootExists",
           "dynamic": false
         },
         {
@@ -24148,32 +24183,6 @@
         {
           "suite": "skills-guard — T4 command-aliases/ drift (#1472)",
           "name": "AliasesGuard_DirectAliasEdit_Detected",
-          "dynamic": false
-        }
-      ]
-    },
-    "src/install/tsconfig-strictness.test.ts": {
-      "file": "src/install/tsconfig-strictness.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "DR-14: noUncheckedIndexedAccess ratchet (server)",
-          "name": "TsconfigServer_NoUncheckedIndexedAccessEnabled_TypecheckGreen",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-14: noUncheckedIndexedAccess ratchet (server)",
-          "name": "TsconfigServer_ExactOptionalPropertyTypesEnabled_TypecheckGreen",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-14: strict-flag ratchet (DR-3 eval workspace)",
-          "name": "TsconfigEvalPkg_NoUncheckedIndexedAccessEnabled_TypecheckGreen",
-          "dynamic": false
-        },
-        {
-          "suite": "DR-14: strict-flag ratchet (DR-3 eval workspace)",
-          "name": "TsconfigEvalPkg_ExactOptionalPropertyTypesEnabled_TypecheckGreen",
           "dynamic": false
         }
       ]
@@ -24802,6 +24811,11 @@
         {
           "suite": "No Console in Production Code",
           "name": "NoConsoleInProduction_SourceFilesClean",
+          "dynamic": false
+        },
+        {
+          "suite": "No Console in Production Code",
+          "name": "NoConsoleInProduction_EveryExemptionIsLiveAndStillPrints",
           "dynamic": false
         }
       ]
@@ -38300,6 +38314,47 @@
         }
       ]
     },
+    "src/tsconfig-strictness.test.ts": {
+      "file": "src/tsconfig-strictness.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "DR-14: strict-flag ratchet (product project)",
+          "name": "TsconfigRoot_NoUncheckedIndexedAccessEnabled_TypecheckGreen",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-14: strict-flag ratchet (product project)",
+          "name": "TsconfigRoot_ExactOptionalPropertyTypesEnabled_TypecheckGreen",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-14: strict-flag ratchet (product project)",
+          "name": "FixWave_BothStrictFlags_FullSuitesGreen",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-14: strict-flag ratchet (satellite projects)",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "DR-14: escape-hatch census",
+          "name": "FixWave_CastBudget_MeasuredAndWithinDeclaredLimit",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-14: escape-hatch census",
+          "name": "ScriptsCastCensus_Roots_CoverEveryTypecheckedTree",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-14: escape-hatch census",
+          "name": "CensusRoots_RealRepo_AllExistAndNoneNests",
+          "dynamic": false
+        }
+      ]
+    },
     "src/utils/atomic-write.fsync-adequacy.test.ts": {
       "file": "src/utils/atomic-write.fsync-adequacy.test.ts",
       "runner": "vitest:root",
@@ -38539,6 +38594,11 @@
         {
           "suite": "state-store resolveStateDir re-export",
           "name": "state-store resolveStateDir returns universal default (cascade level 4)",
+          "dynamic": false
+        },
+        {
+          "suite": "no hardcoded ~/.claude/ path constructions in production code",
+          "name": "every config-writer exemption resolves and still spells a path out",
           "dynamic": false
         },
         {
@@ -65743,12 +65803,12 @@
         },
         {
           "suite": "vitest.config",
-          "name": "VitestConfig_McpWorkspace_DeclaresExplicitTimeouts",
+          "name": "VitestConfig_CoreTier_DeclaresExplicitTimeouts",
           "dynamic": false
         },
         {
           "suite": "vitest.config",
-          "name": "VitestConfig_TieredTimeoutPolicy_IsCoherentAcrossBothWorkspaces",
+          "name": "VitestConfig_TieredTimeoutPolicy_IsCoherent",
           "dynamic": false
         }
       ]
@@ -66375,6 +66435,11 @@
         {
           "suite": "test inventory",
           "name": "TestInventory_BothRunners_AreRepresented",
+          "dynamic": false
+        },
+        {
+          "suite": "test inventory",
+          "name": "TestInventory_EveryTestBearingRoot_IsRepresented",
           "dynamic": false
         }
       ]

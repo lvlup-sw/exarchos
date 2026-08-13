@@ -38,6 +38,16 @@ import { fileURLToPath } from 'node:url';
 export const SRC_ROOT = 'src';
 
 /**
+ * Every root walked for keep-class suites. A keep-class suite is protected by
+ * WHAT IT IS, so it must stay protected wherever it lives: task 018a moved the
+ * `parity/` tree into `tools/conformance`, and a single-root walk quietly
+ * stopped covering it — the suites did not lose their class, only their
+ * address. `PROTECTED_ROOTS_ALL_EXIST` in the co-located test keeps every entry
+ * pointing at a real directory.
+ */
+export const PROTECTED_ROOTS = Object.freeze([SRC_ROOT, 'tools/conformance/src']);
+
+/**
  * The five dedicated keep-class suite suffixes (DR-5). A file is keep-class
  * iff its name ENDS WITH one of these — never by import content.
  */
@@ -171,9 +181,11 @@ export function findProtectedViolations(changedFiles, inventoryFiles) {
   for (const raw of changedFiles) {
     const p = normalizeChangedPath(raw);
     let isViolation = inventorySet.has(p);
-    if (!isViolation && p.startsWith(`${SRC_ROOT}/`)) {
-      const relToSrc = p.slice(SRC_ROOT.length + 1);
-      isViolation = isKeepClassRelPath(relToSrc);
+    // The safety net runs against every protected root, so a keep-class file
+    // added under one of them is caught before the snapshot is regenerated.
+    for (const root of PROTECTED_ROOTS) {
+      if (isViolation || !p.startsWith(`${root}/`)) continue;
+      isViolation = isKeepClassRelPath(p.slice(root.length + 1));
     }
     if (isViolation && !seen.has(p)) {
       seen.add(p);
@@ -249,8 +261,9 @@ function defaultGitDiffNames() {
 }
 
 function regenerate() {
-  const srcRootAbs = path.join(REPO_ROOT, SRC_ROOT);
-  const files = discoverProtectedFiles(srcRootAbs);
+  const files = PROTECTED_ROOTS.flatMap((root) =>
+    discoverProtectedFiles(path.join(REPO_ROOT, root), root),
+  );
   const inventory = buildInventory(files);
   writeFileSync(INVENTORY_PATH, `${JSON.stringify(inventory, null, 2)}\n`, 'utf8');
   process.stdout.write(`[check-protected] regenerated ${files.length} protected file(s) -> ${INVENTORY_PATH}\n`);

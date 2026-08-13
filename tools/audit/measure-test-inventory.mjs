@@ -165,9 +165,13 @@ function main() {
       unparseable.push(rel);
       continue;
     }
-    // Which runner owns the file matters for reconciliation: the nested package
-    // and the root package collect different trees.
-    const runner = rel.startsWith('servers/exarchos-mcp/') ? 'vitest:nested' : 'vitest:root';
+    // Which runner owns the file matters for reconciliation. There were two
+    // vitest workspaces until task 019 dissolved the nested package into the
+    // root one; the surviving distinction that a runner-derived inventory can
+    // still get wrong is vitest-vs-shell, since vitest cannot see shell suites
+    // at all. The trees a single workspace can under-report are asserted by
+    // top-level root instead — see `TestInventory_EveryTestBearingRoot_IsRepresented`.
+    const runner = 'vitest:root';
     byFile[rel] = { file: rel, runner, cases };
     caseCount += cases.length;
     dynamicCount += cases.filter((c) => c.dynamic).length;
