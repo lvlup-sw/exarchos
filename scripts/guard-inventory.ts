@@ -60,7 +60,7 @@
 //       exit code is not swallowed".
 //
 // ─────────────────────────────────────────────────────────────────────────────
-// THE THREE DISCOVERY CHANNELS
+// THE FOUR DISCOVERY CHANNELS
 //
 //   1. ENFORCER-MANIFEST PRIMARIES. Every non-`retired` entry in
 //      `scripts/enforcer-wiring-manifest.json`. This channel guarantees the
@@ -87,7 +87,22 @@
 //      ({@link GuardInventory.runnableWithoutSelfTest}) rather than silently
 //      dropped, so the exclusion stays reviewable.
 //
-// The union is deduplicated by repo-relative path.
+//   4. MODULES OF A DECLARED GUARD SUITE ({@link GUARD_SUITE_ROOTS}). A suite
+//      root is a directory whose modules exist to police the tree, so under one
+//      of them a non-test module with a co-located self-test IS a guard — the
+//      same self-test criterion as channel 3, minus the runnable half, because a
+//      census states its verdict through its test rather than through an exit
+//      code.
+//
+//      This channel exists because channels 1–3 discover a census only by NAME.
+//      Channel 2 reads a FROZEN spec's `**Files:**` list, and measured on the
+//      landing branch that is the SOLE channel for all nine conformance censuses
+//      in this inventory — including G2, G3 and G5 of the Wave-1 exit proof. So
+//      relocating one makes its spec path stop resolving, it drops to
+//      {@link GuardInventory.unresolvedSpecArtifacts}, and a guard that stops
+//      being discovered stops being audited. Channel 4 answers the question from
+//      the tree instead, so a directory move retargets one constant rather than
+//      un-governing a census.
 //
 // ─────────────────────────────────────────────────────────────────────────────
 // INDIRECT HOSTING: A GUARD RUN BY A SHELL SCRIPT THAT A RUN-STEP RUNS (task 070)
@@ -167,6 +182,17 @@ export const SPEC_PATH = 'docs/specs/2026-08-06-internal-mechanics-overhaul.md';
 export const MANIFEST_PATH = 'scripts/enforcer-wiring-manifest.json';
 /** Channel 3's scan root. */
 export const MCP_SCRIPTS_DIR = 'servers/exarchos-mcp/scripts';
+/**
+ * Channel 4's scan roots — the directories that ARE the conformance suite.
+ *
+ * The single place a relocation of the suite is absorbed. Every root is required
+ * to exist and to yield at least one guard ({@link scanGuardSuiteRoots}), so
+ * retargeting this list wrongly reddens the build instead of quietly shrinking
+ * the inventory — which is the whole failure mode channel 4 exists to prevent.
+ */
+export const GUARD_SUITE_ROOTS: readonly string[] = Object.freeze([
+  'servers/exarchos-mcp/src/architecture',
+]);
 /** The aggregator that decides which `ci.yml` job can fail a PR. */
 export const AGGREGATOR_JOB = 'ci-gate';
 /** The workflow that hosts the aggregator. */
@@ -785,7 +811,7 @@ export function resolveShellExecutions(entryScript: string, read: (path: string)
 
 // ─── Guard population ────────────────────────────────────────────────────────
 
-export type GuardChannel = 'enforcer-manifest' | 'wave1-spec' | 'mcp-scripts-gate';
+export type GuardChannel = 'enforcer-manifest' | 'wave1-spec' | 'mcp-scripts-gate' | 'conformance-suite';
 
 /**
  * How a CI job reaches a guard.
@@ -885,6 +911,15 @@ export interface GuardInventory {
    * exclusion is reviewable rather than silent.
    */
   readonly runnableWithoutSelfTest: readonly string[];
+  /**
+   * Modules under {@link GUARD_SUITE_ROOTS} with no co-located self-test — the
+   * data tables, CLI entrypoints and composition-root bindings a suite carries
+   * alongside its censuses. Channel 4's counterpart to
+   * {@link GuardInventory.runnableWithoutSelfTest}: listed so the population's
+   * boundary is reviewable, and so a census that LOSES its self-test surfaces
+   * here instead of vanishing from the inventory.
+   */
+  readonly suiteModulesWithoutSelfTest: readonly string[];
   /**
    * Wave-1 source artifacts with no co-located self-test and no runnable
    * entrypoint — modules whose enforcement rung is COMPILE TIME (`tsc --noEmit`
@@ -1100,6 +1135,89 @@ export function scanMcpScriptGates(repoRoot: string = REPO_ROOT): McpScriptScan 
   return {
     gatesWithSelfTest: gatesWithSelfTest.sort(),
     runnableWithoutSelfTest: runnableWithoutSelfTest.sort(),
+  };
+}
+
+// ─── Channel 4: modules of a declared guard suite ────────────────────────────
+
+export interface GuardSuiteScan {
+  /** Suite modules carrying a co-located self-test — the guards. */
+  readonly modulesWithSelfTest: readonly string[];
+  /**
+   * Suite modules with NO co-located self-test: data tables, CLI entrypoints and
+   * composition-root bindings. Reported for the same reason channel 3 reports
+   * its own exclusions — so the boundary of the population stays reviewable
+   * rather than becoming a silent filter.
+   */
+  readonly modulesWithoutSelfTest: readonly string[];
+}
+
+/**
+ * Every module under {@link GUARD_SUITE_ROOTS}, split on whether it has a
+ * co-located self-test.
+ *
+ * Fails CLOSED twice, and the second one is the point. A root that cannot be
+ * read throws, exactly as {@link scanMcpScriptGates} does. But a root that reads
+ * fine and yields ZERO guards also throws, because that is what a mistargeted
+ * root looks like from the inside: the scan succeeds, the channel contributes
+ * nothing, and the inventory it feeds reports a clean run over a smaller
+ * denominator. An empty channel is indistinguishable from a channel that was
+ * never needed, so it is not allowed to be silent.
+ */
+export function scanGuardSuiteRoots(
+  repoRoot: string = REPO_ROOT,
+  roots: readonly string[] = GUARD_SUITE_ROOTS,
+): GuardSuiteScan {
+  if (roots.length === 0) {
+    throw new Error(
+      'guard-suite roots are EMPTY — an empty root list is the one way this scan can ' +
+        'contribute nothing without failing, which is the silence it exists to prevent',
+    );
+  }
+  const modulesWithSelfTest: string[] = [];
+  const modulesWithoutSelfTest: string[] = [];
+
+  const walk = (dir: string, into: string[]): void => {
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(join(repoRoot, dir), { withFileTypes: true });
+    } catch (err) {
+      throw new Error(
+        `${dir}: declared guard-suite root cannot be enumerated ` +
+          `(${err instanceof Error ? err.message : String(err)}) — retarget GUARD_SUITE_ROOTS`,
+      );
+    }
+    for (const entry of entries) {
+      const rel = `${dir}/${entry.name}`;
+      if (entry.isDirectory()) {
+        if (entry.name === 'node_modules' || entry.name === 'dist') continue;
+        walk(rel, into);
+      } else if (entry.isFile() && /\.[cm]?ts$/.test(entry.name) && !/\.d\.ts$/.test(entry.name)) {
+        into.push(rel);
+      }
+    }
+  };
+
+  for (const root of roots) {
+    const files: string[] = [];
+    walk(root, files);
+    const before = modulesWithSelfTest.length;
+    for (const file of files) {
+      if (isTestArtifact(file)) continue;
+      if (selfTestCandidates(file).some((c) => existsSync(join(repoRoot, c)))) modulesWithSelfTest.push(file);
+      else modulesWithoutSelfTest.push(file);
+    }
+    if (modulesWithSelfTest.length === before) {
+      throw new Error(
+        `${root}: declared guard-suite root contributed ZERO guards — a root that matches ` +
+          'nothing reports success forever; retarget GUARD_SUITE_ROOTS or drop the entry',
+      );
+    }
+  }
+
+  return {
+    modulesWithSelfTest: modulesWithSelfTest.sort(),
+    modulesWithoutSelfTest: modulesWithoutSelfTest.sort(),
   };
 }
 
@@ -1808,6 +1926,8 @@ export interface BuildOptions {
   readonly specText?: string;
   readonly manifestJson?: unknown;
   readonly workflows?: readonly LoadedWorkflow[];
+  /** Channel 4's roots. Defaults to {@link GUARD_SUITE_ROOTS}. */
+  readonly guardSuiteRoots?: readonly string[];
 }
 
 export function buildGuardInventory(options: BuildOptions = {}): GuardInventory {
@@ -1889,6 +2009,9 @@ export function buildGuardInventory(options: BuildOptions = {}): GuardInventory 
   const mcpScan = scanMcpScriptGates(repoRoot);
   for (const gate of mcpScan.gatesWithSelfTest) add(gate, 'mcp-scripts-gate');
 
+  const suiteScan = scanGuardSuiteRoots(repoRoot, options.guardSuiteRoots);
+  for (const module of suiteScan.modulesWithSelfTest) add(module, 'conformance-suite');
+
   const imported = productionImportedSet(repoRoot);
 
   const guards: GuardRecord[] = [...channels.entries()]
@@ -1916,6 +2039,7 @@ export function buildGuardInventory(options: BuildOptions = {}): GuardInventory 
 
   return {
     guards,
+    suiteModulesWithoutSelfTest: suiteScan.modulesWithoutSelfTest,
     runnableWithoutSelfTest: mcpScan.runnableWithoutSelfTest,
     compileTimeOnlyArtifacts: [...new Set(compileTimeOnlyArtifacts)].sort(),
     unresolvedSpecArtifacts: [...new Set(unresolvedSpecArtifacts)].sort(),

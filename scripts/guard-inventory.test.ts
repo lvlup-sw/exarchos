@@ -26,6 +26,7 @@ import {
   MANIFEST_PATH,
   CI_WORKFLOW,
   GUARD_EXEMPTIONS,
+  GUARD_SUITE_ROOTS,
   SHELL_INTERPRETERS,
   auditGuardInventory,
   buildGuardInventory,
@@ -47,6 +48,7 @@ import {
   resolveHosts,
   resolveShellExecutions,
   renderInventoryTable,
+  scanGuardSuiteRoots,
   scanMcpScriptGates,
   shellCommandSegments,
   shellWords,
@@ -489,6 +491,100 @@ describe('Non-empty denominator', () => {
     const table = renderInventoryTable(liveInventory);
     expect(table.split('\n').length).toBe(liveInventory.guards.length + 2);
     expect(table).toContain('| Guard | CI job(s) | Path-filtered? | Blocks / observes | Prod caller? |');
+  });
+});
+
+// ─── 4. Channel 4: the conformance suite, discovered from the tree ──────────
+
+describe('Guard-suite discovery (channel 4)', () => {
+  /**
+   * The three Wave-1 censuses whose relocation motivated this channel. Named
+   * here rather than derived, because the claim under test is precisely that
+   * these survive a channel-2 blackout — a derived list would be computed by the
+   * very mechanism the test is trying to falsify.
+   */
+  const RELOCATING_CENSUSES = [
+    'servers/exarchos-mcp/src/architecture/output-schema-census.ts',
+    'servers/exarchos-mcp/src/architecture/report-coupling-census.ts',
+    'servers/exarchos-mcp/src/architecture/authority-census.ts',
+  ];
+
+  it('GuardSuite_WithTheSpecChannelDark_StillDiscoversEveryConformanceCensus', () => {
+    // The regression this channel exists to prevent, stated as an experiment:
+    // blank the spec text and channel 2 discovers nothing, which is exactly what
+    // a relocation does to it — every `**Files:**` path stops resolving at once.
+    // Measured on the landing branch, that alone removed all nine conformance
+    // censuses from the inventory, G2/G3/G5 included.
+    const withoutSpec = buildGuardInventory({ specText: '' });
+    const artifacts = new Set(withoutSpec.guards.map((g) => g.artifact));
+
+    for (const census of RELOCATING_CENSUSES) {
+      expect(artifacts.has(census), `${census} is discovered without the spec channel`).toBe(true);
+      const record = withoutSpec.guards.find((g) => g.artifact === census);
+      expect(record?.channels).toContain('conformance-suite');
+      // Discovery is worth nothing if the verdict degrades with it.
+      expect(record?.enforcement, `${census} enforcement`).toBe('blocks');
+    }
+
+    // The control: channel 2 really is dark, so the assertions above are not
+    // passing because the spec still supplied them.
+    expect(withoutSpec.guards.some((g) => g.channels.includes('wave1-spec'))).toBe(false);
+  });
+
+  it('GuardSuite_EveryDeclaredRoot_IsCoveredByTwoChannelsToday', () => {
+    // Channel overlap is the design ("a guard has to hide from all of them to
+    // escape"), and it is also this change's own safety property: every census
+    // channel 4 discovers is one channel 2 already knew about, so the inventory
+    // gained members without losing or re-verdicting any.
+    for (const census of RELOCATING_CENSUSES) {
+      const record = liveInventory.guards.find((g) => g.artifact === census);
+      expect(record?.channels, `${census} channels`).toEqual(['conformance-suite', 'wave1-spec']);
+    }
+  });
+
+  it('GuardSuite_RootThatCannotBeRead_ThrowsRatherThanContributingZero', () => {
+    expect(() => scanGuardSuiteRoots(join(REPO_ROOT, 'no-such-repo-root'))).toThrow(/cannot be enumerated/);
+  });
+
+  it('GuardSuite_RootThatMatchesNothing_ThrowsRatherThanShrinkingTheInventory', () => {
+    // The silent-failure shape 042 is about: a root that reads fine and yields
+    // nothing. `bindings/` is a real directory of six real modules, none of them
+    // self-tested — so it is a readable root whose guard count is genuinely zero.
+    expect(() =>
+      scanGuardSuiteRoots(REPO_ROOT, ['servers/exarchos-mcp/src/architecture/bindings']),
+    ).toThrow(/contributed ZERO guards/);
+  });
+
+  it('GuardSuite_EmptyRootList_ThrowsRatherThanContributingNothing', () => {
+    // The degenerate retarget: delete the last root and every check above still
+    // passes, because a loop over nothing raises nothing. This is the same
+    // vacuity the per-root check catches, one level up.
+    expect(() => scanGuardSuiteRoots(REPO_ROOT, [])).toThrow(/roots are EMPTY/);
+  });
+
+  it('GuardSuite_ModuleWithoutSelfTest_IsReportedNotSilentlyDropped', () => {
+    // A census that LOSES its self-test must surface somewhere rather than
+    // quietly leaving the population — otherwise deleting a test is a way to
+    // delete a guard.
+    const scan = scanGuardSuiteRoots();
+    expect(scan.modulesWithoutSelfTest).toContain(
+      'servers/exarchos-mcp/src/architecture/bindings/registry.ts',
+    );
+    expect(liveInventory.suiteModulesWithoutSelfTest).toEqual(scan.modulesWithoutSelfTest);
+    // Disjoint by construction — a module cannot be both.
+    const guards = new Set(scan.modulesWithSelfTest);
+    expect(scan.modulesWithoutSelfTest.filter((m) => guards.has(m))).toEqual([]);
+  });
+
+  it('GuardSuite_DeclaredRoots_AllExistOnDisk', () => {
+    // `GUARD_SUITE_ROOTS` is the one line a relocation edits, so a stale entry is
+    // the predictable way this channel breaks. The scan already fails closed on
+    // it; this states the expectation where a reader looking for the roots will
+    // find it.
+    expect(GUARD_SUITE_ROOTS.length).toBeGreaterThan(0);
+    for (const root of GUARD_SUITE_ROOTS) {
+      expect(() => scanGuardSuiteRoots(REPO_ROOT, [root]), `${root} is a live root`).not.toThrow();
+    }
   });
 });
 
