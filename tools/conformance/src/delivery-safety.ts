@@ -186,8 +186,10 @@ export function findSilentSwallows(source: string): SwallowFinding[] {
  * forward-slashed.
  */
 export const REQUIRED_DELIVERY_MODULES: readonly string[] = [
-  'channel/delivery.ts',
-  'channel/emitter.ts',
+  // Under `adapters/` since task 019 — the register is path-pinned, and a pin
+  // that resolves to nothing censuses nothing.
+  'adapters/channel/delivery.ts',
+  'adapters/channel/emitter.ts',
 ];
 
 export interface DeliverySafetyResult {

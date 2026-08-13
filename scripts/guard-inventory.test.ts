@@ -19,7 +19,7 @@
 // The two authorities this file compares are nonetheless real and independent:
 // the workflow YAML (`.github/workflows/**`) and the guard artifacts on disk.
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   REPO_ROOT,
@@ -27,6 +27,8 @@ import {
   CI_WORKFLOW,
   GUARD_EXEMPTIONS,
   GUARD_SUITE_ROOTS,
+  HISTORICAL_PATH_REWRITES,
+  resolveHistoricalPath,
   SHELL_INTERPRETERS,
   auditGuardInventory,
   buildGuardInventory,
@@ -1147,5 +1149,46 @@ describe('Shell parsing units the indirection rests on', () => {
       })[path] ?? null,
     );
     expect(walk.executions.map((e) => e.target), 'an unlisted interpreter hides the call').toEqual([]);
+  });
+});
+
+describe('Historical spec paths resolve against the current tree', () => {
+  const onDisk = (p: string): boolean => existsSync(join(REPO_ROOT, p));
+
+  it('GuardInventory_HistoricalPathRewrites_AllResolve', () => {
+    // Channel 2's spec is frozen, so these rewrites are the only thing keeping
+    // its `**Files:**` lists pointed at real artifacts. A rewrite whose target
+    // stopped existing would silently resolve nothing — the same vacuity this
+    // inventory exists to detect elsewhere — so each target is stat-ed.
+    expect(HISTORICAL_PATH_REWRITES.length).toBeGreaterThan(0);
+    for (const [from, to] of HISTORICAL_PATH_REWRITES) {
+      expect(from.startsWith('servers/exarchos-mcp/'), `${from} is not a dissolved-package path`).toBe(true);
+      // The catch-all maps onto the repo root, which is trivially present.
+      if (to === '') continue;
+      expect(onDisk(to), `rewrite target ${to} (from ${from}) does not exist`).toBe(true);
+    }
+  });
+
+  it('GuardInventory_HistoricalPathRewrites_AreOrderedSpecificBeforeCatchAll', () => {
+    // `…/src/agents/` must win over `…/src/`, or a subtree that moved somewhere
+    // other than its old position lands in the wrong place while still
+    // resolving — a wrong answer, not a missing one.
+    expect(resolveHistoricalPath('servers/exarchos-mcp/src/agents/dispatch-shape.ts', onDisk)).toBe(
+      'src/runtime/agents/dispatch-shape.ts',
+    );
+    expect(resolveHistoricalPath('servers/exarchos-mcp/scripts/cli-vocab-guard.ts', onDisk)).toBe(
+      'scripts/core/cli-vocab-guard.ts',
+    );
+  });
+
+  it('GuardInventory_HistoricalPathRewrites_LeaveALiveCitationAlone', () => {
+    // A path that still resolves as written is never rewritten, so a future
+    // move cannot be masked by a stale rule that happens to match.
+    expect(resolveHistoricalPath('scripts/guard-inventory.ts', onDisk)).toBe('scripts/guard-inventory.ts');
+    // An unresolvable citation comes back unchanged, so the caller still records
+    // it as unresolved rather than inventing a plausible path.
+    expect(resolveHistoricalPath('servers/exarchos-mcp/src/event-store/gone.ts', onDisk)).toBe(
+      'servers/exarchos-mcp/src/event-store/gone.ts',
+    );
   });
 });

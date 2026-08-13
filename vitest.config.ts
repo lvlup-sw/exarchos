@@ -207,6 +207,17 @@ export default defineConfig({
         // conformance project that collects zero files is exactly the
         // silent-green outcome the suite exists to prevent, and this package
         // has just moved.
+        // The parity fixtures task 019 routed into this package reach the
+        // SQLite backend, which imports `bun:sqlite` — a virtual module that
+        // resolves only under Bun. The alias travelled with neither move, so
+        // those files failed to LOAD rather than failing an assertion.
+        resolve: {
+          alias: {
+            'bun:sqlite': fileURLToPath(
+              new URL('./src/storage/__shims__/bun-sqlite-node.ts', import.meta.url),
+            ),
+          },
+        },
         test: {
           name: 'conformance',
           include: ['tools/conformance/src/**/*.test.ts'],

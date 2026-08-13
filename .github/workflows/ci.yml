@@ -1250,8 +1250,8 @@ jobs:
         run: >-
           npx --no-install vitest run
           scripts/core/cli-derivation-ratchet-guard.test.ts
-          scripts/cli-derivation-guard.test.ts
-          scripts/cli-vocab-guard.test.ts
+          scripts/core/cli-derivation-guard.test.ts
+          scripts/core/cli-vocab-guard.test.ts
 
       # G3 report-coupled ratchet (DR-2, task 013). Enumerates the live event
       # registry, derives each registration's coupling through the DR-2 tier

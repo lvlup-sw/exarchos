@@ -197,7 +197,54 @@ export const GUARD_SUITE_ROOTS: readonly string[] = Object.freeze([
   // still guards — they just are not extractable without inverting the
   // dependency direction between `src/` and `tools/`.
   'src/architecture',
+  // Task 019 moved the agent-dispatch censuses here from `agents/`. Their only
+  // other channel is the FROZEN spec's `**Files:**` list, which still cites the
+  // dissolved package and therefore resolves to nothing — the precise case
+  // channel 4 exists to answer from the tree instead of by editing a dated
+  // record.
+  'src/runtime/agents',
 ]);
+
+/**
+ * Prefix rewrites from the dissolved `servers/exarchos-mcp` package onto the
+ * post-fold tree, longest-first so a specific subtree wins over the catch-all.
+ *
+ * Frozen specs cite the paths that existed when they were written. Rewriting
+ * the SPEC would falsify a dated record; rewriting the lookup keeps the record
+ * honest and the inventory current. Every target is asserted to exist by
+ * `GuardInventory_HistoricalPathRewrites_AllResolve`, so a rewrite that stops
+ * pointing at anything fails loudly instead of quietly resolving nothing.
+ */
+export const HISTORICAL_PATH_REWRITES: readonly (readonly [string, string])[] = Object.freeze([
+  ['servers/exarchos-mcp/src/agents/', 'src/runtime/agents/'],
+  ['servers/exarchos-mcp/src/launcher/', 'src/runtime/launcher/'],
+  ['servers/exarchos-mcp/src/workspace/', 'src/runtime/workspace/'],
+  ['servers/exarchos-mcp/src/capabilities/', 'src/workflow/capabilities/'],
+  ['servers/exarchos-mcp/src/channel/', 'src/adapters/channel/'],
+  ['servers/exarchos-mcp/src/test-helpers/', 'tools/test-helpers/'],
+  ['servers/exarchos-mcp/src/evals/', 'tools/evals/'],
+  ['servers/exarchos-mcp/scripts/', 'scripts/core/'],
+  ['servers/exarchos-mcp/test/', 'test/core/'],
+  ['servers/exarchos-mcp/src/', 'src/'],
+  ['servers/exarchos-mcp/', ''],
+] as const);
+
+const REWRITES_LONGEST_FIRST = [...HISTORICAL_PATH_REWRITES].sort((a, b) => b[0].length - a[0].length);
+
+/**
+ * Resolve a spec-declared path against the current tree, trying the path as
+ * written first so a still-valid citation is never rewritten. Returns the
+ * original when nothing resolves, so the caller still records it as unresolved.
+ */
+export function resolveHistoricalPath(file: string, exists: (p: string) => boolean): string {
+  if (exists(file)) return file;
+  for (const [from, to] of REWRITES_LONGEST_FIRST) {
+    if (!file.startsWith(from)) continue;
+    const candidate = to + file.slice(from.length);
+    if (exists(candidate)) return candidate;
+  }
+  return file;
+}
 /** The aggregator that decides which `ci.yml` job can fail a PR. */
 export const AGGREGATOR_JOB = 'ci-gate';
 /** The workflow that hosts the aggregator. */
@@ -1689,7 +1736,11 @@ export function resolveHosts(artifact: string, ctx: ResolutionContext): GuardHos
 
 // ─── Production reachability (the R-11 axis) ─────────────────────────────────
 
-const SOURCE_ROOTS = ['src', 'src', 'scripts', 'scripts/core'] as const;
+// One entry per tree, and none nested inside another. Task 019 mapped two
+// distinct source roots onto `src` and put the dissolved package's scripts
+// under `scripts/core`, leaving a list that walked both trees twice — a
+// silently doubled denominator for the reachability ratio below.
+const SOURCE_ROOTS = ['src', 'scripts'] as const;
 
 function walkSourceFiles(repoRoot: string, dir: string, out: string[]): void {
   let entries: Dirent[];
@@ -1723,7 +1774,9 @@ export function enumerateProductionModules(repoRoot: string = REPO_ROOT): string
     }
     walkSourceFiles(repoRoot, root, out);
   }
-  return out.filter((p) => !isTestArtifact(p)).sort();
+  // De-duplicated so a future nested root inflates nothing: the roots above are
+  // disjoint today, and this keeps the denominator honest if that stops holding.
+  return [...new Set(out)].filter((p) => !isTestArtifact(p)).sort();
 }
 
 /**
@@ -1978,9 +2031,15 @@ export function buildGuardInventory(options: BuildOptions = {}): GuardInventory 
 
   const unresolvedSpecArtifacts: string[] = [];
   const compileTimeOnlyArtifacts: string[] = [];
+  // Channel 2 reads a FROZEN spec. Its `**Files:**` lists are a dated record of
+  // where those artifacts were, and task 019 moved every one of them — so
+  // without the rewrite below the whole channel resolves nothing and reports a
+  // clean, empty classification. The spec is not edited to match the tree; the
+  // tree is what moved.
   for (const task of wave1Tasks(parseSpecTasks(specText))) {
-    for (const file of task.files) {
-      if (!isPathShaped(file)) continue;
+    for (const raw of task.files) {
+      if (!isPathShaped(raw)) continue;
+      const file = resolveHistoricalPath(raw, ctx.exists);
       if (!ctx.exists(file)) {
         unresolvedSpecArtifacts.push(file);
         continue;

@@ -87,7 +87,8 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 /** `servers/exarchos-mcp` — the subject package, which is no longer this one. */
 const MCP_ROOT = SUBJECT_PACKAGE_ROOT;
 /** The artifact ci.yml invokes. Its reachability is guard-inventory's claim; its EXECUTION is this file's. */
-const GUARD_PATH = join(MCP_ROOT, 'scripts', 'output-schema-ratchet-guard.ts');
+// Task 019 moved the dissolved package's scripts under `scripts/core/`.
+const GUARD_PATH = join(MCP_ROOT, 'scripts', 'core', 'output-schema-ratchet-guard.ts');
 
 /**
  * The expression the shipped entrypoint uses to decide it is the process

@@ -82,8 +82,8 @@ describe('auditDeliverySafety — live required-delivery modules', () => {
   });
 
   it('scans exactly the declared required-delivery modules', () => {
-    expect(REQUIRED_DELIVERY_MODULES).toContain('channel/delivery.ts');
-    expect(REQUIRED_DELIVERY_MODULES).toContain('channel/emitter.ts');
+    expect(REQUIRED_DELIVERY_MODULES).toContain('adapters/channel/delivery.ts');
+    expect(REQUIRED_DELIVERY_MODULES).toContain('adapters/channel/emitter.ts');
   });
 
   it('FAILS when a required module is replaced by one that silently swallows', async () => {
