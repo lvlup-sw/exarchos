@@ -195,7 +195,9 @@ export const GUARD_SUITE_ROOTS: readonly string[] = Object.freeze([
   // The 18 modules task 018a left behind: the invariants-catalog subsystem and
   // the shared utilities production imports. Still self-tested censuses, so
   // still guards — they just are not extractable without inverting the
-  // dependency direction between `src/` and `tools/`.
+  // dependency direction between `src/` and `tools/`. The MODULES stayed here
+  // when task 030 lifted their suites into the `tests/unit/` mirror, which is
+  // why the root still names `src/` — `selfTestCandidates` follows the move.
   'src/architecture',
   // Task 019 moved the agent-dispatch censuses here from `agents/`. Their only
   // other channel is the FROZEN spec's `**Files:**` list, which still cites the
@@ -1150,10 +1152,20 @@ export function hasDirectRunExit(source: string, fileName: string): boolean {
   return found;
 }
 
-/** Co-located self-test candidates for an artifact, in resolution order. */
+/**
+ * Self-test candidates for an artifact, in resolution order.
+ *
+ * "Co-located" was literal until task 030 lifted every suite under `src/` into
+ * the `tests/unit/` mirror. A module's self-test is still ITS test — only the
+ * address changed — so the mirrored path is offered alongside the sibling one.
+ * Without this the pairing silently finds nothing for the whole product tree,
+ * and channels 3 and 4 stop discovering the censuses they exist to govern.
+ */
 export function selfTestCandidates(artifact: string): string[] {
   const base = artifact.replace(/\.[cm]?[jt]s$/, '').replace(/\.sh$/, '');
-  return [`${base}.test.ts`, `${base}.test.mts`, `${base}.test.mjs`, `${base}.test.sh`];
+  const bases = [base];
+  if (base.startsWith('src/')) bases.push(`tests/unit/${base.slice('src/'.length)}`);
+  return bases.flatMap((b) => [`${b}.test.ts`, `${b}.test.mts`, `${b}.test.mjs`, `${b}.test.sh`]);
 }
 
 export interface McpScriptScan {

@@ -50,6 +50,13 @@ jobs:
           filters: |
             root:
               - 'src/**'
+              # Task 030 moved every co-located suite out of `src/`, so a PR
+              # that changes only a test now touches `tests/**` and nothing
+              # else. Without this the jobs policing that test are skipped —
+              # and a skipped required job reads as passed (#1711). Deliberately
+              # the whole tree rather than a tier list, because a new tier would
+              # otherwise be un-triggered until someone noticed.
+              - 'tests/**'
               - 'content/**'
               - 'skills/**'
               - 'content/harness/runtimes/**'
@@ -87,7 +94,9 @@ jobs:
             mcp:
               - 'src/**'
               - 'test/core/**'
-              - 'tests/core/**'
+              # `tests/unit/**` and `tests/integration/**` are the core suite's
+              # own tests after task 030 — same reason as the `root` filter.
+              - 'tests/**'
               - 'scripts/core/**'
               - 'tools/evals/**'
               - 'tools/test-helpers/**'
@@ -325,7 +334,7 @@ jobs:
       - name: Composed-path Stryker smoke test (DR-7, task 012) — Linux-only
         env:
           EXARCHOS_SMOKE_ONLY: '1'
-        run: npx vitest run src/verbs/stryker-adapter.smoke.test.ts
+        run: npx vitest run tests/unit/verbs/stryker-adapter.smoke.test.ts
 
       # cli:vocab-guard (#1317) — mechanical gate against CLI vocabulary drift
       # (R-A / Principle 6). Walks the rendered Commander surface via `buildCli`
@@ -1291,8 +1300,10 @@ jobs:
       # `tools/conformance`; G4's `effect-ledger.ts` did NOT — it has seven
       # production consumers, so extracting it would have inverted the
       # dependency direction between `src/` and `tools/`.
+      # The SUBJECT still lives at `src/architecture/effect-ledger.ts`; task 030
+      # moved only its self-test into the `tests/unit/` mirror.
       - name: G4 effect-ledger self-test (DR-7/DR-24, unfiltered)
-        run: npx --no-install vitest run src/architecture/effect-ledger.test.ts
+        run: npx --no-install vitest run tests/unit/architecture/effect-ledger.test.ts
 
       # G5's census moved with G3's; the whole-suite step above hosts it.
 

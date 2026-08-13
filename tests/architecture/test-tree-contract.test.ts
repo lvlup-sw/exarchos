@@ -226,4 +226,26 @@ describe('TestTree', () => {
       'the tests tsconfig exists but no script runs it',
     ).toContain('-p tests');
   });
+
+  it('TestsTsconfig_ExcludedTiers_OnlyShrink', () => {
+    // Task 030 moved 925 never-type-checked files into `unit/` and
+    // `integration/`, which carry 2,801 latent errors across 482 files. They are
+    // excluded until that debt is paid, and this is the whole of the exemption:
+    // a tier added here stops being checked, silently, exactly like the root
+    // config's `**/*.test.ts` exclusion did for four years. Delete an entry when
+    // its tier compiles; adding one is a deliberate act that fails here first.
+    const cfg = JSON.parse(
+      readFileSync(join(TESTS_ROOT, 'tsconfig.json'), 'utf8').replace(/^\s*\/\/.*$/gm, ''),
+    ) as { exclude?: string[] };
+    const tiers = (cfg.exclude ?? []).filter((e) => !e.startsWith('../'));
+    expect(tiers.sort(), 'a tier was added to the typecheck exemption').toEqual([
+      'integration/**',
+      'unit/**',
+    ]);
+    // An exemption naming a tier that does not exist is spent config pretending
+    // to be a concession.
+    for (const t of tiers) {
+      expect(existsSync(join(TESTS_ROOT, t.replace('/**', ''))), `exempted tier ${t} does not exist`).toBe(true);
+    }
+  });
 });

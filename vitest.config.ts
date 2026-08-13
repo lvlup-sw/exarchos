@@ -129,6 +129,13 @@ export default defineConfig({
             // because a file moved out from beside its subject.
             'tests/unit/**/*.test.ts',
             'tests/integration/**/*.test.ts',
+            // `*.type-test.ts` needs its own glob for the destination tiers
+            // exactly as it does for `src/` above — five of them moved in task
+            // 030 and were collected by NO project until this line existed,
+            // which the per-test diff caught only because their ids vanished
+            // rather than because anything went red.
+            'tests/unit/**/*.type-test.ts',
+            'tests/integration/**/*.type-test.ts',
             // The layer map sent `evals/`, `bench/`, `benchmarks/` and
             // `test-helpers/` out of the product tree and into `tools/`. They
             // were part of this suite before the move and still are — without
@@ -151,7 +158,7 @@ export default defineConfig({
           exclude:
             process.env.EXARCHOS_SMOKE_ONLY === '1'
               ? [...EXCLUDE]
-              : [...EXCLUDE, 'src/verbs/stryker-adapter.smoke.test.ts'],
+              : [...EXCLUDE, 'tests/unit/verbs/stryker-adapter.smoke.test.ts'],
           coverage: {
             provider: 'v8',
             // `json-summary` emits `coverage/coverage-summary.json` (per-file +

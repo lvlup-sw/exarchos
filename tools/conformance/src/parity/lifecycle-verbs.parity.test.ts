@@ -55,7 +55,7 @@ import {
   callCli as harnessCallCli,
   callMcp as harnessCallMcp,
   normalize as harnessNormalize,
-} from '../../../../src/__tests__/parity-harness.js';
+} from '../../../../tests/unit/parity-harness.js';
 import { rmrfAsync } from '../../../test-helpers/temp-dir.js';
 
 import { handleViewPs } from '../../../../src/projections/views/lifecycle/ps.js';

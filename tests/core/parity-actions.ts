@@ -23,7 +23,7 @@ import {
   callCli as harnessCallCli,
   callMcp as harnessCallMcp,
   normalize as harnessNormalize,
-} from '../../src/__tests__/parity-harness.js';
+} from '../unit/parity-harness.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 

@@ -182,11 +182,16 @@ describe('test inventory', () => {
     // What the nested-workspace assertion was really protecting: one collector
     // covering a subset of the trees and reporting a clean total. The packages
     // merged, but the trees did not — tests live under several top-level roots,
-    // and a discovery bounded to `src/` would drop the rest in silence.
+    // and a discovery bounded to one of them would drop the rest in silence.
     const roots = new Set(fileEntries.map((e) => e.file.split('/')[0]));
 
-    for (const root of ['src', 'scripts', 'test', 'tests', 'tools']) {
+    for (const root of ['scripts', 'test', 'tests', 'tools']) {
       expect(roots, `no test file inventoried under ${root}/`).toContain(root);
     }
+    // `src/` is the one root that must hold NONE: task 030 lifted every
+    // co-located suite out of it, and DR-5 is the standing promise that none
+    // comes back. Asserted here rather than merely dropped from the list above,
+    // so the discovery keeps a live opinion about `src/` either way.
+    expect(roots, 'a test file has re-appeared under src/ (DR-5)').not.toContain('src');
   });
 });

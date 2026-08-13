@@ -36,7 +36,21 @@ export const SCAN_ROOTS: readonly ScanRoot[] = Object.freeze([
   // server tree — and both now resolve to the same directory, so declaring
   // both walked every file twice and doubled the denominator this register
   // exists to ratchet.
-  { id: 'src', dir: path.join(REPO_ROOT, 'src'), mandatedByDr30: true },
+  // Task 030 emptied this root of `*.test.ts` entirely, so it can no longer be
+  // MANDATED — a mandated root must contribute, and one that cannot is the
+  // vacuous denominator this register exists to refuse. It stays declared, and
+  // non-mandated, so a suite that reappears beside its subject is still
+  // governed rather than unseen. Its DR-30 coverage did not lapse: it moved
+  // wholesale to the two mandated tiers below.
+  { id: 'src', dir: path.join(REPO_ROOT, 'src'), mandatedByDr30: false },
+  // Task 030 lifted every co-located suite out of `src` into these two tiers.
+  // Named individually, for the same reason `test/core` is: `tests/**` would
+  // sweep in the root package's migration, smoke, e2e and architecture suites,
+  // which DR-30 never governed. Following the corpus keeps its membership at
+  // what it was the day before the move — the alternative discharges shape
+  // debt by relocation, the one way a shrink-only register can gain slack.
+  { id: 'tests/unit', dir: path.join(REPO_ROOT, 'tests/unit'), mandatedByDr30: true },
+  { id: 'tests/integration', dir: path.join(REPO_ROOT, 'tests/integration'), mandatedByDr30: true },
   // The dissolved package's `test/` and `tests/` trees landed under `core/`.
   // Naming the whole `test/`+`tests/` trees instead would sweep in the ROOT
   // package's suites — migration, smoke, e2e, architecture — which DR-30 never

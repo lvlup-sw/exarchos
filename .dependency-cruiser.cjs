@@ -58,9 +58,12 @@ module.exports = {
         '(adapters/). Route transport/CLI/MCP concerns through the orchestrate ' +
         'handlers instead of reaching into adapters from the core.',
       severity: 'error',
+      // No `pathNot` for tests: task 030 lifted every co-located suite out of
+      // `src/`, so nothing under this `from` path is a test file any more and
+      // the exclusion had stopped excluding anything. `DepcruiseRule_FromSet_`
+      // `HoldsNoTestFile` keeps that true rather than assuming it.
       from: {
         path: '^src/(events|workflow)/',
-        pathNot: '\\.test\\.ts$',
       },
       to: {
         path: '^src/adapters/',

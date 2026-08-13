@@ -39,35 +39,35 @@
     "reason": "Local-only failures, confined to the merge-orchestrate handler and one event-store race test. The same tree is green on CI, so these are an environment artifact rather than a defect this refactor must carry. They are named individually so a later reconciliation can tell them apart from a regression: an unexplained failure outside this list blocks, and any of these that starts passing locally should be removed from the list rather than left as permanent cover.",
     "reviewTrigger": "If any listed test fails on CI, this exclusion is void and the failure is real.",
     "byFile": {
-      "src/events/store.race.test.ts": [
+      "tests/unit/events/store.race.test.ts": [
         "MergeOrchestrate_TwoConcurrentInvocationsSameStream_NoDuplicateSequences"
       ],
-      "src/verbs/merge/merge-orchestrate.api-refire.test.ts": [
+      "tests/unit/verbs/merge/merge-orchestrate.api-refire.test.ts": [
         "MergeOrchestrate_PostMigration_DoesNotRefireExecutorOnOccRetry"
       ],
-      "src/verbs/merge/merge-orchestrate.busy.test.ts": [
+      "tests/unit/verbs/merge/merge-orchestrate.busy.test.ts": [
         "MergeOrchestrate_StorageBusyContention_RetriesViaWithStateRetryAndEventuallySucceeds"
       ],
-      "src/verbs/merge/merge-orchestrate.integration.test.ts": [
+      "tests/unit/verbs/merge/merge-orchestrate.integration.test.ts": [
         "MergeOrchestrate_CrashAfterMergeExecutedAppendThenResume_AppendsExactlyOneMergeExecutedEvent",
         "eventTimeline_AfterRollback_NextActionsOmitMergeOrchestrate",
         "eventTimeline_RecoveryPath_ContainsMergeRecoveredWithCategorizedReason",
         "eventTimeline_TaskCompletedThroughMergeExecuted_FullyReconstructs"
       ],
-      "src/verbs/merge/merge-orchestrate.migration.test.ts": [
+      "tests/unit/verbs/merge/merge-orchestrate.migration.test.ts": [
         "MergeOrchestrate_PostMigration_ProducesThreeEventSequence"
       ],
-      "src/verbs/merge/merge-orchestrate.parity-harness.test.ts": [
+      "tests/unit/verbs/merge/merge-orchestrate.parity-harness.test.ts": [
         "Parity_MergeOrchestrate_CliAndMcpProduceIdenticalToolResult"
       ],
-      "src/verbs/merge/merge-orchestrate.parity.test.ts": [
+      "tests/unit/verbs/merge/merge-orchestrate.parity.test.ts": [
         "mergeOrchestrate_CliAndMcpAdapters_ProduceIdenticalToolResult",
         "mergeOrchestrate_TopLevelCli_MatchesMcpToolResult"
       ],
-      "src/verbs/merge/merge-orchestrate.race.test.ts": [
+      "tests/unit/verbs/merge/merge-orchestrate.race.test.ts": [
         "MergeOrchestrate_ConcurrentInvocations_OneWinsOneRetriesViaConcurrencyConflict"
       ],
-      "src/verbs/merge/merge-orchestrate.test.ts": [
+      "tests/unit/verbs/merge/merge-orchestrate.test.ts": [
         "MergeOrchestrate_EnvSetAndAncestryFail_AppendsDebugBlockToEvent",
         "MergeOrchestrate_EnvUnsetAndAncestryFail_NoDebugBlockOnEvent",
         "MergeOrchestrate_PassingAncestryWithDebugInjected_DoesNotPersistDebug",

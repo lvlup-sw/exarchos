@@ -48,7 +48,7 @@ import {
   callMcp as harnessCallMcp,
   normalize as harnessNormalize,
   UUID_ANY_RE,
-} from '../../../../src/__tests__/parity-harness.js';
+} from '../../../../tests/unit/parity-harness.js';
 import { rmrfAsync } from '../../../test-helpers/temp-dir.js';
 
 // ─── Fixture ──────────────────────────────────────────────────────────────

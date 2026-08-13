@@ -12,7 +12,7 @@
  *
  * Two modes:
  *
- *   --regenerate   Walk the LIVE tree under `src` and
+ *   --regenerate   Walk the LIVE tree under every protected root and
  *                  rewrite the committed `protected-suites.json` snapshot.
  *                  The inventory is GENERATED, never hand-listed, so it can't
  *                  silently drift from the tree it describes.
@@ -34,18 +34,21 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-/** Repo-relative source root the inventory is generated from. */
-export const SRC_ROOT = 'src';
+/** Repo-relative root the inventory is generated from — the tier holding the core suites. */
+export const PRIMARY_ROOT = 'tests/unit';
 
 /**
  * Every root walked for keep-class suites. A keep-class suite is protected by
  * WHAT IT IS, so it must stay protected wherever it lives: task 018a moved the
  * `parity/` tree into `tools/conformance`, and a single-root walk quietly
  * stopped covering it — the suites did not lose their class, only their
- * address. `PROTECTED_ROOTS_ALL_EXIST` in the co-located test keeps every entry
- * pointing at a real directory.
+ * address. Task 030 did the same thing at scale, lifting every co-located suite
+ * out of `src/` — which is why `src` is no longer listed: it now holds none.
+ * `PROTECTED_ROOTS_ALL_EXIST` in the co-located test keeps every entry pointing
+ * at a real directory AND carrying at least one suite, so a root that goes empty
+ * fails loudly instead of quietly protecting nothing.
  */
-export const PROTECTED_ROOTS = Object.freeze([SRC_ROOT, 'tools/conformance/src']);
+export const PROTECTED_ROOTS = Object.freeze([PRIMARY_ROOT, 'tools/conformance/src']);
 
 /**
  * The five dedicated keep-class suite suffixes (DR-5). A file is keep-class
@@ -64,21 +67,22 @@ export const KEEP_CLASS_SUFFIXES = Object.freeze([
  * before "parity", so `*.parity.test.ts` does not match it) — `projections/views/parity`
  * and `events/parity`. Matches the file itself and, defensively, any
  * future file nested under a same-named subdirectory. Paths are POSIX,
- * relative to {@link SRC_ROOT}.
+ * relative to whichever protected root the file was found under.
  */
 export const KEEP_CLASS_AREAS = Object.freeze(['projections/views/parity', 'events/parity']);
 
 /**
  * Named adjacent files the suffix/area rules above already cover (kept here,
  * explicitly, per the design note) plus the one file the suffix rule alone
- * CANNOT cover: the shared non-test harness `__tests__/parity-harness.ts`
- * (no `.test.ts` suffix at all, so no suite-suffix glob would ever match it).
+ * CANNOT cover: the shared non-test harness `parity-harness.ts` (no `.test.ts`
+ * suffix at all, so no suite-suffix glob would ever match it). Task 030 lifted
+ * it out of `src/__tests__/`, so it now sits at the root of {@link PRIMARY_ROOT}.
  */
 export const KEEP_CLASS_EXPLICIT = Object.freeze([
   'workflow/state-machine.property.test.ts',
   'workflow/tools.update.race.test.ts',
   'projections/views/materializer.property.test.ts',
-  '__tests__/parity-harness.ts',
+  'parity-harness.ts',
 ]);
 
 function toPosix(p) {
@@ -86,7 +90,7 @@ function toPosix(p) {
 }
 
 /**
- * Is `relPath` (relative to {@link SRC_ROOT}, any path separator) a keep-class
+ * Is `relPath` (relative to its protected root, any path separator) a keep-class
  * protected file? The ONE classifier both the generator and the guard use —
  * suffix/area/explicit-name based, never content-based.
  */
@@ -123,7 +127,7 @@ function walk(dir, acc) {
  * inventory is always derived from what is on disk right now, never
  * hand-listed.
  */
-export function discoverProtectedFiles(srcRootAbs, srcRootRel = SRC_ROOT) {
+export function discoverProtectedFiles(srcRootAbs, srcRootRel = PRIMARY_ROOT) {
   const files = walk(srcRootAbs, []);
   const out = [];
   for (const abs of files) {
@@ -137,7 +141,7 @@ export function discoverProtectedFiles(srcRootAbs, srcRootRel = SRC_ROOT) {
 export function buildInventory(files) {
   return {
     version: 1,
-    generatedFrom: SRC_ROOT,
+    generatedFrom: PRIMARY_ROOT,
     globs: KEEP_CLASS_SUFFIXES.map((suffix) => `**/*${suffix}`),
     areas: [...KEEP_CLASS_AREAS],
     explicit: [...KEEP_CLASS_EXPLICIT],
@@ -169,7 +173,7 @@ function normalizeChangedPath(p) {
 /**
  * Which of `changedFiles` are keep-class protected? A path counts as
  * protected if EITHER it appears in the committed `inventoryFiles` snapshot,
- * OR its `SRC_ROOT`-relative portion matches {@link isKeepClassRelPath}
+ * OR its protected-root-relative portion matches {@link isKeepClassRelPath}
  * directly — the live re-derivation that catches a brand-new keep-class file
  * even before the snapshot has been regenerated (the "can't silently drift"
  * design note). Returns the intersecting paths, normalized, deduplicated.

@@ -36,6 +36,7 @@
     "lint:test-first-drift": "node scripts/lint-test-first-drift.mjs content rendered/agents",
     "lint:invariants": "tsx src/architecture/vocabulary-lint-cli.ts",
     "lint:envelopes": "node scripts/lint-envelopes.mjs",
+    "protected:guard": "node scripts/audit/check-protected.mjs",
     "cli:vocab-guard": "bun run scripts/core/cli-vocab-guard.ts",
     "vendor:sync:pm-detector": "tsx scripts/core/sync-vendor-pm-detector.ts",
     "vendor:check:pm-detector": "tsx scripts/core/sync-vendor-pm-detector.ts --check",

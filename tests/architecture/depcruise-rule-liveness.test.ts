@@ -104,13 +104,19 @@ describe('DepcruiseRule_AfterRetarget_MatchesNonEmptyModuleSet', () => {
     }
   });
 
-  it('the `pathNot` exclusion still excludes something', () => {
-    // If `pathNot` matched nothing it would be dead config; if it matched
-    // everything the rule would be empty. Both are silent.
-    const re = new RegExp(rule?.from.pathNot ?? '(?!)');
-    const excluded = modules.filter((m) => re.test(m));
-    expect(excluded.length).toBeGreaterThan(0);
-    expect(excluded.length).toBeLessThan(modules.length);
+  it('DepcruiseRule_FromSet_HoldsNoTestFile', () => {
+    // The rule used to carry `pathNot: '\.test\.ts$'` to exempt co-located
+    // suites. Task 030 moved them all out, which made that exclusion match
+    // nothing — dead config, and silent about it. The exclusion is gone; this
+    // is the assertion that earns its removal, and it fails the moment a test
+    // file reappears inside the governed set with no exemption to cover it.
+    const fromRe = new RegExp(rule?.from.path ?? '(?!)');
+    const governed = modules.filter((m) => fromRe.test(m));
+    expect(governed.length, 'the `from` path governs no module at all').toBeGreaterThan(0);
+    expect(
+      governed.filter((m) => m.endsWith('.test.ts')),
+      'a test file is back inside the domain core; either move it under tests/ or restore an exemption',
+    ).toEqual([]);
   });
 });
 
@@ -136,13 +142,15 @@ describe('DepcruiseRule_SeededViolation_StillFails', () => {
     expect(violates(coreModule as string, adapterModule as string)).toBe(true);
   });
 
-  it('a test file in the core is exempt, per pathNot', () => {
-    const testInCore = modules.find(
-      (m) => new RegExp(rule?.from.path ?? '(?!)').test(m) && m.endsWith('.test.ts'),
-    );
+  it('a relocated core test is outside the governed set entirely', () => {
+    // The exemption this replaces was `pathNot`. A co-located core test is now
+    // exempt by ADDRESS rather than by exclusion, so the property to pin is
+    // that its new home under tests/ falls outside `from` altogether.
+    const relocated = 'tests/unit/workflow/tools.test.ts';
     const adapterModule = modules.find((m) => new RegExp(rule?.to.path ?? '(?!)').test(m));
-    expect(testInCore).toBeDefined();
-    expect(violates(testInCore as string, adapterModule as string)).toBe(false);
+    expect(adapterModule, 'no live adapters module to seed to').toBeDefined();
+    expect(new RegExp(rule?.from.path ?? '(?!)').test(relocated)).toBe(false);
+    expect(violates(relocated, adapterModule as string)).toBe(false);
   });
 
   it('an edge that leaves the governed set is NOT caught', () => {

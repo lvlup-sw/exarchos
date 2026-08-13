@@ -66,11 +66,21 @@ export const SHAPE_RATCHET: readonly ShapeRatchetEntry[] = Object.freeze([
  * `tools/evals` is the eval suite the same move routed out of the product
  * tree, tracked here so relocation cannot discharge its annotation debt.
  *
- * Observed 2026-08-13: src 899, test 13, tests 2, tools/evals 9.
+ * Re-stated again after task 030 lifted every co-located suite out of `src`.
+ * The `src` floor of 728 is SPLIT, not dropped: its 899 observed files landed
+ * as 885 under `tests/unit` and 14 under `tests/integration`, so the floor is
+ * divided in that ratio (717 + 11 = 728). The obligation is byte-for-byte the
+ * one it replaces — the same number of files must still be there, at their new
+ * address. Dropping the entry instead would have let the move discharge the
+ * ratchet, which is the single failure this register exists to refuse.
+ *
+ * Observed 2026-08-13: tests/unit 885, tests/integration 14, test 13, tests 2,
+ * tools/evals 30. (`src` is now 0 and no longer mandated.)
  */
 export const CORPUS_FLOORS: readonly { readonly root: string; readonly floor: number }[] =
   Object.freeze([
-    { root: 'src', floor: 728 },
+    { root: 'tests/unit', floor: 717 },
+    { root: 'tests/integration', floor: 11 },
     { root: 'test', floor: 7 },
     { root: 'tests', floor: 2 },
     { root: 'tools/evals', floor: 7 },
@@ -158,7 +168,7 @@ export const ACCEPTED_GAPS: readonly AcceptedGap[] = Object.freeze([
   {
     id: 'class-b/projection-containment',
     kind: 'shape-annotation-debt',
-    files: ['src/install/projection-containment.test.ts', 'src/install/projection-containment.packaging.test.ts'],
+    files: ['tests/unit/install/projection-containment.test.ts', 'tests/unit/install/projection-containment.packaging.test.ts'],
     suppresses: ['oracle-sources-missing'],
     owner: 'workflow-platform',
     expires: '2026-11-30',
@@ -169,9 +179,9 @@ export const ACCEPTED_GAPS: readonly AcceptedGap[] = Object.freeze([
     id: 'class-b/contract-drift-guard',
     kind: 'shape-annotation-debt',
     files: [
-      'src/verbs/gates/contract-drift.test.ts',
-      'src/verbs/gates/contract-drift.parity.test.ts',
-      'src/verbs/gates/contract-drift.integration.test.ts',
+      'tests/unit/verbs/gates/contract-drift.test.ts',
+      'tests/unit/verbs/gates/contract-drift.parity.test.ts',
+      'tests/unit/verbs/gates/contract-drift.integration.test.ts',
     ],
     suppresses: ['oracle-sources-missing'],
     owner: 'workflow-platform',
@@ -183,7 +193,7 @@ export const ACCEPTED_GAPS: readonly AcceptedGap[] = Object.freeze([
     id: 'class-b/oracle-fixtures',
     kind: 'shape-annotation-debt',
     files: [
-      'src/contract/oracle/oracle-seam.test.ts',
+      'tests/unit/contract/oracle/oracle-seam.test.ts',
       'tools/evals/evals/benchmarks/seeded-defects/corpus.test.ts',
     ],
     suppresses: ['oracle-sources-missing'],
@@ -273,7 +283,7 @@ export const ACCEPTED_GAPS: readonly AcceptedGap[] = Object.freeze([
   {
     id: 'dr24/axis-census-line-is-tautological',
     kind: 'known-defect',
-    files: ['src/contract/oracle/fixtures.test.ts'],
+    files: ['tests/unit/contract/oracle/fixtures.test.ts'],
     suppresses: [],
     owner: 'evals',
     expires: '2026-11-30',

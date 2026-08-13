@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { describe, it, expect } from 'vitest';
 import {
-  SRC_ROOT,
+  PRIMARY_ROOT,
   PROTECTED_ROOTS,
   isKeepClassRelPath,
   discoverProtectedFiles,
@@ -21,7 +21,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '..', '..');
 const INVENTORY_PATH = path.join(HERE, 'protected-suites.json');
 const CLI_PATH = path.join(HERE, 'check-protected.mjs');
-const REAL_SRC_ROOT_ABS = path.join(REPO_ROOT, SRC_ROOT);
+const REAL_PRIMARY_ROOT_ABS = path.join(REPO_ROOT, PRIMARY_ROOT);
 
 function captureDeps(changedFiles: string[], inventoryFiles: string[]): { out: string[]; err: string[]; exit: number } {
   const out: string[] = [];
@@ -45,7 +45,7 @@ describe('isKeepClassRelPath — suffix/area/explicit classifier (DR-5)', () => 
     ['workflow/state-machine.property.test.ts', true],
     ['workflow/tools.update.race.test.ts', true],
     ['projections/views/materializer.property.test.ts', true],
-    ['__tests__/parity-harness.ts', true],
+    ['parity-harness.ts', true],
     ['projections/views/parity.test.ts', true],
     ['events/parity.test.ts', true],
   ])('%s -> keep-class %s', (relPath, expected) => {
@@ -76,30 +76,30 @@ describe('isKeepClassRelPath — suffix/area/explicit classifier (DR-5)', () => 
 });
 
 describe('discoverProtectedFiles — generated from the LIVE tree, not hand-listed', () => {
-  const files = discoverProtectedFiles(REAL_SRC_ROOT_ABS);
+  const files = discoverProtectedFiles(REAL_PRIMARY_ROOT_ABS);
 
   it('finds the shared parity-harness.ts (no test-suffix, explicit-only match)', () => {
-    expect(files).toContain(`${SRC_ROOT}/__tests__/parity-harness.ts`);
+    expect(files).toContain(`${PRIMARY_ROOT}/parity-harness.ts`);
   });
 
   it('finds the projections/views/parity and events/parity area files (literal name, not suffix-matched)', () => {
-    expect(files).toContain(`${SRC_ROOT}/projections/views/parity.test.ts`);
-    expect(files).toContain(`${SRC_ROOT}/events/parity.test.ts`);
+    expect(files).toContain(`${PRIMARY_ROOT}/projections/views/parity.test.ts`);
+    expect(files).toContain(`${PRIMARY_ROOT}/events/parity.test.ts`);
   });
 
   it('finds the named adjacent property/race keep-class files', () => {
-    expect(files).toContain(`${SRC_ROOT}/workflow/state-machine.property.test.ts`);
-    expect(files).toContain(`${SRC_ROOT}/workflow/tools.update.race.test.ts`);
-    expect(files).toContain(`${SRC_ROOT}/projections/views/materializer.property.test.ts`);
+    expect(files).toContain(`${PRIMARY_ROOT}/workflow/state-machine.property.test.ts`);
+    expect(files).toContain(`${PRIMARY_ROOT}/workflow/tools.update.race.test.ts`);
+    expect(files).toContain(`${PRIMARY_ROOT}/projections/views/materializer.property.test.ts`);
   });
 
   it('does NOT include events/tools.test.ts (imports fast-check, but a consolidation target)', () => {
-    expect(files).not.toContain(`${SRC_ROOT}/events/tools.test.ts`);
+    expect(files).not.toContain(`${PRIMARY_ROOT}/events/tools.test.ts`);
   });
 
   it('every discovered file is classified keep-class by the shared predicate', () => {
     for (const f of files) {
-      expect(isKeepClassRelPath(f.slice(SRC_ROOT.length + 1))).toBe(true);
+      expect(isKeepClassRelPath(f.slice(PRIMARY_ROOT.length + 1))).toBe(true);
     }
   });
 });
@@ -147,59 +147,59 @@ describe('buildInventory / loadInventory round trip', () => {
 
 describe('findProtectedViolations — the change-set intersection', () => {
   const inventoryFiles = [
-    `${SRC_ROOT}/events/parity.test.ts`,
-    `${SRC_ROOT}/workflow/state-machine.property.test.ts`,
+    `${PRIMARY_ROOT}/events/parity.test.ts`,
+    `${PRIMARY_ROOT}/workflow/state-machine.property.test.ts`,
   ];
 
   it('a clean change-set has no violations', () => {
-    const changed = [`${SRC_ROOT}/workflow/tools.test.ts`, 'README.md'];
+    const changed = [`${PRIMARY_ROOT}/workflow/tools.test.ts`, 'README.md'];
     expect(findProtectedViolations(changed, inventoryFiles)).toEqual([]);
   });
 
   it('flags a change-set intersecting the committed snapshot', () => {
-    const changed = [`${SRC_ROOT}/workflow/tools.test.ts`, `${SRC_ROOT}/events/parity.test.ts`];
-    expect(findProtectedViolations(changed, inventoryFiles)).toEqual([`${SRC_ROOT}/events/parity.test.ts`]);
+    const changed = [`${PRIMARY_ROOT}/workflow/tools.test.ts`, `${PRIMARY_ROOT}/events/parity.test.ts`];
+    expect(findProtectedViolations(changed, inventoryFiles)).toEqual([`${PRIMARY_ROOT}/events/parity.test.ts`]);
   });
 
   it('flags a NEW keep-class-suffixed file even before the snapshot is regenerated (no-drift design)', () => {
     // Not present in inventoryFiles at all — only the live suffix rule catches it.
-    const changed = [`${SRC_ROOT}/workflow/brand-new-thing.race.test.ts`];
-    expect(findProtectedViolations(changed, [])).toEqual([`${SRC_ROOT}/workflow/brand-new-thing.race.test.ts`]);
+    const changed = [`${PRIMARY_ROOT}/workflow/brand-new-thing.race.test.ts`];
+    expect(findProtectedViolations(changed, [])).toEqual([`${PRIMARY_ROOT}/workflow/brand-new-thing.race.test.ts`]);
   });
 
   it('does not flag event-store/tools.test.ts even though it imports fast-check', () => {
-    const changed = [`${SRC_ROOT}/events/tools.test.ts`];
+    const changed = [`${PRIMARY_ROOT}/events/tools.test.ts`];
     expect(findProtectedViolations(changed, [])).toEqual([]);
   });
 
   it('deduplicates repeated paths', () => {
-    const changed = [`${SRC_ROOT}/events/parity.test.ts`, `${SRC_ROOT}/events/parity.test.ts`];
-    expect(findProtectedViolations(changed, inventoryFiles)).toEqual([`${SRC_ROOT}/events/parity.test.ts`]);
+    const changed = [`${PRIMARY_ROOT}/events/parity.test.ts`, `${PRIMARY_ROOT}/events/parity.test.ts`];
+    expect(findProtectedViolations(changed, inventoryFiles)).toEqual([`${PRIMARY_ROOT}/events/parity.test.ts`]);
   });
 
-  it('ignores files outside SRC_ROOT entirely (not a false positive on unrelated paths)', () => {
+  it('ignores files outside every protected root entirely (not a false positive on unrelated paths)', () => {
     expect(findProtectedViolations(['docs/parity.test.ts'], [])).toEqual([]);
   });
 });
 
 describe('runCheckProtected — PASS on a clean change-set, FAIL on an intersecting one', () => {
-  const inventoryFiles = [`${SRC_ROOT}/events/parity.test.ts`];
+  const inventoryFiles = [`${PRIMARY_ROOT}/events/parity.test.ts`];
 
   it('PASSES (exit 0) on a clean change-set', () => {
-    const { exit, out } = captureDeps([`${SRC_ROOT}/workflow/tools.test.ts`], inventoryFiles);
+    const { exit, out } = captureDeps([`${PRIMARY_ROOT}/workflow/tools.test.ts`], inventoryFiles);
     expect(exit).toBe(EXIT_OK);
     expect(out.join('\n')).toMatch(/OK/);
   });
 
   it('FAILS (exit 1) when the change-set touches a keep-class glob', () => {
-    const { exit, err } = captureDeps([`${SRC_ROOT}/events/parity.test.ts`], inventoryFiles);
+    const { exit, err } = captureDeps([`${PRIMARY_ROOT}/events/parity.test.ts`], inventoryFiles);
     expect(exit).toBe(EXIT_PROTECTED);
     expect(err.join('\n')).toMatch(/FAIL/);
-    expect(err.join('\n')).toMatch(new RegExp(`${SRC_ROOT}/events/parity\\.test\\.ts`));
+    expect(err.join('\n')).toMatch(new RegExp(`${PRIMARY_ROOT}/events/parity\\.test\\.ts`));
   });
 
   it('FAILS on an empty inventory but a live-suffix-matching change (drift safety net)', () => {
-    const { exit } = captureDeps([`${SRC_ROOT}/orchestrate/new-thing.acceptance.test.ts`], []);
+    const { exit } = captureDeps([`${PRIMARY_ROOT}/orchestrate/new-thing.acceptance.test.ts`], []);
     expect(exit).toBe(EXIT_PROTECTED);
   });
 });
@@ -240,7 +240,7 @@ describe('CLI end-to-end — the guard as actually invoked', () => {
   });
 
   it('exits non-zero for a change-set touching a keep-class protected file', () => {
-    const res = spawnSync('node', [CLI_PATH, `${SRC_ROOT}/events/parity.test.ts`], {
+    const res = spawnSync('node', [CLI_PATH, `${PRIMARY_ROOT}/events/parity.test.ts`], {
       cwd: REPO_ROOT,
       encoding: 'utf8',
     });
@@ -249,7 +249,7 @@ describe('CLI end-to-end — the guard as actually invoked', () => {
   });
 
   it('exits 0 for a change touching event-store/tools.test.ts (fast-check import, not protected)', () => {
-    const res = spawnSync('node', [CLI_PATH, `${SRC_ROOT}/events/tools.test.ts`], {
+    const res = spawnSync('node', [CLI_PATH, `${PRIMARY_ROOT}/events/tools.test.ts`], {
       cwd: REPO_ROOT,
       encoding: 'utf8',
     });

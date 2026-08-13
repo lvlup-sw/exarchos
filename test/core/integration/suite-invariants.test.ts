@@ -265,7 +265,18 @@ describe('DR-30 part 2 — the real corpus', () => {
     // directory move discharge DR-30 coverage.
     // The two `src` roots became one when task 019 dissolved the nested
     // package — they had already been the same directory, walked twice.
-    expect(mandated).toEqual(['src', 'test', 'tools/evals', 'tools/conformance']);
+    // `tests/unit` and `tests/integration` joined when task 030 lifted the
+    // co-located suites out of `src`, on the same reasoning as
+    // `tools/conformance`: the files were governed before they moved.
+    // `src` left the mandated set in task 030 — it holds no `*.test.ts` at all
+    // now, and a root that cannot contribute cannot be required to.
+    expect(mandated).toEqual([
+      'tests/unit',
+      'tests/integration',
+      'test',
+      'tools/evals',
+      'tools/conformance',
+    ]);
     for (const id of mandated) {
       expect(corpus.filter((f) => f.root === id).length).toBeGreaterThan(0);
     }
