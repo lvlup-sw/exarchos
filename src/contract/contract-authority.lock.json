@@ -48,7 +48,7 @@
       "kind": "catalog",
       "version": "3",
       "versionSpec": "3",
-      "digest": "sha256:556fbbf81657e322c18c732a2ca4e8bd1e0199b327fb8f85dc19476908dd2c70",
+      "digest": "sha256:2a43416cc1b186eb16e252ce16e35ec6182c5fd9e45e1e6f9936ad9b58ab7320",
       "source": ".exarchos/invariants.md pinned at frontmatter schema-version",
       "approved": true
     },

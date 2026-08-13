@@ -51,7 +51,7 @@
  * ── Integration test (task 1.6) ────────────────────────────────────────
  * The artifact produced by this script — specifically the host-target
  * output at `dist/bin/exarchos-<os>-<arch>` — is the subject-under-test
- * for `test/core/process/compiled-binary-mcp.test.ts`.
+ * for `tests/core/process/compiled-binary-mcp.test.ts`.
  * That test spawns the binary with `mcp` subcommand and performs a real
  * MCP handshake + `exarchos_workflow init` round-trip to prove the
  * compiled output behaves identically to the JS bundle. If you change

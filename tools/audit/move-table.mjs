@@ -47,7 +47,7 @@ export const PREFIX_MOVES = [
 
   // The core's own test and guard tiers, kept as named tiers rather than merged
   // into the root ones — `process/` exists on both sides.
-  ['servers/exarchos-mcp/test/', 'test/core/'],
+  ['servers/exarchos-mcp/test/', 'tests/core/'],
   ['servers/exarchos-mcp/tests/', 'tests/core/'],
   ['servers/exarchos-mcp/scripts/', 'scripts/core/'],
   // Both trees carry an `unknown-unknown.trace.jsonl`; a shared directory would

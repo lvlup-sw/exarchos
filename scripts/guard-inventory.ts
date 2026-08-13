@@ -226,7 +226,7 @@ export const HISTORICAL_PATH_REWRITES: readonly (readonly [string, string])[] = 
   ['servers/exarchos-mcp/src/test-helpers/', 'tools/test-helpers/'],
   ['servers/exarchos-mcp/src/evals/', 'tools/evals/'],
   ['servers/exarchos-mcp/scripts/', 'scripts/core/'],
-  ['servers/exarchos-mcp/test/', 'test/core/'],
+  ['servers/exarchos-mcp/test/', 'tests/core/'],
   ['servers/exarchos-mcp/src/', 'src/'],
   ['servers/exarchos-mcp/', ''],
 ] as const);

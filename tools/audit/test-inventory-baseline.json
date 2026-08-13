@@ -8294,8 +8294,8 @@
         }
       ]
     },
-    "test/core/integration/governance/denied-transition.test.ts": {
-      "file": "test/core/integration/governance/denied-transition.test.ts",
+    "tests/core/integration/governance/denied-transition.test.ts": {
+      "file": "tests/core/integration/governance/denied-transition.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -8330,8 +8330,8 @@
         }
       ]
     },
-    "test/core/integration/governance/evidence-provenance.test.ts": {
-      "file": "test/core/integration/governance/evidence-provenance.test.ts",
+    "tests/core/integration/governance/evidence-provenance.test.ts": {
+      "file": "tests/core/integration/governance/evidence-provenance.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -8366,8 +8366,8 @@
         }
       ]
     },
-    "test/core/integration/governance/gate-before-completion.test.ts": {
-      "file": "test/core/integration/governance/gate-before-completion.test.ts",
+    "tests/core/integration/governance/gate-before-completion.test.ts": {
+      "file": "tests/core/integration/governance/gate-before-completion.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -8397,8 +8397,8 @@
         }
       ]
     },
-    "test/core/integration/governance/merge-idempotency.test.ts": {
-      "file": "test/core/integration/governance/merge-idempotency.test.ts",
+    "tests/core/integration/governance/merge-idempotency.test.ts": {
+      "file": "tests/core/integration/governance/merge-idempotency.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -8413,8 +8413,8 @@
         }
       ]
     },
-    "test/core/integration/public-root/actions.test.ts": {
-      "file": "test/core/integration/public-root/actions.test.ts",
+    "tests/core/integration/public-root/actions.test.ts": {
+      "file": "tests/core/integration/public-root/actions.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -8454,8 +8454,8 @@
         }
       ]
     },
-    "test/core/integration/suite-invariants.test.ts": {
-      "file": "test/core/integration/suite-invariants.test.ts",
+    "tests/core/integration/suite-invariants.test.ts": {
+      "file": "tests/core/integration/suite-invariants.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -8560,8 +8560,8 @@
         }
       ]
     },
-    "test/core/packaged/containment.test.ts": {
-      "file": "test/core/packaged/containment.test.ts",
+    "tests/core/packaged/containment.test.ts": {
+      "file": "tests/core/packaged/containment.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -8601,8 +8601,8 @@
         }
       ]
     },
-    "test/core/process/_helpers.test.ts": {
-      "file": "test/core/process/_helpers.test.ts",
+    "tests/core/process/_helpers.test.ts": {
+      "file": "tests/core/process/_helpers.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -8637,8 +8637,8 @@
         }
       ]
     },
-    "test/core/process/compiled-binary-mcp.test.ts": {
-      "file": "test/core/process/compiled-binary-mcp.test.ts",
+    "tests/core/process/compiled-binary-mcp.test.ts": {
+      "file": "tests/core/process/compiled-binary-mcp.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -8653,8 +8653,8 @@
         }
       ]
     },
-    "test/core/process/multi-process-append.test.ts": {
-      "file": "test/core/process/multi-process-append.test.ts",
+    "tests/core/process/multi-process-append.test.ts": {
+      "file": "tests/core/process/multi-process-append.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -8669,8 +8669,8 @@
         }
       ]
     },
-    "test/core/process/packaged-proof.test.ts": {
-      "file": "test/core/process/packaged-proof.test.ts",
+    "tests/core/process/packaged-proof.test.ts": {
+      "file": "tests/core/process/packaged-proof.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -8730,8 +8730,8 @@
         }
       ]
     },
-    "test/core/process/promotion-kill.test.ts": {
-      "file": "test/core/process/promotion-kill.test.ts",
+    "tests/core/process/promotion-kill.test.ts": {
+      "file": "tests/core/process/promotion-kill.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -8751,8 +8751,8 @@
         }
       ]
     },
-    "test/core/process/reserved-event-append.test.ts": {
-      "file": "test/core/process/reserved-event-append.test.ts",
+    "tests/core/process/reserved-event-append.test.ts": {
+      "file": "tests/core/process/reserved-event-append.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -8777,8 +8777,8 @@
         }
       ]
     },
-    "test/e2e/fresh-install-bootstrap.test.ts": {
-      "file": "test/e2e/fresh-install-bootstrap.test.ts",
+    "tests/e2e/fresh-install-bootstrap.test.ts": {
+      "file": "tests/e2e/fresh-install-bootstrap.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -8813,8 +8813,8 @@
         }
       ]
     },
-    "test/fixtures/cli-runner.test.ts": {
-      "file": "test/fixtures/cli-runner.test.ts",
+    "tests/helpers/cli-runner.test.ts": {
+      "file": "tests/helpers/cli-runner.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -8869,8 +8869,8 @@
         }
       ]
     },
-    "test/fixtures/event-replay.test.ts": {
-      "file": "test/fixtures/event-replay.test.ts",
+    "tests/helpers/event-replay.test.ts": {
+      "file": "tests/helpers/event-replay.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -8900,8 +8900,8 @@
         }
       ]
     },
-    "test/fixtures/hermetic.test.ts": {
-      "file": "test/fixtures/hermetic.test.ts",
+    "tests/helpers/hermetic.test.ts": {
+      "file": "tests/helpers/hermetic.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -8941,8 +8941,8 @@
         }
       ]
     },
-    "test/fixtures/index.test.ts": {
-      "file": "test/fixtures/index.test.ts",
+    "tests/helpers/index.test.ts": {
+      "file": "tests/helpers/index.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -8952,8 +8952,8 @@
         }
       ]
     },
-    "test/fixtures/leak-detector.test.ts": {
-      "file": "test/fixtures/leak-detector.test.ts",
+    "tests/helpers/leak-detector.test.ts": {
+      "file": "tests/helpers/leak-detector.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -8978,8 +8978,8 @@
         }
       ]
     },
-    "test/fixtures/mcp-client.test.ts": {
-      "file": "test/fixtures/mcp-client.test.ts",
+    "tests/helpers/mcp-client.test.ts": {
+      "file": "tests/helpers/mcp-client.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -9019,8 +9019,8 @@
         }
       ]
     },
-    "test/fixtures/mcp-envelope.test.ts": {
-      "file": "test/fixtures/mcp-envelope.test.ts",
+    "tests/helpers/mcp-envelope.test.ts": {
+      "file": "tests/helpers/mcp-envelope.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -9045,8 +9045,8 @@
         }
       ]
     },
-    "test/fixtures/normalizers.test.ts": {
-      "file": "test/fixtures/normalizers.test.ts",
+    "tests/helpers/normalizers.test.ts": {
+      "file": "tests/helpers/normalizers.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -9121,8 +9121,8 @@
         }
       ]
     },
-    "test/fixtures/parity-contract.test.ts": {
-      "file": "test/fixtures/parity-contract.test.ts",
+    "tests/helpers/parity-contract.test.ts": {
+      "file": "tests/helpers/parity-contract.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -9167,8 +9167,8 @@
         }
       ]
     },
-    "test/fixtures/process-tracker.test.ts": {
-      "file": "test/fixtures/process-tracker.test.ts",
+    "tests/helpers/process-tracker.test.ts": {
+      "file": "tests/helpers/process-tracker.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -9203,8 +9203,8 @@
         }
       ]
     },
-    "test/fixtures/saga-driver.test.ts": {
-      "file": "test/fixtures/saga-driver.test.ts",
+    "tests/helpers/saga-driver.test.ts": {
+      "file": "tests/helpers/saga-driver.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -9229,8 +9229,8 @@
         }
       ]
     },
-    "test/migration/batch-migration.test.ts": {
-      "file": "test/migration/batch-migration.test.ts",
+    "tests/migration/batch-migration.test.ts": {
+      "file": "tests/migration/batch-migration.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -9250,8 +9250,8 @@
         }
       ]
     },
-    "test/migration/delegate-migration.test.ts": {
-      "file": "test/migration/delegate-migration.test.ts",
+    "tests/migration/delegate-migration.test.ts": {
+      "file": "tests/migration/delegate-migration.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -9306,8 +9306,8 @@
         }
       ]
     },
-    "test/migration/ideate-migration.test.ts": {
-      "file": "test/migration/ideate-migration.test.ts",
+    "tests/migration/ideate-migration.test.ts": {
+      "file": "tests/migration/ideate-migration.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -9327,8 +9327,8 @@
         }
       ]
     },
-    "test/migration/snapshots.test.ts": {
-      "file": "test/migration/snapshots.test.ts",
+    "tests/migration/snapshots.test.ts": {
+      "file": "tests/migration/snapshots.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -9353,8 +9353,8 @@
         }
       ]
     },
-    "test/migration/structural-invariant.test.ts": {
-      "file": "test/migration/structural-invariant.test.ts",
+    "tests/migration/structural-invariant.test.ts": {
+      "file": "tests/migration/structural-invariant.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -9374,8 +9374,8 @@
         }
       ]
     },
-    "test/process/cli/doctor.test.ts": {
-      "file": "test/process/cli/doctor.test.ts",
+    "tests/process/cli/doctor.test.ts": {
+      "file": "tests/process/cli/doctor.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -9390,8 +9390,8 @@
         }
       ]
     },
-    "test/process/cli/emissions.test.ts": {
-      "file": "test/process/cli/emissions.test.ts",
+    "tests/process/cli/emissions.test.ts": {
+      "file": "tests/process/cli/emissions.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -9401,8 +9401,8 @@
         }
       ]
     },
-    "test/process/cli/mcp-start-stop.test.ts": {
-      "file": "test/process/cli/mcp-start-stop.test.ts",
+    "tests/process/cli/mcp-start-stop.test.ts": {
+      "file": "tests/process/cli/mcp-start-stop.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -9417,8 +9417,8 @@
         }
       ]
     },
-    "test/process/cli/onboard.test.ts": {
-      "file": "test/process/cli/onboard.test.ts",
+    "tests/process/cli/onboard.test.ts": {
+      "file": "tests/process/cli/onboard.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -9433,8 +9433,8 @@
         }
       ]
     },
-    "test/process/cli/schema.test.ts": {
-      "file": "test/process/cli/schema.test.ts",
+    "tests/process/cli/schema.test.ts": {
+      "file": "tests/process/cli/schema.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -9454,8 +9454,8 @@
         }
       ]
     },
-    "test/process/cli/topology.test.ts": {
-      "file": "test/process/cli/topology.test.ts",
+    "tests/process/cli/topology.test.ts": {
+      "file": "tests/process/cli/topology.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -9470,8 +9470,8 @@
         }
       ]
     },
-    "test/process/cli/version.test.ts": {
-      "file": "test/process/cli/version.test.ts",
+    "tests/process/cli/version.test.ts": {
+      "file": "tests/process/cli/version.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -9501,8 +9501,8 @@
         }
       ]
     },
-    "test/process/mcp-client-defaults.test.ts": {
-      "file": "test/process/mcp-client-defaults.test.ts",
+    "tests/process/mcp-client-defaults.test.ts": {
+      "file": "tests/process/mcp-client-defaults.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -9512,8 +9512,8 @@
         }
       ]
     },
-    "test/process/parity-event-query.test.ts": {
-      "file": "test/process/parity-event-query.test.ts",
+    "tests/process/parity-event-query.test.ts": {
+      "file": "tests/process/parity-event-query.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -9523,8 +9523,8 @@
         }
       ]
     },
-    "test/process/parity-workflow-describe.test.ts": {
-      "file": "test/process/parity-workflow-describe.test.ts",
+    "tests/process/parity-workflow-describe.test.ts": {
+      "file": "tests/process/parity-workflow-describe.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -9534,8 +9534,8 @@
         }
       ]
     },
-    "test/process/parity-workflow-rehydrate.test.ts": {
-      "file": "test/process/parity-workflow-rehydrate.test.ts",
+    "tests/process/parity-workflow-rehydrate.test.ts": {
+      "file": "tests/process/parity-workflow-rehydrate.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -9550,8 +9550,8 @@
         }
       ]
     },
-    "test/process/saga-merge-detour.test.ts": {
-      "file": "test/process/saga-merge-detour.test.ts",
+    "tests/process/saga-merge-detour.test.ts": {
+      "file": "tests/process/saga-merge-detour.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -9561,8 +9561,8 @@
         }
       ]
     },
-    "test/setup/package-scripts.test.ts": {
-      "file": "test/setup/package-scripts.test.ts",
+    "tests/architecture/package-scripts.test.ts": {
+      "file": "tests/architecture/package-scripts.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -9572,8 +9572,8 @@
         }
       ]
     },
-    "test/setup/preflight.test.ts": {
-      "file": "test/setup/preflight.test.ts",
+    "tests/helpers/preflight.test.ts": {
+      "file": "tests/helpers/preflight.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -9613,8 +9613,8 @@
         }
       ]
     },
-    "test/setup/vitest-config.test.ts": {
-      "file": "test/setup/vitest-config.test.ts",
+    "tests/architecture/vitest-config.test.ts": {
+      "file": "tests/architecture/vitest-config.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
@@ -9639,8 +9639,8 @@
         }
       ]
     },
-    "test/smoke/runtime-smoke.test.ts": {
-      "file": "test/smoke/runtime-smoke.test.ts",
+    "tests/smoke/runtime-smoke.test.ts": {
+      "file": "tests/smoke/runtime-smoke.test.ts",
       "runner": "vitest:root",
       "cases": [
         {

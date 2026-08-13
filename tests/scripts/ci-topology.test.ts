@@ -32,9 +32,13 @@
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import yaml from 'js-yaml';
+// The repo's own glob semantics, so this agrees with the guard inventory's
+// reading of the same workflow rather than inventing a second one.
+import { globMatches } from '../../scripts/guard-inventory.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -301,8 +305,14 @@ function filterGlobs(filters: Record<string, unknown>, filterName: string): stri
  *     on the PR that changes it.
  */
 const REQUIRED_ROOT_PROJECTION_GLOBS = [
-  'agents/**',
-  'command-aliases/**',
+  // Was `agents/**` + `command-aliases/**` + `commands/**` + `rules/**` +
+  // `skills/**` until the DR-4 block folded all five into one generated tree.
+  // This list went on naming them, and the assertion below only ever asked
+  // whether the filter CONTAINED each glob — never whether the glob matched a
+  // file — so it kept passing while every one of them matched nothing and the
+  // protection it encodes was void. `MatchAtLeastOneTrackedFile` is the tooth
+  // that was missing.
+  'rendered/**',
   'hooks/**',
   '.claude-plugin/**',
   'AGENTS.md',
@@ -327,6 +337,38 @@ describe('CI path-filter & guard coverage (DR-22)', () => {
     expect(missing, `changes.root filter missing required glob(s): ${missing.join(', ')}`).toEqual(
       [],
     );
+  });
+
+  it('Filters_EveryGlob_MatchesAtLeastOneTrackedFile', () => {
+    // Membership is not protection. A filter listing `agents/**` reads as
+    // covering the agents, and goes on reading that way after the directory is
+    // renamed — the entry is still there, it just selects nothing, and the job
+    // it gates stops firing on exactly the PRs it exists to police. A skipped
+    // required job reads as passed (#1711), so this fails silent in the
+    // direction that looks green.
+    const workflow = loadWorkflow(CI_WORKFLOW_PATH);
+    const filters = getPathsFilters(workflow);
+    const tracked = execFileSync('git', ['ls-files'], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+      maxBuffer: 2e8,
+    })
+      .split('\n')
+      .filter(Boolean);
+
+    const dead: string[] = [];
+    let checked = 0;
+    for (const name of Object.keys(filters)) {
+      for (const glob of filterGlobs(filters, name)) {
+        // Negations select by exclusion and legitimately match nothing.
+        if (glob.startsWith('!')) continue;
+        checked += 1;
+        if (!tracked.some((f) => globMatches(glob, f))) dead.push(`${name}: ${glob}`);
+      }
+    }
+
+    expect(checked, 'no path-filter globs were examined').toBeGreaterThan(0);
+    expect(dead, 'path-filter globs matching no tracked file').toEqual([]);
   });
 
   it('Guards_HooksGuardRunsInCI_AndIsRootFiltered', () => {

@@ -1137,7 +1137,7 @@ export const SDK_SEAM_BOUNDARY: SdkSeamBoundaryRule = Object.freeze({
   // scan root is a debt nobody can see.
   exemptions: Object.freeze([
     {
-      module: 'test/fixtures/mcp-client.ts',
+      module: 'tests/helpers/mcp-client.ts',
       owner: 'exarchos-core',
       expires: '2027-02-28',
       reason:
@@ -1146,7 +1146,7 @@ export const SDK_SEAM_BOUNDARY: SdkSeamBoundaryRule = Object.freeze({
         'the root test tree importing server internals. Migrated v1 → v2 (DR-0/DR-26).',
     },
     {
-      module: 'test/fixtures/__helpers__/mock-mcp-server.mjs',
+      module: 'tests/helpers/__helpers__/mock-mcp-server.mjs',
       owner: 'exarchos-core',
       expires: '2027-02-28',
       reason:
@@ -1154,7 +1154,7 @@ export const SDK_SEAM_BOUNDARY: SdkSeamBoundaryRule = Object.freeze({
         'generation or the pair hangs rather than erroring. Same rationale as its client.',
     },
     {
-      module: 'test/core/process/_helpers.ts',
+      module: 'tests/core/process/_helpers.ts',
       owner: 'exarchos-core',
       expires: '2027-02-28',
       reason:

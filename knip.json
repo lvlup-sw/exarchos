@@ -27,7 +27,7 @@
         "scripts/**/*.test.ts",
         "test/**/*.test.ts",
         "tests/core/**/*.test.ts",
-        "test/fixtures/__helpers__/mock-mcp-server.mjs",
+        "tests/helpers/__helpers__/mock-mcp-server.mjs",
         "tools/conformance/src/**/*.test.ts",
         "tools/evals/**/*.ts",
         "tools/test-helpers/**/*.ts"

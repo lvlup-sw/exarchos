@@ -871,15 +871,15 @@ describe('DR-26 — SDK seam rule: fail-closed teeth', () => {
     // earned and this keeps. Each entry is a test harness that needs the real
     // transport, which is exactly what the seam abstracts away.
     expect(SDK_SEAM_BOUNDARY.exemptions.map((e) => e.module).sort()).toEqual([
-      'test/core/process/_helpers.ts',
-      'test/fixtures/__helpers__/mock-mcp-server.mjs',
-      'test/fixtures/mcp-client.ts',
+      'tests/core/process/_helpers.ts',
+      'tests/helpers/__helpers__/mock-mcp-server.mjs',
+      'tests/helpers/mcp-client.ts',
     ]);
 
     for (const entry of SDK_SEAM_BOUNDARY.exemptions) {
       // No production module may be licensed — the moment one appears here the
       // exemption list has stopped being a test-harness carve-out.
-      expect(entry.module).toMatch(/(^|\/)test\//);
+      expect(entry.module).toMatch(/(^|\/)tests\//);
       expect(entry.owner.length).toBeGreaterThan(0);
       expect(entry.reason.length).toBeGreaterThan(0);
       expect(entry.expires).toMatch(/^\d{4}-\d{2}-\d{2}$/);

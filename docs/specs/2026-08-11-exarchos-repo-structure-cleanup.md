@@ -1325,16 +1325,29 @@ Repinning `plugin.json` is a sanctioned clean break. Only an end-to-end install 
 
 ### Task 032: Dissolve the four remaining test roots
 
+> **Premises corrected during execution (measured 2026-08-13).**
+>
+> 1. **`test/fixtures/` is not fixtures.** It is a helper LIBRARY — each `X.ts` paired with its own `X.test.ts`, 11 of them collected by the `unit` project. The Files field routes it to `tests/support/`, whose declared owner is `null` *because vitest must collect nothing there* — so that move would have stopped all 11 running while every one of them still reported passing. It becomes `tests/helpers/`, a new `unit`-owned tier. `test/setup/` splits by what each file is: `package-scripts` and `vitest-config` assert repo structure and join `tests/architecture/`; `global.ts`, `preflight.ts` and its self-test are support modules and join the helpers.
+> 2. **Task 029 already pre-declared five of the seven destinations**, so `test/{core,process,migration,smoke,e2e}` land in trees that are already collected. Only the two above needed a decision, which is the whole of this task's judgement.
+> 3. **The `103 docs/ references inside snapshots.test.ts.snap` are not this task's to reconcile.** There are 190 lines, not 103, and they are captured skill PROSE (rendered `SKILL.md` text that mentions `docs/specs/`), not paths the test resolves. They need reconciling when `docs/` itself moves — tasks 037/037a — and are unaffected by the snapshot travelling in lockstep with its test.
+> 4. **Two DR-30 scan roots would have become one directory.** `test/core` and `tests/core` merge, and declaring both would walk every file twice — the exact double-count the `src` entry above them already records. They become one root carrying the mandate the first one had, and `CORPUS_FLOORS` takes the SUM of the two floors (7 + 2) so neither half can be quietly emptied behind the other.
+> 5. **A virtual path defeated the preserve-the-target rule.** `FIXTURE_PATH` names a file that does not exist, so "where did this resolve before" has no answer on disk and the codemod classified it as a stayer — pointing a path documented as "inside this directory" at the dissolved root. The rule needs a third case: a target that never existed follows its DIRECTORY, not its literal.
+> 6. **The typecheck debt is payable again** (28 errors, 12 files), and two more guards were found lying — both invisible until this move put the files in a typechecked program. `SagaStep` is a discriminated union, and four suites probed `s.error !== undefined` instead of narrowing on `kind`, so `.error?.message` rendered `undefined` where it promised a message. And a stub carrying the comment "satisfies `SagaToolClient` directly, no cast needed" did not satisfy it — its hand-written signature was narrower than the SDK's.
+> 7. **Moving `vitest-config.test.ts` under `tests/` typechecked `vitest.config.ts` for the first time, and it was reporting three live outages.** Vitest reads `coverage`, `fileParallelism` and `passWithNoTests` ONLY at the root (they are its `NonProjectOptions`), and `benchmark` belongs to the test config rather than beside it. So: the `core` project's `coverage` block was ignored, `coverage/coverage-summary.json` was never written, and the **BLOCKING** ratchet in `ci.yml` that reads it had no artifact at all — verified by running `test:coverage` and finding only the default reporter set. The `outcome` and `acceptance` tiers had been running their files CONCURRENTLY despite declaring otherwise, which for a tier that "exercises real OS and git state" is the hazard the setting was written against. All four hoisted or moved to the supported per-project form.
+> 8. **Seven CI path-filter globs had been dead since the DR-4 block, and one more died here.** `skills/**`, `agents/**`, `command-aliases/**`, `commands/**` and `rules/**` all match nothing since those roots became `rendered/`, which is named in no filter — so a PR touching only generated output stopped flipping `root`, and `render:guard` stopped running on the PR that caused the drift. The DR-22 guard that exists to prevent exactly this asserted only that the filter CONTAINED each glob, never that a glob matched a file, so it passed throughout. `Filters_EveryGlob_MatchesAtLeastOneTrackedFile` is the missing tooth; probed against the pre-fix workflow it names all 8.
+> 9. **One test outside the documented 26-failure baseline flakes under the full suite.** `BuildIdentity_GeneratedPathAllowlist_IsNotABlanketEscape` opens by requiring its probe scope to be git-clean, and other suites plant edits in the real repo concurrently. It passes standalone and flipped red→green across this move without being touched.
+
 **Risk Tier:** medium
 **Boundary Touching:** true
 **Test Layer:** integration
 **Implements:** DR-5
 **Testing Strategy:** exampleTests true, propertyTests false, benchmarks false, characterizationRequired true.
 **Files:**
-- `tests/{process,outcome,e2e,smoke,migration,support}/`
+- `tests/{core,process,migration,e2e,smoke,helpers,architecture}/`
 **Tests:**
 - `TestRoots_AfterConsolidation_OnlyTestsDirectoryRemains`
-**Verification:** Fold `test/` (fixtures, migration, process, setup, e2e, smoke), the old `tests/outcome/`, and the former nested `test/`+`tests/` roots into the single tree. `test/setup/global.ts`, the fixtures and the `__snapshots__` directory move with their consumers; the 103 `docs/` references inside `snapshots.test.ts.snap` are reconciled here.
+- `Filters_EveryGlob_MatchesAtLeastOneTrackedFile`
+**Verification:** Fold the whole `test/` root into `tests/` — 86 files across seven directories — so the repository has ONE test tree and `test/` ceases to exist. Five tiers keep their name and their collecting project (029 pre-declared their destinations); `test/fixtures/` becomes the `tests/helpers/` tier and `test/setup/` splits between helpers and `tests/architecture/`. The DR-30 scan roots for `test/core` and `tests/core` merge into one carrying the summed floor. `test/setup/global.ts` moves with its `setupFiles` pin, and the `__snapshots__` directory travels in lockstep with its test.
 **Dependencies:** 031
 **Parallelizable:** No
 

@@ -185,7 +185,7 @@ describe('test inventory', () => {
     // and a discovery bounded to one of them would drop the rest in silence.
     const roots = new Set(fileEntries.map((e) => e.file.split('/')[0]));
 
-    for (const root of ['test', 'tests', 'tools']) {
+    for (const root of ['tests', 'tools']) {
       expect(roots, `no test file inventoried under ${root}/`).toContain(root);
     }
     // `src/` and `scripts/` are the roots that must hold NONE: task 030 lifted
@@ -196,5 +196,9 @@ describe('test inventory', () => {
     // from the list stops being watched instead of starting to be enforced.
     expect(roots, 'a test file has re-appeared under src/ (DR-5)').not.toContain('src');
     expect(roots, 'a test file has re-appeared under scripts/ (DR-5)').not.toContain('scripts');
+    // `test/` is gone outright as of task 032 — not emptied but dissolved, so
+    // this also catches the root being recreated rather than merely refilled.
+    expect(roots, 'the test/ root has come back (DR-5)').not.toContain('test');
+    expect(fs.existsSync(path.join(REPO_ROOT, 'test')), 'the test/ directory has come back').toBe(false);
   });
 });

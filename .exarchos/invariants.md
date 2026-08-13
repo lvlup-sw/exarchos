@@ -85,7 +85,7 @@ invariants:
     references:
       - src/events/atomic-appender.ts
       - src/storage/sqlite-backend.ts
-      - test/core/process/multi-process-append.test.ts
+      - tests/core/process/multi-process-append.test.ts
       - docs/architecture/runtime.md#§4
 
   - id: INV-8

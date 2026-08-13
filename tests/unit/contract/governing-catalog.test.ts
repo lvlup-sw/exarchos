@@ -179,7 +179,7 @@ describe('DR-26 — INV-7 is a closed claim (T-26 / EFF-001), not a target', () 
   });
 
   it('GoverningCatalog_Inv7_ReferencesTheMultiProcessFixtureThatClosedIt', () => {
-    const fixture = 'test/core/process/multi-process-append.test.ts';
+    const fixture = 'tests/core/process/multi-process-append.test.ts';
     expect(catalogEntry('INV-7').references).toContain(fixture);
     // A closed claim whose witness does not exist is not closed.
     expect(fs.existsSync(path.join(REPO_ROOT, fixture))).toBe(true);

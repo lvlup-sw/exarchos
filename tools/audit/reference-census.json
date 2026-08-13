@@ -534,8 +534,8 @@
         "docs/specs/2026-08-11-exarchos-repo-structure-cleanup.md",
         "skills-src/checkpoint/SKILL.md",
         "skills/standard/checkpoint/SKILL.md",
-        "test/migration/__fixtures__/batch-baselines/checkpoint.md",
-        "test/migration/__snapshots__/snapshots.test.ts.snap",
+        "tests/migration/__fixtures__/batch-baselines/checkpoint.md",
+        "tests/migration/__snapshots__/snapshots.test.ts.snap",
         "tools/audit/test-inventory-baseline.json"
       ],
       "sampleLiveCodeReferrers": []

@@ -15,6 +15,36 @@ export default defineConfig({
   test: {
     globals: false,
     environment: 'node',
+    // ROOT level, not inside the `core` project. Vitest reads coverage only
+    // here — a `coverage` block on a project entry is silently ignored, which
+    // is what had been happening: `npm run test:coverage` fell back to the
+    // default reporter set, `coverage/coverage-summary.json` was never written,
+    // and the BLOCKING ratchet that reads it (ci.yml, DR-5) had no artifact at
+    // all. `test:coverage` runs `--project core`, so the measured scope is the
+    // same one this block always described. Task 032 surfaced it: moving
+    // `vitest-config.test.ts` under `tests/` put this file in a typechecked
+    // program for the first time, and `coverage does not exist in type
+    // ProjectConfig` was the checker reporting a live gate outage.
+    coverage: {
+      provider: 'v8',
+      // `json-summary` emits `coverage/coverage-summary.json` (per-file +
+      // `total` aggregate metrics). Without it the non-regression ratchet
+      // (`scripts/check-coverage-ratchet.mjs`, DR-5) has no artifact to
+      // read — the reporter set is the load-bearing prerequisite the
+      // ratchet's fail-closed missing-summary path exists to catch.
+      reporter: ['text', 'json', 'json-summary', 'html'],
+      // vitest's own default is `reportOnFailure: false` — the coverage
+      // report (including `coverage-summary.json`) is SKIPPED whenever any
+      // test fails. This repo carries a known set of local-only red tests,
+      // so leaving the default would mean the summary artifact silently
+      // never materializes locally, and would starve the ratchet of its
+      // input on any red CI run too. Force the report to always be written
+      // so a missing summary is a genuine reporter/tooling failure, never
+      // an artifact of unrelated red tests.
+      reportOnFailure: true,
+      include: ['src/**/*.ts'],
+      exclude: ['src/**/*.test.ts', 'src/index.ts', 'src/__tests__/**', 'src/types.ts'],
+    },
     projects: [
       {
         test: {
@@ -48,11 +78,10 @@ export default defineConfig({
             // running in the meantime — without it they are collected by no
             // project and pass by never executing.
             'tests/architecture/**/*.test.ts',
-            'test/fixtures/**/*.test.ts',
-            'test/setup/**/*.test.ts',
-            'test/migration/**/*.test.ts',
-            'test/smoke/**/*.test.ts',
-            'test/e2e/**/*.test.ts',
+            // Test-support modules and their self-tests (task 032, from the
+            // misnamed `test/fixtures/`). This tier's policy is the `unit`
+            // one because that is what collected them before the move.
+            'tests/helpers/**/*.test.ts',
             // The DR-5 destination tiers whose policy is this one's. Declared
             // before the moves (029) so tasks 030-033 relocate files into a
             // tree that is already collected — the alternative is a window in
@@ -115,7 +144,6 @@ export default defineConfig({
             // binary over real stdio transport. Kept outside `src/` so they are
             // not unit-test-adjacent and do not trigger the `bun:sqlite` alias —
             // the binary embeds the real `bun:sqlite` at runtime.
-            'test/core/**/*.test.ts',
             // `tests/core/**` holds golden-fixture integration tests (T052,
             // DR-15) that replay canonical event streams and assert document
             // shape. Separate from `test/core/` so fixture files live alongside
@@ -158,31 +186,6 @@ export default defineConfig({
             process.env.EXARCHOS_SMOKE_ONLY === '1'
               ? [...EXCLUDE]
               : [...EXCLUDE, 'tests/unit/verbs/stryker-adapter.smoke.test.ts'],
-          coverage: {
-            provider: 'v8',
-            // `json-summary` emits `coverage/coverage-summary.json` (per-file +
-            // `total` aggregate metrics). Without it the non-regression ratchet
-            // (`scripts/check-coverage-ratchet.mjs`, DR-5) has no artifact to
-            // read — the reporter set is the load-bearing prerequisite the
-            // ratchet's fail-closed missing-summary path exists to catch.
-            reporter: ['text', 'json', 'json-summary', 'html'],
-            // vitest's own default is `reportOnFailure: false` — the coverage
-            // report (including `coverage-summary.json`) is SKIPPED whenever any
-            // test fails. This repo carries a known set of local-only red tests,
-            // so leaving the default would mean the summary artifact silently
-            // never materializes locally, and would starve the ratchet of its
-            // input on any red CI run too. Force the report to always be written
-            // so a missing summary is a genuine reporter/tooling failure, never
-            // an artifact of unrelated red tests.
-            reportOnFailure: true,
-            include: ['src/**/*.ts'],
-            exclude: [
-              'src/**/*.test.ts',
-              'src/index.ts',
-              'src/__tests__/**',
-              'src/types.ts',
-            ],
-          },
         },
       },
       {
@@ -190,10 +193,10 @@ export default defineConfig({
           name: 'process',
           // `tests/process/**` is the DR-5 destination (task 032); declared now
           // so the move lands in a collected tree.
-          include: ['test/process/**/*.test.ts', 'tests/process/**/*.test.ts'],
+          include: ['tests/process/**/*.test.ts'],
           exclude: EXCLUDE,
           testTimeout: 15000,
-          setupFiles: ['./test/setup/global.ts'],
+          setupFiles: ['./tests/helpers/global.ts'],
         },
       },
       {
@@ -218,8 +221,14 @@ export default defineConfig({
           include: ['tests/outcome/**/*.test.ts'],
           exclude: EXCLUDE,
           testTimeout: 30000,
-          fileParallelism: false,
-          passWithNoTests: true,
+          // `singleFork`, not `fileParallelism: false`. Vitest lists
+          // `fileParallelism` (with `coverage` and `passWithNoTests`) among the
+          // options it reads ONLY at the root, so on a project entry it was
+          // inert — this tier exercises real OS and git state and has been
+          // running its files concurrently the whole time, which is the thing
+          // the setting was written to prevent. `poolOptions` is the
+          // per-project form and does what the old line said.
+          poolOptions: { forks: { singleFork: true } },
         },
       },
       {
@@ -238,8 +247,10 @@ export default defineConfig({
           exclude: EXCLUDE,
           testTimeout: 120000,
           // The install writes into a scratch HOME and the archive step shells
-          // out to git; serializing keeps those off each other's back.
-          fileParallelism: false,
+          // out to git; serializing keeps those off each other's back. Same
+          // correction as the `outcome` tier above — `fileParallelism` is a
+          // root-only option and did nothing here.
+          poolOptions: { forks: { singleFork: true } },
         },
       },
       {
@@ -271,11 +282,14 @@ export default defineConfig({
         },
       },
     ],
-  },
-  // Carried from the dissolved core workspace. `bench` is a separate vitest
-  // mode, not a project, so it stays at the top level.
-  benchmark: {
-    include: ['src/**/*.bench.ts', 'tools/evals/bench/**/*.bench.ts'],
-    outputJson: 'benchmark-results.json',
+    // Carried from the dissolved core workspace. `bench` is a separate vitest
+    // MODE, which is what "top level" was reaching for — but the option itself
+    // belongs to the test config, not beside it. As a sibling of `test` it was
+    // not read at all, so `vitest bench` fell back to the default include and
+    // never wrote `benchmark-results.json` for the gate that consumes it.
+    benchmark: {
+      include: ['src/**/*.bench.ts', 'tools/evals/bench/**/*.bench.ts'],
+      outputJson: 'benchmark-results.json',
+    },
   },
 });

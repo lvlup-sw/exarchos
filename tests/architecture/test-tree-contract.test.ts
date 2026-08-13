@@ -52,6 +52,10 @@ const TIER_OWNER: Readonly<Record<string, string | null>> = {
   // existing glob. The five core-tier guards went to `tests/core/scripts/`
   // instead, which is nested inside the `core` tier and keeps its policy.
   scripts: 'unit',
+  // Test-support modules and their self-tests (task 032). `unit` for the
+  // same reason `scripts` is: it is the project that collected them at
+  // `test/fixtures/`, and a helper's self-test is not product code.
+  helpers: 'unit',
   // Tiers whose policy is their whole reason for existing.
   process: 'process',
   outcome: 'outcome',

@@ -58,7 +58,6 @@ jobs:
               # otherwise be un-triggered until someone noticed.
               - 'tests/**'
               - 'content/**'
-              - 'skills/**'
               - 'content/harness/runtimes/**'
               # Projection roots (DR-22): these directories/files are part of
               # the shipped surface (see `files` in package.json) and are
@@ -68,9 +67,14 @@ jobs:
               # 'true' — `test-root` (and both guards) never runs, and the
               # deletion/mutation of a shipped agent, command alias, or hook
               # passes CI green, unobserved (the gap this filter closes).
-              - 'agents/**'
-              - 'command-aliases/**'
-              - 'commands/**'
+              # `rendered/` IS those roots. The DR-4 block folded `agents/`,
+              # `command-aliases/`, `commands/`, `rules/` and `skills/` into one
+              # generated tree and this list kept naming the old five, so all of
+              # them matched nothing — reopening the exact gap the comment above
+              # says this filter closes, since a PR touching only generated
+              # output stopped flipping `root` and `render:guard` stopped
+              # running on the PR that caused the drift.
+              - 'rendered/**'
               - 'hooks/**'
               - 'content/harness/hooks/**'
               - 'binding/**'
@@ -93,7 +97,6 @@ jobs:
               - '.github/workflows/release.yml'
             mcp:
               - 'src/**'
-              - 'test/core/**'
               # `tests/unit/**` and `tests/integration/**` are the core suite's
               # own tests after task 030 — same reason as the `root` filter.
               - 'tests/**'
@@ -104,9 +107,12 @@ jobs:
               - 'package.json'
               - '.github/workflows/ci.yml'
             prompts:
-              - 'skills/**'
-              - 'commands/**'
-              - 'rules/**'
+              # Authored sources and the tree they render to. These were
+              # `skills/`, `commands/` and `rules/` until the DR-4 block moved
+              # them, after which this lane fired on prompt changes only by
+              # accident — through `evals/**`.
+              - 'content/**'
+              - 'rendered/**'
               - 'evals/**'
               - 'tools/evals/evals/**'
               # Opt-in eval package (DR-3): owns the promptfoo dep the graders
