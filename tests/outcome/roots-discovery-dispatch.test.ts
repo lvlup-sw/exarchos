@@ -16,7 +16,7 @@ import * as path from 'node:path';
 import { EventStore } from '../../src/events/store.js';
 import { handleInit } from '../../src/workflow/tools.js';
 import { dispatch } from '../../src/dispatch/core/dispatch.js';
-import { createInMemoryResolver } from '../../src/runtime/capabilities/resolver.js';
+import { createInMemoryResolver } from '../../src/workflow/capabilities/resolver.js';
 import type { RootsClient } from '../../src/runtime/workspace/discovery.js';
 
 async function mktemp(label: string): Promise<string> {

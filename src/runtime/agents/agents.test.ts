@@ -3,7 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import type { AgentSpec, AgentSkill, AgentValidationRule, AgentSpecId } from './types.js';
 import { IMPLEMENTER, FIXER, REVIEWER, SCAFFOLDER, ALL_AGENT_SPECS } from './definitions.js';
-import { resolveCapabilities } from '../capabilities/posture-mapping.js';
+import { resolveCapabilities } from '../../workflow/capabilities/posture-mapping.js';
 
 // ─── Task 1: AgentSpec Types ────────────────────────────────────────────────
 

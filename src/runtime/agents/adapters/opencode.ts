@@ -20,7 +20,7 @@ import type { Capability } from '../capabilities.js';
 import type { AgentSpec } from '../types.js';
 import type { RuntimeAdapter, ValidationResult } from './types.js';
 import { buildSupportMap } from './support-levels.js';
-import { resolveCapabilities } from '../../capabilities/posture-mapping.js';
+import { resolveCapabilities } from '../../../workflow/capabilities/posture-mapping.js';
 
 /**
  * OpenCode covers fs/shell/subagent-spawn/MCP natively, treats

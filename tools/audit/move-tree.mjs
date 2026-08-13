@@ -26,7 +26,10 @@ import { PREFIX_MOVES } from './move-table.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const APPLY = process.argv.includes('--apply');
 
-const SORTED = [...PREFIX_MOVES].sort((a, b) => b[0].length - a[0].length);
+// A follow-up move reuses this codemod's arithmetic with its own table, passed
+// as JSON in MOVE_TABLE_JSON. Without it the task 019 table is used.
+const TABLE = process.env.MOVE_TABLE_JSON ? JSON.parse(process.env.MOVE_TABLE_JSON) : PREFIX_MOVES;
+const SORTED = [...TABLE].sort((a, b) => b[0].length - a[0].length);
 
 /** Map a repo-relative path through the table. Unmoved paths return unchanged. */
 function mapRel(rel) {

@@ -9,7 +9,7 @@ import { describe, it, expect } from 'vitest';
 import { ALL_AGENT_SPECS } from './definitions.js';
 import { CAPABILITY_KEYS } from './capabilities.js';
 import { deriveClaudeToolsFromCapabilities } from './adapters/claude.js';
-import { resolveCapabilities } from '../capabilities/posture-mapping.js';
+import { resolveCapabilities } from '../../workflow/capabilities/posture-mapping.js';
 
 // ─── Known Names ───────────────────────────────────────────────────────────
 

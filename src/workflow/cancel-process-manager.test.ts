@@ -13,7 +13,7 @@ import { EventStore } from '../events/store.js';
 import { handleInit } from './tools.js';
 import { handleCancel } from './cancel.js';
 import { allocatePhaseAttemptId } from './phase-attempt-id.js';
-import { createInMemoryResolver } from '../runtime/capabilities/resolver.js';
+import { createInMemoryResolver } from './capabilities/resolver.js';
 import {
   deriveMcpCallerIdentity,
   snapshotCallerAuthorization,

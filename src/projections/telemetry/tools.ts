@@ -19,7 +19,7 @@ import { generateHints } from './hints.js';
 import {
   getQualityHintThreshold,
   type QualityHintsConfig,
-} from '../../runtime/capabilities/resolver.js';
+} from '../../workflow/capabilities/resolver.js';
 import type { NextAction } from '../../next-action.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────

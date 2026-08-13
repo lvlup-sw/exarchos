@@ -7,7 +7,7 @@ import { EventStore } from '../../events/store.js';
 import { TOOL_REGISTRY, buildToolDescription } from '../../registry.js';
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import { dispatch, READ_ONLY_ACTIONS } from '../../dispatch/core/dispatch.js';
-import { createInMemoryResolver } from '../../runtime/capabilities/resolver.js';
+import { createInMemoryResolver } from '../../workflow/capabilities/resolver.js';
 import { toEnvelope } from '../../format.js';
 import { EnvelopeSchema } from '../../contract/schemas/envelope.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';

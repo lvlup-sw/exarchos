@@ -13,7 +13,7 @@ import { SnapshotStore } from './projections/views/snapshot-store.js';
 import {
   ANTHROPIC_NATIVE_CACHING,
   createInMemoryResolver,
-} from './runtime/capabilities/resolver.js';
+} from './workflow/capabilities/resolver.js';
 
 // Storage backend
 import type { StorageBackend } from './storage/backend.js';

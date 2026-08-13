@@ -1,12 +1,12 @@
 {
-  "capturedAt": "2026-08-12",
-  "tree": "fbe20c97e23571772be627888893f1ac531ab156",
+  "capturedAt": "2026-08-13",
+  "tree": "03413967a346c78efb548ac3452e382ca681ec7f",
   "source": "src",
   "authority": "docs/system-design.html is the canonical L1-L9 architecture; this file maps the tree onto it. Task 044 asserts THIS mapping, not set equality, which is why the 11 targets -> 9 published layers relation is written out rather than inferred.",
   "counts": {
-    "directories": 44,
-    "mapped": 33,
-    "exceptions": 11,
+    "directories": 28,
+    "mapped": 24,
+    "exceptions": 4,
     "targets": 11,
     "publishedLayers": 9
   },
@@ -83,38 +83,10 @@
       "layer": "L8",
       "reason": "CLI and MCP over one dispatch core — L8 itself."
     },
-    "agents": {
-      "disposition": "mapped",
-      "target": "runtime",
-      "layer": "L9",
-      "reason": "Agent definitions and capabilities describe the cooperative agents L9 names."
-    },
     "architecture": {
       "disposition": "exception",
       "destination": "tools/conformance/",
       "reason": "Conformance scanners and seam audits. They read the tree; they are not part of it. Extraction named in the plan."
-    },
-    "bench": {
-      "disposition": "exception",
-      "destination": "tools/evals/",
-      "reason": "A single .bench.ts startup benchmark."
-    },
-    "benchmarks": {
-      "disposition": "exception",
-      "destination": "tools/evals/",
-      "reason": "Benchmark fixtures and baseline schema; same concern as evals."
-    },
-    "capabilities": {
-      "disposition": "mapped",
-      "target": "workflow",
-      "layer": "L4",
-      "reason": "The capability resolver is named in L4 directly."
-    },
-    "channel": {
-      "disposition": "mapped",
-      "target": "adapters",
-      "layer": "L8",
-      "reason": "Delivery, emitter, formatter and priority are output-channel adapter concerns."
     },
     "cli": {
       "disposition": "mapped",
@@ -139,11 +111,6 @@
       "layer": "L5",
       "reason": "Authority collection, digests, IR and admission — the contract half of the L5 split. Task 014 folded schemas/, sdk/ and shared/ in: all three are contract surface."
     },
-    "ctk": {
-      "disposition": "exception",
-      "destination": "tools/conformance/",
-      "reason": "Conformance toolkit — test-only (10 files, all .test.ts)."
-    },
     "describe": {
       "disposition": "mapped",
       "target": "lifecycle",
@@ -156,22 +123,11 @@
       "layer": "L5",
       "reason": "Caller identity, dispatch context, elicitation dispatch — the dispatch half of the L5 split. Task 014 folded core/ in: context.ts and dispatch.ts ARE the single dispatch function L5 describes."
     },
-    "evals": {
-      "disposition": "exception",
-      "destination": "tools/evals/",
-      "reason": "Eval harness and benchmark drivers. OPEN QUESTION RESOLVED: evals is not a layer — it measures the engine from outside and must not sit in its call graph."
-    },
     "events": {
       "disposition": "mapped",
       "target": "events",
       "layer": "L2",
       "reason": "Append, expected-sequence, idempotency, the composite reader — L2 itself. Task 012 renamed event-store/ to match its target."
-    },
-    "extensions": {
-      "disposition": "mapped",
-      "target": "runtime",
-      "layer": "L9",
-      "reason": "Extension admission and isolation govern third-party runtime code."
     },
     "hooks": {
       "disposition": "mapped",
@@ -184,18 +140,6 @@
       "target": "install",
       "layer": null,
       "reason": "Atomic promotion and freshness checks. Declared NON-layer peer: it installs the engine rather than sitting in its call graph."
-    },
-    "launcher": {
-      "disposition": "mapped",
-      "target": "runtime",
-      "layer": "L9",
-      "reason": "Harness registry and worktree creation are how a runtime is launched."
-    },
-    "lib": {
-      "disposition": "mapped",
-      "target": "runtime",
-      "layer": "L9",
-      "reason": "plugin-compat is a single runtime-compatibility shim."
     },
     "lifecycle": {
       "disposition": "mapped",
@@ -215,17 +159,6 @@
       "layer": "L8",
       "reason": "Frame encoding and heartbeat are transport framing beneath the adapters."
     },
-    "onramp": {
-      "disposition": "mapped",
-      "target": "install",
-      "layer": null,
-      "reason": "The managed block written into a consumer project during onboarding."
-    },
-    "parity": {
-      "disposition": "exception",
-      "destination": "tools/conformance/",
-      "reason": "Cross-runtime parity assertions — test-only (5 files)."
-    },
     "projections": {
       "disposition": "mapped",
       "target": "projections",
@@ -237,12 +170,6 @@
       "target": "verbs",
       "layer": "L6",
       "reason": "Prune coordinator and scoring are a composite-tool action."
-    },
-    "release": {
-      "disposition": "mapped",
-      "target": "install",
-      "layer": null,
-      "reason": "Release manifest, identity and verification are packaging, the same peer concern as install."
     },
     "review": {
       "disposition": "mapped",
@@ -261,11 +188,6 @@
       "target": "runtime",
       "layer": "L9",
       "reason": "Environment detection and command shims — L9 itself."
-    },
-    "runtimes": {
-      "disposition": "exception",
-      "destination": "(stays test-adjacent)",
-      "reason": "Test-only (4 files, all .test.ts): per-runtime adapter tests. The runtime DATA is runtimes/*.yaml at the repo root."
     },
     "stack": {
       "disposition": "mapped",
@@ -291,11 +213,6 @@
       "layer": "L6",
       "reason": "Task tools are composite-tool actions."
     },
-    "test-helpers": {
-      "disposition": "exception",
-      "destination": "tools/test-helpers/",
-      "reason": "Lexers and temp-dir helpers consumed only by tests."
-    },
     "utils": {
       "disposition": "exception",
       "destination": "(unresolved — task 020)",
@@ -318,12 +235,6 @@
       "target": "workflow",
       "layer": "L4",
       "reason": "State machines, phase contracts, guards, checkpoint — L4 itself. Task 013 folded topology/ in: the phase-contract loader and staleness signal are workflow-primitive data, not a layer of their own."
-    },
-    "workspace": {
-      "disposition": "mapped",
-      "target": "runtime",
-      "layer": "L9",
-      "reason": "Project-root discovery is an environment question, answered before any layer runs."
     }
   }
 }

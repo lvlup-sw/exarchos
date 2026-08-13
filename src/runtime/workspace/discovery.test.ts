@@ -13,7 +13,7 @@ import { pathToFileURL } from 'node:url';
 
 import { EventStore } from '../../events/store.js';
 import { InMemoryBackend } from '../../storage/memory-backend.js';
-import { createInMemoryResolver } from '../capabilities/resolver.js';
+import { createInMemoryResolver } from '../../workflow/capabilities/resolver.js';
 import type { RootsClient } from './discovery.js';
 import { resolveWorkspace, isExarchosWorkspace } from './discovery.js';
 import type { WorkflowState } from '../../workflow/types.js';

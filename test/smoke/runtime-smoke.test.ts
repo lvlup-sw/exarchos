@@ -62,7 +62,7 @@ const SKILLS_DIR = join(REPO_ROOT, 'skills');
 
 /**
  * Runtimes recognised by the smoke harness. Kept in sync with
- * `REQUIRED_RUNTIME_NAMES` in `src/runtimes/load.ts` but duplicated so
+ * `REQUIRED_RUNTIME_NAMES` in `src/install/runtimes/load.ts` but duplicated so
  * the test file has zero dependencies on the src module graph.
  */
 type RuntimeName =
@@ -214,7 +214,7 @@ function assertFrontmatterValid(
 
 /**
  * Regex that matches a canonical placeholder reference. Mirrors
- * `PLACEHOLDER_REGEX` from `src/build-skills.ts` but is duplicated
+ * `PLACEHOLDER_REGEX` from `src/install/build-skills.ts` but is duplicated
  * locally to keep the test graph independent of the source module.
  *
  * Uses a capturing group for the token identifier. NOT stateful

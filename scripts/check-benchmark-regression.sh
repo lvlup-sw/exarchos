@@ -2,7 +2,7 @@
 # Check Benchmark Regression
 # Compare benchmark results against stored baselines and detect performance regressions.
 #
-# ADVISORY(control: benchmark-regression) — non-blocking perf regression check (benchmark-gate.yml runs it under continue-on-error); governance (owner, promotion/removal thresholds, expiry, kill fixture, unfiltered CI path) is enumerated in src/advisory-registry.ts (ADVISORY_REGISTRY), P07-07.
+# ADVISORY(control: benchmark-regression) — non-blocking perf regression check (benchmark-gate.yml runs it under continue-on-error); governance (owner, promotion/removal thresholds, expiry, kill fixture, unfiltered CI path) is enumerated in src/install/advisory-registry.ts (ADVISORY_REGISTRY), P07-07.
 #
 # Usage: check-benchmark-regression.sh --results <path> --baselines <path> [--threshold 10]
 #

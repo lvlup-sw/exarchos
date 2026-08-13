@@ -2,7 +2,7 @@
 * @reedsalus
 
 # MCP server
-servers/exarchos-mcp/ @reedsalus
+src/ @reedsalus
 
 # Validation scripts
 scripts/ @reedsalus

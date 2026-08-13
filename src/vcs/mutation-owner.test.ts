@@ -16,7 +16,7 @@ import * as path from 'node:path';
 
 import { EventStore } from '../events/store.js';
 import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
-import { capabilitiesForPosture } from '../runtime/capabilities/posture-mapping.js';
+import { capabilitiesForPosture } from '../workflow/capabilities/posture-mapping.js';
 import type { Capability } from '../runtime/agents/capabilities.js';
 import { DRY_RUN, isDryRun, isError, isSuccess } from '../dispatch/core/effect-carrier.js';
 import {

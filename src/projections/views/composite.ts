@@ -37,7 +37,7 @@ import { handleViewPs } from './lifecycle/ps.js';
 import { handleViewWorktrees } from '../../verbs/worktree/handlers.js';
 import { handleStackStatus, handleStackPlace } from '../../stack/tools.js';
 import { handleViewTelemetry } from '../telemetry/tools.js';
-import type { QualityHintsConfig } from '../../runtime/capabilities/resolver.js';
+import type { QualityHintsConfig } from '../../workflow/capabilities/resolver.js';
 import { deriveRepoKey } from '../../utils/paths.js';
 import { viewLogger } from '../../logger.js';
 import {

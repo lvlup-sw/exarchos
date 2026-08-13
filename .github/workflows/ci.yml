@@ -173,7 +173,7 @@ jobs:
       - run: npm run hooks:guard
 
       # runtimes:guard — re-run `scripts/codegen-runtimes.ts` and fail
-      # if `git diff src/runtimes/embedded.ts` is non-empty. The
+      # if `git diff src/install/runtimes/embedded.ts` is non-empty. The
       # embedded module is what the compiled binary uses to resolve
       # runtimes (#1213 review-item #4 reversal, #1214); CI must catch
       # any drift between `runtimes/*.yaml` and the checked-in
@@ -555,8 +555,8 @@ jobs:
 
       # CodeRabbit/CI #1213: install root deps so `bun build --compile`
       # can resolve modules imported via the cross-tree bridge — e.g.
-      # `js-yaml` (from `src/runtimes/load.ts`) and `@inquirer/prompts`
-      # (from `src/install-skills.ts`) which the MCP entry point reaches
+      # `js-yaml` (from `src/install/runtimes/load.ts`) and `@inquirer/prompts`
+      # (from `src/install/install-skills.ts`) which the MCP entry point reaches
       # transitively. Both are declared in root `package.json` but were
       # absent on the runner because only the nested workspace had a
       # `npm ci`. The bundler then errored with "Could not resolve
@@ -941,7 +941,7 @@ jobs:
       # is the failure mode these ratchets were written to close. Hosting them here
       # makes each fire on every PR regardless of the paths touched.
       - name: Advisory + shim ratchets (DR-15/DR-24, unfiltered)
-        run: npx --no-install vitest run src/advisory-registry.test.ts src/shim-registry.test.ts
+        run: npx --no-install vitest run src/install/advisory-registry.test.ts src/install/shim-registry.test.ts
 
       # DR-2 CI-topology conformance test on the UNFILTERED host: a root-suite
       # vitest that parses ci.yml and asserts the ci-gate aggregator's
@@ -989,7 +989,7 @@ jobs:
       # Runs unfiltered for the same reason as the typechecks above — the roots
       # span both packages, and `changes.root` covers neither `scripts/` tree.
       - name: Cast-census scope + budget ratchet (DR-14, task 066)
-        run: npx --no-install vitest run src/tsconfig-strictness.test.ts
+        run: npx --no-install vitest run src/install/tsconfig-strictness.test.ts
 
       # DR-10 .test.sh re-assert for check-mutation-gate (task-015 pattern,
       # unfiltered — every check script's self-test runs on every PR). Its
@@ -1106,7 +1106,7 @@ jobs:
       # subset rule violated, found by the inventory above. This re-assert closes
       # the implementation-surface half on the unfiltered host. It is the
       # fixture-driven SELF-TEST only (tmpdir + string inputs); the repo-wide
-      # ratchet stays in `src/tsconfig-strictness.test.ts` on `test-root`, so this
+      # ratchet stays in `src/install/tsconfig-strictness.test.ts` on `test-root`, so this
       # step adds no new repo-wide assertion. Same DR-10 pattern as the
       # `.test.sh` re-asserts above.
       - name: Cast-census self-test re-assert (DR-24, unfiltered)

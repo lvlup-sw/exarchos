@@ -127,7 +127,7 @@ function getHostTarget(): Target {
 }
 
 /**
- * Codegen `src/runtimes/embedded.ts` BEFORE every `bun build --compile`
+ * Codegen `src/install/runtimes/embedded.ts` BEFORE every `bun build --compile`
  * call so the bundled artifact always embeds an up-to-date runtimes
  * module. The compiled binary is the primary install path for
  * `install-skills` (#1213, #1214) — the YAML files don't ship inside
@@ -142,7 +142,7 @@ function codegenEmbeddedRuntimes(): void {
   const root = resolve(here, '..');
   generateEmbeddedRuntimesModule({
     runtimesDir: resolve(root, 'runtimes'),
-    outFile: resolve(root, 'src/runtimes/embedded.ts'),
+    outFile: resolve(root, 'src/install/runtimes/embedded.ts'),
   });
 }
 

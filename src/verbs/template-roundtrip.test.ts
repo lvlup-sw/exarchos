@@ -56,7 +56,7 @@ import {
 // `__dirname` is undefined under NodeNext/ESM, so resolve REPO_ROOT from this
 // test file's location via import.meta.url. This file lives at
 // src/verbs/<this> → ../../../../ is the repo root.
-const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
 const TEMPLATES = {
   design: resolve(REPO_ROOT, 'skills-src/ideate/references/design-template.md'),

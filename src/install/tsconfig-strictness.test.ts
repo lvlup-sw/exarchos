@@ -14,7 +14,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
-const SERVER_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const SERVER_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
 /** Read a compilerOptions flag from a (comment-tolerant) tsconfig JSON. */
 function readCompilerFlag(tsconfigPath: string, flag: string): unknown {

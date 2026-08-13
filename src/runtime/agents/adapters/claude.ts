@@ -15,7 +15,7 @@ import { stringify as stringifyYaml } from 'yaml';
 import type { AgentSpec, AgentValidationRule } from '../types.js';
 import type { RuntimeAdapter, ValidationResult } from './types.js';
 import { buildSupportMap } from './support-levels.js';
-import { resolveCapabilities } from '../../capabilities/posture-mapping.js';
+import { resolveCapabilities } from '../../../workflow/capabilities/posture-mapping.js';
 
 // ─── Capability → Claude tools translation ─────────────────────────────────
 //

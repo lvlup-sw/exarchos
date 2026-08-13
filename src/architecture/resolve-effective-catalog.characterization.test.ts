@@ -70,8 +70,7 @@ import { FullExarchosConfigSchema } from '../config/yaml-schema.js';
 /** Repo root — four levels up from `src/architecture/`, as the resolver does. */
 const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  '../../../..',
-);
+  '../..');
 const REPO_CONFIG_PATH = path.join(REPO_ROOT, '.exarchos.yml');
 const DEV_CATALOG_FILE = path.join(REPO_ROOT, '.exarchos', 'invariants.md');
 

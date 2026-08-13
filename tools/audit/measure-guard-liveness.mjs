@@ -77,8 +77,8 @@ function main() {
   // constrained set empties it constrains nothing, and if the forbidden target
   // set empties there is nothing left to forbid.
   const depcruise = readIfPresent('.dependency-cruiser.cjs') ?? '';
-  const fromMatch = depcruise.match(/path:\s*'(\^servers\/exarchos-mcp\/src\/\([^']+\)\/)'/);
-  const toMatch = depcruise.match(/path:\s*'(\^servers\/exarchos-mcp\/src\/adapters\/)'/);
+  const fromMatch = depcruise.match(/path:\s*'(\^src\/\([^']+\)\/)'/);
+  const toMatch = depcruise.match(/path:\s*'(\^src\/adapters\/)'/);
   if (fromMatch) {
     const re = new RegExp(fromMatch[1]);
     surfaces['depcruise:no-domain-core-to-io-adapters:from'] = {

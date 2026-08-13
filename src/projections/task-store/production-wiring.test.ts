@@ -22,9 +22,7 @@ import { fileURLToPath } from 'node:url';
 // so reaching src/ now costs two hops, not one.
 const SRC_DIR = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  '..',
-  '..',
-);
+  '../..');
 
 async function walk(dir: string): Promise<string[]> {
   const out: string[] = [];

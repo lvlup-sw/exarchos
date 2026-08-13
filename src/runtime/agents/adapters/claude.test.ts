@@ -19,7 +19,7 @@ import {
   REVIEWER,
   SCAFFOLDER,
 } from '../definitions.js';
-import * as PostureMapping from '../../capabilities/posture-mapping.js';
+import * as PostureMapping from '../../../workflow/capabilities/posture-mapping.js';
 
 function forceCapabilities(caps: readonly Capability[]): void {
   vi.spyOn(PostureMapping, 'resolveCapabilities').mockReturnValue(

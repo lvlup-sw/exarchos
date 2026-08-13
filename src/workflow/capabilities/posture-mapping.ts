@@ -15,9 +15,9 @@
 // mutate the trust boundary at runtime (matches the freeze posture in
 // `agents/capabilities.ts` and `resolver.ts`).
 
-import type { Capability } from '../agents/capabilities.js';
-import type { AgentPosture } from '../agents/spec.js';
-import type { AgentSpecId } from '../agents/types.js';
+import type { Capability } from '../../runtime/agents/capabilities.js';
+import type { AgentPosture } from '../../runtime/agents/spec.js';
+import type { AgentSpecId } from '../../runtime/agents/types.js';
 
 /**
  * The trust-boundary contract. Each posture's capability set is documented

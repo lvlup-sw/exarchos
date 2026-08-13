@@ -1285,7 +1285,7 @@ describe('supported-workspace test-runtime consistency (WFQ-015 / exit-proof c)'
 });
 
 describe('top-level mutation config shape (WFQ-013 / DOC-5)', () => {
-  const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../');
+  const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
   const tmpDirs: string[] = [];
   function makeTmpDir(): string {
     const dir = mkdtempSync(join(tmpdir(), 'doc5-'));

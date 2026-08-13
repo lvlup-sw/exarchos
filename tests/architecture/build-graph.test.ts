@@ -34,17 +34,12 @@ const DECLARED_PACKAGES: Readonly<
   'package.json': {
     role: 'product',
     disposition: 'retained',
-    why: 'The exarchos CLI and its build/test entry points — the package a user installs.',
-  },
-  'package.json': {
-    role: 'product',
-    disposition: 'retained',
-    why: 'The MCP server workspace. Shipped as part of the product, with its own dependency closure so the server can be built without the root tool chain.',
+    why: 'The exarchos CLI, the MCP server, and their build/test entry points — the one package a user installs. Task 019 dissolved the nested `servers/exarchos-mcp` workspace into this manifest; its dependency closure merged in, and the vitest policy it carried became the root `core` project rather than being dropped.',
   },
   'tools/evals-pkg/package.json': {
     role: 'tool',
     disposition: 'retained',
-    why: 'RETAINED (task 011a). Opt-in promptfoo eval harness, isolated so the heavy eval-only dependency stays OUT of the default MCP-server install (DR-3). The graders resolve promptfoo from THIS package at runtime, and ci.yml names it in the prompts: paths-filter so a change here still fires RUN_EVALS. Retiring it would delete a live eval capability and orphan that filter.',
+    why: 'RETAINED (task 011a). Opt-in promptfoo eval harness, isolated so the heavy eval-only dependency stays OUT of the default product install (DR-3). The graders resolve promptfoo from THIS package at runtime, and ci.yml names it in the prompts: paths-filter so a change here still fires RUN_EVALS. Retiring it would delete a live eval capability and orphan that filter.',
   },
   'documentation/package.json': {
     role: 'tool',
@@ -83,8 +78,8 @@ describe('BuildGraph_AfterUnification_DeclaredPackageSetMatchesTheManifestSet', 
   });
 
   it('each declared manifest has its own lockfile beside it', () => {
-    // Four manifest/lockfile PAIRS is the measured reality and the intended end
-    // state. A manifest without a lockfile installs unpinned.
+    // Three manifest/lockfile PAIRS since task 019 dissolved the nested server
+    // workspace. A manifest without a lockfile installs unpinned.
     for (const manifest of Object.keys(DECLARED_PACKAGES)) {
       const lock = path.join(REPO_ROOT, path.dirname(manifest), 'package-lock.json');
       expect(existsSync(lock), `${manifest} has no package-lock.json beside it`).toBe(true);
@@ -138,10 +133,9 @@ describe('ManifestSet_EveryTrackedPackageJson_IsClassifiedRetainedOrRetired', ()
   });
 
   it('the heavy eval dependency stays out of the product install closure', () => {
-    // The entire reason this package exists (DR-3). If promptfoo appears in
-    // either product manifest, the isolation has failed and every install pays
-    // for it.
-    for (const productManifest of ['package.json', 'package.json']) {
+    // The entire reason this package exists (DR-3). If promptfoo appears in the
+    // product manifest, the isolation has failed and every install pays for it.
+    for (const productManifest of ['package.json']) {
       const pkg = JSON.parse(readFileSync(path.join(REPO_ROOT, productManifest), 'utf8')) as {
         dependencies?: Record<string, string>;
         devDependencies?: Record<string, string>;
@@ -223,7 +217,11 @@ describe('BuildGraph_CoreTestTier_RetainsItsDeclaredTimeoutPolicy', () => {
 
   it('keeps the type-test and bench includes', () => {
     expect(coreConfig).toContain('*.type-test.ts');
-    expect(coreConfig).toContain('src/bench/**/*.bench.ts');
+    // The bench tree is a STATED EXCEPTION in the layer map, so task 019 filed
+    // it under `tools/` rather than carrying it into the product. What this
+    // assertion protects is that the `core` project still collects it at all —
+    // the location moved, the collection must not lapse.
+    expect(coreConfig).toContain('tools/evals/bench/**/*.bench.ts');
   });
 
   it('keeps the EXARCHOS_SMOKE_ONLY exclusion toggle and its defaults', () => {

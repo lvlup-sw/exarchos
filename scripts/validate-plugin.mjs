@@ -15,7 +15,7 @@
  *   - it forbade `SessionStart`, which the plugin ships on purpose per #1485.
  *
  * Each of the four contradicts an assertion in the green `src/plugin-validation.
- * test.ts` / `src/hooks-validation.test.ts` suites. Two statements of one policy,
+ * test.ts` / `src/install/hooks-validation.test.ts` suites. Two statements of one policy,
  * no channel between them, so drift was invisible until something forced them
  * into the same room.
  *

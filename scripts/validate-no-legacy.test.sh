@@ -404,8 +404,8 @@ if [[ -f "$KNIP_JSON" || -f "$KNIP_JSONC" || -f "$KNIP_TS" || -n "$KNIP_IN_PKG" 
   # Required entries, stored as "logical|accepted-forms" pairs:
   #   - MCP server entry: top-level "src/index.ts" OR
   #     workspace-relative "src/index.ts" (under a workspaces.<pkg> block)
-  #   - build-skills: "src/build-skills.ts"
-  #   - install-skills: "src/install-skills.ts"
+  #   - build-skills: "src/install/build-skills.ts"
+  #   - install-skills: "src/install/install-skills.ts"
   if [[ -f "$KNIP_JSON" ]]; then
     MISSING=""
     # MCP server index — accept either form.
@@ -413,11 +413,11 @@ if [[ -f "$KNIP_JSON" || -f "$KNIP_JSONC" || -f "$KNIP_TS" || -n "$KNIP_IN_PKG" 
       && ! grep -qF '"src/index.ts"' "$KNIP_JSON"; then
       MISSING="$MISSING src/index.ts"
     fi
-    if ! grep -qF "src/build-skills.ts" "$KNIP_JSON"; then
-      MISSING="$MISSING src/build-skills.ts"
+    if ! grep -qF "src/install/build-skills.ts" "$KNIP_JSON"; then
+      MISSING="$MISSING src/install/build-skills.ts"
     fi
-    if ! grep -qF "src/install-skills.ts" "$KNIP_JSON"; then
-      MISSING="$MISSING src/install-skills.ts"
+    if ! grep -qF "src/install/install-skills.ts" "$KNIP_JSON"; then
+      MISSING="$MISSING src/install/install-skills.ts"
     fi
     if [[ -z "$MISSING" ]]; then
       pass "NoLegacy_KnipConfigExists"

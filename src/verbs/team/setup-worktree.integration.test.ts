@@ -32,7 +32,7 @@ import { buildLocalGitMergeAdapter } from '../merge/local-git-merge.js';
 import type { GitExec } from '../pure/execute-merge.js';
 import { EventStore } from '../../events/store.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
-import { capabilitiesForPosture } from '../../runtime/capabilities/posture-mapping.js';
+import { capabilitiesForPosture } from '../../workflow/capabilities/posture-mapping.js';
 import { isSuccess } from '../../dispatch/core/effect-carrier.js';
 import { VcsMutationOwner, VCS_REQUESTED, VCS_EXECUTED } from '../../vcs/mutation-owner.js';
 import {

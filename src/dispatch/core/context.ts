@@ -8,7 +8,7 @@ import {
   ANTHROPIC_NATIVE_CACHING,
   createInMemoryResolver,
   type CapabilityResolver,
-} from '../../runtime/capabilities/resolver.js';
+} from '../../workflow/capabilities/resolver.js';
 
 // NOTE: `../config/loader.js`, `../config/yaml-loader.js`, `../config/resolve.js`,
 // `../config/register.js`, `../vcs/factory.js`, and `../hooks/config-hooks.js`

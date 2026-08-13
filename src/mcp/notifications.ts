@@ -8,7 +8,7 @@
 // so the transport adapter can register them by name; we deliberately
 // avoid a generic dispatcher object to keep the contract grep-able.
 
-import type { CapabilityResolver } from '../runtime/capabilities/resolver.js';
+import type { CapabilityResolver } from '../workflow/capabilities/resolver.js';
 
 /**
  * Handle a `notifications/roots/list_changed` event from the MCP client.

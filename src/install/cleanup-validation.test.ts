@@ -6,7 +6,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
 describe('Cleanup Validation', () => {
   it('WorkspaceConfig_RootPackageJson_DeclaresNoDeadWorkspaceGlob', () => {

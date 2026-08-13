@@ -26,12 +26,12 @@ const ids = [];
 for (const tool of TOOL_REGISTRY) for (const a of tool.actions) ids.push(tool.name + '.' + a.name);
 process.stdout.write(JSON.stringify(ids.sort()));
 `;
-const tmp = path.join(ROOT, 'servers/exarchos-mcp', '.tmp-verb-snapshot.mts');
+const tmp = path.join(ROOT, '.tmp-verb-snapshot.mts');
 fs.writeFileSync(tmp, script, 'utf8');
 let ids;
 try {
   const out = execFileSync('npx', ['tsx', tmp], {
-    cwd: path.join(ROOT, 'servers/exarchos-mcp'),
+    cwd: ROOT,
     encoding: 'utf8',
     maxBuffer: 32 * 1024 * 1024,
   });

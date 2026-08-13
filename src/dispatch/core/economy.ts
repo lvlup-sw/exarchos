@@ -22,7 +22,7 @@
 // never an inventory-hiding error.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { getQualityHintThreshold, type QualityHintsConfig } from '../../runtime/capabilities/resolver.js';
+import { getQualityHintThreshold, type QualityHintsConfig } from '../../workflow/capabilities/resolver.js';
 import type { NextAction } from '../../next-action.js';
 
 /** Deterministic default item cap applied when the caller omits `limit`. */

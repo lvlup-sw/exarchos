@@ -1844,7 +1844,7 @@ export const GUARD_EXEMPTIONS: readonly GuardExemption[] = Object.freeze([
   //     FOUR distinct causes, not three: the entry omitted `.claude-plugin/
   //     plugin.json` missing a `hooks` field.
   // All four causes turned out to be the GATE being stale, not the package —
-  // each contradicted a green assertion in `src/plugin-validation.test.ts`.
+  // each contradicted a green assertion in `src/install/plugin-validation.test.ts`.
   // NARROWED by task 023, not discharged. This entry named task 023 as its
   // blocker on the reasoning that populating the allowlist would make the gate
   // green. Task 023 landed and the reasoning turned out to be incomplete, so the

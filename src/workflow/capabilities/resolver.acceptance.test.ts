@@ -16,7 +16,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { resolvePosture, createInMemoryResolver } from './resolver.js';
-import type { Capability } from '../agents/capabilities.js';
+import type { Capability } from '../../runtime/agents/capabilities.js';
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import { dispatch, stubCompositeHandler } from '../../dispatch/core/dispatch.js';
 import { EventStore } from '../../events/store.js';

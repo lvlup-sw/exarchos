@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createInMemoryResolver } from '../runtime/capabilities/resolver.js';
+import { createInMemoryResolver } from '../workflow/capabilities/resolver.js';
 import { handleRootsListChanged } from './notifications.js';
 
 describe('handleRootsListChanged (#1290)', () => {

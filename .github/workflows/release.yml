@@ -164,7 +164,7 @@ jobs:
             package-lock.json
 
       - name: Install root dependencies
-        # The MCP build entry transitively imports `src/runtimes/load.ts`
+        # The MCP build entry transitively imports `src/install/runtimes/load.ts`
         # which requires `js-yaml`; without root deps the bun --compile step
         # fails with "Could not resolve: js-yaml". Route through the shared
         # wrapper for the Playwright browser-download skip + retry/timeout

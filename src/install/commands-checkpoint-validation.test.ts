@@ -29,7 +29,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../..');
 const skillPath = join(repoRoot, 'skills-src', 'checkpoint', 'SKILL.md');
 
 describe('CheckpointSkill_HouseRulesBlock (T-31, P3; DR-3 fold-in)', () => {

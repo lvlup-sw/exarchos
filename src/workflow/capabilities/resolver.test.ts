@@ -10,9 +10,9 @@ import {
   mintCapabilitiesForKind,
   requireMutationCapabilities,
 } from './resolver.js';
-import type { Capability } from '../agents/capabilities.js';
-import { KIND_OBLIGATIONS } from '../../workflow/phase-kind.js';
-import { getHSMDefinition } from '../../workflow/state-machine.js';
+import type { Capability } from '../../runtime/agents/capabilities.js';
+import { KIND_OBLIGATIONS } from '../phase-kind.js';
+import { getHSMDefinition } from '../state-machine.js';
 import { findActionInRegistry } from '../../registry.js';
 
 describe('CapabilityResolver (T017, DR-14)', () => {

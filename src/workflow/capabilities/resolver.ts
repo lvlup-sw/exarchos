@@ -9,12 +9,12 @@
  * handshake-based implementation later.
  */
 
-import { Capability as CapabilitySchema, type Capability } from '../agents/capabilities.js';
-import type { AgentPosture } from '../agents/spec.js';
+import { Capability as CapabilitySchema, type Capability } from '../../runtime/agents/capabilities.js';
+import type { AgentPosture } from '../../runtime/agents/spec.js';
 import type { ToolResult } from '../../format.js';
 import { capabilitiesForPosture } from './posture-mapping.js';
-import { KIND_OBLIGATIONS } from '../../workflow/phase-kind.js';
-import type { PhaseKind } from '../../workflow/phase-kind.js';
+import { KIND_OBLIGATIONS } from '../phase-kind.js';
+import type { PhaseKind } from '../phase-kind.js';
 
 /**
  * Minimal slice of the MCP initialize handshake consumed by

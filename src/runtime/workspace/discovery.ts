@@ -29,7 +29,7 @@ import { logger } from '../../logger.js';
 const discoveryLogger = logger.child({ subsystem: 'workspace-discovery' });
 import { fileURLToPath } from 'node:url';
 
-import type { CapabilityResolver } from '../capabilities/resolver.js';
+import type { CapabilityResolver } from '../../workflow/capabilities/resolver.js';
 import type { EventStore } from '../../events/store.js';
 import type { StorageBackend } from '../../storage/backend.js';
 

@@ -1,12 +1,12 @@
 import { createHash } from 'node:crypto';
 import * as path from 'node:path';
-import type { CapabilityResolver } from '../runtime/capabilities/resolver.js';
+import type { CapabilityResolver } from '../workflow/capabilities/resolver.js';
 import {
   CAPABILITY_RESOLVER_ID,
   CAPABILITY_RESOLVER_VERSION,
   localOperatorAuthorization,
   resolveCapabilityAuthorization,
-} from '../runtime/capabilities/resolver.js';
+} from '../workflow/capabilities/resolver.js';
 import type { AgentPosture } from '../runtime/agents/spec.js';
 import type { Capability } from '../runtime/agents/capabilities.js';
 

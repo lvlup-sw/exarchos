@@ -44,7 +44,7 @@ import { resolveConfig } from '../config/resolve.js';
 import {
   ANTHROPIC_NATIVE_CACHING,
   createInMemoryResolver,
-} from '../runtime/capabilities/resolver.js';
+} from './capabilities/resolver.js';
 
 function makeCtx(stateDir: string): DispatchContext {
   return { stateDir, eventStore: new EventStore(stateDir), enableTelemetry: false };

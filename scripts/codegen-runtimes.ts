@@ -4,7 +4,7 @@
  *
  * Reads `runtimes/*.yaml` at build time, validates every entry against
  * `RuntimeMapSchema`, and emits a typed TS module
- * `src/runtimes/embedded.ts` that exports a frozen `EMBEDDED_RUNTIMES`
+ * `src/install/runtimes/embedded.ts` that exports a frozen `EMBEDDED_RUNTIMES`
  * array. The emitted module is the runtime-side source of truth used by
  * the install-skills bridge from inside the compiled binary, where the
  * `runtimes/` directory is not on disk (the YAML files are not part of
@@ -117,7 +117,7 @@ export const EMBEDDED_RUNTIMES: readonly RuntimeMap[] = Object.freeze(
  * Convenience lookup for a single embedded runtime by name. Returns
  * \`undefined\` when no embedded runtime matches — callers decide
  * whether to throw or fall back. Mirrors the \`findRuntime()\` helper
- * in \`src/install-skills.ts\` so call-site behavior is identical
+ * in \`src/install/install-skills.ts\` so call-site behavior is identical
  * regardless of whether the runtimes came from FS or the embedded
  * module.
  */
@@ -155,12 +155,12 @@ export function generateEmbeddedRuntimesModule(opts: {
 
 // Self-invocation guard: only run the side-effecting codegen when this
 // file is the entry point. Importing it from a test must NOT regenerate
-// `src/runtimes/embedded.ts` against the real repo.
+// `src/install/runtimes/embedded.ts` against the real repo.
 if (import.meta.main) {
   const root = repoRoot();
   generateEmbeddedRuntimesModule({
     runtimesDir: resolve(root, 'runtimes'),
-    outFile: resolve(root, 'src/runtimes/embedded.ts'),
+    outFile: resolve(root, 'src/install/runtimes/embedded.ts'),
   });
-  console.log(`Wrote src/runtimes/embedded.ts`);
+  console.log(`Wrote src/install/runtimes/embedded.ts`);
 }

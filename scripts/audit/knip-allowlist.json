@@ -722,14 +722,14 @@
   },
   {
     "symbol": "runAllKillProbes",
-    "file": "src/advisory-kill-probes.ts",
+    "file": "src/install/advisory-kill-probes.ts",
     "owner": "@reedsalus",
     "expires": "2026-11-30",
     "rationale": "Wiring-closure capability export consumed by the P06 cutover wave (observability/cutover/audit seams built this wave, reached next wave). Wire or delete at expiry."
   },
   {
     "symbol": "getEmbeddedRuntime",
-    "file": "src/runtimes/embedded.ts",
+    "file": "src/install/runtimes/embedded.ts",
     "owner": "@reedsalus",
     "permanent": true,
     "rationale": "Codegen-emitted by scripts/codegen-runtimes.ts (getEmbeddedRuntime is written into the generated runtimes module) and pinned by its codegen test. The symbol is regenerated on every build; removing it needs generator + pin changes (out of scope for the ratchet). Permanent by construction."

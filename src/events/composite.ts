@@ -3,8 +3,8 @@ import type { DispatchContext } from '../dispatch/core/dispatch.js';
 import { handleEventAppend, handleEventQuery, handleBatchAppend } from './tools.js';
 import { handleEventDescribe } from '../describe/handler.js';
 import { TOOL_REGISTRY } from '../registry.js';
-import { classifyPriority } from '../runtime/channel/priority.js';
-import { deliver } from '../runtime/channel/delivery.js';
+import { classifyPriority } from '../adapters/channel/priority.js';
+import { deliver } from '../adapters/channel/delivery.js';
 import type { WorkflowEvent } from '../hooks/config-hooks.js';
 import { envelopeWrap } from '../envelope-wrap.js';
 

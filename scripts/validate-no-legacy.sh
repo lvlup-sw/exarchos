@@ -27,7 +27,7 @@
 # the single product workspace — with its own `entry` array. An entry must
 # satisfy ONE of:
 #
-#   (a) true binary / CLI script (e.g. src/skills-guard.ts, invoked via
+#   (a) true binary / CLI script (e.g. src/install/skills-guard.ts, invoked via
 #       `node dist/skills-guard.js` by package.json#scripts),
 #   (b) workspace entry point registered in package.json#main or #bin
 #       (knip auto-discovers these — no explicit entry needed),

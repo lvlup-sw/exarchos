@@ -283,11 +283,7 @@ function findHostBinary(): string | null {
   // src/adapters/ → repo root is four directories up.
   const repoRoot = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
-    '..',
-    '..',
-    '..',
-    '..',
-  );
+    '../../..');
   const candidate = path.join(
     repoRoot,
     'dist',

@@ -17,7 +17,7 @@ import type { AgentSpec } from '../types.js';
 import type { Capability } from '../capabilities.js';
 import { codexAdapter, tomlBasicString } from './codex.js';
 import { REVIEWER, IMPLEMENTER } from '../definitions.js';
-import * as PostureMapping from '../../capabilities/posture-mapping.js';
+import * as PostureMapping from '../../../workflow/capabilities/posture-mapping.js';
 
 /**
  * Pre-#1333: the test suite carried its own `capabilities: [...]` literal

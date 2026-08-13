@@ -7,7 +7,7 @@ import type { ProjectionDegradedDetail } from './projections/degraded-result.js'
 import {
   ANTHROPIC_NATIVE_CACHING,
   type CapabilityResolver,
-} from './runtime/capabilities/resolver.js';
+} from './workflow/capabilities/resolver.js';
 import { STABLE_PREFIX_KEYS } from './projections/rehydration/serialize.js';
 import { ConcurrencyError } from './events/concurrency-error.js';
 import { StorageBusyError } from './events/storage-busy-error.js';

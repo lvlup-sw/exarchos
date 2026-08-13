@@ -956,11 +956,7 @@ function findHostBinary(): string | null {
   // slash) which breaks path.resolve.
   const repoRoot = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
-    '..',
-    '..',
-    '..',
-    '..',
-  );
+    '../../..');
   const candidate = path.join(repoRoot, 'dist', 'bin', `exarchos-${platform}-${arch}${ext}`);
   return fs.existsSync(candidate) ? candidate : null;
 }

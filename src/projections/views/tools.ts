@@ -42,7 +42,7 @@ import {
   countBy,
   narrowAffordance,
 } from '../../dispatch/core/economy.js';
-import type { QualityHintsConfig } from '../../runtime/capabilities/resolver.js';
+import type { QualityHintsConfig } from '../../workflow/capabilities/resolver.js';
 import {
   stackViewProjection,
   STACK_VIEW,

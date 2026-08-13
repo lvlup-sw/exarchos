@@ -16,7 +16,7 @@
  *     `__tests__/`, `__shims__/`, `__mocks__/`, `__shared__/`, `evals/`
  *     (eval-harness fixture code is not production debt; see EXCLUSION_GLOBS
  *     below for the exact globs), and
- *     `src/runtimes/embedded.ts` (generated output locked by `runtimes:guard`
+ *     `src/install/runtimes/embedded.ts` (generated output locked by `runtimes:guard`
  *     — its casts are codegen's, not hand debt).
  *
  * RATCHET SEMANTICS (mirrors the wave-1 ratchet idiom — `scripts/audit/`
@@ -104,7 +104,7 @@ export const EXCLUSION_GLOBS = [
   '**/__mocks__/**',
   '**/__shared__/**',
   '**/evals/**',
-  'src/runtimes/embedded.ts',
+  'src/install/runtimes/embedded.ts',
 ];
 
 /**

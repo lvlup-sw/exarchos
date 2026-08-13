@@ -29,7 +29,7 @@ const MAP = {
   events:       M('events', 'Append, expected-sequence, idempotency, the composite reader — L2 itself. Task 012 renamed event-store/ to match its target.'),
   projections:  M('projections', 'Pure reducers, cursors, snapshot/rebuild — L3 itself. Task 012 folded views/, telemetry/, quality/, session/ and task-store/ in as subdirectories; each remains a read model that derives and never decides.'),
   workflow:     M('workflow', 'State machines, phase contracts, guards, checkpoint — L4 itself. Task 013 folded topology/ in: the phase-contract loader and staleness signal are workflow-primitive data, not a layer of their own.'),
-  capabilities: M('workflow', 'The capability resolver is named in L4 directly.'),
+
   config:       M('workflow', 'Cross-cutting by nature, but its output is the resolved config the dispatch context and workflow guards read. Placed at its consumer, not split.'),
   contract:     M('contract', 'Authority collection, digests, IR and admission — the contract half of the L5 split. Task 014 folded schemas/, sdk/ and shared/ in: all three are contract surface.'),
   dispatch:     M('dispatch', 'Caller identity, dispatch context, elicitation dispatch — the dispatch half of the L5 split. Task 014 folded core/ in: context.ts and dispatch.ts ARE the single dispatch function L5 describes.'),
@@ -46,29 +46,18 @@ const MAP = {
   mcp:          M('adapters', 'MCP wire methods (elicitation, notifications, tasks) are adapter surface.'),
   cli:          M('adapters', 'Follow-loop and formatter are CLI adapter surface.'),
   hooks:        M('adapters', 'Hook config is an adapter-side integration point.'),
-  channel:      M('adapters', 'Delivery, emitter, formatter and priority are output-channel adapter concerns.'),
+
   ndjson:       M('adapters', 'Frame encoding and heartbeat are transport framing beneath the adapters.'),
   vcs:          M('adapters', 'GitHub/GitLab/ADO providers adapt an external system; same shape as L8.'),
   runtime:      M('runtime', 'Environment detection and command shims — L9 itself.'),
-  agents:       M('runtime', 'Agent definitions and capabilities describe the cooperative agents L9 names.'),
-  launcher:     M('runtime', 'Harness registry and worktree creation are how a runtime is launched.'),
-  extensions:   M('runtime', 'Extension admission and isolation govern third-party runtime code.'),
-  workspace:    M('runtime', 'Project-root discovery is an environment question, answered before any layer runs.'),
-  lib:          M('runtime', 'plugin-compat is a single runtime-compatibility shim.'),
+
   install:      M('install', 'Atomic promotion and freshness checks. Declared NON-layer peer: it installs the engine rather than sitting in its call graph.'),
-  onramp:       M('install', 'The managed block written into a consumer project during onboarding.'),
-  release:      M('install', 'Release manifest, identity and verification are packaging, the same peer concern as install.'),
 
   architecture: X('tools/conformance/', 'Conformance scanners and seam audits. They read the tree; they are not part of it. Extraction named in the plan.'),
-  ctk:          X('tools/conformance/', 'Conformance toolkit — test-only (10 files, all .test.ts).'),
-  parity:       X('tools/conformance/', 'Cross-runtime parity assertions — test-only (5 files).'),
-  'test-helpers': X('tools/test-helpers/', 'Lexers and temp-dir helpers consumed only by tests.'),
-  evals:        X('tools/evals/', 'Eval harness and benchmark drivers. OPEN QUESTION RESOLVED: evals is not a layer — it measures the engine from outside and must not sit in its call graph.'),
-  benchmarks:   X('tools/evals/', 'Benchmark fixtures and baseline schema; same concern as evals.'),
-  bench:        X('tools/evals/', 'A single .bench.ts startup benchmark.'),
+
   __tests__:    X('(stays test-adjacent)', 'Integration tests and the parity harness — test-only (44 files).'),
   commands:     X('(stays test-adjacent)', 'Test-only (3 files, all .test.ts): prose assertions over commands/*.md, which live at the repo root, not here.'),
-  runtimes:     X('(stays test-adjacent)', 'Test-only (4 files, all .test.ts): per-runtime adapter tests. The runtime DATA is runtimes/*.yaml at the repo root.'),
+
   utils:        X('(unresolved — task 020)', 'atomic-write, paths, process, task-id: genuinely cross-cutting with consumers in five layers. Splitting it is a task 020 decision, not a naming one; recorded unresolved rather than forced.'),
 };
 

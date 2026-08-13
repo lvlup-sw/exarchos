@@ -25,7 +25,7 @@
  */
 
 import { join } from 'node:path';
-import { capabilitiesForPosture } from '../runtime/capabilities/posture-mapping.js';
+import { capabilitiesForPosture } from '../workflow/capabilities/posture-mapping.js';
 import { isError, isSuccess, type EffectOutcome } from '../dispatch/core/effect-carrier.js';
 import { EventStore } from '../events/store.js';
 import {

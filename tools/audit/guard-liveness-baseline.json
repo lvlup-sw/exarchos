@@ -1,32 +1,32 @@
 {
   "capturedAt": "2026-08-13",
-  "trackedFiles": 3357,
+  "trackedFiles": 3352,
   "surfaces": {
     "depcruise:no-domain-core-to-io-adapters:from": {
       "kind": "module-set",
-      "matched": 94,
+      "matched": 97,
       "detail": {
         "pattern": "^src/(events|workflow)/"
       }
     },
     "depcruise:no-domain-core-to-io-adapters:to": {
       "kind": "module-set",
-      "matched": 28,
+      "matched": 36,
       "detail": {
         "pattern": "^src/adapters/"
       }
     },
     "codeowners:*": {
       "kind": "ownership",
-      "matched": 3357
+      "matched": 3352
     },
-    "codeowners:servers/exarchos-mcp/": {
+    "codeowners:src/": {
       "kind": "ownership",
-      "matched": 1621
+      "matched": 1567
     },
     "codeowners:scripts/": {
       "kind": "ownership",
-      "matched": 167
+      "matched": 182
     },
     "codeowners:skills/": {
       "kind": "ownership",
@@ -86,7 +86,7 @@
     },
     "protected-suites:files": {
       "kind": "test-protection",
-      "matched": 51,
+      "matched": 50,
       "detail": {
         "declared": 51,
         "generatedFrom": "src"
@@ -94,14 +94,14 @@
     },
     "invariants:references": {
       "kind": "catalog-reference",
-      "matched": 46,
+      "matched": 18,
       "detail": {
         "declared": 46
       }
     },
     "lint:eslint-cli-glob": {
       "kind": "lint-scope",
-      "matched": 1523,
+      "matched": 1535,
       "detail": {
         "glob": "src/**/*.ts"
       }
@@ -115,10 +115,6 @@
       "matched": 128
     },
     "knip:workspace:.": {
-      "kind": "dead-code",
-      "matched": 1
-    },
-    "knip:workspace:servers/exarchos-mcp": {
       "kind": "dead-code",
       "matched": 1
     }

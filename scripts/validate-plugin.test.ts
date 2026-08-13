@@ -9,7 +9,7 @@
  *   B. THE SHIPPED POLICY still describes the shipped package — including the
  *      four clauses that had drifted the other way before this task, each of
  *      which is pinned here against the tree AND against the green assertions in
- *      src/plugin-validation.test.ts, so a future edit cannot resurrect the
+ *      src/install/plugin-validation.test.ts, so a future edit cannot resurrect the
  *      divergence in either direction.
  *
  * Regression anchor: on 2026-08-07 the gate demanded `.mcp.json` (deleted in

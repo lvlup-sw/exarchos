@@ -289,7 +289,7 @@ export const EMBEDDED_RUNTIMES: readonly RuntimeMap[] = Object.freeze(
  * Convenience lookup for a single embedded runtime by name. Returns
  * `undefined` when no embedded runtime matches — callers decide
  * whether to throw or fall back. Mirrors the `findRuntime()` helper
- * in `src/install-skills.ts` so call-site behavior is identical
+ * in `src/install/install-skills.ts` so call-site behavior is identical
  * regardless of whether the runtimes came from FS or the embedded
  * module.
  */

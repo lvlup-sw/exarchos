@@ -28,7 +28,7 @@ import { fileURLToPath } from 'node:url';
 import { COMMAND_TO_SKILL, COMMAND_ONLY, canonicalCommandSet } from './canonical-skills.js';
 
 // `src/config/` → repo root is two levels up.
-const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 const commandsDir = join(repoRoot, 'commands');
 const skillsSrcDir = join(repoRoot, 'skills-src');
 

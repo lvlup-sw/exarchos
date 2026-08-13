@@ -26,7 +26,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../..');
 const skillPath = join(repoRoot, 'skills-src', 'rehydrate', 'SKILL.md');
 
 describe('RehydrateSkill_InvocationReturnsDocument (T043, DR-5; DR-3 fold-in)', () => {

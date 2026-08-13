@@ -19,7 +19,7 @@ const validExpires = {
 };
 const validPermanent = {
   symbol: 'getEmbeddedRuntime',
-  file: 'src/runtimes/embedded.ts',
+  file: 'src/install/runtimes/embedded.ts',
   owner: '@reedsalus',
   permanent: true as const,
   rationale: 'codegen-emitted',

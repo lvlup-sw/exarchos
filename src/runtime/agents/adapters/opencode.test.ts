@@ -13,7 +13,7 @@ import { parse as parseYaml } from 'yaml';
 import { IMPLEMENTER, REVIEWER } from '../definitions.js';
 import type { Capability } from '../capabilities.js';
 import { OpenCodeAdapter } from './opencode.js';
-import * as PostureMapping from '../../capabilities/posture-mapping.js';
+import * as PostureMapping from '../../../workflow/capabilities/posture-mapping.js';
 
 function forceCapabilities(caps: readonly Capability[]): void {
   vi.spyOn(PostureMapping, 'resolveCapabilities').mockReturnValue(

@@ -43,7 +43,7 @@ import {
   mintDispatchContext,
   runWithDispatchContext,
 } from '../dispatch/dispatch-context.js';
-import { createInMemoryResolver } from '../runtime/capabilities/resolver.js';
+import { createInMemoryResolver } from '../workflow/capabilities/resolver.js';
 
 let tempDir: string;
 

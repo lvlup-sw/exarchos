@@ -12,7 +12,7 @@ import { CursorAdapter } from './cursor.js';
 import { IMPLEMENTER, REVIEWER, SCAFFOLDER } from '../definitions.js';
 import type { AgentSpec } from '../types.js';
 import type { Capability } from '../capabilities.js';
-import * as PostureMapping from '../../capabilities/posture-mapping.js';
+import * as PostureMapping from '../../../workflow/capabilities/posture-mapping.js';
 
 /** Spy that forces `resolveCapabilities` to a hand-picked set for one test. */
 function forceCapabilities(caps: readonly Capability[]): void {

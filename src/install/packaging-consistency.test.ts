@@ -35,7 +35,7 @@ import { fileURLToPath } from 'node:url';
 import { load as yamlLoad } from 'js-yaml';
 
 // `src/` → repo root is one level up.
-const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../..');
 
 /** The preview release tag this bundle coordinates with (see file header). */
 const PREVIEW_VERSION = '2.12.0-preview.3';

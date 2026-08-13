@@ -4,7 +4,7 @@ import {
   createInMemoryResolver,
   resolveEffectiveCapabilities,
   resolvePosture,
-} from '../runtime/capabilities/resolver.js';
+} from '../workflow/capabilities/resolver.js';
 import type { Capability } from '../runtime/agents/capabilities.js';
 import { dispatch } from './core/dispatch.js';
 import { EventStore } from '../events/store.js';

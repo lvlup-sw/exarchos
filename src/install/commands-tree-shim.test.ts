@@ -28,7 +28,7 @@ import {
   canonicalCommandSet,
 } from './config/canonical-skills.js';
 
-const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../..');
 const commandsDir = join(repoRoot, 'commands');
 const skillsSrcDir = join(repoRoot, 'skills-src');
 

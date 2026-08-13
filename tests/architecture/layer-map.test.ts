@@ -72,9 +72,11 @@ const TARGETS = [
 describe('LayerMap_EveryCoreDirectory_MapsToALayerOrAStatedException', () => {
   it('the scan is not vacuous', () => {
     // A listing that returns nothing would make every assertion below trivially
-    // true. The floor is deliberately well under the measured 55 so ordinary
-    // consolidation does not trip it, and well over zero.
-    expect(liveDirs.length).toBeGreaterThan(40);
+    // true. The floor sits well under the measured 28 so ordinary consolidation
+    // does not trip it, and well over zero. It was 40 against the pre-fold tree
+    // of 44; task 019 consolidated to 28, which is the refactor working rather
+    // than a regression — the floor tracks the tree, it does not pin its size.
+    expect(liveDirs.length).toBeGreaterThan(20);
   });
 
   it('every directory on disk has an entry', () => {

@@ -143,8 +143,7 @@ describe('resolveCatalogSources (T2)', () => {
 describe('resolveCatalogSources — real repo config (DR-31 / T-41)', () => {
   const REPO_ROOT = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
-    '../../../..',
-  );
+    '../..');
   const REPO_CONFIG_PATH = path.join(REPO_ROOT, '.exarchos.yml');
 
   type InvariantsBlock = Record<string, unknown>;

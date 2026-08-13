@@ -89,7 +89,7 @@ vi.mock('./gates/gate-severity.js', () => ({
   resolveGateSeverity: () => controls.mockSeverity,
 }));
 
-import { createInMemoryResolver } from '../runtime/capabilities/resolver.js';
+import { createInMemoryResolver } from '../workflow/capabilities/resolver.js';
 import {
   deriveMcpCallerIdentity,
   snapshotCallerAuthorization,

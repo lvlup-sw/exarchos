@@ -20,7 +20,7 @@ import { handleView } from './composite.js';
 import { deriveRepoKey } from '../../utils/paths.js';
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
-import type { QualityHintsConfig } from '../../runtime/capabilities/resolver.js';
+import type { QualityHintsConfig } from '../../workflow/capabilities/resolver.js';
 
 let tempDir: string;
 let stateDir: string;

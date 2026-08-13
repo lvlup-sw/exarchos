@@ -38,7 +38,7 @@ import {
   REVIEWER,
   SCAFFOLDER,
 } from './definitions.js';
-import { resolveCapabilities } from '../capabilities/posture-mapping.js';
+import { resolveCapabilities } from '../../workflow/capabilities/posture-mapping.js';
 import type { AgentSpec, AgentSpecId } from './types.js';
 import { claudeAdapter } from './adapters/claude.js';
 import { codexAdapter } from './adapters/codex.js';

@@ -67,8 +67,29 @@ export const FILE_ALIASES = [
   // the dissolved package's own root is now the repo root. Without this, a path
   // that walked up to the package root (`resolve(HERE, '..', '..')`) would keep
   // naming a directory that no longer exists.
+];
+
+/**
+ * Aliases that are only valid for PATH ARITHMETIC, never for textual
+ * substitution.
+ *
+ * `servers/exarchos-mcp` as a resolved DIRECTORY is now the repo root, so a
+ * walk that lands there should be recomputed against the root. But the same
+ * mapping applied to a STRING deletes it — which silently turned a
+ * `DECLARED_PACKAGES` key into a duplicate of its neighbour and blanked a
+ * dozen comments before this split existed. Two uses, two tables.
+ */
+export const PATH_ONLY_ALIASES = [
   ['servers/exarchos-mcp/', ''],
   ['servers/exarchos-mcp', ''],
+  // `servers/` itself is gone, so any path that walked up into it was aiming at
+  // the repo root — including the ones that were ALREADY off by a level before
+  // this move. Task 018 added a directory under `adapters/` without adjusting
+  // the `'..'` counts above it, so those literals have been resolving to the
+  // package root instead of the repo root ever since, silently, because a
+  // too-short walk still lands on a real directory.
+  ['servers/', ''],
+  ['servers', ''],
   ['servers/exarchos-mcp/package.json', 'package.json'],
   ['servers/exarchos-mcp/vitest.config.ts', 'vitest.config.ts'],
   ['servers/exarchos-mcp/tsconfig.scripts.json', 'tsconfig.scripts.json'],
@@ -95,5 +116,20 @@ const LITERAL_SORTED = [...FILE_ALIASES, ...PREFIX_MOVES].sort((a, b) => b[0].le
 
 export function mapLiteral(rel) {
   for (const [from, to] of LITERAL_SORTED) if (rel.startsWith(from)) return to + rel.slice(from.length);
+  return rel;
+}
+
+/**
+ * Map a resolved DIRECTORY path, for the codemods that recompute a relative
+ * walk. Adds {@link PATH_ONLY_ALIASES} on top of the literal table — safe here
+ * because the result is fed to `path.relative`, never substituted into source
+ * as text.
+ */
+const PATH_SORTED = [...PATH_ONLY_ALIASES, ...FILE_ALIASES, ...PREFIX_MOVES].sort(
+  (a, b) => b[0].length - a[0].length,
+);
+
+export function mapPathTarget(rel) {
+  for (const [from, to] of PATH_SORTED) if (rel.startsWith(from)) return to + rel.slice(from.length);
   return rel;
 }

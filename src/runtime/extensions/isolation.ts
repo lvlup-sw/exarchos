@@ -17,7 +17,7 @@
 import { z } from 'zod';
 import { Capability } from '../agents/capabilities.js';
 import type { AgentPosture } from '../agents/spec.js';
-import { capabilitiesForPosture } from '../capabilities/posture-mapping.js';
+import { capabilitiesForPosture } from '../../workflow/capabilities/posture-mapping.js';
 
 /** The declared reach of an extension. */
 export const IsolationPolicySchema = z

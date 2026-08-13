@@ -22,7 +22,7 @@ import {
 import { renderBindingBlock, BINDING_SOURCE_FILE } from './binding.js';
 import { buildAllSkills } from './build-skills.js';
 
-const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../..');
 
 /** Read every file under `root` into POSIX-relative `DigestEntry`s. */
 function readTree(root: string): DigestEntry[] {

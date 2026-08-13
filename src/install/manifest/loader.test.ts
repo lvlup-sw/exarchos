@@ -271,7 +271,7 @@ describe('Manifest Loader (A2)', () => {
 // ─── E5: Real manifest.json tests ────────────────────────────────────────────
 
 describe('Real Manifest File (E5)', () => {
-  const repoRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+  const repoRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../..');
   const manifestPath = path.join(repoRoot, 'manifest.json');
   const pkgPath = path.join(repoRoot, 'package.json');
 

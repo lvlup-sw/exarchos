@@ -177,7 +177,7 @@ describe('generateAgents', () => {
     // Force the resolver to include `team:agent-teams` so the synthetic
     // spec exercises the unsupported-cap aggregation path. Restored in
     // the finally block to avoid bleeding into adjacent tests.
-    const PostureMapping = await import('../capabilities/posture-mapping.js');
+    const PostureMapping = await import('../../workflow/capabilities/posture-mapping.js');
     const spy = vi.spyOn(PostureMapping, 'resolveCapabilities').mockReturnValue(
       Object.freeze(
         new Set<import('./capabilities.js').Capability>([

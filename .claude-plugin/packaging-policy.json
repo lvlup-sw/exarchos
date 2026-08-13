@@ -5,7 +5,7 @@
     "",
     "Why this file exists. Before task 064 the policy lived in two places that",
     "had no way to notice each other: the hand-written expectations inside",
-    "scripts/validate-plugin.sh, and the assertions in src/plugin-validation.test.ts",
+    "scripts/validate-plugin.sh, and the assertions in src/install/plugin-validation.test.ts",
     "/ src/hooks-validation.test.ts. They diverged, and the divergence was total —",
     "on 2026-08-07 the shell gate demanded `.mcp.json` (deleted on purpose in",
     "2b62e1bf3), demanded a `hooks` field in plugin.json (removed on purpose in",
@@ -32,7 +32,7 @@
       },
       {
         "field": "version",
-        "because": "Marketplace pin + `metadata.compat.minBinaryVersion` reconciliation both read it; src/plugin-validation.test.ts pins it equal to package.json's version."
+        "because": "Marketplace pin + `metadata.compat.minBinaryVersion` reconciliation both read it; src/install/plugin-validation.test.ts pins it equal to package.json's version."
       },
       {
         "field": "commands",
@@ -51,7 +51,7 @@
       {
         "field": "hooks",
         "because": "hooks/hooks.json sits at the well-known plugin path and Claude Code auto-loads it. Declaring it here ALSO registers it, so every hook fires twice.",
-        "decidedIn": "e334a392b (`chore: fix hooks test`); pinned by src/plugin-validation.test.ts `expect(plugin.hooks).toBeUndefined()`"
+        "decidedIn": "e334a392b (`chore: fix hooks test`); pinned by src/install/plugin-validation.test.ts `expect(plugin.hooks).toBeUndefined()`"
       }
     ],
     "mcpServers": {
@@ -63,7 +63,7 @@
         }
       ],
       "exact": true,
-      "exactBecause": "A second bundled server would be registered on every consumer's machine without them asking for it. src/plugin-validation.test.ts pins the key list to exactly ['exarchos']."
+      "exactBecause": "A second bundled server would be registered on every consumer's machine without them asking for it. src/install/plugin-validation.test.ts pins the key list to exactly ['exarchos']."
     }
   },
   "requiredDirs": [
@@ -134,7 +134,7 @@
       {
         "type": "SessionEnd",
         "because": "The launcher is the lifecycle authority — session lifecycle is sourced from `launch.*` events, so the SessionEnd provenance observer was dropped everywhere.",
-        "decidedIn": "DR-7 / task 016 hook-surface shrink; pinned by src/plugin-validation.test.ts `expect(hookTypes).not.toContain('SessionEnd')`"
+        "decidedIn": "DR-7 / task 016 hook-surface shrink; pinned by src/install/plugin-validation.test.ts `expect(hookTypes).not.toContain('SessionEnd')`"
       }
     ],
     "forbiddenTokens": [

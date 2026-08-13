@@ -22,7 +22,7 @@
 
 import type { z } from 'zod';
 import type { EventStore } from '../events/store.js';
-import { deriveElicitationSchema } from '../runtime/capabilities/elicitation.js';
+import { deriveElicitationSchema } from '../workflow/capabilities/elicitation.js';
 
 /**
  * Minimal `elicitation/create` surface consumed by {@link performElicitation}.

@@ -42,7 +42,7 @@ import {
 } from './projection-containment.js';
 
 // `src/` → repo root is one level up (mirrors packaging-consistency.test.ts).
-const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../..');
 
 // Enumerate once; every test reads from this authored source of truth.
 const { projections, contents } = enumerateProjections(repoRoot);

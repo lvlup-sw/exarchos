@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 
 import { ContentAddressedStore } from '../../storage/artifacts/content-addressed-store.js';
-import { createInMemoryResolver } from '../../runtime/capabilities/resolver.js';
+import { createInMemoryResolver } from '../../workflow/capabilities/resolver.js';
 import {
   deriveMcpCallerIdentity,
   snapshotCallerAuthorization,

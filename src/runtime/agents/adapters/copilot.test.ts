@@ -16,7 +16,7 @@ import { parse as parseYaml } from 'yaml';
 import type { AgentSpec } from '../types.js';
 import type { Capability } from '../capabilities.js';
 import { CopilotAdapter } from './copilot.js';
-import * as PostureMapping from '../../capabilities/posture-mapping.js';
+import * as PostureMapping from '../../../workflow/capabilities/posture-mapping.js';
 
 /** Split a Markdown-with-frontmatter document into `{ data, body }`. */
 function parseFrontmatter(contents: string): { data: Record<string, unknown>; body: string } {

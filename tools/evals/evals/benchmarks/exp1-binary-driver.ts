@@ -780,7 +780,7 @@ export async function runExp1(opts: {
  * from `EXP1_BINARIES_DIR` (default `/tmp/1670-exp1`), each built per task 003.
  */
 export async function main(): Promise<void> {
-  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../..');
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
   const outDir = path.join(repoRoot, 'docs/evals/data/2026-07-09');
   const workRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'exp1-run-'));
   try {

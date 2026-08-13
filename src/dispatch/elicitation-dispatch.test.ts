@@ -6,7 +6,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { z } from 'zod';
 import { EventStore } from '../events/store.js';
-import { createInMemoryResolver } from '../runtime/capabilities/resolver.js';
+import { createInMemoryResolver } from '../workflow/capabilities/resolver.js';
 import {
   performElicitation,
   type ElicitationClient,

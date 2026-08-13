@@ -41,7 +41,7 @@ import * as path from 'node:path';
 import { CLI_EXIT_CODES } from '../../../../src/adapters/cli/cli.js';
 import { type DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import { EventStore } from '../../../../src/events/store.js';
-import { createInMemoryResolver } from '../../../../src/runtime/capabilities/resolver.js';
+import { createInMemoryResolver } from '../../../../src/workflow/capabilities/resolver.js';
 import { resetMaterializerCache } from '../../../../src/projections/views/tools.js';
 import {
   callCli as harnessCallCli,

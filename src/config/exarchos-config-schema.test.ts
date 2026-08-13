@@ -308,8 +308,7 @@ describe('ExarchosConfigSchema', () => {
 describe('ExarchosConfigSchema — invariants.devCatalog retirement (DR-31 / T-43)', () => {
   const REPO_ROOT = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
-    '../../../..',
-  );
+    '../..');
   const REPO_CONFIG_PATH = path.join(REPO_ROOT, '.exarchos.yml');
 
   /** The RAW, unparsed `.exarchos.yml` document this repository ships. */

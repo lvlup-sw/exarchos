@@ -61,7 +61,7 @@ import {
   mintCapabilitiesForKind,
   requireMutationCapabilities,
   type RuntimeHandshake,
-} from '../../runtime/capabilities/resolver.js';
+} from '../../workflow/capabilities/resolver.js';
 import type { Capability } from '../../runtime/agents/capabilities.js';
 import {
   buildVerificationNote,

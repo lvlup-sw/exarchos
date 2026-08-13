@@ -17,7 +17,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..');
-const NESTED_ROOT = path.join(REPO_ROOT, 'servers/exarchos-mcp');
+// The core suite's root. It was a nested package until task 019 folded it
+// into the repo root; the baseline's paths are repo-relative now.
+const NESTED_ROOT = REPO_ROOT;
 
 type Baseline = {
   tree: string;

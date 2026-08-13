@@ -16,7 +16,7 @@
 import { describe, it, expect } from 'vitest';
 import { IMPLEMENTER, FIXER, REVIEWER, SCAFFOLDER, ALL_AGENT_SPECS } from './definitions.js';
 import type { AgentSpec } from './types.js';
-import { resolveCapabilities } from '../capabilities/posture-mapping.js';
+import { resolveCapabilities } from '../../workflow/capabilities/posture-mapping.js';
 
 describe('AgentSpec capability declarations', () => {
   it('AgentSpec_DeclaresCapabilities_NotClaudeTools', () => {

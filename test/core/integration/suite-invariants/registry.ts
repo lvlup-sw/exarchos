@@ -148,7 +148,7 @@ export const ACCEPTED_GAPS: readonly AcceptedGap[] = Object.freeze([
   {
     id: 'class-b/projection-containment',
     kind: 'shape-annotation-debt',
-    files: ['src/projection-containment.test.ts', 'src/projection-containment.packaging.test.ts'],
+    files: ['src/install/projection-containment.test.ts', 'src/install/projection-containment.packaging.test.ts'],
     suppresses: ['oracle-sources-missing'],
     owner: 'workflow-platform',
     expires: '2026-11-30',

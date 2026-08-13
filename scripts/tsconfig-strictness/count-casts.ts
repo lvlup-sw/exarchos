@@ -8,7 +8,7 @@
 //
 // To keep the wave honest we measure how many escape-hatch sites the wave
 // INTRODUCED versus the pre-change baseline, and gate that delta against a tight
-// budget (see `src/tsconfig-strictness.test.ts`).
+// budget (see `src/install/tsconfig-strictness.test.ts`).
 //
 // ---------------------------------------------------------------------------
 // WHAT THIS MODULE MEASURES (DR-24, task 058): type assertions in the PARSED

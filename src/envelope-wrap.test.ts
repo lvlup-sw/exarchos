@@ -5,7 +5,7 @@ import type { NextAction } from './next-action.js';
 import {
   createInMemoryResolver,
   ANTHROPIC_NATIVE_CACHING,
-} from './runtime/capabilities/resolver.js';
+} from './workflow/capabilities/resolver.js';
 
 // ─── DR-10: shared composite envelope-wrap ──────────────────────────────────
 //

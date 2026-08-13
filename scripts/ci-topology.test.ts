@@ -351,7 +351,7 @@ describe('CI path-filter & guard coverage (DR-22)', () => {
 
   it('Guards_SkillsGuardCoversCommandAliasesAndAgents_RunsInCI_AndIsRootFiltered', () => {
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
-    // `skills:guard` (src/skills-guard.ts) is the drift guard for BOTH
+    // `skills:guard` (src/install/skills-guard.ts) is the drift guard for BOTH
     // `command-aliases/` and `agents/` (it regenerates and diffs both trees
     // — see the runSkillsGuard implementation). Assert it actually runs in
     // CI and is gated on `root`, same as hooks:guard above.

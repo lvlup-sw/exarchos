@@ -116,7 +116,7 @@ export const SOURCE_TREE_ROOTS = [
  * it was derived by enumerating every filesystem write on the binary build
  * path (`scripts/build-binary.ts` → `codegenEmbeddedRuntimes()`):
  *
- * - `src/runtimes/embedded.ts` — rewritten by `generateEmbeddedRuntimesModule`
+ * - `src/install/runtimes/embedded.ts` — rewritten by `generateEmbeddedRuntimesModule`
  *   (`scripts/codegen-runtimes.ts:153`) before EVERY `bun build --compile`, so
  *   it is dirty in the five `binary-matrix` jobs and clean in `publish-release`
  *   (which never runs codegen). Excluding it is what keeps a legitimate release
@@ -131,7 +131,7 @@ export const SOURCE_TREE_ROOTS = [
  * NOTHING ELSE MAY BE ADDED HERE without an equivalent audit — every entry is
  * a hole in the provenance claim.
  */
-export const GENERATED_AT_BUILD_PATHS = ['src/runtimes/embedded.ts'] as const;
+export const GENERATED_AT_BUILD_PATHS = ['src/install/runtimes/embedded.ts'] as const;
 
 /**
  * Cap on how many modified paths are NAMED in the identity. A pathological
@@ -344,7 +344,7 @@ export function listCommittedBlobs(
  * separate `binary-matrix` runners) AND into the signed manifest built in a
  * sixth job. Those are six independent checkouts. A working-tree digest would
  * only coincide across all six by luck — any job that regenerates a checked-in
- * artifact (e.g. `codegenEmbeddedRuntimes()` rewriting `src/runtimes/embedded.ts`)
+ * artifact (e.g. `codegenEmbeddedRuntimes()` rewriting `src/install/runtimes/embedded.ts`)
  * or any concurrent edit would silently split the identity in two and make the
  * installer's source check unsatisfiable. Digesting the commit's own blobs is
  * reproducible by construction: same tag ⇒ same digest, on every runner, on

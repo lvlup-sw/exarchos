@@ -1,7 +1,7 @@
 {
-  "capturedAt": "2026-08-12",
-  "trackedFiles": 3343,
-  "scannedFiles": 3224,
+  "capturedAt": "2026-08-13",
+  "trackedFiles": 3352,
+  "scannedFiles": 3235,
   "namedFilesIncluded": [
     ".github/CODEOWNERS",
     ".gitattributes",
@@ -80,9 +80,9 @@
         "src/__tests__/skills/prune.test.ts",
         "src/__tests__/workflow/integration.test.ts",
         "src/adapters/cli/cli-format.test.ts",
-        "src/runtime/agents/build-pipeline.test.ts",
-        "src/runtime/agents/generate-agents.test.ts",
-        "src/runtime/agents/generate-agents.ts"
+        "src/architecture/doc-scanners-specs.test.ts",
+        "src/architecture/vocabulary-lint.test.ts",
+        "src/architecture/vocabulary-lint.ts"
       ]
     },
     "docs/research": {
@@ -117,10 +117,10 @@
         "src/adapters/json-schema.ts",
         "src/adapters/mcp/mcp.test.ts",
         "src/adapters/mcp/mcp.ts",
-        "src/runtime/agents/adapters/codex.test.ts",
-        "src/runtime/agents/adapters/codex.ts",
-        "src/runtime/agents/adapters/copilot.test.ts",
-        "src/architecture/description-budget.ts"
+        "src/architecture/vocabulary-lint.ts",
+        "src/commands/phase-transition-prose.test.ts",
+        "src/dispatch/core/dispatch.test.ts",
+        "src/dispatch/core/interceptors/session-machinery.ts"
       ]
     },
     "docs/audits": {
@@ -180,11 +180,11 @@
       "sampleLiveCodeReferrers": [
         "src/adapters/cli/hooks.ts",
         "src/architecture/invariants-loader.test.ts",
+        "src/install/build-hooks.ts",
+        "src/install/hooks-validation.test.ts",
+        "src/install/plugin-validation.test.ts",
         "src/lifecycle/session-start.ts",
-        "src/lifecycle/subagent-stop.ts",
-        "src/build-hooks.ts",
-        "src/hooks-validation.test.ts",
-        "src/plugin-validation.test.ts"
+        "src/lifecycle/subagent-stop.ts"
       ]
     },
     "docs/rca": {
@@ -218,11 +218,11 @@
         "scripts/check-event-store-composition-root.mjs",
         "scripts/check-event-store-composition-root.test.ts",
         "src/__tests__/event-store/single-composition-root.test.ts",
-        "src/runtime/agents/generate-agents.test.ts",
         "src/architecture/vocabulary-lint.ts",
         "src/config/artifact-dir-symlink.test.ts",
         "src/config/artifacts.ts",
-        "src/projections/views/tools.ts"
+        "src/install/commands-checkpoint-validation.test.ts",
+        "src/install/commands-rehydrate-validation.test.ts"
       ]
     },
     "docs/guides": {
@@ -255,9 +255,9 @@
       "sampleLiveCodeReferrers": [
         "eslint.envelopes.config.js",
         "scripts/ci-topology.test.ts",
-        "scripts/guard-inventory.ts",
         "scripts/core/cli-derivation-guard.ts",
         "scripts/core/output-schema-ratchet-guard.ts",
+        "scripts/guard-inventory.ts",
         "src/architecture/invariants-loader.test.ts",
         "src/architecture/sdlc-catalog.ts",
         "src/architecture/vocabulary-lint.test.ts"
@@ -309,11 +309,11 @@
         "docs/plans/archive/2026-05-20-invariants-catalog-v2-implementation.md",
         "docs/research/2026-05-23-v2-10-0-preview-4-build-review.md",
         "docs/specs/2026-07-15-debloat-wave1-structural-enforcement-t8-baseline.md",
-        "src/architecture/invariants-loader.test.ts",
-        "src/architecture/vocabulary-lint.test.ts",
-        "src/architecture/vocabulary-lint.ts",
-        "src/config/yaml-schema.ts",
-        "skills-src/ideate/references/constraint-anchoring.md"
+        "skills-src/ideate/references/constraint-anchoring.md",
+        "skills/claude/ideate/references/constraint-anchoring.md",
+        "skills/codex/ideate/references/constraint-anchoring.md",
+        "skills/copilot/ideate/references/constraint-anchoring.md",
+        "skills/cursor/ideate/references/constraint-anchoring.md"
       ],
       "sampleLiveCodeReferrers": [
         "src/architecture/invariants-loader.test.ts",
@@ -503,8 +503,8 @@
         "docs/specs/2026-08-11-comment-hygiene-enforcement.md",
         "docs/specs/2026-08-11-exarchos-repo-structure-cleanup.md",
         "scripts/lib/comment-policy.test.ts",
-        "tools/evals/evals/benchmarks/exp1-binary-driver.ts",
-        "tools/evals/evals/benchmarks/seeded-defects/catch-rate-driver.ts"
+        "tools/audit/test-inventory-baseline.json",
+        "tools/evals/evals/benchmarks/exp1-binary-driver.ts"
       ],
       "sampleLiveCodeReferrers": [
         "scripts/lib/comment-policy.test.ts",
@@ -565,16 +565,16 @@
     "docs/architecture": {
       "disposition": "re-home",
       "ownFiles": 13,
-      "externalReferrers": 80,
+      "externalReferrers": 81,
       "referrersByKind": {
-        "code": 26,
+        "code": 27,
         "config": 5,
         "snapshot": 0,
         "markdownLive": 4,
         "markdownArchival": 45,
         "other": 0
       },
-      "liveReferrers": 35,
+      "liveReferrers": 36,
       "sampleReferrers": [
         ".exarchos/invariants.md",
         ".github/workflows/ci.yml",
@@ -592,12 +592,12 @@
       "sampleLiveCodeReferrers": [
         "scripts/docs-check.test.ts",
         "src/architecture/catalog-sources.ts",
+        "src/architecture/contract-seam-doc.test.ts",
         "src/architecture/invariant-schema.test.ts",
         "src/architecture/invariant-schema.ts",
         "src/architecture/invariants-loader.test.ts",
         "src/architecture/invariants-loader.ts",
-        "src/architecture/project-catalog.test.ts",
-        "src/architecture/resolve-effective-catalog.test.ts"
+        "src/architecture/project-catalog.test.ts"
       ]
     }
   }

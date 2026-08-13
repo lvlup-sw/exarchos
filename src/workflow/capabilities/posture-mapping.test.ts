@@ -17,8 +17,8 @@ import {
   listPostures,
   resolveCapabilities,
 } from './posture-mapping.js';
-import type { AgentPosture } from '../agents/spec.js';
-import { ALL_AGENT_SPECS } from '../agents/definitions.js';
+import type { AgentPosture } from '../../runtime/agents/spec.js';
+import { ALL_AGENT_SPECS } from '../../runtime/agents/definitions.js';
 
 describe('Posture-to-capability mapping properties (T32, DR-6)', () => {
   it('PostureMapping_AllPosturesMapToAtLeastOneCapability', () => {

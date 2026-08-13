@@ -163,7 +163,7 @@ describe('parseTaskBlocks', () => {
 // REPO_ROOT resolution mirrors template-roundtrip.test.ts: `__dirname` is
 // undefined under NodeNext/ESM, so resolve from this file's URL. This file lives
 // at src/verbs/tasks/<this> → ../../../../.. is the repo root.
-const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..', '..');
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 describe('parseTaskBlocks — #1670 majority-4-hash corpus (DR-5)', () => {
   it('ParseTaskBlocks_FourHashCorpusSpec_ExtractsTiers', () => {

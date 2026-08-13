@@ -53,7 +53,7 @@ import {
   MAX_MUTATE_FILES,
 } from '../../scripts/core/stryker-adapter.mjs';
 
-const REAL_SERVER_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const REAL_SERVER_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const REPO_ROOT = path.resolve(REAL_SERVER_DIR, '..', '..');
 const ADAPTER_SCRIPT = path.join(REAL_SERVER_DIR, 'scripts', 'stryker-adapter.mjs');
 

@@ -17,7 +17,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
-import { mapLiteral } from './move-table.mjs';
+import { mapPathTarget } from './move-table.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const APPLY = process.argv.includes('--apply');
@@ -41,7 +41,7 @@ for (const old of execFileSync('git', ['-C', ROOT, 'ls-tree', '-r', '--name-only
 })
   .split('\n')
   .filter(Boolean)) {
-  const next = mapLiteral(old);
+  const next = mapPathTarget(old);
   if (next !== old) oldOf.set(next, old);
 }
 
@@ -72,7 +72,7 @@ for (const rel of tracked) {
 
   const remap = (segs) => {
     const targetOld = path.resolve(oldDir, ...segs);
-    const mappedRel = mapLiteral(path.relative(ROOT, targetOld).split(path.sep).join('/'));
+    const mappedRel = mapPathTarget(path.relative(ROOT, targetOld).split(path.sep).join('/'));
     const targetNew = path.join(ROOT, mappedRel);
     let next = path.relative(newDir, targetNew).split(path.sep).join('/');
     if (next === '') next = '.';

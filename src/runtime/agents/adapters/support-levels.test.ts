@@ -21,7 +21,7 @@ import { codexAdapter } from './codex.js';
 import { OpenCodeAdapter } from './opencode.js';
 import { CursorAdapter } from './cursor.js';
 import { CopilotAdapter } from './copilot.js';
-import * as PostureMapping from '../../capabilities/posture-mapping.js';
+import * as PostureMapping from '../../../workflow/capabilities/posture-mapping.js';
 
 /** Adapter registry. The CopilotAdapter is a class — instantiate it. */
 const ADAPTERS: ReadonlyArray<{ name: string; adapter: RuntimeAdapter }> = [

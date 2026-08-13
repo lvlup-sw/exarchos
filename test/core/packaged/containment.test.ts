@@ -3,7 +3,7 @@
  *
  * ## The defect this replaces
  *
- * The previous headline proof (`src/projection-containment.packaging.test.ts`)
+ * The previous headline proof (`src/install/projection-containment.packaging.test.ts`)
  * derived BOTH sides of the comparison from one read: `enumerateProjections()`
  * produced a `contents` map, the required inventory was digested from that map,
  * and the "packaged layer" was `packagedLayerFromContents(contents)` — the same
@@ -34,7 +34,7 @@
  * ## Delivery-mode scope (honesty note)
  *
  * Only `npm-files` projections can be observed as tarball entries. The `runtime`
- * kind is codegen'd into `src/runtimes/embedded.ts` and compiled into the
+ * kind is codegen'd into `src/install/runtimes/embedded.ts` and compiled into the
  * single-file binary (`dist/bin`), so it is deliberately out of scope here —
  * `checkShippedCoverage` remains its proof. `npmFilesSpecs()` makes that
  * exclusion explicit rather than accidental.

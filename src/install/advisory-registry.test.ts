@@ -58,7 +58,7 @@ import { runKillProbe } from './advisory-kill-probes.js';
 // @ts-expect-error — no .d.ts for this .mjs gate; its contract is asserted here.
 import { analyzeCiPathFilters, isNonFilteringIf, audit } from '../../scripts/check-enforcer-wiring.mjs';
 
-const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../..');
 
 /** A far-future clock so real registry expiries are never "in the past". */
 const CLOCK = new Date('2026-01-01T00:00:00Z');

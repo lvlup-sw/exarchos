@@ -1,7 +1,7 @@
 // DR-24 (Task 058): the cast census must measure type ASSERTIONS, not text.
 //
 // The census feeds a closed-window ratchet (`[BASELINE, BASELINE + 5]`, see
-// `src/tsconfig-strictness.test.ts`), so anything it miscounts is spent out of a
+// `src/install/tsconfig-strictness.test.ts`), so anything it miscounts is spent out of a
 // five-site budget. These tests pin both directions of correctness:
 //   - false POSITIVES are gone (comment prose, namespace imports, literal text);
 //   - false NEGATIVES were not introduced (every real assertion form still counts).

@@ -22,7 +22,7 @@ import {
   type ToolResult,
 } from './format.js';
 import { nextActionsFromResult } from './next-actions-from-result.js';
-import type { CapabilityResolver } from './runtime/capabilities/resolver.js';
+import type { CapabilityResolver } from './workflow/capabilities/resolver.js';
 
 /**
  * Opt-in behaviors layered on top of the base envelope wrap. Both default off,
