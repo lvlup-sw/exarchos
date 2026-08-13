@@ -403,6 +403,15 @@ export const INERT_DEPENDENCIES: ReadonlySet<string> = new Set([
   'yaml',
   'yazl',
   'zod',
+  // Vetted when task 019 widened this census's scan root. The installer and
+  // renderer toolchain used to live in a `src/` outside the subject tree, so
+  // its dependency surface had never been put to this list — not because
+  // anyone judged it inert, but because nothing asked. Both are:
+  //   `@inquirer/prompts` draws terminal UI over stdin/stdout;
+  //   `js-yaml` parses and serializes YAML in memory.
+  // Neither opens a socket. (`yaml` above is the core's separate YAML library.)
+  '@inquirer/prompts',
+  'js-yaml',
 ]);
 
 /**
@@ -951,7 +960,7 @@ function registerLedger(): readonly EffectOwnershipRule[] {
     ),
     rule(
       'process',
-      'launcher/',
+      'runtime/launcher/',
       'launcher-process-owner',
       'idempotent: teardown/liveness probes tolerate re-run',
       'launcher lifecycle owns child kill/teardown',
@@ -962,6 +971,16 @@ function registerLedger(): readonly EffectOwnershipRule[] {
       'cli-process-owner',
       'per-command: CLI verification runners own re-run semantics',
       'none: verification is read-only over the worktree',
+    ),
+    rule(
+      'process',
+      'install/',
+      'install-process-owner',
+      'idempotent: every subprocess here probes or re-renders — runtime detection, ' +
+        'the skills/hooks drift guards, and the prerequisite checks all converge on ' +
+        're-run',
+      'none: the subprocesses read or regenerate a derived tree, so a failed run ' +
+        'leaves nothing to unwind — the next run recomputes it',
     ),
 
     // ── filesystem (layer granularity) ──────────────────────────────────────
@@ -1038,17 +1057,17 @@ function registerLedger(): readonly EffectOwnershipRule[] {
     ),
     rule('filesystem', 'dispatch/core/', 'core-fs', 'read-only bootstrap/context', 'none'),
     rule('filesystem', 'utils/', 'utils-fs', 'pure fs helpers; caller owns idempotency', 'caller-owned'),
-    rule('filesystem', 'lib/', 'lib-fs', 'pure fs helpers; caller owns idempotency', 'caller-owned'),
-    rule('filesystem', 'launcher/', 'launcher-fs', 'startup/teardown fs; idempotent', 'launcher teardown'),
-    rule('filesystem', 'agents/', 'agents-fs', 'agent definition reads; read-only', 'none'),
+    rule('filesystem', 'runtime/lib/', 'lib-fs', 'pure fs helpers; caller owns idempotency', 'caller-owned'),
+    rule('filesystem', 'runtime/launcher/', 'launcher-fs', 'startup/teardown fs; idempotent', 'launcher teardown'),
+    rule('filesystem', 'runtime/agents/', 'agents-fs', 'agent definition reads; read-only', 'none'),
     rule('filesystem', 'sync/', 'sync-fs', 'outbox writes; idempotent by op id', 'outbox reconciliation'),
     rule('filesystem', 'runtime/', 'runtime-fs', 'runtime resource reads; read-only', 'none'),
     rule('filesystem', 'projections/telemetry/', 'telemetry-fs', 'append-only telemetry; best-effort', 'none: telemetry is advisory'),
     rule('filesystem', 'workflow/topology/', 'topology-fs', 'topology reads; read-only', 'none'),
     rule('filesystem', 'lifecycle/', 'cli-fs', 'worktree reads/writes; per-command', 'none: read-mostly'),
     rule('filesystem', 'adapters/', 'adapters-fs', 'adapter io; caller owns idempotency', 'caller-owned'),
-    rule('filesystem', 'onramp/', 'onramp-fs', 'onboarding scaffold writes; idempotent', 'scaffold is re-runnable'),
-    rule('filesystem', 'workspace/', 'workspace-fs', 'workspace reads/writes; idempotent by path', 'caller-owned'),
+    rule('filesystem', 'install/onramp/', 'onramp-fs', 'onboarding scaffold writes; idempotent', 'scaffold is re-runnable'),
+    rule('filesystem', 'runtime/workspace/', 'workspace-fs', 'workspace reads/writes; idempotent by path', 'caller-owned'),
     rule(
       'filesystem',
       'contract/',
@@ -1058,7 +1077,7 @@ function registerLedger(): readonly EffectOwnershipRule[] {
     ),
     rule(
       'filesystem',
-      'extensions/',
+      'runtime/extensions/',
       'extension-trust-fs',
       'version-ledger high-water marks advance monotonically; re-record is a no-op',
       'a corrupt or failed ledger write fails closed and blocks admission',
@@ -1072,7 +1091,7 @@ function registerLedger(): readonly EffectOwnershipRule[] {
     ),
     rule(
       'filesystem',
-      'release/',
+      'install/release/',
       'release-manifest-fs',
       'manifest/asset reads are content-addressed and idempotent',
       'verification is read-only; a rejected release publishes nothing',
