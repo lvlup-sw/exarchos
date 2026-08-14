@@ -12,6 +12,15 @@ src/**/*.js.map
 src/**/*.d.ts
 src/**/*.d.ts.map
 
+# ...except the install-skills bridge, which is AUTHORED JavaScript, not output.
+# It is `.js` on purpose: tsc runs `allowJs: false` and must never resolve it,
+# while bun's `--compile` bundler must, or the installer never reaches the
+# binary. The rule above is written for compiled output and cannot tell the two
+# apart, so it silently untracked this file when the server tree folded into
+# `src/`, and a fresh clone then failed `npm run build` at the bundle step.
+!src/lifecycle/install-skills-bridge.js
+!src/lifecycle/install-skills-bridge.d.ts
+
 # Ignore node_modules in plugins
 plugins/*/servers/*/node_modules/
 plugins/*/servers/*/dist/
