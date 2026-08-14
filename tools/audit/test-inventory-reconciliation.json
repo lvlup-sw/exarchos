@@ -1,13 +1,13 @@
 {
-  "note": "Task 034. The one-time reconciliation of the task 002 test inventory against the tree after tasks 010-033. Identity is (suite, name) — the runner is deliberately EXCLUDED, because task 019 dissolved the nested vitest package and `vitest:nested` ceased to exist, which reports all 10,986 of that package's tests as lost on a runner-bearing id. Every entry below is a test whose NAME changed while its file survived; no test file and no test case was lost. `test-inventory.test.ts` re-checks each one: `from` must be absent and `to` must be present, so re-renaming or deleting one of these fails rather than quietly re-opening the gap this audit closed.",
+  "note": "Task 034. The one-time reconciliation of the task 002 test inventory against the tree after tasks 010-033. Identity is (suite, name) \u2014 the runner is deliberately EXCLUDED, because task 019 dissolved the nested vitest package and `vitest:nested` ceased to exist, which reports all 10,986 of that package's tests as lost on a runner-bearing id. Every entry below is a test whose NAME changed while its file survived; no test file and no test case was lost. `test-inventory.test.ts` re-checks each one: `from` must be absent and `to` must be present, so re-renaming or deleting one of these fails rather than quietly re-opening the gap this audit closed.",
   "originCommit": "d53817389",
   "originIds": 12562,
   "currentIds": 12753,
   "renames": [
     {
-      "from": "DR-0 / task 050 — SDK patch lifetime policy::PatchLifetime_PatchPackage_IsInstalledAndWiredToPostinstall",
+      "from": "DR-0 / task 050 \u2014 SDK patch lifetime policy::PatchLifetime_PatchPackage_IsInstalledAndWiredToPostinstall",
       "fromFile": "servers/exarchos-mcp/src/__tests__/sdk-patch-policy.test.ts",
-      "to": "DR-0 / task 050 — SDK patch lifetime policy::PatchLifetime_LiveTree_AgreesWithTheDeclaredPin",
+      "to": "DR-0 / task 050 \u2014 SDK patch lifetime policy::PatchLifetime_LiveTree_AgreesWithTheDeclaredPin",
       "toFile": "tests/unit/sdk-patch-policy.test.ts",
       "similarity": 0.78
     },
@@ -82,9 +82,9 @@
       "similarity": 0.71
     },
     {
-      "from": "EFF-012 — onboarding install converges per supported runtime::discovers the supported runtimes from runtimes/*.yaml",
+      "from": "EFF-012 \u2014 onboarding install converges per supported runtime::discovers the supported runtimes from runtimes/*.yaml",
       "fromFile": "servers/exarchos-mcp/src/install/atomic-promotion.test.ts",
-      "to": "EFF-012 — onboarding install converges per supported runtime::discovers the supported runtimes from content/harness/runtimes/*.yaml",
+      "to": "EFF-012 \u2014 onboarding install converges per supported runtime::discovers the supported runtimes from content/harness/runtimes/*.yaml",
       "toFile": "tests/unit/install/atomic-promotion.test.ts",
       "similarity": 0.87
     },
@@ -103,30 +103,30 @@
       "similarity": 0.92
     },
     {
-      "from": "dev-catalog v3 content — CR-2 mode:check enforcement::inv13_executedOutsideOrchestrateScope_producesNoFinding",
+      "from": "dev-catalog v3 content \u2014 CR-2 mode:check enforcement::inv13_executedOutsideOrchestrateScope_producesNoFinding",
       "fromFile": "servers/exarchos-mcp/src/architecture/dev-catalog-content.test.ts",
-      "to": "dev-catalog v3 content — CR-2 mode:check enforcement::inv13_addsBothRequestedAndExecuted_producesNoFinding",
+      "to": "dev-catalog v3 content \u2014 CR-2 mode:check enforcement::inv13_addsBothRequestedAndExecuted_producesNoFinding",
       "toFile": "tests/unit/architecture/dev-catalog-content.test.ts",
       "similarity": 0.89
     },
     {
-      "from": "discoverProtectedFiles — generated from the LIVE tree, not hand-listed::does NOT include event-store/tools.test.ts (imports fast-check, but a consolidation target)",
+      "from": "discoverProtectedFiles \u2014 generated from the LIVE tree, not hand-listed::does NOT include event-store/tools.test.ts (imports fast-check, but a consolidation target)",
       "fromFile": "scripts/audit/check-protected.test.ts",
-      "to": "discoverProtectedFiles — generated from the LIVE tree, not hand-listed::does NOT include events/tools.test.ts (imports fast-check, but a consolidation target)",
+      "to": "discoverProtectedFiles \u2014 generated from the LIVE tree, not hand-listed::does NOT include events/tools.test.ts (imports fast-check, but a consolidation target)",
       "toFile": "tests/scripts/audit/check-protected.test.ts",
       "similarity": 0.9
     },
     {
-      "from": "discoverProtectedFiles — generated from the LIVE tree, not hand-listed::finds the views/parity and event-store/parity area files (literal name, not suffix-matched)",
+      "from": "discoverProtectedFiles \u2014 generated from the LIVE tree, not hand-listed::finds the views/parity and event-store/parity area files (literal name, not suffix-matched)",
       "fromFile": "scripts/audit/check-protected.test.ts",
-      "to": "discoverProtectedFiles — generated from the LIVE tree, not hand-listed::finds the projections/views/parity and events/parity area files (literal name, not suffix-matched)",
+      "to": "discoverProtectedFiles \u2014 generated from the LIVE tree, not hand-listed::finds the projections/views/parity and events/parity area files (literal name, not suffix-matched)",
       "toFile": "tests/scripts/audit/check-protected.test.ts",
       "similarity": 0.9
     },
     {
-      "from": "findProtectedViolations — the change-set intersection::ignores files outside SRC_ROOT entirely (not a false positive on unrelated paths)",
+      "from": "findProtectedViolations \u2014 the change-set intersection::ignores files outside SRC_ROOT entirely (not a false positive on unrelated paths)",
       "fromFile": "scripts/audit/check-protected.test.ts",
-      "to": "findProtectedViolations — the change-set intersection::ignores files outside every protected root entirely (not a false positive on unrelated paths)",
+      "to": "findProtectedViolations \u2014 the change-set intersection::ignores files outside every protected root entirely (not a false positive on unrelated paths)",
       "toFile": "tests/scripts/audit/check-protected.test.ts",
       "similarity": 0.88
     },
@@ -138,16 +138,16 @@
       "similarity": 0.8
     },
     {
-      "from": "isKeepClassRelPath — suffix/area/explicit classifier (DR-5)::is NOT fooled by a file merely importing fast-check (event-store/tools.test.ts)",
+      "from": "isKeepClassRelPath \u2014 suffix/area/explicit classifier (DR-5)::is NOT fooled by a file merely importing fast-check (event-store/tools.test.ts)",
       "fromFile": "scripts/audit/check-protected.test.ts",
-      "to": "isKeepClassRelPath — suffix/area/explicit classifier (DR-5)::is NOT fooled by a file merely importing fast-check (events/tools.test.ts)",
+      "to": "isKeepClassRelPath \u2014 suffix/area/explicit classifier (DR-5)::is NOT fooled by a file merely importing fast-check (events/tools.test.ts)",
       "toFile": "tests/scripts/audit/check-protected.test.ts",
       "similarity": 0.88
     },
     {
-      "from": "live documentation ↔ registered schema agreement (WFQ-011 drift guard)::every exarchos_* example in skills-src/ and commands/ validates clean",
+      "from": "live documentation \u2194 registered schema agreement (WFQ-011 drift guard)::every exarchos_* example in skills-src/ and commands/ validates clean",
       "fromFile": "servers/exarchos-mcp/src/quality/skill-example-validator.test.ts",
-      "to": "live documentation ↔ registered schema agreement (WFQ-011 drift guard)::every exarchos_* example in content/ and commands/ validates clean",
+      "to": "live documentation \u2194 registered schema agreement (WFQ-011 drift guard)::every exarchos_* example in content/ and commands/ validates clean",
       "toFile": "tests/unit/projections/quality/skill-example-validator.test.ts",
       "similarity": 0.89
     },
@@ -264,37 +264,37 @@
       "similarity": 0.78
     },
     {
-      "from": "runtimes/copilot.yaml — local task --agent primitive::CopilotYaml_AdapterAlignment_MatchesSupportLevels",
+      "from": "runtimes/copilot.yaml \u2014 local task --agent primitive::CopilotYaml_AdapterAlignment_MatchesSupportLevels",
       "fromFile": "servers/exarchos-mcp/src/runtimes/copilot.test.ts",
-      "to": "content/harness/runtimes/copilot.yaml — local task --agent primitive::CopilotYaml_AdapterAlignment_MatchesSupportLevels",
+      "to": "content/harness/runtimes/copilot.yaml \u2014 local task --agent primitive::CopilotYaml_AdapterAlignment_MatchesSupportLevels",
       "toFile": "tests/unit/runtime/runtimes/copilot.test.ts",
       "similarity": 0.83
     },
     {
-      "from": "runtimes/copilot.yaml — local task --agent primitive::CopilotYaml_SpawnAgentCall_ReferencesGeneratedAgentName",
+      "from": "runtimes/copilot.yaml \u2014 local task --agent primitive::CopilotYaml_SpawnAgentCall_ReferencesGeneratedAgentName",
       "fromFile": "servers/exarchos-mcp/src/runtimes/copilot.test.ts",
-      "to": "content/harness/runtimes/copilot.yaml — local task --agent primitive::CopilotYaml_SpawnAgentCall_ReferencesGeneratedAgentName",
+      "to": "content/harness/runtimes/copilot.yaml \u2014 local task --agent primitive::CopilotYaml_SpawnAgentCall_ReferencesGeneratedAgentName",
       "toFile": "tests/unit/runtime/runtimes/copilot.test.ts",
       "similarity": 0.83
     },
     {
-      "from": "runtimes/copilot.yaml — local task --agent primitive::CopilotYaml_SpawnAgentCall_UsesLocalTaskAgentNotDelegate",
+      "from": "runtimes/copilot.yaml \u2014 local task --agent primitive::CopilotYaml_SpawnAgentCall_UsesLocalTaskAgentNotDelegate",
       "fromFile": "servers/exarchos-mcp/src/runtimes/copilot.test.ts",
-      "to": "content/harness/runtimes/copilot.yaml — local task --agent primitive::CopilotYaml_SpawnAgentCall_UsesLocalTaskAgentNotDelegate",
+      "to": "content/harness/runtimes/copilot.yaml \u2014 local task --agent primitive::CopilotYaml_SpawnAgentCall_UsesLocalTaskAgentNotDelegate",
       "toFile": "tests/unit/runtime/runtimes/copilot.test.ts",
       "similarity": 0.83
     },
     {
-      "from": "runtimes/copilot.yaml — local task --agent primitive::CopilotYaml_StaleJustificationComment_Removed",
+      "from": "runtimes/copilot.yaml \u2014 local task --agent primitive::CopilotYaml_StaleJustificationComment_Removed",
       "fromFile": "servers/exarchos-mcp/src/runtimes/copilot.test.ts",
-      "to": "content/harness/runtimes/copilot.yaml — local task --agent primitive::CopilotYaml_StaleJustificationComment_Removed",
+      "to": "content/harness/runtimes/copilot.yaml \u2014 local task --agent primitive::CopilotYaml_StaleJustificationComment_Removed",
       "toFile": "tests/unit/runtime/runtimes/copilot.test.ts",
       "similarity": 0.83
     },
     {
-      "from": "runtimes/copilot.yaml — local task --agent primitive::CopilotYaml_SupportedCapabilities_SixNativeTwoAdvisory",
+      "from": "runtimes/copilot.yaml \u2014 local task --agent primitive::CopilotYaml_SupportedCapabilities_SixNativeTwoAdvisory",
       "fromFile": "servers/exarchos-mcp/src/runtimes/copilot.test.ts",
-      "to": "content/harness/runtimes/copilot.yaml — local task --agent primitive::CopilotYaml_SupportedCapabilities_SixNativeTwoAdvisory",
+      "to": "content/harness/runtimes/copilot.yaml \u2014 local task --agent primitive::CopilotYaml_SupportedCapabilities_SixNativeTwoAdvisory",
       "toFile": "tests/unit/runtime/runtimes/copilot.test.ts",
       "similarity": 0.83
     },
@@ -385,8 +385,8 @@
     {
       "from": "scripts/get-exarchos.sh (shell harness)::passes the full scripts/get-exarchos.test.sh suite",
       "fromFile": "scripts/get-exarchos.test.ts",
-      "to": "scripts/get-exarchos.sh (shell harness)::passes the full tests/scripts/get-exarchos.test.sh suite",
-      "toFile": "tests/scripts/get-exarchos.test.ts",
+      "to": "tools/release/get-exarchos.sh (shell harness)::passes the full tests/scripts/get-exarchos.test.sh suite",
+      "toFile": "tests/tools/release/get-exarchos.test.ts",
       "similarity": 0.91
     },
     {
@@ -445,5 +445,6 @@
       "toFile": "tests/architecture/vitest-config.test.ts",
       "similarity": 0.8
     }
-  ]
+  ],
+  "staleDestinationNote": "Task 047 retargeted one rename destination. Its `to` id embeds the SUITE path, and task 036 moved get-exarchos.sh from scripts/ to tools/release/ \u2014 so the id the ledger pinned stopped existing while the case itself never moved. The reconciliation asserts every destination is live, which is what caught it; the case name still cites tests/scripts/get-exarchos.test.sh because that harness genuinely lives there."
 }

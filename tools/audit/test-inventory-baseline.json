@@ -1,13 +1,13 @@
 {
-  "capturedAt": "2026-08-13",
+  "capturedAt": "2026-08-14",
   "discovery": "extension-based over tracked files; not a runner glob",
   "identity": "(suite path within the file, test name, runner) \u2014 path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1156,
-    "parsedFiles": 1111,
+    "testFiles": 1160,
+    "parsedFiles": 1115,
     "shellFiles": 45,
-    "cases": 12755,
+    "cases": 12786,
     "dynamicTitles": 131,
     "unparseableFiles": 0
   },
@@ -4527,21 +4527,6 @@
     }
   ],
   "files": {
-    "content/delivery/skills/delegate/references/fixer-prompt.md.test.sh": {
-      "file": "content/delivery/skills/delegate/references/fixer-prompt.md.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "content/delivery/skills/delegate/references/implementer-prompt.md.test.sh": {
-      "file": "content/delivery/skills/delegate/references/implementer-prompt.md.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "docs/schemas/workflow-state.schema.json.test.sh": {
-      "file": "docs/schemas/workflow-state.schema.json.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
     "tests/acceptance/fresh-install.test.ts": {
       "file": "tests/acceptance/fresh-install.test.ts",
       "runner": "vitest:root",
@@ -4839,6 +4824,37 @@
         }
       ]
     },
+    "tests/architecture/case-exactness.test.ts": {
+      "file": "tests/architecture/case-exactness.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "case exactness",
+          "name": "EntryPoints_EveryDeclaredPath_ResolvesWithExactCase",
+          "dynamic": false
+        },
+        {
+          "suite": "case exactness",
+          "name": "EntryPoints_WrongCase_IsRejected",
+          "dynamic": false
+        },
+        {
+          "suite": "case exactness",
+          "name": "McpBundlePath_IsAFilenameCarrier_NotAResolvablePath",
+          "dynamic": false
+        },
+        {
+          "suite": "case exactness",
+          "name": "PathHandling_EveryStoredPath_IsPosixNormalized",
+          "dynamic": false
+        },
+        {
+          "suite": "case exactness",
+          "name": "PathHandling_NormalizationHolds_ForEverySeparatorForm",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/architecture/content-domains.test.ts": {
       "file": "tests/architecture/content-domains.test.ts",
       "runner": "vitest:root",
@@ -5068,6 +5084,16 @@
         },
         {
           "suite": "guard liveness",
+          "name": "GuardLiveness_AfterRetarget_EveryGuardMatchesNonEmptySet",
+          "dynamic": false
+        },
+        {
+          "suite": "guard liveness",
+          "name": "GuardLiveness_ComparedToBaseline_NoGuardSilentlyLostItsScope",
+          "dynamic": false
+        },
+        {
+          "suite": "guard liveness",
           "name": "GuardLiveness_EverySurfaceClass_IsRepresented",
           "dynamic": false
         }
@@ -5100,6 +5126,42 @@
         {
           "suite": "GitHookSample",
           "name": "IsNotPublishedAsPartOfTheGeneratedHooksTree",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/identifier-stability.test.ts": {
+      "file": "tests/architecture/identifier-stability.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "identifier stability across decomposition",
+          "name": "PersistedIdentifiers_AcrossDecomposition_AreStable",
+          "dynamic": false
+        },
+        {
+          "suite": "identifier stability across decomposition",
+          "name": "RegisteredActions_AcrossDecomposition_AreStable",
+          "dynamic": false
+        },
+        {
+          "suite": "identifier stability across decomposition",
+          "name": "RegisteredActions_DroppedRegistration_FailsTheSnapshot",
+          "dynamic": false
+        },
+        {
+          "suite": "identifier stability across decomposition",
+          "name": "CompositeToolSurface_MatchesINV5d",
+          "dynamic": false
+        },
+        {
+          "suite": "identifier stability across decomposition",
+          "name": "DeterministicHashInputs_ForIdenticalInput_ProduceIdenticalOutput",
+          "dynamic": false
+        },
+        {
+          "suite": "identifier stability across decomposition",
+          "name": "Snapshot_CountsAgreeWithItsOwnContents",
           "dynamic": false
         }
       ]
@@ -5171,6 +5233,27 @@
         {
           "suite": "the 11 targets \u2192 9 published layers relation (what task 044 asserts)",
           "name": "every target a directory maps to is a target the layer table knows",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/locality.test.ts": {
+      "file": "tests/architecture/locality.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "locality",
+          "name": "Locality_NoDirectoryHoldsMoreThanTwentyFiveNonTestFilesAtItsOwnLevel",
+          "dynamic": false
+        },
+        {
+          "suite": "locality",
+          "name": "Locality_DeclarativeBreadthExemption_IsExplicitlyPredicated",
+          "dynamic": false
+        },
+        {
+          "suite": "locality",
+          "name": "Locality_SeededOverflow_IsRejected",
           "dynamic": false
         }
       ]
@@ -5438,6 +5521,42 @@
         {
           "suite": "TestTree",
           "name": "CapturedEvalRuns_AfterMove_RemainExcludedFromCollection",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/top-level-contract.test.ts": {
+      "file": "tests/architecture/top-level-contract.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "top-level contract",
+          "name": "TopLevel_ContainsExactlyTheAllowedEntries",
+          "dynamic": false
+        },
+        {
+          "suite": "top-level contract",
+          "name": "TopLevel_UnlistedEntryAppears_FailsWithItsName",
+          "dynamic": false
+        },
+        {
+          "suite": "top-level contract",
+          "name": "TopLevel_OnABuiltTree_StillPasses",
+          "dynamic": false
+        },
+        {
+          "suite": "top-level contract",
+          "name": "TopLevel_EveryRootFile_IsTrackedOrDeclared",
+          "dynamic": false
+        },
+        {
+          "suite": "top-level contract",
+          "name": "TopLevel_EveryAllowedEntry_CarriesAReason",
+          "dynamic": false
+        },
+        {
+          "suite": "top-level contract",
+          "name": "TopLevel_HoldsNoEmptyDirectory",
           "dynamic": false
         }
       ]
@@ -8696,11 +8815,6 @@
         }
       ]
     },
-    "tests/scripts/audit/cycle-gate.test.sh": {
-      "file": "tests/scripts/audit/cycle-gate.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
     "tests/scripts/audit/cycle-gate.test.ts": {
       "file": "tests/scripts/audit/cycle-gate.test.ts",
       "runner": "vitest:root",
@@ -8786,11 +8900,6 @@
           "dynamic": false
         }
       ]
-    },
-    "tests/scripts/audit/knip-diff.test.sh": {
-      "file": "tests/scripts/audit/knip-diff.test.sh",
-      "runner": "shell",
-      "cases": []
     },
     "tests/scripts/audit/knip-diff.test.ts": {
       "file": "tests/scripts/audit/knip-diff.test.ts",
@@ -9135,12 +9244,12 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "scripts/build-binary.ts",
+          "suite": "tools/release/build-binary.ts",
           "name": "BuildBinary_HostTarget_ProducesExecutable",
           "dynamic": false
         },
         {
-          "suite": "scripts/build-binary.ts",
+          "suite": "tools/release/build-binary.ts",
           "name": "BuildBinary_CompiledBinary_RespondsToVersionFlag",
           "dynamic": false
         }
@@ -9202,26 +9311,6 @@
         }
       ]
     },
-    "tests/scripts/check-begin-immediate-substrate.test.sh": {
-      "file": "tests/scripts/check-begin-immediate-substrate.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/check-benchmark-regression.test.sh": {
-      "file": "tests/scripts/check-benchmark-regression.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/check-coverage-ratchet.test.sh": {
-      "file": "tests/scripts/check-coverage-ratchet.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/check-enforcer-wiring.test.sh": {
-      "file": "tests/scripts/check-enforcer-wiring.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
     "tests/scripts/check-enforcer-wiring.test.ts": {
       "file": "tests/scripts/check-enforcer-wiring.test.ts",
       "runner": "vitest:root",
@@ -9234,6 +9323,11 @@
         {
           "suite": "enforcer-wiring gate \u2014 conforming trees pass",
           "name": "EnforcerWiring_ConformingTree_Passes (real repo)",
+          "dynamic": false
+        },
+        {
+          "suite": "enforcer-wiring gate \u2014 conforming trees pass",
+          "name": "EnforcerWiring_EnumeratorAndRecognizer_AgreeOnThePrimaryPrefix",
           "dynamic": false
         },
         {
@@ -9293,11 +9387,6 @@
         }
       ]
     },
-    "tests/scripts/check-eslint-windows.test.sh": {
-      "file": "tests/scripts/check-eslint-windows.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
     "tests/scripts/check-event-store-composition-root.test.ts": {
       "file": "tests/scripts/check-event-store-composition-root.test.ts",
       "runner": "vitest:root",
@@ -9343,11 +9432,6 @@
           "dynamic": false
         }
       ]
-    },
-    "tests/scripts/check-gate-runner-ownership.test.sh": {
-      "file": "tests/scripts/check-gate-runner-ownership.test.sh",
-      "runner": "shell",
-      "cases": []
     },
     "tests/scripts/check-golden-fixture-note.test.ts": {
       "file": "tests/scripts/check-golden-fixture-note.test.ts",
@@ -9491,11 +9575,6 @@
         }
       ]
     },
-    "tests/scripts/check-module-intent.test.sh": {
-      "file": "tests/scripts/check-module-intent.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
     "tests/scripts/check-module-intent.test.ts": {
       "file": "tests/scripts/check-module-intent.test.ts",
       "runner": "vitest:root",
@@ -9561,11 +9640,6 @@
           "dynamic": false
         }
       ]
-    },
-    "tests/scripts/check-mutation-gate.test.sh": {
-      "file": "tests/scripts/check-mutation-gate.test.sh",
-      "runner": "shell",
-      "cases": []
     },
     "tests/scripts/check-no-state-json.test.ts": {
       "file": "tests/scripts/check-no-state-json.test.ts",
@@ -9777,26 +9851,6 @@
         }
       ]
     },
-    "tests/scripts/check-type-debt.test.sh": {
-      "file": "tests/scripts/check-type-debt.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/check-windows-portability.test.sh": {
-      "file": "tests/scripts/check-windows-portability.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/check-withsession-idempotency.test.sh": {
-      "file": "tests/scripts/check-withsession-idempotency.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/check-wlm-wiring.test.sh": {
-      "file": "tests/scripts/check-wlm-wiring.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
     "tests/scripts/ci-binary-matrix.test.ts": {
       "file": "tests/scripts/ci-binary-matrix.test.ts",
       "runner": "vitest:root",
@@ -9921,16 +9975,6 @@
         }
       ]
     },
-    "tests/scripts/coderabbit-review-gate-workflow.test.sh": {
-      "file": "tests/scripts/coderabbit-review-gate-workflow.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/coderabbit-review-gate.test.sh": {
-      "file": "tests/scripts/coderabbit-review-gate.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
     "tests/scripts/docs-check.test.ts": {
       "file": "tests/scripts/docs-check.test.ts",
       "runner": "vitest:root",
@@ -10038,52 +10082,42 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "scripts/get-exarchos.ps1",
+          "suite": "tools/release/get-exarchos.ps1",
           "name": "GetExarchos_PS1_FileExists",
           "dynamic": false
         },
         {
-          "suite": "scripts/get-exarchos.ps1",
+          "suite": "tools/release/get-exarchos.ps1",
           "name": "GetExarchos_PesterSuite_FileExists",
           "dynamic": false
         },
         {
-          "suite": "scripts/get-exarchos.ps1",
+          "suite": "tools/release/get-exarchos.ps1",
           "name": "GetExarchos_PS1_ParsesWithoutErrors_WhenPwshAvailable",
           "dynamic": false
         },
         {
-          "suite": "scripts/get-exarchos.ps1",
+          "suite": "tools/release/get-exarchos.ps1",
           "name": "GetExarchos_DryRun_PrintsPlan_WhenPwshAvailable",
           "dynamic": false
         },
         {
-          "suite": "scripts/get-exarchos.ps1",
+          "suite": "tools/release/get-exarchos.ps1",
           "name": "GetExarchos_PesterSuite_Passes_WhenPesterAvailable",
           "dynamic": false
         }
       ]
-    },
-    "tests/scripts/get-exarchos.test.sh": {
-      "file": "tests/scripts/get-exarchos.test.sh",
-      "runner": "shell",
-      "cases": []
     },
     "tests/scripts/get-exarchos.test.ts": {
       "file": "tests/scripts/get-exarchos.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "scripts/get-exarchos.sh (shell harness)",
+          "suite": "tools/release/get-exarchos.sh (shell harness)",
           "name": "passes the full tests/scripts/get-exarchos.test.sh suite",
           "dynamic": false
         }
       ]
-    },
-    "tests/scripts/github-config.test.sh": {
-      "file": "tests/scripts/github-config.test.sh",
-      "runner": "shell",
-      "cases": []
     },
     "tests/scripts/guard-inventory.test.ts": {
       "file": "tests/scripts/guard-inventory.test.ts",
@@ -10256,6 +10290,11 @@
         },
         {
           "suite": "Derivations the inventory rests on",
+          "name": "GuardInventory_EverySelfTestMirror_PairsSomethingReal",
+          "dynamic": false
+        },
+        {
+          "suite": "Derivations the inventory rests on",
           "name": "HostResolution_NpmScriptChain_IsWalkedTransitively",
           "dynamic": false
         },
@@ -10411,112 +10450,112 @@
           "dynamic": false
         },
         {
-          "suite": "DR-20 \u2014 the installers consume the signed release manifest > scripts/get-exarchos.sh",
+          "suite": "DR-20 \u2014 the installers consume the signed release manifest > tools/release/get-exarchos.sh",
           "name": "installs a release whose signed manifest verifies on all four dimensions",
           "dynamic": false
         },
         {
-          "suite": "DR-20 \u2014 the installers consume the signed release manifest > scripts/get-exarchos.sh",
+          "suite": "DR-20 \u2014 the installers consume the signed release manifest > tools/release/get-exarchos.sh",
           "name": "Installer_ManifestMismatch_RejectsInstall \u2014 a tampered signature aborts",
           "dynamic": false
         },
         {
-          "suite": "DR-20 \u2014 the installers consume the signed release manifest > scripts/get-exarchos.sh",
+          "suite": "DR-20 \u2014 the installers consume the signed release manifest > tools/release/get-exarchos.sh",
           "name": "Installer_ManifestMismatch_RejectsInstall \u2014 a manifest signed by an unpinned key aborts",
           "dynamic": false
         },
         {
-          "suite": "DR-20 \u2014 the installers consume the signed release manifest > scripts/get-exarchos.sh",
+          "suite": "DR-20 \u2014 the installers consume the signed release manifest > tools/release/get-exarchos.sh",
           "name": "with NO trust root pinned or supplied, the install fails closed (never skips)",
           "dynamic": false
         },
         {
-          "suite": "DR-20 \u2014 the installers consume the signed release manifest > scripts/get-exarchos.sh",
+          "suite": "DR-20 \u2014 the installers consume the signed release manifest > tools/release/get-exarchos.sh",
           "name": "Installer_ContractDigestMismatch_RejectsInstall \u2014 a validly-signed wrong contract aborts",
           "dynamic": false
         },
         {
-          "suite": "DR-20 \u2014 the installers consume the signed release manifest > scripts/get-exarchos.sh",
+          "suite": "DR-20 \u2014 the installers consume the signed release manifest > tools/release/get-exarchos.sh",
           "name": "a validly-signed manifest describing a different SOURCE aborts",
           "dynamic": false
         },
         {
-          "suite": "DR-20 \u2014 the installers consume the signed release manifest > scripts/get-exarchos.sh",
+          "suite": "DR-20 \u2014 the installers consume the signed release manifest > tools/release/get-exarchos.sh",
           "name": "ASSET mismatch aborts even though the SHA-512 sidecar matches",
           "dynamic": false
         },
         {
-          "suite": "DR-20 \u2014 the installers consume the signed release manifest > scripts/get-exarchos.sh",
+          "suite": "DR-20 \u2014 the installers consume the signed release manifest > tools/release/get-exarchos.sh",
           "name": "a validly-signed manifest for a DIFFERENT release aborts (rollback)",
           "dynamic": false
         },
         {
-          "suite": "DR-20 \u2014 the installers consume the signed release manifest > scripts/get-exarchos.sh",
+          "suite": "DR-20 \u2014 the installers consume the signed release manifest > tools/release/get-exarchos.sh",
           "name": "an artifact built from a MODIFIED source tree is refused by default and accepted only with --allow-modified-source",
           "dynamic": false
         },
         {
-          "suite": "DR-20 \u2014 the installers consume the signed release manifest > scripts/get-exarchos.sh",
+          "suite": "DR-20 \u2014 the installers consume the signed release manifest > tools/release/get-exarchos.sh",
           "name": "a v1 build-identity banner is treated as untrustworthy, not as clean",
           "dynamic": false
         },
         {
-          "suite": "DR-20 \u2014 the installers consume the signed release manifest > scripts/get-exarchos.sh",
+          "suite": "DR-20 \u2014 the installers consume the signed release manifest > tools/release/get-exarchos.sh",
           "name": "a release with no published manifest is refused",
           "dynamic": false
         },
         {
-          "suite": "DR-20 \u2014 the installers consume the signed release manifest > scripts/get-exarchos.ps1",
+          "suite": "DR-20 \u2014 the installers consume the signed release manifest > tools/release/get-exarchos.ps1",
           "name": "installs a release whose signed manifest verifies on all four dimensions",
           "dynamic": false
         },
         {
-          "suite": "DR-20 \u2014 the installers consume the signed release manifest > scripts/get-exarchos.ps1",
+          "suite": "DR-20 \u2014 the installers consume the signed release manifest > tools/release/get-exarchos.ps1",
           "name": "Installer_ManifestMismatch_RejectsInstall \u2014 a tampered signature aborts",
           "dynamic": false
         },
         {
-          "suite": "DR-20 \u2014 the installers consume the signed release manifest > scripts/get-exarchos.ps1",
+          "suite": "DR-20 \u2014 the installers consume the signed release manifest > tools/release/get-exarchos.ps1",
           "name": "Installer_ManifestMismatch_RejectsInstall \u2014 a manifest signed by an unpinned key aborts",
           "dynamic": false
         },
         {
-          "suite": "DR-20 \u2014 the installers consume the signed release manifest > scripts/get-exarchos.ps1",
+          "suite": "DR-20 \u2014 the installers consume the signed release manifest > tools/release/get-exarchos.ps1",
           "name": "with NO trust root pinned or supplied, the install fails closed (never skips)",
           "dynamic": false
         },
         {
-          "suite": "DR-20 \u2014 the installers consume the signed release manifest > scripts/get-exarchos.ps1",
+          "suite": "DR-20 \u2014 the installers consume the signed release manifest > tools/release/get-exarchos.ps1",
           "name": "Installer_ContractDigestMismatch_RejectsInstall \u2014 a validly-signed wrong contract aborts",
           "dynamic": false
         },
         {
-          "suite": "DR-20 \u2014 the installers consume the signed release manifest > scripts/get-exarchos.ps1",
+          "suite": "DR-20 \u2014 the installers consume the signed release manifest > tools/release/get-exarchos.ps1",
           "name": "a validly-signed manifest describing a different SOURCE aborts",
           "dynamic": false
         },
         {
-          "suite": "DR-20 \u2014 the installers consume the signed release manifest > scripts/get-exarchos.ps1",
+          "suite": "DR-20 \u2014 the installers consume the signed release manifest > tools/release/get-exarchos.ps1",
           "name": "ASSET mismatch aborts even though the SHA-512 sidecar matches",
           "dynamic": false
         },
         {
-          "suite": "DR-20 \u2014 the installers consume the signed release manifest > scripts/get-exarchos.ps1",
+          "suite": "DR-20 \u2014 the installers consume the signed release manifest > tools/release/get-exarchos.ps1",
           "name": "a validly-signed manifest for a DIFFERENT release aborts (rollback)",
           "dynamic": false
         },
         {
-          "suite": "DR-20 \u2014 the installers consume the signed release manifest > scripts/get-exarchos.ps1",
+          "suite": "DR-20 \u2014 the installers consume the signed release manifest > tools/release/get-exarchos.ps1",
           "name": "an artifact built from a MODIFIED source tree is refused by default and accepted only with -AllowModifiedSource",
           "dynamic": false
         },
         {
-          "suite": "DR-20 \u2014 the installers consume the signed release manifest > scripts/get-exarchos.ps1",
+          "suite": "DR-20 \u2014 the installers consume the signed release manifest > tools/release/get-exarchos.ps1",
           "name": "a v1 build-identity banner is treated as untrustworthy, not as clean",
           "dynamic": false
         },
         {
-          "suite": "DR-20 \u2014 the installers consume the signed release manifest > scripts/get-exarchos.ps1",
+          "suite": "DR-20 \u2014 the installers consume the signed release manifest > tools/release/get-exarchos.ps1",
           "name": "a release with no published manifest is refused",
           "dynamic": false
         }
@@ -10977,11 +11016,6 @@
         }
       ]
     },
-    "tests/scripts/lint-envelopes.test.sh": {
-      "file": "tests/scripts/lint-envelopes.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
     "tests/scripts/lint-inv6.test.ts": {
       "file": "tests/scripts/lint-inv6.test.ts",
       "runner": "vitest:root",
@@ -11105,11 +11139,6 @@
         }
       ]
     },
-    "tests/scripts/npm-ci-retry.test.sh": {
-      "file": "tests/scripts/npm-ci-retry.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
     "tests/scripts/release-workflow.test.ts": {
       "file": "tests/scripts/release-workflow.test.ts",
       "runner": "vitest:root",
@@ -11221,11 +11250,6 @@
           "dynamic": false
         }
       ]
-    },
-    "tests/scripts/sync-versions.test.sh": {
-      "file": "tests/scripts/sync-versions.test.sh",
-      "runner": "shell",
-      "cases": []
     },
     "tests/scripts/tsconfig-scripts-coverage.test.ts": {
       "file": "tests/scripts/tsconfig-scripts-coverage.test.ts",
@@ -11348,66 +11372,6 @@
           "dynamic": false
         }
       ]
-    },
-    "tests/scripts/validate-all-skills.test.sh": {
-      "file": "tests/scripts/validate-all-skills.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/validate-debug-skill.test.sh": {
-      "file": "tests/scripts/validate-debug-skill.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/validate-delegation-skill.test.sh": {
-      "file": "tests/scripts/validate-delegation-skill.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/validate-dotnet-standards.test.sh": {
-      "file": "tests/scripts/validate-dotnet-standards.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/validate-frontmatter.test.sh": {
-      "file": "tests/scripts/validate-frontmatter.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/validate-installation.test.sh": {
-      "file": "tests/scripts/validate-installation.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/validate-misc-skills.test.sh": {
-      "file": "tests/scripts/validate-misc-skills.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/validate-no-legacy.test.sh": {
-      "file": "tests/scripts/validate-no-legacy.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/validate-phase-coverage.test.sh": {
-      "file": "tests/scripts/validate-phase-coverage.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/validate-phase-names.test.sh": {
-      "file": "tests/scripts/validate-phase-names.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/validate-planning-skill.test.sh": {
-      "file": "tests/scripts/validate-planning-skill.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/validate-plugin.test.sh": {
-      "file": "tests/scripts/validate-plugin.test.sh",
-      "runner": "shell",
-      "cases": []
     },
     "tests/scripts/validate-plugin.test.ts": {
       "file": "tests/scripts/validate-plugin.test.ts",
@@ -11535,36 +11499,6 @@
         }
       ]
     },
-    "tests/scripts/validate-quality-review-skill.test.sh": {
-      "file": "tests/scripts/validate-quality-review-skill.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/validate-refactor-skill.test.sh": {
-      "file": "tests/scripts/validate-refactor-skill.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/validate-refactor.test.sh": {
-      "file": "tests/scripts/validate-refactor.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/validate-rm.test.sh": {
-      "file": "tests/scripts/validate-rm.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/validate-synthesis-skill.test.sh": {
-      "file": "tests/scripts/validate-synthesis-skill.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/validate-worktree-skill.test.sh": {
-      "file": "tests/scripts/validate-worktree-skill.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
     "tests/smoke/runtime-smoke.test.ts": {
       "file": "tests/smoke/runtime-smoke.test.ts",
       "runner": "vitest:root",
@@ -11615,11 +11549,6 @@
           "dynamic": true
         }
       ]
-    },
-    "tests/support/trigger-tests/pressure-tests.test.sh": {
-      "file": "tests/support/trigger-tests/pressure-tests.test.sh",
-      "runner": "shell",
-      "cases": []
     },
     "tests/unit/adapters/adapter-direction.test.ts": {
       "file": "tests/unit/adapters/adapter-direction.test.ts",
@@ -14171,17 +14100,22 @@
         },
         {
           "suite": "layerOf / isRootFile",
-          "name": "reports the first path segment as the layer",
+          "name": "reports the first path segment as the layer when no row claims the module",
           "dynamic": false
         },
         {
           "suite": "layerOf / isRootFile",
-          "name": "treats a root-level file as a root file",
+          "name": "LayerOf_ModuleUnderNestedLayerId_ResolvesToTheLongestMatch",
+          "dynamic": false
+        },
+        {
+          "suite": "layerOf / isRootFile",
+          "name": "treats a root-level file as a root file, and gives it the stated root layer",
           "dynamic": false
         },
         {
           "suite": "detectLayerEdges",
-          "name": "emits one cross-directory edge and ignores intra-layer + root-file imports",
+          "name": "emits a cross-directory edge, ignores intra-layer, and counts the root surface",
           "dynamic": false
         },
         {
@@ -14191,7 +14125,12 @@
         },
         {
           "suite": "detectLayerEdges",
-          "name": "emits nothing for a root-level source file",
+          "name": "LayerCensus_RootFile_ContributesEdgesUnderTheStatedPolicy",
+          "dynamic": false
+        },
+        {
+          "suite": "detectLayerEdges",
+          "name": "LayerCensus_McpImportingCli_ReportsForbiddenImportNamingBothEnds",
           "dynamic": false
         },
         {
@@ -14222,6 +14161,16 @@
         {
           "suite": "EXIT PROOF \u2014 live allowed-dependency layering",
           "name": "(b) a planted forbidden import from a governed leaf FAILS against the live edges",
+          "dynamic": false
+        },
+        {
+          "suite": "EXIT PROOF \u2014 live allowed-dependency layering",
+          "name": "LayerRule_SeededViolation_FailsAndNamesTheRule",
+          "dynamic": false
+        },
+        {
+          "suite": "EXIT PROOF \u2014 live allowed-dependency layering",
+          "name": "LayerAllowance_PhantomCover_FailsAsStale",
           "dynamic": false
         },
         {
@@ -14402,6 +14351,21 @@
         {
           "suite": "DR-26 \u2014 SDK seam rule: fail-closed teeth",
           "name": "SdkSeamRule_ShippedExemptions_AreProcessHarnessesOnly_AndFullyGoverned",
+          "dynamic": false
+        },
+        {
+          "suite": "Task 040a \u2014 neither seam may pass by matching nothing",
+          "name": "BothSeams_VacuityCheck_FailsOnAnEmptyRuleSet",
+          "dynamic": false
+        },
+        {
+          "suite": "Task 040a \u2014 neither seam may pass by matching nothing",
+          "name": "BothSeams_OnTheLiveTree_HaveNonEmptyDenominators",
+          "dynamic": false
+        },
+        {
+          "suite": "Task 040a \u2014 neither seam may pass by matching nothing",
+          "name": "BothSeams_DeclaredPaths_StillResolveAfterTheLayeringChange",
           "dynamic": false
         }
       ]
@@ -75151,16 +75115,6 @@
         }
       ]
     },
-    "tools/renovate-config/renovate.test.sh": {
-      "file": "tools/renovate-config/renovate.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tools/skill-validators/validate-frontmatter.test.sh": {
-      "file": "tools/skill-validators/validate-frontmatter.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
     "tools/test-helpers/temp-dir.test.ts": {
       "file": "tools/test-helpers/temp-dir.test.ts",
       "runner": "vitest:root",
@@ -75186,6 +75140,231 @@
           "dynamic": false
         }
       ]
+    },
+    "content/delivery/skills/delegate/references/fixer-prompt.md.test.sh": {
+      "file": "content/delivery/skills/delegate/references/fixer-prompt.md.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "content/delivery/skills/delegate/references/implementer-prompt.md.test.sh": {
+      "file": "content/delivery/skills/delegate/references/implementer-prompt.md.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "docs/schemas/workflow-state.schema.json.test.sh": {
+      "file": "docs/schemas/workflow-state.schema.json.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/audit/cycle-gate.test.sh": {
+      "file": "tests/scripts/audit/cycle-gate.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/audit/knip-diff.test.sh": {
+      "file": "tests/scripts/audit/knip-diff.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/check-begin-immediate-substrate.test.sh": {
+      "file": "tests/scripts/check-begin-immediate-substrate.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/check-benchmark-regression.test.sh": {
+      "file": "tests/scripts/check-benchmark-regression.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/check-coverage-ratchet.test.sh": {
+      "file": "tests/scripts/check-coverage-ratchet.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/check-enforcer-wiring.test.sh": {
+      "file": "tests/scripts/check-enforcer-wiring.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/check-eslint-windows.test.sh": {
+      "file": "tests/scripts/check-eslint-windows.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/check-gate-runner-ownership.test.sh": {
+      "file": "tests/scripts/check-gate-runner-ownership.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/check-module-intent.test.sh": {
+      "file": "tests/scripts/check-module-intent.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/check-mutation-gate.test.sh": {
+      "file": "tests/scripts/check-mutation-gate.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/check-type-debt.test.sh": {
+      "file": "tests/scripts/check-type-debt.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/check-windows-portability.test.sh": {
+      "file": "tests/scripts/check-windows-portability.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/check-withsession-idempotency.test.sh": {
+      "file": "tests/scripts/check-withsession-idempotency.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/check-wlm-wiring.test.sh": {
+      "file": "tests/scripts/check-wlm-wiring.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/coderabbit-review-gate-workflow.test.sh": {
+      "file": "tests/scripts/coderabbit-review-gate-workflow.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/coderabbit-review-gate.test.sh": {
+      "file": "tests/scripts/coderabbit-review-gate.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/get-exarchos.test.sh": {
+      "file": "tests/scripts/get-exarchos.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/github-config.test.sh": {
+      "file": "tests/scripts/github-config.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/lint-envelopes.test.sh": {
+      "file": "tests/scripts/lint-envelopes.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/npm-ci-retry.test.sh": {
+      "file": "tests/scripts/npm-ci-retry.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/sync-versions.test.sh": {
+      "file": "tests/scripts/sync-versions.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/validate-all-skills.test.sh": {
+      "file": "tests/scripts/validate-all-skills.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/validate-debug-skill.test.sh": {
+      "file": "tests/scripts/validate-debug-skill.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/validate-delegation-skill.test.sh": {
+      "file": "tests/scripts/validate-delegation-skill.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/validate-dotnet-standards.test.sh": {
+      "file": "tests/scripts/validate-dotnet-standards.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/validate-frontmatter.test.sh": {
+      "file": "tests/scripts/validate-frontmatter.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/validate-installation.test.sh": {
+      "file": "tests/scripts/validate-installation.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/validate-misc-skills.test.sh": {
+      "file": "tests/scripts/validate-misc-skills.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/validate-no-legacy.test.sh": {
+      "file": "tests/scripts/validate-no-legacy.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/validate-phase-coverage.test.sh": {
+      "file": "tests/scripts/validate-phase-coverage.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/validate-phase-names.test.sh": {
+      "file": "tests/scripts/validate-phase-names.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/validate-planning-skill.test.sh": {
+      "file": "tests/scripts/validate-planning-skill.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/validate-plugin.test.sh": {
+      "file": "tests/scripts/validate-plugin.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/validate-quality-review-skill.test.sh": {
+      "file": "tests/scripts/validate-quality-review-skill.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/validate-refactor-skill.test.sh": {
+      "file": "tests/scripts/validate-refactor-skill.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/validate-refactor.test.sh": {
+      "file": "tests/scripts/validate-refactor.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/validate-rm.test.sh": {
+      "file": "tests/scripts/validate-rm.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/validate-synthesis-skill.test.sh": {
+      "file": "tests/scripts/validate-synthesis-skill.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/validate-worktree-skill.test.sh": {
+      "file": "tests/scripts/validate-worktree-skill.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/support/trigger-tests/pressure-tests.test.sh": {
+      "file": "tests/support/trigger-tests/pressure-tests.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tools/renovate-config/renovate.test.sh": {
+      "file": "tools/renovate-config/renovate.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tools/skill-validators/validate-frontmatter.test.sh": {
+      "file": "tools/skill-validators/validate-frontmatter.test.sh",
+      "runner": "shell",
+      "cases": []
     }
   }
 }
