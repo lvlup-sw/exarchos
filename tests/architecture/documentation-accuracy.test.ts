@@ -25,7 +25,10 @@ const DOC_FILES = [
   'AGENTS.md',
   'CONTRIBUTING.md',
   'ONBOARDING.md',
-  'docs/ARCHITECTURE.md',
+  // `docs/ARCHITECTURE.md` is gone. It restated the directory contract and the
+  // layer map that `layer-map.json` and its test already assert from the live
+  // tree, so it was a second copy of a machine-checked fact — the kind that
+  // goes stale silently because nothing compares it to anything.
   'src/README.md',
   'content/README.md',
   'rendered/README.md',

@@ -147,8 +147,14 @@ describe('guard liveness', () => {
 
     // Denominator: an empty measurement would satisfy the filter above by
     // having nothing to filter.
+    //
+    // The tracked-file floor is 2,500 rather than 3,000: the prose exodus moved
+    // ~550 documents to the external documents repository, so the tree is
+    // legitimately smaller. The floor exists to catch a census that read
+    // NOTHING, so it tracks the tree's order of magnitude rather than pinning
+    // its size — pinning would make every deliberate removal a failure.
     expect(Object.keys(live.surfaces).length).toBeGreaterThan(15);
-    expect(live.trackedFiles).toBeGreaterThan(3000);
+    expect(live.trackedFiles).toBeGreaterThan(2_500);
   });
 
   it('GuardLiveness_ComparedToBaseline_NoGuardSilentlyLostItsScope', () => {

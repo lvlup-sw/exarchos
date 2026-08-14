@@ -210,7 +210,12 @@ describe('MarkdownInventory_AfterExodus_NoProseRemainsOutsideContentAndDocs', ()
     for (const entry of RETAINED) {
       expect(entry.because.length, `${entry.path} is retained with no stated reason`).toBeGreaterThan(40);
     }
-    expect(RETAINED.length, 'nothing is retained').toBeGreaterThan(3);
+    // Two: the README that says what belongs in the directory, and the canonical
+    // architecture statement. Everything else was a planning artifact or a
+    // document nothing reads. The floor is 1 rather than a larger number
+    // because the list is meant to shrink — but an EMPTY retained set would
+    // mean `docs/` no longer exists, which is a different change.
+    expect(RETAINED.length, 'nothing is retained').toBeGreaterThan(0);
   });
 
   it('no tracked markdown sits outside the classified roots', () => {

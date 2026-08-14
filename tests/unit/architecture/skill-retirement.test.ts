@@ -58,16 +58,26 @@ describe('design-invariants skill retirement', () => {
       }
     }
 
-    // Every relocated grounding-prose reference must resolve to its new home
-    // under docs/architecture/invariants/references/ (no dangling references
-    // introduced by the move). Scoped to the relocated tree so the guard pins
-    // the retirement without coupling to unrelated, pre-existing catalog drift
-    // toward aspirational source paths.
+    // The grounding prose that this skill's retirement relocated has since left
+    // the repository entirely, for the documents repository. A reference to it
+    // is now a CROSS-REPOSITORY citation (`<owner>/<repo>:<path>`) and cannot
+    // resolve locally — which is the point: the citation survives the document
+    // leaving and says where it went.
+    //
+    // What still has to hold is that the reference names the reference tree at
+    // all. A reference that silently lost its path, or that points at a local
+    // file which is not there, is still a dangling one.
+    const CROSS_REPO = /^[\w.-]+\/[\w.-]+:/;
     const dangling: string[] = [];
     for (const entry of entries) {
       for (const ref of entry.references) {
         if (!ref.includes('docs/architecture/invariants/references/')) continue;
         const withoutAnchor = ref.split('#')[0]!;
+        if (CROSS_REPO.test(withoutAnchor)) {
+          // Relocated: assert it still names a document rather than trailing off.
+          if (!/\.md$/.test(withoutAnchor)) dangling.push(`${entry.id} → ${ref}`);
+          continue;
+        }
         const resolved = path.join(REPO_ROOT, withoutAnchor);
         if (!fs.existsSync(resolved)) {
           dangling.push(`${entry.id} → ${ref}`);

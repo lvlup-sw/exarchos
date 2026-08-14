@@ -4540,6 +4540,10 @@
     {
       "from": "tests/unit/adapters/json-schema-migration.test.ts",
       "to": "tests/unit/utils/json-schema-migration.test.ts"
+    },
+    {
+      "from": "docs/schemas/workflow-state.schema.json.test.sh",
+      "to": "tests/scripts/schemas/workflow-state.schema.test.sh"
     }
   ],
   "files": {
@@ -75402,11 +75406,6 @@
       "runner": "shell",
       "cases": []
     },
-    "docs/schemas/workflow-state.schema.json.test.sh": {
-      "file": "docs/schemas/workflow-state.schema.json.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
     "tests/scripts/audit/cycle-gate.test.sh": {
       "file": "tests/scripts/audit/cycle-gate.test.sh",
       "runner": "shell",
@@ -75504,6 +75503,11 @@
     },
     "tests/scripts/npm-ci-retry.test.sh": {
       "file": "tests/scripts/npm-ci-retry.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/schemas/workflow-state.schema.test.sh": {
+      "file": "tests/scripts/schemas/workflow-state.schema.test.sh",
       "runner": "shell",
       "cases": []
     },

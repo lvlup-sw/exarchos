@@ -41,9 +41,9 @@ invariants:
       - "Vaughn Vernon, *Implementing Domain-Driven Design* (Addison-Wesley
         2013) — chapter on Event Sourcing"
     references:
-      - docs/architecture/invariants/references/INV-1-event-sourcing.md
+      - lvlup-sw/docs:exarchos/docs/architecture/invariants/references/INV-1-event-sourcing.md
       - src/verbs/gates/check-invariant-conformance.ts
-      - docs/architecture/projections.md
+      - lvlup-sw/docs:exarchos/docs/architecture/projections.md
 
   - id: INV-7
     dimension: substrate-serialization
@@ -86,7 +86,7 @@ invariants:
       - src/events/atomic-appender.ts
       - src/storage/sqlite-backend.ts
       - tests/core/process/multi-process-append.test.ts
-      - docs/architecture/runtime.md#§4
+      - lvlup-sw/docs:exarchos/docs/architecture/runtime.md#§4
 
   - id: INV-8
     dimension: idempotency-at-the-boundary
@@ -132,7 +132,7 @@ invariants:
         https://leanpub.com/esversioning"
     references:
       - src/events/atomic-appender.ts
-      - docs/architecture/runtime.md#§4
+      - lvlup-sw/docs:exarchos/docs/architecture/runtime.md#§4
 
   - id: INV-9
     dimension: hsm-as-state-machine
@@ -159,7 +159,7 @@ invariants:
     references:
       - src/workflow/topology/phase-contract.ts
       - src/workflow/hsm-definitions.ts
-      - docs/architecture/runtime.md#§3-L4
+      - lvlup-sw/docs:exarchos/docs/architecture/runtime.md#§3-L4
 
   - id: INV-10
     dimension: liveness-event-protocol
@@ -188,7 +188,7 @@ invariants:
         -agent-supervisor"
     references:
       - src/verbs/merge/merge-orchestrate.ts
-      - docs/architecture/runtime.md#§6
+      - lvlup-sw/docs:exarchos/docs/architecture/runtime.md#§6
 
   - id: INV-11
     dimension: posture-declared-capabilities
@@ -248,7 +248,7 @@ invariants:
       - src/workflow/capabilities/resolver.ts
       - src/runtime/agents/generate-agents.ts
       - src/runtime/launcher/create-worktree.ts
-      - docs/architecture/runtime.md#§7
+      - lvlup-sw/docs:exarchos/docs/architecture/runtime.md#§7
 
   - id: INV-12
     dimension: next-actions-as-affordance
@@ -281,7 +281,7 @@ invariants:
     references:
       - src/next-actions-computer.ts
       - src/format.ts
-      - docs/architecture/runtime.md#§7
+      - lvlup-sw/docs:exarchos/docs/architecture/runtime.md#§7
 
   - id: INV-13
     dimension: process-manager-two-event-split
@@ -342,7 +342,7 @@ invariants:
     references:
       - src/verbs/merge/merge-orchestrate.ts
       - src/events/atomic-appender.ts
-      - docs/architecture/runtime.md#§4-process-manager-handlers
+      - lvlup-sw/docs:exarchos/docs/architecture/runtime.md#§4-process-manager-handlers
 
   - id: INV-14
     dimension: native-primitive-first-recovery
@@ -394,7 +394,7 @@ invariants:
         https://git-scm.com/docs/git-reset"
     references:
       - src/verbs/merge/merge-orchestrate.ts
-      - docs/architecture/runtime.md#§5
+      - lvlup-sw/docs:exarchos/docs/architecture/runtime.md#§5
 
   - id: INV-15
     dimension: single-machine-frame
@@ -426,8 +426,8 @@ invariants:
         https://learn.microsoft.com/en-us/archive/blogs/clemensv/cloud-architec\
         ture-the-scheduler-agent-supervisor-pattern"
     references:
-      - docs/architecture/runtime.md#§1
-      - docs/architecture/runtime.md#§8
+      - lvlup-sw/docs:exarchos/docs/architecture/runtime.md#§1
+      - lvlup-sw/docs:exarchos/docs/architecture/runtime.md#§8
 
   - id: INV-2
     dimension: contract-client-equivalence
@@ -496,7 +496,7 @@ invariants:
       - "Anthropic, *Model Context Protocol — Tools* (2024):
         https://modelcontextprotocol.io/specification/2025-06-18/server/tools"
     references:
-      - docs/architecture/invariants/references/INV-2-facade-equivalence.md
+      - lvlup-sw/docs:exarchos/docs/architecture/invariants/references/INV-2-facade-equivalence.md
       - src/contract/cli/cli-contract-seam.ts
       - src/contract/cli/generated-client.ts
       - src/verbs/gates/check-invariant-conformance.ts
@@ -539,7 +539,7 @@ invariants:
         Remote Facade (Addison-Wesley 2002):
         https://martinfowler.com/eaaCatalog/remoteFacade.html"
     references:
-      - docs/architecture/invariants/references/INV-3-basileus-forward.md
+      - lvlup-sw/docs:exarchos/docs/architecture/invariants/references/INV-3-basileus-forward.md
       - src/verbs/gates/check-invariant-conformance.ts
       - src/workflow/capabilities/resolver.ts
       - src/adapters/mcp/remote-mcp.ts
@@ -602,7 +602,7 @@ invariants:
       - "Anthropic, *Model Context Protocol — Architecture* (2025):
         https://modelcontextprotocol.io/specification/2025-06-18/architecture"
     references:
-      - docs/architecture/invariants/references/INV-4-platform-agnosticity.md
+      - lvlup-sw/docs:exarchos/docs/architecture/invariants/references/INV-4-platform-agnosticity.md
       - src/verbs/gates/check-invariant-conformance.ts
       - content/_shared/SKILL_AUTHORING.md
 
@@ -638,7 +638,7 @@ invariants:
       - "JSON Schema, *Validation* (draft 2020-12):
         https://json-schema.org/draft/2020-12/json-schema-validation"
     references:
-      - docs/architecture/invariants/references/INV-5a-input-ergonomics.md
+      - lvlup-sw/docs:exarchos/docs/architecture/invariants/references/INV-5a-input-ergonomics.md
       - src/verbs/gates/check-invariant-conformance.ts
       - src/registry/actions
       - src/adapters/cli/schema-to-flags.ts
@@ -669,7 +669,7 @@ invariants:
       - "JSON Schema, *Validation* (draft 2020-12):
         https://json-schema.org/draft/2020-12/json-schema-validation"
     references:
-      - docs/architecture/invariants/references/INV-5b-output-contract.md
+      - lvlup-sw/docs:exarchos/docs/architecture/invariants/references/INV-5b-output-contract.md
       - src/verbs/gates/check-invariant-conformance.ts
       - src/format.ts
       - src/next-actions-computer.ts
@@ -697,7 +697,7 @@ invariants:
       - "Adam Wiggins, *The Twelve-Factor App — Admin processes* (2017):
         https://12factor.net/admin-processes"
     references:
-      - docs/architecture/invariants/references/INV-5c-aspire-verbs.md
+      - lvlup-sw/docs:exarchos/docs/architecture/invariants/references/INV-5c-aspire-verbs.md
       - src/verbs/gates/check-invariant-conformance.ts
       - src/describe/handler.ts
       - src/adapters/cli/cli.ts
@@ -728,7 +728,7 @@ invariants:
       annotations (destructiveHint / readOnlyHint / idempotentHint /
       openWorldHint) live on CompositeAction post-#1268.
     references:
-      - docs/architecture/invariants/references/INV-5d-action-discriminator.md
+      - lvlup-sw/docs:exarchos/docs/architecture/invariants/references/INV-5d-action-discriminator.md
       - src/verbs/gates/check-invariant-conformance.ts
       - src/registry/tools.ts
       - src/adapters/mcp/mcp.ts
@@ -772,9 +772,9 @@ invariants:
       - "Novita framework-agnostic runtime:
         https://blogs.novita.ai/novita-agent-runtime-agentcore-compatible/"
     references:
-      - docs/architecture/invariants/references/INV-6-workflow-agnosticism.md
+      - lvlup-sw/docs:exarchos/docs/architecture/invariants/references/INV-6-workflow-agnosticism.md
       - tools/audit/gates/lint-inv6.mjs
-      - docs/architecture/runtime.md#§1
+      - lvlup-sw/docs:exarchos/docs/architecture/runtime.md#§1
 
   - id: INV-16
     dimension: os-portability

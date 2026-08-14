@@ -1,6 +1,6 @@
 {
   "capturedAt": "2026-08-14",
-  "trackedFiles": 3048,
+  "trackedFiles": 2962,
   "surfaces": {
     "depcruise:no-domain-core-to-io-adapters:from": {
       "kind": "module-set",
@@ -18,7 +18,7 @@
     },
     "codeowners:*": {
       "kind": "ownership",
-      "matched": 3048
+      "matched": 2962
     },
     "codeowners:src/": {
       "kind": "ownership",
@@ -38,7 +38,7 @@
     },
     "codeowners:tests/": {
       "kind": "ownership",
-      "matched": 1413
+      "matched": 1415
     },
     "package.files:dist/bin": {
       "kind": "packaging",
@@ -78,9 +78,10 @@
     },
     "invariants:references": {
       "kind": "catalog-reference",
-      "matched": 48,
+      "matched": 37,
       "detail": {
-        "declared": 48
+        "declared": 37,
+        "relocated": 11
       }
     },
     "lint:eslint-cli-glob": {

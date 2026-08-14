@@ -55,67 +55,15 @@ export const RETAINED: ReadonlyArray<{ readonly path: string; readonly because: 
   Object.freeze([
     {
       path: 'docs/README.md',
-      because: 'Every structural directory states what belongs in it; a test enumerates them.',
-    },
-    {
-      path: 'docs/ARCHITECTURE.md',
       because:
-        'The directory contract and the layer map. Describes the system that EXISTS, which is ' +
-        'the half of documentation this repository keeps; cited by the root instruction files ' +
-        'and asserted by the documentation-accuracy checks.',
+        'Every structural directory states what belongs in it and what does not; a test ' +
+        'enumerates the directories so a seventh cannot appear without one.',
     },
     {
       path: 'docs/system-design.html',
-      because: 'The canonical statement of the nine-layer architecture.',
-    },
-    {
-      path: 'docs/skills-authoring.md',
-      because: 'Live authoring how-to, handed to contributors by CONTRIBUTING.md.',
-    },
-    {
-      path: 'docs/specs/',
       because:
-        'The LIVE workflow artifact directory — `DEFAULT_SPEC_DIR`. Workflows write here now; ' +
-        'these are outputs of the running system, not a record of past planning.',
-    },
-    {
-      path: 'docs/architecture/invariants/',
-      because:
-        'Read by the invariants catalog: nine `references:` keys resolve into this directory ' +
-        'and a test asserts every one of them exists on disk.',
-    },
-    {
-      path: 'docs/architecture/runtime.md',
-      because: 'Cited by ten catalog `references:` keys, section by section.',
-    },
-    {
-      path: 'docs/architecture/projections.md',
-      because:
-        'Read through a catalog `references:` key, like the invariant reference notes beside it.',
-    },
-    {
-      path: 'docs/architecture/invariants-v3-contract-seam.md',
-      because:
-        'Read by `contract-seam-doc.test.ts`, which asserts the document enumerates every exported ' +
-        'v3 schema type. It is cited by NO catalog key, so a survey of the invariant references ' +
-        'alone clears it for relocation — and that is exactly what happened, until the test that ' +
-        'reads it failed. Kept as the standing reminder that a citation survey is not a consumer ' +
-        'survey.',
-    },
-    {
-      path: 'docs/guides/',
-      because:
-        'Operational how-to that the SHIPPED product hands to a user: the scaffolded config and ' +
-        'the invariants catalog both emit `docs/guides/authoring-invariants.md` as the place to ' +
-        'read next. A path printed into someone else\'s file has to resolve.',
-    },
-    {
-      path: 'docs/schemas/',
-      because: 'Not prose — a JSON Schema and its test. Re-homed into the source tree separately.',
-    },
-    {
-      path: 'docs/assets/',
-      because: 'Not prose — binaries. Re-homed to their live referents separately.',
+        'The canonical statement of the nine-layer architecture — the one description of the ' +
+        'system that is kept rather than relocated.',
     },
   ]);
 

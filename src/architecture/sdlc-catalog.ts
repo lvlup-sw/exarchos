@@ -43,7 +43,16 @@ import { parseInvariantEntries, type InvariantEntry } from './invariants-loader.
 /** Workflow types the SDLC baseline governs — all code-bearing workflows; `discovery` (docs-only) excluded. */
 const CODE_BEARING_WORKFLOWS = ['feature', 'debug', 'refactor', 'oneshot'] as const;
 
-const GUIDE = 'docs/guides/authoring-invariants.md';
+/**
+ * What a reader of this SHIPPED baseline is pointed at.
+ *
+ * This was a path into this repository's `docs/guides/`, which a consuming
+ * project never has — so it was already unresolvable for the audience it was
+ * written for, and the document has since relocated out of here entirely. A
+ * command is the honest citation: it is available to anyone holding the
+ * catalog, which a path never was.
+ */
+const GUIDE = 'run `exarchos invariants add` to author an entry interactively';
 
 /**
  * The shipped baseline, authored in catalog-frontmatter shape. Kept as a plain

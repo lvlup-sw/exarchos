@@ -242,10 +242,14 @@ export function scanRepoDefaults(
   options: ScanOptions = {},
 ): VocabularyFinding[] {
   const root = resolveRepoRoot();
+  // `docs/architecture` and `docs/guides` were roots here until they relocated
+  // to the external documents repository. They are NOT listed any more: those
+  // paths are a symlink mount when present and absent otherwise, so keeping
+  // them would make the scan's reach depend on whether a developer had run
+  // `docs:mount` — green on one machine and green-for-a-different-reason on
+  // another, which is worse than not scanning them at all.
   return scanPaths(
     [
-      path.join(root, 'docs/architecture'),
-      path.join(root, 'docs/guides'),
       // Authored commands live under `content/<domain>/commands/`, so the
       // content root already covers them. Scanning the rendered copy too would
       // report every finding twice.

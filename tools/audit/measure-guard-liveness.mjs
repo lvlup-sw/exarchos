@@ -169,10 +169,16 @@ function main() {
   // anchor is part of the citation, not part of the path, and resolving it
   // verbatim reports every deep link as broken.
   const uniqueRefs = [...new Set(refs.map((rel) => rel.split('#')[0]))];
+  // A `<owner>/<repo>:<path>` reference names a document in ANOTHER repository
+  // and is never expected to resolve here. Counting those as declared-but-
+  // unresolved reports the catalog as partially evaporated every time a
+  // document relocates — a false finding that would train a reader to ignore
+  // the real one, which is a LOCAL path that stopped existing.
+  const localRefs = uniqueRefs.filter((rel) => !/^[\w.-]+\/[\w.-]+:/.test(rel));
   surfaces['invariants:references'] = {
     kind: 'catalog-reference',
-    matched: uniqueRefs.filter((rel) => exists(rel)).length,
-    detail: { declared: uniqueRefs.length },
+    matched: localRefs.filter((rel) => exists(rel)).length,
+    detail: { declared: localRefs.length, relocated: uniqueRefs.length - localRefs.length },
   };
 
   // ── lint scopes — the CLI glob is what bounds the run, not the config ──────

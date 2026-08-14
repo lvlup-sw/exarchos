@@ -77,11 +77,14 @@ docs/marketing/
 # patterns matched nothing, the links were committed with mode 120000, and
 # their content was one machine's relative path, which dangles everywhere else.
 docs/adrs
+docs/architecture
+docs/assets
 docs/audits
 docs/bugs
 docs/contexts
 docs/designs
 docs/followups
+docs/guides
 docs/market
 docs/migrations
 docs/plans
@@ -91,3 +94,4 @@ docs/refactors
 docs/references
 docs/research
 docs/runbooks
+docs/specs

@@ -25,7 +25,7 @@ stating what belongs in it and — more usefully — what does not.
 | `rendered/` | Generated per-runtime projections of `content/`. Never hand-edited; `npm run render:guard` re-renders and diffs. |
 | `tests/` | The single test tree, one tier per kind. |
 | `tools/` | Repo automation that never ships: `audit/` (gates and censuses), `release/` (build and publish), `conformance/` (contract censuses), plus lint rules and migrations. |
-| `docs/` | Specs, guides, architecture notes, ADRs, RCAs. Start at `docs/ARCHITECTURE.md`. |
+| `docs/` | `system-design.html` and a README. The planning history — designs, plans, specs, guides, ADRs, RCAs — lives in the `lvlup-sw/docs` repository; `npm run docs:mount` brings it back locally. |
 
 Two directories remain at the top level without being structure: `binding/`
 (harness binding descriptors) and `hooks/` (required at the plugin root by the

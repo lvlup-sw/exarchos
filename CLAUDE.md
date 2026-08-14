@@ -29,10 +29,15 @@ Global tooling (rtk/sem/weave/serena, context7/exa research) is covered by USER-
 
 ## Architecture
 
-Orientation only. The directory contract and the layer model live in
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md); each of the six top-level
-directories has a `README.md` saying what belongs in it and what does not.
-Deeper detail is in `docs/architecture/`, `docs/guides/`, and the RCAs.
+Orientation only. Each of the six top-level directories has a `README.md`
+saying what belongs in it and what does not, and the layer model is asserted
+from the live tree by `tools/audit/layer-map.json` +
+`tests/architecture/layer-map.test.ts` — read those rather than a prose copy
+that nothing compares against the tree.
+
+The accumulated designs, plans, guides and RCAs now live in the `lvlup-sw/docs`
+repository; `npm run docs:mount` symlinks them back into `docs/` if you want
+them locally.
 
 - **Installer** — `tools/release/get-exarchos.{sh,ps1}` download the single-file binary from GitHub
   Releases; `.claude-plugin/` packaging registers commands/skills/rules/agents + the `exarchos`
@@ -54,7 +59,7 @@ Deeper detail is in `docs/architecture/`, `docs/guides/`, and the RCAs.
   *identity*; consumers (`test-runtime-resolver.ts`, `static-analysis.ts`) hold no
   independent marker/command lists. `resolveTestRuntime` is a synchronous, per-field **layered
   resolver**: override > `.exarchos.yml` direct > user `toolchains:` > task-runner > built-in
-  registry > unresolved. See [`docs/guides/toolchain-resolution.md`](docs/guides/toolchain-resolution.md).
+  registry > unresolved. The resolver's own header states the layer order.
 - **State surfaces (two, and the distinction is load-bearing)** —
   (1) the **SQLite event store** (`events` + projected `workflow_state` + `streams`) is the
   authoritative record of whether a workflow exists; (2) **`<featureId>.state.json`** is a

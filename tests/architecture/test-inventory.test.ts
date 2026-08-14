@@ -376,14 +376,13 @@ describe('test inventory', () => {
         `the ${gone}/ directory has come back`,
       ).toBe(false);
     }
-    // `docs/` survives and still holds exactly ONE test: the schema suite that
-    // DR-7 re-homes to `src/` with the rest of `docs/schemas/` in task 038.
-    // Pinned by name rather than dropped from the watch list, so that move has
-    // to come back here and say so — and so a SECOND test appearing under
-    // `docs/` fails now instead of arriving unobserved.
+    // The move this comment used to anticipate has happened. `docs/schemas/`
+    // held one test and the JSON Schema it checks; the schema is consumed by
+    // nothing else, so both are test data and now live at
+    // `tests/scripts/schemas/`. `docs/` holds NO test at all — it holds two
+    // files — and this stays on the watch list so a test appearing there again
+    // fails instead of arriving unobserved.
     const underDocs = fileEntries.map((e) => e.file).filter((f) => f.startsWith('docs/'));
-    expect(underDocs, 'an unexpected test appeared under docs/ (DR-5, DR-7)').toEqual([
-      'docs/schemas/workflow-state.schema.json.test.sh',
-    ]);
+    expect(underDocs, 'a test appeared under docs/, which holds no tests').toEqual([]);
   });
 });

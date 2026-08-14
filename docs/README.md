@@ -1,37 +1,51 @@
-# `docs/` — what is written down
+# `docs/` — two files, and a mount point
 
-Specs, guides, architecture notes, ADRs and RCAs. Prose about the system, kept
-next to the system.
+This directory holds what describes the system that EXISTS:
 
-Start at [`ARCHITECTURE.md`](ARCHITECTURE.md): it states the directory
-contract, how the tree maps onto the published layer architecture, the one-way
-import rule, and how authored content relates to the generated trees.
+- [`system-design.html`](system-design.html) — the canonical statement of the
+  nine-layer architecture.
+- This README.
 
-## The subdirectories that carry weight
+Everything else has been relocated to the `lvlup-sw/docs` repository under the
+`exarchos/` key, with source paths preserved. That is roughly 550 documents:
+designs, plans, research, ADRs, RCAs, audits, guides, proposals, runbooks, and
+the accumulated specs of every workflow this repository has run.
 
-- `architecture/` — how the system is built, including the invariant reference
-  notes the catalog cites.
-- `specs/` — the unified design-and-decomposition documents workflows produce.
-  One document per feature: rationale and task breakdown in the same file.
-- `guides/` — operational how-to. `ci-gate-hosting.md` and
-  `toolchain-resolution.md` are the two most often needed.
-- `rca/` — incident write-ups. Read one before re-deriving a failure someone
-  has already paid for.
-- `adrs/` — decisions with their alternatives, kept because the alternatives
-  are the part that gets forgotten.
+## Why they left
 
-## What does not belong here
+They were planning artifacts. A design records what someone intended to build,
+which stops being true the moment the code disagrees, and nothing here reads
+them — measured, not assumed: of 362 references into those trees, **zero** were
+a program reading a document. 200 were paths in comments, and 128 of those
+named a directory the comment policy already forbids citing, on the stated
+grounds that the document may move out of this repository.
 
-- Anything a program reads to decide behavior. Configuration lives with the
-  code that consumes it, and the dev catalog lives in `.exarchos/`. A document
-  that a gate parses stops being documentation and becomes an undeclared
-  input.
-- Content that instructs an agent — that is `content/`, and it is rendered.
+Keeping them made the repository look like it documented itself while the
+documentation described a system several refactors out of date.
 
-## A caution about citing this tree
+## Reading them anyway
 
-Paths under `specs/`, `designs/` and `plans/` are not stable: documents are
-revised, renumbered and moved out. Source comments must not cite them — the
-comment policy in `.exarchos/comment-policy.json` rejects it, on the grounds
-that a citation accurate when written stops being so without anything
-changing. State the constraint in words instead, and cite the durable record.
+```bash
+# with lvlup-sw/docs cloned beside this repository
+npm run docs:mount      # symlink every relocated subtree back into place
+npm run docs:unmount
+```
+
+The links are gitignored: a committed symlink stores its target as file
+content, so it would hard-code one machine's layout and dangle in every other
+checkout. Mounted, an old path such as `docs/designs/…` resolves exactly as it
+used to.
+
+## What belongs here
+
+Something that describes the system as it is now, and that a reader is expected
+to consult. Almost nothing qualifies — architecture that changes with the code
+belongs beside the code, and the six directory READMEs carry the rest.
+
+## What does not
+
+Anything dated. A design, a plan, a proposal, an audit, a retrospective, a
+record of a decision — those are the documents repository's job. **A document
+added here is relocatable by default**: `tools/audit/prose-manifest.ts` names
+the ones that stay and requires each to state why it is READ rather than merely
+mentioned, and a test enforces that a new file is not quietly retained.

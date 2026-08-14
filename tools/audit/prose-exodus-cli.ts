@@ -113,12 +113,29 @@ function generate(capturedAt: string): void {
 
 function transfer(destinationRoot: string): void {
   const manifest = loadManifest();
+  let copied = 0;
+  let alreadyGone = 0;
+
   for (const entry of manifest.entries) {
+    const source = path.join(REPO_ROOT, entry.source);
+    // The manifest is a standing record across passes, so it holds entries
+    // whose source was removed in an EARLIER one. Those are already at the
+    // destination — `reconcile` is what proves it — and re-copying is not
+    // merely unnecessary, it is impossible.
+    if (!existsSync(source)) {
+      alreadyGone += 1;
+      continue;
+    }
     const dest = path.join(destinationRoot, entry.destination);
     mkdirSync(path.dirname(dest), { recursive: true });
-    copyFileSync(path.join(REPO_ROOT, entry.source), dest);
+    copyFileSync(source, dest);
+    copied += 1;
   }
-  console.log(`[prose-exodus] copied ${manifest.entries.length} file(s) to ${destinationRoot}`);
+
+  console.log(
+    `[prose-exodus] copied ${copied} file(s) to ${destinationRoot}` +
+      (alreadyGone > 0 ? `; ${alreadyGone} already relocated in an earlier pass` : ''),
+  );
 }
 
 function runReconcile(destinationRoot: string): void {

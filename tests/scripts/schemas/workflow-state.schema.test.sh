@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCHEMA_FILE="docs/schemas/workflow-state.schema.json"
+# The schema is consumed by nothing but this test, so it lives beside it as
+# test data rather than in the product tree.
+SCHEMA_FILE="tests/scripts/schemas/workflow-state.schema.json"
 
 # Test 1: File exists
 if [[ ! -f "$SCHEMA_FILE" ]]; then

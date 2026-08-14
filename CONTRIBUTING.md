@@ -70,7 +70,10 @@ To add or change a skill:
 CI runs `render:guard` on every push and fails your PR if `rendered/` is out of sync with
 `content/`. That catches forgotten rebuilds and stale direct edits in one shot.
 
-See [`docs/skills-authoring.md`](docs/skills-authoring.md) for the full workflow: placeholder vocabulary, adding a runtime, and the structural-override escape hatch.
+The placeholder vocabulary, how to add a runtime, and the structural-override
+escape hatch are documented in `content/README.md` and in the renderer's own
+module headers under `src/install/build-skills/`. The longer authoring guide
+moved to the `lvlup-sw/docs` repository (`npm run docs:mount` to read it here).
 
 ## Commit Messages
 

@@ -79,10 +79,6 @@ const PROSE_BUDGET: Readonly<Record<string, number>> = {
   'src/workflow/playbooks.ts': 2,
   'tests/helpers/preflight.ts': 1,
   'tools/audit/measure-reference-census.mjs': 1,
-  // The exodus retention list names `docs/specs/` as a path that STAYS, and
-  // states why: it is the live workflow artifact directory rather than a record
-  // of past planning. Naming it is the point of the entry.
-  'tools/audit/prose-manifest.ts': 1,
 };
 
 /**

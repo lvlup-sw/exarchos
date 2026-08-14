@@ -47,6 +47,15 @@ describe('dev-catalog reference paths — #1478 existence guard', () => {
       for (const ref of entry.references) {
         const p = pathPart(ref).trim();
         if (p === '') continue; // pure doc-anchor (`#section`) — nothing to resolve
+        // `<repo>:<path>` names a document in ANOTHER repository. It cannot be
+        // resolved from here and is not supposed to be: the reference survives
+        // the document leaving, and says where it went. What is checked is that
+        // it names a repository and a path rather than trailing off.
+        if (/^[\w.-]+\/[\w.-]+:/.test(p)) {
+          const [, target] = p.split(':');
+          expect(target?.length ?? 0, `${entry.id} → ${ref} names a repo but no path`).toBeGreaterThan(0);
+          continue;
+        }
         const abs = path.resolve(REPO_ROOT, p);
         if (!fs.existsSync(abs)) {
           missing.push(`${entry.id} → ${ref}`);
@@ -84,6 +93,7 @@ describe('dev-catalog reference paths — #1478 existence guard', () => {
     const DECLARES = /^\s*(export\s+)?(async\s+)?(const|let|function|class|interface|type|enum)\s/m;
 
     const barrels = tsRefs
+      .filter(({ p }) => !/^[\w.-]+\/[\w.-]+:/.test(p))
       .filter(({ p }) => {
         const abs = path.resolve(REPO_ROOT, p);
         if (!fs.existsSync(abs) || fs.statSync(abs).isDirectory()) return false;
