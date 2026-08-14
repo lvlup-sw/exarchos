@@ -60,9 +60,9 @@
     "docs:mount": "node tools/release/mount-docs.mjs",
     "docs:unmount": "node tools/release/mount-docs.mjs --unmount",
     "docs:exodus:reconcile": "tsx tools/audit/prose-exodus-cli.ts reconcile",
-    "docs:dev": "cd documentation && npm run docs:dev",
-    "docs:build": "cd documentation && npm run docs:build",
-    "docs:preview": "cd documentation && npm run docs:preview",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs",
     "lint:windows": "npm run lint",
     "render:guard": "node dist/install/render-guard.js && npm run runtimes:guard && (npm run lint:inv6 || true) && npm run lint:test-first-drift"
   },
@@ -109,6 +109,7 @@
     "tsx": "^4.21.0",
     "typescript": "^5.5.0",
     "typescript-eslint": "^8.62.0",
+    "vitepress": "^1.6.0",
     "vitest": "^3.0.0",
     "yauzl": "^3.4.0"
   },

@@ -61,13 +61,11 @@ function liveSurfaceFiles(): readonly string[] {
     join(REPO_ROOT, 'tools', 'release', 'get-exarchos.ps1'),
   ];
 
-  // documentation/guide/*.md — the published install/onboarding guide.
-  const guideDir = join(REPO_ROOT, 'documentation', 'guide');
-  if (existsSync(guideDir)) {
-    for (const f of readdirSync(guideDir)) {
-      if (f.endsWith('.md')) files.push(join(guideDir, f));
-    }
-  }
+  // The published install guide used to live at documentation/guide/*.md. That
+  // site was reduced to a build skeleton and its pages removed, so the install
+  // instructions a user actually reads are the README and the two bootstrap
+  // installers above — all three scanned unconditionally, so this sweep still
+  // has a subject.
 
   // docs/guides/*.md — the operator/authoring guides (NOT the dated docs/
   // record trees, which are historical and excluded by construction).

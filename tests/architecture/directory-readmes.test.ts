@@ -24,12 +24,11 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
  * excluded for the same reason the top-level contract classifies them
  * separately.
  *
- * `documentation/` is deliberately absent: it is the VitePress site awaiting
- * reduction, listed by the top-level contract because it EXISTS rather than
- * because it belongs. Requiring a README would be asking someone to document a
- * directory that is scheduled to stop existing.
+ * `binding/` and `hooks/` are absent because an external contract fixes their
+ * path: they are someone else's requirement satisfied at this location, not a
+ * choice this repository made about where its own work lives.
  */
-const NOT_STRUCTURE = new Set(['node_modules', 'dist', 'documentation', 'binding', 'hooks']);
+const NOT_STRUCTURE = new Set(['node_modules', 'dist', 'binding', 'hooks']);
 
 function structuralDirectories(): string[] {
   return fs

@@ -24,7 +24,8 @@
 name: claude
 # preferredFacade: mcp — Claude Code natively dispatches MCP tool_use blocks,
 # so MCP is the lower-friction default for skill invocations.
-# See documentation/facade-and-deployment.md for facade selection rationale.
+# See docs/architecture/facade-and-deployment.md for facade selection rationale
+# (relocated with the rest of the prose; `npm run docs:mount` puts it back).
 preferredFacade: mcp
 capabilities:
   hasSubagents: true

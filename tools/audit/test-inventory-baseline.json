@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1165,
-    "parsedFiles": 1120,
+    "testFiles": 1166,
+    "parsedFiles": 1121,
     "shellFiles": 45,
-    "cases": 12827,
+    "cases": 12835,
     "dynamicTitles": 131,
     "unparseableFiles": 0
   },
@@ -7904,6 +7904,52 @@
         {
           "suite": "F.7 — CLI table/tree pretty-print regression (Wave 0 §7)",
           "name": "CliRender_WfDescribeActionInit_TreeOrInferredPath_StableSnapshot",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/docs-site-skeleton.test.ts": {
+      "file": "tests/integration/docs-site-skeleton.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the reduced documentation site",
+          "name": "Documentation_AfterReduction_VitePressStillBuilds",
+          "dynamic": false
+        },
+        {
+          "suite": "the reduced documentation site",
+          "name": "Documentation_AfterReduction_PublishesOnlyTheSkeleton",
+          "dynamic": false
+        },
+        {
+          "suite": "the reduced documentation site",
+          "name": "Documentation_WithDocumentsMounted_ExcludesEveryMountedSubtree",
+          "dynamic": false
+        },
+        {
+          "suite": "the reduced documentation site",
+          "name": "Documentation_AfterReduction_TheRetiredSiteIsGone",
+          "dynamic": false
+        },
+        {
+          "suite": "the reduced documentation site",
+          "name": "Documentation_AfterReduction_TheDocsScriptsTargetTheNewTree",
+          "dynamic": false
+        },
+        {
+          "suite": "the reduced documentation site",
+          "name": "the mount point and the site source are the same directory",
+          "dynamic": false
+        },
+        {
+          "suite": "the publication census",
+          "name": "found the build output",
+          "dynamic": false
+        },
+        {
+          "suite": "the publication census",
+          "name": "reads mounts by link type, not by name",
           "dynamic": false
         }
       ]

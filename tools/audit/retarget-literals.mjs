@@ -20,7 +20,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const APPLY = process.argv.includes('--apply');
 
 const SCANNED = /\.(ts|tsx|mts|cts|js|mjs|cjs|json|yml|yaml|sh|ps1)$/;
-const EXCLUDED_TREES = ['docs/', 'documentation/', 'evals/captured/', 'node_modules/'];
+const EXCLUDED_TREES = ['docs/', 'evals/captured/', 'node_modules/'];
 // The move table states the OLD paths as data. Rewriting them would collapse it
 // to an identity map — the table would still parse, still run, and silently
 // move nothing.

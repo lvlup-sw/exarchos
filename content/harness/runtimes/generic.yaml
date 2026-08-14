@@ -22,7 +22,8 @@
 name: generic
 # preferredFacade: cli — unknown runtimes have no guaranteed MCP client, so
 # CLI is the safest lowest-common-denominator invocation surface.
-# See documentation/facade-and-deployment.md for facade selection rationale.
+# See docs/architecture/facade-and-deployment.md for facade selection rationale
+# (relocated with the rest of the prose; `npm run docs:mount` puts it back).
 preferredFacade: cli
 capabilities:
   hasSubagents: false

@@ -1,10 +1,20 @@
-# `docs/` — two files, and a mount point
+# `docs/` — two documents, the published site, and a mount point
 
 This directory holds what describes the system that EXISTS:
 
 - [`system-design.html`](system-design.html) — the canonical statement of the
   nine-layer architecture.
 - This README.
+
+Plus the machinery of the published site, which is build input rather than
+something to read here:
+
+- `.vitepress/` and [`index.md`](index.md) — the GitHub Pages site, reduced to
+  a skeleton. Its 46 hand-written pages described an Exarchos several refactors
+  out of date and were removed rather than migrated; a stale page outranks the
+  source in a search result. `npm run docs:dev` serves it.
+- `public/` — served verbatim at the site root. The deploy workflow stages the
+  bootstrap installers here so the README's install one-liner has a stable URL.
 
 Everything else has been relocated to the `lvlup-sw/docs` repository under the
 `exarchos/` key, with source paths preserved. That is roughly 550 documents:

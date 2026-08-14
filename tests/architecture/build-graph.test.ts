@@ -41,11 +41,6 @@ const DECLARED_PACKAGES: Readonly<
     disposition: 'retained',
     why: 'RETAINED (task 011a). Opt-in promptfoo eval harness, isolated so the heavy eval-only dependency stays OUT of the default product install (DR-3). The graders resolve promptfoo from THIS package at runtime, and ci.yml names it in the prompts: paths-filter so a change here still fires RUN_EVALS. Retiring it would delete a live eval capability and orphan that filter.',
   },
-  'documentation/package.json': {
-    role: 'tool',
-    disposition: 'retained',
-    why: 'Documentation site toolchain. Retained here and scoped to task 039’s skeleton reduction, which owns the decision about what the documentation tree becomes.',
-  },
 };
 
 function trackedManifests(): string[] {
@@ -78,8 +73,10 @@ describe('BuildGraph_AfterUnification_DeclaredPackageSetMatchesTheManifestSet', 
   });
 
   it('each declared manifest has its own lockfile beside it', () => {
-    // Three manifest/lockfile PAIRS since task 019 dissolved the nested server
-    // workspace. A manifest without a lockfile installs unpinned.
+    // Two manifest/lockfile PAIRS: the nested server workspace was dissolved
+    // into the product manifest, and the documentation site's toolchain became
+    // a root devDependency when that tree was reduced to a build skeleton. A
+    // manifest without a lockfile installs unpinned.
     for (const manifest of Object.keys(DECLARED_PACKAGES)) {
       const lock = path.join(REPO_ROOT, path.dirname(manifest), 'package-lock.json');
       expect(existsSync(lock), `${manifest} has no package-lock.json beside it`).toBe(true);

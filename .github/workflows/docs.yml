@@ -4,13 +4,17 @@ on:
   push:
     branches: [main]
     paths:
-      - 'documentation/**'
+      - 'docs/**'
       # The bootstrap installers are served from the Pages site at
       # /exarchos/get-exarchos.sh (and .ps1) — see the copy step below.
-      # A change to the canonical script under scripts/ must trigger a
+      # A change to the canonical script under tools/release/ must trigger a
       # redeploy or the public URL will lag the repo.
       - 'tools/release/get-exarchos.sh'
       - 'tools/release/get-exarchos.ps1'
+      # The site toolchain and its scripts live in the root manifest now, so a
+      # vitepress bump is a docs change even when nothing under docs/ moves.
+      - 'package.json'
+      - 'package-lock.json'
   workflow_dispatch:
 
 permissions:
@@ -32,28 +36,30 @@ jobs:
         with:
           node-version: 24
 
+      # The whole dev tree, because the site toolchain is a root devDependency
+      # since `documentation/` was reduced to a skeleton under docs/. Slower
+      # than installing vitepress alone, and deliberately so: one manifest and
+      # one lockfile means the site cannot drift onto an unpinned toolchain.
       - name: Install dependencies
-        working-directory: documentation
-        run: npm install
+        run: npm ci
 
       - name: Stage bootstrap installers into Pages /public
-        # Single source of truth: scripts/get-exarchos.{sh,ps1}. The copies in
-        # documentation/public/ are build artifacts (gitignored); the deploy
+        # Single source of truth: tools/release/get-exarchos.{sh,ps1}. The
+        # copies in docs/public/ are build artifacts (gitignored); the deploy
         # step below ships them at /exarchos/get-exarchos.sh and .ps1 so the
         # README can advertise the install one-liner without baking a tagged
         # raw.githubusercontent.com URL into user-facing docs.
         run: |
           set -euo pipefail
-          install -m 0755 tools/release/get-exarchos.sh  documentation/public/get-exarchos.sh
-          install -m 0644 tools/release/get-exarchos.ps1 documentation/public/get-exarchos.ps1
+          install -m 0755 tools/release/get-exarchos.sh  docs/public/get-exarchos.sh
+          install -m 0644 tools/release/get-exarchos.ps1 docs/public/get-exarchos.ps1
 
       - name: Build documentation
-        working-directory: documentation
         run: npm run docs:build
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: documentation/.vitepress/dist
+          path: docs/.vitepress/dist
 
   deploy:
     environment:

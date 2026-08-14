@@ -49,7 +49,8 @@
 name: codex
 # preferredFacade: mcp — Codex CLI registers MCP servers via
 # `~/.codex/config.toml` and invokes their tools as OpenAI function calls.
-# See documentation/facade-and-deployment.md for facade selection rationale.
+# See docs/architecture/facade-and-deployment.md for facade selection rationale
+# (relocated with the rest of the prose; `npm run docs:mount` puts it back).
 preferredFacade: mcp
 capabilities:
   hasSubagents: true

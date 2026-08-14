@@ -28,8 +28,8 @@ const REPO_ROOT = path.resolve(import.meta.dirname, '../..');
 
 /**
  * Directories that carry the repository's structure. Six, as DR-1 states —
- * plus the two Phase 1 has not yet dissolved, each named with the task that
- * removes it so this list shrinks on a schedule rather than by attrition.
+ * plus two that are here because something outside this repository requires
+ * the path, not because the structure wanted them.
  */
 const ALLOWED_DIRS: Record<string, string> = {
   src: 'The shipped product source.',
@@ -37,12 +37,9 @@ const ALLOWED_DIRS: Record<string, string> = {
   rendered: 'Generated per-runtime projections of content/. Never edited by hand.',
   tests: 'The single test tree (DR-5). Every tier lives here.',
   tools: 'Repo automation: gates, build/publish scripts, conformance suite, lint rules.',
-  docs: 'Specs, guides, architecture notes and RCAs.',
+  docs: 'The two documents that describe the system, the mount point for the relocated ones, and the published site skeleton.',
   binding: 'Harness binding descriptors.',
   hooks: 'Plugin-root hooks/, required at this path by the plugin contract.',
-  documentation:
-    'The VitePress site. Task 039 reduces this to a skeleton under docs/; it is listed ' +
-    'because it EXISTS today, not because it belongs here.',
 };
 
 /** Classified dot-directories. Tooling homes, not repository structure. */

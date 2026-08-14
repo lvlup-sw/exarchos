@@ -65,6 +65,24 @@ export const RETAINED: ReadonlyArray<{ readonly path: string; readonly because: 
         'The canonical statement of the nine-layer architecture — the one description of the ' +
         'system that is kept rather than relocated.',
     },
+    {
+      path: 'docs/.vitepress/',
+      because:
+        'The published site is built from this directory: `npm run docs:build` reads the config, ' +
+        'and the deploy workflow uploads what it emits. Read by a program, not by a reader.',
+    },
+    {
+      path: 'docs/index.md',
+      because:
+        'The only page the site has. VitePress requires a home page to build at all, so this is ' +
+        'part of the build input rather than a document.',
+    },
+    {
+      path: 'docs/public/',
+      because:
+        'Served verbatim at the site root. The deploy workflow stages the bootstrap installers ' +
+        'here, which is what makes the README install one-liner resolve to a stable URL.',
+    },
   ]);
 
 /** Is this path retained? */

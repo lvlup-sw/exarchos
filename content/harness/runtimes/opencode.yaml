@@ -20,7 +20,8 @@
 name: opencode
 # preferredFacade: cli — OpenCode's MCP client surface is still thin, so
 # bash-style CLI invocations are the more reliable default.
-# See documentation/facade-and-deployment.md for facade selection rationale.
+# See docs/architecture/facade-and-deployment.md for facade selection rationale
+# (relocated with the rest of the prose; `npm run docs:mount` puts it back).
 preferredFacade: cli
 capabilities:
   hasSubagents: true

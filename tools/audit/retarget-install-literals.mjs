@@ -34,7 +34,7 @@ const RENAMES = preMoveSrc
   .sort((a, b) => b[0].length - a[0].length);
 
 const SCANNED = /\.(ts|tsx|mts|cts|js|mjs|cjs|json|yml|yaml|sh|ps1)$/;
-const EXCLUDED = ['docs/', 'documentation/', 'evals/captured/', 'node_modules/', 'tools/audit/move-table.mjs'];
+const EXCLUDED = ['docs/', 'evals/captured/', 'node_modules/', 'tools/audit/move-table.mjs'];
 
 // Only files that did NOT move: a moved file's internal relative paths were
 // already handled arithmetically, and rewriting them textually would fight that.
