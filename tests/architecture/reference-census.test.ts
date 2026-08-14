@@ -50,23 +50,72 @@ const deletionCandidates = Object.entries(census.subtrees).filter(
 );
 
 /**
- * The only subtrees measured free of live references today. This is a ratchet:
- * as references are cleaned up the set grows and this list must grow with it,
- * so nothing is deleted on the strength of a stale measurement.
+ * Subtrees that have already LEFT for the external documents repository. They
+ * still appear in the census — the directory is a mount point now — but with
+ * zero files of their own.
+ *
+ * They are separated from the cleared set for a reason worth stating: after a
+ * relocation, "zero live referrers" is trivially true of a directory holding
+ * nothing, so a single cleared list would keep reporting these four as ready
+ * to delete forever, and would keep passing while measuring nothing. Emptiness
+ * and cleanliness look identical to a referrer count; only file count tells
+ * them apart.
  */
-const CLEARED_FOR_DELETION = ['docs/audits', 'docs/bugs', 'docs/market', 'docs/refactors'];
+const RELOCATED = ['docs/audits', 'docs/bugs', 'docs/market', 'docs/refactors'];
+
+/**
+ * Re-homed subtrees whose move is DONE — the content went somewhere else in
+ * this repository rather than out of it, so the census row survives an empty
+ * directory. Same reason as {@link RELOCATED}: "holds no files" is a completed
+ * move, not a broken measurement, and the two must be told apart by name.
+ */
+const RE_HOMED_ALREADY = ['docs/evals'];
+
+/**
+ * Subtrees measured free of live references and still holding files — the set
+ * genuinely eligible to move next. A ratchet: as referrers are retargeted this
+ * grows, and it must be updated deliberately, so nothing leaves on the strength
+ * of a stale measurement.
+ *
+ * Empty today, and that is the honest reading: the four that were eligible have
+ * gone, and every subtree still here carries live referrers.
+ */
+const CLEARED_FOR_DELETION: readonly string[] = [];
 
 describe('reference census', () => {
   it('ReferenceCensus_EveryDeletionCandidate_HasZeroLiveReferences', () => {
     // Equality against the cleared list rather than a blanket zero assertion:
-    // 12 of 16 subtrees are still referenced, and pretending otherwise is what
-    // the census exists to prevent.
+    // most subtrees are still referenced, and pretending otherwise is what the
+    // census exists to prevent. Subtrees holding no files are excluded — see
+    // RELOCATED — so this set means "clear AND still here".
     const cleared = deletionCandidates
-      .filter(([, s]) => s.liveReferrers === 0)
+      .filter(([, s]) => s.liveReferrers === 0 && s.ownFiles > 0)
       .map(([name]) => name)
       .sort();
 
     expect(cleared).toEqual([...CLEARED_FOR_DELETION].sort());
+  });
+
+  it('ReferenceCensus_RelocatedSubtree_HoldsNoFilesAndIsNotReCleared', () => {
+    // The other half of the distinction, so a relocation cannot silently turn
+    // into a permanent "ready to delete" verdict over an empty directory.
+    for (const name of RELOCATED) {
+      const subtree = census.subtrees[name];
+      expect(subtree, `${name} is absent from the census entirely`).toBeDefined();
+      expect(subtree?.ownFiles, `${name} was relocated but still holds files`).toBe(0);
+      expect(
+        CLEARED_FOR_DELETION.includes(name),
+        `${name} has already left; it must not also be listed as cleared to delete`,
+      ).toBe(false);
+    }
+  });
+
+  it('ReferenceCensus_TheScanStillCoversPopulatedSubtrees', () => {
+    // Denominator. Once four subtrees hold nothing, a census that had lost its
+    // ability to see files at all would report every remaining subtree as empty
+    // and every check above would pass by having no input.
+    const populated = deletionCandidates.filter(([, s]) => s.ownFiles > 0);
+    expect(populated.length, 'the census sees no populated subtree').toBeGreaterThan(5);
   });
 
   it('ReferenceCensus_LiveReferencedPath_IsExcludedFromDeletion', () => {
@@ -122,11 +171,28 @@ describe('reference census', () => {
   it('ReferenceCensus_ReHomedSubtrees_AreMeasuredButNotGated', () => {
     // They move rather than disappear, so references are retargeted rather
     // than removed — but they still have to be counted before the move.
+    //
+    // A subtree that has ALREADY moved holds nothing, and asserting it still
+    // holds files would fail for having succeeded. `docs/evals` is the live
+    // case: its graders and datasets went to `tests/evals/` with the test-tree
+    // consolidation, so the directory is gone while the census row remains.
     const rehomed = Object.entries(census.subtrees).filter(([, s]) => s.disposition === 're-home');
-
     expect(rehomed.length).toBeGreaterThan(0);
-    for (const [name, subtree] of rehomed) {
+
+    const pending = rehomed.filter(([name]) => !RE_HOMED_ALREADY.includes(name));
+    // Denominator: if every row were marked done, this check would assert
+    // nothing and could not notice a subtree emptying by accident.
+    expect(pending.length, 're-home rows exist but all are marked done').toBeGreaterThan(0);
+
+    for (const [name, subtree] of pending) {
       expect(subtree.ownFiles, `${name} is scheduled to move but holds no files`).toBeGreaterThan(0);
+    }
+
+    for (const name of RE_HOMED_ALREADY) {
+      expect(
+        census.subtrees[name]?.ownFiles,
+        `${name} is recorded as re-homed but still holds files`,
+      ).toBe(0);
     }
   });
 });

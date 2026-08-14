@@ -1,6 +1,6 @@
 {
   "capturedAt": "2026-08-14",
-  "trackedFiles": 3510,
+  "trackedFiles": 3468,
   "surfaces": {
     "depcruise:no-domain-core-to-io-adapters:from": {
       "kind": "module-set",
@@ -18,7 +18,7 @@
     },
     "codeowners:*": {
       "kind": "ownership",
-      "matched": 3510
+      "matched": 3468
     },
     "codeowners:src/": {
       "kind": "ownership",
@@ -26,7 +26,7 @@
     },
     "codeowners:tools/": {
       "kind": "ownership",
-      "matched": 297
+      "matched": 301
     },
     "codeowners:content/": {
       "kind": "ownership",
@@ -38,7 +38,7 @@
     },
     "codeowners:tests/": {
       "kind": "ownership",
-      "matched": 1412
+      "matched": 1413
     },
     "package.files:dist/bin": {
       "kind": "packaging",
@@ -85,7 +85,7 @@
     },
     "lint:eslint-cli-glob": {
       "kind": "lint-scope",
-      "matched": 878,
+      "matched": 880,
       "detail": {
         "glob": "src/**/*.ts tools/**/*.ts"
       }

@@ -60,3 +60,18 @@ docs/marketing/
 
 # Lavish review artifacts (local HTML review surfaces; not source)
 .lavish/
+
+# Relocated document subtrees, mounted locally by `npm run docs:mount`.
+#
+# These live in the external documents repository now. The mount is a symlink,
+# and a symlink stores its target as content — committing one would hard-code
+# one machine's layout into every checkout and dangle for everyone else. A
+# dangling link is worse than an absent directory: a tree walk sees an entry
+# and fails on read instead of skipping it.
+#
+# One line per relocated subtree, so a subtree that has NOT been relocated is
+# still tracked normally and `docs:mount` refuses to shadow it.
+docs/audits/
+docs/bugs/
+docs/market/
+docs/refactors/

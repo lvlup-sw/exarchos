@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1164,
-    "parsedFiles": 1119,
+    "testFiles": 1165,
+    "parsedFiles": 1120,
     "shellFiles": 45,
-    "cases": 12812,
+    "cases": 12822,
     "dynamicTitles": 131,
     "unparseableFiles": 0
   },
@@ -5393,6 +5393,52 @@
         }
       ]
     },
+    "tests/architecture/prose-exodus.test.ts": {
+      "file": "tests/architecture/prose-exodus.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "ProseManifest_EveryRelocatedFile_IsPresentAtTheDestinationWithAMatchingDigest",
+          "name": "the manifest is not empty",
+          "dynamic": false
+        },
+        {
+          "suite": "ProseManifest_EveryRelocatedFile_IsPresentAtTheDestinationWithAMatchingDigest",
+          "name": "it names its destination",
+          "dynamic": false
+        },
+        {
+          "suite": "ProseManifest_EveryRelocatedFile_IsPresentAtTheDestinationWithAMatchingDigest",
+          "name": "every entry carries a real digest and a real size",
+          "dynamic": false
+        },
+        {
+          "suite": "ProseManifest_EveryRelocatedFile_IsPresentAtTheDestinationWithAMatchingDigest",
+          "name": "every destination path is under the key, with the source path preserved",
+          "dynamic": false
+        },
+        {
+          "suite": "ProseManifest_EveryRelocatedFile_IsPresentAtTheDestinationWithAMatchingDigest",
+          "name": "every relocated file really is gone from this repository",
+          "dynamic": false
+        },
+        {
+          "suite": "ProseManifest_EveryRelocatedFile_IsPresentAtTheDestinationWithAMatchingDigest",
+          "name": "no tracked file remains under a relocated subtree",
+          "dynamic": false
+        },
+        {
+          "suite": "ProseManifest_EveryRelocatedFile_IsPresentAtTheDestinationWithAMatchingDigest",
+          "name": "reconciles against the destination when it is checked out",
+          "dynamic": false
+        },
+        {
+          "suite": "MarkdownInventory_EveryRemovedPath_HadZeroLiveReferences",
+          "name": "the manifest covers only subtrees the census cleared",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/architecture/published-contract.test.ts": {
       "file": "tests/architecture/published-contract.test.ts",
       "runner": "vitest:root",
@@ -5436,6 +5482,16 @@
         {
           "suite": "reference census",
           "name": "ReferenceCensus_EveryDeletionCandidate_HasZeroLiveReferences",
+          "dynamic": false
+        },
+        {
+          "suite": "reference census",
+          "name": "ReferenceCensus_RelocatedSubtree_HoldsNoFilesAndIsNotReCleared",
+          "dynamic": false
+        },
+        {
+          "suite": "reference census",
+          "name": "ReferenceCensus_TheScanStillCoversPopulatedSubtrees",
           "dynamic": false
         },
         {
