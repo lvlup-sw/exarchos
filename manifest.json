@@ -13,12 +13,6 @@
         "source": "rendered/skills",
         "target": "skills",
         "type": "directory"
-      },
-      {
-        "id": "scripts",
-        "source": "scripts",
-        "target": "scripts",
-        "type": "directory"
       }
     ],
     "mcpServers": [

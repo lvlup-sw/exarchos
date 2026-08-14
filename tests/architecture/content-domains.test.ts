@@ -195,13 +195,15 @@ describe('SkillFixtures', () => {
   });
 
   it('AfterRelocation_AreNoLongerExcludedByPackaging', () => {
-    // `!**/trigger-tests` guarded exactly one path, and that path left the
-    // shipped tree with this move, so the rule now excludes nothing.
-    //
-    // `!**/test-fixtures` is NOT retired with it: `scripts/` is also published
-    // and still carries a `test-fixtures/` of its own, so dropping the
-    // negation ships those fixtures. The packing test is what caught that, and
-    // this assertion keeps the distinction from being re-collapsed.
+    // A negation earns its place only while some shipped tree still contains
+    // what it excludes. `!**/trigger-tests` lost its one path to an earlier
+    // move; `!**/test-fixtures` and `!**/*.test.{sh,ts}` lost theirs when
+    // `scripts/` stopped being published — it was the last shipped root
+    // carrying fixtures or test files. `npm pack` is byte-identical with and
+    // without all three, so they are retired rather than left reading as
+    // protection. Keeping fixtures out of the tarball is now asserted against
+    // the artifact itself, in installer-verify's pack test, which fails loudly
+    // instead of excluding silently.
     const pkg = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8')) as {
       files?: string[];
     };
@@ -209,13 +211,17 @@ describe('SkillFixtures', () => {
     expect(files).not.toContain('!**/trigger-tests');
     expect(files).not.toContain('tests');
 
-    const shippedFixtureDirs = ['scripts/test-fixtures'].filter((d) =>
-      existsSync(join(REPO_ROOT, d)),
+    // Re-anchored on shipped-ness, not repo presence: `scripts/test-fixtures/`
+    // still exists on disk and would have kept demanding a dead negation.
+    const shippedFixtureDirs = ['scripts/test-fixtures'].filter(
+      (d) => files.some((f) => d.startsWith(`${f}/`) || f === d) && existsSync(join(REPO_ROOT, d)),
     );
     if (shippedFixtureDirs.length > 0) {
       expect(files, `still shipped: ${shippedFixtureDirs.join(', ')}`).toContain(
         '!**/test-fixtures',
       );
+    } else {
+      expect(files).not.toContain('!**/test-fixtures');
     }
   });
 });

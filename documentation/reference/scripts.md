@@ -35,10 +35,12 @@ scripts/
 
 ## Resolution order
 
-Scripts resolve from two locations, checked in order:
-
-1. `EXARCHOS_PLUGIN_ROOT/scripts/` -- plugin install (primary)
-2. `~/.claude/scripts/` -- companion installer (fallback)
+There is none: nothing resolves a script path at runtime, and `scripts/` is not
+part of an Exarchos installation. It is a repo-maintenance tree — CI gates,
+release tooling, the binary build — so it ships in neither the published package
+nor the plugin, and no installed layout contains it. The one exception is
+`scripts/get-exarchos.{sh,ps1}`, served from `lvlup-sw.github.io` and fetched
+before an install exists rather than from one.
 
 ## Invocation
 

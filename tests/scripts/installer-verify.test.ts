@@ -389,7 +389,19 @@ describe('DR-20 — the installers consume the signed release manifest', () => {
     )[0]?.files.map((f) => f.path.replace(/\\/g, '/'));
     expect(files).toBeDefined();
     expect(files).toContain('dist/release-verify.js');
-    expect(files?.some((f) => f.includes('scripts/test-fixtures/'))).toBe(false);
+
+    // This is the whole defence now. `files[]` used to carry
+    // `!**/test-fixtures` and `!**/*.test.{sh,ts}`, retired once `scripts/`
+    // stopped being published left them excluding nothing. Asserting against
+    // the tarball beats asserting against the config: add a shipped root that
+    // carries fixtures or tests and this names them, where a negation would
+    // have quietly swallowed them. Anchored on a real denominator so an empty
+    // or unparsed pack cannot pass by vacuity.
+    expect(files!.length).toBeGreaterThan(50);
+    const leaked = files!.filter(
+      (f) => /(^|\/)(test-fixtures|trigger-tests)\//.test(f) || /\.test\.(ts|sh|ps1)$/.test(f),
+    );
+    expect(leaked, `test-only paths in the tarball: ${leaked.join(', ')}`).toEqual([]);
   }, 360_000);
 
   describe.skipIf(BASH === undefined)('scripts/get-exarchos.sh', () => {

@@ -284,9 +284,11 @@ describe('Real Manifest File (E5)', () => {
   it('manifest_ContainsAllCoreComponents', () => {
     const manifest = loadManifest(manifestPath);
     const coreIds = manifest.components.core.map((c) => c.id);
-    expect(coreIds).toContain('commands');
-    expect(coreIds).toContain('skills');
-    expect(coreIds).toContain('scripts');
+    // Exact, not toContain: a `core` entry nothing reads is invisible to every
+    // other guard. `scripts` sat here for releases as pure dead config — no code
+    // reads components.core, so its `target` never materialized under ~/.claude.
+    // Adding an entry should require saying so here.
+    expect(coreIds).toEqual(['commands', 'skills']);
   });
 
   it('manifest_ContainsRequiredServers', () => {

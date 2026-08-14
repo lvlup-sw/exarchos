@@ -11,14 +11,10 @@
     "dist/bin",
     "dist/release-verify.js",
     "rendered",
-    "scripts",
     "hooks",
     "settings.json",
     ".claude-plugin",
-    "AGENTS.md",
-    "!**/*.test.sh",
-    "!**/*.test.ts",
-    "!**/test-fixtures"
+    "AGENTS.md"
   ],
   "scripts": {
     "build": "npm run codegen:runtimes && tsc && npm run build:binary && npm run build:release-verifier && npm run build:skills && npm run build:hooks",
