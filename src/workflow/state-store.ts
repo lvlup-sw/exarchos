@@ -607,7 +607,7 @@ export async function listStateFiles(
 // single registered `workflow-state@v1` reducer — so reconcile and
 // `resolveWorkflowState` can never diverge (its `state.patched` deepMerge vs the
 // canonical applyDotPath was the last dual-mutation gap). The single-fold CI
-// gate (`scripts/check-single-workflow-fold.mjs`) keeps it that way.
+// gate (`tools/audit/gates/check-single-workflow-fold.mjs`) keeps it that way.
 
 // ─── Hydrate Events from Store ──────────────────────────────────────────────
 

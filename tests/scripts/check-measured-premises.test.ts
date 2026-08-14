@@ -44,14 +44,15 @@ import {
   resolveRungProbe,
   DERIVATIONS,
   // `.mjs` gate with JSDoc types only; `allowJs` reads them for inference.
-} from '../../scripts/check-measured-premises.mjs';
+} from '../../tools/audit/gates/check-measured-premises.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '../..');
-const SCRIPT = path.join(REPO_ROOT, 'scripts', 'check-measured-premises.mjs');
+const SCRIPT = path.join(REPO_ROOT, 'tools', 'audit', 'gates', 'check-measured-premises.mjs');
 const REV3_FIXTURE = path.join(
   REPO_ROOT,
-  'scripts',
+  'tools',
+  'audit',
   'test-fixtures',
   'measured-premises',
   'rev3-internal-mechanics-overhaul.md',
@@ -131,7 +132,7 @@ describe('check-measured-premises (task 054, DR-27)', () => {
 
     const { status, report } = runCli([
       '--document',
-      'scripts/test-fixtures/measured-premises/rev3-internal-mechanics-overhaul.md',
+      'tools/audit/test-fixtures/measured-premises/rev3-internal-mechanics-overhaul.md',
     ]);
 
     expect(report.verdict).toBe('fail');

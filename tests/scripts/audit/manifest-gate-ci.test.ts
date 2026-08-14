@@ -9,7 +9,7 @@ import {
   EXIT_OK,
   EXIT_FINDING,
   EXIT_USAGE,
-} from '../../../scripts/audit/manifest-gate-ci.mjs';
+} from '../../../tools/audit/manifest-gate-ci.mjs';
 
 const SRC = 'src';
 

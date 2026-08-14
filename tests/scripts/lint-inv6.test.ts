@@ -1,4 +1,4 @@
-// Tests for `scripts/lint-inv6.mjs` — the advisory grep-based lint that
+// Tests for `tools/audit/gates/lint-inv6.mjs` — the advisory grep-based lint that
 // surfaces candidate INV-6 (workflow-agnosticism) violations.
 
 import { describe, it, expect } from 'vitest';
@@ -8,7 +8,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 const REPO_ROOT = path.resolve(__dirname, '../..');
-const LINT_SCRIPT = path.join(REPO_ROOT, 'scripts', 'lint-inv6.mjs');
+const LINT_SCRIPT = path.join(REPO_ROOT, 'tools', 'audit', 'gates', 'lint-inv6.mjs');
 
 interface Finding {
   readonly file: string;

@@ -738,7 +738,7 @@ invariants:
     integrity-class: substrate
     phase-affinity: [ review ]
     enforcement:
-      # mode:audit, not check: scripts/lint-inv6.mjs is a deliberately-advisory
+      # mode:audit, not check: tools/audit/gates/lint-inv6.mjs is a deliberately-advisory
       # literal scan with a frontmatter-declaration escape hatch a diff-grep
       # cannot replicate (legitimate prose in content references workflow
       # types). The judgment stays with the reviewer; the script remains the
@@ -761,7 +761,7 @@ invariants:
       Substrate guarantees (RT-1..RT-6) hold identically for every workflow
       type. Workflow-type-specific concerns belong in topology.yaml, not the
       catalog. Skills describe behaviors; playbooks/commands describe workflows.
-      Operational projection: scripts/lint-inv6.mjs grep for workflow-typed
+      Operational projection: tools/audit/gates/lint-inv6.mjs grep for workflow-typed
       literals in content/.
     citations:
       - "AWP runtime-agnostic protocol:
@@ -773,7 +773,7 @@ invariants:
         https://blogs.novita.ai/novita-agent-runtime-agentcore-compatible/"
     references:
       - docs/architecture/invariants/references/INV-6-workflow-agnosticism.md
-      - scripts/lint-inv6.mjs
+      - tools/audit/gates/lint-inv6.mjs
       - docs/architecture/runtime.md#§1
 
   - id: INV-16
@@ -795,7 +795,7 @@ invariants:
       # REMOVAL (a fix) never false-fires. The broader portability surface
       # (path.join, SQLite-handle release before rm, .cmd-shim spawns) stays
       # covered by the blocking windows-latest CI job and
-      # scripts/check-windows-portability.mjs — this check is the diff-precise,
+      # tools/audit/gates/check-windows-portability.mjs — this check is the diff-precise,
       # front-of-pipeline slice of that backstop. Blocking severity (unchanged).
       mode: check
       check:
@@ -832,7 +832,7 @@ invariants:
       - src/utils/paths.ts
       - src/utils/process.ts
       - tools/test-helpers/temp-dir.ts
-      - scripts/check-windows-portability.mjs
+      - tools/audit/gates/check-windows-portability.mjs
       - .github/workflows/ci.yml
 
   - id: basileus-boundary

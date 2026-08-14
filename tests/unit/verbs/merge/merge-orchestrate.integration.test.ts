@@ -19,7 +19,7 @@
 //
 // Per #1185, this exercises a real `EventStore` constructed via a real
 // `DispatchContext` (production wiring). The composition-root smoke gate
-// (`scripts/check-event-store-composition-root.mjs`, run in T25) excludes
+// (`tools/audit/gates/check-event-store-composition-root.mjs`, run in T25) excludes
 // `*.test.ts` files automatically, so the direct `new EventStore(...)` here
 // is allowed and intentional — we want to assert the on-disk + in-memory
 // store reconstructs the timeline, not just that mocks were invoked.
@@ -94,7 +94,7 @@ describe('Merge orchestrator happy timeline (T23, DR-MO-1, DR-MO-2)', () => {
   beforeEach(async () => {
     stateDir = await mkdtemp(path.join(tmpdir(), 'merge-orch-integ-happy-'));
     // Real EventStore via real DispatchContext — production wiring shape.
-    // The composition-root gate (`scripts/check-event-store-composition-root.mjs`)
+    // The composition-root gate (`tools/audit/gates/check-event-store-composition-root.mjs`)
     // excludes `*.test.ts` automatically, so this raw `new EventStore` is
     // intentionally permitted in this fixture.
     eventStore = new EventStore(stateDir);

@@ -437,7 +437,7 @@ export interface RealHandlerObservationSet {
  * Mints a real `DispatchContext` over a caller-owned state directory.
  *
  * The harness does NOT construct the `EventStore` itself: the composition-root
- * census (`scripts/check-event-store-composition-root.mjs`) admits `new
+ * census (`tools/audit/gates/check-event-store-composition-root.mjs`) admits `new
  * EventStore` only inside the composition root, and this module is not one.
  * Injecting the factory keeps that guard honest — the store is built by the
  * calling test, which the census excludes — instead of widening the allowlist

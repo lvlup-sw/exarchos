@@ -99,7 +99,7 @@ rejected for exactly that reason). No throw escapes as a pass.
 
 ### CLI seam (`release-verify-cli.ts`)
 
-`scripts/get-exarchos.ps1` / `.sh` delegate to this CLI. Exit codes:
+`tools/release/get-exarchos.ps1` / `.sh` delegate to this CLI. Exit codes:
 
 | Code | Meaning |
 | --- | --- |

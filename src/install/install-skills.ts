@@ -1002,7 +1002,7 @@ export function detectLayoutDrift(
 //       whose per-placement `hashes[skill]` are whole-dir digests
 //       ({@link hashSkillDirContent}); and
 //   (b) the Task 023 multi-release legacy-render hash manifest
-//       (`migrations/legacy-skill-render-hashes.json`), whose entries are the
+//       (`tools/migrations/legacy-skill-render-hashes.json`), whose entries are the
 //       newline-normalized (CRLF→LF) sha256 of every per-runtime `SKILL.md`
 //       render ACROSS historical release tags — so a pre-existing install of any
 //       prior release, even a CRLF checkout, still hash-matches.
@@ -1038,7 +1038,7 @@ export interface LegacySkillRenderManifest {
 /**
  * Newline-normalized (CRLF→LF) sha256 hex of a single `SKILL.md` render's
  * content. MUST stay byte-identical to the Task 023 generator's `normalizeAndHash`
- * (`scripts/generate-legacy-skill-hashes.mjs`) so a consumer file that differs
+ * (`tools/release/generate-legacy-skill-hashes.mjs`) so a consumer file that differs
  * only in line endings still hash-matches the manifest — the cross-format
  * equality is pinned by `install-skills.test.ts`.
  */
@@ -1093,14 +1093,14 @@ export function indexLegacyHashesBySkill(
 /**
  * Resolve the committed legacy-render hash manifest on disk. Mirrors
  * {@link findSkillsSourceDir}'s candidate order (cwd, compiled-binary
- * `dist/bin/../..`, src-relative dev path) but rooted at `migrations/`. Returns
+ * `dist/bin/../..`, src-relative dev path) but rooted at `tools/migrations/`. Returns
  * the first existing candidate, or `undefined` when none exist (the migration
  * then simply has no legacy provenance to match against — the conservative
  * PRESERVE default, never a spurious deletion).
  */
 export function findLegacyHashManifestPath(): string | undefined {
   const candidates: string[] = [
-    path.join(process.cwd(), 'migrations', LEGACY_HASH_MANIFEST_FILENAME),
+    path.join(process.cwd(), 'tools', 'migrations', LEGACY_HASH_MANIFEST_FILENAME),
   ];
   if (typeof process.execPath === 'string' && process.execPath.length > 0) {
     candidates.push(
@@ -1108,6 +1108,7 @@ export function findLegacyHashManifestPath(): string | undefined {
         path.dirname(process.execPath),
         '..',
         '..',
+        'tools',
         'migrations',
         LEGACY_HASH_MANIFEST_FILENAME,
       ),
@@ -1116,7 +1117,7 @@ export function findLegacyHashManifestPath(): string | undefined {
   try {
     if (typeof import.meta.url === 'string' && import.meta.url.startsWith('file:')) {
       const here = path.dirname(fileURLToPath(import.meta.url));
-      candidates.push(path.resolve(here, '..', 'migrations', LEGACY_HASH_MANIFEST_FILENAME));
+      candidates.push(path.resolve(here, '..', 'tools', 'migrations', LEGACY_HASH_MANIFEST_FILENAME));
     }
   } catch (err) {
     if (!isIgnorablePathProbeError(err)) throw err;

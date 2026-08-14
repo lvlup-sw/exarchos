@@ -228,7 +228,7 @@ function startHeartbeat(actionName: string): () => void {
 // ─── Package Version Resolution (Bug #1216) ─────────────────────────────────
 
 /**
- * Build-time injected version. `scripts/build-binary.ts` passes
+ * Build-time injected version. `tools/release/build-binary.ts` passes
  * `--define EXARCHOS_BUILD_VERSION="<version>"` to `bun build --compile`
  * so the compiled binary advertises the right version even though the
  * bundle has no on-disk `package.json` to walk up to. Stays `undefined`
@@ -242,7 +242,7 @@ declare const EXARCHOS_BUILD_VERSION: string | undefined;
  *
  * Strategy (in order):
  *   1. Build-time `EXARCHOS_BUILD_VERSION` constant injected by
- *      `scripts/build-binary.ts` via `bun build --define`. This is the
+ *      `tools/release/build-binary.ts` via `bun build --define`. This is the
  *      authoritative source for the compiled binary.
  *   2. Walk upward from this module to find a `package.json` and read
  *      its `version` field. Works from `src/`, `dist/`, and any

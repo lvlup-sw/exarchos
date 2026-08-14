@@ -8,7 +8,7 @@
 #   - The real repo must PASS (exit 0) — guards against the gate going stale.
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../scripts" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../tools/audit/gates" && pwd)"
 GATE="$SCRIPT_DIR/check-wlm-wiring.mjs"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT

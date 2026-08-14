@@ -50,7 +50,7 @@
 //      An entry therefore cannot renew itself at all; re-dating the debt means
 //      moving one frozen constant in a file that contains nothing else, as a
 //      deliberate commit. The clock is read once, at the CI guard's entrypoint
-//      (`scripts/core/output-schema-ratchet-guard.ts`), never
+//      (`tools/audit/core/output-schema-ratchet-guard.ts`), never
 //      inside the unit suite — a deadline must redden the MERGE, not a developer's
 //      local `vitest run`.
 //

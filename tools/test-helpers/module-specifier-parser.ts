@@ -31,7 +31,7 @@
 // `EXCLUDED_DIRS` skips it (not shipped source), while `tsconfig.json` still
 // INCLUDES it, so this parser is typechecked under the package's own strict
 // settings rather than living in an unchecked `__tests__` corner. The cast
-// ratchet (`scripts/tsconfig-strictness/count-casts.ts`) also scans it, which is
+// ratchet (`tools/audit/tsconfig-strictness/count-casts.ts`) also scans it, which is
 // why the `parseDiagnostics` access below is written as a type guard rather than
 // as the `as` the sibling censuses use.
 //
@@ -62,8 +62,8 @@ import type {
  * way to tell a CLEAN parse from a RECOVERED one.
  *
  * Written as a narrowing predicate over `unknown` rather than the `as` cast that
- * `scripts/tsconfig-strictness/count-casts.ts` and
- * `scripts/check-measured-premises.mjs` use for the same access. Those two live
+ * `tools/audit/tsconfig-strictness/count-casts.ts` and
+ * `tools/audit/gates/check-measured-premises.mjs` use for the same access. Those two live
  * in `scripts/`, which the cast ratchet does not scan; this file is scanned, and
  * the wave's remaining budget is five sites for every task combined.
  */

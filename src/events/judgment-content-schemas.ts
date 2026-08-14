@@ -23,7 +23,7 @@
 //     namespace property reads, which yield `undefined` instead of throwing. The suite would have
 //     gone green on a server that cannot boot. (Reported as a finding by task 011; it is why the
 //     cycle was probed with `tsx` rather than trusted to the suite.)
-//   • `scripts/audit/cycle-gate.ts` fails CLOSED in CI on any unbaselined runtime cycle, so the
+//   • `tools/audit/cycle-gate.ts` fails CLOSED in CI on any unbaselined runtime cycle, so the
 //     edge could not have been shipped even if the load order happened to work.
 //
 // Moving the seven values to a module that imports nothing but `zod` removes the back-edge

@@ -22,7 +22,7 @@ import {
 // default `tsPreCompilationDeps: false` makes the graph count RUNTIME edges only
 // (`import type` elided by TS emit; dynamic `import()` counted). This gate shells
 // depcruise over `src`, detects strongly-connected components (Tarjan), and
-// asserts zero runtime cycles outside `scripts/audit/cycle-baseline.json`.
+// asserts zero runtime cycles outside `tools/audit/cycle-baseline.json`.
 //
 // The depcruise run rides the `.cmd`-shim spawn class (`spawnCommandSync` →
 // win32-correct `npx`) with a per-test timeout well ABOVE the child budget: this
@@ -35,7 +35,7 @@ import {
 // exactly as they were before this census was extracted.
 const MCP_PACKAGE_ROOT = SUBJECT_PACKAGE_ROOT;
 const DEPCRUISE_CONFIG = path.join(REPO_ROOT, '.dependency-cruiser.cjs');
-const CYCLE_BASELINE_PATH = path.join(REPO_ROOT, 'scripts', 'audit', 'cycle-baseline.json');
+const CYCLE_BASELINE_PATH = path.join(REPO_ROOT, 'tools', 'audit', 'cycle-baseline.json');
 
 // Paths in the depcruise graph are relative to the run cwd (the MCP package
 // root), so first-party modules are `src/…`.
@@ -113,7 +113,7 @@ describe('runtime import cycles (dependency-cruiser acceptance)', () => {
         unbaselined.map(edgeKey),
         `Unbaselined runtime import cycle(s) detected. Break the cycle by ` +
           `extraction (preferred) or add a tracked entry to ` +
-          `scripts/audit/cycle-baseline.json. Cycles: ` +
+          `tools/audit/cycle-baseline.json. Cycles: ` +
           JSON.stringify(cycles, null, 2),
       ).toEqual([]);
     },

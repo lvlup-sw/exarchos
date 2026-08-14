@@ -278,7 +278,7 @@ export function lintSdkGenerationMixing(
 //
 // The size of that backlog is deliberately NOT restated here. It is a measured
 // premise, it lives annotated in the spec (`sdk-import-sites` /
-// `sdk-import-directories`) where `scripts/check-measured-premises.mjs` re-derives
+// `sdk-import-directories`) where `tools/audit/gates/check-measured-premises.mjs` re-derives
 // it, and a number copied into a comment is exactly the unbound representation
 // this program exists to remove.
 //

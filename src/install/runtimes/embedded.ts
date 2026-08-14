@@ -279,7 +279,7 @@ function deepFreeze<T>(value: T): T {
  * YAML directory does not ship.
  *
  * Sorted by canonical `REQUIRED_RUNTIME_NAMES` order, then any extras
- * alphabetically — see `scripts/codegen-runtimes.ts` for the contract.
+ * alphabetically — see `tools/release/codegen-runtimes.ts` for the contract.
  */
 export const EMBEDDED_RUNTIMES: readonly RuntimeMap[] = Object.freeze(
   RAW_RUNTIMES.map((r) => deepFreeze(r as unknown as RuntimeMap)),

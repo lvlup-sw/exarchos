@@ -7,7 +7,7 @@
 // ratchet against a checked-in baseline.
 //
 // The exercise ledger is produced by the COMPILED-PROCESS half — the process
-// test spawns the shipped binary (`scripts/build-binary.ts` output) and drives
+// test spawns the shipped binary (`tools/release/build-binary.ts` output) and drives
 // real CLI invocations, recording which denominator items the binary genuinely
 // exercised. Keeping this module pure (no spawning, no I/O) makes the
 // denominator derivation + coverage math + ratchet logic unit-testable in
@@ -33,7 +33,7 @@
 //
 // This module lives under `__tests__/` because it is test/gate infrastructure,
 // never a production import target (refgraph classifies `__tests__/**` as test
-// scope — see `scripts/check-module-intent.mjs`).
+// scope — see `tools/audit/gates/check-module-intent.mjs`).
 // ────────────────────────────────────────────────────────────────────────────
 
 import {

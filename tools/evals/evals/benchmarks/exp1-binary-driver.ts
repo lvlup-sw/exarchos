@@ -315,7 +315,7 @@ export function buildProvenanceArtifact(
     experiment: 'exp1-binaries',
     note:
       'Provenance for the four reference binaries driven in Exp 1 (#1670, tasks 003+004). ' +
-      'Each was built with `bun run scripts/build-binary.ts --target linux-x64` in a throwaway ' +
+      'Each was built with `bun run tools/release/build-binary.ts --target linux-x64` in a throwaway ' +
       'worktree and its `--version` cross-checked (recorded as binaryTag). SHAs/dates are the ' +
       'commit values (deterministic, no wall-clock).',
     modelNote:

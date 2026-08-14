@@ -103,6 +103,6 @@ jobs:
           # API paginates (100/page) and returns the same newline-separated list.
           gh api --paginate "repos/${{ github.repository }}/pulls/$PR/files" \
             --jq '.[].filename' > "$RUNNER_TEMP/pr-changed.txt"
-          node scripts/check-golden-fixture-note.mjs \
+          node tools/audit/gates/check-golden-fixture-note.mjs \
             --body-file "$RUNNER_TEMP/pr-body.txt" \
             --changed-files-file "$RUNNER_TEMP/pr-changed.txt"

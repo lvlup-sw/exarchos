@@ -14,11 +14,11 @@ import {
   runScriptCheck,
   makeFixtureSrc as makeFixtureSrcShared,
   validateManifestCommands,
-} from '../../scripts/test-utils.js';
+} from '../../tools/audit/gates/test-utils.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../..');
-const SCRIPT = path.join(REPO_ROOT, 'scripts', 'check-query-upcast-choke-point.mjs');
+const SCRIPT = path.join(REPO_ROOT, 'tools', 'audit', 'gates', 'check-query-upcast-choke-point.mjs');
 const ROOT_PACKAGE_JSON = path.join(REPO_ROOT, 'package.json');
 
 function runCheck(extraArgs: string[] = []) {
@@ -130,7 +130,7 @@ describe('check-query-upcast-choke-point CLI (#1556)', () => {
     // substring check on `pkg.scripts.validate` can no longer see whether this
     // gate is wired into it. The steps are DATA now — the old chain died at
     // step 1 and every later gate read as skipped-as-passed — so the same
-    // question is put to scripts/validate-manifest.json instead.
+    // question is put to tools/audit/gates/validate-manifest.json instead.
     const pkg = JSON.parse(readFileSync(ROOT_PACKAGE_JSON, 'utf8')) as {
       scripts?: Record<string, string>;
     };

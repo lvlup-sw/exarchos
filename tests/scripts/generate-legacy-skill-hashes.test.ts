@@ -2,7 +2,7 @@
  * Tests for the multi-release legacy-render hash manifest generator
  * (Task 023, DR-8).
  *
- * The manifest (`migrations/legacy-skill-render-hashes.json`) records the
+ * The manifest (`tools/migrations/legacy-skill-render-hashes.json`) records the
  * newline-normalized content hash of every per-runtime skill render across
  * immutable release tags (>= v2.9.0) — release tags ONLY, never a drifting
  * HEAD pseudo-release — so a later `cleanStaleFiles` pass can prove a
@@ -42,7 +42,7 @@ import {
   compareVersionTags,
   // The generator is ESM `.mjs`; vitest resolves it fine from a `.ts` test.
   // No declarations for the plain-JS generator; `allowJs` infers them.
-} from '../../scripts/generate-legacy-skill-hashes.mjs';
+} from '../../tools/release/generate-legacy-skill-hashes.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../..');

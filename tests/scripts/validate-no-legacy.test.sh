@@ -5,7 +5,7 @@
 # Each test is prefixed `NoLegacy_*` and asserts a post-rewrite end-state against
 # the live repo (not a temp fixture). Tasks 3.1–3.8 append additional
 # NoLegacy_* assertions to this file; task 3.11 promotes the harness into a
-# CI-gated rollup via scripts/validate-no-legacy.sh.
+# CI-gated rollup via tools/audit/gates/validate-no-legacy.sh.
 #
 # Task 3.1 phase progression: RED (three assertions added, failing) → GREEN
 # (files deleted, assertions pass) → REFACTOR (orphan doc/comment references
@@ -13,8 +13,7 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../scripts" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PASS=0
 FAIL=0
 
@@ -227,7 +226,7 @@ else
 fi
 
 # ============================================================
-# Task 3.7: Audit scripts/sync-marketplace.sh for dual-plugin references
+# Task 3.7: Audit tools/release/sync-marketplace.sh for dual-plugin references
 # ============================================================
 #
 # sync-marketplace.sh was audited in the v2.9 install rewrite. Disposition:
@@ -240,7 +239,7 @@ fi
 # The invariant going forward: the script must either
 #   (a) not exist, or
 #   (b) exist with zero references to `create-exarchos` or `dual-plugin`.
-SYNC_MKT_PATH="$REPO_ROOT/scripts/sync-marketplace.sh"
+SYNC_MKT_PATH="$REPO_ROOT/tools/release/sync-marketplace.sh"
 if [[ ! -e "$SYNC_MKT_PATH" ]]; then
   pass "NoLegacy_SyncMarketplaceAbsentOrUpdated (script absent)"
 else
@@ -249,7 +248,7 @@ else
     pass "NoLegacy_SyncMarketplaceAbsentOrUpdated (no dual-plugin refs)"
   else
     fail "NoLegacy_SyncMarketplaceAbsentOrUpdated" \
-      "scripts/sync-marketplace.sh references deleted dual-plugin model: $SYNC_MKT_HITS"
+      "tools/release/sync-marketplace.sh references deleted dual-plugin model: $SYNC_MKT_HITS"
   fi
 fi
 
@@ -265,7 +264,7 @@ fi
 
 # NoLegacy_BuildBundleScriptAbsent — `scripts/build-bundle.ts` was the sole
 # emitter of `dist/exarchos.js`. Delete the script entirely; the build now
-# calls `scripts/build-binary.ts` for compile-to-executable output.
+# calls `tools/release/build-binary.ts` for compile-to-executable output.
 assert_file_absent \
   "NoLegacy_BuildBundleScriptAbsent" \
   "scripts/build-bundle.ts"
@@ -357,21 +356,21 @@ done
 # ============================================================
 #
 # Task 3.11 promotes the NoLegacy_* assertion suite into a CI-gated rollup
-# runner (scripts/validate-no-legacy.sh) that also invokes `knip` for
+# runner (tools/audit/gates/validate-no-legacy.sh) that also invokes `knip` for
 # unreachable-export detection, and wires a `validate-no-legacy` job into
 # .github/workflows/ci.yml. These assertions pin that end-state.
 
 # NoLegacy_RollupScriptExists — the rollup runner must exist and be
 # executable. `validate-no-legacy.sh` is the single entry point CI calls;
 # it wraps this assertion suite plus the knip sweep.
-ROLLUP_PATH="$REPO_ROOT/scripts/validate-no-legacy.sh"
+ROLLUP_PATH="$REPO_ROOT/tools/audit/gates/validate-no-legacy.sh"
 if [[ -f "$ROLLUP_PATH" && -x "$ROLLUP_PATH" ]]; then
   pass "NoLegacy_RollupScriptExists"
 else
   if [[ ! -f "$ROLLUP_PATH" ]]; then
-    fail "NoLegacy_RollupScriptExists" "rollup script missing: scripts/validate-no-legacy.sh"
+    fail "NoLegacy_RollupScriptExists" "rollup script missing: tools/audit/gates/validate-no-legacy.sh"
   else
-    fail "NoLegacy_RollupScriptExists" "rollup script exists but is not executable: scripts/validate-no-legacy.sh"
+    fail "NoLegacy_RollupScriptExists" "rollup script exists but is not executable: tools/audit/gates/validate-no-legacy.sh"
   fi
 fi
 
@@ -446,16 +445,16 @@ fi
 # bare-metal runs without the devDep.
 #
 # When this harness is invoked from the rollup runner
-# (`scripts/validate-no-legacy.sh`), the rollup already ran knip itself
+# (`tools/audit/gates/validate-no-legacy.sh`), the rollup already ran knip itself
 # at line 78 with the same flags. Honour `NOLEGACY_SKIP_KNIP_RUN=1` set
 # by the rollup to avoid running knip twice (it's the slowest step in
 # the suite — about 8s on a warm cache).
 KNIP_BIN="$REPO_ROOT/node_modules/.bin/knip"
 if [[ -n "${NOLEGACY_SKIP_KNIP_RUN:-}" ]]; then
-  pass "NoLegacy_DeadCodeSweep (skipped — delegated to scripts/validate-no-legacy.sh)"
+  pass "NoLegacy_DeadCodeSweep (skipped — delegated to tools/audit/gates/validate-no-legacy.sh)"
 elif [[ -x "$KNIP_BIN" ]]; then
   # Match the rollup's scope: files + dependencies only (see
-  # scripts/validate-no-legacy.sh for rationale).
+  # tools/audit/gates/validate-no-legacy.sh for rationale).
   set +e
   KNIP_OUT=$("$KNIP_BIN" --no-progress --include files,dependencies 2>&1)
   KNIP_RC=$?

@@ -2,7 +2,7 @@
 # Validate Phase Names — Test Suite
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../scripts" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../tools/audit/gates" && pwd)"
 SCRIPT_UNDER_TEST="$SCRIPT_DIR/validate-phase-names.sh"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PASS=0

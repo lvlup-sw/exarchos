@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# get-exarchos.test.sh — Tests for scripts/get-exarchos.sh
+# get-exarchos.test.sh — Tests for tools/release/get-exarchos.sh
 #
 # Shell-native test harness (mirrors validate-rm.test.sh style).
 # Exercises the 7 behaviors in task 2.5:
@@ -20,7 +20,7 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../scripts" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../tools/release" && pwd)"
 SCRIPT_UNDER_TEST="$SCRIPT_DIR/get-exarchos.sh"
 PASS=0
 FAIL=0

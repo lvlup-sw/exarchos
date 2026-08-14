@@ -9,7 +9,7 @@ import {
   compilePattern,
   PolicyError,
   DEFAULT_POLICY_PATH,
-} from '../../../scripts/lib/comment-policy.mjs';
+} from '../../../tools/audit/lib/comment-policy.mjs';
 
 const REPO_POLICY = path.resolve(import.meta.dirname, '../../../.exarchos/comment-policy.json');
 
@@ -27,7 +27,7 @@ function validDatum(overrides: Record<string, unknown> = {}): string {
     forbiddenOrdinals: [{ id: 'dr', pattern: 'DR-\\d+', flags: 'gi', enabled: true, remedy: 'say why' }],
     allowedReferences: [{ id: 'url', pattern: 'https?://\\S+', flags: 'gi', reason: 'resolvable' }],
     changelogPatterns: [{ id: 'formerly', pattern: '\\bformerly\\b', flags: 'gi', enabled: true }],
-    exemptPaths: [{ glob: 'scripts/__fixtures__/**', reason: 'fixtures carry offender text' }],
+    exemptPaths: [{ glob: 'tools/audit/__fixtures__/**', reason: 'fixtures carry offender text' }],
     waivers: [],
     coverage: {},
     ...overrides,
@@ -41,7 +41,7 @@ describe('loadPolicy', () => {
     expect(policy.forbiddenOrdinals.map((p) => p.id)).toEqual(['dr']);
     expect(policy.allowedReferences.map((p) => p.id)).toEqual(['url']);
     expect(policy.changelogPatterns.map((p) => p.id)).toEqual(['formerly']);
-    expect(policy.exemptPaths.map((p) => p.glob)).toEqual(['scripts/__fixtures__/**']);
+    expect(policy.exemptPaths.map((p) => p.glob)).toEqual(['tools/audit/__fixtures__/**']);
     expect(policy.waivers).toEqual([]);
   });
 
@@ -159,9 +159,9 @@ describe('the repository policy datum', () => {
     const policy = loadPolicy(REPO_POLICY);
 
     expect(isExempt(policy, '.exarchos/comment-policy.json')).toBe(true);
-    expect(isExempt(policy, 'scripts/lib/comment-classifier.mjs')).toBe(true);
-    expect(isExempt(policy, 'scripts/__fixtures__/comment-hygiene/offenders.ts')).toBe(true);
-    expect(isExempt(policy, 'eslint-rules/comment-content.js')).toBe(true);
+    expect(isExempt(policy, 'tools/audit/lib/comment-classifier.mjs')).toBe(true);
+    expect(isExempt(policy, 'tools/audit/__fixtures__/comment-hygiene/offenders.ts')).toBe(true);
+    expect(isExempt(policy, 'tools/eslint-rules/comment-content.js')).toBe(true);
   });
 
   it('Policy_OrdinaryProductionSource_NotExempt', () => {

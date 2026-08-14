@@ -2,7 +2,7 @@
 # validate-rm.test.sh — Tests for validate-rm.sh
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../scripts" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../tools/audit/gates" && pwd)"
 SCRIPT_UNDER_TEST="$SCRIPT_DIR/validate-rm.sh"
 PASS=0
 FAIL=0

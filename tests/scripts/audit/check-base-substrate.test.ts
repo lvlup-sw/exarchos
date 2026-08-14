@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { describe, it, expect } from 'vitest';
-import { checkBaseSubstrate, type SubstrateCheckDeps } from '../../../scripts/audit/check-base-substrate.js';
+import { checkBaseSubstrate, type SubstrateCheckDeps } from '../../../tools/audit/check-base-substrate.js';
 
 function captureDeps(overrides: {
   fileExists?: (filePath: string) => boolean;
@@ -64,7 +64,7 @@ describe('checkBaseSubstrate', () => {
     // Build expected paths with path.join so the assertion matches the source's
     // native separators on every OS (Windows uses `\`, not `/`) — #1699 lane fix.
     expect(fileChecks).toContainEqual(path.join('/custom/repo', 'tools', 'audit', 'coverage-baseline.json'));
-    expect(fileChecks).toContainEqual(path.join('/custom/repo', 'scripts', 'check-coverage-ratchet.mjs'));
+    expect(fileChecks).toContainEqual(path.join('/custom/repo', 'tools', 'audit', 'gates', 'check-coverage-ratchet.mjs'));
   });
 
   it('logs a clear message naming each missing file', () => {

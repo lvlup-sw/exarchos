@@ -1,16 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
-import { loadPolicy, isExempt } from '../../../scripts/lib/comment-policy.mjs';
-import { extractComments } from '../../../scripts/lib/comment-prose.mjs';
-import { classifyComment } from '../../../scripts/lib/comment-classifier.mjs';
+import { loadPolicy, isExempt } from '../../../tools/audit/lib/comment-policy.mjs';
+import { extractComments } from '../../../tools/audit/lib/comment-prose.mjs';
+import { classifyComment } from '../../../tools/audit/lib/comment-classifier.mjs';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..');
-const FIXTURES = path.join(REPO_ROOT, 'scripts/__fixtures__/comment-hygiene');
+const FIXTURES = path.join(REPO_ROOT, 'tools/audit/__fixtures__/comment-hygiene');
 const policy = loadPolicy(path.join(REPO_ROOT, '.exarchos/comment-policy.json'));
 
 function findingsFor(fixture: string) {
-  const rel = `scripts/__fixtures__/comment-hygiene/${fixture}`;
+  const rel = `tools/audit/__fixtures__/comment-hygiene/${fixture}`;
   const source = fs.readFileSync(path.join(FIXTURES, fixture), 'utf8');
   return extractComments(source, rel).flatMap((comment) => classifyComment(comment, policy));
 }
@@ -63,8 +63,8 @@ describe('kill fixtures', () => {
 
   it('Fixtures_Directory_IsStructurallyExempt', () => {
     // A guard that flagged its own kill fixtures could not be tested.
-    expect(isExempt(policy, 'scripts/__fixtures__/comment-hygiene/offenders.ts')).toBe(true);
-    expect(isExempt(policy, 'scripts/__fixtures__/comment-hygiene/permitted.ts')).toBe(true);
+    expect(isExempt(policy, 'tools/audit/__fixtures__/comment-hygiene/offenders.ts')).toBe(true);
+    expect(isExempt(policy, 'tools/audit/__fixtures__/comment-hygiene/permitted.ts')).toBe(true);
   });
 
   it('Fixtures_BothCorpora_Parse', () => {

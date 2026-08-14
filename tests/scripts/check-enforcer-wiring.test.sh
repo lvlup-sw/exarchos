@@ -17,7 +17,7 @@
 # "tool" is the manifest / package.json inputs, so tool-missing ≙ input-missing.
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../scripts" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../tools/audit/gates" && pwd)"
 GATE="$SCRIPT_DIR/check-enforcer-wiring.mjs"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT

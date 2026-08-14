@@ -2,14 +2,14 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { enumeratePairs } from '../../../scripts/audit/consolidate-suite.mjs';
+import { enumeratePairs } from '../../../tools/audit/consolidate-suite.mjs';
 import {
   findViolations,
   run,
   ALLOWLIST,
   EXIT_OK,
   EXIT_FINDING,
-} from '../../../scripts/audit/check-no-duplicate-suites.mjs';
+} from '../../../tools/audit/check-no-duplicate-suites.mjs';
 
 // A synthetic src tree mirroring the real layout: legacy copies under
 // `__tests__/<area>/`, co-located copies under `<area>/`. A "twin" is a subject

@@ -284,7 +284,7 @@ export const BOUNDARY_HOP_EVIDENCE: BoundaryHopEvidence = Object.freeze({
       hop: 'authority',
       evidence: 'live-measurement',
       oracle: Object.freeze({
-        module: 'scripts/core/authority-live-proof.ts',
+        module: 'tools/audit/core/authority-live-proof.ts',
         entrypoint: 'measureCliSurfaceLive',
         subjects: Object.freeze(['src/adapters/cli/cli.ts']),
       }),
@@ -295,7 +295,7 @@ export const BOUNDARY_HOP_EVIDENCE: BoundaryHopEvidence = Object.freeze({
       hop: 'binding',
       evidence: 'live-measurement',
       oracle: Object.freeze({
-        module: 'scripts/core/authority-live-proof.ts',
+        module: 'tools/audit/core/authority-live-proof.ts',
         entrypoint: 'measureCliSurfaceLive',
         subjects: Object.freeze(['src/adapters/cli/cli.ts']),
       }),
@@ -336,7 +336,7 @@ export const BOUNDARY_HOP_EVIDENCE: BoundaryHopEvidence = Object.freeze({
       hop: 'authority',
       evidence: 'live-measurement',
       oracle: Object.freeze({
-        module: 'scripts/core/authority-live-proof.ts',
+        module: 'tools/audit/core/authority-live-proof.ts',
         entrypoint: 'measureEventCatalog',
         subjects: Object.freeze([
           'src/events/schemas.ts',
@@ -358,7 +358,7 @@ export const BOUNDARY_HOP_EVIDENCE: BoundaryHopEvidence = Object.freeze({
       hop: 'binding',
       evidence: 'live-measurement',
       oracle: Object.freeze({
-        module: 'scripts/core/authority-live-proof.ts',
+        module: 'tools/audit/core/authority-live-proof.ts',
         entrypoint: 'measureEventCatalog',
         subjects: Object.freeze([
           'src/events/schemas.ts',

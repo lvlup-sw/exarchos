@@ -5,7 +5,7 @@
 
 set -uo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../scripts" && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 PASS=0
 FAIL=0
@@ -27,7 +27,7 @@ echo "=== Misc Skills SKILL.md Validation ==="
 echo ""
 
 # Brainstorming skill
-BRAINSTORM_FILE="$SCRIPT_DIR/../skills/brainstorming/SKILL.md"
+BRAINSTORM_FILE="$REPO_ROOT/skills/brainstorming/SKILL.md"
 echo "--- Brainstorming ---"
 assert_contains \
   "$BRAINSTORM_FILE" \
@@ -45,7 +45,7 @@ assert_contains \
   "exit 1"
 
 # Workflow-state skill
-WORKFLOW_STATE_FILE="$SCRIPT_DIR/../skills/workflow-state/SKILL.md"
+WORKFLOW_STATE_FILE="$REPO_ROOT/skills/workflow-state/SKILL.md"
 echo "--- Workflow State ---"
 assert_contains \
   "$WORKFLOW_STATE_FILE" \
@@ -63,7 +63,7 @@ assert_contains \
   "exit 1"
 
 # Dotnet-standards skill
-DOTNET_FILE="$SCRIPT_DIR/../skills/dotnet-standards/SKILL.md"
+DOTNET_FILE="$REPO_ROOT/skills/dotnet-standards/SKILL.md"
 echo "--- Dotnet Standards ---"
 assert_contains \
   "$DOTNET_FILE" \

@@ -67,7 +67,7 @@ export const SCAN_ROOTS: readonly ScanRoot[] = Object.freeze([
   // package's suites — migration, smoke, e2e, architecture — which DR-30 never
   // governed, silently widening the corpus rather than following it.
   // `tests/core/scripts/` is excluded because task 031 put it there. Those five
-  // guards lived at `scripts/core/`, a tree DR-30 never covered — the corpus is
+  // guards lived at `tools/audit/core/`, a tree DR-30 never covered — the corpus is
   // `src` plus the core's test tiers, and root `scripts/` was named as outside
   // it. Landing inside a governed root is a fact about where the move chose to
   // put them, not about what they are, and admitting them would post six new

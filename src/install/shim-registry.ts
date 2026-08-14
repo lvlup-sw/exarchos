@@ -65,7 +65,7 @@
  *     capability reason, issue, owner, expiry — FAILS;
  *   - a registry entry whose `expires` is in the past FAILS (deletion is due at
  *     expiry — the same enforcement philosophy as the `RESERVED(...)`
- *     module-intent gate in `scripts/check-module-intent.mjs`);
+ *     module-intent gate in `tools/audit/gates/check-module-intent.mjs`);
  *   - a registry entry with neither a marker NOR a renderer on disk FAILS (a
  *     stale/dangling entry — the cover outlived the thing it covered).
  *

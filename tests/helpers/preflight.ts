@@ -18,7 +18,7 @@ const BINARY_NAME = 'exarchos';
  * The v2.9 install rewrite ships a single bun-compiled binary named
  * `exarchos` with subcommands (e.g. `exarchos mcp`, `exarchos version`);
  * there is no separate `exarchos-mcp` binary. Local dev installs it via
- * `npm link`; users install via the `scripts/get-exarchos.sh` /
+ * `npm link`; users install via the `tools/release/get-exarchos.sh` /
  * `get-exarchos.ps1` bootstrap.
  *
  * Resolution uses the platform's own lookup:
@@ -34,7 +34,7 @@ export function assertExarchosOnPath(command: string = BINARY_NAME): void {
     execFileSync(lookup, [command], { stdio: 'pipe' });
   } catch {
     throw new Error(
-      `${command} not found on PATH. For local dev, run \`npm link\` in the repo root; otherwise install via \`scripts/get-exarchos.sh\` (POSIX) or \`scripts/get-exarchos.ps1\` (Windows). See docs/designs/2026-05-05-e2e-v29-revisited.md §5.1.`,
+      `${command} not found on PATH. For local dev, run \`npm link\` in the repo root; otherwise install via \`tools/release/get-exarchos.sh\` (POSIX) or \`tools/release/get-exarchos.ps1\` (Windows). See docs/designs/2026-05-05-e2e-v29-revisited.md §5.1.`,
     );
   }
 }
@@ -126,7 +126,7 @@ export async function assertExarchosVersion(
 
   if (actualMajorMinor !== expected) {
     throw new Error(
-      `${command} version mismatch: expected ${expected}.x but found ${actualRaw} (major.minor=${actualMajorMinor}). Re-run \`npm link\` from the v${expected} checkout, or reinstall via \`scripts/get-exarchos.sh\`.`,
+      `${command} version mismatch: expected ${expected}.x but found ${actualRaw} (major.minor=${actualMajorMinor}). Re-run \`npm link\` from the v${expected} checkout, or reinstall via \`tools/release/get-exarchos.sh\`.`,
     );
   }
 }

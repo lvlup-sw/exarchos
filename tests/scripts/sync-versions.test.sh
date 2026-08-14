@@ -4,7 +4,7 @@
 # the override flags. The repo's own files are never mutated.
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")/../../scripts" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")/../../tools/release" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SYNC_SCRIPT="$SCRIPT_DIR/sync-versions.sh"
 

@@ -4,8 +4,7 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../scripts" && pwd)"
-REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 WORKFLOW_FILE="$REPO_ROOT/.github/workflows/coderabbit-review-gate.yml"
 
 PASS=0
@@ -46,10 +45,10 @@ else
 fi
 
 # Test: Workflow_ReferencesScript
-if grep -q 'scripts/coderabbit-review-gate.sh' "$WORKFLOW_FILE"; then
+if grep -q 'tools/release/coderabbit-review-gate.sh' "$WORKFLOW_FILE"; then
     pass "Workflow_ReferencesScript"
 else
-    fail "Workflow_ReferencesScript — YAML does not reference scripts/coderabbit-review-gate.sh"
+    fail "Workflow_ReferencesScript — YAML does not reference tools/release/coderabbit-review-gate.sh"
 fi
 
 # Test: Workflow_TriggersOnReview

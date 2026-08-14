@@ -34,7 +34,7 @@
  * The original discovery scanned `scripts/**` for a hand-written
  * `ADVISORY(control: <id>)` marker comment. That mechanism can only see
  * advisories whose author volunteered to declare them — which is how the repo's
- * THIRD advisory (`scripts/check-mutation-gate.mjs --observe`, softened inside
+ * THIRD advisory (`tools/audit/gates/check-mutation-gate.mjs --observe`, softened inside
  * `.github/workflows/ci.yml`) and its FOURTH (the `continue-on-error: true`
  * capability-eval step in `.github/workflows/eval-gate.yml`) both sat outside
  * the registry: neither file carries a marker, and neither `.github/workflows`
@@ -84,7 +84,7 @@
  * results, and `now` explicitly — so the ratchet rules are unit-testable without
  * a filesystem or a subprocess. {@link discoverAdvisories} and
  * {@link discoverSofteningSites} are the thin, injectable I/O adapters; the
- * CI-path analyses come from `scripts/check-enforcer-wiring.mjs`
+ * CI-path analyses come from `tools/audit/gates/check-enforcer-wiring.mjs`
  * (`analyzeCiPathFilters`), which owns the workflow path-filter model.
  *
  * ## Marker grammar
@@ -144,7 +144,7 @@ export interface SofteningSite extends AdvisorySofteningRef {
 
 /**
  * The structural result of `analyzeCiPathFilters` in
- * `scripts/check-enforcer-wiring.mjs`. Kept as a structural type (not an import)
+ * `tools/audit/gates/check-enforcer-wiring.mjs`. Kept as a structural type (not an import)
  * because `src/` is a separate `tsc` rootDir from `scripts/` — the CALLER
  * composes the two, exactly as it already composes the kill probes.
  */
@@ -269,7 +269,7 @@ export interface AdvisoryRatchetResult {
  * ### Inventory notes (P07-07, DR-15)
  *
  * The inventory is no longer taken from the enforcer-wiring manifest
- * (`scripts/enforcer-wiring-manifest.json`, disposition `advisory`). That
+ * (`tools/audit/gates/enforcer-wiring-manifest.json`, disposition `advisory`). That
  * manifest's domain is `scripts/check-*|lint-*` PRIMARIES, so it structurally
  * cannot name an advisory that is a built artifact — which is why it lists
  * THREE advisories while an exhaustive scan of the real tree finds FOUR. The
@@ -278,7 +278,7 @@ export interface AdvisoryRatchetResult {
  *
  *   - `lint-inv6`             — grep lint for INV-6 workflow-agnosticism leaks.
  *     Softened by `(npm run lint:inv6 || true)` in the root `skills:guard`
- *     script. Its kill fixture spawns the REAL `scripts/lint-inv6.mjs` against a
+ *     script. Its kill fixture spawns the REAL `tools/audit/gates/lint-inv6.mjs` against a
  *     seeded SKILL.md that leaks a workflow literal without a `workflow-type`
  *     declaration.
  *
@@ -305,7 +305,7 @@ export interface AdvisoryRatchetResult {
 export const ADVISORY_REGISTRY: readonly AdvisoryEntry[] = [
   {
     id: 'lint-inv6',
-    file: 'scripts/lint-inv6.mjs',
+    file: 'tools/audit/gates/lint-inv6.mjs',
     control: 'inv6-workflow-agnosticism',
     owner: 'exarchos',
     promotionThreshold:
@@ -329,12 +329,12 @@ export const ADVISORY_REGISTRY: readonly AdvisoryEntry[] = [
       'was only ever checked for filename shape. Moving it to the unfiltered grep-gates ' +
       'host is a prerequisite of its promotion threshold.',
     softening: [
-      { file: 'package.json', kind: 'or-true', target: 'scripts/lint-inv6.mjs' },
+      { file: 'package.json', kind: 'or-true', target: 'tools/audit/gates/lint-inv6.mjs' },
     ],
   },
   {
     id: 'benchmark-regression',
-    file: 'scripts/check-benchmark-regression.sh',
+    file: 'tools/audit/gates/check-benchmark-regression.sh',
     control: 'benchmark-regression',
     owner: 'exarchos',
     promotionThreshold:
@@ -348,20 +348,20 @@ export const ADVISORY_REGISTRY: readonly AdvisoryEntry[] = [
     expires: '2027-06-30',
     killFixture: 'benchmark-regression-over-threshold',
     ciPath: '.github/workflows/benchmark-gate.yml',
-    ciStepMatch: 'scripts/check-benchmark-regression.sh',
+    ciStepMatch: 'tools/audit/gates/check-benchmark-regression.sh',
     ciPathFiltered: false,
     ciFilterRationale: '',
     softening: [
       {
         file: '.github/workflows/benchmark-gate.yml',
         kind: 'continue-on-error',
-        target: 'scripts/check-benchmark-regression.sh',
+        target: 'tools/audit/gates/check-benchmark-regression.sh',
       },
     ],
   },
   {
     id: 'check-mutation-gate',
-    file: 'scripts/check-mutation-gate.mjs',
+    file: 'tools/audit/gates/check-mutation-gate.mjs',
     control: 'mutation-adequacy',
     owner: 'exarchos',
     promotionThreshold:
@@ -377,7 +377,7 @@ export const ADVISORY_REGISTRY: readonly AdvisoryEntry[] = [
     expires: '2027-06-30',
     killFixture: 'mutation-gate-failing-verdict',
     ciPath: '.github/workflows/ci.yml',
-    ciStepMatch: 'scripts/check-mutation-gate.mjs',
+    ciStepMatch: 'tools/audit/gates/check-mutation-gate.mjs',
     ciPathFiltered: true,
     ciFilterRationale:
       'Hosted by ci.yml\'s `test-mcp` job, gated by `needs.changes.outputs.mcp == \'true\'` ' +
@@ -391,7 +391,7 @@ export const ADVISORY_REGISTRY: readonly AdvisoryEntry[] = [
       {
         file: '.github/workflows/ci.yml',
         kind: 'observe',
-        target: 'scripts/check-mutation-gate.mjs',
+        target: 'tools/audit/gates/check-mutation-gate.mjs',
       },
     ],
   },
@@ -435,12 +435,12 @@ export const ADVISORY_REGISTRY: readonly AdvisoryEntry[] = [
 
 /**
  * Source roots scanned by {@link discoverAdvisories} in the real-repo ratchet
- * check. Advisory controls live in `scripts/` by convention; the scan is bounded
- * so it stays fast and so "where advisories may live" is an explicit list. An
- * advisory marker smuggled outside these roots is out of the ratchet's scope by
- * design (add the root here to bring it in).
+ * check. Advisory controls live with the repo automation, under `tools/` since
+ * task 036; the scan is bounded so it stays fast and so "where advisories may
+ * live" is an explicit list. An advisory marker smuggled outside these roots is
+ * out of the ratchet's scope by design (add the root here to bring it in).
  */
-export const ADVISORY_SCAN_ROOTS: readonly string[] = ['scripts'];
+export const ADVISORY_SCAN_ROOTS: readonly string[] = ['tools'];
 
 /** File extensions scanned for advisory markers (advisories are scripts). */
 export const ADVISORY_SCAN_EXTENSIONS: readonly string[] = ['.mjs', '.sh', '.js', '.cjs'];
@@ -588,7 +588,7 @@ export function discoverAdvisories(opts: DiscoverAdvisoriesOptions): DiscoveredA
 // voluntary marker — it looks for the SOFTENING ITSELF, over the real tree.
 
 /** Repo-relative roots scanned for `|| true` / `--observe` softening. */
-export const SOFTENING_SCRIPT_ROOTS: readonly string[] = ['scripts'];
+export const SOFTENING_SCRIPT_ROOTS: readonly string[] = ['tools'];
 
 /** Where workflow files live. */
 export const SOFTENING_WORKFLOW_ROOT = '.github/workflows';
@@ -597,7 +597,7 @@ export const SOFTENING_WORKFLOW_ROOT = '.github/workflows';
 export const SOFTENING_SCRIPT_EXTENSIONS: readonly string[] = ['.mjs', '.sh', '.js', '.cjs'];
 
 /** An enforcement primary: the class of thing whose exit code MATTERS. */
-const PRIMARY_PATH_RE = /scripts\/(?:check|lint)-[A-Za-z0-9._-]+?\.(?:mjs|sh)/g;
+const PRIMARY_PATH_RE = /tools\/audit\/gates\/(?:check|lint)-[A-Za-z0-9._-]+?\.(?:mjs|sh)/g;
 
 /** `npm run <name>` reference. */
 const NPM_RUN_RE = /\bnpm\s+run\s+([A-Za-z0-9:_.-]+)/g;
@@ -1120,7 +1120,7 @@ export interface AdvisoryRatchetInputs {
   readonly softeningSites: readonly SofteningSite[];
   /**
    * advisory id → the parsed CI-path analysis for that entry's `ciPath`, from
-   * `analyzeCiPathFilters` in `scripts/check-enforcer-wiring.mjs`. An entry with
+   * `analyzeCiPathFilters` in `tools/audit/gates/check-enforcer-wiring.mjs`. An entry with
    * no analysis FAILS (`ci-path-unverified`) — an unverifiable claim is not a
    * passing claim.
    */
@@ -1410,7 +1410,7 @@ interface MutationCarrier {
 
 /**
  * A faithful port of `computeVerdict`'s FAILURE decision in
- * `scripts/check-mutation-gate.mjs`: a carrier fails when the handler errored,
+ * `tools/audit/gates/check-mutation-gate.mjs`: a carrier fails when the handler errored,
  * when it is a degrade/skip/warning carrier (no verifiable verdict), when its
  * scored axes are not finite, or when `passed !== true`.
  */
@@ -1453,7 +1453,7 @@ export function probeMutationGateVerdict(
   advisory: AdvisoryEntry,
   opts: LocalKillProbeOptions,
 ): KillProbeResult {
-  const script = join(opts.repoRoot, 'scripts', 'check-mutation-gate.mjs');
+  const script = join(opts.repoRoot, 'tools', 'audit', 'gates', 'check-mutation-gate.mjs');
   if (!existsSync(script)) return missingControl(advisory, script);
   const src = readFileSync(script, 'utf8');
   const structurallyIntact =

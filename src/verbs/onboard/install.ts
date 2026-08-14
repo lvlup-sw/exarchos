@@ -646,7 +646,7 @@ function manifestVouches(
 //
 // The disk shapes these loaders parse are single-sourced in
 // `src/install-skills.ts` (Task 010 `.exarchos-skills.json`) and
-// `scripts/generate-legacy-skill-hashes.mjs` / `migrations/` (Task 023). The
+// `tools/release/generate-legacy-skill-hashes.mjs` / `tools/migrations/` (Task 023). The
 // server package cannot import those (tsc `rootDir: "./src"`), so the filename
 // literals and shape checks are mirrored here and pinned by `install.test.ts`.
 
@@ -685,7 +685,7 @@ function loadInstallManifests(home: string, projectRoot: string): ProvenanceMani
 
 /** Resolve the committed Task 023 legacy-render hash manifest on disk. */
 function findLegacyHashManifestPath(): string | undefined {
-  const candidates = [path.join(process.cwd(), 'migrations', LEGACY_HASH_MANIFEST_FILENAME)];
+  const candidates = [path.join(process.cwd(), 'tools', 'migrations', LEGACY_HASH_MANIFEST_FILENAME)];
   if (typeof process.execPath === 'string' && process.execPath.length > 0) {
     candidates.push(
       path.resolve(

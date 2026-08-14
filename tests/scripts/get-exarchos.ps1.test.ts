@@ -1,7 +1,7 @@
 /**
- * Cross-platform wrapper for scripts/get-exarchos.ps1 tests.
+ * Cross-platform wrapper for tools/release/get-exarchos.ps1 tests.
  *
- * The authoritative, shell-native tests live in scripts/get-exarchos.ps1.test.ps1
+ * The authoritative, shell-native tests live in tools/release/get-exarchos.ps1.test.ps1
  * (Pester). This wrapper gives us a cross-platform smoke signal by spawning
  * `pwsh` — when available — and asserting that:
  *
@@ -22,8 +22,8 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const REPO_ROOT = resolve(__dirname, '../..');
-const SCRIPT_PATH = join(REPO_ROOT, 'scripts', 'get-exarchos.ps1');
-const PESTER_PATH = join(REPO_ROOT, 'scripts', 'get-exarchos.ps1.test.ps1');
+const SCRIPT_PATH = join(REPO_ROOT, 'tools', 'release', 'get-exarchos.ps1');
+const PESTER_PATH = join(REPO_ROOT, 'tools', 'release', 'get-exarchos.ps1.test.ps1');
 
 function hasPwsh(): boolean {
   const probe = spawnSync('pwsh', ['-NoProfile', '-Command', '$PSVersionTable.PSVersion.Major'], {
@@ -33,7 +33,7 @@ function hasPwsh(): boolean {
   return probe.status === 0;
 }
 
-describe('scripts/get-exarchos.ps1', () => {
+describe('tools/release/get-exarchos.ps1', () => {
   it('GetExarchos_PS1_FileExists', () => {
     expect(existsSync(SCRIPT_PATH)).toBe(true);
   });

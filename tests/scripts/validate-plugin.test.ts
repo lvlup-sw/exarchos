@@ -35,11 +35,11 @@ import {
   renderReport,
   diskTree,
   DEFAULT_POLICY_PATH,
-} from '../../scripts/validate-plugin.mjs';
+} from '../../tools/audit/gates/validate-plugin.mjs';
 
 const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPTS_DIR, '../..');
-const GATE = path.join(SCRIPTS_DIR, '../../scripts/validate-plugin.mjs');
+const GATE = path.join(SCRIPTS_DIR, '../../tools/audit/gates/validate-plugin.mjs');
 
 interface Check {
   id: string;

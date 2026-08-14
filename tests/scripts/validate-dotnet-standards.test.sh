@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Validate .NET Standards — Test Suite
-# Validates all assertions for scripts/validate-dotnet-standards.sh
+# Validates all assertions for tools/audit/gates/validate-dotnet-standards.sh
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../scripts" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../tools/audit/gates" && pwd)"
 SCRIPT_UNDER_TEST="$SCRIPT_DIR/validate-dotnet-standards.sh"
 PASS=0
 FAIL=0

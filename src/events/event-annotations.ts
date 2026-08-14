@@ -67,7 +67,7 @@ import type { EventEmissionSource } from './schemas.js';
 // The judgment `contentSchema` values come from a LEAF module, not from `schemas.js`. Task 011
 // made `schemas.ts` derive `EVENT_EMISSION_REGISTRY` from this table, so a runtime value import
 // back into `schemas.ts` would close a cycle — one measured to throw at load under real Node ESM
-// (TDZ) and to fail `scripts/audit/cycle-gate.ts` in CI. The `EventEmissionSource` import above
+// (TDZ) and to fail `tools/audit/cycle-gate.ts` in CI. The `EventEmissionSource` import above
 // stays, because `import type` is erased and contributes no edge.
 import {
   RemediationAttemptedDataSchema,

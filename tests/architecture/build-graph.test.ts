@@ -261,7 +261,7 @@ describe('BuildGraph_CoverageRatchet_StillReceivesItsInputs', () => {
   it('the baseline sits with the other audit oracles and the ratchet defaults to it', () => {
     const baseline = path.join(REPO_ROOT, 'tools/audit/coverage-baseline.json');
     expect(existsSync(baseline), 'coverage baseline missing from tools/audit/').toBe(true);
-    const ratchet = readFileSync(path.join(REPO_ROOT, 'scripts/check-coverage-ratchet.mjs'), 'utf8');
+    const ratchet = readFileSync(path.join(REPO_ROOT, 'tools/audit/gates/check-coverage-ratchet.mjs'), 'utf8');
     expect(ratchet).toMatch(/'tools',\s*'audit',\s*'coverage-baseline\.json'/);
   });
 

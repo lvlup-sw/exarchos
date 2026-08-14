@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import path from 'node:path';
-import { loadPolicy } from '../../../scripts/lib/comment-policy.mjs';
-import { classifyText, classifyComment, isRejected } from '../../../scripts/lib/comment-classifier.mjs';
-import { extractComments } from '../../../scripts/lib/comment-prose.mjs';
+import { loadPolicy } from '../../../tools/audit/lib/comment-policy.mjs';
+import { classifyText, classifyComment, isRejected } from '../../../tools/audit/lib/comment-classifier.mjs';
+import { extractComments } from '../../../tools/audit/lib/comment-prose.mjs';
 
 const policy = loadPolicy(path.resolve(import.meta.dirname, '../../../.exarchos/comment-policy.json'));
 

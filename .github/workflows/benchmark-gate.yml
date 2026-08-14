@@ -31,7 +31,7 @@ jobs:
       # cold runner) plus retry/timeout resilience. A plain `npm ci` here
       # bypassed both. See docs/rca/2026-05-31-npm-ci-playwright-browser-wedge.md.
       - name: Install dependencies
-        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
+        run: bash "$GITHUB_WORKSPACE/tools/release/npm-ci-retry.sh"
 
       - name: Run benchmarks
         run: npm run bench -- --outputJson benchmark-results.json
@@ -48,4 +48,4 @@ jobs:
 
       - name: Check for regressions
         continue-on-error: true
-        run: bash scripts/check-benchmark-regression.sh --results benchmark-results.json --baselines src/projections/telemetry/benchmarks/baselines.json
+        run: bash tools/audit/gates/check-benchmark-regression.sh --results benchmark-results.json --baselines src/projections/telemetry/benchmarks/baselines.json

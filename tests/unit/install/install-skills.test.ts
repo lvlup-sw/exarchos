@@ -35,7 +35,7 @@ import {
 // Boundary check (Task 011): the migration's newline-normalized SKILL.md hash
 // MUST equal the Task 023 generator's `normalizeAndHash`, so a CRLF-checkout
 // install hash-matches the committed legacy manifest.
-import { normalizeAndHash } from '../../../scripts/generate-legacy-skill-hashes.mjs';
+import { normalizeAndHash } from '../../../tools/release/generate-legacy-skill-hashes.mjs';
 import { expandTilde } from '../../../src/install/install-skills.js';
 
 /**

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadAllowlist } from '../../scripts/audit/knip-diff.js';
+import { loadAllowlist } from '../../tools/audit/knip-diff.js';
 
 // ─── Dead-code allowlist accountability (DR-8, task 009) ─────────────────────
 //
@@ -19,7 +19,7 @@ import { loadAllowlist } from '../../scripts/audit/knip-diff.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../');
-const ALLOWLIST_PATH = path.join(REPO_ROOT, 'scripts/audit/knip-allowlist.json');
+const ALLOWLIST_PATH = path.join(REPO_ROOT, 'tools/audit/knip-allowlist.json');
 
 const entries = loadAllowlist(JSON.parse(readFileSync(ALLOWLIST_PATH, 'utf8')));
 

@@ -5,11 +5,11 @@
  *
  * Exposes:
  *   - `findRepoRoot()` — walks up from a given directory to the monorepo
- *     root (the ancestor that contains `scripts/build-binary.ts`).
+ *     root (the ancestor that contains `tools/release/build-binary.ts`).
  *   - `hostBinaryPath(repoRoot)` — computes the `dist/bin/exarchos-<os>-<arch>`
  *     path for the host platform, including the `.exe` suffix on Windows.
  *   - `ensureBinaryBuilt(repoRoot)` — the beforeAll rebuild guard: runs
- *     `bun run scripts/build-binary.ts` if the binary is missing or older
+ *     `bun run tools/release/build-binary.ts` if the binary is missing or older
  *     than any file under `src/**`.
  *   - `openFixture(binaryPath, repoRoot)` / `closeFixture(fx)` — opens a
  *     live MCP stdio Client against the spawned binary with a hermetic
@@ -60,14 +60,14 @@ import { isPidAlive, needsWindowsShell } from '../../../src/utils/process.js';
 export function findRepoRoot(startDir: string): string {
   let cursor = path.resolve(startDir);
   for (let i = 0; i < 8; i++) {
-    const marker = path.join(cursor, 'scripts', 'build-binary.ts');
+    const marker = path.join(cursor, 'tools', 'release', 'build-binary.ts');
     if (fs.existsSync(marker)) return cursor;
     const next = path.dirname(cursor);
     if (next === cursor) break;
     cursor = next;
   }
   throw new Error(
-    `Unable to locate repo root (no scripts/build-binary.ts in any ancestor of ${startDir})`,
+    `Unable to locate repo root (no tools/release/build-binary.ts in any ancestor of ${startDir})`,
   );
 }
 
@@ -79,7 +79,7 @@ export function hostBinaryPath(repoRoot: string): string {
 
   // Refuse to coerce unknown hosts to linux/x64 — pointing the test at
   // the wrong artefact would mask a real incompatibility on uncommon
-  // platforms. Mirrors `getHostTarget()` in `scripts/build-binary.ts`.
+  // platforms. Mirrors `getHostTarget()` in `tools/release/build-binary.ts`.
   let osName: 'linux' | 'darwin' | 'windows';
   if (platform === 'darwin') {
     osName = 'darwin';
@@ -137,7 +137,7 @@ export interface BinaryBuildResult {
  * The compiled binary's content depends on every input bun bundles plus the
  * build orchestration script itself. Restricting the freshness scan to
  * `src/**` would miss edits to the build pipeline
- * (`scripts/build-binary.ts`) and to root sources that may be bundled in
+ * (`tools/release/build-binary.ts`) and to root sources that may be bundled in
  * future, leaving a stale binary in place during integration tests. Scanning
  * each tracked input directory keeps the check cheap while catching the
  * realistic edit surfaces.
@@ -145,7 +145,8 @@ export interface BinaryBuildResult {
 function computeSrcNewest(repoRoot: string): number {
   const dirInputs = [
     path.join(repoRoot, 'src'),
-    path.join(repoRoot, 'scripts'),
+    path.join(repoRoot, 'tools', 'audit'),
+    path.join(repoRoot, 'tools', 'release'),
     path.join(repoRoot, 'src'),
   ];
 
@@ -295,7 +296,7 @@ export async function withBuildLock<T>(
 // ─── Build orchestration ────────────────────────────────────────────────────
 
 /**
- * Runs the real `bun run scripts/build-binary.ts --outdir <outDir>` build.
+ * Runs the real `bun run tools/release/build-binary.ts --outdir <outDir>` build.
  * Extracted so tests can inject a fake in its place (`EnsureBinaryBuiltOptions
  * .runBuild`) without shelling out to `bun` or racing the real artifact path.
  */
@@ -308,7 +309,7 @@ function defaultRunBuild(repoRoot: string, outDir: string): void {
   const useShell = needsWindowsShell('bun');
   const result = spawnSync(
     'bun',
-    ['run', 'scripts/build-binary.ts', '--outdir', outDir],
+    ['run', 'tools/release/build-binary.ts', '--outdir', outDir],
     {
       cwd: repoRoot,
       stdio: 'pipe',
@@ -330,7 +331,7 @@ export interface EnsureBinaryBuiltOptions {
    * Build step to run when a (re)build is needed. Must produce the artifact
    * at `<outDir>/<basename of the host binary path>`; `outDir` is a scratch
    * directory unique to this call. Defaults to the real
-   * `bun run scripts/build-binary.ts --outdir <outDir>` invocation. Tests
+   * `bun run tools/release/build-binary.ts --outdir <outDir>` invocation. Tests
    * inject a fake here so concurrency can be exercised hermetically, without
    * shelling out to `bun`.
    */

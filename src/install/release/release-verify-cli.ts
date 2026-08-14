@@ -1,6 +1,6 @@
 // ─── Installer-side release verification CLI (P05-01) ──────────────────────
 //
-// The seam the bootstrap installers (`scripts/get-exarchos.ps1` / `.sh`)
+// The seam the bootstrap installers (`tools/release/get-exarchos.ps1` / `.sh`)
 // delegate to for the ONE verification dimension shells cannot do natively —
 // Ed25519 signature checking — plus, for defense in depth, the other three
 // (source, contract, asset digest). It wraps the pure `verifyReleaseInstall`

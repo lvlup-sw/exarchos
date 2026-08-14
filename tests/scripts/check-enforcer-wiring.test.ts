@@ -28,7 +28,7 @@ import {
   reachPrimariesFromCommand,
   parseWorkflow,
   enumeratePrimaryFiles,
-} from '../../scripts/check-enforcer-wiring.mjs';
+} from '../../tools/audit/gates/check-enforcer-wiring.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -53,7 +53,7 @@ const CI_YML = [
 ].join('\n');
 
 /** The gate's own entry shape, taken from its JSDoc typedef rather than restated. */
-type ManifestEntry = import('../../scripts/check-enforcer-wiring.mjs').ManifestEntry;
+type ManifestEntry = import('../../tools/audit/gates/check-enforcer-wiring.mjs').ManifestEntry;
 
 interface AuditInput {
   manifest: { primaries: ManifestEntry[] };
@@ -105,7 +105,7 @@ describe('enforcer-wiring gate — conforming trees pass', () => {
 
   it('EnforcerWiring_ConformingTree_Passes (real repo)', () => {
     const manifest = JSON.parse(
-      fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'enforcer-wiring-manifest.json'), 'utf8'),
+      fs.readFileSync(path.join(REPO_ROOT, 'tools', 'audit', 'gates', 'enforcer-wiring-manifest.json'), 'utf8'),
     );
     const pkg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'));
     const wfDir = path.join(REPO_ROOT, '.github', 'workflows');
@@ -114,7 +114,7 @@ describe('enforcer-wiring gate — conforming trees pass', () => {
       if (!/\.ya?ml$/.test(name)) continue;
       workflows[`.github/workflows/${name}`] = fs.readFileSync(path.join(wfDir, name), 'utf8');
     }
-    const primaryFiles = enumeratePrimaryFiles(path.join(REPO_ROOT, 'scripts'));
+    const primaryFiles = enumeratePrimaryFiles(path.join(REPO_ROOT, 'tools', 'audit', 'gates'));
 
     const result = audit({ manifest, scripts: pkg.scripts, workflows, primaryFiles });
     // Surface any drift verbatim so a failure names the offending primary.

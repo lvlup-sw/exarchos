@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { extractComments, stripMarkers, CommentExtractionError } from '../../../scripts/lib/comment-prose.mjs';
+import { extractComments, stripMarkers, CommentExtractionError } from '../../../tools/audit/lib/comment-prose.mjs';
 
 describe('extractComments', () => {
   it('ExtractComments_LineComment_ReportsOneBasedLineAndColumn', () => {

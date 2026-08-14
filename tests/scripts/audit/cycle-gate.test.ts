@@ -11,7 +11,7 @@ import {
   EXIT_GATE_ERROR,
   type DepcruiseRun,
   type CycleGateDeps,
-} from '../../../scripts/audit/cycle-gate.js';
+} from '../../../tools/audit/cycle-gate.js';
 
 // ─── depcruise JSON graph builder ────────────────────────────────────────────
 // A depcruise `--output-type json` document is `{ modules: [{ source,
@@ -127,7 +127,7 @@ describe('loadCycleBaseline', () => {
 
   it('the SHIPPED cycle-baseline.json conforms to the schema (and is empty by design)', () => {
     const raw = JSON.parse(
-      readFileSync(fileURLToPath(new URL('../../../scripts/audit/cycle-baseline.json', import.meta.url)), 'utf8'),
+      readFileSync(fileURLToPath(new URL('../../../tools/audit/cycle-baseline.json', import.meta.url)), 'utf8'),
     );
     const b = loadCycleBaseline(raw);
     expect(b.entries).toEqual([]);

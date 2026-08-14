@@ -15,12 +15,12 @@ import {
   resolveChangedFiles,
   EXIT_OK,
   EXIT_PROTECTED,
-} from '../../../scripts/audit/check-protected.mjs';
+} from '../../../tools/audit/check-protected.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '../../..');
-const INVENTORY_PATH = path.join(HERE, '../../../scripts/audit/protected-suites.json');
-const CLI_PATH = path.join(HERE, '../../../scripts/audit/check-protected.mjs');
+const INVENTORY_PATH = path.join(HERE, '../../../tools/audit/protected-suites.json');
+const CLI_PATH = path.join(HERE, '../../../tools/audit/check-protected.mjs');
 const REAL_PRIMARY_ROOT_ABS = path.join(REPO_ROOT, PRIMARY_ROOT);
 
 function captureDeps(changedFiles: string[], inventoryFiles: string[]): { out: string[]; err: string[]; exit: number } {

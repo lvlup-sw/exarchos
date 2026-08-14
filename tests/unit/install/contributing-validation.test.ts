@@ -44,10 +44,10 @@ describe('CONTRIBUTING.md validation', () => {
 
   it('Contributing_LinksToBuildBinaryScript', () => {
     const content = readContributing();
-    // Accept either `scripts/build-binary.ts` or `scripts/build-binary` (no ext).
+    // Accept `tools/release/build-binary.ts` with or without the extension.
     expect(
-      /scripts\/build-binary(\.ts)?/.test(content),
-      'CONTRIBUTING.md must reference scripts/build-binary(.ts)',
+      /tools\/release\/build-binary(\.ts)?/.test(content),
+      'CONTRIBUTING.md must reference tools/release/build-binary(.ts)',
     ).toBe(true);
   });
 });

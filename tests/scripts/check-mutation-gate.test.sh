@@ -30,7 +30,7 @@
 #  10. No resolvable toolchain (missing .exarchos.yml) → FAILS      exit 1
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../scripts" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../tools/audit/gates" && pwd)"
 GATE="$SCRIPT_DIR/check-mutation-gate.mjs"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT

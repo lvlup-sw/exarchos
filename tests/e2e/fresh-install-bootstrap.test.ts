@@ -23,7 +23,7 @@
  * per-PR local run.
  *
  * The tests deliberately invoke the **real** bootstrap script
- * (`scripts/get-exarchos.sh`) unmodified — no stubbing, no patching,
+ * (`tools/release/get-exarchos.sh`) unmodified — no stubbing, no patching,
  * no fixture server. This is the one place we exercise the whole
  * download → verify → install → run pipeline end-to-end.
  *
@@ -52,7 +52,7 @@ const __dirname = dirname(__filename);
 /** Absolute path to the repo root, derived from this file's location. */
 const REPO_ROOT = resolve(__dirname, '..', '..');
 /** Absolute path to the real bootstrap script. */
-const BOOTSTRAP_SCRIPT = join(REPO_ROOT, 'scripts', 'get-exarchos.sh');
+const BOOTSTRAP_SCRIPT = join(REPO_ROOT, 'tools', 'release', 'get-exarchos.sh');
 
 // ---------------------------------------------------------------------
 // Precondition gates

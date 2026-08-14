@@ -9,8 +9,8 @@ on:
       # /exarchos/get-exarchos.sh (and .ps1) — see the copy step below.
       # A change to the canonical script under scripts/ must trigger a
       # redeploy or the public URL will lag the repo.
-      - 'scripts/get-exarchos.sh'
-      - 'scripts/get-exarchos.ps1'
+      - 'tools/release/get-exarchos.sh'
+      - 'tools/release/get-exarchos.ps1'
   workflow_dispatch:
 
 permissions:
@@ -44,8 +44,8 @@ jobs:
         # raw.githubusercontent.com URL into user-facing docs.
         run: |
           set -euo pipefail
-          install -m 0755 scripts/get-exarchos.sh  documentation/public/get-exarchos.sh
-          install -m 0644 scripts/get-exarchos.ps1 documentation/public/get-exarchos.ps1
+          install -m 0755 tools/release/get-exarchos.sh  documentation/public/get-exarchos.sh
+          install -m 0644 tools/release/get-exarchos.ps1 documentation/public/get-exarchos.ps1
 
       - name: Build documentation
         working-directory: documentation

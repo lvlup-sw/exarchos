@@ -2,7 +2,7 @@
  * Tests for the prose-lint CI gate (task T049, DR-13).
  *
  * Phase progression:
- *   - RED: `scripts/check-prose-lint.mjs` does not yet exist; these tests
+ *   - RED: `tools/audit/gates/check-prose-lint.mjs` does not yet exist; these tests
  *     fail because spawning the script yields ENOENT and because the root
  *     `package.json` `validate` chain has not been extended to invoke it.
  *   - GREEN: the `.mjs` wrapper shells out to `tsx` against a co-located
@@ -33,11 +33,11 @@ import {
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { validateManifestCommands } from '../../scripts/test-utils.js';
+import { validateManifestCommands } from '../../tools/audit/gates/test-utils.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../..');
-const SCRIPT = path.join(REPO_ROOT, 'scripts', 'check-prose-lint.mjs');
+const SCRIPT = path.join(REPO_ROOT, 'tools', 'audit', 'gates', 'check-prose-lint.mjs');
 const ROOT_PACKAGE_JSON = path.join(REPO_ROOT, 'package.json');
 
 /**
@@ -122,7 +122,7 @@ describe('check-prose-lint CLI (T049, DR-13)', () => {
   it('Validate_ChainedIntoNpmValidate', () => {
     // The whole point of T049 is wiring the lint into `npm run validate`.
     // Task 064 (DR-24) moved the declared steps out of an inline `&&` chain and
-    // into scripts/validate-manifest.json, because the chain died at step 1 and
+    // into tools/audit/gates/validate-manifest.json, because the chain died at step 1 and
     // made every later gate read as skipped-as-passed. So the wiring question is
     // now put to the manifest; the npm script itself only shows the runner.
     // Still deliberately a data-level check rather than executing `npm run

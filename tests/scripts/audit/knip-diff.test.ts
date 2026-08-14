@@ -14,7 +14,7 @@ import {
   type KnipRun,
   type KnipDiffDeps,
   type AllowlistEntry,
-} from '../../../scripts/audit/knip-diff.js';
+} from '../../../tools/audit/knip-diff.js';
 
 const knipReport = (issues: unknown[]): string => JSON.stringify({ issues });
 const oneExportIssue = knipReport([
@@ -111,7 +111,7 @@ describe('loadAllowlist', () => {
 
   it('the SHIPPED knip-allowlist.json conforms to the schema', () => {
     const raw = JSON.parse(
-      readFileSync(fileURLToPath(new URL('../../../scripts/audit/knip-allowlist.json', import.meta.url)), 'utf8'),
+      readFileSync(fileURLToPath(new URL('../../../tools/audit/knip-allowlist.json', import.meta.url)), 'utf8'),
     );
     const entries = loadAllowlist(raw);
     expect(entries.length).toBeGreaterThan(0);

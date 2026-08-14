@@ -2,7 +2,7 @@
  * Tests for the golden-fixture PR-body marker check (task T053, DR-15).
  *
  * Phase progression: RED (import fails — script does not yet exist) →
- * GREEN (`scripts/check-golden-fixture-note.mjs` implemented, exporting the
+ * GREEN (`tools/audit/gates/check-golden-fixture-note.mjs` implemented, exporting the
  * pure `checkGoldenFixtureNote` function; a thin CLI main is also provided
  * but not exercised here — CLI shape is covered via the contract of the
  * exported function).
@@ -23,7 +23,7 @@ import { describe, it, expect } from 'vitest';
 // explicit extension at import time. The module exports a single pure
 // function `checkGoldenFixtureNote`.
 // No .d.ts for this .mjs script, but `allowJs` infers one from the source.
-import { checkGoldenFixtureNote } from '../../scripts/check-golden-fixture-note.mjs';
+import { checkGoldenFixtureNote } from '../../tools/audit/gates/check-golden-fixture-note.mjs';
 
 const LOAD_BEARING_FILE =
   'tests/core/fixtures/load-bearing/rehydrate-demo.events.jsonl';

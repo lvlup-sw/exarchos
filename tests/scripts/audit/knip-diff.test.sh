@@ -22,7 +22,7 @@
 #                          requirement, proven end-to-end through the real CLI.
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../scripts/audit" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../tools/audit" && pwd)"
 GATE="$SCRIPT_DIR/knip-diff.ts"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT

@@ -17,7 +17,7 @@ describe('Server source paths', () => {
   it('buildScripts_afterMove_referenceNewPath', () => {
     // Post-task-3.6 the legacy `build:bundle` alias (and its `build-bundle.ts`
     // script) are gone; `build:binary` is the replacement that invokes
-    // `scripts/build-binary.ts` against the same entry point
+    // `tools/release/build-binary.ts` against the same entry point
     // (`src/index.ts`). The original intent of this
     // assertion — guarding against any resurfaced `plugins/exarchos`
     // path — is preserved by pointing at `build:binary` instead.

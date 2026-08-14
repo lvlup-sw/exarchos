@@ -22,7 +22,7 @@
 //     and the emptied census — all through `runGuard`'s injected seams.
 //   • TASK 069 paid the first entry off the allowlist, proving the ratchet's
 //     legal direction is reachable.
-//   • TASKS 063/070 prove, from `scripts/guard-inventory.ts`, that the guard is
+//   • TASKS 063/070 prove, from `tools/audit/gates/guard-inventory.ts`, that the guard is
 //     REACHABLE from an unfiltered CI job and that its exit is not swallowed.
 //
 // ── What none of that reaches — this file's whole subject ───────────────────
@@ -87,8 +87,8 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 /** `servers/exarchos-mcp` — the subject package, which is no longer this one. */
 const MCP_ROOT = SUBJECT_PACKAGE_ROOT;
 /** The artifact ci.yml invokes. Its reachability is guard-inventory's claim; its EXECUTION is this file's. */
-// Task 019 moved the dissolved package's scripts under `scripts/core/`.
-const GUARD_PATH = join(MCP_ROOT, 'scripts', 'core', 'output-schema-ratchet-guard.ts');
+// Task 019 moved the dissolved package's scripts under `tools/audit/core/`.
+const GUARD_PATH = join(MCP_ROOT, 'tools', 'audit', 'core', 'output-schema-ratchet-guard.ts');
 
 /**
  * The expression the shipped entrypoint uses to decide it is the process

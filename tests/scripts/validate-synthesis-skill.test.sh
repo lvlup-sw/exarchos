@@ -5,7 +5,7 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../scripts" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../tools/release" && pwd)"
 SKILL_DIR="$SCRIPT_DIR/../skills/synthesis"
 
 PASS=0
@@ -72,7 +72,7 @@ if [[ -x "$SCRIPT_DIR/coderabbit-review-gate.sh" ]]; then
     echo "PASS: ReviewGate_ScriptExists"
     PASS=$((PASS + 1))
 else
-    echo "FAIL: ReviewGate_ScriptExists — scripts/coderabbit-review-gate.sh not found or not executable"
+    echo "FAIL: ReviewGate_ScriptExists — tools/release/coderabbit-review-gate.sh not found or not executable"
     FAIL=$((FAIL + 1))
 fi
 

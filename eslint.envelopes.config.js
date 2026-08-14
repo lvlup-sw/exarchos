@@ -2,7 +2,7 @@
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import tseslint from 'typescript-eslint';
-import noHandlerThrow from './eslint-rules/no-handler-throw.js';
+import noHandlerThrow from './tools/eslint-rules/no-handler-throw.js';
 
 /**
  * Dedicated flat config for the error-envelope lint (#1706 DR-1/DR-2).
@@ -13,7 +13,7 @@ import noHandlerThrow from './eslint-rules/no-handler-throw.js';
  *     (#1623). Loading a type-aware rule there would silently convert that
  *     filtered step into a type-checked run and let it evaluate a rule the
  *     filtered lane was never meant to carry.
- *   - this config is invoked ONLY by `scripts/lint-envelopes.mjs` (task 002)
+ *   - this config is invoked ONLY by `tools/audit/gates/lint-envelopes.mjs` (task 002)
  *     on the UNFILTERED `grep-gates` lane — the two-surface hosting rule in
  *     `docs/guides/ci-gate-hosting.md`.
  *

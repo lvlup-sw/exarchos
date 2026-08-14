@@ -150,11 +150,11 @@
       "reason": "The policy datum states the patterns it forbids. A datum that cannot spell its own rule cannot declare it."
     },
     {
-      "glob": "scripts/lib/comment-*.mjs",
+      "glob": "tools/audit/lib/comment-*.mjs",
       "reason": "The classifier and extractor carry the rule's own vocabulary in remedies and doc comments."
     },
     {
-      "glob": "scripts/lib/comment-*.test.ts",
+      "glob": "tools/audit/lib/comment-*.test.ts",
       "reason": "The tests assert on the patterns, so they must contain them."
     },
     {
@@ -166,19 +166,19 @@
       "reason": "The gate's own tests."
     },
     {
-      "glob": "scripts/__fixtures__/comment-hygiene/**",
+      "glob": "tools/audit/__fixtures__/comment-hygiene/**",
       "reason": "Kill fixtures carry verbatim offender text. A guard that flags its own fixtures cannot be tested."
     },
     {
-      "glob": "eslint-rules/comment-content.js",
+      "glob": "tools/eslint-rules/comment-content.js",
       "reason": "The rule's own source."
     },
     {
-      "glob": "eslint-rules/comment-content.test.js",
+      "glob": "tools/eslint-rules/comment-content.test.js",
       "reason": "The rule's own tests."
     },
     {
-      "glob": "eslint-rules/__fixtures__/**",
+      "glob": "tools/eslint-rules/__fixtures__/**",
       "reason": "Rule fixtures carry verbatim offender text."
     },
     {

@@ -1,6 +1,6 @@
 {
   "experiment": "exp1-binaries",
-  "note": "Provenance for the four reference binaries driven in Exp 1 (#1670, tasks 003+004). Each was built with `bun run scripts/build-binary.ts --target linux-x64` in a throwaway worktree and its `--version` cross-checked (recorded as binaryTag). SHAs/dates are the commit values (deterministic, no wall-clock).",
+  "note": "Provenance for the four reference binaries driven in Exp 1 (#1670, tasks 003+004). Each was built with `bun run tools/release/build-binary.ts --target linux-x64` in a throwaway worktree and its `--version` cross-checked (recorded as binaryTag). SHAs/dates are the commit values (deterministic, no wall-clock).",
   "modelNote": "Exp 1 is MODEL-FREE: prepare_delegation classification is deterministic (no LLM). modelIds carries the sentinel ['none'] only to satisfy the provenance helper's non-empty invariant.",
   "causalPairIsolates": "causal pair (a240b4d8^=585c154c → a240b4d8) isolates #1669 alone; released pair (v2.12.0-preview.1 → v2.12.0-preview.2) is confounded by co-resident #1659 (585c154c).",
   "binaries": [

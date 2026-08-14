@@ -123,7 +123,7 @@ function main() {
   }
 
   // ── protected-suites — explicit test paths under a generated root ──────────
-  const protectedSuites = JSON.parse(readIfPresent('scripts/audit/protected-suites.json') ?? '{}');
+  const protectedSuites = JSON.parse(readIfPresent('tools/audit/protected-suites.json') ?? '{}');
   if (Array.isArray(protectedSuites.files)) {
     // The entries are already repository-relative despite `generatedFrom`
     // naming the root they were generated from. Joining the two double-prefixes

@@ -419,7 +419,7 @@ export type MutationDiffScope =
  */
 const MUTATION_DIFF_SCOPE: Readonly<Record<string, (base: string) => MutationDiffScope>> = {
   // node: this repo's resolved mutation command is
-  // `node scripts/core/stryker-adapter.mjs` (DR-7, task
+  // `node tools/audit/core/stryker-adapter.mjs` (DR-7, task
   // 012) — NOT a bare StrykerJS invocation. `--since` is a Stryker.NET flag;
   // StrykerJS itself has no such option. The node contract here is "the
   // adapter consumes it": stryker-adapter.mjs parses `--since=<base>` and

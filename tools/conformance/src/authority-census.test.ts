@@ -606,7 +606,7 @@ describe('authority census — vocabulary', () => {
       for (const hop of CENSUS_HOPS) {
         const cell = rowEvidence(boundary)[hop];
         if (cell.evidence !== 'live-measurement') continue;
-        expect(cell.oracle.module).toContain('scripts/core/authority-live-proof.ts');
+        expect(cell.oracle.module).toContain('tools/audit/core/authority-live-proof.ts');
         expect(cell.oracle.entrypoint.length).toBeGreaterThan(0);
         expect(cell.oracle.subjects.length).toBeGreaterThan(0);
       }

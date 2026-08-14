@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
-import { loadPolicy } from '../../../scripts/lib/comment-policy.mjs';
-import { classifyText } from '../../../scripts/lib/comment-classifier.mjs';
+import { loadPolicy } from '../../../tools/audit/lib/comment-policy.mjs';
+import { classifyText } from '../../../tools/audit/lib/comment-classifier.mjs';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..');
 const policy = loadPolicy(path.join(REPO_ROOT, '.exarchos/comment-policy.json'));
@@ -18,7 +18,7 @@ type PatternAudit = {
 };
 
 const audit = JSON.parse(
-  fs.readFileSync(path.join(REPO_ROOT, 'scripts/__fixtures__/comment-hygiene/precision-sample.json'), 'utf8'),
+  fs.readFileSync(path.join(REPO_ROOT, 'tools/audit/__fixtures__/comment-hygiene/precision-sample.json'), 'utf8'),
 ) as {
   floor: { threshold: number; sampleSize: number };
   scannedFiles: number;

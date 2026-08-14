@@ -10,7 +10,7 @@
 // fast — in the suite, before the slow CI typecheck — if a flag is ever
 // silently removed, which is what would make the tree stop typechecking green.
 //
-// @oracle-sources: ../../scripts/tsconfig-strictness/count-casts.ts, the TypeScript project resolver reading this repo's tsconfig files
+// @oracle-sources: ../../tools/audit/tsconfig-strictness/count-casts.ts, the TypeScript project resolver reading this repo's tsconfig files
 //
 // Two independent authorities meet here, and DR-30's scope rule (assertion
 // SHAPE, not annotation) correctly pulls both in. STATIC: one is the repo's own
@@ -27,7 +27,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import ts from 'typescript';
-import { countCasts, type CastCounts } from '../../scripts/tsconfig-strictness/count-casts.js';
+import { countCasts, type CastCounts } from '../../tools/audit/tsconfig-strictness/count-casts.js';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -155,12 +155,15 @@ describe('DR-14: escape-hatch census', () => {
    * Kept identical to the typecheck scope by
    * `ScriptsCastCensus_Roots_CoverEveryTypecheckedTree` below, so neither gate
    * can quietly cover a directory the other does not. `src` subsumes
-   * `src/install` and `scripts` subsumes `scripts/core` since the fold, so both
-   * are named once — listing a nested root as well would double-count it.
+   * `src/install`, so it is named once — listing a nested root as well would
+   * double-count it. For the same reason the repo automation is named as the
+   * two roots task 036 split it into rather than as a bare `tools`, which would
+   * swallow `conformance` and `evals-pkg` and count them twice.
    */
   const CENSUS_ROOTS: readonly string[] = [
     'src',
-    'scripts',
+    'tools/audit',
+    'tools/release',
     'tools/conformance',
     'tools/evals-pkg',
   ];

@@ -25,17 +25,17 @@ import {
   readAllowlist,
   extractPolicyFileReferences,
   findPolicyReferenceProblems,
-} from '../../../scripts/core/cli-derivation-guard.js';
+} from '../../../tools/audit/core/cli-derivation-guard.js';
 
 /**
  * The module this policy data points at. Written out here as a SECOND authority:
  * the guard derives nothing from this constant, so if the module is renamed and
  * only one of the two is updated, the suite disagrees with the tree.
  */
-const GUARD_MODULE_PATH = 'scripts/core/cli-derivation-guard.ts';
+const GUARD_MODULE_PATH = 'tools/audit/core/cli-derivation-guard.ts';
 
 /** The pre-rename path that actually shipped inside the policy `$comment`. */
-const RENAMED_AWAY_MODULE_PATH = 'scripts/core/cli-derivation-seam.ts';
+const RENAMED_AWAY_MODULE_PATH = 'tools/audit/core/cli-derivation-seam.ts';
 
 /**
  * Write a policy file into a throwaway tree.

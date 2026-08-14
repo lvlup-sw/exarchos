@@ -2,7 +2,7 @@
 # Deterministic self-test for the v2.12 gate-runner ownership census.
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../scripts" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../tools/audit/gates" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 GATE="$SCRIPT_DIR/check-gate-runner-ownership.mjs"
 TMP="$(mktemp -d)"

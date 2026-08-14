@@ -65,8 +65,8 @@ describe('Cleanup Validation', () => {
   });
 
   it('NoLegacy_SyncVersionsHasNoCreateExarchos', () => {
-    // scripts/sync-versions.sh must have zero matches for `create-exarchos` after cleanup.
-    const scriptPath = resolve(ROOT, 'scripts/sync-versions.sh');
+    // tools/release/sync-versions.sh must have zero matches for `create-exarchos` after cleanup.
+    const scriptPath = resolve(ROOT, 'tools/release/sync-versions.sh');
     if (!existsSync(scriptPath)) {
       // If the script no longer exists, the invariant trivially holds.
       return;

@@ -7,7 +7,7 @@
  *     derived sink (`.claude-plugin/plugin.json` `.version` +
  *     `.metadata.compat.minBinaryVersion`, `manifest.json`, the server package,
  *     and both `SERVER_VERSION` string literals) is a mechanical projection of
- *     it. `scripts/sync-versions.sh` writes them; this test re-checks the same
+ *     it. `tools/release/sync-versions.sh` writes them; this test re-checks the same
  *     invariant from TypeScript so drift is caught in the normal `vitest` run,
  *     not only by the bash `version:check` gate.
  *

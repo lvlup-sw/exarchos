@@ -6,7 +6,7 @@
  * `RESERVED(issue, owner, expires)` header (well-formed issue ref + owner + a
  * clean, non-past expiry) or membership in a declared allowlist class
  * (test-infra / build-shim / type-test entrypoint). Reachability is delegated
- * to the vendored `scripts/audit/refgraph.mjs` detector; any scan failure is
+ * to the vendored `tools/audit/refgraph.mjs` detector; any scan failure is
  * fail-closed (DR-8).
  *
  * Exit codes: 0 clean · 1 module-intent violation · 2 fail-closed (scan crash /
@@ -16,11 +16,11 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runScriptCheck, makeFixtureSrc as makeFixtureSrcShared } from '../../scripts/test-utils.js';
+import { runScriptCheck, makeFixtureSrc as makeFixtureSrcShared } from '../../tools/audit/gates/test-utils.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../..');
-const SCRIPT = path.join(REPO_ROOT, 'scripts', 'check-module-intent.mjs');
+const SCRIPT = path.join(REPO_ROOT, 'tools', 'audit', 'gates', 'check-module-intent.mjs');
 const CI_WORKFLOW = path.join(REPO_ROOT, '.github', 'workflows', 'ci.yml');
 
 function runCheck(extraArgs: string[] = []) {
@@ -225,6 +225,6 @@ describe('check-module-intent CLI (DR-7/DR-8)', () => {
 
   it('Wired_Into_GrepGates_CI', () => {
     const ci = readFileSync(CI_WORKFLOW, 'utf8');
-    expect(ci).toMatch(/node scripts\/check-module-intent\.mjs/);
+    expect(ci).toMatch(/node tools\/audit\/gates\/check-module-intent\.mjs/);
   });
 });

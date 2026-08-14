@@ -10,7 +10,7 @@
  * `--outdir` flag exists so this never races `dist/bin`, which
  * `scripts/build-binary.test.ts` and the compiled-binary process tests read),
  * copies the artifact into a scratch "release assets" directory and drives the
- * real `scripts/build-release-manifest.ts` CLI over it.
+ * real `tools/release/build-release-manifest.ts` CLI over it.
  *
  * ── Two independent authorities everywhere (DR-30 Class-B avoidance) ────
  * Nothing here compares a value to itself or to a sibling read of the same
@@ -53,7 +53,7 @@ import {
   extractEmbeddedBuildIdentity,
   renderSourceStateReport,
   type EmbeddedBuildIdentity,
-} from '../../scripts/build-release-manifest.js';
+} from '../../tools/release/build-release-manifest.js';
 import { AUTHORITY_IDS } from '../../src/contract/authority-pin.js';
 import { digestTree } from '../../src/install/install-identity.js';
 import {
@@ -81,7 +81,7 @@ const TEST_KEY_ID = 'test.publisher';
  * Planting here is what makes the "modified" arm a genuine working-tree edit
  * rather than a simulated one.
  */
-const PLANT_TARGET = 'scripts/build-binary-targets.ts';
+const PLANT_TARGET = 'tools/release/build-binary-targets.ts';
 
 /** A tracked file that IS on the allowlist — the build regenerates it. */
 const GENERATED_TARGET = GENERATED_AT_BUILD_PATHS[0];
@@ -222,7 +222,7 @@ function independentContractDigest(): string {
   return `sha256:${createHash('sha256').update(joined, 'utf8').digest('hex')}`;
 }
 
-// ─── Host target naming (mirrors scripts/build-binary.ts) ────────────────────
+// ─── Host target naming (mirrors tools/release/build-binary.ts) ────────────────────
 
 function hostOs(): 'linux' | 'darwin' | 'windows' {
   if (process.platform === 'darwin') return 'darwin';
@@ -291,7 +291,7 @@ describe('DR-20 release manifest producer', () => {
     const bun = resolveBunExecutable();
     const build = spawnSync(
       bun,
-      ['run', join(REPO_ROOT, 'scripts', 'build-binary.ts'), '--outdir', binDir],
+      ['run', join(REPO_ROOT, 'tools', 'release', 'build-binary.ts'), '--outdir', binDir],
       { cwd: REPO_ROOT, encoding: 'utf8', env: process.env, timeout: 300_000 },
     );
     if (build.status !== 0) {
@@ -321,7 +321,7 @@ describe('DR-20 release manifest producer', () => {
       bun,
       [
         'run',
-        join(REPO_ROOT, 'scripts', 'build-release-manifest.ts'),
+        join(REPO_ROOT, 'tools', 'release', 'build-release-manifest.ts'),
         '--assets-dir',
         assetsDir,
         '--out',
@@ -693,8 +693,8 @@ describe('DR-20 release manifest producer', () => {
 
     // The manifest is BUILT in the release pipeline (not a library with zero
     // call sites) …
-    const buildStep = steps.find((s) => (s.run ?? '').includes('scripts/build-release-manifest.ts'));
-    expect(buildStep, 'publish-release does not invoke scripts/build-release-manifest.ts').toBeDefined();
+    const buildStep = steps.find((s) => (s.run ?? '').includes('tools/release/build-release-manifest.ts'));
+    expect(buildStep, 'publish-release does not invoke tools/release/build-release-manifest.ts').toBeDefined();
 
     // … SIGNED with a repository secret, never a literal or a default …
     const stepText = `${buildStep?.run ?? ''}\n${JSON.stringify(buildStep?.env ?? {})}`;

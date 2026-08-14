@@ -8,7 +8,7 @@ import tseslint from 'typescript-eslint';
  * and the custom `scripts/check-*` / `lint:*` scanners). This config exists for
  * ONE purpose: give in-editor + autofix-adjacent feedback on the two
  * single-AST-node Windows anti-patterns, as the shift-left complement to the CI
- * grep-gate (`scripts/check-windows-portability.mjs`, which also owns the
+ * grep-gate (`tools/audit/gates/check-windows-portability.mjs`, which also owns the
  * cross-file handle-leak heuristic that a single-node rule can't express).
  *
  * Deliberately rule-only — NO recommended ruleset — so it never flags

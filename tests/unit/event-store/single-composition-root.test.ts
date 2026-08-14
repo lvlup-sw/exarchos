@@ -10,7 +10,7 @@
  * After the refactor: every handler receives the canonical `EventStore`
  * via `DispatchContext`. `getOrCreateEventStore` no longer exists. The
  * regression surface is structural, not runtime: the composition-root
- * CI script (`scripts/check-event-store-composition-root.mjs`) prevents
+ * CI script (`tools/audit/gates/check-event-store-composition-root.mjs`) prevents
  * any new `new EventStore(...)` outside the documented entry points.
  *
  * This test asserts the runtime invariant that survives both implementations:

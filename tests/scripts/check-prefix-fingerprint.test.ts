@@ -2,7 +2,7 @@
  * Tests for the prefix-fingerprint CI gate (task T047, DR-12).
  *
  * Phase progression:
- *   - RED: `scripts/check-prefix-fingerprint.mjs` does not yet exist; these
+ *   - RED: `tools/audit/gates/check-prefix-fingerprint.mjs` does not yet exist; these
  *     tests fail because spawning the script yields ENOENT.
  *   - GREEN: the `.mjs` wrapper shells out to `tsx` against the canonical TS
  *     fingerprint module, reads the committed `PREFIX_FINGERPRINT` file, and
@@ -32,7 +32,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../..');
-const SCRIPT = path.join(REPO_ROOT, 'scripts', 'check-prefix-fingerprint.mjs');
+const SCRIPT = path.join(REPO_ROOT, 'tools', 'audit', 'gates', 'check-prefix-fingerprint.mjs');
 const COMMITTED_FINGERPRINT = path.join(
   REPO_ROOT,
   'src',

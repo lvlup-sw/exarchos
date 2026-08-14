@@ -41,7 +41,7 @@ const OWNER = 'src/config/artifacts.ts';
  *     `artifacts.spec-dir` even in principle, because it names a specific file
  *     at a specific path in this repository's history.
  */
-const FUNCTIONAL_ALLOWLIST: ReadonlyArray<string> = [OWNER, 'scripts/guard-inventory.ts'];
+const FUNCTIONAL_ALLOWLIST: ReadonlyArray<string> = [OWNER, 'tools/audit/gates/guard-inventory.ts'];
 
 /**
  * Agent-facing prose carrying the literal, file → occurrence count. A ratchet:
@@ -49,7 +49,7 @@ const FUNCTIONAL_ALLOWLIST: ReadonlyArray<string> = [OWNER, 'scripts/guard-inven
  * deliberate edit to this table.
  */
 const PROSE_BUDGET: Readonly<Record<string, number>> = {
-  'scripts/check-measured-premises.mjs': 1,
+  'tools/audit/gates/check-measured-premises.mjs': 1,
   'tools/evals/evals/benchmarks/plan-format-corpus.ts': 1,
   'src/verbs/gates/design-completeness.ts': 1,
   'src/verbs/tasks/discover-bridge.ts': 1,

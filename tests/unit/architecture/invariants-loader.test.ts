@@ -943,7 +943,7 @@ invariants:
   // Spec §5.1 + §6 INV-6 (sharpened): elevate INV-6 from a skill-grep
   // operational shell to the primary workload-agnosticism statement —
   // cost-of-load: always-load (was reference-only); summary asserts
-  // "no assumption about which workload"; references the scripts/lint-inv6.mjs
+  // "no assumption about which workload"; references the tools/audit/gates/lint-inv6.mjs
   // projection; applies-to broader than content + playbooks.
 
   it('Invariants_INV6Sharpened_PrimaryStatementNotGrepOnly', () => {
@@ -955,7 +955,7 @@ invariants:
     // Primary workload-agnosticism statement language.
     expect(inv6!.summary.toLowerCase()).toMatch(/no assumption about which workload/);
     // Operational projection pointer preserved.
-    expect(inv6!.summary).toMatch(/scripts\/lint-inv6\.mjs/);
+    expect(inv6!.summary).toMatch(/tools\/audit\/gates\/lint-inv6\.mjs/);
     // applies-to is broader than v1's content + playbooks.
     expect(inv6!.appliesTo).toContain('runtime-substrate');
     expect(inv6!.appliesTo).toContain('topology');

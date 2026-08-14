@@ -12,7 +12,7 @@ module.exports = {
 
   // Extend the shared base config (schedule, automerge, rate limits)
   extends: [
-    'github>lvlup-sw/exarchos//renovate-config/renovate.json'
+    'github>lvlup-sw/exarchos//tools/renovate-config/renovate.json'
   ],
 
   // Use different branch prefix to avoid conflicts with Mend app

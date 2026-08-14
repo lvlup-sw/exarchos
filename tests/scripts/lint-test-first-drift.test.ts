@@ -1,6 +1,6 @@
 // scripts/lint-test-first-drift.test.ts — exercises the #1591 drift guard.
 //
-// The guard (scripts/lint-test-first-drift.mjs) is the standing defense that
+// The guard (tools/audit/gates/lint-test-first-drift.mjs) is the standing defense that
 // keeps test-FIRST framing (Iron Law / NO PRODUCTION CODE / unconditional RGR
 // templates) from creeping back into commands/ + agents/ + content/ after the
 // Phase-4 excision. This test is the enforcing CI wiring: a seeded fixture MUST
@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const REPO_ROOT = join(import.meta.dirname, '../..');
-const SCRIPT = join(import.meta.dirname, '../../scripts/lint-test-first-drift.mjs');
+const SCRIPT = join(import.meta.dirname, '../../tools/audit/gates/lint-test-first-drift.mjs');
 
 function runGuard(dirs: string[]): { code: number; findings: Array<{ rule: string }> } {
   let code = 0;

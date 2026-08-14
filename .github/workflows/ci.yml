@@ -95,13 +95,25 @@ jobs:
               # or the workflow's own contract test never fires on the PR
               # that changes it.
               - '.github/workflows/release.yml'
+              # Task 036 gathered every gate, build and publish script under
+              # `tools/`. They were `scripts/**`, deliberately outside this
+              # filter, with unfiltered jobs re-asserting them. Naming the tree
+              # is the simpler guarantee: a PR that weakens a gate now triggers
+              # the lane that runs it, instead of relying on a second job to
+              # notice. The whole tree, so a new `tools/` root is not
+              # un-triggered until someone spots it.
+              - 'tools/**'
             mcp:
               - 'src/**'
               # `tests/unit/**` and `tests/integration/**` are the core suite's
               # own tests after task 030 — same reason as the `root` filter.
               - 'tests/**'
-              - 'scripts/core/**'
-              - 'tools/evals/**'
+              # Was `scripts/core/**`. Widened to the whole tree by task 036 for
+              # the same reason as the `root` filter above: this lane hosts
+              # gates whose sources moved into sibling `tools/` roots, and a
+              # gate outside every filter of its own hosting job is exactly what
+              # the guard inventory's reachability proof rejects.
+              - 'tools/**'
               - 'tools/test-helpers/**'
               - 'vitest.config.ts'
               - 'package.json'
@@ -147,7 +159,7 @@ jobs:
         with:
           bun-version: 1.3.13
 
-      - run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
+      - run: bash "$GITHUB_WORKSPACE/tools/release/npm-ci-retry.sh"
       - run: npm run typecheck
 
       # Windows-portability lint (#1623): editor-first ESLint rules, also run
@@ -232,7 +244,7 @@ jobs:
           cache-dependency-path: package-lock.json
 
       # `compiled-binary-mcp.test.ts` shells out to
-      # `bun run scripts/build-binary.ts` from the repo root — bun must
+      # `bun run tools/release/build-binary.ts` from the repo root — bun must
       # be on PATH or the spawn fails with `exit null`.
       - uses: oven-sh/setup-bun@v2
         with:
@@ -241,7 +253,7 @@ jobs:
       # One install: task 019 dissolved the nested workspace, so the core's
       # dependency closure and the installer's are the same closure now.
       - name: Install dependencies
-        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
+        run: bash "$GITHUB_WORKSPACE/tools/release/npm-ci-retry.sh"
 
       - run: npx tsc --noEmit
 
@@ -278,7 +290,7 @@ jobs:
       # non-regression signal is never silently skipped after an unrelated flake.
       - name: Coverage ratchet — blocking (DR-5)
         if: ${{ !cancelled() }}
-        run: node "$GITHUB_WORKSPACE/scripts/check-coverage-ratchet.mjs"
+        run: node "$GITHUB_WORKSPACE/tools/audit/gates/check-coverage-ratchet.mjs"
 
       # DR-5: publish the coverage summary as a run artifact so task 009 can
       # capture the live baseline (totals + run-ids) from ≥3 CI runs. `path` is
@@ -326,7 +338,7 @@ jobs:
       # (DR-10). See docs/guides/ci-gate-hosting.md.
       - name: Mutation gate — observe mode (DR-7), PR events only
         if: github.event_name == 'pull_request'
-        run: node "$GITHUB_WORKSPACE/scripts/check-mutation-gate.mjs" --observe
+        run: node "$GITHUB_WORKSPACE/tools/audit/gates/check-mutation-gate.mjs" --observe
 
       # DR-7 composed-path Stryker smoke test (task 012): resolver → handler →
       # adapter → real pinned Stryker → parser, on a tiny fixture scope. Runs in
@@ -391,7 +403,7 @@ jobs:
 
       - name: Install dependencies
         shell: bash
-        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
+        run: bash "$GITHUB_WORKSPACE/tools/release/npm-ci-retry.sh"
 
       - run: npx tsc --noEmit
       - run: npm run test:core
@@ -496,7 +508,7 @@ jobs:
 
       - name: Install root dependencies
         shell: bash
-        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
+        run: bash "$GITHUB_WORKSPACE/tools/release/npm-ci-retry.sh"
 
       # The MCP server's deps must be present so `bun build --compile` can
       # resolve `pino`, `commander`, `@modelcontextprotocol/sdk`, `zod`, and
@@ -510,11 +522,11 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────
   # Cross-compiles the Exarchos CLI + MCP server into a single native
   # binary per OS/arch pair, using `bun build --compile --target=<bun-target>`
-  # from `scripts/build-binary.ts`.
+  # from `tools/release/build-binary.ts`.
   #
   # DRIFT CONTRACT:
   #   - The `matrix.target` list below MUST match the `os-arch` names
-  #     derived from `TARGETS` in `scripts/build-binary.ts`.
+  #     derived from `TARGETS` in `tools/release/build-binary.ts`.
   #   - `tests/scripts/ci-binary-matrix.test.ts` is the drift enforcement gate:
   #     if this matrix or `TARGETS` is edited without the other, that
   #     test fails `npm run test:run`.
@@ -545,7 +557,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Keep in sync with TARGETS in scripts/build-binary.ts.
+        # Keep in sync with TARGETS in tools/release/build-binary.ts.
         target:
           - linux-x64
           - linux-arm64
@@ -574,7 +586,7 @@ jobs:
       # `npm ci`. The bundler then errored with "Could not resolve
       # 'js-yaml'" / "Could not resolve '@inquirer/prompts'".
       - name: Install root dependencies
-        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
+        run: bash "$GITHUB_WORKSPACE/tools/release/npm-ci-retry.sh"
 
       # Install MCP-server *runtime* deps so `bun build --compile` can resolve
       # `pino`, `commander`, `@modelcontextprotocol/sdk`, `zod`, and `yaml`
@@ -584,7 +596,7 @@ jobs:
       # embeds `bun:sqlite`, so none of it is needed here. Big install-time win
       # + far less exposure to the npm-ci stall (RCA 2026-05-30-state-source-integrity).
       - name: Build binary for ${{ matrix.target }}
-        run: bun run scripts/build-binary.ts --target ${{ matrix.target }}
+        run: bun run tools/release/build-binary.ts --target ${{ matrix.target }}
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4
@@ -597,13 +609,13 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────
   # validate-no-legacy
   # ─────────────────────────────────────────────────────────────────────
-  # Runs scripts/validate-no-legacy.sh, which rolls up two checks:
+  # Runs tools/audit/gates/validate-no-legacy.sh, which rolls up two checks:
   #   1. The NoLegacy_* shell assertion suite (tests/scripts/validate-no-legacy.test.sh)
   #      — pins obsolete v2.8 install artifacts as deleted/archived.
   #   2. `knip` (files + dependencies + exports + types) via the allowlist-diff
-  #      wrapper (scripts/audit/knip-diff.ts) — detects unused modules, deps,
+  #      wrapper (tools/audit/knip-diff.ts) — detects unused modules, deps,
   #      exported symbols, and types, diffed against
-  #      scripts/audit/knip-allowlist.json (fails closed on unallowlisted or
+  #      tools/audit/knip-allowlist.json (fails closed on unallowlisted or
   #      expired findings, a missing binary, or unparseable output).
   #
   # Runs in parallel with test-root / test-mcp on a GitHub-hosted
@@ -626,13 +638,13 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - name: Install dependencies (root)
-        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
+        run: bash "$GITHUB_WORKSPACE/tools/release/npm-ci-retry.sh"
 
       # The exports/types sweep resolves TypeScript across the workspaces
       # knip.json declares. Since task 019 the product is ONE package, so the
       # single install above is the whole closure.
       - name: Run validate-no-legacy rollup
-        run: bash scripts/validate-no-legacy.sh
+        run: bash tools/audit/gates/validate-no-legacy.sh
 
   # ─────────────────────────────────────────────────────────────────────
   # manifest-gate (DR-2 / Task 004)
@@ -671,14 +683,14 @@ jobs:
       # ROOT devDependency) for TS-compiler-API case extraction. Only the root
       # install is needed — no MCP-server deps, no native build.
       - name: Install dependencies (root)
-        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
+        run: bash "$GITHUB_WORKSPACE/tools/release/npm-ci-retry.sh"
 
       - name: Manifest gate — no pre-image case dropped (DR-2, Task 004)
         # Reconstruct against the PR's actual base branch (not a hardcoded
         # origin/main) so a stacked PR onto a non-main base verifies against the
         # right merge-base; on push events base_ref is empty and the tool
         # defaults to origin/main.
-        run: node scripts/audit/manifest-gate-ci.mjs ${{ github.base_ref && format('--base origin/{0}', github.base_ref) || '' }}
+        run: node tools/audit/manifest-gate-ci.mjs ${{ github.base_ref && format('--base origin/{0}', github.base_ref) || '' }}
 
   # ─────────────────────────────────────────────────────────────────────
   # grep-gates
@@ -707,7 +719,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: withSession idempotency contract (#1342 P1.D)
-        run: bash scripts/check-withsession-idempotency.sh src
+        run: bash tools/audit/gates/check-withsession-idempotency.sh src
 
       # Self-test for the gate above. It exercises the gate's own matching logic
       # against seeded fixtures in a tmpdir — it says nothing about production
@@ -716,7 +728,7 @@ jobs:
         run: bash tests/scripts/check-withsession-idempotency.test.sh
 
       - name: BEGIN IMMEDIATE substrate-only (#1342 P1.E)
-        run: bash scripts/check-begin-immediate-substrate.sh src
+        run: bash tools/audit/gates/check-begin-immediate-substrate.sh src
 
       # Self-test for the gate above. Seeded-fixture cases plus RealTree_* cases
       # that scan this checkout to catch false positives on the legitimate
@@ -734,25 +746,25 @@ jobs:
           node-version: '24'
 
       - name: Upcast choke-point — migrateEvents at the read seam (#1556)
-        run: node scripts/check-query-upcast-choke-point.mjs
+        run: node tools/audit/gates/check-query-upcast-choke-point.mjs
 
       - name: No raw .state.json read/write in production (#1504)
-        run: node scripts/check-no-state-json.mjs
+        run: node tools/audit/gates/check-no-state-json.mjs
 
       - name: Single workflow-state fold — one canonical reducer (#1554)
-        run: node scripts/check-single-workflow-fold.mjs
+        run: node tools/audit/gates/check-single-workflow-fold.mjs
 
       - name: Event-store access via composition root (#1342)
-        run: node scripts/check-event-store-composition-root.mjs
+        run: node tools/audit/gates/check-event-store-composition-root.mjs
 
       - name: Windows-portability anti-patterns (#1623)
-        run: node scripts/check-windows-portability.mjs
+        run: node tools/audit/gates/check-windows-portability.mjs
 
       - name: Windows-portability gate self-test (#1623)
         run: bash tests/scripts/check-windows-portability.test.sh
 
       - name: WLM wiring gate — DR-1 retry adapter + DR-2 skills reroute (task-004)
-        run: node scripts/check-wlm-wiring.mjs
+        run: node tools/audit/gates/check-wlm-wiring.mjs
 
       - name: WLM wiring gate self-test (task-004)
         run: bash tests/scripts/check-wlm-wiring.test.sh
@@ -761,7 +773,7 @@ jobs:
       # reject new direct gate emitters, provider registrations, and custom-shell
       # transition guards while preserving the audited v3.0 migration reserve.
       - name: Gate-runner ownership census (v2.12 DR-5)
-        run: node scripts/check-gate-runner-ownership.mjs
+        run: node tools/audit/gates/check-gate-runner-ownership.mjs
 
       - name: Gate-runner ownership census self-test (v2.12 DR-5)
         run: bash tests/scripts/check-gate-runner-ownership.test.sh
@@ -772,12 +784,12 @@ jobs:
       # docs/guides/ci-gate-hosting.md.
 
       # DR-9 type-debt register: per-file `as unknown as` count budget compared
-      # against scripts/type-debt-baseline.json. BLOCKING from merge day one
+      # against tools/audit/gates/type-debt-baseline.json. BLOCKING from merge day one
       # (an unwired register is the "exists, not wired" class this spec closes).
       # Scans the whole src tree, not a PR diff. DR-1 host class: zero-dep
       # prefix, unfiltered.
       - name: Type-debt count-budget register (DR-9)
-        run: node scripts/check-type-debt.mjs
+        run: node tools/audit/gates/check-type-debt.mjs
 
       # DR-10 .test.sh re-asserts (task-015 pattern — every check script's
       # self-test runs on every PR, unfiltered). These two are zero-dep node;
@@ -790,7 +802,7 @@ jobs:
 
       # Enforcer-wiring gate (task 011, DR-5/DR-8). Zero-dependency node
       # script: reconciles every scripts/check-*|lint-* primary against
-      # scripts/enforcer-wiring-manifest.json by TRANSITIVELY walking npm-script
+      # tools/audit/gates/enforcer-wiring-manifest.json by TRANSITIVELY walking npm-script
       # chains + workflow run-steps and inspecting per-term exit-code handling.
       # Catches the four trap classes a name-grep cannot see — orphan,
       # unreachable-via-uninvoked-npm-script, exit-code-swallowed (`|| true` /
@@ -800,7 +812,7 @@ jobs:
       # `EnforcerWiring_*` cases in tests/scripts/check-enforcer-wiring.test.ts, run by
       # the root unit suite (test-root).
       - name: Enforcer wiring gate (DR-5/DR-8, task 011)
-        run: node scripts/check-enforcer-wiring.mjs
+        run: node tools/audit/gates/check-enforcer-wiring.mjs
 
       # Cross-gate fail-closed self-test (task 015, DR-8). The gate's own
       # `.test.ts` runs only in the path-filtered `test-root` job (excludes
@@ -819,7 +831,7 @@ jobs:
       # zero-dependency node (the old bash+jq implementation is a thin wrapper),
       # so it rides this unfiltered zero-dep prefix and fires on every PR.
       - name: Plugin-packaging gate (DR-24, task 064)
-        run: bash scripts/validate-plugin.sh
+        run: bash tools/audit/gates/validate-plugin.sh
 
       # DR-10 re-assert for the gate above. Its `.test.ts` runs only in the
       # path-filtered `test-root` job (which excludes `scripts/**`), so a
@@ -830,7 +842,7 @@ jobs:
         run: bash tests/scripts/validate-plugin.test.sh
 
       # The aggregating `npm run validate` runner (task 064, DR-24). Runs every
-      # step declared in scripts/validate-manifest.json instead of
+      # step declared in tools/audit/gates/validate-manifest.json instead of
       # short-circuiting, so a red early gate can no longer render the later
       # ones as skipped-as-passed. `--list` is the cheap reachability proof for
       # THIS host: it fails when the manifest declares zero steps, which is the
@@ -838,7 +850,7 @@ jobs:
       # individually elsewhere in this job (and in the tsx tail), so running the
       # whole chain here would only duplicate them.
       - name: Validate manifest declares a non-empty step list (DR-24, task 064)
-        run: node scripts/run-validate.mjs --list
+        run: node tools/audit/gates/run-validate.mjs --list
 
       - name: npm-ci-retry helper tests
         run: bash tests/scripts/npm-ci-retry.test.sh
@@ -877,7 +889,7 @@ jobs:
       # reached transitively by fingerprint-cli.ts) before running them. Kept at
       # the end of the job so the fast install-free structural gates run first.
       - name: Install root dependencies (for tsx-backed gates)
-        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
+        run: bash "$GITHUB_WORKSPACE/tools/release/npm-ci-retry.sh"
 
       # Duplicate-location ratchet (DR-1, Task 022). An (area, basename)
       # intersection guard that FAILS on any legacy __tests__/<area>/<base>.test.ts
@@ -888,7 +900,7 @@ jobs:
       # The allowlist shrinks to 0 once all 17 pairs relocate, so this gate is
       # green only in the consolidated end-state (it lands with/after the pairs).
       - name: Duplicate-location ratchet (DR-1, Task 022)
-        run: node scripts/audit/check-no-duplicate-suites.mjs
+        run: node tools/audit/check-no-duplicate-suites.mjs
 
       # ── Wave-S tsx-tail + bun gates (DR-8, DR-2, DR-10) ────────────────────
       # These ride the UNFILTERED grep-gates host so they fire on every PR,
@@ -931,17 +943,17 @@ jobs:
       # cast, inline literal, the fail-loud `unresolvedHandler` path) and its three
       # exemption classes. They were executed by NOTHING: it is a `node:test` file with
       # a `.js` extension, and the root vitest `include` list is all `*.test.ts` under
-      # src/benchmarks/scripts/hooks/test/docs — no `eslint-rules/**`, no `.js` pattern.
+      # src/benchmarks/scripts/hooks/test/docs — no `tools/eslint-rules/**`, no `.js` pattern.
       # A blocking lint rule whose resolution logic is unproven is the DR-24 shape the
       # rest of this lane exists to prevent.
       - name: Error-envelope RULE self-test (18 cases)
-        run: node eslint-rules/no-handler-throw.test.js
+        run: node tools/eslint-rules/no-handler-throw.test.js
 
-      # `eslint-rules/tsconfig.json` exists solely to typecheck `__fixtures__/**/*.ts`
+      # `tools/eslint-rules/tsconfig.json` exists solely to typecheck `__fixtures__/**/*.ts`
       # and was compiled by nothing either — root `tsconfig.json` includes `src/**/*`
       # and `tsconfig.scripts.json` includes `scripts/**/*.ts`; neither covers this tree.
-      - name: Typecheck eslint-rules/
-        run: npx --no-install tsc -p eslint-rules/tsconfig.json
+      - name: Typecheck tools/eslint-rules/
+        run: npx --no-install tsc -p tools/eslint-rules/tsconfig.json
 
       # DR-15/DR-24 ratchets re-asserted UNFILTERED. Both live in root `src/` and were
       # hosted only by the `root`-path-filtered test-root lane, while the surfaces they
@@ -969,11 +981,11 @@ jobs:
       # Both `scripts/` trees were compiled by NOTHING: `tsconfig.json` and
       # `tsconfig.json` both `include: ["src/**/*"]`, so
       # the guards living there — cli-derivation-guard.ts, authority-live-proof.ts,
-      # cli-vocab-guard.ts, guard-inventory.ts, scripts/audit/* — were never
+      # cli-vocab-guard.ts, guard-inventory.ts, tools/audit/* — were never
       # typechecked. Three separate tasks (020, 021, 026) each discovered this
       # independently and each hand-ran a standalone `tsc --noEmit` over their own
       # files; widening the tree at once surfaced 12 real errors (9 of them in
-      # scripts/audit/), all fixed by narrowing/widening rather than by a cast.
+      # tools/audit/), all fixed by narrowing/widening rather than by a cast.
       #
       # Hosted HERE and not in test-root/test-mcp, deliberately. The scan surface
       # of the root scripts project is `scripts/**` PLUS the MCP `src/` modules its
@@ -1018,10 +1030,10 @@ jobs:
         run: bash tests/scripts/check-mutation-gate.test.sh
 
       - name: Prefix-fingerprint gate — rehydration stable-prefix drift (DR-12)
-        run: node scripts/check-prefix-fingerprint.mjs
+        run: node tools/audit/gates/check-prefix-fingerprint.mjs
 
       - name: Prose-lint gate — rehydration prose slop (DR-13)
-        run: node scripts/check-prose-lint.mjs
+        run: node tools/audit/gates/check-prose-lint.mjs
 
       # Measured-premise drift gate (task 054, DR-27). Binds every annotated
       # numeric claim in the internal-mechanics-overhaul spec (+ the invariants
@@ -1032,7 +1044,7 @@ jobs:
       # premises drift when the CODE changes, which is precisely the PR a
       # docs-path filter would skip.
       - name: Measured-premise drift gate (DR-27)
-        run: node scripts/check-measured-premises.mjs
+        run: node tools/audit/gates/check-measured-premises.mjs
 
       # Its own self-test on the same host (DR-24: "each guard's self-test runs
       # in the same CI job as the guard", so guard-execution failure cannot pass
@@ -1044,7 +1056,7 @@ jobs:
       # No-circular runtime import-cycle ratchet (task 010, DR-4/DR-8). Runs the
       # ROOT-hoisted dependency-cruiser over src, computes
       # the runtime cycles (Tarjan, via architecture/import-cycles.ts), and diffs
-      # them against scripts/audit/cycle-baseline.json — failing CLOSED on an
+      # them against tools/audit/cycle-baseline.json — failing CLOSED on an
       # unbaselined cycle, an expired waiver, a PHANTOM entry (baselined edge with
       # no live cycle — the no-mask tooth), or missing/unparseable depcruise output
       # (exit 2). Blocking, NOT advisory: the shared config ships `no-circular` at
@@ -1053,7 +1065,7 @@ jobs:
       # the four named DR-4 failure-mode cases in tests/scripts/audit/cycle-gate.test.ts,
       # run by the root unit suite (test-root).
       - name: No-circular cycle ratchet (DR-4/DR-8, task 010)
-        run: npx --no-install tsx scripts/audit/cycle-gate.ts
+        run: npx --no-install tsx tools/audit/cycle-gate.ts
 
       # Cross-gate fail-closed self-tests for the two tsx-backed audit gates
       # (task 015, DR-8). Their own `.test.ts` cases run only in the
@@ -1070,7 +1082,7 @@ jobs:
         run: bash tests/scripts/audit/knip-diff.test.sh
 
       # Module-intent gate (task 013, DR-7/DR-8). Delegates reachability to the
-      # vendored scripts/audit/refgraph.mjs detector, then requires every
+      # vendored tools/audit/refgraph.mjs detector, then requires every
       # dead-in-prod module (0 production importers) to declare intent: a
       # RESERVED(issue, owner, expires) header with a future expiry, OR
       # membership in a declared allowlist class (test-infra / build-shim /
@@ -1081,7 +1093,7 @@ jobs:
       # itself pure node:fs. Self-tests: the DR-7/DR-8 cases in
       # tests/scripts/check-module-intent.test.ts, run by the root unit suite (test-root).
       - name: Module-intent gate (DR-7/DR-8, task 013)
-        run: node scripts/check-module-intent.mjs
+        run: node tools/audit/gates/check-module-intent.mjs
 
       # Cross-gate fail-closed self-test (task 015, DR-8). The gate's own
       # `.test.ts` runs only in the path-filtered `test-root` job (excludes
@@ -1111,7 +1123,7 @@ jobs:
 
       # Cast-census self-test re-assert (DR-24, task 063 finding). The DR-14 cast
       # budget is the constraint every task in this wave is judged against, and
-      # its census (`scripts/tsconfig-strictness/count-casts.ts`) was hosted ONLY
+      # its census (`tools/audit/tsconfig-strictness/count-casts.ts`) was hosted ONLY
       # by the `root`-filtered `test-root` job — while its own source sits under
       # `scripts/**`, which the `root` filter excludes. A PR that weakened the
       # census therefore never armed the only job that runs it: the two-surface
@@ -1131,7 +1143,7 @@ jobs:
       # and 060 shipped the first three but wired NONE of them to an executable
       # gate: the whole `auditVacuity*` family was driven only by its co-located
       # vitest in the `mcp`-PATH-FILTERED `test-mcp` job, which
-      # scripts/guard-inventory.ts names as an R-11 instance and #1711 names as
+      # tools/audit/gates/guard-inventory.ts names as an R-11 instance and #1711 names as
       # skipped-as-passed on exactly the PRs it polices. This step is the gate.
       #
       # This is ALSO the one place DR-4's mechanism reads the wall clock: the
@@ -1149,7 +1161,7 @@ jobs:
       # and a `mcp`-filtered host skips-as-passed on any PR outside it.
       # See docs/guides/ci-gate-hosting.md.
       - name: outputSchema vacuity ratchet — G2 + enforced expiry (DR-4, task 017)
-        run: npx --no-install tsx scripts/core/output-schema-ratchet-guard.ts
+        run: npx --no-install tsx tools/audit/core/output-schema-ratchet-guard.ts
 
       # Its self-tests on the SAME host (DR-24: "each guard's self-test runs in
       # the same CI job as the guard", so guard-execution failure cannot pass as
@@ -1225,7 +1237,7 @@ jobs:
       # the `mcp` filter, but a `mcp`-filtered host skips-as-passed on
       # any PR outside it. See docs/guides/ci-gate-hosting.md.
       - name: CLI derivation allowlist ratchet — G1 shrink-only + enforced expiry (DR-5, task 023)
-        run: npx --no-install tsx scripts/core/cli-derivation-ratchet-guard.ts
+        run: npx --no-install tsx tools/audit/core/cli-derivation-ratchet-guard.ts
 
       # G1 DERIVATION entrypoint — direct and BLOCKING as of task 076 (DR-5).
       #
@@ -1243,7 +1255,7 @@ jobs:
       # resolver records `via=direct` rather than walking a shell shim. Same host
       # class as the ratchet above: deps tail, unfiltered, for the same reason.
       - name: CLI derivation guard — G1 no un-allowlisted literal commands (DR-5, task 076)
-        run: npx --no-install tsx scripts/core/cli-derivation-guard.ts
+        run: npx --no-install tsx tools/audit/core/cli-derivation-guard.ts
 
       # Its self-tests, plus the DERIVATION guard's, on the SAME host (DR-24:
       # "each guard's self-test runs in the same CI job as the guard"). These
@@ -1411,10 +1423,10 @@ jobs:
       # One closure since task 019: vitest and the build-binary toolchain sit
       # beside pino/commander/@modelcontextprotocol/zod/yaml in the same manifest.
       - name: Install dependencies
-        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
+        run: bash "$GITHUB_WORKSPACE/tools/release/npm-ci-retry.sh"
 
       - name: Build host binary (linux-x64)
-        run: bun run scripts/build-binary.ts --target linux-x64
+        run: bun run tools/release/build-binary.ts --target linux-x64
 
       - name: Symlink exarchos onto PATH
         run: sudo ln -s "$PWD/dist/bin/exarchos-linux-x64" /usr/local/bin/exarchos
@@ -1463,14 +1475,14 @@ jobs:
       # alias target, and `better-sqlite3` (the shim's runtime dependency) all
       # come from the same manifest.
       - name: Install dependencies
-        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
+        run: bash "$GITHUB_WORKSPACE/tools/release/npm-ci-retry.sh"
 
       # The install-skills outcome test invokes the platform binary at
       # `dist/bin/exarchos-<os>-<arch>`. Without this build step the test
       # silently degrades to "no on-disk effects → empty manifest →
       # assertion failure", which masks real regressions in the installer.
       - name: Build host binary (linux-x64)
-        run: bun run scripts/build-binary.ts --target linux-x64
+        run: bun run tools/release/build-binary.ts --target linux-x64
 
       - name: Configure git identity for outcome helpers
         run: |

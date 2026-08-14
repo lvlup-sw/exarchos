@@ -16,7 +16,7 @@ import type {
  *
  * It is NOT an event fold — it reads the projected summary rows, never a
  * `switch (event.type)` over `WorkflowEvent` — so it sits entirely outside the
- * single-workflow-fold CI gate (`scripts/check-single-workflow-fold.mjs`).
+ * single-workflow-fold CI gate (`tools/audit/gates/check-single-workflow-fold.mjs`).
  */
 
 /**

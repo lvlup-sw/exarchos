@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Self-test for scripts/lint-envelopes.mjs (#1706 DR-2, task 002).
+# Self-test for tools/audit/gates/lint-envelopes.mjs (#1706 DR-2, task 002).
 #
 # Drives the REAL wrapper (not a stand-in) against CONTROLLED fixtures, so the
 # assertions stay deterministic regardless of the real orchestrate/** tree's
@@ -12,7 +12,7 @@
 # `--src-root`/`--refgraph` seam) so the DEFAULT (no-flags) invocation used by
 # `npm run lint:envelopes` / the grep-gates CI step is never itself modified.
 #
-#   - violating fixture (reused from eslint-rules/__fixtures__, DR-1's own
+#   - violating fixture (reused from tools/eslint-rules/__fixtures__, DR-1's own
 #     fixture pair) → the wrapper exits 1 (ESLint reports errors).
 #   - compliant fixture (same pair)                → the wrapper exits 0.
 #   - fail-closed: --config pointed at a missing path → the wrapper exits 2,
@@ -20,11 +20,11 @@
 #     config for "nothing to report" (fail-closed, not fail-open).
 set -uo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../scripts/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT" || { echo "cannot cd to repo root: $REPO_ROOT" >&2; exit 1; }
 
-WRAPPER="scripts/lint-envelopes.mjs"
-FIXTURES_DIR="eslint-rules/__fixtures__"
+WRAPPER="tools/audit/gates/lint-envelopes.mjs"
+FIXTURES_DIR="tools/eslint-rules/__fixtures__"
 SELFTEST_DIR="src/orchestrate/__lint_envelopes_selftest__"
 
 # `mkdir -p` below creates BOTH levels, so removing only the leaf leaves an

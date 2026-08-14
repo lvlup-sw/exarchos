@@ -57,8 +57,8 @@ function isMigrationNoteLine(line: string): boolean {
 function liveSurfaceFiles(): readonly string[] {
   const files: string[] = [
     join(REPO_ROOT, 'README.md'),
-    join(REPO_ROOT, 'scripts', 'get-exarchos.sh'),
-    join(REPO_ROOT, 'scripts', 'get-exarchos.ps1'),
+    join(REPO_ROOT, 'tools', 'release', 'get-exarchos.sh'),
+    join(REPO_ROOT, 'tools', 'release', 'get-exarchos.ps1'),
   ];
 
   // documentation/guide/*.md — the published install/onboarding guide.

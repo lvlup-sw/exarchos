@@ -6,7 +6,7 @@
  * `binary-matrix` build job + a `publish-release` upload job that publishes
  * 10 assets — 5 binaries plus 5 .sha512 sidecars — to the GitHub Release on
  * tag push) → REFACTOR (matrix provenance comment cross-referenced with
- * `scripts/build-binary.ts`).
+ * `tools/release/build-binary.ts`).
  *
  * These assertions parse `.github/workflows/release.yml` with `js-yaml`
  * rather than regex-matching so reasonable formatting edits don't break
@@ -160,7 +160,7 @@ describe('Release workflow (task 2.7)', () => {
     //
     // DR-20 added the 11th asset: the Ed25519-signed release manifest
     // (`exarchos-release-manifest.json`), produced by
-    // `scripts/build-release-manifest.ts` over the exact published bytes.
+    // `tools/release/build-release-manifest.ts` over the exact published bytes.
     // Unlike the unsigned `.sha512` sidecars it also pins the source and
     // contract identity, so it must never silently drop out of `files:`.
     const expectedAssets = [

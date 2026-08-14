@@ -14,7 +14,7 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { countCastsInSource, countCasts } from '../../../scripts/tsconfig-strictness/count-casts.js';
+import { countCastsInSource, countCasts } from '../../../tools/audit/tsconfig-strictness/count-casts.js';
 
 /**
  * The census this task replaced, preserved verbatim. It is the "before" number

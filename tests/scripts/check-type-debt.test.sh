@@ -31,7 +31,7 @@
 #                              EMPTY baseline and passes.
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../scripts" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../tools/audit/gates" && pwd)"
 GATE="$SCRIPT_DIR/check-type-debt.mjs"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -134,7 +134,7 @@ mkdir -p "$TMP/mismatch/src"
 cat > "$TMP/mismatch/baseline.json" <<'EOF'
 {
   "version": 1,
-  "instrument": "scripts/check-type-debt.mjs",
+  "instrument": "tools/audit/gates/check-type-debt.mjs",
   "censusHash": "0000000000000000000000000000000000000000000000000000000000000000",
   "generatedAt": "2020-01-01T00:00:00.000Z",
   "generatedVia": "hand-forged for the self-test — a baseline from a DIFFERENT census",

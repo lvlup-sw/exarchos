@@ -74,7 +74,7 @@ function findRepoRoot(startDir: string): string {
   for (let i = 0; i < 10; i += 1) {
     if (
       fs.existsSync(path.join(cursor, 'package.json')) &&
-      fs.existsSync(path.join(cursor, 'scripts', 'build-binary.ts'))
+      fs.existsSync(path.join(cursor, 'tools', 'release', 'build-binary.ts'))
     ) {
       return cursor;
     }

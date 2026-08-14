@@ -12,7 +12,7 @@
     "`metrics.*.spread` is the measured max-min PCT spread of that metric across",
     "all 3 runs — real, unpadded variance, not a guess.",
     "`metrics.*.epsilon` is `max(spread, 0.1)` (the 0.1-percentage-point floor),",
-    "recorded here for human/audit visibility ONLY: scripts/check-coverage-ratchet.mjs",
+    "recorded here for human/audit visibility ONLY: tools/audit/gates/check-coverage-ratchet.mjs",
     "re-derives this value itself at comparison time from `spread` and NEVER reads",
     "a pre-baked epsilon field, so a baseline that (incorrectly) recorded a zero or",
     "understated epsilon can never disarm the ratchet. See that script's header for",

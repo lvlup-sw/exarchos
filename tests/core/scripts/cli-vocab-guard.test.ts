@@ -7,14 +7,14 @@ import {
   findVocabViolations,
   findLiveCliViolations,
   type CliSurface,
-} from '../../../scripts/core/cli-vocab-guard.js';
+} from '../../../tools/audit/core/cli-vocab-guard.js';
 import {
   GOVERNED_SOURCES,
   REPO_ROOT,
   scanSourceForCommandSites,
   findDerivationViolations,
   readAllowlist,
-} from '../../../scripts/core/cli-derivation-guard.js';
+} from '../../../tools/audit/core/cli-derivation-guard.js';
 import { getFullRegistry } from '../../../src/registry.js';
 
 // ─── Synthetic-surface helpers ────────────────────────────────────────────────

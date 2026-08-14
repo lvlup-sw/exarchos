@@ -211,7 +211,7 @@ describe('SkillFixtures', () => {
     expect(files).not.toContain('!**/trigger-tests');
     expect(files).not.toContain('tests');
 
-    // Re-anchored on shipped-ness, not repo presence: `scripts/test-fixtures/`
+    // Re-anchored on shipped-ness, not repo presence: `tools/audit/test-fixtures/`
     // still exists on disk and would have kept demanding a dead negation.
     const shippedFixtureDirs = ['scripts/test-fixtures'].filter(
       (d) => files.some((f) => d.startsWith(`${f}/`) || f === d) && existsSync(join(REPO_ROOT, d)),

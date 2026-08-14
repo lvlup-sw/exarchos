@@ -24,7 +24,7 @@ Exarchos is local agent governance for Claude Code. It provides event-sourced SD
 | `servers/exarchos-mcp/` | Unified MCP server: workflow HSM, event store, CQRS views, team coordination |
 | `src/` | Skills renderer (`build-skills.ts`), `install-skills` runtime-selector CLI, plus repo-level validation tests |
 | `docs/` | Designs, plans, ADRs, schemas, audits, bug reports |
-| `renovate-config/` | Renovate dependency management presets |
+| `tools/renovate-config/` | Renovate dependency management presets |
 | `hooks.json` | CLI hooks for workflow auto-continue and guardrails |
 | `manifest.json` | Package manifest consumed by installer |
 

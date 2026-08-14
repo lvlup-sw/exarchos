@@ -246,7 +246,7 @@ extracted suite at **15 of 16 files green**. What was repaired along the way:
 `buildGuardInventory()` and hosted on an unfiltered CI path. The inventory
 discovers guard artifacts through exactly three channels:
 
-1. `scripts/enforcer-wiring-manifest.json` — `scripts/check-*|lint-*` primaries;
+1. `tools/audit/gates/enforcer-wiring-manifest.json` — `scripts/check-*|lint-*` primaries;
 2. the `**Files:**` entries of `docs/specs/2026-08-06-internal-mechanics-overhaul.md`;
 3. `servers/exarchos-mcp/scripts/`.
 
@@ -271,7 +271,7 @@ module set, applied one level up.
 
 ### How it was closed
 
-1. **Channel 4** (`GUARD_SUITE_ROOTS` in `scripts/guard-inventory.ts`). Under a
+1. **Channel 4** (`GUARD_SUITE_ROOTS` in `tools/audit/gates/guard-inventory.ts`). Under a
    declared guard-suite root, a non-test module with a co-located self-test is a
    guard. It fails closed three ways — unreadable root, root yielding zero
    guards, empty root list — because a discovery channel that contributes
@@ -311,7 +311,7 @@ Task 042's own subject, met head-on. Neither is a consequence of the extraction;
 both were surfaced by going looking.
 
 - **`lint:envelopes` had been matching zero files.** Both its flat-config `files`
-  key and `scripts/lint-envelopes.mjs`'s default target named
+  key and `tools/audit/gates/lint-envelopes.mjs`'s default target named
   `servers/exarchos-mcp/src/orchestrate/**`, a directory task 015 renamed to
   `verbs/`. The gate has been failing closed (eslint exit 2) rather than passing
   green — the fail-closed design working — but the config was stale and the lint

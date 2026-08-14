@@ -56,7 +56,7 @@ import { runKillProbe } from '../../../src/install/advisory-kill-probes.js';
 // grep-gates zero-dep prefix BEFORE any `npm ci`; `src/` and `scripts/` are
 // separate `tsc` rootDirs, so the composition happens here, in the caller.
 // @ts-expect-error — no .d.ts for this .mjs gate; its contract is asserted here.
-import { analyzeCiPathFilters, isNonFilteringIf, audit } from '../../../scripts/check-enforcer-wiring.mjs';
+import { analyzeCiPathFilters, isNonFilteringIf, audit } from '../../../tools/audit/gates/check-enforcer-wiring.mjs';
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 
@@ -321,7 +321,7 @@ describe('discoverSofteningSites', () => {
     '  gate:',
     '    steps:',
     '      - name: Type debt (soak)',
-    '        run: node scripts/check-type-debt.mjs --observe',
+    '        run: node tools/audit/gates/check-type-debt.mjs --observe',
     '',
   ].join('\n');
 
@@ -334,7 +334,7 @@ describe('discoverSofteningSites', () => {
     '    steps:',
     '      - name: Prose lint (advisory)',
     '        continue-on-error: true',
-    '        run: node scripts/check-prose-lint.mjs',
+    '        run: node tools/audit/gates/check-prose-lint.mjs',
     '',
   ].join('\n');
 
@@ -350,7 +350,7 @@ describe('discoverSofteningSites', () => {
     expect(found[0]).toMatchObject({
       file: '.github/workflows/docs.yml',
       kind: 'continue-on-error',
-      target: 'scripts/check-prose-lint.mjs',
+      target: 'tools/audit/gates/check-prose-lint.mjs',
     });
   });
 
@@ -363,7 +363,7 @@ describe('discoverSofteningSites', () => {
     expect(found[0]).toMatchObject({
       file: '.github/workflows/ci.yml',
       kind: 'observe',
-      target: 'scripts/check-type-debt.mjs',
+      target: 'tools/audit/gates/check-type-debt.mjs',
     });
   });
 
@@ -503,10 +503,10 @@ describe('discoverSofteningSites', () => {
 describe('resolveEnforcementRefs / principalTarget', () => {
   it('EnforcementRefs_ResolveThroughNpmRunChains', () => {
     const scripts = {
-      'lint:inv6': 'node scripts/lint-inv6.mjs content/',
+      'lint:inv6': 'node tools/audit/gates/lint-inv6.mjs content/',
       guard: 'npm run lint:inv6',
     };
-    expect(resolveEnforcementRefs('npm run guard', scripts)).toEqual(['scripts/lint-inv6.mjs']);
+    expect(resolveEnforcementRefs('npm run guard', scripts)).toEqual(['tools/audit/gates/lint-inv6.mjs']);
   });
 
   it('EnforcementRefs_CyclicNpmScripts_Terminate', () => {
@@ -525,8 +525,8 @@ describe('resolveEnforcementRefs / principalTarget', () => {
   });
 
   it('PrincipalTarget_StripsWorkspacePrefixes', () => {
-    expect(principalTarget('node "$GITHUB_WORKSPACE/scripts/check-mutation-gate.mjs"', {})).toBe(
-      'scripts/check-mutation-gate.mjs',
+    expect(principalTarget('node "$GITHUB_WORKSPACE/tools/audit/gates/check-mutation-gate.mjs"', {})).toBe(
+      'tools/audit/gates/check-mutation-gate.mjs',
     );
   });
 });
@@ -586,9 +586,9 @@ describe('verifyAdvisoryRatchet — softening reconciliation', () => {
         {
           file: '.github/workflows/ci.yml',
           kind: 'observe',
-          target: 'scripts/check-mutation-gate.mjs',
+          target: 'tools/audit/gates/check-mutation-gate.mjs',
           line: 277,
-          evidence: 'node scripts/check-mutation-gate.mjs --observe',
+          evidence: 'node tools/audit/gates/check-mutation-gate.mjs --observe',
         },
       ],
     });
@@ -947,14 +947,14 @@ describe('discoverAdvisories (injectable fs)', () => {
     const fs = {
       listFiles: (root: string) =>
         root.endsWith('scripts')
-          ? [join(REPO_ROOT, 'scripts', 'lint-inv6.mjs'), join(REPO_ROOT, 'src', 'advisory-registry.ts')]
+          ? [join(REPO_ROOT, 'tools', 'audit', 'gates', 'lint-inv6.mjs'), join(REPO_ROOT, 'src', 'advisory-registry.ts')]
           : [],
       readFile: (abs: string) =>
         abs.includes('lint-inv6')
           ? '// ' + 'ADVISORY(control: inv6-workflow-agnosticism) — x'
           : '// ' + 'ADVISORY(control: should-be-ignored) — self',
     };
-    const found = discoverAdvisories({ repoRoot: REPO_ROOT, roots: ['scripts', 'src'], fs });
+    const found = discoverAdvisories({ repoRoot: REPO_ROOT, roots: ['tools', 'src'], fs });
     expect(found).toHaveLength(1);
     expect(found[0]?.control).toBe('inv6-workflow-agnosticism');
   });
@@ -1144,7 +1144,7 @@ describe('ADVISORY_REGISTRY (real repo)', () => {
     // The audit's finding, pinned: the enforcer-wiring manifest names three
     // advisories and one of them used to sit outside the registry.
     const manifest = JSON.parse(
-      readFileSync(join(REPO_ROOT, 'scripts', 'enforcer-wiring-manifest.json'), 'utf8'),
+      readFileSync(join(REPO_ROOT, 'tools', 'audit', 'gates', 'enforcer-wiring-manifest.json'), 'utf8'),
     ) as { primaries: { script: string; disposition: string }[] };
     const manifestAdvisories = manifest.primaries
       .filter((p) => p.disposition === 'advisory')

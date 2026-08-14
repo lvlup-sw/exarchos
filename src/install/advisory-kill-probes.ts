@@ -10,9 +10,9 @@
  * advisory's kill fixture no longer fires.
  *
  * The probes run the REAL advisory control wherever that is portable:
- *   - `lint-inv6`             — spawns the real `scripts/lint-inv6.mjs` (Node,
+ *   - `lint-inv6`             — spawns the real `tools/audit/gates/lint-inv6.mjs` (Node,
  *     fully portable) against a seeded SKILL.md pair.
- *   - `benchmark-regression`  — runs the real `scripts/check-benchmark-regression.sh`
+ *   - `benchmark-regression`  — runs the real `tools/audit/gates/check-benchmark-regression.sh`
  *     when `bash` + `jq` are present; otherwise it evaluates the same seeded
  *     (results, baselines) fixtures with a faithful in-process port AND
  *     structurally asserts the real script still declares its regression branch,
@@ -62,14 +62,14 @@ interface LintOutput {
 }
 
 /**
- * Seeded SKILL.md pair, run through the REAL `scripts/lint-inv6.mjs`:
+ * Seeded SKILL.md pair, run through the REAL `tools/audit/gates/lint-inv6.mjs`:
  *   - `flagged/`: a workflow-typed literal in the body, NO `workflow-type` in
  *     frontmatter → the lint MUST report ≥1 finding (fires);
  *   - `clean/`:   the same literal, but with `metadata.workflow-type` declared →
  *     the lint MUST report 0 findings (silent).
  */
 function probeLintInv6(advisory: AdvisoryEntry, opts: RunKillProbeOptions): KillProbeResult {
-  const script = join(opts.repoRoot, 'scripts', 'lint-inv6.mjs');
+  const script = join(opts.repoRoot, 'tools', 'audit', 'gates', 'lint-inv6.mjs');
   if (!existsSync(script)) {
     return {
       advisoryId: advisory.id,
@@ -193,7 +193,7 @@ function probeBenchmarkRegression(
   advisory: AdvisoryEntry,
   opts: RunKillProbeOptions,
 ): KillProbeResult {
-  const script = join(opts.repoRoot, 'scripts', 'check-benchmark-regression.sh');
+  const script = join(opts.repoRoot, 'tools', 'audit', 'gates', 'check-benchmark-regression.sh');
   if (!existsSync(script)) {
     return {
       advisoryId: advisory.id,

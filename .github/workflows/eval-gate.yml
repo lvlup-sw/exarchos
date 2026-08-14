@@ -60,7 +60,7 @@ jobs:
       # registry/CDN stall doesn't hang to the job timeout (RCA
       # 2026-05-30-state-source-integrity).
       - name: Install Dependencies
-        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
+        run: bash "$GITHUB_WORKSPACE/tools/release/npm-ci-retry.sh"
 
       # Build the server (incl. the eval runner + graders) BEFORE installing the
       # eval package — the ambient promptfoo shim keeps `tsc` green here without
@@ -76,7 +76,7 @@ jobs:
       # runtime.
       - name: Install eval package (promptfoo)
         working-directory: tools/evals-pkg
-        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
+        run: bash "$GITHUB_WORKSPACE/tools/release/npm-ci-retry.sh"
 
       # DR-14: enforce the strict-flag ratchet on the eval workspace itself.
       # promptfoo is installed above, so evals-pkg tsc resolves it under the

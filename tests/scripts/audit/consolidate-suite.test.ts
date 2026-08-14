@@ -18,7 +18,7 @@ import {
   EXIT_OK,
   EXIT_USAGE,
   EXIT_FINDING,
-} from '../../../scripts/audit/consolidate-suite.mjs';
+} from '../../../tools/audit/consolidate-suite.mjs';
 
 // The tool resolves relative import specifiers against a file's ABSOLUTE
 // directory, so pure tests use synthetic dirs that mirror the real layout

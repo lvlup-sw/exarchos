@@ -51,14 +51,14 @@ import {
   computeMutateGlobs,
   EMPTY_REPORT,
   MAX_MUTATE_FILES,
-} from '../../../scripts/core/stryker-adapter.mjs';
+} from '../../../tools/audit/core/stryker-adapter.mjs';
 
 // Task 019 dissolved the nested server package, so the package root and the
 // repository root are now the same directory and the adapter moved under
-// `scripts/core/` with the rest of that package's scripts.
+// `tools/audit/core/` with the rest of that package's scripts.
 const REAL_SERVER_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const REPO_ROOT = REAL_SERVER_DIR;
-const ADAPTER_SCRIPT = path.join(REAL_SERVER_DIR, 'scripts', 'core', 'stryker-adapter.mjs');
+const ADAPTER_SCRIPT = path.join(REAL_SERVER_DIR, 'tools', 'audit', 'core', 'stryker-adapter.mjs');
 
 function runNode(args: readonly string[], cwd: string): { status: number | null; stdout: string; stderr: string } {
   try {
@@ -90,7 +90,7 @@ describe('stryker-adapter pure helpers', () => {
     expect(isMutatableServerSource('src/foo.d.ts')).toBe(false);
     expect(isMutatableServerSource('src/foo.type-test.ts')).toBe(false);
     expect(isMutatableServerSource('src/foo.bench.ts')).toBe(false);
-    expect(isMutatableServerSource('scripts/core/other.ts')).toBe(false);
+    expect(isMutatableServerSource('tools/audit/core/other.ts')).toBe(false);
     // A `src/` that is not THE `src/`. Task 019's fold rewrote the old
     // `servers/exarchos-mcp/src/` prefix everywhere, which collapsed this case
     // into a contradictory duplicate of the first assertion above; the file was
@@ -138,7 +138,7 @@ describe('stryker-adapter pure helpers', () => {
 describe('resolveVerificationRuntime mutation-field provenance (DR-7)', () => {
   it('resolves this repo\'s .exarchos.yml adapter entry, not the built-in npx fallback', () => {
     const runtime = resolveVerificationRuntime(REPO_ROOT);
-    expect(runtime.mutation).toBe('node scripts/core/stryker-adapter.mjs');
+    expect(runtime.mutation).toBe('node tools/audit/core/stryker-adapter.mjs');
     expect(runtime.mutation).not.toBe('npx stryker run');
   });
 
@@ -148,13 +148,13 @@ describe('resolveVerificationRuntime mutation-field provenance (DR-7)', () => {
       writeFileSync(path.join(tmp, 'package.json'), '{"name":"fixture"}\n');
       const runtime = resolveVerificationRuntime(tmp, {
         loadConfig: () => ({
-          config: { mutation: 'node scripts/core/stryker-adapter.mjs' },
+          config: { mutation: 'node tools/audit/core/stryker-adapter.mjs' },
           source: path.join(tmp, '.exarchos.yml'),
         }),
       });
       // Without the injected config, node's built-in registry default is
       // `npx stryker run` (toolchains.ts) — the config-tier value must win.
-      expect(runtime.mutation).toBe('node scripts/core/stryker-adapter.mjs');
+      expect(runtime.mutation).toBe('node tools/audit/core/stryker-adapter.mjs');
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }

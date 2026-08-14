@@ -65,7 +65,7 @@ import {
   type LoadedWorkflow,
   type ResolutionContext,
   type ShellIndirectionIndex,
-} from '../../scripts/guard-inventory.js';
+} from '../../tools/audit/gates/guard-inventory.js';
 
 // ─── Shared live fixtures (built once — the scan walks both source trees) ────
 
@@ -173,7 +173,7 @@ describe('Wave-1 guard inventory — CI reachability proof (DR-24, task 063)', (
     for (const named of [
       'src/runtime/agents/dispatch-shape.ts',
       'tools/conformance/src/output-schema-census.ts',
-      'scripts/core/cli-derivation-guard.ts',
+      'tools/audit/core/cli-derivation-guard.ts',
       'tools/conformance/src/authority-topology.ts',
     ]) {
       expect(artifacts, `${named} is missing from the inventory`).toContain(named);
@@ -189,13 +189,13 @@ describe('Wave-1 guard inventory — CI reachability proof (DR-24, task 063)', (
     // satisfied by a path-filtered host that skips-as-passed on the PRs it
     // polices — #1711, the failure this whole DR exists for.
     const cliDerivation = liveInventory.guards.find(
-      (g) => g.artifact === 'scripts/core/cli-derivation-guard.ts',
+      (g) => g.artifact === 'tools/audit/core/cli-derivation-guard.ts',
     );
     expect(cliDerivation?.enforcement).toBe('blocks');
     expect(cliDerivation?.pathFilteredOnly).toBe(false);
     expect(cliDerivation?.hosts.some((h) => h.via === 'direct')).toBe(true);
     expect(GUARD_EXEMPTIONS.map((e) => e.artifact)).not.toContain(
-      'scripts/core/cli-derivation-guard.ts',
+      'tools/audit/core/cli-derivation-guard.ts',
     );
   });
 
@@ -211,7 +211,7 @@ describe('Wave-1 guard inventory — CI reachability proof (DR-24, task 063)', (
     // remediation, exactly as task 021's kill fixture was. A guarantee must not
     // lapse because the defect it describes got fixed.
     const selfTestOnly = guard({
-      artifact: 'scripts/core/example-gate.ts',
+      artifact: 'tools/audit/core/example-gate.ts',
       runnable: true,
       // `pathFiltered: false` was the intent; `GuardHost` carries the KEYS, and
       // an empty list is what "unfiltered" means. The misspelling type-checked
@@ -240,7 +240,7 @@ describe('Wave-1 guard inventory — CI reachability proof (DR-24, task 063)', (
     // — not merely re-classified because its self-test is hosted. Both host
     // kinds are present, and it is the `direct` one that earns `blocks`.
     const record = liveInventory.guards.find(
-      (g) => g.artifact === 'scripts/core/cli-derivation-guard.ts',
+      (g) => g.artifact === 'tools/audit/core/cli-derivation-guard.ts',
     );
     expect(record).toBeDefined();
     expect(record?.runnable).toBe(true);
@@ -710,7 +710,7 @@ describe('Derivations the inventory rests on', () => {
     expect(globMatches('scripts/**/*.test.ts', 'scripts/c.test.ts')).toBe(true);
     expect(globMatches('src/*.ts', 'src/a/b.ts')).toBe(false);
     expect(globMatches('src/**', 'src/x.ts')).toBe(true);
-    expect(globMatches('src/**', 'scripts/lint-inv6.mjs')).toBe(false);
+    expect(globMatches('src/**', 'tools/audit/gates/lint-inv6.mjs')).toBe(false);
     expect(globMatches('AGENTS.md', 'AGENTS.md')).toBe(true);
   });
 
@@ -732,10 +732,10 @@ describe('Derivations the inventory rests on', () => {
     // by CONSTRUCTED path, so without a mirror arm each lookup simply finds
     // nothing — and an unpaired gate reports as "no self-test", not as an
     // error. That is a whole tree of guards going quiet without a red test.
-    expect(selfTestCandidates('scripts/check-type-debt.mjs')).toContain(
+    expect(selfTestCandidates('tools/audit/gates/check-type-debt.mjs')).toContain(
       'tests/scripts/check-type-debt.test.sh',
     );
-    expect(selfTestCandidates('scripts/core/cli-vocab-guard.ts')).toContain(
+    expect(selfTestCandidates('tools/audit/core/cli-vocab-guard.ts')).toContain(
       'tests/core/scripts/cli-vocab-guard.test.ts',
     );
     // The src/ arm task 030 added still works.
@@ -744,7 +744,7 @@ describe('Derivations the inventory rests on', () => {
     // The denominator, not just the mapping: a candidate list that named the
     // right paths while none of them existed would satisfy every assertion
     // above and still pair nothing. These are real files on disk.
-    const paired = ['scripts/check-type-debt.mjs', 'scripts/check-coverage-ratchet.mjs']
+    const paired = ['tools/audit/gates/check-type-debt.mjs', 'tools/audit/gates/check-coverage-ratchet.mjs']
       .map((gate) => selfTestCandidates(gate).filter((c) => existsSync(join(REPO_ROOT, c))))
       .filter((found) => found.length > 0);
     expect(paired.length, 'no gate under scripts/ pairs with a real self-test').toBe(2);
@@ -839,7 +839,7 @@ describe('Exclusions stay reviewable', () => {
     // `stryker-adapter.mjs` is runnable but is a toolchain adapter, not a guard —
     // it has no co-located self-test, which is DR-24's own definition. Excluding
     // it is correct; excluding it INVISIBLY would make the exclusion a hiding place.
-    expect(liveInventory.runnableWithoutSelfTest).toContain('scripts/core/stryker-adapter.mjs');
+    expect(liveInventory.runnableWithoutSelfTest).toContain('tools/audit/core/stryker-adapter.mjs');
   });
 
   it('GuardInventory_CompileTimeOnlyWave1Artifacts_AreReported', () => {
@@ -887,7 +887,7 @@ describe('Exclusions stay reviewable', () => {
     // pinned as R-11 forever would assert a fact the tree is allowed to change.
     // The population assertion below stays, so the set cannot silently empty.
     expect(liveAudit.noProductionCaller.length).toBeGreaterThan(0);
-    expect(liveAudit.noProductionCaller).toContain('scripts/guard-inventory.ts');
+    expect(liveAudit.noProductionCaller).toContain('tools/audit/gates/guard-inventory.ts');
   });
 });
 
@@ -931,13 +931,13 @@ describe('Indirect hosting through a wrapper script (DR-24, task 070)', () => {
 
   it('HostResolution_PathNamedOnlyInAComment_IsNotAnInvocation', () => {
     // The measure-the-wrong-property trap, and it is LIVE rather than synthetic:
-    // `validate-no-legacy.sh` writes `scripts/audit/knip-diff.ts` in two comments
+    // `validate-no-legacy.sh` writes `tools/audit/knip-diff.ts` in two comments
     // and never as a literal in a command. Both numbers are asserted, because the
     // whole point is that text-matching and real invocation DISAGREE.
-    const wrapper = readFileSync(join(REPO_ROOT, 'scripts/validate-no-legacy.sh'), 'utf8');
-    expect(wrapper.includes('scripts/audit/knip-diff.ts'), 'raw text names the guard').toBe(true);
+    const wrapper = readFileSync(join(REPO_ROOT, 'tools/audit/gates/validate-no-legacy.sh'), 'utf8');
+    expect(wrapper.includes('tools/audit/knip-diff.ts'), 'raw text names the guard').toBe(true);
     expect(
-      stripShellComments(wrapper).includes('scripts/audit/knip-diff.ts'),
+      stripShellComments(wrapper).includes('tools/audit/knip-diff.ts'),
       'and does so ONLY in comments — so a text scan measures prose, not wiring',
     ).toBe(false);
 
@@ -1072,7 +1072,7 @@ describe('The indirection resolver is itself measured (non-empty denominator)', 
     // The criterion above is not satisfied by a walk that happens to find nothing.
     expect(liveInventory.indirection.runStepsWalked).toBeGreaterThan(50);
     expect(liveInventory.indirection.wrapperScriptsWalked.length).toBeGreaterThan(5);
-    expect(liveInventory.indirection.wrapperScriptsWalked).toContain('scripts/validate-no-legacy.sh');
+    expect(liveInventory.indirection.wrapperScriptsWalked).toContain('tools/audit/gates/validate-no-legacy.sh');
   });
 
   it('GuardInventory_ContextWithoutAScriptReader_ResolvesNoIndirectionAtAll', () => {
@@ -1091,7 +1091,7 @@ describe('The indirection resolver is itself measured (non-empty denominator)', 
 
 describe('The live chain this task was dispatched against', () => {
   it('GuardInventory_KnipDiff_IsReachableThroughValidateNoLegacy', () => {
-    const record = liveInventory.guards.find((g) => g.artifact === 'scripts/audit/knip-diff.ts');
+    const record = liveInventory.guards.find((g) => g.artifact === 'tools/audit/knip-diff.ts');
     expect(record, 'knip-diff.ts must stay IN the inventory — the denominator was not narrowed').toBeDefined();
     expect(record?.channels, 'still discovered by the spec `**Files:**` channel').toContain('wave1-spec');
     expect(record?.enforcement).toBe('blocks');
@@ -1099,11 +1099,11 @@ describe('The live chain this task was dispatched against', () => {
     // The verdict names the real chain: job → wrapper → guard.
     const enforcing = (record?.hosts ?? []).filter((h) => h.via === 'direct');
     expect(enforcing.map((h) => describeHost(h))).toEqual([
-      'validate-no-legacy → scripts/validate-no-legacy.sh',
+      'validate-no-legacy → tools/audit/gates/validate-no-legacy.sh',
     ]);
 
     // …and it is NOT excused by an exemption, which would have been a wiring lie.
-    expect(GUARD_EXEMPTIONS.map((e) => e.artifact)).not.toContain('scripts/audit/knip-diff.ts');
+    expect(GUARD_EXEMPTIONS.map((e) => e.artifact)).not.toContain('tools/audit/knip-diff.ts');
   });
 
   it('GuardInventory_ManifestDrivenRunner_IsNotTreatedAsAHost', () => {
@@ -1120,7 +1120,7 @@ describe('The live chain this task was dispatched against', () => {
     for (const record of liveInventory.guards) {
       for (const host of record.hosts) {
         expect(host.through, `${record.artifact} claims a host through the manifest runner`).not.toContain(
-          'scripts/run-validate.mjs',
+          'tools/audit/gates/run-validate.mjs',
         );
       }
     }
@@ -1147,13 +1147,13 @@ describe('The live chain this task was dispatched against', () => {
     // The seeded proof that "empty" means "checked": an unwired guard added to
     // the LIVE inventory still reads unreachable and still fails the audit. The
     // resolver has not learned to say yes to everything.
-    const seeded = guard({ artifact: 'scripts/core/never-wired.ts', runnable: true });
+    const seeded = guard({ artifact: 'tools/audit/core/never-wired.ts', runnable: true });
     const seededAudit = auditGuardInventory(
       inventoryOf([...liveInventory.guards, seeded], liveInventory.indirection),
       { manifestJson: liveManifest, filterGlobs: liveFilterGlobs, exemptions: [] },
     );
     expect(seededAudit.ok).toBe(false);
-    expect(seededAudit.violations.join('\n')).toContain('scripts/core/never-wired.ts');
+    expect(seededAudit.violations.join('\n')).toContain('tools/audit/core/never-wired.ts');
     expect(seededAudit.violations.join('\n')).toContain('unwired-guard');
   });
 });
@@ -1226,14 +1226,14 @@ describe('Historical spec paths resolve against the current tree', () => {
       'src/runtime/agents/dispatch-shape.ts',
     );
     expect(resolveHistoricalPath('servers/exarchos-mcp/scripts/cli-vocab-guard.ts', onDisk)).toBe(
-      'scripts/core/cli-vocab-guard.ts',
+      'tools/audit/core/cli-vocab-guard.ts',
     );
   });
 
   it('GuardInventory_HistoricalPathRewrites_LeaveALiveCitationAlone', () => {
     // A path that still resolves as written is never rewritten, so a future
     // move cannot be masked by a stale rule that happens to match.
-    expect(resolveHistoricalPath('scripts/guard-inventory.ts', onDisk)).toBe('scripts/guard-inventory.ts');
+    expect(resolveHistoricalPath('tools/audit/gates/guard-inventory.ts', onDisk)).toBe('tools/audit/gates/guard-inventory.ts');
     // An unresolvable citation comes back unchanged, so the caller still records
     // it as unresolved rather than inventing a plausible path.
     expect(resolveHistoricalPath('servers/exarchos-mcp/src/event-store/gone.ts', onDisk)).toBe(

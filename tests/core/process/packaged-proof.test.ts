@@ -2,7 +2,7 @@
  * P05-02 — Packaged action + CLI proof (ART-004 / ART-005 / ART-014).
  *
  * The COMPILED-PROCESS half of the packaged proof. It spawns the SHIPPED binary
- * produced by `scripts/build-binary.ts` (the same artifact `compiled-binary-
+ * produced by `tools/release/build-binary.ts` (the same artifact `compiled-binary-
  * mcp.test.ts` exercises) and drives real CLI invocations, then feeds the
  * observations to the pure coverage engine + ratchet in
  * `src/parity/__tests__/packaged-proof.ts`.

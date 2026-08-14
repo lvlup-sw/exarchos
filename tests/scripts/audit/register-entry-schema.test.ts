@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
-import { makeRegisterSchema, isEntryExpired } from '../../../scripts/audit/register-entry-schema.js';
+import { makeRegisterSchema, isEntryExpired } from '../../../tools/audit/register-entry-schema.js';
 
 // The knip register keys on { symbol, file }; this is the exact schema the
 // wrapper builds. Task 010's edge register will call makeRegisterSchema with

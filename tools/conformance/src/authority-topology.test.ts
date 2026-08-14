@@ -15,7 +15,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fromSubjectPackage } from './subject-root.js';
 import { DECLARATION_KINDS } from '../../../src/contract/declaration.js';
-import { scanGovernedSources } from '../../../scripts/core/cli-derivation-guard.js';
+import { scanGovernedSources } from '../../audit/core/cli-derivation-guard.js';
 import {
   AUTHORITY_TOPOLOGY,
   CONTRACT_BOUNDARIES,

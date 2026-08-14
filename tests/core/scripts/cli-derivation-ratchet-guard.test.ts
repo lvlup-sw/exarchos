@@ -58,17 +58,17 @@ import {
   scanSourceForCommandSites,
   type CliDerivationPolicy,
   type CliWaiverEntry,
-} from '../../../scripts/core/cli-derivation-guard.js';
+} from '../../../tools/audit/core/cli-derivation-guard.js';
 import {
   LIVE_SUBJECT,
   resolveToday,
   runRatchetGuard,
   type RatchetGuardOptions,
-} from '../../../scripts/core/cli-derivation-ratchet-guard.js';
+} from '../../../tools/audit/core/cli-derivation-ratchet-guard.js';
 import {
   CLI_DERIVATION_EXPIRY_HORIZON,
   CLI_DERIVATION_SEED_KEY_SET_DIGEST,
-} from '../../../scripts/core/cli-derivation-seed-pin.js';
+} from '../../../tools/audit/core/cli-derivation-seed-pin.js';
 
 /** The day the ten waivers were seeded. Every "before the deadline" verdict uses it. */
 const SEEDED_ON = '2026-08-07';

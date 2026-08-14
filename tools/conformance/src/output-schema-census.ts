@@ -610,7 +610,7 @@ export function auditVacuitySeedIntegrity(
 //     working", and a developer who cannot run tests fixes the CLOCK, not the
 //     debt. So NOTHING in this module reads `new Date()`: `today` is a required
 //     first parameter, and the single production clock read lives at the CI
-//     guard's entrypoint (`scripts/core/output-schema-ratchet-
+//     guard's entrypoint (`tools/audit/core/output-schema-ratchet-
 //     guard.ts`), which is the artifact that blocks the merge.
 //
 // Dates are compared as ISO `YYYY-MM-DD` STRINGS, never as `Date` values.

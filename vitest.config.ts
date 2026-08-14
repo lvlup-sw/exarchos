@@ -35,7 +35,7 @@ export default defineConfig({
       provider: 'v8',
       // `json-summary` emits `coverage/coverage-summary.json` (per-file +
       // `total` aggregate metrics). Without it the non-regression ratchet
-      // (`scripts/check-coverage-ratchet.mjs`, DR-5) has no artifact to
+      // (`tools/audit/gates/check-coverage-ratchet.mjs`, DR-5) has no artifact to
       // read — the reporter set is the load-bearing prerequisite the
       // ratchet's fail-closed missing-summary path exists to catch.
       reporter: ['text', 'json', 'json-summary', 'html'],
@@ -104,7 +104,7 @@ export default defineConfig({
             'tests/benchmarks/**/*.test.ts',
             'tests/evals/**/*.test.ts',
           ],
-          // `scripts/core/**` are the core suite's own guard tests and run in
+          // `tools/audit/core/**` are the core suite's own guard tests and run in
           // the `core` project at its budget, not this one.
           exclude: [...EXCLUDE],
         },

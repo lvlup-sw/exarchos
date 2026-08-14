@@ -1,7 +1,7 @@
 /**
  * Thin CLI entrypoint that prints the computed prefix fingerprint to stdout.
  *
- * Intended to be invoked under `tsx` by `scripts/check-prefix-fingerprint.mjs`
+ * Intended to be invoked under `tsx` by `tools/audit/gates/check-prefix-fingerprint.mjs`
  * (T047, DR-12). Printing a single lowercase hex digest followed by `\n`
  * lets the `.mjs` wrapper compare against the committed `PREFIX_FINGERPRINT`
  * file without needing to share module graphs between ESM `.mjs` and this

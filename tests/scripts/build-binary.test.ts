@@ -1,8 +1,8 @@
 /**
- * Integration tests for `scripts/build-binary.ts`.
+ * Integration tests for `tools/release/build-binary.ts`.
  *
  * These tests exercise the end-to-end compile path:
- *   1. Spawn `bun run scripts/build-binary.ts` (no args → host-only build).
+ *   1. Spawn `bun run tools/release/build-binary.ts` (no args → host-only build).
  *   2. Assert the platform-specific output binary exists and is executable.
  *   3. Spawn the compiled binary with `--version` and verify it responds
  *      with the version string from root `package.json`.
@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const REPO_ROOT = resolve(__dirname, '../..');
-const BUILD_SCRIPT = join(REPO_ROOT, 'scripts', 'build-binary.ts');
+const BUILD_SCRIPT = join(REPO_ROOT, 'tools', 'release', 'build-binary.ts');
 const DIST_BIN_DIR = join(REPO_ROOT, 'dist', 'bin');
 
 function hostOs(): 'linux' | 'darwin' | 'windows' {
@@ -43,7 +43,7 @@ function expectedBinaryPath(): string {
   return join(DIST_BIN_DIR, `exarchos-${o}-${a}${ext}`);
 }
 
-describe('scripts/build-binary.ts', () => {
+describe('tools/release/build-binary.ts', () => {
   let builtBinary: string;
 
   beforeAll(() => {
@@ -54,7 +54,7 @@ describe('scripts/build-binary.ts', () => {
     if (!existsSync(BUILD_SCRIPT)) {
       throw new Error(
         `build script missing: ${BUILD_SCRIPT}. ` +
-          `Expected scripts/build-binary.ts to exist.`,
+          `Expected tools/release/build-binary.ts to exist.`,
       );
     }
 

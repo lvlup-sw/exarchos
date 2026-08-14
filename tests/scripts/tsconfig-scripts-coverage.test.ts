@@ -33,8 +33,8 @@
 //
 // INCLUDED
 //   • `scripts/**/*.ts` in both trees — every non-test TypeScript module under
-//     each `scripts/` directory, including `scripts/audit/` and
-//     `scripts/tsconfig-strictness/`. Nothing in either tree is carved out.
+//     each `scripts/` directory, including `tools/audit/` and
+//     `tools/audit/tsconfig-strictness/`. Nothing in either tree is carved out.
 //   • Ambient `.d.ts` declarations from the sibling `src/` tree
 //     (`src/**/*.d.ts` from the root config, `src/**/*.d.ts`
 //     from the MCP config). Several scripts import `src/` modules, which drags
@@ -51,13 +51,13 @@
 //     oversight.
 //   • `**/*.bench.ts` and `**/__tests__/**` (MCP config) — carried over from the
 //     tsconfig it extends, for the same reason.
-//   • `.mjs` guards (`scripts/check-*.mjs`, `scripts/audit/*.mjs`,
-//     `scripts/core/stryker-adapter.mjs`). They are not
+//   • `.mjs` guards (`scripts/check-*.mjs`, `tools/audit/*.mjs`,
+//     `tools/audit/core/stryker-adapter.mjs`). They are not
 //     TypeScript; `allowJs` would bring them in but would also bring in
 //     everything else JavaScript in the tree, and checking untyped JS is a
 //     different project from this one. Reported, not silently skipped: see
 //     {@link UNCOVERED_BY_DESIGN}.
-//   • `scripts/__fixtures__/**` matches nothing here — its contents are `.yml`
+//   • `tools/audit/__fixtures__/**` matches nothing here — its contents are `.yml`
 //     workflow fixtures, so the `*.ts` glob never reaches them. Named so a
 //     future `.ts` fixture added there is a conscious choice.
 //
@@ -76,14 +76,22 @@ interface ScriptsProject {
   readonly config: string;
   /** Directory the config is resolved from (its own directory). */
   readonly base: string;
-  /** Repo-relative prefix every covered file must sit under. */
-  readonly tree: string;
+  /**
+   * Repo-relative prefixes every covered file must sit under.
+   *
+   * A list, not a prefix: task 036 split the single `scripts/` tree into
+   * `tools/audit/` (measurement and gates) and `tools/release/` (build and
+   * publish). One prefix can no longer name it, and the narrower of the two
+   * would have left the other typechecked by nothing while `tsc -p` still
+   * exited 0 — the exact shrunken-coverage failure this file exists to catch.
+   */
+  readonly trees: readonly string[];
 }
 
-// One package since task 019: a single tsconfig covers the whole scripts/
-// tree, including the core guards now under scripts/core/.
+// One package since task 019: a single tsconfig covers all the repo automation,
+// now split across the two `tools/` roots that hold TypeScript.
 const PROJECTS: readonly ScriptsProject[] = [
-  { config: 'tsconfig.scripts.json', base: '.', tree: 'scripts' },
+  { config: 'tsconfig.scripts.json', base: '.', trees: ['tools/audit', 'tools/release'] },
 ];
 
 /**
@@ -97,19 +105,19 @@ const PROJECTS: readonly ScriptsProject[] = [
  */
 const REQUIRED_MEMBERS: readonly string[] = [
   // Named by the task: "exactly the enforcement code that most needs type checking".
-  'scripts/core/cli-derivation-guard.ts',
-  'scripts/core/authority-live-proof.ts',
-  'scripts/core/cli-vocab-guard.ts',
+  'tools/audit/core/cli-derivation-guard.ts',
+  'tools/audit/core/authority-live-proof.ts',
+  'tools/audit/core/cli-vocab-guard.ts',
   // The Wave-1 guard inventory (task 063) and the DR-14 cast census — both are
   // enforcement code, both live in a `scripts/` tree, neither was compiled.
-  'scripts/guard-inventory.ts',
-  'scripts/tsconfig-strictness/count-casts.ts',
-  // `scripts/audit/` — the wave-S substrate. Every type error this task
+  'tools/audit/gates/guard-inventory.ts',
+  'tools/audit/tsconfig-strictness/count-casts.ts',
+  // `tools/audit/` — the wave-S substrate. Every type error this task
   // surfaced was in here, so its continued coverage is the regression guard.
-  'scripts/audit/cycle-gate.ts',
-  'scripts/audit/knip-diff.ts',
-  'scripts/audit/register-entry-schema.ts',
-  'scripts/audit/check-base-substrate.ts',
+  'tools/audit/cycle-gate.ts',
+  'tools/audit/knip-diff.ts',
+  'tools/audit/register-entry-schema.ts',
+  'tools/audit/check-base-substrate.ts',
 ];
 
 /**
@@ -166,12 +174,18 @@ describe('scripts/ typecheck coverage (task 066, DR-24)', () => {
       expect(errors).toEqual([]);
       expect(files.length).toBeGreaterThan(0);
 
-      const inTree = files.filter((f) => f.startsWith(`${project.tree}/`));
-      expect(inTree.length).toBeGreaterThan(0);
-      // Everything outside the tree is an ambient declaration pulled in on
+      // Every tree carries its own denominator. Asserting only the union would
+      // let one root go empty while the other kept the total non-zero.
+      for (const tree of project.trees) {
+        const inTree = files.filter((f) => f.startsWith(`${tree}/`));
+        expect(inTree.length, `${project.config} resolves nothing under ${tree}/`).toBeGreaterThan(
+          0,
+        );
+      }
+      // Everything outside the trees is an ambient declaration pulled in on
       // purpose — never a stray implementation file the glob widened into.
       for (const file of files) {
-        if (file.startsWith(`${project.tree}/`)) continue;
+        if (project.trees.some((t) => file.startsWith(`${t}/`))) continue;
         expect(file.endsWith('.d.ts')).toBe(true);
       }
     }
@@ -204,12 +218,14 @@ describe('scripts/ typecheck coverage (task 066, DR-24)', () => {
     for (const project of PROJECTS) {
       const { files } = resolveProject(project.config, project.base);
       const covered = new Set(files);
-      const present = ts.sys
-        .readDirectory(join(REPO_ROOT, project.tree), ['.ts'], undefined, undefined)
-        .map(rel)
-        .filter((f) => !f.endsWith('.test.ts'));
-      expect(present.length).toBeGreaterThan(0);
-      for (const file of present) expect([...covered]).toContain(file);
+      for (const tree of project.trees) {
+        const present = ts.sys
+          .readDirectory(join(REPO_ROOT, tree), ['.ts'], undefined, undefined)
+          .map(rel)
+          .filter((f) => !f.endsWith('.test.ts'));
+        expect(present.length, `${tree}/ holds no non-test .ts to cover`).toBeGreaterThan(0);
+        for (const file of present) expect([...covered]).toContain(file);
+      }
     }
   });
 
@@ -223,7 +239,7 @@ describe('scripts/ typecheck coverage (task 066, DR-24)', () => {
     // resolver reports TS18003, which is what makes `tsc -p` exit non-zero.
     for (const project of PROJECTS) {
       const emptied = resolveProject(project.config, project.base, {
-        include: ['scripts/**/*.no-such-extension'],
+        include: project.trees.map((t) => `${t}/**/*.no-such-extension`),
       });
       expect(emptied.files).toEqual([]);
       expect(emptied.errors.map((e) => e.code)).toContain(TS_NO_INPUTS);

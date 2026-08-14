@@ -8,7 +8,7 @@
  * These are structural / schema tests over `.github/workflows/ci.yml` and
  * the root `package.json` — they do not invoke the matrix itself. The
  * purpose is to guarantee that the CI job definition stays synchronised
- * with the exported `TARGETS` tuple in `scripts/build-binary.ts` and
+ * with the exported `TARGETS` tuple in `tools/release/build-binary.ts` and
  * that the npm entry point (`npm run build:binary`) is wired for the
  * `--all` sweep.
  *
@@ -23,9 +23,9 @@ import { fileURLToPath } from 'node:url';
 import yaml from 'js-yaml';
 // Import from the side-effect-free targets module so vitest doesn't try
 // to resolve `bun` (a Bun-runtime-only import) when loading this file
-// under tsx — `scripts/build-binary.ts` itself can't be safely imported
+// under tsx — `tools/release/build-binary.ts` itself can't be safely imported
 // from a non-Bun runner.
-import { TARGETS } from '../../scripts/build-binary-targets.js';
+import { TARGETS } from '../../tools/release/build-binary-targets.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -71,7 +71,7 @@ describe('CI binary matrix wiring', () => {
     expect(matrix).toBeDefined();
 
     // The matrix must enumerate the exact five TARGETS exported by
-    // `scripts/build-binary.ts`. We accept either a `target:` list or an
+    // `tools/release/build-binary.ts`. We accept either a `target:` list or an
     // `include:` list of objects — both produce a 5-entry fan-out.
     const targetList = (matrix as Record<string, unknown>)['target'];
     const includeList = (matrix as Record<string, unknown>)['include'];

@@ -33,7 +33,7 @@
 // `EXCLUDED_DIRS` skips it (not shipped source), while `tsconfig.json` still
 // INCLUDES it, so this parser is typechecked under the package's own strict
 // settings rather than living in an unchecked corner. The cast ratchet
-// (`scripts/tsconfig-strictness/count-casts.ts`) also scans it, which is why the
+// (`tools/audit/tsconfig-strictness/count-casts.ts`) also scans it, which is why the
 // `parseDiagnostics` access below is a type guard rather than the `as` the
 // sibling censuses use.
 //

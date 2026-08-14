@@ -13,7 +13,7 @@
 // `runAuthorityCensus`, with its own finding kinds, its own closure rule and its
 // own per-row `blocking` schedule. Only the evidence class of its input changes.
 //
-// @oracle-sources: ../../../scripts/core/authority-live-proof.ts, ./authority-topology.ts
+// @oracle-sources: ../../audit/core/authority-live-proof.ts, ./authority-topology.ts
 //
 // The two authorities are independent in both senses DR-30 asks about. STATIC:
 // `authority-live-proof.ts` imports only `node:*`, `typescript` and task 020's
@@ -45,11 +45,11 @@ import {
   scanSourceForCommandSites,
   GOVERNED_SOURCES,
   REPO_ROOT,
-} from '../../../scripts/core/cli-derivation-guard.js';
+} from '../../audit/core/cli-derivation-guard.js';
 // The namespace import is what lets the evidence table's `oracle.entrypoint`
 // be resolved BY NAME against the oracle's real exports (below) rather than
 // compared against a string another list also restates.
-import * as liveProof from '../../../scripts/core/authority-live-proof.js';
+import * as liveProof from '../../audit/core/authority-live-proof.js';
 import {
   EVENT_CATALOG_REPRESENTATION_IDS,
   EVENT_CATALOG_SOURCES,
@@ -70,7 +70,7 @@ import {
   type MeasuredBoundary,
   type MeasuredRepresentation,
   type MeasuredSite,
-} from '../../../scripts/core/authority-live-proof.js';
+} from '../../audit/core/authority-live-proof.js';
 
 /** The live composition root task 020's guard governs. */
 function governedSourcePath(): string {
@@ -595,7 +595,7 @@ describe('authority census — the live proof fails closed', () => {
         const cell = rowEvidence(boundary)[hop];
         expect(cell.evidence).toBe('live-measurement');
         if (cell.evidence !== 'live-measurement') continue;
-        expect(cell.oracle.module).toBe('scripts/core/authority-live-proof.ts');
+        expect(cell.oracle.module).toBe('tools/audit/core/authority-live-proof.ts');
         expect(existsSync(path.join(REPO_ROOT, cell.oracle.module))).toBe(true);
         expect(typeof oracleExports[cell.oracle.entrypoint]).toBe('function');
         for (const subject of cell.oracle.subjects) {

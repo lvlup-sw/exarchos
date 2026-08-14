@@ -3,7 +3,7 @@ name: Fresh Install Smoke
 # End-to-end bootstrap smoke — task 2.9 of the v2.9 install rewrite.
 #
 # Spawns minimal Ubuntu + Alpine docker containers that have nothing
-# beyond curl/ca-certificates, runs the real `scripts/get-exarchos.sh`
+# beyond curl/ca-certificates, runs the real `tools/release/get-exarchos.sh`
 # against a pinned release tag, and verifies `exarchos --version` and
 # `exarchos mcp` both work from zero-state.
 #

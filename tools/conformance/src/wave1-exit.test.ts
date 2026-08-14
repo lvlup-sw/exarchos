@@ -48,13 +48,13 @@
 //
 // Two independent authorities, per DR-30: the COMMITTED rows in
 // `authority-topology.ts` (what the wave declared) and the LIVE CI wiring
-// resolved by `scripts/guard-inventory.ts` (what actually runs). Neither can
+// resolved by `tools/audit/gates/guard-inventory.ts` (what actually runs). Neither can
 // observe the other; this file is where they are made to agree.
 //
 // `authority-census.ts` is deliberately NOT listed — it imports the topology, so
 // naming it would be one authority wearing two names. DR-30's own check caught
 // that when this header first listed all three, which is the invariant working.
-// @oracle-sources: ./authority-topology.ts, ../../../scripts/guard-inventory.ts
+// @oracle-sources: ./authority-topology.ts, ../../audit/gates/guard-inventory.ts
 import { describe, it, expect } from 'vitest';
 
 import { runAuthorityCensus } from './authority-census.js';
@@ -64,7 +64,7 @@ import {
   type AuthorityTopologyRow,
   type BoundaryRepresentation,
 } from './authority-topology.js';
-import { buildGuardInventory } from '../../../scripts/guard-inventory.js';
+import { buildGuardInventory } from '../../audit/gates/guard-inventory.js';
 
 // ─── The five Wave-1 guards, transcribed from §3a ────────────────────────────
 
@@ -76,7 +76,7 @@ import { buildGuardInventory } from '../../../scripts/guard-inventory.js';
  * silently dropping out of the exit proof.
  */
 const WAVE1_GUARDS: readonly { readonly id: string; readonly artifact: string }[] = [
-  { id: 'G1 — CLI derivation guard (DR-5)', artifact: 'scripts/core/cli-derivation-guard.ts' },
+  { id: 'G1 — CLI derivation guard (DR-5)', artifact: 'tools/audit/core/cli-derivation-guard.ts' },
   { id: 'G2 — outputSchema non-vacuity ratchet (DR-4)', artifact: 'tools/conformance/src/output-schema-census.ts' },
   { id: 'G3 — event coupling union (DR-2)', artifact: 'tools/conformance/src/report-coupling-census.ts' },
   // G4 stayed in the subject tree: `effect-ledger.ts` has seven production

@@ -38,7 +38,7 @@ import {
   resolveToday,
   runGuard,
   type GuardOptions,
-} from '../../../scripts/core/output-schema-ratchet-guard.js';
+} from '../../../tools/audit/core/output-schema-ratchet-guard.js';
 import {
   formatVacuityExpiryAudit,
   isIsoDay,

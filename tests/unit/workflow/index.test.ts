@@ -375,7 +375,7 @@ describe('MCP Server Entry Point', () => {
       // Asserts the contract — exported version tracks the manifest — rather
       // than a literal that has to be hand-edited on every bump (and didn't
       // get hand-edited reliably; cf. PR #1176 review-finding-2). The lockstep
-      // is now fully owned by `scripts/sync-versions.sh`.
+      // is now fully owned by `tools/release/sync-versions.sh`.
       const { readFileSync } = await import('node:fs');
       const { resolve } = await import('node:path');
       const { fileURLToPath } = await import('node:url');

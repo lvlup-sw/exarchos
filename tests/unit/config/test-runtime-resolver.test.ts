@@ -1304,7 +1304,7 @@ describe('top-level mutation config shape (WFQ-013 / DOC-5)', () => {
     // `config.mutation` — the exact shape the documentation now advertises.
     const result = loadExarchosConfig(REPO_ROOT);
     expect(result).not.toBeNull();
-    expect(result!.config.mutation).toBe('node scripts/core/stryker-adapter.mjs');
+    expect(result!.config.mutation).toBe('node tools/audit/core/stryker-adapter.mjs');
   });
 
   it('resolveVerificationRuntime honors a top-level `mutation` via the config-direct tier', () => {

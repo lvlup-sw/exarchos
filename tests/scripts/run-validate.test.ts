@@ -38,11 +38,11 @@ import {
   summarize,
   renderSummary,
   DEFAULT_MANIFEST_PATH,
-} from '../../scripts/run-validate.mjs';
+} from '../../tools/audit/gates/run-validate.mjs';
 
 const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPTS_DIR, '../..');
-const RUNNER = path.join(SCRIPTS_DIR, '../../scripts/run-validate.mjs');
+const RUNNER = path.join(SCRIPTS_DIR, '../../tools/audit/gates/run-validate.mjs');
 
 interface Step {
   id: string;

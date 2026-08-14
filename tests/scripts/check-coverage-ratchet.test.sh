@@ -23,7 +23,7 @@
 # reporter config regresses silently rather than failing this self-test.
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../scripts" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../tools/audit/gates" && pwd)"
 GATE="$SCRIPT_DIR/check-coverage-ratchet.mjs"
 VITEST_CONFIG="$SCRIPT_DIR/../vitest.config.ts"
 TMP="$(mktemp -d)"

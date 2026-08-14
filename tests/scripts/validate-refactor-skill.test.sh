@@ -5,8 +5,8 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../scripts" && pwd)"
-SKILL_DIR="$SCRIPT_DIR/../skills/refactor"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+SKILL_DIR="$REPO_ROOT/skills/refactor"
 
 PASS=0
 FAIL=0

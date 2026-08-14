@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# npm-ci-retry.test.sh — assertions for scripts/npm-ci-retry.sh.
+# npm-ci-retry.test.sh — assertions for tools/release/npm-ci-retry.sh.
 #
 # Exercises the success, retry-then-success, exhaust-all-attempts, and
 # stall-killed-then-recover paths using a fake `npm` on PATH — no real network
 # or `npm install`. Run directly: `bash scripts/npm-ci-retry.test.sh`.
 set -uo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../scripts" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../tools/release" && pwd)"
 SUT="$SCRIPT_DIR/npm-ci-retry.sh"
 PASS=0
 FAIL=0

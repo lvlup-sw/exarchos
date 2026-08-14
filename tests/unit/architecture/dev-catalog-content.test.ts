@@ -113,7 +113,7 @@ describe('dev-catalog v3 content — CR-2 mode:check enforcement', () => {
   // INV-4 is the original diff-precise mode:check; task 027 (DR-15) raised
   // INV-13/14/16 to mode:check too (each with a deterministic anti-pattern grep
   // + both-direction self-tests below). INV-6's operational projection
-  // (scripts/lint-inv6.mjs) is a deliberately-advisory literal scan with a
+  // (tools/audit/gates/lint-inv6.mjs) is a deliberately-advisory literal scan with a
   // frontmatter-declaration escape hatch a diff-grep cannot replicate, and
   // INV-5a/5d tool-COUNT facts require the whole file, not a diff — so those
   // three stay mode:audit (Approach-B "audit the rest"). See CR-6 below.
@@ -149,7 +149,7 @@ describe('dev-catalog v3 content — CR-2 mode:check enforcement', () => {
   // finding) AND the conforming form produces zero findings — a check that
   // cannot fail is vacuous. The anti-pattern literals are ASSEMBLED from
   // fragments so this test's OWN source neither trips
-  // scripts/check-windows-portability.mjs (the INV-16 module-path literal) nor
+  // tools/audit/gates/check-windows-portability.mjs (the INV-16 module-path literal) nor
   // the invariant's own diff-grep when the review gate runs on this PR's diff.
 
   function checkTreeOf(id: string): never {

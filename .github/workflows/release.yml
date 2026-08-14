@@ -9,7 +9,7 @@ name: Release
 #                            + SHA-512 checksum sidecars + an Ed25519-signed
 #                            release manifest (DR-20) attached to the
 #                            GitHub Release so the bootstrap scripts
-#                            (`scripts/get-exarchos.sh` / `.ps1`) can
+#                            (`tools/release/get-exarchos.sh` / `.ps1`) can
 #                            fetch them by predictable URL.
 #
 # The broader `v*` trigger remains alongside `v*.*.*` so historical
@@ -65,7 +65,7 @@ jobs:
 
       # Route through the shared wrapper for the Playwright browser-download
       # skip + retry/timeout (see docs/rca/2026-05-31-npm-ci-playwright-browser-wedge.md).
-      - run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
+      - run: bash "$GITHUB_WORKSPACE/tools/release/npm-ci-retry.sh"
       - run: npm run typecheck
       - run: npm run test:run
       - run: npm run build
@@ -98,14 +98,14 @@ jobs:
   # binary-matrix (release)
   # ─────────────────────────────────────────────────────────────────────
   # Cross-compiles the Exarchos CLI + MCP server into a native single-file
-  # executable for every TARGET in `scripts/build-binary.ts`, generates a
+  # executable for every TARGET in `tools/release/build-binary.ts`, generates a
   # SHA-512 sidecar per binary, and uploads the pair as a workflow
   # artifact that `publish-release` then attaches to the GitHub Release.
   #
   # DRIFT CONTRACT (single source of truth: `TARGETS` in
-  # `scripts/build-binary.ts`). Three lists must stay in lock-step:
+  # `tools/release/build-binary.ts`). Three lists must stay in lock-step:
   #
-  #   1. `TARGETS` tuple         — scripts/build-binary.ts (canonical)
+  #   1. `TARGETS` tuple         — tools/release/build-binary.ts (canonical)
   #   2. `matrix.target` here    — release.yml binary-matrix (this job)
   #   3. `matrix.target`         — ci.yml binary-matrix (task 1.5 PR gate)
   #   4. `files:` list           — publish-release step below
@@ -119,8 +119,8 @@ jobs:
   # Editing any one without the others will fail `npm run test:run`.
   #
   # The `.sha512` sidecar filename convention — `<binary>.sha512` — is
-  # consumed directly by `scripts/get-exarchos.sh` (CHECKSUM_URL) and
-  # `scripts/get-exarchos.ps1`. Do not rename without updating both.
+  # consumed directly by `tools/release/get-exarchos.sh` (CHECKSUM_URL) and
+  # `tools/release/get-exarchos.ps1`. Do not rename without updating both.
   #
   # `fail-fast: false` on the matrix is intentional: a per-target failure
   # should not cancel the other four builds, so you can inspect which
@@ -137,7 +137,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Keep in sync with TARGETS in scripts/build-binary.ts.
+        # Keep in sync with TARGETS in tools/release/build-binary.ts.
         target:
           - linux-x64
           - linux-arm64
@@ -169,10 +169,10 @@ jobs:
         # fails with "Could not resolve: js-yaml". Route through the shared
         # wrapper for the Playwright browser-download skip + retry/timeout
         # (see docs/rca/2026-05-31-npm-ci-playwright-browser-wedge.md).
-        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
+        run: bash "$GITHUB_WORKSPACE/tools/release/npm-ci-retry.sh"
 
       - name: Build binary for ${{ matrix.target }}
-        run: bun run scripts/build-binary.ts --target ${{ matrix.target }}
+        run: bun run tools/release/build-binary.ts --target ${{ matrix.target }}
 
       - name: Generate SHA-512 checksum
         shell: bash
@@ -223,7 +223,7 @@ jobs:
   # `exarchos-release-manifest.json` is an Ed25519-signed record that also
   # pins WHAT was built — the git commit + source-tree digest and the
   # P03-01 frozen contract-authority digest — which are the same values
-  # `scripts/build-binary.ts` stamps into the binaries themselves. That is
+  # `tools/release/build-binary.ts` stamps into the binaries themselves. That is
   # what lets an installer reject a source, contract, manifest or asset
   # mismatch rather than merely a truncated download.
   #
@@ -263,7 +263,7 @@ jobs:
             package-lock.json
 
       - name: Install dependencies
-        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
+        run: bash "$GITHUB_WORKSPACE/tools/release/npm-ci-retry.sh"
 
       - name: Download all binary-matrix artifacts
         uses: actions/download-artifact@v4
@@ -310,7 +310,7 @@ jobs:
         env:
           EXARCHOS_RELEASE_SIGNING_KEY: ${{ secrets.EXARCHOS_RELEASE_SIGNING_KEY }}
         run: |
-          bun run scripts/build-release-manifest.ts \
+          bun run tools/release/build-release-manifest.ts \
             --assets-dir dist/release \
             --out dist/release/exarchos-release-manifest.json \
             --key-id ${{ vars.EXARCHOS_RELEASE_KEY_ID || 'exarchos.release.v1' }} \
@@ -338,7 +338,7 @@ jobs:
         with:
           fail_on_unmatched_files: true
           # Release body template — advertises the two bootstrap scripts
-          # (`scripts/get-exarchos.sh` / `.ps1`). The trailing auto-
+          # (`tools/release/get-exarchos.sh` / `.ps1`). The trailing auto-
           # generated asset list is produced by GitHub from the `files:`
           # attachments below.
           body: |
@@ -364,7 +364,7 @@ jobs:
           # signed release manifest.
           #
           # Order is {binary, .sha512} per target, targets ordered to
-          # match `TARGETS` in `scripts/build-binary.ts`. Windows uses
+          # match `TARGETS` in `tools/release/build-binary.ts`. Windows uses
           # the `.exe` + `.exe.sha512` convention (the extension is
           # preserved in the sidecar name so the bootstrap scripts can
           # derive it by appending `.sha512` to the binary URL).

@@ -41,7 +41,7 @@ const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 
 // Locate the platform binary produced by `npm run build` — the same
-// `exarchos-<os>-<arch>[.exe]` convention `scripts/build-binary.ts` emits.
+// `exarchos-<os>-<arch>[.exe]` convention `tools/release/build-binary.ts` emits.
 function platformBinaryName(): string {
   const platform = os.platform();
   const arch = os.arch();

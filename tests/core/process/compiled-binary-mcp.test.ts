@@ -4,7 +4,7 @@
  * Phase progression: RED asserted 2.4.0 vs observed 1.1.0 drift in adapters/mcp/mcp.ts;
  * GREEN synced the duplicated SERVER_VERSION and the integration tests now pass.
  *
- * Proves the artifact produced by `scripts/build-binary.ts` (task 1.4) actually
+ * Proves the artifact produced by `tools/release/build-binary.ts` (task 1.4) actually
  * runs `exarchos mcp` in real stdio-transport mode and handles MCP tool calls
  * end-to-end. This is the PR1 integration gate for the v2.9 install rewrite —
  * earlier tests (1.1, 1.2) cover the build script's structural invariants,

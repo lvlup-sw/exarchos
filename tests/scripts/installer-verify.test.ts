@@ -1,7 +1,7 @@
 // ─── DR-20 acceptance: the installers consume the signed release manifest ────
 //
-// T-28. This suite drives the REAL bootstrap installers — `scripts/get-exarchos.sh`
-// under bash and `scripts/get-exarchos.ps1` under pwsh — end to end against a
+// T-28. This suite drives the REAL bootstrap installers — `tools/release/get-exarchos.sh`
+// under bash and `tools/release/get-exarchos.ps1` under pwsh — end to end against a
 // REAL, Ed25519-signed, source-linked fixture release served over loopback HTTP.
 //
 // What is and is not faked:
@@ -10,7 +10,7 @@
 //     `Invoke-WebRequest` code paths against it.
 //   - NOT FAKED: everything else. Real artifact bytes carrying a real
 //     `bun build --banner` build-identity stamp, a real signed manifest built
-//     by `scripts/build-release-manifest.ts`'s producer primitives, real
+//     by `tools/release/build-release-manifest.ts`'s producer primitives, real
 //     SHA-512 sidecars, and the REAL SHIPPED VERIFIER — `dist/release-verify.js`,
 //     produced here by executing package.json's own `build:release-verifier`
 //     script, so the packaging change is exercised rather than assumed.
@@ -41,12 +41,12 @@ import {
   buildReleaseFixture,
   type ReleaseFixture,
   type ReleaseFixtureOptions,
-} from '../../scripts/test-fixtures/release-fixture.js';
+} from '../../tools/audit/test-fixtures/release-fixture.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, '../..');
-const SH_INSTALLER = join(REPO_ROOT, 'scripts', 'get-exarchos.sh');
-const PS1_INSTALLER = join(REPO_ROOT, 'scripts', 'get-exarchos.ps1');
+const SH_INSTALLER = join(REPO_ROOT, 'tools', 'release', 'get-exarchos.sh');
+const PS1_INSTALLER = join(REPO_ROOT, 'tools', 'release', 'get-exarchos.ps1');
 const SHIPPED_VERIFIER = join(REPO_ROOT, 'dist', 'release-verify.js');
 
 const LINUX_ASSET = 'exarchos-linux-x64';
@@ -404,7 +404,7 @@ describe('DR-20 — the installers consume the signed release manifest', () => {
     expect(leaked, `test-only paths in the tarball: ${leaked.join(', ')}`).toEqual([]);
   }, 360_000);
 
-  describe.skipIf(BASH === undefined)('scripts/get-exarchos.sh', () => {
+  describe.skipIf(BASH === undefined)('tools/release/get-exarchos.sh', () => {
     it('installs a release whose signed manifest verifies on all four dimensions', async () => {
       const { fixture, origin } = await scenario('sh-happy', {});
       const target = freshTarget('sh-happy');
@@ -603,7 +603,7 @@ describe('DR-20 — the installers consume the signed release manifest', () => {
     }, 180_000);
   });
 
-  describe.skipIf(PWSH === undefined)('scripts/get-exarchos.ps1', () => {
+  describe.skipIf(PWSH === undefined)('tools/release/get-exarchos.ps1', () => {
     it('installs a release whose signed manifest verifies on all four dimensions', async () => {
       const { fixture, origin } = await scenario('ps-happy', {});
       const target = freshTarget('ps-happy');

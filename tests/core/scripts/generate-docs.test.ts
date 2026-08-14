@@ -6,7 +6,7 @@ vi.mock('../../../src/registry.js', () => ({
 }));
 
 // Import after mocking
-const { generateDocsMarkdown } = await import('../../../scripts/core/generate-docs.js');
+const { generateDocsMarkdown } = await import('../../../tools/audit/core/generate-docs.js');
 
 // Helper to generate docs with a custom registry
 async function generateWithRegistry(registry: unknown[]): Promise<string> {

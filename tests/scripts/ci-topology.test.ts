@@ -38,7 +38,7 @@ import { fileURLToPath } from 'node:url';
 import yaml from 'js-yaml';
 // The repo's own glob semantics, so this agrees with the guard inventory's
 // reading of the same workflow rather than inventing a second one.
-import { globMatches } from '../../scripts/guard-inventory.js';
+import { globMatches } from '../../tools/audit/gates/guard-inventory.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

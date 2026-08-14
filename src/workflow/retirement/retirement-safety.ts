@@ -28,7 +28,7 @@
 //     is fully closed (120/120) independent of the legacy guard, and the P07-02
 //     structure test proves the shared IR reaches NO legacy guard module. So no
 //     PUBLIC ACTION depends on the legacy guard.
-//   • DEPENDENCY (the vendored `scripts/audit/refgraph.mjs` detector, mirrored
+//   • DEPENDENCY (the vendored `tools/audit/refgraph.mjs` detector, mirrored
 //     purely here) — which production (non-test) modules still IMPORT each
 //     authority's modules. A single external importer is a live reference.
 //   • CUTOVER GATE (P07-01 `cutover-gate.ts`) — whether enforcement may flip off

@@ -174,7 +174,7 @@ describe('Core Plugin Structure', () => {
     it('packageJson_scripts_includesValidation', () => {
       // `validate` used to be an inline `&&` chain, and this test asserted a
       // substring of it. Task 064 replaced the chain with an aggregating runner
-      // whose steps are DATA (scripts/validate-manifest.json), because an `&&`
+      // whose steps are DATA (tools/audit/gates/validate-manifest.json), because an `&&`
       // chain whose first step is red makes every later gate skipped-as-passed:
       // measured 2026-08-07, 1 of 9 declared steps executed.
       //
@@ -184,10 +184,10 @@ describe('Core Plugin Structure', () => {
       // drift hide.
       const pkgPath = join(repoRoot, 'package.json');
       const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
-      expect(pkg.scripts.validate).toBe('node scripts/run-validate.mjs');
+      expect(pkg.scripts.validate).toBe('node tools/audit/gates/run-validate.mjs');
 
       const manifest = JSON.parse(
-        readFileSync(join(repoRoot, 'scripts', 'validate-manifest.json'), 'utf-8'),
+        readFileSync(join(repoRoot, 'tools', 'audit', 'gates', 'validate-manifest.json'), 'utf-8'),
       );
       const ids = manifest.steps.map((s: { id: string }) => s.id);
       expect(ids).toContain('plugin-packaging');
@@ -205,7 +205,7 @@ describe('Core Plugin Structure', () => {
     });
   });
 
-  // Task 064 (DR-24). This suite and scripts/validate-plugin.sh were two
+  // Task 064 (DR-24). This suite and tools/audit/gates/validate-plugin.sh were two
   // independent statements of one packaging policy with no channel between
   // them, and by 2026-08-07 they disagreed on FOUR clauses — the shell gate
   // demanded a `.mcp.json` this suite's tree does not ship, demanded a

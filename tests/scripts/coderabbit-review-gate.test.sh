@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../scripts" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../tools/release" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 SCRIPT_UNDER_TEST="$SCRIPT_DIR/coderabbit-review-gate.sh"
 

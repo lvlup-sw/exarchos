@@ -1,5 +1,5 @@
 /**
- * Tests for `scripts/codegen-runtimes.ts` (#1213, #1214).
+ * Tests for `tools/release/codegen-runtimes.ts` (#1213, #1214).
  *
  * These exercise three invariants the embedded-runtimes codegen MUST
  * uphold so that:
@@ -22,7 +22,7 @@ import {
   renderEmbeddedRuntimesModule,
   generateEmbeddedRuntimesModule,
   sortRuntimes,
-} from '../../scripts/codegen-runtimes.js';
+} from '../../tools/release/codegen-runtimes.js';
 import { loadAllRuntimes, REQUIRED_RUNTIME_NAMES } from '../../src/install/runtimes/load.js';
 import { RuntimeMapSchema } from '../../src/install/runtimes/types.js';
 

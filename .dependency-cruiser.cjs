@@ -31,7 +31,7 @@ module.exports = {
       // for ERROR-severity violations, so a `warn` here surfaces cycles in the
       // advisory output WITHOUT turning the dogfooded gate permanently red.
       //
-      // Blocking enforcement lives ELSEWHERE — scripts/audit/cycle-gate.ts runs
+      // Blocking enforcement lives ELSEWHERE — tools/audit/cycle-gate.ts runs
       // over the `--output-type json` graph, computes the runtime cycles itself
       // (Tarjan, via architecture/import-cycles.ts), and fails CLOSED in CI on any
       // unbaselined cycle / expired-or-phantom baseline entry. This rule's job is
@@ -44,7 +44,7 @@ module.exports = {
       comment:
         'Runtime import cycles are forbidden (DR-4). `warn` here so the dogfooded ' +
         'runBoundaryLint (`depcruise --validate`) stays green; the blocking ratchet ' +
-        'is scripts/audit/cycle-gate.ts over the depcruise JSON graph.',
+        'is tools/audit/cycle-gate.ts over the depcruise JSON graph.',
       severity: 'warn',
       from: {},
       to: {

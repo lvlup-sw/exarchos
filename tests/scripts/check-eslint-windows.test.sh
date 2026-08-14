@@ -6,7 +6,7 @@
 # FIRES on its anti-pattern and stays quiet on the fixed form, using a temp
 # fixture under the config's `files` glob (cleaned up on exit).
 set -uo pipefail
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../scripts/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT" || { echo "cannot cd to repo root: $ROOT" >&2; exit 1; }
 FX="src/__eslint_selftest__.ts"
 trap 'rm -f "$FX"' EXIT

@@ -2,7 +2,7 @@
  * Thin CLI entrypoint that runs the rehydration prose lint and reports
  * violations in a machine-friendly text format.
  *
- * Intended to be invoked under `tsx` by `scripts/check-prose-lint.mjs`
+ * Intended to be invoked under `tsx` by `tools/audit/gates/check-prose-lint.mjs`
  * (T049, DR-13). The wrapper at the repo root cannot directly import
  * TypeScript, so this stub exposes the canonical `lintTemplate()` /
  * `lintProse()` functions through a child-process boundary. Single
