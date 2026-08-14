@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1163,
-    "parsedFiles": 1118,
+    "testFiles": 1164,
+    "parsedFiles": 1119,
     "shellFiles": 45,
-    "cases": 12807,
+    "cases": 12812,
     "dynamicTitles": 131,
     "unparseableFiles": 0
   },
@@ -5358,6 +5358,37 @@
         {
           "suite": "package.json scripts",
           "name": "PackageJson_TestOutcomeScript_Exists",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/phase-terminal-gate.test.ts": {
+      "file": "tests/architecture/phase-terminal-gate.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "Phase2_CleanClone_AllGatesGreenOnLinuxAndWindows",
+          "name": "CI still runs on BOTH platforms",
+          "dynamic": false
+        },
+        {
+          "suite": "Phase2_CleanClone_AllGatesGreenOnLinuxAndWindows",
+          "name": "every gate the phase depends on is a real npm script",
+          "dynamic": false
+        },
+        {
+          "suite": "Phase2_CleanClone_AllGatesGreenOnLinuxAndWindows",
+          "name": "the aggregator gate is what a branch rule can require",
+          "dynamic": false
+        },
+        {
+          "suite": "Phase2_PersistedIdentifiers_MatchTheTask047Snapshot",
+          "name": "the recorded action snapshot still exists and is populated",
+          "dynamic": false
+        },
+        {
+          "suite": "Phase2_PersistedIdentifiers_MatchTheTask047Snapshot",
+          "name": "the comparison that uses it is still collected",
           "dynamic": false
         }
       ]
