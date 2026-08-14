@@ -118,7 +118,7 @@
 // the obvious implementation:
 //
 //   1. THE PATH IS NEVER WRITTEN AS A LITERAL AT THE CALL SITE. The script says
-//      `KNIP_DIFF="$SCRIPT_DIR/audit/knip-diff.ts"` and then `"$TSX_BIN"
+//      `KNIP_DIFF="$SCRIPT_DIR/../knip-diff.ts"` and then `"$TSX_BIN"
 //      "$KNIP_DIFF"`. Resolving it means resolving shell VARIABLES, plus the two
 //      directory anchors this repo's scripts use (`$(cd "$(dirname
 //      "${BASH_SOURCE[0]}")" && pwd)` and `$(cd "$X/.." && pwd)`).
@@ -173,7 +173,7 @@ import yaml from 'js-yaml';
 import ts from 'typescript';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-/** Repository root — `<repo>/scripts` → `<repo>`. */
+/** Repository root — `<repo>/tools/audit/gates` → `<repo>`. */
 export const REPO_ROOT = resolve(HERE, '..', '..', '..');
 
 /** The spec whose Wave-1 task set is channel 2's denominator. */
@@ -181,7 +181,7 @@ export const SPEC_PATH = 'docs/specs/2026-08-06-internal-mechanics-overhaul.md';
 /** The enforcer-wiring manifest — channel 1's denominator. */
 export const MANIFEST_PATH = 'tools/audit/gates/enforcer-wiring-manifest.json';
 /** Channel 3's scan root. */
-export const MCP_SCRIPTS_DIR = 'scripts/core';
+export const MCP_SCRIPTS_DIR = 'tools/audit/core';
 /**
  * Channel 4's scan roots — the directories that ARE the conformance suite.
  *
@@ -229,6 +229,22 @@ export const HISTORICAL_PATH_REWRITES: readonly (readonly [string, string])[] = 
   ['servers/exarchos-mcp/test/', 'tests/core/'],
   ['servers/exarchos-mcp/src/', 'src/'],
   ['servers/exarchos-mcp/', ''],
+  // Task 036 dissolved the top-level `scripts/` tree into `tools/`. The
+  // subdirectories map one-to-one; the flat files did not — 40 gates went to
+  // `tools/audit/gates/` and 15 build/publish scripts to `tools/release/`,
+  // which no single prefix can express. Both are declared against the same
+  // `scripts/` prefix and `resolveHistoricalPath` takes the first that EXISTS,
+  // so the tree itself disambiguates rather than a restated file list that
+  // would drift. Sort is stable, so the order below is the probe order.
+  ['scripts/core/', 'tools/audit/core/'],
+  ['scripts/lib/', 'tools/audit/lib/'],
+  ['scripts/audit/', 'tools/audit/'],
+  ['scripts/__fixtures__/', 'tools/audit/__fixtures__/'],
+  ['scripts/__shims__/', 'tools/audit/__shims__/'],
+  ['scripts/test-fixtures/', 'tools/audit/test-fixtures/'],
+  ['scripts/tsconfig-strictness/', 'tools/audit/tsconfig-strictness/'],
+  ['scripts/', 'tools/audit/gates/'],
+  ['scripts/', 'tools/release/'],
 ] as const);
 
 const REWRITES_LONGEST_FIRST = [...HISTORICAL_PATH_REWRITES].sort((a, b) => b[0].length - a[0].length);
@@ -1153,6 +1169,29 @@ export function hasDirectRunExit(source: string, fileName: string): boolean {
 }
 
 /**
+ * Where each source tree's suites were lifted to, longest prefix first so a
+ * specific subtree wins over the catch-all.
+ *
+ * Pairing is by CONSTRUCTED path, and an artifact whose constructed path finds
+ * nothing reports as "no self-test" rather than as an error — so a stale entry
+ * here takes a whole tree of guards quiet without reddening anything. That is
+ * why the mapping is one ordered table rather than a chain of `else if` arms:
+ * a relocation is absorbed in one place, and
+ * `GuardInventory_EverySelfTestMirror_PairsSomethingReal` asserts every arm
+ * still pairs a real file, so an arm that stops resolving fails loudly.
+ */
+export const SELF_TEST_MIRRORS: readonly (readonly [string, string])[] = Object.freeze([
+  ['tools/audit/core/', 'tests/core/scripts/'],
+  ['tools/audit/gates/', 'tests/scripts/'],
+  ['tools/audit/lib/', 'tests/scripts/lib/'],
+  ['tools/audit/tsconfig-strictness/', 'tests/scripts/tsconfig-strictness/'],
+  // The catch-all for `tools/audit/`'s own loose files, which task 036 moved
+  // from `scripts/audit/` — their suites kept the `audit/` segment.
+  ['tools/audit/', 'tests/scripts/audit/'],
+  ['src/', 'tests/unit/'],
+]);
+
+/**
  * Self-test candidates for an artifact, in resolution order.
  *
  * "Co-located" was literal until task 030 lifted every suite under `src/` into
@@ -1164,10 +1203,8 @@ export function hasDirectRunExit(source: string, fileName: string): boolean {
 export function selfTestCandidates(artifact: string): string[] {
   const base = artifact.replace(/\.[cm]?[jt]s$/, '').replace(/\.sh$/, '');
   const bases = [base];
-  if (base.startsWith('src/')) bases.push(`tests/unit/${base.slice('src/'.length)}`);
-  else if (base.startsWith('tools/audit/core/'))
-    bases.push(`tests/core/scripts/${base.slice('tools/audit/core/'.length)}`);
-  else if (base.startsWith('scripts/')) bases.push(`tests/scripts/${base.slice('scripts/'.length)}`);
+  const mirror = SELF_TEST_MIRRORS.find(([from]) => base.startsWith(from));
+  if (mirror) bases.push(`${mirror[1]}${base.slice(mirror[0].length)}`);
   return bases.flatMap((b) => [`${b}.test.ts`, `${b}.test.mts`, `${b}.test.mjs`, `${b}.test.sh`]);
 }
 
@@ -1958,31 +1995,23 @@ export const GUARD_EXEMPTIONS: readonly GuardExemption[] = Object.freeze([
   // no longer exhibits `unreachable` and `auditGuardInventory` would flag a
   // surviving entry as `[stale-exemption]`. That tooth is what forced this
   // deletion, and it is the mechanism working as designed.
-  Object.freeze({
-    artifact: 'tools/audit/gates/lint-inv6.mjs',
-    excuses: 'filtered-implementation-surface',
-    reason:
-      'Runs via `npm run skills:guard` in `test-root`, which is filtered on `root` — and the ' +
-      '`root` filter deliberately excludes `scripts/**`, so a PR that edits this lint`s own ' +
-      'source does not arm the only job that runs it. This is the residual scripts-filter hole ' +
-      'docs/guides/ci-gate-hosting.md already records: widening `root` to include `scripts/**` ' +
-      'was considered and REJECTED because `changes.outputs.root` also arms `test-windows-root`, ' +
-      'a chronically flaky lane never proven green on main (#1699). The expiry forces that ' +
-      'trade to be re-made rather than inherited.',
-    blockedBy: '#1717 (carries the #1699 Windows-lane constraint)',
-    expires: '2026-11-05',
-  }),
-  Object.freeze({
-    artifact: 'tools/audit/gates/lint-test-first-drift.mjs',
-    excuses: 'filtered-implementation-surface',
-    reason:
-      'Same host and same hole as `tools/audit/gates/lint-inv6.mjs`: chained with `&&` inside ' +
-      '`npm run skills:guard` in the `root`-filtered `test-root` job, with its own source ' +
-      'outside that filter. Unlike lint-inv6 its exit code DOES propagate, so the gate is ' +
-      'failable — the gap is which PRs arm it, not whether it can fail.',
-    blockedBy: '#1717 (carries the #1699 Windows-lane constraint)',
-    expires: '2026-11-05',
-  }),
+  // DISCHARGED by task 036 — both `filtered-implementation-surface` entries
+  // removed rather than re-dated.
+  //
+  // `lint-inv6.mjs` and `lint-test-first-drift.mjs` both ran via `npm run
+  // skills:guard` in the `root`-filtered `test-root` job while their own
+  // sources sat under `scripts/**`, outside that filter — so a PR that weakened
+  // either lint never armed the only job that runs it. Both entries recorded
+  // the same unblocking edit and rejected it for the same reason: widening
+  // `root` to `scripts/**` would also arm `test-windows-root`, a lane never
+  // proven green on main (#1699).
+  //
+  // Task 036 dissolved `scripts/` into `tools/`, and the filter now names
+  // `tools/**` — so the sources moved INSIDE the filter without anyone widening
+  // it to reach them. The #1699 trade was never re-made; it was made moot. Both
+  // lints are now armed by edits to their own source, `auditGuardInventory`
+  // reports neither as `filtered-implementation-surface`, and a surviving entry
+  // would be flagged `[stale-exemption]` — which is what forced this deletion.
 ]);
 
 // ─── The inventory ───────────────────────────────────────────────────────────

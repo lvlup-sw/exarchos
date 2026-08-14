@@ -2,7 +2,7 @@
  * Self-tests for the enforcer-wiring gate (task 011, DR-5 / DR-8).
  *
  * The gate models FOUR trap classes a name-grep is blind to. A grep can prove a
- * `scripts/check-*` gate EXISTS; only a transitive walk of npm-script chains +
+ * `check-*` gate EXISTS; only a transitive walk of npm-script chains +
  * workflow run-steps (inspecting per-term exit-code handling) can prove it is
  * WIRED so a real regression fails CI. Each trap class gets ONE synthetic
  * fixture that the gate MUST reject:
@@ -28,14 +28,28 @@ import {
   reachPrimariesFromCommand,
   parseWorkflow,
   enumeratePrimaryFiles,
+  PRIMARY_DIR,
 } from '../../tools/audit/gates/check-enforcer-wiring.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
+/**
+ * Fixture paths are built from the gate's own `PRIMARY_DIR` rather than from a
+ * literal prefix. A synthetic tree that hard-codes where primaries live stops
+ * exercising the gate the moment they move — it keeps passing against a
+ * vocabulary the gate no longer speaks, which is exactly how task 036 left the
+ * enumerator emitting `scripts/` while the recognizer had moved on.
+ */
+const primary = (name: string): string => `${PRIMARY_DIR}/${name}`;
+
+/** `<primary> [<violation-class>]`, with the path escaped for regex use. */
+const violationOf = (name: string, klass: string): RegExp =>
+  new RegExp(`${primary(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s+\\[${klass}\\]`);
+
 // ─── Synthetic conforming baseline (deep-cloned per test) ───────────────────
 //
-// - scripts/check-alpha.mjs   → gating, wired directly + failable in ci.yml
-// - scripts/lint-advisory.mjs → advisory, reachable-but-neutered (`|| true`)
+// - check-alpha.mjs   → gating, wired directly + failable in ci.yml
+// - lint-advisory.mjs → advisory, reachable-but-neutered (`|| true`)
 //   through `skills:guard`-shaped chain, exactly like the real lint-inv6.
 
 const CI_YML = [
@@ -47,7 +61,7 @@ const CI_YML = [
   '    runs-on: ubuntu-latest',
   '    steps:',
   '      - uses: actions/checkout@v4',
-  '      - run: node scripts/check-alpha.mjs',
+  `      - run: node ${primary('check-alpha.mjs')}`,
   '      - run: npm run guard',
   '',
 ].join('\n');
@@ -70,14 +84,14 @@ function baseline(): AuditInput {
     manifest: {
       primaries: [
         {
-          script: 'scripts/check-alpha.mjs',
+          script: primary('check-alpha.mjs'),
           disposition: 'gating',
           workflow: '.github/workflows/ci.yml',
           diffDependent: false,
           rationale: 'wired directly in the CI gate job',
         },
         {
-          script: 'scripts/lint-advisory.mjs',
+          script: primary('lint-advisory.mjs'),
           disposition: 'advisory',
           workflow: '.github/workflows/ci.yml',
           rationale: 'neutered by design via `|| true` in the guard chain',
@@ -86,13 +100,13 @@ function baseline(): AuditInput {
     },
     scripts: {
       guard: 'node dist/x.js && (npm run lint:advisory || true) && npm run other',
-      'lint:advisory': 'node scripts/lint-advisory.mjs content/',
+      'lint:advisory': `node ${primary('lint-advisory.mjs')} content/`,
       other: 'echo ok',
     },
     workflows: {
       '.github/workflows/ci.yml': CI_YML,
     },
-    primaryFiles: ['scripts/check-alpha.mjs', 'scripts/lint-advisory.mjs'],
+    primaryFiles: [primary('check-alpha.mjs'), primary('lint-advisory.mjs')],
   };
 }
 
@@ -105,7 +119,7 @@ describe('enforcer-wiring gate — conforming trees pass', () => {
 
   it('EnforcerWiring_ConformingTree_Passes (real repo)', () => {
     const manifest = JSON.parse(
-      fs.readFileSync(path.join(REPO_ROOT, 'tools', 'audit', 'gates', 'enforcer-wiring-manifest.json'), 'utf8'),
+      fs.readFileSync(path.join(REPO_ROOT, ...PRIMARY_DIR.split('/'), 'enforcer-wiring-manifest.json'), 'utf8'),
     );
     const pkg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'));
     const wfDir = path.join(REPO_ROOT, '.github', 'workflows');
@@ -114,12 +128,27 @@ describe('enforcer-wiring gate — conforming trees pass', () => {
       if (!/\.ya?ml$/.test(name)) continue;
       workflows[`.github/workflows/${name}`] = fs.readFileSync(path.join(wfDir, name), 'utf8');
     }
-    const primaryFiles = enumeratePrimaryFiles(path.join(REPO_ROOT, 'tools', 'audit', 'gates'));
+    const primaryFiles = enumeratePrimaryFiles(path.join(REPO_ROOT, ...PRIMARY_DIR.split('/')));
 
     const result = audit({ manifest, scripts: pkg.scripts, workflows, primaryFiles });
     // Surface any drift verbatim so a failure names the offending primary.
     expect(result.violations).toEqual([]);
     expect(result.ok).toBe(true);
+  });
+
+  it('EnforcerWiring_EnumeratorAndRecognizer_AgreeOnThePrimaryPrefix', () => {
+    // The task 036 defect in one assertion: the enumerator reported primaries
+    // under one prefix while the recognizer matched another, so every primary
+    // on disk read as unlisted and every manifest entry as missing. Neither
+    // half is wrong in isolation — only their disagreement is, and only a test
+    // that crosses them can see it.
+    const onDisk = enumeratePrimaryFiles(path.join(REPO_ROOT, ...PRIMARY_DIR.split('/')));
+    expect(onDisk.length).toBeGreaterThan(0);
+
+    for (const rel of onDisk) {
+      const reached = reachPrimariesFromCommand(`node ${rel}`, {});
+      expect(reached.get(rel), `the recognizer must see the enumerated primary ${rel}`).toBeDefined();
+    }
   });
 });
 
@@ -127,9 +156,9 @@ describe('enforcer-wiring gate — trap-class fixtures (each MUST fail)', () => 
   it('EnforcerWiring_OrphanScript_Fails', () => {
     // Class 1: a gating primary that no workflow / npm chain references at all.
     const t = baseline();
-    t.primaryFiles.push('scripts/check-orphan.mjs');
+    t.primaryFiles.push(primary('check-orphan.mjs'));
     t.manifest.primaries.push({
-      script: 'scripts/check-orphan.mjs',
+      script: primary('check-orphan.mjs'),
       disposition: 'gating',
       workflow: '.github/workflows/ci.yml',
       diffDependent: false,
@@ -138,17 +167,17 @@ describe('enforcer-wiring gate — trap-class fixtures (each MUST fail)', () => 
 
     const result = audit(t);
     expect(result.ok).toBe(false);
-    expect(result.violations.join('\n')).toMatch(/scripts\/check-orphan\.mjs\s+\[orphan\]/);
+    expect(result.violations.join('\n')).toMatch(violationOf('check-orphan.mjs', 'orphan'));
   });
 
   it('EnforcerWiring_ReachableOnlyViaUninvokedNpmScript_Fails', () => {
     // Class 2: referenced only from an npm script (`validate`) that no workflow
     // invokes — the exact real defect for check-prefix-fingerprint/prose-lint.
     const t = baseline();
-    t.primaryFiles.push('scripts/check-validateonly.mjs');
-    t.scripts.validate = 'node scripts/check-validateonly.mjs';
+    t.primaryFiles.push(primary('check-validateonly.mjs'));
+    t.scripts.validate = `node ${primary('check-validateonly.mjs')}`;
     t.manifest.primaries.push({
-      script: 'scripts/check-validateonly.mjs',
+      script: primary('check-validateonly.mjs'),
       disposition: 'gating',
       workflow: '.github/workflows/ci.yml',
       diffDependent: false,
@@ -158,7 +187,7 @@ describe('enforcer-wiring gate — trap-class fixtures (each MUST fail)', () => 
     const result = audit(t);
     expect(result.ok).toBe(false);
     expect(result.violations.join('\n')).toMatch(
-      /scripts\/check-validateonly\.mjs\s+\[unreachable-npm\]/,
+      violationOf('check-validateonly.mjs', 'unreachable-npm'),
     );
   });
 
@@ -167,9 +196,9 @@ describe('enforcer-wiring gate — trap-class fixtures (each MUST fail)', () => 
     // reachable yet never able to fail. (Same shape as lint-inv6, but declared
     // gating rather than advisory, so the swallow is a lie.)
     const t = baseline();
-    t.primaryFiles.push('scripts/check-neutered.mjs');
+    t.primaryFiles.push(primary('check-neutered.mjs'));
     t.scripts['guard:neutered'] = '(npm run run-neutered || true)';
-    t.scripts['run-neutered'] = 'node scripts/check-neutered.mjs';
+    t.scripts['run-neutered'] = `node ${primary('check-neutered.mjs')}`;
     // Add a CI step that invokes the neutering chain.
     const ciYml = t.workflows['.github/workflows/ci.yml'];
     if (ciYml === undefined) throw new Error('the baseline tree must carry ci.yml');
@@ -178,7 +207,7 @@ describe('enforcer-wiring gate — trap-class fixtures (each MUST fail)', () => 
       '      - run: npm run guard\n      - run: npm run guard:neutered\n',
     );
     t.manifest.primaries.push({
-      script: 'scripts/check-neutered.mjs',
+      script: primary('check-neutered.mjs'),
       disposition: 'gating',
       workflow: '.github/workflows/ci.yml',
       diffDependent: false,
@@ -188,7 +217,7 @@ describe('enforcer-wiring gate — trap-class fixtures (each MUST fail)', () => 
     const result = audit(t);
     expect(result.ok).toBe(false);
     expect(result.violations.join('\n')).toMatch(
-      /scripts\/check-neutered\.mjs\s+\[exit-code-swallowed\]/,
+      violationOf('check-neutered.mjs', 'exit-code-swallowed'),
     );
   });
 
@@ -196,7 +225,7 @@ describe('enforcer-wiring gate — trap-class fixtures (each MUST fail)', () => 
     // Class 4: wired + failable, but hosted in a workflow whose pull_request
     // trigger omits `synchronize`, so a diff pushed after open never re-runs it.
     const t = baseline();
-    t.primaryFiles.push('scripts/check-diffdep.mjs');
+    t.primaryFiles.push(primary('check-diffdep.mjs'));
     t.workflows['.github/workflows/pr-body-check.yml'] = [
       'name: PR Body Check',
       'on:',
@@ -206,11 +235,11 @@ describe('enforcer-wiring gate — trap-class fixtures (each MUST fail)', () => 
       '  check:',
       '    runs-on: ubuntu-latest',
       '    steps:',
-      '      - run: node scripts/check-diffdep.mjs',
+      `      - run: node ${primary('check-diffdep.mjs')}`,
       '',
     ].join('\n');
     t.manifest.primaries.push({
-      script: 'scripts/check-diffdep.mjs',
+      script: primary('check-diffdep.mjs'),
       disposition: 'gating',
       workflow: '.github/workflows/pr-body-check.yml',
       diffDependent: true,
@@ -220,7 +249,7 @@ describe('enforcer-wiring gate — trap-class fixtures (each MUST fail)', () => 
     const result = audit(t);
     expect(result.ok).toBe(false);
     expect(result.violations.join('\n')).toMatch(
-      /scripts\/check-diffdep\.mjs\s+\[missing-synchronize-trigger\]/,
+      violationOf('check-diffdep.mjs', 'missing-synchronize-trigger'),
     );
   });
 
@@ -228,7 +257,7 @@ describe('enforcer-wiring gate — trap-class fixtures (each MUST fail)', () => 
     // The corrective: adding `synchronize` clears the class-4 violation. This is
     // exactly the pr-body-check.yml edit task 011 makes for check-golden-fixture-note.
     const t = baseline();
-    t.primaryFiles.push('scripts/check-diffdep.mjs');
+    t.primaryFiles.push(primary('check-diffdep.mjs'));
     t.workflows['.github/workflows/pr-body-check.yml'] = [
       'name: PR Body Check',
       'on:',
@@ -238,11 +267,11 @@ describe('enforcer-wiring gate — trap-class fixtures (each MUST fail)', () => 
       '  check:',
       '    runs-on: ubuntu-latest',
       '    steps:',
-      '      - run: node scripts/check-diffdep.mjs',
+      `      - run: node ${primary('check-diffdep.mjs')}`,
       '',
     ].join('\n');
     t.manifest.primaries.push({
-      script: 'scripts/check-diffdep.mjs',
+      script: primary('check-diffdep.mjs'),
       disposition: 'gating',
       workflow: '.github/workflows/pr-body-check.yml',
       diffDependent: true,
@@ -259,11 +288,11 @@ describe('enforcer-wiring gate — completeness ratchet', () => {
   it('EnforcerWiring_PrimaryOnDiskWithoutManifestEntry_Fails', () => {
     // A newly-added enforcer that nobody dispositioned must not slip through.
     const t = baseline();
-    t.primaryFiles.push('scripts/check-newcomer.mjs');
+    t.primaryFiles.push(primary('check-newcomer.mjs'));
     const result = audit(t);
     expect(result.ok).toBe(false);
     expect(result.violations.join('\n')).toMatch(
-      /scripts\/check-newcomer\.mjs\s+\[unlisted-primary\]/,
+      violationOf('check-newcomer.mjs', 'unlisted-primary'),
     );
   });
 
@@ -279,7 +308,7 @@ describe('enforcer-wiring gate — completeness ratchet', () => {
     const result = audit(t);
     expect(result.ok).toBe(false);
     expect(result.violations.join('\n')).toMatch(
-      /scripts\/check-alpha\.mjs\s+\[retired-still-wired\]/,
+      violationOf('check-alpha.mjs', 'retired-still-wired'),
     );
   });
 });
@@ -298,18 +327,18 @@ describe('enforcer-wiring gate — exit-code analysis (the transitive core)', ()
   });
 
   it('AnalyzeCommandRefs_DirectOrTrue_OnScript_MarksNonFailable', () => {
-    const refs = analyzeCommandRefs('node scripts/check-x.mjs || true');
-    const x = refs.find((r: { path?: string }) => r.path === 'scripts/check-x.mjs');
+    const refs = analyzeCommandRefs(`node ${primary('check-x.mjs')} || true`);
+    const x = refs.find((r: { path?: string }) => r.path === primary('check-x.mjs'));
     expect(x?.failable).toBe(false);
   });
 
   it('ReachPrimariesFromCommand_TransitivelyExpandsNpmChains', () => {
     const scripts = {
       guard: '(npm run inner || true)',
-      inner: 'node scripts/check-deep.mjs',
+      inner: `node ${primary('check-deep.mjs')}`,
     };
     const reached = reachPrimariesFromCommand('npm run guard', scripts);
-    const deep = reached.get('scripts/check-deep.mjs');
+    const deep = reached.get(primary('check-deep.mjs'));
     expect(deep, 'the deep primary must be reached at all').toBeDefined();
     expect(deep?.failable).toBe(false);
   });

@@ -43,6 +43,7 @@ import {
   verifyAdvisoryRatchet,
   assertAdvisoryRatchet,
   AdvisoryRatchetError,
+  ENFORCEMENT_PRIMARY_DIR,
   type AdvisoryEntry,
   type CiPathAnalysis,
   type DiscoveredAdvisory,
@@ -59,6 +60,16 @@ import { runKillProbe } from '../../../src/install/advisory-kill-probes.js';
 import { analyzeCiPathFilters, isNonFilteringIf, audit } from '../../../tools/audit/gates/check-enforcer-wiring.mjs';
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
+
+/**
+ * A seeded enforcement primary, addressed the way the scanner addresses one.
+ *
+ * The scan only recognizes primaries under `ENFORCEMENT_PRIMARY_DIR`, so a
+ * fixture that spells the prefix itself silently stops being seen when the tree
+ * moves — and "no softening sites found" is indistinguishable from "clean".
+ * Deriving from the exported constant makes the fixture move with the scanner.
+ */
+const primary = (name: string): string => `${ENFORCEMENT_PRIMARY_DIR}/${name}`;
 
 /** A far-future clock so real registry expiries are never "in the past". */
 const CLOCK = new Date('2026-01-01T00:00:00Z');
@@ -373,7 +384,7 @@ describe('discoverSofteningSites', () => {
       repoRoot: REPO_ROOT,
       fs: memFs({
         'package.json': pkg({
-          'lint:rogue': 'node scripts/lint-rogue.mjs content/',
+          'lint:rogue': `node ${primary('lint-rogue.mjs')} content/`,
           guard: 'node dist/guard.js && (npm run lint:rogue || true) && npm run other',
         }),
       }),
@@ -382,7 +393,7 @@ describe('discoverSofteningSites', () => {
     expect(found[0]).toMatchObject({
       file: 'package.json',
       kind: 'or-true',
-      target: 'scripts/lint-rogue.mjs',
+      target: primary('lint-rogue.mjs'),
     });
   });
 
@@ -391,13 +402,15 @@ describe('discoverSofteningSites', () => {
       repoRoot: REPO_ROOT,
       fs: memFs({
         'package.json': pkg({}),
-        'scripts/run-gates.sh': ['#!/usr/bin/env bash', 'bash scripts/check-rogue.sh || true', ''].join(
-          '\n',
-        ),
+        [primary('run-gates.sh')]: [
+          '#!/usr/bin/env bash',
+          `bash ${primary('check-rogue.sh')} || true`,
+          '',
+        ].join('\n'),
       }),
     });
     expect(found).toHaveLength(1);
-    expect(found[0]).toMatchObject({ file: 'scripts/run-gates.sh', kind: 'or-true' });
+    expect(found[0]).toMatchObject({ file: primary('run-gates.sh'), kind: 'or-true' });
   });
 
   it('AdvisoryDiscovery_ShellIdiomOrTrue_IsNotASofteningSite', () => {
@@ -541,13 +554,13 @@ describe('scanCommandSoftening', () => {
 
   it('SofteningScan_ObserveOnAnEnforcementInvocation_IsASite', () => {
     const sites = scanCommandSoftening(
-      'node scripts/check-x.mjs --observe',
+      `node ${primary('check-x.mjs')} --observe`,
       '.github/workflows/ci.yml',
       10,
       {},
     );
     expect(sites).toHaveLength(1);
-    expect(sites[0]).toMatchObject({ kind: 'observe', target: 'scripts/check-x.mjs', line: 10 });
+    expect(sites[0]).toMatchObject({ kind: 'observe', target: primary('check-x.mjs'), line: 10 });
   });
 });
 
@@ -946,7 +959,7 @@ describe('discoverAdvisories (injectable fs)', () => {
   it('AdvisoryDiscovery_FindsMarker_ExcludesSelf', () => {
     const fs = {
       listFiles: (root: string) =>
-        root.endsWith('scripts')
+        root.endsWith('tools')
           ? [join(REPO_ROOT, 'tools', 'audit', 'gates', 'lint-inv6.mjs'), join(REPO_ROOT, 'src', 'advisory-registry.ts')]
           : [],
       readFile: (abs: string) =>
@@ -966,7 +979,7 @@ describe('discoverAdvisories (injectable fs)', () => {
 // `unfilteredCiPath` claim is actually adjudicated. Testing only the model
 // would leave the wiring — the thing DR-15 is about — unasserted.
 
-const AUDIT_STEP = 'scripts/check-alpha.mjs';
+const AUDIT_STEP = primary('check-alpha.mjs');
 
 /** Minimal audit() input carrying one primary that claims an unfiltered path. */
 function auditFixture(workflowBody: string, overrides: Record<string, unknown> = {}) {

@@ -19,7 +19,7 @@
 // The two authorities this file compares are nonetheless real and independent:
 // the workflow YAML (`.github/workflows/**`) and the guard artifacts on disk.
 import { describe, it, expect } from 'vitest';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   REPO_ROOT,
@@ -39,6 +39,7 @@ import {
   indexShellIndirection,
   isEnforcingHost,
   isPathShaped,
+  isTestArtifact,
   joinShellContinuations,
   loadSuiteConfigs,
   loadWorkflows,
@@ -53,6 +54,7 @@ import {
   scanGuardSuiteRoots,
   scanMcpScriptGates,
   selfTestCandidates,
+  SELF_TEST_MIRRORS,
   shellCommandSegments,
   shellWords,
   stripShellComments,
@@ -750,6 +752,29 @@ describe('Derivations the inventory rests on', () => {
     expect(paired.length, 'no gate under scripts/ pairs with a real self-test').toBe(2);
   });
 
+  it('GuardInventory_EverySelfTestMirror_PairsSomethingReal', () => {
+    // Each mirror arm claims "suites for this tree live over there". An arm
+    // whose source tree moved keeps returning candidate paths — they just stop
+    // existing, and unpaired reads as "no self-test" rather than as an error.
+    // Task 036 left the `scripts/core` arm pointing at a deleted directory and
+    // only the fail-closed enumerate caught it; the arms that merely PAIR have
+    // no such backstop, so assert each one still lands on a real file.
+    for (const [from, to] of SELF_TEST_MIRRORS) {
+      const sourceDir = join(REPO_ROOT, from);
+      expect(existsSync(sourceDir), `mirror source ${from} does not exist`).toBe(true);
+
+      const artifacts = readdirSync(sourceDir, { withFileTypes: true })
+        .filter((e) => e.isFile() && /\.([cm]?[jt]s|sh)$/.test(e.name))
+        .map((e) => `${from}${e.name}`)
+        .filter((rel) => !isTestArtifact(rel));
+
+      const pairs = artifacts.filter((rel) =>
+        selfTestCandidates(rel).some((c) => existsSync(join(REPO_ROOT, c))),
+      );
+      expect(pairs.length, `mirror ${from} → ${to} pairs nothing on disk`).toBeGreaterThan(0);
+    }
+  });
+
   it('HostResolution_NpmScriptChain_IsWalkedTransitively', () => {
     // The class-2 `unreachable-npm` trap: the guard is never named in the
     // workflow, only two npm-script hops away from it.
@@ -1211,7 +1236,14 @@ describe('Historical spec paths resolve against the current tree', () => {
     // inventory exists to detect elsewhere — so each target is stat-ed.
     expect(HISTORICAL_PATH_REWRITES.length).toBeGreaterThan(0);
     for (const [from, to] of HISTORICAL_PATH_REWRITES) {
-      expect(from.startsWith('servers/exarchos-mcp/'), `${from} is not a dissolved-package path`).toBe(true);
+      // The `from` side names a tree that no longer exists — that is what makes
+      // it historical. Asserting the SOURCE is gone is the half that keeps the
+      // table from accumulating rules that shadow a live path; asserting the
+      // TARGET exists is the half that keeps a rule from resolving nothing.
+      // (This used to require every `from` to sit under the one dissolved MCP
+      // package. Task 036 dissolved `scripts/` too, and a table that can only
+      // describe one historical move is a table the next move outgrows.)
+      expect(onDisk(from), `rewrite source ${from} still exists — it is not historical`).toBe(false);
       // The catch-all maps onto the repo root, which is trivially present.
       if (to === '') continue;
       expect(onDisk(to), `rewrite target ${to} (from ${from}) does not exist`).toBe(true);

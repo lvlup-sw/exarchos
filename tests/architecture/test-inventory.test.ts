@@ -115,6 +115,12 @@ const FORMER_TEST_ROOTS: ReadonlyArray<{ prefix: string; task: string }> = [
   { prefix: 'test/', task: '032' },
   { prefix: 'benchmarks/', task: '033' },
   { prefix: 'docs/evals/', task: '033' },
+  // Task 036 folded these two into `tools/`. `migrations/` moved with them but
+  // is deliberately absent: it carried no test file, so it has no ledger
+  // entries, and listing it would trip the empty-denominator check below —
+  // correctly, since there would be nothing there to reconcile.
+  { prefix: 'eslint-rules/', task: '036' },
+  { prefix: 'renovate-config/', task: '036' },
 ];
 
 describe('test inventory', () => {

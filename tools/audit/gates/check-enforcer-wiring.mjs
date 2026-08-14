@@ -2,14 +2,14 @@
 /**
  * Enforcer-wiring gate (task 011, DR-5 / DR-8).
  *
- * A name-grep can tell you a `scripts/check-*` gate EXISTS. It cannot tell you
+ * A name-grep can tell you a `tools/audit/gates/check-*` gate EXISTS. It cannot tell you
  * the gate is actually WIRED so that a real regression fails CI. This gate
  * closes that gap by TRANSITIVELY walking npm-script chains and CI workflow
  * run-steps, inspecting per-term exit-code handling, and reconciling every
  * primary against a manifest of dispositions. It models four trap classes a
  * grep is blind to:
  *
- *   1. orphan               — a `scripts/check-*|lint-*` primary that no
+ *   1. orphan               — a `tools/audit/gates/check-*|lint-*` primary that no
  *                             workflow references at all.
  *   2. unreachable-npm      — referenced only from an npm script that no
  *                             workflow invokes (e.g. `npm run validate`, which
@@ -58,6 +58,28 @@ import process from 'node:process';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, '..', '..', '..');
+
+/**
+ * The repo-relative directory every primary lives in — the single place this
+ * gate's vocabulary is spelled. The recognizer regex, the paths
+ * `enumeratePrimaryFiles` reports, and the self-test's synthetic fixtures all
+ * derive from it, so a future relocation cannot leave one of the three behind
+ * speaking the old prefix while the others move. Task 036 is exactly that
+ * failure: the regex moved to `tools/audit/gates/` and the enumerator kept
+ * emitting `scripts/`, so every primary on disk read as unlisted while every
+ * manifest entry read as missing from disk.
+ */
+export const PRIMARY_DIR = 'tools/audit/gates';
+
+/**
+ * Recognizes a primary reference inside a command string. Built from
+ * `PRIMARY_DIR` rather than restating it — `matchAll` clones the regex before
+ * iterating, so sharing one instance across calls is safe.
+ */
+const PRIMARY_REF_RE = new RegExp(
+  `${PRIMARY_DIR.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/((?:check|lint)-[A-Za-z0-9._-]+?)\\.(mjs|sh)\\b`,
+  'g',
+);
 const VALID_DISPOSITIONS = new Set(['gating', 'advisory', 'retired']);
 
 // ─── Command exit-code analysis ────────────────────────────────────────────
@@ -153,10 +175,8 @@ function extractRefsFromAtom(atom, failable, out) {
   for (const m of atom.matchAll(/\bnpm\s+run\s+([A-Za-z0-9:_.-]+)/g)) {
     out.push({ type: 'npm', name: m[1], failable });
   }
-  for (const m of atom.matchAll(
-    /tools\/audit\/gates\/((?:check|lint)-[A-Za-z0-9._-]+?)\.(mjs|sh)\b/g,
-  )) {
-    const rel = `tools/audit/gates/${m[1]}.${m[2]}`;
+  for (const m of atom.matchAll(PRIMARY_REF_RE)) {
+    const rel = `${PRIMARY_DIR}/${m[1]}.${m[2]}`;
     // A co-located `*.test.sh` / `*.test.mjs` self-test is NOT the primary.
     if (/\.test\.(mjs|sh)$/.test(rel)) continue;
     out.push({ type: 'script', path: rel, failable });
@@ -1096,13 +1116,13 @@ export function audit({ manifest, scripts, workflows, primaryFiles }) {
 
 // ─── Filesystem adapters (used only by the CLI) ─────────────────────────────
 
-/** @param {string} scriptsDir @returns {string[]} repo-relative primary paths */
-export function enumeratePrimaryFiles(scriptsDir) {
+/** @param {string} primaryDir @returns {string[]} repo-relative primary paths */
+export function enumeratePrimaryFiles(primaryDir) {
   /** @type {string[]} */
   const out = [];
   let entries;
   try {
-    entries = readdirSync(scriptsDir, { withFileTypes: true });
+    entries = readdirSync(primaryDir, { withFileTypes: true });
   } catch {
     return out;
   }
@@ -1110,7 +1130,7 @@ export function enumeratePrimaryFiles(scriptsDir) {
     if (!e.isFile()) continue;
     if (!/^(check|lint)-.+\.(mjs|sh)$/.test(e.name)) continue;
     if (/\.test\.(mjs|sh)$/.test(e.name)) continue;
-    out.push(`scripts/${e.name}`);
+    out.push(`${PRIMARY_DIR}/${e.name}`);
   }
   return out.sort();
 }
@@ -1160,7 +1180,7 @@ function printHelp() {
     [
       'Usage: node tools/audit/gates/check-enforcer-wiring.mjs [--manifest <path>] [--repo-root <path>]',
       '',
-      'Verifies every scripts/check-*|lint-* primary is dispositioned in the manifest and',
+      `Verifies every ${PRIMARY_DIR}/check-*|lint-* primary is dispositioned in the manifest and`,
       'that each disposition holds under a transitive walk of npm chains + CI workflows.',
       '',
       'Exit codes: 0 clean, 1 violations / tool failure (fail closed), 2 usage error.',
@@ -1206,7 +1226,7 @@ function main() {
   let result;
   try {
     const workflows = loadWorkflows(path.join(repoRoot, '.github', 'workflows'));
-    const primaryFiles = enumeratePrimaryFiles(path.join(repoRoot, 'tools', 'audit', 'gates'));
+    const primaryFiles = enumeratePrimaryFiles(path.join(repoRoot, ...PRIMARY_DIR.split('/')));
     result = audit({ manifest, scripts, workflows, primaryFiles });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

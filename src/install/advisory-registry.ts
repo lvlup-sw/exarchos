@@ -596,8 +596,22 @@ export const SOFTENING_WORKFLOW_ROOT = '.github/workflows';
 /** Extensions scanned under {@link SOFTENING_SCRIPT_ROOTS}. */
 export const SOFTENING_SCRIPT_EXTENSIONS: readonly string[] = ['.mjs', '.sh', '.js', '.cjs'];
 
+/**
+ * Where enforcement primaries live — the single spelling this scan recognizes.
+ *
+ * Exported so a synthetic fixture can seed a path the scan will actually match
+ * instead of restating the prefix. A fixture that hard-codes it keeps passing
+ * against a vocabulary the scanner no longer speaks: after task 036 moved the
+ * tree, half this module's fixtures still seeded `scripts/` and the scan
+ * reported zero sites — an empty result that reads exactly like "clean".
+ */
+export const ENFORCEMENT_PRIMARY_DIR = 'tools/audit/gates';
+
 /** An enforcement primary: the class of thing whose exit code MATTERS. */
-const PRIMARY_PATH_RE = /tools\/audit\/gates\/(?:check|lint)-[A-Za-z0-9._-]+?\.(?:mjs|sh)/g;
+const PRIMARY_PATH_RE = new RegExp(
+  `${ENFORCEMENT_PRIMARY_DIR.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/(?:check|lint)-[A-Za-z0-9._-]+?\\.(?:mjs|sh)`,
+  'g',
+);
 
 /** `npm run <name>` reference. */
 const NPM_RUN_RE = /\bnpm\s+run\s+([A-Za-z0-9:_.-]+)/g;

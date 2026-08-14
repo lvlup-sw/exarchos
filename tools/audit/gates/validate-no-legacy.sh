@@ -110,7 +110,7 @@ cd "$REPO_ROOT"
 # fails CLOSED on an unallowlisted violation, an expired allowlist entry, a
 # missing knip binary, or unparseable knip output.
 KNIP_INCLUDE="files,dependencies,exports,types"
-KNIP_DIFF="$SCRIPT_DIR/audit/knip-diff.ts"
+KNIP_DIFF="$SCRIPT_DIR/../knip-diff.ts"
 
 # Prefer the project-local tsx (installed via `npm ci`); fall back to
 # `npx --no-install` so we never silently re-hit the network on CI.
