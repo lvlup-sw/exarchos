@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1160,
-    "parsedFiles": 1115,
+    "testFiles": 1161,
+    "parsedFiles": 1116,
     "shellFiles": 45,
-    "cases": 12786,
+    "cases": 12797,
     "dynamicTitles": 131,
     "unparseableFiles": 0
   },
@@ -4926,6 +4926,21 @@
       "file": "tests/architecture/dead-code-allowlist.test.ts",
       "runner": "vitest:root",
       "cases": [
+        {
+          "suite": "DeadCode_AfterRetarget_DetectorCoversTheNewTree",
+          "name": "the two workspaces collapsed to one",
+          "dynamic": false
+        },
+        {
+          "suite": "DeadCode_AfterRetarget_DetectorCoversTheNewTree",
+          "name": "every source root of the six-directory tree is inside the project glob",
+          "dynamic": false
+        },
+        {
+          "suite": "DeadCode_AfterRetarget_DetectorCoversTheNewTree",
+          "name": "every declared glob matches at least one file that exists",
+          "dynamic": false
+        },
         {
           "suite": "DeadCodeAllowlist_EveryEntry_CarriesOwnerAndExpiry",
           "name": "the ledger is non-empty, so these checks are not vacuous",
@@ -13346,6 +13361,11 @@
         {
           "suite": "dev-catalog reference paths — #1478 existence guard",
           "name": "devCatalog_everyReferencePathExistsOnDisk",
+          "dynamic": false
+        },
+        {
+          "suite": "dev-catalog reference paths — #1478 existence guard",
+          "name": "InvariantCatalog_AfterHotspotDecomposition_StillResolves",
           "dynamic": false
         }
       ]
@@ -72313,6 +72333,47 @@
         {
           "suite": "EventGrammarCensus_ConcessionUsage_IsSegmentScoped",
           "name": "a separator in a tail segment is an exercise of the concession",
+          "dynamic": false
+        }
+      ]
+    },
+    "tools/conformance/src/governance-liveness.test.ts": {
+      "file": "tools/conformance/src/governance-liveness.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "governance liveness",
+          "name": "the census scanned a real tree",
+          "dynamic": false
+        },
+        {
+          "suite": "governance liveness",
+          "name": "every register contributed surfaces",
+          "dynamic": false
+        },
+        {
+          "suite": "governance liveness",
+          "name": "Codeowners_EveryPattern_MatchesAtLeastOneTrackedFile",
+          "dynamic": false
+        },
+        {
+          "suite": "governance liveness",
+          "name": "FilesArray_EveryEntry_ExistsOnDisk",
+          "dynamic": false
+        },
+        {
+          "suite": "governance liveness",
+          "name": "ManifestComponents_EverySource_ExistsOnDisk",
+          "dynamic": false
+        },
+        {
+          "suite": "governance liveness",
+          "name": "GovernanceLiveness_StalePattern_FailsClosed",
+          "dynamic": false
+        },
+        {
+          "suite": "governance liveness",
+          "name": "the report names every dead surface it found",
           "dynamic": false
         }
       ]

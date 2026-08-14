@@ -43,21 +43,26 @@ const EXEMPTIONS: Record<string, Exemption> = {
   'src/verbs/gates': {
     reason:
       'One module per quality gate — small, independent, uniform. Breadth here is a count of ' +
-      'gates, not coupling. Task 051 splits it by gate family; until then the count is pinned ' +
-      'so adding a gate is a deliberate act rather than a drift.',
+      'gates, not coupling, which is the honest case for an exemption. Reducing it means grouping ' +
+      'the gates into families under subdirectories; until someone does, the count is pinned so ' +
+      'adding a gate is a deliberate act rather than a drift.',
     grantedAt: 39,
   },
   'src/workflow': {
     reason:
-      'The workflow HSM and its primitives. This IS the orchestrate/ failure mode in miniature ' +
-      'and is owed a decomposition (task 050) — recorded rather than suppressed so the number ' +
-      'is quotable and cannot grow in the meantime.',
+      'The workflow HSM and its primitives. This IS the orchestrate/ failure mode in miniature. ' +
+      'The composite-surface decomposition did NOT reduce it and was never going to: splitting ' +
+      '`tools.ts` into `handlers/` replaced one large file with a small barrel plus a ' +
+      'subdirectory, and own-level counts do not see subdirectories. Reducing this number means ' +
+      'moving modules OUT of this level, which is different work. Recorded rather than ' +
+      'suppressed so the number stays quotable and cannot grow in the meantime.',
     grantedAt: 35,
   },
   'src/workflow/admission': {
     reason:
-      'Admission-control policy modules, largely declarative and independently testable. Owed ' +
-      'the same decomposition pass as its parent (task 050).',
+      'Admission-control policy modules, largely declarative and independently testable. Owed the ' +
+      'same grouping pass as its parent, and unchanged by the composite-surface split for the ' +
+      'same reason: nothing moved out of this level.',
     grantedAt: 30,
   },
 };

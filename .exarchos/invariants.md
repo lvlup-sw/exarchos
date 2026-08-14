@@ -640,7 +640,7 @@ invariants:
     references:
       - docs/architecture/invariants/references/INV-5a-input-ergonomics.md
       - src/verbs/gates/check-invariant-conformance.ts
-      - src/registry.ts
+      - src/registry/actions
       - src/adapters/cli/schema-to-flags.ts
 
   - id: INV-5b
@@ -730,7 +730,7 @@ invariants:
     references:
       - docs/architecture/invariants/references/INV-5d-action-discriminator.md
       - src/verbs/gates/check-invariant-conformance.ts
-      - src/registry.ts
+      - src/registry/tools.ts
       - src/adapters/mcp/mcp.ts
 
   - id: INV-6
@@ -877,7 +877,7 @@ invariants:
       INV-17 is the response-economy specialization of that output-contract
       totality obligation."
     references:
-      - src/registry.ts
+      - src/registry/hints.ts
       - src/dispatch/core/dispatch.ts
       - src/dispatch/core/dispatch.economy-seam.ts
       - src/dispatch/core/economy.ts

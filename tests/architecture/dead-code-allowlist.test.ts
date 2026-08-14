@@ -51,6 +51,59 @@ const STUB_RATIONALE = /^(n\/?a|tbd|todo|fixme|wip|unused|dead|legacy|see above|
  */
 const MIN_RATIONALE_CHARS = 49;
 
+describe('DeadCode_AfterRetarget_DetectorCoversTheNewTree', () => {
+  // A dead-code detector aimed at a directory that no longer exists reports no
+  // dead code, and reads exactly like a clean tree. Every other check in this
+  // file is downstream of the detector having looked at something, so the
+  // globs are checked against the LIVE tree rather than trusted.
+  const knip = JSON.parse(readFileSync(path.join(REPO_ROOT, 'knip.json'), 'utf8')) as {
+    workspaces: Record<string, { entry: string[]; project: string[] }>;
+  };
+
+  const workspaceIds = Object.keys(knip.workspaces);
+
+  it('the two workspaces collapsed to one', () => {
+    // Two workspace blocks meant two half-configured detectors, each able to
+    // pass by scanning the half it could see.
+    expect(workspaceIds).toEqual(['.']);
+  });
+
+  it('every source root of the six-directory tree is inside the project glob', () => {
+    const globs = knip.workspaces['.']?.project ?? [];
+    // Positive patterns only: a `!` entry narrows the scan, and a root
+    // "covered" solely by an exclusion is not covered at all.
+    const positive = globs.filter((g) => !g.startsWith('!'));
+    for (const root of ['src/', 'tests/', 'tools/']) {
+      expect(
+        positive.some((g) => g.startsWith(root)),
+        `knip's project glob does not reach ${root} — the detector cannot see that tree`,
+      ).toBe(true);
+    }
+  });
+
+  it('every declared glob matches at least one file that exists', () => {
+    // The stale-glob tooth. A pattern that matches nothing contributes nothing
+    // and looks identical to one that found no findings.
+    const all = [
+      ...(knip.workspaces['.']?.entry ?? []),
+      ...(knip.workspaces['.']?.project ?? []),
+    ].filter((g) => !g.startsWith('!'));
+
+    expect(all.length, 'no globs declared — the checks below would be vacuous').toBeGreaterThan(10);
+
+    const dead = all.filter((glob) => {
+      // Resolve the literal prefix (up to the first wildcard) and require it to
+      // exist. That is weaker than expanding the glob and strong enough to
+      // catch a root that was renamed or removed, which is the failure seen.
+      const literal = glob.split(/[*?[]/)[0] ?? '';
+      const base = literal.endsWith('/') ? literal.slice(0, -1) : path.dirname(literal);
+      return base !== '' && base !== '.' && !existsSync(path.join(REPO_ROOT, base));
+    });
+
+    expect(dead, 'knip globs whose root does not exist — they scan nothing').toEqual([]);
+  });
+});
+
 describe('DeadCodeAllowlist_EveryEntry_CarriesOwnerAndExpiry', () => {
   it('the ledger is non-empty, so these checks are not vacuous', () => {
     expect(entries.length).toBeGreaterThan(0);

@@ -59,4 +59,43 @@ describe('dev-catalog reference paths — #1478 existence guard', () => {
       `catalog references that do not resolve on disk:\n  ${missing.join('\n  ')}`,
     ).toEqual([]);
   });
+
+  it('InvariantCatalog_AfterHotspotDecomposition_StillResolves', () => {
+    // Existence is the weaker half. When a module is decomposed, the published
+    // path survives as a re-export barrel, so every reference to it keeps
+    // resolving while pointing at a file that no longer states anything. A
+    // reader following the citation lands on a list of `export … from`.
+    //
+    // So a reference to a TypeScript module must name one that DECLARES
+    // something. This is what makes the catalog survive a decomposition
+    // honestly rather than merely quietly.
+    const entries = loadInvariants(INVARIANTS_DOC, { scope: 'all' }, ENABLED_CONFIG);
+
+    const tsRefs = entries.flatMap((entry) =>
+      entry.references
+        .map((ref) => ({ id: entry.id, p: pathPart(ref).trim() }))
+        .filter(({ p }) => p.endsWith('.ts')),
+    );
+
+    // Denominator: a catalog citing no source at all would pass the filter
+    // below without checking anything.
+    expect(tsRefs.length, 'the catalog cites no TypeScript module').toBeGreaterThan(5);
+
+    const DECLARES = /^\s*(export\s+)?(async\s+)?(const|let|function|class|interface|type|enum)\s/m;
+
+    const barrels = tsRefs
+      .filter(({ p }) => {
+        const abs = path.resolve(REPO_ROOT, p);
+        if (!fs.existsSync(abs) || fs.statSync(abs).isDirectory()) return false;
+        return !DECLARES.test(fs.readFileSync(abs, 'utf8'));
+      })
+      .map(({ id, p }) => `${id} → ${p}`);
+
+    expect(
+      barrels,
+      'catalog references pointing at a pure re-export barrel. The path resolves, but a reader ' +
+        'following it finds no declaration. Cite the module that DECLARES the thing the ' +
+        'invariant constrains:\n  ' + barrels.join('\n  '),
+    ).toEqual([]);
+  });
 });
