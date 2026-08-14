@@ -529,13 +529,26 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
   allowance(
     ROOT_LAYER,
     [
-      'adapters', 'config', 'contract', 'dispatch', 'events', 'lifecycle',
-      'projections', 'runtime', 'storage', 'utils', 'verbs', 'workflow',
+      'adapters', 'contract', 'dispatch', 'events', 'lifecycle',
+      'projections', 'registry', 'storage', 'utils', 'verbs', 'workflow',
     ],
-    'The shared-root surface itself, governable for the first time (task 040 removed the exclusion). ' +
-      'Dominated by `registry.ts`, the largest module in the tree — every edge here is one it or a ' +
-      'sibling root file draws, and the row is what makes decomposing it a measurable change rather ' +
-      'than an invisible one.',
+    'The shared-root surface itself. It was dominated by `registry.ts`, the largest module in the ' +
+      'tree, and this row is what made decomposing it a MEASURABLE change: when the declarations ' +
+      'moved into `registry/`, the `config` and `runtime` edges here went stale and had to be ' +
+      'dropped, because the only root file drawing them was the one that moved. What is left is ' +
+      'what the remaining root files genuinely draw, plus the single edge to `registry` itself.',
+  ),
+  allowance(
+    'registry',
+    [
+      'config', 'contract', 'events', 'projections', 'runtime', 'verbs', 'workflow', ROOT_LAYER,
+    ],
+    'The tool-declaration authority, split out of the root surface. It is WIDE and cannot honestly ' +
+      'be narrow: an action declares the schema of what it accepts, so the declarations reference ' +
+      'schema shapes owned by nearly every layer they describe. The edges are references to ' +
+      'SCHEMAS, not calls into behavior, which is the distinction that makes this width acceptable ' +
+      'where the same set would be alarming on a layer that executes. Governed rather than left ' +
+      'implicit so a declaration that starts importing a handler trips the row.',
   ),
   allowance(
     'adapters',
@@ -987,11 +1000,14 @@ export const DECLARATION_SEAM: DeclarationSeamRule = Object.freeze({
 
   storage: Object.freeze([
     storageSite(
-      'registry.ts',
+      'registry/tools.ts',
       'TOOL_REGISTRY',
       'Holds the ACTION and CLI-VERB declarations: every composite tool with its per-action ' +
-        'contract and `cli` hints. Its own header names it "the DECLARATION AUTHORITY", which ' +
-        'is exactly why a declaration consumer must not read it directly.',
+        'contract and `cli` hints. The registry directory names itself "the DECLARATION ' +
+        'AUTHORITY", which is exactly why a declaration consumer must not read it directly. ' +
+        'This names the module that ASSEMBLES the registry, not the `registry.ts` barrel ' +
+        'consumers import: the barrel re-exports a star, so a name-based resolution check ' +
+        'cannot see the symbol through it and would read clean against a store that had moved.',
     ),
     storageSite(
       'events/schemas.ts',

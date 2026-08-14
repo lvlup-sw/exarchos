@@ -4,8 +4,8 @@
   "source": "src",
   "authority": "docs/system-design.html is the canonical L1-L9 architecture; this file maps the tree onto it. Task 044 asserts THIS mapping, not set equality, which is why the 11 targets -> 9 published layers relation is written out rather than inferred.",
   "counts": {
-    "directories": 26,
-    "mapped": 24,
+    "directories": 27,
+    "mapped": 25,
     "exceptions": 2,
     "targets": 11,
     "publishedLayers": 9
@@ -160,6 +160,12 @@
       "target": "verbs",
       "layer": "L6",
       "reason": "Prune coordinator and scoring are a composite-tool action."
+    },
+    "registry": {
+      "disposition": "mapped",
+      "target": "contract",
+      "layer": "L5",
+      "reason": "The tool-declaration authority, decomposed out of one 4,587-line module. Classified with the contract half of L5 because the contract compiler derives its meta-model from these declarations. It keeps its own directory at the root of src/ rather than nesting under contract/: every layer's schemas feed INTO the declarations, so nesting would point the contract layer's import surface at the whole tree."
     },
     "review": {
       "disposition": "mapped",

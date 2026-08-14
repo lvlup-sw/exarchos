@@ -32,7 +32,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as path from 'node:path';
 import { mkdtemp } from 'node:fs/promises';
@@ -229,13 +229,37 @@ async function callTopLevel(
 // `lifecycle*Field` / `followField` shapes); reading that source and asserting
 // the import + each verb's binding is the load-bearing DR-8 check.
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const REGISTRY_SRC = readFileSync(path.join(HERE, '../../../../src/registry.ts'), 'utf8');
+const REGISTRY_DIR = path.join(HERE, '../../../../src/registry');
+
+/**
+ * The registry's modules, concatenated. The binding seam is the DECLARATION
+ * SURFACE rather than any one file: the action lists are split per family, so
+ * a check pinned to one path would stop seeing the bindings it exists to
+ * assert and pass by finding nothing.
+ */
+function readRegistrySources(dir = REGISTRY_DIR): string {
+  return readdirSync(dir, { withFileTypes: true })
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((e) => {
+      const abs = path.join(dir, e.name);
+      if (e.isDirectory()) return readRegistrySources(abs);
+      return e.name.endsWith('.ts') ? readFileSync(abs, 'utf8') : '';
+    })
+    .join('\n');
+}
+
+const REGISTRY_SRC = readRegistrySources();
 
 function assertSharedSchemaFieldsSoT(): void {
-  // The SoT import itself.
+  // Denominator: an empty corpus would satisfy every `includes` below by
+  // never being consulted, so the read itself is asserted first.
+  expect(REGISTRY_SRC.length, 'the registry source corpus is empty').toBeGreaterThan(10_000);
+
+  // The SoT import itself. Matched on the trailing segment because the
+  // specifier's leading `../` count varies with each module's depth.
   expect(
-    REGISTRY_SRC.includes(`from './projections/views/lifecycle/schema-fields.js'`),
-    'registry.ts must import the shared lifecycle schema-fields SoT',
+    REGISTRY_SRC.includes(`projections/views/lifecycle/schema-fields.js'`),
+    'the registry must import the shared lifecycle schema-fields SoT',
   ).toBe(true);
 
   // Each promoted verb binds at least one shared field from that SoT.

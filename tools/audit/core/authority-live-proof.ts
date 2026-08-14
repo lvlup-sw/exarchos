@@ -602,7 +602,10 @@ export const EVENT_CATALOG_SOURCES: {
   // The fix is to measure the structural fact — the tier/lifecycle pair each event declares —
   // and to derive the source through the SHIPPED derivation rather than restating it here.
   annotations: 'src/events/event-annotations.ts',
-  autoEmits: 'src/registry.ts',
+  // The action descriptors, which is where `autoEmits` rows live. A DIRECTORY,
+  // not a file: the declarations are split into a module per action family, so
+  // any single path would measure a fraction of the representation.
+  autoEmits: 'src/registry/actions',
   phaseExpectedEvents: 'src/verbs/gates/check-event-emissions.ts',
   // The AUTHORED skills tree. `skills/<runtime>/` is generated from it, so
   // measuring both would count one representation several times.
@@ -617,6 +620,26 @@ export interface EventCatalogSources {
   readonly docs: readonly SkillDoc[];
 }
 
+/** Every `.ts` under `dir`, concatenated in a stable order. */
+function readTypeScriptTree(dir: string): string {
+  return readdirSync(dir, { withFileTypes: true })
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((entry) => {
+      const abs = path.join(dir, entry.name);
+      if (entry.isDirectory()) return readTypeScriptTree(abs);
+      return entry.isFile() && entry.name.endsWith('.ts') ? readFileSync(abs, 'utf8') : '';
+    })
+    .join('\n');
+}
+
+/**
+ * Read a representation's source. A representation may be one file or a
+ * DIRECTORY of them: `autoEmits` rows are declared on action descriptors, and
+ * those are split across a module per action family. Naming the directory
+ * keeps the measurement over the whole representation, where naming one file
+ * would silently shrink the denominator every time a family is split out —
+ * the empty-denominator guard catches the total loss, but not a partial one.
+ */
 function readOrThrow(repoRoot: string, rel: string): string {
   const abs = path.join(repoRoot, rel);
   if (!existsSync(abs)) {
@@ -625,7 +648,7 @@ function readOrThrow(repoRoot: string, rel: string): string {
         'moved or renamed; refusing to report a measurement over a file that is not there.',
     );
   }
-  return readFileSync(abs, 'utf8');
+  return statSync(abs).isDirectory() ? readTypeScriptTree(abs) : readFileSync(abs, 'utf8');
 }
 
 function walkMarkdown(dir: string, repoRoot: string, out: SkillDoc[]): SkillDoc[] {

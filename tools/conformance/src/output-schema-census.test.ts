@@ -24,7 +24,8 @@
 //
 // @oracle-sources: ../../../src/registry.ts, the Zod schema objects the live tool registry constructs at module-import time and the census walks structurally
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { z } from 'zod';
 import { fromSubjectSrc } from './subject-root.js';
 import {
@@ -58,7 +59,31 @@ import { EnvelopeSchema } from '../../../src/contract/schemas/envelope.js';
 // still distinguishes them — which is what keeps the "aliased vacuity" finding
 // auditable from the source side rather than only from the object walk.
 
-const REGISTRY_SRC = fromSubjectSrc('registry.ts');
+/**
+ * The declaration surface. A DIRECTORY, because the declarations are split
+ * into a module per action family: reading a single path would enumerate a
+ * fraction of the authority and the census would report a clean count of the
+ * part it happened to see. `OutputSchemaCensus_ZeroDeclarationsEnumerated_
+ * FailsClosed` asserts the denominator, so a TOTAL loss is caught — naming the
+ * directory is what also catches a partial one.
+ *
+ * The whole `registry/` tree, not just `actions/`: the three shared `describe`
+ * actions are minted by factories that sit beside the action lists rather than
+ * inside them, and scoping to `actions/` alone silently lost exactly those
+ * three sites — 107 enumerated against 110 walked.
+ */
+const REGISTRY_DIR = fromSubjectSrc('registry');
+
+function readRegistryActionSources(dir = REGISTRY_DIR): string {
+  return readdirSync(dir, { withFileTypes: true })
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((e) => {
+      const abs = join(dir, e.name);
+      if (e.isDirectory()) return readRegistryActionSources(abs);
+      return e.name.endsWith('.ts') ? readFileSync(abs, 'utf8') : '';
+    })
+    .join('\n');
+}
 
 interface DeclarationSite {
   /** Action name this `outputSchema:` belongs to. */
@@ -70,7 +95,7 @@ interface DeclarationSite {
 function readDeclarationSites(): readonly DeclarationSite[] {
   const sites: DeclarationSite[] = [];
   let currentName = '<unknown>';
-  for (const line of readFileSync(REGISTRY_SRC, 'utf8').split('\n')) {
+  for (const line of readRegistryActionSources().split('\n')) {
     const named = /^ {4}name: '([^']+)'/.exec(line);
     if (named?.[1] !== undefined) {
       currentName = named[1];

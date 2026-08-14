@@ -346,7 +346,7 @@ export const BOUNDARY_HOP_EVIDENCE: BoundaryHopEvidence = Object.freeze({
           // where they are DECLARED, and this subject list follows it — which is the whole point of
           // deriving the list from the oracle's own sources rather than restating it.
           'src/events/event-annotations.ts',
-          'src/registry.ts',
+          'src/registry/actions',
           'src/verbs/gates/check-event-emissions.ts',
           'content',
         ]),
@@ -368,7 +368,7 @@ export const BOUNDARY_HOP_EVIDENCE: BoundaryHopEvidence = Object.freeze({
           // where they are DECLARED, and this subject list follows it — which is the whole point of
           // deriving the list from the oracle's own sources rather than restating it.
           'src/events/event-annotations.ts',
-          'src/registry.ts',
+          'src/registry/actions',
           'src/verbs/gates/check-event-emissions.ts',
           'content',
         ]),

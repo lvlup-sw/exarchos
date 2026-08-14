@@ -29,7 +29,7 @@
 //
 // @oracle-sources: ../../src/output-schema-vacuity-allowlist.ts, ../../tools/conformance/src/output-schema-seed-pin.ts, the Zod schema objects the live tool registry constructs at module-import time and the census walks structurally
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
@@ -63,8 +63,30 @@ import { TOOL_REGISTRY } from '../../src/registry.js';
 import { EnvelopeSchema } from '../../src/contract/schemas/envelope.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const REGISTRY_SRC = resolve(HERE, '../../src/registry.ts');
+const REGISTRY_DIR = resolve(HERE, '../../src/registry');
 const DECLARATION_SRC = resolve(HERE, '../../src/output-schema-declaration.ts');
+
+/**
+ * Every module of the registry, concatenated.
+ *
+ * The assertions below are claims about the DECLARATION SURFACE, not about one
+ * file, so the corpus is enumerated from the directory rather than named as a
+ * path. When the declarations lived in a single 4,587-line module a path was
+ * the same thing as the surface; now it is not, and a test pinned to one file
+ * would go quietly vacuous the next time a module is split out of it — passing
+ * because it found nothing to object to. The `declarationSites.length`
+ * assertion is the denominator that would catch an empty read.
+ */
+function readRegistrySources(dir = REGISTRY_DIR): string {
+  return readdirSync(dir, { withFileTypes: true })
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((e) => {
+      const full = resolve(dir, e.name);
+      if (e.isDirectory()) return readRegistrySources(full);
+      return e.name.endsWith('.ts') ? readFileSync(full, 'utf8') : '';
+    })
+    .join('\n');
+}
 
 const TYPED_DATA = z.object({ items: z.array(z.string()) });
 
@@ -121,7 +143,7 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
     // field really was narrowed away from the type that admitted everything.
     // (Scope note: `tsc` checks these; this assertion only stops a silent
     // deletion of the guard from reading as a pass here.)
-    const registrySrc = readFileSync(REGISTRY_SRC, 'utf8');
+    const registrySrc = readRegistrySources();
     expect(registrySrc).toContain('readonly outputSchema: DeclaredOutputSchema;');
     expect(registrySrc).toContain('_OutputSchemaNewActionDeclaringVacuousFailsCompile');
     expect(registrySrc).toContain('_OutputSchemaNewActionCannotBeWaived');
@@ -207,7 +229,7 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
     // the registry does not so much as IMPORT the escape. (Scope note: `tsc`
     // checks the aliases; these assertions only stop a silent deletion of the
     // guard from reading as a pass here.)
-    const registrySrc = readFileSync(REGISTRY_SRC, 'utf8');
+    const registrySrc = readRegistrySources();
     expect(registrySrc).toContain('_OutputSchemaRegistryActionUsingExtensionEscapeFailsCompile');
     expect(registrySrc).toContain('_OutputSchemaExtensionActionIsNotABuiltinDeclaration');
     expect(registrySrc).toContain('_OutputSchemaRegistryDoorRejectsUnnarrowedTools');
@@ -224,13 +246,29 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
     expect(registrySrc).toContain('_OutputSchemaCappedShapeSatisfiesTheField');
     expect(registrySrc).toContain('_OutputSchemaWaiverSatisfiesTheField');
 
-    // The door is the registry constant, not a per-array annotation: the five
-    // action arrays AND `TOOL_REGISTRY` itself are declared with the narrowed
-    // types, so a sixth `readonly ToolAction[]` array cannot be smuggled in.
+    // The door is the registry constant, not a per-array annotation:
+    // `TOOL_REGISTRY` and EVERY action array are declared with the narrowed
+    // types, so an array of the wide `ToolAction` cannot be smuggled in.
     expect(registrySrc).toContain('export const TOOL_REGISTRY: readonly BuiltinCompositeTool[]');
-    expect(registrySrc).not.toMatch(/^const \w+Actions: readonly ToolAction\[\] = \[/m);
-    expect([...registrySrc.matchAll(/^const \w+Actions: readonly BuiltinToolAction\[\] = \[/gm)])
-      .toHaveLength(5);
+
+    // Stated as "every array is narrow" rather than as a count. The count was
+    // five when one array backed each of the five tools; the lists are now
+    // split per action family, so a fixed number would have to be re-pinned on
+    // every split — and re-pinning a number teaches nothing about whether the
+    // door still holds. What holds the door is the TYPE, checked here on all of
+    // them.
+    const arrayDecls = [
+      ...registrySrc.matchAll(/^(?:export )?const (\w+Actions): readonly (\w+)\[\] = \[/gm),
+    ].map((m) => ({ name: m[1] ?? '', type: m[2] ?? '' }));
+
+    // Denominator: a corpus that matched nothing would satisfy the filter below.
+    expect(arrayDecls.length).toBeGreaterThanOrEqual(TOOL_REGISTRY.length);
+
+    expect(
+      arrayDecls.filter((d) => d.type !== 'BuiltinToolAction'),
+      'every action array must be declared `readonly BuiltinToolAction[]` — a wide ' +
+        '`ToolAction[]` array reaching the registry is the smuggling path this closes',
+    ).toEqual([]);
 
     const declarationSrc = readFileSync(DECLARATION_SRC, 'utf8');
     expect(declarationSrc).toContain('_OutputSchemaExtensionEscapeIsNotDeclared');

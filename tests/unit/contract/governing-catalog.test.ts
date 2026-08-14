@@ -232,7 +232,12 @@ describe('DR-26 — INV-11 keeps spatial write confinement EXCLUDED', () => {
  */
 const REPOINTED_CITATION_SITES: readonly string[] = Object.freeze([
   'adapters/cli/cli.ts',
-  'registry.ts',
+  // The registry's citation sits on the `update` action, which moved with the
+  // rest of the workflow action list when the declarations were split out of
+  // one module. The path names the module that CARRIES the citation, not the
+  // barrel consumers import: the barrel re-exports and holds no prose, so
+  // naming it would assert against a file that can never satisfy the check.
+  'registry/actions/workflow.ts',
   'workflow/composite.ts',
   'contract/cli/cli-contract-seam.ts',
 ]);

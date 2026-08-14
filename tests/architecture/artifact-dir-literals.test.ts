@@ -54,7 +54,20 @@ const PROSE_BUDGET: Readonly<Record<string, number>> = {
   'src/verbs/gates/design-completeness.ts': 1,
   'src/verbs/tasks/discover-bridge.ts': 1,
   'src/verbs/team/prepare-review.ts': 1,
-  'src/registry.ts': 1,
+  // These three replace a single `src/registry.ts: 1` entry. The registry's
+  // action declarations were split across modules and the count rose 1 -> 4
+  // with no new prose: the same six occurrences exist (four in descriptions,
+  // two in comments), verbatim.
+  //
+  // The old count was low because `stripComments` pairs `/*` with the NEXT
+  // `*/` across the whole file. Run against the 4,587-line original it blanked
+  // the regions three of the four sat in — measured directly: the original
+  // strips to one surviving line, the three modules below to four between
+  // them, from identical text. So this is the honest count becoming visible,
+  // and the budget it ratchets against is now a real one.
+  'src/registry/actions/workflow.ts': 1,
+  'src/registry/actions/orchestrate/gates.ts': 2,
+  'src/registry/actions/orchestrate/review-ops.ts': 1,
   'src/workflow/playbooks.ts': 2,
   'tests/helpers/preflight.ts': 1,
   'tools/audit/measure-reference-census.mjs': 1,
