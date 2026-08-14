@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { ChannelEmitter } from '../../../../src/adapters/channel/emitter.js';
-import { RequiredDeliveryError } from '../../../../src/adapters/channel/delivery.js';
+import { RequiredDeliveryError } from '../../../../src/events/channel/delivery.js';
 
 // Minimal mock of MCP Server's notification method
 function createMockServer() {

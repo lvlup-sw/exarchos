@@ -7,7 +7,7 @@ import {
   skipped,
   delivered,
   type DeliveryRequest,
-} from '../../../../src/adapters/channel/delivery.js';
+} from '../../../../src/events/channel/delivery.js';
 
 function request<P>(over: Partial<DeliveryRequest<P>> & { payload: P }): DeliveryRequest<P> {
   return {

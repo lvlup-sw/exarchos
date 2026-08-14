@@ -43,7 +43,7 @@ import {
   type CompositeTool,
   type ToolAction,
 } from '../../registry.js';
-import { zodToJsonSchema } from '../../adapters/json-schema.js';
+import { zodToJsonSchema } from '../../utils/json-schema.js';
 import { CONTRACT_SURFACE_VERSION } from '../compatibility.js';
 import { OUTPUT_KINDS } from '../envelope.js';
 import { layerCodes } from '../error-families.js';

@@ -15,7 +15,7 @@
 //   capabilities -> mcp -> dispatch -> capabilities.
 
 import type { z } from 'zod';
-import { zodToJsonSchema } from '../../adapters/json-schema.js';
+import { zodToJsonSchema } from '../../utils/json-schema.js';
 
 /**
  * Derive a JSON Schema describing only `field` of the given Zod input

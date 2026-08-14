@@ -95,10 +95,27 @@ function unaccountedFor(
   relocations: readonly { from: string; to: string }[],
 ): string[] {
   const relocated = new Map(relocations.map((r) => [r.from, r.to]));
+
+  // The ledger is APPEND-ONLY — every move task adds a hop rather than
+  // rewriting an existing one — so a file that has moved twice is recorded as
+  // two entries, and following one hop reports it as lost. A file relocated
+  // into `tests/` and later moved again within it is the ordinary case, not an
+  // exotic one. The `seen` set bounds the walk: a cycle would otherwise hang
+  // here, and a ledger can contain one by mistake.
+  const resolve = (start: string): string => {
+    let at = start;
+    const seen = new Set<string>([at]);
+    for (;;) {
+      const next = relocated.get(at);
+      if (next === undefined || seen.has(next)) return at;
+      seen.add(next);
+      at = next;
+    }
+  };
+
   return baselinePaths.filter((rel) => {
     if (current.has(rel)) return false;
-    const to = relocated.get(rel);
-    return to === undefined || !current.has(to);
+    return !current.has(resolve(rel));
   });
 }
 

@@ -1,4 +1,4 @@
-import { zodToJsonSchema } from '../adapters/json-schema.js';
+import { zodToJsonSchema } from '../utils/json-schema.js';
 import { resolveEconomyBudget } from '../registry.js';
 import type { ToolAction } from '../registry.js';
 import type { ToolResult } from '../format.js';

@@ -28,9 +28,9 @@ import { handleRunbook } from '../../../src/runbooks/handler.js';
 import { resolveSchemaRef } from '../../../src/adapters/cli/schema-introspection.js';
 import { computePrefixFingerprint } from '../../../src/projections/rehydration/fingerprint.js';
 import { StableSectionsSchema } from '../../../src/projections/rehydration/schema.js';
-import { zodToJsonSchema } from '../../../src/adapters/json-schema.js';
+import { zodToJsonSchema } from '../../../src/utils/json-schema.js';
 import { TOOL_REGISTRY } from '../../../src/registry.js';
-import { JSON_SCHEMA_2020_12_URI } from '../../../src/adapters/json-schema.js';
+import { JSON_SCHEMA_2020_12_URI } from '../../../src/utils/json-schema.js';
 
 // Zod v4 native emission stamps the spec-canonical `https://json-schema.org/draft-07/schema`
 // (no trailing `#`). The legacy `zod-to-json-schema` library emitted the `#`-suffixed

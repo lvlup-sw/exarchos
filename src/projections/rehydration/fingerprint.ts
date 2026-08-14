@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { zodToJsonSchema } from '../../adapters/json-schema.js';
+import { zodToJsonSchema } from '../../utils/json-schema.js';
 
 import { TOOL_REGISTRY, buildToolDescription } from '../../registry.js';
 import { StableSectionsSchema } from './schema.js';

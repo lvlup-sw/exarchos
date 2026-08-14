@@ -102,7 +102,7 @@ import {
   buildToolDescription,
   type CompositeTool,
 } from '../../registry.js';
-import { zodToJsonSchema } from '../../adapters/json-schema.js';
+import { zodToJsonSchema } from '../../utils/json-schema.js';
 import { handleDescribe } from '../../describe/handler.js';
 import { canonicalizeText } from '../authority-digest.js';
 import { canonicalJson } from '../request-context.js';

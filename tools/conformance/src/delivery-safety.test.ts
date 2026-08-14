@@ -82,7 +82,9 @@ describe('auditDeliverySafety — live required-delivery modules', () => {
   });
 
   it('scans exactly the declared required-delivery modules', () => {
-    expect(REQUIRED_DELIVERY_MODULES).toContain('adapters/channel/delivery.ts');
+    // The algebra under `events/`, the transport under `adapters/`. Both are
+    // required-delivery surfaces; only one of them is an IO facade.
+    expect(REQUIRED_DELIVERY_MODULES).toContain('events/channel/delivery.ts');
     expect(REQUIRED_DELIVERY_MODULES).toContain('adapters/channel/emitter.ts');
   });
 

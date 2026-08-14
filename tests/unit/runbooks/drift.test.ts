@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { zodToJsonSchema } from '../../../src/adapters/json-schema.js';
+import { zodToJsonSchema } from '../../../src/utils/json-schema.js';
 import { ALL_RUNBOOKS } from '../../../src/runbooks/definitions.js';
 import { findActionInRegistry, getFullRegistry } from '../../../src/registry.js';
 import { EVENT_EMISSION_REGISTRY } from '../../../src/events/schemas.js';

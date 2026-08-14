@@ -6,7 +6,7 @@
 //   resolved from the registry at serve-time.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { zodToJsonSchema } from '../adapters/json-schema.js';
+import { zodToJsonSchema } from '../utils/json-schema.js';
 import type { ToolResult } from '../format.js';
 import { findActionInRegistry } from '../registry.js';
 import { ALL_RUNBOOKS } from './definitions.js';

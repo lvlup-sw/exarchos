@@ -15,15 +15,15 @@
  *     structurally impossible to swallow a required delivery failure here.
  */
 
-import type { NotificationPriority } from './priority.js';
-import { shouldPush } from './priority.js';
+import type { NotificationPriority } from '../../events/channel/priority.js';
+import { shouldPush } from '../../events/channel/priority.js';
 import { formatNotification, type ChannelNotification } from './formatter.js';
 import {
   deliver,
   skipped,
   type DeliveryOutcome,
   type DeliveryRequirement,
-} from './delivery.js';
+} from '../../events/channel/delivery.js';
 
 interface ServerLike {
   notification(notification: { method: string; params?: Record<string, unknown> }): Promise<void>;

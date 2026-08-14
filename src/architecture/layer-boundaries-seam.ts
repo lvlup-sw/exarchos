@@ -405,15 +405,19 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
   allowance('hooks', ['config'], 'Hook wiring reads only config; hooks are an advisory side-channel.'),
   allowance(
     'runbooks',
-    ['adapters', ROOT_LAYER],
-    'Runbooks render only through the adapters IO facade, plus the shared root surface.',
+    ['utils', ROOT_LAYER],
+    'Runbooks render through a schema utility and the shared root surface. The edge to the adapters ' +
+      'IO facade is gone — it existed only to reach a pure Zod-to-JSON-Schema converter that was ' +
+      'filed under `adapters/` and is now a foundation leaf.',
   ),
   allowance(
     'projections',
     [
       // `capabilities` is gone from this set because task 020 moved it under
-      // `workflow/`, which projections already reaches.
-      'adapters', 'architecture', 'config', 'contract', 'describe',
+      // `workflow/`, which projections already reaches. `adapters` is gone for
+      // a different reason: the only edge was a pure schema converter filed
+      // under the IO facade, now a foundation leaf.
+      'architecture', 'config', 'contract', 'describe',
       'dispatch', 'events', 'verbs', 'stack', 'storage', 'utils', 'workflow',
       ROOT_LAYER,
     ],
@@ -478,8 +482,9 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
   ),
   allowance(
     'describe',
-    [ROOT_LAYER, 'adapters', 'config', 'events', 'workflow'],
-    'Self-description renders the workflow + event vocabulary through the adapters facade.',
+    [ROOT_LAYER, 'config', 'events', 'utils', 'workflow'],
+    'Self-description renders the workflow + event vocabulary. Its edge to the adapters facade was ' +
+      'only the schema converter, which is now a foundation leaf.',
   ),
   allowance(
     'install',
@@ -503,8 +508,9 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
   ),
   allowance(
     'contract',
-    [ROOT_LAYER, 'adapters', 'architecture', 'describe', 'dispatch', 'runtime'],
-    'The contract layer reaches its own generators and the dispatch core.',
+    [ROOT_LAYER, 'adapters', 'architecture', 'describe', 'dispatch', 'runtime', 'utils'],
+    'The contract layer reaches its own generators and the dispatch core, plus the schema-conversion ' +
+      'leaf every compiler stage uses.',
   ),
   allowance(
     'sync',
@@ -554,7 +560,7 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
     'adapters',
     [
       ROOT_LAYER, 'cli', 'config', 'contract', 'dispatch', 'events',
-      'lifecycle', 'mcp', 'ndjson', 'projections', 'runtime', 'workflow',
+      'lifecycle', 'mcp', 'ndjson', 'projections', 'runtime', 'utils', 'workflow',
     ],
     'The IO facade, counted at parent granularity. The nested ids (`adapters/cli`, `adapters/mcp`) are ' +
       'declarable now that task 040 made longest-match resolution possible, and the live tree carries ' +
@@ -564,20 +570,23 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
   allowance(
     'events',
     [
-      ROOT_LAYER, 'adapters', 'architecture', 'contract', 'describe',
+      ROOT_LAYER, 'architecture', 'contract', 'describe',
       'dispatch', 'hooks', 'projections', 'storage', 'utils', 'verbs',
       'workflow',
     ],
-    'The event store. That the WRITE side reaches the verb surface and the adapters facade is the ' +
-      'finding — an event store is the one place a narrow surface should be achievable.',
+    'The event store. That the WRITE side reaches the verb surface is still the finding — an event ' +
+      'store is the one place a narrow surface should be achievable. The edge to the adapters ' +
+      'facade is gone: the core reached into it for a delivery algebra and a priority table, both ' +
+      'pure functions, which now sit under `events/channel/` where the core may own them.',
   ),
   allowance(
     'workflow',
     [
-      ROOT_LAYER, 'adapters', 'config', 'contract', 'describe', 'dispatch',
+      ROOT_LAYER, 'config', 'contract', 'describe', 'dispatch',
       'events', 'projections', 'runtime', 'storage', 'utils', 'verbs',
     ],
-    'The workflow HSM and its primitives, reaching nearly everything below it.',
+    'The workflow HSM and its primitives, reaching nearly everything below it — but no longer the ' +
+      'adapters IO facade, whose single edge was the schema converter now living under `utils/`.',
   ),
   allowance(
     'dispatch',

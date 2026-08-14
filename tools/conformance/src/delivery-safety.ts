@@ -186,9 +186,16 @@ export function findSilentSwallows(source: string): SwallowFinding[] {
  * forward-slashed.
  */
 export const REQUIRED_DELIVERY_MODULES: readonly string[] = [
-  // Under `adapters/` since task 019 — the register is path-pinned, and a pin
-  // that resolves to nothing censuses nothing.
-  'adapters/channel/delivery.ts',
+  // The register is path-pinned, and a pin that resolves to nothing censuses
+  // nothing — so both entries are asserted to resolve before the scan runs.
+  //
+  // The delivery ALGEBRA sits under `events/` and the transport under
+  // `adapters/`. That split is the point rather than an accident: the algebra
+  // is a pure decision function the event core is allowed to depend on, while
+  // the emitter is the IO facade the core must not reach into. They were both
+  // filed under `adapters/` until the boundary rule was enforced, which is what
+  // surfaced that the core was importing the facade to get at the algebra.
+  'events/channel/delivery.ts',
   'adapters/channel/emitter.ts',
 ];
 

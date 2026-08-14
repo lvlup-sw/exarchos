@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { classifyPriority, shouldPush, PRIORITY_ORDER, type NotificationPriority } from '../../../../src/adapters/channel/priority.js';
+import { classifyPriority, shouldPush, PRIORITY_ORDER, type NotificationPriority } from '../../../../src/events/channel/priority.js';
 
 describe('classifyPriority', () => {
   // Info-level events (low noise)

@@ -29,7 +29,7 @@
 //     field is NOT an error. Presence of an unknown key IS.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { zodToJsonSchema } from '../../adapters/json-schema.js';
+import { zodToJsonSchema } from '../../utils/json-schema.js';
 import type { CompositeTool } from '../../registry.js';
 
 /** JSON Schema primitive type labels emitted by {@link zodToJsonSchema}. */

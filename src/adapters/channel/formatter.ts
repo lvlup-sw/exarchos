@@ -6,7 +6,7 @@
  * Meta keys conform to Channel spec: `[a-zA-Z0-9_]` only.
  */
 
-import type { NotificationPriority } from './priority.js';
+import type { NotificationPriority } from '../../events/channel/priority.js';
 
 export interface ChannelNotification {
   content: string;

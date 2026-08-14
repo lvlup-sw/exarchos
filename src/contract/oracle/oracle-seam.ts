@@ -73,7 +73,7 @@
 import { z } from 'zod';
 import { canonicalJson } from '../request-context.js';
 import { digestText } from '../authority-digest.js';
-import { zodToJsonSchema } from '../../adapters/json-schema.js';
+import { zodToJsonSchema } from '../../utils/json-schema.js';
 import { layerCodes } from '../error-families.js';
 import { OUTPUT_KINDS } from '../envelope.js';
 import { classifyVersionChange, type CompatibilityClass } from '../compatibility.js';

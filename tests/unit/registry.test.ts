@@ -30,7 +30,7 @@ import type { ToolAction, CompositeTool, ActionAnnotations } from '../../src/reg
 import { envelopeDataSchemaIsTyped } from '../../src/verbs/worktree/schemas.js';
 import { handleDescribe } from '../../src/describe/handler.js';
 import { wrap, wrapError } from '../../src/format.js';
-import { zodToJsonSchema } from '../../src/adapters/json-schema.js';
+import { zodToJsonSchema } from '../../src/utils/json-schema.js';
 import { ConcurrencyError } from '../../src/events/concurrency-error.js';
 import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 import { readFileSync } from 'node:fs';

@@ -41,7 +41,7 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import { z } from 'zod';
-import { zodToJsonSchema } from '../../adapters/json-schema.js';
+import { zodToJsonSchema } from '../../utils/json-schema.js';
 
 /** The shared admission IR wire-contract version (append-only successors later). */
 export const SHARED_ADMISSION_IR_VERSION = '1' as const;

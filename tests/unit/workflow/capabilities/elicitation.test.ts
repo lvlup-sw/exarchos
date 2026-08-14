@@ -3,7 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
 import { deriveElicitationSchema } from '../../../../src/workflow/capabilities/elicitation.js';
-import { zodToJsonSchema } from '../../../../src/adapters/json-schema.js';
+import { zodToJsonSchema } from '../../../../src/utils/json-schema.js';
 
 describe('deriveElicitationSchema (#1274)', () => {
   it('ElicitationSchema_DerivedViaPick_MatchesInputSchema', () => {

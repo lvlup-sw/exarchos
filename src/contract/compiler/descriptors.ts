@@ -19,7 +19,7 @@
 import { z } from 'zod';
 import { digestText } from '../authority-digest.js';
 import { canonicalJson } from '../request-context.js';
-import { zodToJsonSchema } from '../../adapters/json-schema.js';
+import { zodToJsonSchema } from '../../utils/json-schema.js';
 import { ErrorEnvelopeSchema, CappedDataSchema, SuccessEnvelopeSchema } from '../envelope.js';
 import type { ActionMetaModel, ActionPolicy, JsonSchema } from './meta-model.js';
 

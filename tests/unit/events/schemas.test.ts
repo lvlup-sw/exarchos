@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { describe, it, expect, afterEach } from 'vitest';
-import { zodToJsonSchema } from '../../../src/adapters/json-schema.js';
+import { zodToJsonSchema } from '../../../src/utils/json-schema.js';
 import {
   validateAgentEvent,
   AGENT_EVENT_TYPES,
