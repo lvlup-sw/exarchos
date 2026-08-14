@@ -48,13 +48,23 @@ import {
  * removing a declared one trips STALE.
  *
  * ── Scope ───────────────────────────────────────────────────────────────────
- * Edges are resolved at DIRECTORY granularity: a module's layer is its first path
- * segment. Intra-layer edges (same first segment) are ignored. Edges to a
- * *root-level* file (a shipped `.ts` directly under the scan root, e.g.
- * `format.ts`, `logger.ts`, `registry.ts`) are treated as a shared-root surface
- * and are NOT layer edges — a deliberate, documented scoping choice mirroring the
- * bounded scope `vcs-ownership.ts` documents. Type-only and runtime imports are
- * both counted: a type dependency is still an architectural coupling for layering.
+ * A module's layer is the LONGEST DECLARED id that owns it ({@link layerOf}),
+ * falling back to the first path segment when no row claims it. Intra-layer
+ * edges are ignored. Type-only and runtime imports are both counted: a type
+ * dependency is still an architectural coupling for layering.
+ *
+ * Two scoping choices were changed by task 040, both because the old model could
+ * not EXPRESS rules DR-3 assigns it rather than because it stated them wrongly:
+ *
+ *   - Layer ids were first-path-segment only, so any edge between two nested
+ *     siblings collapsed to `parent -> parent` and died on the intra-layer skip.
+ *     `adapters/cli -> adapters/mcp` is a real, live edge that no rule could
+ *     have rejected, because the census could not see it at all. Declaring a
+ *     nested id now governs it.
+ *   - Root-level files (`format.ts`, `registry.ts`, …) were excluded from the
+ *     edge set entirely. That made the tree's largest module structurally
+ *     ungovernable. They are now one stated {@link ROOT_LAYER}, counted like any
+ *     other, and the four layers that reach it say so in their `allow` sets.
  *
  * ── Second census in this module: the DECLARATION SEAM (DR-1) ───────────────
  * The bottom half of this file carries a second, independent census over the
@@ -62,10 +72,17 @@ import {
  * `contract/declaration-seam.ts`. It lives here because DR-1 names this module
  * its enforcement point, and it is a separate census rather than a row in
  * {@link LAYER_ALLOWED_IMPORTS} for a mechanical reason — the biggest
- * declaration store, `registry.ts`, is a ROOT-LEVEL file, and the layering
- * census above deliberately excludes root-file imports from the layer-edge set.
- * An allowance row could therefore never see the edge it needs to reject. See
- * {@link DECLARATION_SEAM}.
+ * declaration store, `registry.ts`, is a ROOT-LEVEL file, which the layering
+ * census used to exclude outright — an allowance row could never have seen the
+ * edge it needed to reject.
+ *
+ * Task 040 removed that exclusion, so the mechanical reason is gone and the
+ * remaining one is about SHAPE. A layer allowance is unconditional: it says this
+ * directory may or may not reach that one. DR-1's rule is conditional on
+ * consumer-hood — a module that reads `TOOL_REGISTRY` and knows nothing about
+ * declarations is un-migrated, not in violation — and that condition is what
+ * lets the population be derived from the tree instead of grandfathered. No
+ * allowance row can express it. See {@link DECLARATION_SEAM}.
  *
  * ── Third census in this module: the SDK GENERATION SEAM (DR-26) ────────────
  * The last section carries a third census, and it is the same rule applied to a
@@ -129,15 +146,52 @@ export interface LayerBoundaryResult {
 
 // ─── Detection ──────────────────────────────────────────────────────────────
 
-/** The layer (first path segment) of a repo-relative module path. */
-export function layerOf(module: string): string {
+/**
+ * The layer every root-level shipped file belongs to.
+ *
+ * Root files used to be excluded from the edge set entirely, which made the
+ * largest module in the tree (`registry.ts`) structurally invisible to layering:
+ * no allowance could reach it and no edge to it could ever be forbidden. The
+ * exclusion is replaced by this STATED policy — root files are one shared-root
+ * layer, counted like any other — so the surface is governable. `<root>` cannot
+ * collide with a directory name, since a directory named `<root>` is not a legal
+ * path segment on Windows.
+ */
+export const ROOT_LAYER = '<root>';
+
+/**
+ * The layer owning a repo-relative module: the LONGEST declared id that is a
+ * path-boundary prefix of it, falling back to the first path segment.
+ *
+ * First-segment-only could not express a nested layer, and silently discarded
+ * every edge between two of them: `adapters/mcp -> adapters/cli` resolved to
+ * `adapters -> adapters` and died on the intra-layer skip, so DR-3's rule that
+ * the MCP adapter must not reach the CLI adapter was unstatable rather than
+ * merely unstated. Longest-match keeps every existing single-segment row
+ * meaning exactly what it meant — a declared `utils` still owns `utils/**` —
+ * while letting a row name a nested id and immediately govern it.
+ */
+export function layerOf(module: string, declaredIds: readonly string[] = []): string {
+  let owner: string | undefined;
+  for (const id of declaredIds) {
+    if (module !== id && !module.startsWith(`${id}/`)) continue;
+    if (owner === undefined || id.length > owner.length) owner = id;
+  }
+  if (owner !== undefined) return owner;
   const slash = module.indexOf('/');
-  return slash === -1 ? module : module.slice(0, slash);
+  return slash === -1 ? ROOT_LAYER : module.slice(0, slash);
 }
 
 /** A root-level shipped file (no directory segment) — a shared-root surface. */
 export function isRootFile(module: string): boolean {
   return !module.includes('/');
+}
+
+/** The declared layer ids of an allowance table, for {@link layerOf}. */
+export function declaredLayerIds(
+  allowances: readonly LayerAllowance[] = LAYER_ALLOWED_IMPORTS,
+): readonly string[] {
+  return allowances.map((a) => a.layer);
 }
 
 /**
@@ -177,16 +231,15 @@ export function detectLayerEdges(
   module: string,
   source: string,
   lex: ModuleLexer,
+  declaredIds: readonly string[] = [],
 ): LayerEdge[] {
-  if (isRootFile(module)) return [];
-  const sourceLayer = layerOf(module);
+  const sourceLayer = layerOf(module, declaredIds);
   const edges: LayerEdge[] = [];
   const seen = new Set<string>();
   for (const specifier of extractImportSpecifiers(source, lex)) {
     const targetModule = resolveTarget(module, specifier);
     if (targetModule === undefined) continue;
-    if (isRootFile(targetModule)) continue;
-    const targetLayer = layerOf(targetModule);
+    const targetLayer = layerOf(targetModule, declaredIds);
     if (targetLayer === sourceLayer) continue;
     const key = `${targetModule}\u0000${specifier}`;
     if (seen.has(key)) continue;
@@ -217,12 +270,13 @@ async function collectScannableFiles(root: string): Promise<string[]> {
 export async function scanLayerEdges(
   sourceRoot: string,
   lex: ModuleLexer,
+  declaredIds: readonly string[] = [],
 ): Promise<readonly LayerEdge[]> {
   const files = await collectScannableFiles(sourceRoot);
   const perFile = await Promise.all(
     files.map(async (file) => {
       const module = relative(sourceRoot, file).replaceAll('\\', '/');
-      return detectLayerEdges(module, await readFile(file, 'utf8'), lex);
+      return detectLayerEdges(module, await readFile(file, 'utf8'), lex, declaredIds);
     }),
   );
   return Object.freeze(
@@ -305,7 +359,10 @@ export async function auditLayerBoundaries(
   lex: ModuleLexer,
   allowances: readonly LayerAllowance[] = LAYER_ALLOWED_IMPORTS,
 ): Promise<LayerBoundaryResult> {
-  const edges = await scanLayerEdges(sourceRoot, lex);
+  // The declared ids come from the SAME table the census judges against, so a
+  // row naming a nested id governs it the moment it is written — the resolver
+  // and the rule set cannot disagree about what a layer is.
+  const edges = await scanLayerEdges(sourceRoot, lex, declaredLayerIds(allowances));
   return runLayerBoundaryCensus(edges, allowances);
 }
 
@@ -341,12 +398,16 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
   // reaching verbs/workflow/events is the layer's job, not a leak.
   allowance(
     'runtime',
-    ['dispatch', 'events', 'storage', 'utils', 'verbs', 'workflow'],
+    ['dispatch', 'events', 'storage', 'utils', 'verbs', 'workflow', ROOT_LAYER],
     'L9 cooperative agents — drives launches and worktrees through the dispatch core, the verb surface, the workflow primitives and the event store.',
   ),
   allowance('pruner', ['workflow'], 'Pruner safeguards read the topology contract, which task 013 folded into workflow/.'),
   allowance('hooks', ['config'], 'Hook wiring reads only config; hooks are an advisory side-channel.'),
-  allowance('runbooks', ['adapters'], 'Runbooks render only through the adapters IO facade.'),
+  allowance(
+    'runbooks',
+    ['adapters', ROOT_LAYER],
+    'Runbooks render only through the adapters IO facade, plus the shared root surface.',
+  ),
   allowance(
     'projections',
     [
@@ -354,6 +415,7 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
       // `workflow/`, which projections already reaches.
       'adapters', 'architecture', 'config', 'contract', 'describe',
       'dispatch', 'events', 'verbs', 'stack', 'storage', 'utils', 'workflow',
+      ROOT_LAYER,
     ],
     'The WIDEST allowance in this table, and deliberately so: task 012 folded ' +
       'views/, telemetry/, quality/, session/ and task-store/ into projections/, so this ' +
@@ -365,7 +427,11 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
       'read side reaches the verb layer at all is the finding; acting on it is separate work, ' +
       'and this row is what keeps it measurable in the meantime.',
   ),
-  allowance('stack', ['events', 'projections'], 'Stack renders event state through the projections layer.'),
+  allowance(
+    'stack',
+    ['events', 'projections', ROOT_LAYER],
+    'Stack renders event state through the projections layer, plus the shared root surface.',
+  ),
   allowance(
     'cli',
     ['events', 'ndjson', 'contract', 'projections'],
@@ -380,12 +446,149 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
       'v2 deleted the SDK predicate; it is generation-neutral and imports nothing.',
   ),
   // `workspace` and `agents` had rows here until task 019/020 re-parented both
-  // under `runtime/`, and `capabilities` under `workflow/`. A layer is this
-  // census's FIRST path segment, so none of the three is a layer any more and
-  // rows naming them could match nothing. Their edges did not disappear with
+  // under `runtime/`, and `capabilities` under `workflow/`. A layer was this
+  // census's FIRST path segment then, so none of the three was a layer any more
+  // and rows naming them could match nothing. Their edges did not disappear with
   // the rows — they are counted under `runtime` above, whose surface is stated
   // from the live tree. Removing a row that can no longer match is the second
   // ratchet tooth doing its job, not a relaxation.
+
+  // ── task 041: the core, admitted in ascending width ───────────────────────
+  //
+  // Everything above governed the periphery; the tangled core was deliberately
+  // left out, which meant the majority of the tree's coupling was subject to no
+  // rule at all. These rows close that, and each `allow` is the EXACT measured
+  // outbound surface — never a wildcard — so both teeth are live on day one: a
+  // NEW outbound edge trips FORBIDDEN_IMPORT and a REMOVED one trips STALE.
+  //
+  // Read the widths as the finding. A row naming 19 of 30 layers governs
+  // weakly, and saying so is the point: it is a measurement of how entangled
+  // that directory is, published where it can only get better or trip a test.
+  // Phase 1 is a pure move with zero semantic edits, so these surfaces are
+  // RECORDED, not narrowed — narrowing them is the work each row now makes
+  // measurable. The order is ascending width because admission is incremental:
+  // a promotion that starts at the widest row invites one blanket allowance
+  // that governs nothing, which is the failure this ordering exists to avoid.
+
+  allowance('review', [ROOT_LAYER, 'events', 'vcs', 'verbs'], 'Review reads event state and drives verbs through the VCS surface.'),
+  allowance(
+    'architecture',
+    [ROOT_LAYER, 'config', 'contract', 'review', 'verbs'],
+    'The censuses in this directory read the contract and the verb surface they audit.',
+  ),
+  allowance(
+    'describe',
+    [ROOT_LAYER, 'adapters', 'config', 'events', 'workflow'],
+    'Self-description renders the workflow + event vocabulary through the adapters facade.',
+  ),
+  allowance(
+    'install',
+    ['contract', 'dispatch', 'runtime', 'storage', 'utils'],
+    'Installer wiring; the ONLY governed layer with no root-surface edge, so a new one is a real change.',
+  ),
+  allowance(
+    'storage',
+    [ROOT_LAYER, 'events', 'projections', 'utils', 'workflow'],
+    'Persistence reaches the event store and the projections it materialises.',
+  ),
+  allowance(
+    'tasks',
+    [ROOT_LAYER, 'dispatch', 'events', 'projections', 'workflow'],
+    'Task coordination over the dispatch core and the workflow primitives.',
+  ),
+  allowance(
+    'config',
+    [ROOT_LAYER, 'events', 'projections', 'utils', 'verbs', 'workflow'],
+    'Config resolution reaches the verb surface — the narrowest row that is arguably inverted, and now visible.',
+  ),
+  allowance(
+    'contract',
+    [ROOT_LAYER, 'adapters', 'architecture', 'describe', 'dispatch', 'runtime'],
+    'The contract layer reaches its own generators and the dispatch core.',
+  ),
+  allowance(
+    'sync',
+    [ROOT_LAYER, 'contract', 'dispatch', 'events', 'storage', 'utils'],
+    'Marketplace/plugin sync over the contract and the event store.',
+  ),
+  allowance(
+    'vcs',
+    [ROOT_LAYER, 'config', 'dispatch', 'events', 'utils', 'workflow'],
+    'VCS providers reach config, the dispatch core and the workflow primitives.',
+  ),
+  allowance(
+    'lifecycle',
+    ['config', 'events', 'ndjson', 'projections', 'runtime', 'utils', 'verbs'],
+    'Process lifecycle; no root-surface edge, and frames output as NDJSON like the CLI does.',
+  ),
+  allowance(
+    'mcp',
+    ['cli', 'contract', 'dispatch', 'events', 'ndjson', 'projections', 'workflow'],
+    'The MCP surface. Its edge to `cli` is the one worth watching: two sibling front-ends coupled directly.',
+  ),
+  allowance(
+    ROOT_LAYER,
+    [
+      'adapters', 'config', 'contract', 'dispatch', 'events', 'lifecycle',
+      'projections', 'runtime', 'storage', 'utils', 'verbs', 'workflow',
+    ],
+    'The shared-root surface itself, governable for the first time (task 040 removed the exclusion). ' +
+      'Dominated by `registry.ts`, the largest module in the tree — every edge here is one it or a ' +
+      'sibling root file draws, and the row is what makes decomposing it a measurable change rather ' +
+      'than an invisible one.',
+  ),
+  allowance(
+    'adapters',
+    [
+      ROOT_LAYER, 'cli', 'config', 'contract', 'dispatch', 'events',
+      'lifecycle', 'mcp', 'ndjson', 'projections', 'runtime', 'workflow',
+    ],
+    'The IO facade, counted at parent granularity. The nested ids (`adapters/cli`, `adapters/mcp`) are ' +
+      'declarable now that task 040 made longest-match resolution possible, and the live tree carries ' +
+      'exactly one edge between them — `adapters/cli/cli.ts -> adapters/mcp/mcp.ts`. Splitting this ' +
+      'row into nested ones is a narrowing, and therefore a semantic change Phase 1 does not make.',
+  ),
+  allowance(
+    'events',
+    [
+      ROOT_LAYER, 'adapters', 'architecture', 'contract', 'describe',
+      'dispatch', 'hooks', 'projections', 'storage', 'utils', 'verbs',
+      'workflow',
+    ],
+    'The event store. That the WRITE side reaches the verb surface and the adapters facade is the ' +
+      'finding — an event store is the one place a narrow surface should be achievable.',
+  ),
+  allowance(
+    'workflow',
+    [
+      ROOT_LAYER, 'adapters', 'config', 'contract', 'describe', 'dispatch',
+      'events', 'projections', 'runtime', 'storage', 'utils', 'verbs',
+    ],
+    'The workflow HSM and its primitives, reaching nearly everything below it.',
+  ),
+  allowance(
+    'dispatch',
+    [
+      ROOT_LAYER, 'adapters', 'config', 'contract', 'events', 'hooks',
+      'install', 'projections', 'review', 'runtime', 'storage', 'sync',
+      'vcs', 'verbs', 'workflow',
+    ],
+    'The dispatch core — 15 of 30 layers. It is the hub, so breadth is expected; the row exists so ' +
+      'the breadth stops growing silently.',
+  ),
+  allowance(
+    'verbs',
+    [
+      ROOT_LAYER, 'architecture', 'config', 'contract', 'describe',
+      'dispatch', 'events', 'install', 'lifecycle', 'projections', 'pruner',
+      'review', 'runbooks', 'runtime', 'storage', 'tasks', 'utils', 'vcs',
+      'workflow',
+    ],
+    'The WIDEST row in the table at 19 targets, and the honest reading is that `verbs/` is coupled to ' +
+      'nearly the whole tree. It is recorded rather than narrowed for the same reason `projections` ' +
+      'is: Phase 1 moves code without changing meaning. The row buys the ratchet — target 20 has to ' +
+      'be argued for — and it makes the number quotable, which is the first step to reducing it.',
+  ),
 ]);
 
 // ════════════════════════════════════════════════════════════════════════════

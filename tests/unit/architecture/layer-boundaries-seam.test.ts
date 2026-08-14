@@ -10,6 +10,8 @@ import {
   resolveTarget,
   layerOf,
   isRootFile,
+  ROOT_LAYER,
+  declaredLayerIds,
   LAYER_ALLOWED_IMPORTS,
   auditDeclarationSeam,
   detectDeclarationSeamUsage,
@@ -101,18 +103,37 @@ describe('resolveTarget', () => {
 });
 
 describe('layerOf / isRootFile', () => {
-  it('reports the first path segment as the layer', () => {
+  it('reports the first path segment as the layer when no row claims the module', () => {
     expect(layerOf('workflow/state-store.ts')).toBe('workflow');
     expect(layerOf('verbs/doctor/probes.ts')).toBe('verbs');
   });
-  it('treats a root-level file as a root file', () => {
+
+  it('LayerOf_ModuleUnderNestedLayerId_ResolvesToTheLongestMatch', () => {
+    // Task 040. The whole point of the model change: with `adapters/mcp`
+    // declared, a module under it belongs to THAT layer and not to `adapters`,
+    // so an edge to a sibling adapter is a cross-layer edge instead of an
+    // intra-layer one the census silently drops.
+    const ids = ['adapters', 'adapters/mcp', 'adapters/cli'];
+    expect(layerOf('adapters/mcp/mcp.ts', ids)).toBe('adapters/mcp');
+    expect(layerOf('adapters/cli/cli.ts', ids)).toBe('adapters/cli');
+    // A module under the parent but under no nested id falls back to the parent.
+    expect(layerOf('adapters/channel/ndjson.ts', ids)).toBe('adapters');
+    // Declaration order must not decide the winner — longest match does.
+    expect(layerOf('adapters/mcp/mcp.ts', [...ids].reverse())).toBe('adapters/mcp');
+    // A prefix that is not a PATH-BOUNDARY prefix must not claim the module.
+    expect(layerOf('adapters-legacy/x.ts', ids)).toBe('adapters-legacy');
+  });
+
+  it('treats a root-level file as a root file, and gives it the stated root layer', () => {
     expect(isRootFile('format.ts')).toBe(true);
     expect(isRootFile('workflow/x.ts')).toBe(false);
+    // The exclusion became a STATED policy — the root surface has a name now.
+    expect(layerOf('registry.ts')).toBe(ROOT_LAYER);
   });
 });
 
 describe('detectLayerEdges', () => {
-  it('emits one cross-directory edge and ignores intra-layer + root-file imports', () => {
+  it('emits a cross-directory edge, ignores intra-layer, and counts the root surface', () => {
     const edges = detectLayerEdges(
       'workflow/foo.ts',
       `import { EventStore } from '../events/store.js';
@@ -120,10 +141,12 @@ describe('detectLayerEdges', () => {
        import { format } from '../format.js';
        import { z } from 'zod';`, lexModule,
     );
-    expect(edges).toHaveLength(1);
-    expect(edges[0]?.targetLayer).toBe('events');
-    expect(edges[0]?.targetModule).toBe('events/store.ts');
-    expect(edges[0]?.sourceLayer).toBe('workflow');
+    // `./tools.js` is intra-layer and `zod` is third-party; `../format.js` is
+    // the root surface, which task 040 promoted from "excluded" to "a layer".
+    expect(edges.map((e) => e.targetLayer).sort()).toEqual([ROOT_LAYER, 'events']);
+    const toEvents = edges.find((e) => e.targetLayer === 'events');
+    expect(toEvents?.targetModule).toBe('events/store.ts');
+    expect(toEvents?.sourceLayer).toBe('workflow');
   });
 
   it('does NOT count a specifier that only appears in a comment or string', () => {
@@ -134,8 +157,46 @@ describe('detectLayerEdges', () => {
     expect(edges).toHaveLength(0);
   });
 
-  it('emits nothing for a root-level source file', () => {
-    expect(detectLayerEdges('format.ts', `import { x } from './workflow/y.js';`, lexModule)).toEqual([]);
+  it('LayerCensus_RootFile_ContributesEdgesUnderTheStatedPolicy', () => {
+    // Task 040. This used to assert `[]` — a root-level file emitted nothing,
+    // which is why `registry.ts` (the largest module in the tree) could not be
+    // governed by any rule. It is now an ordinary source layer.
+    const edges = detectLayerEdges('registry.ts', `import { x } from './workflow/y.js';`, lexModule);
+    expect(edges).toHaveLength(1);
+    expect(edges[0]?.sourceLayer).toBe(ROOT_LAYER);
+    expect(edges[0]?.targetLayer).toBe('workflow');
+    expect(edges[0]?.module).toBe('registry.ts');
+  });
+
+  it('LayerCensus_McpImportingCli_ReportsForbiddenImportNamingBothEnds', () => {
+    // Task 040's acceptance condition. This was STRUCTURALLY IMPOSSIBLE before
+    // the model change: both ends resolve to `adapters`, so the edge died on
+    // the intra-layer skip and no allowance could reject it.
+    const ids = ['adapters/mcp', 'adapters/cli'];
+    const edges = detectLayerEdges(
+      'adapters/mcp/mcp.ts',
+      `import { runCli } from '../cli/cli.js';`,
+      lexModule,
+      ids,
+    );
+    expect(edges).toHaveLength(1);
+
+    const verdict = runLayerBoundaryCensus(edges, [
+      { layer: 'adapters/mcp', allow: [], note: 'the MCP adapter must not reach a sibling adapter' },
+    ]);
+    expect(verdict.ok).toBe(false);
+
+    const forbidden = verdict.diagnostics.filter((d) => d.code === 'FORBIDDEN_IMPORT');
+    expect(forbidden).toHaveLength(1);
+    // "naming both ends" is the requirement — a verdict that reports only a
+    // layer pair cannot be acted on without re-deriving which module did it.
+    const [only] = forbidden;
+    expect(only?.message).toContain('adapters/mcp/mcp.ts');
+    expect(only?.message).toContain('adapters/cli/cli.ts');
+
+    // The same shape, unfiltered, over the FIRST-SEGMENT model: proof the test
+    // above is not passing for some reason unrelated to the nested ids.
+    expect(detectLayerEdges('adapters/mcp/mcp.ts', `import { runCli } from '../cli/cli.js';`, lexModule)).toEqual([]);
   });
 });
 
@@ -221,7 +282,12 @@ describe('EXIT PROOF — live allowed-dependency layering', () => {
   });
 
   it('(b) a planted forbidden import from a governed leaf FAILS against the live edges', async () => {
-    const edges = await scanLayerEdges(SRC_ROOT, lexModule);
+    // Scanned with the SAME declared ids the census judges against. Resolving
+    // the tree under one id set and judging it under another agrees only while
+    // every id is a single path segment — the moment a nested id is declared,
+    // its rows would look phantom here for a reason that has nothing to do with
+    // the tree.
+    const edges = await scanLayerEdges(SRC_ROOT, lexModule, declaredLayerIds());
     const planted: LayerEdge = {
       module: 'utils/rogue.ts',
       sourceLayer: 'utils',
@@ -238,8 +304,74 @@ describe('EXIT PROOF — live allowed-dependency layering', () => {
     ).toBe(true);
   });
 
+  it('LayerRule_SeededViolation_FailsAndNamesTheRule', async () => {
+    // Task 041 promoted the whole core into the governed set. A table of 30
+    // rows is worth exactly as much as its teeth, and "the census is green"
+    // says nothing about whether any INDIVIDUAL row can still reject. So seed
+    // one violation per declared rule and require the census to fail naming
+    // that rule — a row that cannot reject is a row that governs nothing.
+    const edges = await scanLayerEdges(SRC_ROOT, lexModule, declaredLayerIds());
+    expect(LAYER_ALLOWED_IMPORTS.length).toBeGreaterThan(20);
+
+    const everyLayer = new Set<string>();
+    for (const e of edges) {
+      everyLayer.add(e.sourceLayer);
+      everyLayer.add(e.targetLayer);
+    }
+
+    for (const rule of LAYER_ALLOWED_IMPORTS) {
+      // A target this rule does NOT allow, drawn from the live layer set so the
+      // seeded edge is shaped like a real one rather than a fiction.
+      const disallowed = [...everyLayer]
+        .sort()
+        .find((l) => l !== rule.layer && !rule.allow.includes(l));
+      expect(disallowed, `every layer is allowed for "${rule.layer}" — the row cannot reject`).toBeDefined();
+
+      const planted: LayerEdge = {
+        module: `${rule.layer}/__seeded__.ts`,
+        sourceLayer: rule.layer,
+        targetModule: `${disallowed}/target.ts`,
+        targetLayer: disallowed!,
+        specifier: `../${disallowed}/target.js`,
+      };
+
+      const verdict = runLayerBoundaryCensus([...edges, planted], LAYER_ALLOWED_IMPORTS);
+      expect(verdict.ok, `rule "${rule.layer}" did not reject a forbidden edge`).toBe(false);
+      expect(
+        verdict.diagnostics.some(
+          (d) =>
+            d.code === 'FORBIDDEN_IMPORT' &&
+            'module' in d &&
+            d.module === `${rule.layer}/__seeded__.ts`,
+        ),
+        `rule "${rule.layer}" failed without naming the offending module`,
+      ).toBe(true);
+    }
+  });
+
+  it('LayerAllowance_PhantomCover_FailsAsStale', async () => {
+    // The other tooth, on the live edge set: an allowance nothing exercises is
+    // cover that governs nothing, and it must fail rather than sit there. This
+    // matters more after task 041 than before — 18 new rows are 18 new chances
+    // to leave a target behind when an edge is deleted.
+    const edges = await scanLayerEdges(SRC_ROOT, lexModule, declaredLayerIds());
+    const phantom: LayerAllowance = {
+      layer: 'utils',
+      allow: ['__no_such_layer__'],
+      note: 'seeded phantom cover',
+    };
+
+    const verdict = runLayerBoundaryCensus(edges, [...LAYER_ALLOWED_IMPORTS, phantom]);
+    expect(verdict.ok).toBe(false);
+    expect(
+      verdict.diagnostics.some(
+        (d) => d.code === 'STALE_LAYER_ALLOWANCE' && 'target' in d && d.target === '__no_such_layer__',
+      ),
+    ).toBe(true);
+  });
+
   it('every declared allowance is exercised by at least one live edge (no phantom cover)', async () => {
-    const edges = await scanLayerEdges(SRC_ROOT, lexModule);
+    const edges = await scanLayerEdges(SRC_ROOT, lexModule, declaredLayerIds());
     for (const a of LAYER_ALLOWED_IMPORTS) {
       for (const target of a.allow) {
         expect(
@@ -317,9 +449,8 @@ describe('detectDeclarationSeamUsage', () => {
   });
 
   it('detectDeclarationSeamUsage_RootLevelStoreImport_IsResolvedNotSkipped', () => {
-    // The layering census above deliberately ignores root-file edges. This
-    // census must NOT, or `registry.ts` — the largest declaration store — would
-    // be invisible to it.
+    // `registry.ts` is the largest declaration store and a ROOT-LEVEL file, so
+    // this census has to resolve root-file imports or miss its biggest subject.
     const found = detectDeclarationSeamUsage(
       'contract/rogue.ts',
       `import type { Declaration } from './declaration.js';
@@ -328,7 +459,20 @@ describe('detectDeclarationSeamUsage', () => {
     );
 
     expect(found?.storageImports.map((i) => i.storageModule)).toEqual(['registry.ts']);
-    expect(detectLayerEdges('contract/rogue.ts', `import { X } from '../registry.js';`, lexModule)).toEqual([]);
+
+    // This used to assert the layering census saw NOTHING here — the contrast
+    // that justified keeping the two censuses apart. Task 040 removed the
+    // root-file exclusion, so both now resolve the same edge, and the reason
+    // they stay separate is no longer mechanical: a layer allowance is
+    // unconditional, while DR-1's rule fires only for a module that is already
+    // a declaration CONSUMER. That condition is what makes the population
+    // self-maintaining, and it is not expressible as an allowance row.
+    const layerEdges = detectLayerEdges(
+      'contract/rogue.ts',
+      `import { X } from '../registry.js';`,
+      lexModule,
+    );
+    expect(layerEdges.map((e) => e.targetLayer)).toEqual([ROOT_LAYER]);
   });
 
   it('detectDeclarationSeamUsage_StoreNamedOnlyInACommentOrString_ReportsNoImport', () => {
@@ -886,6 +1030,73 @@ describe('DR-26 — SDK seam rule: fail-closed teeth', () => {
       // An already-expired entry would be shipped debt the EXPIRED tooth reports
       // on every run; the roster must be live when it lands.
       expect(entry.expires > new Date().toISOString().slice(0, 10)).toBe(true);
+    }
+  });
+});
+
+// ─── Task 040a — the two censuses that ride along with the layering one ──────
+//
+// This file carries THREE censuses. Work scoped to the layering table has twice
+// come close to migrating it alone, which would leave the other two pointing at
+// module paths that no longer exist — and a seam whose paths resolve to nothing
+// does not fail, it reports clean. Each census owns vacuity teeth for exactly
+// that, and each is unit-tested above. What was missing is the assertion that
+// binds them: a check that BOTH still refuse an empty rule set, in one place, so
+// dropping either one during a migration is a red test rather than a silence.
+
+describe('Task 040a — neither seam may pass by matching nothing', () => {
+  it('BothSeams_VacuityCheck_FailsOnAnEmptyRuleSet', () => {
+    // Declaration seam: no consumers resolved and no stores declared.
+    const declaration = runDeclarationSeamCensus(
+      { usages: [], storage: [], accessorPresent: true },
+      { contractModules: [], storage: [], sourceAdapters: [], accessorModule: 'contract/declaration-seam.ts' },
+    );
+    expect(declaration.ok, 'an empty declaration rule set must FAIL, not read clean').toBe(false);
+    expect(declaration.diagnostics.map((d) => d.code)).toContain('EMPTY_SEAM_DENOMINATOR');
+
+    // SDK seam: nothing visited and nothing importing the seam.
+    const sdk = runSdkSeamBoundaryCensus(
+      { usages: [], moduleCount: 0, seamModulePresent: true },
+      { seamModule: SDK_SEAM_BOUNDARY.seamModule, exemptions: [] },
+    );
+    expect(sdk.ok, 'an empty SDK rule set must FAIL, not read clean').toBe(false);
+    expect(sdk.diagnostics.map((d) => d.code)).toContain('EMPTY_SDK_SEAM_DENOMINATOR');
+  });
+
+  it('BothSeams_OnTheLiveTree_HaveNonEmptyDenominators', async () => {
+    // The converse, and the half that actually rots: the teeth above only bite
+    // when a denominator reaches ZERO. If the live denominators drifted down to
+    // one or two modules both censuses would still be "non-empty" and would
+    // govern almost nothing. Characterised as a floor so shrinkage is visible
+    // rather than merely survivable.
+    const declaration = await auditDeclarationSeam(SRC_ROOT, lexModule);
+    expect(declaration.ok).toBe(true);
+    expect(declaration.consumerCount).toBeGreaterThan(1);
+    expect(declaration.resolvedStorageCount).toBeGreaterThan(0);
+
+    const sdk = await scanSdkSeamBoundary(REPO_ROOT, parseModuleSpecifiers);
+    expect(sdk.moduleCount).toBeGreaterThan(100);
+    expect(sdk.usages.length).toBeGreaterThan(0);
+    expect(sdk.seamModulePresent).toBe(true);
+  });
+
+  it('BothSeams_DeclaredPaths_StillResolveAfterTheLayeringChange', async () => {
+    // Task 040 changed `layerOf` and removed the root-file exclusion. Those
+    // belong to the layering census, but all three censuses live in one module
+    // and read one scan, so "the layering change was self-contained" is a claim
+    // worth an instrument rather than a reading of the diff.
+    expect(DECLARATION_SEAM.storage.length).toBeGreaterThan(0);
+    expect(DECLARATION_SEAM.contractModules.length).toBeGreaterThan(0);
+    expect(SDK_SEAM_BOUNDARY.seamModule.length).toBeGreaterThan(0);
+
+    // Every declared store must still be a real module exporting the symbol
+    // that makes it a store — the UNRESOLVED tooth, asserted directly rather
+    // than inferred from a green verdict.
+    const scan = await scanDeclarationSeam(SRC_ROOT, lexModule);
+    for (const store of DECLARATION_SEAM.storage) {
+      const resolved = scan.storage.find((s) => s.module === store.module);
+      expect(resolved, `declared store ${store.module} vanished from the scan`).toBeDefined();
+      expect(resolved?.resolved, `declared store ${store.module} no longer resolves`).toBe(true);
     }
   });
 });
