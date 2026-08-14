@@ -96,25 +96,24 @@ export interface EconomyHints {
 }
 
 /**
- * Registry-wide default response budget in estimated output tokens (DR-1,
- * design §"The economy block"). An action's declared `economy.budgetTokens`
- * wins over this default; every action therefore resolves to a concrete
- * number via {@link resolveEconomyBudget}. Initial value from the
- * token-economy audit (PR #1679); the qualityHints 25,600-token threshold
- * remains the last-resort catastrophic backstop. Tune after dogfooding.
+ * Registry-wide default response budget in estimated output tokens. An
+ * action's declared `economy.budgetTokens` wins over this default; every
+ * action therefore resolves to a concrete number via
+ * {@link resolveEconomyBudget}. The initial value came from a measured audit
+ * of tool response sizes; the qualityHints 25,600-token threshold remains the
+ * last-resort catastrophic backstop. Tune after dogfooding.
  */
 export const DEFAULT_ECONOMY_BUDGET_TOKENS = 2000;
 
-// Verbose-by-design response budgets (DR-1). These actions are the
-// intentional detail paths, so they declare explicit higher budgets rather
-// than exemptions — everything still resolves a number. Values are grounded
-// in measured worst-case outputs (token-economy audit, PR #1679): a
-// `describe` of the ten largest orchestrate actions runs ~21k tokens
-// (full input + output JSON schemas per action), the event `describe`
-// emission catalog ~3.5k tokens on top of action schemas, and the largest
-// resolved runbook ~2k tokens. Budgets sit between typical usage and the
-// worst case so a normal detail call is uncapped while an extreme dump is
-// summarized by the dispatch-core seam (Task 003). Tune after dogfooding.
+// Verbose-by-design response budgets. These actions are the intentional detail
+// paths, so they declare explicit higher budgets rather than exemptions —
+// everything still resolves a number. Values are grounded in measured
+// worst-case outputs: a `describe` of the ten largest orchestrate actions runs
+// ~21k tokens (full input + output JSON schemas per action), the event
+// `describe` emission catalog ~3.5k tokens on top of action schemas, and the
+// largest resolved runbook ~2k tokens. Budgets sit between typical usage and
+// the worst case so a normal detail call is uncapped while an extreme dump is
+// summarized by the dispatch-core seam. Tune after dogfooding.
 
 /** `describe` (workflow / orchestrate / view) — full per-action schemas. */
 export const DESCRIBE_ECONOMY_BUDGET_TOKENS = 8000;
@@ -137,8 +136,9 @@ export const RUNBOOK_ECONOMY_BUDGET_TOKENS = 4000;
  * Always returns a number so callers (the dispatch-core seam, `describe`
  * surfacing) never branch on "declared vs default". The returned value's
  * validity (finite, positive) is pinned at build time by the registry
- * budget-snapshot test; the runtime seam (Task 003) fails open on a
- * non-finite / non-positive budget per DR-1.
+ * budget-snapshot test; the runtime seam fails OPEN on a non-finite or
+ * non-positive budget, because a broken budget must not stop an action from
+ * answering.
  */
 export function resolveEconomyBudget(action: Pick<ToolAction, 'economy'>): number {
   const declared = action.economy?.budgetTokens;

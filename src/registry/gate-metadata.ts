@@ -23,7 +23,7 @@ export interface ReservedEventAppendRegistration {
 }
 
 /**
- * Server-owned admission event reservation catalog (DR-3).
+ * Server-owned admission event reservation catalog.
  *
  * This is intentionally separate from EVENT_EMISSION_REGISTRY: that registry
  * describes replay/emission classification, while this one controls which

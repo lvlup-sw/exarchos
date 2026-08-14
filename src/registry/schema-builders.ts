@@ -228,9 +228,9 @@ function extractEnumValues(schema: z.ZodType): readonly string[] | null {
 }
 
 /** Peel ZodDefault / ZodOptional / ZodNullable wrappers so the caller can
- *  match on the underlying enum-ish kind. Kept narrow on purpose: we don't
- *  peel ZodPipe (formerly ZodEffects) or ZodBranded because those change
- *  the wire-level contract and deserve to be classified distinctly. */
+ *  match on the underlying enum-ish kind. Kept narrow on purpose: ZodPipe and
+ *  ZodBranded are NOT peeled, because both change the wire-level contract and
+ *  deserve to be classified distinctly. */
 function peelEnumWrappers(schema: z.ZodType): z.ZodType {
   let current: z.ZodType = schema;
   while (

@@ -76,11 +76,12 @@ export const PLAN_PHASES: ReadonlySet<string> = new Set([
   'overhaul-plan',
 ]);
 // `prepare_review` serves BOTH the back-of-pipeline code-review catalog (REVIEW
-// phases) and the DR-10 front-of-pipeline plan-review provisioning (the
-// `plan-review` PLAN-kind phase). Deliberately NOT equal to the PLAN_PHASES set
-// — an action whose phase set exactly equals the plan-structure binding counts
-// as a canonical plan gate (the #1581 task-013 binding trap), which prepare_review
-// is not (it is a non-blocking provisioning surface, scope-discriminated).
+// phases) and the front-of-pipeline plan-review provisioning (the `plan-review`
+// PLAN-kind phase). Deliberately NOT equal to the PLAN_PHASES set: an action
+// whose phase set exactly equals the plan-structure binding is treated as a
+// canonical plan gate, and `prepare_review` is not one — it is a non-blocking
+// provisioning surface, discriminated by scope. Matching that set exactly would
+// silently promote it into the gate population.
 export const PREPARE_REVIEW_PHASES: ReadonlySet<string> = new Set([
   ...REVIEW_PHASES,
   'plan-review',
