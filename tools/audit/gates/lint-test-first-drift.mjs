@@ -16,10 +16,26 @@
 //      explicit opt-in marker `<!-- ladder-rgr-optin -->` (the legitimate
 //      high-tier opt-in lane). Rules 1 and 2 are never allowlisted.
 //
-// Scope: every *.md under the scanned directories (default: commands/ agents/
-// content/). content/ is the source-of-truth for skills; guarding it (not
-// the generated skills/<runtime>/ trees) catches drift at the authoring layer,
-// mirroring how lint:inv6 scans content/.
+// Scope: every *.md under the scanned directories (default: content/ and
+// rendered/agents/). content/ is the source-of-truth for skills AND commands
+// (authored at content/<domain>/commands/*.md); guarding it rather than the
+// generated rendered/ trees catches drift at the authoring layer, mirroring how
+// lint:inv6 scans content/.
+//
+// Defaults retargeted by task 042. They read `commands/ agents/ content/`, and
+// the DR-4 render split retired the first two as top-level directories. CI
+// coverage was never affected — `npm run lint:test-first-drift` passes
+// `content rendered/agents` explicitly and always overrode these — but a
+// default that contradicts the only real invocation is a trap: it is what a
+// direct `node lint-test-first-drift.mjs` run uses, and what a reader takes as
+// the declared scope. Aligning it removes the disagreement.
+//
+// Commands folded INTO content/, so that root needed no replacement. Agents are
+// different and the asymmetry is deliberate: their .md is GENERATED from
+// TypeScript under src/runtime/agents/, so there is no .md authoring layer to
+// guard, and rendered/agents/ is the only surface this lint can see for them.
+// Drift entering through a TS string literal is invisible to this gate either
+// way — that gap is real and belongs to the generator's own tests, not here.
 // Output: JSON to stdout: { findings: [...], advisory: false }.
 // Exit code: 1 when findings exist (enforcing), else 0.
 //
@@ -29,7 +45,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-const DEFAULT_DIRS = ['commands', 'agents', 'content'];
+const DEFAULT_DIRS = ['content', 'rendered/agents'];
 const OPT_IN_MARKER = '<!-- ladder-rgr-optin -->';
 
 const RULES = {

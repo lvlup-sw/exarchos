@@ -83,7 +83,6 @@ import {
 } from '../../../tools/evals/evals/provenance.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-export const NATIVE_BASELINE_DIR = __dirname;
 export const REPO_ROOT = path.resolve(__dirname, '../../../');
 
 // ─── Stream-json event shape (only the fields we read) ────────────────────────

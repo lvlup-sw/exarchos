@@ -26,6 +26,26 @@ const baseline = JSON.parse(
 ) as Baseline;
 
 /**
+ * The LIVE measurement, taken by running the same measurer that produced the
+ * baseline.
+ *
+ * Everything below this line used to read the committed capture only, which
+ * makes the whole file a statement about a JSON document rather than about the
+ * repository: a guard could evaporate the moment after a capture and every
+ * assertion here would keep passing until someone re-measured by hand. Task 042
+ * found exactly that — three CODEOWNERS patterns matching zero files, owning
+ * 424 files between them and silently falling through to the `*` rule, with
+ * this suite green the whole time.
+ */
+const live = JSON.parse(
+  execFileSync(process.execPath, [path.join(REPO_ROOT, 'tools/audit/measure-guard-liveness.mjs')], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+  }),
+) as Baseline;
+
+/**
  * Surfaces known to match nothing TODAY, each with the task that removes it.
  * This is a defect list, not an allowance: when the entry is fixed the set
  * shrinks and the equality assertion below demands this list shrink with it.
@@ -111,6 +131,46 @@ describe('guard liveness', () => {
 
     // Tolerance covers ordinary in-flight edits; a structural move blows past it.
     expect(Math.abs(tracked - baseline.trackedFiles)).toBeLessThan(50);
+  });
+
+  it('GuardLiveness_AfterRetarget_EveryGuardMatchesNonEmptySet', () => {
+    // Task 042, and the assertion the whole task exists for — measured against
+    // the TREE, not the capture. A guard whose path config resolves to nothing
+    // does not go red; it passes forever, which reads exactly like success.
+    const dead = Object.entries(live.surfaces)
+      .filter(([, s]) => s.matched === 0)
+      .map(([name]) => name);
+
+    expect(dead.sort(), 'these configured surfaces match no file on the live tree').toEqual(
+      Object.keys(KNOWN_DEAD).sort(),
+    );
+
+    // Denominator: an empty measurement would satisfy the filter above by
+    // having nothing to filter.
+    expect(Object.keys(live.surfaces).length).toBeGreaterThan(15);
+    expect(live.trackedFiles).toBeGreaterThan(3000);
+  });
+
+  it('GuardLiveness_ComparedToBaseline_NoGuardSilentlyLostItsScope', () => {
+    // The subtler half. A surface can keep matching SOMETHING while quietly
+    // losing most of its reach — the retarget that half-lands. Every surface
+    // present in both captures must still match, and any that vanished from the
+    // measurement entirely must be gone because its config was retargeted, not
+    // because the measurer stopped seeing it.
+    for (const [name, before] of Object.entries(baseline.surfaces)) {
+      const after = live.surfaces[name];
+      if (after === undefined) continue; // consolidated away — covered below
+      expect(after.matched, `${name} matched ${before.matched} at capture and ${after.matched} now`)
+        .toBeGreaterThan(0);
+    }
+
+    // A surface named in the capture but absent from the live measurement is
+    // either retargeted (its replacement is present) or a regression. Pinning
+    // the set makes the difference reviewable instead of inferred.
+    const vanished = Object.keys(baseline.surfaces)
+      .filter((name) => live.surfaces[name] === undefined)
+      .sort();
+    expect(vanished, 'a configured surface disappeared from the measurement').toEqual([]);
   });
 
   it('GuardLiveness_EverySurfaceClass_IsRepresented', () => {

@@ -24,11 +24,19 @@ export default [
     ignores: ['tools/evals/evals/benchmarks/seeded-defects/fixtures/**'],
   },
   {
-    // Widened by task 042 to follow task 018a's extraction. Widening reach takes
-    // BOTH this key and the `lint` script's CLI glob — the glob bounds the run
-    // regardless of what the config admits, so changing one alone leaves the
-    // other silently in charge.
-    files: ['src/**/*.ts', 'tools/conformance/src/**/*.ts'],
+    // Widened by task 042 from `tools/conformance/src` to the whole `tools/`
+    // tree, following task 036's consolidation. Widening reach takes BOTH this
+    // key and the `lint` script's CLI glob — the glob bounds the run regardless
+    // of what the config admits, and this key decides which of those files get
+    // a configuration at all. Change one alone and the other is silently in
+    // charge: before this, `eslint tools/audit/**` reported 38 files "ignored
+    // because no matching configuration was supplied" and exited 0.
+    //
+    // Findings over the newly-linted directories were MEASURED before the
+    // widening rather than assumed: zero. That is a property of this ruleset
+    // being narrow (one `no-restricted-syntax` rule), not a general licence to
+    // widen without looking.
+    files: ['src/**/*.ts', 'tools/**/*.ts'],
     languageOptions: {
       parser: tseslint.parser,
     },

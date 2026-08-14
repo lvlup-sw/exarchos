@@ -24,11 +24,21 @@ const ALLOWLIST_PATH = path.join(REPO_ROOT, 'tools/audit/knip-allowlist.json');
 const entries = loadAllowlist(JSON.parse(readFileSync(ALLOWLIST_PATH, 'utf8')));
 
 /**
- * Ledger size at the last deliberate sweep (task 009). Lowering this is always
- * welcome. RAISING it means a new permanent exemption was accepted, which is a
- * decision that belongs in a diff someone reads — not a silent drift.
+ * Ledger size at the last deliberate sweep. Lowering this is always welcome.
+ * RAISING it means a new permanent exemption was accepted, which is a decision
+ * that belongs in a diff someone reads — not a silent drift.
+ *
+ * 105 → 113 (task 042). Knip's `project` glob covered `tests/core/**` only;
+ * widening it to the whole test tree made eight already-existing files visible
+ * for the first time. None is new code and none is newly dead: six are the
+ * quality-AB eval corpus (three `impl.stub.ts` read by path, three HIDDEN
+ * `oracle.ts` that grade.ts copies into the sandbox — importing one would be an
+ * eval-integrity defect, not a fix) and two are hand-run maintenance CLIs.
+ *
+ * Four OTHER findings surfaced by the same widening were deleted rather than
+ * exempted, which is why this is +8 and not +12.
  */
-const ALLOWLIST_BUDGET = 105;
+const ALLOWLIST_BUDGET = 113;
 
 /** Reasons that are not reasons. A rationale matching any of these is a stub. */
 const STUB_RATIONALE = /^(n\/?a|tbd|todo|fixme|wip|unused|dead|legacy|see above|\?+|-+)\.?$/i;

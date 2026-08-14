@@ -176,23 +176,46 @@ function main() {
   };
 
   // ── lint scopes — the CLI glob is what bounds the run, not the config ──────
+  //
+  // These are READ from the configs they describe, never restated. A measurer
+  // that carries its own copy of a path measures its own copy: task 042 found
+  // this surface hard-coded to `src/**/*.ts` while the lint script had already
+  // been widened, so it reported a number no run would ever produce — a
+  // liveness instrument that had itself gone stale.
+  const lintScript = String(JSON.parse(readIfPresent('package.json') ?? '{}').scripts?.lint ?? '');
+  const lintGlobs = [...lintScript.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+  if (lintGlobs.length === 0) {
+    throw new Error('cannot read the `lint` script\'s CLI globs from package.json — refusing to guess');
+  }
+  const lintPrefixes = lintGlobs.map((g) => g.replace(/\*.*$/, ''));
   surfaces['lint:eslint-cli-glob'] = {
     kind: 'lint-scope',
-    matched: tracked.filter((rel) => rel.startsWith('src/') && rel.endsWith('.ts'))
-      .length,
-    detail: { glob: 'src/**/*.ts' },
+    matched: tracked.filter(
+      (rel) => rel.endsWith('.ts') && lintPrefixes.some((p) => rel.startsWith(p)),
+    ).length,
+    detail: { glob: lintGlobs.join(' ') },
   };
   surfaces['lint:inv6'] = {
     kind: 'lint-scope',
     matched: tracked.filter((rel) => rel.startsWith('content/') && rel.endsWith('.md')).length,
   };
+  // Read from the gate's own DEFAULT_DIRS for the same reason. This surface
+  // restated `commands/ agents/ content/` — the pre-DR-4 roots — and so counted
+  // two directories that no longer exist while missing rendered/agents/, which
+  // the npm script actually scans. It stayed comfortably non-zero on content/
+  // alone, which is how a surface reports health while measuring the wrong set.
+  const driftGate = readIfPresent('tools/audit/gates/lint-test-first-drift.mjs') ?? '';
+  const driftDirs = [...(/const DEFAULT_DIRS = \[([^\]]*)\]/.exec(driftGate)?.[1] ?? '')
+    .matchAll(/'([^']+)'/g)].map((m) => m[1]);
+  if (driftDirs.length === 0) {
+    throw new Error('cannot read DEFAULT_DIRS from lint-test-first-drift.mjs — refusing to guess');
+  }
   surfaces['lint:test-first-drift'] = {
     kind: 'lint-scope',
     matched: tracked.filter(
-      (rel) =>
-        (rel.startsWith('commands/') || rel.startsWith('agents/') || rel.startsWith('content/')) &&
-        rel.endsWith('.md'),
+      (rel) => rel.endsWith('.md') && driftDirs.some((d) => rel.startsWith(`${d}/`)),
     ).length,
+    detail: { glob: driftDirs.join(' ') },
   };
 
   // ── knip workspaces ───────────────────────────────────────────────────────

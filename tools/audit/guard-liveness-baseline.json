@@ -1,40 +1,45 @@
 {
   "capturedAt": "2026-08-13",
-  "trackedFiles": 3355,
+  "captureNote": "Task 042 re-capture. DELIBERATE, not a side effect: the previous capture predates tasks 030-036 and named nine surfaces that had stopped matching anything. Three were live defects (codeowners:scripts/, :skills/, :commands/ owned 424 files between them and silently fell back to the * rule) and six were package.files: entries the DR-4 render split and task 036 retired. All are retargeted rather than deleted, so the surface count moved 25 -> 21 by consolidation, not by shrinking coverage. Every remaining shrink is a move accounted for: codeowners:src/ and lint:eslint-cli-glob fell because task 030 lifted the co-located suites out of src/, and depcruise:...:to fell 36 -> 12 for the same reason. Both ends of the one error-severity rule stay non-empty (92 and 12).",
+  "trackedFiles": 3395,
   "surfaces": {
     "depcruise:no-domain-core-to-io-adapters:from": {
       "kind": "module-set",
-      "matched": 97,
+      "matched": 92,
       "detail": {
         "pattern": "^src/(events|workflow)/"
       }
     },
     "depcruise:no-domain-core-to-io-adapters:to": {
       "kind": "module-set",
-      "matched": 36,
+      "matched": 12,
       "detail": {
         "pattern": "^src/adapters/"
       }
     },
     "codeowners:*": {
       "kind": "ownership",
-      "matched": 3355
+      "matched": 3395
     },
     "codeowners:src/": {
       "kind": "ownership",
-      "matched": 1568
+      "matched": 645
     },
-    "codeowners:scripts/": {
+    "codeowners:tools/": {
       "kind": "ownership",
-      "matched": 182
+      "matched": 277
     },
-    "codeowners:skills/": {
+    "codeowners:content/": {
       "kind": "ownership",
-      "matched": 224
+      "matched": 135
     },
-    "codeowners:commands/": {
+    "codeowners:rendered/": {
       "kind": "ownership",
-      "matched": 18
+      "matched": 243
+    },
+    "codeowners:tests/": {
+      "kind": "ownership",
+      "matched": 1404
     },
     "package.files:dist/bin": {
       "kind": "packaging",
@@ -44,27 +49,7 @@
       "kind": "packaging",
       "matched": 1
     },
-    "package.files:agents": {
-      "kind": "packaging",
-      "matched": 1
-    },
-    "package.files:commands": {
-      "kind": "packaging",
-      "matched": 1
-    },
-    "package.files:skills": {
-      "kind": "packaging",
-      "matched": 1
-    },
-    "package.files:command-aliases": {
-      "kind": "packaging",
-      "matched": 1
-    },
-    "package.files:rules": {
-      "kind": "packaging",
-      "matched": 1
-    },
-    "package.files:scripts": {
+    "package.files:rendered": {
       "kind": "packaging",
       "matched": 1
     },
@@ -89,7 +74,7 @@
       "matched": 53,
       "detail": {
         "declared": 53,
-        "generatedFrom": "src"
+        "generatedFrom": "tests/unit"
       }
     },
     "invariants:references": {
@@ -101,18 +86,21 @@
     },
     "lint:eslint-cli-glob": {
       "kind": "lint-scope",
-      "matched": 1536,
+      "matched": 777,
       "detail": {
-        "glob": "src/**/*.ts"
+        "glob": "src/**/*.ts tools/**/*.ts"
       }
     },
     "lint:inv6": {
       "kind": "lint-scope",
-      "matched": 106
+      "matched": 126
     },
     "lint:test-first-drift": {
       "kind": "lint-scope",
-      "matched": 128
+      "matched": 130,
+      "detail": {
+        "glob": "content rendered/agents"
+      }
     },
     "knip:workspace:.": {
       "kind": "dead-code",

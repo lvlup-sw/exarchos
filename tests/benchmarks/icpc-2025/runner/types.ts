@@ -84,7 +84,6 @@ export const BenchmarkRunSchema = z.object({
 // --- Inferred Types ---
 
 export type Verdict = z.infer<typeof VerdictSchema>;
-export type SampleVerdict = z.infer<typeof SampleVerdictSchema>;
 export type ArmId = z.infer<typeof ArmIdSchema>;
 export type Metrics = z.infer<typeof MetricsSchema>;
 export type SampleResult = z.infer<typeof SampleResultSchema>;

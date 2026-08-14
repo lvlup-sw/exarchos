@@ -1,5 +1,61 @@
 [
   {
+    "symbol": "tests/evals/quality-ab/tasks/csv-line/impl.stub.ts",
+    "file": "tests/evals/quality-ab/tasks/csv-line/impl.stub.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Eval task stub read BY PATH, never imported: run-underspec.ts does readFileSync(tasksDir/<task>/impl.stub.ts) and ships the text to the model as the starting file. Newly visible because task 042 widened knip's project glob from tests/core/** to the whole test tree; it was never reachable, only unmeasured. Retire when the quality-ab corpus is deleted."
+  },
+  {
+    "symbol": "tests/evals/quality-ab/tasks/csv-line/oracle.ts",
+    "file": "tests/evals/quality-ab/tasks/csv-line/oracle.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "HIDDEN eval oracle, deliberately unreachable in the import graph — grade.ts copies it into the sandbox at grading time and removes it after. Importing it anywhere would be an eval-integrity defect, not a fix: the agent under test must never see the answer key. Retire when the quality-ab corpus is deleted."
+  },
+  {
+    "symbol": "tests/evals/quality-ab/tasks/parse-duration/impl.stub.ts",
+    "file": "tests/evals/quality-ab/tasks/parse-duration/impl.stub.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Eval task stub read by path by run-underspec.ts; see the csv-line row. Retire when the quality-ab corpus is deleted."
+  },
+  {
+    "symbol": "tests/evals/quality-ab/tasks/parse-duration/oracle.ts",
+    "file": "tests/evals/quality-ab/tasks/parse-duration/oracle.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "HIDDEN eval oracle copied into the sandbox at grading time; see the csv-line row. Retire when the quality-ab corpus is deleted."
+  },
+  {
+    "symbol": "tests/evals/quality-ab/tasks/token-bucket/impl.stub.ts",
+    "file": "tests/evals/quality-ab/tasks/token-bucket/impl.stub.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Eval task stub read by path by run-underspec.ts; see the csv-line row. Retire when the quality-ab corpus is deleted."
+  },
+  {
+    "symbol": "tests/evals/quality-ab/tasks/token-bucket/oracle.ts",
+    "file": "tests/evals/quality-ab/tasks/token-bucket/oracle.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "HIDDEN eval oracle copied into the sandbox at grading time; see the csv-line row. Retire when the quality-ab corpus is deleted."
+  },
+  {
+    "symbol": "tests/evals/native-baseline/emit-baseline-csv.ts",
+    "file": "tests/evals/native-baseline/emit-baseline-csv.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Maintenance CLI invoked by hand, not imported: regenerates the committed exp2 native-baseline CSV from the captured transcripts so the table is derived rather than hand-authored. Newly visible from task 042's widened project glob. Retire if the CSV stops being regenerable or the script is wired into a test."
+  },
+  {
+    "symbol": "tests/core/integration/suite-invariants/regenerate-baseline.ts",
+    "file": "tests/core/integration/suite-invariants/regenerate-baseline.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Maintenance CLI invoked by hand, not imported: rewrites legacy-shape-debt.ts from the current corpus when the ratchet reports STALE entries. Deliberately not wired into any test — running it to clear NEW debt is the one use that defeats its purpose. Newly visible from task 042's widened project glob. Retire when the shape ratchet is."
+  },
+  {
     "symbol": "tools/audit/__fixtures__/comment-hygiene/offenders.ts",
     "file": "tools/audit/__fixtures__/comment-hygiene/offenders.ts",
     "owner": "@reedsalus",
@@ -358,10 +414,10 @@
   },
   {
     "symbol": "InitOutput",
-    "file": "src/verbs/doctor/schema.ts",
+    "file": "src/verbs/init/schema.ts",
     "owner": "@reedsalus",
     "expires": "2026-10-31",
-    "rationale": "Init action output schema type; forward-compat surface."
+    "rationale": "Init action output schema type; forward-compat surface. Path retargeted by task 042 — the entry named verbs/doctor/schema.ts, where this symbol has not lived since the verb split, so it covered nothing and knip reported it stale."
   },
   {
     "symbol": "SkillsScope",

@@ -1,7 +1,6 @@
 // ─── Baseline regeneration (maintenance script, not a test) ─────────────────
 //
-//   cd servers/exarchos-mcp
-//   npx tsx test/integration/suite-invariants/regenerate-baseline.ts
+//   npx tsx tests/core/integration/suite-invariants/regenerate-baseline.ts
 //
 // Rewrites `legacy-shape-debt.ts` from the CURRENT corpus. Run it when the
 // ratchet reports stale entries (a file was annotated, fell out of scope, or

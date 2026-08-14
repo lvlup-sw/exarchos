@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { z } from 'zod';
 import {
   createInMemoryResolver,
@@ -25,6 +28,20 @@ import {
 } from '../../../src/dispatch/dispatch-context.js';
 
 const FIXED_TIME = '2026-07-21T20:00:00.000Z';
+
+/**
+ * `dispatch` resolves `stateDir` against the process cwd, so a RELATIVE value
+ * here materialises a directory in the repository root and leaves it there.
+ * This test used the literal `'caller-identity-test'` and did exactly that —
+ * the stray directory outlived every run, was untracked (so no git-based census
+ * could see it), and survived a deliberate cleanup by being recreated on the
+ * next test run. `tests/architecture/top-level-contract.test.ts` is what
+ * finally caught it.
+ */
+const STATE_DIR = mkdtempSync(join(tmpdir(), 'exarchos-caller-identity-'));
+afterAll(() => {
+  rmSync(STATE_DIR, { recursive: true, force: true });
+});
 
 describe('trusted caller identity and authorization snapshots', () => {
   it('CallerIdentity_UntrustedOverride_IsIgnored', () => {
@@ -163,7 +180,7 @@ describe('trusted caller identity and authorization snapshots', () => {
   it('CallerAuthorization_RealDispatch_ThreadsTrustedSnapshotToHandler', async () => {
     const toolName = 'exarchos_identity_probe';
     const backend = new InMemoryBackend();
-    const eventStore = new EventStore('caller-identity-test', { backend });
+    const eventStore = new EventStore(STATE_DIR, { backend });
     await eventStore.initialize();
     let observed = getDispatchContext()?.authorization;
 
@@ -195,7 +212,7 @@ describe('trusted caller identity and authorization snapshots', () => {
           resolvedAt: '1900-01-01T00:00:00.000Z',
         },
         {
-          stateDir: 'caller-identity-test',
+          stateDir: STATE_DIR,
           eventStore,
           enableTelemetry: false,
           callerIdentity: deriveMcpCallerIdentity({ sessionId: 'trusted-session' }),

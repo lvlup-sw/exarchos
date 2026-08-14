@@ -159,6 +159,26 @@ function typecheckOverlay(overlay: ReadonlyMap<string, string>): readonly ts.Dia
   host.readFile = (fileName) =>
     virtualFiles.get(path.resolve(fileName)) ?? ts.sys.readFile(fileName);
 
+  // Module resolution asks about DIRECTORIES too, and this override is what
+  // makes the overlay genuinely virtual rather than merely mostly-virtual.
+  //
+  // Without it, resolving `./__declaration-store__.js` inside FIXTURES_DIR
+  // requires that directory to exist on the real filesystem — and it did, as an
+  // EMPTY leftover from task 030, tracked by nothing. So the header's claim
+  // that "nothing sits here on disk any more" was true of files and false of
+  // the directory, and the proof was quietly resting on a leftover git cannot
+  // even represent. It would already have failed on a fresh clone; task 043
+  // deleted the empty directory and turned that latent break into a real one.
+  const realDirectoryExists = host.directoryExists?.bind(host);
+  const virtualDirs = new Set<string>();
+  for (const file of virtualFiles.keys()) {
+    for (let dir = path.dirname(file); dir !== path.dirname(dir); dir = path.dirname(dir)) {
+      virtualDirs.add(dir);
+    }
+  }
+  host.directoryExists = (dirName) =>
+    virtualDirs.has(path.resolve(dirName)) || (realDirectoryExists?.(dirName) ?? false);
+
   const program = ts.createProgram([...virtualFiles.keys()], PROBE_COMPILER_OPTIONS, host);
   return ts.getPreEmitDiagnostics(program);
 }

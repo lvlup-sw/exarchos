@@ -233,8 +233,3 @@ export function reachesModule(origin: string, target: string, maxNodes = 4000): 
   }
   return false;
 }
-
-/** Test seam: drop memoised import edges (used by the detector self-tests). */
-export function _resetImportCache(): void {
-  importCache.clear();
-}

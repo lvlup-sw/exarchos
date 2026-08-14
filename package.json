@@ -26,7 +26,7 @@
     "generate:docs": "tsx tools/audit/core/generate-docs.ts",
     "build:skills": "npm run generate:agents && node dist/install/build-skills.js",
     "build:hooks": "node dist/install/build-hooks.js",
-    "lint": "eslint \"src/**/*.ts\" \"tools/conformance/src/**/*.ts\"",
+    "lint": "eslint \"src/**/*.ts\" \"tools/**/*.ts\"",
     "quality-check": "npm run lint:invariants && npm run lint:test-first-drift",
     "lint:inv6": "node tools/audit/gates/lint-inv6.mjs content/",
     "lint:test-first-drift": "node tools/audit/gates/lint-test-first-drift.mjs content rendered/agents",

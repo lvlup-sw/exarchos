@@ -162,12 +162,6 @@ function isLiteralAnchored(code: string, name: string): boolean {
   return /^[[{'"`]/.test(init) || /^(?:\d|true\b|false\b|null\b)/.test(init);
 }
 
-const SHAPE_BY_ID = new Map(COVERED_SHAPES.map((s) => [s.id, s]));
-
-export function shapeById(id: string): ShapeDefinition | undefined {
-  return SHAPE_BY_ID.get(id);
-}
-
 /**
  * Which covered shapes does this source match? Matching is done against the
  * CODE view, so a docblock that *describes* a parity assertion does not put

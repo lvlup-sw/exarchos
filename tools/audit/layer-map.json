@@ -4,9 +4,9 @@
   "source": "src",
   "authority": "docs/system-design.html is the canonical L1-L9 architecture; this file maps the tree onto it. Task 044 asserts THIS mapping, not set equality, which is why the 11 targets -> 9 published layers relation is written out rather than inferred.",
   "counts": {
-    "directories": 28,
+    "directories": 26,
     "mapped": 24,
-    "exceptions": 4,
+    "exceptions": 2,
     "targets": 11,
     "publishedLayers": 9
   },
@@ -72,16 +72,11 @@
   },
   "splitNote": "L5 (Dispatch core) is the one layer served by two target directories: `contract` (what may be called, and its authority) and `dispatch` (the single function that calls it). They are split because the contract is asserted independently of the dispatcher that honours it.",
   "directories": {
-    "__tests__": {
-      "disposition": "exception",
-      "destination": "(stays test-adjacent)",
-      "reason": "Integration tests and the parity harness — test-only (44 files)."
-    },
     "adapters": {
       "disposition": "mapped",
       "target": "adapters",
       "layer": "L8",
-      "reason": "CLI and MCP over one dispatch core — L8 itself."
+      "reason": "CLI and MCP over one dispatch core \u2014 L8 itself."
     },
     "architecture": {
       "disposition": "exception",
@@ -94,11 +89,6 @@
       "layer": "L8",
       "reason": "Follow-loop and formatter are CLI adapter surface."
     },
-    "commands": {
-      "disposition": "exception",
-      "destination": "(stays test-adjacent)",
-      "reason": "Test-only (3 files, all .test.ts): prose assertions over commands/*.md, which live at the repo root, not here."
-    },
     "config": {
       "disposition": "mapped",
       "target": "workflow",
@@ -109,7 +99,7 @@
       "disposition": "mapped",
       "target": "contract",
       "layer": "L5",
-      "reason": "Authority collection, digests, IR and admission — the contract half of the L5 split. Task 014 folded schemas/, sdk/ and shared/ in: all three are contract surface."
+      "reason": "Authority collection, digests, IR and admission \u2014 the contract half of the L5 split. Task 014 folded schemas/, sdk/ and shared/ in: all three are contract surface."
     },
     "describe": {
       "disposition": "mapped",
@@ -121,13 +111,13 @@
       "disposition": "mapped",
       "target": "dispatch",
       "layer": "L5",
-      "reason": "Caller identity, dispatch context, elicitation dispatch — the dispatch half of the L5 split. Task 014 folded core/ in: context.ts and dispatch.ts ARE the single dispatch function L5 describes."
+      "reason": "Caller identity, dispatch context, elicitation dispatch \u2014 the dispatch half of the L5 split. Task 014 folded core/ in: context.ts and dispatch.ts ARE the single dispatch function L5 describes."
     },
     "events": {
       "disposition": "mapped",
       "target": "events",
       "layer": "L2",
-      "reason": "Append, expected-sequence, idempotency, the composite reader — L2 itself. Task 012 renamed event-store/ to match its target."
+      "reason": "Append, expected-sequence, idempotency, the composite reader \u2014 L2 itself. Task 012 renamed event-store/ to match its target."
     },
     "hooks": {
       "disposition": "mapped",
@@ -163,7 +153,7 @@
       "disposition": "mapped",
       "target": "projections",
       "layer": "L3",
-      "reason": "Pure reducers, cursors, snapshot/rebuild — L3 itself. Task 012 folded views/, telemetry/, quality/, session/ and task-store/ in as subdirectories; each remains a read model that derives and never decides."
+      "reason": "Pure reducers, cursors, snapshot/rebuild \u2014 L3 itself. Task 012 folded views/, telemetry/, quality/, session/ and task-store/ in as subdirectories; each remains a read model that derives and never decides."
     },
     "pruner": {
       "disposition": "mapped",
@@ -187,7 +177,7 @@
       "disposition": "mapped",
       "target": "runtime",
       "layer": "L9",
-      "reason": "Environment detection and command shims — L9 itself."
+      "reason": "Environment detection and command shims \u2014 L9 itself."
     },
     "stack": {
       "disposition": "mapped",
@@ -199,7 +189,7 @@
       "disposition": "mapped",
       "target": "storage",
       "layer": "L1",
-      "reason": "The SQLite backend, its lifecycle and the sidecar merger — L1 itself. Task 012 folded artifacts/ in: the content-addressed store is persistence, and its path-containment guards travel with it."
+      "reason": "The SQLite backend, its lifecycle and the sidecar merger \u2014 L1 itself. Task 012 folded artifacts/ in: the content-addressed store is persistence, and its path-containment guards travel with it."
     },
     "sync": {
       "disposition": "mapped",
@@ -215,7 +205,7 @@
     },
     "utils": {
       "disposition": "exception",
-      "destination": "(unresolved — task 020)",
+      "destination": "(unresolved \u2014 task 020)",
       "reason": "atomic-write, paths, process, task-id: genuinely cross-cutting with consumers in five layers. Splitting it is a task 020 decision, not a naming one; recorded unresolved rather than forced."
     },
     "vcs": {
@@ -228,13 +218,14 @@
       "disposition": "mapped",
       "target": "verbs",
       "layer": "L6",
-      "reason": "The action bodies behind the composite tools — the largest single directory in the tree (159 files) and squarely L6. Task 015 regrouped it from a flat `orchestrate/` into capability families; it now sits at its target."
+      "reason": "The action bodies behind the composite tools \u2014 the largest single directory in the tree (159 files) and squarely L6. Task 015 regrouped it from a flat `orchestrate/` into capability families; it now sits at its target."
     },
     "workflow": {
       "disposition": "mapped",
       "target": "workflow",
       "layer": "L4",
-      "reason": "State machines, phase contracts, guards, checkpoint — L4 itself. Task 013 folded topology/ in: the phase-contract loader and staleness signal are workflow-primitive data, not a layer of their own."
+      "reason": "State machines, phase contracts, guards, checkpoint \u2014 L4 itself. Task 013 folded topology/ in: the phase-contract loader and staleness signal are workflow-primitive data, not a layer of their own."
     }
-  }
+  },
+  "staleEntriesNote": "Task 043 removed src/__tests__ and src/commands and their entries here. Both were disposition:exception \"(stays test-adjacent)\" describing 44 and 3 test files that task 030 had already lifted into tests/ \u2014 so the directories had been EMPTY since then, tracked by nothing, and invisible to every census that reads git rather than the filesystem. The exceptions are discharged, not violated: their contents went exactly where the entries said they belonged. Counts re-derived from the live tree, 28 -> 26 directories."
 }
