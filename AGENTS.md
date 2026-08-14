@@ -2,58 +2,69 @@
 
 ## Project Overview
 
-Exarchos is local agent governance for Claude Code. It provides event-sourced SDLC workflows with agent team coordination. Distribution is a Claude Code plugin (via the lvlup-sw marketplace) or a standalone single-file binary downloaded by the `scripts/get-exarchos.{sh,ps1}` bootstrap; the plugin manifest registers commands/skills/rules and the MCP server. Workflows survive context compaction through persistent state and auto-resume on session start.
+Exarchos is local agent governance for Claude Code. It provides event-sourced SDLC workflows with agent-team coordination. Distribution is a Claude Code plugin (via the lvlup-sw marketplace) or a standalone single-file binary downloaded by the `tools/release/get-exarchos.{sh,ps1}` bootstrap; the plugin manifest registers commands, skills, rules and the MCP server. Workflows survive context compaction through persistent state and auto-resume on session start.
 
 ## Tech Stack
 
 - **Languages:** TypeScript (strict mode, ESM), Bash, Markdown (structured with YAML frontmatter)
 - **Runtime:** Node.js >= 20, Bun (bundler)
-- **Testing:** Vitest `*.test.ts` and bash `*.test.sh`, all under `tests/` in one tier per kind — never beside their subject (DR-5). Tiers: `acceptance`, `architecture`, `benchmarks`, `core`, `e2e`, `evals`, `helpers`, `integration`, `migration`, `outcome`, `process`, `scripts`, `smoke`, `support`, `unit`
+- **Testing:** Vitest `*.test.ts` and bash `*.test.sh`, all under `tests/` in one tier per kind — never beside their subject. Tiers: `acceptance`, `architecture`, `benchmarks`, `core`, `e2e`, `evals`, `helpers`, `integration`, `migration`, `outcome`, `process`, `scripts`, `smoke`, `support`, `unit`
 - **MCP Framework:** `@modelcontextprotocol/sdk` + `zod`
-- **Build:** `tsc` for type checking, `bun build` for bundling MCP server and CLI
+- **Build:** `tsc` for type checking, `bun build` for bundling the MCP server and CLI
 - **Tools:** Claude Code CLI, GitHub CLI (`gh`) for PRs
 
 ## Code Organization
 
+Six directories carry the repository's structure. Each holds a `README.md`
+stating what belongs in it and — more usefully — what does not.
+
 | Directory | Purpose |
 |-----------|---------|
-| `commands/` | Slash commands (`/ideate`, `/plan`, `/delegate`, `/debug`, `/refactor`, `/oneshot`, `/review`, `/synthesize`, `/prune`, `/checkpoint`, `/rehydrate`, `/tdd`) |
-| `skills/` | Reusable workflow modules with `SKILL.md` and `references/` subdirectories |
-| `rules/` | Global behavioral constraints (coding standards, TDD, orchestrator constraints) |
-| `scripts/` | Deterministic validation scripts replacing prose checklists in skills |
-| `servers/exarchos-mcp/` | Unified MCP server: workflow HSM, event store, CQRS views, team coordination |
-| `src/` | Skills renderer (`build-skills.ts`), `install-skills` runtime-selector CLI, plus repo-level validation tests |
-| `docs/` | Designs, plans, ADRs, schemas, audits, bug reports |
-| `tools/renovate-config/` | Renovate dependency management presets |
-| `hooks.json` | CLI hooks for workflow auto-continue and guardrails |
-| `manifest.json` | Package manifest consumed by installer |
+| `src/` | The shipped product. Arranged as the published layer architecture: storage, event store, projections, workflow, contract + dispatch, verbs, lifecycle, adapters, runtime. |
+| `content/` | Authored skills, commands and rules, grouped by domain (`design/`, `delivery/`, `review/`, `synthesis/`, `continuity/`, `governance/`, `remediation/`, `harness/`, `_shared/`). The source of truth. |
+| `rendered/` | Generated per-runtime projections of `content/`. Never hand-edited; `npm run render:guard` re-renders and diffs. |
+| `tests/` | The single test tree, one tier per kind. |
+| `tools/` | Repo automation that never ships: `audit/` (gates and censuses), `release/` (build and publish), `conformance/` (contract censuses), plus lint rules and migrations. |
+| `docs/` | Specs, guides, architecture notes, ADRs, RCAs. Start at `docs/ARCHITECTURE.md`. |
+
+Two directories remain at the top level without being structure: `binding/`
+(harness binding descriptors) and `hooks/` (required at the plugin root by the
+plugin contract). `manifest.json` is the package manifest the installer reads.
 
 ## MCP Server Architecture
 
-Single server at `servers/exarchos-mcp/` exposing 5 composite tools:
+The server lives in `src/` alongside the CLI — they are two front-ends over one
+dispatch core, not separate programs. Five composite tools:
 
-- **exarchos_workflow** — HSM-based workflow lifecycle (init/get/set/cancel)
-- **exarchos_event** — Append-only JSONL event store with 59 event types (includes `shepherd.started`, `shepherd.iteration`, `shepherd.approval_requested`, `shepherd.completed`)
-- **exarchos_orchestrate** — Agent team spawn/message/shutdown + task claim/complete/fail
-- **exarchos_view** — CQRS materialized views (pipeline, tasks, workflow status, team status, stack, telemetry)
-- **exarchos_sync** — Remote sync (stub)
+- **exarchos_workflow** — workflow lifecycle (init/get/update/transition/cancel/checkpoint/rehydrate)
+- **exarchos_event** — the event store (append/query/batch_append)
+- **exarchos_orchestrate** — task coordination, quality gates, VCS operations
+- **exarchos_view** — CQRS materialized views (pipeline, tasks, status, telemetry, lifecycle)
+- **exarchos_sync** — remote sync (hidden; planned)
+
+Actions are DECLARED in one place, `src/registry/`. Every other description of
+the action surface — the MCP registration, the CLI verb tree, `describe`, the
+compiled contract — is a projection of those declarations. Adding an action
+there and nowhere else is correct and sufficient.
 
 ## Security Considerations
 
-- No secrets stored in repository
+- No secrets stored in the repository
 - Configuration templates use environment variables
-- MCP server communicates over stdio only (no network listeners)
-- Workflow state persists to `~/.claude/workflow-state/` (local filesystem only)
-- Hook CLI validates tool calls against phase/role guardrails
+- The MCP server communicates over stdio only (no network listeners)
+- Workflow state persists to a local SQLite event store (local filesystem only)
+- The hook CLI validates tool calls against phase/role guardrails
 
 ## Known Tech Debt
 
-- `docs/follow-ups/` contains 73+ design/plan files, many likely completed — needs per-file triage
-- Some design docs reference completed/superseded features (Jules integration, pre-Exarchos architecture)
+- `docs/` holds a large body of design and plan documents, many superseded — the
+  relocation of that prose out of this repository is planned but not done.
+- The dead-code allowlist sits at its budget: findings must be resolved rather
+  than absorbed.
 
 ## Scan Preferences
 
-- **Focus areas:** Security vulnerabilities, code quality, outdated patterns, dead code
-- **Ignore patterns:** `node_modules/`, `.git/`, `dist/`, `coverage/`, `.worktrees/`, `.serena/`, `.terraform/`, `*.tfstate*`, `*.local.json`
-- **Severity threshold:** Report Medium and above
-- **Special files:** `*.md` files are structured content (commands/skills/rules), not just documentation — treat frontmatter as configuration
+- **Focus areas:** security vulnerabilities, code quality, outdated patterns, dead code
+- **Ignore patterns:** `node_modules/`, `.git/`, `dist/`, `coverage/`, `rendered/` (generated), `.worktrees/`, `.serena/`, `.terraform/`, `*.tfstate*`, `*.local.json`
+- **Severity threshold:** report Medium and above
+- **Special files:** `*.md` under `content/` is structured content, not prose documentation — treat frontmatter as configuration

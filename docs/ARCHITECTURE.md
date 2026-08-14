@@ -11,8 +11,9 @@ two disagree, the test fails and the JSON is right.
 
 ## The nine published layers
 
-Measured at `b0a25e572`: **55 directories** under `servers/exarchos-mcp/src/` — 44 mapped onto a
-target, 11 carrying a stated exception.
+Measured on the current tree: **27 directories** under `src/` — 25 mapped onto a target, 2
+carrying a stated exception. The counts are asserted against the live listing by
+`layer-map.test.ts`, so a stale number here fails rather than misleads.
 
 | Layer | Name | Target directory |
 |-------|------|------------------|
@@ -55,11 +56,10 @@ This resolves the plan's open question on `evals/`: **it is not a layer.** It me
 from outside, and code that measures the engine must not sit in the engine's call graph, or the
 measurement acquires a stake in the result.
 
-**Test-only** — `__tests__/`, `commands/`, `runtimes/`, `test-helpers/`.
-`commands/` and `runtimes/` are worth naming explicitly because their names suggest product
-source and they contain none: `commands/` is three prose tests over `commands/*.md` at the repo
-root, and `runtimes/` is four adapter tests whose runtime *data* is `runtimes/*.yaml`, also at
-the repo root.
+**Test-only** — these held no product source and were folded into `tests/` and `tools/`. Two were
+worth naming at the time because their names suggested product source and they contained none: a
+`commands/` of prose tests over the authored command Markdown, and a `runtimes/` of adapter tests
+whose runtime *data* is the harness YAML. Both now live with the rest of the test tree.
 
 **Unresolved, on purpose** — `utils/`.
 `atomic-write`, `paths`, `process` and `task-id` have consumers in five layers. Splitting it is a
@@ -75,11 +75,11 @@ files inside a generated tree in the first place.
 
 | Kind | Classification | Source | Emitted to | Producer |
 |------|----------------|--------|------------|----------|
-| `skills` | authored → rendered per runtime | `content/<domain>/skills/` | `skills/<runtime>/` | `build-skills.ts` |
-| `commands` | authored → flattened | `content/<domain>/commands/` | `commands/` | `build-authored-artifacts.ts` |
-| `rules` | authored → flattened | `content/<domain>/rules/` | `rules/` | `build-authored-artifacts.ts` |
-| `command-aliases` | generated from command frontmatter | `commands/*.md` + `COMMAND_TO_SKILL` | `command-aliases/<runtime>/` | `build-command-aliases.ts` |
-| `agents` | generated from TypeScript | `ALL_AGENT_SPECS` | `agents/` | `generate-agents.ts` |
+| `skills` | authored → rendered per runtime | `content/<domain>/skills/` | `rendered/skills/<runtime>/` | `build-skills/` |
+| `commands` | authored → flattened | `content/<domain>/commands/` | `rendered/commands/` | `build-authored-artifacts.ts` |
+| `rules` | authored → flattened | `content/<domain>/rules/` | `rendered/rules/` | `build-authored-artifacts.ts` |
+| `command-aliases` | generated from command frontmatter | `rendered/commands/*.md` + `COMMAND_TO_SKILL` | `rendered/command-aliases/<runtime>/` | `build-command-aliases.ts` |
+| `agents` | generated from TypeScript | `ALL_AGENT_SPECS` | `rendered/agents/` | `generate-agents.ts` |
 | `binding`, `hooks` | authored → generated into place | `content/harness/` | plugin root | `build-hooks.ts` |
 
 **Commands and rules get a generator rather than shipping from where they are authored.** They
@@ -96,7 +96,8 @@ forward reference; it is a broken path that resolves for nobody, and it is asser
 rather than left to review.
 
 Because the flat trees are now output, editing one directly is discarded by the next build.
-`skills:guard` regenerates and diffs them so that discard is a red signal instead of a surprise.
+`render:guard` regenerates and diffs the whole of `rendered/` so that discard is a red signal
+instead of a surprise.
 
 ## Judgement calls worth knowing about
 

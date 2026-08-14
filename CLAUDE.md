@@ -13,10 +13,8 @@ npm run test:run       # the `unit` project ONLY — not the whole root suite
 npx vitest run         # every root project (unit + process + outcome + conformance)
 npm run test:conformance   # just the extracted conformance suite (tools/conformance/)
 npm run typecheck      # tsc --noEmit, root AND tools/conformance
-npm run build:skills   # render content/ → skills/<runtime>/ + command-aliases/<runtime>/
-npm run skills:guard   # CI: fails if generated skills/ or command-aliases/ drift from sources
-
-cd servers/exarchos-mcp && npm run test:run   # MCP server tests (build via root `npm run build`)
+npm run build:skills   # render content/ → rendered/
+npm run render:guard   # CI: fails if rendered/ drifts from content/
 ```
 
 ## Tooling (use the plugins/MCP available in this repo)
@@ -31,22 +29,27 @@ Global tooling (rtk/sem/weave/serena, context7/exa research) is covered by USER-
 
 ## Architecture
 
-Orientation only — deep detail lives in `docs/architecture/`, `docs/guides/`, and RCAs.
+Orientation only. The directory contract and the layer model live in
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md); each of the six top-level
+directories has a `README.md` saying what belongs in it and what does not.
+Deeper detail is in `docs/architecture/`, `docs/guides/`, and the RCAs.
 
-- **Installer** — `scripts/get-exarchos.{sh,ps1}` download the single-file binary from GitHub
+- **Installer** — `tools/release/get-exarchos.{sh,ps1}` download the single-file binary from GitHub
   Releases; `.claude-plugin/` packaging registers commands/skills/rules/agents + the `exarchos`
   MCP server.
-- **Content layers** — Commands (`commands/*.md`); Skills authored at `content/<name>/SKILL.md`
-  (`{{TOKEN}}` placeholders + `references/`) and rendered per-runtime to `skills/<runtime>/`; Rules
-  (`rules/*.md` — safety only; domain rules live in `content/*/skills/*/references/`). Structured
+- **Content layers** — Skills, commands and rules are authored under `content/<domain>/`
+  (`{{TOKEN}}` placeholders + `references/`) and rendered per-runtime into `rendered/`. Structured
   Markdown, not executable code.
-- **Skills renderer** (`src/build-skills.ts`) — `npm run build:skills` substitutes placeholders
-  from `runtimes/<name>.yaml`, copies `references/` verbatim into every variant, honors
-  `SKILL.<runtime>.md` overrides, and emits canonical command aliases for runtimes declaring
-  `canonicalCommandAliases`. `npm run skills:guard` re-renders and fails CI on any `skills/` drift.
-- **MCP server** (`servers/exarchos-mcp/`) — 4 visible composite tools + 1 hidden `exarchos_sync`,
-  over `@modelcontextprotocol/sdk` + `zod` on stdio. Workflow actions are typed TS handlers
-  (`servers/exarchos-mcp/src/orchestrate/`) returning structured `ToolResult` — no bash dependency.
+- **Skills renderer** (`src/install/build-skills/`) — `npm run build:skills` substitutes
+  placeholders from `content/harness/runtimes/<name>.yaml`, copies `references/` verbatim into
+  every variant, honors `SKILL.<runtime>.md` overrides, and emits canonical command aliases for
+  runtimes declaring `canonicalCommandAliases`. `npm run render:guard` re-renders and fails CI on
+  any drift in `rendered/`.
+- **Tool surface** — 4 visible composite tools + 1 hidden `exarchos_sync`, over
+  `@modelcontextprotocol/sdk` + `zod` on stdio. Actions are DECLARED once in `src/registry/`;
+  the MCP registration, the CLI verb tree, `describe` and the compiled contract are all
+  projections of those declarations. Handlers are typed TS returning structured `ToolResult` —
+  no bash dependency.
 - **Toolchain resolution** — `src/config/toolchains.ts` is the single source of truth for toolchain
   *identity*; consumers (`test-runtime-resolver.ts`, `static-analysis.ts`) hold no
   independent marker/command lists. `resolveTestRuntime` is a synchronous, per-field **layered
@@ -69,7 +72,7 @@ Orientation only — deep detail lives in `docs/architecture/`, `docs/guides/`, 
 
 ## Conventions
 
-- **All tests live in `tests/`** (DR-5) — never beside their subject. Pick the tier by what the
+- **All tests live in `tests/`** — never beside their subject. Pick the tier by what the
   test *is*, then let the tier decide its runtime policy: `acceptance`, `architecture`,
   `benchmarks`, `core`, `e2e`, `evals`, `helpers`, `integration`, `migration`, `outcome`,
   `process`, `scripts`, `smoke`, `support`, `unit`. Vitest
@@ -77,13 +80,18 @@ Orientation only — deep detail lives in `docs/architecture/`, `docs/guides/`, 
   Tier → vitest project is declared in `tests/architecture/test-tree-contract.test.ts`, which
   fails if a tier is collected by no project or by two.
 - **Strict TypeScript** — no `any`; use `unknown` + type guards. (ESM / NodeNext / Node ≥20 per `package.json` + `tsconfig.json`.)
-- **Skills are source-of-truth at `content/`** — edit there, run `npm run build:skills`, commit
-  both source and the regenerated `skills/` tree. Direct edits to `skills/<runtime>/**` fail
-  `skills:guard`.
+- **Content is source-of-truth at `content/`** — edit there, run `npm run build:skills`, commit
+  both the source and the regenerated `rendered/` tree. Direct edits under `rendered/**` fail
+  `render:guard`.
 - **Skill frontmatter** — `name` (kebab-case), `description` (≤1,024 chars), `metadata`. Skills that
   invoke Exarchos MCP tools MUST set `metadata.mcp-server: exarchos`; utility/standards skills are exempt.
-- **Reference files** (`content/<skill>/references/*.md`) MUST NOT carry YAML frontmatter —
-  frontmatter is reserved for entry points (`SKILL.md`, `commands/*.md`, `rules/*.md`).
+- **Reference files** (`content/<domain>/skills/<name>/references/*.md`) MUST NOT carry YAML
+  frontmatter — frontmatter is reserved for entry points (`SKILL.md`, commands, rules).
+- **No directory holds more than 25 non-test files at its own level** — exemptions exist but each
+  names a reason and pins its count (`tests/architecture/locality.test.ts`).
+- **Comments name no planning ordinal** — no `DR-<n>`, `task <n>`, `INV-<n>`, `wave <n>`, or
+  `docs/specs/…` path. State the constraint in words; the policy and its rationale are in
+  `.exarchos/comment-policy.json`.
 
 ## Workflow Dispatch
 

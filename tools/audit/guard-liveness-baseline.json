@@ -1,6 +1,6 @@
 {
   "capturedAt": "2026-08-14",
-  "trackedFiles": 3501,
+  "trackedFiles": 3509,
   "surfaces": {
     "depcruise:no-domain-core-to-io-adapters:from": {
       "kind": "module-set",
@@ -18,27 +18,27 @@
     },
     "codeowners:*": {
       "kind": "ownership",
-      "matched": 3501
+      "matched": 3509
     },
     "codeowners:src/": {
       "kind": "ownership",
-      "matched": 728
+      "matched": 729
     },
     "codeowners:tools/": {
       "kind": "ownership",
-      "matched": 296
+      "matched": 297
     },
     "codeowners:content/": {
       "kind": "ownership",
-      "matched": 135
+      "matched": 136
     },
     "codeowners:rendered/": {
       "kind": "ownership",
-      "matched": 243
+      "matched": 244
     },
     "codeowners:tests/": {
       "kind": "ownership",
-      "matched": 1408
+      "matched": 1411
     },
     "package.files:dist/bin": {
       "kind": "packaging",
@@ -92,11 +92,11 @@
     },
     "lint:inv6": {
       "kind": "lint-scope",
-      "matched": 126
+      "matched": 127
     },
     "lint:test-first-drift": {
       "kind": "lint-scope",
-      "matched": 130,
+      "matched": 131,
       "detail": {
         "glob": "content rendered/agents"
       }

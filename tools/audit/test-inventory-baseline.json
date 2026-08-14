@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1161,
-    "parsedFiles": 1116,
+    "testFiles": 1163,
+    "parsedFiles": 1118,
     "shellFiles": 45,
-    "cases": 12797,
+    "cases": 12807,
     "dynamicTitles": 131,
     "unparseableFiles": 0
   },
@@ -5070,6 +5070,68 @@
         {
           "suite": "DepcruiseRule_SeededViolation_StillFails",
           "name": "the rule is the one static analysis actually runs",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/directory-readmes.test.ts": {
+      "file": "tests/architecture/directory-readmes.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "Readmes_EveryTopLevelDirectory_HasOne",
+          "name": "the enumeration found the tree",
+          "dynamic": false
+        },
+        {
+          "suite": "Readmes_EveryTopLevelDirectory_HasOne",
+          "name": "every structural directory has a README",
+          "dynamic": false
+        },
+        {
+          "suite": "Readmes_EveryTopLevelDirectory_HasOne",
+          "name": "every README says what does NOT belong, not just what does",
+          "dynamic": false
+        },
+        {
+          "suite": "Readmes_EveryTopLevelDirectory_HasOne",
+          "name": "rendered/ says in as many words that it is generated",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/documentation-accuracy.test.ts": {
+      "file": "tests/architecture/documentation-accuracy.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "Documentation_NoFileRetainsARemovedPath",
+          "name": "every documented file exists to be checked",
+          "dynamic": false
+        },
+        {
+          "suite": "Documentation_NoFileRetainsARemovedPath",
+          "name": "the removed roots really are removed",
+          "dynamic": false
+        },
+        {
+          "suite": "Documentation_NoFileRetainsARemovedPath",
+          "name": "no instruction file points at a dissolved directory",
+          "dynamic": false
+        },
+        {
+          "suite": "Documentation_EveryStatedCommand_Executes",
+          "name": "every `npm run <script>` a doc names is a real script",
+          "dynamic": false
+        },
+        {
+          "suite": "Documentation_EveryStatedRule_IsOneThatIsEnforced",
+          "name": "every rule the instructions state has a live enforcer",
+          "dynamic": false
+        },
+        {
+          "suite": "Documentation_EveryStatedRule_IsOneThatIsEnforced",
+          "name": "the enforcement table is not empty",
           "dynamic": false
         }
       ]
