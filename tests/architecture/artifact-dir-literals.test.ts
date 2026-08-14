@@ -41,7 +41,15 @@ const OWNER = 'src/config/artifacts.ts';
  *     `artifacts.spec-dir` even in principle, because it names a specific file
  *     at a specific path in this repository's history.
  */
-const FUNCTIONAL_ALLOWLIST: ReadonlyArray<string> = [OWNER, 'tools/audit/gates/guard-inventory.ts'];
+const FUNCTIONAL_ALLOWLIST: ReadonlyArray<string> = [
+  OWNER,
+  // The guard inventory's `SPEC_PATH`: it names a specific frozen document at a
+  // specific path in this repository's history, so it could not follow a
+  // project's configured `artifacts.spec-dir` even in principle. It moved from
+  // `guard-inventory.ts` into the module that now declares the inventory's
+  // roots.
+  'tools/audit/gates/guard-inventory/paths.ts',
+];
 
 /**
  * Agent-facing prose carrying the literal, file → occurrence count. A ratchet:

@@ -18,494 +18,59 @@ import type { SnapshotRecord } from '../projections/snapshot-schema.js';
 import { resolveMaxRecords } from './snapshot-retention.js';
 import { storeLogger } from '../logger.js';
 
-// ─── AtomicAppender wire types (#1259, T06/T07) ─────────────────────────────
-//
-// These are the shape passed in by `AtomicAppender`'s SQLite-backed body.
-// They are intentionally NOT the canonical `WorkflowEvent` because the
-// appender owns sequence allocation and timestamp generation — the
-// backend just persists the pre-computed row. Keeping the wire shape
-// minimal means the substrate boundary stays narrow and testable.
+// The declarations that are not the class itself — wire types, DDL, the error
+// family, driver predicates — live beside it under `sqlite/`. Splitting them
+// out leaves this file the storage BEHAVIOUR and nothing else.
+import type {
+  AtomicAppendEvent,
+  PublicPersistedEventLike,
+  AtomicDecideOnceDecision,
+  AtomicDecideOnceOutcome,
+} from './sqlite/wire-types.js';
+import { SCHEMA_VERSION, SCHEMA_DDL } from './sqlite/schema.js';
+import type { Statements } from './sqlite/statements.js';
+import {
+  MAX_OUTBOX_RETRIES,
+  WORKFLOW_TYPE_EXPR,
+  SQLITE_BUSY_RETRY_POLICY,
+  DECIDE_ONCE_CLAIM_STREAM,
+} from './sqlite/constants.js';
+import {
+  SqliteBusyExhaustedError,
+  SequenceGateConflictError,
+  OperationDigestConflictError,
+  SqliteImmediateUnsupportedError,
+  SqliteCorruptError,
+  SchemaVersionTooNewError,
+} from './sqlite/errors.js';
+import type { SequenceRepair, SequenceRepairReport } from './sqlite/repair-types.js';
+import { SEQUENCE_REPAIR_LOG_CAP } from './sqlite/repair-types.js';
+import {
+  hasImmediateTransaction,
+  isSqliteBusy,
+  isSqliteCorrupt,
+  sleep,
+} from './sqlite/driver-predicates.js';
 
-/** A single pre-allocated event row ready for INSERT. */
-export interface AtomicAppendEvent {
-  /** Assigned by the appender's `finalize(base)` as `base + i + 1`, where
-   *  `base` is the stream-version gate's return value (allocated INSIDE the
-   *  write transaction — not a pre-transaction read). */
-  sequence: number;
-  type: string;
-  timestamp: string;
-  data?: Record<string, unknown> | undefined;
-  /**
-   * The full PublicPersistedEvent serialized as JSON. Persisted into
-   * `events.payload` so `rowToEvent` can rehydrate the canonical shape on
-   * read — preserving idempotencyKey, eventId, correlationId, etc.
-   */
-  payload: string;
-  /**
-   * #1437 — three V6 indexed correlation columns. Stamped onto the
-   * PublicPersistedEvent by `stampWithDispatchContext` (store.ts) when an
-   * active `DispatchContext` is present. Surfaced on the wire shape so
-   * the SQLite `insertEventStrict` bind can populate the indexed
-   * `operation_id` / `correlation_id` / `causation_id` columns alongside
-   * the JSON payload. Optional because pre-context callers (raw test
-   * fixtures, migration paths) emit unstamped events.
-   *
-   * Source of truth for the data remains `payload`; these fields exist
-   * purely as the indexed filter handle for telemetry views (INV-1).
-   */
-  operationId?: string;
-  correlationId?: string;
-  causationId?: string;
-}
-
-/**
- * Shape of an entry returned from `lookupIdempotencyClaim`. Mirrors
- * `PublicPersistedEvent` from `events/atomic-appender.ts` — kept here
- * as a structural alias so the storage module does not import from the
- * event-store module (one-way dependency: event-store → storage).
- */
-export interface PublicPersistedEventLike {
-  streamId: string;
-  sequence: number;
-  type: string;
-  timestamp: string;
-  eventId: string;
-  idempotencyKey?: string;
-  data?: Record<string, unknown>;
-  [k: string]: unknown;
-}
-
-export interface AtomicDecideOnceDecision<TResult> {
-  streamId: string;
-  n: number;
-  expectedSequence?: number;
-  result: TResult;
-  finalize: (base: number) => {
-    events: AtomicAppendEvent[];
-    eventIds: string[];
-    timestamps: string[];
-    events_json: string;
-  };
-}
-
-export interface AtomicDecideOnceOutcome<TResult> {
-  kind: 'committed' | 'cache-hit';
-  streamId: string;
-  result: TResult;
-  sequences: number[];
-  eventIds: string[];
-  timestamps: string[];
-}
-
-// ─── Schema DDL ─────────────────────────────────────────────────────────────
-
-// Exported (additively) for the install-freshness gate (P05-04, ART-009): the
-// install-identity record captures the schema version this binary understands
-// so a freshness check can compare it against a store's persisted identity. The
-// value remains the single source of truth for the store's own DDL/migration
-// ledger below.
-export const SCHEMA_VERSION = 6;
-
-const SCHEMA_DDL = `
-CREATE TABLE IF NOT EXISTS events (
-  streamId       TEXT NOT NULL,
-  sequence       INTEGER NOT NULL,
-  type           TEXT NOT NULL,
-  timestamp      TEXT NOT NULL,
-  data           TEXT,
-  payload        TEXT,
-  operation_id   TEXT,
-  correlation_id TEXT,
-  causation_id   TEXT,
-  PRIMARY KEY (streamId, sequence)
-);
-CREATE INDEX IF NOT EXISTS idx_events_type ON events(streamId, type);
-CREATE INDEX IF NOT EXISTS idx_events_time ON events(streamId, timestamp);
--- V6 indexes on the correlation columns (#1437) live in migrateV5ToV6 rather
--- than here: when SCHEMA_DDL runs against a legacy V<6 events table the
--- CREATE TABLE IF NOT EXISTS is a no-op, so the correlation columns are
--- still absent, and a CREATE INDEX on those columns would error. The
--- migration creates them after the ALTERs (or no-ops on a fresh DB where
--- the columns are already in place via the CREATE TABLE above).
-
-CREATE TABLE IF NOT EXISTS workflow_state (
-  featureId TEXT PRIMARY KEY,
-  state     TEXT NOT NULL,
-  version   INTEGER NOT NULL DEFAULT 1,
-  updatedAt TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS outbox (
-  id          TEXT PRIMARY KEY,
-  streamId    TEXT NOT NULL,
-  event       TEXT NOT NULL,
-  status      TEXT NOT NULL DEFAULT 'pending',
-  attempts    INTEGER NOT NULL DEFAULT 0,
-  createdAt   TEXT NOT NULL,
-  lastAttemptAt TEXT,
-  nextRetryAt   TEXT,
-  error       TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_outbox_pending ON outbox(streamId, status);
-
-CREATE TABLE IF NOT EXISTS view_cache (
-  streamId    TEXT NOT NULL,
-  viewName    TEXT NOT NULL,
-  state       TEXT NOT NULL,
-  highWaterMark INTEGER NOT NULL,
-  savedAt     TEXT NOT NULL,
-  PRIMARY KEY (streamId, viewName)
-);
-
-CREATE TABLE IF NOT EXISTS sequences (
-  streamId TEXT PRIMARY KEY,
-  sequence INTEGER NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS schema_version (
-  version INTEGER PRIMARY KEY,
-  appliedAt TEXT NOT NULL
-);
-
--- Projection snapshots (V4 -> V5, #1343 Wave A). Replaces the per-stream
--- JSONL sidecar at <stateDir>/<streamId>.projections.jsonl with a relational
--- table. Composite PK (stream_id, projection_id, projection_version, sequence)
--- so multiple snapshots for the same projection coexist; the latest-by-sequence
--- index supports the readLatestProjectionSnapshot LIMIT 1 fast path. The
--- payload column holds the JSON-encoded SnapshotRecord (projectionId,
--- projectionVersion, sequence, state, timestamp).
-CREATE TABLE IF NOT EXISTS projection_snapshots (
-  stream_id          TEXT NOT NULL,
-  projection_id      TEXT NOT NULL,
-  projection_version TEXT NOT NULL,
-  sequence           INTEGER NOT NULL,
-  payload            TEXT NOT NULL,
-  created_at         TEXT NOT NULL,
-  PRIMARY KEY (stream_id, projection_id, projection_version, sequence)
-);
-CREATE INDEX IF NOT EXISTS idx_projection_snapshots_latest
-  ON projection_snapshots(stream_id, projection_id, projection_version, sequence DESC);
-
--- Idempotency claims for AtomicAppender SQLite-backed body (#1259, T06/T07).
--- Each row records the eventIds, sequences, and timestamps committed under a
--- given (streamId, idempotencyKey) so a retry returns the canonical
--- PublicPersistedEvent shape rather than a synthesized re-walk of the
--- caller's current request body. PRIMARY KEY enforces single-claim semantics
--- per stream/key; events_json stores the full PublicPersistedEvent list as
--- JSON so cache-hit fidelity matches the in-memory v2.9 cache.
-CREATE TABLE IF NOT EXISTS idempotency_claims (
-  streamId       TEXT NOT NULL,
-  idempotencyKey TEXT NOT NULL,
-  eventIds       TEXT NOT NULL,
-  sequences      TEXT NOT NULL,
-  timestamps     TEXT NOT NULL,
-  events_json    TEXT NOT NULL,
-  claimedAt      TEXT NOT NULL,
-  PRIMARY KEY (streamId, idempotencyKey)
-);
-
-`;
-
-// ─── Prepared Statements ────────────────────────────────────────────────────
-
-interface Statements {
-  insertEvent: Statement;
-  upsertSequence: Statement;
-  upsertSequenceMonotonic: Statement;
-  selectSequence: Statement;
-  selectEvents: Statement;
-  getState: Statement;
-  upsertState: Statement;
-  selectAllStates: Statement;
-  getStateVersion: Statement;
-  insertOutbox: Statement;
-  selectPendingOutbox: Statement;
-  updateOutboxConfirmed: Statement;
-  updateOutboxFailed: Statement;
-  updateOutboxDeadLetter: Statement;
-  getViewCache: Statement;
-  upsertViewCache: Statement;
-  insertSchemaVersion: Statement;
-  // AtomicAppender SQLite-backed body (#1259, T06/T07)
-  selectIdempotencyClaim: Statement;
-  insertIdempotencyClaim: Statement;
-  insertEventStrict: Statement;
-}
-
-// ─── SqliteBackend ──────────────────────────────────────────────────────────
-
-const MAX_OUTBOX_RETRIES = 5;
-
-/**
- * `workflowType` for a summary row: the registry's column when the `streams`
- * row exists, else the workflow_state row's own copy, else `''`. Used by BOTH
- * the SELECT projection and the WHERE pushdown in
- * {@link SqliteBackend.listWorkflowSummaries} so the filtered and projected
- * values can never disagree. The `''` tail mirrors the in-memory backend's
- * `typeof state.workflowType === 'string' ? state.workflowType : ''`, keeping
- * the two backends row-for-row equivalent (INV-2).
- */
-const WORKFLOW_TYPE_EXPR = `COALESCE(s.workflow_type, json_extract(ws.state, '$.workflowType'), '')`;
-
-/**
- * Bounded retry policy for SQLITE_BUSY surfaced by the substrate
- * `atomicAppend` write path (#1259, T09, DR-12, refined by audit §F2.2).
- *
- * Two-tier BUSY recovery — see `applyConnectionPragmas` for the full
- * model. The C-level `busy_timeout = 5000` pragma is the silent
- * absorption tier; this constant configures the JS-level observability
- * tier. The two layers are NOT redundant: the C layer catches
- * microsecond-scale contention without surfacing errors; the JS layer
- * counts the cases where the C-layer's 5-second window expires, making
- * the retry observable to the appender for structured failure
- * reporting (`storage_busy`).
- *
- * Originally DR-12 set busy_timeout=0 and made this layer the sole
- * BUSY handler. The audit (§F2.2) flagged that approach as exposing
- * every microsecond-level contention as a JS-layer retry, exhausting
- * the budget on noise. The C layer is now the absorption tier; this
- * layer is the escalation tier.
- *
- * Backoff: `min(baseDelayMs * 2^(attempt-1), maxDelayMs)`. With
- * `baseDelayMs=5, maxDelayMs=100`, the budget across 4 inter-attempt
- * sleeps tops out near 5+10+20+40 = 75 ms — well below the per-call
- * latency budgets of upstream consumers (event_batch_append SLO).
- */
-const SQLITE_BUSY_RETRY_POLICY = {
-  maxAttempts: 5,
-  baseDelayMs: 5,
-  maxDelayMs: 100,
-} as const;
-
-const DECIDE_ONCE_CLAIM_STREAM = '__decide_once_operations__';
-
-/**
- * Thrown by `atomicAppend` when SQLITE_BUSY persists past the retry
- * budget. Carries the most-recent driver error as `cause` so the
- * caller (AtomicAppender) can surface a structured `storage_busy`
- * reason without re-inspecting the SQLite error code itself.
- *
- * Distinct error class (rather than re-using SqliteError) because the
- * boundary contract is: SqliteBackend throws either a generic
- * SqliteError (caller treats as io-error) or this typed exhausted
- * marker (caller maps to storage_busy). Keeping the distinction in
- * the type system means the translation is unambiguous.
- */
-export class SqliteBusyExhaustedError extends Error {
-  override readonly name = 'SqliteBusyExhaustedError';
-  readonly code = 'SQLITE_BUSY_EXHAUSTED';
-  constructor(
-    public readonly attempts: number,
-    public override readonly cause: Error,
-  ) {
-    super(`SQLITE_BUSY persisted after ${attempts} attempts: ${cause.message}`);
-  }
-}
-
-/**
- * Thrown by the in-transaction stream-version gate (`allocateSequence`)
- * when the caller's `expectedSequence` does not match the stream's durable
- * tail. This is the convergent event-store OCC primitive (Marten `mt_streams`,
- * SQLStreamStore `Streams`, EventStoreDB stream metadata, EventFabric
- * `stream_versions`): the version is assigned **and** checked atomically
- * inside `BEGIN IMMEDIATE`, so the conflict signal carries the real
- * `expected`/`actual` directly — no post-hoc PRIMARY KEY violation, no
- * regex translation of a constraint-error string.
- *
- * Thrown inside the transaction body so the wrapping `db.transaction`
- * rolls the whole append back (the gate bump, the events, the claim) as a
- * unit. `atomicAppend` lets it propagate past the SQLITE_BUSY retry loop
- * (it is not a busy error) and the caller (`AtomicAppender`) maps it to the
- * typed `sequence-conflict` AppendResult.
- */
-export class SequenceGateConflictError extends Error {
-  override readonly name = 'SequenceGateConflictError';
-  readonly code = 'SEQUENCE_GATE_CONFLICT';
-  constructor(
-    public readonly expected: number,
-    public readonly actual: number,
-  ) {
-    super(`stream-version gate: expected ${expected}, actual ${actual}`);
-  }
-}
-
-/**
- * Storage-boundary conflict raised when an operation ID already has a
- * committed result under a different request digest.
- */
-export class OperationDigestConflictError extends Error {
-  override readonly name = 'OperationDigestConflictError';
-  readonly code = 'OPERATION_DIGEST_MISMATCH';
-
-  constructor(
-    public readonly operationId: string,
-    public readonly expectedDigest: string,
-    public readonly actualDigest: string,
-  ) {
-    super(
-      `operation ${JSON.stringify(operationId)} was already committed with a different request digest`,
-    );
-  }
-}
-
-/**
- * Thrown by `initialize()` when the SQLite driver does not expose the
- * `transaction(fn).immediate()` variant. Cross-process write correctness
- * depends on `BEGIN IMMEDIATE` acquiring the write lock up-front: a deferred
- * `BEGIN` that reads then upgrades to a write is the classic SQLite
- * lock-upgrade deadlock that `busy_timeout` cannot resolve, and it reopens
- * the very TOCTOU window the stream-version gate closes. Rather than
- * silently degrade to that path, the substrate refuses to start — fail-fast,
- * operator-visible (DR-3). Both supported drivers (`bun:sqlite` in
- * production, `better-sqlite3` via the test shim) expose `.immediate`.
- */
-export class SqliteImmediateUnsupportedError extends Error {
-  override readonly name = 'SqliteImmediateUnsupportedError';
-  readonly code = 'SQLITE_IMMEDIATE_UNSUPPORTED';
-  constructor() {
-    super(
-      'SQLite driver does not expose transaction(fn).immediate(): BEGIN ' +
-        'IMMEDIATE is required for cross-process write correctness (the ' +
-        'stream-version gate and lock-upgrade-deadlock avoidance both depend ' +
-        'on it). Refusing to start rather than silently using a deferred ' +
-        'BEGIN. Use bun:sqlite (production) or better-sqlite3 (tests).',
-    );
-  }
-}
-
-/**
- * Thrown by `initialize()` when the SQLite database file cannot be
- * opened or read because its bytes are not a valid SQLite database
- * (`SQLITE_NOTADB`) or are structurally broken (`SQLITE_CORRUPT`).
- * The substrate makes corruption a non-recoverable, operator-visible
- * event by design (#1259, T10, DR-12) — auto-rebuilding would silently
- * destroy the evidence operators need to diagnose root cause and would
- * mask data-loss surfaces.
- *
- * The message is deliberately operator-facing: it names the file path
- * and instructs the operator to inspect manually. Consumers should not
- * catch this error and continue — it terminates lifecycle startup.
- */
-export class SqliteCorruptError extends Error {
-  override readonly name = 'SqliteCorruptError';
-  readonly code = 'SQLITE_CORRUPT';
-  constructor(
-    public readonly dbPath: string,
-    public override readonly cause: Error,
-  ) {
-    super(
-      `SQLite database at ${dbPath} is corrupt or not a database (${cause.message}). ` +
-        `Manual operator remediation required: inspect the file, restore from backup, ` +
-        `or move it aside before retrying. Auto-rebuild is intentionally disabled.`,
-    );
-  }
-}
-
-/**
- * Thrown by `initialize()` when the event store's persisted schema identity is
- * NEWER than the schema version this binary understands (`SCHEMA_VERSION`). A
- * store written by a newer Exarchos release must NOT be silently opened by an
- * older one: the older binary would re-stamp its own (lower) version alongside
- * the newer marker and operate against a schema whose invariants it does not
- * know, risking silent data corruption (P05-04, ART-009).
- *
- * The directional policy is asymmetric by design and mirrors the forward-only
- * migration machinery: an OLDER store (version < SCHEMA_VERSION) is
- * forward-migrated on open; a NEWER store (version > SCHEMA_VERSION) is refused
- * because downgrade is not a supported operation. Like {@link SqliteCorruptError},
- * this terminates lifecycle startup — consumers must not catch it and continue.
- */
-export class SchemaVersionTooNewError extends Error {
-  override readonly name = 'SchemaVersionTooNewError';
-  readonly code = 'SCHEMA_VERSION_TOO_NEW';
-  constructor(
-    public readonly dbPath: string,
-    public readonly storeVersion: number,
-    public readonly binaryVersion: number,
-  ) {
-    super(
-      `Event store at ${dbPath} was written under schema version ${storeVersion}, ` +
-        `but this binary understands schema version ${binaryVersion}. A store written by a ` +
-        `newer Exarchos release must not be opened by an older one (downgrade is unsupported). ` +
-        `Upgrade the exarchos binary to a release that understands schema version ` +
-        `${storeVersion} (or newer), or point WORKFLOW_STATE_DIR at a store written by this ` +
-        `binary.`,
-    );
-  }
-}
-
-/**
- * Detect SQLITE_BUSY in a thrown driver error. `bun:sqlite` and
- * `better-sqlite3` (the test-time shim) both expose `.code` as a
- * stringified SQLite error code on their thrown `SqliteError`
- * instances. Falls back to a defensive `false` for non-Error throws.
- */
-/**
- * One stream whose version gate disagreed with its durable event tail.
- * `gate` is the recorded high-water mark; `tail` is `MAX(events.sequence)`.
- */
-export interface SequenceRepair {
-  readonly streamId: string;
-  readonly gate: number;
-  readonly tail: number;
-}
-
-/**
- * Outcome of the EFF-001 startup reconciliation.
- *
- * `repaired` — gates raised to the durable tail (they trailed it, so the next
- * allocation would have re-issued a used sequence).
- * `gaps` — gates that LEAD the tail; left untouched to keep sequences
- * monotonic, reported so the divergence is never silent.
- */
-export interface SequenceRepairReport {
-  readonly repaired: readonly SequenceRepair[];
-  readonly gaps: readonly SequenceRepair[];
-}
-
-/** Counts-not-transcripts cap on the per-stream detail carried in repair logs. */
-const SEQUENCE_REPAIR_LOG_CAP = 20;
-
-/**
- * Narrow a driver transaction wrapper to the explicit `BEGIN IMMEDIATE` form.
- *
- * `bun:sqlite` and the shimmed `better-sqlite3` driver both expose
- * `transaction(fn).immediate(args)`, but neither ships a type for it. This
- * guard is the single narrowing boundary — callers get a typed `immediate()`
- * instead of double-widening the wrapper at each use site.
- */
-function hasImmediateTransaction(
-  txn: unknown,
-): txn is { immediate: (...args: unknown[]) => void } {
-  if (typeof txn !== 'function' && (typeof txn !== 'object' || txn === null)) {
-    return false;
-  }
-  if (!('immediate' in txn)) return false;
-  return typeof txn.immediate === 'function';
-}
-
-function isSqliteBusy(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return false;
-  const code = (err as { code?: unknown }).code;
-  return code === 'SQLITE_BUSY';
-}
-
-/**
- * Detect SQLITE_CORRUPT and SQLITE_NOTADB. Both surface during
- * `initialize()` against a malformed file and both are operator-fatal
- * in the same way — the substrate cannot proceed and auto-recovery is
- * by design refused.
- */
-function isSqliteCorrupt(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return false;
-  const code = (err as { code?: unknown }).code;
-  return code === 'SQLITE_CORRUPT' || code === 'SQLITE_NOTADB';
-}
-
-/** Sleep helper used by the BUSY retry layer. Resolves after `ms` milliseconds. */
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
+// Re-exported so the long-standing `./sqlite-backend.js` import path keeps
+// working for every consumer of the error family and the wire types.
+export type {
+  AtomicAppendEvent,
+  PublicPersistedEventLike,
+  AtomicDecideOnceDecision,
+  AtomicDecideOnceOutcome,
+  SequenceRepair,
+  SequenceRepairReport,
+};
+export {
+  SCHEMA_VERSION,
+  SqliteBusyExhaustedError,
+  SequenceGateConflictError,
+  OperationDigestConflictError,
+  SqliteImmediateUnsupportedError,
+  SqliteCorruptError,
+  SchemaVersionTooNewError,
+};
 
 /**
  * SQLite-backed implementation of StorageBackend.

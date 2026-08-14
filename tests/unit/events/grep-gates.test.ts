@@ -141,14 +141,17 @@ describe('Grep Gates (Wave 1, R-1, #1313)', () => {
     //     records `'set({phase})'`). These are load-bearing negative
     //     tests; rewriting them would erase the regression guard the
     //     hard cut depends on.
-    //   - The `tools.ts` checkpoint-state-missing event payload
+    //   - The checkpoint-state-missing event payload
     //     (`data: { action: 'set' }`): this is an internal event-data
     //     field naming the substrate handler, not an agent-facing
     //     `exarchos_workflow` action. Keeping the historical identifier
     //     preserves event-log replayability for streams written before
-    //     the rename.
+    //     the rename. It now sits in `handlers/set.ts`, which is where
+    //     that handler's body moved when the composite surface was split
+    //     one module per action — the exemption follows the payload, not
+    //     the filename it used to live under.
     const tsExempt = new Set<string>([
-      join(SRC_ROOT, 'workflow', 'tools.ts'),
+      join(SRC_ROOT, 'workflow', 'handlers', 'set.ts'),
     ]);
     {
       const accept = (f: string) =>

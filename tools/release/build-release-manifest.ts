@@ -152,12 +152,16 @@ export const CONTRACT_LOCK_PATH = 'src/contract/contract-authority.lock.json';
 export const PLUGIN_MANIFEST_PATH = '.claude-plugin/plugin.json';
 
 /**
- * Where `SCHEMA_VERSION` lives. It is read by REGEX rather than imported
- * because `sqlite-backend.ts` imports `bun:sqlite`, which is not resolvable
- * from the root (Node-hosted) test project. Fails closed if the declaration
- * ever moves or changes shape.
+ * Where `SCHEMA_VERSION` is DECLARED. It is read by REGEX rather than imported
+ * because the backend imports `bun:sqlite`, which is not resolvable from the
+ * root (Node-hosted) test project. Fails closed if the declaration ever moves
+ * or changes shape — which is exactly what happened when the backend's
+ * declarations were split out of `sqlite-backend.ts`: the barrel still
+ * re-exports the name, but a re-export is not a declaration and the regex
+ * stopped matching. Naming the DECLARING module keeps the read honest, since a
+ * regex pointed at a re-export would match nothing while looking fine.
  */
-export const SCHEMA_VERSION_SOURCE = 'src/storage/sqlite-backend.ts';
+export const SCHEMA_VERSION_SOURCE = 'src/storage/sqlite/schema.ts';
 
 /** Filename shape of a published binary asset. `.sha512` sidecars are skipped. */
 export const RELEASE_ASSET_NAME_RE = /^exarchos-(linux|darwin|windows)-(x64|arm64)(\.exe)?$/;

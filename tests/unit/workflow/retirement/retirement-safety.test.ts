@@ -376,7 +376,11 @@ describe('RetirementSafety_LiveDisposition (P07-05 exit-proof d)', () => {
     const d = byId.get('legacy-hsm-registry');
     expect(d?.disposition).toBe('blocked-by-cutover-gate');
     expect((d?.productionReferences.length ?? 0)).toBeGreaterThan(0);
-    expect(d?.productionReferences).toContain('workflow/tools.ts');
+    // The importer is the TRANSITION handler specifically — which is the more
+    // precise fact. It read as `workflow/tools.ts` only while every handler
+    // shared one module; splitting the surface per action narrowed the
+    // reference to the one handler that actually drives the legacy executor.
+    expect(d?.productionReferences).toContain('workflow/handlers/transition.ts');
   });
 
   it('the obsolete predicates are blocked-by-cutover-gate (embedded in the live guards.ts)', () => {

@@ -67,6 +67,16 @@ const EXPECTED_CONSUMERS = [
   // Sorted order: the regroup moved these from `orchestrate/` to `verbs/`, which
   // now sorts AFTER `storage/` rather than before it.
   'src/storage/sqlite-backend.ts',
+  // The five below are not new consumers. They are the declarations that were
+  // in `sqlite-backend.ts` and now sit beside it — the wire types the appender
+  // exchanges, the DDL, the prepared-statement shape, the error family and the
+  // retry constants. The backend is still ONE consumer; the census counts files
+  // and the file count went up, which is the whole difference.
+  'src/storage/sqlite/constants.ts',
+  'src/storage/sqlite/errors.ts',
+  'src/storage/sqlite/schema.ts',
+  'src/storage/sqlite/statements.ts',
+  'src/storage/sqlite/wire-types.ts',
   'src/verbs/merge/execute-merge.ts',
   'src/verbs/merge/merge-orchestrate.ts',
   'src/verbs/worktree/manager.ts',
