@@ -7,7 +7,7 @@
     "testFiles": 1165,
     "parsedFiles": 1120,
     "shellFiles": 45,
-    "cases": 12822,
+    "cases": 12827,
     "dynamicTitles": 131,
     "unparseableFiles": 0
   },
@@ -5424,7 +5424,22 @@
         },
         {
           "suite": "ProseManifest_EveryRelocatedFile_IsPresentAtTheDestinationWithAMatchingDigest",
-          "name": "no tracked file remains under a relocated subtree",
+          "name": "no mount symlink is tracked",
+          "dynamic": false
+        },
+        {
+          "suite": "ProseManifest_EveryRelocatedFile_IsPresentAtTheDestinationWithAMatchingDigest",
+          "name": "every FULLY relocated directory is ignored, so a mount cannot be committed",
+          "dynamic": false
+        },
+        {
+          "suite": "ProseManifest_EveryRelocatedFile_IsPresentAtTheDestinationWithAMatchingDigest",
+          "name": "nothing under docs/ is tracked unless it is retained",
+          "dynamic": false
+        },
+        {
+          "suite": "ProseManifest_EveryRelocatedFile_IsPresentAtTheDestinationWithAMatchingDigest",
+          "name": "the retained set is not everything",
           "dynamic": false
         },
         {
@@ -5433,8 +5448,18 @@
           "dynamic": false
         },
         {
-          "suite": "MarkdownInventory_EveryRemovedPath_HadZeroLiveReferences",
-          "name": "the manifest covers only subtrees the census cleared",
+          "suite": "MarkdownInventory_AfterExodus_NoProseRemainsOutsideContentAndDocs",
+          "name": "every relocated file was one the retention rule did not keep",
+          "dynamic": false
+        },
+        {
+          "suite": "MarkdownInventory_AfterExodus_NoProseRemainsOutsideContentAndDocs",
+          "name": "every retained path states why it is READ, not merely mentioned",
+          "dynamic": false
+        },
+        {
+          "suite": "MarkdownInventory_AfterExodus_NoProseRemainsOutsideContentAndDocs",
+          "name": "no tracked markdown sits outside the classified roots",
           "dynamic": false
         }
       ]
@@ -5491,7 +5516,7 @@
         },
         {
           "suite": "reference census",
-          "name": "ReferenceCensus_TheScanStillCoversPopulatedSubtrees",
+          "name": "ReferenceCensus_EveryRetainedSubtree_IsActuallyReferenced",
           "dynamic": false
         },
         {
@@ -5511,7 +5536,7 @@
         },
         {
           "suite": "reference census",
-          "name": "ReferenceCensus_ArchivalMarkdown_DoesNotBlockDeletion",
+          "name": "ReferenceCensus_ArchivalMentions_AreStillToldApartFromLiveOnes",
           "dynamic": false
         },
         {

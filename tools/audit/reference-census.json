@@ -1,7 +1,7 @@
 {
   "capturedAt": "2026-08-14",
-  "trackedFiles": 3459,
-  "scannedFiles": 3344,
+  "trackedFiles": 3048,
+  "scannedFiles": 2935,
   "namedFilesIncluded": [
     ".github/CODEOWNERS",
     ".gitattributes",
@@ -11,17 +11,17 @@
   "subtrees": {
     "docs/designs": {
       "disposition": "delete",
-      "ownFiles": 136,
-      "externalReferrers": 296,
+      "ownFiles": 0,
+      "externalReferrers": 140,
       "referrersByKind": {
-        "code": 80,
+        "code": 82,
         "config": 3,
         "snapshot": 1,
         "markdownLive": 31,
-        "markdownArchival": 177,
+        "markdownArchival": 19,
         "other": 4
       },
-      "liveReferrers": 119,
+      "liveReferrers": 121,
       "sampleReferrers": [
         ".exarchos.yml",
         ".exarchos/invariants.md",
@@ -49,17 +49,17 @@
     },
     "docs/plans": {
       "disposition": "delete",
-      "ownFiles": 171,
-      "externalReferrers": 91,
+      "ownFiles": 0,
+      "externalReferrers": 73,
       "referrersByKind": {
-        "code": 38,
+        "code": 40,
         "config": 3,
         "snapshot": 1,
         "markdownLive": 20,
-        "markdownArchival": 25,
+        "markdownArchival": 5,
         "other": 4
       },
-      "liveReferrers": 66,
+      "liveReferrers": 68,
       "sampleReferrers": [
         ".claude-plugin/packaging-policy.json",
         "content/delivery/skills/delegate/references/worked-example.md",
@@ -72,7 +72,7 @@
         "docs/assets/demo-scripts/checkpoint.sh",
         "docs/assets/demo-scripts/plan.sh",
         "docs/assets/demo-scripts/rehydrate.sh",
-        "docs/designs/archive/2026-01-05-context-exhaustion-mitigation.md"
+        "docs/guides/authoring-invariants.md"
       ],
       "sampleLiveCodeReferrers": [
         "src/architecture/vocabulary-lint.ts",
@@ -87,14 +87,14 @@
     },
     "docs/research": {
       "disposition": "delete",
-      "ownFiles": 67,
-      "externalReferrers": 86,
+      "ownFiles": 0,
+      "externalReferrers": 41,
       "referrersByKind": {
         "code": 20,
         "config": 1,
         "snapshot": 1,
         "markdownLive": 6,
-        "markdownArchival": 58,
+        "markdownArchival": 13,
         "other": 0
       },
       "liveReferrers": 28,
@@ -104,13 +104,13 @@
         "agent-principles.md",
         "content/design/skills/discover/SKILL.md",
         "content/harness/runtimes/codex.yaml",
-        "docs/adrs/2026-05-24-hook-layer-observe-only.md",
         "docs/architecture/runtime.md",
-        "docs/designs/archive/2026-04-19-fixer-token-efficiency.md",
-        "docs/designs/archive/2026-04-19-process-fidelity-harness.md",
-        "docs/designs/archive/2026-04-23-rehydrate-foundation.md",
-        "docs/designs/archive/2026-04-25-delegation-runtime-parity.md",
-        "docs/designs/archive/2026-05-05-e2e-v29-revisited.md"
+        "docs/specs/2026-06-23-v2.11.0-rc.1-build.md",
+        "docs/specs/2026-06-25-wlm-foundation.md",
+        "docs/specs/2026-07-04-harness-conform-and-shrink.md",
+        "docs/specs/2026-07-12-tool-token-economy-remediation.md",
+        "docs/specs/2026-07-21-phase-gate-transition-admission-roadmap.md",
+        "docs/specs/2026-07-21-phase-gate-v212-proof-substrate.md"
       ],
       "sampleLiveCodeReferrers": [
         "src/adapters/mcp/mcp.ts",
@@ -126,39 +126,37 @@
     "docs/audits": {
       "disposition": "delete",
       "ownFiles": 0,
-      "externalReferrers": 9,
+      "externalReferrers": 5,
       "referrersByKind": {
-        "code": 0,
+        "code": 1,
         "config": 0,
         "snapshot": 0,
         "markdownLive": 0,
-        "markdownArchival": 9,
+        "markdownArchival": 4,
         "other": 0
       },
-      "liveReferrers": 0,
+      "liveReferrers": 1,
       "sampleReferrers": [
-        "docs/designs/archive/2026-02-20-io-hardening.md",
-        "docs/plans/archive/2026-02-06-testing-gaps.md",
-        "docs/plans/archive/2026-02-20-io-hardening.plan.md",
-        "docs/research/2026-04-19-e2e-testing-strategy.md",
-        "docs/research/2026-07-23-phase-gate-v212-dogfood-remediation.md",
         "docs/specs/2026-07-23-structural-closure-delta-audit.md",
         "docs/specs/2026-08-04-wiring-closure-and-unified-integration-suite.md",
         "docs/specs/2026-08-05-design-knowledge-graph.md",
-        "docs/specs/2026-08-05-event-taxonomy-v2.md"
+        "docs/specs/2026-08-05-event-taxonomy-v2.md",
+        "tests/architecture/prose-exodus.test.ts"
       ],
-      "sampleLiveCodeReferrers": []
+      "sampleLiveCodeReferrers": [
+        "tests/architecture/prose-exodus.test.ts"
+      ]
     },
     "docs/adrs": {
       "disposition": "delete",
-      "ownFiles": 11,
-      "externalReferrers": 39,
+      "ownFiles": 0,
+      "externalReferrers": 17,
       "referrersByKind": {
         "code": 7,
         "config": 1,
         "snapshot": 0,
         "markdownLive": 3,
-        "markdownArchival": 27,
+        "markdownArchival": 5,
         "other": 1
       },
       "liveReferrers": 12,
@@ -167,14 +165,14 @@
         "content/remediation/skills/refactor/references/phases/update-docs.md",
         "content/synthesis/skills/synthesize/references/pr-descriptions.md",
         "docs/architecture/invariants/references/INV-3-basileus-forward.md",
-        "docs/designs/archive/2026-02-05-distributed-agentic-sdlc.md",
-        "docs/designs/archive/2026-02-28-adversarial-convergence-gates.md",
-        "docs/designs/archive/2026-03-06-release-hardening.md",
-        "docs/designs/archive/2026-03-08-vitepress-docs.md",
-        "docs/designs/archive/2026-03-10-neuroanatomy-workflow-refinements.md",
-        "docs/designs/archive/2026-04-18-solver-aided-governance.md",
-        "docs/designs/archive/2026-05-07-milestone-16-mcp-alignment.md",
-        "docs/designs/archive/2026-05-31-harness-binding-and-lifecycle-hooks.md"
+        "docs/specs/2026-07-02-harness-launcher.md",
+        "docs/specs/2026-07-04-harness-conform-and-shrink.md",
+        "docs/specs/2026-08-05-design-knowledge-graph.md",
+        "docs/specs/2026-08-05-event-taxonomy-v2.md",
+        "rendered/skills/standard/synthesize/references/pr-descriptions.md",
+        "src/adapters/cli/hooks.ts",
+        "src/install/build-hooks.ts",
+        "src/lifecycle/session-start.ts"
       ],
       "sampleLiveCodeReferrers": [
         "src/adapters/cli/hooks.ts",
@@ -188,14 +186,14 @@
     },
     "docs/rca": {
       "disposition": "delete",
-      "ownFiles": 11,
-      "externalReferrers": 52,
+      "ownFiles": 0,
+      "externalReferrers": 39,
       "referrersByKind": {
         "code": 13,
         "config": 4,
         "snapshot": 1,
         "markdownLive": 18,
-        "markdownArchival": 13,
+        "markdownArchival": 0,
         "other": 3
       },
       "liveReferrers": 39,
@@ -227,29 +225,29 @@
     "docs/guides": {
       "disposition": "delete",
       "ownFiles": 10,
-      "externalReferrers": 43,
+      "externalReferrers": 35,
       "referrersByKind": {
-        "code": 16,
+        "code": 17,
         "config": 2,
         "snapshot": 0,
         "markdownLive": 7,
-        "markdownArchival": 17,
+        "markdownArchival": 8,
         "other": 1
       },
-      "liveReferrers": 26,
+      "liveReferrers": 27,
       "sampleReferrers": [
         ".exarchos.yml",
         ".exarchos/invariants.md",
         ".github/workflows/ci.yml",
         "CLAUDE.md",
         "content/continuity/commands/tag.md",
-        "docs/designs/archive/2026-05-24-sdlc-catalog-authoring.md",
-        "docs/designs/archive/2026-05-24-v2.10.0-ga-completion.md",
-        "docs/designs/archive/2026-05-25-invariants-authoring-wizard.md",
-        "docs/plans/archive/2026-05-25-invariant-tier-clarity.md",
-        "docs/plans/archive/2026-06-22-ship-gate-methodology.md",
-        "docs/proposals/2026-05-20-invariants-catalog-v2-spec.md",
-        "docs/research/2026-05-24-hooks-templating-and-invariants-onboarding.md"
+        "docs/specs/2026-07-03-wlm-reconcile-enforce.md",
+        "docs/specs/2026-07-04-harness-conform-and-shrink.md",
+        "docs/specs/2026-07-17-wave-s-enforcement-substrate-baseline.md",
+        "docs/specs/2026-07-17-wave-s-enforcement-substrate.md",
+        "docs/specs/2026-07-20-enforcement-phase2-lints.md",
+        "docs/specs/2026-08-04-wiring-closure-and-unified-integration-suite.md",
+        "docs/specs/2026-08-06-internal-mechanics-overhaul.md"
       ],
       "sampleLiveCodeReferrers": [
         "eslint.envelopes.config.js",
@@ -264,24 +262,19 @@
     },
     "docs/references": {
       "disposition": "delete",
-      "ownFiles": 8,
-      "externalReferrers": 8,
+      "ownFiles": 0,
+      "externalReferrers": 3,
       "referrersByKind": {
         "code": 0,
         "config": 0,
         "snapshot": 0,
         "markdownLive": 2,
-        "markdownArchival": 6,
+        "markdownArchival": 1,
         "other": 0
       },
       "liveReferrers": 2,
       "sampleReferrers": [
         "CHANGELOG.md",
-        "docs/designs/archive/2026-04-08-platform-agnostic-skills.md",
-        "docs/designs/archive/2026-05-07-milestone-16-mcp-alignment.md",
-        "docs/designs/archive/2026-05-15-wave2-wave3-polish.md",
-        "docs/research/2026-05-13-windows-dogfood-remediation.md",
-        "docs/research/2026-05-14-semantic-merge-queue-audit.md",
         "docs/skills-authoring.md",
         "documentation/migrating-to-call-macro.md"
       ],
@@ -289,30 +282,30 @@
     },
     "docs/proposals": {
       "disposition": "delete",
-      "ownFiles": 2,
-      "externalReferrers": 18,
+      "ownFiles": 0,
+      "externalReferrers": 14,
       "referrersByKind": {
         "code": 4,
         "config": 1,
         "snapshot": 0,
         "markdownLive": 7,
-        "markdownArchival": 6,
+        "markdownArchival": 2,
         "other": 0
       },
       "liveReferrers": 12,
       "sampleReferrers": [
         ".exarchos.yml",
         "content/design/skills/ideate/references/constraint-anchoring.md",
-        "docs/designs/archive/2026-05-23-invariants-projection-and-extensibility.md",
-        "docs/designs/archive/2026-05-25-invariants-authoring-wizard.md",
         "docs/guides/exarchos-yml-invariants.md",
-        "docs/plans/archive/2026-05-20-invariants-catalog-v2-implementation.md",
-        "docs/research/2026-05-23-v2-10-0-preview-4-build-review.md",
         "docs/specs/2026-07-15-debloat-wave1-structural-enforcement-t8-baseline.md",
         "rendered/skills/claude/ideate/references/constraint-anchoring.md",
         "rendered/skills/codex/ideate/references/constraint-anchoring.md",
         "rendered/skills/copilot/ideate/references/constraint-anchoring.md",
-        "rendered/skills/cursor/ideate/references/constraint-anchoring.md"
+        "rendered/skills/cursor/ideate/references/constraint-anchoring.md",
+        "rendered/skills/generic/ideate/references/constraint-anchoring.md",
+        "rendered/skills/opencode/ideate/references/constraint-anchoring.md",
+        "src/architecture/vocabulary-lint.ts",
+        "src/config/yaml-schema.ts"
       ],
       "sampleLiveCodeReferrers": [
         "src/architecture/vocabulary-lint.ts",
@@ -324,42 +317,33 @@
     "docs/bugs": {
       "disposition": "delete",
       "ownFiles": 0,
-      "externalReferrers": 5,
+      "externalReferrers": 0,
       "referrersByKind": {
         "code": 0,
         "config": 0,
         "snapshot": 0,
         "markdownLive": 0,
-        "markdownArchival": 5,
+        "markdownArchival": 0,
         "other": 0
       },
       "liveReferrers": 0,
-      "sampleReferrers": [
-        "docs/plans/archive/2026-02-06-audit-fixes.md",
-        "docs/plans/archive/2026-02-11-mcp-consistency.md",
-        "docs/plans/archive/2026-02-28-provenance-convergence-wiring.md",
-        "docs/plans/archive/2026-03-01-gate-telemetry-consolidation.md",
-        "docs/research/2026-04-19-e2e-testing-strategy.md"
-      ],
+      "sampleReferrers": [],
       "sampleLiveCodeReferrers": []
     },
     "docs/followups": {
       "disposition": "delete",
-      "ownFiles": 4,
-      "externalReferrers": 4,
+      "ownFiles": 0,
+      "externalReferrers": 1,
       "referrersByKind": {
         "code": 1,
         "config": 0,
         "snapshot": 0,
         "markdownLive": 0,
-        "markdownArchival": 3,
+        "markdownArchival": 0,
         "other": 0
       },
       "liveReferrers": 1,
       "sampleReferrers": [
-        "docs/plans/archive/2026-05-13-wave-0-followups-stack-execution.md",
-        "docs/research/2026-05-13-zod-v4-breaking-changes.md",
-        "docs/research/2026-05-13-zod-v4-decision-record.md",
         "src/architecture/vocabulary-lint.ts"
       ],
       "sampleLiveCodeReferrers": [
@@ -369,62 +353,51 @@
     "docs/refactors": {
       "disposition": "delete",
       "ownFiles": 0,
+      "externalReferrers": 0,
+      "referrersByKind": {
+        "code": 0,
+        "config": 0,
+        "snapshot": 0,
+        "markdownLive": 0,
+        "markdownArchival": 0,
+        "other": 0
+      },
+      "liveReferrers": 0,
+      "sampleReferrers": [],
+      "sampleLiveCodeReferrers": []
+    },
+    "docs/runbooks": {
+      "disposition": "delete",
+      "ownFiles": 0,
       "externalReferrers": 1,
       "referrersByKind": {
         "code": 0,
         "config": 0,
         "snapshot": 0,
-        "markdownLive": 0,
-        "markdownArchival": 1,
-        "other": 0
-      },
-      "liveReferrers": 0,
-      "sampleReferrers": [
-        "docs/plans/archive/2026-05-08-rehydration-machinery-plan.md"
-      ],
-      "sampleLiveCodeReferrers": []
-    },
-    "docs/runbooks": {
-      "disposition": "delete",
-      "ownFiles": 2,
-      "externalReferrers": 3,
-      "referrersByKind": {
-        "code": 0,
-        "config": 0,
-        "snapshot": 0,
         "markdownLive": 1,
-        "markdownArchival": 2,
+        "markdownArchival": 0,
         "other": 0
       },
       "liveReferrers": 1,
       "sampleReferrers": [
-        "CHANGELOG.md",
-        "docs/designs/archive/2026-05-16-correlation-consumer-wiring.md",
-        "docs/research/2026-05-23-v2-10-0-preview-4-build-review.md"
+        "CHANGELOG.md"
       ],
       "sampleLiveCodeReferrers": []
     },
     "docs/contexts": {
       "disposition": "delete",
-      "ownFiles": 2,
-      "externalReferrers": 8,
+      "ownFiles": 0,
+      "externalReferrers": 1,
       "referrersByKind": {
         "code": 1,
         "config": 0,
         "snapshot": 0,
         "markdownLive": 0,
-        "markdownArchival": 7,
+        "markdownArchival": 0,
         "other": 0
       },
       "liveReferrers": 1,
       "sampleReferrers": [
-        "docs/designs/archive/2026-05-06-checkpoint-handoff-enrichment.md",
-        "docs/designs/archive/2026-05-08-checkpoint-handoff-bundle.md",
-        "docs/designs/archive/2026-05-15-v2-10-0-preview-4-feature-freeze.md",
-        "docs/designs/archive/2026-05-24-axiom-excision.md",
-        "docs/research/2026-05-07-checkpoint-cluster-fitness.md",
-        "docs/research/2026-05-07-vcsprovider-thread-reply-fitness.md",
-        "docs/research/2026-05-18-invariant-content-audit.md",
         "src/architecture/vocabulary-lint.ts"
       ],
       "sampleLiveCodeReferrers": [
@@ -434,39 +407,33 @@
     "docs/market": {
       "disposition": "delete",
       "ownFiles": 0,
-      "externalReferrers": 4,
+      "externalReferrers": 0,
       "referrersByKind": {
         "code": 0,
         "config": 0,
         "snapshot": 0,
         "markdownLive": 0,
-        "markdownArchival": 4,
+        "markdownArchival": 0,
         "other": 0
       },
       "liveReferrers": 0,
-      "sampleReferrers": [
-        "docs/designs/archive/2026-03-06-release-hardening.md",
-        "docs/designs/archive/2026-03-08-vitepress-docs.md",
-        "docs/research/2026-04-25-marketing-positioning.md",
-        "docs/research/2026-04-25-readme-amendments.md"
-      ],
+      "sampleReferrers": [],
       "sampleLiveCodeReferrers": []
     },
     "docs/migrations": {
       "disposition": "delete",
-      "ownFiles": 1,
-      "externalReferrers": 3,
+      "ownFiles": 0,
+      "externalReferrers": 2,
       "referrersByKind": {
         "code": 1,
         "config": 0,
         "snapshot": 0,
         "markdownLive": 0,
-        "markdownArchival": 2,
+        "markdownArchival": 1,
         "other": 0
       },
       "liveReferrers": 1,
       "sampleReferrers": [
-        "docs/designs/archive/2026-04-23-rehydrate-foundation.md",
         "docs/specs/2026-07-21-phase-gate-transition-admission-roadmap.md",
         "tests/scripts/migration-followups.test.ts"
       ],
@@ -477,19 +444,17 @@
     "docs/evals": {
       "disposition": "re-home",
       "ownFiles": 0,
-      "externalReferrers": 10,
+      "externalReferrers": 8,
       "referrersByKind": {
         "code": 3,
         "config": 1,
         "snapshot": 0,
         "markdownLive": 0,
-        "markdownArchival": 6,
+        "markdownArchival": 4,
         "other": 0
       },
       "liveReferrers": 4,
       "sampleReferrers": [
-        "docs/research/2026-08-04-coordination-pull-vs-push-sota.md",
-        "docs/research/2026-08-04-theoretical-optimum-coordination.md",
         "docs/specs/2026-07-09-1670-delegation-empirical-testing.md",
         "docs/specs/2026-07-10-1677-verification-pillar-benchmarks.md",
         "docs/specs/2026-08-11-comment-hygiene-enforcement.md",
@@ -508,31 +473,31 @@
     "docs/schemas": {
       "disposition": "re-home",
       "ownFiles": 3,
-      "externalReferrers": 11,
+      "externalReferrers": 10,
       "referrersByKind": {
-        "code": 1,
+        "code": 2,
         "config": 1,
         "snapshot": 1,
         "markdownLive": 4,
-        "markdownArchival": 4,
+        "markdownArchival": 2,
         "other": 0
       },
-      "liveReferrers": 7,
+      "liveReferrers": 8,
       "sampleReferrers": [
         "CHANGELOG.md",
         "content/continuity/skills/checkpoint/SKILL.md",
-        "docs/designs/archive/2026-01-06-workflow-phase-restructuring.md",
-        "docs/plans/archive/2026-02-13-skills-content-modernization.plan.md",
         "docs/specs/2026-07-15-debloat-wave1-structural-enforcement.md",
         "docs/specs/2026-08-11-exarchos-repo-structure-cleanup.md",
         "rendered/skills/standard/checkpoint/SKILL.md",
         "tests/architecture/test-inventory.test.ts",
         "tests/migration/__fixtures__/batch-baselines/checkpoint.md",
         "tests/migration/__snapshots__/snapshots.test.ts.snap",
+        "tools/audit/prose-manifest.ts",
         "tools/audit/test-inventory-baseline.json"
       ],
       "sampleLiveCodeReferrers": [
-        "tests/architecture/test-inventory.test.ts"
+        "tests/architecture/test-inventory.test.ts",
+        "tools/audit/prose-manifest.ts"
       ]
     },
     "docs/assets": {
@@ -540,48 +505,50 @@
       "ownFiles": 21,
       "externalReferrers": 4,
       "referrersByKind": {
-        "code": 0,
+        "code": 1,
         "config": 0,
         "snapshot": 0,
         "markdownLive": 2,
-        "markdownArchival": 2,
+        "markdownArchival": 1,
         "other": 0
       },
-      "liveReferrers": 2,
+      "liveReferrers": 3,
       "sampleReferrers": [
         "README.md",
         "agent-principles.md",
-        "docs/designs/archive/2026-03-08-vitepress-docs.md",
-        "docs/specs/2026-08-11-exarchos-repo-structure-cleanup.md"
+        "docs/specs/2026-08-11-exarchos-repo-structure-cleanup.md",
+        "tools/audit/prose-manifest.ts"
       ],
-      "sampleLiveCodeReferrers": []
+      "sampleLiveCodeReferrers": [
+        "tools/audit/prose-manifest.ts"
+      ]
     },
     "docs/architecture": {
       "disposition": "re-home",
       "ownFiles": 13,
-      "externalReferrers": 73,
+      "externalReferrers": 41,
       "referrersByKind": {
-        "code": 27,
+        "code": 28,
         "config": 1,
         "snapshot": 0,
         "markdownLive": 4,
-        "markdownArchival": 41,
+        "markdownArchival": 8,
         "other": 0
       },
-      "liveReferrers": 32,
+      "liveReferrers": 33,
       "sampleReferrers": [
         ".exarchos/invariants.md",
         ".github/workflows/ci.yml",
         "CHANGELOG.md",
         "CLAUDE.md",
         "content/remediation/skills/refactor/references/phases/update-docs.md",
-        "docs/contexts/2026-05-07-insights-friction-discovery.md",
-        "docs/designs/archive/2026-04-23-rehydrate-foundation.md",
-        "docs/designs/archive/2026-05-07-milestone-16-mcp-alignment.md",
-        "docs/designs/archive/2026-05-10-v2-10-0-preview-2-marten-primitives.md",
-        "docs/designs/archive/2026-05-11-marten-followups.md",
-        "docs/designs/archive/2026-05-15-v2-10-0-preview-4-feature-freeze.md",
-        "docs/designs/archive/2026-05-16-correlation-indexed-columns.md"
+        "docs/guides/exarchos-yml-invariants.md",
+        "docs/specs/2026-07-04-harness-conform-and-shrink.md",
+        "docs/specs/2026-07-07-lifecycle-verbs.md",
+        "docs/specs/2026-07-09-refactor-pipeline-view-economy.md",
+        "docs/specs/2026-07-14-1342-marten-consumers.md",
+        "docs/specs/2026-07-17-wave-s-enforcement-substrate.md",
+        "docs/specs/2026-07-21-phase-gate-transition-admission-roadmap.md"
       ],
       "sampleLiveCodeReferrers": [
         "src/architecture/catalog-sources.ts",

@@ -12,12 +12,23 @@
  * different fails exactly like a file that is absent, which is the property a
  * copy-and-hope transfer does not have.
  *
- * ── WHY ONLY SOME SUBTREES ──────────────────────────────────────────────────
- * The reference census measures, per subtree, whether anything still points at
- * it. Only a subtree with ZERO live referrers is eligible: moving one that is
- * still referenced converts a working link into a broken one, and does it in
- * bulk. Eligibility is read from the census at generation time rather than
- * listed here, so this tool cannot drift from the measurement that governs it.
+ * ── WHAT STAYS, AND WHY THE RULE IS STATED THIS WAY ROUND ───────────────────
+ * Eligibility was once "no live referrer points at this subtree". Measured,
+ * that rule blocked 462 files on 362 references — and 200 of those were a PATH
+ * IN A COMMENT, a citation a reader might follow rather than anything the
+ * program reads. Of those, 128 pointed into `docs/designs/` or `docs/plans/`,
+ * which the comment policy already forbids on the stated grounds that "the
+ * document may move out of this repository". The gate was preserving links the
+ * policy wanted deleted.
+ *
+ * So the rule is inverted: name what STAYS, and move the rest. A retained entry
+ * has to earn its place by being READ — by the program, by a test, or by a user
+ * who was handed the path — not by being mentioned. {@link RETAINED} is that
+ * list and each entry carries its reason.
+ *
+ * A citation left pointing at a relocated document is not a break: the mount
+ * puts the file back at its original path. Unmounted it does not resolve, and
+ * that is the honest trade — nothing FAILS, because nothing reads it.
  *
  * ── THE DESTINATION LAYOUT ──────────────────────────────────────────────────
  * `<documents-repo>/exarchos/<source-path>` — the repository name as the key,
@@ -33,6 +44,85 @@ import path from 'node:path';
 
 /** The repository name that keys this project's documents at the destination. */
 export const DESTINATION_KEY = 'exarchos';
+
+/**
+ * Paths under `docs/` that STAY, and the reason each is read rather than
+ * merely mentioned. Everything else under `docs/` relocates.
+ *
+ * A prefix match: naming a directory retains it whole.
+ */
+export const RETAINED: ReadonlyArray<{ readonly path: string; readonly because: string }> =
+  Object.freeze([
+    {
+      path: 'docs/README.md',
+      because: 'Every structural directory states what belongs in it; a test enumerates them.',
+    },
+    {
+      path: 'docs/ARCHITECTURE.md',
+      because:
+        'The directory contract and the layer map. Describes the system that EXISTS, which is ' +
+        'the half of documentation this repository keeps; cited by the root instruction files ' +
+        'and asserted by the documentation-accuracy checks.',
+    },
+    {
+      path: 'docs/system-design.html',
+      because: 'The canonical statement of the nine-layer architecture.',
+    },
+    {
+      path: 'docs/skills-authoring.md',
+      because: 'Live authoring how-to, handed to contributors by CONTRIBUTING.md.',
+    },
+    {
+      path: 'docs/specs/',
+      because:
+        'The LIVE workflow artifact directory — `DEFAULT_SPEC_DIR`. Workflows write here now; ' +
+        'these are outputs of the running system, not a record of past planning.',
+    },
+    {
+      path: 'docs/architecture/invariants/',
+      because:
+        'Read by the invariants catalog: nine `references:` keys resolve into this directory ' +
+        'and a test asserts every one of them exists on disk.',
+    },
+    {
+      path: 'docs/architecture/runtime.md',
+      because: 'Cited by ten catalog `references:` keys, section by section.',
+    },
+    {
+      path: 'docs/architecture/projections.md',
+      because:
+        'Read through a catalog `references:` key, like the invariant reference notes beside it.',
+    },
+    {
+      path: 'docs/architecture/invariants-v3-contract-seam.md',
+      because:
+        'Read by `contract-seam-doc.test.ts`, which asserts the document enumerates every exported ' +
+        'v3 schema type. It is cited by NO catalog key, so a survey of the invariant references ' +
+        'alone clears it for relocation — and that is exactly what happened, until the test that ' +
+        'reads it failed. Kept as the standing reminder that a citation survey is not a consumer ' +
+        'survey.',
+    },
+    {
+      path: 'docs/guides/',
+      because:
+        'Operational how-to that the SHIPPED product hands to a user: the scaffolded config and ' +
+        'the invariants catalog both emit `docs/guides/authoring-invariants.md` as the place to ' +
+        'read next. A path printed into someone else\'s file has to resolve.',
+    },
+    {
+      path: 'docs/schemas/',
+      because: 'Not prose — a JSON Schema and its test. Re-homed into the source tree separately.',
+    },
+    {
+      path: 'docs/assets/',
+      because: 'Not prose — binaries. Re-homed to their live referents separately.',
+    },
+  ]);
+
+/** Is this path retained? */
+export function isRetained(rel: string): boolean {
+  return RETAINED.some((r) => (r.path.endsWith('/') ? rel.startsWith(r.path) : rel === r.path));
+}
 
 /** Where the documents go. Recorded so the manifest names its own destination. */
 export const DESTINATION_REPO = 'lvlup-sw/docs';
@@ -75,29 +165,32 @@ export function trackedUnder(repoRoot: string, subtree: string): string[] {
   return out.split('\0').filter((rel) => rel.length > 0);
 }
 
-/** Build the manifest for the given subtrees. */
+/** Build the manifest for an explicit list of source paths. */
 export function buildManifest(
   repoRoot: string,
-  subtrees: readonly string[],
+  sources: readonly string[],
   capturedAt: string,
 ): ProseManifest {
   const entries: ProseManifestEntry[] = [];
-  for (const subtree of [...subtrees].sort()) {
-    for (const source of trackedUnder(repoRoot, subtree).sort()) {
-      const bytes = readFileSync(path.join(repoRoot, source));
-      entries.push({
-        source,
-        destination: destinationFor(source),
-        bytes: bytes.length,
-        digest: digestOf(bytes),
-      });
-    }
+  for (const source of [...sources].sort()) {
+    const bytes = readFileSync(path.join(repoRoot, source));
+    entries.push({
+      source,
+      destination: destinationFor(source),
+      bytes: bytes.length,
+      digest: digestOf(bytes),
+    });
   }
+  // The subtree list is DERIVED from what was actually included, so it can
+  // never claim coverage the entries do not have.
+  const subtrees = [
+    ...new Set(entries.map((e) => e.source.split('/').slice(0, 2).join('/'))),
+  ].sort();
   return {
     destinationRepo: DESTINATION_REPO,
     destinationKey: DESTINATION_KEY,
     capturedAt,
-    subtrees: [...subtrees].sort(),
+    subtrees,
     counts: {
       files: entries.length,
       bytes: entries.reduce((n, e) => n + e.bytes, 0),

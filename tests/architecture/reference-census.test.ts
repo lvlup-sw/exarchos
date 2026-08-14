@@ -10,6 +10,21 @@
  * snapshots, and instruction markdown outside `docs/`. A dated record under
  * `docs/` that mentions a path is history — rewriting it to survive a refactor
  * would falsify the record it exists to keep.
+ *
+ * ── THE GATE INVERTED, AND SO DID THIS FILE ─────────────────────────────────
+ * This used to gate deletion: a subtree could leave only when nothing pointed
+ * at it. Measured, that rule blocked 462 files on 362 references — and 200 of
+ * those were a path in a COMMENT, a citation rather than a dependency. 128
+ * pointed into `docs/designs/` or `docs/plans/`, which the comment policy
+ * already forbids on the stated grounds that the document may move out of this
+ * repository. The gate was preserving links another rule wanted deleted.
+ *
+ * The exodus is now governed by a RETAINED list — what stays, and why each
+ * entry is READ rather than merely mentioned — enforced in
+ * `prose-exodus.test.ts`. What is left for the census is the question that list
+ * cannot answer about itself: is each retained subtree genuinely load-bearing,
+ * or is the list hoarding? That fails in the direction that matters — a
+ * retained subtree nothing references is one that should have left.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -110,12 +125,31 @@ describe('reference census', () => {
     }
   });
 
-  it('ReferenceCensus_TheScanStillCoversPopulatedSubtrees', () => {
-    // Denominator. Once four subtrees hold nothing, a census that had lost its
-    // ability to see files at all would report every remaining subtree as empty
-    // and every check above would pass by having no input.
-    const populated = deletionCandidates.filter(([, s]) => s.ownFiles > 0);
-    expect(populated.length, 'the census sees no populated subtree').toBeGreaterThan(5);
+  it('ReferenceCensus_EveryRetainedSubtree_IsActuallyReferenced', () => {
+    // The inverted question, and the one still worth asking. A subtree kept on
+    // the grounds that something reads it, which nothing references, is the
+    // retained list hoarding rather than retaining.
+    const retainedAndPopulated = Object.entries(census.subtrees).filter(
+      ([, s]) => s.ownFiles > 0,
+    );
+
+    // Denominator: a census that had lost the ability to see files would report
+    // everything as empty and this check would pass on no input.
+    expect(
+      retainedAndPopulated.length,
+      'the census sees no populated subtree at all — it is measuring nothing',
+    ).toBeGreaterThan(0);
+
+    const unreferenced = retainedAndPopulated
+      .filter(([, s]) => s.liveReferrers === 0)
+      .map(([name]) => name);
+
+    expect(
+      unreferenced,
+      'subtrees still under docs/ that NOTHING references. Either something should read them or ' +
+        'they belong in the documents repository — retention is for what is read, not for what ' +
+        'happens to be here.',
+    ).toEqual([]);
   });
 
   it('ReferenceCensus_LiveReferencedPath_IsExcludedFromDeletion', () => {
@@ -152,14 +186,31 @@ describe('reference census', () => {
     expect(census.namedFilesIncluded).toContain('.github/CODEOWNERS');
   });
 
-  it('ReferenceCensus_ArchivalMarkdown_DoesNotBlockDeletion', () => {
-    // The distinction that makes the gate usable: docs/audits carries archival
-    // mentions and is still clear, because a dated record is out of scope.
-    const audits = census.subtrees['docs/audits'];
-    if (!audits) throw new Error('docs/audits is absent from the census');
+  it('ReferenceCensus_ArchivalMentions_AreStillToldApartFromLiveOnes', () => {
+    // The classifier still has to discriminate, because the inverted question
+    // depends on it: a retained subtree referenced only by dated records is not
+    // load-bearing, it is being remembered.
+    //
+    // This used to pin `docs/audits` — archival mentions, zero live referrers,
+    // therefore safe to delete. That subtree has since LEFT, and asserting on a
+    // departed directory is how a check starts measuring nothing. Worse, its
+    // referrer count is now noise: the comment in `prose-exodus.test.ts`
+    // explaining the trailing-slash ignore bug NAMES it, so it reads as a live
+    // code referrer of a directory that no longer exists. Exactly the
+    // citation-counted-as-dependency confusion that made the old gate wrong.
+    //
+    // So the claim is stated over the whole census instead of one subtree.
+    const kinds = Object.values(census.subtrees).map((s) => s.referrersByKind);
+    expect(kinds.length, 'the census reports no subtree').toBeGreaterThan(0);
 
-    expect(audits.referrersByKind.markdownArchival).toBeGreaterThan(0);
-    expect(audits.liveReferrers).toBe(0);
+    const archival = kinds.reduce((n, k) => n + k.markdownArchival, 0);
+    const live = kinds.reduce((n, k) => n + k.markdownLive, 0);
+
+    // Both classes must be non-empty, or the split is not discriminating — a
+    // classifier that puts everything in one bucket satisfies any check that
+    // only looks at the other.
+    expect(archival, 'no archival markdown mentions found — the split is not discriminating').toBeGreaterThan(0);
+    expect(live, 'no live markdown referrers found — the split is not discriminating').toBeGreaterThan(0);
   });
 
   it('ReferenceCensus_ScanSurface_IsMostOfTheTree', () => {

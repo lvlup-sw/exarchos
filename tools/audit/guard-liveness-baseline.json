@@ -1,6 +1,6 @@
 {
   "capturedAt": "2026-08-14",
-  "trackedFiles": 3468,
+  "trackedFiles": 3048,
   "surfaces": {
     "depcruise:no-domain-core-to-io-adapters:from": {
       "kind": "module-set",
@@ -18,7 +18,7 @@
     },
     "codeowners:*": {
       "kind": "ownership",
-      "matched": 3468
+      "matched": 3048
     },
     "codeowners:src/": {
       "kind": "ownership",

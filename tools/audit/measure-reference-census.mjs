@@ -77,6 +77,18 @@ const NAMED_FILES = ['.github/CODEOWNERS', '.gitattributes', '.npmignore', '.exa
  */
 const SELF_OUTPUT = 'tools/audit/reference-census.json';
 
+/**
+ * Records OF relocation, excluded for the same reason as this instrument's own
+ * output: they enumerate paths in order to prove those paths were preserved,
+ * not because anything reads them.
+ *
+ * Without this the exodus manifest lists every relocated path verbatim, the
+ * next census reads it back as a live `config` referrer of every subtree that
+ * has ALREADY left, and each departed subtree acquires a permanent live
+ * referrer supplied by the record of its own departure.
+ */
+const RELOCATION_RECORDS = ['tools/audit/prose-manifest.json'];
+
 function trackedFiles() {
   return execFileSync('git', ['ls-files', '-z'], {
     cwd: REPO_ROOT,
@@ -96,6 +108,7 @@ function main() {
   const scanned = tracked.filter(
     (rel) =>
       rel !== SELF_OUTPUT &&
+      !RELOCATION_RECORDS.includes(rel) &&
       (SCAN_EXTENSIONS.has(path.extname(rel)) || NAMED_FILES.includes(rel)),
   );
 

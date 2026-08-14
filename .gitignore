@@ -71,7 +71,23 @@ docs/marketing/
 #
 # One line per relocated subtree, so a subtree that has NOT been relocated is
 # still tracked normally and `docs:mount` refuses to shadow it.
-docs/audits/
-docs/bugs/
-docs/market/
-docs/refactors/
+#
+# NO TRAILING SLASH. A trailing slash matches a DIRECTORY, and the mount is a
+# SYMLINK — which git treats as a file. Written as `docs/audits/` these
+# patterns matched nothing, the links were committed with mode 120000, and
+# their content was one machine's relative path, which dangles everywhere else.
+docs/adrs
+docs/audits
+docs/bugs
+docs/contexts
+docs/designs
+docs/followups
+docs/market
+docs/migrations
+docs/plans
+docs/proposals
+docs/rca
+docs/refactors
+docs/references
+docs/research
+docs/runbooks
