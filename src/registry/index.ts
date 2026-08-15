@@ -43,8 +43,11 @@
 // (`tools`) with its runtime extension surface (`custom-tools`).
 //
 // The split is a reorganization, not a redefinition: the assembled
-// `TOOL_REGISTRY` names the same tools carrying the same actions in the same
-// order, which is what the recorded action snapshot checks.
+// `TOOL_REGISTRY` names the same tools carrying the same actions. The
+// recorded action snapshot checks that set after sorting. Declaration
+// order is a separate pin: describe and CLI help walk the declaration
+// array, so a family reorder would be silent if only the sorted set
+// were compared.
 // ────────────────────────────────────────────────────────────────────────────
 
 export { coercedRecord, coercedPositiveInt, coercedNonnegativeInt, coercedStringArray, coercedIntArray } from '../coerce.js';
