@@ -381,6 +381,33 @@ describe('EXIT PROOF — live allowed-dependency layering', () => {
       }
     }
   });
+
+  it('every declared layer id owns at least one scanned module', async () => {
+    // A row naming a directory that does not exist never forbids and never
+    // goes stale: empty `allow` has no unused target, and no module resolves
+    // to the id. Seeded-violation tests plant synthetic files, so they pass
+    // without live coverage. Walk the tree so a foundation leaf that imports
+    // nothing is still visible.
+    const { readdir } = await import('node:fs/promises');
+    const { join, relative } = await import('node:path');
+    const ids = declaredLayerIds();
+    const walk = async (dir: string): Promise<string[]> => {
+      const out: string[] = [];
+      for (const entry of await readdir(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          if (entry.name === 'node_modules' || entry.name === 'dist') continue;
+          out.push(...(await walk(full)));
+        } else if (entry.isFile() && entry.name.endsWith('.ts')) {
+          out.push(relative(SRC_ROOT, full).split('\\').join('/'));
+        }
+      }
+      return out;
+    };
+    const owned = new Set((await walk(SRC_ROOT)).map((m) => layerOf(m, ids)));
+    const vacant = LAYER_ALLOWED_IMPORTS.map((a) => a.layer).filter((id) => !owned.has(id));
+    expect(vacant, 'LAYER_ALLOWED_IMPORTS rows that own no scanned module').toEqual([]);
+  });
 });
 
 // ════════════════════════════════════════════════════════════════════════════

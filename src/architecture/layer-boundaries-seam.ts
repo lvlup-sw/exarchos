@@ -220,8 +220,9 @@ export function resolveTarget(module: string, specifier: string): string | undef
  * Enumerate the first-party cross-directory import edges of one module. Pure;
  * the specifiers come from the ledger's lexer PORT via {@link
  * extractImportSpecifiers}, so a store named only in prose is not an edge and a
- * nested template literal cannot manufacture one. Intra-layer edges and edges to
- * a root-level file are excluded (see the scope note above).
+ * nested template literal cannot manufacture one. Intra-layer edges are
+ * skipped; edges to a root-level file resolve to {@link ROOT_LAYER} and are
+ * counted like any other cross-layer edge.
  *
  * Type-only imports and `import('…')` type queries ARE edges here — the question
  * is layering, not runtime effect — which is why this consumes the full
@@ -369,9 +370,9 @@ export async function auditLayerBoundaries(
 // ─── The declared layering ──────────────────────────────────────────────────
 //
 // One entry per governed source directory. `allow` is the EXACT current
-// cross-directory surface (edges to root-level files excluded, see scope note),
-// so both ratchet teeth are live: a NEW outbound edge trips FORBIDDEN_IMPORT and
-// a REMOVED one trips STALE_LAYER_ALLOWANCE. Adding a new outbound dependency to
+// cross-directory surface (root-level files are {@link ROOT_LAYER}), so both
+// ratchet teeth are live: a NEW outbound edge trips FORBIDDEN_IMPORT and a
+// REMOVED one trips STALE_LAYER_ALLOWANCE. Adding a new outbound dependency to
 // any governed layer is a conscious decision recorded here.
 
 const allowance = (layer: string, allow: readonly string[], note: string): LayerAllowance => ({
@@ -383,10 +384,7 @@ const allowance = (layer: string, allow: readonly string[], note: string): Layer
 export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
   // ── foundation leaves: import NO other first-party directory ───────────────
   allowance('utils', [], 'Foundation leaf — cross-OS/process/format primitives; imports no first-party directory.'),
-  allowance('lib', [], 'Foundation leaf — pure library helpers; imports no first-party directory.'),
-  allowance('shared', [], 'Foundation leaf — shared value types/helpers; imports no first-party directory.'),
   allowance('ndjson', [], 'Foundation leaf — NDJSON framing primitives; imports no first-party directory.'),
-  allowance('schemas', [], 'Foundation leaf — shared schema declarations; imports no first-party directory.'),
 
   // ── peripheral layers: bounded, intentional dependency surfaces ────────────
   // L9 "Cooperative agents" per `tools/audit/layer-map.json`. The narrow
@@ -508,9 +506,10 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
   ),
   allowance(
     'contract',
-    [ROOT_LAYER, 'adapters', 'architecture', 'describe', 'dispatch', 'runtime', 'utils'],
+    [ROOT_LAYER, 'adapters/cli', 'architecture', 'describe', 'dispatch', 'runtime', 'utils'],
     'The contract layer reaches its own generators and the dispatch core, plus the schema-conversion ' +
-      'leaf every compiler stage uses.',
+      'leaf every compiler stage uses. The adapters edge is the CLI presentation client ' +
+      '(`cli-contract-seam` loads `adapters/cli`), not the IO facade parent.',
   ),
   allowance(
     'sync',
@@ -535,7 +534,7 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
   allowance(
     ROOT_LAYER,
     [
-      'adapters', 'contract', 'dispatch', 'events', 'lifecycle',
+      'adapters/cli', 'adapters/mcp', 'contract', 'dispatch', 'events', 'lifecycle',
       'projections', 'registry', 'storage', 'utils', 'verbs', 'workflow',
     ],
     'The shared-root surface itself. It was dominated by `registry.ts`, the largest module in the ' +
@@ -558,14 +557,27 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
   ),
   allowance(
     'adapters',
+    ['events'],
+    'The IO facade remainder after the nested cli/mcp rows took their own edges. What is left ' +
+      'under this id is `adapters/channel/` — the transport — which reaches the delivery algebra ' +
+      'and priority table the event core owns.',
+  ),
+  allowance(
+    'adapters/mcp',
+    [ROOT_LAYER, 'contract', 'dispatch', 'mcp', 'projections', 'runtime'],
+    'The MCP wire adapter. Empty of sibling-adapter targets: an edge to `adapters/cli` would make ' +
+      'the wire contract depend on a presentation client, and is FORBIDDEN here, not merely unlisted ' +
+      'on the parent row.',
+  ),
+  allowance(
+    'adapters/cli',
     [
-      ROOT_LAYER, 'cli', 'config', 'contract', 'dispatch', 'events',
-      'lifecycle', 'mcp', 'ndjson', 'projections', 'runtime', 'utils', 'workflow',
+      ROOT_LAYER, 'adapters/mcp', 'cli', 'config', 'contract', 'dispatch',
+      'events', 'lifecycle', 'ndjson', 'runtime', 'utils', 'workflow',
     ],
-    'The IO facade, counted at parent granularity. The nested ids (`adapters/cli`, `adapters/mcp`) are ' +
-      'declarable now that task 040 made longest-match resolution possible, and the live tree carries ' +
-      'exactly one edge between them — `adapters/cli/cli.ts -> adapters/mcp/mcp.ts`. Splitting this ' +
-      'row into nested ones is a narrowing, and therefore a semantic change Phase 1 does not make.',
+    'The CLI presentation client. The one nested-sibling edge the tree actually carries — ' +
+      '`adapters/cli/cli.ts -> adapters/mcp/mcp.ts` — lives here, so the census can reject the ' +
+      'reverse without a second scanner.',
   ),
   allowance(
     'events',
@@ -591,12 +603,12 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
   allowance(
     'dispatch',
     [
-      ROOT_LAYER, 'adapters', 'config', 'contract', 'events', 'hooks',
+      ROOT_LAYER, 'adapters', 'adapters/cli', 'config', 'contract', 'events', 'hooks',
       'install', 'projections', 'review', 'runtime', 'storage', 'sync',
       'vcs', 'verbs', 'workflow',
     ],
-    'The dispatch core — 15 of 30 layers. It is the hub, so breadth is expected; the row exists so ' +
-      'the breadth stops growing silently.',
+    'The dispatch core — 16 targets after the nested CLI adapter split out of the parent facade. ' +
+      'It is the hub, so breadth is expected; the row exists so the breadth stops growing silently.',
   ),
   allowance(
     'verbs',
