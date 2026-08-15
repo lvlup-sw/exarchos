@@ -66,12 +66,16 @@ describe('Phase2_CiStillDeclaresTheJobsThatWouldFindOut', () => {
       'npm run test:run',
       'npm run test:conformance',
       'npm run render:guard',
+      'npm run lint:invariants',
     ];
     const absent = requiredInvocations.filter((cmd) => !ciYaml.includes(cmd));
     expect(absent, `CI no longer invokes: ${absent.join(', ')}`).toEqual([]);
 
     // knip is hosted by the validate-no-legacy rollup, not an npm script name.
     expect(ciYaml, 'CI dropped the knip host').toMatch(/knip-diff|validate-no-legacy/);
+    // `quality-check` itself is not a CI job. Its load-bearing legs are
+    // `lint:invariants` (above) and `lint:test-first-drift` via `render:guard`.
+    expect(ciYaml, 'CI dropped the Windows lint host').toMatch(/npm run lint:windows/);
   });
 });
 
