@@ -124,6 +124,11 @@ describe('governance liveness', () => {
       tracked.filter((rel) => codeownersMatches('src/', rel)).length,
     );
     expect(tracked.filter((rel) => codeownersMatches('*', rel)).length).toBe(tracked.length);
+    // Unsupported gitignore forms match nothing so a hole reports dead
+    // rather than assumed live. `**` is the form that would otherwise
+    // look live on every path.
+    expect(tracked.filter((rel) => codeownersMatches('**', rel))).toEqual([]);
+    expect(tracked.filter((rel) => codeownersMatches('src/**', rel))).toEqual([]);
   });
 
   it('the report names every dead surface it found', () => {

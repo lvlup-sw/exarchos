@@ -88,15 +88,7 @@ export function codeownersPatterns(repoRoot: string = REPO_ROOT): string[] {
  * full gitignore engine: an unsupported form is reported as matching nothing
  * rather than assumed live, so the census fails toward reporting a hole.
  */
-export function codeownersMatches(pattern: string, rel: string): boolean {
-  if (pattern === '*') return true;
-  // CODEOWNERS treats a leading slash as "from the repo root". The measurer
-  // strips it; this matcher has to as well or `/src/` reports zero while
-  // `src/` reports the tree — two instruments, two answers, both green.
-  const bare = pattern.replace(/^\//, '');
-  if (bare.endsWith('/')) return rel.startsWith(bare);
-  return rel === bare || rel.startsWith(`${bare}/`);
-}
+export { codeownersMatches } from '../../../tools/audit/lib/codeowners-match.mjs';
 
 interface PackageManifest {
   readonly files?: readonly string[];

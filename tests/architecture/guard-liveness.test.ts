@@ -210,6 +210,25 @@ describe('guard liveness', () => {
     expect(vanished, 'a configured surface disappeared from the measurement').toEqual([]);
   });
 
+  it('GuardLiveness_CodeownersMatcher_IsImportedFromOneModule', () => {
+    // Decay rule: two copies of the prefix matcher already drifted on a
+    // leading slash. Another correct instance is not the fix — both
+    // instruments must import the shared module, and neither may re-declare
+    // the function.
+    const measurer = fs.readFileSync(
+      path.join(REPO_ROOT, 'tools/audit/measure-guard-liveness.mjs'),
+      'utf8',
+    );
+    const census = fs.readFileSync(
+      path.join(REPO_ROOT, 'tools/conformance/src/governance-liveness.ts'),
+      'utf8',
+    );
+    expect(measurer).toMatch(/from ['"]\.\/lib\/codeowners-match\.mjs['"]/);
+    expect(census).toMatch(/from ['"].*lib\/codeowners-match\.mjs['"]/);
+    expect(measurer).not.toMatch(/function codeownersMatches\b/);
+    expect(census).not.toMatch(/function codeownersMatches\b/);
+  });
+
   it('GuardLiveness_EverySurfaceClass_IsRepresented', () => {
     // The classes the design enumerates. A class missing entirely is not a
     // passing guard — it is an unmeasured one.

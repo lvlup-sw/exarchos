@@ -21,6 +21,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { codeownersMatcher } from './lib/codeowners-match.mjs';
 
 const REPO_ROOT = process.cwd();
 
@@ -33,20 +34,6 @@ function trackedFiles() {
   })
     .split('\0')
     .filter((rel) => rel.length > 0);
-}
-
-/**
- * CODEOWNERS patterns follow gitignore semantics, not glob semantics: a bare
- * `scripts/` owns the whole subtree, and `*` owns everything.
- *
- * @param {string} pattern
- * @returns {(rel: string) => boolean}
- */
-function codeownersMatcher(pattern) {
-  if (pattern === '*') return () => true;
-  const bare = pattern.replace(/^\//, '');
-  if (bare.endsWith('/')) return (rel) => rel.startsWith(bare);
-  return (rel) => rel === bare || rel.startsWith(`${bare}/`);
 }
 
 /** @param {string} rel */
@@ -144,7 +131,15 @@ function main() {
     // resolve an entry as-is, and only fall back to the join when that fails.
     const root = protectedSuites.generatedFrom ?? '';
     const resolve = (rel) => (exists(rel) ? rel : path.posix.join(root, rel));
-    const present = protectedSuites.files.filter((rel) => exists(resolve(rel)));
+    // Membership is tracked files, the same predicate the governance census
+    // uses. Disk `exists()` would count an untracked local copy as live while
+    // the census reported the path dead — two greens that mean different
+    // things. `resolve` still consults the working tree only to recover the
+    // `generatedFrom` prefix when the declared path is written relative to it.
+    const present = protectedSuites.files.filter((rel) => {
+      const resolved = resolve(rel);
+      return tracked.includes(rel) || tracked.includes(resolved);
+    });
     surfaces['protected-suites:files'] = {
       kind: 'test-protection',
       matched: present.length,
