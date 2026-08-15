@@ -34,7 +34,7 @@ import {
 } from '../../../src/architecture/layer-boundaries-seam.js';
 import { lexModule } from '../../../tools/test-helpers/module-lexer.js';
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { classifySdkImport } from '../../../src/architecture/sdk-generation-seam.js';
 import { parseModuleSpecifiers } from '../../../tools/test-helpers/module-specifier-parser.js';
@@ -414,6 +414,63 @@ describe('EXIT PROOF — live allowed-dependency layering', () => {
     const owned = new Set((await walk(SRC_ROOT)).map((m) => layerOf(m, ids)));
     const vacant = LAYER_ALLOWED_IMPORTS.map((a) => a.layer).filter((id) => !owned.has(id));
     expect(vacant, 'LAYER_ALLOWED_IMPORTS rows that own no scanned module').toEqual([]);
+  });
+
+  it('LayerCensus_LiveTree_CountsRootFilesAsTheStatedRootLayer', async () => {
+    // Root files stay in the edge set as `<root>`. Skipping them with
+    // `isRootFile` would make `registry.ts` ungovernable again.
+    const edges = await scanLayerEdges(SRC_ROOT, lexModule, declaredLayerIds());
+    const rootSources = edges.filter((e) => e.sourceLayer === ROOT_LAYER);
+    const rootTargets = edges.filter((e) => e.targetLayer === ROOT_LAYER);
+    expect(rootSources.length, 'no live edge leaves <root>').toBeGreaterThan(0);
+    expect(rootTargets.length, 'no live edge reaches <root>').toBeGreaterThan(0);
+    expect(
+      edges.some((e) => e.module === 'registry.ts' || e.targetModule === 'registry.ts'),
+      'registry.ts is absent from the live edge set',
+    ).toBe(true);
+    const seam = readFileSync(join(SRC_ROOT, 'architecture/layer-boundaries-seam.ts'), 'utf8');
+    expect(seam).not.toMatch(/if\s*\(\s*isRootFile\s*\(/);
+  });
+
+  it('LayerAllowance_VacantFoundationIds_StayAbsentWhileThoseDirectoriesStayAbsent', () => {
+    const vacant = ['lib', 'shared', 'schemas'] as const;
+    for (const id of vacant) {
+      const onDisk = existsSync(join(SRC_ROOT, id));
+      const declared = LAYER_ALLOWED_IMPORTS.some((a) => a.layer === id);
+      expect(declared, `${id} is declared as a layer while the directory is ${onDisk ? 'present' : 'absent'}`).toBe(
+        onDisk,
+      );
+    }
+  });
+
+  it('LayerAllowance_AdaptersParent_IsChannelTransportOnly', () => {
+    const parent = LAYER_ALLOWED_IMPORTS.find((a) => a.layer === 'adapters');
+    expect(parent, 'the adapters parent row is missing').toBeDefined();
+    expect(parent?.allow).toEqual(['events']);
+
+    const mcp = LAYER_ALLOWED_IMPORTS.find((a) => a.layer === 'adapters/mcp');
+    expect(mcp, 'the adapters/mcp row is missing').toBeDefined();
+    expect(mcp?.allow).not.toContain('adapters/cli');
+
+    const cli = LAYER_ALLOWED_IMPORTS.find((a) => a.layer === 'adapters/cli');
+    expect(cli, 'the adapters/cli row is missing').toBeDefined();
+    expect(cli?.allow).toContain('adapters/mcp');
+  });
+
+  it('LayerAllowance_EveryGovernedIdExceptRoot_IsPlaceableOnTheFirstLevelMap', () => {
+    const map = JSON.parse(readFileSync(join(REPO_ROOT, 'tools/audit/layer-map.json'), 'utf8')) as {
+      directories: Record<string, unknown>;
+    };
+    for (const row of LAYER_ALLOWED_IMPORTS) {
+      if (row.layer === ROOT_LAYER) continue;
+      const first = row.layer.split('/')[0] ?? '';
+      expect(
+        map.directories[first],
+        `${row.layer} is not placeable via first-level map key ${first}`,
+      ).toBeDefined();
+    }
+    expect(Object.keys(map.directories)).not.toContain('adapters/cli');
+    expect(Object.keys(map.directories)).not.toContain('adapters/mcp');
   });
 });
 

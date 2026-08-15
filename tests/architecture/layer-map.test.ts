@@ -167,6 +167,15 @@ describe('the 11 targets → 9 published layers relation (what task 044 asserts)
     expect(new Set(layerTargets).size).toBe(layerTargets.length);
   });
 
+  it('nested adapter layer ids are not first-level map keys', () => {
+    // Longest-prefix ids live on LAYER_ALLOWED_IMPORTS. Promoting them to
+    // first-level map keys would break the "every map key is a live src/ dir"
+    // assertion this file already makes.
+    expect(Object.keys(map.directories)).not.toContain('adapters/cli');
+    expect(Object.keys(map.directories)).not.toContain('adapters/mcp');
+    expect(map.directories.adapters).toBeDefined();
+  });
+
   it('every target a directory maps to is a target the layer table knows', () => {
     // Closes the loop: the per-directory half and the layer half cannot drift
     // into naming different things.

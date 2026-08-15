@@ -102,11 +102,11 @@ import {
 export interface LayerEdge {
   /** Repo-relative-to-scan-root source module, forward-slashed. */
   readonly module: string;
-  /** The importing module's layer (its first path segment). */
+  /** The importing module's layer (longest declared prefix, else first path segment or `<root>`). */
   readonly sourceLayer: string;
   /** The resolved target module, forward-slashed. */
   readonly targetModule: string;
-  /** The target module's layer (its first path segment). */
+  /** The target module's layer (longest declared prefix, else first path segment or `<root>`). */
   readonly targetLayer: string;
   /** The raw import specifier that produced the edge. */
   readonly specifier: string;
@@ -114,7 +114,7 @@ export interface LayerEdge {
 
 /** A declared allowance: `layer` may import the directories in `allow` (only). */
 export interface LayerAllowance {
-  /** The governed source directory (first path segment). */
+  /** The governed source id (a first-level directory, a nested prefix, or `<root>`). */
   readonly layer: string;
   /** The exact set of directories `layer` is permitted to import. */
   readonly allow: readonly string[];
