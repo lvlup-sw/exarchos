@@ -5,10 +5,10 @@
 // — it is a gate that stopped being invoked, which looks like success from
 // every angle except the one that counts.
 //
-// Three claims are checkable here and are checked. Whether the whole suite is
-// green on a clean clone is CI's job and cannot be asserted from inside a
-// working tree; what CAN be asserted is that CI still declares the jobs that
-// would find out.
+// What is checkable here is wiring: CI still declares Linux and Windows, the
+// phase's npm scripts still exist, those scripts are still invoked in the
+// workflow that feeds `ci-gate`, and the identifier snapshot is non-empty.
+// Whether the suite is green on a clean clone is CI's job.
 //
 // @oracle-sources: ../../.github/workflows/ci.yml, ../../package.json, ../../tools/audit/registered-actions-snapshot.json
 
@@ -24,7 +24,7 @@ const pkg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'ut
   scripts?: Record<string, string>;
 };
 
-describe('Phase2_CleanClone_AllGatesGreenOnLinuxAndWindows', () => {
+describe('Phase2_CiStillDeclaresTheJobsThatWouldFindOut', () => {
   it('CI still runs on BOTH platforms', () => {
     // Windows is where this repository's portability defects surface —
     // path separators, file-URL comparison, concurrent-rename EPERM. A matrix
@@ -55,6 +55,23 @@ describe('Phase2_CleanClone_AllGatesGreenOnLinuxAndWindows', () => {
     // aggregator job stands in for it: if `ci-gate` stops existing, there is
     // nothing left for a required check to point at.
     expect(ciYaml).toMatch(/^\s{2}ci-gate:/m);
+  });
+
+  it('CI still invokes the gates the phase depends on before ci-gate', () => {
+    // Script *names* existing is not the same as those jobs running. A gate
+    // that is invocable but absent from the workflow is the silent-green
+    // shape this file exists to catch.
+    const requiredInvocations = [
+      'npm run typecheck',
+      'npm run test:run',
+      'npm run test:conformance',
+      'npm run render:guard',
+    ];
+    const absent = requiredInvocations.filter((cmd) => !ciYaml.includes(cmd));
+    expect(absent, `CI no longer invokes: ${absent.join(', ')}`).toEqual([]);
+
+    // knip is hosted by the validate-no-legacy rollup, not an npm script name.
+    expect(ciYaml, 'CI dropped the knip host').toMatch(/knip-diff|validate-no-legacy/);
   });
 });
 
