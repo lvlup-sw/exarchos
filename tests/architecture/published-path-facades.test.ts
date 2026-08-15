@@ -16,12 +16,13 @@ function read(rel: string): string {
   return readFileSync(path.join(REPO_ROOT, rel), 'utf8');
 }
 
-function nonCommentLines(source: string): string[] {
+function isReexportBarrel(source: string): boolean {
   const stripped = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-  return stripped
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
+  const withoutExports = stripped.replace(
+    /export\s+(?:\*|\{[\s\S]*?\})\s+from\s+['"][^'"]+['"];?/g,
+    '',
+  );
+  return withoutExports.trim() === '';
 }
 
 describe('published-path facades', () => {
@@ -31,16 +32,7 @@ describe('published-path facades', () => {
     expect(registry).not.toMatch(/\bexport (class|function|const)\b/);
 
     for (const rel of ['src/workflow/tools.ts', 'src/projections/views/tools.ts'] as const) {
-      const lines = nonCommentLines(read(rel));
-      expect(lines.length, `${rel} has no statements`).toBeGreaterThan(0);
-      expect(
-        lines.filter((line) => !/^export\s+/.test(line)),
-        `${rel} holds a non-export statement — it is not a barrel`,
-      ).toEqual([]);
-      expect(
-        lines.some((line) => /\bfrom\b/.test(line)),
-        `${rel} exports locally rather than re-exporting`,
-      ).toBe(true);
+      expect(isReexportBarrel(read(rel)), `${rel} is not a re-export barrel`).toBe(true);
     }
 
     const skills = read('src/install/build-skills.ts');

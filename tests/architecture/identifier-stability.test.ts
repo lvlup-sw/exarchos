@@ -308,7 +308,13 @@ describe('identifier stability across decomposition', () => {
     expect(verification).toMatch(/name:\s*'check_event_emissions'/);
 
     for (const ev of snapshot.eventTypes) {
-      expect(Object.keys(ev).sort()).toEqual(['lifecycle', 'tier', 'type']);
+      expect(ev.type.length, 'snapshot event is missing type').toBeGreaterThan(0);
+      expect(ev.lifecycle.length, `${ev.type} is missing lifecycle`).toBeGreaterThan(0);
+      expect(ev.tier.length, `${ev.type} is missing tier`).toBeGreaterThan(0);
+      expect(
+        'emitSites' in ev,
+        `${ev.type} records emit sites — that is a different oracle`,
+      ).toBe(false);
     }
   });
 
