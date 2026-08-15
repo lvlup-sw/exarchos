@@ -213,9 +213,19 @@ function main() {
     ).length,
     detail: { glob: lintGlobs.join(' ') },
   };
+  const inv6Script = String(pkg.scripts?.['lint:inv6'] ?? '');
+  const inv6Roots = inv6Script
+    .split(/\s+/)
+    .filter((tok) => tok.endsWith('/') && !tok.includes('lint-inv6') && !tok.startsWith('-'));
+  if (inv6Roots.length === 0) {
+    throw new Error('cannot read lint:inv6 directory operands from package.json — refusing to guess');
+  }
   surfaces['lint:inv6'] = {
     kind: 'lint-scope',
-    matched: tracked.filter((rel) => rel.startsWith('content/') && rel.endsWith('.md')).length,
+    matched: tracked.filter(
+      (rel) => rel.endsWith('.md') && inv6Roots.some((root) => rel.startsWith(root)),
+    ).length,
+    detail: { glob: inv6Roots.join(' ') },
   };
   // Read from the gate's own DEFAULT_DIRS for the same reason. This surface
   // restated `commands/ agents/ content/` — the pre-DR-4 roots — and so counted

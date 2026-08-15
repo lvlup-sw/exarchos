@@ -90,8 +90,12 @@ export function codeownersPatterns(repoRoot: string = REPO_ROOT): string[] {
  */
 export function codeownersMatches(pattern: string, rel: string): boolean {
   if (pattern === '*') return true;
-  if (pattern.endsWith('/')) return rel.startsWith(pattern);
-  return rel === pattern || rel.startsWith(`${pattern}/`);
+  // CODEOWNERS treats a leading slash as "from the repo root". The measurer
+  // strips it; this matcher has to as well or `/src/` reports zero while
+  // `src/` reports the tree — two instruments, two answers, both green.
+  const bare = pattern.replace(/^\//, '');
+  if (bare.endsWith('/')) return rel.startsWith(bare);
+  return rel === bare || rel.startsWith(`${bare}/`);
 }
 
 interface PackageManifest {
@@ -162,6 +166,22 @@ export function auditGovernanceLiveness(repoRoot: string = REPO_ROOT): Governanc
         matched: tracked.filter((rel) => rel === source || rel.startsWith(`${source}/`)).length,
       });
     }
+  }
+
+  const protectedSuites = readJson<{
+    readonly files?: readonly string[];
+    readonly generatedFrom?: string;
+  }>(path.join(repoRoot, 'tools/audit/protected-suites.json'));
+  const generatedFrom = protectedSuites?.generatedFrom ?? '';
+  for (const rel of protectedSuites?.files ?? []) {
+    const resolved = existsSync(path.join(repoRoot, rel))
+      ? rel
+      : path.posix.join(generatedFrom, rel);
+    surfaces.push({
+      register: 'protected-suites',
+      pattern: rel,
+      matched: tracked.filter((t) => t === rel || t === resolved).length,
+    });
   }
 
   const dead = surfaces.filter((s) => s.matched === 0 && s.buildOutput !== true);
