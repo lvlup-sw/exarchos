@@ -54,6 +54,7 @@ interface WorkflowStep {
   readonly run?: string;
   readonly uses?: string;
   readonly with?: Record<string, unknown>;
+  readonly 'continue-on-error'?: boolean;
 }
 
 interface WorkflowJob {
@@ -342,7 +343,12 @@ function jobRunsNpmScript(job: WorkflowJob | undefined, scriptName: string): boo
 function jobRunsCoreProjectScript(job: WorkflowJob | undefined, scriptName: string): boolean {
   const steps = job?.steps ?? [];
   const re = new RegExp(`^npm run ${scriptName}\\b`);
-  return steps.some((s) => typeof s.run === 'string' && re.test(s.run.trim()));
+  return steps.some(
+    (s) =>
+      typeof s.run === 'string' &&
+      re.test(s.run.trim()) &&
+      s['continue-on-error'] !== true,
+  );
 }
 
 describe('CI path-filter & guard coverage (DR-22)', () => {
@@ -423,6 +429,12 @@ describe('CI path-filter & guard coverage (DR-22)', () => {
       steps: [{ run: 'echo "npm run test:coverage"' }],
     };
     expect(jobRunsCoreProjectScript(decoy, 'test:coverage')).toBe(false);
+
+    const soft: WorkflowJob = {
+      'runs-on': 'ubuntu-latest',
+      steps: [{ run: 'npm run test:coverage', 'continue-on-error': true }],
+    };
+    expect(jobRunsCoreProjectScript(soft, 'test:coverage')).toBe(false);
   });
 
   it('Guards_HooksGuardRunsInCI_AndIsRootFiltered', () => {
