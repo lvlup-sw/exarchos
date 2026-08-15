@@ -18,7 +18,7 @@
  * commit as the change it records.
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
@@ -286,6 +286,30 @@ describe('identifier stability across decomposition', () => {
       .update(`feature\0${predecessor}\0ideate\0plan`)
       .digest('hex')}`;
     expect(first).toBe(expected);
+  });
+
+  it('EventAnnotationSnapshot_IsBoundToTheEmissionOracle', () => {
+    // The snapshot pins type / lifecycle / tier, not emit sites. Emission is
+    // `RegistryDrift_AutoEmitsMatchEventEmissionRegistry` plus the
+    // `check_event_emissions` action. This binds those artifacts so the
+    // snapshot cannot be mistaken for an append-site census.
+    const registryTest = readFileSync(path.join(REPO_ROOT, 'tests/unit/registry.test.ts'), 'utf8');
+    expect(registryTest).toContain('RegistryDrift_AutoEmitsMatchEventEmissionRegistry');
+    expect(registryTest).toContain('EVENT_EMISSION_REGISTRY');
+    expect(registryTest).toContain('autoEmits');
+
+    const emissionsGate = path.join(REPO_ROOT, 'tests/unit/verbs/gates/check-event-emissions.test.ts');
+    expect(existsSync(emissionsGate), 'check-event-emissions tests are absent').toBe(true);
+
+    const verification = readFileSync(
+      path.join(REPO_ROOT, 'src/registry/actions/orchestrate/verification.ts'),
+      'utf8',
+    );
+    expect(verification).toMatch(/name:\s*'check_event_emissions'/);
+
+    for (const ev of snapshot.eventTypes) {
+      expect(Object.keys(ev).sort()).toEqual(['lifecycle', 'tier', 'type']);
+    }
   });
 
   it('Snapshot_CountsAgreeWithItsOwnContents', () => {
