@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 import { zodToJsonSchema } from '../../../src/utils/json-schema.js';
 
-describe('adapters/json-schema wrapper', () => {
+describe('utils/json-schema', () => {
   it('zodToJsonSchema_DefaultTarget_EmitsNative2020Draft', () => {
     // A tuple is a high-signal probe: 2020-12 emits `prefixItems`, draft-7
     // emits an array-form `items`. The wrapper must produce the 2020-12 form

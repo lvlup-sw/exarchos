@@ -13,8 +13,8 @@ export type { MainDeps } from '../cli-helpers.js';
  * success, and exits with code 1 on any error (printed to stderr).
  *
  * Exported so the CLI test harness can invoke it with mocked deps. The
- * self-invocation guard at the bottom of this file only triggers when
- * the file is executed directly (e.g. via `node dist/build-skills.js`).
+ * self-invocation guard lives on the published barrel (`../build-skills.ts`)
+ * because `package.json` runs that file, not this one.
  *
  * @param _argv - Currently unused; reserved for future flag parsing
  *   (e.g. `--srcDir`, `--outDir`). Named with a leading underscore to
