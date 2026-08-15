@@ -130,6 +130,13 @@ describe('layerOf / isRootFile', () => {
     // The exclusion became a STATED policy — the root surface has a name now.
     expect(layerOf('registry.ts')).toBe(ROOT_LAYER);
   });
+
+  it('LayerOf_ExactLayerId_AndLiveDeclaredIds_ResolveTheSameNestedLayer', () => {
+    expect(layerOf('adapters/mcp', ['adapters', 'adapters/mcp'])).toBe('adapters/mcp');
+    expect(layerOf('adapters/mcp/mcp.ts', declaredLayerIds())).toBe('adapters/mcp');
+    expect(layerOf('registry/tools.ts', declaredLayerIds())).toBe('registry');
+    expect(layerOf('registry.ts', declaredLayerIds())).toBe(ROOT_LAYER);
+  });
 });
 
 describe('detectLayerEdges', () => {
@@ -1125,5 +1132,17 @@ describe('Task 040a — neither seam may pass by matching nothing', () => {
       expect(resolved, `declared store ${store.module} vanished from the scan`).toBeDefined();
       expect(resolved?.resolved, `declared store ${store.module} no longer resolves`).toBe(true);
     }
+  });
+});
+
+describe('source hygiene', () => {
+  it('LayerBoundariesSeam_Source_ContainsNoRawNulBytes', () => {
+    // A literal NUL in this module made ripgrep treat it as binary and skip
+    // it. The runtime separator is the `\0` escape, which is the same value
+    // without hiding the file from text-mode audit.
+    const file = join(SRC_ROOT, 'architecture/layer-boundaries-seam.ts');
+    const bytes = readFileSync(file);
+    expect(bytes.includes(0), 'a raw NUL hides this file from ripgrep').toBe(false);
+    expect(bytes.toString('utf8')).toContain('${target}\\0${specifier}');
   });
 });

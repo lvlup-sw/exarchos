@@ -820,7 +820,7 @@ export function detectDeclarationSeamUsage(
       seenContract.add(specifier);
       contractImports.push(specifier);
     }
-    const storageKey = `${target} ${specifier}`;
+    const storageKey = `${target}\0${specifier}`;
     if (storageModules.has(target) && !seenStorage.has(storageKey)) {
       seenStorage.add(storageKey);
       storageImports.push({ storageModule: target, specifier });
