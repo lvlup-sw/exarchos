@@ -68,6 +68,13 @@ const KNOWN_DEAD: Record<string, string> = {};
 
 const liveEntries = Object.entries(live.surfaces);
 
+/** Remaining-count floor for a surface that does not declare its own size. */
+function undeclaredScopeFloor(before: number): number {
+  const eightyPercent = Math.ceil(before * 0.8);
+  const twoPercentLoss = before - Math.max(10, Math.ceil(before * 0.02));
+  return Math.max(eightyPercent, twoPercentLoss);
+}
+
 describe('guard liveness', () => {
   it('GuardLiveness_EveryConfiguredGuard_MatchesNonEmptyFileSet', () => {
     // Live tree, not the committed capture. A baseline-only emptiness check
@@ -85,6 +92,12 @@ describe('guard liveness', () => {
   });
 
   it('GuardLiveness_KnownDeadSurface_CarriesItsReason', () => {
+    // The live map is empty today, so a loop over it cannot fail. Seed an
+    // empty-reason entry and require the same filter to reject it.
+    const seeded: Record<string, string> = { ...KNOWN_DEAD, 'seeded:empty-reason': '' };
+    const emptyReason = Object.entries(seeded).filter(([, reason]) => reason.length === 0);
+    expect(emptyReason.map(([name]) => name)).toContain('seeded:empty-reason');
+
     for (const [name, reason] of Object.entries(KNOWN_DEAD)) {
       expect(baseline.surfaces[name], `${name} is listed dead but absent from the baseline`).toBeDefined();
       expect(reason.length).toBeGreaterThan(0);
@@ -191,13 +204,14 @@ describe('guard liveness', () => {
           `${name} declared ${after.detail.declared} and resolved ${after.matched}`,
         ).toBe(after.detail.declared);
       } else {
-        // A surface can keep matching SOMETHING while losing most of its reach.
-        // 80% of the captured count is enough headroom for ordinary edits and
-        // still fails a retarget that half-lands.
+        // Undeclared surfaces may not lose more than two percent of captured
+        // reach (at least ten files), and never more than the twenty-percent
+        // band on a small surface. An 80% floor alone lets ~176 files vanish
+        // from a ~881-file lint glob.
         expect(
           after.matched,
           `${name} fell from ${before.matched} to ${after.matched}`,
-        ).toBeGreaterThanOrEqual(Math.ceil(before.matched * 0.8));
+        ).toBeGreaterThanOrEqual(undeclaredScopeFloor(before.matched));
       }
     }
 
@@ -208,6 +222,16 @@ describe('guard liveness', () => {
       .filter((name) => live.surfaces[name] === undefined)
       .sort();
     expect(vanished, 'a configured surface disappeared from the measurement').toEqual([]);
+  });
+
+  it('GuardLiveness_UndeclaredScopeLoss_RejectsATwentyPercentDropOnALargeSurface', () => {
+    const before = 881;
+    const oldFloor = Math.ceil(before * 0.8);
+    const floor = undeclaredScopeFloor(before);
+    expect(floor, 'the tightened floor is not stricter than 80% on a large surface').toBeGreaterThan(
+      oldFloor,
+    );
+    expect(oldFloor).toBeLessThan(floor);
   });
 
   it('GuardLiveness_CodeownersMatcher_IsImportedFromOneModule', () => {
@@ -227,6 +251,10 @@ describe('guard liveness', () => {
     expect(census).toMatch(/from ['"].*lib\/codeowners-match\.mjs['"]/);
     expect(measurer).not.toMatch(/function codeownersMatches\b/);
     expect(census).not.toMatch(/function codeownersMatches\b/);
+    expect(measurer).toMatch(/createRequire/);
+    expect(measurer).toMatch(/no-domain-core-to-io-adapters/);
+    expect(measurer).not.toMatch(/fromMatch/);
+    expect(measurer).not.toMatch(/depcruise\.match\(/);
   });
 
   it('GuardLiveness_EverySurfaceClass_IsRepresented', () => {

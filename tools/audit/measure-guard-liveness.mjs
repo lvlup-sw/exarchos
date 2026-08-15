@@ -13,17 +13,45 @@
  * the `*` fallback without any error, and a `files[]` entry naming a missing
  * path ships a package quietly short of what it promised.
  *
- * Reports. Never fails — the assertions live in the accompanying test.
+ * Reports. Throws only when the named boundary rule is missing from the
+ * loaded config; every other assertion lives in the accompanying test.
  *
  * Usage: `node tools/audit/measure-guard-liveness.mjs [--out FILE]`
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
 import { codeownersMatcher } from './lib/codeowners-match.mjs';
 
+const requireConfig = createRequire(import.meta.url);
 const REPO_ROOT = process.cwd();
+
+/**
+ * Load the live error-severity domain-core / IO-facade rule.
+ * Missing or malformed config fails closed — a regex scrape of the file
+ * would keep reporting counts after the rule was renamed or deleted.
+ *
+ * @returns {{ from: string, to: string }}
+ */
+function liveBoundaryRule() {
+  const configPath = path.join(REPO_ROOT, '.dependency-cruiser.cjs');
+  /** @type {{ forbidden?: ReadonlyArray<{ name?: string, severity?: string, from?: { path?: string }, to?: { path?: string } }> }} */
+  const config = requireConfig(configPath);
+  const rule = (config.forbidden ?? []).find((r) => r.name === 'no-domain-core-to-io-adapters');
+  if (
+    rule === undefined ||
+    rule.severity !== 'error' ||
+    typeof rule.from?.path !== 'string' ||
+    typeof rule.to?.path !== 'string'
+  ) {
+    throw new Error(
+      'no-domain-core-to-io-adapters is missing or is not an error-severity from/to rule',
+    );
+  }
+  return { from: rule.from.path, to: rule.to.path };
+}
 
 /** @returns {string[]} every tracked path, POSIX-separated */
 function trackedFiles() {
@@ -62,26 +90,21 @@ function main() {
   // ── dependency-cruiser: the live `error`-severity boundary rule ────────────
   // Both sides are measured. The rule can evaporate from either end: if the
   // constrained set empties it constrains nothing, and if the forbidden target
-  // set empties there is nothing left to forbid.
-  const depcruise = readIfPresent('.dependency-cruiser.cjs') ?? '';
-  const fromMatch = depcruise.match(/path:\s*'(\^src\/\([^']+\)\/)'/);
-  const toMatch = depcruise.match(/path:\s*'(\^src\/adapters\/)'/);
-  if (fromMatch) {
-    const re = new RegExp(fromMatch[1]);
-    surfaces['depcruise:no-domain-core-to-io-adapters:from'] = {
-      kind: 'module-set',
-      matched: tracked.filter((rel) => re.test(rel) && !/\.test\.ts$/.test(rel)).length,
-      detail: { pattern: fromMatch[1] },
-    };
-  }
-  if (toMatch) {
-    const re = new RegExp(toMatch[1]);
-    surfaces['depcruise:no-domain-core-to-io-adapters:to'] = {
-      kind: 'module-set',
-      matched: tracked.filter((rel) => re.test(rel)).length,
-      detail: { pattern: toMatch[1] },
-    };
-  }
+  // set empties there is nothing left to forbid. The config is loaded, not
+  // scraped: a missing named rule throws rather than omitting the surfaces.
+  const boundary = liveBoundaryRule();
+  const fromRe = new RegExp(boundary.from);
+  const toRe = new RegExp(boundary.to);
+  surfaces['depcruise:no-domain-core-to-io-adapters:from'] = {
+    kind: 'module-set',
+    matched: tracked.filter((rel) => fromRe.test(rel) && !/\.test\.ts$/.test(rel)).length,
+    detail: { pattern: boundary.from },
+  };
+  surfaces['depcruise:no-domain-core-to-io-adapters:to'] = {
+    kind: 'module-set',
+    matched: tracked.filter((rel) => toRe.test(rel)).length,
+    detail: { pattern: boundary.to },
+  };
 
   // ── CODEOWNERS — enumerated by name because it is extensionless ────────────
   const codeowners = readIfPresent('.github/CODEOWNERS');
