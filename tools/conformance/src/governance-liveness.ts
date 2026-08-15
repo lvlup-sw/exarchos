@@ -40,6 +40,12 @@ export interface GovernanceSurface {
   readonly pattern: string;
   /** Tracked files it matches. Zero is the finding. */
   readonly matched: number;
+  /**
+   * A `files[]` entry naming a compile output (`dist/…`). These are not
+   * tracked and are absent before `npm run build`; they are recorded so the
+   * census can see them, but they are not `dead` on a clean checkout.
+   */
+  readonly buildOutput?: boolean;
 }
 
 export interface GovernanceLivenessResult {
@@ -133,14 +139,16 @@ export function auditGovernanceLiveness(repoRoot: string = REPO_ROOT): Governanc
   const pkg = readJson<PackageManifest>(path.join(repoRoot, 'package.json'));
   for (const entry of pkg?.files ?? []) {
     // A `files[]` entry may name a BUILD OUTPUT (`dist/…`) that is not tracked
-    // and legitimately absent before a build. Those are counted by existence on
-    // disk instead, so a clean checkout does not report the whole tarball dead.
-    const matched = entry.startsWith('dist/')
+    // and legitimately absent before a build. Count those by disk existence
+    // and mark them `buildOutput` so a clean checkout does not report the
+    // tarball dead. Source-tree entries are still counted from `git ls-files`.
+    const buildOutput = entry.startsWith('dist/');
+    const matched = buildOutput
       ? existsSync(path.join(repoRoot, entry))
         ? 1
         : 0
       : tracked.filter((rel) => rel === entry || rel.startsWith(`${entry}/`)).length;
-    surfaces.push({ register: 'files', pattern: entry, matched });
+    surfaces.push({ register: 'files', pattern: entry, matched, buildOutput });
   }
 
   const plugin = readJson<PluginManifest>(path.join(repoRoot, 'manifest.json'));
@@ -156,7 +164,7 @@ export function auditGovernanceLiveness(repoRoot: string = REPO_ROOT): Governanc
     }
   }
 
-  const dead = surfaces.filter((s) => s.matched === 0);
+  const dead = surfaces.filter((s) => s.matched === 0 && s.buildOutput !== true);
   return { ok: dead.length === 0, surfaces, dead, trackedFiles: tracked.length };
 }
 

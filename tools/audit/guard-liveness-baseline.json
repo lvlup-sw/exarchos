@@ -1,6 +1,6 @@
 {
-  "capturedAt": "2026-08-14",
-  "trackedFiles": 2962,
+  "capturedAt": "2026-08-15",
+  "trackedFiles": 2917,
   "surfaces": {
     "depcruise:no-domain-core-to-io-adapters:from": {
       "kind": "module-set",
@@ -18,11 +18,11 @@
     },
     "codeowners:*": {
       "kind": "ownership",
-      "matched": 2962
+      "matched": 2917
     },
     "codeowners:src/": {
       "kind": "ownership",
-      "matched": 729
+      "matched": 731
     },
     "codeowners:tools/": {
       "kind": "ownership",
@@ -38,35 +38,56 @@
     },
     "codeowners:tests/": {
       "kind": "ownership",
-      "matched": 1415
+      "matched": 1416
     },
     "package.files:dist/bin": {
-      "kind": "packaging",
-      "matched": 1
+      "kind": "build-output",
+      "matched": 0,
+      "detail": {
+        "buildOutput": true
+      }
     },
     "package.files:dist/release-verify.js": {
-      "kind": "packaging",
-      "matched": 1
+      "kind": "build-output",
+      "matched": 0,
+      "detail": {
+        "buildOutput": true
+      }
     },
     "package.files:rendered": {
       "kind": "packaging",
-      "matched": 1
+      "matched": 244,
+      "detail": {
+        "buildOutput": false
+      }
     },
     "package.files:hooks": {
       "kind": "packaging",
-      "matched": 1
+      "matched": 6,
+      "detail": {
+        "buildOutput": false
+      }
     },
     "package.files:settings.json": {
       "kind": "packaging",
-      "matched": 1
+      "matched": 1,
+      "detail": {
+        "buildOutput": false
+      }
     },
     "package.files:.claude-plugin": {
       "kind": "packaging",
-      "matched": 1
+      "matched": 2,
+      "detail": {
+        "buildOutput": false
+      }
     },
     "package.files:AGENTS.md": {
       "kind": "packaging",
-      "matched": 1
+      "matched": 1,
+      "detail": {
+        "buildOutput": false
+      }
     },
     "protected-suites:files": {
       "kind": "test-protection",
@@ -78,15 +99,15 @@
     },
     "invariants:references": {
       "kind": "catalog-reference",
-      "matched": 37,
+      "matched": 34,
       "detail": {
-        "declared": 37,
-        "relocated": 11
+        "declared": 34,
+        "relocated": 14
       }
     },
     "lint:eslint-cli-glob": {
       "kind": "lint-scope",
-      "matched": 880,
+      "matched": 881,
       "detail": {
         "glob": "src/**/*.ts tools/**/*.ts"
       }
@@ -104,7 +125,10 @@
     },
     "knip:workspace:.": {
       "kind": "dead-code",
-      "matched": 1
+      "matched": 2430,
+      "detail": {
+        "glob": "src/**/*.ts tests/**/*.ts !tests/evals/**/runs/** tools/audit/**/*.ts tools/conformance/src/**/*.ts tools/evals/**/*.ts tools/evals-pkg/**/*.ts tools/git-hooks/**/*.ts tools/release/**/*.ts tools/test-helpers/**/*.ts docs/.vitepress/**/*.ts"
+      }
     }
   }
 }

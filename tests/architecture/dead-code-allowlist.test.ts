@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadAllowlist } from '../../tools/audit/knip-diff.js';
@@ -22,6 +22,20 @@ const REPO_ROOT = path.resolve(__dirname, '../../');
 const ALLOWLIST_PATH = path.join(REPO_ROOT, 'tools/audit/knip-allowlist.json');
 
 const entries = loadAllowlist(JSON.parse(readFileSync(ALLOWLIST_PATH, 'utf8')));
+
+/** True when `dir` contains any `.ts` file, recursively. */
+function walkHasTs(dir: string): boolean {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name === 'node_modules' || entry.name === 'dist') continue;
+      if (walkHasTs(full)) return true;
+    } else if (entry.isFile() && entry.name.endsWith('.ts')) {
+      return true;
+    }
+  }
+  return false;
+}
 
 /**
  * Ledger size at the last deliberate sweep. Lowering this is always welcome.
@@ -79,6 +93,28 @@ describe('DeadCode_AfterRetarget_DetectorCoversTheNewTree', () => {
         `knip's project glob does not reach ${root} — the detector cannot see that tree`,
       ).toBe(true);
     }
+  });
+
+  it('every tools/ directory that holds TypeScript is named by a project glob', () => {
+    // `tools/audit/**` satisfies "some tools/ glob" and still leaves
+    // `tools/release`, `tools/evals-pkg`, and `tools/git-hooks` invisible.
+    const globs = (knip.workspaces['.']?.project ?? []).filter((g) => !g.startsWith('!'));
+    const toolsRoot = path.join(REPO_ROOT, 'tools');
+    const dirs = readdirSync(toolsRoot, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name);
+
+    const uncovered: string[] = [];
+    for (const dir of dirs) {
+      const abs = path.join(toolsRoot, dir);
+      const hasTs = walkHasTs(abs);
+      if (!hasTs) continue;
+      // Fixture-only trees are ignored in knip.json, not scanned.
+      if (dir === 'eslint-rules') continue;
+      const prefix = `tools/${dir}/`;
+      if (!globs.some((g) => g.startsWith(prefix))) uncovered.push(prefix);
+    }
+    expect(uncovered, 'tools/ TypeScript trees knip cannot see').toEqual([]);
   });
 
   it('every declared glob matches at least one file that exists', () => {

@@ -113,12 +113,24 @@ function main() {
   }
 
   // ── package.json files[] — a shipped entry naming nothing ships nothing ────
+  //
+  // Source-tree entries are counted from `git ls-files`. Build outputs
+  // (`dist/…`) are not tracked and are legitimately absent before
+  // `npm run build`; they are recorded as `build-output` so a pre-build
+  // suite can skip the emptiness check without treating a missing source
+  // path the same way.
   const pkg = JSON.parse(readIfPresent('package.json') ?? '{}');
   for (const entry of pkg.files ?? []) {
     if (typeof entry !== 'string' || entry.startsWith('!')) continue;
+    const buildOutput = entry.startsWith('dist/');
     surfaces[`package.files:${entry}`] = {
-      kind: 'packaging',
-      matched: exists(entry) ? 1 : 0,
+      kind: buildOutput ? 'build-output' : 'packaging',
+      matched: buildOutput
+        ? exists(entry)
+          ? 1
+          : 0
+        : tracked.filter((rel) => rel === entry || rel.startsWith(`${entry}/`)).length,
+      detail: { buildOutput },
     };
   }
 
@@ -225,9 +237,24 @@ function main() {
   };
 
   // ── knip workspaces ───────────────────────────────────────────────────────
+  // Count tracked files under the workspace's `project` globs. `exists(ws)`
+  // for workspace `.` is always 1 and proves the key exists, not that knip
+  // scans anything.
   const knip = JSON.parse(readIfPresent('knip.json') ?? '{}');
-  for (const ws of Object.keys(knip.workspaces ?? {})) {
-    surfaces[`knip:workspace:${ws}`] = { kind: 'dead-code', matched: exists(ws) ? 1 : 0 };
+  for (const [ws, cfg] of Object.entries(knip.workspaces ?? {})) {
+    const project = Array.isArray(cfg?.project) ? cfg.project : [];
+    const prefixes = project
+      .filter((g) => typeof g === 'string' && !g.startsWith('!'))
+      .map((g) => g.replace(/\*.*$/, ''))
+      .filter((p) => p.length > 0);
+    if (prefixes.length === 0) {
+      throw new Error(`knip workspace "${ws}" declares no positive project globs — refusing to guess`);
+    }
+    surfaces[`knip:workspace:${ws}`] = {
+      kind: 'dead-code',
+      matched: tracked.filter((rel) => prefixes.some((p) => rel.startsWith(p))).length,
+      detail: { glob: project.join(' ') },
+    };
   }
 
   const payload = {

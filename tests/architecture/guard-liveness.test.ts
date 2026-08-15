@@ -18,8 +18,17 @@ import { execFileSync } from 'node:child_process';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..');
 
-type Surface = { kind: string; matched: number; detail?: { declared?: number } };
+type Surface = {
+  kind: string;
+  matched: number;
+  detail?: { declared?: number; buildOutput?: boolean };
+};
 type Baseline = { trackedFiles: number; surfaces: Record<string, Surface> };
+
+/** Compile outputs. Absent before `npm run build`; not a dead source path. */
+function isBuildOutput(surface: Surface): boolean {
+  return surface.kind === 'build-output' || surface.detail?.buildOutput === true;
+}
 
 const baseline = JSON.parse(
   fs.readFileSync(path.join(REPO_ROOT, 'tools/audit/guard-liveness-baseline.json'), 'utf8'),
@@ -61,7 +70,13 @@ const entries = Object.entries(baseline.surfaces);
 
 describe('guard liveness', () => {
   it('GuardLiveness_EveryConfiguredGuard_MatchesNonEmptyFileSet', () => {
-    const dead = entries.filter(([, s]) => s.matched === 0).map(([name]) => name);
+    // Live tree, not the committed capture. A baseline-only emptiness check
+    // stays green after a surface dies on disk — the failure this suite exists
+    // to catch. Build outputs are excluded: they are absent before
+    // `npm run build` and are not a dead source path.
+    const dead = Object.entries(live.surfaces)
+      .filter(([, s]) => !isBuildOutput(s) && s.matched === 0)
+      .map(([name]) => name);
 
     // Equality, not subset: a surface that dies later must fail here, and a
     // known-dead one that gets fixed must be struck from the list rather than
@@ -138,7 +153,7 @@ describe('guard liveness', () => {
     // the TREE, not the capture. A guard whose path config resolves to nothing
     // does not go red; it passes forever, which reads exactly like success.
     const dead = Object.entries(live.surfaces)
-      .filter(([, s]) => s.matched === 0)
+      .filter(([, s]) => !isBuildOutput(s) && s.matched === 0)
       .map(([name]) => name);
 
     expect(dead.sort(), 'these configured surfaces match no file on the live tree').toEqual(
@@ -166,6 +181,7 @@ describe('guard liveness', () => {
     for (const [name, before] of Object.entries(baseline.surfaces)) {
       const after = live.surfaces[name];
       if (after === undefined) continue; // consolidated away — covered below
+      if (isBuildOutput(after) || isBuildOutput(before)) continue;
       expect(after.matched, `${name} matched ${before.matched} at capture and ${after.matched} now`)
         .toBeGreaterThan(0);
     }
@@ -188,6 +204,7 @@ describe('guard liveness', () => {
       'module-set',
       'ownership',
       'packaging',
+      'build-output',
       'test-protection',
       'catalog-reference',
       'lint-scope',

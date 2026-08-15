@@ -73,6 +73,22 @@ describe('governance liveness', () => {
     ).toEqual([]);
   });
 
+  it('FilesArray_BuildOutputs_AreExcludedFromDeadOnACleanTree', () => {
+    // `dist/bin` and `dist/release-verify.js` are bun compile outputs. They
+    // are recorded so the census can see them, but a clean checkout (and CI
+    // `test:run` / `test:conformance`, which run before `build:binary`) must
+    // not report the tarball dead.
+    const buildOutputs = result.surfaces.filter((s) => s.register === 'files' && s.buildOutput);
+    expect(
+      buildOutputs.map((s) => s.pattern).sort(),
+      'package.json `files[]` names no dist/ build output — the exclusion below is vacuous',
+    ).not.toEqual([]);
+    expect(
+      result.dead.filter((s) => s.buildOutput).map((s) => s.pattern),
+      'a build-output files[] entry was reported dead on a tree that has not been built',
+    ).toEqual([]);
+  });
+
   it('ManifestComponents_EverySource_ExistsOnDisk', () => {
     const dead = result.dead.filter((s) => s.register === 'manifest');
     expect(

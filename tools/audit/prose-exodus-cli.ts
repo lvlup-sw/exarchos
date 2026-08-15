@@ -15,7 +15,6 @@
  * task that has read a passing reconciliation, because the whole design intent
  * is that removal is a separate decision from preservation.
  */
-import { execFileSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -24,6 +23,7 @@ import {
   formatReconcile,
   isRetained,
   reconcile,
+  trackedUnder,
   type ProseManifest,
 } from './prose-manifest.js';
 
@@ -39,12 +39,7 @@ const MANIFEST_PATH = path.join(REPO_ROOT, 'tools/audit/prose-manifest.json');
  * accumulate silently.
  */
 function relocatablePaths(): string[] {
-  const tracked = execFileSync('git', ['-C', REPO_ROOT, 'ls-files', '-z', '--', 'docs'], {
-    encoding: 'utf8',
-    maxBuffer: 64 * 1024 * 1024,
-  })
-    .split('\0')
-    .filter((rel) => rel.length > 0);
+  const tracked = trackedUnder(REPO_ROOT, 'docs');
 
   const relocatable = tracked.filter((rel) => !isRetained(rel)).sort();
   if (tracked.length === 0) {
