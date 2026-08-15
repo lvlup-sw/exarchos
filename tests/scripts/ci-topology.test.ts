@@ -400,7 +400,7 @@ describe('CI path-filter & guard coverage (DR-22)', () => {
       scripts?: Record<string, string>;
     };
     const coreScripts = Object.entries(pkg.scripts ?? {})
-      .filter(([, cmd]) => typeof cmd === 'string' && /\b--project core\b/.test(cmd))
+      .filter(([, cmd]) => typeof cmd === 'string' && /--project core\b/.test(cmd))
       .map(([name]) => name);
     expect(coreScripts, 'package.json declares no --project core script').not.toEqual([]);
 
