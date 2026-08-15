@@ -106,6 +106,40 @@ describe('governance liveness', () => {
     ).toEqual([]);
   });
 
+  it('Codeowners_StarIsTheFirstRuleAndIsNotRepeated', () => {
+    // GitHub is last-match-wins. A trailing `*` collapses every more-specific
+    // rule. The default must be first, and it must appear once.
+    const patterns = codeownersPatterns();
+    expect(patterns.length, 'CODEOWNERS declares no patterns').toBeGreaterThan(1);
+    expect(patterns[0], 'the default rule is not first').toBe('*');
+    expect(
+      patterns.filter((pattern) => pattern === '*'),
+      '`*` is repeated — later copies win and swallow the specific rules',
+    ).toEqual(['*']);
+  });
+
+  it('Codeowners_LastMatch_DoesNotCollapseSpecificRulesToStar', () => {
+    const patterns = codeownersPatterns();
+    const tracked = trackedFiles();
+    const specific = patterns.filter((pattern) => pattern !== '*');
+    expect(specific.length, 'CODEOWNERS has no rule besides `*`').toBeGreaterThan(0);
+
+    for (const pattern of specific) {
+      const hits = tracked.filter((rel) => codeownersMatches(pattern, rel));
+      expect(hits.length, `${pattern} matches no tracked file`).toBeGreaterThan(0);
+      for (const rel of hits) {
+        let winner: string | undefined;
+        for (const rule of patterns) {
+          if (codeownersMatches(rule, rel)) winner = rule;
+        }
+        expect(
+          winner,
+          `${rel} last-match-wins to \`*\` despite matching ${pattern}`,
+        ).not.toBe('*');
+      }
+    }
+  });
+
   it('GovernanceLiveness_StalePattern_FailsClosed', () => {
     // Teeth. The matcher is exercised directly against a pattern naming a tree
     // this repository deleted, so the finding path is proven to fire rather
