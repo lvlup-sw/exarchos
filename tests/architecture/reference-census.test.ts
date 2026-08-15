@@ -30,6 +30,7 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..');
 
@@ -56,8 +57,21 @@ type Census = {
   subtrees: Record<string, Subtree>;
 };
 
-const census = JSON.parse(
+/**
+ * Committed capture. A drift snapshot, not the oracle: every assertion below
+ * reads the live measurer so a referrer that appears the moment after a
+ * capture still fails this suite.
+ */
+const snapshot = JSON.parse(
   fs.readFileSync(path.join(REPO_ROOT, 'tools/audit/reference-census.json'), 'utf8'),
+) as Census;
+
+const census = JSON.parse(
+  execFileSync(process.execPath, [path.join(REPO_ROOT, 'tools/audit/measure-reference-census.mjs')], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+  }),
 ) as Census;
 
 const deletionCandidates = Object.entries(census.subtrees).filter(
@@ -98,6 +112,12 @@ const RE_HOMED_ALREADY = ['docs/evals'];
 const CLEARED_FOR_DELETION: readonly string[] = [];
 
 describe('reference census', () => {
+  it('ReferenceCensus_Snapshot_IsCurrentWithTheTree', () => {
+    // Tolerance covers ordinary in-flight edits; a structural move blows past it.
+    expect(Math.abs(census.trackedFiles - snapshot.trackedFiles)).toBeLessThan(50);
+    expect(Object.keys(census.subtrees).sort()).toEqual(Object.keys(snapshot.subtrees).sort());
+  });
+
   it('ReferenceCensus_EveryDeletionCandidate_HasZeroLiveReferences', () => {
     // Equality against the cleared list rather than a blanket zero assertion:
     // most subtrees are still referenced, and pretending otherwise is what the
@@ -158,6 +178,22 @@ describe('reference census', () => {
       .map(([name]) => name);
 
     expect(wrongly, 'cleared for deletion while still referenced').toEqual([]);
+
+    // The live list is empty today, so the filter above cannot fail. Seed a
+    // still-referenced subtree into the cleared set and require the same
+    // predicate to reject it.
+    const liveReferenced = deletionCandidates.find(([, s]) => s.liveReferrers > 0);
+    expect(
+      liveReferenced,
+      'no deletion candidate still has live referrers — the seed has nothing to reject',
+    ).toBeDefined();
+    const [seededName] = liveReferenced ?? [];
+    expect(seededName, 'seeded cleared name is missing').toBeDefined();
+    const seededCleared = [...CLEARED_FOR_DELETION, seededName as string];
+    const seededWrongly = deletionCandidates
+      .filter(([name, s]) => s.liveReferrers > 0 && seededCleared.includes(name))
+      .map(([name]) => name);
+    expect(seededWrongly).toContain(seededName);
   });
 
   it('ReferenceCensus_BlockedSubtree_NamesItsCodeReferrers', () => {
