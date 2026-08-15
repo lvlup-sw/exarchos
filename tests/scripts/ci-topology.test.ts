@@ -59,6 +59,7 @@ interface WorkflowStep {
 interface WorkflowJob {
   readonly needs?: string | readonly string[];
   readonly if?: string;
+  readonly 'runs-on'?: string;
   readonly steps?: readonly WorkflowStep[];
 }
 
@@ -318,6 +319,13 @@ const REQUIRED_ROOT_PROJECTION_GLOBS = [
   'AGENTS.md',
   'src/runtime/agents/**',
   '.github/workflows/release.yml',
+  // Fail-open registers the architecture liveness closer reads. A PR that
+  // only edits one of these must still flip `root`, or the live-oracle
+  // teeth skip while the register evaporates.
+  '.github/CODEOWNERS',
+  'knip.json',
+  '.exarchos/**',
+  'manifest.json',
 ] as const;
 
 /** True iff some step in `job` runs the given `npm run <script>` invocation. */
@@ -325,6 +333,16 @@ function jobRunsNpmScript(job: WorkflowJob | undefined, scriptName: string): boo
   const steps = job?.steps ?? [];
   const re = new RegExp(`npm run ${scriptName}\\b`);
   return steps.some((s) => typeof s.run === 'string' && re.test(s.run));
+}
+
+/**
+ * True iff a step's `run` value *is* `npm run <script>` (optional trailing
+ * args), not an echo or comment that merely mentions the name.
+ */
+function jobRunsCoreProjectScript(job: WorkflowJob | undefined, scriptName: string): boolean {
+  const steps = job?.steps ?? [];
+  const re = new RegExp(`^npm run ${scriptName}\\b`);
+  return steps.some((s) => typeof s.run === 'string' && re.test(s.run.trim()));
 }
 
 describe('CI path-filter & guard coverage (DR-22)', () => {
@@ -369,6 +387,42 @@ describe('CI path-filter & guard coverage (DR-22)', () => {
 
     expect(checked, 'no path-filter globs were examined').toBeGreaterThan(0);
     expect(dead, 'path-filter globs matching no tracked file').toEqual([]);
+  });
+
+  it('LayerCensus_HostScripts_AreRunStepsOnBothPlatforms', () => {
+    // `auditLayerBoundaries` is collected by the `core` vitest project.
+    // Linux hosts that project as `test:coverage`; Windows hosts it as
+    // `test:core`. A substring in a comment is not a host. Both platforms
+    // that ship must keep a `run:` step whose script expands to
+    // `--project core`, on a job `ci-gate` actually needs.
+    const workflow = loadWorkflow(CI_WORKFLOW_PATH);
+    const pkg = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8')) as {
+      scripts?: Record<string, string>;
+    };
+    const coreScripts = Object.entries(pkg.scripts ?? {})
+      .filter(([, cmd]) => typeof cmd === 'string' && /\b--project core\b/.test(cmd))
+      .map(([name]) => name);
+    expect(coreScripts, 'package.json declares no --project core script').not.toEqual([]);
+
+    const needs = new Set(needsList(workflow.jobs[AGGREGATOR_JOB]));
+    const hosts = Object.entries(workflow.jobs).filter(
+      ([name, job]) => needs.has(name) && coreScripts.some((s) => jobRunsCoreProjectScript(job, s)),
+    );
+    expect(
+      hosts.map(([name]) => name),
+      'no ci-gate dependency runs a script whose expansion is --project core',
+    ).not.toEqual([]);
+
+    const runners = hosts.map(([, job]) => job['runs-on']);
+    expect(runners, 'Linux does not host the layer census').toContain('ubuntu-latest');
+    expect(runners, 'Windows does not host the layer census').toContain('windows-latest');
+
+    // Teeth: an echo that names the script is not a run step.
+    const decoy: WorkflowJob = {
+      'runs-on': 'ubuntu-latest',
+      steps: [{ run: 'echo "npm run test:coverage"' }],
+    };
+    expect(jobRunsCoreProjectScript(decoy, 'test:coverage')).toBe(false);
   });
 
   it('Guards_HooksGuardRunsInCI_AndIsRootFiltered', () => {

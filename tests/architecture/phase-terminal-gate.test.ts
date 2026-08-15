@@ -24,6 +24,12 @@ const pkg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'ut
   scripts?: Record<string, string>;
 };
 
+/** True when `cmd` is a workflow `run:` value, not a comment that mentions it. */
+function isWorkflowRunStep(cmd: string): boolean {
+  const escaped = cmd.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`^\\s+-?\\s*run:\\s+${escaped}\\s*$`, 'm').test(ciYaml);
+}
+
 describe('Phase2_CiStillDeclaresTheJobsThatWouldFindOut', () => {
   it('CI still runs on BOTH platforms', () => {
     // Windows is where this repository's portability defects surface —
@@ -67,15 +73,37 @@ describe('Phase2_CiStillDeclaresTheJobsThatWouldFindOut', () => {
       'npm run test:conformance',
       'npm run render:guard',
       'npm run lint:invariants',
+      // The layer census (`auditLayerBoundaries`) is collected by the `core`
+      // vitest project. Linux hosts that project as `test:coverage`; Windows
+      // hosts it as `test:core`. `test:run` is the `unit` project and never
+      // collects the census. Both hosts must stay named, because deleting
+      // one leaves the other platform unrun while a substring check on the
+      // remaining name stays green.
+      'npm run test:coverage',
+      'npm run test:core',
     ];
-    const absent = requiredInvocations.filter((cmd) => !ciYaml.includes(cmd));
-    expect(absent, `CI no longer invokes: ${absent.join(', ')}`).toEqual([]);
+    const absent = requiredInvocations.filter((cmd) => !isWorkflowRunStep(cmd));
+    expect(absent, `CI no longer invokes as a run step: ${absent.join(', ')}`).toEqual([]);
 
     // knip is hosted by the validate-no-legacy rollup, not an npm script name.
     expect(ciYaml, 'CI dropped the knip host').toMatch(/knip-diff|validate-no-legacy/);
     // `quality-check` itself is not a CI job. Its load-bearing legs are
     // `lint:invariants` (above) and `lint:test-first-drift` via `render:guard`.
     expect(ciYaml, 'CI dropped the Windows lint host').toMatch(/npm run lint:windows/);
+  });
+
+  it('a comment that names a required script is not an invocation', () => {
+    // Teeth. `includes('npm run test:core')` stays green when the only
+    // remaining mention is a comment. The run-step matcher must not.
+    const commented = ciYaml.replace(
+      /^(\s+-?\s*)run:\s+npm run test:coverage\s*$/m,
+      '$1# run: npm run test:coverage',
+    );
+    const escaped = 'npm run test:coverage'.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const stillAStep = new RegExp(`^\\s+-?\\s*run:\\s+${escaped}\\s*$`, 'm').test(commented);
+    expect(stillAStep, 'commenting out the Linux census host still counted as a run step').toBe(
+      false,
+    );
   });
 });
 

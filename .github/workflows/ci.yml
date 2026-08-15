@@ -103,6 +103,15 @@ jobs:
               # notice. The whole tree, so a new `tools/` root is not
               # un-triggered until someone spots it.
               - 'tools/**'
+              # Fail-open registers the architecture liveness closer reads.
+              # A PR that only edits one of these never flipped `root`, so
+              # `test-root` (and the live-oracle teeth) skipped while the
+              # register could evaporate. The same class is already documented
+              # for `rendered/` above.
+              - '.github/CODEOWNERS'
+              - 'knip.json'
+              - '.exarchos/**'
+              - 'manifest.json'
             mcp:
               - 'src/**'
               # `tests/unit/**` and `tests/integration/**` are the core suite's
