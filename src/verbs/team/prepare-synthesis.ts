@@ -56,9 +56,15 @@ interface PrepareSynthesisResult {
 
 // ─── Test Runner ───────────────────────────────────────────────────────────
 
-function runTestSuite(): TestResult {
+/**
+ * `repoRoot` is threaded as `cwd` on every leg below (DR-8 / #1756): the
+ * process this MCP server happens to have been launched in is never an
+ * implicit scan surface — the caller must name the tree it wants judged.
+ */
+function runTestSuite(repoRoot: string): TestResult {
   try {
     const output = execSync('npm run test:run', {
+      cwd: repoRoot,
       encoding: 'buffer',
       timeout: 120_000,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -89,9 +95,10 @@ function parseTestOutput(output: string): { passCount: number; failCount: number
 
 // ─── Typecheck Runner ──────────────────────────────────────────────────────
 
-function runTypecheck(): TypecheckResult {
+function runTypecheck(repoRoot: string): TypecheckResult {
   try {
     execSync('npm run typecheck', {
+      cwd: repoRoot,
       encoding: 'buffer',
       timeout: 60_000,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -116,9 +123,10 @@ function parseTypecheckErrors(output: string): string[] {
 
 // ─── Default Branch Detection ─────────────────────────────────────────────
 
-function detectDefaultBranch(): string {
+function detectDefaultBranch(repoRoot: string): string {
   try {
     const ref = execSync('git symbolic-ref refs/remotes/origin/HEAD', {
+      cwd: repoRoot,
       encoding: 'utf-8',
       timeout: 5_000,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -133,10 +141,11 @@ function detectDefaultBranch(): string {
 
 // ─── Stack Verifier ────────────────────────────────────────────────────────
 
-function verifyStack(): StackResult {
+function verifyStack(repoRoot: string): StackResult {
   try {
-    const baseBranch = detectDefaultBranch();
+    const baseBranch = detectDefaultBranch(repoRoot);
     const output = execSync(`git log --oneline --graph ${baseBranch}..HEAD`, {
+      cwd: repoRoot,
       encoding: 'buffer',
       timeout: 15_000,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -230,10 +239,11 @@ export function documentLegBlocks(result: DocumentLegResult): boolean {
  * `execFileSync` (not shell-form `execSync`) eliminates the shell surface even
  * though `baseBranch` is already sanitized by `detectDefaultBranch`.
  */
-function changedFilesAgainstBase(): string[] | null {
+function changedFilesAgainstBase(repoRoot: string): string[] | null {
   try {
-    const baseBranch = detectDefaultBranch();
+    const baseBranch = detectDefaultBranch(repoRoot);
     const output = execFileSync('git', ['diff', '--name-only', `${baseBranch}...HEAD`], {
+      cwd: repoRoot,
       encoding: 'buffer',
       timeout: 15_000,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -279,8 +289,24 @@ function checkTaskCompletion(
 
 // ─── Handler ───────────────────────────────────────────────────────────────
 
+/**
+ * `repoRoot` is REQUIRED, not defaulted (DR-8 / #1756): before this task the
+ * handler had no field at all naming the tree a readiness verdict was for,
+ * so every subprocess leg silently measured the ambient `process.cwd()` the
+ * MCP server happened to be launched in. A required field makes an
+ * unrelated-tree verdict a compile-time impossibility for every in-repo
+ * caller, and {@link executePrepareSynthesis} additionally refuses at
+ * runtime (INVALID_INPUT) rather than falling back to `process.cwd()` for
+ * any caller that reaches the handler through an unchecked cast.
+ */
+interface PrepareSynthesisArgs {
+  readonly featureId: string;
+  readonly repoRoot: string;
+  readonly projectConfig?: ResolvedProjectConfig;
+}
+
 export async function handlePrepareSynthesis(
-  args: { featureId: string; projectConfig?: ResolvedProjectConfig },
+  args: PrepareSynthesisArgs,
   stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
@@ -307,7 +333,7 @@ export async function handlePrepareSynthesis(
 }
 
 async function executePrepareSynthesis(
-  args: { featureId: string; projectConfig?: ResolvedProjectConfig },
+  args: PrepareSynthesisArgs,
   stateDir: string,
   eventStore: EventStore,
 ): Promise<ToolResult> {
@@ -359,8 +385,59 @@ async function executePrepareSynthesis(
       return { success: true, data: result };
     }
 
+    // 3b. DR-8 / #1756: from here on every leg shells out and must be told
+    //     which tree to measure. Refuse rather than silently falling back to
+    //     the server's own ambient `process.cwd()` — a verdict about the
+    //     wrong repo is worse than no verdict. (Deliberately checked AFTER
+    //     the task-completion short-circuit above, so a not-ready-on-tasks
+    //     verdict — which never runs a leg — is unaffected by this guard.)
+    if (!args.repoRoot) {
+      return {
+        success: false,
+        error: {
+          code: 'INVALID_INPUT',
+          message:
+            'repoRoot is required: prepare_synthesis shells out to the test suite, ' +
+            'typecheck, stack, and changed-files legs, and refuses to guess which ' +
+            "repository they run against — it will not fall back to the server's " +
+            'own process.cwd().',
+        },
+      };
+    }
+    // …and present is not the same as usable. A RELATIVE `repoRoot` resolves
+    // against the server process when it reaches a subprocess as `cwd`, which
+    // is the ambient-cwd fallback this guard just refused, spelled differently:
+    // `repoRoot: '.'` would satisfy the check above and still measure whatever
+    // tree the server is sitting in. The schema rejects these at dispatch; this
+    // is the same rule at the handler, for the direct (non-dispatch) callers.
+    //
+    // The `typeof` half comes first because `RegExp.test()` coerces its
+    // argument: `['/repo']` stringifies to `/repo`, clears the shape check, and
+    // reaches a subprocess as a non-string `cwd` — which surfaces as
+    // PREPARE_SYNTHESIS_FAILED, misreporting a caller's malformed input as a
+    // failure of the run.
+    if (
+      typeof args.repoRoot !== 'string' ||
+      !/^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(args.repoRoot)
+    ) {
+      return {
+        success: false,
+        error: {
+          code: 'INVALID_INPUT',
+          message:
+            'repoRoot must be an absolute path, received ' +
+            (typeof args.repoRoot === 'string'
+              ? `'${args.repoRoot}'`
+              : `a ${typeof args.repoRoot}`) +
+            ". A relative path resolves against the server's own working directory, so " +
+            'the legs would measure a repository the caller never named.',
+        },
+      };
+    }
+    const repoRoot = args.repoRoot;
+
     // 4. Run test suite
-    const tests = runTestSuite();
+    const tests = runTestSuite(repoRoot);
 
     // 5. Emit gate.executed event for test-suite (feeds flywheel)
     await emitGateEvent(store, streamId, 'test-suite', 'CI', tests.passed, {
@@ -371,7 +448,7 @@ async function executePrepareSynthesis(
     });
 
     // 6. Run typecheck
-    const typecheck = runTypecheck();
+    const typecheck = runTypecheck(repoRoot);
 
     // 7. Emit gate.executed event for typecheck (feeds flywheel)
     await emitGateEvent(store, streamId, 'typecheck', 'CI', typecheck.passed, {
@@ -382,7 +459,7 @@ async function executePrepareSynthesis(
     });
 
     // 8. Verify branch stack
-    const stack = verifyStack();
+    const stack = verifyStack(repoRoot);
 
     // 9. Evaluate the document-readiness leg (DR-2, #1594) and emit its gate.
     //    Roster order is task-completion→tests→typecheck→document→stack; gate
@@ -391,7 +468,7 @@ async function executePrepareSynthesis(
     //    `passed` reflects structural coverage; whether an uncovered leg BLOCKS
     //    readiness is the severity decision (documentLegBlocks).
     const docCfg = args.projectConfig?.synthesis?.documentLeg ?? DEFAULT_DOCUMENT_LEG;
-    const changedFiles = changedFilesAgainstBase();
+    const changedFiles = changedFilesAgainstBase(repoRoot);
     // Fail CLOSED when git detection is unavailable: report the leg as
     // evaluated-but-uncovered so a `blocking` severity blocks readiness instead
     // of being silently auto-waived (an empty-list waive would bypass the gate).

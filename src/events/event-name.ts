@@ -1,27 +1,19 @@
-// RESERVED(issue: #1473, owner: exarchos, expires: 2026-11-30) — the DR-3 event-name grammar.
-// Production code with no production importer YET: task 015 builds the two-way grammar census on
-// this seam and wires it to an unfiltered CI path. Deliberately NOT claimed under a
-// `declared-test-infra` class — this is not gate machinery, it is the grammar the event catalog
-// is checked against, and misfiling it would buy a permanent exemption for a module that becomes
-// load-bearing next task (DR-7 module-intent gate). If task 015 never lands, this expires and is
-// deleted.
-//
-// ─── The compile-time event-name grammar (DR-3) ──────────────────────────────
+// ─── The event-name grammar (DR-3) — THE single authority ────────────────────
 //
 // ## The grammar, and where it came from
 //
-// DERIVED from the live catalog, not invented. Every clause below was measured against the 170
-// names in `EventTypes` (`schemas.ts`) on the landing branch; the measurement is recorded per
-// clause so a future reader can tell a rule with evidence from a rule with an opinion.
+// DERIVED from the live catalog, not invented. Every clause below was re-measured against the 171
+// names `getValidEventTypes()` returns on a cold boot (`schemas.ts`); the measurement is recorded
+// per clause so a future reader can tell a rule with evidence from a rule with an opinion.
 //
 //     EventName   := Namespace "." Segment ( "." Segment )?
 //     Namespace   := Word
 //     Segment     := Word | Word ("-" Word)+ | Word ("_" Word)+
 //     Word        := [a-z]+
 //
-// | clause | measurement over the 170 |
+// | clause | measurement over the 171 |
 // |---|---|
-// | 2 or 3 dot-segments | 147 have 2, 23 have 3, **none** has 1 or 4+ |
+// | 2 or 3 dot-segments | 148 have 2, 23 have 3, **none** has 1 or 4+ |
 // | every segment non-empty | 0 names contain `..`, a leading `.`, or a trailing `.` |
 // | `Word` is `[a-z]+` | the whole-corpus character inventory is exactly `[a-z]`, `.`, `-`, `_` — **0 uppercase, 0 digits** |
 // | `Namespace` is a bare `Word` | 0 of the 50 distinct namespaces contain `-` or `_` |
@@ -35,48 +27,69 @@
 // log-compatibility break rather than a tidy-up. The grammar admits both and constrains the thing
 // that is actually invariant — that a segment commits to ONE of them.
 //
-// ## Where this grammar is deliberately NARROWER than what ships today
+// ## The no-digits clause, re-examined against user-config evidence (DR-5)
 //
-// `Word := [a-z]+` excludes digits. The shipped `EVENT_NAME_PATTERN` (`schemas.ts`) allows them,
-// and 0 of the 170 names use one, so there is no evidence either way from the corpus and the
-// strict reading is the one that can be falsified. **This is the intended failure mode:** if a
-// future event name needs a digit, task 015's census reddens and names it, and the grammar is
-// widened deliberately against that evidence — rather than being pre-emptively widened here on
-// speculation, which is how a grammar becomes unable to reject anything.
+// `Word := [a-z]+` excludes digits, and the retired `EVENT_NAME_PATTERN` admitted them. Adopting
+// the strict reading rejects names a user could legally have registered, so it was re-measured
+// against every population that can actually carry a custom name rather than re-asserted:
 //
-// ## FINDING (not fixed here): `EVENT_NAME_PATTERN` rejects 25 of its own built-ins
+//   • 171 registered names on a cold boot — 0 digits, 0 multi-word namespaces, 0 names of 4+
+//     segments, 0 uppercase.
+//   • 79 distinct event names across 12,890 rows in two REAL persisted stores on this machine
+//     (`~/.claude/workflow-state/exarchos.db`, `~/.exarchos/state/exarchos.db`) — 0 digits, 0
+//     multi-word namespaces. These are names that were actually emitted and are actually on disk,
+//     which is a strictly stronger population than the catalog: it includes one name
+//     (`init.executed`) the catalog no longer declares.
+//   • every custom event name this repo registers or documents through the `.exarchos.yml` /
+//     `exarchos.config.ts` `events:` surface — `deploy.started`, `deploy.finished`,
+//     `custom.hello`, and the three `vcs.*` ledger names `vcs/mutation-owner.ts` registers at
+//     runtime. 0 digits, 0 multi-word namespaces.
 //
-// `schemas.ts` already carries a runtime event-name pattern:
+// So the clause is adopted with zero measured counterexamples and a real, named cost: a user whose
+// config registers `deploy.rollout2` upgrades into a hard registration failure. That cost is
+// written down in the migration note rather than assumed away, and the clause stays falsifiable —
+// {@link MALFORMED_EVENT_NAMES} carries `workflow.started2` explicitly, so widening the grammar to
+// admit a digit is a visible edit to a fixture table rather than a quiet character-class change.
+//
+// ## The two authorities are now one (DR-5)
+//
+// `schemas.ts` used to carry an independently-authored runtime validator:
 //
 //     const EVENT_NAME_PATTERN = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$/;
 //
-// It has no `_` in either character class, so it rejects the 25 snake_case built-ins listed in
-// the table above. It has never failed because `registerEventType` applies it ONLY to CUSTOM
-// runtime registrations — the 170 built-ins are a `readonly` literal array and are never fed
-// through it. So the module ships a validator that its own authoritative corpus fails, and the
-// only reason nobody noticed is that the validator is never pointed at that corpus.
+// It had no `_` in either character class, so it rejected 25 of its own built-ins. It never failed
+// because `registerEventType` applied it ONLY to CUSTOM runtime registrations while the built-ins
+// are a `readonly` literal array never fed through it — a validator its own authoritative corpus
+// fails, invisible because it was never pointed at that corpus.
 //
-// That is a second authority for one vocabulary, which is the defect class this program exists to
-// close, and it is NOT repaired here: `schemas.ts` is outside this task's file scope, and
-// collapsing the two authorities means making `registerEventType` consume THIS grammar, which is
-// a behaviour change to a public runtime seam (custom names that register today would stop
-// registering, and vice versa). Filed as a finding for task 015, which is the first consumer with
-// standing to make `registerEventType` and the census read the same rule.
+// It is gone. `registerEventType` now calls {@link assertWellFormedEventName}, so this grammar is
+// the only thing that decides whether a name may be registered, and `EVENT_NAME_PATTERN` survives
+// only as {@link EVENT_NAME_PATTERN} — a regex BUILT from this module's own alphabet, separator
+// set and segment bounds by {@link buildEventNamePattern}. It is a FORM of the grammar in the same
+// sense {@link LOWER_ALPHA} is a form of {@link LowerAlpha}, pinned by
+// `event-name.test.ts`'s agreement sweep rather than trusted, and it decides nothing on its own.
 //
-// ## Why this module has no runtime import edge
+// The behaviour change is real and one-way-each: names with a digit, a multi-word namespace or
+// four segments stopped registering; snake_case names started. Already-persisted events are
+// untouched — the read path does not re-validate names (`store.query` folds rows through
+// `migrateEvents` and nothing consults the grammar), so INV-1 log compatibility holds by
+// construction. See `docs/migrations/2026-08-10-event-name-grammar.md`.
 //
-// Every import is `import type`, exactly as `event-registration.ts` does and for the same reason:
-// `schemas.ts` is the event catalog, and a value import would make this module's grammar
-// depend on the catalog booting. `_EventName_EveryRegisteredType_IsWellFormed` below still
-// quantifies over all 170 names — `EventType` is a union of 170 string literals, so the whole
-// catalog is checkable at compile time with zero runtime coupling. Task 015 does the RUNTIME
-// enumeration (which is the only way to see custom `registerEventType` names, since those do not
-// exist in any type), and that is why the census lives in `architecture/` and not here.
+// ## The import edge, and why it points this way
+//
+// This module's only import is `import type`, exactly as `event-registration.ts` does and for the
+// same reason: `schemas.ts` is the event catalog, and a value import would make this grammar
+// depend on the catalog booting. The value edge runs the other way — `schemas.ts` imports THIS
+// module — so the grammar stays bootable on its own and there is no runtime cycle (dependency
+// -cruiser elides type-only edges; see `.dependency-cruiser.cjs`).
+//
+// `_EventName_EveryRegisteredType_IsWellFormed` below still quantifies over all 171 names at
+// compile time. The RUNTIME enumeration lives in `architecture/event-grammar-census.ts`, which is
+// the only way to see custom `registerEventType` names since those exist in no type.
 //
 // ## What this module deliberately does NOT do
 //
-//   • It does not census the registry, own a ratchet, or wire CI — task 015.
-//   • It does not modify `registerEventType` or `EVENT_NAME_PATTERN` — see the FINDING above.
+//   • It does not census the registry, own a ratchet, or wire CI — that is the census.
 //   • It does not rename any event (INV-1: renaming a type breaks replay of existing logs).
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -151,7 +164,7 @@ export const LOWER_ALPHA: readonly [
   'z',
 ];
 
-/** The character class of a {@link Word}: `[a-z]`. No digits — see the header's NARROWER note. */
+/** The character class of a {@link Word}: `[a-z]`. No digits — see the header's DR-5 re-examination. */
 export type LowerAlpha = (typeof LOWER_ALPHA)[number];
 
 /**
@@ -167,7 +180,7 @@ export type WordSeparator = (typeof WORD_SEPARATORS)[number];
 /** The dot. Separates the namespace from the rest of the name. */
 export const SEGMENT_SEPARATOR = '.';
 
-/** Every well-formed name has a namespace plus one or two more segments. Measured: 147 + 23. */
+/** Every well-formed name has a namespace plus one or two more segments. Measured: 148 + 23. */
 export const MIN_NAME_SEGMENTS = 2;
 
 /** @see {@link MIN_NAME_SEGMENTS} */
@@ -475,6 +488,155 @@ export function isWellFormedEventName(name: string): boolean {
   return classifyEventName(name).ok;
 }
 
+// ─── The registration seam (DR-5) ──────────────────────────────────────────
+//
+// `registerEventType` used to decide well-formedness with its own regex. It now calls
+// {@link assertWellFormedEventName}, which is why this module has a production importer at all.
+// The throw carries THREE things a bare "invalid name" does not: the clause that was broken, the
+// fact that the rule moved, and where to read what to do about it. A user hitting this on upgrade
+// is not making a typo — their name was legal yesterday — so an error that does not name the
+// migration sends them to read a regex that no longer exists.
+
+/**
+ * Where a user whose event name stopped registering finds out what to do.
+ *
+ * Repo-relative, and deliberately part of the THROWN message rather than a doc-comment: an error
+ * a user reads in a terminal cannot follow a `{@link}`.
+ */
+export const EVENT_NAME_MIGRATION_NOTE = 'docs/migrations/2026-08-10-event-name-grammar.md';
+
+/**
+ * A name the DR-3 grammar refuses, raised at the registration seam.
+ *
+ * Carries the structured {@link EventNameDefect} alongside the human message so a caller can
+ * branch on the clause without parsing prose — the same reason the census consumes
+ * {@link classifyEventName}'s verdict rather than a boolean.
+ */
+export class MalformedEventNameError extends Error {
+  readonly eventName: string;
+  readonly defect: EventNameDefect;
+
+  constructor(eventName: string, defect: EventNameDefect, why: string) {
+    super(
+      `Invalid event type name '${eventName}': ${why} [${defect}]. The event-name grammar ` +
+        '(event-store/event-name.ts) is the single authority for event-name well-formedness; it ' +
+        'replaced the EVENT_NAME_PATTERN regex, which admitted names this grammar refuses (digits, ' +
+        'multi-word namespaces, 4+ segments) and refused names it accepts (snake_case). ' +
+        `Already-persisted events are unaffected. Migration: ${EVENT_NAME_MIGRATION_NOTE}`,
+    );
+    this.name = 'MalformedEventNameError';
+    this.eventName = eventName;
+    this.defect = defect;
+  }
+}
+
+/**
+ * Throw unless `name` satisfies the DR-3 grammar. The production entry point.
+ *
+ * Total over `string`: {@link classifyEventName} returns a verdict for every input including the
+ * empty string, so there is no name this can be handed that produces neither a pass nor a named
+ * defect. That totality is what let `registerEventType` drop its separate empty-name and
+ * lowercase pre-checks — each of those was a second rule deciding a question this grammar already
+ * decides, which is the defect DR-5 closes.
+ */
+export function assertWellFormedEventName(name: string): void {
+  const verdict = classifyEventName(name);
+  if (verdict.ok) return;
+  throw new MalformedEventNameError(verdict.name, verdict.defect, verdict.message);
+}
+
+// ─── The regex FORM of the grammar (derived, never authored) ────────────────
+//
+// `EVENT_NAME_PATTERN` is a public export of `schemas.ts` and the census reads it as a `RegExp`
+// object to measure the two authorities against each other. Deleting it would delete that
+// instrument; re-authoring it would recreate the defect. So it is BUILT from this module's own
+// data — the alphabet, the separator set, the segment bounds — and the census's divergence
+// measurement now reads zero by construction. If anyone ever re-authors it independently, the
+// measurement goes non-zero again and the ratchet's growth tooth fires.
+
+/**
+ * Raised when the grammar's own vocabulary resolves empty.
+ *
+ * The non-empty-denominator rule at the construction site. An empty alphabet builds `[]+`, which
+ * matches nothing; an empty separator set builds a pattern with no segment alternative at all. A
+ * validator assembled from a vocabulary that resolved to zero members is a validator that stopped
+ * working, and it must fail loudly rather than silently reject (or silently accept) everything.
+ */
+export class EmptyGrammarVocabularyError extends Error {
+  constructor(vocabulary: string) {
+    super(
+      `The event-name grammar resolved ZERO ${vocabulary}. A validator built from an empty ` +
+        'vocabulary decides nothing about every name it is shown, which is indistinguishable ' +
+        'from a validator that is working. This is a wiring failure, not a clean build.',
+    );
+    this.name = 'EmptyGrammarVocabularyError';
+  }
+}
+
+/** Regex-escape one literal character so it means itself inside a pattern or a character class. */
+function escapeLiteral(character: string): string {
+  return character.replace(/[\\^$.|?*+()[\]{}\-\/]/g, '\\$&');
+}
+
+/**
+ * Build the regex form of the grammar from its data.
+ *
+ * Every input defaults to the live vocabulary, so the production call is
+ * `buildEventNamePattern()`. They are injectable for the same reason the census's inputs are: the
+ * co-located test has to drive an emptied alphabet and a narrowed separator set without mutating
+ * the real grammar.
+ *
+ * Clause-for-clause with {@link IsSegment}: the segment alternation is one branch PER separator,
+ * so a segment mixing `-` and `_` matches no branch and is rejected by the same rule the type
+ * states. The `{min-1,max-1}` repetition is the dot-segment bound, minus the namespace.
+ */
+export function buildEventNamePattern(
+  alphabet: readonly string[] = LOWER_ALPHA,
+  separators: readonly string[] = WORD_SEPARATORS,
+  minSegments: number = MIN_NAME_SEGMENTS,
+  maxSegments: number = MAX_NAME_SEGMENTS,
+): RegExp {
+  if (alphabet.length === 0) throw new EmptyGrammarVocabularyError('word characters');
+  if (separators.length === 0) throw new EmptyGrammarVocabularyError('word separators');
+  if (minSegments < 2 || maxSegments < minSegments) {
+    throw new RangeError(
+      `An event name needs at least 2 segments and a maximum no lower than the minimum; got ` +
+        `min=${String(minSegments)}, max=${String(maxSegments)}.`,
+    );
+  }
+  // Integrality is load-bearing, not pedantry: `{1.5,2}` and `{1,Infinity}` are
+  // not quantifiers to JavaScript — the braces degrade to LITERAL characters, so
+  // the pattern stops constraining segment count and starts demanding the text
+  // "{1.5,2}" instead. That is the same failure `EmptyGrammarVocabularyError`
+  // exists to prevent: a validator that quietly stopped validating.
+  // `Number.isInteger` rejects fractions, Infinity and NaN in one predicate.
+  if (!Number.isInteger(minSegments) || !Number.isInteger(maxSegments)) {
+    throw new RangeError(
+      `Segment bounds must be integers, or the generated quantifier degrades to ` +
+        `literal braces and stops enforcing anything; got min=${String(minSegments)}, ` +
+        `max=${String(maxSegments)}.`,
+    );
+  }
+
+  const word = `[${alphabet.map(escapeLiteral).join('')}]+`;
+  const segment = separators
+    .map((separator) => `${word}(?:${escapeLiteral(separator)}${word})*`)
+    .join('|');
+  const tail = `(?:${escapeLiteral(SEGMENT_SEPARATOR)}(?:${segment})){${String(minSegments - 1)},${String(maxSegments - 1)}}`;
+  return new RegExp(`^${word}${tail}$`);
+}
+
+/**
+ * The grammar as a regex. Re-exported by `schemas.ts` under the name the census already reads.
+ *
+ * NOT an authority. {@link classifyEventName} decides; this agrees with it, and
+ * `event-name.test.ts` sweeps the whole live catalog plus every fixture through both to say so.
+ * The two exist because a `RegExp` is what the census's `shippedPattern` seam is typed as, and
+ * keeping that seam is what preserves the ratchet that would catch this pattern drifting away
+ * from the grammar a second time.
+ */
+export const EVENT_NAME_PATTERN: RegExp = buildEventNamePattern();
+
 // ─── The fixture tables (policy as DATA, read by both rungs) ────────────────
 //
 // These are the kill fixtures, and they are DATA rather than assertions inside a test body on
@@ -530,7 +692,7 @@ export const MALFORMED_EVENT_NAMES: readonly [
   {
     name: 'workflow.plan.review.dispatched',
     defect: 'TOO_MANY_SEGMENTS',
-    why: 'Caps the name at MAX_NAME_SEGMENTS. 0 of the 170 have 4 segments.',
+    why: 'Caps the name at MAX_NAME_SEGMENTS. 0 of the 171 have 4 segments.',
   },
   {
     name: 'workflow..started',
@@ -605,7 +767,7 @@ export const MALFORMED_EVENT_NAMES: readonly [
  * Names the grammar MUST accept — one real member of each shape the catalog exhibits.
  *
  * This table is a convenience for the runtime tests; it is NOT the acceptance authority.
- * `_EventName_EveryRegisteredType_IsWellFormed` quantifies over the whole 170-member `EventType`
+ * `_EventName_EveryRegisteredType_IsWellFormed` quantifies over the whole 171-member `EventType`
  * union, which is the structural fact. A hand-copied sample would be a proxy for it.
  */
 export const WELL_FORMED_EVENT_NAME_SAMPLES: readonly [
@@ -679,14 +841,14 @@ export type _EventName_MalformedFixtures_AreAllRejected = Expect<
 /**
  * `EventName_EveryRegisteredType_IsWellFormed`.
  *
- * The acceptance direction, quantified over the REAL corpus: `EventType` is the union of all 170
+ * The acceptance direction, quantified over the REAL corpus: `EventType` is the union of all 171
  * names in `EventTypes`, so this is the structural fact rather than a sample of it. Register a
  * built-in event whose name breaks the grammar and the build fails here, naming the grammar
- * rather than waiting for task 015's census to run.
+ * rather than waiting for the census to run.
  *
  * The `[N] extends [never]` guard inside {@link AllWellFormed} is what stops this from passing
  * vacuously if `EventType` ever resolves to `never` (a moved module, a broken re-export) — the
- * non-empty-denominator rule, applied to the 170.
+ * non-empty-denominator rule, applied to the 171.
  @proof
  * */
 export type _EventName_EveryRegisteredType_IsWellFormed = Expect<AllWellFormed<EventType>>;

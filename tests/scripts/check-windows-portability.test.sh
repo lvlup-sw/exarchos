@@ -6,9 +6,26 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../tools/audit/gates" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 GATE="$SCRIPT_DIR/check-windows-portability.mjs"
 TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
+# The scan-root cases plant a probe inside the real tree, each in its own
+# `mktemp -d` directory recorded here. The trap removes exactly those, so a case
+# that exits early never leaves the repo dirty and never deletes a path it did
+# not create — a fixed probe name would be shared by two concurrent runs.
+PROBE_DIRS=()
+cleanup() {
+  rm -rf "$TMP"
+  # `${PROBE_DIRS[@]+…}` because an EMPTY array is an unbound expansion under
+  # `set -u`, and `return 0` because this runs from an EXIT trap: the trap's
+  # status becomes the script's, so a final falsy test here would exit 1 after
+  # every case had passed.
+  for dir in ${PROBE_DIRS[@]+"${PROBE_DIRS[@]}"}; do
+    if [[ -n "$dir" ]]; then rm -rf "$dir"; fi
+  done
+  return 0
+}
+trap cleanup EXIT
 
 pass=0
 fail=0
@@ -45,6 +62,101 @@ dirty_exit=$?
 set -e
 check "dirty fixture is rejected" 1 "$dirty_exit"
 
+# ── Rule 1 kill fixtures: the forms that used to fall through BOTH rules ────
+#
+# `SPAWN_RE` matched only `execFile(Sync)('npm'|'npx'|…)` and `DYNAMIC_SPAWN_RE`
+# requires an IDENTIFIER first argument, so a literal `spawnSync('npx', …)` was
+# too general for one rule and too specific for the other — and the live
+# instance of it in `scripts/lint-envelopes.mjs` shipped, failing on every
+# Windows host post-CVE-2024-27980. Each case below is rejected only because
+# rule 1 now covers spawn(Sync) as well as execFile(Sync).
+mkdir -p "$TMP/r1spawn/src"
+cat > "$TMP/r1spawn/src/literal-spawn.ts" <<'EOF'
+import { spawnSync } from 'node:child_process';
+export function lint(config: string) {
+  return spawnSync('npx', ['--no-install', 'eslint', '--config', config]);
+}
+EOF
+set +e
+node "$GATE" --src-root "$TMP/r1spawn" >/dev/null 2>&1
+r1spawn_exit=$?
+set -e
+check "rule 1: literal spawnSync('npx', …) is rejected" 1 "$r1spawn_exit"
+
+# Windows resolves shim names case-insensitively, so `'NPM'` launches the same
+# `npm.cmd` that `'npm'` does. The pattern carried only `g`, which let the
+# SPELLING decide whether the rule applied — a violation that behaves identically
+# at runtime and reads clean to the gate.
+mkdir -p "$TMP/r1case/src"
+cat > "$TMP/r1case/src/mixed-case-spawn.ts" <<'EOF'
+import { spawnSync } from 'node:child_process';
+export function install() { return spawnSync('NPM', ['ci']); }
+export function exec() { return spawnSync('Npx', ['--no-install', 'tsc']); }
+EOF
+set +e
+node "$GATE" --src-root "$TMP/r1case" >/dev/null 2>&1
+r1case_exit=$?
+set -e
+check "rule 1: mixed-case shim spawnSync('NPM', …) is rejected" 1 "$r1case_exit"
+
+# ── Argument handling: an unknown flag must not be silently ignored ─────────
+#
+# A misspelled `--src-roots` left the root list empty, so the gate fell back to
+# its DEFAULT roots and reported success about a tree the caller never named.
+set +e
+node "$GATE" --src-roots "$TMP/dirty" >/dev/null 2>&1
+badflag_exit=$?
+set -e
+check "unrecognised argument is a usage error, not a default-roots scan" 2 "$badflag_exit"
+
+# The shim VOCABULARY is read from `utils/process.ts`'s WINDOWS_CMD_SHIMS rather
+# than transcribed here. The retired hard-coded five (npm/npx/pnpm/yarn/corepack)
+# had already drifted from the helper's seven, so `bun` was a shim the runtime
+# handled and the gate ignored. This case is green ONLY if the derivation works.
+mkdir -p "$TMP/r1bun/src"
+cat > "$TMP/r1bun/src/bun-spawn.ts" <<'EOF'
+import { spawnSync } from 'node:child_process';
+export function build(outDir: string) {
+  return spawnSync('bun', ['run', 'scripts/build-binary.ts', '--outdir', outDir]);
+}
+EOF
+set +e
+node "$GATE" --src-root "$TMP/r1bun" >/dev/null 2>&1
+r1bun_exit=$?
+set -e
+check "rule 1: shim list is derived (a bare 'bun' spawn is rejected)" 1 "$r1bun_exit"
+
+# The derivation FAILS CLOSED. A gate that silently policed an empty shim
+# vocabulary would report "clean" for the same reason the retired scan roots
+# did — because it looked at nothing. Both unreadable cases must exit 2, not 0.
+mkdir -p "$TMP/failclosed/src"
+cat > "$TMP/failclosed/src/inert.ts" <<'EOF'
+export const answer = 42;
+EOF
+cat > "$TMP/no-shims.ts" <<'EOF'
+export function needsWindowsShell() { return false; }
+EOF
+cat > "$TMP/empty-shims.ts" <<'EOF'
+const WINDOWS_CMD_SHIMS = new Set([]);
+export { WINDOWS_CMD_SHIMS };
+EOF
+set +e
+# Control: this root is clean under the REAL helper, so a 2 below is the
+# derivation refusing to run — not a missing root or a planted violation.
+node "$GATE" --src-root "$TMP/failclosed" >/dev/null 2>&1
+failclosed_control_exit=$?
+node "$GATE" --src-root "$TMP/failclosed" --spawn-helper "$TMP/does-not-exist.ts" >/dev/null 2>&1
+missing_helper_exit=$?
+node "$GATE" --src-root "$TMP/failclosed" --spawn-helper "$TMP/no-shims.ts" >/dev/null 2>&1
+no_decl_exit=$?
+node "$GATE" --src-root "$TMP/failclosed" --spawn-helper "$TMP/empty-shims.ts" >/dev/null 2>&1
+empty_decl_exit=$?
+set -e
+check "fail-closed control root passes under the real helper" 0 "$failclosed_control_exit"
+check "shim derivation fails closed on a missing helper" 2 "$missing_helper_exit"
+check "shim derivation fails closed on a helper with no WINDOWS_CMD_SHIMS" 2 "$no_decl_exit"
+check "shim derivation fails closed on an empty WINDOWS_CMD_SHIMS" 2 "$empty_decl_exit"
+
 # ── Rule 4 in isolation: variable-bin spawn alone must be rejected ──────────
 mkdir -p "$TMP/r4/src"
 cat > "$TMP/r4/src/probe.ts" <<'EOF'
@@ -69,6 +181,20 @@ node "$GATE" --src-root "$TMP/r4helper" >/dev/null 2>&1
 r4helper_exit=$?
 set -e
 check "rule 4: utils/process.ts helper is exempt" 0 "$r4helper_exit"
+
+# `process.execPath` is an absolute path to the running interpreter, so it can
+# never resolve to a `.cmd` shim — rule 4 must not fire on it, in production
+# source, or the gate would red the very form it steers callers towards.
+mkdir -p "$TMP/r4self/src"
+cat > "$TMP/r4self/src/reinvoke.ts" <<'EOF'
+import { execFileSync } from 'node:child_process';
+export function run(script: string) { return execFileSync(process.execPath, [script]); }
+EOF
+set +e
+node "$GATE" --src-root "$TMP/r4self" >/dev/null 2>&1
+r4self_exit=$?
+set -e
+check "rule 4: process.execPath re-invocation is not a dynamic bin" 0 "$r4self_exit"
 
 # Benchmarks are dev-only and spawn the running node (process.execPath) — exempt.
 mkdir -p "$TMP/r4bench/src/bench"
@@ -218,6 +344,48 @@ node "$GATE" --src-root "$TMP/shipped-audit" >/dev/null 2>&1
 shipped_audit_exit=$?
 set -e
 check "shipped src/tools/audit/ is NOT exempt (rule 4 still checks it)" 1 "$shipped_audit_exit"
+
+# ── Scan-root coverage (DR-8) ──────────────────────────────────────────────
+#
+# The default root used to be a single package tree, so repo-root `src/` and
+# `tools/audit/` — both of which run on a developer's machine and emit to a
+# `dist/` — were never opened. The gate was green about trees it had not read.
+# Assert the default roots by OBSERVING the gate report a violation planted in
+# each, then removing it again: a scan root that is merely declared is not a
+# scan root.
+# Each probe lives in its own `mktemp -d` directory INSIDE the scan root, and
+# only that directory is removed. Writing a fixed filename into the real tree
+# means a second concurrent run — or a future source file that happens to carry
+# the name — is overwritten and then deleted by the EXIT trap.
+for subtree in src tools/audit; do
+  probe_dir="$(mktemp -d "$REPO_ROOT/$subtree/portability_probe_XXXXXX")"
+  PROBE_DIRS+=("$probe_dir")
+  cat > "$probe_dir/probe.mjs" <<'EOF'
+import * as path from 'node:path';
+export const here = path.dirname(new URL(import.meta.url).pathname);
+EOF
+  set +e
+  node "$GATE" >/dev/null 2>&1
+  probe_exit=$?
+  set -e
+  rm -rf "$probe_dir"
+  # Rebuild without this entry. `${arr[@]/x}` is substring REPLACEMENT — it
+  # leaves an empty element behind rather than removing one.
+  remaining=()
+  for d in ${PROBE_DIRS[@]+"${PROBE_DIRS[@]}"}; do
+    if [[ "$d" != "$probe_dir" ]]; then remaining+=("$d"); fi
+  done
+  PROBE_DIRS=(${remaining[@]+"${remaining[@]}"})
+  check "default roots include repo-root $subtree/ (planted violation is seen)" 1 "$probe_exit"
+done
+
+# And with the probes removed the real tree is clean again — so the cases above
+# measured the probe, not a pre-existing violation.
+set +e
+node "$GATE" >/dev/null 2>&1
+after_probe_exit=$?
+set -e
+check "real repo is clean after the scan-root probes are removed" 0 "$after_probe_exit"
 
 echo "check-windows-portability self-test: $pass passed, $fail failed"
 [[ "$fail" == "0" ]]

@@ -1,6 +1,13 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { hasDirectRunExit, isPathShaped, isTestArtifact, selfTestCandidates } from './artifact-predicates.js';
+import {
+  classifyEntrypointPredicate,
+  hasDirectRunExit,
+  isPathShaped,
+  isTestArtifact,
+  selfTestCandidates,
+  type FilenameCoupledEntrypoint,
+} from './artifact-predicates.js';
 import { type ResolutionContext, indexShellIndirection, resolveHosts } from './hosts.js';
 import { manifestPrimaries, parseSpecTasks, wave1Tasks } from './manifest.js';
 import { type Enforcement, type GuardChannel, type GuardInventory, type GuardRecord, isEnforcingHost } from './model.js';
@@ -132,12 +139,27 @@ export function buildGuardInventory(options: BuildOptions = {}): GuardInventory 
     })
     .sort((a, b) => a.artifact.localeCompare(b.artifact));
 
+  const filenameCoupledEntrypoints: FilenameCoupledEntrypoint[] = [];
+  let entrypointPredicatesScanned = 0;
+  for (const guard of guards) {
+    if (!/\.[cm]?[jt]s$/.test(guard.artifact)) continue;
+    const source = readScript(guard.artifact);
+    if (source === null) continue;
+    entrypointPredicatesScanned += 1;
+    const { coupledLiterals } = classifyEntrypointPredicate(source, guard.artifact);
+    if (coupledLiterals.length > 0) {
+      filenameCoupledEntrypoints.push({ artifact: guard.artifact, literals: coupledLiterals });
+    }
+  }
+
   return {
     guards,
     suiteModulesWithoutSelfTest: suiteScan.modulesWithoutSelfTest,
     runnableWithoutSelfTest: mcpScan.runnableWithoutSelfTest,
     compileTimeOnlyArtifacts: [...new Set(compileTimeOnlyArtifacts)].sort(),
     unresolvedSpecArtifacts: [...new Set(unresolvedSpecArtifacts)].sort(),
+    filenameCoupledEntrypoints,
+    entrypointPredicatesScanned,
     indirection: ctx.shellIndex ?? { byStep: new Map(), runStepsWalked: 0, wrapperScriptsWalked: [], unresolvedInvocations: [] },
   };
 }

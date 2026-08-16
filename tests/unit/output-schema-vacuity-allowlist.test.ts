@@ -374,21 +374,25 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
     expect(liveSeed.findings).toEqual([]);
     expect(liveSeed.ok).toBe(true);
 
-    // THE MECHANISM, EXERCISED FOR REAL. Task 069 performed the first paydown,
-    // so the graveyard is no longer empty — and the digest above is UNCHANGED,
-    // which is the property the whole design rests on. A paydown MOVES an id
-    // between the two maps; the union, and therefore the pin, is invariant.
-    expect(Object.keys(VACUITY_RETIRED)).toEqual([
+    // THE MECHANISM, EXERCISED FOR REAL. Task 069 performed the first paydown
+    // and task 083 the next two (the #1739 cutover verbs, which had acquired
+    // waivers on arrival — the one thing the shrink-only rule forbids). The
+    // graveyard therefore holds three ids, and the digest above is UNCHANGED
+    // across all three, which is the property the whole design rests on. A
+    // paydown MOVES an id between the two maps; the union, and therefore the
+    // pin, is invariant.
+    const retiredIds: readonly string[] = [
       'exarchos_orchestrate.check_invariant_conformance',
-    ]);
-    expect(VACUITY_ALLOWLIST_IDS).not.toContain(
-      'exarchos_orchestrate.check_invariant_conformance',
-    );
-    // …and the retired id is genuinely paid down, not parked: the membership
-    // half would report it `UNWAIVED_VACUITY` if its schema were still vacuous.
-    expect(censusLiveOutputSchemas().substantive).toContain(
-      'exarchos_orchestrate.check_invariant_conformance',
-    );
+      'exarchos_orchestrate.cutover_decide',
+      'exarchos_orchestrate.cutover_readiness',
+    ];
+    expect([...Object.keys(VACUITY_RETIRED)].sort()).toEqual([...retiredIds].sort());
+    for (const id of retiredIds) {
+      expect(VACUITY_ALLOWLIST_IDS).not.toContain(id);
+      // …and each retired id is genuinely paid down, not parked: the membership
+      // half would report it `UNWAIVED_VACUITY` if its schema were still vacuous.
+      expect(censusLiveOutputSchemas().substantive).toContain(id);
+    }
 
     // Retired entries carry the owner + ISO paydown date. The shape predicate is
     // pinned against constructed entries in BOTH directions first, so the
@@ -547,9 +551,16 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
     expect(noWaivers.findings.map((f) => f.code)).toEqual(['UNWAIVED_VACUITY']);
 
     // A census that could not read an envelope is not a trustworthy input
-    // either — proving nothing must not read as proving compliance.
+    // either — proving nothing must not read as proving compliance. Built via
+    // `vacuityWaiver`, not `withCappedShape`: `withCappedShape` refuses a
+    // non-envelope `outputSchema` outright (it can no longer mint an
+    // unreadable-but-declared schema), so `vacuityWaiver` — the constructor
+    // documented to accept an arbitrary schema unchecked — is the one that can
+    // still produce this fixture.
     const unreadable = auditLiveVacuityAllowlist(
-      censusLiveOutputSchemas([tool('t', [action('a', withCappedShape(z.object({ x: z.string() })))])]),
+      censusLiveOutputSchemas([
+        tool('t', [action('a', vacuityWaiver('exarchos_workflow.init', z.object({ x: z.string() })))]),
+      ]),
       ['t.a'],
     );
     expect(unreadable.ok).toBe(false);

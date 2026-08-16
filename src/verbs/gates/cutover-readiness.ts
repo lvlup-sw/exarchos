@@ -30,6 +30,11 @@ import { ADMISSION_STREAM_ID } from '../../dispatch/core/infra-streams.js';
 import { getDispatchContext } from '../../dispatch/dispatch-context.js';
 import type { EventStore } from '../../events/store.js';
 import type { ToolResult } from '../../format.js';
+// The two verbs' response contracts, paid down from `vacuityWaiver` to real
+// `data` schemas. Held in their own module so the registry can import them
+// without this file's closure (event store, dispatch context, admission
+// provenance parsers) coming along.
+import type { DurableEvidenceSummary } from './cutover-readiness-schema.js';
 import {
   CutoverGateNotSatisfiedError,
   decideRollout,
@@ -84,11 +89,20 @@ function liveInputs(deps?: CutoverVerbDeps): {
   };
 }
 
-function durableSummary(durable: DurableShadowEvidence): Record<string, unknown> {
+/**
+ * Project the durable fold onto the summary both verbs advertise.
+ *
+ * The return type is the CONTRACT's inferred shape, not `Record<string,
+ * unknown>`: that is what binds this construction site to
+ * `DurableEvidenceSummarySchema`, so widening or renaming a field there is a
+ * compile error here rather than a response the D.5 validator rejects at run
+ * time.
+ */
+function durableSummary(durable: DurableShadowEvidence): DurableEvidenceSummary {
   return {
-    featureIds: durable.featureIds,
+    featureIds: [...durable.featureIds],
     attemptCount: durable.attempts.length,
-    dispositionTally: durable.dispositionTally,
+    dispositionTally: { ...durable.dispositionTally },
   };
 }
 

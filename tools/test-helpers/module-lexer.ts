@@ -55,9 +55,28 @@
 // comment, a string or a template is not an import NODE, so the parse excludes
 // it BY CONSTRUCTION; and the mask is computed from the parse's own literal
 // spans, so the two answers cannot drift apart.
+//
+// ── The three survivors, and the third answer they needed (task 072) ────────
+// Task 065 named them and task 072 measured each one on 065's own adversarial
+// inputs. All three were wrong, and two of them in the dangerous direction:
+//
+//   • `workflow/admission/remediation-purity.ts` reported NO imports for a
+//     module that really imports `node:fs` — a forbidden marker — so the purity
+//     census returned `ok: true` for an impure module;
+//   • `architecture/delivery-safety.ts` left a real `catch {}` unseen for the
+//     same reason, and invented one inside a nested template;
+//   • `architecture/vcs-ownership.ts` leaked comment prose into its scan and
+//     charged a module with a `git worktree add` it does not perform.
+//
+// Two of the three wanted `maskedSource` and `imports`, which this parse already
+// answered. The third wanted something it did not: comments gone with STRING
+// LITERALS KEPT, because the tokens `vcs-ownership` matches on (`'worktree'`,
+// `'add'`) are themselves string literals. That is {@link
+// LexedSource.commentMaskedSource} — a third answer off the SAME parse, not a
+// second parser, so it cannot disagree with the other two about the same file.
 
 import ts from 'typescript';
-import type { ImportRef, LexedModule, ModuleLexer } from '../../src/architecture/effect-ledger.js';
+import type { ImportRef, LexedModule } from '../../src/architecture/effect-ledger.js';
 
 /**
  * `parseDiagnostics` is off the public `ts.SourceFile` surface but is the only
@@ -146,15 +165,25 @@ function collectLiteralSpans(sourceFile: ts.SourceFile): LiteralSpan[] {
 }
 
 /**
- * Blank every literal span and every comment, preserving newlines and length so
- * offsets stay aligned to the original source.
+ * Blank every comment and — when `literals` is `'blank'` — every literal span,
+ * preserving newlines and length so offsets stay aligned to the original source.
  *
  * Correctness rests on one observation: with the literal spans already known
  * from the parse, a `/` encountered OUTSIDE them can only begin a comment. It
  * cannot be a regex literal (that would be a literal span) and `//` is never
  * division. So the ambiguity the old lexers guessed at does not arise here.
+ *
+ * `literals: 'keep'` copies literal spans through verbatim instead of blanking
+ * them, which is the only difference between the two masks this module returns.
+ * The COMMENT half is shared rather than re-derived, so the answer a caller who
+ * wants literals cannot drift from the answer a caller who does not gets — the
+ * exact drift three near-duplicate hand-rolled walks had by construction.
  */
-function blankNonCode(source: string, spans: readonly LiteralSpan[]): string {
+function blankNonCode(
+  source: string,
+  spans: readonly LiteralSpan[],
+  literals: 'blank' | 'keep',
+): string {
   const out: string[] = [];
   const n = source.length;
   let index = 0;
@@ -168,7 +197,8 @@ function blankNonCode(source: string, spans: readonly LiteralSpan[]): string {
     while (spanCursor < spans.length && (spans[spanCursor]?.end ?? 0) <= index) spanCursor += 1;
     const span = spans[spanCursor];
     if (span !== undefined && span.start <= index) {
-      blankRange(index, span.end);
+      if (literals === 'keep') out.push(source.slice(index, Math.min(span.end, n)));
+      else blankRange(index, span.end);
       index = span.end;
       continue;
     }
@@ -261,20 +291,51 @@ function collectImports(sourceFile: ts.SourceFile): ImportRef[] {
 }
 
 /**
- * The {@link ModuleLexer} port implementation: one parse, two answers.
+ * Everything {@link lexModule} answers: the {@link LexedModule} surface the
+ * effect ledger declared, plus the one answer its two siblings needed and it
+ * did not have.
  *
- * Both halves come from the SAME `ts.SourceFile`, which is the structural reason
- * the import surface and the masked-code surface can no longer disagree about
- * the same file — the failure mode two near-duplicate hand-rolled lexers had by
- * construction.
+ * A consumer never names this type. Each declares the MINIMAL port it needs —
+ * `ModuleLexer` in `effect-ledger.ts` and `delivery-safety.ts`, `CommentLexer`
+ * in `vcs-ownership.ts` — and `lexModule` satisfies all of them structurally.
+ * That keeps "which lexical question does this census ask" visible at the
+ * consumer, where it is a fact about the census, rather than collapsing every
+ * consumer onto one wide interface.
  */
-export const lexModule: ModuleLexer = (
+export interface LexedSource extends LexedModule {
+  /**
+   * `source` with every comment blanked to spaces (newlines and offsets
+   * preserved) and every string, template and regex literal kept VERBATIM.
+   *
+   * The complement of {@link LexedModule.maskedSource}, and needed for the same
+   * reason that one is: `vcs-ownership.ts` matches on argv literals
+   * (`['worktree', 'add']`), so blanking string bodies would blank its entire
+   * subject, while leaving comments in place charges a module with a mutation
+   * that only its documentation performs.
+   */
+  readonly commentMaskedSource: string;
+}
+
+/** The widest shape {@link lexModule} answers. See {@link LexedSource}. */
+export type SourceLexer = (source: string, fileName?: string) => LexedSource;
+
+/**
+ * The lexer-port implementation: ONE parse, three answers.
+ *
+ * All three come from the SAME `ts.SourceFile`, which is the structural reason
+ * the import surface, the masked-code surface and the comment-stripped surface
+ * can no longer disagree about the same file — the failure mode four
+ * near-duplicate hand-rolled lexers had by construction.
+ */
+export const lexModule: SourceLexer = (
   source: string,
   fileName = 'module.ts',
-): LexedModule => {
+): LexedSource => {
   const sourceFile = parseOrThrow(source, fileName);
+  const spans = collectLiteralSpans(sourceFile);
   return {
     imports: collectImports(sourceFile),
-    maskedSource: blankNonCode(source, collectLiteralSpans(sourceFile)),
+    maskedSource: blankNonCode(source, spans, 'blank'),
+    commentMaskedSource: blankNonCode(source, spans, 'keep'),
   };
 };

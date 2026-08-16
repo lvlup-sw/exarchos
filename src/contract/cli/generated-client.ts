@@ -9,7 +9,7 @@
 // What "generated" buys here — and what the old hand-assembled call sites in
 // `adapters/cli/cli.ts` could not: an action is addressed by its stable contract
 // `ActionId` (`<tool>.<action>`), and the id is verified against
-// `deriveCliSurface(compileForCli())` — the SAME derivation the checked-in
+// `generated/cli-action-ids.ts` — emitted by the SAME derivation the checked-in
 // `generated/cli-surface.json` baseline and its drift guard pin — before any
 // dispatch runs. An action the contract does not compile cannot be addressed:
 // a renamed or removed action fails LOUD at the seam instead of silently
@@ -26,9 +26,13 @@
 // COLD-START DISCIPLINE (DR-5): the contract compiler pulls
 // `zod-to-json-schema` and the full meta-model graph — several MB the CLI's
 // static import graph deliberately excludes (see the lazy-import notes in
-// `adapters/cli/cli.ts`). The surface is therefore compiled LAZILY on the first
-// invocation and memoized for the life of the process; importing this module
-// costs only the `core/dispatch` edge the CLI already paid before DR-25.
+// `adapters/cli/cli.ts`). The addressing set is therefore NOT compiled here at all,
+// lazily or otherwise: it is the static `generated/cli-action-ids.ts` module the
+// bundler inlines at build time. The earlier LAZY COMPILE re-ran the whole
+// meta-model → surface pipeline in every fresh process, which held on linux but
+// pushed the win32 packaged-proof per-action probes over budget (each probe
+// spawns a new binary). Importing this module costs only the `core/dispatch`
+// edge the CLI already paid before DR-25, plus a frozen string array.
 // ────────────────────────────────────────────────────────────────────────────
 
 import { dispatch } from '../../dispatch/core/dispatch.js';

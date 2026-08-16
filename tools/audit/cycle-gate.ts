@@ -15,6 +15,12 @@
  *                             knip's `stale`, which is only a hygiene warning)
  *   (d) tool-missing /      → depcruise absent, or its output is empty/unparseable
  *       unparseable output    (DR-8: cannot verify the surface → fail closed)
+ *   (e) EMPTY GRAPH         → the output parsed, but no first-party module
+ *                             resolved under `srcPrefix`. An empty node set
+ *                             yields an empty cycle list, which is the same
+ *                             value a clean tree yields — so this gate used to
+ *                             print `OK: 0 runtime cycle(s)` and exit 0 for a
+ *                             relocated source root (DR-8, task 079).
  *
  * (a)/(b)/(c) exit 1 (a real cycle-surface finding); the DR-8 "can't verify"
  * causes exit 2, so CI can tell "there is an unacceptable cycle" from "the gate
@@ -35,15 +41,24 @@ import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { edgeRegisterSchema, isEntryExpired, type EdgeRegisterEntry } from './register-entry-schema.js';
 import {
-  detectRuntimeCycles,
+  scanRuntimeCycleGraph,
   unbaselinedCycleEdges,
   phantomBaselineEntries,
   edgeKey,
-  type RuntimeCycle,
-} from '../../tools/conformance/src/import-cycles.js';
+  EmptyCycleGraphError,
+  type RuntimeCycleScan,
+} from '../conformance/src/import-cycles.js';
 
 /** Repo-relative source root the ratchet governs (matches import-cycles default). */
 export const SRC_PREFIX = 'src';
+
+/**
+ * Re-exported so the gate presents ONE error vocabulary to its callers and
+ * tests. `EmptyCycleGraphError` is raised by the detector, but it is a
+ * gate-level fail-closed reason (exit 2), so a consumer should not have to reach
+ * into `architecture/import-cycles.js` to name it.
+ */
+export { EmptyCycleGraphError };
 
 /** Thrown when depcruise output cannot be parsed into a graph (DR-8). */
 export class CycleGraphParseError extends Error {
@@ -61,8 +76,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * Detect the runtime cycles in a depcruise JSON graph, converting any malformed
  * input into a {@link CycleGraphParseError} so the caller can fail closed instead
  * of treating garbage as "acyclic".
+ *
+ * Returns the SCAN, not just the cycles: the gate reports the population it
+ * measured, so an operator reading the OK line can tell "no cycle in 600
+ * modules" from "no cycle in nothing" (DR-8, task 079).
  */
-export function detectCyclesOrThrow(raw: string, srcPrefix = SRC_PREFIX): RuntimeCycle[] {
+export function detectCyclesOrThrow(raw: string, srcPrefix = SRC_PREFIX): RuntimeCycleScan {
   const trimmed = raw.trim();
   if (trimmed === '') {
     throw new CycleGraphParseError('depcruise produced empty output (expected a JSON graph)');
@@ -77,7 +96,7 @@ export function detectCyclesOrThrow(raw: string, srcPrefix = SRC_PREFIX): Runtim
     throw new CycleGraphParseError('depcruise JSON is missing the expected top-level `modules[]` array');
   }
   // import-cycles re-parses the text; safe because we already proved it is valid.
-  return detectRuntimeCycles(trimmed, srcPrefix);
+  return scanRuntimeCycleGraph(trimmed, srcPrefix);
 }
 
 /**
@@ -149,10 +168,22 @@ export function runCycleGate(deps: CycleGateDeps): number {
     return EXIT_GATE_ERROR;
   }
 
-  let cycles: RuntimeCycle[];
+  let scan: RuntimeCycleScan;
   try {
-    cycles = detectCyclesOrThrow(run.stdout, srcPrefix);
+    scan = detectCyclesOrThrow(run.stdout, srcPrefix);
   } catch (err) {
+    // An empty first-party node set gets its OWN reason (DR-8, task 079). It
+    // parsed fine — the prefix simply matched nothing, which used to yield an
+    // empty cycle list and an `OK … 0 runtime cycle(s)` exit 0. Naming it
+    // separately from "unparseable" is what lets an operator tell a moved source
+    // root from garbage on stdout.
+    if (err instanceof EmptyCycleGraphError) {
+      deps.errlog(
+        `[cycle-gate] FAIL (empty-graph): ${err.message} ` +
+          `depcruise exited ${run.code}. Failing closed.`,
+      );
+      return EXIT_GATE_ERROR;
+    }
     const detail = err instanceof CycleGraphParseError ? err.message : (err as Error).message;
     deps.errlog(
       `[cycle-gate] FAIL (unparseable-output): ${detail}. ` +
@@ -161,6 +192,7 @@ export function runCycleGate(deps: CycleGateDeps): number {
     );
     return EXIT_GATE_ERROR;
   }
+  const cycles = scan.cycles;
 
   let baseline: ValidatedCycleBaseline;
   try {
@@ -205,9 +237,14 @@ export function runCycleGate(deps: CycleGateDeps): number {
   }
   if (failed) return EXIT_VIOLATIONS;
 
+  // The OK line reports the POPULATION, not just the finding. "0 cycles" is the
+  // healthy answer and also the answer a scan of nothing gives, so the number
+  // that makes the verdict readable is the denominator.
   deps.log(
-    `[cycle-gate] OK: ${cycles.length} runtime cycle(s) over ${srcPrefix}, all baselined & unexpired ` +
-      `(${baseline.entries.length} entr${baseline.entries.length === 1 ? 'y' : 'ies'} in cycle-baseline.json).`,
+    `[cycle-gate] OK: ${cycles.length} runtime cycle(s) over ${scan.nodeCount} first-party ` +
+      `module(s) / ${scan.edgeCount} runtime edge(s) under ${srcPrefix}, all baselined & ` +
+      `unexpired (${baseline.entries.length} entr${baseline.entries.length === 1 ? 'y' : 'ies'} ` +
+      'in cycle-baseline.json).',
   );
   return EXIT_OK;
 }

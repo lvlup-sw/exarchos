@@ -2,7 +2,7 @@ import { describe, it, expect, afterAll } from 'vitest';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import {
   auditEffectOwnership,
   runEffectLedgerCensus,
@@ -18,6 +18,7 @@ import {
   isScannableFile,
   EFFECT_OWNERSHIP,
   EXCLUDED_DIRS,
+  GOVERNED_SOURCE_ROOT,
   INERT_DEPENDENCIES,
   type EffectLedgerDiagnostic,
   type EffectOccurrence,
@@ -26,12 +27,40 @@ import {
   type ModuleLexer,
 } from '../../../src/architecture/effect-ledger.js';
 import { lexModule } from '../../../tools/test-helpers/module-lexer.js';
+import { adversarialInput } from '../../../tools/test-helpers/adversarial-lexer-inputs.js';
 import {
   supersededExtractImports,
   supersededMaskNonCode,
 } from '../../../tools/test-helpers/superseded-source-lexer.js';
+import { listTrackedFiles, trackedFilesMissedBy } from '../../../tools/test-helpers/tracked-population.js';
 
 const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../src');
+/** The repository root — `src/` is one level down from it. */
+const REPO_ROOT = join(SRC_ROOT, '..');
+
+/**
+ * The SECOND AUTHORITY for this census's denominator.
+ *
+ * `git ls-files` narrowed to the scanner's OWN scope: same {@link EXCLUDED_DIRS},
+ * same {@link isScannableFile}. Mirroring the scope exactly is what makes a
+ * shortfall meaningful — the two sides then describe the same population, so a
+ * disagreement is a broken walk rather than a definitional mismatch.
+ *
+ * This replaces three `> 100` floors over a population of ~600. A floor 6× below
+ * the real count cannot fail for any reason a regression would produce: it stays
+ * green through a relocated root, a widened exclusion, or a walker that stops
+ * recursing partway. Containment against a derived list fails on all three, and
+ * names the modules that went missing.
+ */
+function trackedScannableModules(): string[] {
+  return listTrackedFiles(SRC_ROOT, {
+    exclude: (path) => {
+      const segments = path.split('/');
+      const name = segments[segments.length - 1] ?? '';
+      return segments.slice(0, -1).some((dir) => EXCLUDED_DIRS.has(dir)) || !isScannableFile(name);
+    },
+  });
+}
 
 /**
  * Wrap a bare occurrence list in a scan whose denominators are HEALTHY, so a
@@ -719,7 +748,16 @@ describe('DR-13 live tree — the widened census is green and load-bearing', () 
       }
     };
     await walk(SRC_ROOT);
-    expect(files.length).toBeGreaterThan(100);
+    // DERIVED denominator (task 079): every module git tracks within the
+    // scanner's scope must have been reached, named individually on shortfall.
+    expect(
+      trackedFilesMissedBy(
+        files.map((file) => relative(SRC_ROOT, file).replaceAll('\\', '/')),
+        trackedScannableModules(),
+      ),
+      'the bare-import sweep did not reach every tracked module in its scope — ' +
+        'the unvetted-dependency finding below ranges over an incomplete tree',
+    ).toEqual([]);
 
     const unvetted = new Set<string>();
     for (const file of files) {
@@ -760,62 +798,49 @@ const SUPERSEDED_LEXER: ModuleLexer = (source: string) => ({
 });
 
 /**
- * The adversarial set DR-26 names for this defect class, as DATA.
+ * THIS CENSUS'S expectations over the shared adversarial inputs.
+ *
+ * The input sources moved to `test-helpers/adversarial-lexer-inputs.ts` when
+ * task 072 gave the port three more consumers: DR-2 says *"no fourth adversarial
+ * table — reuse the existing one"*, so there is now one table of inputs and each
+ * site keeps only its own two answer columns. Those cannot be shared — what the
+ * heuristic answered is a fact about THIS site's retired walk, and the three
+ * other retired walks answer differently.
  *
  * `parse` and `heuristic` are both asserted for every row, so a reader sees the
  * gap rather than taking it on faith, and so a row that stops disagreeing
  * (someone "fixing" the retired walk) fails loudly instead of quietly making the
  * kill fixture vacuous.
  */
-const ADVERSARIAL_SET: readonly {
+interface AdversarialExpectation {
   readonly name: string;
-  readonly source: string;
   readonly parse: readonly string[];
   readonly heuristic: readonly string[];
-}[] = Object.freeze([
+}
+
+const ADVERSARIAL_EXPECTATIONS: readonly AdversarialExpectation[] = Object.freeze([
   {
     name: 'a `//` comment opener inside a string literal',
-    source: [
-      "export const doc = 'note: // import x from \\'node:child_process\\'';",
-      "import { readFile } from 'node:fs';",
-      'export const read = readFile;',
-    ].join('\n'),
     parse: ['node:fs'],
     heuristic: ['node:fs'],
   },
   {
     name: 'an unbalanced `/* */` pair split across two template literals',
-    source: [
-      'export const head = `a /* b`;',
-      "export const tail = `c */ import x from 'node:child_process'`;",
-      "import { readFile } from 'node:fs';",
-      'export const read = readFile;',
-    ].join('\n'),
     parse: ['node:fs'],
     heuristic: ['node:fs'],
   },
   {
     name: "a regex literal containing a ' quote, in operand position",
-    source: [
-      "export const RE = /['\"]/;",
-      "import { readFile } from 'node:fs';",
-      'export const read = readFile;',
-    ].join('\n'),
     parse: ['node:fs'],
     heuristic: ['node:fs'],
   },
   {
-    // KILL — the dangerous direction. `return` makes the heuristic score the `/`
-    // as division, so the BACKTICK inside the regex opens a phantom template
+    // KILL — the dangerous direction. `return` makes the heuristic score the
+    // `/` as division, so the BACKTICK inside the regex opens a phantom template
     // literal. Unlike `'`/`"` a template is not line-bounded, so it runs to EOF
     // and swallows the real `node:fs` import below it. A module that performs
     // filesystem I/O scans as effect-free.
     name: 'a regex literal containing a BACKTICK, in operand position',
-    source: [
-      'export function isTick(s: string): boolean { return /`/.test(s); }',
-      "import { readFile } from 'node:fs';",
-      'export const read = readFile;',
-    ].join('\n'),
     parse: ['node:fs'],
     heuristic: [],
   },
@@ -825,12 +850,19 @@ const ADVERSARIAL_SET: readonly {
     // code and its template text is scanned for imports. The module imports
     // nothing at all; the census invents a `node:child_process` occurrence.
     name: 'a nested template literal inside a `${…}` substitution',
-    source:
-      'export const doc = `outer ${ `inner from \'node:child_process\' text` } end`;',
     parse: [],
     heuristic: ['node:child_process'],
   },
 ]);
+
+const ADVERSARIAL_SET: readonly {
+  readonly name: string;
+  readonly source: string;
+  readonly parse: readonly string[];
+  readonly heuristic: readonly string[];
+}[] = Object.freeze(
+  ADVERSARIAL_EXPECTATIONS.map((row) => ({ ...row, source: adversarialInput(row.name) })),
+);
 
 describe('DR-26 kill fixture — where the heuristic and a real parse disagree', () => {
   it('EffectLedger_AdversarialSet_ParseAndHeuristicAnswersAreBothPinned', () => {
@@ -964,8 +996,17 @@ describe('DR-26 kill fixture — where the heuristic and a real parse disagree',
       }
     };
     await walk(SRC_ROOT);
-    // NON-EMPTY DENOMINATOR: a walk that resolved nothing would pass vacuously.
-    expect(files.length).toBeGreaterThan(100);
+    // NON-EMPTY DENOMINATOR, DERIVED (task 079): a walk that resolved nothing —
+    // or merely resolved LESS than the tree holds — would pass vacuously over
+    // whatever it happened to miss.
+    expect(
+      trackedFilesMissedBy(
+        files.map((file) => relative(SRC_ROOT, file).replaceAll('\\', '/')),
+        trackedScannableModules(),
+      ),
+      'the superseded-lexer sweep did not reach every tracked module in its ' +
+        'scope — a shipped import of the retired walk could sit in the gap',
+    ).toEqual([]);
 
     const offenders: string[] = [];
     for (const file of files) {
@@ -1022,7 +1063,10 @@ describe('DR-26 non-empty denominator — a scan that resolved nothing FAILS', (
     // that answers nothing.
     const mute: ModuleLexer = () => ({ imports: [], maskedSource: '' });
     const result = await auditEffectOwnership(SRC_ROOT, mute);
-    expect(result.moduleCount).toBeGreaterThan(100);
+    // The MODULE population must be healthy for this arm to say anything: the
+    // claim is "the lexer answered nothing over a full tree", not "the walk also
+    // collapsed". Pinned to the tracked count rather than a `> 100` floor.
+    expect(result.moduleCount).toBeGreaterThanOrEqual(trackedScannableModules().length);
     expect(result.specifierCount).toBe(0);
     expect(result.ok).toBe(false);
     expect(result.diagnostics.map((d) => d.code)).toContain('EMPTY_SPECIFIER_DENOMINATOR');
@@ -1030,10 +1074,54 @@ describe('DR-26 non-empty denominator — a scan that resolved nothing FAILS', (
 
   it('EffectLedger_LiveTree_ResolvesANonEmptyModuleAndSpecifierPopulation', async () => {
     // The positive half: the teeth above are only meaningful if the real scan
-    // clears them by a wide margin.
+    // covers the tree. "By a wide margin" was the old wording and the old defect
+    // — `> 100` against ~600 modules is not a margin, it is a blind spot with a
+    // number written on it. The pin is now TWO-SIDED against the tracked count
+    // (task 079), because both directions are real failures:
+    //
+    //   • fewer than tracked  → the walk lost part of the tree, and every
+    //     ownership verdict above ranged over the remainder;
+    //   • far more than tracked → an exclusion stopped working, so the census is
+    //     judging `__tests__`/`evals` harness code by shipped-source rules.
+    const tracked = trackedScannableModules();
     const scan = await scanEffectTree(SRC_ROOT, lexModule);
-    expect(scan.moduleCount).toBeGreaterThan(100);
+    expect(scan.moduleCount).toBeGreaterThanOrEqual(tracked.length);
+    expect(
+      scan.moduleCount,
+      'the scan reached substantially more modules than the tree tracks in its ' +
+        'scope — an exclusion (EXCLUDED_DIRS / isScannableFile) stopped working',
+    ).toBeLessThanOrEqual(Math.ceil(tracked.length * 1.1));
     expect(scan.specifierCount).toBeGreaterThan(1000);
     expect(scan.occurrences.length).toBeGreaterThan(0);
+  });
+
+  it('EffectLedger_DeclaredGovernedRoot_IsTheRootTheLiveAuditWalks', () => {
+    // DR-8, task 079 — a guard's scan root is part of its claim, so the claim has
+    // to be checkable. The header used to say "the shipped source" while every
+    // live caller passed `servers/exarchos-mcp/src`: prose asserting a
+    // repository-wide property over one subtree, with nothing to catch the drift.
+    //
+    // `GOVERNED_SOURCE_ROOT` is now the single authority, and this resolves it
+    // against the repo root to show it names the tree the audit is pointed at.
+    expect(resolve(REPO_ROOT, GOVERNED_SOURCE_ROOT)).toBe(resolve(SRC_ROOT));
+
+    // …and it names a real, populated tree, not a path that resolves to nothing.
+    expect(trackedScannableModules().length).toBeGreaterThan(0);
+  });
+
+  it('EffectLedgerPopulationPin_NarrowedScanRoot_FailsInsteadOfPassing', async () => {
+    // KILL FIXTURE (task 079). `src/orchestrate` alone holds 159 scannable
+    // modules — comfortably over the retired `> 100` floor — so a census
+    // narrowed to it read as a full-tree scan while every "no unowned effect"
+    // verdict above was in fact measured over a quarter of the tree.
+    const narrowed = await scanEffectTree(join(SRC_ROOT, 'orchestrate'), lexModule);
+    expect(
+      narrowed.moduleCount,
+      'the narrowed root must clear the RETIRED floor, or this fixture proves ' +
+        'nothing about what that floor let through',
+    ).toBeGreaterThan(100);
+
+    // The derived pin rejects it.
+    expect(narrowed.moduleCount).toBeLessThan(trackedScannableModules().length);
   });
 });

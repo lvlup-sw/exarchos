@@ -246,8 +246,11 @@ export {
   isPathShaped,
   isTestArtifact,
   hasDirectRunExit,
+  classifyEntrypointPredicate,
   SELF_TEST_MIRRORS,
   selfTestCandidates,
+  type FilenameCoupledEntrypoint,
+  type EntrypointPredicate,
 } from './guard-inventory/artifact-predicates.js';
 
 export {

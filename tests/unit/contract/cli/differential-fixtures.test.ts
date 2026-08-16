@@ -31,8 +31,8 @@ import { buildCli, resolveExitCode } from '../../../../src/adapters/cli/cli.js';
 import { dispatch } from '../../../../src/dispatch/core/dispatch.js';
 import { toEnvelope } from '../../../../src/format.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
-import { DIFFERENTIAL_CASES, contractExitForResult } from '../../../../src/contract/cli/differential-fixtures.js';
-import { FAILURE_LAYERS } from '../../../../src/contract/error-families.js';
+import { DIFFERENTIAL_CASES } from '../../../../src/contract/cli/differential-fixtures.js';
+import { FAILURE_LAYERS, CONTRACT_EXIT_CODES } from '../../../../src/contract/error-families.js';
 
 function createContext(): DispatchContext {
   return {
@@ -47,11 +47,42 @@ function createContext(): DispatchContext {
 describe('CLI ⇄ MCP differential (exit-code agreement)', () => {
   it('CliResolveExitCode_EqualsContractExit_ForEveryCase', () => {
     for (const differential of DIFFERENTIAL_CASES) {
-      // The CLI adapter (resolveExitCode) and the contract authority
-      // (contractExitForResult) resolve the same result to the same code.
+      // `resolveExitCode` DELEGATES to the contract authority, so comparing the
+      // two names would be a tautology (it was one, and it is gone). What is
+      // measured here is the authority's verdict against the fixture's own
+      // hand-written expectation.
       expect(resolveExitCode(differential.result)).toBe(differential.expectedExit);
-      expect(contractExitForResult(differential.result)).toBe(differential.expectedExit);
-      expect(resolveExitCode(differential.result)).toBe(contractExitForResult(differential.result));
+    }
+  });
+
+  it('ResolveExitCode_FailureResultWithoutError_DoesNotExitZero', () => {
+    // `ToolResult` is not a discriminated union: `success:false` with no `error`
+    // is type-legal for every handler, and the MCP wire renders it `isError`.
+    // A silent 0 here is the CLI disagreeing with the wire about one value.
+    const errorless: ToolResult = { success: false };
+
+    expect(resolveExitCode(errorless)).not.toBe(CONTRACT_EXIT_CODES.SUCCESS);
+    expect(resolveExitCode(errorless)).toBe(CONTRACT_EXIT_CODES.HANDLER_ERROR);
+
+    // The floor is a property of the failure branch, not a special case for the
+    // absent code: an unregistered code takes the same floor.
+    const unregistered: ToolResult = {
+      success: false,
+      error: { code: 'NOT_IN_THE_REGISTRY', message: 'novel code' },
+    };
+    expect(resolveExitCode(unregistered)).toBe(CONTRACT_EXIT_CODES.HANDLER_ERROR);
+
+    // …and success is still 0, so the floor did not simply redden everything.
+    expect(resolveExitCode({ success: true, data: {} })).toBe(CONTRACT_EXIT_CODES.SUCCESS);
+  });
+
+  it('DifferentialCases_CoverTheErrorlessFailure', () => {
+    // Guards the table itself: the differential proof was blind to this shape,
+    // so its absence is what let the defect survive a green suite.
+    const errorless = DIFFERENTIAL_CASES.filter((c) => !c.result.success && c.result.error === undefined);
+    expect(errorless.length).toBeGreaterThan(0);
+    for (const c of errorless) {
+      expect(c.expectedExit).not.toBe(CONTRACT_EXIT_CODES.SUCCESS);
     }
   });
 
@@ -102,9 +133,10 @@ describe('CLI ⇄ MCP differential (end-to-end through buildCli)', () => {
       const cliEmitted: unknown = JSON.parse(stdoutText.trim());
       expect(cliEmitted).toEqual(mcpStructuredContent);
 
-      // 2. The stable process exit code agrees with the contract authority.
+      // 2. The exit code the REAL CLI path set agrees with the fixture's
+      //    hand-written expectation. This is the measurement — comparing it
+      //    against a second call to the same authority would not be.
       expect(process.exitCode).toBe(differential.expectedExit);
-      expect(process.exitCode).toBe(contractExitForResult(differential.result));
     });
   }
 

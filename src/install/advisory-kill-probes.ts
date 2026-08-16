@@ -32,7 +32,7 @@ import { spawnCommandSync } from '../utils/process.js';
 // ─── Options ─────────────────────────────────────────────────────────────────
 
 export interface RunKillProbeOptions {
-  /** Absolute repo root (the directory containing `scripts/`). */
+  /** Absolute repo root (the directory containing `tools/audit/`). */
   readonly repoRoot: string;
   /** Override `bash` availability (tests). Auto-detected when omitted. */
   readonly hasBash?: boolean;
@@ -42,9 +42,22 @@ export interface RunKillProbeOptions {
 
 // ─── Tool detection ──────────────────────────────────────────────────────────
 
-function toolAvailable(cmd: string, versionArg: string): boolean {
+/**
+ * Whether an external tool answers on PATH.
+ *
+ * The bin is a LITERAL at each spawn rather than a parameter. A resolved command
+ * variable can land on a `.cmd`/`.ps1` shim that raw `spawnSync` cannot launch
+ * on Windows (CVE-2024-27980), which is why the portability gate refuses a
+ * variable bin in shipped `src/` at all — and this module compiles into `dist/`
+ * like the rest of it. `bash` and `jq` are real executables wherever this probe
+ * runs, so naming them directly is both correct and legible to the gate.
+ */
+function toolAvailable(tool: 'bash' | 'jq'): boolean {
   try {
-    const r = spawnCommandSync(cmd, [versionArg], { encoding: 'utf8', windowsHide: true });
+    const r =
+      tool === 'bash'
+        ? spawnCommandSync('bash', ['--version'], { encoding: 'utf8', windowsHide: true })
+        : spawnCommandSync('jq', ['--version'], { encoding: 'utf8', windowsHide: true });
     return !r.error && (r.status === 0 || typeof r.status === 'number');
   } catch {
     return false;
@@ -210,8 +223,8 @@ function probeBenchmarkRegression(
   const cleanMetrics = { latency: { p95Ms: 105 } };
   const threshold = 10;
 
-  const hasBash = opts.hasBash ?? toolAvailable('bash', '--version');
-  const hasJq = opts.hasJq ?? toolAvailable('jq', '--version');
+  const hasBash = opts.hasBash ?? toolAvailable('bash');
+  const hasJq = opts.hasJq ?? toolAvailable('jq');
 
   if (hasBash && hasJq) {
     const dir = mkdtempSync(join(tmpdir(), 'advisory-bench-'));

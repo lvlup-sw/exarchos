@@ -157,7 +157,7 @@ describe('handleBatchAppend misplaced fields', () => {
       {
         stream: 'batch-misplaced',
         events: [
-          { type: 'task.assigned', data: { taskId: 't1' } },
+          { type: 'task.assigned', data: { taskId: 't1', title: 'Task t1' } },
           { type: 'gate.executed', gateName: 'lint', layer: 'D2', passed: true },
         ],
       },
@@ -279,9 +279,9 @@ describe('handleBatchAppend', () => {
       {
         stream: 'my-workflow',
         events: [
-          { type: 'task.assigned', data: { taskId: 't1' } },
-          { type: 'task.assigned', data: { taskId: 't2' } },
-          { type: 'task.assigned', data: { taskId: 't3' } },
+          { type: 'task.assigned', data: { taskId: 't1', title: 'Task t1' } },
+          { type: 'task.assigned', data: { taskId: 't2', title: 'Task t2' } },
+          { type: 'task.assigned', data: { taskId: 't3', title: 'Task t3' } },
         ],
       },
       tempDir,
@@ -322,8 +322,8 @@ describe('handleBatchAppend', () => {
       {
         stream: 'my-workflow',
         events: [
-          { type: 'task.assigned', data: { taskId: 't1' }, idempotencyKey: 'key-dup' },
-          { type: 'task.assigned', data: { taskId: 't2' }, idempotencyKey: 'key-dup' },
+          { type: 'task.assigned', data: { taskId: 't1', title: 'Task t1' }, idempotencyKey: 'key-dup' },
+          { type: 'task.assigned', data: { taskId: 't2', title: 'Task t2' }, idempotencyKey: 'key-dup' },
         ],
       },
       tempDir,
@@ -351,9 +351,9 @@ describe('handleBatchAppend', () => {
       {
         stream: 'my-workflow',
         events: [
-          { type: 'task.assigned', data: { taskId: 't1' } },
+          { type: 'task.assigned', data: { taskId: 't1', title: 'Task t1' } },
           { type: 'INVALID_TYPE_DOES_NOT_EXIST' as string, data: {} },
-          { type: 'task.assigned', data: { taskId: 't3' } },
+          { type: 'task.assigned', data: { taskId: 't3', title: 'Task t3' } },
         ],
       },
       tempDir,
@@ -386,9 +386,9 @@ describe('handleBatchAppend', () => {
       {
         stream: 'my-workflow',
         events: [
-          { type: 'task.assigned', data: { taskId: 't1' }, idempotencyKey: 'shared-batch' },
-          { type: 'task.assigned', data: { taskId: 't2' }, idempotencyKey: 'shared-batch' },
-          { type: 'task.assigned', data: { taskId: 't3' }, idempotencyKey: 'shared-batch' },
+          { type: 'task.assigned', data: { taskId: 't1', title: 'Task t1' }, idempotencyKey: 'shared-batch' },
+          { type: 'task.assigned', data: { taskId: 't2', title: 'Task t2' }, idempotencyKey: 'shared-batch' },
+          { type: 'task.assigned', data: { taskId: 't3', title: 'Task t3' }, idempotencyKey: 'shared-batch' },
         ],
       },
       tempDir,
@@ -405,7 +405,7 @@ describe('handleBatchAppend', () => {
       {
         stream: 'my-workflow',
         events: [
-          { type: 'task.assigned', data: { taskId: 't1' }, idempotencyKey: 'shared-batch' },
+          { type: 'task.assigned', data: { taskId: 't1', title: 'Task t1' }, idempotencyKey: 'shared-batch' },
         ],
       },
       tempDir,
@@ -424,9 +424,9 @@ describe('handleBatchAppend', () => {
       {
         stream: 'my-workflow',
         events: [
-          { type: 'task.assigned', data: { taskId: 'a1' } },
-          { type: 'task.assigned', data: { taskId: 'a2' } },
-          { type: 'task.assigned', data: { taskId: 'a3' } },
+          { type: 'task.assigned', data: { taskId: 'a1', title: 'Task a1' } },
+          { type: 'task.assigned', data: { taskId: 'a2', title: 'Task a2' } },
+          { type: 'task.assigned', data: { taskId: 'a3', title: 'Task a3' } },
         ],
       },
       tempDir,
@@ -505,8 +505,8 @@ describe('handleBatchAppend', () => {
         {
           stream: 'failure-test',
           events: [
-            { type: 'task.assigned', data: { taskId: 't1' } },
-            { type: 'task.assigned', data: { taskId: 't2' } },
+            { type: 'task.assigned', data: { taskId: 't1', title: 'Task t1' } },
+            { type: 'task.assigned', data: { taskId: 't2', title: 'Task t2' } },
           ],
         },
         tempDir,
@@ -539,8 +539,8 @@ describe('handleBatchAppend', () => {
         {
           stream: 'concurrent-test',
           events: [
-            { type: 'task.assigned', data: { taskId: `b${i}-1` } },
-            { type: 'task.assigned', data: { taskId: `b${i}-2` } },
+            { type: 'task.assigned', data: { taskId: `b${i}-1`, title: `Task b${i}-1` } },
+            { type: 'task.assigned', data: { taskId: `b${i}-2`, title: `Task b${i}-2` } },
           ],
         },
         tempDir,
@@ -584,8 +584,8 @@ describe('handleBatchAppend', () => {
     // batch a second time gets a DIFFERENT synthesized key, so cross-batch
     // dedup is intentionally not preserved — both batches land in the stream.
     const batchEvents = [
-      { type: 'task.assigned', data: { taskId: 't1' }, idempotencyKey: 'mixed-k1' },
-      { type: 'task.assigned', data: { taskId: 't2' }, idempotencyKey: 'mixed-k2' },
+      { type: 'task.assigned', data: { taskId: 't1', title: 'Task t1' }, idempotencyKey: 'mixed-k1' },
+      { type: 'task.assigned', data: { taskId: 't2', title: 'Task t2' }, idempotencyKey: 'mixed-k2' },
     ];
 
     const first = await handleBatchAppend(
@@ -639,7 +639,7 @@ describe('handleBatchAppend', () => {
       { operationId: 'op-xyz', correlationId: 'cor-xyz' },
       () =>
         store.batchAppend('s1', [
-          { type: 'task.assigned', idempotencyKey: 'k1', data: { taskId: 't1' } },
+          { type: 'task.assigned', idempotencyKey: 'k1', data: { taskId: 't1', title: 'Task t1' } },
         ]),
     );
     expect(first[0].operationId).toBe('op-xyz');
@@ -649,7 +649,7 @@ describe('handleBatchAppend', () => {
     // return the ORIGINAL operationId (`op-xyz`), not undefined or any
     // value derived from the second caller's (absent) context.
     const replay = await store.batchAppend('s1', [
-      { type: 'task.assigned', idempotencyKey: 'k1', data: { taskId: 't1' } },
+      { type: 'task.assigned', idempotencyKey: 'k1', data: { taskId: 't1', title: 'Task t1' } },
     ]);
     expect(replay[0].operationId).toBe('op-xyz');
   });
@@ -731,8 +731,8 @@ describe('tenant field passthrough', () => {
       {
         stream: 'tenant-batch',
         events: [
-          { type: 'task.assigned', tenantId: 'tenant-1', organizationId: 'org-1', data: { taskId: 't1' } },
-          { type: 'task.assigned', tenantId: 'tenant-1', data: { taskId: 't2' } },
+          { type: 'task.assigned', tenantId: 'tenant-1', organizationId: 'org-1', data: { taskId: 't1', title: 'Task t1' } },
+          { type: 'task.assigned', tenantId: 'tenant-1', data: { taskId: 't2', title: 'Task t2' } },
         ],
       },
       tempDir,
@@ -769,7 +769,7 @@ describe('handleEventQuery DR-5 default limit + page metadata', () => {
   async function seed(stream: string, count: number): Promise<void> {
     const events = Array.from({ length: count }, (_, i) => ({
       type: 'task.assigned' as const,
-      data: { taskId: `t${i + 1}` },
+      data: { taskId: `t${i + 1}`, title: `Task t${i + 1}` },
     }));
     const result = await handleBatchAppend({ stream, events }, tempDir, eventStore);
     expect(result.success).toBe(true);

@@ -21,8 +21,8 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { runCommandSync } from '../utils/process.js';
 import { buildAllSkills } from './build-skills.js';
 import { emitCommandAliases } from './build-command-aliases.js';
 import { emitAuthoredArtifacts } from './build-authored-artifacts.js';
@@ -102,21 +102,42 @@ const REMEDIATION_AUTHORED =
   "under content/<domain>/. Run 'npm run build:skills' and commit the result.";
 
 /**
- * Default production regenerator. Spawns `tsx` against
- * `src/runtime/agents/generate-agents.ts` with `cwd` as
- * the output root — mirroring how `npm run generate:agents` invokes
- * the same entry point. We resolve the script path relative to `cwd`
- * because the only callers in production hand us the repo root.
+ * Locate the `tsx` CLI's own JS entry point under `cwd`.
  *
- * Throws on subprocess failure; the surrounding guard wraps the
- * exception into a structured `SkillsGuardResult`.
+ * Preferred over spawning `npx`/`tsx` by name, and the reason is a real Windows
+ * failure rather than taste: `npx` is a `.cmd` shim and `node_modules/.bin/tsx`
+ * is an extensionless POSIX shebang script, and `execFile` launches neither
+ * without a shell since CVE-2024-27980. Running the `.mjs` under `process
+ * .execPath` sidesteps shim resolution entirely and behaves identically on every
+ * platform — the same resolution `tools/audit/gates/check-prose-lint.mjs` uses.
+ */
+function resolveTsxCli(cwd: string): string | undefined {
+  const candidate = join(cwd, 'node_modules', 'tsx', 'dist', 'cli.mjs');
+  return existsSync(candidate) ? candidate : undefined;
+}
+
+/**
+ * Default production regenerator. Runs
+ * `src/runtime/agents/generate-agents.ts` under `tsx` with `cwd` as
+ * the output root — mirroring how `npm run generate:agents` invokes the same
+ * entry point. We resolve the script path relative to `cwd` because the only
+ * callers in production hand us the repo root.
+ *
+ * Throws on subprocess failure — and on an unresolvable `tsx`, rather than
+ * falling back to a bare `npx`, because that fallback is the Windows break this
+ * resolution exists to avoid. The surrounding guard wraps the exception into a
+ * structured `SkillsGuardResult`.
  */
 function defaultRegenerateAgents(cwd: string): void {
   const scriptPath = join(cwd, 'src', 'runtime', 'agents', 'generate-agents.ts');
-  // `runCommandSync`, not `execFileSync`: `npx` is a .cmd shim on Windows and
-  // execFile cannot launch one (#1623). This module only came under the lint
-  // that enforces it when task 019 folded the installer into the linted tree.
-  runCommandSync('npx', ['tsx', scriptPath, cwd], {
+  const tsxCli = resolveTsxCli(cwd);
+  if (tsxCli === undefined) {
+    throw new Error(
+      `skills-guard: could not find the tsx CLI under ${cwd}. ` +
+        "Run 'npm install' so 'node_modules/tsx/dist/cli.mjs' is present.",
+    );
+  }
+  execFileSync(process.execPath, [tsxCli, scriptPath, cwd], {
     cwd,
     stdio: ['ignore', 'pipe', 'pipe'],
   });

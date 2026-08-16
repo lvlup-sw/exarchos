@@ -29,6 +29,35 @@ const CORE_BENCHES = [
   'tools/evals/bench/**/*.bench.ts',
 ];
 
+// Windows headroom on every tier budget (#1699).
+//
+// The budgets below are calibrated on Linux, where spawning is cheap: all ten
+// tests in `src/skills-guard.test.ts` finish in 423ms TOTAL. On the 2-core
+// Windows runner two of those same tests take 5290ms and 10045ms EACH, because
+// `git` spawn there costs one to two orders of magnitude more. A budget that is
+// generous on Linux is therefore marginal on Windows, and marginal budgets fail
+// by lottery rather than by fault: #1699 records a different victim set on
+// every run — `preflight`, `compiler`, `sandbox`, `generate-legacy-skill-hashes`,
+// `skills-guard` — always a timeout, never an assertion.
+//
+// Scaling the TIER rather than patching each victim is the point. The eligible
+// population is "every test that spawns a child process", it grows with the
+// suite, and the per-file fix has already been applied twice (`sandbox.test.ts`,
+// then the #1805 case) without retiring the class. Deleting or `skipIf(win32)`-ing
+// the victims is worse than either: a test skipped on the platform that can see
+// the bug is a gate that guards nothing (#1694).
+//
+// Linux keeps the tight budgets unscaled, so a genuine hang still fails fast on
+// the platform that runs most of the checks.
+//
+// Exported so `test/setup/vitest-config.test.ts` reads the factor rather than
+// transcribing it — a second copy of this number is exactly the drifting-literal
+// class the surrounding epic exists to remove. The nested `servers/exarchos-mcp`
+// workspace is deliberately NOT scaled by it: that 60s was already chosen FOR
+// Windows (#1620), so scaling it again would double-count the same headroom.
+export const WIN32_SPAWN_HEADROOM = process.platform === 'win32' ? 6 : 1;
+const tierTimeout = (linuxBudgetMs: number): number => linuxBudgetMs * WIN32_SPAWN_HEADROOM;
+
 export default defineConfig({
   test: {
     globals: false,
@@ -80,7 +109,12 @@ export default defineConfig({
           // uniform across the tiers — unit (fast, in-memory) 5s < process
           // (spawns real processes) 15s < outcome (real OS/git/CLI state) 30s
           // < core (Windows headroom on a real filesystem + SQLite) 60s.
-          testTimeout: 5000,
+          //
+          // The stated tier costs are LINUX costs; `tierTimeout` scales them on
+          // win32 (see WIN32_SPAWN_HEADROOM above). Note that "fast, in-memory"
+          // describes the tier's intent, not every member: shell-out tests in
+          // this tier are why the Windows timeouts land here.
+          testTimeout: tierTimeout(5000),
           include: [
             'tests/scripts/**/*.test.ts',
             // Black-box tests for top-level git-hook samples (e.g. the opt-in
@@ -215,7 +249,7 @@ export default defineConfig({
           // so the move lands in a collected tree.
           include: ['tests/process/**/*.test.ts'],
           exclude: EXCLUDE,
-          testTimeout: 15000,
+          testTimeout: tierTimeout(15000),
           setupFiles: ['./tests/helpers/global.ts'],
         },
       },
@@ -240,7 +274,7 @@ export default defineConfig({
           name: 'outcome',
           include: ['tests/outcome/**/*.test.ts'],
           exclude: EXCLUDE,
-          testTimeout: 30000,
+          testTimeout: tierTimeout(30000),
           // `singleFork`, not `fileParallelism: false`. Vitest lists
           // `fileParallelism` (with `coverage` and `passWithNoTests`) among the
           // options it reads ONLY at the root, so on a project entry it was
@@ -253,10 +287,10 @@ export default defineConfig({
       },
       {
         test: {
-          // End-to-end install acceptance (task 028). Separate from every tier
-          // above because it materializes HEAD into a scratch dir and runs the
-          // real installer over it — seconds of wall-time, and none of it
-          // shares the working tree.
+          // End-to-end install acceptance. Separate from every tier above
+          // because it materializes HEAD into a scratch dir and runs the real
+          // installer over it — seconds of wall-time, and none of it shares
+          // the working tree.
           //
           // `passWithNoTests` is deliberately ABSENT: this project exists to
           // prove the published contract still installs, and a glob that
@@ -265,7 +299,7 @@ export default defineConfig({
           name: 'acceptance',
           include: ['tests/acceptance/**/*.test.ts'],
           exclude: EXCLUDE,
-          testTimeout: 120000,
+          testTimeout: tierTimeout(120000),
           // The install writes into a scratch HOME and the archive step shells
           // out to git; serializing keeps those off each other's back. Same
           // correction as the `outcome` tier above — `fileParallelism` is a
@@ -274,19 +308,14 @@ export default defineConfig({
         },
       },
       {
-        // The extracted conformance suite (task 018a). Its own project rather
-        // than an `unit` include, because it reads and parses the subject tree
-        // and is an order of magnitude slower per file than a unit test.
+        // The extracted conformance suite. Its own project rather than an
+        // `unit` include, because it reads and parses the subject tree and is
+        // an order of magnitude slower per file than a unit test.
         //
         // `passWithNoTests` is deliberately ABSENT. This suite is the repo's
         // enforcement layer, so a glob that matches nothing must fail: a
         // conformance project that collects zero files is exactly the
-        // silent-green outcome the suite exists to prevent, and this package
-        // has just moved.
-        // The parity fixtures task 019 routed into this package reach the
-        // SQLite backend, which imports `bun:sqlite` — a virtual module that
-        // resolves only under Bun. The alias travelled with neither move, so
-        // those files failed to LOAD rather than failing an assertion.
+        // silent-green outcome the suite exists to prevent.
         resolve: {
           alias: {
             'bun:sqlite': fileURLToPath(
@@ -298,7 +327,7 @@ export default defineConfig({
           name: 'conformance',
           include: ['tools/conformance/src/**/*.test.ts'],
           exclude: EXCLUDE,
-          testTimeout: 30000,
+          testTimeout: tierTimeout(30000),
         },
       },
     ],

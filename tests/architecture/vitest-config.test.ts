@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import vitestConfig from '../../vitest.config.js';
+import vitestConfig, { WIN32_SPAWN_HEADROOM } from '../../vitest.config.js';
 
 const PACKAGE_JSON = join(dirname(fileURLToPath(import.meta.url)), '../../package.json');
 
@@ -66,9 +66,25 @@ describe('vitest.config', () => {
       ).toBe('number');
     }
     const byName = timeoutsByName();
-    expect(byName.get('unit')?.testTimeout).toBe(5000);
-    expect(byName.get('process')?.testTimeout).toBe(15000);
-    expect(byName.get('outcome')?.testTimeout).toBe(30000);
+    expect(byName.get('unit')?.testTimeout).toBe(5000 * WIN32_SPAWN_HEADROOM);
+    expect(byName.get('process')?.testTimeout).toBe(15000 * WIN32_SPAWN_HEADROOM);
+    expect(byName.get('outcome')?.testTimeout).toBe(30000 * WIN32_SPAWN_HEADROOM);
+  });
+
+  it('VitestConfig_Win32_ScalesTheRootTiersForSpawnCost', () => {
+    // The root tiers are calibrated on Linux. Without headroom the Windows
+    // lane fails by lottery — a different victim every run, always a timeout,
+    // never an assertion. This pins the headroom so it cannot be quietly
+    // reverted to a bare 5000 and reopen the class.
+    if (process.platform === 'win32') {
+      expect(WIN32_SPAWN_HEADROOM).toBeGreaterThan(1);
+      // 3x slack over the worst observed victim (~10s) at the unit tier.
+      expect(5000 * WIN32_SPAWN_HEADROOM).toBeGreaterThanOrEqual(30000);
+    } else {
+      // Elsewhere the tight budgets stand, so a genuine hang still fails fast
+      // on the platform that runs most of the checks.
+      expect(WIN32_SPAWN_HEADROOM).toBe(1);
+    }
   });
 
   // WFQ-015 (P07-07): the Windows-headroom tier states its policy explicitly
@@ -98,10 +114,14 @@ describe('vitest.config', () => {
   // No tier silently inherits the implicit default.
   it('VitestConfig_TieredTimeoutPolicy_IsCoherent', () => {
     const byName = timeoutsByName();
+    // Stated in LINUX terms — the declared policy. On win32 the three ROOT
+    // rungs scale uniformly by WIN32_SPAWN_HEADROOM (so their ordering is
+    // preserved), while the core rung is left alone because its 60s already
+    // IS the Windows allowance.
     const ladder = [
-      byName.get('unit')?.testTimeout,
-      byName.get('process')?.testTimeout,
-      byName.get('outcome')?.testTimeout,
+      (byName.get('unit')?.testTimeout as number) / WIN32_SPAWN_HEADROOM,
+      (byName.get('process')?.testTimeout as number) / WIN32_SPAWN_HEADROOM,
+      (byName.get('outcome')?.testTimeout as number) / WIN32_SPAWN_HEADROOM,
       byName.get('core')?.testTimeout,
     ];
     for (const rung of ladder) {

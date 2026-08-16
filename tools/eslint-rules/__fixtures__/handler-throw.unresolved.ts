@@ -1,11 +1,12 @@
-// Fixture: an ACTION_HANDLERS entry whose value shape is GENUINELY
-// unresolvable by any of the rule's known shapes — proves the
-// `unresolvedHandler` fail-loud path (#1706 review M1) reports a rule error
-// on the entry instead of silently dropping a registered handler from the
-// census.
+// Fixture: registrations whose handler shape is GENUINELY unresolvable by any
+// of the rule's known shapes — proves the `unresolvedHandler` fail-loud path
+// reports a rule error instead of silently dropping a registered handler from
+// the census. Both census channels are covered: an ACTION_HANDLERS map entry
+// (#1706 review M1) and a DERIVED special-branch dispatch, which used to fail
+// open through `if (!fnNode) return;`.
 //
-// Kept as its OWN file (not folded into handler-throw.violating.ts) so this
-// dedicated report doesn't perturb that fixture's exact-count assertion.
+// Kept as its OWN file (not folded into handler-throw.violating.ts) so these
+// dedicated reports don't perturb that fixture's exact-count assertion.
 
 type ToolResult =
   | { success: true; data?: unknown }
@@ -38,4 +39,27 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   indirect_factory_return: adaptViaIndirectReturn(),
 };
 
-export { ACTION_HANDLERS };
+function envelopeWrap(result: ToolResult, _startedAt: number): ToolResult {
+  return result;
+}
+
+// A module-scoped binding that holds a handler VALUE produced elsewhere — no
+// function/arrow literal declaration for the resolver to reach, so no body to
+// scan. Dispatched from a real branch, so the census can NAME it
+// (`unresolved_branch`) but cannot SCAN it: that is a hole, and the branch
+// channel now reports it rather than returning silently.
+const handleUnresolvableBranch: ActionHandler = makeHandlerExternally();
+
+async function dispatchUnresolvableBranch(
+  action: string,
+  rest: Record<string, unknown>,
+  stateDir: string,
+): Promise<ToolResult> {
+  const startedAt = Date.now();
+  if (action === 'unresolved_branch') {
+    return envelopeWrap(await handleUnresolvableBranch(rest, stateDir), startedAt);
+  }
+  return { success: false, error: { code: 'UNKNOWN_ACTION', message: action } };
+}
+
+export { ACTION_HANDLERS, dispatchUnresolvableBranch };

@@ -98,6 +98,45 @@ function resolvePwsh(): string | undefined {
 const BASH = resolveBash();
 const PWSH = resolvePwsh();
 
+// ─── Tolerated-skip ledger (DR-7, task 078) ──────────────────────────────────
+//
+// `describe.skipIf(BASH/PWSH === undefined)` silently dropped 11 tests PER
+// SHELL — the entire PowerShell half of the DR-20 acceptance suite — and the
+// run reported success. `pwsh` is absent on at least one dev host, so that half
+// had been reporting green without executing. A suite that shrinks to nothing
+// and still says "ok" is the same defect the installers themselves are gated
+// against.
+//
+// The skip survives OFF CI only, because a contributor without pwsh should not
+// be blocked from running the rest of the root suite. Under CI both shells are
+// REQUIRED and their absence fails the lane. The toleration is declared here
+// rather than implied by a bare `skipIf`: it names an issue, it carries an
+// expiry, and the expiry is itself asserted, so it cannot quietly outlive its
+// justification.
+const SHELL_SKIP_WAIVER = Object.freeze({
+  issue: '#1789',
+  expires: '2026-11-30',
+  why: 'pwsh is not installed on every dev host; CI is the enforcing lane.',
+});
+
+/** True on GitHub Actions and the usual CI providers (`CI=true`). */
+const IS_CI = !['', '0', 'false'].includes((process.env['CI'] ?? '').toLowerCase());
+
+function todayUtc(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * Suite title that ANNOUNCES a skip instead of letting it vanish. A reader of
+ * the reporter output can see which shell dropped out and under what waiver.
+ */
+function shellSuite(title: string, resolved: string | undefined, shell: string): string {
+  return resolved !== undefined
+    ? title
+    : `${title} — SKIPPED (${shell} unavailable; tolerated off-CI until ` +
+        `${SHELL_SKIP_WAIVER.expires}, ${SHELL_SKIP_WAIVER.issue})`;
+}
+
 /** MSYS/Git-Bash resolves drive-letter paths only with forward slashes. */
 function toShellPath(p: string): string {
   return p.replace(/\\/g, '/');
@@ -354,6 +393,60 @@ afterAll(async () => {
 // ─── Suite ───────────────────────────────────────────────────────────────────
 
 describe('DR-20 — the installers consume the signed release manifest', () => {
+  // ── DR-7 (task 078): a shell that is absent must be LOUD, not silent ───────
+  //
+  // This test is the reason the two `skipIf` suites below are allowed to exist.
+  // It runs unconditionally and asserts the thing the skips would otherwise
+  // hide: on CI, both shells are present, so neither half of the acceptance
+  // suite can report success without executing.
+  it('InstallerVerify_ShellAbsent_FailsClosedRatherThanSkipping', () => {
+    const missing = [
+      ...(BASH === undefined ? ['bash'] : []),
+      ...(PWSH === undefined ? ['pwsh (or powershell)'] : []),
+    ];
+
+    if (IS_CI) {
+      // Fail CLOSED. Each missing shell silently drops 11 DR-20 acceptance
+      // tests, and a suite that shrank to nothing would still report green.
+      expect(
+        missing,
+        `DR-20 acceptance requires BOTH installer shells on CI, but ${missing.join(' and ')} ` +
+          `${missing.length === 1 ? 'is' : 'are'} unavailable. ${missing.length} of the two ` +
+          `installer suites would be SKIPPED — 11 tests apiece — and the run would still ` +
+          `report success. Install the missing shell on this lane; do not widen the waiver.`,
+      ).toEqual([]);
+      return;
+    }
+
+    // Off CI the absence is tolerated — but the toleration expires, and the
+    // expiry is asserted here so it cannot outlive its justification unnoticed.
+    // Only when the waiver is actually BEING USED, though: a contributor with
+    // both shells installed is skipping nothing, and handing them a red test
+    // for an exemption they never claimed teaches them to widen the date. The
+    // tooth is "a skip must not outlive its expiry", not "this date must always
+    // be in the future". Inclusive, like the other two sites that carry it:
+    // `expires` is the LAST tolerated day everywhere or it is nowhere.
+    if (missing.length > 0) {
+      expect(
+        SHELL_SKIP_WAIVER.expires >= todayUtc(),
+        `The off-CI installer-shell skip waiver (${SHELL_SKIP_WAIVER.issue}) expired on ` +
+          `${SHELL_SKIP_WAIVER.expires} and ${missing.join(' and ')} ` +
+          `${missing.length === 1 ? 'is' : 'are'} still missing. Either install both shells ` +
+          `locally, or re-justify and re-date the waiver — a tolerated skip with no live ` +
+          `expiry is a permanent one.`,
+      ).toBe(true);
+    }
+
+    // Still say it out loud, so a local run cannot look like a full one.
+    if (missing.length > 0) {
+      console.warn(
+        `[installer-verify] SKIPPING ${missing.join(' and ')} installer suite(s) — ` +
+          `tolerated off CI until ${SHELL_SKIP_WAIVER.expires} (${SHELL_SKIP_WAIVER.issue}). ` +
+          `${SHELL_SKIP_WAIVER.why}`,
+      );
+    }
+  });
+
   it('the verifier is shipped: package.json exposes it as a bin and includes it in files[]', () => {
     const pkg = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8')) as {
       bin?: Record<string, string>;
@@ -404,7 +497,7 @@ describe('DR-20 — the installers consume the signed release manifest', () => {
     expect(leaked, `test-only paths in the tarball: ${leaked.join(', ')}`).toEqual([]);
   }, 360_000);
 
-  describe.skipIf(BASH === undefined)('tools/release/get-exarchos.sh', () => {
+  describe.skipIf(BASH === undefined)(shellSuite('tools/release/get-exarchos.sh', BASH, 'bash'), () => {
     it('installs a release whose signed manifest verifies on all four dimensions', async () => {
       const { fixture, origin } = await scenario('sh-happy', {});
       const target = freshTarget('sh-happy');
@@ -603,7 +696,7 @@ describe('DR-20 — the installers consume the signed release manifest', () => {
     }, 180_000);
   });
 
-  describe.skipIf(PWSH === undefined)('tools/release/get-exarchos.ps1', () => {
+  describe.skipIf(PWSH === undefined)(shellSuite('tools/release/get-exarchos.ps1', PWSH, 'pwsh'), () => {
     it('installs a release whose signed manifest verifies on all four dimensions', async () => {
       const { fixture, origin } = await scenario('ps-happy', {});
       const target = freshTarget('ps-happy');

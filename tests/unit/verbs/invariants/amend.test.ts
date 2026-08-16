@@ -653,6 +653,110 @@ describe('handleAmend — non-empty denominator (DR-24)', () => {
     expect(errorOf(result).code).toBe('CATALOG_UNREADABLE');
     expect(fake.writes).toHaveLength(0);
   });
+
+  it('Amend_CatalogVanishesBetweenExistsAndRead_ReturnsCodedEnvelope', async () => {
+    // `exists` and `read` are two syscalls and the envelope claim is TOTAL. The
+    // path can be removed, replaced by a directory, or lose read permission in
+    // between, and the raw ENOENT / EISDIR / EACCES would escape to dispatch and
+    // flatten into a generic INTERNAL_ERROR — the one outcome the header says
+    // cannot happen. Each error below is what a real kernel would raise.
+    for (const failure of [
+      Object.assign(new Error('ENOENT: no such file or directory'), { code: 'ENOENT' }),
+      Object.assign(new Error('EISDIR: illegal operation on a directory'), { code: 'EISDIR' }),
+      Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' }),
+    ]) {
+      const fake = makeFakeFs({ [CATALOG_ABS]: FENCED_CATALOG });
+      const { ctx } = makeCtx();
+      const result = await handleAmend(
+        {
+          repoRoot: REPO_ROOT,
+          catalog: CATALOG,
+          tier: 'user',
+          id: 'U-1',
+          patch: { summary: 'x' },
+          dryRun: false,
+        },
+        ctx,
+        {
+          ...fake.deps,
+          exists: () => true,
+          read: () => {
+            throw failure;
+          },
+        },
+      );
+
+      expect(result.success).toBe(false);
+      expect(errorOf(result).code).toBe('CATALOG_UNREADABLE');
+      expect(fake.writes).toHaveLength(0);
+    }
+  });
+});
+
+// ─── The commit path is TOTAL in its envelope (task 082 / DR-1) ──────────────
+
+describe('handleAmend — the catalog write returns an envelope, never throws', () => {
+  it('handleAmend_CatalogWriteThrows_ReturnsCodedEnvelope', async () => {
+    // The commit path calls `deps.write`, which throws on any fs failure. An
+    // escaping throw is caught by dispatch's outer safety net and flattened to
+    // a generic INTERNAL_ERROR, so the caller loses the code it branches on —
+    // precisely the fidelity loss this handler avoids on every other path.
+    const fake = makeFakeFs({ [CATALOG_ABS]: FENCED_CATALOG });
+    fake.deps.write = () => {
+      throw new Error('EACCES: permission denied');
+    };
+    const { ctx, appended } = makeCtx();
+
+    const result = await handleAmend(
+      {
+        repoRoot: REPO_ROOT,
+        catalog: CATALOG,
+        tier: 'user',
+        id: 'U-1',
+        patch: { summary: 'Corrected summary text.' },
+        dryRun: false,
+      },
+      ctx,
+      fake.deps,
+    );
+
+    expect(result.success).toBe(false);
+    expect(errorOf(result).code).toBe('CATALOG_WRITE_FAILED');
+    // The underlying cause survives into the envelope rather than being
+    // replaced by a bare "internal error".
+    expect(errorOf(result).message).toContain('EACCES: permission denied');
+    // A write that never landed must not be audited as one that did.
+    expect(appended).toHaveLength(0);
+  });
+
+  it('handleAmend_CatalogWriteThrows_DoesNotReject', async () => {
+    // Stated as its own case because it is the property the envelope exists
+    // for: `handleAmend` must SETTLE, not reject. A test that only inspects
+    // the resolved value would pass vacuously if the call rejected before the
+    // assertion ran, so assert the settlement directly.
+    const fake = makeFakeFs({ [CATALOG_ABS]: FENCED_CATALOG });
+    fake.deps.write = () => {
+      throw new Error('ENOSPC: no space left on device');
+    };
+    const { ctx } = makeCtx();
+
+    const settled = await Promise.allSettled([
+      handleAmend(
+        {
+          repoRoot: REPO_ROOT,
+          catalog: CATALOG,
+          tier: 'user',
+          id: 'U-1',
+          patch: { summary: 'Corrected summary text.' },
+          dryRun: false,
+        },
+        ctx,
+        fake.deps,
+      ),
+    ]);
+
+    expect(settled[0]?.status).toBe('fulfilled');
+  });
 });
 
 // ─── ROUND TRIP: the amended catalog still loads ─────────────────────────────

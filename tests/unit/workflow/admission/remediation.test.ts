@@ -34,6 +34,7 @@ import {
   type RemediationOutcome,
 } from '../../../../src/workflow/admission/remediation.js';
 import { auditRemediationPurity } from '../../../../src/workflow/admission/remediation-purity.js';
+import { lexModule } from '../../../../tools/test-helpers/module-lexer.js';
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -202,10 +203,15 @@ describe('remediation is data, never a mutation', () => {
       'utf8',
     );
 
-    const remediationVerdict = auditRemediationPurity('remediation.ts', remediationSource);
+    const remediationVerdict = auditRemediationPurity(
+      'remediation.ts',
+      remediationSource,
+      lexModule,
+    );
     const explanationVerdict = auditRemediationPurity(
       'decision-explanation.ts',
       explanationSource,
+      lexModule,
     );
 
     expect(remediationVerdict.forbidden).toEqual([]);
@@ -222,7 +228,7 @@ describe('remediation is data, never a mutation', () => {
       "import { AtomicAppender } from '../../events/atomic-appender.js';",
       "export const x = AtomicAppender;",
     ].join('\n');
-    const verdict = auditRemediationPurity('tainted.ts', tainted);
+    const verdict = auditRemediationPurity('tainted.ts', tainted, lexModule);
     expect(verdict.ok).toBe(false);
     expect(verdict.forbidden.map((f) => f.marker)).toContain('events/');
   });
@@ -230,10 +236,10 @@ describe('remediation is data, never a mutation', () => {
   it('Structural_Census_IgnoresErasedTypeOnlyImports_ButCatchesValueImports', () => {
     // A type-only import of the mutator is erased at compile time — harmless.
     const typeOnly = "import type { TransitionDecided } from './transition-command.js';";
-    expect(auditRemediationPurity('a.ts', typeOnly).ok).toBe(true);
+    expect(auditRemediationPurity('a.ts', typeOnly, lexModule).ok).toBe(true);
     // A VALUE import of the same module could mutate — it must be caught.
     const valueImport = "import { runTransitionCommand } from './transition-command.js';";
-    const verdict = auditRemediationPurity('a.ts', valueImport);
+    const verdict = auditRemediationPurity('a.ts', valueImport, lexModule);
     expect(verdict.ok).toBe(false);
     expect(verdict.forbidden.map((f) => f.marker)).toContain('./transition-command');
   });

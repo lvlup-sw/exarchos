@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { TASK_COMPLETION, TASK_FIX } from '../../../src/runbooks/definitions.js';
+import { ALL_RUNBOOKS, SYNTHESIS_FLOW, TASK_COMPLETION, TASK_FIX } from '../../../src/runbooks/definitions.js';
+import { TOOL_REGISTRY } from '../../../src/registry.js';
 import type { RunbookDefinition, RunbookStep } from '../../../src/runbooks/types.js';
 
 // ─── DR-3 / T-05: pin the frozen delegation-stamp parameter shape ───────────
@@ -92,6 +93,19 @@ describe('Runbook parameter shape (DR-3 / T-05): delegation stamp threading', ()
     expect(stepFor(TASK_FIX, 'check_mock_boundary')).toBeUndefined();
   });
 
+  it('SynthesisFlow_PrepareSynthesisStep_BindsRepoRoot', () => {
+    // DR-8 / #1756. `prepare_synthesis` shells out on four legs and refuses to
+    // guess which tree they measure, so `repoRoot` is REQUIRED on its action
+    // schema. A runbook that names the step without offering the caller a slot
+    // for that value hands out a recipe that cannot execute — which is exactly
+    // the state this task found: schema, handler and runbook each individually
+    // defensible, and the composed path dead.
+    const step = SYNTHESIS_FLOW.steps.find((s) => s.action === 'prepare_synthesis');
+    expect(step, 'synthesis-flow must have a prepare_synthesis step').toBeDefined();
+    expect((step?.params as Record<string, unknown> | undefined)?.repoRoot).toBe('<repoRoot>');
+    expect(SYNTHESIS_FLOW.templateVars).toContain('repoRoot');
+  });
+
   it('CheckStaticAnalysis_NeverBindsTheStamp_T04Exclusion', () => {
     // T-04 deliberately did NOT bind riskTier/boundaryTouching on
     // check_static_analysis — its registry schema rejects those fields. If a
@@ -111,5 +125,55 @@ describe('Runbook parameter shape (DR-3 / T-05): delegation stamp threading', ()
         ).toBeUndefined();
       }
     }
+  });
+});
+
+// ─── DR-8 / #1756: a runbook must be able to supply every required field ─────
+//
+// The pin above names one step. This one derives the rule from the registry, so
+// the NEXT action that gains a required field cannot leave its runbook callers
+// silently unexecutable — the failure mode 088 hit, where the schema, the
+// handler and the runbook were each locally defensible and the composed path
+// was dead. A step may satisfy a required field either by pre-filling it in
+// `params` or by declaring it as a `templateVar` the orchestrator fills.
+
+describe('Runbook executability (DR-8 / #1756): required fields are reachable', () => {
+  it('EveryRunbookStep_RequiredSchemaFields_AreBoundOrDeclared', () => {
+    const unbound: string[] = [];
+    let checked = 0;
+
+    for (const runbook of ALL_RUNBOOKS) {
+      for (const step of runbook.steps) {
+        // `native:*` steps address the host harness, not the registry.
+        const tool = TOOL_REGISTRY.find((t) => t.name === step.tool);
+        const action = tool?.actions.find((a) => a.name === step.action);
+        if (action === undefined) continue;
+
+        const shape = (action.schema as unknown as {
+          shape: Record<string, { isOptional(): boolean }>;
+        }).shape;
+        const params = (step.params ?? {}) as Readonly<Record<string, unknown>>;
+
+        for (const [field, zodType] of Object.entries(shape)) {
+          if (zodType.isOptional()) continue;
+          checked += 1;
+          const bound = Object.prototype.hasOwnProperty.call(params, field);
+          const declared = runbook.templateVars.includes(field);
+          if (!bound && !declared) {
+            unbound.push(`${runbook.id} :: ${step.tool}.${step.action} :: ${field}`);
+          }
+        }
+      }
+    }
+
+    // Guard the guard: a derivation that resolved no required fields at all
+    // would be vacuously green.
+    expect(checked, 'no required fields resolved — the derivation is vacuous')
+      .toBeGreaterThan(20);
+    expect(
+      unbound,
+      'each entry is a runbook step whose required field the caller has no way to supply; ' +
+        'bind it in step.params or declare it in the runbook templateVars',
+    ).toEqual([]);
   });
 });

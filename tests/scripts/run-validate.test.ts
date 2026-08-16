@@ -33,12 +33,15 @@ import { fileURLToPath } from 'node:url';
 // No .d.ts for this .mjs runner, but `allowJs` infers one from the source.
 import {
   parseManifest,
+  parseDeclaredOutcomes,
+  classifyOutcome,
   renderCommand,
   runAllSteps,
   summarize,
   renderSummary,
   DEFAULT_MANIFEST_PATH,
 } from '../../tools/audit/gates/run-validate.mjs';
+import { EXIT_GAPS } from '../../tools/audit/gates/check-measured-premises.mjs';
 
 const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPTS_DIR, '../..');
@@ -65,8 +68,11 @@ interface Summary {
   declared: number;
   executed: number;
   passed: number;
+  tolerated: number;
   failed: number;
   violations: string[];
+  notices: string[];
+  classifications: Record<string, { severity: string; verdict: string; note?: string }>;
 }
 
 const step = (id: string, args: string[] = []): Step => ({ id, command: 'node', args });
@@ -235,6 +241,189 @@ describe('run-validate — malformed manifests fail closed (task 064, DR-24)', (
   });
 });
 
+// ─── DR-7 (task 078): a step's verdict is the step's own verdict ────────────
+//
+// THE KILL FIXTURE for site 2. `check-measured-premises.mjs` printed
+// `VERDICT: GAPS` — with the words "reportable, NOT a pass" — and exited 0, so
+// this aggregate recorded `PASS measured-premises`, 9/9, exit 0. The exit code
+// was the only thing the runner could see, and the gate had spent its only
+// machine-readable channel saying "pass".
+//
+// Two halves have to hold together for that to be closed: the GATE must give
+// `gaps` its own exit code, and the AGGREGATOR must render the verdict rather
+// than infer it from `status === 0`. These test the aggregator half; the gate
+// half is `MeasuredPremises_GapsVerdict_ExitsDistinctFromPass` in
+// check-measured-premises.test.ts.
+
+describe('run-validate — verdict fidelity (task 078, DR-7)', () => {
+  const TODAY = '2026-08-09';
+  const gapsStep = (severity: string, expires = '2026-11-30'): Step & { outcomes: unknown } => ({
+    id: 'measured-premises',
+    command: 'node',
+    args: [],
+    outcomes: { '3': { verdict: 'gaps', severity, issue: '#1789', expires } },
+  });
+
+  it('ValidateAggregator_StepReportingGaps_IsNotRecordedAsPass', () => {
+    const steps = [gapsStep('advisory'), step('other')] as unknown as Step[];
+    const outcomes: Outcome[] = runAllSteps(steps, (s: Step) =>
+      s.id === 'measured-premises' ? { status: 3 } : { status: 0 },
+    );
+    const summary: Summary = summarize(steps, outcomes, TODAY);
+
+    // THE assertion. Before the fix this step landed in `passed`.
+    expect(summary.passed).toBe(1);
+    expect(summary.tolerated).toBe(1);
+    expect(summary.classifications['measured-premises'].severity).not.toBe('pass');
+    expect(summary.classifications['measured-premises'].verdict).toBe('gaps');
+
+    // The reader sees the real verdict, and sees that it is not a pass.
+    const rendered: string = renderSummary(outcomes, summary);
+    expect(rendered).toContain('GAPS');
+    expect(rendered).toMatch(/GAPS\s+measured-premises/);
+    expect(rendered).not.toMatch(/PASS\s+measured-premises/);
+    expect(rendered).toContain('tolerated non-pass');
+    expect(rendered).toContain('#1789');
+
+    // The exit code reflects the CONFIGURED severity: advisory ⇒ the chain
+    // still passes, and the non-pass is reported rather than hidden.
+    expect(summary.ok).toBe(true);
+    expect(summary.notices.join('\n')).toContain('[tolerated-non-pass]');
+  });
+
+  it('ValidateAggregator_GapsDeclaredAsFail_FailsTheChain', () => {
+    // The same verdict under the other configured severity. This is what makes
+    // "the exit code reflects the configured severity" a real dial rather than
+    // a euphemism for "always tolerated".
+    const steps = [gapsStep('fail')] as unknown as Step[];
+    const outcomes: Outcome[] = runAllSteps(steps, () => ({ status: 3 }));
+    const summary: Summary = summarize(steps, outcomes, TODAY);
+    expect(summary.failed).toBe(1);
+    expect(summary.passed).toBe(0);
+    expect(summary.ok).toBe(false);
+    expect(renderSummary(outcomes, summary)).toMatch(/GAPS\s+measured-premises/);
+  });
+
+  it('ValidateAggregator_ExpiredAdvisory_StopsBeingTolerated', () => {
+    // A toleration nobody revisits is a permanent exemption wearing a date.
+    const steps = [gapsStep('advisory', '2026-08-08')] as unknown as Step[];
+    const outcomes: Outcome[] = runAllSteps(steps, () => ({ status: 3 }));
+    const summary: Summary = summarize(steps, outcomes, TODAY);
+    expect(summary.tolerated).toBe(0);
+    expect(summary.failed).toBe(1);
+    expect(summary.ok).toBe(false);
+    expect(summary.violations.join('\n')).toContain('[expired-toleration]');
+    expect(summary.violations.join('\n')).toContain('#1789');
+  });
+
+  it('ValidateAggregator_AdvisoryOnItsExpiryDate_IsStillTolerated', () => {
+    // The boundary the two halves have to agree on. `expires` is documented as
+    // the LAST tolerated day here and `--tolerate-gaps-until` is documented as
+    // inclusive in check-measured-premises.mjs, so ON the date both must still
+    // tolerate. The pair above and below this line is what makes that a
+    // property rather than a comment: one day earlier tolerates, one day later
+    // does not, and neither `<=` nor `>` can satisfy both at once.
+    const onExpiry = [gapsStep('advisory', TODAY)] as unknown as Step[];
+    const summary: Summary = summarize(
+      onExpiry,
+      runAllSteps(onExpiry, () => ({ status: 3 })),
+      TODAY,
+    );
+    expect(summary.tolerated).toBe(1);
+    expect(summary.failed).toBe(0);
+    expect(summary.ok).toBe(true);
+
+    // …and the day after is where it stops. Same inputs, one day later.
+    const dayAfter = [gapsStep('advisory', TODAY)] as unknown as Step[];
+    const expired: Summary = summarize(
+      dayAfter,
+      runAllSteps(dayAfter, () => ({ status: 3 })),
+      '2026-08-10',
+    );
+    expect(expired.tolerated).toBe(0);
+    expect(expired.failed).toBe(1);
+    expect(expired.violations.join('\n')).toContain('[expired-toleration]');
+  });
+
+  it('ValidateAggregator_UndeclaredNonZeroExit_StillFails', () => {
+    // Toleration is opt-in per exit code. A gate that starts exiting 4 has said
+    // nothing about what 4 means, so it fails — the fail-closed default.
+    const steps = [gapsStep('advisory')] as unknown as Step[];
+    const outcomes: Outcome[] = runAllSteps(steps, () => ({ status: 4 }));
+    const summary: Summary = summarize(steps, outcomes, TODAY);
+    expect(summary.failed).toBe(1);
+    expect(summary.ok).toBe(false);
+    expect(summary.classifications['measured-premises'].verdict).toBe('fail');
+  });
+
+  it('ValidateAggregator_PlainSteps_KeepTheirTwoValuedVerdicts', () => {
+    // The discriminating half: adding a third value must not make ordinary
+    // steps ambiguous. A green step is still a pass, a red one still a fail.
+    const steps: Step[] = [step('green'), step('red')];
+    const outcomes: Outcome[] = runAllSteps(steps, (s: Step) =>
+      s.id === 'green' ? { status: 0 } : { status: 1 },
+    );
+    const summary: Summary = summarize(steps, outcomes, TODAY);
+    expect(summary.passed).toBe(1);
+    expect(summary.tolerated).toBe(0);
+    expect(summary.failed).toBe(1);
+    expect(summary.ok).toBe(false);
+    const rendered: string = renderSummary(outcomes, summary);
+    expect(rendered).toMatch(/PASS\s+green/);
+    expect(rendered).toMatch(/FAIL\s+red/);
+  });
+
+  it('ClassifyOutcome_ExitZero_IsAlwaysPassAndNeverDeclarable', () => {
+    expect(classifyOutcome(gapsStep('advisory'), { id: 'x', executed: true, status: 0 }, TODAY))
+      .toMatchObject({ severity: 'pass', verdict: 'pass' });
+    // …and the manifest cannot claim otherwise.
+    const rejected = parseDeclaredOutcomes('s', { '0': { verdict: 'nope', severity: 'fail' } }) as {
+      error?: string;
+    };
+    expect(rejected.error).toContain('exit code 0');
+  });
+
+  it.each([
+    ['non-object outcomes', 'nope', 'non-object `outcomes`'],
+    ['non-numeric key', { abc: { verdict: 'g', severity: 'fail' } }, 'not an exit code'],
+    ['missing verdict', { '3': { severity: 'fail' } }, 'has no `verdict`'],
+    ['verdict named pass', { '3': { verdict: 'pass', severity: 'fail' } }, 'names its verdict "pass"'],
+    ['bad severity', { '3': { verdict: 'g', severity: 'meh' } }, 'expected \'advisory\' or \'fail\''],
+    ['advisory without expiry', { '3': { verdict: 'g', severity: 'advisory', issue: '#1' } }, 'no `expires`'],
+    ['advisory without issue', { '3': { verdict: 'g', severity: 'advisory', expires: '2099-01-01' } }, 'names no `issue`'],
+  ])('ValidateManifest_MalformedOutcome_%s_IsRejected', (_label, raw, expected) => {
+    const parsed = parseDeclaredOutcomes('step-x', raw) as { error?: string };
+    expect(parsed.error).toBeDefined();
+    expect(parsed.error).toContain(expected as string);
+  });
+
+  it('ValidateManifest_ShippedMeasuredPremisesStep_DeclaresItsGapsVerdict', () => {
+    // Binds the shipped data to the shipped gate: the exit code the manifest
+    // tolerates must be the one `check-measured-premises.mjs` actually emits.
+    // A drift here is how a declared toleration silently stops applying.
+    const raw: unknown = JSON.parse(
+      fs.readFileSync(path.join(REPO_ROOT, DEFAULT_MANIFEST_PATH), 'utf8'),
+    );
+    const { steps } = parseManifest(raw) as {
+      steps: Array<Step & { outcomes?: Record<string, { verdict: string; severity: string; expires?: string; issue?: string }> }>;
+    };
+    const premises = steps.find((s) => s.id === 'measured-premises');
+    expect(premises).toBeDefined();
+    // Keyed off the gate's own exported constant, not the literal `3`. JSON
+    // cannot import `EXIT_GAPS`, so this assertion is the only place the
+    // shipped manifest key and the exit code the gate emits are held together —
+    // without it the comment above claims a binding that does not exist.
+    const gaps = premises!.outcomes?.[String(EXIT_GAPS)];
+    expect(gaps).toBeDefined();
+    expect(gaps!.verdict).toBe('gaps');
+    expect(gaps!.issue).toBeTruthy();
+    // The expiry is in the future — an already-expired declaration would fail
+    // the chain, which is the intended behaviour but not a shippable default.
+    expect(gaps!.expires! > new Date().toISOString().slice(0, 10)).toBe(true);
+  });
+
+});
+
 describe('run-validate — CLI (task 064, DR-24)', () => {
   it('RunValidateCli_RedFirstStep_StillRunsAndReportsTheLaterSteps', () => {
     // THE KILL FIXTURE end-to-end. `node -e 'process.exit(1)'` is a genuine red
@@ -288,4 +477,68 @@ describe('run-validate — CLI (task 064, DR-24)', () => {
     expect(stdout).toContain('plugin-packaging');
     expect(stdout).toContain('declared step(s)');
   }, 20000);
+
+  it('RunValidateCli_StepExitingWithDeclaredGapsCode_ReportsGapsNotPass', () => {
+    // DR-7 end to end through a REAL spawned step: the runner classifies what
+    // the process actually returned, not what the pure loop was handed.
+    const seeded = seedManifest([
+      {
+        id: 'seeded-gaps',
+        command: 'node',
+        args: ['-e', 'process.exit(3)'],
+        outcomes: {
+          '3': { verdict: 'gaps', severity: 'advisory', issue: '#1789', expires: '2099-01-01' },
+        },
+      },
+      { id: 'seeded-green', command: 'node', args: ['-e', 'process.exit(0)'] },
+    ]);
+    try {
+      const { status, stdout } = runCli(['--json', '--manifest', seeded.manifestPath]);
+      // Advisory ⇒ the chain still exits 0 …
+      expect(status).toBe(0);
+      const report = JSON.parse(stdout) as Summary & { steps: Outcome[] };
+      // … but exactly ONE step passed, and it was not this one.
+      expect(report.passed).toBe(1);
+      expect(report.tolerated).toBe(1);
+      expect(report.classifications['seeded-gaps'].verdict).toBe('gaps');
+      expect(report.classifications['seeded-gaps'].severity).toBe('tolerated');
+      expect(report.notices.join('\n')).toContain('seeded-gaps');
+    } finally {
+      seeded.cleanup();
+    }
+  }, 20000);
+
+  it('MeasuredPremisesToleration_ThreeCallSites_CarryOneDate', () => {
+    // The #1789 toleration is spelled in three places that no gate was binding:
+    // the ci.yml flag, the manifest `outcomes` entry the aggregator reads, and
+    // the installer suite's shell waiver. Re-dating one and not the others is
+    // silent — the lane keeps passing while the three disagree about when the
+    // exemption ends. Reading all three here is what makes them one date.
+    const ciYml = fs.readFileSync(path.join(REPO_ROOT, '.github/workflows/ci.yml'), 'utf8');
+    const manifest = fs.readFileSync(path.join(REPO_ROOT, DEFAULT_MANIFEST_PATH), 'utf8');
+    const installer = fs.readFileSync(path.join(SCRIPTS_DIR, 'installer-verify.test.ts'), 'utf8');
+
+    const ciDate = /--tolerate-gaps-until\s+(\d{4}-\d{2}-\d{2})/.exec(ciYml)?.[1];
+    const manifestDate = (
+      JSON.parse(manifest) as {
+        steps: { id: string; outcomes?: Record<string, { expires?: string }> }[];
+      }
+    ).steps.find((s) => s.id === 'measured-premises')?.outcomes?.['3']?.expires;
+    const waiverDate = /SHELL_SKIP_WAIVER[\s\S]{0,200}?expires:\s*'(\d{4}-\d{2}-\d{2})'/.exec(
+      installer,
+    )?.[1];
+
+    // Each must be FOUND, or the regex has gone stale and the check is vacuous.
+    for (const [name, found] of [
+      ['ci.yml --tolerate-gaps-until', ciDate],
+      ['validate-manifest.json expires', manifestDate],
+      ['installer-verify SHELL_SKIP_WAIVER.expires', waiverDate],
+    ] as const) {
+      expect(found, `${name} not located — the binding check has gone blind`).toMatch(
+        /^\d{4}-\d{2}-\d{2}$/,
+      );
+    }
+    expect(new Set([ciDate, manifestDate, waiverDate]).size).toBe(1);
+  });
+
 });

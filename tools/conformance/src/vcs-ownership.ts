@@ -23,6 +23,17 @@ import { join, relative } from 'node:path';
  *                         mutation site (phantom cover), so the allowlist can
  *                         never rot into a rubber stamp.
  *
+ * ── Scan root (DR-8, task 079) ──────────────────────────────────────────────
+ * The census governs {@link GOVERNED_SOURCE_ROOT} — the MCP package's shipped
+ * source, NOT the repository. This header used to say "the shipped source" while
+ * every live caller passed `servers/exarchos-mcp/src`, which is a
+ * repository-wide claim measured over one subtree. The root is now a declared
+ * constant the live audit derives its argument from, and the complement is
+ * measured rather than assumed: `vcs-ownership.test.ts` scans every OTHER
+ * first-party tree in the repository for the same mutation primitives, so the
+ * repo-wide property this module is cited for is proven across the union of
+ * (governed subtree) + (complement), instead of being asserted about a subtree.
+ *
  * ── Scope (DR-12) ───────────────────────────────────────────────────────────
  * The detector targets the git argument-vector mutation primitives that are
  * identifiable from source text with ZERO false positives on the live tree:
@@ -58,6 +69,13 @@ export interface VcsMutationSite {
   readonly evidence: string;
 }
 
+/** A completed walk: the sites it found, and the population it found them in. */
+export interface VcsMutationScan {
+  readonly sites: readonly VcsMutationSite[];
+  /** Modules the walk visited — the denominator the site list is read against. */
+  readonly moduleCount: number;
+}
+
 export type VcsOwnershipDiagnostic =
   | {
       readonly code: 'DIRECT_VCS_BYPASS';
@@ -70,11 +88,24 @@ export type VcsOwnershipDiagnostic =
       readonly code: 'STALE_VCS_OWNER';
       readonly module: string;
       readonly message: string;
+    }
+  | {
+      readonly code: 'EMPTY_MODULE_POPULATION';
+      readonly moduleCount: number;
+      readonly message: string;
     };
 
 export interface VcsOwnershipResult {
   readonly ok: boolean;
   readonly siteCount: number;
+  /**
+   * How many modules the walk actually visited (DR-8, task 079).
+   *
+   * Reported so a reader can tell "no bypass exists" from "nothing was
+   * examined". `undefined` for a verdict computed over a caller-supplied site
+   * list, where there is no walk to count.
+   */
+  readonly moduleCount?: number;
   readonly diagnostics: readonly VcsOwnershipDiagnostic[];
 }
 
@@ -146,6 +177,16 @@ export const VCS_MUTATION_OWNERS: readonly string[] = Object.freeze([
 
 // ─── Detection ──────────────────────────────────────────────────────────────
 
+/**
+ * The tree this census governs, repo-relative.
+ *
+ * Exported so the scan root is a DECLARED fact with one owner rather than a
+ * string each caller reconstructs. {@link VCS_MUTATION_OWNERS}'s entries are
+ * relative to it, so the root and the allowlist are the same coordinate system —
+ * which is precisely why a silent root change would strand every owner rule.
+ */
+export const GOVERNED_SOURCE_ROOT = 'servers/exarchos-mcp/src';
+
 /** Directories that are not shipped source (test/bench/eval harnesses). */
 export const EXCLUDED_DIRS: ReadonlySet<string> = new Set([
   'node_modules',
@@ -169,132 +210,63 @@ export function isScannableFile(name: string): boolean {
 }
 
 /**
- * Strip `//` and block comments while PRESERVING string/template-literal
- * content. The mutation tokens are themselves string literals (`'worktree'`,
- * `'add'`, …), so — unlike `delivery-safety.maskLiteralsAndComments`, which
- * masks string bodies too — this keeps literals visible and only removes
- * comment prose (so a `git worktree add` mentioned in a JSDoc line is not
- * mistaken for a call).
+ * One module's source with comments gone and literals kept — the only lexical
+ * answer this census needs, and the one {@link LexedModule.maskedSource} does
+ * not give.
  *
- * Two lexer details matter for false-positive freedom, both learned the hard
- * way while widening the detector (DR-12):
- *
- *   - REGEX LITERALS. A regex such as `/(['"`])merge\1/` contains quote
- *     characters that are NOT string delimiters. Without regex awareness the
- *     scanner enters a phantom string at the `'`, and every `//` for the rest of
- *     the file is then treated as string content rather than a comment — so
- *     comment prose leaks into the scan and matches as if it were code. The
- *     `/`-in-operand-position heuristic below is deliberately CONSERVATIVE: when
- *     in doubt it treats `/` as division, which merely falls back to the old
- *     behaviour instead of swallowing real code (a false negative in a ratchet
- *     is the dangerous direction, so the ambiguity is resolved away from it).
- *   - LINE-BOUNDED QUOTES. `'`/`"` strings cannot span a raw newline in JS.
- *     Terminating them at end-of-line caps any residual desync at one line
- *     instead of letting it run to EOF. Template literals (backtick) may span
- *     lines and are exempt.
+ * A caller-supplied PORT, not a shape this module derives, for the reason DR-2
+ * gives: the lexer is a question about TypeScript's grammar, and the only
+ * instrument that cannot disagree with the compiler about it is the compiler.
+ * The implementation is `test-helpers/module-lexer.ts` — see
+ * `architecture/effect-ledger.ts`'s header for why it lives there and not next
+ * to the policy it serves.
  */
-export function stripComments(source: string): string {
-  let out = '';
-  const n = source.length;
-  let i = 0;
-  let quote: string | null = null;
-  let lineComment = false;
-  let blockComment = false;
-  let regex = false;
-  let regexClass = false;
-  // Last non-whitespace character emitted as CODE — decides whether a `/` opens
-  // a regex literal (operand position) or is a division operator.
-  let lastSignificant = '';
+export interface LexedComments {
+  /**
+   * `source` with every comment blanked to spaces (newlines and offsets
+   * preserved) and every string, template and regex literal kept VERBATIM.
+   *
+   * Literals stay because the tokens this census matches on ARE string literals
+   * (`'worktree'`, `'add'`, …), so masking string bodies — what
+   * `delivery-safety.ts` needs — would blank the entire subject. Comments go so
+   * that a `git worktree add` mentioned in a JSDoc line is not mistaken for a
+   * call.
+   */
+  readonly commentMaskedSource: string;
+}
 
-  const startsRegex = (): boolean =>
-    lastSignificant === '' || !/[A-Za-z0-9_$)\]]/.test(lastSignificant);
+/**
+ * The lexer port. REQUIRED wherever it appears, exactly as `effect-ledger.ts`'s
+ * {@link ModuleLexer} is and for the same reason: a default would have to be
+ * either the retired heuristic (the defect, retained) or a throwing stub, and an
+ * optional lexer is how a caller silently gets the old answers back.
+ */
+export type CommentLexer = (source: string, fileName?: string) => LexedComments;
 
-  while (i < n) {
-    const ch = source[i] ?? '';
-    const next = source[i + 1];
-    if (lineComment) {
-      if (ch === '\n') {
-        lineComment = false;
-        out += ch;
-      }
-      i += 1;
-      continue;
-    }
-    if (blockComment) {
-      if (ch === '*' && next === '/') {
-        blockComment = false;
-        i += 2;
-        continue;
-      }
-      if (ch === '\n') out += ch;
-      i += 1;
-      continue;
-    }
-    if (regex) {
-      out += ch;
-      if (ch === '\\') {
-        if (i + 1 < n) out += source[i + 1] ?? '';
-        i += 2;
-        continue;
-      }
-      // A raw newline cannot appear in a regex literal — bail out rather than
-      // run away, so a misjudged `/` costs at most one line.
-      if (ch === '\n') regex = false;
-      else if (ch === '[') regexClass = true;
-      else if (ch === ']') regexClass = false;
-      else if (ch === '/' && !regexClass) regex = false;
-      i += 1;
-      continue;
-    }
-    if (quote !== null) {
-      // `'`/`"` are line-bounded in JS; a newline means the lexer desynced, so
-      // resynchronise instead of consuming the rest of the file as string body.
-      if (ch === '\n' && quote !== '`') {
-        quote = null;
-        out += ch;
-        i += 1;
-        continue;
-      }
-      out += ch;
-      if (ch === '\\') {
-        if (i + 1 < n) out += source[i + 1] ?? '';
-        i += 2;
-        continue;
-      }
-      if (ch === quote) quote = null;
-      i += 1;
-      continue;
-    }
-    if (ch === '/' && next === '/') {
-      lineComment = true;
-      i += 2;
-      continue;
-    }
-    if (ch === '/' && next === '*') {
-      blockComment = true;
-      i += 2;
-      continue;
-    }
-    if (ch === '/' && startsRegex()) {
-      regex = true;
-      regexClass = false;
-      out += ch;
-      lastSignificant = ch;
-      i += 1;
-      continue;
-    }
-    if (ch === '"' || ch === "'" || ch === '`') {
-      quote = ch;
-      out += ch;
-      lastSignificant = ch;
-      i += 1;
-      continue;
-    }
-    out += ch;
-    if (!/\s/.test(ch)) lastSignificant = ch;
-    i += 1;
-  }
-  return out;
+/**
+ * The comment-stripped source `lex` resolved.
+ *
+ * An ACCESSOR, not a lexer: it holds no knowledge of TypeScript's grammar and
+ * must never re-acquire any. Retained under its pre-072 name because that is
+ * what this module's tests bind to.
+ *
+ * ── What it replaced, and what that cost ────────────────────────────────────
+ * Until task 072 this was a hand-rolled character walk — the third of four
+ * near-duplicates in this package — whose header claimed its
+ * `/`-in-operand-position rule was "deliberately CONSERVATIVE: when in doubt it
+ * treats `/` as division, which merely falls back to the old behaviour instead
+ * of swallowing real code". Measured on task 065's adversarial inputs, that is
+ * false in the other direction. Scoring the head of a REAL regex literal as
+ * division lets a backtick inside it open a phantom template, templates are not
+ * line-bounded, so the phantom ran to EOF and every subsequent `//` read as
+ * string body: comment prose survived the strip and this census charged the
+ * module with a `git worktree add` that only its documentation performs. The
+ * retired walk is kept verbatim in `test-helpers/superseded-site-lexers.ts` so
+ * the kill fixture asserts both answers rather than asking a reader to take the
+ * gap on faith.
+ */
+export function stripComments(source: string, lex: CommentLexer): string {
+  return lex(source).commentMaskedSource;
 }
 
 // ── Detection rules ─────────────────────────────────────────────────────────
@@ -357,8 +329,12 @@ const SWITCH_CREATE_RE = /\[\s*(['"`])switch\1\s*,\s*(['"`])-[cC]\2/;
  * Pure; comment-stripped so doc examples do not count. At most one occurrence
  * per (module, mutation-kind) — ownership is per module.
  */
-export function detectVcsMutationSites(module: string, source: string): VcsMutationSite[] {
-  const stripped = stripComments(source);
+export function detectVcsMutationSites(
+  module: string,
+  source: string,
+  lex: CommentLexer,
+): VcsMutationSite[] {
+  const stripped = stripComments(source, lex);
   const sites: VcsMutationSite[] = [];
   if (WORKTREE_ADD_RE.test(stripped)) {
     sites.push({ module, mutation: 'worktree.add', evidence: 'git worktree add' });
@@ -403,28 +379,49 @@ async function collectScannableFiles(root: string): Promise<string[]> {
   return files.sort();
 }
 
-/** Scan the shipped source under `sourceRoot` and enumerate every mutation site. */
-export async function scanVcsMutationSites(
+/**
+ * Scan the shipped source under `sourceRoot` and enumerate every mutation site
+ * ALONGSIDE the denominator that says whether the site set means anything: how
+ * many modules the walk actually visited.
+ *
+ * The count is collected here because this is the only place that sees the
+ * population. Downstream, an empty site list is indistinguishable from a walk
+ * that reached nothing — and both read as "no module bypasses the owner", which
+ * is a pass (DR-8, task 079).
+ */
+export async function scanVcsTree(
   sourceRoot: string,
-): Promise<readonly VcsMutationSite[]> {
+  lex: CommentLexer,
+): Promise<VcsMutationScan> {
   const files = await collectScannableFiles(sourceRoot);
   const perFile = await Promise.all(
     files.map(async (file) => {
       const module = relative(sourceRoot, file).replaceAll('\\', '/');
-      return detectVcsMutationSites(module, await readFile(file, 'utf8'));
+      return detectVcsMutationSites(module, await readFile(file, 'utf8'), lex);
     }),
   );
-  return Object.freeze(
-    perFile.flat().sort((a, b) =>
-      a.module === b.module
-        ? a.mutation < b.mutation
-          ? -1
-          : 1
-        : a.module < b.module
-          ? -1
-          : 1,
+  return Object.freeze({
+    sites: Object.freeze(
+      perFile.flat().sort((a, b) =>
+        a.module === b.module
+          ? a.mutation < b.mutation
+            ? -1
+            : 1
+          : a.module < b.module
+            ? -1
+            : 1,
+      ),
     ),
-  );
+    moduleCount: files.length,
+  });
+}
+
+/** Scan the shipped source under `sourceRoot` and enumerate every mutation site. */
+export async function scanVcsMutationSites(
+  sourceRoot: string,
+  lex: CommentLexer,
+): Promise<readonly VcsMutationSite[]> {
+  return (await scanVcsTree(sourceRoot, lex)).sites;
 }
 
 // ─── Census ─────────────────────────────────────────────────────────────────
@@ -478,11 +475,42 @@ export function runVcsOwnershipCensus(
   });
 }
 
-/** Collect the live mutation sites and return the census verdict over the real tree. */
+/**
+ * Collect the live mutation sites and return the census verdict over the real
+ * tree, with the walk's own denominator folded in.
+ *
+ * NON-EMPTY DENOMINATOR (DR-8, task 079): a walk that visited no module is a
+ * broken scan — a relocated root, a widened exclusion, a dead walker — and the
+ * verdict it produces ("no site bypasses the owner") is the same verdict a clean
+ * tree produces. The `STALE_VCS_OWNER` half of the ratchet catches this today
+ * only *incidentally*, and only while {@link VCS_MUTATION_OWNERS} is non-empty;
+ * an explicit `EMPTY_MODULE_POPULATION` says what actually went wrong.
+ */
 export async function auditVcsOwnership(
   sourceRoot: string,
+  lex: CommentLexer,
   owners: readonly string[] = VCS_MUTATION_OWNERS,
 ): Promise<VcsOwnershipResult> {
-  const sites = await scanVcsMutationSites(sourceRoot);
-  return runVcsOwnershipCensus(sites, owners);
+  const scan = await scanVcsTree(sourceRoot, lex);
+  const verdict = runVcsOwnershipCensus(scan.sites, owners);
+  if (scan.moduleCount > 0) {
+    return Object.freeze({ ...verdict, moduleCount: scan.moduleCount });
+  }
+  return Object.freeze({
+    ok: false,
+    siteCount: verdict.siteCount,
+    moduleCount: 0,
+    diagnostics: Object.freeze([
+      {
+        code: 'EMPTY_MODULE_POPULATION',
+        moduleCount: 0,
+        message:
+          `The VCS-ownership walk visited ZERO modules under "${sourceRoot}". A census ` +
+          'over an empty population reports no bypass for the same reason a clean tree ' +
+          'does, so this fails closed. The scan root moved, an exclusion widened, or the ' +
+          `tree is not where ${GOVERNED_SOURCE_ROOT} says it is.`,
+      } as const,
+      ...verdict.diagnostics,
+    ]),
+  });
 }

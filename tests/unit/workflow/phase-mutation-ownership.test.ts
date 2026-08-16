@@ -3,6 +3,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { maskLiteralsAndComments } from '../../../tools/conformance/src/delivery-safety.js';
+import { lexModule } from '../../../tools/test-helpers/module-lexer.js';
 
 /**
  * T-11 / DR-7 — single phase-mutation authority, asserted STRUCTURALLY.
@@ -133,7 +134,7 @@ interface PhaseMutationOwnershipResult {
  * mentions count.
  */
 export function detectPhaseMutationRefs(module: string, source: string): PhaseMutationRef[] {
-  const masked = maskLiteralsAndComments(source);
+  const masked = maskLiteralsAndComments(source, lexModule);
   const lines = source.split('\n');
   const maskedLines = masked.split('\n');
   const identifier = new RegExp(`\\b${PHASE_MUTATION_PRIMITIVE}\\b`);

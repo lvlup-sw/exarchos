@@ -29,10 +29,13 @@
  * proof aliases — exported `Expect<…>` type aliases that exist so `tsc` checks an
  * invariant the co-located test cannot, because `tsconfig.json` excludes
  * `*.test.ts` — are unreferenced BY CONSTRUCTION. knip is correct on its own
- * terms; the terms are what need stating. There are 84 of them and the population
- * grows with every proof written, so an allowlist row per alias is a ledger that
+ * terms; the terms are what need stating. 94 as measured 2026-08-10 (via
+ * `knip --tags +proof`; see "The denominator" below) and the population grows
+ * with every proof written, so an allowlist row per alias is a ledger that
  * must be appended to forever — the drift this gate exists to remove. One config
- * rule states the convention once.
+ * rule states the convention once. The live count is not asserted anywhere —
+ * `runKnipDiff` logs the measured denominator on every green run instead of
+ * pinning a number that would go stale the day after it was written.
  *
  * ─── The denominator ────────────────────────────────────────────────────────
  *

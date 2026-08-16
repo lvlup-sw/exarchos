@@ -10,7 +10,8 @@
 // comment/string-aware scan of a module's own import surface yielding a typed
 // verdict, so a regression (a new import that reaches the event store, the
 // filesystem, a process, the network, or a phase/transition mutation) trips it
-// rather than a hand-maintained mirror.
+// rather than a hand-maintained mirror. The lexical half of that scan is a
+// caller-supplied port — see the note above {@link ImportLexer}.
 //
 // Pure: the scan takes SOURCE TEXT and returns a verdict. It performs NO I/O
 // itself — the caller (the test) reads the module file — so this module never
@@ -62,151 +63,77 @@ export interface RemediationPurityResult {
   readonly forbidden: readonly ForbiddenImport[];
 }
 
-// A `.js` specifier a remediation import may legitimately reference: the marker
-// check below is a positive allow-by-absence — anything not matching a forbidden
-// marker is inert. This detector deliberately re-implements only the minimal
-// specifier extraction it needs (comment/string-aware) so it depends on nothing.
+// The marker check below is a positive allow-by-absence — anything not matching
+// a forbidden marker is inert. What it ranges over is the module's import
+// surface, and answering "what does this module import?" is a question about
+// TypeScript's grammar rather than about admission, so this module asks it of a
+// caller-supplied PORT and owns no lexing mechanism at all (DR-2).
+//
+// ── What the port replaced, and what that cost ──────────────────────────────
+// Until task 072 this file carried its own comment/string-aware character walk —
+// the second of four near-duplicates in this package — introduced with the note
+// that it "deliberately re-implements only the minimal specifier extraction it
+// needs … so it depends on nothing". Measured on task 065's adversarial inputs
+// it was wrong in BOTH directions, and it had no regex-literal state at all,
+// making it the weakest of the four:
+//
+//   • FALSE NEGATIVE, and this is the dangerous direction for a purity census.
+//     A regex literal holding a backtick opened a phantom template that ran to
+//     EOF, hiding a real `import { readFile } from 'node:fs'` — a FORBIDDEN
+//     marker. The verdict was `ok: true` for a module that reaches the
+//     filesystem, which is the one answer this census exists to prevent.
+//   • FALSE POSITIVE. A template nested inside a `${…}` substitution read as
+//     code, so its text was scanned and the census reported a
+//     `node:child_process` import in a module that imports nothing.
+//   • `import('p').T` TYPE QUERIES were charged as VALUE imports. They are fully
+//     erased, so `export type H = import('node:fs').Stats` failed the audit for
+//     an import that emits nothing at all.
+//
+// The port declared below is the MINIMAL shape this census needs, declared here
+// rather than imported from `architecture/effect-ledger.ts`'s wider
+// `ModuleLexer`: naming an architecture-census module from `workflow/admission/`
+// would be a real cross-layer coupling, where this is two fields and no
+// dependency. One implementation — `test-helpers/module-lexer.ts` — satisfies
+// this and both sibling ports structurally, so there is still exactly one lexer.
 
-const IDENT = /[A-Za-z0-9_$]/;
-const isIdent = (c: string | undefined): boolean => c !== undefined && IDENT.test(c);
-const isWs = (c: string | undefined): boolean => c !== undefined && /\s/.test(c);
+/** One import/export specifier occurrence, as the port reports it. */
+export interface LexedImportRef {
+  /** The literal specifier text (`node:fs`, `./x.js`). */
+  readonly specifier: string;
+  /**
+   * True for a form that is fully ERASED at emit — `import type … from '…'`,
+   * `export type … from '…'`, and an `import('…')` type query. Such a form
+   * carries no runtime binding, so it cannot mutate anything; auditing it would
+   * flag a harmless `import type { TransitionDecided }` as if it reached the
+   * mutator.
+   */
+  readonly typeOnly: boolean;
+}
+
+/** Everything this census needs to know about one module's lexical structure. */
+export interface LexedImports {
+  readonly imports: readonly LexedImportRef[];
+}
 
 /**
- * Extract every module specifier introduced by a VALUE import at CODE position —
- * `from '…'`, side-effect `import '…'`, dynamic `import('…')`, or `require('…')`
- * — via a comment/string-aware walk so a specifier inside a string literal or a
- * doc comment is not mistaken for a real import.
- *
- * TYPE-ONLY imports/exports (`import type … from '…'`, `export type … from '…'`)
- * are DELIBERATELY skipped: they are fully erased at compile time and carry no
- * runtime binding, so they cannot mutate anything. Auditing them would flag a
- * harmless `import type { TransitionDecided }` as if it reached the mutator.
+ * The lexer port. REQUIRED wherever it appears: a default would have to be
+ * either the retired heuristic (the defect, retained) or a throwing stub, and an
+ * optional lexer is how a caller silently gets the old answers back.
  */
-export function extractImportSpecifiers(source: string): string[] {
-  const specs: string[] = [];
-  const n = source.length;
-  let i = 0;
-  let quote: string | null = null;
-  let lineComment = false;
-  let blockComment = false;
-  // True while inside the current import/export statement's `type` modifier.
-  let pendingTypeOnly = false;
+export type ImportLexer = (source: string, fileName?: string) => LexedImports;
 
-  const readStringAt = (start: number): { value: string; end: number } | undefined => {
-    const q = source[start];
-    if (q !== '"' && q !== "'" && q !== '`') return undefined;
-    let j = start + 1;
-    let val = '';
-    while (j < n) {
-      const c = source[j] ?? '';
-      if (c === '\\') {
-        j += 2;
-        continue;
-      }
-      if (c === q) return { value: val, end: j };
-      val += c;
-      j += 1;
-    }
-    return undefined;
-  };
-
-  const recordFrom = (kw: 'from' | 'require'): boolean => {
-    let j = i + kw.length;
-    while (isWs(source[j])) j += 1;
-    if (kw === 'require' && source[j] === '(') {
-      j += 1;
-      while (isWs(source[j])) j += 1;
-    }
-    const str = readStringAt(j);
-    if (str === undefined) return false;
-    if (!pendingTypeOnly) specs.push(str.value);
-    pendingTypeOnly = false;
-    i = str.end + 1;
-    return true;
-  };
-
-  while (i < n) {
-    const ch = source[i];
-    const next = source[i + 1];
-    if (lineComment) {
-      if (ch === '\n') lineComment = false;
-      i += 1;
-      continue;
-    }
-    if (blockComment) {
-      if (ch === '*' && next === '/') {
-        blockComment = false;
-        i += 2;
-        continue;
-      }
-      i += 1;
-      continue;
-    }
-    if (quote !== null) {
-      if (ch === '\\') {
-        i += 2;
-        continue;
-      }
-      if (ch === quote) quote = null;
-      i += 1;
-      continue;
-    }
-    if (ch === '/' && next === '/') {
-      lineComment = true;
-      i += 2;
-      continue;
-    }
-    if (ch === '/' && next === '*') {
-      blockComment = true;
-      i += 2;
-      continue;
-    }
-    if (ch === '"' || ch === "'" || ch === '`') {
-      quote = ch;
-      i += 1;
-      continue;
-    }
-
-    if (!isIdent(source[i - 1])) {
-      const isImport = source.startsWith('import', i) && !isIdent(source[i + 6]);
-      const isExport = source.startsWith('export', i) && !isIdent(source[i + 6]);
-      if (isImport || isExport) {
-        // A fresh import/export statement — re-derive its type-only status so a
-        // prior `export type X = Y;` never leaks into the next statement's `from`.
-        pendingTypeOnly = false;
-        let p = i + 'import'.length;
-        while (isWs(source[p])) p += 1;
-        if (source.startsWith('type', p) && !isIdent(source[p + 4])) pendingTypeOnly = true;
-
-        if (isImport) {
-          // Side-effect `import '…'` or dynamic `import('…')` — a value import.
-          let j = i + 'import'.length;
-          while (isWs(source[j])) j += 1;
-          if (source[j] === '(') {
-            j += 1;
-            while (isWs(source[j])) j += 1;
-          }
-          const str = readStringAt(j);
-          if (str !== undefined) {
-            if (!pendingTypeOnly) specs.push(str.value);
-            pendingTypeOnly = false;
-            i = str.end + 1;
-            continue;
-          }
-        }
-        i += 'import'.length;
-        continue;
-      }
-
-      if (source.startsWith('from', i) && !isIdent(source[i + 4])) {
-        if (recordFrom('from')) continue;
-      } else if (source.startsWith('require', i) && !isIdent(source[i + 7])) {
-        if (recordFrom('require')) continue;
-      }
-    }
-    i += 1;
-  }
-  return specs;
+/**
+ * Every module specifier introduced by a VALUE import, as `lex` resolved them.
+ *
+ * An ACCESSOR, not a lexer: it holds no knowledge of TypeScript's grammar and
+ * must never re-acquire any. The one judgement it makes is the census's own —
+ * type-only forms are erased, so they are dropped here rather than in the port,
+ * which reports the full surface because a sibling consumer needs it.
+ */
+export function extractImportSpecifiers(source: string, lex: ImportLexer): string[] {
+  return lex(source)
+    .imports.filter((ref) => !ref.typeOnly)
+    .map((ref) => ref.specifier);
 }
 
 /**
@@ -216,9 +143,10 @@ export function extractImportSpecifiers(source: string): string[] {
 export function auditRemediationPurity(
   module: string,
   source: string,
+  lex: ImportLexer,
   markers: readonly string[] = FORBIDDEN_IMPORT_MARKERS,
 ): RemediationPurityResult {
-  const specifiers = extractImportSpecifiers(source);
+  const specifiers = extractImportSpecifiers(source, lex);
   const forbidden: ForbiddenImport[] = [];
   for (const specifier of specifiers) {
     for (const marker of markers) {

@@ -67,6 +67,7 @@ function lintFixture(name) {
 const violating = lintFixture('handler-throw.violating.ts');
 const compliant = lintFixture('handler-throw.compliant.ts');
 const unresolved = lintFixture('handler-throw.unresolved.ts');
+const unattributed = lintFixture('handler-throw.unattributed.ts');
 
 function findByName(messages, name) {
   return messages.find(m => m.message.includes(`'${name}'`));
@@ -132,16 +133,35 @@ test('noHandlerThrow_DestructuredParamValidationThrow_IsReported', () => {
   assert.ok(hit, 'expected a destructured-param validation throw to be reported, not exempted');
 });
 
-test('noHandlerThrow_ViolatingFixture_ReportsExactlyEightAbnormalThrows', () => {
-  // Guards against both under- and over-reporting. 8: the original 5
+// ─── Derived special-branch census (task 082 / DR-9) ──────────────────────
+
+test('noHandlerThrow_SpecialBranchHandlerAbsentFromAnyRoster_IsReported', () => {
+  // KILL PROBE for the derivation. `handleAmend` is dispatched from an
+  // `if (action === 'invariants_amend')` branch and appears in no
+  // hand-written handler roster — exactly the state the real
+  // `invariants_amend` verb shipped in. With the census derived from the
+  // dispatch branches it is scanned like any other special branch; with the
+  // old `SPECIAL_BRANCH_ACTIONS` map this handler was invisible and its
+  // throw went unreported.
+  const hit = findByName(violating, 'invariants_amend');
+  assert.ok(
+    hit,
+    'expected the derived census to scan a special branch whose handler is in no hand-written roster',
+  );
+  assert.equal(hit.messageId, 'abnormalThrow');
+});
+
+test('noHandlerThrow_ViolatingFixture_ReportsExactlyNineAbnormalThrows', () => {
+  // Guards against both under- and over-reporting. 9: the original 5
   // (handleTopLevelThrow ×1, handleCatchRethrow ×2, handleDoctor ×1,
   // inline_arrow_throw's args-derived throw ×1 — its ctx-guard throw stays
-  // exempt) plus the 3 new M1/M2 fixture cases (zero_arg_factory_throw,
-  // as_cast_throw, destructured_param_throw), each contributing exactly one.
+  // exempt), the 3 M1/M2 fixture cases (zero_arg_factory_throw,
+  // as_cast_throw, destructured_param_throw), and the derived-census kill
+  // case (invariants_amend), each contributing exactly one.
   assert.equal(
     violating.length,
-    8,
-    `expected exactly 8 violations, got ${violating.length}: ${JSON.stringify(violating.map(m => m.message))}`,
+    9,
+    `expected exactly 9 violations, got ${violating.length}: ${JSON.stringify(violating.map(m => m.message))}`,
   );
 });
 
@@ -200,7 +220,73 @@ test('noHandlerThrow_UnresolvableFactoryReturnShape_ReportsUnresolvedHandler', (
   // entry (fail-open); the fix reports a rule error on it instead
   // (fail-closed) so an unscannable registered handler is never mistaken for
   // "nothing to report".
-  assert.equal(unresolved.length, 1, `expected exactly 1 diagnostic, got: ${JSON.stringify(unresolved)}`);
-  assert.equal(unresolved[0].messageId, 'unresolvedHandler');
-  assert.match(unresolved[0].message, /indirect_factory_return/);
+  const hit = findByName(unresolved, 'indirect_factory_return');
+  assert.ok(hit, `expected an unresolvedHandler report for the map entry: ${JSON.stringify(unresolved)}`);
+  assert.equal(hit.messageId, 'unresolvedHandler');
+});
+
+// ─── Task 082 / DR-9: BOTH special-branch silent returns are now loud ──────
+
+test('noHandlerThrow_UnresolvableSpecialBranchHandler_ReportsUnresolvedHandler', () => {
+  // The `if (!fnNode) return;` hole. The branch NAMES an action, so the
+  // census can see the registration — it just cannot scan it. Silently
+  // skipping made an unscannable special branch indistinguishable from a
+  // clean one; it is reported now, the same way an ACTION_HANDLERS entry is.
+  const hit = findByName(unresolved, 'unresolved_branch');
+  assert.ok(hit, `expected an unresolvedHandler report for the branch: ${JSON.stringify(unresolved)}`);
+  assert.equal(hit.messageId, 'unresolvedHandler');
+});
+
+test('noHandlerThrow_UnresolvedFixture_ReportsExactlyTwoDiagnostics', () => {
+  assert.equal(
+    unresolved.length,
+    2,
+    `expected exactly 2 diagnostics, got: ${JSON.stringify(unresolved.map(m => m.message))}`,
+  );
+});
+
+test('noHandlerThrow_NamedHandlerDispatchOutsideAnyBranch_ReportsUnattributedDispatch', () => {
+  // The `if (!actionName) return;` hole. An envelope-wrapped call to a named
+  // handler that no dispatch branch selects cannot be attributed to an
+  // action — which is exactly what an unrostered handler name looked like
+  // before. It is a census hole, so it is reported rather than skipped.
+  assert.equal(
+    unattributed.length,
+    1,
+    `expected exactly 1 diagnostic, got: ${JSON.stringify(unattributed.map(m => m.message))}`,
+  );
+  assert.equal(unattributed[0].messageId, 'unattributedDispatch');
+  assert.match(unattributed[0].message, /handleUnbranched/);
+});
+
+test('noHandlerThrow_UnscannableDispatchShapes_AreReportedNotExempted', () => {
+  // Two shapes that reached a real handler and were silently skipped:
+  //   1. `envelopeWrap(await handlers.handleX(…))` — a member-expression callee
+  //      the resolver could not name, which the caller read as "pre-built
+  //      envelope, nothing dispatched here";
+  //   2. `const handler = handleX` — a plain alias that satisfied the
+  //      table-dispatch exemption merely by being function-local.
+  // Either one hides a handler from the census entirely, which is the hole this
+  // rule exists to close.
+  const unscannable = lintFixture('handler-throw.unscannable.ts');
+  assert.equal(
+    unscannable.length,
+    2,
+    `expected exactly 2 diagnostics, got: ${JSON.stringify(unscannable.map(m => m.message))}`,
+  );
+  for (const message of unscannable) {
+    assert.equal(message.messageId, 'unattributedDispatch');
+  }
+  assert.match(unscannable.map(m => m.message).join('\n'), /handlers\.handleNamespaced/);
+  assert.match(unscannable.map(m => m.message).join('\n'), /handler/);
+});
+
+test('noHandlerThrow_TableDispatchThroughLocalHandlerConst_IsNotReported', () => {
+  // The compliant fixture's `const handler = ACTION_HANDLERS[action]` tail —
+  // an INDIRECTION whose census is the map walk, not the branch derivation.
+  // Reporting it would make the loud attribution check unusable on the real
+  // dispatcher, so the derivation must leave it alone. (Subsumed by
+  // CompliantFixture_ReportsNothing; pinned separately because it is the one
+  // shape that decides whether the fail-loud arm over-selects.)
+  assert.equal(findByName(compliant, 'handler'), undefined);
 });

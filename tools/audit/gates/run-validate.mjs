@@ -29,10 +29,35 @@
  * zero. "Nothing to do" and "everything passed" must not print the same thing;
  * conflating them is how the original chain hid eight gates for months.
  *
+ * ── Verdict fidelity (DR-7, task 078) ───────────────────────────────────────
+ * The above fixed WHETHER a step ran. It did not fix WHAT the step's verdict
+ * was: a step's outcome was `status === 0`, so `check-measured-premises.mjs`
+ * printing `VERDICT: GAPS` while exiting 0 was aggregated as `PASS
+ * measured-premises`, 9/9, exit 0. The reader saw a pass for a step that had
+ * explicitly reported it was not one.
+ *
+ * A step may now DECLARE what its non-zero exit codes mean, in the manifest:
+ *
+ *     "outcomes": {
+ *       "3": { "verdict": "gaps", "severity": "advisory",
+ *              "issue": "#1789", "expires": "2026-11-30", "why": "…" }
+ *     }
+ *
+ * The runner then renders that step's REAL verdict (`GAPS`, never `PASS`) and
+ * the exit code follows the declared severity. Three properties make this a
+ * gate rather than a loophole:
+ *
+ *   - exit 0 is not declarable. Pass means pass; a step cannot rename it.
+ *   - an UNDECLARED non-zero code is a failure, as before. Toleration is
+ *     opt-in and explicit, never inherited.
+ *   - `expires` is mandatory on an advisory. Past it the toleration is dead and
+ *     the step fails — a tolerated non-pass that nobody revisits is how "this
+ *     is temporary" becomes permanent.
+ *
  * Usage: run-validate.mjs [--manifest <path>] [--json] [--list]
  *
  * Exit codes:
- *   0 = every declared step executed and passed
+ *   0 = every declared step executed and either passed or hit a live advisory
  *   1 = a step failed, or the run truncated, or the denominator was empty
  *   2 = usage error, or the manifest could not be read (fail closed)
  */
@@ -47,11 +72,21 @@ const REPO_ROOT = path.resolve(SCRIPT_DIR, '..', '..', '..');
 export const DEFAULT_MANIFEST_PATH = path.join('tools', 'audit', 'gates', 'validate-manifest.json');
 
 /**
+ * @typedef {object} DeclaredOutcome
+ * @property {string} verdict    Rendered in place of PASS/FAIL, e.g. `gaps`.
+ * @property {'advisory' | 'fail'} severity
+ * @property {string} [issue]    Tracking issue for the toleration.
+ * @property {string} [expires]  `YYYY-MM-DD`; required when severity=advisory.
+ * @property {string} [why]
+ */
+
+/**
  * @typedef {object} ValidateStep
  * @property {string} id
  * @property {string} command
  * @property {string[]} args
  * @property {string} [why]
+ * @property {Record<string, DeclaredOutcome>} [outcomes] Exit code → meaning.
  */
 
 /**
@@ -63,6 +98,14 @@ export const DEFAULT_MANIFEST_PATH = path.join('tools', 'audit', 'gates', 'valid
  * @property {boolean} passed
  * @property {string} [error]   Spawn-level failure detail (ENOENT, signal, …).
  */
+
+/** Severity a step's outcome carries once classified. */
+const PASS = 'pass';
+const TOLERATED = 'tolerated';
+const FAILED = 'failed';
+const NOT_RUN = 'not-run';
+
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
  * Read + validate the manifest's shape.
@@ -99,9 +142,96 @@ export function parseManifest(json) {
     if (args !== undefined && (!Array.isArray(args) || args.some((a) => typeof a !== 'string'))) {
       return { error: `step "${id}" has a non-string-array \`args\`` };
     }
-    steps.push({ id, command, args: args ?? [], ...(typeof why === 'string' ? { why } : {}) });
+    const outcomes = parseDeclaredOutcomes(id, raw.outcomes);
+    if ('error' in outcomes) return outcomes;
+    steps.push({
+      id,
+      command,
+      args: args ?? [],
+      ...(typeof why === 'string' ? { why } : {}),
+      ...(outcomes.outcomes === undefined ? {} : { outcomes: outcomes.outcomes }),
+    });
   }
   return { steps };
+}
+
+/**
+ * Validate a step's `outcomes` declaration.
+ *
+ * Every rule here is a way the declaration could become a silent pass, closed:
+ * exit 0 is not declarable (pass is not renameable), an advisory with no
+ * `expires` never dies, and a malformed block is a hard manifest error rather
+ * than an ignored key — an `outcomes` typo that fell through would restore
+ * exactly the "declared, enforced, cannot fail" shape this runner exists to
+ * remove.
+ *
+ * @param {string} stepId
+ * @param {unknown} raw
+ * @returns {{ outcomes?: Record<string, DeclaredOutcome> } | { error: string }}
+ */
+export function parseDeclaredOutcomes(stepId, raw) {
+  if (raw === undefined) return {};
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { error: `step "${stepId}" has a non-object \`outcomes\`` };
+  }
+  /** @type {Record<string, DeclaredOutcome>} */
+  const declared = {};
+  for (const [code, value] of Object.entries(raw)) {
+    if (!/^[0-9]+$/.test(code)) {
+      return { error: `step "${stepId}" declares outcome key "${code}", which is not an exit code` };
+    }
+    if (Number(code) === 0) {
+      return {
+        error:
+          `step "${stepId}" declares an outcome for exit code 0. Exit 0 is PASS and ` +
+          `may not be redefined — a step that renamed its pass code could report ` +
+          `anything it liked as success.`,
+      };
+    }
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+      return { error: `step "${stepId}" outcome ${code} is not an object` };
+    }
+    const { verdict, severity, issue, expires, why } = value;
+    if (typeof verdict !== 'string' || verdict.trim() === '') {
+      return { error: `step "${stepId}" outcome ${code} has no \`verdict\`` };
+    }
+    if (verdict.trim().toLowerCase() === 'pass') {
+      return {
+        error:
+          `step "${stepId}" outcome ${code} names its verdict "pass". A non-zero ` +
+          `exit is not a pass; that conflation is the defect this field exists to close.`,
+      };
+    }
+    if (severity !== 'advisory' && severity !== 'fail') {
+      return {
+        error: `step "${stepId}" outcome ${code} has severity ${JSON.stringify(severity)}; expected 'advisory' or 'fail'`,
+      };
+    }
+    if (severity === 'advisory') {
+      if (typeof expires !== 'string' || !ISO_DAY.test(expires)) {
+        return {
+          error:
+            `step "${stepId}" outcome ${code} is advisory but has no \`expires\` ` +
+            `(YYYY-MM-DD). A toleration with no expiry is permanent by default.`,
+        };
+      }
+      if (typeof issue !== 'string' || issue.trim() === '') {
+        return {
+          error:
+            `step "${stepId}" outcome ${code} is advisory but names no \`issue\`. ` +
+            `A tolerated non-pass needs somewhere for its removal to be tracked.`,
+        };
+      }
+    }
+    declared[code] = {
+      verdict: verdict.trim(),
+      severity,
+      ...(typeof issue === 'string' ? { issue } : {}),
+      ...(typeof expires === 'string' ? { expires } : {}),
+      ...(typeof why === 'string' ? { why } : {}),
+    };
+  }
+  return { outcomes: declared };
 }
 
 /** Render a step as the command line a human would retype to reproduce it. */
@@ -145,6 +275,58 @@ export function runAllSteps(steps, runStep) {
   return outcomes;
 }
 
+/** Today, UTC, as `YYYY-MM-DD`. */
+function utcToday() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * Classify one executed step against its declared outcomes.
+ *
+ * The DEFAULTS are the fail-closed ones: exit 0 is a pass, a step that never
+ * ran is `not-run`, and every other code is a failure unless the manifest says
+ * otherwise. Toleration is a thing a step must ASK for, and an expired ask is
+ * no ask at all.
+ *
+ * @param {ValidateStep | undefined} step
+ * @param {StepOutcome} outcome
+ * @param {string} [today] `YYYY-MM-DD`, injectable so the expiry tooth is testable.
+ * @returns {{ severity: string, verdict: string, note?: string }}
+ */
+export function classifyOutcome(step, outcome, today = utcToday()) {
+  if (!outcome.executed) return { severity: NOT_RUN, verdict: 'not run' };
+  if (outcome.status === 0) return { severity: PASS, verdict: 'pass' };
+
+  const declared = step?.outcomes?.[String(outcome.status)];
+  if (declared === undefined) {
+    return { severity: FAILED, verdict: 'fail' };
+  }
+  if (declared.severity === 'fail') {
+    return { severity: FAILED, verdict: declared.verdict };
+  }
+  // Advisory — live only while unexpired. `expires` is the LAST tolerated day,
+  // so the comparison is strict: on `expires` itself the toleration still
+  // holds. `check-measured-premises.mjs` reads its own `--tolerate-gaps-until`
+  // the same inclusive way (`tolerateGapsUntil >= today`), and the two must
+  // agree — a date that means "tolerated" to the gate and "expired" to the
+  // aggregator is the divergence this epic exists to remove.
+  const expires = declared.expires ?? '';
+  if (expires < today) {
+    return {
+      severity: FAILED,
+      verdict: declared.verdict,
+      note:
+        `advisory toleration expired ${expires} (today ${today}) — ` +
+        `resolve ${declared.issue ?? 'the tracking issue'} or re-declare it`,
+    };
+  }
+  return {
+    severity: TOLERATED,
+    verdict: declared.verdict,
+    note: `tolerated until ${expires}${declared.issue ? ` (${declared.issue})` : ''}`,
+  };
+}
+
 /**
  * Turn declared steps + outcomes into the run's verdict.
  *
@@ -152,15 +334,45 @@ export function runAllSteps(steps, runStep) {
  *
  * @param {ValidateStep[]} steps
  * @param {StepOutcome[]} outcomes
- * @returns {{ ok: boolean, declared: number, executed: number, passed: number, failed: number, violations: string[] }}
+ * @param {string} [today] `YYYY-MM-DD`, injectable for the advisory-expiry tooth.
+ * @returns {{ ok: boolean, declared: number, executed: number, passed: number, tolerated: number, failed: number, violations: string[], notices: string[], classifications: Record<string, { severity: string, verdict: string, note?: string }> }}
  */
-export function summarize(steps, outcomes) {
+export function summarize(steps, outcomes, today = utcToday()) {
+  const byId = new Map(steps.map((s) => [s.id, s]));
+  /** @type {Record<string, { severity: string, verdict: string, note?: string }>} */
+  const classifications = {};
+  for (const outcome of outcomes) {
+    classifications[outcome.id] = classifyOutcome(byId.get(outcome.id), outcome, today);
+  }
+
   const declared = steps.length;
   const executed = outcomes.filter((o) => o.executed).length;
-  const passed = outcomes.filter((o) => o.passed).length;
-  const failed = outcomes.filter((o) => !o.passed).length;
+  const severityOf = (o) => classifications[o.id]?.severity;
+  const passed = outcomes.filter((o) => severityOf(o) === PASS).length;
+  const tolerated = outcomes.filter((o) => severityOf(o) === TOLERATED).length;
+  const failed = outcomes.filter(
+    (o) => severityOf(o) === FAILED || severityOf(o) === NOT_RUN,
+  ).length;
+  /** Failing findings — each one makes `ok` false. */
   /** @type {string[]} */
   const violations = [];
+  /** Non-failing findings that must still be SEEN. A tolerated step is
+   *  reported, never hidden: the point of the declaration is that a reader of
+   *  the aggregate learns the step did not pass. */
+  /** @type {string[]} */
+  const notices = [];
+
+  for (const outcome of outcomes) {
+    const c = classifications[outcome.id];
+    if (c?.severity === TOLERATED) {
+      notices.push(
+        `[tolerated-non-pass]  ${outcome.id} reported '${c.verdict}' (exit ${outcome.status}) — ` +
+          `NOT a pass; ${c.note ?? 'tolerated by the manifest'}`,
+      );
+    } else if (c?.severity === FAILED && c.note !== undefined) {
+      violations.push(`[expired-toleration]  ${outcome.id} — ${c.note}`);
+    }
+  }
 
   if (declared === 0) {
     violations.push(
@@ -183,26 +395,53 @@ export function summarize(steps, outcomes) {
     );
   }
 
-  return { ok: violations.length === 0 && failed === 0, declared, executed, passed, failed, violations };
+  return {
+    ok: violations.length === 0 && failed === 0,
+    declared,
+    executed,
+    passed,
+    tolerated,
+    failed,
+    violations,
+    notices,
+    classifications,
+  };
 }
 
-/** The end-of-run report. Every declared step appears, run or not. */
+/**
+ * The end-of-run report. Every declared step appears, run or not — and every
+ * step is labelled with the verdict IT computed, never with a verdict inferred
+ * from the exit code alone.
+ */
 export function renderSummary(outcomes, summary) {
   const lines = ['', '═'.repeat(72), 'npm run validate — aggregate result', '═'.repeat(72), ''];
   for (const outcome of outcomes) {
-    const verdict = !outcome.executed ? 'NOT RUN' : outcome.passed ? 'PASS   ' : 'FAIL   ';
-    const suffix = !outcome.executed
-      ? ` (${outcome.error ?? 'never executed'})`
-      : outcome.passed
-        ? ''
-        : ` (exit ${outcome.status})`;
-    lines.push(`  ${verdict}  ${outcome.id.padEnd(30)} ${outcome.command}${suffix}`);
+    const c = summary.classifications?.[outcome.id];
+    // Fall back to the pre-DR-7 two-valued rendering when no classification is
+    // supplied (callers holding a summary from an older shape).
+    const severity = c?.severity ?? (!outcome.executed ? NOT_RUN : outcome.passed ? PASS : FAILED);
+    const label =
+      severity === NOT_RUN
+        ? 'NOT RUN'
+        : severity === PASS
+          ? 'PASS'
+          : (c?.verdict ?? 'fail').toUpperCase();
+    const suffix =
+      severity === NOT_RUN
+        ? ` (${outcome.error ?? 'never executed'})`
+        : severity === PASS
+          ? ''
+          : ` (exit ${outcome.status}${c?.note ? `; ${c.note}` : ''})`;
+    lines.push(`  ${label.padEnd(7)}  ${outcome.id.padEnd(30)} ${outcome.command}${suffix}`);
   }
   lines.push('');
   lines.push(
     `  ${summary.executed}/${summary.declared} declared steps executed · ` +
-      `${summary.passed} passed · ${summary.failed} failed`,
+      `${summary.passed} passed · ` +
+      `${summary.tolerated ?? 0} tolerated non-pass · ` +
+      `${summary.failed} failed`,
   );
+  for (const notice of summary.notices ?? []) lines.push(`  ${notice}`);
   for (const violation of summary.violations) lines.push(`  ${violation}`);
   lines.push('');
   lines.push(summary.ok ? 'validate: PASS' : 'validate: FAIL');
@@ -223,7 +462,7 @@ Options:
   --help             Show this message
 
 Exit codes:
-  0  Every declared step executed and passed
+  0  Every declared step executed and either passed or hit a live advisory
   1  A step failed, the run truncated, or the denominator was empty
   2  Usage error, or the manifest could not be read (fail closed)`;
 

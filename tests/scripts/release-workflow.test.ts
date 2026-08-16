@@ -25,6 +25,12 @@ import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import yaml from 'js-yaml';
+// Same side-effect-free targets module `ci-binary-matrix.test.ts` imports —
+// the single source of truth for the cross-compile population. Deriving
+// against it here closes the gap DR-8 named: before this, both the workflow's
+// literal asset counts AND this test's expectations were transcribed from
+// TARGETS by hand, so a drifted TARGETS left everything green.
+import { TARGETS } from './build-binary-targets.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -96,8 +102,6 @@ describe('Release workflow (task 2.7)', () => {
         ? includeList
         : [];
 
-    expect(entries.length).toBe(5);
-
     const names = entries.map((e) => {
       if (typeof e === 'string') return e;
       if (e && typeof e === 'object' && 'target' in e) {
@@ -106,22 +110,22 @@ describe('Release workflow (task 2.7)', () => {
       return '';
     });
 
-    expect(names).toContain('linux-x64');
-    expect(names).toContain('linux-arm64');
-    expect(names).toContain('darwin-x64');
-    expect(names).toContain('darwin-arm64');
-    expect(names).toContain('windows-x64');
+    // Derived from `TARGETS` (same pattern as `ci-binary-matrix.test.ts`)
+    // rather than a hand-transcribed count and name list — a target added to
+    // or removed from `TARGETS` without a matching `release.yml` edit reddens
+    // here instead of leaving both sides as agreeing literals.
+    const expectedNames = TARGETS.map((t) => `${t.os}-${t.arch}`);
+    expect(names.slice().sort()).toEqual(expectedNames.slice().sort());
   });
 
   it('ReleaseWorkflow_UploadsBinariesAndChecksums', () => {
     const wf = loadReleaseWorkflow();
     const jobs = wf.jobs ?? {};
 
-    // The release pipeline must attach 10 specific assets to the
-    // GitHub Release: 5 binaries + 5 .sha512 sidecars. Counting only
-    // the total length would let a typo slip through (e.g. uploading
-    // `.sha256` sidecars or duplicate paths still summing to 10), so
-    // assert the exact path set instead.
+    // The release pipeline must attach one binary + one .sha512 sidecar per
+    // `TARGETS` entry. Counting only the total length would let a typo slip
+    // through (e.g. uploading `.sha256` sidecars or duplicate paths still
+    // summing to the right count), so assert the exact path set instead.
     const allSteps: StepShape[] = [];
     for (const job of Object.values(jobs)) {
       for (const s of job.steps ?? []) {
@@ -158,22 +162,24 @@ describe('Release workflow (task 2.7)', () => {
     // assertion is order-independent so reasonable reorderings don't
     // break the gate while typos still do.
     //
-    // DR-20 added the 11th asset: the Ed25519-signed release manifest
+    // DR-20 added the signed release manifest
     // (`exarchos-release-manifest.json`), produced by
     // `tools/release/build-release-manifest.ts` over the exact published bytes.
     // Unlike the unsigned `.sha512` sidecars it also pins the source and
     // contract identity, so it must never silently drop out of `files:`.
+    //
+    // The per-target pair is DERIVED from `TARGETS` rather than transcribed —
+    // this is the DR-8 fix: before, `release.yml`'s own asset count and this
+    // expected list were BOTH literals copied from the same population, so a
+    // target added to `TARGETS` without a matching `release.yml` edit stayed
+    // green here. Windows carries the `.exe` extension convention `build-
+    // binary.ts` uses; every other target has none.
     const expectedAssets = [
-      'dist/release/exarchos-linux-x64',
-      'dist/release/exarchos-linux-x64.sha512',
-      'dist/release/exarchos-linux-arm64',
-      'dist/release/exarchos-linux-arm64.sha512',
-      'dist/release/exarchos-darwin-x64',
-      'dist/release/exarchos-darwin-x64.sha512',
-      'dist/release/exarchos-darwin-arm64',
-      'dist/release/exarchos-darwin-arm64.sha512',
-      'dist/release/exarchos-windows-x64.exe',
-      'dist/release/exarchos-windows-x64.exe.sha512',
+      ...TARGETS.flatMap((t) => {
+        const ext = t.os === 'windows' ? '.exe' : '';
+        const binary = `dist/release/exarchos-${t.os}-${t.arch}${ext}`;
+        return [binary, `${binary}.sha512`];
+      }),
       'dist/release/exarchos-release-manifest.json',
     ];
     expect(advertisedAssets.slice().sort()).toEqual(expectedAssets.slice().sort());

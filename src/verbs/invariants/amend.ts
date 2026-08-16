@@ -15,6 +15,11 @@
  *     field the patch does not name is carried through from the existing entry
  *     verbatim, so an amendment cannot silently drop `references`, `severity`
  *     or an affinity list the author never mentioned.
+ *   - **Field-scoped IN THE FILE TOO** (DR-3). The write is a SPLICE of the
+ *     amended entry's lines into the original text, not a re-serialization of
+ *     the document — see `locateCatalogEntry`. Sibling entries keep their
+ *     bytes, so the catalog's raw-text digest moves for the amendment and for
+ *     nothing else.
  *   - **`dryRun`-first** (INV-5c), like every other mutating verb here.
  *   - **Audited.** A commit emits `invariant.amended` carrying the id and the
  *     field names that changed.
@@ -26,12 +31,17 @@
  * path must never be able to author a document the reader refuses.
  *
  * Pure-by-default: fs side effects flow through injected `ScaffoldDeps`.
+ *
+ * TOTAL in its envelope (#1706 DR-1): every failure this handler can reach —
+ * an unlocatable entry, and the commit path's filesystem write, which throws —
+ * leaves through a coded `ToolResult.error`. Nothing escapes to
+ * dispatch's safety net, which would flatten it to a generic INTERNAL_ERROR
+ * and discard the code the caller branches on.
  */
 import * as path from 'node:path';
 import { toPosix } from '../../utils/paths.js';
 import { z } from 'zod';
-import { parseDocument, stringify as stringifyYaml, isSeq, isMap } from 'yaml';
-import type { YAMLSeq } from 'yaml';
+import { stringify as stringifyYaml } from 'yaml';
 
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import type { ToolResult } from '../../format.js';
@@ -43,10 +53,9 @@ import {
   duplicateInvariantIdMessage,
 } from '../../architecture/invariants-loader.js';
 import {
-  splitCatalog,
   readCatalogIds,
   catalogUnreadableResult,
-  isPlainRecord,
+  locateCatalogEntry,
 } from './catalog-file.js';
 import { validationErrorResult } from './add.js';
 import type { ScaffoldDeps } from './scaffold.js';
@@ -75,7 +84,11 @@ export const AmendInvariantData = z.object({
   patchedFields: z.array(z.string().min(1)).min(1),
   /** Dry-run only: the amended entry rendered as a YAML list fragment. */
   renderedEntry: z.string().optional(),
-  /** Dry-run only: a before/after diff of the single amended entry. */
+  /**
+   * Dry-run only: the exact lines the commit would replace, and replace them
+   * with. Rendered from the same splice the commit writes, so the preview is
+   * the write rather than an approximation of it.
+   */
   diff: z.string().optional(),
   /** Commit only: the event types actually appended. */
   events: z.array(z.string()).optional(),
@@ -111,68 +124,13 @@ export interface HandleAmendArgs {
 }
 
 /**
- * Locate the entry with `id` inside a parsed frontmatter document, returning
- * both its index in the `invariants:` sequence and its current field map.
+ * Render a minimal replace diff for the dry-run preview: the entry's lines as
+ * they stand on disk as removed lines, the spliced replacement as added lines.
  *
- * Returns `undefined` when the sequence is missing or no entry matches — the
- * caller has already proven the id list RESOLVED and the id present, so an
- * `undefined` here means the document changed shape between the two reads and
- * is treated as an internal error rather than "not found".
- */
-function findEntry(
-  doc: ReturnType<typeof parseDocument>,
-  id: string,
-): { seq: YAMLSeq; index: number; current: Record<string, unknown> } | undefined {
-  // `isSeq` / `isMap` / `isPlainRecord` are type PREDICATES, so every
-  // narrowing below is checked by the compiler rather than asserted with a
-  // cast. The sequence is returned alongside the index so the caller can
-  // replace in place without re-resolving (and re-asserting) the node.
-  const list: unknown = doc.get('invariants', true);
-  if (!isSeq(list)) return undefined;
-  const items = list.items;
-  for (let index = 0; index < items.length; index += 1) {
-    const item = items[index];
-    if (!isMap(item)) continue;
-    const projected: unknown = item.toJSON();
-    if (!isPlainRecord(projected)) continue;
-    if (projected.id === id) return { seq: list, index, current: projected };
-  }
-  return undefined;
-}
-
-/**
- * Replace the entry at `index` of the `invariants:` sequence with `validated`,
- * preserving BOTH the markdown body AND the frontmatter's YAML comments.
- *
- * Mirrors `appendEntryToCatalog`'s two-shape handling (see catalog-file.ts):
- * the fenced dev catalog carries a prose body a whole-file round-trip would
- * destroy, so we mutate ONLY the frontmatter document and reassemble.
- */
-export function replaceEntryInCatalog(
-  contents: string,
-  id: string,
-  validated: unknown,
-): string {
-  const { frontmatter, body } = splitCatalog(contents);
-
-  const doc = parseDocument(frontmatter);
-  const found = findEntry(doc, id);
-  if (found === undefined) {
-    throw new Error(
-      `invariants_amend: entry '${id}' vanished between the id scan and the write`,
-    );
-  }
-  found.seq.set(found.index, validated);
-
-  if (body !== undefined) {
-    return `---\n${doc.toString()}---\n${body}`;
-  }
-  return doc.toString();
-}
-
-/**
- * Render a minimal replace diff for the dry-run preview: the entry's current
- * YAML as removed lines, the amended entry as added lines.
+ * Both sides come from the splice, so the preview names exactly the lines the
+ * commit touches — which is the point of DR-3 on the review side: a reviewer
+ * must be able to see that an amendment is an amendment without re-parsing the
+ * file to separate it from collateral reflow.
  */
 function renderAmendDiff(
   relCatalog: string,
@@ -180,12 +138,16 @@ function renderAmendDiff(
   before: string,
   after: string,
 ): string {
-  const mark = (text: string, sign: string): string =>
-    text
-      .split('\n')
-      .filter((l) => l.length > 0)
-      .map((l) => `${sign}${l}`)
-      .join('\n');
+  const mark = (text: string, sign: string): string => {
+    const lines = text.split('\n');
+    // `split('\n')` on text ending in a newline yields ONE trailing '' that is an
+    // artifact of the terminator, not a line. Drop exactly that. Filtering every
+    // empty line (as this did) also erased blank lines INSIDE an entry, so a
+    // preview whose entire job is showing what changes quietly hid part of it —
+    // and a blank line is a real edit in a YAML block scalar.
+    if (lines[lines.length - 1] === '') lines.pop();
+    return lines.map((l) => `${sign}${l}`).join('\n');
+  };
   return (
     `--- a/${relCatalog}\n+++ b/${relCatalog}\n@@ invariants: (amend ${id}) @@\n` +
     `${mark(before, '-')}\n${mark(after, '+')}`
@@ -232,7 +194,23 @@ export async function handleAmend(
       },
     };
   }
-  const catalogContents = deps.read(catalogAbs);
+  // `exists` and `read` are two syscalls, and the header promises a TOTAL
+  // envelope — every failure a coded result. Between the check above and this
+  // read the path can be removed, replaced by a directory, or lose read
+  // permission, and the ENOENT / EISDIR / EACCES would escape to dispatch and
+  // flatten to a generic INTERNAL_ERROR: exactly the outcome the claim says is
+  // unrepresentable. The existence check cannot be made atomic, so the read
+  // carries its own arm instead.
+  let catalogContents: string;
+  try {
+    catalogContents = deps.read(catalogAbs);
+  } catch (cause) {
+    return catalogUnreadableResult(
+      relCatalog,
+      tier,
+      `the catalog could not be read: ${cause instanceof Error ? cause.message : String(cause)}`,
+    );
+  }
 
   // ── Denominator, proven RESOLVED before anything is concluded from it ──
   const scan = readCatalogIds(catalogContents);
@@ -329,20 +307,29 @@ export async function handleAmend(
     };
   }
 
-  // ── Merge: patch replaces named top-level fields, everything else survives ──
-  const doc = parseDocument(splitCatalog(catalogContents).frontmatter);
-  const found = findEntry(doc, args.id);
-  if (found === undefined) {
+  // ── Locate the entry's LINES, not just its values (DR-3) ──
+  // One locator serves both halves of the amendment: the merge base (what the
+  // entry currently says) and the splice (which bytes of the file it owns).
+  // Locating is strictly narrower than the id scan above — an aliased entry has
+  // a readable id but no node of its own to rewrite — so a resolved id is not
+  // by itself proof that there is anything to splice.
+  const location = locateCatalogEntry(catalogContents, args.id);
+  if (!location.located) {
     return {
       success: false,
       error: {
         code: 'INTERNAL_ERROR',
-        message: `Entry '${args.id}' resolved in the id scan but could not be located in the catalog document.`,
+        message:
+          `Entry '${args.id}' resolved in the id scan but its lines could not be ` +
+          `located in catalog '${relCatalog}': ${location.reason}. Refusing rather ` +
+          `than rewriting the whole document, which would re-wrap entries this ` +
+          `amendment never named.`,
       },
     };
   }
-  const before = stringifyYaml([found.current]);
-  const merged = { ...found.current, ...args.patch, id: args.id };
+
+  // ── Merge: patch replaces named top-level fields, everything else survives ──
+  const merged = { ...location.entry.current, ...args.patch, id: args.id };
 
   let validated;
   try {
@@ -375,6 +362,12 @@ export async function handleAmend(
 
   const renderedEntry = stringifyYaml([validated]);
 
+  // Built ONCE and shared by both branches, so the dry-run preview shows the
+  // exact lines the commit will write rather than an independently rendered
+  // approximation of them. Only the amended entry's lines are re-serialized;
+  // sibling entries are carried through as bytes and cannot be re-wrapped.
+  const splice = location.entry.splice(validated);
+
   if (dryRun) {
     return {
       success: true,
@@ -385,14 +378,48 @@ export async function handleAmend(
         catalog: relCatalog,
         patchedFields,
         renderedEntry,
-        diff: renderAmendDiff(relCatalog, args.id, before, renderedEntry),
+        diff: renderAmendDiff(
+          relCatalog,
+          args.id,
+          location.entry.currentText,
+          splice.entryText,
+        ),
         next_actions: [...NEXT_ACTIONS],
       },
     };
   }
 
   // ── Commit path ──
-  deps.write(catalogAbs, replaceEntryInCatalog(catalogContents, args.id, validated));
+  // `deps.write` throws on any filesystem failure and must not escape: dispatch's
+  // outer safety net would flatten it to a generic INTERNAL_ERROR, discarding the
+  // coded envelope this handler returns on every OTHER failure path (#1706 DR-1).
+  // `CATALOG_WRITE_FAILED` is what the caller branches on. (The rewrite itself is
+  // no longer inside this try: locating refuses through its own envelope above,
+  // and splicing located text cannot fail, so the filesystem is the last thrower.)
+  try {
+    deps.write(catalogAbs, splice.contents);
+  } catch (err) {
+    return {
+      success: false,
+      error: {
+        code: 'CATALOG_WRITE_FAILED',
+        message:
+          `Amending '${args.id}' failed while writing catalog '${relCatalog}': ` +
+          `${err instanceof Error ? err.message : String(err)}. No ` +
+          `invariant.amended event was emitted; re-read the catalog before retrying.`,
+        suggestedFix: {
+          tool: 'exarchos_orchestrate',
+          params: {
+            action: 'invariants_amend',
+            id: args.id,
+            catalog: relCatalog,
+            tier,
+            dryRun: true,
+          },
+        },
+      },
+    };
+  }
 
   // Emit the audit record (best-effort telemetry — never fail the write that
   // already landed, mirroring `invariants_add`).

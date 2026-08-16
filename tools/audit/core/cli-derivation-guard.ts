@@ -90,11 +90,12 @@
 // co-located test still declares its two authorities, but nothing currently
 // enforces that declaration at this path.
 
-import { createHash } from 'node:crypto';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, realpathSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
+import { daysBetween, isIsoDay, isoDayUtc } from '../../conformance/src/waiver-ledger.js';
+import { keySetDigest } from '../../conformance/src/waiver-ledger-digest.js';
 import {
   CLI_DERIVATION_EXPIRY_HORIZON,
   CLI_DERIVATION_SEED_DIGEST_ALGORITHM,
@@ -825,55 +826,11 @@ export function formatViolation(v: DerivationViolation): string {
 // whose verdict depended on which side of midnight UTC the runner started would
 // be its own flake class.
 
-const ISO_DAY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
-const MS_PER_DAY = 86_400_000;
-
-/**
- * Is `value` a real calendar day written `YYYY-MM-DD`?
- *
- * The pattern alone is not enough: `2027-02-31` and `2027-13-01` both match it
- * and neither exists. Both would compare cheerfully under `<` and produce a
- * confident, wrong verdict — so the value is round-tripped through `Date.UTC`
- * and rejected unless every component survives. A guard that accepts an
- * impossible deadline has an impossible deadline.
- */
-export function isIsoDay(value: string): boolean {
-  const match = ISO_DAY_PATTERN.exec(value);
-  if (match === null) return false;
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const utc = Date.UTC(year, month - 1, day);
-  if (Number.isNaN(utc)) return false;
-  const round = new Date(utc);
-  return (
-    round.getUTCFullYear() === year && round.getUTCMonth() + 1 === month && round.getUTCDate() === day
-  );
-}
-
-/**
- * The UTC calendar day of an instant, as `YYYY-MM-DD`.
- *
- * UTC and not local time on purpose: a CI runner, a developer laptop and a
- * reviewer in another timezone must agree on whether a waiver is past due, or
- * "expired" becomes a property of who ran the guard. An invalid `Date` yields
- * the empty string, which {@link auditCliDerivationExpiry} reports as
- * `UNREADABLE_CLOCK` rather than silently treating as "long ago".
- */
-export function isoDayUtc(now: Date): string {
-  const ms = now.getTime();
-  if (Number.isNaN(ms)) return '';
-  const year = String(now.getUTCFullYear()).padStart(4, '0');
-  const month = String(now.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(now.getUTCDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-/** Whole days between two ISO days. Both must be well-formed; otherwise `0`. */
-function daysBetween(from: string, to: string): number {
-  if (!isIsoDay(from) || !isIsoDay(to)) return 0;
-  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / MS_PER_DAY);
-}
+// The day rule is the shared ledger's, not this guard's. It was duplicated here
+// when task 023 declined to extract rather than let this guard acquire a
+// `bun:sqlite` edge; DR-6's ledger imports nothing, so that reason is gone and
+// the copy with it. Re-exported because five modules take these names from here.
+export { isIsoDay, isoDayUtc };
 
 // ─── Tooth 1: membership, in both directions ─────────────────────────────────
 
@@ -1013,8 +970,7 @@ export interface CliSeedIntegrityAudit {
  * digest. Only membership does.
  */
 export function cliDerivationSeedDigest(names: readonly string[]): string {
-  const canonical = [...new Set(names)].sort().join('\n');
-  return createHash(CLI_DERIVATION_SEED_DIGEST_ALGORITHM).update(canonical, 'utf8').digest('hex');
+  return keySetDigest(names, CLI_DERIVATION_SEED_DIGEST_ALGORITHM);
 }
 
 /**
@@ -1374,12 +1330,47 @@ export function runGuard(): number {
   return 1;
 }
 
+// THE ENTRYPOINT TAIL — and why it is not a filename comparison (task 074)
+//
+// The predicate used to be `process.argv[1].endsWith('cli-derivation-guard.ts')`,
+// which couples self-execution to the FILE'S NAME. Renaming the file — and
+// updating the `run:` step in ci.yml to match, which is what a rename means —
+// leaves a CI step that still exists, still runs, still resolves, prints NOTHING
+// and exits 0. Task 018 measured that on the sibling `output-schema-ratchet-guard`
+// and this guard reproduced it: a byte-identical copy under any other name
+// produced 0 bytes on stdout, 0 bytes on stderr, exit 0.
+//
+// {@link canonicalPath} also resolves symlinks, because Node reports the main
+// module's realpath while `argv[1]` keeps the link — comparing the two unresolved
+// would trade a filename-shaped silent no-op for a symlink-shaped one.
+//
+// NOTE FOR ANYONE EDITING BELOW: `process.exit` must stay a TOP-LEVEL call.
+// `scripts/guard-inventory.ts` classifies a module as a runnable gate by finding
+// exactly that (`hasDirectRunExit`, an AST walk that rejects a `process.exit`
+// nested inside a function), and a gate it cannot see drops out of DR-24's
+// CI-reachability proof.
+
+/**
+ * A canonical absolute path for comparison: symlinks resolved where possible,
+ * falling back to plain resolution for a path that does not exist on disk (so
+ * an exotic `argv[1]` degrades to "not the entrypoint" rather than throwing).
+ */
+function canonicalPath(candidate: string): string {
+  const absolute = path.resolve(candidate);
+  try {
+    return realpathSync(absolute);
+  } catch {
+    return absolute;
+  }
+}
+
 const isDirectRun =
   typeof process !== 'undefined' &&
   typeof process.argv[1] === 'string' &&
-  (process.argv[1].endsWith('cli-derivation-guard.ts') ||
-    process.argv[1].endsWith('cli-derivation-guard.js'));
+  canonicalPath(process.argv[1]) === canonicalPath(fileURLToPath(import.meta.url));
 
 if (isDirectRun) {
-  process.exit(runGuard());
+  // `exitCode`, never `exit(…)` — see report-coupling-ratchet-guard.ts: exiting
+  // can sever stdout before the diagnostics drain.
+  process.exitCode = runGuard();
 }

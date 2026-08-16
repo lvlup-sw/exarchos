@@ -9,6 +9,7 @@ import {
   type CapabilityResolver,
 } from './workflow/capabilities/resolver.js';
 import { STABLE_PREFIX_KEYS } from './projections/rehydration/serialize.js';
+import { UNSPECIFIED_FAILURE_CODE } from './contract/error-families.js';
 import { ConcurrencyError } from './events/concurrency-error.js';
 import { StorageBusyError } from './events/storage-busy-error.js';
 
@@ -519,7 +520,9 @@ export function toEnvelope(result: ToolResult): Envelope<unknown> | ErrorEnvelop
   // Failure path — surface the structured error block as-is. The error is
   // guaranteed to exist on a failure ToolResult by the dispatch contract,
   // but we guard defensively so a malformed input never throws here.
-  const sourceError = result.error ?? { code: 'INTERNAL_ERROR', message: 'Unknown error' };
+  // The stand-in code is shared with the exit-code authority so an error-less
+  // failure reads the same on the wire as it does at the process boundary.
+  const sourceError = result.error ?? { code: UNSPECIFIED_FAILURE_CODE, message: 'Unknown error' };
   // `error.validTargets` accepts `readonly (string | ValidTransitionTarget)[]`
   // on the dispatch-core ToolResult (guard failures carry the full target
   // object including its phase/guard tuple), but the carrier-side

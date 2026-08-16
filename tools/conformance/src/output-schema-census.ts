@@ -46,9 +46,20 @@
  * {@link TOOL_REGISTRY}, plus a formatter, so the co-located vitest and any
  * future CLI wrapper share one source of truth.
  */
-import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import type { VacuityWaiverEntry } from '../../../src/output-schema-vacuity-allowlist.js';
+import { VACUITY_SEED_DIGEST_ALGORITHM } from './output-schema-seed-pin.js';
+// The day rule, the expiry verdict and the key-set canonicalisation are one
+// authority for every ledger in this tree. This module keeps its own NOUNS
+// (`VACUITY_*`, `WAIVER_*`) and hands the ledger the arithmetic.
+import {
+  auditWaiverLedger,
+  isIsoDay,
+  isoDayUtc,
+  measureKeySetPin,
+  type WaiverLedgerSubject,
+} from './waiver-ledger.js';
+import { keySetDigest } from './waiver-ledger-digest.js';
 
 /**
  * The shipped schema behaviours this census measures against.
@@ -510,14 +521,14 @@ export interface VacuitySeedIntegrityAudit {
  *
  * Order- and duplicate-insensitive on purpose — the pinned quantity is a SET,
  * so re-sorting the allowlist literal or writing an id twice must not move the
- * digest. Only membership does.
+ * digest. Only membership does. Both halves of that rule live in the DR-6
+ * ledger; only the algorithm label is DR-4's.
  */
 export function vacuitySeedDigest(
   ids: readonly string[],
-  digestAlgorithm: string,
+  digestAlgorithm: string = VACUITY_SEED_DIGEST_ALGORITHM,
 ): string {
-  const canonical = [...new Set(ids)].sort().join('\n');
-  return createHash(digestAlgorithm).update(canonical, 'utf8').digest('hex');
+  return keySetDigest(ids, digestAlgorithm);
 }
 
 /**
@@ -546,12 +557,12 @@ export function auditVacuitySeedIntegrity(
 ): VacuitySeedIntegrityAudit {
   const findings: VacuitySeedFinding[] = [];
 
-  const waivedSet = new Set(waived);
-  const overlapping = [...new Set(retired)].filter((id) => waivedSet.has(id)).sort();
-  const keySet = [...new Set([...waived, ...retired])].sort();
-  const digest = vacuitySeedDigest(keySet, digestAlgorithm);
+  const pin = measureKeySetPin(waived, retired, pinnedDigest, (ids) =>
+    vacuitySeedDigest(ids, digestAlgorithm),
+  );
+  const { keySet, overlapping, digest } = pin;
 
-  if (digest !== pinnedDigest) {
+  if (pin.drifted) {
     findings.push({
       code: 'SEED_KEY_SET_DRIFT',
       message:
@@ -579,10 +590,10 @@ export function auditVacuitySeedIntegrity(
 
   return Object.freeze({
     ok: findings.length === 0,
-    keySetSize: keySet.length,
+    keySetSize: pin.keySetSize,
     digest,
     pinnedDigest,
-    overlapping: Object.freeze(overlapping),
+    overlapping: Object.freeze([...overlapping]),
     findings: Object.freeze(findings),
   });
 }
@@ -613,11 +624,10 @@ export function auditVacuitySeedIntegrity(
 //     guard's entrypoint (`tools/audit/core/output-schema-ratchet-
 //     guard.ts`), which is the artifact that blocks the merge.
 //
-// Dates are compared as ISO `YYYY-MM-DD` STRINGS, never as `Date` values.
-// Lexicographic order on that format is calendar order, so the comparison has no
-// timezone, no DST, no leap-second and no millisecond component — a guard whose
-// verdict depended on which side of midnight UTC the runner started would be its
-// own flake class.
+// The arithmetic underneath — the day rule and the four teeth — is DR-6's
+// `waiver-ledger.ts`, shared with every other ledger in this tree. What stays
+// here is DR-4's vocabulary: which noun each neutral code is reported under, and
+// what the legal repair says.
 
 /** A condition that makes an allowlist entry's deadline invalid or past due. */
 export type VacuityExpiryFinding =
@@ -648,57 +658,33 @@ export interface VacuityExpiryAudit {
   readonly findings: readonly VacuityExpiryFinding[];
 }
 
-const ISO_DAY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
-const MS_PER_DAY = 86_400_000;
+/**
+ * The day rule, re-exported so DR-4's consumers keep one import site while the
+ * definition lives once, in the DR-6 ledger. This module holds no date
+ * arithmetic of its own.
+ */
+export { isIsoDay, isoDayUtc };
 
 /**
- * Is `value` a real calendar day written `YYYY-MM-DD`?
- *
- * The pattern alone is not enough: `2027-02-31` and `2027-13-01` both match it
- * and neither exists. Both would compare cheerfully under `<` and produce a
- * confident, wrong verdict — so the value is round-tripped through `Date.UTC`
- * and rejected unless every component survives. A guard that accepts an
- * impossible deadline has an impossible deadline.
+ * DR-4's nouns, handed to the shared ledger. Every sentence here lands verbatim
+ * in a finding, and every one of them is specific to `outputSchema` vacuity —
+ * which is exactly why the ledger takes them rather than writing them.
  */
-export function isIsoDay(value: string): boolean {
-  const match = ISO_DAY_PATTERN.exec(value);
-  if (match === null) return false;
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const utc = Date.UTC(year, month - 1, day);
-  if (Number.isNaN(utc)) return false;
-  const round = new Date(utc);
-  return (
-    round.getUTCFullYear() === year &&
-    round.getUTCMonth() + 1 === month &&
-    round.getUTCDate() === day
-  );
-}
-
-/**
- * The UTC calendar day of an instant, as `YYYY-MM-DD`.
- *
- * UTC and not local time on purpose: a CI runner, a developer laptop and a
- * reviewer in another timezone must agree on whether a waiver is past due, or
- * "expired" becomes a property of who ran the guard. An invalid `Date` yields
- * the empty string, which {@link auditVacuityExpiry} reports as
- * `UNREADABLE_CLOCK` rather than silently treating as "long ago".
- */
-export function isoDayUtc(now: Date): string {
-  const ms = now.getTime();
-  if (Number.isNaN(ms)) return '';
-  const year = String(now.getUTCFullYear()).padStart(4, '0');
-  const month = String(now.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(now.getUTCDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-/** Whole days between two ISO days. Both must be well-formed; otherwise `0`. */
-function daysBetween(from: string, to: string): number {
-  if (!isIsoDay(from) || !isIsoDay(to)) return 0;
-  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / MS_PER_DAY);
-}
+const VACUITY_LEDGER_SUBJECT: WaiverLedgerSubject = Object.freeze({
+  authority: 'DR-4',
+  ledger: 'vacuity allowlist',
+  entry: 'waiver',
+  entries: 'waivers',
+  horizonSource: 'VACUITY_EXPIRY_HORIZON in output-schema-seed-pin.ts',
+  paydown:
+    'Give the declaration a real data schema and MOVE its entry to VACUITY_RETIRED.',
+  horizonPaydown:
+    'Pay the declaration down (give it a real data schema, declare it with ' +
+    'withCappedShape(...), and MOVE its entry to VACUITY_RETIRED)',
+  zeroState:
+    'If the debt really did reach zero, the allowlist module, its pin and this audit are ' +
+    'DELETED in the same commit.',
+});
 
 /**
  * Audit every allowlist entry's deadline as of a NAMED day.
@@ -731,102 +717,58 @@ export function auditVacuityExpiry(
   entries: Readonly<Record<string, VacuityWaiverEntry>>,
   horizon: string,
 ): VacuityExpiryAudit {
+  const ledger = auditWaiverLedger(today, entries, horizon, VACUITY_LEDGER_SUBJECT);
   const findings: VacuityExpiryFinding[] = [];
-  const ids = Object.keys(entries).sort();
-  const clockOk = isIsoDay(today);
-  const horizonOk = isIsoDay(horizon);
 
-  if (!clockOk) {
-    findings.push({
-      code: 'UNREADABLE_CLOCK',
-      message:
-        `The expiry audit was handed '${today}' as the current day, which is not a real ` +
-        'calendar date in YYYY-MM-DD form. Every deadline comparison below would be ' +
-        'meaningless, so the audit fails rather than reporting the waivers live.',
-    });
-  }
-  if (!horizonOk) {
-    findings.push({
-      code: 'MALFORMED_HORIZON',
-      message:
-        `The pinned expiry horizon '${horizon}' is not a real calendar date in YYYY-MM-DD ` +
-        'form. VACUITY_EXPIRY_HORIZON in output-schema-seed-pin.ts is the one deadline ' +
-        'every waiver is measured against; an unreadable horizon disables the tooth that ' +
-        'stops a waiver renewing itself, so it fails closed.',
-    });
-  }
-  if (ids.length === 0) {
-    findings.push({
-      code: 'EMPTY_ALLOWLIST',
-      message:
-        'The vacuity allowlist resolved ZERO entries, so the expiry audit has an empty ' +
-        'denominator and proves nothing — "no expired waiver" is trivially true over no ' +
-        'waivers. That is what a moved module or a broken import looks like, so it fails ' +
-        'rather than reporting clean. If the debt really did reach zero, the allowlist ' +
-        'module, its pin and this audit are DELETED in the same commit.',
-    });
-  }
-
-  const expired: string[] = [];
-  const beyondHorizon: string[] = [];
-  const malformed: string[] = [];
-
-  for (const id of ids) {
-    const entry = entries[id];
-    if (entry === undefined) continue;
-
-    if (entry.owner.trim().length === 0 || !isIsoDay(entry.expires)) {
-      malformed.push(id);
-      findings.push({
-        code: 'MALFORMED_WAIVER',
-        id,
-        message:
-          `'${id}' carries owner '${entry.owner}' and expires '${entry.expires}'. A waiver ` +
-          'needs a non-empty owner (someone the debt comes due for) and a real calendar ' +
-          'date in YYYY-MM-DD form (something the deadline can be compared against). ' +
-          'Neither can be inferred, so the entry fails closed.',
-      });
-      continue;
-    }
-
-    if (horizonOk && entry.expires > horizon) {
-      beyondHorizon.push(id);
-      findings.push({
-        code: 'WAIVER_BEYOND_HORIZON',
-        id,
-        message:
-          `'${id}' expires ${entry.expires}, later than the pinned horizon ${horizon}. A ` +
-          'waiver may not name its own deadline — that is renewal without a decision. Pay ' +
-          'the declaration down (give it a real data schema, declare it with ' +
-          'withCappedShape(...), and MOVE its entry to VACUITY_RETIRED), or move ' +
-          'VACUITY_EXPIRY_HORIZON in output-schema-seed-pin.ts as a deliberate, isolated ' +
-          'commit that re-dates the WHOLE outstanding debt.',
-      });
-    }
-
-    if (clockOk && entry.expires < today) {
-      expired.push(id);
-      findings.push({
-        code: 'EXPIRED_WAIVER',
-        id,
-        message:
-          `'${id}' (owner: ${entry.owner}) expired on ${entry.expires}; today is ${today}. ` +
-          'DR-4: the expiry is ENFORCED, not advisory. Give the declaration a real data ' +
-          'schema and MOVE its entry to VACUITY_RETIRED. Bumping the date is not the fix — ' +
-          `the entry cannot exceed the pinned horizon ${horizon}.`,
-      });
+  // The ledger returns the verdict; this loop returns DR-4's names for it. The
+  // switch is exhaustive rather than a lookup table so a new ledger code is a
+  // compile error here instead of a finding that silently stops being reported.
+  for (const finding of ledger.findings) {
+    switch (finding.code) {
+      case 'EMPTY_LEDGER':
+        findings.push({ code: 'EMPTY_ALLOWLIST', message: finding.message });
+        break;
+      case 'UNREADABLE_CLOCK':
+        findings.push({ code: 'UNREADABLE_CLOCK', message: finding.message });
+        break;
+      case 'MALFORMED_HORIZON':
+        findings.push({ code: 'MALFORMED_HORIZON', message: finding.message });
+        break;
+      case 'MALFORMED_ENTRY':
+        findings.push({ code: 'MALFORMED_WAIVER', id: finding.id ?? '', message: finding.message });
+        break;
+      case 'BEYOND_HORIZON':
+        findings.push({
+          code: 'WAIVER_BEYOND_HORIZON',
+          id: finding.id ?? '',
+          message: finding.message,
+        });
+        break;
+      case 'EXPIRED':
+        findings.push({ code: 'EXPIRED_WAIVER', id: finding.id ?? '', message: finding.message });
+        break;
+      default: {
+        // Same guard as the report-coupling consumer: without it, adding a
+        // seventh ledger code compiles clean and this mapping drops it.
+        const unmapped: never = finding.code;
+        throw new Error(
+          `output-schema-census: unmapped waiver-ledger finding code ${String(unmapped)}. ` +
+            'Every ledger verdict must be given an allowlist name, or the audit silently ' +
+            'drops it.',
+        );
+      }
     }
   }
 
   return Object.freeze({
-    ok: findings.length === 0,
-    today,
-    horizon,
-    entryCount: ids.length,
-    expired: Object.freeze(expired),
-    beyondHorizon: Object.freeze(beyondHorizon),
-    malformed: Object.freeze(malformed),
-    daysToHorizon: daysBetween(today, horizon),
+    ok: ledger.ok,
+    today: ledger.today,
+    horizon: ledger.horizon,
+    entryCount: ledger.entryCount,
+    expired: ledger.expired,
+    beyondHorizon: ledger.beyondHorizon,
+    malformed: ledger.malformed,
+    daysToHorizon: ledger.daysToHorizon,
     findings: Object.freeze(findings),
   });
 }

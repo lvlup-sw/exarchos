@@ -18,6 +18,8 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import { randomUUID } from 'node:crypto';
+import { existsSync, openSync, readSync, closeSync, readdirSync } from 'node:fs';
+import * as path from 'node:path';
 import { runCommandSync } from '../../utils/process.js';
 import { z } from 'zod';
 
@@ -211,8 +213,10 @@ export function parseMutationReport(input: unknown): ParseResult {
 //
 // The action handler wires the production seams around the pure report region
 // above: resolve the mutation command (slice 2 `resolveVerificationRuntime`),
-// compose the per-runner diff scope (002 `resolveMutationDiffScope`), run it
-// through an injected runner (no real Stryker in tests — DIM-4), parse + fold
+// compose the per-runner diff scope (002 `resolveMutationDiffScope`), derive the
+// run root from the mutation config's own location (DR-8 — a runner reads its
+// config from the directory it is launched in), run it through an injected
+// runner (no real Stryker in tests — DIM-4), parse + fold
 // the report, map survivors to affordances (005 / INV-12), emit the liveness
 // pair + foldable `gate.executed` (004 / INV-10 / INV-1), and apply the
 // advisory severity (006) reusing the slice-2 mechanism. The result is always
@@ -253,6 +257,13 @@ export interface MutationRunArgs {
   readonly command: string;
   readonly repoRoot: string;
   readonly base: string;
+  /**
+   * The directory the command executes in — derived from the mutation config's
+   * own location, NOT assumed to be `repoRoot`. Distinct from `repoRoot`
+   * because the two differ exactly when the config lives in a sub-package,
+   * which is the case this field exists for.
+   */
+  readonly cwd: string;
 }
 
 /**
@@ -494,6 +505,335 @@ export function composeScopedCommand(
   }
 }
 
+// ─── Where the runner executes: the mutation config owns the cwd (DR-8) ─────
+//
+// A mutation runner reads its configuration — and resolves its own locally
+// installed binary — from the directory it is launched in. Launching it at the
+// repo root of a repository whose mutation config lives in a sub-package is the
+// DR-8 shape one layer out: the gate reports a verdict for a tree the runner
+// never looked at. So the run root is DERIVED from the configuration's own
+// location instead of assumed, and a run root the gate cannot justify is a
+// degrade rather than a guess.
+//
+// Discovery excludes by PROPERTY (dot-directories, dependency and build output),
+// never by naming subtrees, and never by naming a package — moving the config to
+// another package moves the run with it.
+
+/** A directory entry reduced to what discovery needs (injectable fs seam). */
+export interface DirEntry {
+  readonly name: string;
+  readonly isDirectory: boolean;
+}
+
+/** Directory listing seam. Returns `[]` for an unreadable directory. */
+export type ReadDirSync = (dir: string) => readonly DirEntry[];
+
+/** Head-of-file read seam (bounded); `''` for an unreadable file. */
+export type ReadFileHead = (file: string) => string;
+
+/**
+ * Filenames that IDENTIFY a mutation runner's configuration.
+ *
+ * Patterns, not paths: the thing being recognised is the config, and the
+ * package that owns it falls out of wherever the match is found. Covers the
+ * runners the toolchains SoT can resolve a mutation command for.
+ */
+export const MUTATION_CONFIG_FILE_PATTERNS: readonly RegExp[] = [
+  /^\.?stryker\.conf(ig)?\.(mjs|cjs|js|json|jsonc)$/i, // StrykerJS
+  /^stryker-config\.(json|ya?ml)$/i, // Stryker.NET
+  /^infection\.json5?(\.dist)?$/i, // Infection (PHP)
+  /^\.?mutant\.ya?ml$/i, // mutant (Ruby)
+  /^\.?(cargo-)?mutants\.toml$/i, // cargo-mutants
+];
+
+/**
+ * Configs that live inside a file the project already has for other reasons.
+ * The BASENAME alone proves nothing here — a `pyproject.toml` exists in every
+ * Python package — so the mutation runner's own declared section is what makes
+ * it a mutation config.
+ */
+export const MUTATION_CONFIG_SECTION_MARKERS: ReadonlyArray<{
+  readonly basename: string;
+  readonly marker: RegExp;
+}> = [
+  { basename: 'pyproject.toml', marker: /^\s*\[tool\.mutmut\]/m }, // mutmut
+  { basename: 'setup.cfg', marker: /^\s*\[mutmut\]/m }, // mutmut
+  { basename: 'pom.xml', marker: /pitest/i }, // PIT (Maven)
+  { basename: 'build.gradle', marker: /pitest/i }, // PIT (Gradle)
+  { basename: 'build.gradle.kts', marker: /pitest/i }, // PIT (Gradle/Kotlin)
+];
+
+/**
+ * Directory names whose contents are never a project's own configuration —
+ * dependency trees and build output. Stated as a PROPERTY of the directory so
+ * the scan root stays the whole repository (DR-8): nothing here names a subtree
+ * the scan is *interested* in, only kinds of directory that cannot hold one.
+ */
+const NON_SCANNABLE_DIRS: ReadonlySet<string> = new Set([
+  'node_modules', 'dist', 'build', 'out', 'coverage', 'reports', 'target', 'vendor', 'tmp',
+]);
+
+/** Depth bound on the discovery walk, counted in directories below the root. */
+export const MUTATION_CONFIG_SCAN_MAX_DEPTH = 5;
+
+function isScannableDir(name: string): boolean {
+  // Dot-directories (`.git`, `.stryker-tmp`, `.worktrees`) are excluded by the
+  // same property rule — they hold tool state, not the project's own config.
+  return !name.startsWith('.') && !NON_SCANNABLE_DIRS.has(name);
+}
+
+const defaultReadDir: ReadDirSync = (dir) => {
+  try {
+    // `isDirectory()` is false for a symlink, so a symlinked directory is never
+    // descended into — the walk cannot loop.
+    return readdirSync(dir, { withFileTypes: true }).map((e) => ({
+      name: e.name,
+      isDirectory: e.isDirectory(),
+    }));
+  } catch {
+    return [];
+  }
+};
+
+const defaultReadFileHead: ReadFileHead = (file) => {
+  let fd: number | undefined;
+  try {
+    fd = openSync(file, 'r');
+    const buf = Buffer.alloc(64 * 1024);
+    const read = readSync(fd, buf, 0, buf.length, 0);
+    return buf.subarray(0, read).toString('utf-8');
+  } catch {
+    return '';
+  } finally {
+    if (fd !== undefined) {
+      try {
+        closeSync(fd);
+      } catch {
+        /* best-effort */
+      }
+    }
+  }
+};
+
+function isMutationConfigFile(name: string, fullPath: string, readHead: ReadFileHead): boolean {
+  if (MUTATION_CONFIG_FILE_PATTERNS.some((re) => re.test(name))) return true;
+  const lower = name.toLowerCase();
+  const sectioned = MUTATION_CONFIG_SECTION_MARKERS.find((m) => m.basename === lower);
+  return sectioned !== undefined && sectioned.marker.test(readHead(fullPath));
+}
+
+/** Tagged discovery result — an absent config is a typed signal, never a throw. */
+export type MutationConfigDiscovery =
+  | { readonly ok: true; readonly configPath: string; readonly packageDir: string }
+  | { readonly ok: false; readonly reason: string };
+
+/**
+ * Find the mutation runner's configuration under `repoRoot`, breadth-first.
+ *
+ * Shallowest match wins, ties broken lexicographically, so the answer is
+ * deterministic and independent of directory-listing order. The walk is bounded
+ * by {@link MUTATION_CONFIG_SCAN_MAX_DEPTH} and prunes by property only.
+ */
+export function discoverMutationConfig(
+  repoRoot: string,
+  seams: { readonly readDir?: ReadDirSync; readonly readFileHead?: ReadFileHead } = {},
+): MutationConfigDiscovery {
+  const readDir = seams.readDir ?? defaultReadDir;
+  const readHead = seams.readFileHead ?? defaultReadFileHead;
+
+  let frontier: string[] = [repoRoot];
+  for (let depth = 0; depth <= MUTATION_CONFIG_SCAN_MAX_DEPTH && frontier.length > 0; depth++) {
+    const hits: string[] = [];
+    const next: string[] = [];
+    for (const dir of frontier) {
+      for (const entry of readDir(dir)) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory) {
+          if (isScannableDir(entry.name)) next.push(full);
+        } else if (isMutationConfigFile(entry.name, full, readHead)) {
+          hits.push(full);
+        }
+      }
+    }
+    if (hits.length > 0) {
+      const configPath = [...hits].sort()[0]!;
+      return { ok: true, configPath, packageDir: path.dirname(configPath) };
+    }
+    frontier = next.sort();
+  }
+
+  return {
+    ok: false,
+    reason:
+      // "the root plus N", not "N": the walk runs `depth <= MAX_DEPTH` from
+      // depth 0, so it visits MAX_DEPTH + 1 levels. Saying "5 levels" understated
+      // the search by one and would send someone hunting for a config the scan
+      // had in fact already looked at.
+      `no mutation-runner configuration was found under ${repoRoot} (searched the ` +
+      `root plus ${MUTATION_CONFIG_SCAN_MAX_DEPTH} directory levels, skipping dot-directories and ` +
+      `${[...NON_SCANNABLE_DIRS].join('/')})`,
+  };
+}
+
+/** Why the runner's cwd is what it is — carried into the carrier, not inferred. */
+export type MutationCwdRationale =
+  | 'declared-runner-dir'
+  | 'config-at-repo-root'
+  | 'config-owner'
+  | 'repo-root-anchored-command'
+  /** No config discovered, but the repository declared the command itself. */
+  | 'declared-command';
+
+/** Tagged run-root resolution: a root the gate cannot justify is a degrade. */
+export type MutationCwdResult =
+  | {
+      readonly ok: true;
+      readonly cwd: string;
+      readonly configPath: string | null;
+      readonly rationale: MutationCwdRationale;
+    }
+  | { readonly ok: false; readonly reason: string };
+
+/** Tokens that can name a file: flags never do, and a bare word is too ambiguous. */
+function commandPathTokens(command: string): string[] {
+  return command
+    .split(/\s+/)
+    .filter((t) => t.length > 0 && !t.startsWith('-'))
+    .filter((t) => t.includes('/') || t.includes('\\') || /\.[cm]?[jt]sx?$|\.(sh|py|rb|php)$/i.test(t));
+}
+
+/**
+ * Whether the command names an entry point that ONLY resolves from the repo
+ * root — a path that exists relative to the repo root and does not exist
+ * relative to the config's package.
+ *
+ * Such a command is a project-declared runner seam that re-roots itself (it has
+ * to: the repo root is the only place its own path resolves from). Relocating
+ * it to the config's package does not make it read the config — it makes it
+ * fail to find its own file, or worse, run against a tree that isn't there and
+ * return an empty-but-valid report. The empty-surface corroboration below is
+ * the backstop that keeps that from reading as adequacy either way.
+ */
+function commandIsRepoRootAnchored(
+  command: string,
+  repoRoot: string,
+  packageDir: string,
+  pathExists: (p: string) => boolean,
+): boolean {
+  for (const token of commandPathTokens(command)) {
+    if (path.isAbsolute(token)) continue; // resolves identically from any cwd
+    if (pathExists(path.resolve(repoRoot, token)) && !pathExists(path.resolve(packageDir, token))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Resolve the directory the mutation command must run in.
+ *
+ * An explicit `runnerDir` wins (the escape hatch for a runner that needs no
+ * config file at all); otherwise the config's own location decides. No package
+ * name appears anywhere in this decision.
+ */
+export function resolveMutationRunnerCwd(input: {
+  readonly command: string;
+  readonly repoRoot: string;
+  readonly declaredRunnerDir?: string | undefined;
+  /**
+   * True when the repository declared the mutation command itself rather than
+   * the resolver inferring it. Absent reads as false — the conservative side,
+   * so an injected runtime that never states provenance still gets the refusal.
+   */
+  readonly projectDeclaredCommand?: boolean | undefined;
+  readonly discover?: (repoRoot: string) => MutationConfigDiscovery;
+  readonly pathExists?: (p: string) => boolean;
+}): MutationCwdResult {
+  const pathExists = input.pathExists ?? existsSync;
+  const repoRoot = path.resolve(input.repoRoot);
+
+  if (input.declaredRunnerDir !== undefined) {
+    const declared = path.resolve(repoRoot, input.declaredRunnerDir);
+    // `runnerDir` is documented as repo-root-RELATIVE, and only resolution and
+    // existence were checked — so an absolute path, or one climbing out with
+    // `..`, resolved outside the repository and the mutation command then ran
+    // there. The gate would report a score for a tree that is not the one under
+    // review, and `relativeToRepo` would render the carrier's directory as a
+    // `..`-prefixed string that identifies no location in this repository.
+    // Containment is checked on the RESOLVED path, with the separator appended
+    // so a sibling like `<repoRoot>-other` cannot pass a prefix test.
+    const withinRepo =
+      declared === repoRoot || declared.startsWith(`${repoRoot}${path.sep}`);
+    if (!withinRepo) {
+      return {
+        ok: false,
+        reason:
+          `mutation-adequacy: the declared mutation runner directory ` +
+          `'${input.declaredRunnerDir}' resolves to ${declared}, which is outside ` +
+          `${repoRoot}. runnerDir is repo-root-relative; a directory outside the ` +
+          `repository would be scored in place of the one under review`,
+      };
+    }
+    if (!pathExists(declared)) {
+      return {
+        ok: false,
+        reason:
+          `mutation-adequacy: the declared mutation runner directory ` +
+          `'${input.declaredRunnerDir}' does not exist under ${repoRoot} — the gate will ` +
+          `not run the command in a directory it cannot resolve`,
+      };
+    }
+    return { ok: true, cwd: declared, configPath: null, rationale: 'declared-runner-dir' };
+  }
+
+  const discovered = (input.discover ?? discoverMutationConfig)(repoRoot);
+  if (!discovered.ok) {
+    // A project that DECLARED its own mutation command has already named how
+    // mutation testing runs here, and plenty of runners (mutmut, cargo-mutants
+    // at defaults, any bespoke script) carry no config file for discovery to
+    // find. Refusing those would fail the gate closed on exactly the projects
+    // that configured it most explicitly, so the repo root — the base their
+    // command was written against — is a justified root rather than a guess.
+    // Only an INFERRED command with no locatable config is unjustified.
+    if (input.projectDeclaredCommand === true) {
+      return {
+        ok: true,
+        cwd: repoRoot,
+        configPath: null,
+        rationale: 'declared-command',
+      };
+    }
+    return {
+      ok: false,
+      reason:
+        `mutation-adequacy: ${discovered.reason}. The gate cannot name the package the ` +
+        `runner would read its configuration from, so it did NOT run the command — a ` +
+        `mutation verdict from an unjustified run root is not evidence of adequacy. ` +
+        `Declare it with review.gates['mutation-adequacy'].params.runnerDir.`,
+    };
+  }
+
+  const packageDir = path.resolve(discovered.packageDir);
+  if (packageDir === repoRoot) {
+    return { ok: true, cwd: repoRoot, configPath: discovered.configPath, rationale: 'config-at-repo-root' };
+  }
+  if (commandIsRepoRootAnchored(input.command, repoRoot, packageDir, pathExists)) {
+    return {
+      ok: true,
+      cwd: repoRoot,
+      configPath: discovered.configPath,
+      rationale: 'repo-root-anchored-command',
+    };
+  }
+  return { ok: true, cwd: packageDir, configPath: discovered.configPath, rationale: 'config-owner' };
+}
+
+/** Repo-relative rendering of a path for the carrier (`.` for the root itself). */
+function relativeToRepo(repoRoot: string, target: string): string {
+  const rel = path.relative(path.resolve(repoRoot), path.resolve(target)).replace(/\\/g, '/');
+  return rel.length === 0 ? '.' : rel;
+}
+
 /**
  * Bound a captured-output tail to a fixed character budget (DR-10
  * attributability, #1719) — keeps the LAST `maxChars` (a runner's actual
@@ -519,7 +859,9 @@ function defaultRunMutation(args: MutationRunArgs): MutationRunResult {
     // launcher execFile refuses to start on Windows since CVE-2024-27980
     // (Node >= 20.12.2). (#1623)
     const stdout = runCommandSync(bin, rest, {
-      cwd: args.repoRoot,
+      // The mutation config's package, not the repo root — a runner launched
+      // outside the tree its config describes measures nothing (DR-8).
+      cwd: args.cwd,
       timeout: 600_000,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -744,6 +1086,23 @@ export async function handleMutationAdequacy(
           });
         })();
 
+  // ── Resolve the RUN ROOT before anything is launched (DR-8). The runner
+  // reads its config — and resolves its own local binary — from the directory
+  // it is launched in, so that directory is derived from the config's location
+  // rather than assumed to be the repo root. A root the gate cannot justify
+  // degrades HERE, before the liveness pair, so no start is left unpaired. ────
+  const runnerCwd = resolveMutationRunnerCwd({
+    command: scoped.command,
+    repoRoot,
+    declaredRunnerDir: resolveDeclaredRunnerDir(args),
+    projectDeclaredCommand: runtime.mutationProjectDeclared,
+  });
+  if (!runnerCwd.ok) {
+    await emitAdvisoryGate(eventStore, args, runnerCwd.reason);
+    return warningCarrier(runnerCwd.reason, scoped.warning);
+  }
+  const cwd = runnerCwd.cwd;
+
   // ── Run (injected seam). Bracket with the INV-10 liveness pair. ────────────
   //
   // DR-2 / DR-3: stamp a canonical `instanceId` on BOTH the start and terminal
@@ -758,6 +1117,7 @@ export async function handleMutationAdequacy(
   await emitLiveness(eventStore, args.featureId, 'mutation.executing_started', {
     command: scoped.command,
     repoRoot,
+    cwd,
     instanceId,
   });
   // The terminal event must land on EVERY exit path. `defaultRunMutation`
@@ -768,11 +1128,12 @@ export async function handleMutationAdequacy(
   // pairing resolves an instance only when its terminal event arrives.
   let runResult: MutationRunResult;
   try {
-    runResult = await runMutation({ command: scoped.command, repoRoot, base: args.base });
+    runResult = await runMutation({ command: scoped.command, repoRoot, cwd, base: args.base });
   } catch (err) {
     await emitLiveness(eventStore, args.featureId, 'mutation.executed', {
       command: scoped.command,
       repoRoot,
+      cwd,
       passed: false,
       exitCode: 1,
       instanceId,
@@ -792,6 +1153,7 @@ export async function handleMutationAdequacy(
   await emitLiveness(eventStore, args.featureId, 'mutation.executed', {
     command: scoped.command,
     repoRoot,
+    cwd,
     passed: runResult.ok,
     exitCode: runResult.ok ? 0 : 1,
     instanceId,
@@ -842,8 +1204,10 @@ export async function handleMutationAdequacy(
       `${changedMutatable.length} mutatable file(s) (e.g. ${changedMutatable
         .slice(0, 3)
         .join(', ')}) — the run did not cover the change, so this is NOT evidence ` +
-      `of adequacy. Check that the resolved command (\`${scoped.command}\`) runs in ` +
-      `the package that owns the mutation config.`;
+      `of adequacy. The command \`${scoped.command}\` ran in ` +
+      `'${relativeToRepo(repoRoot, cwd)}' (${runnerCwd.rationale}) against the ` +
+      `mutation config ` +
+      `'${runnerCwd.configPath === null ? '<declared runner dir>' : relativeToRepo(repoRoot, runnerCwd.configPath)}'.`;
     await emitAdvisoryGate(eventStore, args, reason);
     return warningCarrier(reason, scoped.warning);
   }
@@ -914,6 +1278,13 @@ export async function handleMutationAdequacy(
       // trivial-pass marker for an empty mutatable surface, and — when the
       // NoCoverage axis blocks — the file:line-attributed failure message.
       maxNoCoverage,
+      // DR-8 (additive): the run root the score was actually measured in, why
+      // it was chosen, and the config it was derived from. A reader can now
+      // check the gate's reach instead of assuming it.
+      runnerCwd: relativeToRepo(repoRoot, cwd),
+      runnerCwdRationale: runnerCwd.rationale,
+      mutationConfigPath:
+        runnerCwd.configPath === null ? null : relativeToRepo(repoRoot, runnerCwd.configPath),
       ...(trivialPass ? { trivialPass: true } : {}),
       ...(noCoverageReason ? { noCoverageReason } : {}),
       report: parsed.report,
@@ -937,6 +1308,20 @@ function mutationGateKey(
   outcome: 'scored' | 'degraded' | 'skip-no-toolchain',
 ): string | undefined {
   return operationId === undefined ? undefined : `${operationId}:${outcome}`;
+}
+
+/**
+ * The project's explicit run root for the mutation command
+ * (`review.gates['mutation-adequacy'].params.runnerDir`, repo-root-relative).
+ *
+ * The escape hatch for a runner that legitimately has no config file to
+ * discover (cargo-mutants runs zero-config): the project names the directory
+ * instead, so "the gate cannot justify a run root" stays a real signal rather
+ * than a false degrade for those repos.
+ */
+function resolveDeclaredRunnerDir(args: MutationAdequacyArgs): string | undefined {
+  const raw = args.projectConfig?.review.gates[MUTATION_GATE_NAME]?.params?.runnerDir;
+  return typeof raw === 'string' && raw.trim().length > 0 ? raw.trim() : undefined;
 }
 
 /** Resolve the effective threshold: arg override > config > soft default. */

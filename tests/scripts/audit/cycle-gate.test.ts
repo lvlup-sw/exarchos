@@ -9,6 +9,7 @@ import {
   EXIT_OK,
   EXIT_VIOLATIONS,
   EXIT_GATE_ERROR,
+  EmptyCycleGraphError,
   type DepcruiseRun,
   type CycleGateDeps,
 } from '../../../tools/audit/cycle-gate.js';
@@ -76,6 +77,7 @@ function captureDeps(overrides: {
   run: DepcruiseRun;
   baseline: unknown;
   now?: Date;
+  srcPrefix?: string;
 }): { deps: CycleGateDeps; out: string[]; err: string[] } {
   const out: string[] = [];
   const err: string[] = [];
@@ -85,7 +87,7 @@ function captureDeps(overrides: {
     now: overrides.now ?? new Date('2026-07-16T12:00:00.000Z'),
     log: (m) => out.push(m),
     errlog: (m) => err.push(m),
-    srcPrefix: 'src',
+    srcPrefix: overrides.srcPrefix ?? 'src',
   };
   return { deps, out, err };
 }
@@ -94,7 +96,25 @@ const baselineDoc = (entries: unknown[]): { entries: unknown[] } => ({ entries }
 
 describe('detectCyclesOrThrow', () => {
   it('parses a valid graph into runtime cycles', () => {
-    expect(detectCyclesOrThrow(CYCLE_AB, 'src')).toHaveLength(1);
+    const scan = detectCyclesOrThrow(CYCLE_AB, 'src');
+    expect(scan.cycles).toHaveLength(1);
+    // The population is reported alongside the finding (DR-8, task 079), so a
+    // "0 cycles" verdict can be read against the size of what was searched.
+    expect(scan.nodeCount).toBeGreaterThan(0);
+    expect(scan.edgeCount).toBeGreaterThan(0);
+  });
+
+  it('throws EmptyCycleGraphError when the prefix resolves no first-party node', () => {
+    // KILL FIXTURE (task 079). The graph parses; the prefix simply matches
+    // nothing — a relocated tree, a renamed package dir, a depcruise run scoped
+    // to the wrong path. `buildAdjacency` then yields an empty node set, an
+    // empty cycle list, and the gate printed `OK: 0 runtime cycle(s)` and exited
+    // 0. The baseline's phantom tooth does not cover it either: it fires only
+    // against baselined entries, and the baseline is (correctly) empty.
+    expect(() => detectCyclesOrThrow(CYCLE_AB, 'no/such/prefix')).toThrow(EmptyCycleGraphError);
+    expect(() => detectCyclesOrThrow(CYCLE_AB, 'no/such/prefix')).toThrow(
+      /indistinguishable from an acyclic tree/,
+    );
   });
 
   it('throws CycleGraphParseError on empty output (fail-closed, not "acyclic")', () => {
@@ -200,6 +220,23 @@ describe('runCycleGate — additional fail-closed paths (DR-8)', () => {
     const { deps, err } = captureDeps({ run: foundRun(ACYCLIC), baseline: baselineDoc([noOwner]) });
     expect(runCycleGate(deps)).toBe(EXIT_GATE_ERROR);
     expect(err.join('\n')).toMatch(/bad-baseline/);
+  });
+
+  it('EMPTY-GRAPH → FAIL CLOSED (exit 2) when the source root resolves no module', () => {
+    // KILL FIXTURE (task 079). This is the arm that did not exist: the graph is
+    // well-formed and depcruise exited 0, but `srcPrefix` matches nothing. The
+    // gate previously reported `OK: 0 runtime cycle(s)` and exited 0 — a blocking
+    // ratchet printing a clean verdict for a surface it never examined.
+    const { deps, err, out } = captureDeps({
+      run: foundRun(CYCLE_AB),
+      baseline: baselineDoc([]),
+      srcPrefix: 'servers/relocated/src',
+    });
+    expect(runCycleGate(deps)).toBe(EXIT_GATE_ERROR);
+    expect(err.join('\n')).toMatch(/empty-graph/);
+    expect(err.join('\n')).toMatch(/No first-party module resolved/);
+    // …and it does NOT report success anywhere.
+    expect(out.join('\n')).not.toMatch(/OK/);
   });
 });
 

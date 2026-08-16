@@ -148,25 +148,72 @@ export interface GateEvidenceReference {
 }
 
 /**
+ * The skip facts a gate carrier declares about itself.
+ *
+ * Read by {@link normalizeGateVerdict} to decide the proof verdict AND carried
+ * into the durable `gate.executed` row, so the two can never disagree about
+ * whether the gate ran.
+ */
+export interface GateSkipDescriptor {
+  readonly skipped: true;
+  /** e.g. {@link SKIPPED_BY_POLICY}; absent when the producer declared none. */
+  readonly discriminant?: string;
+  /** Human-readable cause, when the producer supplied one. */
+  readonly reason?: string;
+}
+
+/**
+ * THE authority on "did this carrier declare itself skipped?".
+ *
+ * One predicate, consumed by both the verdict normalizer and the runner's
+ * signal minting, because a carrier the verdict calls a skip and the signal
+ * calls a run is exactly the disagreement DR-7 exists to remove.
+ *
+ * `skipped === true` is the whole test — deliberately NOT conditioned on
+ * `passed`. See {@link normalizeGateVerdict} for why.
+ */
+export function readGateSkipDescriptor(result: ToolResult): GateSkipDescriptor | undefined {
+  const data = result.data;
+  if (data === null || typeof data !== 'object' || Array.isArray(data)) return undefined;
+  const record = data as Readonly<Record<string, unknown>>;
+  if (record.skipped !== true) return undefined;
+  const discriminant = record.discriminant;
+  const reason = record.reason;
+  return {
+    skipped: true,
+    ...(typeof discriminant === 'string' ? { discriminant } : {}),
+    ...(typeof reason === 'string' ? { reason } : {}),
+  };
+}
+
+/**
  * Normalize the existing gate carriers to the proof verdict vocabulary.
  *
  * A provider error is indeterminate, while advisory carriers retain their
  * established `data.passed` contract. A success carrier without a boolean
  * verdict is also indeterminate rather than being promoted to passing proof.
  *
- * DR-6: a carrier that is BOTH explicitly skipped and not-passing is
- * `indeterminate`, not `fail`. The gate did not run to a conclusion, so it
- * produced neither proof nor a finding — reporting it as `fail` would name a
- * failure that was never observed. Indeterminate is NOT lenient: it fails
- * closed downstream exactly as a deny does (policy-evaluation's `evaluateGate`
- * → `indeterminate('EVALUATOR_FAILED')` → `PolicyVerdict 'indeterminate'` →
- * `transition-command` records the attempt and leaves the phase UNCHANGED; a
- * waiver never rescues it).
+ * DR-7: an explicitly-skipped carrier is `indeterminate` REGARDLESS of
+ * `passed`. The gate did not run to a conclusion, so it produced neither proof
+ * nor a finding — `fail` would name a failure that was never observed, and
+ * `pass` would mint proof that was never produced.
  *
- * Deliberately narrow: the skip-PASS carriers elsewhere in the codebase
- * (`{ passed: true, skipped: true }` — advisory skips that satisfy a presence
- * requirement) are untouched. Only `passed !== true && skipped === true`
- * reroutes, and static-analysis is its sole producer today.
+ * The `passed !== true` qualifier this guard used to carry made it unreachable
+ * for the carrier that most needed it. Three ladder gates (test-adequacy,
+ * contract-drift, mock-boundary) emit `{ passed: true, skipped: true }` when the
+ * verification policy routes them out of the sequence, so the durable evidence
+ * row recorded `verdict: 'pass'` and `gate.executed` was minted `passed: true`
+ * for a gate that never ran — proof manufactured from a skip. "Advisory skips
+ * satisfy a presence requirement" was the old rationale; presence is satisfied
+ * by the row EXISTING, not by it claiming to have passed.
+ *
+ * Indeterminate is NOT lenient: it fails closed downstream exactly as a deny
+ * does (policy-evaluation's `evaluateGate` → `indeterminate('EVALUATOR_FAILED')`
+ * → `PolicyVerdict 'indeterminate'` → `transition-command` records the attempt
+ * and leaves the phase UNCHANGED; a waiver never rescues it). It is also not a
+ * blocker for the ladder: the ToolResult carrier the orchestrator reads is
+ * returned verbatim, so a policy-skipped gate still reports `data.passed: true`
+ * to its runbook chain. Only the PROOF changes, which is the point.
  */
 export function normalizeGateVerdict(result: ToolResult): 'pass' | 'fail' | 'indeterminate' {
   if (!result.success) return 'indeterminate';
@@ -174,9 +221,8 @@ export function normalizeGateVerdict(result: ToolResult): 'pass' | 'fail' | 'ind
   if (data === null || typeof data !== 'object' || Array.isArray(data)) {
     return 'indeterminate';
   }
+  if (readGateSkipDescriptor(result) !== undefined) return 'indeterminate';
   const passed = (data as { readonly passed?: unknown }).passed;
-  const skipped = (data as { readonly skipped?: unknown }).skipped;
-  if (skipped === true && passed !== true) return 'indeterminate';
   if (passed === true) return 'pass';
   if (passed === false) return 'fail';
 

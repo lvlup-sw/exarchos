@@ -10,6 +10,7 @@ import {
   VCS_MUTATION_OWNERS,
   type VcsOwnershipDiagnostic,
 } from '../../../tools/conformance/src/vcs-ownership.js';
+import { lexModule } from '../../../tools/test-helpers/module-lexer.js';
 
 const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../src');
 
@@ -69,7 +70,7 @@ describe('DR-12 kill — widened census sees merge and branch-create', () => {
 
   it('CONTROL — an owner-only tree is GREEN (so redness below is caused by the plant)', async () => {
     const root = await plant({ [OWNER_MODULE]: OWNER_SOURCE });
-    const result = await auditVcsOwnership(root, SCOPED_OWNERS);
+    const result = await auditVcsOwnership(root, lexModule, SCOPED_OWNERS);
     expect(result.diagnostics).toEqual([]);
     expect(result.ok).toBe(true);
   });
@@ -87,7 +88,7 @@ describe('DR-12 kill — widened census sees merge and branch-create', () => {
       `,
     });
 
-    const result = await auditVcsOwnership(root, SCOPED_OWNERS);
+    const result = await auditVcsOwnership(root, lexModule, SCOPED_OWNERS);
 
     expect(result.ok).toBe(false);
     const bypasses = bypassesOf(result.diagnostics);
@@ -122,7 +123,7 @@ describe('DR-12 kill — widened census sees merge and branch-create', () => {
       `,
     });
 
-    const result = await auditVcsOwnership(root, SCOPED_OWNERS);
+    const result = await auditVcsOwnership(root, lexModule, SCOPED_OWNERS);
 
     expect(result.ok).toBe(false);
     const bypasses = bypassesOf(result.diagnostics);
@@ -203,14 +204,15 @@ describe('DR-12 kill — widened census sees merge and branch-create', () => {
 
     // Unit-level: no snippet yields a site.
     for (const [module, source] of Object.entries(incidental)) {
-      expect(detectVcsMutationSites(module, source), `${module} must yield no site`).toEqual(
-        [],
-      );
+      expect(
+        detectVcsMutationSites(module, source, lexModule),
+        `${module} must yield no site`,
+      ).toEqual([]);
     }
 
     // Integration-level: a whole tree of them, with a real owner, stays GREEN.
     const root = await plant({ ...incidental, [OWNER_MODULE]: OWNER_SOURCE });
-    const result = await auditVcsOwnership(root, SCOPED_OWNERS);
+    const result = await auditVcsOwnership(root, lexModule, SCOPED_OWNERS);
     expect(result.diagnostics).toEqual([]);
     expect(result.ok).toBe(true);
   });
@@ -224,7 +226,7 @@ describe('DR-12 kill — widened census sees merge and branch-create', () => {
         export const documented = 1;
       `,
     });
-    const result = await auditVcsOwnership(root, SCOPED_OWNERS);
+    const result = await auditVcsOwnership(root, lexModule, SCOPED_OWNERS);
     expect(result.diagnostics).toEqual([]);
     expect(result.ok).toBe(true);
   });
@@ -243,42 +245,47 @@ describe('DR-12 kill — widened census sees merge and branch-create', () => {
       "const RE = /(['\"`])x\\1/; // legacy called ['merge', '--no-ff', target]",
       'export const after = 1;',
     ].join('\n');
-    expect(stripComments(sameLine)).not.toContain('merge');
-    expect(stripComments(sameLine)).toContain('export const after = 1;');
-    expect(detectVcsMutationSites('architecture/detector.ts', sameLine)).toEqual([]);
+    expect(stripComments(sameLine, lexModule)).not.toContain('merge');
+    expect(stripComments(sameLine, lexModule)).toContain('export const after = 1;');
+    expect(detectVcsMutationSites('architecture/detector.ts', sameLine, lexModule)).toEqual([]);
 
     // Same for a same-line BLOCK comment and a branch-create vector.
     const blockSameLine =
       "const RE = /(['\"`])x\\1/; /* used ['checkout', '-b', tmp] */ export const a = 1;";
-    expect(stripComments(blockSameLine)).not.toContain('checkout');
-    expect(detectVcsMutationSites('architecture/detector.ts', blockSameLine)).toEqual([]);
+    expect(stripComments(blockSameLine, lexModule)).not.toContain('checkout');
+    expect(detectVcsMutationSites('architecture/detector.ts', blockSameLine, lexModule)).toEqual(
+      [],
+    );
 
     // A `/` in DIVISION position must NOT be mistaken for a regex opener — that
     // would swallow real code and cause a false NEGATIVE (the dangerous
     // direction for a ratchet).
     const division = "const ratio = total / count;\ngit.run(['merge', '--no-ff', target]);";
-    expect(detectVcsMutationSites('x/y.ts', division).map((s) => s.mutation)).toEqual([
+    expect(detectVcsMutationSites('x/y.ts', division, lexModule).map((s) => s.mutation)).toEqual([
       'merge',
     ]);
   });
 
-  it('a desync from the regex heuristic blind spot is capped at one line', () => {
-    // `return /(['"])/` is the conservative heuristic's known blind spot: the
-    // previous significant character is `n` (of `return`), so the `/` is scored
-    // as division and regex mode is NOT entered. Line-bounded `'`/`"` strings
-    // are what stop the resulting phantom string from running to EOF and
-    // dragging every later comment into the scan.
+  it('the retired heuristic blind spot is answered by the grammar, not capped', () => {
+    // `return /(['"])/` WAS the conservative heuristic's known blind spot: the
+    // previous significant character is `n` (of `return`), so the `/` was scored
+    // as division and regex mode was not entered. Line-bounded `'`/`"` strings
+    // were all that stopped the resulting phantom string from running to EOF.
+    //
+    // Task 072 removed the heuristic rather than the cap. `/(['"])/` is a regex
+    // literal because the parser says so, in every operand position, so there is
+    // no desync left to cap — see `vcs-ownership.kill-lexer.test.ts` for the
+    // input on which the cap was not enough.
     const source = [
       `export function isQuote(x: string): boolean { return /(['"])/.test(x); }`,
       `// historical: ['merge', '--no-ff', target]`,
       `export function land(git: Git, root: string) { git.run(['worktree', 'add', p, b], root); }`,
     ].join('\n');
 
-    const sites = detectVcsMutationSites('x/y.ts', source);
+    const sites = detectVcsMutationSites('x/y.ts', source, lexModule);
     // The commented-out merge must NOT leak …
     expect(sites.map((s) => s.mutation)).toEqual(['worktree.add']);
-    // … while the real mutation on the line AFTER the desync is still seen, so
-    // the cap resynchronises rather than blinding the detector.
+    // … while the real mutation on the line after it is still seen.
     expect(sites[0]?.mutation).toBe('worktree.add');
   });
 });
@@ -287,7 +294,7 @@ describe('DR-12 live tree — the widened census is green and load-bearing', () 
   let live: Awaited<ReturnType<typeof auditVcsOwnership>>;
 
   beforeAll(async () => {
-    live = await auditVcsOwnership(SRC_ROOT);
+    live = await auditVcsOwnership(SRC_ROOT, lexModule);
   });
 
   it('the live shipped source is GREEN under the WIDENED detector', () => {
@@ -300,7 +307,7 @@ describe('DR-12 live tree — the widened census is green and load-bearing', () 
     // match anything — a vacuous pass. `local-git-merge.ts` is the module DR-12
     // names as "invisible by design"; it must now be visible.
     const { scanVcsMutationSites } = await import('../../../tools/conformance/src/vcs-ownership.js');
-    const sites = await scanVcsMutationSites(SRC_ROOT);
+    const sites = await scanVcsMutationSites(SRC_ROOT, lexModule);
     const kinds = new Set(sites.map((s) => s.mutation));
     expect(kinds.has('merge')).toBe(true);
     expect(kinds.has('branch.create')).toBe(true);
@@ -311,7 +318,7 @@ describe('DR-12 live tree — the widened census is green and load-bearing', () 
 
   it('every declared owner still claims a live site (STALE_VCS_OWNER ratchet intact)', async () => {
     const { scanVcsMutationSites } = await import('../../../tools/conformance/src/vcs-ownership.js');
-    const sites = await scanVcsMutationSites(SRC_ROOT);
+    const sites = await scanVcsMutationSites(SRC_ROOT, lexModule);
     const liveModules = new Set(sites.map((s) => s.module));
     for (const owner of VCS_MUTATION_OWNERS) {
       expect(liveModules.has(owner), `${owner} declares cover but claims no site`).toBe(true);
@@ -323,7 +330,7 @@ describe('DR-12 live tree — the widened census is green and load-bearing', () 
     // live tree fails closed with a real bypass, not a shrug.
     for (const dropped of ['verbs/merge/local-git-merge.ts', 'verbs/pure/execute-merge.ts']) {
       const owners = VCS_MUTATION_OWNERS.filter((o) => o !== dropped);
-      const result = await auditVcsOwnership(SRC_ROOT, owners);
+      const result = await auditVcsOwnership(SRC_ROOT, lexModule, owners);
       expect(result.ok, `${dropped} should be load-bearing`).toBe(false);
       expect(
         bypassesOf(result.diagnostics).some((d) => d.module === dropped),

@@ -120,6 +120,9 @@ function inventoryOf(
     suiteModulesWithoutSelfTest: [],
     compileTimeOnlyArtifacts: [],
     unresolvedSpecArtifacts: [],
+    filenameCoupledEntrypoints: [],
+    // Non-zero so fixture inventories do not trip `[empty-entrypoint-scan]`.
+    entrypointPredicatesScanned: 1,
     indirection,
   };
 }

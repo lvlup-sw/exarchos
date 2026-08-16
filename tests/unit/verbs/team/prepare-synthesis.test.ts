@@ -11,9 +11,10 @@ import type { EventStore } from '../../../../src/events/store.js';
 
 vi.mock('node:child_process', () => ({
   execSync: vi.fn(),
+  execFileSync: vi.fn(),
 }));
 
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 
 // ─── Mock views/tools to control materializer and event store ──────────────
 
@@ -140,7 +141,7 @@ describe('handlePrepareSynthesis', () => {
 
   it('PrepareSynthesis_MissingFeatureId_ReturnsInvalidInput', async () => {
     // Arrange
-    const args = {} as { featureId: string };
+    const args = {} as { featureId: string; repoRoot: string };
 
     // Act
     const result = await handlePrepareSynthesis(args, STATE_DIR, createMockEventStore() as unknown as EventStore);
@@ -165,7 +166,7 @@ describe('handlePrepareSynthesis', () => {
     );
 
     // Act
-    const result = await handlePrepareSynthesis({ featureId: 'test-feature' }, tmpDir, mockStore as unknown as EventStore);
+    const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
 
     // Assert
     expect(result.success).toBe(true);
@@ -192,7 +193,7 @@ describe('handlePrepareSynthesis', () => {
     vi.mocked(execSync).mockReturnValue(Buffer.from('Tests: 1 passed, 0 failed'));
 
     const result = await handlePrepareSynthesis(
-      { featureId: 'f' },
+      { featureId: 'f', repoRoot: tmpDir },
       tmpDir,
       mockStore as unknown as EventStore,
     );
@@ -214,7 +215,7 @@ describe('handlePrepareSynthesis', () => {
     vi.mocked(execSync).mockReturnValue(Buffer.from('Tests: 10 passed, 0 failed'));
 
     // Act
-    await handlePrepareSynthesis({ featureId: 'test-feature' }, tmpDir, mockStore as unknown as EventStore);
+    await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
 
     // Assert — verify gate.executed event emitted for test-suite
     const appendCalls = mockStore.append.mock.calls;
@@ -243,7 +244,7 @@ describe('handlePrepareSynthesis', () => {
     vi.mocked(execSync).mockReturnValue(Buffer.from(''));
 
     // Act
-    await handlePrepareSynthesis({ featureId: 'test-feature' }, tmpDir, mockStore as unknown as EventStore);
+    await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
 
     // Assert — verify gate.executed event emitted for typecheck
     const appendCalls = mockStore.append.mock.calls;
@@ -272,7 +273,7 @@ describe('handlePrepareSynthesis', () => {
     vi.mocked(execSync).mockReturnValue(Buffer.from('Tests: 10 passed, 0 failed'));
 
     // Act
-    await handlePrepareSynthesis({ featureId: 'test-feature' }, tmpDir, mockStore as unknown as EventStore);
+    await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
 
     // Assert — test-suite gate event includes phase: 'synthesize'
     const appendCalls = mockStore.append.mock.calls;
@@ -300,7 +301,7 @@ describe('handlePrepareSynthesis', () => {
     vi.mocked(execSync).mockReturnValue(Buffer.from(''));
 
     // Act
-    await handlePrepareSynthesis({ featureId: 'test-feature' }, tmpDir, mockStore as unknown as EventStore);
+    await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
 
     // Assert — typecheck gate event includes phase: 'synthesize'
     const appendCalls = mockStore.append.mock.calls;
@@ -333,7 +334,7 @@ describe('handlePrepareSynthesis', () => {
       .mockReturnValueOnce(Buffer.from('* abc1234 feat: add feature\n* def5678 fix: bug fix')); // git log
 
     // Act
-    const result = await handlePrepareSynthesis({ featureId: 'test-feature' }, tmpDir, mockStore as unknown as EventStore);
+    const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
 
     // Assert — verify git log was called (not gt log)
     const execCalls = vi.mocked(execSync).mock.calls;
@@ -369,7 +370,7 @@ describe('handlePrepareSynthesis', () => {
       .mockReturnValueOnce(Buffer.from('* abc1234 feat: add feature')); // git log
 
     // Act
-    await handlePrepareSynthesis({ featureId: 'test-feature' }, tmpDir, mockStore as unknown as EventStore);
+    await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
 
     // Assert — git log command uses 'trunk' not 'main'
     const execCalls = vi.mocked(execSync).mock.calls;
@@ -400,7 +401,7 @@ describe('handlePrepareSynthesis', () => {
       .mockReturnValueOnce(Buffer.from('main\n  feature-branch'));
 
     // Act
-    const result = await handlePrepareSynthesis({ featureId: 'test-feature' }, tmpDir, mockStore as unknown as EventStore);
+    const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
 
     // Assert
     expect(result.success).toBe(true);
@@ -429,7 +430,7 @@ describe('handlePrepareSynthesis', () => {
     vi.mocked(execSync).mockReturnValue(Buffer.from(''));
 
     // Act
-    const result = await handlePrepareSynthesis({ featureId: 'test-feature' }, tmpDir, mockStore as unknown as EventStore);
+    const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
 
     // Assert
     expect(result.success).toBe(true);
@@ -459,7 +460,7 @@ describe('handlePrepareSynthesis', () => {
     vi.mocked(execSync).mockReturnValue(Buffer.from('Tests: 5 passed, 2 failed'));
 
     // Act
-    await handlePrepareSynthesis({ featureId: 'test-feature' }, tmpDir, mockStore as unknown as EventStore);
+    await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
 
     // Assert — gate.executed event for test-suite feeds CodeQualityView flywheel
     const appendCalls = mockStore.append.mock.calls;
@@ -485,7 +486,7 @@ describe('handlePrepareSynthesis', () => {
     vi.mocked(execSync).mockReturnValue(Buffer.from(''));
 
     // Act
-    await handlePrepareSynthesis({ featureId: 'test-feature' }, tmpDir, mockStore as unknown as EventStore);
+    await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
 
     // Assert — gate.executed event for typecheck feeds CodeQualityView flywheel
     const appendCalls = mockStore.append.mock.calls;
@@ -519,7 +520,7 @@ describe('handlePrepareSynthesis', () => {
       .mockReturnValueOnce(Buffer.from('main'));             // git log
 
     // Act
-    const result = await handlePrepareSynthesis({ featureId: 'test-feature' }, tmpDir, mockStore as unknown as EventStore);
+    const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
 
     // Assert
     expect(result.success).toBe(true);
@@ -548,7 +549,7 @@ describe('handlePrepareSynthesis', () => {
       .mockReturnValueOnce(Buffer.from('main'));                // git log
 
     // Act
-    const result = await handlePrepareSynthesis({ featureId: 'test-feature' }, tmpDir, mockStore as unknown as EventStore);
+    const result = await handlePrepareSynthesis({ featureId: 'test-feature', repoRoot: tmpDir }, tmpDir, mockStore as unknown as EventStore);
 
     // Assert
     expect(result.success).toBe(true);
@@ -575,6 +576,7 @@ describe('handlePrepareSynthesis', () => {
     const result = await handlePrepareSynthesis(
       {
         featureId: 'test-feature',
+        repoRoot: tmpDir,
         projectConfig: {
           synthesis: {
             documentLeg: { severity: 'blocking', surfaceGlobs: ['**/*.ts'], docGlobs: ['docs/**'] },
@@ -611,6 +613,7 @@ describe('handlePrepareSynthesis', () => {
     const result = await handlePrepareSynthesis(
       {
         featureId: 'test-feature',
+        repoRoot: tmpDir,
         projectConfig: {
           synthesis: {
             documentLeg: { severity: 'advisory', surfaceGlobs: ['**/*.ts'], docGlobs: ['docs/**'] },
@@ -628,6 +631,143 @@ describe('handlePrepareSynthesis', () => {
     expect((docGate![1] as { data: { passed: boolean } }).data.passed).toBe(false);
     const data = result.data as { readiness: { documentReady: boolean } };
     expect(data.readiness.documentReady).toBe(true);
+  });
+
+  // ─── DR-8 (#1756): repoRoot is threaded to every subprocess leg ───────────
+
+  it('PrepareSynthesis_RepoRootDiffersFromCwd_LegsRunAgainstRepoRoot', async () => {
+    // Arrange — a repo root that provably differs from process.cwd(): the
+    // suite runs from inside servers/exarchos-mcp, but the gate is told to
+    // judge an unrelated temp tree. Before the fix every leg below ran with
+    // no `cwd` at all — i.e. against process.cwd() — so this assertion fails
+    // on the pre-change code (no leg's options carry a `cwd` key).
+    expect(tmpDir).not.toBe(process.cwd());
+    const taskView = mockTaskDetailView({ t1: { status: 'completed' } });
+    const mockMaterializer = createMockMaterializer(taskView);
+    const mockStore = createMockEventStore();
+    vi.mocked(getOrCreateMaterializer).mockReturnValue(
+      mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>,
+    );
+    vi.mocked(execSync).mockImplementation(((command: string) =>
+      typeof command === 'string' && command.includes('symbolic-ref')
+        ? Buffer.from('refs/remotes/origin/main')
+        : Buffer.from('Tests: 1 passed, 0 failed')) as unknown as typeof execSync);
+    vi.mocked(execFileSync).mockReturnValue(Buffer.from('src/foo.ts\n'));
+
+    // Act
+    await handlePrepareSynthesis(
+      { featureId: 'test-feature', repoRoot: tmpDir },
+      tmpDir,
+      mockStore as unknown as EventStore,
+    );
+
+    // Assert — every execSync leg (test suite, typecheck, default-branch
+    // detection, `git log` stack check) and the execFileSync `git diff` leg
+    // all received `cwd: tmpDir`; none fell back to the ambient process.cwd().
+    const execCalls = vi.mocked(execSync).mock.calls;
+    expect(execCalls.length).toBeGreaterThan(0);
+    for (const call of execCalls) {
+      const options = call[1] as { cwd?: string } | undefined;
+      expect(options?.cwd).toBe(tmpDir);
+    }
+
+    const execFileCalls = vi.mocked(execFileSync).mock.calls;
+    expect(execFileCalls.length).toBeGreaterThan(0);
+    for (const call of execFileCalls) {
+      const options = call[2] as { cwd?: string } | undefined;
+      expect(options?.cwd).toBe(tmpDir);
+    }
+  });
+
+  it('PrepareSynthesis_RepoRootMissingAfterTasksComplete_RefusesRatherThanDefaultingToCwd', async () => {
+    // A caller that reaches the handler without repoRoot — e.g. through an
+    // unchecked cast, since TypeScript alone can't stop every runtime path
+    // (composite.ts's action dispatch casts `args as unknown as T`) — must be
+    // refused outright, never silently answered for process.cwd().
+    const taskView = mockTaskDetailView({ t1: { status: 'completed' } });
+    const mockMaterializer = createMockMaterializer(taskView);
+    const mockStore = createMockEventStore();
+    vi.mocked(getOrCreateMaterializer).mockReturnValue(
+      mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>,
+    );
+
+    const result = await handlePrepareSynthesis(
+      { featureId: 'test-feature' } as unknown as Parameters<typeof handlePrepareSynthesis>[0],
+      tmpDir,
+      mockStore as unknown as EventStore,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('INVALID_INPUT');
+    expect(result.error?.message).toContain('repoRoot');
+    // No leg ran — a missing repoRoot must not silently produce a verdict.
+    expect(vi.mocked(execSync)).not.toHaveBeenCalled();
+  });
+
+  it('PrepareSynthesis_RelativeRepoRoot_IsRefusedLikeAMissingOne', async () => {
+    // `repoRoot: '.'` satisfies the presence check and is still the ambient-cwd
+    // fallback wearing a value: a relative path handed to a subprocess as `cwd`
+    // resolves against the SERVER, so the legs would measure whatever tree the
+    // server sits in while reporting a verdict about the caller's feature.
+    const taskView = mockTaskDetailView({ t1: { status: 'completed' } });
+    const mockMaterializer = createMockMaterializer(taskView);
+    const mockStore = createMockEventStore();
+    vi.mocked(getOrCreateMaterializer).mockReturnValue(
+      mockMaterializer as unknown as ReturnType<typeof getOrCreateMaterializer>,
+    );
+
+    for (const relative of ['.', '..', 'some/repo', './repo']) {
+      vi.mocked(execSync).mockClear();
+      // Both spawn surfaces, not just the shell one: the changed-files leg
+      // shells out through execFileSync, so a regression that reached IT
+      // before returning would slip past an execSync-only oracle.
+      vi.mocked(execFileSync).mockClear();
+      const result = await handlePrepareSynthesis(
+        { featureId: 'test-feature', repoRoot: relative },
+        tmpDir,
+        mockStore as unknown as EventStore,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('INVALID_INPUT');
+      expect(result.error?.message).toContain('absolute');
+      expect(vi.mocked(execSync)).not.toHaveBeenCalled();
+      expect(vi.mocked(execFileSync)).not.toHaveBeenCalled();
+    }
+
+    // `RegExp.test()` stringifies, so a non-string that LOOKS absolute once
+    // coerced (`['/repo']` → `/repo`) used to clear the shape check and reach a
+    // subprocess as a non-string `cwd`, returning PREPARE_SYNTHESIS_FAILED —
+    // a run-failure code for what is really malformed caller input.
+    for (const nonString of [['/repo'], 42, { path: '/repo' }, true]) {
+      vi.mocked(execSync).mockClear();
+      vi.mocked(execFileSync).mockClear();
+      const result = await handlePrepareSynthesis(
+        { featureId: 'test-feature', repoRoot: nonString } as unknown as Parameters<
+          typeof handlePrepareSynthesis
+        >[0],
+        tmpDir,
+        mockStore as unknown as EventStore,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('INVALID_INPUT');
+      expect(vi.mocked(execSync)).not.toHaveBeenCalled();
+      expect(vi.mocked(execFileSync)).not.toHaveBeenCalled();
+    }
+
+    // The negative twin: an absolute path is still accepted, so the guard is
+    // rejecting relativeness rather than rejecting everything. Asserting the
+    // CODE (not just the absence of a word in the message) keeps this from
+    // passing when the fixture fails validation for some unrelated reason.
+    vi.mocked(execSync).mockClear();
+    const accepted = await handlePrepareSynthesis(
+      { featureId: 'test-feature', repoRoot: tmpDir },
+      tmpDir,
+      mockStore as unknown as EventStore,
+    );
+    expect(accepted.error?.message ?? '').not.toContain('absolute');
+    expect(accepted.error?.code).not.toBe('INVALID_INPUT');
   });
 });
 

@@ -1,4 +1,7 @@
-export type ExemptedFinding = 'unreachable' | 'filtered-implementation-surface';
+export type ExemptedFinding =
+  | 'unreachable'
+  | 'filtered-implementation-surface'
+  | 'filename-coupled-entrypoint';
 
 export interface GuardExemption {
   /** Repo-relative path of the guard whose hosting is knowingly imperfect. */

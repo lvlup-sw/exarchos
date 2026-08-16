@@ -1,5 +1,6 @@
-import { readFile } from 'node:fs/promises';
+import { access, readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import type { ModuleLexer } from '../../../src/architecture/effect-ledger.js';
 
 /**
  * P04-01 — silent-swallow static check for required delivery paths.
@@ -23,6 +24,13 @@ import { join } from 'node:path';
  *
  * This is the same "string-aware static scan producing a typed verdict" shape as
  * `verbs/gates/gate-ownership-census.ts`.
+ *
+ * ── Population ──────────────────────────────────────────────────────────────
+ * WHICH modules are on a required delivery path is derived from the import
+ * graph, not transcribed: see {@link resolveRequiredDeliveryModules}. The
+ * superseded hand-written array listed two modules and missed
+ * `events/composite.ts` entirely, and nothing in the check could tell a
+ * correct list from a stale one.
  */
 
 export interface SwallowFinding {
@@ -32,69 +40,36 @@ export interface SwallowFinding {
 }
 
 /**
- * Replace every string, template and comment span with spaces (newlines kept)
- * so structural matching sees only real code while offsets stay aligned to the
- * original source.
+ * `source` with every string, template-TEXT and comment span replaced by spaces
+ * (newlines and offsets kept) so structural matching sees only real code.
+ *
+ * An ACCESSOR over the caller-supplied {@link ModuleLexer}, not a lexer: it
+ * holds no knowledge of TypeScript's grammar and must never re-acquire any. See
+ * `architecture/effect-ledger.ts`'s header for why the port is REQUIRED and why
+ * its only implementation lives under `test-helpers/`.
+ *
+ * ── What it replaced, and what that cost ────────────────────────────────────
+ * Until task 072 this was a hand-rolled character walk — the fourth
+ * near-duplicate in this package — with no regex-literal state at all. Measured
+ * on task 065's adversarial inputs it was wrong in both directions, and for a
+ * silent-swallow gate both matter:
+ *
+ *   • FALSE NEGATIVE, the dangerous direction. A regex literal holding a
+ *     backtick opened a phantom template that ran to EOF, so a REAL `catch {}`
+ *     below it was masked away and the module scanned clean.
+ *   • FALSE POSITIVE. The walk masked a template literal whole, which inverted
+ *     its own state on a template nested inside a `${…}` substitution and
+ *     un-masked the nested body — reporting an `empty-catch` that exists only as
+ *     template text.
+ *
+ * The retired walk is kept verbatim in `test-helpers/superseded-site-lexers.ts`
+ * so the kill fixture asserts both answers rather than asking a reader to take
+ * the gap on faith. One further difference is deliberate and inherited from the
+ * port: a `${…}` substitution IS code and is no longer masked, so a `catch {}`
+ * written inside one is now SEEN.
  */
-export function maskLiteralsAndComments(source: string): string {
-  const out: string[] = [];
-  let quote: string | null = null;
-  let lineComment = false;
-  let blockComment = false;
-  for (let i = 0; i < source.length; i += 1) {
-    const ch = source[i] ?? '';
-    const next = source[i + 1];
-    if (lineComment) {
-      if (ch === '\n') {
-        lineComment = false;
-        out.push('\n');
-      } else {
-        out.push(' ');
-      }
-      continue;
-    }
-    if (blockComment) {
-      if (ch === '*' && next === '/') {
-        blockComment = false;
-        out.push('  ');
-        i += 1;
-      } else {
-        out.push(ch === '\n' ? '\n' : ' ');
-      }
-      continue;
-    }
-    if (quote !== null) {
-      if (ch === '\\') {
-        out.push('  ');
-        i += 1;
-      } else if (ch === quote) {
-        quote = null;
-        out.push(' ');
-      } else {
-        out.push(ch === '\n' ? '\n' : ' ');
-      }
-      continue;
-    }
-    if (ch === '/' && next === '/') {
-      lineComment = true;
-      out.push('  ');
-      i += 1;
-      continue;
-    }
-    if (ch === '/' && next === '*') {
-      blockComment = true;
-      out.push('  ');
-      i += 1;
-      continue;
-    }
-    if (ch === '"' || ch === "'" || ch === '`') {
-      quote = ch;
-      out.push(' ');
-      continue;
-    }
-    out.push(ch);
-  }
-  return out.join('');
+export function maskLiteralsAndComments(source: string, lex: ModuleLexer): string {
+  return lex(source).maskedSource;
 }
 
 /** Line number (1-based) of a character offset. */
@@ -145,8 +120,8 @@ function isEmptyHandler(masked: string): boolean {
  * caller supplies the source (dependency injection for tests) or reads it from
  * disk via {@link auditDeliverySafety}.
  */
-export function findSilentSwallows(source: string): SwallowFinding[] {
-  const masked = maskLiteralsAndComments(source);
+export function findSilentSwallows(source: string, lex: ModuleLexer): SwallowFinding[] {
+  const masked = maskLiteralsAndComments(source, lex);
   const findings: SwallowFinding[] = [];
 
   // 1. Empty catch blocks.
@@ -181,44 +156,164 @@ export function findSilentSwallows(source: string): SwallowFinding[] {
 }
 
 /**
- * Repo-relative modules that carry a required delivery contract and therefore
- * MUST be free of silent swallows. Paths are relative to the scan `sourceRoot`,
- * forward-slashed.
+ * The module that DECLARES the required-delivery contract. Everything on a
+ * required delivery path either is this module or reaches it.
+ *
+ * Named once, here, because it is the seed of the derived population below —
+ * spelling it a second time anywhere else would reintroduce the hand-maintained
+ * list this replaces.
  */
-export const REQUIRED_DELIVERY_MODULES: readonly string[] = [
-  // The register is path-pinned, and a pin that resolves to nothing censuses
-  // nothing — so both entries are asserted to resolve before the scan runs.
-  //
-  // The delivery ALGEBRA sits under `events/` and the transport under
-  // `adapters/`. That split is the point rather than an accident: the algebra
-  // is a pure decision function the event core is allowed to depend on, while
-  // the emitter is the IO facade the core must not reach into. They were both
-  // filed under `adapters/` until the boundary rule was enforced, which is what
-  // surfaced that the core was importing the facade to get at the algebra.
-  'events/channel/delivery.ts',
-  'adapters/channel/emitter.ts',
-];
+export const DELIVERY_CONTRACT_MODULE = 'events/channel/delivery.ts';
+
+/**
+ * Modules on a required delivery path, DERIVED from a module property rather
+ * than transcribed (DR-8, task 079).
+ *
+ * This used to be a frozen two-element array — two of the four modules under
+ * `channel/` — with no way to tell a correct list from a stale one, and its test
+ * asserted the constant contained what the constant declared: a comparison with
+ * itself, which can never disagree.
+ *
+ * The property that actually defines the population: a module is on a required
+ * delivery path iff it DECLARES the contract ({@link DELIVERY_CONTRACT_MODULE})
+ * or IMPORTS it. That is derivable from the import graph, so a new module that
+ * starts delivering is covered the day it lands rather than the day someone
+ * remembers to widen an array. It is also strictly wider than the list it
+ * replaces: `events/composite.ts` imports `deliver` and was never scanned.
+ *
+ * The scan is deliberately one hop, not transitive: `deliver`'s required arm
+ * throws, so the failure propagates by construction through intermediate frames.
+ * A silent swallow only discards it at a site that holds the call.
+ *
+ * ── Why the port answers this too (task 072) ────────────────────────────────
+ * Deriving the population is the same lexical question as masking the code, and
+ * this function used to answer it a SECOND way: a raw-source regex requiring
+ * `import` at line start and a `from` within 400 characters, cross-checked
+ * against the mask to reject commented-out imports. Two instruments, one file,
+ * free to disagree — the shape DR-2 exists to remove. It is now the port's
+ * `imports`, which is also strictly wider: `export … from`, `import … =
+ * require(…)` and a dynamic `import(…)` of the contract are edges the regex
+ * could not see, and an edge missed here is a module never scanned for swallows.
+ *
+ * TYPE-ONLY edges are deliberately KEPT in the population. The property is "this
+ * module names the delivery contract", and a module that imports the contract's
+ * types is a module written against it; including it can only widen the sweep,
+ * which is the fail-closed direction for a safety gate.
+ */
+export async function resolveRequiredDeliveryModules(
+  sourceRoot: string,
+  lex: ModuleLexer,
+): Promise<string[]> {
+  const importsContract = (source: string, fromDir: string, fileName: string): boolean =>
+    lex(source, fileName).imports.some((ref) => {
+      const target = ref.specifier.replace(/\.js$/, '.ts');
+      const resolved = target.startsWith('.')
+        ? join(fromDir, target).replaceAll('\\', '/')
+        : target;
+      return resolved === DELIVERY_CONTRACT_MODULE;
+    });
+
+  // Seeded ONLY when the contract module is actually there. Seeding it
+  // unconditionally made the derived population impossible to empty, so the
+  // `EMPTY_POPULATION` arm was unreachable by derivation — and if the module had
+  // moved, the audit walked past the seed and threw ENOENT out of `readFile`
+  // rather than returning the fail-closed diagnostic whose own text says
+  // "events/channel/delivery.ts moved". The one condition the diagnostic describes was
+  // the one it could not report.
+  const modules = new Set<string>();
+  const contractExists = await access(join(sourceRoot, DELIVERY_CONTRACT_MODULE)).then(
+    () => true,
+    () => false,
+  );
+  if (contractExists) modules.add(DELIVERY_CONTRACT_MODULE);
+  const walk = async (dir: string): Promise<void> => {
+    for (const entry of await readdir(join(sourceRoot, dir), { withFileTypes: true })) {
+      const rel = dir === '' ? entry.name : `${dir}/${entry.name}`;
+      if (entry.isDirectory()) {
+        if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name.startsWith('.')) {
+          continue;
+        }
+        await walk(rel);
+      } else if (
+        entry.name.endsWith('.ts') &&
+        !entry.name.endsWith('.test.ts') &&
+        !entry.name.endsWith('.d.ts')
+      ) {
+        if (importsContract(await readFile(join(sourceRoot, rel), 'utf8'), dir, rel)) {
+          modules.add(rel);
+        }
+      }
+    }
+  };
+  await walk('');
+  return [...modules].sort();
+}
+
+export type DeliverySafetyCode = 'EMPTY_POPULATION' | 'SILENT_SWALLOW';
 
 export interface DeliverySafetyResult {
   readonly ok: boolean;
   readonly findings: readonly { readonly module: string; readonly finding: SwallowFinding }[];
+  /** The modules actually scanned — the denominator the findings are read against. */
+  readonly modules: readonly string[];
+  readonly diagnostics: readonly { readonly code: DeliverySafetyCode; readonly message: string }[];
 }
 
 /**
- * Read every {@link REQUIRED_DELIVERY_MODULES} module under `sourceRoot` and
- * return a verdict: `ok` iff none contains a silent swallow. Drives the
- * exit-proof test against the real delivery source.
+ * Read every required-delivery module under `sourceRoot` and return a verdict:
+ * `ok` iff the population is non-empty AND none of its modules contains a silent
+ * swallow.
+ *
+ * NON-EMPTY DENOMINATOR (DR-8, task 079): an empty module list produced
+ * `ok: true` with zero findings — the same verdict a clean delivery path
+ * produces. "Nothing to check" and "checked, nothing wrong" must not be the same
+ * answer, so an empty population is now an `EMPTY_POPULATION` failure.
+ *
+ * `modules` defaults to the DERIVED population; pass an explicit list to scan a
+ * fixture tree.
  */
 export async function auditDeliverySafety(
   sourceRoot: string,
-  modules: readonly string[] = REQUIRED_DELIVERY_MODULES,
+  lex: ModuleLexer,
+  modules?: readonly string[],
 ): Promise<DeliverySafetyResult> {
+  const scanned = modules ?? (await resolveRequiredDeliveryModules(sourceRoot, lex));
+  if (scanned.length === 0) {
+    return Object.freeze({
+      ok: false,
+      findings: Object.freeze([]),
+      modules: Object.freeze([]),
+      diagnostics: Object.freeze([
+        {
+          code: 'EMPTY_POPULATION' as const,
+          message:
+            `No required-delivery module resolved under "${sourceRoot}". A swallow sweep over ` +
+            'an empty population reports "no silent swallow" for the same reason a clean ' +
+            `delivery path does. Either ${DELIVERY_CONTRACT_MODULE} moved, or the import-graph ` +
+            'derivation stopped resolving it.',
+        },
+      ]),
+    });
+  }
+
   const findings: { module: string; finding: SwallowFinding }[] = [];
-  for (const module of modules) {
+  for (const module of scanned) {
     const source = await readFile(join(sourceRoot, module), 'utf8');
-    for (const finding of findSilentSwallows(source)) {
+    for (const finding of findSilentSwallows(source, lex)) {
       findings.push({ module, finding });
     }
   }
-  return Object.freeze({ ok: findings.length === 0, findings });
+  return Object.freeze({
+    ok: findings.length === 0,
+    findings,
+    modules: Object.freeze([...scanned]),
+    diagnostics: Object.freeze(
+      findings.map((entry) => ({
+        code: 'SILENT_SWALLOW' as const,
+        message:
+          `${entry.module}:${entry.finding.line} discards a failure without a trace ` +
+          `(${entry.finding.kind}): ${entry.finding.snippet}`,
+      })),
+    ),
+  });
 }

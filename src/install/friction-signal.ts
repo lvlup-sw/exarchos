@@ -1,3 +1,6 @@
+// RESERVED(issue: #1764, owner: exarchos, expires: 2027-02-28) — dormant orchestration
+// telemetry: no production importer, kept alive only by its own test. Deletion is due at
+// expiry if unadopted (DR-7 module-intent gate).
 /**
  * friction-signal — a stop-and-simplify signal for repeated INFRASTRUCTURE
  * failure (P07-07; dogfood exit criteria 10/14/15).
@@ -21,13 +24,20 @@
  *   - a vitest worker RPC timeout that exits non-zero with ZERO failing tests —
  *     an infra flake that must NOT be mistaken for a real red test.
  *
- * Placement note (P07-07): this lives in the repo-root `src/` beside
+ * Placement note (P07-07): this lives in `src/install/` beside
  * `advisory-registry.ts` rather than in `src/telemetry/`
  * because the failures it watches are ORCHESTRATION-level infrastructure
- * operations (npm, worktree setup, the whole-suite test runner), not MCP
- * tool invocations, and because a telemetry module with no production importer
- * would itself register as dead-in-prod (DR-7) — the opposite of the friction
- * this package exists to reduce.
+ * operations (npm, worktree setup, the whole-suite test runner), not MCP tool
+ * invocations. That half of the original note stands.
+ *
+ * The other half does not, and is recorded here rather than quietly dropped: the
+ * note also gave "a telemetry module with no production importer would itself
+ * register as dead-in-prod (DR-7)" as a reason for the placement. Root `src/`
+ * was outside the module-intent gate's root at the time, so the module was not
+ * exempt from DR-7 — it was out of reach of the instrument. Relocating out of a
+ * gate's reach is not satisfying the gate, and the gate now scans both source
+ * trees, so the RESERVED marker above states the real position: this is dormant
+ * code with a deletion date, not code that answered the rule.
  */
 
 // ─── Failure classification ──────────────────────────────────────────────────

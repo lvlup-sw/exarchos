@@ -52,12 +52,23 @@ export function hasDirectRunExit(source: string, fileName: string): boolean {
   };
   const visit = (node: ts.Node): void => {
     if (found) return;
+    /** `process.exit` / `process.exitCode`, as a property access off `process`. */
+    const isProcessMember = (n: ts.Node, member: string): boolean =>
+      ts.isPropertyAccessExpression(n) &&
+      n.name.text === member &&
+      ts.isIdentifier(n.expression) &&
+      n.expression.text === 'process';
+
+    if (ts.isCallExpression(node) && isProcessMember(node.expression, 'exit') && !insideFunction(node)) {
+      found = true;
+      return;
+    }
+    // `process.exitCode = runGuard()` is the same entrypoint with the flush
+    // hazard removed, so it has to classify the same way.
     if (
-      ts.isCallExpression(node) &&
-      ts.isPropertyAccessExpression(node.expression) &&
-      node.expression.name.text === 'exit' &&
-      ts.isIdentifier(node.expression.expression) &&
-      node.expression.expression.text === 'process' &&
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      isProcessMember(node.left, 'exitCode') &&
       !insideFunction(node)
     ) {
       found = true;
@@ -67,6 +78,134 @@ export function hasDirectRunExit(source: string, fileName: string): boolean {
   };
   ts.forEachChild(sourceFile, visit);
   return found;
+}
+
+/** A guard whose self-execution is decided by its own filename. */
+export interface FilenameCoupledEntrypoint {
+  readonly artifact: string;
+  /** The filename literals the predicate tests, in source order. */
+  readonly literals: readonly string[];
+}
+
+export interface EntrypointPredicate {
+  /** Filename literals `argv[1]` is tested against with no identity check alongside. */
+  readonly coupledLiterals: readonly string[];
+}
+
+/**
+ * Classify a module's entrypoint predicate.
+ *
+ * A filename test is only a FINDING when nothing in the same statement also
+ * compares `argv[1]` against `import.meta.url`. That distinction is load-bearing:
+ * several gates read
+ *
+ *     path.resolve(entry) === fileURLToPath(import.meta.url) || entry.endsWith('/name.mjs')
+ *
+ * where the filename arm WIDENS an identity check rather than replacing it — a
+ * rename still self-executes through the first disjunct. Scoping to the nearest
+ * enclosing STATEMENT is what separates them from a bare
+ * `process.argv[1].endsWith('cli-vocab-guard.ts')`.
+ *
+ * Both operands are followed through single-assignment aliases (`const entry =
+ * process.argv[1]`, `const self = fileURLToPath(import.meta.url)`).
+ *
+ * Fails CLOSED on a source the parser had to recover from — a `[]` there would
+ * read as "no coupling found".
+ */
+export function classifyEntrypointPredicate(source: string, fileName: string): EntrypointPredicate {
+  const sourceFile = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
+  const diagnostics: unknown = Reflect.get(sourceFile, 'parseDiagnostics');
+  if (Array.isArray(diagnostics) && diagnostics.length > 0) {
+    throw new Error(`${fileName}: ${diagnostics.length} parse error(s) — refusing to classify`);
+  }
+
+  const subtreeHas = (node: ts.Node, pred: (n: ts.Node) => boolean): boolean => {
+    let found = false;
+    const visit = (n: ts.Node): void => {
+      if (found) return;
+      if (pred(n)) {
+        found = true;
+        return;
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(node);
+    return found;
+  };
+
+  const isArgv1 = (n: ts.Node): boolean =>
+    ts.isElementAccessExpression(n) &&
+    ts.isPropertyAccessExpression(n.expression) &&
+    n.expression.name.text === 'argv' &&
+    ts.isIdentifier(n.expression.expression) &&
+    n.expression.expression.text === 'process' &&
+    ts.isNumericLiteral(n.argumentExpression) &&
+    n.argumentExpression.text === '1';
+
+  const isImportMeta = (n: ts.Node): boolean => n.kind === ts.SyntaxKind.MetaProperty;
+
+  const argvAliases = new Set<string>();
+  const metaAliases = new Set<string>();
+  const collectAliases = (n: ts.Node): void => {
+    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer !== undefined) {
+      if (subtreeHas(n.initializer, isArgv1)) argvAliases.add(n.name.text);
+      if (subtreeHas(n.initializer, isImportMeta)) metaAliases.add(n.name.text);
+    }
+    ts.forEachChild(n, collectAliases);
+  };
+  ts.forEachChild(sourceFile, collectAliases);
+
+  const mentionsArgv = (n: ts.Node): boolean =>
+    subtreeHas(n, (x) => isArgv1(x) || (ts.isIdentifier(x) && argvAliases.has(x.text)));
+  const mentionsMeta = (n: ts.Node): boolean =>
+    subtreeHas(n, (x) => isImportMeta(x) || (ts.isIdentifier(x) && metaAliases.has(x.text)));
+
+  const enclosingStatement = (node: ts.Node): ts.Node => {
+    let current: ts.Node = node;
+    while (current.parent !== undefined && !ts.isStatement(current)) current = current.parent;
+    return current;
+  };
+
+  const isIdentityCheck = (n: ts.Node): boolean => {
+    if (
+      ts.isBinaryExpression(n) &&
+      (n.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken ||
+        n.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsEqualsToken)
+    ) {
+      return (
+        (mentionsArgv(n.left) && mentionsMeta(n.right)) ||
+        (mentionsArgv(n.right) && mentionsMeta(n.left))
+      );
+    }
+    if (ts.isCallExpression(n)) {
+      return n.arguments.some((a) => mentionsArgv(a)) && n.arguments.some((a) => mentionsMeta(a));
+    }
+    return false;
+  };
+
+  const coupledLiterals: string[] = [];
+  const isFilenameTest = (n: ts.Node): n is ts.CallExpression =>
+    ts.isCallExpression(n) &&
+    ts.isPropertyAccessExpression(n.expression) &&
+    (n.expression.name.text === 'endsWith' || n.expression.name.text === 'includes') &&
+    n.arguments.length === 1 &&
+    mentionsArgv(n.expression.expression);
+
+  const visit = (n: ts.Node): void => {
+    if (isFilenameTest(n)) {
+      const literal = n.arguments[0];
+      if (
+        literal !== undefined &&
+        ts.isStringLiteralLike(literal) &&
+        !subtreeHas(enclosingStatement(n), isIdentityCheck)
+      ) {
+        coupledLiterals.push(literal.text);
+      }
+    }
+    ts.forEachChild(n, visit);
+  };
+  ts.forEachChild(sourceFile, visit);
+  return { coupledLiterals };
 }
 
 /**

@@ -17,7 +17,7 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, renameSync, writeFileSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
@@ -29,7 +29,11 @@ import type { ResolvedVerificationRuntime } from '../../../../src/config/test-ru
 import { resolveConfig } from '../../../../src/config/resolve.js';
 import type { ProjectConfig } from '../../../../src/config/yaml-schema.js';
 import type { MutationRunResult, RunDiff } from '../../../../src/verbs/gates/mutation-adequacy.js';
-import { composeScopedCommand } from '../../../../src/verbs/gates/mutation-adequacy.js';
+import {
+  composeScopedCommand,
+  discoverMutationConfig,
+  resolveMutationRunnerCwd,
+} from '../../../../src/verbs/gates/mutation-adequacy.js';
 import { foldInFlightOperations, type OperationEventLike } from '../../../../src/projections/views/lifecycle/operations-fold.js';
 import { resolveMutationDiffScope } from '../../../../src/config/toolchains.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
@@ -101,6 +105,10 @@ interface MutationData {
   maxNoCoverage?: number;
   trivialPass?: boolean;
   noCoverageReason?: string;
+  // DR-8 additive carrier fields — the run root and where it came from.
+  runnerCwd?: string;
+  runnerCwdRationale?: string;
+  mutationConfigPath?: string | null;
 }
 
 // ─── harness ─────────────────────────────────────────────────────────────────
@@ -115,6 +123,26 @@ afterEach(() => {
     }
   }
 });
+
+/**
+ * A throwaway repo root on disk. Keys are repo-relative POSIX paths; missing
+ * parent directories are created. Real files matter here: run-root resolution
+ * is a claim about the filesystem, so a fixture that only exists in an
+ * assertion would prove nothing about it.
+ */
+function makeRepoFixture(files: Readonly<Record<string, string>>): string {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'mutadq-repo-'));
+  cleanups.push(() => rmrf(root));
+  for (const [rel, content] of Object.entries(files)) {
+    const full = path.join(root, ...rel.split('/'));
+    mkdirSync(path.dirname(full), { recursive: true });
+    writeFileSync(full, content);
+  }
+  return root;
+}
+
+/** Minimal StrykerJS config body — only its NAME and location are load-bearing. */
+const STRYKER_CONFIG = 'export default { testRunner: "vitest" };\n';
 
 async function newStore(): Promise<{ stateDir: string; eventStore: EventStore }> {
   const stateDir = mkdtempSync(path.join(os.tmpdir(), 'mutadq-state-'));
@@ -725,11 +753,13 @@ describe('mutation-adequacy scope validation (INV-5a/5b)', () => {
 describe("mutation-adequacy repoRoot:'auto' resolution (PR #1541 Seer)", () => {
   it('MutationAdequacy_AutoRepoRoot_ResolvesFromWorktreeCreatedEvent', async () => {
     const { stateDir, eventStore } = await newStore();
-    // Seed the task's worktree.created event that `repoRoot:'auto'` resolves
-    // against — the handler must thread `taskId` to resolveRepoRoot for this.
+    // A REAL worktree directory carrying a mutation config: the run root the
+    // gate reports has to be one it could actually launch a runner in, so a
+    // path that exists only in the event is no longer enough to reach the run.
+    const worktree = makeRepoFixture({ 'stryker.conf.mjs': 'export default {};\n' });
     await eventStore.append('feat-mutadq', {
       type: 'worktree.created',
-      data: { taskId: 'task-007', path: '/tmp/wt/task-007' },
+      data: { taskId: 'task-007', path: worktree },
     });
     const ctx = makeCtx(stateDir, eventStore);
 
@@ -753,7 +783,7 @@ describe("mutation-adequacy repoRoot:'auto' resolution (PR #1541 Seer)", () => {
 
     expect(result.success).toBe(true);
     // 'auto' resolved to the task's worktree via the event lookup (taskId threaded).
-    expect(seenRepoRoot).toBe('/tmp/wt/task-007');
+    expect(seenRepoRoot).toBe(worktree);
   });
 
   it('MutationAdequacy_AutoRepoRoot_NoTaskIdNoWorktree_InvalidInput', async () => {
@@ -1338,5 +1368,415 @@ describe('mutation-adequacy NoCoverage axis (DR-6)', () => {
     const verdict = guards.allReviewsPassed.evaluate(guardState);
     expect(verdict).not.toBe(true);
     expect((verdict as GuardFailure).reason).toContain('NoCoverage');
+  });
+});
+
+// ─── DR-8: the run root is derived from the mutation config's location ───────
+//
+// The gate's subject is the tree the runner actually looked at. Launching the
+// command at the repo root of a repository whose mutation config lives in a
+// sub-package measures a directory the config never described — DR-8's shape,
+// one layer out from a guard's scan root.
+//
+// Every fixture below puts the config under a package name that appears NOWHERE
+// in the production module, so a run root spelled as a constant cannot satisfy
+// them: only reading the config's own location can.
+
+/** Dispatch against a real on-disk repo root, capturing the runner's cwd. */
+async function dispatchInRepo(
+  repoRoot: string,
+  opts: {
+    mutationCmd?: string;
+    projectConfig?: DispatchContext['projectConfig'];
+    runDiff?: RunDiff;
+  } = {},
+): Promise<{
+  success: boolean;
+  data: MutationData;
+  warnings?: string[];
+  seenCwd: string | undefined;
+  ran: boolean;
+}> {
+  const { stateDir, eventStore } = await newStore();
+  const ctx = makeCtx(stateDir, eventStore, opts.projectConfig);
+  let seenCwd: string | undefined;
+  let ran = false;
+  const result = (await handleOrchestrate(
+    {
+      action: 'mutation-adequacy',
+      featureId: 'feat-mutadq',
+      base: 'main',
+      repoRoot,
+      resolve: () => runtimeWith(opts.mutationCmd ?? 'npx stryker run'),
+      detectToolchainId: () => 'node',
+      runDiff: opts.runDiff ?? ((): readonly string[] => []),
+      runMutation: (runArgs: { command: string; cwd: string }) => {
+        ran = true;
+        seenCwd = runArgs.cwd;
+        return { ok: true as const, report: strykerReport([{ status: 'Killed' }]) };
+      },
+    },
+    ctx,
+  )) as { success: boolean; data: MutationData; warnings?: string[] };
+  return { ...result, seenCwd, ran };
+}
+
+describe('mutation config discovery (DR-8 — location, not a package name)', () => {
+  it('DiscoverMutationConfig_ConfigInSubPackage_ResolvesThatPackageAsOwner', () => {
+    const root = makeRepoFixture({
+      'package.json': '{}',
+      'services/billing-engine/stryker.conf.mjs': STRYKER_CONFIG,
+      'services/billing-engine/src/pay.ts': 'export const x = 1;\n',
+    });
+    const found = discoverMutationConfig(root);
+    expect(found.ok).toBe(true);
+    if (!found.ok) return;
+    expect(found.packageDir).toBe(path.join(root, 'services', 'billing-engine'));
+    expect(path.basename(found.configPath)).toBe('stryker.conf.mjs');
+  });
+
+  it('DiscoverMutationConfig_MovingTheConfig_MovesTheOwner', () => {
+    // The whole point of deriving the owner: relocating the config relocates
+    // the run root, with no source change anywhere.
+    const before = makeRepoFixture({ 'apps/api/stryker.conf.mjs': STRYKER_CONFIG });
+    const after = makeRepoFixture({ 'tooling/mutation/stryker.conf.mjs': STRYKER_CONFIG });
+    const a = discoverMutationConfig(before);
+    const b = discoverMutationConfig(after);
+    expect(a.ok && path.relative(before, a.packageDir)).toBe(path.join('apps', 'api'));
+    expect(b.ok && path.relative(after, b.packageDir)).toBe(path.join('tooling', 'mutation'));
+  });
+
+  it('DiscoverMutationConfig_DependencyAndBuildOutput_ExcludedByProperty', () => {
+    // A config that only exists inside a dependency tree or build output is not
+    // the project's config. Excluded because of WHAT those directories are —
+    // the scan root stays the whole repository.
+    const root = makeRepoFixture({
+      'node_modules/some-dep/stryker.conf.js': STRYKER_CONFIG,
+      'dist/stryker.conf.js': STRYKER_CONFIG,
+      '.stryker-tmp/sandbox-1/stryker.conf.js': STRYKER_CONFIG,
+      'src/index.ts': 'export const x = 1;\n',
+    });
+    expect(discoverMutationConfig(root).ok).toBe(false);
+  });
+
+  it('DiscoverMutationConfig_ShallowestWins_Deterministically', () => {
+    const root = makeRepoFixture({
+      'stryker.conf.mjs': STRYKER_CONFIG,
+      'packages/zeta/stryker.conf.mjs': STRYKER_CONFIG,
+      'packages/alpha/stryker.conf.mjs': STRYKER_CONFIG,
+    });
+    const found = discoverMutationConfig(root);
+    expect(found.ok && found.packageDir).toBe(path.resolve(root));
+  });
+
+  it('DiscoverMutationConfig_SharedFile_NeedsTheRunnersOwnSection', () => {
+    // `pyproject.toml` exists in every Python package — the basename proves
+    // nothing. Only the runner's declared section makes it a mutation config.
+    const without = makeRepoFixture({ 'pyproject.toml': '[project]\nname = "x"\n' });
+    const withSection = makeRepoFixture({
+      'pkg/pyproject.toml': '[project]\nname = "x"\n\n[tool.mutmut]\npaths_to_mutate = "src/"\n',
+    });
+    expect(discoverMutationConfig(without).ok).toBe(false);
+    const found = discoverMutationConfig(withSection);
+    expect(found.ok && path.relative(withSection, found.packageDir)).toBe('pkg');
+  });
+});
+
+describe('mutation runner cwd resolution (DR-8)', () => {
+  it('ResolveRunnerCwd_ConfigInSubPackage_RunsThere', () => {
+    const root = makeRepoFixture({ 'packages/engine/stryker.conf.mjs': STRYKER_CONFIG });
+    const resolved = resolveMutationRunnerCwd({ command: 'npx stryker run', repoRoot: root });
+    expect(resolved.ok).toBe(true);
+    if (!resolved.ok) return;
+    expect(resolved.cwd).toBe(path.join(path.resolve(root), 'packages', 'engine'));
+    expect(resolved.rationale).toBe('config-owner');
+  });
+
+  it('ResolveRunnerCwd_RepoRootAnchoredCommand_StaysAtRepoRoot', () => {
+    // A command naming an entry point that resolves ONLY from the repo root is
+    // a project-declared seam that re-roots itself. Relocating it does not make
+    // it read the config — it makes it miss its own file, or run against a tree
+    // that isn't there and hand back an empty-but-valid report.
+    const root = makeRepoFixture({
+      'packages/engine/stryker.conf.mjs': STRYKER_CONFIG,
+      'tools/mutation/run.mjs': '// adapter\n',
+    });
+    const resolved = resolveMutationRunnerCwd({
+      command: 'node tools/mutation/run.mjs --since=main',
+      repoRoot: root,
+    });
+    expect(resolved.ok && resolved.cwd).toBe(path.resolve(root));
+    expect(resolved.ok && resolved.rationale).toBe('repo-root-anchored-command');
+  });
+
+  it('ResolveRunnerCwd_NoConfigAnywhere_IsARefusal_NotAGuess', () => {
+    const root = makeRepoFixture({ 'src/index.ts': 'export const x = 1;\n' });
+    const resolved = resolveMutationRunnerCwd({ command: 'npx stryker run', repoRoot: root });
+    expect(resolved.ok).toBe(false);
+    if (resolved.ok) return;
+    expect(resolved.reason).toMatch(/no mutation-runner configuration was found/i);
+    expect(resolved.reason).toMatch(/runnerDir/);
+  });
+
+  it('ResolveRunnerCwd_NoConfigButProjectDeclaredCommand_RunsAtRepoRoot', () => {
+    // The refusal above is for an INFERRED command whose config cannot be
+    // located. A project that declared the command itself has already said how
+    // mutation testing runs here, and runners like mutmut, cargo-mutants at
+    // defaults, or any bespoke script carry no config file at all — refusing
+    // those failed the gate closed on the projects that configured it most
+    // explicitly. Caught by `scripts/check-mutation-gate.test.sh`, whose fixture
+    // declares `mutation:` in `.exarchos.yml` and ships no config file; the unit
+    // suite could not see it because it injects the runtime.
+    const root = makeRepoFixture({ 'src/index.ts': 'export const x = 1;\n' });
+    const resolved = resolveMutationRunnerCwd({
+      command: 'node ./run-mutants.mjs',
+      repoRoot: root,
+      projectDeclaredCommand: true,
+    });
+    expect(resolved.ok).toBe(true);
+    expect(resolved.ok && resolved.cwd).toBe(path.resolve(root));
+    expect(resolved.ok && resolved.rationale).toBe('declared-command');
+
+    // The discriminator is the declaration, not the missing config: the SAME
+    // tree with an inferred command is still a refusal, so this branch cannot
+    // be reached by simply having no config.
+    const inferred = resolveMutationRunnerCwd({
+      command: 'node ./run-mutants.mjs',
+      repoRoot: root,
+    });
+    expect(inferred.ok).toBe(false);
+  });
+
+  it('ResolveRunnerCwd_DeclaredRunnerDir_WinsOverDiscovery', () => {
+    // The escape hatch for a runner that needs no config file (cargo-mutants).
+    const root = makeRepoFixture({
+      'crates/core/Cargo.toml': '[package]\nname = "core"\n',
+      'packages/engine/stryker.conf.mjs': STRYKER_CONFIG,
+    });
+    const resolved = resolveMutationRunnerCwd({
+      command: 'cargo mutants --in-diff',
+      repoRoot: root,
+      declaredRunnerDir: 'crates/core',
+    });
+    expect(resolved.ok && resolved.cwd).toBe(path.join(path.resolve(root), 'crates', 'core'));
+    expect(resolved.ok && resolved.rationale).toBe('declared-runner-dir');
+  });
+
+  it('ResolveRunnerCwd_DeclaredRunnerDirMissing_Degrades', () => {
+    const root = makeRepoFixture({ 'stryker.conf.mjs': STRYKER_CONFIG });
+    const resolved = resolveMutationRunnerCwd({
+      command: 'npx stryker run',
+      repoRoot: root,
+      declaredRunnerDir: 'crates/gone',
+    });
+    expect(resolved.ok).toBe(false);
+    if (resolved.ok) return;
+    expect(resolved.reason).toMatch(/does not exist/i);
+  });
+
+  it('ResolveRunnerCwd_DeclaredRunnerDirEscapingTheRepo_IsRefused', () => {
+    // `runnerDir` is documented repo-root-relative, and only existence was
+    // checked — so an absolute path or a `..` climb resolved OUTSIDE the repo
+    // and the mutation command ran there, scoring a tree that is not the one
+    // under review. Both escapes point at directories that certainly exist, so
+    // the existence check could never catch them.
+    const root = makeRepoFixture({ 'stryker.conf.mjs': STRYKER_CONFIG });
+    const escapes = [path.resolve(root, '..'), '..', '../..', path.resolve(os.tmpdir())];
+
+    for (const declaredRunnerDir of escapes) {
+      const resolved = resolveMutationRunnerCwd({
+        command: 'npx stryker run',
+        repoRoot: root,
+        declaredRunnerDir,
+      });
+      expect(resolved.ok, `${declaredRunnerDir} was accepted`).toBe(false);
+      if (resolved.ok) continue;
+      expect(resolved.reason).toMatch(/outside/i);
+    }
+
+    // A SIBLING sharing the repo's name as a prefix is outside it too — the
+    // containment test is on the separator, not on the string.
+    const sibling = `${path.resolve(root)}-other`;
+    const siblingResolved = resolveMutationRunnerCwd({
+      command: 'npx stryker run',
+      repoRoot: root,
+      declaredRunnerDir: sibling,
+    });
+    expect(siblingResolved.ok).toBe(false);
+
+    // …and the legitimate in-repo case still resolves, so this rejects escape
+    // rather than rejecting declaration.
+    const inside = resolveMutationRunnerCwd({
+      command: 'npx stryker run',
+      repoRoot: root,
+      declaredRunnerDir: '.',
+    });
+    expect(inside.ok).toBe(true);
+  });
+});
+
+describe('mutation-adequacy run root — handler path (DR-8)', () => {
+  it('MutationAdequacy_ConfigInSubPackage_RunnerLaunchedThere_NotAtRepoRoot', async () => {
+    const root = makeRepoFixture({
+      'package.json': '{"name":"root"}',
+      'services/billing-engine/stryker.conf.mjs': STRYKER_CONFIG,
+    });
+    const { success, data, seenCwd } = await dispatchInRepo(root);
+
+    expect(success).toBe(true);
+    // The claim: the runner ran where the config lives, not at the repo root.
+    expect(seenCwd).toBe(path.join(path.resolve(root), 'services', 'billing-engine'));
+    expect(seenCwd).not.toBe(path.resolve(root));
+    // …and the carrier SAYS so, so a reader can check the gate's reach.
+    expect(data.runnerCwd).toBe('services/billing-engine');
+    expect(data.runnerCwdRationale).toBe('config-owner');
+    expect(data.mutationConfigPath).toBe('services/billing-engine/stryker.conf.mjs');
+  });
+
+  it('MutationAdequacy_ConfigAtRepoRoot_RunnerLaunchedAtRepoRoot', async () => {
+    const root = makeRepoFixture({ 'stryker.conf.mjs': STRYKER_CONFIG });
+    const { data, seenCwd } = await dispatchInRepo(root);
+    expect(seenCwd).toBe(path.resolve(root));
+    expect(data.runnerCwd).toBe('.');
+    expect(data.runnerCwdRationale).toBe('config-at-repo-root');
+  });
+
+  it('MutationAdequacy_DeclaredRunnerDir_RunnerLaunchedThere', async () => {
+    const root = makeRepoFixture({
+      'crates/core/Cargo.toml': '[package]\nname = "core"\n',
+      'packages/engine/stryker.conf.mjs': STRYKER_CONFIG,
+    });
+    const projectConfig = resolveConfig(
+      {
+        review: { gates: { 'mutation-adequacy': { params: { runnerDir: 'crates/core' } } } },
+      } as unknown as ProjectConfig,
+      root,
+    );
+    const { data, seenCwd } = await dispatchInRepo(root, {
+      mutationCmd: 'cargo mutants --in-diff',
+      projectConfig,
+    });
+    expect(seenCwd).toBe(path.join(path.resolve(root), 'crates', 'core'));
+    expect(data.runnerCwdRationale).toBe('declared-runner-dir');
+  });
+
+  it('MutationAdequacy_MovingTheMutationConfig_Degrades_NeverSilentlyPasses', async () => {
+    // THE KILL FIXTURE, run both ways against one repo. With the config in
+    // place the gate reaches a runner and scores. Move that one file and the
+    // gate must say it cannot run — a `total: 0` from a run that never happened
+    // is the exact reading this gate exists to refuse.
+    const root = makeRepoFixture({
+      'package.json': '{"name":"root"}',
+      'services/billing-engine/stryker.conf.mjs': STRYKER_CONFIG,
+    });
+
+    const before = await dispatchInRepo(root);
+    expect(before.ran).toBe(true);
+    expect(before.data.total).toBeGreaterThan(0);
+    expect(before.data.passed).toBe(true);
+
+    // Move the config OUT of the tree the scan can see (a dot-directory is
+    // excluded by property), leaving everything else identical.
+    mkdirSync(path.join(root, '.attic'), { recursive: true });
+    renameSync(
+      path.join(root, 'services', 'billing-engine', 'stryker.conf.mjs'),
+      path.join(root, '.attic', 'stryker.conf.mjs'),
+    );
+
+    const after = await dispatchInRepo(root);
+    // The runner is never invoked — the gate refuses to run somewhere it
+    // cannot justify rather than running at the repo root and reporting it.
+    expect(after.ran).toBe(false);
+    expect(after.success).toBe(true); // advisory degrade, never an error envelope
+    const surfaced = [...(after.warnings ?? []), after.data.warning ?? ''].join(' ');
+    expect(surfaced).toMatch(/no mutation-runner configuration was found/i);
+    // The degrade is NOT laundered into adequacy: no trivial-pass marker, and
+    // no score to read.
+    expect(after.data.trivialPass).toBeUndefined();
+    expect(after.data.total).toBe(0);
+    expect(after.data.mutationScore).toBe(0);
+  });
+
+  it('MutationAdequacy_NoConfig_DegradeIsRecordedAsDegradedNotAScore', async () => {
+    // The degrade path H4 added stays reachable and keeps its marker: the
+    // emitted gate row is `{skipped, degraded}`, which is what lets block-mode
+    // enforcement fail CLOSED on a runner that produced no verifiable score.
+    const root = makeRepoFixture({ 'src/index.ts': 'export const x = 1;\n' });
+    const { stateDir, eventStore } = await newStore();
+    const ctx = makeCtx(stateDir, eventStore);
+    await handleOrchestrate(
+      {
+        action: 'mutation-adequacy',
+        featureId: 'feat-mutadq',
+        base: 'main',
+        repoRoot: root,
+        resolve: () => runtimeWith('npx stryker run'),
+        detectToolchainId: () => 'node',
+        runDiff: (): readonly string[] => [],
+      },
+      ctx,
+    );
+
+    const gates = await eventStore.query('feat-mutadq', { type: 'gate.executed' });
+    expect(gates).toHaveLength(1);
+    const row = gates[0]!.data as {
+      gateName?: string;
+      passed?: boolean;
+      details?: { skipped?: boolean; degraded?: boolean; reason?: string };
+    };
+    expect(row.gateName).toBe('mutation-adequacy');
+    expect(row.details?.skipped).toBe(true);
+    expect(row.details?.degraded).toBe(true);
+    expect(row.details?.reason).toMatch(/no mutation-runner configuration was found/i);
+
+    // No liveness pair either — nothing was launched, so nothing is in flight.
+    const liveness = await eventStore.query('feat-mutadq', { type: 'mutation.executing_started' });
+    expect(liveness).toHaveLength(0);
+  });
+});
+
+describe('mutation-adequacy real runner — cwd is the config package (DR-8)', () => {
+  it('RealRunner_ShellsOutInTheConfigPackage_ProvenByTheChildsOwnCwd', async () => {
+    // No injected runner: the real `defaultRunMutation` spawns a real child.
+    // The child reports its OWN `process.cwd()` as the mutated file, so the
+    // carrier can only name the config package if the shell-out truly used it.
+    const root = makeRepoFixture({
+      'package.json': '{"name":"root"}',
+      'services/billing-engine/stryker.conf.mjs': STRYKER_CONFIG,
+    });
+    const scriptDir = mkdtempSync(path.join(os.tmpdir(), 'mutadq-runner-'));
+    cleanups.push(() => rmrf(scriptDir));
+    const script = path.join(scriptDir, 'echo-cwd-runner.mjs');
+    writeFileSync(
+      script,
+      'const report = { schemaVersion: "1", files: { [process.cwd()]: { language: "typescript", ' +
+        'mutants: [{ id: "m0", mutatorName: "X", status: "Killed", location: { start: { line: 1, ' +
+        'column: 1 }, end: { line: 1, column: 2 } } }] } } };\n' +
+        'process.stdout.write(JSON.stringify(report));\n',
+    );
+
+    const { stateDir, eventStore } = await newStore();
+    const ctx = makeCtx(stateDir, eventStore);
+    const result = (await handleOrchestrate(
+      {
+        action: 'mutation-adequacy',
+        featureId: 'feat-mutadq',
+        base: 'main',
+        repoRoot: root,
+        // An ABSOLUTE script path resolves identically from any cwd, so it is
+        // not a repo-root-anchored command — the config package wins.
+        resolve: () => runtimeWith(`${process.execPath} ${script}`),
+        detectToolchainId: () => 'no-such-toolchain-xyz',
+        runDiff: (): readonly string[] => [],
+      },
+      ctx,
+    )) as { success: boolean; data: MutationData };
+
+    const expected = path.join(path.resolve(root), 'services', 'billing-engine');
+    const report = result.data.report as { files: Record<string, unknown> };
+    expect(Object.keys(report.files)).toEqual([expected]);
+    expect(result.data.total).toBe(1);
+    expect(result.data.killed).toBe(1);
+    expect(result.data.runnerCwd).toBe('services/billing-engine');
   });
 });

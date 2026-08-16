@@ -733,6 +733,15 @@ const PROJECTION_DERIVED_ORCHESTRATE_ACTIONS: ReadonlySet<string> = new Set([
  *
  * The `action` field is consumed by this router and stripped from the args
  * forwarded to the underlying handler.
+ *
+ * The special-cased branches below are also the CENSUS the `no-handler-throw`
+ * envelope gate scans: it derives which handlers are registered by reading
+ * `if (action === '<verb>') ... envelopeWrap(await handleXxx(...), startedAt)`
+ * straight out of this function, so a new verb is covered the moment its branch
+ * exists (that census used to be a hand-written roster, and `invariants_amend`
+ * shipped off it). A branch shape the gate cannot read is reported, not
+ * skipped — so restructuring here fails loudly rather than quietly shrinking
+ * what the gate covers.
  */
 export async function handleOrchestrate(
   args: Record<string, unknown>,

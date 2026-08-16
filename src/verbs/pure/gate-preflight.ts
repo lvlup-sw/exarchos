@@ -1,27 +1,24 @@
-// ─── gate-preflight — shared gate preflight + policy-skip emission (DR-10) ────
+// ─── gate-preflight — the shared gate preflight (DR-10) ──────────────────────
 //
-// Two pieces of boilerplate were byte-repeated across the per-task / post-merge
-// gate handlers (contract-drift, mock-boundary, test-adequacy,
-// check-integration-suite, static-analysis). This leaf collapses BOTH into one
-// module WITHOUT changing behavior — each handler's observable result and each
-// emitted `gate.executed` shape stays identical (DR-10: pure dedup):
+// {@link runGatePreflight} is the fail-fast validation every per-task /
+// post-merge gate handler opened with (contract-drift, mock-boundary,
+// test-adequacy, check-integration-suite, static-analysis), collapsed into one
+// module WITHOUT changing behavior: reject a miswired `eventStore`
+// (MISWIRED_CONTEXT, named per handler), an absent `featureId` (INVALID_INPUT),
+// an absent `taskId` for the per-task gates (opt-in via `requireTaskId`), then
+// resolve the worktree-aware `repoRoot` (#1330) — returning the resolver's own
+// INVALID_INPUT on an unresolvable `'auto'`.
 //
-//   1. PREFLIGHT ({@link runGatePreflight}) — the fail-fast validation every
-//      gate handler opened with: reject a miswired `eventStore`
-//      (MISWIRED_CONTEXT, named per handler), an absent `featureId`
-//      (INVALID_INPUT), an absent `taskId` for the per-task gates (opt-in via
-//      `requireTaskId`), then resolve the worktree-aware `repoRoot` (#1330) —
-//      returning the resolver's own INVALID_INPUT on an unresolvable `'auto'`.
-//
-//   2. POLICY-SKIP ({@link emitPolicySkipIfNeeded}) — the FIX-1a verification-
-//      ladder self-routing shared by the three per-task gates: consult
-//      `resolvePolicySkip` on the stamped profile and, when the gate is not in
-//      the resolved sequence, emit the skip `gate.executed` and report the
-//      reason. The emitted event's `gateName` / `layer` / `phase` differ PER
-//      gate, so those are parameters — the emitter preserves each handler's
-//      exact shape rather than coalescing them. The RETURN carrier (which also
-//      differs per gate) stays in the handler; this helper only owns the shared
-//      emission + the skip decision.
+// A second helper, `emitPolicySkipIfNeeded`, lived here and is DELETED rather
+// than left standing. It owned the FIX-1a policy-skip emission until the durable
+// gate runner took that over: `appendGateExecutedSignal` now mints the skip row
+// from the SAME persisted evidence the verdict is derived from, which is what
+// closed the gap where "the policy routed this gate out" and "the gate ran" were
+// indistinguishable in the durable log (see gate-runner.ts, DR-7). No handler
+// has called the old emitter since; its only caller was its own test, so the
+// module-intent gate could not see it — a dead EXPORT inside a live module is
+// below that gate's resolution. Removing it is the disposition its own retirement
+// note already recorded.
 // ────────────────────────────────────────────────────────────────────────────
 
 import type { ToolResult } from '../../format.js';
@@ -111,82 +108,4 @@ export async function runGatePreflight(
     };
   }
   return { ok: true, repoRoot: resolved.repoRoot };
-}
-
-// ─── Policy-skip emission (FIX-1a) ───────────────────────────────────────────
-
-export interface PolicySkipParams {
-  readonly eventStore: EventStore;
-  readonly featureId: string;
-  readonly taskId: string;
-  /** The task branch — emitted into `details.branch` only when present. */
-  readonly branch?: string | undefined;
-  /** Idempotency key for the emission (INV-8). */
-  readonly operationId?: string | undefined;
-
-  // ── the stamped verification profile consulted by resolvePolicySkip ────────
-  readonly riskTier?: RiskTier | undefined;
-  readonly boundaryTouching?: boolean | undefined;
-  readonly projectConfig?: ResolvedProjectConfig | undefined;
-
-  // ── per-gate emission shape (preserved, NOT coalesced) ─────────────────────
-  /** Gate name resolvePolicySkip checks against the resolved sequence (e.g. `'check_contract_drift'`). */
-  readonly policyGateName: GateName;
-  /** Gate name stamped on the emitted `gate.executed` (e.g. `'contract-drift'`). */
-  readonly emitGateName: string;
-  /** Workflow layer stamped on the emission (e.g. `'delegate'` | `'testing'`). */
-  readonly layer: string;
-  /** Phase stamped into `details.phase` (e.g. `'delegate'` | a caller-supplied override). */
-  readonly phase: string;
-}
-
-/**
- * The FIX-1a verification-ladder self-routing shared by the per-task gates.
- *
- * Consults {@link resolvePolicySkip} on the stamped `riskTier`/`boundaryTouching`
- * profile (config-aware). When the gate is NOT in the resolved sequence it emits
- * the skip `gate.executed` (fire-and-forget — an emission failure never breaks
- * the verdict) and returns the skip `reason` so the handler can build its own
- * advisory carrier. When the gate IS in the sequence (or the profile is
- * unstamped) it returns `null` and the handler runs the gate unconditionally.
- *
- * The emitted event's `details` shape is byte-identical to the three handlers'
- * pre-dedup emissions: `{ dimension:'D1', phase, taskId, [branch], skipped:true,
- * discriminant:SKIPPED_BY_POLICY, reason }`. The differing `gateName` / `layer` /
- * `phase` are parameters, so no per-handler difference is unified away.
- */
-export async function emitPolicySkipIfNeeded(
-  params: PolicySkipParams,
-): Promise<{ readonly reason: string } | null> {
-  const policySkip = resolvePolicySkip({
-    gateName: params.policyGateName,
-    riskTier: params.riskTier,
-    boundaryTouching: params.boundaryTouching,
-    config: params.projectConfig,
-  });
-  if (!policySkip) return null;
-
-  try {
-    await emitGateEvent(
-      params.eventStore,
-      params.featureId,
-      params.emitGateName,
-      params.layer,
-      true,
-      {
-        dimension: 'D1',
-        phase: params.phase,
-        taskId: params.taskId,
-        ...(params.branch ? { branch: params.branch } : {}),
-        skipped: true,
-        discriminant: SKIPPED_BY_POLICY,
-        reason: policySkip.reason,
-      },
-      params.operationId,
-    );
-  } catch {
-    /* fire-and-forget */
-  }
-
-  return { reason: policySkip.reason };
 }

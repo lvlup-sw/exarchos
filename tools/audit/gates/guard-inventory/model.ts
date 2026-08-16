@@ -1,4 +1,7 @@
+import type { FilenameCoupledEntrypoint } from './artifact-predicates.js';
 import type { ShellIndirectionIndex } from './hosts.js';
+
+export type { FilenameCoupledEntrypoint } from './artifact-predicates.js';
 
 export type GuardChannel = 'enforcer-manifest' | 'wave1-spec' | 'mcp-scripts-gate' | 'conformance-suite';
 
@@ -125,6 +128,22 @@ export interface GuardInventory {
    * tasks legitimately name files their own task has not landed yet.
    */
   readonly unresolvedSpecArtifacts: readonly string[];
+  /**
+   * Guards whose self-execution is decided by their own FILENAME.
+   *
+   * A rename plus the matching `run:` edit turns such a guard into a step that
+   * runs and enforces nothing, and every other column in this inventory keeps
+   * reporting it as direct, unfiltered and blocking.
+   */
+  readonly filenameCoupledEntrypoints: readonly FilenameCoupledEntrypoint[];
+  /**
+   * How many artifacts the entrypoint-predicate classifier actually parsed.
+   *
+   * The non-empty-denominator rule applied to the check itself: a classifier
+   * that examined nothing reports zero coupled entrypoints and is
+   * indistinguishable from a clean tree.
+   */
+  readonly entrypointPredicatesScanned: number;
   /**
    * What the wrapper-script walk actually examined. Present so the indirection
    * resolver is subject to the same non-empty-denominator rule as the inventory:

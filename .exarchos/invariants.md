@@ -546,27 +546,6 @@ invariants:
 
   - id: INV-4
     dimension: platform-agnosticity
-    integrity-class: substrate
-    phase-affinity: [ review ]
-    workflow-affinity: [ feature, debug, refactor, oneshot ]
-    severity:
-      default: blocking
-      by-workflow:
-        oneshot: advisory
-    enforcement:
-      # Diff-precise mode:check (issue #1466). Generated runtime variants under
-      # skills/<runtime>/** are build output of `npm run build:skills`; a diff
-      # touching any of them is a direct edit to generated output (source of
-      # truth is content/). The `scope` combinator narrows the fileGlob to
-      # the generated tree; the grep fires on the hunk header so any touched
-      # generated file is flagged. content/** is excluded by the glob.
-      mode: check
-      check:
-        scope:
-          fileGlob: "skills/**"
-        node:
-          kind: grep
-          pattern: "@@"
     axis: substrate
     cost-of-load: reference-only
     applies-to:
@@ -586,7 +565,7 @@ invariants:
       not render-parity across N runtime variants — is the metric, because a
       byte-perfect per-harness render proves the artifacts match, not that the
       guarantee holds. Source-of-truth edits go to content/; everything under
-      skills/** is generated build output and is never edited directly.
+      rendered/** is generated build output and is never edited directly.
       Runtime-specific text is tokenized via {{TOKEN}} placeholders or guarded
       via <!-- requires:* --> blocks. INV-4 owns the *harness* axis; INV-6 owns
       the orthogonal *workload* axis (workflow types) and INV-16 the orthogonal
@@ -605,6 +584,41 @@ invariants:
       - lvlup-sw/docs:exarchos/docs/architecture/invariants/references/INV-4-platform-agnosticity.md
       - src/verbs/gates/check-invariant-conformance.ts
       - content/_shared/SKILL_AUTHORING.md
+    phase-affinity:
+      - review
+    workflow-affinity:
+      - feature
+      - debug
+      - refactor
+      - oneshot
+    enforcement:
+      # mode:audit, not check: the prior diff-precise check fired a grep on the
+      # hunk header of ANY diff touching the generated tree, so it could not
+      # distinguish a regenerated tree — which must be committed alongside a
+      # content/ change — from a hand edit content/ does not reproduce. That
+      # made it a blocking invariant a conforming commit could not satisfy,
+      # training reviewers to ignore it. Whether a rendered/** diff is generated
+      # output is a whole-tree render-equivalence question the diff-grep DSL
+      # cannot see. `npm run render:guard` already answers it: it re-renders
+      # content/ via `npm run build:skills` and diffs the result against the
+      # committed tree. That probe is the mechanical backstop this audit
+      # defers to.
+      mode: audit
+      audit-prompt: "Does this diff touch any file under rendered/**? A touched
+        generated file is ONLY a violation when it diverges from a fresh render
+        of content/ -- the render-equivalence probe npm run render:guard
+        answers this precisely: it re-renders content/ via npm run build:skills
+        and diffs the result against the committed rendered/** tree. A
+        REGENERATED tree (render:guard passes) is conformant -- committing
+        rendered/** alongside its content/ source is the convention, not a
+        violation. Flag a rendered/** diff only when render:guard fails for it
+        (or was not run before commit), never merely because rendered/** was
+        touched."
+    severity:
+      default: blocking
+      by-workflow:
+        oneshot: advisory
+    integrity-class: substrate
 
   - id: INV-5a
     dimension: input-ergonomics

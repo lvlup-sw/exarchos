@@ -100,8 +100,9 @@ export function censusLiveReportCoupling(
  * membership audit, say) and still get the real pin alongside it.
  */
 export function auditLiveReportCouplingRatchet(
-  membership: ReportCouplingSeedAudit = auditReportCouplingSeed(censusLiveReportCoupling()),
+  today: string,
+  membership: ReportCouplingSeedAudit = auditReportCouplingSeed(today, censusLiveReportCoupling()),
   pin: ReportCouplingPinAudit = auditReportCouplingSeedIntegrity(),
 ): ReportCouplingRatchetVerdict {
-  return auditReportCouplingRatchet(membership, pin);
+  return auditReportCouplingRatchet(today, membership, pin);
 }

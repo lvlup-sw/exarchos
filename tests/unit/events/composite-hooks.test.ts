@@ -156,7 +156,7 @@ describe('handleEvent — hook runner wiring (R7)', () => {
       action: 'batch_append',
       stream: 'test-feature',
       events: [
-        { type: 'task.assigned', data: { taskId: 't1' } },
+        { type: 'task.assigned', data: { taskId: 't1', title: 'Task t1' } },
         { type: 'task.completed', data: { taskId: 't1' } },
       ],
     }, ctx);
@@ -191,7 +191,7 @@ describe('handleEvent — hook runner wiring (R7)', () => {
       action: 'batch_append',
       stream: 'test-feature',
       events: [
-        { type: 'task.assigned', data: { taskId: 't1' } },
+        { type: 'task.assigned', data: { taskId: 't1', title: 'Task t1' } },
       ],
     }, ctx);
 

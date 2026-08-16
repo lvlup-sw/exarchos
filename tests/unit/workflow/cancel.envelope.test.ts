@@ -45,6 +45,20 @@ async function downgradeToV1(stateDir: string, featureId: string): Promise<void>
   await writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
 }
 
+/**
+ * Waiver for the two `it.skip`s below (DR-7, task 078).
+ *
+ * They were skipped with a reason but no tracking issue — the comment said
+ * "TODO file as #TBD-cancel-correlation-context" — and no expiry, which is a
+ * skip that outlives its justification by default. It is now tracked under the
+ * residue epic and dated, and the date is ASSERTED (see the waiver test) rather
+ * than written down and forgotten.
+ */
+const CANCEL_CORRELATION_WAIVER = Object.freeze({
+  issue: '#1789',
+  expires: '2026-11-30',
+});
+
 describe('WorkflowCancel_AllEmittedEvents_HaveCanonicalEnvelope', () => {
   // PER-SITE ABORT (α-08): all 6 emission sites in `cancel.ts` (lines 131,
   // 151, 190, 202, 225, 236) lack a caller-supplied `correlationId` source.
@@ -52,8 +66,16 @@ describe('WorkflowCancel_AllEmittedEvents_HaveCanonicalEnvelope', () => {
   // upstream correlation context to thread. Per the design's hard
   // constraint ("DO NOT invent a correlationId"), all six sites stay on the
   // raw `eventStore.append` path and the assertions below are skipped.
-  // Tracking follow-up: TODO file as #TBD-cancel-correlation-context once
-  // the parent integration cycle closes.
+
+  it('WorkflowCancel_EnvelopeSkipWaiver_HasNotExpired', () => {
+    expect(
+      CANCEL_CORRELATION_WAIVER.expires > new Date().toISOString().slice(0, 10),
+      `The canonical-envelope skip waiver for cancel.ts (${CANCEL_CORRELATION_WAIVER.issue}) ` +
+        `expired on ${CANCEL_CORRELATION_WAIVER.expires}. Two envelope assertions have been ` +
+        `skipped since; either give CancelInput a correlation source and un-skip them, or ` +
+        `re-justify and re-date the waiver.`,
+    ).toBe(true);
+  });
 
   // cancel.ts:190 + :202 — ES v2 transition + cancel emissions
   it.skip('cancel.ts:190+:202 — ES v2 transition + cancel events have canonical envelope', async () => {

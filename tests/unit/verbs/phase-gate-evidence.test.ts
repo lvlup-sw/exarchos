@@ -186,7 +186,11 @@ describe('migrated phase gate durable evidence', () => {
     // the case where the wedge cost the whole synthesize phase.
     const result = await runWithDispatchContext(dispatchContext(), () =>
       handlePrepareSynthesis(
-        { featureId: 'feature-009' },
+        // DR-8 (#1756): prepare_synthesis now requires an explicit repoRoot
+        // before it will run its subprocess legs — this fixture has zero
+        // tasks (so it reaches those legs) and reuses `root` as a stand-in
+        // repo since `node:child_process` is stubbed above.
+        { featureId: 'feature-009', repoRoot: root },
         root,
         fakeStore('review', { legacyNoPhaseAttempt: true }),
       ),

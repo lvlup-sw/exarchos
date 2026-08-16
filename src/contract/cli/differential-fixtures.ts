@@ -5,10 +5,12 @@
 // handler (`dispatch`): the MCP wire renders a `ToolResult` via `toEnvelope`
 // into `structuredContent`; the generated CLI client renders the SAME
 // `ToolResult` via the SAME `toEnvelope` to stdout, and resolves its process
-// exit code from the SAME frozen P03-02 exit-code authority (`exitCodeForError`,
-// which `adapters/cli/cli.resolveExitCode` now delegates to). So for any dispatched
-// result the two surfaces cannot disagree — this table is the differential
-// witness the co-located test drives through BOTH surfaces.
+// exit code from the SAME frozen P03-02 exit-code authority
+// (`exitCodeForResult`, which `adapters/cli/cli.resolveExitCode` delegates to). So
+// for any dispatched result the two surfaces cannot disagree — this table is the
+// differential witness the co-located test drives through BOTH surfaces, and
+// each case's `expectedExit` is the independent expectation the authority is
+// measured against.
 //
 // ─── SCOPE (DR-25 / T-34): this table is a RENDERING witness ─────────────────
 //
@@ -35,7 +37,6 @@
 
 import type { ToolResult } from '../../format.js';
 import {
-  exitCodeForError,
   CONTRACT_EXIT_CODES,
   type FailureLayer,
 } from '../error-families.js';
@@ -57,16 +58,11 @@ export interface DifferentialCase {
   readonly expectedExit: number;
 }
 
-/**
- * The stable exit code the CONTRACT assigns to a dispatched result — the single
- * source both surfaces resolve against. Success is always 0; every failure maps
- * through the frozen registry via {@link exitCodeForError}. `adapters/cli`'s
- * `resolveExitCode` computes exactly this, so CLI ≡ contract by construction.
- */
-export function contractExitForResult(result: ToolResult): number {
-  if (result.success) return CONTRACT_EXIT_CODES.SUCCESS;
-  return exitCodeForError(result.error?.code);
-}
+// `contractExitForResult` used to live here with a body byte-identical to
+// `adapters/cli.resolveExitCode` — one authority wearing two names, so the test
+// that compared them proved nothing. Both now delegate to `exitCodeForResult` in
+// `contract/error-families.ts`; the fixture's `expectedExit` below is the
+// independent expectation the authority is measured against.
 
 const VEHICLE_STATUS_ARGV = ['wf', 'status', '--feature-id', 'diff-demo'] as const;
 
@@ -145,5 +141,17 @@ export const DIFFERENTIAL_CASES: readonly DifferentialCase[] = Object.freeze([
     argv: [...VEHICLE_STATUS_ARGV],
     result: { success: false, error: { code: 'PRESENTER_ERROR', message: 'render failed' } },
     expectedExit: CONTRACT_EXIT_CODES.UNCAUGHT_EXCEPTION, // 3
+  },
+  {
+    // The failure floor. `ToolResult` is not a discriminated union, so this
+    // shape is type-legal for every one of the registered handlers, and the MCP
+    // wire renders it as `isError: true` with an INTERNAL_ERROR stand-in. Before
+    // the floor the CLI resolved it to 0 and the two surfaces disagreed about
+    // the same value — the case the table had no witness for.
+    name: 'handler · failure envelope carrying no error',
+    family: 'handler',
+    argv: [...VEHICLE_STATUS_ARGV],
+    result: { success: false },
+    expectedExit: CONTRACT_EXIT_CODES.HANDLER_ERROR, // 2
   },
 ]);

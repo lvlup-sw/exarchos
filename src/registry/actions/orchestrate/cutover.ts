@@ -1,8 +1,12 @@
-import { vacuityWaiver } from '../../../output-schema-declaration.js';
+import { withCappedShape } from '../../../output-schema-declaration.js';
 import { z } from 'zod';
 import { LOCAL_MUTATION, READ_ONLY_LOCAL } from '../../annotations.js';
 import { ALL_PHASES, ROLE_LEAD } from '../../phases.js';
 import type { BuiltinToolAction } from '../../types.js';
+import {
+  CutoverDecideOutputSchema,
+  CutoverReadinessOutputSchema,
+} from '../../../verbs/gates/cutover-readiness-schema.js';
 
 export const cutoverActions: readonly BuiltinToolAction[] = [
   // ─── Cutover promotion path (#1739) ───────────────────────────────────────
@@ -17,7 +21,7 @@ export const cutoverActions: readonly BuiltinToolAction[] = [
     schema: z.object({}),
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
-    outputSchema: vacuityWaiver('exarchos_orchestrate.cutover_readiness'),
+    outputSchema: withCappedShape(CutoverReadinessOutputSchema),
     annotations: READ_ONLY_LOCAL,
   },
   {
@@ -35,7 +39,7 @@ export const cutoverActions: readonly BuiltinToolAction[] = [
       { event: 'admission.rollout-decision', condition: 'always' },
       { event: 'admission.enforcement-enabled', condition: 'conditional', description: 'Only when every cutover-gate condition is satisfied' },
     ],
-    outputSchema: vacuityWaiver('exarchos_orchestrate.cutover_decide'),
+    outputSchema: withCappedShape(CutoverDecideOutputSchema),
     annotations: LOCAL_MUTATION,
   },
 ];

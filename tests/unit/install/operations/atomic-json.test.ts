@@ -15,6 +15,7 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
+  AtomicWriteError,
   ConfigParseError,
   readJsonConfig,
   writeJsonConfigAtomic,
@@ -40,11 +41,10 @@ describe('atomic JSON configuration I/O (EFF-008)', () => {
     return {
       mkdirSync: fs.mkdirSync,
       openSync: fs.openSync,
-      writeSync: (fd, data) => {
-        fs.writeSync(fd, data);
-      },
+      writeSync: (fd, data, offset, length) => fs.writeSync(fd, data, offset, length),
       fsyncSync: fs.fsyncSync,
       closeSync: fs.closeSync,
+      readFileSync: (filePath) => fs.readFileSync(filePath),
       renameSync: fs.renameSync,
       unlinkSync: fs.unlinkSync,
     };
@@ -100,6 +100,87 @@ describe('atomic JSON configuration I/O (EFF-008)', () => {
     expect(() => writeJsonConfigAtomic(target, { version: 1 }, io)).toThrow();
     // Never a partially-created target for a first write.
     expect(fs.existsSync(target)).toBe(false);
+    expect(tempArtifacts()).toEqual([]);
+  });
+
+  // ─── The short-write hazard ────────────────────────────────────────────────
+  //
+  // `fs.writeSync` may transfer fewer bytes than asked; that is its contract,
+  // not an error. The module used to discard the return value, so a short write
+  // produced a truncated temp file which was then fsync'd and renamed over the
+  // user's good configuration. Nothing threw and nothing logged — the loss
+  // surfaced at the user's NEXT read, on a file they never edited.
+  //
+  // These fixtures perform real, partial writes against a real fd rather than
+  // inspecting a mock's arguments: what is asserted is the bytes on disk.
+
+  it('AtomicJson_ShortWrite_FailsRatherThanPromotingPartialContents', () => {
+    writeJsonConfigAtomic(target, { version: 1, keep: 'me', padding: 'x'.repeat(4096) });
+    const before = fs.readFileSync(target, 'utf-8');
+
+    // A filesystem that accepts half of what it is handed and ACKNOWLEDGES the
+    // full amount. The truncation is invisible to the caller's return value —
+    // only reading the file back can see it.
+    const io = realFs();
+    io.writeSync = (fd, data, offset, length) => {
+      const half = Math.max(1, Math.floor(length / 2));
+      fs.writeSync(fd, data, offset, half);
+      return length;
+    };
+
+    expect(() =>
+      writeJsonConfigAtomic(target, { version: 2, keep: 'gone', padding: 'y'.repeat(4096) }, io),
+    ).toThrow(AtomicWriteError);
+
+    // The prior configuration is byte-identical: the partial document never
+    // reached the target.
+    expect(fs.readFileSync(target, 'utf-8')).toBe(before);
+    expect(readJsonConfig<{ keep: string }>(target)?.keep).toBe('me');
+    expect(tempArtifacts()).toEqual([]);
+  });
+
+  it('AtomicJson_StalledWrite_ThrowsInsteadOfSpinning', () => {
+    writeJsonConfigAtomic(target, { version: 1, keep: 'me' });
+    const before = fs.readFileSync(target, 'utf-8');
+
+    // Zero bytes transferred and no error raised. Looping on this would hang, so
+    // "no forward progress" is a failure, not a short write to retry.
+    const io = realFs();
+    io.writeSync = () => 0;
+
+    expect(() => writeJsonConfigAtomic(target, { version: 2, keep: 'gone' }, io)).toThrow(
+      AtomicWriteError,
+    );
+    expect(fs.readFileSync(target, 'utf-8')).toBe(before);
+    expect(tempArtifacts()).toEqual([]);
+  });
+
+  it('AtomicJson_TruthfulShortWrite_IsCompletedNotAbandoned', () => {
+    // The ordinary case the loop exists for: a filesystem that transfers part of
+    // the buffer and says so. That is legal, so the write must COMPLETE — the
+    // target ends up holding the whole new document, not a prefix of it and not
+    // the old one.
+    const io = realFs();
+    io.writeSync = (fd, data, offset, length) => {
+      const chunk = Math.max(1, Math.floor(length / 3));
+      return fs.writeSync(fd, data, offset, Math.min(chunk, length));
+    };
+
+    const payload = { version: 2, servers: Array.from({ length: 200 }, (_, i) => `srv-${i}`) };
+    writeJsonConfigAtomic(target, payload, io);
+
+    expect(readJsonConfig(target)).toEqual(payload);
+    expect(tempArtifacts()).toEqual([]);
+  });
+
+  it('AtomicJson_UnserializableValue_IsRefusedBeforeTouchingTheTarget', () => {
+    writeJsonConfigAtomic(target, { version: 1, keep: 'me' });
+    const before = fs.readFileSync(target, 'utf-8');
+
+    // `JSON.stringify` returns `undefined` here, which the old code detected
+    // only indirectly by parsing the literal string "undefined\n".
+    expect(() => writeJsonConfigAtomic(target, undefined)).toThrow(AtomicWriteError);
+    expect(fs.readFileSync(target, 'utf-8')).toBe(before);
     expect(tempArtifacts()).toEqual([]);
   });
 

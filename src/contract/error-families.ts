@@ -425,6 +425,11 @@ export function contractError(
  * table entry; an unmapped/absent code falls to `HANDLER_ERROR` (the same
  * conservative fallback `adapters/cli.ts` uses today), and `undefined` (no
  * error) is `SUCCESS`.
+ *
+ * NOTE: this maps a CODE, not a RESULT. `undefined` here means "no error was
+ * raised", which is why it is SUCCESS. A failure envelope that happens to carry
+ * no code is a different question and must not reuse this entry point — see
+ * {@link exitCodeForResult}, which is the authority for a dispatched result.
  */
 export function exitCodeForError(code: string | undefined): ContractExitCode {
   if (code === undefined) return CONTRACT_EXIT_CODES.SUCCESS;
@@ -432,6 +437,46 @@ export function exitCodeForError(code: string | undefined): ContractExitCode {
     return STABLE_ERROR_REGISTRY[code as StableErrorCode].exitCode;
   }
   return CONTRACT_EXIT_CODES.HANDLER_ERROR;
+}
+
+/**
+ * The stable code a failure envelope assumes when the result carries none.
+ * `format.toEnvelope` substitutes this on the failure path, so both surfaces
+ * describe an error-less failure with the same code rather than each inventing
+ * its own default.
+ */
+export const UNSPECIFIED_FAILURE_CODE = 'INTERNAL_ERROR';
+
+/** The minimal result shape the exit-code authority reads. */
+export interface ExitCodeSubject {
+  readonly success: boolean;
+  readonly error?: { readonly code?: string } | undefined;
+}
+
+/**
+ * THE authority mapping a dispatched result to its process exit code. Both the
+ * generated CLI (`adapters/cli.resolveExitCode`) and the contract's own
+ * differential witness resolve through this one function, so the surfaces agree
+ * by construction rather than by two transcriptions staying in step.
+ *
+ * Two rules, in order:
+ *  1. `success: true` → SUCCESS (0).
+ *  2. otherwise the code is resolved through {@link exitCodeForError}, with a
+ *     missing code standing in as {@link UNSPECIFIED_FAILURE_CODE} — the same
+ *     substitution the failure envelope makes.
+ *
+ * **Failure floor.** A result with `success: false` never resolves to 0. The
+ * floor is applied to the resolved code, not just to the absent-code branch, so
+ * a registry entry mistakenly carrying `exitCode: 0` still cannot make a failure
+ * exit successfully. `ToolResult` is not a discriminated union, so `success:
+ * false` with no `error` is type-legal for every handler; the MCP wire renders
+ * that value as `isError: true`, and without this floor the CLI rendered it as
+ * exit 0 — the two surfaces disagreeing about the same result.
+ */
+export function exitCodeForResult(result: ExitCodeSubject): ContractExitCode {
+  if (result.success) return CONTRACT_EXIT_CODES.SUCCESS;
+  const resolved = exitCodeForError(result.error?.code ?? UNSPECIFIED_FAILURE_CODE);
+  return resolved === CONTRACT_EXIT_CODES.SUCCESS ? CONTRACT_EXIT_CODES.HANDLER_ERROR : resolved;
 }
 
 /** The canonical failure-envelope projection of a {@link ContractError}. */

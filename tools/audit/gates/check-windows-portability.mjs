@@ -6,10 +6,13 @@
  * after an ~8-minute run. This gate fires in seconds and flags the four
  * known, high-signal regressions at PR time:
  *
- *   1. **Shell-shim spawn** — `execFile(Sync)('npm'|'npx'|'pnpm'|'yarn', …)`
- *      with a bare package-manager name. `execFile` spawns without a shell, so
- *      a `.cmd` shim won't launch on Windows. Route through `runCommandSync`
- *      (src/utils/process.ts).
+ *   1. **Shell-shim spawn** — `execFile(Sync)`/`spawn(Sync)` with a bare
+ *      package-manager name (`npm`, `npx`, `bun`, …). Neither spawns through a
+ *      shell, so a `.cmd` shim won't launch on Windows. Route through
+ *      `runCommandSync`/`spawnCommandSync` (src/utils/process.ts).
+ *      The shim NAMES are read from that helper's own `WINDOWS_CMD_SHIMS`
+ *      rather than transcribed here — a transcribed copy is how `bun`/`bunx`
+ *      came to be shims the helper handled and this gate did not police.
  *   2. **Non-portable module path** — `new URL(import.meta.url).pathname`, which
  *      yields `/D:/…` on Windows and doubles to `D:\D:\…` under `path.resolve`.
  *      Use `fileURLToPath(import.meta.url)`.
@@ -27,12 +30,22 @@
  *      a variable bin — this is the hole that shipped the test-adequacy
  *      false-red kill probe. Production files only; the spawn helper is exempt.
  *
+ * ## Scan roots
+ *
+ * The gate's claim is repository-wide, so its subject must be too. It walks
+ * the repo root (which includes `src/` and `tools/audit/`). The default used
+ * to be the MCP package alone, which is why a literal `spawnSync('npx', …)`
+ * sat in a CI wrapper unseen: the gate was green about a tree it never opened.
+ *
  *   Exit 0 — clean.  Exit 1 — violations (`path:line  excerpt` on stderr).
  *   Exit 2 — usage / environment error.
  *
  * Flags:
- *   --src-root <path>   Root to walk (default: the repo `src` tree).
- *   --help              Show usage.
+ *   --src-root <path>       Root to walk; repeatable. Replaces the defaults.
+ *   --spawn-helper <path>   Source to read the shim vocabulary from. Exists for
+ *                           the self-test's fail-closed cases only; production
+ *                           usage never passes it.
+ *   --help                  Show usage.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -41,18 +54,72 @@ import process from 'node:process';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, '..', '..', '..');
-const DEFAULT_ROOT = path.join(REPO_ROOT);
+const DEFAULT_ROOTS = [REPO_ROOT];
 
 function parseArgs(argv) {
-  let root = DEFAULT_ROOT;
+  const roots = [];
+  let spawnHelper = DEFAULT_SPAWN_HELPER;
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--help') return { help: true };
     if (argv[i] === '--src-root') {
-      root = path.resolve(argv[++i] ?? '');
-      if (!argv[i]) return { error: '--src-root requires a path' };
+      const value = argv[++i];
+      if (!value) return { error: '--src-root requires a path' };
+      roots.push(path.resolve(value));
+    } else if (argv[i] === '--spawn-helper') {
+      const value = argv[++i];
+      if (!value) return { error: '--spawn-helper requires a path' };
+      spawnHelper = path.resolve(value);
+    } else {
+      // An unrecognised token was silently ignored, which is the worst possible
+      // handling for THIS gate: a misspelled `--src-roots` left `roots` empty,
+      // so the scan fell back to DEFAULT_ROOTS and reported success about a
+      // tree the caller never asked about. A gate that answers a different
+      // question than the one it was asked is a gate that isn't there.
+      return {
+        error:
+          `unrecognised argument '${argv[i]}'. Known: --src-root <path>, ` +
+          '--spawn-helper <path>, --help.',
+      };
     }
   }
-  return { root };
+  return { roots: roots.length > 0 ? roots : DEFAULT_ROOTS, spawnHelper };
+}
+
+/**
+ * The bare command names that ship as `.cmd` batch shims on Windows, READ FROM
+ * the spawn helper that owns the fact rather than copied.
+ *
+ * `utils/process.ts` is TypeScript and this gate is a zero-dependency `.mjs`, so
+ * the value is extracted textually — but this is a DATA read from the single
+ * authority, not a code claim, and it fails CLOSED: an unreadable or empty
+ * `WINDOWS_CMD_SHIMS` exits 2 rather than silently policing nothing. The gate's
+ * previous hard-coded five had already drifted from the helper's seven, so
+ * `bun`/`bunx` were shims the runtime handled and the gate ignored.
+ */
+const DEFAULT_SPAWN_HELPER = path.join(REPO_ROOT, 'src', 'utils', 'process.ts');
+
+function readShimNames(helperPath) {
+  let source;
+  try {
+    source = readFileSync(helperPath, 'utf8');
+  } catch {
+    return { error: `cannot read the spawn helper: ${helperPath}` };
+  }
+  const block = /const\s+WINDOWS_CMD_SHIMS\s*=\s*new\s+Set\s*\(\s*\[([\s\S]*?)\]\s*\)/.exec(source);
+  if (!block) {
+    return {
+      error:
+        `WINDOWS_CMD_SHIMS not found in ${helperPath}; ` +
+        'the shim vocabulary must be derived from the helper that owns it.',
+    };
+  }
+  // Comments inside the set body must not contribute names.
+  const body = stripComments(block[1]);
+  const names = [...body.matchAll(/['"]([A-Za-z0-9_.-]+)['"]/g)].map((m) => m[1]);
+  if (names.length === 0) {
+    return { error: 'WINDOWS_CMD_SHIMS is empty; refusing to police an empty vocabulary.' };
+  }
+  return { names };
 }
 
 // Replace comments with same-length blanks (newlines preserved) so a prose
@@ -96,7 +163,10 @@ function* walk(dir) {
     return;
   }
   for (const e of entries) {
-    if (e.name === 'node_modules' || e.name === 'dist' || e.name === '.git') continue;
+    // Exclude by PROPERTY — dependency trees, build output, and dot-dirs (which
+    // covers `.git`, `.worktrees`, `.github` caches and anything else tooling
+    // hides) — never by naming a source subtree.
+    if (e.name === 'node_modules' || e.name === 'dist' || e.name.startsWith('.')) continue;
     const full = path.join(dir, e.name);
     if (e.isDirectory()) {
       yield* walk(full);
@@ -106,7 +176,42 @@ function* walk(dir) {
   }
 }
 
-const SPAWN_RE = /\bexecFile(?:Sync)?\s*\(\s*['"](?:npm|npx|pnpm|yarn|corepack)['"]/g;
+/**
+ * Walk every scan root, tagging each file with the root it came from (the
+ * anchor `ciToolingRel` needs) and visiting each file at most once, so nested
+ * or repeated `--src-root` values cannot double-report.
+ */
+function* walkRoots(roots) {
+  const seen = new Set();
+  for (const root of roots) {
+    for (const file of walk(root)) {
+      if (seen.has(file)) continue;
+      seen.add(file);
+      yield { root, file };
+    }
+  }
+}
+
+/**
+ * Rule 1 — a bare shim name spawned without a shell.
+ *
+ * Both the CALL set and the NAME set were narrower than the defect. `spawn`
+ * and `spawnSync` bypass the shell exactly as `execFile` does, so a literal
+ * `spawnSync('npx', …)` fell through this rule; and because rule 4 requires an
+ * IDENTIFIER first argument, it fell through that one too — a literal was too
+ * specific for one rule and too general for the other, and the one real
+ * instance of it in the tree shipped.
+ */
+function buildSpawnRe(shimNames) {
+  const alternatives = shimNames.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  // `i` as well as `g`: Windows resolves shim names case-insensitively, so
+  // `spawnSync('NPM', …)` launches `npm.cmd` exactly as `'npm'` does. A
+  // case-sensitive pattern let the spelling decide whether the rule applied.
+  return new RegExp(
+    `\\b(?:execFile|execFileSync|spawn|spawnSync)\\s*\\(\\s*['"\`](?:${alternatives})['"\`]`,
+    'gi',
+  );
+}
 const URL_PATHNAME_RE = /new\s+URL\s*\(\s*import\.meta\.url\s*\)\s*\.pathname/g;
 const RECURSIVE_RM_RE = /\b(?:fs\.|fsp\.|fsPromises\.)?rm(?:Sync)?\s*\([^;]{0,160}recursive/g;
 // 4 — dynamic-bin spawn: execFile/spawn whose first arg is a RESOLVED command
@@ -116,7 +221,16 @@ const RECURSIVE_RM_RE = /\b(?:fs\.|fsp\.|fsPromises\.)?rm(?:Sync)?\s*\([^;]{0,16
 // CVE-2024-27980 — it must route through runCommandSync/spawnCommandSync. The
 // literal-name SPAWN_RE above cannot see a variable bin: that blind spot is
 // what shipped the test-adequacy false-red kill probe (#1623).
-const DYNAMIC_SPAWN_RE = /\b(?:execFile|execFileSync|spawn|spawnSync)\s*\(\s*[A-Za-z_$][\w$.]*/g;
+//
+// `process.execPath` is excluded, and by PROPERTY rather than by name: it is an
+// absolute path to the currently-running Node executable, so it can never
+// resolve to a `.cmd` shim and needs no shell on any platform. That is the same
+// fact the bench exemption below already rests on ("they may spawn a bin — the
+// running node via process.execPath — the shipped code wouldn't"); stating it
+// once here lets a production file re-invoke its own interpreter, which is the
+// portable form the shim rules are steering callers TOWARDS.
+const DYNAMIC_SPAWN_RE =
+  /\b(?:execFile|execFileSync|spawn|spawnSync)\s*\(\s*(?!process\.execPath\b)[A-Za-z_$][\w$.]*/g;
 // The shell-aware spawn helpers legitimately call raw execFile/spawn with a
 // variable bin — that is their whole job. Exempt only this file.
 const SPAWN_HELPER_RE = /utils[/\\]process\.ts$/;
@@ -147,24 +261,34 @@ const UNDER_TESTS_RE = /^tests[/\\]/;
 function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
-    process.stdout.write('Usage: check-windows-portability.mjs [--src-root <path>]\n');
+    process.stdout.write(
+      'Usage: check-windows-portability.mjs [--src-root <path>]... [--spawn-helper <path>]\n',
+    );
     return 0;
   }
   if (args.error) {
     process.stderr.write(`error: ${args.error}\n`);
     return 2;
   }
-  let rootStat;
-  try {
-    rootStat = statSync(args.root);
-  } catch {
-    process.stderr.write(`error: root not found: ${args.root}\n`);
+  for (const root of args.roots) {
+    let rootStat;
+    try {
+      rootStat = statSync(root);
+    } catch {
+      process.stderr.write(`error: root not found: ${root}\n`);
+      return 2;
+    }
+    if (!rootStat.isDirectory()) {
+      process.stderr.write(`error: root is not a directory: ${root}\n`);
+      return 2;
+    }
+  }
+  const shims = readShimNames(args.spawnHelper);
+  if (shims.error) {
+    process.stderr.write(`error: ${shims.error}\n`);
     return 2;
   }
-  if (!rootStat.isDirectory()) {
-    process.stderr.write(`error: root is not a directory: ${args.root}\n`);
-    return 2;
-  }
+  const SPAWN_RE = buildSpawnRe(shims.names);
 
   const violations = [];
   const record = (file, content, index, why) => {
@@ -174,7 +298,7 @@ function main() {
     violations.push(`${rel}:${line}  [${why}]  ${excerpt}`);
   };
 
-  for (const file of walk(args.root)) {
+  for (const { root, file } of walkRoots(args.roots)) {
     const raw = readFileSync(file, 'utf8');
     const src = stripComments(raw);
     const isTest = /\.test\.ts$/.test(file);
@@ -208,7 +332,7 @@ function main() {
       repoRootRel === '..' ||
       repoRootRel.startsWith(`..${path.sep}`) ||
       path.isAbsolute(repoRootRel);
-    const ciToolingRel = outsideRepo ? path.relative(args.root, file) : repoRootRel;
+    const ciToolingRel = outsideRepo ? path.relative(root, file) : repoRootRel;
     const isCiTooling = CI_TOOLING_RE.test(ciToolingRel);
     const isUnderTests = UNDER_TESTS_RE.test(ciToolingRel);
 
@@ -222,7 +346,12 @@ function main() {
       // tooling may exercise the raw form)
       if (!isCiTooling) {
         for (const m of src.matchAll(SPAWN_RE)) {
-          record(file, raw, m.index, 'spawn-shim: route npm/npx via runCommandSync');
+          record(
+            file,
+            raw,
+            m.index,
+            'spawn-shim: route the shim via runCommandSync/spawnCommandSync',
+          );
         }
       }
       // 4 — dynamic-bin spawn (production only; the spawn helper + benches +

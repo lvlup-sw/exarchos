@@ -25,6 +25,12 @@ export interface InventoryAudit {
  *   `[orphan-exemption]`           — an exemption naming a guard outside the inventory.
  *   `[manifest-primary-missing]`   — a manifest primary the inventory cannot see, i.e.
  *                                    the denominator shrank below channel 1's.
+ *   `[empty-entrypoint-scan]`      — the entrypoint classifier parsed zero sources, so
+ *                                    "no coupled entrypoint" is vacuous.
+ *   `[filename-coupled-entrypoint]` — the guard self-executes on a match against
+ *                                    its own FILENAME, so a rename silently turns it
+ *                                    into a no-op while every other column here still
+ *                                    reports it as hosted and blocking.
  *   `[implementation-surface-outside-filter]` — the two-surface subset rule from
  *                                    docs/guides/ci-gate-hosting.md: a guard hosted
  *                                    ONLY in path-filtered jobs whose own source is
@@ -92,7 +98,25 @@ export function auditGuardInventory(
   const exhibits = new Map<ExemptedFinding, Set<string>>([
     ['unreachable', new Set(inventory.guards.filter((g) => g.enforcement === 'unreachable').map((g) => g.artifact))],
     ['filtered-implementation-surface', new Set<string>()],
+    ['filename-coupled-entrypoint', new Set(inventory.filenameCoupledEntrypoints.map((e) => e.artifact))],
   ]);
+
+  if (inventory.entrypointPredicatesScanned === 0) {
+    violations.push(
+      '[empty-entrypoint-scan]  the entrypoint-predicate classifier parsed ZERO guard ' +
+        'sources — no coupling could have been found, so a clean result proves nothing',
+    );
+  }
+  for (const coupled of inventory.filenameCoupledEntrypoints) {
+    if (excusedBy(coupled.artifact, 'filename-coupled-entrypoint') !== undefined) continue;
+    violations.push(
+      `${coupled.artifact}  [filename-coupled-entrypoint]  self-executes on ` +
+        `${coupled.literals.map((l) => `\`argv[1].endsWith('${l}')\``).join(' or ')}, so renaming ` +
+        'it leaves a step that runs and enforces nothing while this inventory still reports it ' +
+        'as hosted — compare the RESOLVED `argv[1]` against `fileURLToPath(import.meta.url)`, ' +
+        'or record an expiring GUARD_EXEMPTIONS entry',
+    );
+  }
 
   for (const guard of inventory.guards) {
     if (!guard.pathFilteredOnly) continue;
@@ -129,7 +153,10 @@ export function auditGuardInventory(
     // A `filtered-implementation-surface` exemption is only checkable when the
     // filter globs were supplied; without them the finding cannot be computed, so
     // the entry is neither confirmed nor declared stale.
-    const checkable = exemption.excuses === 'unreachable' || filtersKnown;
+    const checkable =
+      exemption.excuses === 'unreachable' ||
+      exemption.excuses === 'filename-coupled-entrypoint' ||
+      filtersKnown;
     if (checkable && exhibits.get(exemption.excuses)?.has(exemption.artifact) !== true) {
       violations.push(
         `${exemption.artifact}  [stale-exemption]  no longer exhibits "${exemption.excuses}" — ` +

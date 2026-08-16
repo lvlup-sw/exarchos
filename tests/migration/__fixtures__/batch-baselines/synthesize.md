@@ -60,9 +60,12 @@ Call the `prepare_synthesis` composite action to validate all preconditions in a
 ```typescript
 exarchos:exarchos_orchestrate({
   action: "prepare_synthesis",
-  featureId: "<id>"
+  featureId: "<id>",
+  repoRoot: "<absolute path of the repo under synthesis>"
 })
 ```
+
+`repoRoot` is required. All four readiness legs (test suite, typecheck, stack, changed files) shell out with it as their working directory, so it names the tree the verdict is about. The gate will not fall back to whatever directory the server was launched in — omit it and the call is rejected rather than answered about the wrong repo. During a stacked synthesis, pass the integration worktree's absolute path.
 
 This action performs:
 - **Phase readiness** -- Confirms workflow is in the correct phase with all reviews complete

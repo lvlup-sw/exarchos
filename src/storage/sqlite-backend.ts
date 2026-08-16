@@ -1,5 +1,5 @@
 import { Database, type Statement } from 'bun:sqlite';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join, basename, resolve, relative, isAbsolute } from 'node:path';
 import type { WorkflowEvent } from '../events/schemas.js';
 import type { WorkflowState } from '../workflow/types.js';
@@ -73,6 +73,54 @@ export {
 };
 
 /**
+ * Does this prepared statement expose an explicit `finalize()`?
+ *
+ * A real type predicate rather than a cast: the two SQLite drivers this backend
+ * runs on disagree — bun:sqlite's `Statement` has `finalize()`, better-sqlite3's
+ * does not (it finalizes on `Database.close()`) — and the shared `Statement`
+ * type cannot describe both.
+ */
+function hasFinalize(value: unknown): value is { finalize: () => void } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'finalize' in value &&
+    typeof value.finalize === 'function'
+  );
+}
+
+/**
+ * A path in the ONE form the filesystem itself uses, for comparing two paths
+ * that may name the same file differently.
+ *
+ * `resolve()` normalises separators and `..` segments but preserves aliases: an
+ * 8.3 short name (`C:\Users\RUNNER~1\…`) and its long form
+ * (`C:\Users\runneradmin\…`) survive as different strings, as do a symlink and
+ * its target. `closeOpenUnder` decides containment by string prefix, so an alias
+ * on either side makes a contained handle look like an escapee — the sweep skips
+ * it, the handle survives into `fs.rm`, and NTFS refuses the unlink with
+ * `EBUSY … exarchos.db-shm`. That is the chronic Windows teardown failure: the
+ * runners' `os.tmpdir()` yields the short form, so any long-form normalisation
+ * anywhere in a store's construction silently defeats the containment test.
+ *
+ * Falls back progressively — the db file may not exist yet, or may already be
+ * unlinked — so this never throws and never reports a path it could not read.
+ */
+function canonicalPath(p: string): string {
+  try {
+    return realpathSync.native(p);
+  } catch {
+    // Not there (yet, or any more): canonicalise the parent instead, which is
+    // where the alias actually lives, and re-attach the leaf by name.
+    try {
+      return join(realpathSync.native(dirname(p)), basename(p));
+    } catch {
+      return resolve(p);
+    }
+  }
+}
+
+/**
  * SQLite-backed implementation of StorageBackend.
  * Uses bun:sqlite for synchronous, high-performance operations.
  * Supports WAL mode for concurrent read/write access.
@@ -108,9 +156,9 @@ export class SqliteBackend implements StorageBackend {
    * best-effort. Used by the `rmrf()` test helper before removing a temp dir.
    */
   static closeOpenUnder(dir: string): void {
-    const root = resolve(dir);
+    const root = canonicalPath(dir);
     for (const backend of [...SqliteBackend.openInstances]) {
-      const rel = relative(root, resolve(backend.dbPath));
+      const rel = relative(root, canonicalPath(backend.dbPath));
       if (rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))) {
         backend.close();
       }
@@ -284,18 +332,47 @@ export class SqliteBackend implements StorageBackend {
 
   close(): void {
     if (this.closed) return;
-    this.closed = true;
-    SqliteBackend.openInstances.delete(this);
-    // `db` is definite-assignment (`db!`); the try/catch also makes a double
-    // close (or a never-opened handle) a no-op rather than a driver throw.
+    // Release prepared statements BEFORE the connection closes, not after: a
+    // driver that refuses to close a connection with live statements throws
+    // straight into the catch below, and the old order made that failure
+    // indistinguishable from success.
+    //
+    // Both populations, not just the dynamic one — the static `stmts` outnumber
+    // the cached query statements and live exactly as long as the connection.
+    // `finalize()` is duck-typed because the two drivers differ: bun:sqlite
+    // exposes it and can refuse to close while statements are live, while
+    // better-sqlite3 exposes no such method and finalizes them itself on close.
+    // Best-effort on purpose — a statement that is already finalized must not
+    // turn a successful close into a failed one.
+    // `stmts` is definite-assignment (`stmts!`) and really can be undefined here:
+    // a partial `initialize()` failure registers the handle before preparing the
+    // statements, and that is precisely the case that must stay closeable.
+    const prepared = this.stmts === undefined ? [] : Object.values(this.stmts);
+    for (const statement of [...prepared, ...this.queryStmtCache.values()]) {
+      if (hasFinalize(statement)) {
+        try {
+          statement.finalize();
+        } catch {
+          // already finalized, or a driver that does not need it
+        }
+      }
+    }
+    this.queryStmtCache.clear();
+    // `db` is definite-assignment (`db!`); `?.` makes a never-opened handle a
+    // no-op, and the `closed` guard above makes a double close one.
     try {
       this.db?.close();
     } catch {
-      // already closed / never opened — close is best-effort and idempotent
+      // The close FAILED, so the OS handle is still open. Leave this instance
+      // registered and unclosed so a later `closeOpenUnder` sweep retries it.
+      // De-registering here (as this did) made a failed close permanently
+      // invisible: the registry reported no open handles while NTFS still
+      // refused to unlink the file, which is exactly how a temp-dir teardown
+      // turns into `EBUSY … exarchos.db-wal` with nothing left to blame.
+      return;
     }
-    // Prepared statements are invalid once the connection is closed; drop the
-    // cache so a stale handle can't be reused after close.
-    this.queryStmtCache.clear();
+    this.closed = true;
+    SqliteBackend.openInstances.delete(this);
   }
 
   /**

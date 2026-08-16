@@ -108,8 +108,10 @@ const invokedDirectly = (() => {
   try {
     const argv1 = process.argv[1];
     if (!argv1) return false;
+    // `new URL(import.meta.url).pathname` yields `/D:/…` on Windows, which never
+    // equals `process.argv[1]` and doubles to `D:\D:\…` under `path.resolve`.
     const self = fileURLToPath(import.meta.url);
-    return argv1 === self || argv1.endsWith('check-golden-fixture-note.mjs');
+    return argv1 === self || /[/\\]check-golden-fixture-note\.mjs$/.test(argv1);
   } catch {
     return false;
   }

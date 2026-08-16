@@ -169,6 +169,28 @@ jobs:
           bun-version: 1.3.13
 
       - run: bash "$GITHUB_WORKSPACE/tools/release/npm-ci-retry.sh"
+
+      # Both installer shells must be present. `tests/scripts/installer-verify.test.ts`
+      # drives get-exarchos.sh under bash and get-exarchos.ps1 under pwsh; each
+      # absent shell silently dropped 11 tests while the run still reported
+      # success. This lane owns that suite, so it owns the prerequisite.
+      # PowerShell ships on the ubuntu-latest runner image — installing it here
+      # would be redundant, but asserting it is not: an image change that drops
+      # pwsh must fail here with a legible message rather than reappear as a
+      # suite that quietly halves. The suite's own
+      # `InstallerVerify_ShellAbsent_FailsClosedRatherThanSkipping` is the
+      # backstop; this step just fails earlier and more clearly.
+      - name: Guard — both installer shells present
+        run: |
+          missing=()
+          command -v bash >/dev/null 2>&1 || missing+=("bash")
+          command -v pwsh >/dev/null 2>&1 || command -v powershell >/dev/null 2>&1 || missing+=("pwsh")
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::${missing[*]} unavailable on this lane — the installer acceptance suite would SKIP 11 tests per missing shell and still report success. Install it (ubuntu: https://learn.microsoft.com/powershell/scripting/install/install-ubuntu) rather than widening the waiver."
+            exit 1
+          fi
+          echo "installer shells present: bash=$(command -v bash) pwsh=$(command -v pwsh || command -v powershell)"
+
       - run: npm run typecheck
 
       # Windows-portability lint (#1623): editor-first ESLint rules, also run
@@ -392,7 +414,10 @@ jobs:
   test-windows:
     name: Windows Unit (MCP)
     needs: changes
-    if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && needs.changes.outputs.mcp == 'true'
+    # Always on a push to main, same baseline argument as Windows Unit (Root).
+    if: >-
+      (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request')
+      && (needs.changes.outputs.mcp == 'true' || github.event_name == 'push')
     runs-on: windows-latest
     env:
       EXARCHOS_PREFLIGHT_DEBUG: '1'
@@ -493,7 +518,15 @@ jobs:
   test-windows-root:
     name: Windows Unit (Root)
     needs: changes
-    if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && needs.changes.outputs.root == 'true'
+    # Path-filtered on PRs, but ALWAYS on a push to main (#1699). The filter
+    # skipped this lane on 4/4 recent main runs, so it had no green baseline and
+    # every PR failure was ambiguous by construction — indistinguishable between
+    # "this PR broke Windows" and "Windows was already red". A lane whose red is
+    # unattributable gets re-run until it passes, which is how a real regression
+    # would slip through. `push` only fires on main (see `on:` above).
+    if: >-
+      (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request')
+      && (needs.changes.outputs.root == 'true' || github.event_name == 'push')
     runs-on: windows-latest
     env:
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
@@ -947,16 +980,20 @@ jobs:
         run: bash tests/scripts/lint-envelopes.test.sh
 
       # The RULE's own self-test, as distinct from the wrapper's. `lint-envelopes.test.sh`
-      # above covers the wrapper's exit codes against one violating fixture; these 18
-      # cases cover the rule's handler resolution (adaptXxx unwrap, zero-arg factory,
-      # cast, inline literal, the fail-loud `unresolvedHandler` path) and its three
-      # exemption classes. They were executed by NOTHING: it is a `node:test` file with
-      # a `.js` extension, and the root vitest `include` list is all `*.test.ts` under
+      # above covers the wrapper's exit codes against one violating fixture; these cases
+      # cover the rule's handler resolution (adaptXxx unwrap, zero-arg factory, cast,
+      # inline literal, the derived special-branch census, and the fail-loud
+      # `unresolvedHandler` / `unattributedDispatch` paths) and its three exemption
+      # classes. The case count is deliberately not transcribed here — the file is the
+      # authority, and a label that has to be edited alongside it just goes stale.
+      # They were executed by NOTHING: it is a `node:test` file with a `.js` extension,
+      # and the root vitest `include` list is all `*.test.ts` under
       # src/benchmarks/scripts/hooks/test/docs — no `tools/eslint-rules/**`, no `.js` pattern.
-      # A blocking lint rule whose resolution logic is unproven is the DR-24 shape the
+      # A blocking lint rule whose resolution logic is unproven is the shape the
       # rest of this lane exists to prevent.
-      - name: Error-envelope RULE self-test (18 cases)
+      - name: Error-envelope RULE self-test
         run: node tools/eslint-rules/no-handler-throw.test.js
+
 
       # `tools/eslint-rules/tsconfig.json` exists solely to typecheck `__fixtures__/**/*.ts`
       # and was compiled by nothing either — root `tsconfig.json` includes `src/**/*`
@@ -1052,8 +1089,18 @@ jobs:
       # deps tail rather than the zero-dep prefix. Unfiltered on purpose: the
       # premises drift when the CODE changes, which is precisely the PR a
       # docs-path filter would skip.
+      #
+      # DR-7 (task 078): the gate has THREE verdicts and `gaps` now exits 3,
+      # distinct from pass (0) and fail (1) — it used to exit 0, so a run that
+      # printed `VERDICT: GAPS` was indistinguishable from a pass to this lane
+      # and to `npm run validate` alike. This lane still tolerates gaps, because
+      # 11 unprobed obligation rungs are real work rather than a broken gate —
+      # but the toleration is DECLARED, dated and enforced by the gate itself:
+      # past the date, gaps exit 1 and this step goes red. Drift, an empty
+      # denominator and an unannotated rung row still fail today, unchanged.
       - name: Measured-premise drift gate (DR-27)
-        run: node tools/audit/gates/check-measured-premises.mjs
+        run: node tools/audit/gates/check-measured-premises.mjs --tolerate-gaps-until 2026-11-30
+
 
       # Its own self-test on the same host (DR-24: "each guard's self-test runs
       # in the same CI job as the guard", so guard-execution failure cannot pass
@@ -1290,20 +1337,26 @@ jobs:
       # registry, derives each registration's coupling through the DR-2 tier
       # union, and holds the report-coupled population to a shrink-only seed
       # (membership + ISO expiry + a frozen key-set pin against in-place swaps).
-      # The census module is a pure library, so this test file IS the guard — and
-      # it carries the kill fixtures (a seeded 26th report-coupled registration,
-      # an emptied denominator, a seeded tier/source disagreement), which
-      # satisfies DR-24's "each guard's self-test runs in the same CI job as the
-      # guard" for free: guard-execution failure exits non-zero here rather than
-      # passing as success. Must be UNFILTERED — the co-located test would
-      # otherwise be hosted only by `test-mcp`, which is filtered on `mcp` and
-      # skips-as-passed on exactly the PRs #1711 describes. Rides the deps tail,
-      # not the zero-dep prefix: it resolves the MCP TypeScript source through
-      # the MCP vitest installed by the two steps above.
-      # See docs/guides/ci-gate-hosting.md.
-      # G3's census moved to `tools/conformance` by task 018a and is now hosted
-      # by the whole-suite step above, which is unfiltered for the same reason
-      # this step was.
+      #
+      # TWO steps, and the split is the point. The executable gate reads the
+      # wall clock; the library takes `today` as a required parameter and reads
+      # no clock at all. Before that split the clock lived inside the census, so
+      # the enforced expiry would have reddened every developer's `vitest run`
+      # on 2027-03-01 — teaching people to fix the clock rather than the debt.
+      # The deadline now reddens the artifact that blocks a merge.
+      #
+      # Both must be UNFILTERED — a path-filtered host skips-as-passed on the
+      # PRs this gate polices. They ride the deps tail, not the zero-dep prefix.
+      - name: G3 report-coupled ratchet — executable gate
+        run: npx --no-install tsx tools/audit/core/report-coupling-ratchet-guard.ts
+
+      # The kill fixtures (a seeded 26th report-coupled registration, an emptied
+      # denominator, a seeded tier/source disagreement, an in-place swap, a lapsed
+      # expiry) on the SAME host, so guard-execution failure exits non-zero here
+      # rather than passing as success.
+      - name: G3 report-coupled ratchet self-tests re-assert
+        run: npx --no-install vitest run tools/conformance/src/report-coupling-census.test.ts --project conformance
+
 
       # G4 effect-ledger bijection (DR-7) and G5 authority-topology census (DR-6),
       # hosted UNFILTERED — added by task 027 at the Wave-1 exit.
@@ -1507,108 +1560,154 @@ jobs:
     needs: [changes, test-root, test-mcp, test-windows, test-windows-root, validate-no-legacy, manifest-gate, grep-gates, outcome-tests]
     if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && always()
     steps:
+      # DR-10 — a lane's execution is not optional.
+      #
+      # The lane list is deliberately NOT written out below. `NEEDS_JSON` is
+      # `toJSON(needs)`, so every lane named in this job's `needs:` above
+      # appears in it automatically, and the policy is applied to whatever that
+      # context contains. There is no second list of lane names here to fall out
+      # of step with the first — which is what let four lanes (`grep-gates`,
+      # `manifest-gate`, `outcome-tests`, `validate-no-legacy`) sit for months
+      # with a `failure|cancelled` check and no skip check at all.
+      #
+      # `LICENSED_SKIPS` names the only lanes allowed to report `skipped`, each
+      # paired with the `changes` output that must be non-'true' to license it.
+      # Every other lane — present or future — lands on the strict default arm,
+      # where a skip is a hard failure. Absence from this list is the STRICT
+      # case, so forgetting an entry can only over-constrain (loudly), never
+      # open a hole. `scripts/ci-topology.test.ts` executes this exact script
+      # over synthetic `needs` contexts and asserts the list matches the set
+      # derived from the lanes' own `if:` expressions, so the licences cannot
+      # drift from the path filters they describe.
+      #
+      # Nothing below interpolates `${{ }}`: every GitHub value arrives through
+      # `env:`. That keeps context data out of the shell's parse, and it is what
+      # lets the conformance test run the shipped script verbatim rather than
+      # re-modelling it.
       - name: Evaluate results
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+          LICENSED_SKIPS: |
+            test-root=root
+            test-mcp=mcp
+            test-windows=mcp
+            test-windows-root=root
         run: |
-          echo "changes=${{ needs.changes.result }}"
-          echo "test-root=${{ needs.test-root.result }}"
-          echo "test-mcp=${{ needs.test-mcp.result }}"
-          echo "test-windows=${{ needs.test-windows.result }}"
-          echo "test-windows-root=${{ needs.test-windows-root.result }}"
-          echo "validate-no-legacy=${{ needs.validate-no-legacy.result }}"
-          echo "manifest-gate=${{ needs.manifest-gate.result }}"
-          echo "grep-gates=${{ needs.grep-gates.result }}"
-          echo "outcome-tests=${{ needs.outcome-tests.result }}"
+          set -euo pipefail
 
-          if [[ "${{ needs.changes.result }}" =~ ^(failure|cancelled)$ ]]; then
-            echo "::error::Change detection: ${{ needs.changes.result }}"
-            exit 1
-          fi
-          if [[ "${{ needs.test-root.result }}" =~ ^(failure|cancelled)$ ]]; then
-            echo "::error::Root package tests: ${{ needs.test-root.result }}"
-            exit 1
-          fi
-          # DR-3 (wave-S skip-guard, mirrors the test-windows/test-windows-root
-          # pattern below): test-root is REQUIRED for any root-touching PR. A
-          # generic skip is OK (non-root PRs legitimately skip test-root via
-          # `changes.outputs.root`, host class: deps, filtered — see
-          # docs/guides/ci-gate-hosting.md). But if root code DID change and
-          # the lane was skipped, that's a path-filter/matrix regression
-          # silently dropping our only Linux root-package coverage
-          # (skipped-as-passed hole) — fail closed.
-          if [[ "${{ needs.changes.outputs.root }}" == 'true' \
-             && "${{ needs.test-root.result }}" == 'skipped' ]]; then
-            echo "::error::Root package tests (test-root) skipped on a root-touching PR (path-filter/matrix regression dropped required root coverage)"
-            exit 1
-          fi
-          if [[ "${{ needs.test-mcp.result }}" =~ ^(failure|cancelled)$ ]]; then
-            echo "::error::MCP server tests: ${{ needs.test-mcp.result }}"
-            exit 1
-          fi
-          # DR-3 (wave-S skip-guard, mirrors the test-windows/test-windows-root
-          # pattern below): test-mcp is REQUIRED for any MCP-touching PR. A
-          # generic skip is OK (non-MCP PRs legitimately skip test-mcp via
-          # `changes.outputs.mcp`, host class: deps, filtered — see
-          # docs/guides/ci-gate-hosting.md). But if MCP code DID change and
-          # the lane was skipped, that's a path-filter/matrix regression
-          # silently dropping our only Linux MCP-package coverage
-          # (skipped-as-passed hole) — fail closed.
-          if [[ "${{ needs.changes.outputs.mcp }}" == 'true' \
-             && "${{ needs.test-mcp.result }}" == 'skipped' ]]; then
-            echo "::error::MCP server tests (test-mcp) skipped on an MCP-touching PR (path-filter/matrix regression dropped required MCP coverage)"
-            exit 1
-          fi
-          # test-windows is BLOCKING. The Windows-portability gap (#1620) is
-          # closed — the windows-latest MCP suite is green — so a red Windows
-          # job now fails CI like any other tier, guarding against regressions.
-          if [[ "${{ needs.test-windows.result }}" =~ ^(failure|cancelled)$ ]]; then
-            echo "::error::Windows unit tests: ${{ needs.test-windows.result }}"
-            exit 1
-          fi
-          # DR-5 (WLM slice 3): the windows lane is REQUIRED for any MCP change.
-          # The aggregator treats generic skips as OK (non-MCP PRs legitimately
-          # skip test-windows via `changes.outputs.mcp`). But if MCP code DID
-          # change and the lane was skipped, that's a path-filter/matrix
-          # regression dropping our only Windows coverage — fail closed.
-          if [[ "${{ needs.changes.outputs.mcp }}" == 'true' \
-             && "${{ needs.test-windows.result }}" == 'skipped' ]]; then
-            echo "::error::Windows lane skipped on an MCP-touching PR (path-filter/matrix regression dropped required Windows coverage)"
-            exit 1
-          fi
-          # test-windows-root (task 021) is BLOCKING — same posture as
-          # test-windows. It gives the root package (installer surfaces, src/)
-          # its first Windows coverage, so a red root Windows job fails CI.
-          if [[ "${{ needs.test-windows-root.result }}" =~ ^(failure|cancelled)$ ]]; then
-            echo "::error::Windows root-package tests: ${{ needs.test-windows-root.result }}"
-            exit 1
-          fi
-          # The root Windows lane is REQUIRED for any root-source change. A
-          # generic skip is OK (non-root PRs legitimately skip test-windows-root
-          # via `changes.outputs.root`). But if root code DID change and the
-          # lane was skipped, that's a path-filter/matrix regression dropping
-          # our only Windows coverage of the root package — fail closed.
-          if [[ "${{ needs.changes.outputs.root }}" == 'true' \
-             && "${{ needs.test-windows-root.result }}" == 'skipped' ]]; then
-            echo "::error::Windows root lane skipped on a root-touching PR (path-filter/matrix regression dropped required Windows root coverage)"
-            exit 1
-          fi
-          if [[ "${{ needs.validate-no-legacy.result }}" =~ ^(failure|cancelled)$ ]]; then
-            echo "::error::Validate no legacy: ${{ needs.validate-no-legacy.result }}"
-            exit 1
-          fi
-          # manifest-gate (DR-2, Task 004) is BLOCKING. It runs on every PR and
-          # is inert unless the PR touches a consolidation pair, so it needs no
-          # path-filter skip-guard (its `if:` references no changes.outputs.*).
-          if [[ "${{ needs.manifest-gate.result }}" =~ ^(failure|cancelled)$ ]]; then
-            echo "::error::Manifest gate (textual case-preservation): ${{ needs.manifest-gate.result }}"
-            exit 1
-          fi
-          if [[ "${{ needs.grep-gates.result }}" =~ ^(failure|cancelled)$ ]]; then
-            echo "::error::Grep gates: ${{ needs.grep-gates.result }}"
-            exit 1
-          fi
-          if [[ "${{ needs.outcome-tests.result }}" =~ ^(failure|cancelled)$ ]]; then
-            echo "::error::Outcome tests: ${{ needs.outcome-tests.result }}"
+          # Lane list and per-lane result, straight from the needs context.
+          if ! lane_results="$(node -e '
+            const needs = JSON.parse(process.env.NEEDS_JSON || "");
+            if (needs === null || typeof needs !== "object" || Array.isArray(needs)) {
+              throw new Error("needs context did not parse to an object");
+            }
+            const lanes = Object.keys(needs).sort();
+            if (lanes.length === 0) throw new Error("needs context is empty");
+            for (const lane of lanes) {
+              const entry = needs[lane];
+              const result = entry && typeof entry === "object" ? entry.result : undefined;
+              const value = typeof result === "string" && result !== "" ? result : "unknown";
+              process.stdout.write(lane + "\t" + value + "\n");
+            }
+          ')"; then
+            echo "::error::CI Gate could not read the needs context, so it cannot prove any lane ran — failing closed."
             exit 1
           fi
 
-          echo "All checks passed (skipped jobs are OK)"
+          changes_result="$(node -e '
+            const needs = JSON.parse(process.env.NEEDS_JSON || "{}");
+            const entry = needs.changes;
+            const result = entry && typeof entry === "object" ? entry.result : undefined;
+            process.stdout.write(typeof result === "string" ? result : "");
+          ')"
+
+          # Value of one `changes` job output, as seen by this aggregator.
+          changes_output() {
+            node -e '
+              const needs = JSON.parse(process.env.NEEDS_JSON || "{}");
+              const entry = needs.changes;
+              const outputs = entry && typeof entry === "object" && entry.outputs ? entry.outputs : {};
+              const value = outputs[process.argv[1]];
+              process.stdout.write(value === undefined || value === null ? "" : String(value));
+            ' "$1"
+          }
+
+          # Whether `changes` DECLARES the output at all — which `changes_output`
+          # cannot tell you, because an undeclared key and a declared `'false'`
+          # both come back as the empty string, and the aggregator honours both
+          # as a licence. Renaming or dropping a key in the `changes` `outputs:`
+          # block would therefore license test-root, test-mcp, test-windows and
+          # test-windows-root to skip together, with CI Gate reporting success.
+          # LICENSED_SKIPS names that key; this is what ties the two together.
+          changes_declares() {
+            node -e '
+              const needs = JSON.parse(process.env.NEEDS_JSON || "{}");
+              const entry = needs.changes;
+              const outputs = entry && typeof entry === "object" && entry.outputs ? entry.outputs : {};
+              process.stdout.write(
+                Object.prototype.hasOwnProperty.call(outputs, process.argv[1]) ? "true" : "false",
+              );
+            ' "$1"
+          }
+
+          # The `changes` output that licenses a skip for this lane, or empty
+          # if the lane has no licensed skip.
+          licensed_skip_key() {
+            local lane="$1" line entry
+            while IFS= read -r line; do
+              entry="${line%%#*}"
+              entry="${entry//[[:space:]]/}"
+              [ -n "$entry" ] || continue
+              if [ "${entry%%=*}" = "$lane" ]; then
+                printf '%s' "${entry#*=}"
+                return 0
+              fi
+            done <<< "${LICENSED_SKIPS:-}"
+            printf ''
+          }
+
+          violations=0
+
+          echo "Lane results (enumerated from the needs context):"
+          while IFS=$'\t' read -r lane result; do
+            [ -n "$lane" ] || continue
+            printf '  %s = %s\n' "$lane" "$result"
+
+            case "$result" in
+              success)
+                ;;
+              failure|cancelled)
+                echo "::error::Lane '$lane' reported '$result'."
+                violations=$((violations + 1))
+                ;;
+              skipped)
+                key="$(licensed_skip_key "$lane")"
+                if [ -z "$key" ]; then
+                  echo "::error::Lane '$lane' was SKIPPED but declares no legitimate skip condition. A lane that can silently not-run is a guard that cannot fail (DR-10). If this lane has genuinely gained a path filter, license it in LICENSED_SKIPS alongside the filter that justifies it."
+                  violations=$((violations + 1))
+                elif [ "$changes_result" != "success" ]; then
+                  echo "::error::Lane '$lane' was SKIPPED and its licence rests on the 'changes' lane, which reported '$changes_result'. No skip is licensed when change detection itself did not succeed."
+                  violations=$((violations + 1))
+                elif [ "$(changes_declares "$key")" != "true" ]; then
+                  echo "::error::Lane '$lane' was SKIPPED under a licence keyed on changes.outputs.$key, but the 'changes' job declares no such output. An undeclared key reads exactly like a declared 'false', so this would otherwise license the skip silently — rename the key in LICENSED_SKIPS to match the 'changes' outputs block, or restore the output."
+                  violations=$((violations + 1))
+                elif [ "$(changes_output "$key")" = "true" ]; then
+                  echo "::error::Lane '$lane' was SKIPPED even though changes.outputs.$key == 'true' — a path-filter or matrix regression dropped coverage this PR required."
+                  violations=$((violations + 1))
+                else
+                  printf '      skip licensed: changes.outputs.%s is not true\n' "$key"
+                fi
+                ;;
+              *)
+                echo "::error::Lane '$lane' reported the unrecognised result '$result'. CI Gate fails closed on anything it cannot classify."
+                violations=$((violations + 1))
+                ;;
+            esac
+          done <<< "$lane_results"
+
+          if [ "$violations" -ne 0 ]; then
+            echo "::error::CI Gate: $violations lane(s) violated the execution policy."
+            exit 1
+          fi
+
+          echo "All checks passed (every lane ran, or skipped under a licensed condition)"
