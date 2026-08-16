@@ -17,18 +17,6 @@ import { fileURLToPath } from 'node:url';
 // the test globs actually reach.
 const EXCLUDE = [...configDefaults.exclude, '**/runs/**'];
 
-// Under Bun, `bun:sqlite` is a real builtin. Under Node/vitest it is not, so
-// we alias it to the better-sqlite3 shim. Detecting Bun here lets Windows CI
-// run the core suite with `bun --bun` and avoid the Node 24 isolate abort.
-const BUN_SQLITE_ALIAS =
-  typeof process.versions.bun === 'string'
-    ? {}
-    : {
-        'bun:sqlite': fileURLToPath(
-          new URL('./src/storage/__shims__/bun-sqlite-node.ts', import.meta.url),
-        ),
-      };
-
 // `vitest bench` is a separate mode. A `benchmark.include` on the root `test`
 // block is not inherited by projects — each project falls back to
 // `**/*.{bench,benchmark}.ts` and then tries to load EventStore benches
@@ -181,7 +169,14 @@ export default defineConfig({
         // deliberately (task 011). Every knob below is carried over verbatim.
         resolve: {
           alias: {
-            ...BUN_SQLITE_ALIAS,
+            // `bun:sqlite` is a virtual module that only resolves under Bun.
+            // Vitest runs under Node, so the import is redirected to a thin shim
+            // over `better-sqlite3` for the duration of test execution. The
+            // compiled binary (produced by `bun build --compile`) still imports
+            // the real `bun:sqlite` at runtime — this alias is test-only.
+            'bun:sqlite': fileURLToPath(
+              new URL('./src/storage/__shims__/bun-sqlite-node.ts', import.meta.url),
+            ),
           },
         },
         test: {
@@ -280,7 +275,9 @@ export default defineConfig({
         // remain untouched.
         resolve: {
           alias: {
-            ...BUN_SQLITE_ALIAS,
+            'bun:sqlite': fileURLToPath(
+              new URL('./src/storage/__shims__/bun-sqlite-node.ts', import.meta.url),
+            ),
           },
         },
         test: {
@@ -333,7 +330,9 @@ export default defineConfig({
         // silent-green outcome the suite exists to prevent.
         resolve: {
           alias: {
-            ...BUN_SQLITE_ALIAS,
+            'bun:sqlite': fileURLToPath(
+              new URL('./src/storage/__shims__/bun-sqlite-node.ts', import.meta.url),
+            ),
           },
         },
         test: {

@@ -445,10 +445,7 @@ jobs:
         run: bash "$GITHUB_WORKSPACE/tools/release/npm-ci-retry.sh"
 
       - run: npx tsc --noEmit
-      # Run the core suite on Bun so `bun:sqlite` is native and the Node 24
-      # better-sqlite3 isolate-teardown abort does not kill the worker.
-      - run: bun --bun ./node_modules/vitest/vitest.mjs run --project core
-        shell: bash
+      - run: npm run test:core
 
       # DR-11s (WLM #1576): zero-count guard for the worktree suite.
       # `npm run test:run` above already executes the worktree tests on this
@@ -458,7 +455,7 @@ jobs:
       - name: Guard — worktree suite executed on Windows (DR-11s)
         shell: bash
         run: |
-          bun --bun ./node_modules/vitest/vitest.mjs run --project core tests/unit/verbs/worktree/ --reporter=json --outputFile=.wlm-win-guard.json
+          npx vitest run --project core tests/unit/verbs/worktree/ --reporter=json --outputFile=.wlm-win-guard.json
           count=$(node -e "const r=require('./.wlm-win-guard.json');process.stdout.write(String((r.numPassedTests||0)+(r.numFailedTests||0)))")
           echo "worktree tests executed on windows-latest: $count"
           if [ "$count" -eq 0 ]; then
@@ -486,7 +483,7 @@ jobs:
       - name: DR-8 — named win32-fragile launcher tests (spawn 003 + path 009)
         shell: bash
         run: |
-          bun --bun ./node_modules/vitest/vitest.mjs run --project core tests/unit/utils/process.spawn.test.ts tests/unit/runtime/launcher/topology.test.ts --reporter=json --outputFile=.launcher-win-guard.json
+          npx vitest run --project core tests/unit/utils/process.spawn.test.ts tests/unit/runtime/launcher/topology.test.ts --reporter=json --outputFile=.launcher-win-guard.json
           count=$(node -e "const r=require('./.launcher-win-guard.json');process.stdout.write(String((r.numPassedTests||0)+(r.numFailedTests||0)))")
           echo "win32-fragile launcher tests executed on windows-latest: $count"
           if [ "$count" -eq 0 ]; then
