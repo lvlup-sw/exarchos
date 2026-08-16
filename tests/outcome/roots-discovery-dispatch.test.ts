@@ -96,7 +96,7 @@ describe('Roots-based dispatch boundary discovery (#1290)', () => {
       expect(resolved).toBeDefined();
       expect((resolved!.data as { source?: string }).source).toBe('roots');
     } finally {
-      await fs.rm(workspace, { recursive: true, force: true });
+      await fs.rm(workspace, { recursive: true, force: true, maxRetries: 3 });
     }
   });
 });

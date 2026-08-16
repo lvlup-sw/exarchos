@@ -34,7 +34,7 @@ describe('Three-field correlation threading at dispatch boundary (#1291)', () =>
     // the teardown.
     while (tempDirs.length > 0) {
       const dir = tempDirs.pop()!;
-      await fs.rm(dir, { recursive: true, force: true });
+      await fs.rm(dir, { recursive: true, force: true, maxRetries: 3 });
     }
   });
 
