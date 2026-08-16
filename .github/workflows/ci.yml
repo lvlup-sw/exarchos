@@ -430,10 +430,11 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          # Node 24 aborts vitest workers on better-sqlite3 isolate teardown.
-          # Node 22 has no win32 prebuild (and the runner cannot compile).
-          # Node 20 is the LTS that still ships a prebuild and does not abort.
-          node-version: '20'
+          # Node 22/20 have no usable win32 better-sqlite3 prebuild on this
+          # runner (npm falls back to node-gyp and there is no VS C++ workload).
+          # Node 24 installs from prebuilds; the isolate-teardown abort is
+          # tracked separately from install.
+          node-version: '24'
           cache: npm
           cache-dependency-path: package-lock.json
 
