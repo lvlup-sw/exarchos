@@ -37,7 +37,17 @@ if (proto && typeof proto.query !== 'function') {
 // Node 24 tears down the isolate before better-sqlite3 finalizes statements,
 // which aborts the worker (`Assertion failed: (env) != nullptr`). Track every
 // opened handle and close it before the isolate dies.
-const openDatabases = new Set<InstanceType<typeof BetterSqlite3>>();
+//
+// The set lives on globalThis so every evaluated copy of this module (the
+// `bun:sqlite` alias points at the `.ts` source; setupFiles import the `.js`
+// specifier) shares one registry. A per-module Set would leave the handles
+// the tests opened invisible to `closeOpenDatabases()`.
+const OPEN_DATABASES_KEY = '__exarchosOpenSqliteDatabases' as const;
+type SqliteRegistry = typeof globalThis & {
+  [OPEN_DATABASES_KEY]?: Set<InstanceType<typeof BetterSqlite3>>;
+};
+const openDatabases = ((globalThis as SqliteRegistry)[OPEN_DATABASES_KEY] ??=
+  new Set<InstanceType<typeof BetterSqlite3>>());
 
 export function closeOpenDatabases(): void {
   for (const db of openDatabases) {

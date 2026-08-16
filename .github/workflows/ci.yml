@@ -425,16 +425,21 @@ jobs:
     env:
       EXARCHOS_PREFLIGHT_DEBUG: '1'
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      # Allow the Node 22 win32 better-sqlite3 prebuild. The workflow default
+      # forces a source rebuild, which cannot succeed without a C++ toolchain.
+      npm_config_build_from_source: 'false'
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v6
         with:
-          # Node 22/20 have no usable win32 better-sqlite3 prebuild on this
-          # runner (npm falls back to node-gyp and there is no VS C++ workload).
-          # Node 24 installs from prebuilds; the isolate-teardown abort is
-          # tracked separately from install.
-          node-version: '24'
+          # Node 24 + better-sqlite3 aborts the vitest worker on isolate
+          # teardown (`Assertion failed: (env) != nullptr`). Node 22 does not.
+          # better-sqlite3 12.x ships a win32-x64 Node 22 prebuild (N-API 127).
+          # The workflow-level `npm_config_build_from_source=true` would ignore
+          # that prebuild and fail node-gyp (this runner has no VS C++
+          # workload), so this job turns source builds off below.
+          node-version: '22'
           cache: npm
           cache-dependency-path: package-lock.json
 

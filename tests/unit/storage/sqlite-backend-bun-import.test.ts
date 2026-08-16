@@ -40,4 +40,12 @@ describe('sqlite-backend bun:sqlite import contract', () => {
   it('CloseOpenDatabases_EmptySet_DoesNotThrow', () => {
     expect(() => closeOpenDatabases()).not.toThrow();
   });
+
+  it('CloseOpenDatabases_ClosesTrackedShimHandles', async () => {
+    const { Database } = await import('../../../src/storage/__shims__/bun-sqlite-node.js');
+    const db = new Database(':memory:');
+    expect(db.prepare('SELECT 1 AS n').get()).toEqual({ n: 1 });
+    closeOpenDatabases();
+    expect(() => db.prepare('SELECT 1 AS n').get()).toThrow();
+  });
 });
