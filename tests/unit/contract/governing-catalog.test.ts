@@ -20,7 +20,7 @@
 //     the audit decided the governing form IS). Neither is computed from the
 //     other, so they can disagree — which is the whole point.
 //
-// @oracle-sources: ../../../.exarchos/invariants.md, ../../../docs/specs/2026-08-04-wiring-closure-and-unified-integration-suite.md, shipped-src-corpus
+// @oracle-sources: ../../../.exarchos/invariants.md, shipped-src-corpus
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect } from 'vitest';

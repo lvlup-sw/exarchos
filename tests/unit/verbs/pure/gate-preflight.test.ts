@@ -15,7 +15,7 @@
 // SITES across the MCP source tree. Neither can observe the other: the module
 // does not know who imports it, and no importer enumerates what it exports, so a
 // dead export is exactly the disagreement between them.
-// @oracle-sources: ./gate-preflight.ts, the named-import bindings scanned out of every non-test module under servers/exarchos-mcp/src
+// @oracle-sources: ../../../../src/verbs/pure/gate-preflight.ts, the named-import bindings scanned out of every non-test module under src
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -181,8 +181,8 @@ describe('gate-preflight (DR-10 shared helper)', () => {
       // a one-time cleanup; this is the part that keeps it deleted, and it is
       // what makes the removal falsifiable rather than merely done.
       const here = path.dirname(fileURLToPath(import.meta.url));
-      const srcRoot = path.resolve(here, '..', '..');
-      const moduleFile = path.join(here, 'gate-preflight.ts');
+      const srcRoot = path.resolve(here, '../../../../src');
+      const moduleFile = path.join(srcRoot, 'verbs/pure/gate-preflight.ts');
 
       // Both halves are read off the AST rather than matched textually. The
       // regexes this replaces saw only `export (async )?(function|const|class)`

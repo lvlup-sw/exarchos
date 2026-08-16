@@ -92,8 +92,8 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
  * throwaway fixture repo). */
 const EXARCHOS_ROOT = path.resolve(SCRIPT_DIR, '..', '..', '..');
 const SERVER_DIR = path.join(EXARCHOS_ROOT);
-const MUTATION_ADEQUACY_ENTRY = path.join(SERVER_DIR, 'src', 'orchestrate', 'mutation-adequacy.ts');
-const EVENT_STORE_ENTRY = path.join(SERVER_DIR, 'src', 'event-store', 'store.ts');
+const MUTATION_ADEQUACY_ENTRY = path.join(SERVER_DIR, 'src', 'verbs', 'gates', 'mutation-adequacy.ts');
+const EVENT_STORE_ENTRY = path.join(SERVER_DIR, 'src', 'events', 'store.ts');
 
 /** Repo-root-relative prefix this gate diff-scopes to (DR-7). */
 const SERVER_SRC_SCOPE = path.posix.join('src');

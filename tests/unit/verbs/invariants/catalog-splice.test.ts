@@ -23,7 +23,7 @@
  * indistinguishable from a splice and this file would pass against the writer
  * it was written to kill.
  */
-// @oracle-sources: ./amend.js, the hand-written raw catalog bytes concatenated in this file
+// @oracle-sources: ../../../../src/verbs/invariants/amend.ts, the hand-written raw catalog bytes concatenated in this file
 //
 // One side is the production writer; the other is a block of bytes a human
 // typed here, which no part of the writer has ever seen. Deliberately NOT

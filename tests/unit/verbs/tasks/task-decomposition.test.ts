@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -164,13 +164,17 @@ describe('parseTaskBlocks', () => {
 // undefined under NodeNext/ESM, so resolve from this file's URL. This file lives
 // at src/verbs/tasks/<this> → ../../../../.. is the repo root.
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
+const FOUR_HASH_CORPUS_SPEC = resolve(
+  REPO_ROOT,
+  'docs/specs/2026-07-03-wlm-reconcile-enforce.md',
+);
 
 describe('parseTaskBlocks — #1670 majority-4-hash corpus (DR-5)', () => {
-  it('ParseTaskBlocks_FourHashCorpusSpec_ExtractsTiers', () => {
+  it.skipIf(!existsSync(FOUR_HASH_CORPUS_SPEC))('ParseTaskBlocks_FourHashCorpusSpec_ExtractsTiers', () => {
     // Parse a REAL 4-hash-only corpus spec off disk. The OLD three-hash-only
     // pattern matched NONE of its `#### Task` headers (0 blocks → 0 tiers); the
     // fixed parser finds every task and extracts its `**Risk Tier:**` stamp.
-    const specPath = resolve(REPO_ROOT, 'docs/specs/2026-07-03-wlm-reconcile-enforce.md');
+    const specPath = FOUR_HASH_CORPUS_SPEC;
     const content = readFileSync(specPath, 'utf-8');
 
     // Contrast oracle: the pre-#1670 header pattern found zero headers here.

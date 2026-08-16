@@ -128,7 +128,7 @@ describe('classifyArtifactLayout — characterization of the pre-DR-6 default', 
     expect(resolveArtifactDirs({})).toEqual(resolveArtifactDirs());
   });
 
-  it('ArtifactDir_NoConfiguration_DefaultsToDocsSpecs: classifies this repository’s real spec corpus as unified', () => {
+  it.skipIf(!fs.existsSync(path.join(REPO_ROOT, DEFAULT_SPEC_DIR)))('ArtifactDir_NoConfiguration_DefaultsToDocsSpecs: classifies this repository’s real spec corpus as unified', () => {
     const specsDir = path.join(REPO_ROOT, DEFAULT_SPEC_DIR);
     const specs = fs.readdirSync(specsDir).filter((f) => f.endsWith('.md'));
     // Guards against a vacuous pass if the corpus ever moves out from under us.

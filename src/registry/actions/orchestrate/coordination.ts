@@ -163,6 +163,10 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
     description: 'Run pre-synthesis checks: tests, typecheck, stack health. Emits events for readiness views and eval flywheel.',
     schema: z.object({
       featureId: z.string().min(1),
+      // Required: the handler shells out tests/typecheck/git against this
+      // absolute path. Dispatch strips undeclared sibling keys, so omitting
+      // the field here made every production call arrive without repoRoot.
+      repoRoot: z.string().min(1),
     }),
     phases: SYNTHESIS_REVIEW_PHASES,
     roles: ROLE_LEAD,

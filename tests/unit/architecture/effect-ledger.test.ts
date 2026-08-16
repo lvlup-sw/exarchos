@@ -1110,11 +1110,11 @@ describe('DR-26 non-empty denominator — a scan that resolved nothing FAILS', (
   });
 
   it('EffectLedgerPopulationPin_NarrowedScanRoot_FailsInsteadOfPassing', async () => {
-    // KILL FIXTURE (task 079). `src/orchestrate` alone holds 159 scannable
-    // modules — comfortably over the retired `> 100` floor — so a census
-    // narrowed to it read as a full-tree scan while every "no unowned effect"
-    // verdict above was in fact measured over a quarter of the tree.
-    const narrowed = await scanEffectTree(join(SRC_ROOT, 'orchestrate'), lexModule);
+    // KILL FIXTURE. `src/verbs` alone holds well over the retired `> 100`
+    // floor — so a census narrowed to it read as a full-tree scan while every
+    // "no unowned effect" verdict above was in fact measured over a slice of
+    // the tree.
+    const narrowed = await scanEffectTree(join(SRC_ROOT, 'verbs'), lexModule);
     expect(
       narrowed.moduleCount,
       'the narrowed root must clear the RETIRED floor, or this fixture proves ' +

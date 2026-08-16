@@ -11,7 +11,7 @@
 // (`test-helpers/adversarial-lexer-inputs.ts`) — DR-2 forbids a fourth. Only the
 // PAYLOAD is this site's: a census that hunts `git worktree add` cannot be
 // killed by a hidden `node:fs` import.
-// @oracle-sources: ./vcs-ownership.ts, ../test-helpers/superseded-site-lexers.ts
+// @oracle-sources: ./vcs-ownership.ts, ../../test-helpers/superseded-site-lexers.ts
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect } from 'vitest';

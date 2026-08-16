@@ -266,7 +266,7 @@ export interface EffectScan {
  * EFFECT_OWNERSHIP}'s `match` prefixes are relative to this root, so a
  * repository-wide walk renames every module and strands every rule.
  */
-export const GOVERNED_SOURCE_ROOT = 'servers/exarchos-mcp/src';
+export const GOVERNED_SOURCE_ROOT = 'src';
 
 /** Directories whose contents are not shipped source (test/bench/eval harnesses). */
 export const EXCLUDED_DIRS: ReadonlySet<string> = new Set([

@@ -446,7 +446,7 @@ describe('DR-26 — owned SDK seam, generation-branded handles', () => {
     // exactly how the defect presents in the wild — a relocated root, a widened
     // exclusion, a walker that silently stops recursing. Module paths stay
     // `srcRoot`-relative so COVERAGE is the only variable.
-    const narrowed = scanLiveTree(path.join(srcRoot, 'architecture'), srcRoot);
+    const narrowed = scanLiveTree(path.join(srcRoot, 'verbs'), srcRoot);
     expect(
       narrowed.moduleCount,
       'the narrowed root must clear the RETIRED floor — otherwise this fixture ' +
@@ -459,9 +459,9 @@ describe('DR-26 — owned SDK seam, generation-branded handles', () => {
     // than coverage.
     const missed = trackedFilesMissedBy(narrowed.modules, tracked, tracked.length);
     expect(missed.length, 'the derived pin must reject the narrowed walk').toBeGreaterThan(0);
-    expect(missed.filter((module) => module.startsWith('architecture/'))).toEqual([]);
+    expect(missed.filter((module) => module.startsWith('verbs/'))).toEqual([]);
     // …and it NAMES what went missing rather than reporting a smaller integer.
-    expect(missed).toContain('sdk/seam.ts');
+    expect(missed).toContain('contract/sdk/seam.ts');
   });
 
   it('SdkSeamCensus_SeamMovedOrRenamed_FailsClosed', () => {

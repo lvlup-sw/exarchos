@@ -176,6 +176,12 @@ export default defineConfig({
           name: 'core',
           benchmark: { include: CORE_BENCHES },
           pool: 'forks',
+          // Node 24 tears down a forked isolate before better-sqlite3 can
+          // unregister its environment cleanup hook (`Assertion failed:
+          // (env) != nullptr`). Sharing the isolate across files in a worker
+          // keeps the native addon alive until process exit, where
+          // `tests/helpers/close-sqlite.ts` has already closed every handle.
+          isolate: false,
           // The default 5 s per-test / per-hook budget is comfortable on Linux
           // but too tight on the windows-latest runner, where filesystem +
           // better-sqlite3 + process-spawn latency is several times higher — a

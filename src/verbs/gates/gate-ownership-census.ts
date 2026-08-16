@@ -139,18 +139,17 @@ export const EVIDENCE_DISCRIMINANT_CONSTANTS: ReadonlyMap<string, string> = Obje
  */
 export const ACKNOWLEDGED_UNRESOLVED_MODULES: ReadonlySet<string> = Object.freeze(
   new Set([
-    'core/onboarding/event-ctx.ts',
-    'evals/run-evals-cli.ts',
-    'event-store/store.ts',
-    'event-store/tools.ts',
-    'orchestrate/mutation-adequacy.ts',
-    'orchestrate/prepare-delegation.ts',
-    'orchestrate/worktree/manager.ts',
-    'orchestrate/worktree/merge-serializer.ts',
+    'dispatch/core/onboarding/event-ctx.ts',
+    'events/store.ts',
+    'events/tools.ts',
+    'projections/task-store/event-sourced-task-store.ts',
     'storage/sidecar-merger.ts',
     'storage/sidecar-scheduler.ts',
-    'task-store/event-sourced-task-store.ts',
     'vcs/mutation-owner.ts',
+    'verbs/gates/mutation-adequacy.ts',
+    'verbs/team/prepare-delegation.ts',
+    'verbs/worktree/manager.ts',
+    'verbs/worktree/merge-serializer.ts',
     'workflow/cancel.ts',
   ]),
 );

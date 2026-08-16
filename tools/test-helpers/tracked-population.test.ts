@@ -16,7 +16,7 @@ import { listTrackedFiles, countTrackedFiles, trackedFilesMissedBy } from './tra
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC_ROOT = join(HERE, '..');
-const REPO_ROOT = join(SRC_ROOT, '..', '..', '..');
+const REPO_ROOT = join(HERE, '..', '..');
 
 describe('tracked-population — the second authority is itself checked', () => {
   it('TrackedPopulation_ListsRootRelativeForwardSlashedPaths', () => {
@@ -43,7 +43,7 @@ describe('tracked-population — the second authority is itself checked', () => 
     expect(files.filter((f) => f.split('/').includes('node_modules'))).toEqual([]);
     expect(files.filter((f) => f.split('/').some((s) => s.startsWith('.')))).toEqual([]);
     // …and the query still resolved a real repository.
-    expect(files).toContain('servers/exarchos-mcp/src/test-helpers/tracked-population.ts');
+    expect(files).toContain('tools/test-helpers/tracked-population.ts');
   });
 
   it('TrackedPopulation_HonorsTheCallerSuppliedExclusion', () => {
@@ -57,7 +57,7 @@ describe('tracked-population — the second authority is itself checked', () => 
   });
 
   it('TrackedPopulation_SelectsByExtension', () => {
-    const markdown = listTrackedFiles(join(REPO_ROOT, 'skills-src'), { extensions: ['.md'] });
+    const markdown = listTrackedFiles(join(REPO_ROOT, 'content'), { extensions: ['.md'] });
     expect(markdown.length).toBeGreaterThan(0);
     expect(markdown.every((f) => f.endsWith('.md'))).toBe(true);
   });

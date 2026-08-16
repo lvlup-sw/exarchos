@@ -13,7 +13,7 @@
 // site needs no payload substitution: the constructs already carry `node:fs` and
 // `node:child_process`, which are FORBIDDEN_IMPORT_MARKERS, so each input is
 // already a module this census must judge.
-// @oracle-sources: ./remediation-purity.ts, ../../test-helpers/superseded-site-lexers.ts
+// @oracle-sources: ../../../../src/workflow/admission/remediation-purity.ts, ../../../../tools/test-helpers/superseded-site-lexers.ts
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect } from 'vitest';
@@ -21,10 +21,10 @@ import {
   auditRemediationPurity,
   extractImportSpecifiers,
   type ImportLexer,
-} from '../../../../../src/workflow/admission/remediation-purity.js';
-import { lexModule } from '../../../../../tools/test-helpers/module-lexer.js';
-import { supersededExtractImportSpecifiers } from '../../../../../tools/test-helpers/superseded-site-lexers.js';
-import { ADVERSARIAL_INPUTS } from '../../../../../tools/test-helpers/adversarial-lexer-inputs.js';
+} from '../../../../src/workflow/admission/remediation-purity.js';
+import { lexModule } from '../../../../tools/test-helpers/module-lexer.js';
+import { supersededExtractImportSpecifiers } from '../../../../tools/test-helpers/superseded-site-lexers.js';
+import { ADVERSARIAL_INPUTS } from '../../../../tools/test-helpers/adversarial-lexer-inputs.js';
 
 /**
  * The census as it behaved BEFORE task 072.

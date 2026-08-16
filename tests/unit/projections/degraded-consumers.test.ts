@@ -244,7 +244,8 @@ describe('DR-4 — every readiness/workflow/reliability consumer refuses', () =>
     },
     {
       label: 'exarchos_orchestrate prepare_synthesis (readiness)',
-      run: () => handleOrchestrate({ action: 'prepare_synthesis', featureId: STREAM }, ctx),
+      run: () =>
+        handleOrchestrate({ action: 'prepare_synthesis', featureId: STREAM, repoRoot: process.cwd() }, ctx),
     },
   ];
 

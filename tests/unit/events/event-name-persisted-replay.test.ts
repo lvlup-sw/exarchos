@@ -1,4 +1,4 @@
-// @oracle-sources: ./event-name.ts, the distinct `events.type` values read on 2026-08-10 from two
+// @oracle-sources: ../../../src/events/event-name.ts, the distinct `events.type` values read on 2026-08-10 from two
 // real on-disk SQLite stores outside this repo (~/.claude/workflow-state/exarchos.db and
 // ~/.exarchos/state/exarchos.db)
 //
