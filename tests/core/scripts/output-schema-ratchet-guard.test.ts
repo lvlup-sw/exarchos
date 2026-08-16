@@ -279,7 +279,7 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
     // than written, because the day this assertion needs is a consequence of
     // the seed and would otherwise have to be maintained alongside it.
     const firstSlot = slot(0);
-    const wholeSeedLive = auditVacuityExpiry(firstSlot.horizon);
+    const wholeSeedLive = auditLiveVacuityExpiry(firstSlot.horizon);
     expect(wholeSeedLive.entryCount).toBe(VACUITY_ALLOWLIST_IDS.length);
     expect(wholeSeedLive.ok).toBe(true);
     expect(wholeSeedLive.expired).toEqual([]);
@@ -288,7 +288,7 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
 
     // The anchor is still the last day the LAST cohort is live, and it is still
     // the date the global horizon check measures against.
-    const lastLive = auditVacuityExpiry(LAST_LIVE_DAY, liveEntriesOf(slot(LIVE_COHORTS.length - 1)));
+    const lastLive = auditLiveVacuityExpiry(LAST_LIVE_DAY, liveEntriesOf(slot(LIVE_COHORTS.length - 1)));
     expect(lastLive.entryCount).toBeGreaterThan(0);
     expect(lastLive.ok).toBe(true);
     expect(lastLive.expired).toEqual([]);
@@ -360,7 +360,7 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
     const expiredIds = Object.keys(liveEntriesOf(firstSlot)).sort();
     expect(expiredIds.length).toBeGreaterThan(0);
     expect(expiredIds.length).toBeLessThan(VACUITY_ALLOWLIST_IDS.length);
-    const stillLive = auditVacuityExpiry(dayAfter(firstSlot.horizon));
+    const stillLive = auditLiveVacuityExpiry(dayAfter(firstSlot.horizon));
     expect([...stillLive.expired].sort()).toEqual(expiredIds);
 
     // And the anchor is no longer a day the whole seed survives.
@@ -457,7 +457,7 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
     // RED. The global expiry audit is CLEAN on this input — the entry sits
     // exactly on the pinned horizon and is nowhere near expired — so the only
     // thing that can redden the guard is the per-owner slot.
-    const globalHalf = auditVacuityExpiry(SEEDED_ON, reDated);
+    const globalHalf = auditLiveVacuityExpiry(SEEDED_ON, reDated);
     expect(globalHalf.ok).toBe(true);
     expect(globalHalf.beyondHorizon).toEqual([]);
     expect(globalHalf.expired).toEqual([]);

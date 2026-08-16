@@ -5,7 +5,7 @@
 # assertions stay deterministic regardless of the real orchestrate/** tree's
 # current violation count (5 known violations at the time this gate was
 # wired — task 003 disposes of those separately). The fixtures are placed
-# under a temp subdirectory INSIDE src/orchestrate/, the
+# under a temp subdirectory INSIDE src/verbs/, the
 # only path both the MCP tsconfig's `include` ("src/**/*") and
 # eslint.envelopes.config.js's `files` glob cover, and pointed at via the
 # wrapper's `--target` testability flag (mirrors check-module-intent.mjs's
@@ -25,16 +25,12 @@ cd "$REPO_ROOT" || { echo "cannot cd to repo root: $REPO_ROOT" >&2; exit 1; }
 
 WRAPPER="tools/audit/gates/lint-envelopes.mjs"
 FIXTURES_DIR="tools/eslint-rules/__fixtures__"
-SELFTEST_DIR="src/orchestrate/__lint_envelopes_selftest__"
+SELFTEST_DIR="src/verbs/__lint_envelopes_selftest__"
 
-# `mkdir -p` below creates BOTH levels, so removing only the leaf leaves an
-# empty src/orchestrate/ behind. That directory is not part of the tree any
-# more (it became src/verbs/), and the layer map scans the disk — so the
-# leftover reads as an unmapped source directory and reds six assertions in
-# tests/architecture/layer-map.test.ts, in a suite that never ran this file.
+# Remove only the leaf fixture dir. Do not rmdir its parent (`src/verbs/`) —
+# that directory is load-bearing source, not a leftover of this self-test.
 cleanup() {
   rm -rf "$SELFTEST_DIR"
-  rmdir "$(dirname "$SELFTEST_DIR")" 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -104,7 +100,7 @@ fi
 # --print-config` with NO `--config` flag, so it resolves the DEFAULT
 # eslint.config.js exactly as `npm run lint:windows` does. ────────────────────
 printed_config="$(npx --no-install eslint --print-config \
-  src/orchestrate/composite.ts 2>"$SELFTEST_DIR/printconfig.err")"
+  src/verbs/composite.ts 2>"$SELFTEST_DIR/printconfig.err")"
 if echo "$printed_config" | grep -q 'no-handler-throw'; then
   echo "  FAIL: LintWindows_DoesNotLoadEnvelopesRule (rule leaked into the shared eslint.config.js)"
   fail=$((fail + 1))

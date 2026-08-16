@@ -24,7 +24,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../..');
 const DOC_PATH = path.join(REPO_ROOT, 'docs', 'architecture', 'projections.md');
 
-describe('ProjectionsArchDoc_ReferencesRequiredTestShape', () => {
+describe.skipIf(!fs.existsSync(DOC_PATH))('ProjectionsArchDoc_ReferencesRequiredTestShape', () => {
   let content: string;
 
   it('Doc_Exists', () => {

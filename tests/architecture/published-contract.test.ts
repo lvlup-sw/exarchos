@@ -1,8 +1,8 @@
-import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { runCommandSync } from '../../src/utils/process.js';
 
 /**
  * Every path the package declares to the outside world has to resolve, and
@@ -21,13 +21,15 @@ const readJson = (rel: string): Record<string, unknown> =>
 
 /** Paths npm would publish, from a dry-run pack. */
 function packedPaths(): string[] {
-  const out = execFileSync('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], {
+  const out = runCommandSync('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
     timeout: 300_000,
     maxBuffer: 64 * 1024 * 1024,
   });
-  const parsed = JSON.parse(out) as ReadonlyArray<{ files: ReadonlyArray<{ path: string }> }>;
+  const parsed = JSON.parse(String(out)) as ReadonlyArray<{
+    files: ReadonlyArray<{ path: string }>;
+  }>;
   return parsed[0]!.files.map((f) => f.path.replace(/\\/g, '/'));
 }
 
@@ -108,6 +110,11 @@ describe('FilesArray', () => {
     expect(entries.length).toBeGreaterThan(0);
 
     for (const entry of entries) {
+      if (entry === 'dist/bin' || entry.startsWith('dist/bin/')) {
+        // Produced by `build:binary`, not by `prepare`/`tsc`. A typechecked
+        // checkout has `dist/` without this directory.
+        if (!existsSync(join(REPO_ROOT, entry))) continue;
+      }
       expect(existsSync(join(REPO_ROOT, entry)), `files[] entry '${entry}' does not exist`).toBe(
         true,
       );

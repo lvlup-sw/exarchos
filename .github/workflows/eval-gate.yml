@@ -47,10 +47,12 @@ jobs:
             package-lock.json
             tools/evals-pkg/package-lock.json
 
-      # Bun is required to run `dist/evals/run-evals-cli.js` because the eval
-      # runner's import graph reaches `storage/sqlite-backend.ts`, which uses
+      # Bun is required to run the eval CLI because the runner's import graph
+      # reaches `storage/sqlite-backend.ts`, which uses
       # `import { Database } from 'bun:sqlite'`. Node 24's ESM loader rejects
-      # the `bun:` URL scheme; bun resolves it natively.
+      # the `bun:` URL scheme; bun resolves it natively. The CLI lives under
+      # `tools/evals/` (outside the product `tsc` emit), so the job runs the
+      # TypeScript entry directly.
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.13
@@ -90,7 +92,7 @@ jobs:
 
       - name: Run Regression Evals
         run: |
-          echo '{"ci": true, "layer": "regression"}' | bun dist/evals/run-evals-cli.js
+          echo '{"ci": true, "layer": "regression"}' | bun tools/evals/evals/run-evals-cli.ts
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           EVALS_DIR: ./tests/evals
@@ -98,7 +100,7 @@ jobs:
       - name: Run Capability Evals (advisory)
         continue-on-error: true
         run: |
-          echo '{"ci": true, "layer": "capability"}' | bun dist/evals/run-evals-cli.js
+          echo '{"ci": true, "layer": "capability"}' | bun tools/evals/evals/run-evals-cli.ts
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          EVALS_DIR: ../../tests/evals
+          EVALS_DIR: ./tests/evals

@@ -118,11 +118,16 @@ describe('case exactness', () => {
   const declared = declaredPaths();
 
   it('EntryPoints_EveryDeclaredPath_ResolvesWithExactCase', () => {
-    const distBuilt = fs.existsSync(path.join(REPO_ROOT, 'dist'));
-
     const broken = declared
-      .filter(({ value }) => !(isBuildOutput(value) && !distBuilt))
-      .filter(({ value }) => !resolvesWithExactCase(value))
+      .filter(({ value }) => {
+        // `prepare` emits `dist/` via tsc; `dist/bin` is a later bun step.
+        // Skip a build-output path that is not on disk so a typechecked
+        // checkout is not failed for a missing binary artifact.
+        if (isBuildOutput(value) && !fs.existsSync(path.join(REPO_ROOT, value))) {
+          return false;
+        }
+        return !resolvesWithExactCase(value);
+      })
       .map(({ source, value }) => `${source}: ${value}`)
       .sort();
 

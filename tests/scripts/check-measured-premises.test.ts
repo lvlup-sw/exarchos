@@ -362,9 +362,11 @@ describe('check-measured-premises (task 054, DR-27)', () => {
     for (const line of invocations) {
       const m = /--tolerate-gaps-until\s+(\d{4}-\d{2}-\d{2})/.exec(line);
       expect(m, `CI invokes the gate without a dated gap toleration: ${line.trim()}`).not.toBeNull();
+      const until = m?.[1];
+      expect(until, `CI invokes the gate without a dated gap toleration: ${line.trim()}`).toBeDefined();
       expect(
-        m![1] > new Date().toISOString().slice(0, 10),
-        `The CI lane's gap toleration expired on ${m![1]} — probe the obligation rungs or re-date it.`,
+        until! > new Date().toISOString().slice(0, 10),
+        `The CI lane's gap toleration expired on ${until} — probe the obligation rungs or re-date it.`,
       ).toBe(true);
     }
   });

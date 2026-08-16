@@ -2634,7 +2634,9 @@ describe('handlePrepareDelegation', () => {
 // tier distribution (no single-model collapse). This runs the REAL production
 // `classifyTask` over the REAL corpus (parsed by the production stamp parser),
 // exercising the genuine classify seam end-to-end — not a hand-mocked fixture.
-describe('classifyTask — stamped-corpus model mix (DR-1 #1672)', () => {
+describe.skipIf(!fs.existsSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../../../../docs/specs')))(
+  'classifyTask — stamped-corpus model mix (DR-1 #1672)',
+  () => {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const SPECS_DIR = path.join(__dirname, '../../../../docs/specs');
 

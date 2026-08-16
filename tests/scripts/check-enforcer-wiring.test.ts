@@ -329,12 +329,7 @@ describe('enforcer-wiring gate — the unfiltered-CI-path claim has live subject
   const readJson = (file: string): unknown => JSON.parse(fs.readFileSync(file, 'utf8')) as unknown;
 
   /** The live manifest + workflow set, read once. */
-  function liveInputs(): {
-    manifest: { primaries: ManifestPrimary[] };
-    scripts: Record<string, string>;
-    workflows: Record<string, string>;
-    primaryFiles: ReturnType<typeof enumeratePrimaryFiles>;
-  } {
+  function liveInputs(): AuditInput {
     // `JSON.parse` hands back `any`, so every field read off these documents was
     // unchecked — a renamed key would have surfaced as `undefined` at use rather
     // than as a failure here. Parsed as `unknown` and narrowed once, at the edge.
@@ -359,7 +354,7 @@ describe('enforcer-wiring gate — the unfiltered-CI-path claim has live subject
       workflows[`.github/workflows/${name}`] = fs.readFileSync(path.join(wfDir, name), 'utf8');
     }
     return {
-      manifest: { primaries: primaries as ManifestPrimary[] },
+      manifest: { primaries: primaries as ManifestEntry[] },
       scripts: scripts as Record<string, string>,
       workflows,
       primaryFiles: enumeratePrimaryFiles(path.join(REPO_ROOT, ...PRIMARY_DIR.split('/'))),
@@ -451,7 +446,8 @@ describe('enforcer-wiring gate — the unfiltered-CI-path claim has live subject
     expect(claimed, 'the probe needs a claiming primary').toBeDefined();
 
     const ci = live.workflows['.github/workflows/ci.yml'];
-    const filtered = ci.replace(
+    expect(ci, 'ci.yml must be among the live workflows').toBeDefined();
+    const filtered = ci!.replace(
       '  grep-gates:\n    name: Grep Gates (idempotency + substrate)\n    if: ',
       "  grep-gates:\n    name: Grep Gates (idempotency + substrate)\n    if: needs.changes.outputs.mcp == 'true' && ",
     );
@@ -463,7 +459,8 @@ describe('enforcer-wiring gate — the unfiltered-CI-path claim has live subject
     });
     expect(result.ok).toBe(false);
     expect(result.violations.join('\n')).toMatch(/\[filtered-ci-path\]/);
-    expect(result.violations.join('\n')).toContain(claimed.script);
+    expect(claimed!.script).toBeDefined();
+    expect(result.violations.join('\n')).toContain(claimed!.script);
   });
 });
 

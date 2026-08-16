@@ -257,7 +257,8 @@ describe('run-validate — malformed manifests fail closed (task 064, DR-24)', (
 
 describe('run-validate — verdict fidelity (task 078, DR-7)', () => {
   const TODAY = '2026-08-09';
-  const gapsStep = (severity: string, expires = '2026-11-30'): Step & { outcomes: unknown } => ({
+  type ValidateStep = import('../../tools/audit/gates/run-validate.mjs').ValidateStep;
+  const gapsStep = (severity: 'advisory' | 'fail', expires = '2026-11-30'): ValidateStep => ({
     id: 'measured-premises',
     command: 'node',
     args: [],
@@ -274,8 +275,8 @@ describe('run-validate — verdict fidelity (task 078, DR-7)', () => {
     // THE assertion. Before the fix this step landed in `passed`.
     expect(summary.passed).toBe(1);
     expect(summary.tolerated).toBe(1);
-    expect(summary.classifications['measured-premises'].severity).not.toBe('pass');
-    expect(summary.classifications['measured-premises'].verdict).toBe('gaps');
+    expect(summary.classifications['measured-premises']?.severity).not.toBe('pass');
+    expect(summary.classifications['measured-premises']?.verdict).toBe('gaps');
 
     // The reader sees the real verdict, and sees that it is not a pass.
     const rendered: string = renderSummary(outcomes, summary);
@@ -353,7 +354,7 @@ describe('run-validate — verdict fidelity (task 078, DR-7)', () => {
     const summary: Summary = summarize(steps, outcomes, TODAY);
     expect(summary.failed).toBe(1);
     expect(summary.ok).toBe(false);
-    expect(summary.classifications['measured-premises'].verdict).toBe('fail');
+    expect(summary.classifications['measured-premises']?.verdict).toBe('fail');
   });
 
   it('ValidateAggregator_PlainSteps_KeepTheirTwoValuedVerdicts', () => {
@@ -374,7 +375,13 @@ describe('run-validate — verdict fidelity (task 078, DR-7)', () => {
   });
 
   it('ClassifyOutcome_ExitZero_IsAlwaysPassAndNeverDeclarable', () => {
-    expect(classifyOutcome(gapsStep('advisory'), { id: 'x', executed: true, status: 0 }, TODAY))
+    expect(
+      classifyOutcome(
+        gapsStep('advisory'),
+        { id: 'x', command: 'node', executed: true, status: 0, passed: true },
+        TODAY,
+      ),
+    )
       .toMatchObject({ severity: 'pass', verdict: 'pass' });
     // …and the manifest cannot claim otherwise.
     const rejected = parseDeclaredOutcomes('s', { '0': { verdict: 'nope', severity: 'fail' } }) as {
@@ -500,8 +507,8 @@ describe('run-validate — CLI (task 064, DR-24)', () => {
       // … but exactly ONE step passed, and it was not this one.
       expect(report.passed).toBe(1);
       expect(report.tolerated).toBe(1);
-      expect(report.classifications['seeded-gaps'].verdict).toBe('gaps');
-      expect(report.classifications['seeded-gaps'].severity).toBe('tolerated');
+      expect(report.classifications['seeded-gaps']?.verdict).toBe('gaps');
+      expect(report.classifications['seeded-gaps']?.severity).toBe('tolerated');
       expect(report.notices.join('\n')).toContain('seeded-gaps');
     } finally {
       seeded.cleanup();

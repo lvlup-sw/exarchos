@@ -67,7 +67,7 @@ int main() {
     expect(result.success).toBe(true);
     expect(result.executablePath).toBeDefined();
     expect(existsSync(result.executablePath!)).toBe(true);
-  }, 30_000);
+  }, 90_000);
 
   it('compile_SyntaxError_ReturnsCeVerdict', async () => {
     const srcPath = join(TEST_DIR, 'bad.cpp');

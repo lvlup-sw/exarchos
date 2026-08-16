@@ -305,7 +305,7 @@ describe('validate-plugin — the policy is validated before it is interpreted',
       ['requiredfiles', 'requiredFiles'],
       ['requireddirs', 'requiredDirs'],
       ['forbiddenfiles', 'forbiddenFiles'],
-    ]) {
+    ] as const) {
       policy[wrong] = policy[right];
       delete policy[right];
     }

@@ -98,7 +98,7 @@ echo "=== validate-no-legacy: NoLegacy_* shell assertions ==="
 # run knip a second time (it's the slowest step in the suite — about 8s
 # on a warm cache). The harness honours NOLEGACY_SKIP_KNIP_RUN=1 by
 # emitting a "delegated" pass for `NoLegacy_DeadCodeSweep`.
-NOLEGACY_SKIP_KNIP_RUN=1 bash "$SCRIPT_DIR/validate-no-legacy.test.sh"
+NOLEGACY_SKIP_KNIP_RUN=1 bash "$REPO_ROOT/tests/scripts/validate-no-legacy.test.sh"
 
 echo
 echo "=== validate-no-legacy: knip dead-code sweep (allowlist-gated) ==="

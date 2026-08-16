@@ -1,8 +1,8 @@
-import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { runCommandSync } from '../../src/utils/process.js';
 
 /**
  * The harness on-ramps — runtime maps, the hooks template and the binding
@@ -73,12 +73,12 @@ describe('GitHookSample', () => {
     // at the old `hooks/` root, and a test that no project collects passes by
     // never running — so ask the runner what it collects rather than trusting
     // the config to be current.
-    const listed = execFileSync(
+    const listed = runCommandSync(
       'npx',
       ['vitest', 'list', '--filesOnly', 'tools/git-hooks/pre-push.test.ts'],
       { cwd: REPO_ROOT, encoding: 'utf8', timeout: 120_000 },
     );
-    expect(listed, 'no vitest project collects the relocated hook test').toContain(
+    expect(String(listed), 'no vitest project collects the relocated hook test').toContain(
       'pre-push.test.ts',
     );
   });

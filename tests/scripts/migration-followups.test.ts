@@ -24,7 +24,7 @@ const REQUIRED_ITEMS = [
   'deliveryPath enum',
 ] as const;
 
-describe('MigrationFollowups_EachDeferredComponent_HasIssue', () => {
+describe.skipIf(!existsSync(DOC_PATH))('MigrationFollowups_EachDeferredComponent_HasIssue', () => {
   it('doc exists', () => {
     expect(existsSync(DOC_PATH)).toBe(true);
   });

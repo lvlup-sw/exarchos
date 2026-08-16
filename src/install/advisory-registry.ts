@@ -413,7 +413,7 @@ export const ADVISORY_REGISTRY: readonly AdvisoryEntry[] = [
     expires: '2027-06-30',
     killFixture: 'eval-capability-failing-summary',
     ciPath: '.github/workflows/eval-gate.yml',
-    ciStepMatch: 'dist/evals/run-evals-cli.js',
+    ciStepMatch: 'tools/evals/evals/run-evals-cli.ts',
     ciPathFiltered: true,
     ciFilterRationale:
       'eval-gate.yml is path-filtered at the trigger: `on.pull_request.paths` narrows to ' +
@@ -427,7 +427,7 @@ export const ADVISORY_REGISTRY: readonly AdvisoryEntry[] = [
       {
         file: '.github/workflows/eval-gate.yml',
         kind: 'continue-on-error',
-        target: 'dist/evals/run-evals-cli.js',
+        target: 'tools/evals/evals/run-evals-cli.ts',
       },
     ],
   },
