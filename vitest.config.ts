@@ -56,6 +56,13 @@ const CORE_BENCHES = [
 // workspace is deliberately NOT scaled by it: that 60s was already chosen FOR
 // Windows (#1620), so scaling it again would double-count the same headroom.
 export const WIN32_SPAWN_HEADROOM = process.platform === 'win32' ? 6 : 1;
+// Coverage and GitHub Actions recycle forked isolates while better-sqlite3
+// still holds a native environment hook (Node 24 aborts:
+// `(env) != nullptr`). One fork for those runs keeps the isolate alive
+// until process exit, after `tests/helpers/close-sqlite.ts` has closed
+// every tracked handle. Local `vitest run --project core` stays parallel.
+const SERIALIZE_SQLITE_WORKERS =
+  process.env.CI === 'true' || process.argv.includes('--coverage');
 const tierTimeout = (linuxBudgetMs: number): number => linuxBudgetMs * WIN32_SPAWN_HEADROOM;
 
 export default defineConfig({
@@ -176,12 +183,8 @@ export default defineConfig({
           name: 'core',
           benchmark: { include: CORE_BENCHES },
           pool: 'forks',
-          // Node 24 tears down a forked isolate before better-sqlite3 can
-          // unregister its environment cleanup hook (`Assertion failed:
-          // (env) != nullptr`). Sharing the isolate across files in a worker
-          // keeps the native addon alive until process exit, where
-          // `tests/helpers/close-sqlite.ts` has already closed every handle.
           isolate: false,
+          poolOptions: { forks: { singleFork: SERIALIZE_SQLITE_WORKERS } },
           // The default 5 s per-test / per-hook budget is comfortable on Linux
           // but too tight on the windows-latest runner, where filesystem +
           // better-sqlite3 + process-spawn latency is several times higher — a
