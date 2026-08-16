@@ -22,6 +22,7 @@
         "tools/audit/knip-diff.ts",
         "tools/audit/gates/measured-premises-derive.ts",
         "tests/**/*.test.ts",
+        "tests/helpers/close-sqlite.ts",
         "tests/helpers/__helpers__/mock-mcp-server.mjs",
         "tools/conformance/src/**/*.test.ts",
         "tools/evals/**/*.ts",

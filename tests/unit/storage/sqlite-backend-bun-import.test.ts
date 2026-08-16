@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
+import { closeOpenDatabases } from '../../../src/storage/__shims__/bun-sqlite-node.js';
 import { SqliteBackend } from '../../../src/storage/sqlite-backend.js';
 
 describe('sqlite-backend bun:sqlite import contract', () => {
@@ -34,5 +35,9 @@ describe('sqlite-backend bun:sqlite import contract', () => {
     const row = db.query('PRAGMA synchronous').all()[0];
     expect(row?.synchronous).toBe(2);
     backend.close();
+  });
+
+  it('CloseOpenDatabases_EmptySet_DoesNotThrow', () => {
+    expect(() => closeOpenDatabases()).not.toThrow();
   });
 });

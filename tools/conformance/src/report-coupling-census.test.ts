@@ -28,7 +28,7 @@ import { EVENT_EMISSION_REGISTRY, EventTypes } from '../../../src/events/schemas
 import { ANNOTATED_EVENTS, EVENT_ANNOTATIONS } from '../../../src/events/event-annotations.js';
 import type { EventAnnotationSource } from '../../../src/events/event-declarations.js';
 import type { EventRegistration } from '../../../src/events/event-registration.js';
-import { censusLiveReportCoupling } from './bindings/events.js';
+import { auditLiveReportCouplingRatchet, censusLiveReportCoupling } from './bindings/events.js';
 import {
   auditReportCouplingRatchet,
   auditReportCouplingSeed,
@@ -162,10 +162,7 @@ describe('G3 report-coupling census (DR-2, task 013)', () => {
     // Evaluated at a NAMED day, not at the wall clock. What this test is about is
     // seed MEMBERSHIP; reading the clock here would make it fail for the passage
     // of time instead. The deadline reddens the GATE — see the guard's own test.
-    const verdict = auditReportCouplingRatchet(
-      TODAY,
-      auditReportCouplingSeed(TODAY, censusLiveReportCoupling()),
-    );
+    const verdict = auditLiveReportCouplingRatchet(TODAY);
     // Render the failure through the module's own composite formatter rather than re-deriving a
     // message here. It exists to print exactly this verdict (census + membership + pin), and a
     // second hand-rolled rendering is a second authority on what the guard says when it fails.

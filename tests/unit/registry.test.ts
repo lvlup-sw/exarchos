@@ -2841,11 +2841,11 @@ describe('harness-launcher verb conformance + Windows CI lane (task 015, DR-1/DR
   // branch-protection setting (out-of-repo, not vitest-assertable) — tracked as
   // a manual repo-settings step in the merge PR checklist.
   it('WindowsLane_RunsNamedSpawnAndPathTests_Required', () => {
-    const SPAWN_TEST = 'src/utils/process.spawn.test.ts'; // task 003 (DR-4/DR-8)
-    const PATH_TEST = 'src/launcher/topology.test.ts'; // task 009 (DR-5/DR-8)
+    const SPAWN_TEST = 'tests/unit/utils/process.spawn.test.ts';
+    const PATH_TEST = 'tests/unit/runtime/launcher/topology.test.ts';
 
-    // registry.test.ts lives at src — the repo root (which
-    // owns .github/) is three levels up. Resolved from the source file, so the
+    // registry.test.ts lives under tests/unit — the repo root (which
+    // owns .github/) is two levels up. Resolved from the source file, so the
     // walk holds regardless of the test runner's cwd. This stays INSIDE the
     // worktree (ci.yml is a worktree file), so the `..` walk never escapes it.
     const here = dirname(fileURLToPath(import.meta.url));

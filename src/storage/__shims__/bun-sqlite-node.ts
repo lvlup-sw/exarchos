@@ -39,7 +39,7 @@ if (proto && typeof proto.query !== 'function') {
 // opened handle and close it before the isolate dies.
 const openDatabases = new Set<InstanceType<typeof BetterSqlite3>>();
 
-function closeOpenDatabases(): void {
+export function closeOpenDatabases(): void {
   for (const db of openDatabases) {
     try {
       db.close();

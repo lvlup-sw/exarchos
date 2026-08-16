@@ -450,7 +450,7 @@ jobs:
       - name: Guard — worktree suite executed on Windows (DR-11s)
         shell: bash
         run: |
-          npx vitest run src/verbs/worktree/ --reporter=json --outputFile=.wlm-win-guard.json
+          npx vitest run --project core tests/unit/verbs/worktree/ --reporter=json --outputFile=.wlm-win-guard.json
           count=$(node -e "const r=require('./.wlm-win-guard.json');process.stdout.write(String((r.numPassedTests||0)+(r.numFailedTests||0)))")
           echo "worktree tests executed on windows-latest: $count"
           if [ "$count" -eq 0 ]; then
@@ -462,8 +462,8 @@ jobs:
       # `npm run test:run` above already executes these on this windows-latest
       # host; running them again BY NAME pins the DR-8 contract that the Windows
       # lane gates the async spawn shim resolution (task 003,
-      # src/utils/process.spawn.test.ts) and the worktree path
-      # derivation/containment (task 009, src/launcher/topology.test.ts) —
+      # tests/unit/utils/process.spawn.test.ts) and the worktree path
+      # derivation/containment (tests/unit/runtime/launcher/topology.test.ts) —
       # authored OS-native, not POSIX-literal mocks. Naming the files (vs. only
       # the whole suite) makes a future path-filter/matrix regression that drops
       # either one fail loudly here rather than pass green-on-zero. The zero-count
@@ -478,11 +478,11 @@ jobs:
       - name: DR-8 — named win32-fragile launcher tests (spawn 003 + path 009)
         shell: bash
         run: |
-          npx vitest run src/utils/process.spawn.test.ts src/launcher/topology.test.ts --reporter=json --outputFile=.launcher-win-guard.json
+          npx vitest run --project core tests/unit/utils/process.spawn.test.ts tests/unit/runtime/launcher/topology.test.ts --reporter=json --outputFile=.launcher-win-guard.json
           count=$(node -e "const r=require('./.launcher-win-guard.json');process.stdout.write(String((r.numPassedTests||0)+(r.numFailedTests||0)))")
           echo "win32-fragile launcher tests executed on windows-latest: $count"
           if [ "$count" -eq 0 ]; then
-            echo '::error::named win32-fragile launcher tests ran 0 tests on windows-latest — DR-8 guard (a path-filter/matrix regression dropped src/utils/process.spawn.test.ts or src/launcher/topology.test.ts)'
+            echo '::error::named win32-fragile launcher tests ran 0 tests on windows-latest — DR-8 guard (a path-filter/matrix regression dropped tests/unit/utils/process.spawn.test.ts or tests/unit/runtime/launcher/topology.test.ts)'
             exit 1
           fi
 
@@ -1059,7 +1059,7 @@ jobs:
       # Runs unfiltered for the same reason as the typechecks above — the roots
       # span both packages, and `changes.root` covers neither `scripts/` tree.
       - name: Cast-census scope + budget ratchet (DR-14, task 066)
-        run: npx --no-install vitest run src/install/tsconfig-strictness.test.ts
+        run: npx --no-install vitest run --project core tests/unit/tsconfig-strictness.test.ts
 
       # DR-10 .test.sh re-assert for check-mutation-gate (task-015 pattern,
       # unfiltered — every check script's self-test runs on every PR). Its
@@ -1186,7 +1186,7 @@ jobs:
       # subset rule violated, found by the inventory above. This re-assert closes
       # the implementation-surface half on the unfiltered host. It is the
       # fixture-driven SELF-TEST only (tmpdir + string inputs); the repo-wide
-      # ratchet stays in `src/install/tsconfig-strictness.test.ts` on `test-root`, so this
+      # ratchet stays in `tests/unit/tsconfig-strictness.test.ts` on `test-root`, so this
       # step adds no new repo-wide assertion. Same DR-10 pattern as the
       # `.test.sh` re-asserts above.
       - name: Cast-census self-test re-assert (DR-24, unfiltered)
@@ -1432,7 +1432,7 @@ jobs:
       # from the other side. Rides the deps tail — it walks live Zod objects.
       # See docs/guides/ci-gate-hosting.md.
       - name: Audit-delivery closure (DR-4/DR-24, task 069)
-        run: npx --no-install vitest run src/architecture/audit-delivery-closure.test.ts
+        run: npx --no-install vitest run --project core tests/unit/architecture/audit-delivery-closure.test.ts
 
   # ─────────────────────────────────────────────────────────────────────
   # e2e-process

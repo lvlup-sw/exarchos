@@ -240,6 +240,7 @@ export default defineConfig({
             process.env.EXARCHOS_SMOKE_ONLY === '1'
               ? [...EXCLUDE]
               : [...EXCLUDE, 'tests/unit/verbs/stryker-adapter.smoke.test.ts'],
+          setupFiles: ['./tests/helpers/close-sqlite.ts'],
         },
       },
       {
@@ -275,6 +276,7 @@ export default defineConfig({
           include: ['tests/outcome/**/*.test.ts'],
           exclude: EXCLUDE,
           testTimeout: tierTimeout(30000),
+          pool: 'forks',
           // `singleFork`, not `fileParallelism: false`. Vitest lists
           // `fileParallelism` (with `coverage` and `passWithNoTests`) among the
           // options it reads ONLY at the root, so on a project entry it was
@@ -283,6 +285,7 @@ export default defineConfig({
           // the setting was written to prevent. `poolOptions` is the
           // per-project form and does what the old line said.
           poolOptions: { forks: { singleFork: true } },
+          setupFiles: ['./tests/helpers/close-sqlite.ts'],
         },
       },
       {
@@ -328,6 +331,7 @@ export default defineConfig({
           include: ['tools/conformance/src/**/*.test.ts'],
           exclude: EXCLUDE,
           testTimeout: tierTimeout(30000),
+          setupFiles: ['./tests/helpers/close-sqlite.ts'],
         },
       },
     ],
