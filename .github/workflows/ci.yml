@@ -1011,7 +1011,7 @@ jobs:
       # is the failure mode these ratchets were written to close. Hosting them here
       # makes each fire on every PR regardless of the paths touched.
       - name: Advisory + shim ratchets (DR-15/DR-24, unfiltered)
-        run: npx --no-install vitest run src/install/advisory-registry.test.ts src/install/shim-registry.test.ts
+        run: npx --no-install vitest run --project core tests/unit/install/advisory-registry.test.ts tests/unit/install/shim-registry.test.ts
 
       # DR-2 CI-topology conformance test on the UNFILTERED host: a root-suite
       # vitest that parses ci.yml and asserts the ci-gate aggregator's

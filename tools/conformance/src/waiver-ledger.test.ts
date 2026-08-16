@@ -39,11 +39,11 @@ import {
   cliDerivationSeedDigest,
   isIsoDay as cliIsIsoDay,
   isoDayUtc as cliIsoDayUtc,
-} from '../../scripts/cli-derivation-guard.js';
+} from '../../audit/core/cli-derivation-guard.js';
+import { REPO_ROOT } from './subject-root.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LEDGER_SRC = path.join(HERE, 'waiver-ledger.ts');
-const MCP_ROOT = path.resolve(HERE, '..', '..');
 
 /** A subject with recognisable nouns, so a message can be traced back to its source. */
 const SUBJECT: WaiverLedgerSubject = {
@@ -360,22 +360,21 @@ describe('DR-6 waiver ledger: the properties the extraction rests on', () => {
     // `bun:sqlite` would make it un-runnable there, and task 023 declined to
     // extract the ledger precisely to avoid acquiring that edge. The extraction
     // happened, so the edge is now asserted rather than avoided by not moving.
-    const guard = walkImports(path.join(MCP_ROOT, 'scripts', 'cli-derivation-ratchet-guard.ts'));
+    const guard = walkImports(path.join(REPO_ROOT, 'tools/audit/core/cli-derivation-ratchet-guard.ts'));
 
     expect(guard.unresolved).toEqual([]);
     expect(guard.bare).not.toContain('bun:sqlite');
     // The ledger really is on the walked path — otherwise the assertion above
     // would be about a graph that never included the module in question.
-    expect(guard.files).toContain(path.join(MCP_ROOT, 'src', 'architecture', 'waiver-ledger.ts'));
-    expect(guard.files).toContain(path.join(MCP_ROOT, 'scripts', 'cli-derivation-guard.ts'));
+    expect(guard.files).toContain(path.join(REPO_ROOT, 'tools/conformance/src/waiver-ledger.ts'));
+    expect(guard.files).toContain(path.join(REPO_ROOT, 'tools/audit/core/cli-derivation-guard.ts'));
     // …and nothing it reaches drags the registry or the storage layer in.
     expect(guard.files.filter((f) => f.includes(`${path.sep}storage${path.sep}`))).toEqual([]);
 
     // POSITIVE CONTROL. A walker that never reports `bun:sqlite` proves nothing
-    // about the guard. The CLI composition root does reach it — that is exactly
-    // why `cli-vocab-guard` must run under bun — so the same walker must find it
-    // there, or the assertion above is vacuous.
-    const cliRoot = path.join(MCP_ROOT, 'src', 'adapters', 'cli.ts');
+    // about the guard. The SQLite backend is the live `bun:sqlite` importer, so
+    // the same walker must find it there, or the assertion above is vacuous.
+    const cliRoot = path.join(REPO_ROOT, 'src/storage/sqlite-backend.ts');
     expect(existsSync(cliRoot)).toBe(true);
     const control = walkImports(cliRoot);
     expect(control.bare).toContain('bun:sqlite');

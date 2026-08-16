@@ -17,7 +17,7 @@
 import { describe, it, expect } from 'vitest';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
   findSilentSwallows,
   maskLiteralsAndComments,
@@ -194,11 +194,11 @@ describe('DR-2 — the population derivation reads the SAME parse', () => {
     // the claim does not depend on the live tree's shape.
     const root = await mkdtemp(join(tmpdir(), 'exarchos-delivery-typequery-'));
     try {
-      await mkdir(join(root, 'channel'), { recursive: true });
+      await mkdir(join(root, dirname(DELIVERY_CONTRACT_MODULE)), { recursive: true });
       await writeFile(join(root, DELIVERY_CONTRACT_MODULE), 'export const deliver = () => {};\n');
       await writeFile(
         join(root, 'typequery.ts'),
-        "export type D = import('./channel/delivery.js').Deliver;\nexport const x = 1;\n",
+        "export type D = import('./events/channel/delivery.js').Deliver;\nexport const x = 1;\n",
       );
 
       const modules = await resolveRequiredDeliveryModules(root, lexModule);

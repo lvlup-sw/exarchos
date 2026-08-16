@@ -21,6 +21,10 @@
 
 import BetterSqlite3, { type Statement as BetterSqlite3Statement } from 'better-sqlite3';
 
+type SqliteDb = InstanceType<typeof BetterSqlite3> & {
+  query: (sql: string) => BetterSqlite3Statement;
+};
+
 // Extend the better-sqlite3 Database prototype once with a `query` method
 // that mirrors `bun:sqlite`'s API (identical to `prepare`).
 const proto = (BetterSqlite3 as unknown as { prototype: Record<string, unknown> }).prototype;
@@ -30,10 +34,36 @@ if (proto && typeof proto.query !== 'function') {
   };
 }
 
-export const Database = BetterSqlite3 as unknown as new (
-  path: string,
-) => InstanceType<typeof BetterSqlite3> & {
-  query: (sql: string) => BetterSqlite3Statement;
-};
+// Node 24 tears down the isolate before better-sqlite3 finalizes statements,
+// which aborts the worker (`Assertion failed: (env) != nullptr`). Track every
+// opened handle and close it before the isolate dies.
+const openDatabases = new Set<InstanceType<typeof BetterSqlite3>>();
+
+function closeOpenDatabases(): void {
+  for (const db of openDatabases) {
+    try {
+      db.close();
+    } catch {
+      // Already closed or unusable — the point is to not leave native
+      // statements alive into isolate teardown.
+    }
+  }
+  openDatabases.clear();
+}
+
+process.once('beforeExit', closeOpenDatabases);
+process.once('exit', closeOpenDatabases);
+
+export const Database = class TrackingDatabase extends BetterSqlite3 {
+  constructor(filename: string, options?: ConstructorParameters<typeof BetterSqlite3>[1]) {
+    super(filename, options);
+    openDatabases.add(this);
+  }
+
+  override close(): this {
+    openDatabases.delete(this);
+    return super.close();
+  }
+} as unknown as new (path: string) => SqliteDb;
 
 export type Statement = BetterSqlite3Statement;

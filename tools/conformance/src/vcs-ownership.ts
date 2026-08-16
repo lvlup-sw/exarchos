@@ -185,7 +185,7 @@ export const VCS_MUTATION_OWNERS: readonly string[] = Object.freeze([
  * relative to it, so the root and the allowlist are the same coordinate system —
  * which is precisely why a silent root change would strand every owner rule.
  */
-export const GOVERNED_SOURCE_ROOT = 'servers/exarchos-mcp/src';
+export const GOVERNED_SOURCE_ROOT = 'src';
 
 /** Directories that are not shipped source (test/bench/eval harnesses). */
 export const EXCLUDED_DIRS: ReadonlySet<string> = new Set([

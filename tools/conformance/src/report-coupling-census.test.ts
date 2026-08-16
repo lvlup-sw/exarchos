@@ -53,7 +53,7 @@ import {
   LIVE_SUBJECT,
   resolveToday,
   runGuard,
-} from '../../scripts/report-coupling-ratchet-guard.js';
+} from '../../audit/core/report-coupling-ratchet-guard.js';
 
 /**
  * The day every counterfactual below is evaluated against.
@@ -302,7 +302,7 @@ describe('G3 kill fixtures — the ratchet must be able to go red', () => {
     // over the 25-line literal adding a year to every date, and that diff looks
     // exactly like the paydown diffs the file already receives. Its two sibling
     // ledgers were built with this tooth; this one was not.
-    const census = censusReportCoupling();
+    const census = censusLiveReportCoupling();
 
     // The blanket bump, as data: every live entry re-dated far into the future.
     // Not one is expired at any plausible `today`, and every one fails.
@@ -387,7 +387,7 @@ describe('G3 kill fixtures — the ratchet must be able to go red', () => {
   });
 
   it('ReportCouplingSeed_ZeroEntriesOrMalformedEntry_FailsClosed', () => {
-    const census = censusReportCoupling();
+    const census = censusLiveReportCoupling();
 
     // NON-EMPTY DENOMINATOR on the SEED, not only on the census. A seed that
     // resolves to zero entries makes "nothing has lapsed" true for the worst

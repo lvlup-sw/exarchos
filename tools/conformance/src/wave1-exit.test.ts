@@ -97,12 +97,11 @@ const WAVE1_GUARDS: readonly { readonly id: string; readonly artifact: string }[
  * it, or the two drift apart exactly the way they already did once.
  */
 const DR9_PREVIOUSLY_DARK: readonly string[] = [
-  'servers/exarchos-mcp/src/architecture/adapter-ownership-seam.ts',
-  'servers/exarchos-mcp/src/architecture/effect-port-seam.ts',
-  'servers/exarchos-mcp/src/architecture/audit-delivery-closure.ts',
-  'servers/exarchos-mcp/src/architecture/delivery-safety.ts',
-  'servers/exarchos-mcp/src/architecture/import-cycles.ts',
-  'servers/exarchos-mcp/scripts/authority-live-proof.ts',
+  'src/architecture/adapter-ownership-seam.ts',
+  'src/architecture/effect-port-seam.ts',
+  'src/architecture/audit-delivery-closure.ts',
+  'tools/conformance/src/delivery-safety.ts',
+  'tools/conformance/src/import-cycles.ts',
 ];
 
 /**
@@ -321,7 +320,7 @@ describe('Wave 1 exit — the five guards (task 027, DR-6 / DR-24)', () => {
     // widened denominator is load-bearing rather than decorative.
     const inventory = buildGuardInventory();
     const subject = inventory.guards.find(
-      (g) => g.artifact === 'servers/exarchos-mcp/src/architecture/adapter-ownership-seam.ts',
+      (g) => g.artifact === 'src/architecture/adapter-ownership-seam.ts',
     );
     expect(subject, 'the probe needs a real subject from the widened denominator').toBeDefined();
     if (subject === undefined) return;

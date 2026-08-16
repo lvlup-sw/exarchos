@@ -50,10 +50,10 @@ import {
   auditReportCouplingRatchet,
   auditReportCouplingSeed,
   auditReportCouplingSeedIntegrity,
-  censusReportCoupling,
   formatReportCouplingRatchet,
   type ReportCouplingCensusReport,
 } from '../../conformance/src/report-coupling-census.js';
+import { censusLiveReportCoupling } from '../../conformance/src/bindings/events.js';
 import {
   REPORT_COUPLING_SEED,
   REPORT_COUPLING_SEED_IDS,
@@ -110,7 +110,7 @@ export function runGuard(options: GuardOptions = {}): number {
   const err = options.stderr ?? ((chunk: string): void => void process.stderr.write(chunk));
 
   const today = options.today ?? resolveToday();
-  const report = options.report ?? censusReportCoupling();
+  const report = options.report ?? censusLiveReportCoupling();
   const seed = options.seed ?? LIVE_SUBJECT.seed;
   const seeded = options.seeded ?? LIVE_SUBJECT.seeded;
   const retired = options.retired ?? LIVE_SUBJECT.retired;
