@@ -54,7 +54,8 @@ interface WorkflowStep {
   readonly run?: string;
   readonly uses?: string;
   readonly with?: Record<string, unknown>;
-  readonly 'continue-on-error'?: boolean;
+  /** Literal booleans or GitHub expression strings such as `${{ true }}`. */
+  readonly 'continue-on-error'?: boolean | string;
 }
 
 interface WorkflowJob {
@@ -329,11 +330,37 @@ const REQUIRED_ROOT_PROJECTION_GLOBS = [
   'manifest.json',
 ] as const;
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** `npm run <script>` at the start of a run step, not a suffix or an echo. */
+function npmRunInvocation(scriptName: string): RegExp {
+  return new RegExp(`^npm run ${escapeRegExp(scriptName)}(?:\\s|$)`);
+}
+
+/**
+ * True iff `cmd` names the `core` vitest project. `--project core-extra`
+ * must not count — `\b` after `core` still matches a hyphen.
+ */
+function isCoreProjectCommand(cmd: string): boolean {
+  return /(?:^|\s)--project core(?:\s|$)/.test(cmd);
+}
+
+/**
+ * Only an absent field or a literal `false` is a required host. Expression
+ * strings (`${{ true }}`) stay strings after YAML parse and are soft-fail.
+ */
+function isRequiredHostStep(step: WorkflowStep): boolean {
+  const softFail = step['continue-on-error'];
+  return softFail === undefined || softFail === false;
+}
+
 /** True iff some step in `job` runs the given `npm run <script>` invocation. */
 function jobRunsNpmScript(job: WorkflowJob | undefined, scriptName: string): boolean {
   const steps = job?.steps ?? [];
-  const re = new RegExp(`npm run ${scriptName}\\b`);
-  return steps.some((s) => typeof s.run === 'string' && re.test(s.run));
+  const re = npmRunInvocation(scriptName);
+  return steps.some((s) => typeof s.run === 'string' && re.test(s.run.trim()));
 }
 
 /**
@@ -342,12 +369,9 @@ function jobRunsNpmScript(job: WorkflowJob | undefined, scriptName: string): boo
  */
 function jobRunsCoreProjectScript(job: WorkflowJob | undefined, scriptName: string): boolean {
   const steps = job?.steps ?? [];
-  const re = new RegExp(`^npm run ${scriptName}\\b`);
+  const re = npmRunInvocation(scriptName);
   return steps.some(
-    (s) =>
-      typeof s.run === 'string' &&
-      re.test(s.run.trim()) &&
-      s['continue-on-error'] !== true,
+    (s) => typeof s.run === 'string' && re.test(s.run.trim()) && isRequiredHostStep(s),
   );
 }
 
@@ -406,7 +430,7 @@ describe('CI path-filter & guard coverage (DR-22)', () => {
       scripts?: Record<string, string>;
     };
     const coreScripts = Object.entries(pkg.scripts ?? {})
-      .filter(([, cmd]) => typeof cmd === 'string' && /--project core\b/.test(cmd))
+      .filter(([, cmd]) => typeof cmd === 'string' && isCoreProjectCommand(cmd))
       .map(([name]) => name);
     expect(coreScripts, 'package.json declares no --project core script').not.toEqual([]);
 
@@ -435,6 +459,32 @@ describe('CI path-filter & guard coverage (DR-22)', () => {
       steps: [{ run: 'npm run test:coverage', 'continue-on-error': true }],
     };
     expect(jobRunsCoreProjectScript(soft, 'test:coverage')).toBe(false);
+
+    // A suffixed script name is not the host (`\b` after `coverage` still
+    // matches `coverage-extra` because `-` is a non-word character).
+    const prefixed: WorkflowJob = {
+      'runs-on': 'ubuntu-latest',
+      steps: [{ run: 'npm run test:coverage-extra' }],
+    };
+    expect(jobRunsCoreProjectScript(prefixed, 'test:coverage')).toBe(false);
+    expect(jobRunsNpmScript(prefixed, 'test:coverage')).toBe(false);
+
+    // Expression-valued continue-on-error stays a string after YAML parse.
+    const expressionSoft: WorkflowJob = {
+      'runs-on': 'ubuntu-latest',
+      steps: [{ run: 'npm run test:coverage', 'continue-on-error': '${{ true }}' }],
+    };
+    expect(jobRunsCoreProjectScript(expressionSoft, 'test:coverage')).toBe(false);
+
+    const literalFalse: WorkflowJob = {
+      'runs-on': 'ubuntu-latest',
+      steps: [{ run: 'npm run test:coverage', 'continue-on-error': false }],
+    };
+    expect(jobRunsCoreProjectScript(literalFalse, 'test:coverage')).toBe(true);
+
+    expect(isCoreProjectCommand('vitest --project core')).toBe(true);
+    expect(isCoreProjectCommand('vitest --project core --run')).toBe(true);
+    expect(isCoreProjectCommand('vitest --project core-extra')).toBe(false);
   });
 
   it('Guards_HooksGuardRunsInCI_AndIsRootFiltered', () => {

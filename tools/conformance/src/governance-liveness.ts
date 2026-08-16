@@ -88,14 +88,9 @@ export function codeownersPatterns(repoRoot: string = REPO_ROOT): string[] {
  * full gitignore engine: an unsupported form is reported as matching nothing
  * rather than assumed live, so the census fails toward reporting a hole.
  */
-// NodeNext will not attach the sibling JSDoc `.d.ts` across this package
-// boundary. The implementation is still the shared module; the binding
-// tooth in guard-liveness fails if this import disappears.
-// @ts-expect-error -- JSDoc .mjs
 import { codeownersMatches as matchCodeownersPattern } from '../../../tools/audit/lib/codeowners-match.mjs';
 
-export const codeownersMatches: (pattern: string, rel: string) => boolean =
-  matchCodeownersPattern as (pattern: string, rel: string) => boolean;
+export const codeownersMatches: (pattern: string, rel: string) => boolean = matchCodeownersPattern;
 
 interface PackageManifest {
   readonly files?: readonly string[];

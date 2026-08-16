@@ -18,8 +18,9 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const REPO_ROOT = path.resolve(import.meta.dirname, '../..');
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 /**
  * Structural roots the cap applies to. `src/` is where the original dump
@@ -108,7 +109,12 @@ function ownLevelCounts(): DirCount[] {
   };
   for (const root of WALK_ROOTS) {
     const abs = path.join(REPO_ROOT, root);
-    if (fs.existsSync(abs)) walk(abs);
+    if (!fs.existsSync(abs) || !fs.statSync(abs).isDirectory()) {
+      throw new Error(
+        `locality walk root "${root}" is missing — a misspelled or deleted structural root would silently skip that tree`,
+      );
+    }
+    walk(abs);
   }
   return out.sort((a, b) => b.count - a.count);
 }

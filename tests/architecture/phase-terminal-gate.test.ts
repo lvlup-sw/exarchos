@@ -25,9 +25,9 @@ const pkg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'ut
 };
 
 /** True when `cmd` is a workflow `run:` value, not a comment that mentions it. */
-function isWorkflowRunStep(cmd: string): boolean {
+function isWorkflowRunStep(workflow: string, cmd: string): boolean {
   const escaped = cmd.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`^\\s+-?\\s*run:\\s+${escaped}\\s*$`, 'm').test(ciYaml);
+  return new RegExp(`^\\s+-?\\s*run:\\s+${escaped}\\s*$`, 'm').test(workflow);
 }
 
 describe('Phase2_CiStillDeclaresTheJobsThatWouldFindOut', () => {
@@ -82,7 +82,7 @@ describe('Phase2_CiStillDeclaresTheJobsThatWouldFindOut', () => {
       'npm run test:coverage',
       'npm run test:core',
     ];
-    const absent = requiredInvocations.filter((cmd) => !isWorkflowRunStep(cmd));
+    const absent = requiredInvocations.filter((cmd) => !isWorkflowRunStep(ciYaml, cmd));
     expect(absent, `CI no longer invokes as a run step: ${absent.join(', ')}`).toEqual([]);
 
     // knip is hosted by the validate-no-legacy rollup, not an npm script name.
@@ -99,8 +99,7 @@ describe('Phase2_CiStillDeclaresTheJobsThatWouldFindOut', () => {
       /^(\s+-?\s*)run:\s+npm run test:coverage\s*$/m,
       '$1# run: npm run test:coverage',
     );
-    const escaped = 'npm run test:coverage'.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const stillAStep = new RegExp(`^\\s+-?\\s*run:\\s+${escaped}\\s*$`, 'm').test(commented);
+    const stillAStep = isWorkflowRunStep(commented, 'npm run test:coverage');
     expect(stillAStep, 'commenting out the Linux census host still counted as a run step').toBe(
       false,
     );
