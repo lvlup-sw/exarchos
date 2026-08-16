@@ -170,6 +170,13 @@ export default defineConfig({
             'bun:sqlite': fileURLToPath(
               new URL('./src/storage/__shims__/bun-sqlite-node.ts', import.meta.url),
             ),
+            // The install-skills bridge is authored as `.js` so tsc (allowJs:
+            // false) never follows it. Its NodeNext specifier names a `.js`
+            // sibling that does not exist — only `install-skills.ts` does.
+            // Vite's extension fallback misses that rewrite from a `.js`
+            // importer under coverage, which surfaces as "Cannot find module".
+            [fileURLToPath(new URL('./src/install/install-skills.js', import.meta.url))]:
+              fileURLToPath(new URL('./src/install/install-skills.ts', import.meta.url)),
           },
         },
         test: {

@@ -52,7 +52,7 @@ export default defineConfig({
   // `README.md` explains the directory to someone reading the repository; it is
   // not a page. VitePress also treats it as an index candidate, so leaving it
   // in makes the site's home page ambiguous.
-  srcExclude: ['README.md', ...mountedSubtrees()],
+  srcExclude: ['README.md', 'migrations/**', ...mountedSubtrees()],
 
   head: [['link', { rel: 'icon', type: 'image/svg+xml', href: '/exarchos/logo.svg' }]],
 
