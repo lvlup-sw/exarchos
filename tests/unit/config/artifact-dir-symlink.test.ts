@@ -12,6 +12,7 @@
  * @oracle-sources: ../../../src/config/artifacts.ts, real-filesystem-symlink-state
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import * as nodeFs from 'node:fs';
 import { mkdtemp, mkdir, writeFile, symlink, rm, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
@@ -65,6 +66,11 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  try {
+    store.close();
+  } catch {
+    // Already closed or never opened — still have to remove the temp dir.
+  }
   await rm(tempDir, { recursive: true, force: true });
 });
 
@@ -81,8 +87,8 @@ describe('ArtifactDir_SymlinkedOutOfTree_ResolvesAndClassifies', () => {
 
     // THEN: it lands on the out-of-tree target, not the link, and the spec is
     //   readable through it.
-    expect(resolved).toBe(toPosixPath(await realish(outOfTree)));
-    expect(resolved.startsWith(toPosixPath(await realish(repoRoot)))).toBe(false);
+    expect(resolved).toBe(toPosixPath(realish(outOfTree)));
+    expect(resolved.startsWith(toPosixPath(realish(repoRoot)))).toBe(false);
     await expect(readdir(resolved)).resolves.toEqual(['2026-08-11-feature.md']);
   });
 
@@ -295,7 +301,11 @@ function metaOf(result: ToolResult): Record<string, unknown> {
  * path built with `path.join` needs the same realpath treatment as the value
  * under test or the comparison fails for a reason unrelated to the property.
  */
-async function realish(p: string): Promise<string> {
-  const { realpath } = await import('node:fs/promises');
-  return realpath(p);
+function realish(p: string): string {
+  // Same primitive the resolver uses (`realpathSync`). On Windows the
+  // promise `realpath` can return the long path while `realpathSync`
+  // returns the 8.3 form of the same directory, which is not a product
+  // bug — comparing across the two APIs fails for a reason unrelated
+  // to symlink following.
+  return nodeFs.realpathSync(p);
 }

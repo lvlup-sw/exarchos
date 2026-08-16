@@ -13,6 +13,7 @@ import { registerWorkflowType, unregisterWorkflowType } from '../../../src/workf
 import { extendWorkflowTypeEnum, unextendWorkflowTypeEnum } from '../../../src/workflow/schemas.js';
 import { registerCustomWorkflows, clearRegisteredGuards } from '../../../src/config/register.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
+import { closeOpenDatabases } from '../../../src/storage/__shims__/bun-sqlite-node.js';
 
 let tmpDir: string;
 
@@ -22,6 +23,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   configureWorkflowMaterializer(null);
+  closeOpenDatabases();
   await rmrfAsync(tmpDir);
 });
 
