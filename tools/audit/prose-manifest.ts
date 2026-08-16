@@ -83,6 +83,12 @@ export const RETAINED: ReadonlyArray<{ readonly path: string; readonly because: 
         'Served verbatim at the site root. The deploy workflow stages the bootstrap installers ' +
         'here, which is what makes the README install one-liner resolve to a stable URL.',
     },
+    {
+      path: 'docs/migrations/2026-08-10-event-name-grammar.md',
+      because:
+        'The event-name grammar the persisted-replay tests bind to. A dated migration ' +
+        'record that is read, not a planning document that relocates.',
+    },
   ]);
 
 /** Is this path retained? */

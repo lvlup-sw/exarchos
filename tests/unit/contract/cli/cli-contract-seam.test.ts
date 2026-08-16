@@ -152,12 +152,14 @@ describe('Dispatch-seam containment census', () => {
     });
 
     it('ScanBoundary_BuildExcludedSuffixesAndPathPrefixes_AreNotInTheCensus', async () => {
+      // The live path-prefix exclude (`tools/evals/.../fixtures/**`) sits
+      // outside `src/`, so it is not a scan-root subject. Suffix and
+      // directory excludes still have to keep these files out.
       const modules = await scanTree(
         {
           'a.test.ts': BYPASS,
           'b.bench.ts': BYPASS,
           'c.d.ts': BYPASS,
-          'evals/benchmarks/seeded-defects/fixtures/planted.ts': BYPASS,
           'node_modules/dep/index.ts': BYPASS,
           'dist/emitted.ts': BYPASS,
         },

@@ -138,6 +138,7 @@ export const workflowActions: readonly BuiltinToolAction[] = [
     schema: z.object({
       featureId: featureIdSchema,
       dryRun: z.boolean().optional(),
+      reason: z.string().optional(),
     }),
     phases: ALL_PHASES,
     roles: ROLE_LEAD,

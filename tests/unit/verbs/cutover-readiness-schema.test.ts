@@ -37,12 +37,15 @@ import { EventStore } from '../../../src/events/store.js';
 import { TOOL_REGISTRY } from '../../../src/registry.js';
 import {
   auditVacuityAllowlist,
-  auditVacuityRatchet,
-  auditVacuitySeedIntegrity,
-  censusOutputSchemas,
   classifyOutputSchema,
-  vacuitySeedDigest,
 } from '../../../tools/conformance/src/output-schema-census.js';
+import {
+  auditLiveVacuityRatchet,
+  auditLiveVacuitySeedIntegrity,
+  censusLiveOutputSchemas,
+  liveVacuitySeedDigest,
+  OUTPUT_SCHEMA_PORTS,
+} from '../../../tools/conformance/src/bindings/output-schema.js';
 import {
   VACUITY_ALLOWLIST_IDS,
   VACUITY_RETIRED_IDS,
@@ -198,14 +201,14 @@ describe('Task 083 — the cutover verbs declare substantive outputSchemas', () 
     // Read through the census, which walks the constructed Zod object. A grep
     // for `vacuityWaiver` would agree with a laundered alias; this does not.
     for (const id of [READINESS_ID, DECIDE_ID]) {
-      const verdict = classifyOutputSchema(declaredOutputSchema(id));
+      const verdict = classifyOutputSchema(declaredOutputSchema(id), OUTPUT_SCHEMA_PORTS);
       expect(verdict.classification).toBe('substantive');
       expect(verdict.reason).toBe('typed-data');
     }
   });
 
   it('CutoverVerbs_CensusVacuousPopulation_ExcludesBoth', () => {
-    const census = censusOutputSchemas();
+    const census = censusLiveOutputSchemas();
     // Non-empty denominator first: a census that lost its subject would make
     // every exclusion below true for the worst possible reason.
     expect(census.total).toBeGreaterThan(0);
@@ -235,13 +238,13 @@ describe('Task 083 — the waiver rows left the allowlist', () => {
     // The pin is the SECOND authority: `output-schema-seed-pin.ts` imports
     // nothing, so it cannot observe the seed it pins. A paydown recorded as a
     // deletion would break this; a move does not.
-    const live = vacuitySeedDigest([...VACUITY_ALLOWLIST_IDS, ...VACUITY_RETIRED_IDS]);
+    const live = liveVacuitySeedDigest([...VACUITY_ALLOWLIST_IDS, ...VACUITY_RETIRED_IDS]);
     expect(live).toBe(VACUITY_SEED_KEY_SET_DIGEST);
-    expect(auditVacuitySeedIntegrity().ok).toBe(true);
+    expect(auditLiveVacuitySeedIntegrity().ok).toBe(true);
   });
 
   it('CutoverVerbs_LiveRatchet_IsGreen', () => {
-    const verdict = auditVacuityRatchet();
+    const verdict = auditLiveVacuityRatchet();
     expect(verdict.findings.map((f) => f.code)).toEqual([]);
     expect(verdict.ok).toBe(true);
   });
@@ -255,7 +258,7 @@ describe('Task 083 — the shrink-only ratchet, exercised in both directions', (
 
   it('VacuityRatchet_FurtherPaydownAsAMove_Accepted', () => {
     expect(someLiveWaiver.length).toBeGreaterThan(0);
-    const verdict = auditVacuitySeedIntegrity(
+    const verdict = auditLiveVacuitySeedIntegrity(
       VACUITY_ALLOWLIST_IDS.filter((id) => id !== someLiveWaiver),
       [...VACUITY_RETIRED_IDS, someLiveWaiver],
     );
@@ -266,7 +269,7 @@ describe('Task 083 — the shrink-only ratchet, exercised in both directions', (
   });
 
   it('VacuityRatchet_NewWaiverAdded_RejectedAsSeedDrift', () => {
-    const verdict = auditVacuitySeedIntegrity(
+    const verdict = auditLiveVacuitySeedIntegrity(
       [...VACUITY_ALLOWLIST_IDS, 'exarchos_orchestrate.a_brand_new_action'],
       [...VACUITY_RETIRED_IDS],
     );
@@ -276,7 +279,7 @@ describe('Task 083 — the shrink-only ratchet, exercised in both directions', (
   });
 
   it('VacuityRatchet_WaiverDeletedInsteadOfRetired_RejectedAsSeedDrift', () => {
-    const verdict = auditVacuitySeedIntegrity(
+    const verdict = auditLiveVacuitySeedIntegrity(
       VACUITY_ALLOWLIST_IDS.filter((id) => id !== someLiveWaiver),
       [...VACUITY_RETIRED_IDS],
     );
@@ -288,7 +291,7 @@ describe('Task 083 — the shrink-only ratchet, exercised in both directions', (
     // The "sideways" edit task 083 was told not to make: fix the schema but
     // leave the waiver standing. Membership catches it because the declaration
     // is no longer vacuous, so the waiver has nothing left to waive.
-    const verdict = auditVacuityAllowlist(censusOutputSchemas(), [
+    const verdict = auditVacuityAllowlist(censusLiveOutputSchemas(), [
       ...VACUITY_ALLOWLIST_IDS,
       READINESS_ID,
       DECIDE_ID,

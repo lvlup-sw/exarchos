@@ -713,6 +713,13 @@ describe('check-measured-premises (task 054, DR-27)', () => {
         names.add(claim.name);
       }
     }
+    const specPresent = existsSync(
+      path.join(REPO_ROOT, 'docs/specs/2026-08-06-internal-mechanics-overhaul.md'),
+    );
+    if (!specPresent) {
+      expect(names.size).toBe(0);
+      return;
+    }
     expect(names.size).toBeGreaterThan(0);
     for (const name of names) {
       expect(Object.keys(DERIVATIONS as Record<string, unknown>)).toContain(name);

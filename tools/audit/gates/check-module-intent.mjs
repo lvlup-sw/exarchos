@@ -200,7 +200,7 @@ const ALLOWLIST_CLASSES = [
         rationale:
           'VCS mutation bypass census (P04-05): fails when git/worktree mutation occurs outside the declared owner surface. Test-invoked structural gate, same class as effect-ledger.',
       },
-      'quality/skill-example-validator.ts': {
+      'projections/quality/skill-example-validator.ts': {
         owner: 'exarchos',
         rationale:
           'Documentation-vs-schema drift gate (P02-07): extracts tool-invocation examples from skills-src/ and commands/ and validates them against the live TOOL_REGISTRY projection. Test-invoked gate machinery — deliberately not a production import target so shipped code never depends on doc parsing.',
@@ -262,7 +262,7 @@ const ALLOWLIST_CLASSES = [
         rationale:
           'Effect-port census: proves every declared effect port is reached through its owning port module rather than by a direct import. Test-invoked structural gate, same class as effect-ledger.',
       },
-      'core/dispatch.economy-seam.ts': {
+      'dispatch/core/dispatch.economy-seam.ts': {
         owner: 'exarchos',
         rationale:
           'Dispatch token-economy seam: exports the source-lint the composite dispatch layer is measured against, run by its own co-located test. Gate machinery, not a production import target.',

@@ -339,7 +339,7 @@ describe('enforcer-wiring gate — the unfiltered-CI-path claim has live subject
     // unchecked — a renamed key would have surfaced as `undefined` at use rather
     // than as a failure here. Parsed as `unknown` and narrowed once, at the edge.
     const manifest = readJson(
-      path.join(REPO_ROOT, 'scripts', 'enforcer-wiring-manifest.json'),
+      path.join(REPO_ROOT, ...PRIMARY_DIR.split('/'), 'enforcer-wiring-manifest.json'),
     );
     const pkg = readJson(path.join(REPO_ROOT, 'package.json'));
 
@@ -362,7 +362,7 @@ describe('enforcer-wiring gate — the unfiltered-CI-path claim has live subject
       manifest: { primaries: primaries as ManifestPrimary[] },
       scripts: scripts as Record<string, string>,
       workflows,
-      primaryFiles: enumeratePrimaryFiles(path.join(REPO_ROOT, 'scripts')),
+      primaryFiles: enumeratePrimaryFiles(path.join(REPO_ROOT, ...PRIMARY_DIR.split('/'))),
     };
   }
 
@@ -392,7 +392,9 @@ describe('enforcer-wiring gate — the unfiltered-CI-path claim has live subject
   function scriptsReferencedByGrepGates(): Set<string> {
     const block = grepGatesJobBlock();
     const found = new Set<string>();
-    for (const match of block.matchAll(/\bscripts\/[A-Za-z0-9._-]+\.(?:mjs|ts|sh|js)\b/g)) {
+    for (const match of block.matchAll(
+      /\b(?:scripts|tools\/audit\/gates)\/[A-Za-z0-9._-]+\.(?:mjs|ts|sh|js)\b/g,
+    )) {
       found.add(match[0]);
     }
     return found;

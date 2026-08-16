@@ -30,7 +30,7 @@ import yaml from 'js-yaml';
 // against it here closes the gap DR-8 named: before this, both the workflow's
 // literal asset counts AND this test's expectations were transcribed from
 // TARGETS by hand, so a drifted TARGETS left everything green.
-import { TARGETS } from './build-binary-targets.js';
+import { TARGETS } from '../../tools/release/build-binary-targets.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

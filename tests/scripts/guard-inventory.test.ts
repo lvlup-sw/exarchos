@@ -581,7 +581,8 @@ describe('Guard-suite discovery (channel 4)', () => {
     }
     // The spec channel is still alive for everything that did NOT move — this is
     // the control that keeps the assertion above from passing because channel 2
-    // broke outright.
+    // broke outright. When the planning corpus is unmounted the in-repo
+    // fallback fixture supplies the frozen record.
     expect(liveInventory.guards.some((g) => g.channels.includes('wave1-spec'))).toBe(true);
   });
 

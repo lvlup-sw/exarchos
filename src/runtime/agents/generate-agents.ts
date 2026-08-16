@@ -29,6 +29,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import type { Capability } from './capabilities.js';
 import {
@@ -431,10 +432,8 @@ export { IMPLEMENTER, FIXER, REVIEWER, SCAFFOLDER };
 // ─── CLI entry point ───────────────────────────────────────────────────────
 //
 // `npm run generate:agents` (Task 6) invokes this file directly via tsx.
-// We gate on `process.argv[1]` rather than an `import.meta.url`-equality
-// check because tsx loaders rewrite the script URL in ways that vary by
-// version; the argv path is stable across `tsx`, `node --import tsx`,
-// and `bun run`.
+// Identity is the resolved argv path against this module, not a filename
+// suffix — a rename must not leave a step that still runs.
 //
 // Two hooks:
 //   • `EXARCHOS_OUTPUT_ROOT` (env) — redirect writes to a sandbox. Used
@@ -446,12 +445,17 @@ export { IMPLEMENTER, FIXER, REVIEWER, SCAFFOLDER };
 // Default behaviour: write into `process.cwd()` (which the npm script
 // resolves to the repo root).
 
-const isCliInvocation =
-  process.argv[1] !== undefined &&
-  (process.argv[1].endsWith('generate-agents.ts') ||
-    process.argv[1].endsWith('generate-agents.js'));
+function isCliInvocation(): boolean {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return fs.realpathSync(entry) === fs.realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
 
-if (isCliInvocation) {
+if (isCliInvocation()) {
   const outputRoot =
     process.argv[2] ?? process.env.EXARCHOS_OUTPUT_ROOT ?? process.cwd();
   try {

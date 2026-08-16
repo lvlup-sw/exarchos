@@ -49,6 +49,10 @@ const FUNCTIONAL_ALLOWLIST: ReadonlyArray<string> = [
   // `guard-inventory.ts` into the module that now declares the inventory's
   // roots.
   'tools/audit/gates/guard-inventory/paths.ts',
+  // Names the mounted planning-corpus prefixes so an unmounted checkout can
+  // skip them. Same class as SPEC_PATH: a repository-historical location,
+  // not a project's configured spec-dir.
+  'tools/audit/gates/check-measured-premises.mjs',
 ];
 
 /**

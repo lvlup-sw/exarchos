@@ -12,7 +12,7 @@ import { type ResolutionContext, indexShellIndirection, resolveHosts } from './h
 import { manifestPrimaries, parseSpecTasks, wave1Tasks } from './manifest.js';
 import { type Enforcement, type GuardChannel, type GuardInventory, type GuardRecord, isEnforcingHost } from './model.js';
 import { readPackageScripts } from './package-scripts.js';
-import { MANIFEST_PATH, REPO_ROOT, SPEC_PATH, resolveHistoricalPath } from './paths.js';
+import { MANIFEST_PATH, REPO_ROOT, SPEC_FALLBACK, SPEC_PATH, resolveHistoricalPath } from './paths.js';
 import { productionImportedSet } from './production-modules.js';
 import { scanGuardSuiteRoots, scanMcpScriptGates } from './scanners.js';
 import { loadSuiteConfigs } from './vitest-projects.js';
@@ -29,7 +29,15 @@ export interface BuildOptions {
 
 export function buildGuardInventory(options: BuildOptions = {}): GuardInventory {
   const repoRoot = options.repoRoot ?? REPO_ROOT;
-  const specText = options.specText ?? readFileSync(join(repoRoot, SPEC_PATH), 'utf8');
+  const specAbs = join(repoRoot, SPEC_PATH);
+  const specFallbackAbs = join(repoRoot, SPEC_FALLBACK);
+  const specText =
+    options.specText ??
+    (existsSync(specAbs)
+      ? readFileSync(specAbs, 'utf8')
+      : existsSync(specFallbackAbs)
+        ? readFileSync(specFallbackAbs, 'utf8')
+        : '');
   const manifestJson: unknown =
     options.manifestJson ?? JSON.parse(readFileSync(join(repoRoot, MANIFEST_PATH), 'utf8'));
   const workflows = options.workflows ?? loadWorkflows(repoRoot);

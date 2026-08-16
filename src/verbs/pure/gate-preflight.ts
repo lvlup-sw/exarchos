@@ -23,14 +23,7 @@
 
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
-import type { ResolvedProjectConfig } from '../../config/resolve.js';
-import type { GateName, RiskTier } from '../../workflow/verification-policy.js';
-import {
-  emitGateEvent,
-  resolvePolicySkip,
-  resolveRepoRoot,
-  SKIPPED_BY_POLICY,
-} from '../gates/gate-utils.js';
+import { resolveRepoRoot } from '../gates/gate-utils.js';
 
 // ─── Preflight ───────────────────────────────────────────────────────────────
 

@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1166,
-    "parsedFiles": 1121,
+    "testFiles": 1182,
+    "parsedFiles": 1137,
     "shellFiles": 45,
-    "cases": 12835,
-    "dynamicTitles": 131,
+    "cases": 12962,
+    "dynamicTitles": 132,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -75666,6 +75666,737 @@
       "file": "tools/skill-validators/validate-frontmatter.test.sh",
       "runner": "shell",
       "cases": []
+    },
+    "tests/architecture/published-path-facades.test.ts": {
+      "file": "tests/architecture/published-path-facades.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "published-path facades",
+          "name": "PublishedPathFacades_AreClassifiedByShapeNotByName",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/dispatch/undeclared-parameters.test.ts": {
+      "file": "tests/unit/dispatch/undeclared-parameters.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "selectForwardedParameters — carrier and SDK noise vs the caller (DR-7)",
+          "name": "ForwardedParameters_DeclaredKeys_AreForwardedAndShaped",
+          "dynamic": false
+        },
+        {
+          "suite": "selectForwardedParameters — carrier and SDK noise vs the caller (DR-7)",
+          "name": "ForwardedParameters_SiblingDeclaredDryRun_SurvivesToTheParseAsUnshaped",
+          "dynamic": false
+        },
+        {
+          "suite": "selectForwardedParameters — carrier and SDK noise vs the caller (DR-7)",
+          "name": "ForwardedParameters_TransportMeta_IsExempt",
+          "dynamic": false
+        },
+        {
+          "suite": "selectForwardedParameters — carrier and SDK noise vs the caller (DR-7)",
+          "name": "ForwardedParameters_SdkInjectedDefault_IsDroppedByValue",
+          "dynamic": false
+        },
+        {
+          "suite": "selectForwardedParameters — carrier and SDK noise vs the caller (DR-7)",
+          "name": "ForwardedParameters_SiblingDefaultFieldWithNonDefaultValue_IsNotDropped",
+          "dynamic": false
+        },
+        {
+          "suite": "selectForwardedParameters — carrier and SDK noise vs the caller (DR-7)",
+          "name": "ForwardedParameters_OptionalSiblingFieldProbedWithUndefined_IsNotTreatedAsADefault",
+          "dynamic": false
+        },
+        {
+          "suite": "selectForwardedParameters — carrier and SDK noise vs the caller (DR-7) > findIgnoredParameters — the schema answers for its own keys (DR-7)",
+          "name": "IgnoredParameters_StripModeObject_ReportsTheDiscardedKey",
+          "dynamic": false
+        },
+        {
+          "suite": "selectForwardedParameters — carrier and SDK noise vs the caller (DR-7) > findIgnoredParameters — the schema answers for its own keys (DR-7)",
+          "name": "IgnoredParameters_PassthroughObject_ReportsNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "selectForwardedParameters — carrier and SDK noise vs the caller (DR-7) > findIgnoredParameters — the schema answers for its own keys (DR-7)",
+          "name": "IgnoredParameters_DeclaredOptionalGivenExplicitUndefined_IsNotReportedIgnored",
+          "dynamic": false
+        },
+        {
+          "suite": "selectForwardedParameters — carrier and SDK noise vs the caller (DR-7) > findIgnoredParameters — the schema answers for its own keys (DR-7)",
+          "name": "IgnoredParameterError_NamesTheDeclaringSiblingAndTheRealParameterList",
+          "dynamic": false
+        },
+        {
+          "suite": "selectForwardedParameters — carrier and SDK noise vs the caller (DR-7) > findIgnoredParameters — the schema answers for its own keys (DR-7) > Registry-wide parameter-acceptance census (DR-7 sweep, DR-8 denominator)",
+          "name": "ParameterCensus_ScanRoot_CoversEveryRegisteredCompositeAction",
+          "dynamic": false
+        },
+        {
+          "suite": "selectForwardedParameters — carrier and SDK noise vs the caller (DR-7) > findIgnoredParameters — the schema answers for its own keys (DR-7) > Registry-wide parameter-acceptance census (DR-7 sweep, DR-8 denominator)",
+          "name": "ParameterCensus_EverySiblingDeclaredKey_IsHonouredOrRefusedByEveryActionThatOmitsIt",
+          "dynamic": false
+        },
+        {
+          "suite": "selectForwardedParameters — carrier and SDK noise vs the caller (DR-7) > findIgnoredParameters — the schema answers for its own keys (DR-7) > Registry-wide parameter-acceptance census (DR-7 sweep, DR-8 denominator)",
+          "name": "ParameterCensus_TheOriginalInstance_IsInsideTheSweptPopulation",
+          "dynamic": false
+        },
+        {
+          "suite": "selectForwardedParameters — carrier and SDK noise vs the caller (DR-7) > findIgnoredParameters — the schema answers for its own keys (DR-7) > Registry-wide parameter-acceptance census (DR-7 sweep, DR-8 denominator)",
+          "name": "ParameterCensus_CancelReason_IsDeclaredNotMerelyConsumed",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/events/batch-append.test.ts": {
+      "file": "tests/unit/events/batch-append.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "batch_append event-data validation (DR-1)",
+          "name": "BatchAppend_EventWithSchemaViolatingData_IsRejected",
+          "dynamic": false
+        },
+        {
+          "suite": "batch_append event-data validation (DR-1)",
+          "name": "BatchAppend_OneInvalidEventInBatch_RejectsPerDeclaredAtomicity",
+          "dynamic": false
+        },
+        {
+          "suite": "batch_append event-data validation (DR-1)",
+          "name": "BatchAppend_DiscardedDuplicate_IsNotValidated_InEitherClass",
+          "dynamic": false
+        },
+        {
+          "suite": "batch_append event-data validation (DR-1)",
+          "name": "BatchAppend_MalformedElement_ReturnsInvalidInputRatherThanThrowing",
+          "dynamic": false
+        },
+        {
+          "suite": "batch_append event-data validation (DR-1)",
+          "name": "AppendAndBatchAppend_IdenticalPayload_AgreeOnValidity",
+          "dynamic": false
+        },
+        {
+          "suite": "batch_append event-data validation (DR-1) > non-empty denominator (DR-1)",
+          "name": "ResolveBatchEvents_ZeroResolvedEvents_Fails",
+          "dynamic": false
+        },
+        {
+          "suite": "batch_append event-data validation (DR-1) > non-empty denominator (DR-1)",
+          "name": "ValidateEventData_EmptySchemaRegistry_Fails",
+          "dynamic": false
+        },
+        {
+          "suite": "batch_append event-data validation (DR-1) > non-empty denominator (DR-1)",
+          "name": "ValidateEventData_SchemaViolation_ThrowsForBothCallPaths",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/events/event-name-persisted-replay.test.ts": {
+      "file": "tests/unit/events/event-name-persisted-replay.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "EventNamePersistedReplay_MeasuredCorpus_SurvivesTheCollapse",
+          "name": "has a non-empty corpus that is not the catalog wearing another name",
+          "dynamic": false
+        },
+        {
+          "suite": "EventNamePersistedReplay_MeasuredCorpus_SurvivesTheCollapse",
+          "name": "the surviving authority accepts every name ever written to these stores",
+          "dynamic": false
+        },
+        {
+          "suite": "EventNamePersistedReplay_MeasuredCorpus_SurvivesTheCollapse",
+          "name": "the derived pattern agrees with the classifier over the same persisted corpus",
+          "dynamic": false
+        },
+        {
+          "suite": "EventNamePersistedReplay_MeasuredCorpus_SurvivesTheCollapse",
+          "name": "the repair is load-bearing for real history, not just for the catalog",
+          "dynamic": false
+        },
+        {
+          "suite": "EventNamePersistedReplay_MeasuredCorpus_SurvivesTheCollapse",
+          "name": "no persisted name carries a digit, a multi-word namespace or a fourth segment",
+          "dynamic": false
+        },
+        {
+          "suite": "EventNamePersistedReplay_MeasuredCorpus_SurvivesTheCollapse > EventNamePersistedReplay_OrphanedName_StillReplays",
+          "name": "a log written under the retired rule reads back intact, while new appends of it fail",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/storage/sqlite-backend.close-under.test.ts": {
+      "file": "tests/unit/storage/sqlite-backend.close-under.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "SqliteBackend.closeOpenUnder — containment survives path aliasing",
+          "name": "CloseOpenUnder_HandleOpenedViaAliasPath_IsStillClosed",
+          "dynamic": false
+        },
+        {
+          "suite": "SqliteBackend.closeOpenUnder — containment survives path aliasing",
+          "name": "Close_UnderlyingCloseThrows_StaysRegisteredForARetry",
+          "dynamic": false
+        },
+        {
+          "suite": "SqliteBackend.closeOpenUnder — containment survives path aliasing",
+          "name": "CloseOpenUnder_HandleOutsideTheDirectory_IsLeftOpen",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/cutover-readiness-schema.test.ts": {
+      "file": "tests/unit/verbs/cutover-readiness-schema.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "Task 083 — the cutover verbs declare substantive outputSchemas",
+          "name": "CutoverVerbs_LiveCensus_ClassifiesBothSubstantive",
+          "dynamic": false
+        },
+        {
+          "suite": "Task 083 — the cutover verbs declare substantive outputSchemas",
+          "name": "CutoverVerbs_CensusVacuousPopulation_ExcludesBoth",
+          "dynamic": false
+        },
+        {
+          "suite": "Task 083 — the cutover verbs declare substantive outputSchemas > Task 083 — the waiver rows left the allowlist",
+          "name": "CutoverVerbs_WaiverSeed_MovedFromAllowlistToRetired",
+          "dynamic": false
+        },
+        {
+          "suite": "Task 083 — the cutover verbs declare substantive outputSchemas > Task 083 — the waiver rows left the allowlist",
+          "name": "CutoverVerbs_SeedKeySet_UnchangedBecausePaydownIsAMove",
+          "dynamic": false
+        },
+        {
+          "suite": "Task 083 — the cutover verbs declare substantive outputSchemas > Task 083 — the waiver rows left the allowlist",
+          "name": "CutoverVerbs_LiveRatchet_IsGreen",
+          "dynamic": false
+        },
+        {
+          "suite": "Task 083 — the cutover verbs declare substantive outputSchemas > Task 083 — the waiver rows left the allowlist > Task 083 — the shrink-only ratchet, exercised in both directions",
+          "name": "VacuityRatchet_FurtherPaydownAsAMove_Accepted",
+          "dynamic": false
+        },
+        {
+          "suite": "Task 083 — the cutover verbs declare substantive outputSchemas > Task 083 — the waiver rows left the allowlist > Task 083 — the shrink-only ratchet, exercised in both directions",
+          "name": "VacuityRatchet_NewWaiverAdded_RejectedAsSeedDrift",
+          "dynamic": false
+        },
+        {
+          "suite": "Task 083 — the cutover verbs declare substantive outputSchemas > Task 083 — the waiver rows left the allowlist > Task 083 — the shrink-only ratchet, exercised in both directions",
+          "name": "VacuityRatchet_WaiverDeletedInsteadOfRetired_RejectedAsSeedDrift",
+          "dynamic": false
+        },
+        {
+          "suite": "Task 083 — the cutover verbs declare substantive outputSchemas > Task 083 — the waiver rows left the allowlist > Task 083 — the shrink-only ratchet, exercised in both directions",
+          "name": "VacuityRatchet_WaiverKeptSideways_RejectedAsStale",
+          "dynamic": false
+        },
+        {
+          "suite": "Task 083 — the cutover verbs declare substantive outputSchemas > Task 083 — the waiver rows left the allowlist > Task 083 — the shrink-only ratchet, exercised in both directions > Task 083 — the declared contracts match the real emissions",
+          "name": "CutoverReadiness_ColdStoreEmission_ParsesAgainstTheRegistryDeclaration",
+          "dynamic": false
+        },
+        {
+          "suite": "Task 083 — the cutover verbs declare substantive outputSchemas > Task 083 — the waiver rows left the allowlist > Task 083 — the shrink-only ratchet, exercised in both directions > Task 083 — the declared contracts match the real emissions",
+          "name": "CutoverDecide_SatisfiedGateEmission_ParsesAgainstTheRegistryDeclaration",
+          "dynamic": false
+        },
+        {
+          "suite": "Task 083 — the cutover verbs declare substantive outputSchemas > Task 083 — the waiver rows left the allowlist > Task 083 — the shrink-only ratchet, exercised in both directions > Task 083 — the declared contracts match the real emissions",
+          "name": "CutoverVerbs_RegistryDeclarations_RejectWhatTheWaiverAccepted",
+          "dynamic": false
+        },
+        {
+          "suite": "Task 083 — the cutover verbs declare substantive outputSchemas > Task 083 — the waiver rows left the allowlist > Task 083 — the shrink-only ratchet, exercised in both directions > Task 083 — the declared contracts match the real emissions",
+          "name": "CutoverGateReport_PartialDisagreementTally_Rejected",
+          "dynamic": false
+        },
+        {
+          "suite": "Task 083 — the cutover verbs declare substantive outputSchemas > Task 083 — the waiver rows left the allowlist > Task 083 — the shrink-only ratchet, exercised in both directions > Task 083 — the declared contracts match the real emissions",
+          "name": "CutoverGateReport_SelfContradictoryVerdict_IsRefused",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/invariants/catalog-splice.test.ts": {
+      "file": "tests/unit/verbs/invariants/catalog-splice.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "invariants_amend — the write is a splice, proven on raw text (DR-3)",
+          "name": "handleAmend_OneField_LeavesEveryOtherByteOfTheFileIdentical",
+          "dynamic": false
+        },
+        {
+          "suite": "invariants_amend — the write is a splice, proven on raw text (DR-3)",
+          "name": "each",
+          "dynamic": true
+        },
+        {
+          "suite": "invariants_amend — the write is a splice, proven on raw text (DR-3)",
+          "name": "handleAmend_AmendingTheLastEntry_AddsNoBlankLineBeforeTheClosingFence",
+          "dynamic": false
+        },
+        {
+          "suite": "invariants_amend — the write is a splice, proven on raw text (DR-3)",
+          "name": "handleAmend_PatchToTheSameValue_LeavesTheFileByteIdentical",
+          "dynamic": false
+        },
+        {
+          "suite": "invariants_amend — the write is a splice, proven on raw text (DR-3) > invariants_amend — the catalog digest moves for the amendment and nothing else",
+          "name": "handleAmend_WordingChange_MovesTheAuthorityDigest",
+          "dynamic": false
+        },
+        {
+          "suite": "invariants_amend — the write is a splice, proven on raw text (DR-3) > invariants_amend — the catalog digest moves for the amendment and nothing else",
+          "name": "handleAmend_RestoringTheAmendedEntrysBytes_RestoresTheOriginalDigest",
+          "dynamic": false
+        },
+        {
+          "suite": "invariants_amend — the write is a splice, proven on raw text (DR-3) > invariants_amend — the catalog digest moves for the amendment and nothing else > invariants_amend — the dry-run diff names the lines the commit writes",
+          "name": "handleAmend_DryRunDiff_MatchesTheCommittedRegionLineForLine",
+          "dynamic": false
+        },
+        {
+          "suite": "invariants_amend — the write is a splice, proven on raw text (DR-3) > invariants_amend — the catalog digest moves for the amendment and nothing else > invariants_amend — the dry-run diff names the lines the commit writes > locateCatalogEntry — a locate that matches nothing REFUSES",
+          "name": "locateCatalogEntry_EveryEntry_ResolvesToANonEmptySpanOfItsOwnLines",
+          "dynamic": false
+        },
+        {
+          "suite": "invariants_amend — the write is a splice, proven on raw text (DR-3) > invariants_amend — the catalog digest moves for the amendment and nothing else > invariants_amend — the dry-run diff names the lines the commit writes > locateCatalogEntry — a locate that matches nothing REFUSES",
+          "name": "locateCatalogEntry_ZeroEntries_RefusesRatherThanReplacingNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "invariants_amend — the write is a splice, proven on raw text (DR-3) > invariants_amend — the catalog digest moves for the amendment and nothing else > invariants_amend — the dry-run diff names the lines the commit writes > locateCatalogEntry — a locate that matches nothing REFUSES",
+          "name": "locateCatalogEntry_IdAbsent_RefusesRatherThanWritingTheFileBackUnchanged",
+          "dynamic": false
+        },
+        {
+          "suite": "invariants_amend — the write is a splice, proven on raw text (DR-3) > invariants_amend — the catalog digest moves for the amendment and nothing else > invariants_amend — the dry-run diff names the lines the commit writes > locateCatalogEntry — a locate that matches nothing REFUSES",
+          "name": "locateCatalogEntry_AliasedEntry_RefusesEvenThoughItsIdIsReadable",
+          "dynamic": false
+        },
+        {
+          "suite": "invariants_amend — the write is a splice, proven on raw text (DR-3) > invariants_amend — the catalog digest moves for the amendment and nothing else > invariants_amend — the dry-run diff names the lines the commit writes > locateCatalogEntry — a locate that matches nothing REFUSES",
+          "name": "locateCatalogEntry_InvariantsIsNotASequence_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "invariants_amend — the write is a splice, proven on raw text (DR-3) > invariants_amend — the catalog digest moves for the amendment and nothing else > invariants_amend — the dry-run diff names the lines the commit writes > locateCatalogEntry — a locate that matches nothing REFUSES",
+          "name": "locateCatalogEntry_UnparseableFrontmatter_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "invariants_amend — the write is a splice, proven on raw text (DR-3) > invariants_amend — the catalog digest moves for the amendment and nothing else > invariants_amend — the dry-run diff names the lines the commit writes > locateCatalogEntry — a locate that matches nothing REFUSES > invariants_amend — a write that would resolve zero entries fails",
+          "name": "handleAmend_AliasedEntry_FailsWithoutWriting",
+          "dynamic": false
+        },
+        {
+          "suite": "invariants_amend — the write is a splice, proven on raw text (DR-3) > invariants_amend — the catalog digest moves for the amendment and nothing else > invariants_amend — the dry-run diff names the lines the commit writes > locateCatalogEntry — a locate that matches nothing REFUSES > invariants_amend — a write that would resolve zero entries fails",
+          "name": "handleAmend_EmptyCatalog_FailsWithoutWriting",
+          "dynamic": false
+        },
+        {
+          "suite": "invariants_amend — the write is a splice, proven on raw text (DR-3) > invariants_amend — the catalog digest moves for the amendment and nothing else > invariants_amend — the dry-run diff names the lines the commit writes > locateCatalogEntry — a locate that matches nothing REFUSES > invariants_amend — a write that would resolve zero entries fails > invariants_amend — a CRLF checkout round-trips without corruption",
+          "name": "CatalogSplice_CrlfCatalog_MatchesTheLfWriteExactly",
+          "dynamic": false
+        },
+        {
+          "suite": "invariants_amend — the write is a splice, proven on raw text (DR-3) > invariants_amend — the catalog digest moves for the amendment and nothing else > invariants_amend — the dry-run diff names the lines the commit writes > locateCatalogEntry — a locate that matches nothing REFUSES > invariants_amend — a write that would resolve zero entries fails > invariants_amend — a CRLF checkout round-trips without corruption > invariants_amend — the fence bytes survive shapes a rebuild normalises",
+          "name": "CatalogSplice_${label.replace(/[^A-Za-z]/g, '')}_IsCarriedThroughVerbatim",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/prepare-synthesis.production-path.test.ts": {
+      "file": "tests/unit/verbs/prepare-synthesis.production-path.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "prepare_synthesis production path (DR-8 / #1756)",
+          "name": "ProductionPath_DispatchWithRepoRoot_EveryLegRunsAgainstThatRoot",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare_synthesis production path (DR-8 / #1756)",
+          "name": "ProductionPath_DispatchWithoutRepoRoot_RefusedBeforeAnyLegSpawns",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare_synthesis production path (DR-8 / #1756)",
+          "name": "ActionSchema_DeclaresRepoRoot_AsRequiredString",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/admission/remediation-purity.kill-lexer.test.ts": {
+      "file": "tests/unit/workflow/admission/remediation-purity.kill-lexer.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "DR-2 kill fixture — remediation-purity.extractImportSpecifiers, both instruments",
+          "name": "RemediationPurity_AdversarialSet_ParseAndHeuristicAnswersAreBothPinned",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-2 kill fixture — remediation-purity.extractImportSpecifiers, both instruments",
+          "name": "RemediationPurity_RegexHoldingABacktick_PassedAModuleThatImportsNodeFs",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-2 kill fixture — remediation-purity.extractImportSpecifiers, both instruments",
+          "name": "RemediationPurity_NestedTemplateSubstitution_InventedAForbiddenImport",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-2 kill fixture — remediation-purity.extractImportSpecifiers, both instruments",
+          "name": "RemediationPurity_ImportTypeQuery_WasChargedAsAValueImport",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-2 kill fixture — remediation-purity.extractImportSpecifiers, both instruments",
+          "name": "RemediationPurity_RecoveredParse_IsRefusedRatherThanUnderReported",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/transition-dry-run.test.ts": {
+      "file": "tests/unit/workflow/transition-dry-run.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "exarchos_workflow.transition — dryRun (DR-7, task 090)",
+          "name": "TransitionDryRun_AppendsNoPhaseEvent_AssertedAgainstTheEventStream",
+          "dynamic": false
+        },
+        {
+          "suite": "exarchos_workflow.transition — dryRun (DR-7, task 090)",
+          "name": "TransitionDryRun_LeavesTheProjectedPhaseUnchanged",
+          "dynamic": false
+        },
+        {
+          "suite": "exarchos_workflow.transition — dryRun (DR-7, task 090)",
+          "name": "TransitionWithoutDryRun_StillAppendsThePhaseTrail",
+          "dynamic": false
+        },
+        {
+          "suite": "exarchos_workflow.transition — dryRun (DR-7, task 090)",
+          "name": "TransitionDryRunFalse_IsRefusedToo_TheParameterIsNotHalfSupported",
+          "dynamic": false
+        },
+        {
+          "suite": "exarchos_workflow.transition — dryRun (DR-7, task 090)",
+          "name": "TransitionRefusal_NamesTheActionsThatDoDeclareDryRun",
+          "dynamic": false
+        },
+        {
+          "suite": "exarchos_workflow.transition — dryRun (DR-7, task 090) > exarchos_workflow.cancel — reason (DR-7 sweep, second instance)",
+          "name": "CancelReason_ReachesTheCancelRequestedEvent_NotDroppedInDispatch",
+          "dynamic": false
+        }
+      ]
+    },
+    "tools/audit/core/entrypoint-predicates.selftest.test.ts": {
+      "file": "tools/audit/core/entrypoint-predicates.selftest.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "DR-4 (074): entrypoint predicates test identity, not filename",
+          "name": "EntrypointSelfTest_ResolvesItsRunnersAndEverySubject_NonEmptyDenominator",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-4 (074): entrypoint predicates test identity, not filename",
+          "name": "EntrypointSelfTest_BunSemanticsMatchNodes_MeasuredNotAssumed",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-4 (074): entrypoint predicates test identity, not filename",
+          "name": "${site.id}: ShippedEntrypoint_ProducesAVerdict",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-4 (074): entrypoint predicates test identity, not filename",
+          "name": "${site.id}: SameSourceUnderADifferentName_StillEnforces",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-4 (074): entrypoint predicates test identity, not filename",
+          "name": "${site.id}: LegacyFilenamePredicate_GoesSilentlyGreen",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-4 (074): entrypoint predicates test identity, not filename",
+          "name": "${site.id}: ImportedRatherThanInvoked_DoesNotSelfExecute",
+          "dynamic": false
+        }
+      ]
+    },
+    "tools/conformance/src/delivery-safety.kill-lexer.test.ts": {
+      "file": "tools/conformance/src/delivery-safety.kill-lexer.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "DR-2 kill fixture — delivery-safety.maskLiteralsAndComments, both instruments",
+          "name": "DeliverySafety_AdversarialSet_ParseAndHeuristicAnswersAreBothPinned",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-2 kill fixture — delivery-safety.maskLiteralsAndComments, both instruments",
+          "name": "DeliverySafety_RegexHoldingABacktick_HidesARealSilentSwallow",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-2 kill fixture — delivery-safety.maskLiteralsAndComments, both instruments",
+          "name": "DeliverySafety_NestedTemplateSubstitution_InventsASwallowFromTemplateText",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-2 kill fixture — delivery-safety.maskLiteralsAndComments, both instruments",
+          "name": "DeliverySafety_SwallowInsideASubstitution_IsNowSeenRatherThanMaskedWithTheTemplate",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-2 kill fixture — delivery-safety.maskLiteralsAndComments, both instruments",
+          "name": "DeliverySafety_ImportTypeQuery_DoesNotAffectTheSwallowScanButDoesEnlistAModule",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-2 kill fixture — delivery-safety.maskLiteralsAndComments, both instruments",
+          "name": "DeliverySafety_RecoveredParse_IsRefusedRatherThanScannedClean",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-2 kill fixture — delivery-safety.maskLiteralsAndComments, both instruments > DR-2 — the population derivation reads the SAME parse",
+          "name": "DeliveryPopulation_TypeQueryEdge_IsEnlistedByTheParseAndWasMissedByTheRegex",
+          "dynamic": false
+        }
+      ]
+    },
+    "tools/conformance/src/vcs-ownership.kill-lexer.test.ts": {
+      "file": "tools/conformance/src/vcs-ownership.kill-lexer.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "DR-2 kill fixture — vcs-ownership.stripComments, both instruments",
+          "name": "VcsOwnership_AdversarialSet_ParseAndHeuristicAnswersAreBothPinned",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-2 kill fixture — vcs-ownership.stripComments, both instruments",
+          "name": "VcsOwnership_RegexHoldingABacktick_MakesTheHeuristicChargeCommentProse",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-2 kill fixture — vcs-ownership.stripComments, both instruments",
+          "name": "VcsOwnership_NestedTemplateSubstitution_MadeTheHeuristicStripRealLiteralContent",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-2 kill fixture — vcs-ownership.stripComments, both instruments",
+          "name": "VcsOwnership_ImportTypeQuery_IsNotACountedSurfaceHere",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-2 kill fixture — vcs-ownership.stripComments, both instruments",
+          "name": "VcsOwnership_RecoveredParse_IsRefusedRatherThanSilentlyStripped",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-2 kill fixture — vcs-ownership.stripComments, both instruments",
+          "name": "VcsOwnership_NoShippedModuleImportsTheSupersededSiteLexers",
+          "dynamic": false
+        }
+      ]
+    },
+    "tools/conformance/src/waiver-ledger.test.ts": {
+      "file": "tools/conformance/src/waiver-ledger.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "DR-6 waiver ledger: the four teeth",
+          "name": "WaiverLedger_ZeroEntries_FailsRatherThanReportingClean",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-6 waiver ledger: the four teeth",
+          "name": "WaiverLedger_ExpiryBoundary_IsInclusiveOfTheExpiryDay",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-6 waiver ledger: the four teeth",
+          "name": "WaiverLedger_EntryPastTheHorizon_FailsBeforeItsOwnExpiryIsConsulted",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-6 waiver ledger: the four teeth",
+          "name": "WaiverLedger_BlankOwnerOrImpossibleDate_FailsClosed",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-6 waiver ledger: the four teeth",
+          "name": "WaiverLedger_UnreadableClockOrHorizon_ProducesOneHonestFindingNotACascade",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-6 waiver ledger: the four teeth",
+          "name": "WaiverLedger_DaysToHorizon_IsDerivedNotWrittenDown",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-6 waiver ledger: the four teeth",
+          "name": "WaiverLedger_AnnotatePort_CarriesTheConsumersOwnPerEntryContext",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-6 waiver ledger: the four teeth > DR-6 waiver ledger: the day rule",
+          "name": "WaiverLedger_ImpossibleCalendarDay_IsRejectedNotMerelyUnmatched",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-6 waiver ledger: the four teeth > DR-6 waiver ledger: the day rule",
+          "name": "WaiverLedger_IsoDayUtc_IsUtcAndFailsVisiblyOnAnInvalidDate",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-6 waiver ledger: the four teeth > DR-6 waiver ledger: the day rule > DR-6 waiver ledger: the key set",
+          "name": "WaiverLedger_CanonicalKeySet_IsSetValuedNotOrderOrDuplicateSensitive",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-6 waiver ledger: the four teeth > DR-6 waiver ledger: the day rule > DR-6 waiver ledger: the key set",
+          "name": "WaiverLedger_InPlaceSwap_DriftsThePinWhileALegalMoveDoesNot",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-6 waiver ledger: the four teeth > DR-6 waiver ledger: the day rule > DR-6 waiver ledger: the key set > DR-6 waiver ledger: the properties the extraction rests on",
+          "name": "WaiverLedger_ImportsNothing_MeasuredNotAsserted",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-6 waiver ledger: the four teeth > DR-6 waiver ledger: the day rule > DR-6 waiver ledger: the key set > DR-6 waiver ledger: the properties the extraction rests on",
+          "name": "CliDerivationRatchetGuard_ReachesNoBunSqlite_ThroughTheSharedLedgerOrOtherwise",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-6 waiver ledger: the four teeth > DR-6 waiver ledger: the day rule > DR-6 waiver ledger: the key set > DR-6 waiver ledger: the properties the extraction rests on",
+          "name": "CliDerivationGuard_TakesTheDayRuleAndDigestFromTheLedger_NotItsOwnWords",
+          "dynamic": false
+        }
+      ]
+    },
+    "tools/test-helpers/comment-prose.test.ts": {
+      "file": "tools/test-helpers/comment-prose.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "extractCommentProse",
+          "name": "CommentProse_KeepsCommentsAndDropsCode",
+          "dynamic": false
+        },
+        {
+          "suite": "extractCommentProse",
+          "name": "CommentProse_TemplateSubstitutionTailIsNotProse",
+          "dynamic": false
+        },
+        {
+          "suite": "extractCommentProse",
+          "name": "CommentProse_CommentInsideATemplateSubstitutionIsProse",
+          "dynamic": false
+        },
+        {
+          "suite": "extractCommentProse",
+          "name": "CommentProse_JoinsWrappedLinesIntoOneSentence",
+          "dynamic": false
+        },
+        {
+          "suite": "extractCommentProse",
+          "name": "CommentProse_RecoveredParse_ThrowsRatherThanGuessing",
+          "dynamic": false
+        },
+        {
+          "suite": "extractCommentProse > sentenceBefore",
+          "name": "SentenceBefore_StopsAtTheEnclosingSentenceBoundary",
+          "dynamic": false
+        },
+        {
+          "suite": "extractCommentProse > sentenceBefore > isQuotedMention",
+          "name": "QuotedMention_DistinguishesUseFromMention",
+          "dynamic": false
+        },
+        {
+          "suite": "extractCommentProse > sentenceBefore > isQuotedMention",
+          "name": "QuotedMention_ApostropheIsNotAQuote",
+          "dynamic": false
+        },
+        {
+          "suite": "extractCommentProse > sentenceBefore > isQuotedMention",
+          "name": "QuotedMention_ClosedQuoteEarlierInTheSentenceDoesNotCarryOver",
+          "dynamic": false
+        }
+      ]
+    },
+    "tools/test-helpers/tracked-population.test.ts": {
+      "file": "tools/test-helpers/tracked-population.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "tracked-population — the second authority is itself checked",
+          "name": "TrackedPopulation_ListsRootRelativeForwardSlashedPaths",
+          "dynamic": false
+        },
+        {
+          "suite": "tracked-population — the second authority is itself checked",
+          "name": "TrackedPopulation_IsSortedAndDeduplicatedByGit",
+          "dynamic": false
+        },
+        {
+          "suite": "tracked-population — the second authority is itself checked",
+          "name": "TrackedPopulation_ExcludesBuildOutputAndDotDirsByProperty",
+          "dynamic": false
+        },
+        {
+          "suite": "tracked-population — the second authority is itself checked",
+          "name": "TrackedPopulation_HonorsTheCallerSuppliedExclusion",
+          "dynamic": false
+        },
+        {
+          "suite": "tracked-population — the second authority is itself checked",
+          "name": "TrackedPopulation_SelectsByExtension",
+          "dynamic": false
+        },
+        {
+          "suite": "tracked-population — the second authority is itself checked",
+          "name": "TrackedPopulation_EmptyResult_ThrowsRatherThanCorroboratingNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "tracked-population — the second authority is itself checked",
+          "name": "TrackedPopulation_MissedFiles_NamesWhatAWalkDidNotReach",
+          "dynamic": false
+        },
+        {
+          "suite": "tracked-population — the second authority is itself checked",
+          "name": "TrackedPopulation_MissedFiles_CapsTheReportSoAFailureStaysLegible",
+          "dynamic": false
+        }
+      ]
     }
   }
 }

@@ -115,7 +115,6 @@ const DISPOSITIONS = Object.freeze([
     ['src/verbs/team/prepare-delegation.ts', 1, 'orchestrate/prepare-delegation'],
     ['src/verbs/team/prepare-synthesis.ts', 3, 'orchestrate/prepare-synthesis'],
     ['src/verbs/gates/provenance-chain.ts', 1, 'orchestrate/provenance-chain'],
-    ['src/verbs/pure/gate-preflight.ts', 1, 'orchestrate/pure/gate-preflight'],
     ['src/verbs/review/review-verdict.ts', 3, 'orchestrate/review-verdict'],
     ['src/verbs/gates/security-scan.ts', 1, 'orchestrate/security-scan'],
     ['src/verbs/tasks/task-decomposition.ts', 1, 'orchestrate/task-decomposition'],

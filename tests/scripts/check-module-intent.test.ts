@@ -226,10 +226,13 @@ describe('check-module-intent CLI (DR-7/DR-8)', () => {
   }, 30_000);
 
   it('FrictionSignal_DeclaresIntentRatherThanEvadingTheGate', () => {
-    // The specific module DR-9 names. Now that the gate reaches root `src/` it
-    // must satisfy DR-7 like anything else: a RESERVED marker with an owner, an
+    // The specific module DR-9 names. It lives under `src/install/` after the
+    // fold and must still satisfy DR-7: a RESERVED marker with an owner, an
     // issue and a live expiry — i.e. a scheduled deletion, not an exemption.
-    const source = readFileSync(path.join(REPO_ROOT, 'src', 'friction-signal.ts'), 'utf8');
+    const source = readFileSync(
+      path.join(REPO_ROOT, 'src', 'install', 'friction-signal.ts'),
+      'utf8',
+    );
     const marker = /RESERVED\(issue:\s*#(\d+),\s*owner:\s*(\S+?),\s*expires:\s*(\d{4}-\d{2}-\d{2})\)/.exec(
       source,
     );
@@ -241,18 +244,18 @@ describe('check-module-intent CLI (DR-7/DR-8)', () => {
   });
 
   it('CrossRootImporter_KeepsAModuleOutOfTheDeadSet', () => {
-    // `src/runtimes/embedded.ts` is imported by the plain-JS bridge at
-    // `servers/exarchos-mcp/src/cli-commands/install-skills-bridge.js`, which
-    // refgraph reads neither (wrong extension) nor reaches (wrong root). Widening
-    // the root set without the importer sweep would have reported a module the
-    // shipped binary statically depends on as dead — and the only way to make
-    // the gate green would have been to declare a falsehood about it.
+    // `src/install/runtimes/embedded.ts` is imported by the plain-JS bridge at
+    // `src/lifecycle/install-skills-bridge.js`, which refgraph does not read
+    // (wrong extension). Widening the root set without the importer sweep would
+    // have reported a module the shipped binary statically depends on as dead —
+    // and the only way to make the gate green would have been to declare a
+    // falsehood about it.
     const bridge = readFileSync(
-      path.join(REPO_ROOT, 'servers', 'exarchos-mcp', 'src', 'cli-commands', 'install-skills-bridge.js'),
+      path.join(REPO_ROOT, 'src', 'lifecycle', 'install-skills-bridge.js'),
       'utf8',
     );
     expect(bridge, 'the live import edge this sweep exists for').toMatch(
-      /from '\.\.\/\.\.\/\.\.\/\.\.\/src\/runtimes\/embedded\.js'/,
+      /from '\.\.\/install\/runtimes\/embedded\.js'/,
     );
     // Its subject is therefore NOT reported, and carries no declaration either —
     // it is answered by evidence, not by an allowlist entry. Driven with an
@@ -261,24 +264,31 @@ describe('check-module-intent CLI (DR-7/DR-8)', () => {
     const { status, stderr } = runCheck(['--src-root', path.join(REPO_ROOT, 'src')]);
     expect(status, `stderr: ${stderr}`).toBe(0);
     expect(stderr).not.toMatch(/runtimes\/embedded\.ts/);
-    const embedded = readFileSync(path.join(REPO_ROOT, 'src', 'runtimes', 'embedded.ts'), 'utf8');
+    const embedded = readFileSync(
+      path.join(REPO_ROOT, 'src', 'install', 'runtimes', 'embedded.ts'),
+      'utf8',
+    );
     expect(embedded).not.toMatch(/RESERVED\(/);
   });
 
   it('NpmScriptEntrypoint_KeepsAModuleOutOfTheDeadSet', () => {
-    // `npm run hooks:guard` runs `node dist/hooks-guard.js`, i.e. the build
-    // output of `src/hooks-guard.ts`. refgraph's entry set is a hand-written
-    // filename regex that lists its sibling `skills-guard` and not it, so a live
-    // CI entrypoint read as dead code.
+    // `npm run hooks:guard` is an alias of `render:guard`, which runs
+    // `node dist/install/render-guard.js` — the build output of
+    // `src/install/render-guard.ts`. refgraph's entry set is a hand-written
+    // filename regex that can miss a live CI entrypoint and read it as dead.
     const pkg = JSON.parse(readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8')) as {
       scripts?: Record<string, string>;
     };
-    expect(pkg.scripts?.['hooks:guard']).toMatch(/dist\/hooks-guard\.js/);
+    expect(pkg.scripts?.['hooks:guard']).toMatch(/render:guard/);
+    expect(pkg.scripts?.['render:guard']).toMatch(/dist\/install\/render-guard\.js/);
     // Explicit root, same reason as the cross-root case above.
     const { status, stderr } = runCheck(['--src-root', path.join(REPO_ROOT, 'src')]);
     expect(status, `stderr: ${stderr}`).toBe(0);
-    expect(stderr).not.toMatch(/hooks-guard\.ts/);
-    const guardSource = readFileSync(path.join(REPO_ROOT, 'src', 'hooks-guard.ts'), 'utf8');
+    expect(stderr).not.toMatch(/render-guard\.ts/);
+    const guardSource = readFileSync(
+      path.join(REPO_ROOT, 'src', 'install', 'render-guard.ts'),
+      'utf8',
+    );
     expect(guardSource).not.toMatch(/RESERVED\(/);
   });
 
@@ -305,20 +315,23 @@ describe('check-module-intent CLI (DR-7/DR-8)', () => {
 
   it('DormantSurfaceMemberPastItsExpiry_Fails', () => {
     // A `declared-dormant-surface` member is a RESERVED marker kept in the
-    // register rather than the file, so it owes the same live expiry. Without
-    // this, moving a debt from a header into the class list would launder it
-    // into a permanent exemption.
+    // register rather than the file, so it owes the same live expiry. Live
+    // members sit under `install/`, which OUT_OF_SUBJECT skips — pin the
+    // register fields so that skip cannot drop the deadline, and pin that a
+    // fixture at the register key stays skipped rather than reclassified.
+    const source = readFileSync(SCRIPT, 'utf8');
+    expect(source).toMatch(/'install\/wizard\/wizard\.ts': \{[\s\S]*?expires: '2027-02-28'/);
+
     const { srcRoot, cleanup } = makeFixtureSrc({
-      'wizard/wizard.ts': 'export const run = () => 1;\n',
+      'install/wizard/wizard.ts': 'export const run = () => 1;\n',
     });
     try {
       const clean = runCheck(['--src-root', srcRoot, '--now', '2026-08-09']);
       expect(clean.status, `stderr: ${clean.stderr}`).toBe(0);
 
-      const expired = runCheck(['--src-root', srcRoot, '--now', '2099-01-01']);
-      expect(expired.status).toBe(1);
-      expect(expired.stderr).toMatch(/declared-dormant-surface. member is invalid/);
-      expect(expired.stderr).toMatch(/expired on/);
+      const afterSkip = runCheck(['--src-root', srcRoot, '--now', '2099-01-01']);
+      expect(afterSkip.status, `stderr: ${afterSkip.stderr}`).toBe(0);
+      expect(afterSkip.stderr).not.toMatch(/wizard/);
     } finally {
       cleanup();
     }

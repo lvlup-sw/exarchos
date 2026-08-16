@@ -54,7 +54,7 @@ const EXEMPTIONS: Record<string, Exemption> = {
       'gates, not coupling, which is the honest case for an exemption. Reducing it means grouping ' +
       'the gates into families under subdirectories; until someone does, the count is pinned so ' +
       'adding a gate is a deliberate act rather than a drift.',
-    grantedAt: 39,
+    grantedAt: 40,
   },
   'src/workflow': {
     reason:

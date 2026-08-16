@@ -30,6 +30,13 @@ if (
 
 /** The spec whose Wave-1 task set is channel 2's denominator. */
 export const SPEC_PATH = 'docs/specs/2026-08-06-internal-mechanics-overhaul.md';
+/**
+ * In-repo stand-in when the planning corpus is unmounted. Channel 2 reads a
+ * frozen dated record; this is that record after the docs exodus, and
+ * historical path rewrites map its `**Files:**` lists onto the current tree.
+ * Distinct from the rev-3 kill fixture used by the measured-premises self-test.
+ */
+export const SPEC_FALLBACK = 'tools/audit/test-fixtures/measured-premises/internal-mechanics-overhaul.md';
 /** The enforcer-wiring manifest — channel 1's denominator. */
 export const MANIFEST_PATH = 'tools/audit/gates/enforcer-wiring-manifest.json';
 /** Channel 3's scan root. */
