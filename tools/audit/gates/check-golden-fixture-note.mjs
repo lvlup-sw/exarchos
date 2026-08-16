@@ -26,6 +26,7 @@
  */
 import { readFileSync } from 'node:fs';
 import process from 'node:process';
+import { fileURLToPath } from 'node:url';
 
 const LOAD_BEARING_PREFIX =
   'tests/core/fixtures/load-bearing/';
@@ -107,8 +108,8 @@ const invokedDirectly = (() => {
   try {
     const argv1 = process.argv[1];
     if (!argv1) return false;
-    const self = new URL(import.meta.url).pathname;
-    return argv1 === self || argv1.endsWith('/check-golden-fixture-note.mjs');
+    const self = fileURLToPath(import.meta.url);
+    return argv1 === self || argv1.endsWith('check-golden-fixture-note.mjs');
   } catch {
     return false;
   }

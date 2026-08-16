@@ -20,7 +20,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../tools/audit/gates" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 GATE="$SCRIPT_DIR/validate-plugin.sh"
 POLICY="$REPO_ROOT/.claude-plugin/packaging-policy.json"
 
@@ -58,13 +58,13 @@ assert_exit() {
 # each case below can break exactly one thing.
 seed_conforming_tree() {
   local root="$1"
-  mkdir -p "$root/.claude-plugin" "$root/commands" "$root/skills" "$root/hooks"
+  mkdir -p "$root/.claude-plugin" "$root/rendered/commands" "$root/rendered/skills" "$root/hooks"
   cat > "$root/.claude-plugin/plugin.json" << 'JSON'
 {
   "name": "exarchos",
   "version": "9.9.9",
-  "commands": "./commands/",
-  "skills": "./skills/",
+  "commands": "./rendered/commands/",
+  "skills": "./rendered/skills/",
   "mcpServers": {
     "exarchos": { "type": "stdio", "command": "exarchos", "args": ["mcp"] }
   }

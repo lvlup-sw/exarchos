@@ -3,7 +3,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../tools/audit/gates" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 GATE="$SCRIPT_DIR/check-gate-runner-ownership.mjs"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT

@@ -17,6 +17,18 @@ import { fileURLToPath } from 'node:url';
 // the test globs actually reach.
 const EXCLUDE = [...configDefaults.exclude, '**/runs/**'];
 
+// `vitest bench` is a separate mode. A `benchmark.include` on the root `test`
+// block is not inherited by projects — each project falls back to
+// `**/*.{bench,benchmark}.ts` and then tries to load EventStore benches
+// without the `bun:sqlite` alias (unit/acceptance) or with the process
+// preflight that requires `exarchos` on PATH. Only `core` has the alias and
+// the benches that write `benchmark-results.json`.
+const CORE_BENCHES = [
+  'src/**/*.bench.ts',
+  'tests/unit/**/*.bench.ts',
+  'tools/evals/bench/**/*.bench.ts',
+];
+
 export default defineConfig({
   test: {
     globals: false,
@@ -128,6 +140,7 @@ export default defineConfig({
         },
         test: {
           name: 'core',
+          benchmark: { include: CORE_BENCHES },
           pool: 'forks',
           // The default 5 s per-test / per-hook budget is comfortable on Linux
           // but too tight on the windows-latest runner, where filesystem +

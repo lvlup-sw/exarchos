@@ -34,7 +34,7 @@ import {
 } from '../../../src/architecture/layer-boundaries-seam.js';
 import { lexModule } from '../../../tools/test-helpers/module-lexer.js';
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { classifySdkImport } from '../../../src/architecture/sdk-generation-seam.js';
 import { parseModuleSpecifiers } from '../../../tools/test-helpers/module-specifier-parser.js';
@@ -129,6 +129,13 @@ describe('layerOf / isRootFile', () => {
     expect(isRootFile('workflow/x.ts')).toBe(false);
     // The exclusion became a STATED policy — the root surface has a name now.
     expect(layerOf('registry.ts')).toBe(ROOT_LAYER);
+  });
+
+  it('LayerOf_ExactLayerId_AndLiveDeclaredIds_ResolveTheSameNestedLayer', () => {
+    expect(layerOf('adapters/mcp', ['adapters', 'adapters/mcp'])).toBe('adapters/mcp');
+    expect(layerOf('adapters/mcp/mcp.ts', declaredLayerIds())).toBe('adapters/mcp');
+    expect(layerOf('registry/tools.ts', declaredLayerIds())).toBe('registry');
+    expect(layerOf('registry.ts', declaredLayerIds())).toBe(ROOT_LAYER);
   });
 });
 
@@ -380,6 +387,90 @@ describe('EXIT PROOF — live allowed-dependency layering', () => {
         ).toBe(true);
       }
     }
+  });
+
+  it('every declared layer id owns at least one scanned module', async () => {
+    // A row naming a directory that does not exist never forbids and never
+    // goes stale: empty `allow` has no unused target, and no module resolves
+    // to the id. Seeded-violation tests plant synthetic files, so they pass
+    // without live coverage. Walk the tree so a foundation leaf that imports
+    // nothing is still visible.
+    const { readdir } = await import('node:fs/promises');
+    const { join, relative } = await import('node:path');
+    const ids = declaredLayerIds();
+    const walk = async (dir: string): Promise<string[]> => {
+      const out: string[] = [];
+      for (const entry of await readdir(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          if (entry.name === 'node_modules' || entry.name === 'dist') continue;
+          out.push(...(await walk(full)));
+        } else if (entry.isFile() && entry.name.endsWith('.ts')) {
+          out.push(relative(SRC_ROOT, full).split('\\').join('/'));
+        }
+      }
+      return out;
+    };
+    const owned = new Set((await walk(SRC_ROOT)).map((m) => layerOf(m, ids)));
+    const vacant = LAYER_ALLOWED_IMPORTS.map((a) => a.layer).filter((id) => !owned.has(id));
+    expect(vacant, 'LAYER_ALLOWED_IMPORTS rows that own no scanned module').toEqual([]);
+  });
+
+  it('LayerCensus_LiveTree_CountsRootFilesAsTheStatedRootLayer', async () => {
+    // Root files stay in the edge set as `<root>`. Skipping them with
+    // `isRootFile` would make `registry.ts` ungovernable again.
+    const edges = await scanLayerEdges(SRC_ROOT, lexModule, declaredLayerIds());
+    const rootSources = edges.filter((e) => e.sourceLayer === ROOT_LAYER);
+    const rootTargets = edges.filter((e) => e.targetLayer === ROOT_LAYER);
+    expect(rootSources.length, 'no live edge leaves <root>').toBeGreaterThan(0);
+    expect(rootTargets.length, 'no live edge reaches <root>').toBeGreaterThan(0);
+    expect(
+      edges.some((e) => e.module === 'registry.ts' || e.targetModule === 'registry.ts'),
+      'registry.ts is absent from the live edge set',
+    ).toBe(true);
+    const seam = readFileSync(join(SRC_ROOT, 'architecture/layer-boundaries-seam.ts'), 'utf8');
+    expect(seam).not.toMatch(/if\s*\(\s*isRootFile\s*\(/);
+  });
+
+  it('LayerAllowance_VacantFoundationIds_StayAbsentWhileThoseDirectoriesStayAbsent', () => {
+    const vacant = ['lib', 'shared', 'schemas'] as const;
+    for (const id of vacant) {
+      const onDisk = existsSync(join(SRC_ROOT, id));
+      const declared = LAYER_ALLOWED_IMPORTS.some((a) => a.layer === id);
+      expect(declared, `${id} is declared as a layer while the directory is ${onDisk ? 'present' : 'absent'}`).toBe(
+        onDisk,
+      );
+    }
+  });
+
+  it('LayerAllowance_AdaptersParent_IsChannelTransportOnly', () => {
+    const parent = LAYER_ALLOWED_IMPORTS.find((a) => a.layer === 'adapters');
+    expect(parent, 'the adapters parent row is missing').toBeDefined();
+    expect(parent?.allow).toEqual(['events']);
+
+    const mcp = LAYER_ALLOWED_IMPORTS.find((a) => a.layer === 'adapters/mcp');
+    expect(mcp, 'the adapters/mcp row is missing').toBeDefined();
+    expect(mcp?.allow).not.toContain('adapters/cli');
+
+    const cli = LAYER_ALLOWED_IMPORTS.find((a) => a.layer === 'adapters/cli');
+    expect(cli, 'the adapters/cli row is missing').toBeDefined();
+    expect(cli?.allow).toContain('adapters/mcp');
+  });
+
+  it('LayerAllowance_EveryGovernedIdExceptRoot_IsPlaceableOnTheFirstLevelMap', () => {
+    const map = JSON.parse(readFileSync(join(REPO_ROOT, 'tools/audit/layer-map.json'), 'utf8')) as {
+      directories: Record<string, unknown>;
+    };
+    for (const row of LAYER_ALLOWED_IMPORTS) {
+      if (row.layer === ROOT_LAYER) continue;
+      const first = row.layer.split('/')[0] ?? '';
+      expect(
+        map.directories[first],
+        `${row.layer} is not placeable via first-level map key ${first}`,
+      ).toBeDefined();
+    }
+    expect(Object.keys(map.directories)).not.toContain('adapters/cli');
+    expect(Object.keys(map.directories)).not.toContain('adapters/mcp');
   });
 });
 
@@ -1098,5 +1189,17 @@ describe('Task 040a — neither seam may pass by matching nothing', () => {
       expect(resolved, `declared store ${store.module} vanished from the scan`).toBeDefined();
       expect(resolved?.resolved, `declared store ${store.module} no longer resolves`).toBe(true);
     }
+  });
+});
+
+describe('source hygiene', () => {
+  it('LayerBoundariesSeam_Source_ContainsNoRawNulBytes', () => {
+    // A literal NUL in this module made ripgrep treat it as binary and skip
+    // it. The runtime separator is the `\0` escape, which is the same value
+    // without hiding the file from text-mode audit.
+    const file = join(SRC_ROOT, 'architecture/layer-boundaries-seam.ts');
+    const bytes = readFileSync(file);
+    expect(bytes.includes(0), 'a raw NUL hides this file from ripgrep').toBe(false);
+    expect(bytes.toString('utf8')).toContain('${target}\\0${specifier}');
   });
 });

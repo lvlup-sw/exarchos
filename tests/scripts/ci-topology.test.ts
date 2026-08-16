@@ -54,11 +54,14 @@ interface WorkflowStep {
   readonly run?: string;
   readonly uses?: string;
   readonly with?: Record<string, unknown>;
+  /** Literal booleans or GitHub expression strings such as `${{ true }}`. */
+  readonly 'continue-on-error'?: boolean | string;
 }
 
 interface WorkflowJob {
   readonly needs?: string | readonly string[];
   readonly if?: string;
+  readonly 'runs-on'?: string;
   readonly steps?: readonly WorkflowStep[];
 }
 
@@ -318,13 +321,58 @@ const REQUIRED_ROOT_PROJECTION_GLOBS = [
   'AGENTS.md',
   'src/runtime/agents/**',
   '.github/workflows/release.yml',
+  // Fail-open registers the architecture liveness closer reads. A PR that
+  // only edits one of these must still flip `root`, or the live-oracle
+  // teeth skip while the register evaporates.
+  '.github/CODEOWNERS',
+  'knip.json',
+  '.exarchos/**',
+  'manifest.json',
 ] as const;
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** `npm run <script>` at the start of a run step, not a suffix or an echo. */
+function npmRunInvocation(scriptName: string): RegExp {
+  return new RegExp(`^npm run ${escapeRegExp(scriptName)}(?:\\s|$)`);
+}
+
+/**
+ * True iff `cmd` names the `core` vitest project. `--project core-extra`
+ * must not count — `\b` after `core` still matches a hyphen.
+ */
+function isCoreProjectCommand(cmd: string): boolean {
+  return /(?:^|\s)--project core(?:\s|$)/.test(cmd);
+}
+
+/**
+ * Only an absent field or a literal `false` is a required host. Expression
+ * strings (`${{ true }}`) stay strings after YAML parse and are soft-fail.
+ */
+function isRequiredHostStep(step: WorkflowStep): boolean {
+  const softFail = step['continue-on-error'];
+  return softFail === undefined || softFail === false;
+}
 
 /** True iff some step in `job` runs the given `npm run <script>` invocation. */
 function jobRunsNpmScript(job: WorkflowJob | undefined, scriptName: string): boolean {
   const steps = job?.steps ?? [];
-  const re = new RegExp(`npm run ${scriptName}\\b`);
-  return steps.some((s) => typeof s.run === 'string' && re.test(s.run));
+  const re = npmRunInvocation(scriptName);
+  return steps.some((s) => typeof s.run === 'string' && re.test(s.run.trim()));
+}
+
+/**
+ * True iff a step's `run` value *is* `npm run <script>` (optional trailing
+ * args), not an echo or comment that merely mentions the name.
+ */
+function jobRunsCoreProjectScript(job: WorkflowJob | undefined, scriptName: string): boolean {
+  const steps = job?.steps ?? [];
+  const re = npmRunInvocation(scriptName);
+  return steps.some(
+    (s) => typeof s.run === 'string' && re.test(s.run.trim()) && isRequiredHostStep(s),
+  );
 }
 
 describe('CI path-filter & guard coverage (DR-22)', () => {
@@ -369,6 +417,74 @@ describe('CI path-filter & guard coverage (DR-22)', () => {
 
     expect(checked, 'no path-filter globs were examined').toBeGreaterThan(0);
     expect(dead, 'path-filter globs matching no tracked file').toEqual([]);
+  });
+
+  it('LayerCensus_HostScripts_AreRunStepsOnBothPlatforms', () => {
+    // `auditLayerBoundaries` is collected by the `core` vitest project.
+    // Linux hosts that project as `test:coverage`; Windows hosts it as
+    // `test:core`. A substring in a comment is not a host. Both platforms
+    // that ship must keep a `run:` step whose script expands to
+    // `--project core`, on a job `ci-gate` actually needs.
+    const workflow = loadWorkflow(CI_WORKFLOW_PATH);
+    const pkg = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8')) as {
+      scripts?: Record<string, string>;
+    };
+    const coreScripts = Object.entries(pkg.scripts ?? {})
+      .filter(([, cmd]) => typeof cmd === 'string' && isCoreProjectCommand(cmd))
+      .map(([name]) => name);
+    expect(coreScripts, 'package.json declares no --project core script').not.toEqual([]);
+
+    const needs = new Set(needsList(workflow.jobs[AGGREGATOR_JOB]));
+    const hosts = Object.entries(workflow.jobs).filter(
+      ([name, job]) => needs.has(name) && coreScripts.some((s) => jobRunsCoreProjectScript(job, s)),
+    );
+    expect(
+      hosts.map(([name]) => name),
+      'no ci-gate dependency runs a script whose expansion is --project core',
+    ).not.toEqual([]);
+
+    const runners = hosts.map(([, job]) => job['runs-on']);
+    expect(runners, 'Linux does not host the layer census').toContain('ubuntu-latest');
+    expect(runners, 'Windows does not host the layer census').toContain('windows-latest');
+
+    // Teeth: an echo that names the script is not a run step.
+    const decoy: WorkflowJob = {
+      'runs-on': 'ubuntu-latest',
+      steps: [{ run: 'echo "npm run test:coverage"' }],
+    };
+    expect(jobRunsCoreProjectScript(decoy, 'test:coverage')).toBe(false);
+
+    const soft: WorkflowJob = {
+      'runs-on': 'ubuntu-latest',
+      steps: [{ run: 'npm run test:coverage', 'continue-on-error': true }],
+    };
+    expect(jobRunsCoreProjectScript(soft, 'test:coverage')).toBe(false);
+
+    // A suffixed script name is not the host (`\b` after `coverage` still
+    // matches `coverage-extra` because `-` is a non-word character).
+    const prefixed: WorkflowJob = {
+      'runs-on': 'ubuntu-latest',
+      steps: [{ run: 'npm run test:coverage-extra' }],
+    };
+    expect(jobRunsCoreProjectScript(prefixed, 'test:coverage')).toBe(false);
+    expect(jobRunsNpmScript(prefixed, 'test:coverage')).toBe(false);
+
+    // Expression-valued continue-on-error stays a string after YAML parse.
+    const expressionSoft: WorkflowJob = {
+      'runs-on': 'ubuntu-latest',
+      steps: [{ run: 'npm run test:coverage', 'continue-on-error': '${{ true }}' }],
+    };
+    expect(jobRunsCoreProjectScript(expressionSoft, 'test:coverage')).toBe(false);
+
+    const literalFalse: WorkflowJob = {
+      'runs-on': 'ubuntu-latest',
+      steps: [{ run: 'npm run test:coverage', 'continue-on-error': false }],
+    };
+    expect(jobRunsCoreProjectScript(literalFalse, 'test:coverage')).toBe(true);
+
+    expect(isCoreProjectCommand('vitest --project core')).toBe(true);
+    expect(isCoreProjectCommand('vitest --project core --run')).toBe(true);
+    expect(isCoreProjectCommand('vitest --project core-extra')).toBe(false);
   });
 
   it('Guards_HooksGuardRunsInCI_AndIsRootFiltered', () => {

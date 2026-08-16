@@ -114,23 +114,23 @@ repo_exit=$?
 set -e
 check "real repo is clean" 0 "$repo_exit"
 
-# ── CI-tooling exemption (task 015): the fail-closed audit gates under
-# scripts/audit (knip-diff.ts / cycle-gate.ts) call raw `spawnSync(binPath, …)`
-# with a VARIABLE bin — rule 4's shape. They are CI-only tooling that degrades
-# to fail-closed on a spawn error, so rule 4 (whose scope is "Production files
-# only") is exempted for scripts/. The real scripts/audit tree must therefore
-# scan CLEAN. Reverting the exemption reds this case (proving its teeth): the
-# two audit gates would then trip rule 4.
+# ── CI-tooling exemption: the fail-closed audit gates under tools/audit
+# (knip-diff.ts / cycle-gate.ts) call raw `spawnSync(binPath, …)` with a
+# VARIABLE bin — rule 4's shape. They are CI-only tooling that degrades to
+# fail-closed on a spawn error, so rule 4 (whose scope is "Production files
+# only") is exempted for tools/audit/. The live tools/audit tree must
+# therefore scan CLEAN. Reverting the exemption reds this case (proving its
+# teeth): those audit gates would then trip rule 4.
 set +e
-node "$GATE" --src-root "$SCRIPT_DIR/audit" >/dev/null 2>&1
+node "$GATE" --src-root "$(cd "$SCRIPT_DIR/.." && pwd)" >/dev/null 2>&1
 tooling_exit=$?
 set -e
-check "scripts/audit CI tooling is exempt from rule 4" 0 "$tooling_exit"
+check "tools/audit CI tooling is exempt from rule 4" 0 "$tooling_exit"
 
-# ── Nested CI-tooling exemption (#1719, wave-S task 012): a build-tool dir
-# nested below repo-root, e.g. `servers/*/scripts/` (the DR-7 stryker-adapter,
-# CI-only/Linux-only, fail-closed on spawn error), must ALSO be exempt from
-# rule 4 — CI_TOOLING_RE matches the KNOWN roots (repo-root `scripts/` and
+# ── Nested CI-tooling exemption: a build-tool dir nested below repo-root,
+# e.g. `servers/*/scripts/` (stryker-adapter, CI-only/Linux-only, fail-closed
+# on spawn error), must ALSO be exempt from rule 4 — CI_TOOLING_RE matches
+# the known roots (repo-root `scripts/`, `tools/audit/`, and
 # `servers/<name>/scripts/`).
 mkdir -p "$TMP/nested/servers/fake-mcp/scripts"
 cat > "$TMP/nested/servers/fake-mcp/scripts/adapter.mjs" <<'EOF'
@@ -142,6 +142,33 @@ node "$GATE" --src-root "$TMP/nested" >/dev/null 2>&1
 nested_tooling_exit=$?
 set -e
 check "nested servers/*/scripts/ CI tooling is exempt from rule 4" 0 "$nested_tooling_exit"
+
+# Post-fold audit root: `tools/audit/` under a synthetic repo must be exempt
+# from rule 4 the same way the live tree is.
+mkdir -p "$TMP/fold/tools/audit"
+cat > "$TMP/fold/tools/audit/adapter.mjs" <<'EOF'
+import { execFileSync } from 'node:child_process';
+export function run(binPath, args) { return execFileSync(binPath, args); }
+export function measure() { return execFileSync('npx', ['tsx', 'x.ts']); }
+EOF
+set +e
+node "$GATE" --src-root "$TMP/fold" >/dev/null 2>&1
+fold_tooling_exit=$?
+set -e
+check "tools/audit/ CI tooling is exempt from rule 4" 0 "$fold_tooling_exit"
+
+# Test-tree harnesses (helpers / evals / benchmark runners) are not shipped
+# runtime — rule 4 is production-only and must not flag them.
+mkdir -p "$TMP/testharness/tests/helpers"
+cat > "$TMP/testharness/tests/helpers/cli-runner.ts" <<'EOF'
+import { spawnSync } from 'node:child_process';
+export function run(cmd: string, args: string[]) { return spawnSync(cmd, args); }
+EOF
+set +e
+node "$GATE" --src-root "$TMP/testharness" >/dev/null 2>&1
+testharness_exit=$?
+set -e
+check "tests/ harness files are exempt from rule 4" 0 "$testharness_exit"
 
 # ── Negative case (#1719 finding 14): a SHIPPED runtime `scripts/` dir — here
 # `servers/*/src/scripts/` — is NOT a CI-tooling root and must stay CHECKED, so
@@ -178,6 +205,19 @@ node "$GATE" --src-root "$TMP/shipped" >/dev/null 2>&1
 shipped_scripts_exit=$?
 set -e
 check "shipped src/servers/*/scripts/ is NOT exempt (rule 4 still checks it)" 1 "$shipped_scripts_exit"
+
+# A shipped runtime path that merely contains `tools/audit/` below `src/`
+# must stay CHECKED — the hard `^` anchor on CI_TOOLING_RE must red this.
+mkdir -p "$TMP/shipped-audit/src/tools/audit"
+cat > "$TMP/shipped-audit/src/tools/audit/dynspawn.ts" <<'EOF'
+import { execFileSync } from 'node:child_process';
+export function run(bin: string, args: string[]) { return execFileSync(bin, args); }
+EOF
+set +e
+node "$GATE" --src-root "$TMP/shipped-audit" >/dev/null 2>&1
+shipped_audit_exit=$?
+set -e
+check "shipped src/tools/audit/ is NOT exempt (rule 4 still checks it)" 1 "$shipped_audit_exit"
 
 echo "check-windows-portability self-test: $pass passed, $fail failed"
 [[ "$fail" == "0" ]]

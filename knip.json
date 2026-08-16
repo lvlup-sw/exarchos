@@ -25,7 +25,11 @@
         "tests/helpers/__helpers__/mock-mcp-server.mjs",
         "tools/conformance/src/**/*.test.ts",
         "tools/evals/**/*.ts",
-        "tools/test-helpers/**/*.ts"
+        "tools/evals-pkg/src/index.ts",
+        "tools/git-hooks/**/*.ts",
+        "tools/release/**/*.ts",
+        "tools/test-helpers/**/*.ts",
+        "docs/.vitepress/**/*.ts"
       ],
       "project": [
         "src/**/*.ts",
@@ -34,11 +38,16 @@
         "tools/audit/**/*.ts",
         "tools/conformance/src/**/*.ts",
         "tools/evals/**/*.ts",
-        "tools/test-helpers/**/*.ts"
+        "tools/evals-pkg/**/*.ts",
+        "tools/git-hooks/**/*.ts",
+        "tools/release/**/*.ts",
+        "tools/test-helpers/**/*.ts",
+        "docs/.vitepress/**/*.ts"
       ]
     }
   },
   "ignore": [
-    "src/mcp/elicitation-method.ts"
+    "src/mcp/elicitation-method.ts",
+    "tools/eslint-rules/__fixtures__/**"
   ]
 }

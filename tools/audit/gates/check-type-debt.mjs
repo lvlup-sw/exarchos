@@ -10,7 +10,7 @@
  *
  * CENSUS (pinned — the exclusion list below IS the census definition; the
  * baseline is regenerable from it, never hand-edited):
- *   - roots: `src/**`, `src/**`
+ *   - roots: `src/**`
  *   - only `*.ts` files
  *   - excluding (at any depth) `*.test.ts`, `*.bench.ts`, `*.d.ts`,
  *     `__tests__/`, `__shims__/`, `__mocks__/`, `__shared__/`, `evals/`
@@ -91,7 +91,7 @@ export const EXIT_GATE_ERROR = 2;
 // ─── census definition (the exclusion list IS the census — DR-9) ───────────
 
 /** Repo-relative roots the census walks. */
-export const CENSUS_ROOTS = ['src', 'src'];
+export const CENSUS_ROOTS = ['src'];
 /** Only files matching this glob are in the typed surface the register governs. */
 export const CENSUS_EXTENSION_GLOB = '**/*.ts';
 /** Exclusion globs — see the module header for the rationale of each. */

@@ -18,8 +18,17 @@ import { execFileSync } from 'node:child_process';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..');
 
-type Surface = { kind: string; matched: number; detail?: { declared?: number } };
+type Surface = {
+  kind: string;
+  matched: number;
+  detail?: { declared?: number; buildOutput?: boolean };
+};
 type Baseline = { trackedFiles: number; surfaces: Record<string, Surface> };
+
+/** Compile outputs. Absent before `npm run build`; not a dead source path. */
+function isBuildOutput(surface: Surface): boolean {
+  return surface.kind === 'build-output' || surface.detail?.buildOutput === true;
+}
 
 const baseline = JSON.parse(
   fs.readFileSync(path.join(REPO_ROOT, 'tools/audit/guard-liveness-baseline.json'), 'utf8'),
@@ -57,11 +66,24 @@ const live = JSON.parse(
  */
 const KNOWN_DEAD: Record<string, string> = {};
 
-const entries = Object.entries(baseline.surfaces);
+const liveEntries = Object.entries(live.surfaces);
+
+/** Remaining-count floor for a surface that does not declare its own size. */
+function undeclaredScopeFloor(before: number): number {
+  const eightyPercent = Math.ceil(before * 0.8);
+  const twoPercentLoss = before - Math.max(10, Math.ceil(before * 0.02));
+  return Math.max(eightyPercent, twoPercentLoss);
+}
 
 describe('guard liveness', () => {
   it('GuardLiveness_EveryConfiguredGuard_MatchesNonEmptyFileSet', () => {
-    const dead = entries.filter(([, s]) => s.matched === 0).map(([name]) => name);
+    // Live tree, not the committed capture. A baseline-only emptiness check
+    // stays green after a surface dies on disk — the failure this suite exists
+    // to catch. Build outputs are excluded: they are absent before
+    // `npm run build` and are not a dead source path.
+    const dead = Object.entries(live.surfaces)
+      .filter(([, s]) => !isBuildOutput(s) && s.matched === 0)
+      .map(([name]) => name);
 
     // Equality, not subset: a surface that dies later must fail here, and a
     // known-dead one that gets fixed must be struck from the list rather than
@@ -70,6 +92,12 @@ describe('guard liveness', () => {
   });
 
   it('GuardLiveness_KnownDeadSurface_CarriesItsReason', () => {
+    // The live map is empty today, so a loop over it cannot fail. Seed an
+    // empty-reason entry and require the same filter to reject it.
+    const seeded: Record<string, string> = { ...KNOWN_DEAD, 'seeded:empty-reason': '' };
+    const emptyReason = Object.entries(seeded).filter(([, reason]) => reason.length === 0);
+    expect(emptyReason.map(([name]) => name)).toContain('seeded:empty-reason');
+
     for (const [name, reason] of Object.entries(KNOWN_DEAD)) {
       expect(baseline.surfaces[name], `${name} is listed dead but absent from the baseline`).toBeDefined();
       expect(reason.length).toBeGreaterThan(0);
@@ -77,11 +105,11 @@ describe('guard liveness', () => {
   });
 
   it('GuardLiveness_GuardMatchingZeroFiles_FailsClosed', () => {
-    // Proves the assertion has teeth. A seeded empty surface must be rejected;
-    // if this passes, the check above is decorative.
-    const seeded = { ...baseline.surfaces, 'seeded:evaporated-guard': { kind: 'seeded', matched: 0 } };
+    // Proves the assertion has teeth. A seeded empty surface must be rejected
+    // by the same filter the live emptiness checks use (skip compile outputs).
+    const seeded = { ...live.surfaces, 'seeded:evaporated-guard': { kind: 'seeded', matched: 0 } };
     const dead = Object.entries(seeded)
-      .filter(([, s]) => (s as Surface).matched === 0)
+      .filter(([, s]) => !isBuildOutput(s as Surface) && (s as Surface).matched === 0)
       .map(([name]) => name);
 
     expect(dead.sort()).not.toEqual(Object.keys(KNOWN_DEAD).sort());
@@ -90,8 +118,10 @@ describe('guard liveness', () => {
 
   it('GuardLiveness_DeclaredCount_ResolvesToRealFiles', () => {
     // A surface that declares N entries and resolves fewer has partially
-    // evaporated, which a bare non-zero count would hide.
-    const partial = entries
+    // evaporated, which a bare non-zero count would hide. Live tree, not the
+    // committed capture — a baseline-only partial-evaporation check stays
+    // green after the tree loses files.
+    const partial = liveEntries
       .filter(([, s]) => s.detail?.declared !== undefined && s.matched < (s.detail.declared ?? 0))
       .map(([name, s]) => `${name}: ${s.matched}/${s.detail?.declared}`);
 
@@ -101,16 +131,15 @@ describe('guard liveness', () => {
   it('GuardLiveness_TheLiveBoundaryRule_ConstrainsAndForbidsRealModules', () => {
     // The one `error`-severity dependency-cruiser rule. Both ends are checked:
     // an empty constrained set constrains nothing, and an empty target set
-    // leaves nothing to forbid. The refactor destroys both paths, so this is
-    // the number its retargeting has to restore.
-    expect(baseline.surfaces['depcruise:no-domain-core-to-io-adapters:from']?.matched).toBeGreaterThan(0);
-    expect(baseline.surfaces['depcruise:no-domain-core-to-io-adapters:to']?.matched).toBeGreaterThan(0);
+    // leaves nothing to forbid.
+    expect(live.surfaces['depcruise:no-domain-core-to-io-adapters:from']?.matched).toBeGreaterThan(0);
+    expect(live.surfaces['depcruise:no-domain-core-to-io-adapters:to']?.matched).toBeGreaterThan(0);
   });
 
   it('GuardLiveness_CodeownersPatterns_AreEnumeratedByName', () => {
     // CODEOWNERS is extensionless, so any scan filtered by file extension
     // cannot see it. Ownership collapsing to the `*` fallback is silent.
-    const codeowners = entries.filter(([name]) => name.startsWith('codeowners:'));
+    const codeowners = liveEntries.filter(([name]) => name.startsWith('codeowners:'));
 
     expect(codeowners.length).toBeGreaterThan(1);
     for (const [name, surface] of codeowners) {
@@ -138,7 +167,7 @@ describe('guard liveness', () => {
     // the TREE, not the capture. A guard whose path config resolves to nothing
     // does not go red; it passes forever, which reads exactly like success.
     const dead = Object.entries(live.surfaces)
-      .filter(([, s]) => s.matched === 0)
+      .filter(([, s]) => !isBuildOutput(s) && s.matched === 0)
       .map(([name]) => name);
 
     expect(dead.sort(), 'these configured surfaces match no file on the live tree').toEqual(
@@ -166,8 +195,24 @@ describe('guard liveness', () => {
     for (const [name, before] of Object.entries(baseline.surfaces)) {
       const after = live.surfaces[name];
       if (after === undefined) continue; // consolidated away — covered below
+      if (isBuildOutput(after) || isBuildOutput(before)) continue;
       expect(after.matched, `${name} matched ${before.matched} at capture and ${after.matched} now`)
         .toBeGreaterThan(0);
+      if (after.detail?.declared !== undefined) {
+        expect(
+          after.matched,
+          `${name} declared ${after.detail.declared} and resolved ${after.matched}`,
+        ).toBe(after.detail.declared);
+      } else {
+        // Undeclared surfaces may not lose more than two percent of captured
+        // reach (at least ten files), and never more than the twenty-percent
+        // band on a small surface. An 80% floor alone lets ~176 files vanish
+        // from a ~881-file lint glob.
+        expect(
+          after.matched,
+          `${name} fell from ${before.matched} to ${after.matched}`,
+        ).toBeGreaterThanOrEqual(undeclaredScopeFloor(before.matched));
+      }
     }
 
     // A surface named in the capture but absent from the live measurement is
@@ -179,15 +224,49 @@ describe('guard liveness', () => {
     expect(vanished, 'a configured surface disappeared from the measurement').toEqual([]);
   });
 
+  it('GuardLiveness_UndeclaredScopeLoss_RejectsATwentyPercentDropOnALargeSurface', () => {
+    const before = 881;
+    const oldFloor = Math.ceil(before * 0.8);
+    const floor = undeclaredScopeFloor(before);
+    expect(floor, 'the tightened floor is not stricter than 80% on a large surface').toBeGreaterThan(
+      oldFloor,
+    );
+    expect(oldFloor).toBeLessThan(floor);
+  });
+
+  it('GuardLiveness_CodeownersMatcher_IsImportedFromOneModule', () => {
+    // Decay rule: two copies of the prefix matcher already drifted on a
+    // leading slash. Another correct instance is not the fix — both
+    // instruments must import the shared module, and neither may re-declare
+    // the function.
+    const measurer = fs.readFileSync(
+      path.join(REPO_ROOT, 'tools/audit/measure-guard-liveness.mjs'),
+      'utf8',
+    );
+    const census = fs.readFileSync(
+      path.join(REPO_ROOT, 'tools/conformance/src/governance-liveness.ts'),
+      'utf8',
+    );
+    expect(measurer).toMatch(/from ['"]\.\/lib\/codeowners-match\.mjs['"]/);
+    expect(census).toMatch(/from ['"].*lib\/codeowners-match\.mjs['"]/);
+    expect(measurer).not.toMatch(/function codeownersMatches\b/);
+    expect(census).not.toMatch(/function codeownersMatches\b/);
+    expect(measurer).toMatch(/createRequire/);
+    expect(measurer).toMatch(/no-domain-core-to-io-adapters/);
+    expect(measurer).not.toMatch(/fromMatch/);
+    expect(measurer).not.toMatch(/depcruise\.match\(/);
+  });
+
   it('GuardLiveness_EverySurfaceClass_IsRepresented', () => {
     // The classes the design enumerates. A class missing entirely is not a
     // passing guard — it is an unmeasured one.
-    const kinds = new Set(entries.map(([, s]) => s.kind));
+    const kinds = new Set(liveEntries.map(([, s]) => s.kind));
 
     for (const kind of [
       'module-set',
       'ownership',
       'packaging',
+      'build-output',
       'test-protection',
       'catalog-reference',
       'lint-scope',

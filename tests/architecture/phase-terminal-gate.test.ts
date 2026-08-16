@@ -5,10 +5,10 @@
 // — it is a gate that stopped being invoked, which looks like success from
 // every angle except the one that counts.
 //
-// Three claims are checkable here and are checked. Whether the whole suite is
-// green on a clean clone is CI's job and cannot be asserted from inside a
-// working tree; what CAN be asserted is that CI still declares the jobs that
-// would find out.
+// What is checkable here is wiring: CI still declares Linux and Windows, the
+// phase's npm scripts still exist, those scripts are still invoked in the
+// workflow that feeds `ci-gate`, and the identifier snapshot is non-empty.
+// Whether the suite is green on a clean clone is CI's job.
 //
 // @oracle-sources: ../../.github/workflows/ci.yml, ../../package.json, ../../tools/audit/registered-actions-snapshot.json
 
@@ -24,7 +24,13 @@ const pkg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'ut
   scripts?: Record<string, string>;
 };
 
-describe('Phase2_CleanClone_AllGatesGreenOnLinuxAndWindows', () => {
+/** True when `cmd` is a workflow `run:` value, not a comment that mentions it. */
+function isWorkflowRunStep(workflow: string, cmd: string): boolean {
+  const escaped = cmd.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`^\\s+-?\\s*run:\\s+${escaped}\\s*$`, 'm').test(workflow);
+}
+
+describe('Phase2_CiStillDeclaresTheJobsThatWouldFindOut', () => {
   it('CI still runs on BOTH platforms', () => {
     // Windows is where this repository's portability defects surface —
     // path separators, file-URL comparison, concurrent-rename EPERM. A matrix
@@ -55,6 +61,48 @@ describe('Phase2_CleanClone_AllGatesGreenOnLinuxAndWindows', () => {
     // aggregator job stands in for it: if `ci-gate` stops existing, there is
     // nothing left for a required check to point at.
     expect(ciYaml).toMatch(/^\s{2}ci-gate:/m);
+  });
+
+  it('CI still invokes the gates the phase depends on before ci-gate', () => {
+    // Script *names* existing is not the same as those jobs running. A gate
+    // that is invocable but absent from the workflow is the silent-green
+    // shape this file exists to catch.
+    const requiredInvocations = [
+      'npm run typecheck',
+      'npm run test:run',
+      'npm run test:conformance',
+      'npm run render:guard',
+      'npm run lint:invariants',
+      // The layer census (`auditLayerBoundaries`) is collected by the `core`
+      // vitest project. Linux hosts that project as `test:coverage`; Windows
+      // hosts it as `test:core`. `test:run` is the `unit` project and never
+      // collects the census. Both hosts must stay named, because deleting
+      // one leaves the other platform unrun while a substring check on the
+      // remaining name stays green.
+      'npm run test:coverage',
+      'npm run test:core',
+    ];
+    const absent = requiredInvocations.filter((cmd) => !isWorkflowRunStep(ciYaml, cmd));
+    expect(absent, `CI no longer invokes as a run step: ${absent.join(', ')}`).toEqual([]);
+
+    // knip is hosted by the validate-no-legacy rollup, not an npm script name.
+    expect(ciYaml, 'CI dropped the knip host').toMatch(/knip-diff|validate-no-legacy/);
+    // `quality-check` itself is not a CI job. Its load-bearing legs are
+    // `lint:invariants` (above) and `lint:test-first-drift` via `render:guard`.
+    expect(ciYaml, 'CI dropped the Windows lint host').toMatch(/npm run lint:windows/);
+  });
+
+  it('a comment that names a required script is not an invocation', () => {
+    // Teeth. `includes('npm run test:core')` stays green when the only
+    // remaining mention is a comment. The run-step matcher must not.
+    const commented = ciYaml.replace(
+      /^(\s+-?\s*)run:\s+npm run test:coverage\s*$/m,
+      '$1# run: npm run test:coverage',
+    );
+    const stillAStep = isWorkflowRunStep(commented, 'npm run test:coverage');
+    expect(stillAStep, 'commenting out the Linux census host still counted as a run step').toBe(
+      false,
+    );
   });
 });
 

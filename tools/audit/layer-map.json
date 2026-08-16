@@ -2,7 +2,7 @@
   "capturedAt": "2026-08-13",
   "tree": "03413967a346c78efb548ac3452e382ca681ec7f",
   "source": "src",
-  "authority": "docs/system-design.html is the canonical L1-L9 architecture; this file maps the tree onto it. Task 044 asserts THIS mapping, not set equality, which is why the 11 targets -> 9 published layers relation is written out rather than inferred.",
+  "authority": "This file maps first-level src/ directories onto the published L1-L9 targets. Nested layer ids (adapters/cli, adapters/mcp) are named by LAYER_ALLOWED_IMPORTS and resolved by longest declared prefix; they are not first-level map keys. docs/system-design.html is orientation prose, not the nameability of those nested ids.",
   "counts": {
     "directories": 27,
     "mapped": 25,

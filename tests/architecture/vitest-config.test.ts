@@ -1,10 +1,31 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import vitestConfig from '../../vitest.config.js';
 
+const PACKAGE_JSON = join(dirname(fileURLToPath(import.meta.url)), '../../package.json');
+
 /** The root config's projects, as `defineConfig` leaves them. */
-function projects(): Array<{ test?: { name?: string; testTimeout?: number; hookTimeout?: number } }> {
+function projects(): Array<{
+  test?: {
+    name?: string;
+    testTimeout?: number;
+    hookTimeout?: number;
+    benchmark?: { include?: readonly string[] };
+  };
+}> {
   const cfg = vitestConfig as unknown as {
-    test?: { projects?: Array<{ test?: { name?: string; testTimeout?: number; hookTimeout?: number } }> };
+    test?: {
+      projects?: Array<{
+        test?: {
+          name?: string;
+          testTimeout?: number;
+          hookTimeout?: number;
+          benchmark?: { include?: readonly string[] };
+        };
+      }>;
+    };
   };
   return cfg.test?.projects ?? [];
 }
@@ -90,5 +111,22 @@ describe('vitest.config', () => {
       expect(ladder[i] as number).toBeGreaterThan(ladder[i - 1] as number);
     }
     expect(ladder).toEqual([5000, 15000, 30000, 60000]);
+  });
+
+  it('VitestConfig_CoreProject_DeclaresBenchInclude', () => {
+    // `npm run bench` is `--project core` so EventStore benches load with
+    // the bun:sqlite alias and skip the process preflight. Core must
+    // still name the bench globs so a default `**/*.bench.ts` walk is not
+    // the only thing standing between the gate and an empty report.
+    const pkg = JSON.parse(readFileSync(PACKAGE_JSON, 'utf8')) as { scripts?: Record<string, string> };
+    expect(pkg.scripts?.bench).toMatch(/--project core/);
+    const core = projects().find((p) => p.test?.name === 'core');
+    expect(core?.test?.benchmark?.include).toEqual(
+      expect.arrayContaining([
+        'src/**/*.bench.ts',
+        'tests/unit/**/*.bench.ts',
+        'tools/evals/bench/**/*.bench.ts',
+      ]),
+    );
   });
 });

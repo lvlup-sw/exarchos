@@ -5,7 +5,7 @@
  * and pushes via `notifications/claude/channel` on the MCP Server instance.
  *
  * P04-01 — delivery is now **observable and typed**. Every push routes through
- * the {@link ./delivery.js} algebra and returns a {@link DeliveryOutcome}:
+ * the {@link ../../events/channel/delivery.js} algebra and returns a {@link DeliveryOutcome}:
  *   - {@link ChannelEmitter.push} is `best-effort` — a transport failure is
  *     captured into a typed `failed` carrier (an inspectable value) instead of
  *     being discarded by an empty `catch`. The failure is observable; the caller

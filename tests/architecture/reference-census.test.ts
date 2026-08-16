@@ -30,6 +30,7 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..');
 
@@ -56,8 +57,21 @@ type Census = {
   subtrees: Record<string, Subtree>;
 };
 
-const census = JSON.parse(
+/**
+ * Committed capture. A drift snapshot, not the oracle: every assertion below
+ * reads the live measurer so a referrer that appears the moment after a
+ * capture still fails this suite.
+ */
+const snapshot = JSON.parse(
   fs.readFileSync(path.join(REPO_ROOT, 'tools/audit/reference-census.json'), 'utf8'),
+) as Census;
+
+const census = JSON.parse(
+  execFileSync(process.execPath, [path.join(REPO_ROOT, 'tools/audit/measure-reference-census.mjs')], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+  }),
 ) as Census;
 
 const deletionCandidates = Object.entries(census.subtrees).filter(
@@ -83,8 +97,10 @@ const RELOCATED = ['docs/audits', 'docs/bugs', 'docs/market', 'docs/refactors'];
  * this repository rather than out of it, so the census row survives an empty
  * directory. Same reason as {@link RELOCATED}: "holds no files" is a completed
  * move, not a broken measurement, and the two must be told apart by name.
+ *
+ * All four measured re-home rows are empty on the live tree.
  */
-const RE_HOMED_ALREADY = ['docs/evals'];
+const RE_HOMED_ALREADY = ['docs/evals', 'docs/schemas', 'docs/assets', 'docs/architecture'];
 
 /**
  * Subtrees measured free of live references and still holding files — the set
@@ -98,6 +114,12 @@ const RE_HOMED_ALREADY = ['docs/evals'];
 const CLEARED_FOR_DELETION: readonly string[] = [];
 
 describe('reference census', () => {
+  it('ReferenceCensus_Snapshot_IsCurrentWithTheTree', () => {
+    // Tolerance covers ordinary in-flight edits; a structural move blows past it.
+    expect(Math.abs(census.trackedFiles - snapshot.trackedFiles)).toBeLessThan(50);
+    expect(Object.keys(census.subtrees).sort()).toEqual(Object.keys(snapshot.subtrees).sort());
+  });
+
   it('ReferenceCensus_EveryDeletionCandidate_HasZeroLiveReferences', () => {
     // Equality against the cleared list rather than a blanket zero assertion:
     // most subtrees are still referenced, and pretending otherwise is what the
@@ -129,17 +151,14 @@ describe('reference census', () => {
     // The inverted question, and the one still worth asking. A subtree kept on
     // the grounds that something reads it, which nothing references, is the
     // retained list hoarding rather than retaining.
+    // Denominator is the subtree table itself, not "still holds files". The
+    // measured set has left this repository; a scanner that returned no rows
+    // would still fail here.
+    expect(Object.keys(census.subtrees).length, 'the census reports no subtree').toBeGreaterThan(10);
+
     const retainedAndPopulated = Object.entries(census.subtrees).filter(
       ([, s]) => s.ownFiles > 0,
     );
-
-    // Denominator: a census that had lost the ability to see files would report
-    // everything as empty and this check would pass on no input.
-    expect(
-      retainedAndPopulated.length,
-      'the census sees no populated subtree at all — it is measuring nothing',
-    ).toBeGreaterThan(0);
-
     const unreferenced = retainedAndPopulated
       .filter(([, s]) => s.liveReferrers === 0)
       .map(([name]) => name);
@@ -158,6 +177,22 @@ describe('reference census', () => {
       .map(([name]) => name);
 
     expect(wrongly, 'cleared for deletion while still referenced').toEqual([]);
+
+    // The live list is empty today, so the filter above cannot fail. Seed a
+    // still-referenced subtree into the cleared set and require the same
+    // predicate to reject it.
+    const liveReferenced = deletionCandidates.find(([, s]) => s.liveReferrers > 0);
+    expect(
+      liveReferenced,
+      'no deletion candidate still has live referrers — the seed has nothing to reject',
+    ).toBeDefined();
+    const [seededName] = liveReferenced ?? [];
+    expect(seededName, 'seeded cleared name is missing').toBeDefined();
+    const seededCleared = [...CLEARED_FOR_DELETION, seededName as string];
+    const seededWrongly = deletionCandidates
+      .filter(([name, s]) => s.liveReferrers > 0 && seededCleared.includes(name))
+      .map(([name]) => name);
+    expect(seededWrongly).toContain(seededName);
   });
 
   it('ReferenceCensus_BlockedSubtree_NamesItsCodeReferrers', () => {
@@ -230,18 +265,11 @@ describe('reference census', () => {
     const rehomed = Object.entries(census.subtrees).filter(([, s]) => s.disposition === 're-home');
     expect(rehomed.length).toBeGreaterThan(0);
 
-    const pending = rehomed.filter(([name]) => !RE_HOMED_ALREADY.includes(name));
-    // Denominator: if every row were marked done, this check would assert
-    // nothing and could not notice a subtree emptying by accident.
-    expect(pending.length, 're-home rows exist but all are marked done').toBeGreaterThan(0);
+    expect(rehomed.map(([name]) => name).sort()).toEqual([...RE_HOMED_ALREADY].sort());
 
-    for (const [name, subtree] of pending) {
-      expect(subtree.ownFiles, `${name} is scheduled to move but holds no files`).toBeGreaterThan(0);
-    }
-
-    for (const name of RE_HOMED_ALREADY) {
+    for (const [name, subtree] of rehomed) {
       expect(
-        census.subtrees[name]?.ownFiles,
+        subtree.ownFiles,
         `${name} is recorded as re-homed but still holds files`,
       ).toBe(0);
     }

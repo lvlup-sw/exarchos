@@ -13,16 +13,45 @@
  * the `*` fallback without any error, and a `files[]` entry naming a missing
  * path ships a package quietly short of what it promised.
  *
- * Reports. Never fails — the assertions live in the accompanying test.
+ * Reports. Throws only when the named boundary rule is missing from the
+ * loaded config; every other assertion lives in the accompanying test.
  *
  * Usage: `node tools/audit/measure-guard-liveness.mjs [--out FILE]`
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
+import { codeownersMatcher } from './lib/codeowners-match.mjs';
 
+const requireConfig = createRequire(import.meta.url);
 const REPO_ROOT = process.cwd();
+
+/**
+ * Load the live error-severity domain-core / IO-facade rule.
+ * Missing or malformed config fails closed — a regex scrape of the file
+ * would keep reporting counts after the rule was renamed or deleted.
+ *
+ * @returns {{ from: string, to: string }}
+ */
+function liveBoundaryRule() {
+  const configPath = path.join(REPO_ROOT, '.dependency-cruiser.cjs');
+  /** @type {{ forbidden?: ReadonlyArray<{ name?: string, severity?: string, from?: { path?: string }, to?: { path?: string } }> }} */
+  const config = requireConfig(configPath);
+  const rule = (config.forbidden ?? []).find((r) => r.name === 'no-domain-core-to-io-adapters');
+  if (
+    rule === undefined ||
+    rule.severity !== 'error' ||
+    typeof rule.from?.path !== 'string' ||
+    typeof rule.to?.path !== 'string'
+  ) {
+    throw new Error(
+      'no-domain-core-to-io-adapters is missing or is not an error-severity from/to rule',
+    );
+  }
+  return { from: rule.from.path, to: rule.to.path };
+}
 
 /** @returns {string[]} every tracked path, POSIX-separated */
 function trackedFiles() {
@@ -33,20 +62,6 @@ function trackedFiles() {
   })
     .split('\0')
     .filter((rel) => rel.length > 0);
-}
-
-/**
- * CODEOWNERS patterns follow gitignore semantics, not glob semantics: a bare
- * `scripts/` owns the whole subtree, and `*` owns everything.
- *
- * @param {string} pattern
- * @returns {(rel: string) => boolean}
- */
-function codeownersMatcher(pattern) {
-  if (pattern === '*') return () => true;
-  const bare = pattern.replace(/^\//, '');
-  if (bare.endsWith('/')) return (rel) => rel.startsWith(bare);
-  return (rel) => rel === bare || rel.startsWith(`${bare}/`);
 }
 
 /** @param {string} rel */
@@ -75,26 +90,21 @@ function main() {
   // ── dependency-cruiser: the live `error`-severity boundary rule ────────────
   // Both sides are measured. The rule can evaporate from either end: if the
   // constrained set empties it constrains nothing, and if the forbidden target
-  // set empties there is nothing left to forbid.
-  const depcruise = readIfPresent('.dependency-cruiser.cjs') ?? '';
-  const fromMatch = depcruise.match(/path:\s*'(\^src\/\([^']+\)\/)'/);
-  const toMatch = depcruise.match(/path:\s*'(\^src\/adapters\/)'/);
-  if (fromMatch) {
-    const re = new RegExp(fromMatch[1]);
-    surfaces['depcruise:no-domain-core-to-io-adapters:from'] = {
-      kind: 'module-set',
-      matched: tracked.filter((rel) => re.test(rel) && !/\.test\.ts$/.test(rel)).length,
-      detail: { pattern: fromMatch[1] },
-    };
-  }
-  if (toMatch) {
-    const re = new RegExp(toMatch[1]);
-    surfaces['depcruise:no-domain-core-to-io-adapters:to'] = {
-      kind: 'module-set',
-      matched: tracked.filter((rel) => re.test(rel)).length,
-      detail: { pattern: toMatch[1] },
-    };
-  }
+  // set empties there is nothing left to forbid. The config is loaded, not
+  // scraped: a missing named rule throws rather than omitting the surfaces.
+  const boundary = liveBoundaryRule();
+  const fromRe = new RegExp(boundary.from);
+  const toRe = new RegExp(boundary.to);
+  surfaces['depcruise:no-domain-core-to-io-adapters:from'] = {
+    kind: 'module-set',
+    matched: tracked.filter((rel) => fromRe.test(rel) && !/\.test\.ts$/.test(rel)).length,
+    detail: { pattern: boundary.from },
+  };
+  surfaces['depcruise:no-domain-core-to-io-adapters:to'] = {
+    kind: 'module-set',
+    matched: tracked.filter((rel) => toRe.test(rel)).length,
+    detail: { pattern: boundary.to },
+  };
 
   // ── CODEOWNERS — enumerated by name because it is extensionless ────────────
   const codeowners = readIfPresent('.github/CODEOWNERS');
@@ -113,12 +123,24 @@ function main() {
   }
 
   // ── package.json files[] — a shipped entry naming nothing ships nothing ────
+  //
+  // Source-tree entries are counted from `git ls-files`. Build outputs
+  // (`dist/…`) are not tracked and are legitimately absent before
+  // `npm run build`; they are recorded as `build-output` so a pre-build
+  // suite can skip the emptiness check without treating a missing source
+  // path the same way.
   const pkg = JSON.parse(readIfPresent('package.json') ?? '{}');
   for (const entry of pkg.files ?? []) {
     if (typeof entry !== 'string' || entry.startsWith('!')) continue;
+    const buildOutput = entry.startsWith('dist/');
     surfaces[`package.files:${entry}`] = {
-      kind: 'packaging',
-      matched: exists(entry) ? 1 : 0,
+      kind: buildOutput ? 'build-output' : 'packaging',
+      matched: buildOutput
+        ? exists(entry)
+          ? 1
+          : 0
+        : tracked.filter((rel) => rel === entry || rel.startsWith(`${entry}/`)).length,
+      detail: { buildOutput },
     };
   }
 
@@ -132,7 +154,15 @@ function main() {
     // resolve an entry as-is, and only fall back to the join when that fails.
     const root = protectedSuites.generatedFrom ?? '';
     const resolve = (rel) => (exists(rel) ? rel : path.posix.join(root, rel));
-    const present = protectedSuites.files.filter((rel) => exists(resolve(rel)));
+    // Membership is tracked files, the same predicate the governance census
+    // uses. Disk `exists()` would count an untracked local copy as live while
+    // the census reported the path dead — two greens that mean different
+    // things. `resolve` still consults the working tree only to recover the
+    // `generatedFrom` prefix when the declared path is written relative to it.
+    const present = protectedSuites.files.filter((rel) => {
+      const resolved = resolve(rel);
+      return tracked.includes(rel) || tracked.includes(resolved);
+    });
     surfaces['protected-suites:files'] = {
       kind: 'test-protection',
       matched: present.length,
@@ -201,9 +231,19 @@ function main() {
     ).length,
     detail: { glob: lintGlobs.join(' ') },
   };
+  const inv6Script = String(pkg.scripts?.['lint:inv6'] ?? '');
+  const inv6Roots = inv6Script
+    .split(/\s+/)
+    .filter((tok) => tok.endsWith('/') && !tok.includes('lint-inv6') && !tok.startsWith('-'));
+  if (inv6Roots.length === 0) {
+    throw new Error('cannot read lint:inv6 directory operands from package.json — refusing to guess');
+  }
   surfaces['lint:inv6'] = {
     kind: 'lint-scope',
-    matched: tracked.filter((rel) => rel.startsWith('content/') && rel.endsWith('.md')).length,
+    matched: tracked.filter(
+      (rel) => rel.endsWith('.md') && inv6Roots.some((root) => rel.startsWith(root)),
+    ).length,
+    detail: { glob: inv6Roots.join(' ') },
   };
   // Read from the gate's own DEFAULT_DIRS for the same reason. This surface
   // restated `commands/ agents/ content/` — the pre-DR-4 roots — and so counted
@@ -225,9 +265,24 @@ function main() {
   };
 
   // ── knip workspaces ───────────────────────────────────────────────────────
+  // Count tracked files under the workspace's `project` globs. `exists(ws)`
+  // for workspace `.` is always 1 and proves the key exists, not that knip
+  // scans anything.
   const knip = JSON.parse(readIfPresent('knip.json') ?? '{}');
-  for (const ws of Object.keys(knip.workspaces ?? {})) {
-    surfaces[`knip:workspace:${ws}`] = { kind: 'dead-code', matched: exists(ws) ? 1 : 0 };
+  for (const [ws, cfg] of Object.entries(knip.workspaces ?? {})) {
+    const project = Array.isArray(cfg?.project) ? cfg.project : [];
+    const prefixes = project
+      .filter((g) => typeof g === 'string' && !g.startsWith('!'))
+      .map((g) => g.replace(/\*.*$/, ''))
+      .filter((p) => p.length > 0);
+    if (prefixes.length === 0) {
+      throw new Error(`knip workspace "${ws}" declares no positive project globs — refusing to guess`);
+    }
+    surfaces[`knip:workspace:${ws}`] = {
+      kind: 'dead-code',
+      matched: tracked.filter((rel) => prefixes.some((p) => rel.startsWith(p))).length,
+      detail: { glob: project.join(' ') },
+    };
   }
 
   const payload = {

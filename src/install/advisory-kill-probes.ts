@@ -27,6 +27,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { AdvisoryEntry, KillProbeResult } from './advisory-registry.js';
+import { spawnCommandSync } from '../utils/process.js';
 
 // ─── Options ─────────────────────────────────────────────────────────────────
 
@@ -43,7 +44,7 @@ export interface RunKillProbeOptions {
 
 function toolAvailable(cmd: string, versionArg: string): boolean {
   try {
-    const r = spawnSync(cmd, [versionArg], { encoding: 'utf8', windowsHide: true });
+    const r = spawnCommandSync(cmd, [versionArg], { encoding: 'utf8', windowsHide: true });
     return !r.error && (r.status === 0 || typeof r.status === 'number');
   } catch {
     return false;

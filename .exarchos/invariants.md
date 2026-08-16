@@ -500,7 +500,7 @@ invariants:
       - src/contract/cli/cli-contract-seam.ts
       - src/contract/cli/generated-client.ts
       - src/verbs/gates/check-invariant-conformance.ts
-      - docs/designs/archive/2026-05-07-milestone-16-mcp-alignment.md
+      - lvlup-sw/docs:exarchos/docs/designs/archive/2026-05-07-milestone-16-mcp-alignment.md
 
   - id: INV-3
     dimension: basileus-forward
@@ -850,7 +850,7 @@ invariants:
       bespoke RPC. Strategos.Contracts via TypeSpec governs schema.
     references:
       - src/verbs/gates/check-invariant-conformance.ts
-      - docs/research/2026-05-14-semantic-merge-queue-audit.md
+      - lvlup-sw/docs:exarchos/docs/research/2026-05-14-semantic-merge-queue-audit.md
       - src/sync
   - id: INV-17
     dimension: response-economy
@@ -881,7 +881,7 @@ invariants:
       - src/dispatch/core/dispatch.ts
       - src/dispatch/core/dispatch.economy-seam.ts
       - src/dispatch/core/economy.ts
-      - docs/specs/2026-07-12-tool-token-economy-remediation.md
+      - lvlup-sw/docs:exarchos/docs/specs/2026-07-12-tool-token-economy-remediation.md
     citations:
       - "Anthropic, *Writing effective tools for AI agents / tool-use best
         practices* (2024):

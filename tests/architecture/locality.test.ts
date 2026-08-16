@@ -18,9 +18,17 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const REPO_ROOT = path.resolve(import.meta.dirname, '../..');
-const SRC = path.join(REPO_ROOT, 'src');
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+
+/**
+ * Structural roots the cap applies to. `src/` is where the original dump
+ * ground lived; `tools/` is where the same failure moved after the
+ * automation fold. The other four published directories are walked so a
+ * new dumping ground cannot hide outside `src/`.
+ */
+const WALK_ROOTS = ['src', 'tools', 'tests', 'content', 'docs', 'rendered'] as const;
 
 /** Files that are not the directory's own subject matter. */
 const IS_TEST = /\.(test|bench)\.[cm]?[jt]s$|\.test\.sh$/;
@@ -65,6 +73,20 @@ const EXEMPTIONS: Record<string, Exemption> = {
       'same reason: nothing moved out of this level.',
     grantedAt: 30,
   },
+  'tools/audit': {
+    reason:
+      'Repo-automation oracles, baselines and CLIs that the product tree is not allowed to hold. ' +
+      'Breadth here is a count of instruments, not a second orchestrate/. Grouping them into ' +
+      'subdirectories is the reduction; until then the count is pinned so the next file is argued.',
+    grantedAt: 52,
+  },
+  'tools/audit/gates': {
+    reason:
+      'One script or module per gate, same honest-breadth case as src/verbs/gates. The ' +
+      'guard-inventory split moved a monolith into a subdirectory and left this level as the ' +
+      'index of every other gate. Pinned so adding a gate is deliberate.',
+    grantedAt: 40,
+  },
 };
 
 interface DirCount {
@@ -72,7 +94,7 @@ interface DirCount {
   readonly count: number;
 }
 
-/** Own-level, non-test file count for every directory under `src/`. */
+/** Own-level, non-test file count for every directory under the walk roots. */
 function ownLevelCounts(): DirCount[] {
   const out: DirCount[] = [];
   const walk = (abs: string): void => {
@@ -85,7 +107,15 @@ function ownLevelCounts(): DirCount[] {
       }
     }
   };
-  walk(SRC);
+  for (const root of WALK_ROOTS) {
+    const abs = path.join(REPO_ROOT, root);
+    if (!fs.existsSync(abs) || !fs.statSync(abs).isDirectory()) {
+      throw new Error(
+        `locality walk root "${root}" is missing — a misspelled or deleted structural root would silently skip that tree`,
+      );
+    }
+    walk(abs);
+  }
   return out.sort((a, b) => b.count - a.count);
 }
 

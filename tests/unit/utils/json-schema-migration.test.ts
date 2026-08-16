@@ -1,7 +1,7 @@
 /**
  * Migration test (Wave 0 / Tasks B.2-B.5 / #1277):
  * Every `zodToJsonSchema()` call site in `src/` must
- * route through `adapters/json-schema.ts` so emitted schemas advertise the
+ * route through `src/utils/json-schema.ts` so emitted schemas advertise the
  * 2020-12 `$schema` URI uniformly — UNLESS the call site passes an explicit
  * `target`, in which case the caller's choice wins (wrapper contract).
  *

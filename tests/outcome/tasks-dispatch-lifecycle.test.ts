@@ -142,7 +142,7 @@ describe('Tasks dispatch-core lifecycle (#1273 / T29)', () => {
       expect(opByType.has('task.polled')).toBe(true);
     } finally {
       restore();
-      await fs.rm(stateDir, { recursive: true, force: true });
+      await fs.rm(stateDir, { recursive: true, force: true, maxRetries: 3 });
     }
   });
 });

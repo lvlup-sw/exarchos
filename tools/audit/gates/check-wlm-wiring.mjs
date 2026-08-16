@@ -158,7 +158,10 @@ function* walkTsFiles(dir) {
 }
 
 function collectRule1Files(srcRoot) {
-  const files = [...walkTsFiles(path.join(srcRoot, 'orchestrate'))];
+  const files = [
+    ...walkTsFiles(path.join(srcRoot, 'orchestrate')),
+    ...walkTsFiles(path.join(srcRoot, 'verbs')),
+  ];
   const compensationFile = path.join(srcRoot, 'workflow', 'compensation.ts');
   if (existsSync(compensationFile)) files.push(compensationFile);
   return files;
@@ -263,20 +266,21 @@ function* walkMdFiles(dir) {
 // "integration ref", "shared integration", "integration merge", etc.
 const INTEGRATION_CONTEXT_RE = /integration[\s-]?(?:branch|ref|merge)/i;
 
-// The 7 surfaces task-007 rerouted (merge-orchestrator contributes 3 files:
-// SKILL.md + its two references/). Scope-pin (default root only): each must
-// still carry the `serialize_merge` caveat somewhere — if a file is deleted
-// or its reroute caveat silently dropped (rather than a bad directive being
-// reintroduced), that is itself a regression the same-line check alone can't
-// see.
+// The 7 surfaces that carry the serialize_merge reroute (merge-orchestrator
+// contributes 3 files: SKILL.md + its two references/). Paths are relative
+// to `content/` after the domain-grouped skills layout. Scope-pin (default
+// root only): each must still carry the `serialize_merge` caveat somewhere
+// — if a file is deleted or its reroute caveat silently dropped (rather
+// than a bad directive being reintroduced), that is itself a regression the
+// same-line check alone can't see.
 const EXPECTED_SKILLS_SCOPE_FILES = [
-  'merge-orchestrator/SKILL.md',
-  'merge-orchestrator/references/recovery-runbook.md',
-  'merge-orchestrator/references/local-git-semantics.md',
-  'delegate/SKILL.md',
-  'synthesize/SKILL.md',
-  'shepherd/SKILL.md',
-  'git-worktrees/SKILL.md',
+  'delivery/skills/merge-orchestrator/SKILL.md',
+  'delivery/skills/merge-orchestrator/references/recovery-runbook.md',
+  'delivery/skills/merge-orchestrator/references/local-git-semantics.md',
+  'delivery/skills/delegate/SKILL.md',
+  'synthesis/skills/synthesize/SKILL.md',
+  'synthesis/skills/shepherd/SKILL.md',
+  'delivery/skills/git-worktrees/SKILL.md',
 ];
 
 function checkRule2(skillsRoot, skillsRootIsDefault, violations) {

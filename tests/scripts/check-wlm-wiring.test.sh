@@ -40,11 +40,12 @@ grep -q "rule1-naked-worktree-mutation" /tmp/wlm-naked.out || { echo "  FAIL: mi
 # ── WiringGate_WrappedIdioms_Pass ───────────────────────────────────────────
 # A fixture reproducing the 5 wired files (each calling its real idiom) plus
 # the merge seam (delegates to the wrapped executor, no raw spawn of its own)
-# must pass cleanly.
-mkdir -p "$TMP/wrapped/orchestrate/worktree" "$TMP/wrapped/workflow"
-cat > "$TMP/wrapped/orchestrate/git-exec-default.ts" <<'EOF'
+# must pass cleanly. Paths match the post-fold allowlist under verbs/.
+mkdir -p "$TMP/wrapped/verbs/vcs" "$TMP/wrapped/verbs/team" \
+  "$TMP/wrapped/verbs/worktree" "$TMP/wrapped/verbs/merge" "$TMP/wrapped/workflow"
+cat > "$TMP/wrapped/verbs/vcs/git-exec-default.ts" <<'EOF'
 import { execFileSync } from 'node:child_process';
-import { withIndexLockRetrySync } from './worktree/git-retry.js';
+import { withIndexLockRetrySync } from '../worktree/git-retry.js';
 function runGitOnce(repoRoot: string, args: readonly string[]) {
   return execFileSync('git', [...args], { cwd: repoRoot });
 }
@@ -52,9 +53,9 @@ export function defaultGitExec(repoRoot: string, args: readonly string[]) {
   return withIndexLockRetrySync(() => runGitOnce(repoRoot, args));
 }
 EOF
-cat > "$TMP/wrapped/orchestrate/setup-worktree.ts" <<'EOF'
+cat > "$TMP/wrapped/verbs/team/setup-worktree.ts" <<'EOF'
 import { execFileSync } from 'node:child_process';
-import { burstStagger } from './worktree/git-retry.js';
+import { burstStagger } from '../worktree/git-retry.js';
 function gitExec(repoRoot: string, args: readonly string[]) {
   return execFileSync('git', ['-C', repoRoot, ...args]);
 }
@@ -63,12 +64,12 @@ export async function handleSetupWorktree(repoRoot: string, worktreePath: string
   gitExec(repoRoot, ['worktree', 'add', worktreePath, branch]);
 }
 EOF
-cat > "$TMP/wrapped/orchestrate/worktree/git-retry.ts" <<'EOF'
+cat > "$TMP/wrapped/verbs/worktree/git-retry.ts" <<'EOF'
 export async function withIndexLockRetry(op: () => Promise<unknown>) { return op(); }
 export function withIndexLockRetrySync<T>(op: () => T): T { return op(); }
 export async function burstStagger(_opts: Record<string, unknown>) { return 0; }
 EOF
-cat > "$TMP/wrapped/orchestrate/worktree/manager.ts" <<'EOF'
+cat > "$TMP/wrapped/verbs/worktree/manager.ts" <<'EOF'
 import { withIndexLockRetry } from './git-retry.js';
 export class WorktreeManager {
   constructor(private gitRunner: { run(args: readonly string[], cwd: string): { status: number } }) {}
@@ -77,14 +78,14 @@ export class WorktreeManager {
   }
 }
 EOF
-cat > "$TMP/wrapped/orchestrate/merge-orchestrate.ts" <<'EOF'
-import { defaultGitExec } from './git-exec-default.js';
+cat > "$TMP/wrapped/verbs/merge/merge-orchestrate.ts" <<'EOF'
+import { defaultGitExec } from '../vcs/git-exec-default.js';
 export function handleMergeOrchestrate(repoRoot: string) {
   return defaultGitExec(repoRoot, ['worktree', 'list', '--porcelain']);
 }
 EOF
 cat > "$TMP/wrapped/workflow/compensation.ts" <<'EOF'
-import { withIndexLockRetry } from '../orchestrate/worktree/git-retry.js';
+import { withIndexLockRetry } from '../verbs/worktree/git-retry.js';
 async function runCommand(cmd: string, args: readonly string[]) { return { status: 0 }; }
 export async function cleanupWorktree(worktreePath: string) {
   return withIndexLockRetry(() => runCommand('git', ['worktree', 'remove', worktreePath, '--force']));

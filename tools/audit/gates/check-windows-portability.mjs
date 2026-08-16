@@ -120,25 +120,29 @@ const DYNAMIC_SPAWN_RE = /\b(?:execFile|execFileSync|spawn|spawnSync)\s*\(\s*[A-
 // The shell-aware spawn helpers legitimately call raw execFile/spawn with a
 // variable bin — that is their whole job. Exempt only this file.
 const SPAWN_HELPER_RE = /utils[/\\]process\.ts$/;
-// CI/build tooling under a `scripts/` dir is NOT shipped runtime — it runs
-// only on the ubuntu CI host, and the audit gates that shell out a tool
-// (knip-diff / cycle-gate → `node_modules/.bin/*`) DEGRADE-TO-FAIL-CLOSED on a
-// spawn error (incl. win32, where Node can't exec a `.cmd`/`.ps1` shim
-// directly): a spawn failure returns `found:false` → the gate fails closed
-// rather than mis-running. So the dynamic-bin rule (rule 4), whose own scope
-// is "Production files only", does not apply to these. Rule 2 (url-pathname)
-// is a genuine cross-platform path bug and STILL applies to tooling.
-// Scoped to the KNOWN CI-tooling roots ONLY — repo-root `scripts/` and
-// `servers/<name>/scripts/` (e.g. the DR-7 stryker-adapter, CI-only/Linux-only
-// per DR-7). Hard-anchored (`^`) on BOTH alternatives: a `(?:^|[/\\])`
-// boundary on the `servers/…` alternative (the pre-round-2 form) would match
-// at ANY depth — e.g. a SHIPPED runtime path such as `src/servers/foo/scripts/`
-// — wrongly exempting a production dynamic-bin spawn from rule 4 on directory
-// name alone (CodeRabbit round-2, #1719). The string tested against this
-// regex must therefore be the file's position relative to the SCAN ROOT, not
-// always `path.relative(REPO_ROOT, file)` — see the `ciToolingRel` comment at
-// the call site for why.
-const CI_TOOLING_RE = /^(?:scripts[/\\]|servers[/\\][^/\\]+[/\\]scripts[/\\])/;
+// CI/build tooling is NOT shipped runtime — it runs on the ubuntu CI host,
+// and the audit gates that shell out a tool (knip-diff / cycle-gate →
+// `node_modules/.bin/*`) DEGRADE-TO-FAIL-CLOSED on a spawn error (incl. win32,
+// where Node can't exec a `.cmd`/`.ps1` shim directly): a spawn failure
+// returns `found:false` → the gate fails closed rather than mis-running. So
+// the dynamic-bin rule (rule 4), whose own scope is "Production files only",
+// does not apply to these. Rule 2 (url-pathname) is a genuine cross-platform
+// path bug and STILL applies to tooling.
+//
+// Known CI-tooling roots, hard-anchored (`^`) so a shipped path such as
+// `src/servers/foo/scripts/` or `src/tools/audit/` cannot borrow the
+// exemption by directory name alone:
+//   - repo-root `scripts/` (legacy / fixture layout)
+//   - `tools/audit/` (post-fold home of the audit gates)
+//   - `servers/<name>/scripts/` (nested package CI scripts)
+// The string tested against this regex must be the file's position relative
+// to the SCAN ROOT — see the `ciToolingRel` comment at the call site.
+const CI_TOOLING_RE =
+  /^(?:scripts[/\\]|tools[/\\]audit[/\\]|servers[/\\][^/\\]+[/\\]scripts[/\\])/;
+// Test-tree harnesses (helpers, evals, benchmark runners) are not shipped
+// runtime. Rule 4 is production-only; `*.test.ts` already skips it via
+// `isTest`, but sibling harness files are not `*.test.ts`.
+const UNDER_TESTS_RE = /^tests[/\\]/;
 
 function main() {
   const args = parseArgs(process.argv.slice(2));
@@ -178,8 +182,9 @@ function main() {
     // tests they may spawn a bin (the running `node` via process.execPath) the
     // shipped code wouldn't, so they're exempt from the dynamic-spawn rule.
     const isBench = /\.bench\.ts$/.test(file);
-    // CI/build tooling under scripts/ is exempt from the dynamic-spawn rule for
-    // the same reason as benches (dev/CI-only, fail-closed on spawn error).
+    // CI/build tooling under tools/audit/ (and the legacy scripts/ roots) is
+    // exempt from the dynamic-spawn rule for the same reason as benches
+    // (dev/CI-only, fail-closed on spawn error).
     //
     // CI_TOOLING_RE is now hard-anchored (`^`) so it only matches at the START
     // of the string tested against it — that string must be the file's
@@ -205,6 +210,7 @@ function main() {
       path.isAbsolute(repoRootRel);
     const ciToolingRel = outsideRepo ? path.relative(args.root, file) : repoRootRel;
     const isCiTooling = CI_TOOLING_RE.test(ciToolingRel);
+    const isUnderTests = UNDER_TESTS_RE.test(ciToolingRel);
 
     // 2 — non-portable module path (anywhere)
     for (const m of src.matchAll(URL_PATHNAME_RE)) {
@@ -212,13 +218,16 @@ function main() {
     }
 
     if (!isTest) {
-      // 1 — shell-shim spawn (production only; tests may exercise the raw form)
-      for (const m of src.matchAll(SPAWN_RE)) {
-        record(file, raw, m.index, 'spawn-shim: route npm/npx via runCommandSync');
+      // 1 — shell-shim spawn (production only; tests and fail-closed CI
+      // tooling may exercise the raw form)
+      if (!isCiTooling) {
+        for (const m of src.matchAll(SPAWN_RE)) {
+          record(file, raw, m.index, 'spawn-shim: route npm/npx via runCommandSync');
+        }
       }
       // 4 — dynamic-bin spawn (production only; the spawn helper + benches +
-      // fail-closed CI tooling under scripts/ exempt)
-      if (!SPAWN_HELPER_RE.test(file) && !isBench && !isCiTooling) {
+      // fail-closed CI tooling + the tests/ tree are exempt)
+      if (!SPAWN_HELPER_RE.test(file) && !isBench && !isCiTooling && !isUnderTests) {
         for (const m of src.matchAll(DYNAMIC_SPAWN_RE)) {
           record(
             file,

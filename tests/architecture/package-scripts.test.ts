@@ -13,4 +13,14 @@ describe('package.json scripts', () => {
     const scripts = parsed.scripts ?? {};
     expect(scripts['test:outcome']).toBe('vitest run --project outcome');
   });
+
+  it('PackageJson_BenchScript_RunsCoreProjectOnly', () => {
+    // Other projects do not carry the bun:sqlite alias (or they load the
+    // process preflight). `vitest bench` without a project filter collects
+    // EventStore benches in those projects and fails the regression gate
+    // before any numbers are compared.
+    const raw = fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8');
+    const parsed = JSON.parse(raw) as { scripts?: Record<string, string> };
+    expect(parsed.scripts?.bench).toBe('vitest bench --project core');
+  });
 });

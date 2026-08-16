@@ -9,7 +9,7 @@
 // and this workflow has repeatedly found guards in the second state. Pinning a
 // known-dead input proves the reporting path can produce a finding at all.
 //
-// @oracle-sources: ../../../.github/CODEOWNERS, ../../../package.json, ../../../manifest.json, live-git-tracked-file-listing
+// @oracle-sources: ../../../.github/CODEOWNERS, ../../../package.json, ../../../manifest.json, ../../../tools/audit/protected-suites.json, live-git-tracked-file-listing
 //
 // Co-located with its subject under `src/` because that is the directory the
 // `conformance` vitest project collects. A sibling `tests/` directory here is
@@ -43,7 +43,7 @@ describe('governance liveness', () => {
     for (const surface of result.surfaces) {
       counted.set(surface.register, (counted.get(surface.register) ?? 0) + 1);
     }
-    for (const register of ['codeowners', 'files', 'manifest'] as const) {
+    for (const register of ['codeowners', 'files', 'manifest', 'protected-suites'] as const) {
       expect(
         counted.get(register) ?? 0,
         `the ${register} register contributed no surfaces — it was not read`,
@@ -73,6 +73,30 @@ describe('governance liveness', () => {
     ).toEqual([]);
   });
 
+  it('FilesArray_BuildOutputs_AreExcludedFromDeadOnACleanTree', () => {
+    // `dist/bin` and `dist/release-verify.js` are bun compile outputs. They
+    // are recorded so the census can see them, but a clean checkout (and CI
+    // `test:run` / `test:conformance`, which run before `build:binary`) must
+    // not report the tarball dead.
+    const buildOutputs = result.surfaces.filter((s) => s.register === 'files' && s.buildOutput);
+    expect(
+      buildOutputs.map((s) => s.pattern).sort(),
+      'package.json `files[]` names no dist/ build output — the exclusion below is vacuous',
+    ).not.toEqual([]);
+    expect(
+      result.dead.filter((s) => s.buildOutput).map((s) => s.pattern),
+      'a build-output files[] entry was reported dead on a tree that has not been built',
+    ).toEqual([]);
+  });
+
+  it('ProtectedSuites_EveryDeclaredFile_IsTracked', () => {
+    const dead = result.dead.filter((s) => s.register === 'protected-suites');
+    expect(
+      dead.map((s) => s.pattern),
+      'protected-suites.json names files that are not tracked. The suite-protection register fails open.',
+    ).toEqual([]);
+  });
+
   it('ManifestComponents_EverySource_ExistsOnDisk', () => {
     const dead = result.dead.filter((s) => s.register === 'manifest');
     expect(
@@ -80,6 +104,40 @@ describe('governance liveness', () => {
       'plugin manifest components whose `source` names nothing. The installer copies an empty ' +
         'component and reports success.',
     ).toEqual([]);
+  });
+
+  it('Codeowners_StarIsTheFirstRuleAndIsNotRepeated', () => {
+    // GitHub is last-match-wins. A trailing `*` collapses every more-specific
+    // rule. The default must be first, and it must appear once.
+    const patterns = codeownersPatterns();
+    expect(patterns.length, 'CODEOWNERS declares no patterns').toBeGreaterThan(1);
+    expect(patterns[0], 'the default rule is not first').toBe('*');
+    expect(
+      patterns.filter((pattern) => pattern === '*'),
+      '`*` is repeated — later copies win and swallow the specific rules',
+    ).toEqual(['*']);
+  });
+
+  it('Codeowners_LastMatch_DoesNotCollapseSpecificRulesToStar', () => {
+    const patterns = codeownersPatterns();
+    const tracked = trackedFiles();
+    const specific = patterns.filter((pattern) => pattern !== '*');
+    expect(specific.length, 'CODEOWNERS has no rule besides `*`').toBeGreaterThan(0);
+
+    for (const pattern of specific) {
+      const hits = tracked.filter((rel) => codeownersMatches(pattern, rel));
+      expect(hits.length, `${pattern} matches no tracked file`).toBeGreaterThan(0);
+      for (const rel of hits) {
+        let winner: string | undefined;
+        for (const rule of patterns) {
+          if (codeownersMatches(rule, rel)) winner = rule;
+        }
+        expect(
+          winner,
+          `${rel} last-match-wins to \`*\` despite matching ${pattern}`,
+        ).not.toBe('*');
+      }
+    }
   });
 
   it('GovernanceLiveness_StalePattern_FailsClosed', () => {
@@ -95,7 +153,16 @@ describe('governance liveness', () => {
 
     // …and a live one still matches, so the matcher is not simply broken.
     expect(tracked.filter((rel) => codeownersMatches('src/', rel)).length).toBeGreaterThan(0);
+    expect(tracked.filter((rel) => codeownersMatches('/src/', rel)).length).toBeGreaterThan(0);
+    expect(tracked.filter((rel) => codeownersMatches('/src/', rel)).length).toBe(
+      tracked.filter((rel) => codeownersMatches('src/', rel)).length,
+    );
     expect(tracked.filter((rel) => codeownersMatches('*', rel)).length).toBe(tracked.length);
+    // Unsupported gitignore forms match nothing so a hole reports dead
+    // rather than assumed live. `**` is the form that would otherwise
+    // look live on every path.
+    expect(tracked.filter((rel) => codeownersMatches('**', rel))).toEqual([]);
+    expect(tracked.filter((rel) => codeownersMatches('src/**', rel))).toEqual([]);
   });
 
   it('the report names every dead surface it found', () => {

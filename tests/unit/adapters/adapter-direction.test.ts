@@ -15,11 +15,10 @@
 // `cli/` would make the contract depend on one of its clients, which is the
 // coupling INV-2 exists to forbid.
 //
-// This is a dedicated scan rather than a `LAYER_ALLOWED_IMPORTS` row because
-// `layerOf()` still resolves a module to its FIRST path segment, so both
-// halves read as the single layer `adapters` and the census cannot express an
-// edge between them. Making the census path-aware is DR-3's own work; until it
-// lands, the rule is enforced here rather than left unenforced.
+// The layering census now declares `adapters/mcp` and `adapters/cli` as
+// nested ids, so `mcp → cli` is a real FORBIDDEN_IMPORT there. This file
+// stays as the focused INV-2 kill probe: it names the directory-level
+// fact and plants a reverse edge without depending on the allowance table.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect } from 'vitest';

@@ -20,6 +20,10 @@ src/**/*.d.ts.map
 # `src/`, and a fresh clone then failed `npm run build` at the bundle step.
 !src/lifecycle/install-skills-bridge.js
 !src/lifecycle/install-skills-bridge.d.ts
+# Authored ambient `bun:sqlite` types — not tsc output. The servers/ fold
+# moved this file onto the `src/**/*.d.ts` ignore, so a fresh clone lost
+# the only declaration `prepare`/`tsc` uses for that import.
+!src/storage/__shims__/bun-sqlite.d.ts
 
 # Ignore node_modules in plugins
 plugins/*/servers/*/node_modules/

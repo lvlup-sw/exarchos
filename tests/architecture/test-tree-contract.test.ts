@@ -276,6 +276,21 @@ describe('TestTree', () => {
     }
   });
 
+  it('LayerBoundaryCensus_LivesInTheCoreHostedUnitTier', () => {
+    // The live `auditLayerBoundaries` suite is a unit-tier file, collected by
+    // the `core` project. `npm run test:run` is the `unit` project and never
+    // sees it. Pinning the path here is what keeps that host from drifting
+    // back under `tests/architecture/`.
+    const rel = 'tests/unit/architecture/layer-boundaries-seam.test.ts';
+    expect(existsSync(join(REPO_ROOT, rel)), `${rel} is absent`).toBe(true);
+    expect(TIER_OWNER.unit).toBe('core');
+    expect(TIER_OWNER.architecture).toBe('unit');
+    expect(collectedFiles, `${rel} is collected by no project`).toContain(rel);
+    expect(ownersByGlob('unit')).toEqual(['core']);
+    expect(ownersByGlob('architecture')).toEqual(['unit']);
+    expect(collectedFiles).not.toContain('tests/architecture/layer-boundaries-seam.test.ts');
+  });
+
   it('CapturedEvalRuns_AfterMove_RemainExcludedFromCollection', () => {
     // Task 033 moved the captured eval artifacts under `tests/`, where the test
     // globs actually reach. Each one is a verbatim record of what a model wrote,

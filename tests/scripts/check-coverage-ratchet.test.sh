@@ -25,7 +25,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../tools/audit/gates" && pwd)"
 GATE="$SCRIPT_DIR/check-coverage-ratchet.mjs"
-VITEST_CONFIG="$SCRIPT_DIR/../vitest.config.ts"
+VITEST_CONFIG="$(cd "$SCRIPT_DIR/../../.." && pwd)/vitest.config.ts"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
