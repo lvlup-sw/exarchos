@@ -12,6 +12,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const RUNTIME_ROOT = 'src';
+// These live outside `src/` after the evals fold but still carry owned
+// taxonomy / fixture literals the census must keep counting.
+const EXTRA_CENSUS_FILES = Object.freeze([
+  'tools/evals/evals/benchmarks/seeded-defects/corpus.ts',
+  'tools/evals/benchmarks/event-factories.ts',
+]);
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.mjs']);
 const EXEMPTION_CATEGORIES = new Set([
   'diagnostic-observation',
@@ -44,13 +50,13 @@ const DISPOSITIONS = Object.freeze([
   { file: 'src/verbs/gates/gate-ownership-census.ts', kind: 'durable-runner', count: 2, owner: 'orchestrate/gate-ownership-census', rationale: 'Live-witness probes drive the canonical runGate against sacrificial stores to prove success-carries-evidence and fail-closed behavior; no enforceable evidence is produced outside the runner.', category: 'diagnostic-observation' },
   { file: 'src/verbs/gates/durable-gate-producer.ts', kind: 'durable-runner', count: 2, owner: 'orchestrate/durable-gate-producer', rationale: mergedRationale, category: 'merged-durable-producer' },
   ...[
-    'check-integration-suite.ts',
-    'contract-drift-handler.ts',
-    'mock-boundary-handler.ts',
-    'static-analysis.ts',
-    'test-adequacy-handler.ts',
-  ].map((name) => ({
-    file: `src/orchestrate/${name}`,
+    'src/verbs/gates/check-integration-suite.ts',
+    'src/verbs/gates/contract-drift-handler.ts',
+    'src/verbs/gates/mock-boundary-handler.ts',
+    'src/verbs/gates/static-analysis.ts',
+    'src/verbs/gates/test-adequacy-handler.ts',
+  ].map((file) => ({
+    file,
     kind: 'durable-runner',
     count: 1,
     owner: 'orchestrate/durable-gate-producer',
@@ -58,15 +64,15 @@ const DISPOSITIONS = Object.freeze([
     category: 'merged-durable-producer',
   })),
   ...[
-    'plan-coverage.ts',
-    'prepare-synthesis.ts',
-    'provenance-chain.ts',
-    'review-verdict.ts',
-  ].map((name) => ({
-    file: `src/orchestrate/${name}`,
+    ['src/verbs/gates/plan-coverage.ts', 'orchestrate/gate-runner'],
+    ['src/verbs/team/prepare-synthesis.ts', 'orchestrate/gate-runner'],
+    ['src/verbs/gates/provenance-chain.ts', 'orchestrate/gate-runner'],
+    ['src/verbs/review/review-verdict.ts', 'orchestrate/gate-runner'],
+  ].map(([file, owner]) => ({
+    file,
     kind: 'durable-runner',
     count: 1,
-    owner: 'orchestrate/gate-runner',
+    owner,
     rationale: mergedRationale,
     category: 'merged-durable-producer',
   })),
@@ -96,29 +102,29 @@ const DISPOSITIONS = Object.freeze([
 
   // Typed, exact-file non-enforceable observation exemptions.
   ...[
-    ['check-convergence.ts', 1],
-    ['check-event-emissions.ts', 1],
-    ['check-exploration-depth.ts', 2],
-    ['check-invariant-conformance.ts', 1],
-    ['context-economy.ts', 1],
-    ['gate-utils.ts', 1],
-    ['mutation-adequacy.ts', 3],
-    ['operational-resilience.ts', 1],
-    ['plan-coverage.ts', 1],
-    ['post-merge.ts', 1],
-    ['prepare-delegation.ts', 1],
-    ['prepare-synthesis.ts', 3],
-    ['provenance-chain.ts', 1],
-    ['pure/gate-preflight.ts', 1],
-    ['review-verdict.ts', 3],
-    ['security-scan.ts', 1],
-    ['task-decomposition.ts', 1],
-    ['workflow-determinism.ts', 1],
-  ].map(([name, count]) => ({
-    file: `src/orchestrate/${name}`,
+    ['src/verbs/gates/check-convergence.ts', 1, 'orchestrate/check-convergence'],
+    ['src/verbs/gates/check-event-emissions.ts', 1, 'orchestrate/check-event-emissions'],
+    ['src/verbs/gates/check-exploration-depth.ts', 2, 'orchestrate/check-exploration-depth'],
+    ['src/verbs/gates/check-invariant-conformance.ts', 1, 'orchestrate/check-invariant-conformance'],
+    ['src/verbs/gates/context-economy.ts', 1, 'orchestrate/context-economy'],
+    ['src/verbs/gates/gate-utils.ts', 1, 'orchestrate/gate-utils'],
+    ['src/verbs/gates/mutation-adequacy.ts', 3, 'orchestrate/mutation-adequacy'],
+    ['src/verbs/gates/operational-resilience.ts', 1, 'orchestrate/operational-resilience'],
+    ['src/verbs/gates/plan-coverage.ts', 1, 'orchestrate/plan-coverage'],
+    ['src/verbs/gates/post-merge.ts', 1, 'orchestrate/post-merge'],
+    ['src/verbs/team/prepare-delegation.ts', 1, 'orchestrate/prepare-delegation'],
+    ['src/verbs/team/prepare-synthesis.ts', 3, 'orchestrate/prepare-synthesis'],
+    ['src/verbs/gates/provenance-chain.ts', 1, 'orchestrate/provenance-chain'],
+    ['src/verbs/pure/gate-preflight.ts', 1, 'orchestrate/pure/gate-preflight'],
+    ['src/verbs/review/review-verdict.ts', 3, 'orchestrate/review-verdict'],
+    ['src/verbs/gates/security-scan.ts', 1, 'orchestrate/security-scan'],
+    ['src/verbs/tasks/task-decomposition.ts', 1, 'orchestrate/task-decomposition'],
+    ['src/verbs/gates/workflow-determinism.ts', 1, 'orchestrate/workflow-determinism'],
+  ].map(([file, count, owner]) => ({
+    file,
     kind: 'direct-gate-emitter',
     count,
-    owner: `orchestrate/${name.replace(/\.ts$/, '')}`,
+    owner,
     rationale: diagnosticRationale,
     category: 'diagnostic-observation',
   })),
@@ -242,6 +248,17 @@ export async function censusGateRunnerOwnership(repoRoot) {
   const findings = [];
   for (const relative of await walk(runtimeRoot, repoRoot)) {
     findings.push(...collectFindings(relative, await readFile(path.join(repoRoot, relative), 'utf8')));
+  }
+  for (const extra of EXTRA_CENSUS_FILES) {
+    const absolute = path.join(repoRoot, extra);
+    try {
+      const extraStat = await stat(absolute);
+      if (extraStat.isFile()) {
+        findings.push(...collectFindings(extra, await readFile(absolute, 'utf8')));
+      }
+    } catch {
+      // Missing extra file: the disposition expected-count check reports found 0.
+    }
   }
 
   const dispositionViolations = validateDispositions();

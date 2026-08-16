@@ -40,7 +40,7 @@
     "skills:guard": "npm run render:guard",
     "hooks:guard": "npm run render:guard",
     "prepare": "tsc",
-    "bench": "vitest bench",
+    "bench": "vitest bench --project core",
     "bench:plan-format": "tsx tools/evals/evals/benchmarks/plan-format-corpus.ts",
     "test": "vitest",
     "test:unit": "vitest run --project unit",
