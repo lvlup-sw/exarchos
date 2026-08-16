@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve, sep } from 'node:path';
 import ts from 'typescript';
@@ -219,6 +219,16 @@ describe('no legacy runtime deps', () => {
   //   - `__tests__/`   — test fixtures
   //   - `*.test.ts`    — co-located tests
   //   - `*.d.ts`       — type-only declarations (e.g. `bun-sqlite.d.ts`)
+  it('BunSqliteAmbientDeclaration_IsAuthoredAndTracked', () => {
+    // `src/**/*.d.ts` ignores compiled declarations. This file is authored
+    // ambient types; without the gitignore exception, `prepare`/`tsc` on a
+    // fresh clone cannot resolve `bun:sqlite`.
+    const shim = join(SRC_DIR, 'storage', '__shims__', 'bun-sqlite.d.ts');
+    expect(existsSync(shim)).toBe(true);
+    const gitignore = readFileSync(resolve(__dirname, '../../../.gitignore'), 'utf8');
+    expect(gitignore).toMatch(/!src\/storage\/__shims__\/bun-sqlite\.d\.ts/);
+  });
+
   it('NoLegacyRuntimeDeps_ProductionCode_NoBunSqliteImportsOutsideStorage', () => {
     const productionFiles = collectProductionTsFiles(SRC_DIR);
     // Sanity: the walker must actually find files. If this is ever 0,
