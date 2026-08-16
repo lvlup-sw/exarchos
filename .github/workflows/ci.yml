@@ -430,9 +430,10 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          # Stay on 24 here: Node 22 has no better-sqlite3 win32 prebuild and
-          # the runner cannot compile the native addon (no Visual Studio).
-          node-version: '24'
+          # Node 24 aborts vitest workers on better-sqlite3 isolate teardown.
+          # Node 22 has no win32 prebuild (and the runner cannot compile).
+          # Node 20 is the LTS that still ships a prebuild and does not abort.
+          node-version: '20'
           cache: npm
           cache-dependency-path: package-lock.json
 
