@@ -51,8 +51,14 @@ export function closeOpenDatabases(): void {
   openDatabases.clear();
 }
 
-process.once('beforeExit', closeOpenDatabases);
-process.once('exit', closeOpenDatabases);
+// Vitest workers close handles from `tests/helpers/close-sqlite.ts` (afterAll)
+// while the isolate is still alive. Process hooks are the fallback for
+// non-vitest Node entrypoints; skip them under vitest so a singleFork
+// worker does not accumulate a listener per loaded copy of this module.
+if (process.env.VITEST === undefined) {
+  process.once('beforeExit', closeOpenDatabases);
+  process.once('exit', closeOpenDatabases);
+}
 
 export const Database = class TrackingDatabase extends BetterSqlite3 {
   constructor(filename: string, options?: ConstructorParameters<typeof BetterSqlite3>[1]) {
