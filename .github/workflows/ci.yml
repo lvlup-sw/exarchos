@@ -270,7 +270,10 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: '24'
+          # Node 24 tears down a vitest fork isolate before better-sqlite3
+          # can unregister its environment cleanup hook, aborting the worker
+          # (`Assertion failed: (env) != nullptr`) and starving coverage.
+          node-version: '22'
           cache: npm
           cache-dependency-path: package-lock.json
 
@@ -427,7 +430,8 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: '24'
+          # Same better-sqlite3 / isolate-teardown abort as the Linux MCP job.
+          node-version: '22'
           cache: npm
           cache-dependency-path: package-lock.json
 
@@ -1525,7 +1529,8 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: '24'
+          # Same better-sqlite3 / isolate-teardown abort as the MCP jobs.
+          node-version: '22'
           cache: npm
           cache-dependency-path: package-lock.json
 
