@@ -120,7 +120,7 @@ export interface ContractDeclaration {
   readonly declaredEffects: readonly EffectClass[];
   /**
    * The event types the contract declares this handler appends — the
-   * intent/result emission set (DR-7). Optional: existing declarations predate
+   * intent/result emission set. Optional: existing declarations predate
    * this field and declare none, so the emission axis has nothing to verify
    * for them and reports `not-observed` rather than a vacuous `pass`.
    */
@@ -166,7 +166,7 @@ export function createEffectRecorder(): EffectRecorder {
   };
 }
 
-/** One event the handler actually appended, as recorded at runtime (DR-7). */
+/** One event the handler actually appended, as recorded at runtime. */
 export interface EmissionEvent {
   readonly eventType: string;
   readonly evidence: string;
@@ -178,7 +178,7 @@ export interface EmissionEvent {
  * {@link observeBehavior}). Its evidence is an OBSERVED append: a handler that
  * threads a real event-store append through `record()` at the point it commits
  * is the difference between "declared to emit" and "was seen appending" —
- * re-reading the declaration would be tautological (DR-7).
+ * re-reading the declaration would be tautological.
  */
 export interface EmissionRecorder {
   record(eventType: string, evidence: string): void;
@@ -208,7 +208,7 @@ export interface ObservationContext {
   readonly caller: Caller;
   readonly effects: EffectRecorder;
   /**
-   * The emission recorder (DR-7). Optional on the TYPE only so the one
+   * The emission recorder. Optional on the TYPE only so the one
    * existing caller-constructed literal (`fixtures.ts`'s admission probe)
    * keeps compiling unchanged; {@link observeBehavior} always mints and
    * injects one, so a handler reached through the oracle can rely on it being
@@ -384,7 +384,7 @@ export interface Observation {
   readonly performedEffects: readonly EffectEvent[];
   readonly staticEffects: readonly EffectClass[];
   /**
-   * Events OBSERVED appended during the authorized probe (DR-7) — never a
+   * Events OBSERVED appended during the authorized probe — never a
    * re-read of {@link ContractDeclaration.declaredEmissions}. See
    * {@link checkDeclaredEmission}.
    */
@@ -965,7 +965,7 @@ export function checkCompatibilityBreak(
   };
 }
 
-// ─── The emission axis (DR-7) ────────────────────────────────────────────────
+// ─── The emission axis ────────────────────────────────────────────────
 //
 // Reported SEPARATELY from {@link ORACLE_AXES} rather than folded into that
 // closed union: `fixtures.ts`'s `AXIS_HANDLERS` is typed `Record<OracleAxis, …>`
@@ -1038,7 +1038,7 @@ export interface OracleReport {
   readonly actionId: string;
   readonly ok: boolean;
   readonly verdicts: readonly AxisVerdict[];
-  /** The emission axis's verdict (DR-7), reported separately — see {@link EmissionAxisVerdict}. */
+  /** The emission axis's verdict, reported separately — see {@link EmissionAxisVerdict}. */
   readonly emissionVerdict: EmissionAxisVerdict;
 }
 
@@ -1051,7 +1051,7 @@ export interface RunOracleOptions {
  * Run the oracle over one subject: observe its behavior, then compare each axis'
  * independently-derived expectation against the observation. `ok` is false iff
  * any axis returns `fail` — the five {@link ORACLE_AXES} verdicts plus the
- * emission verdict (DR-7).
+ * emission verdict.
  */
 export async function runOracle(
   subject: OracleSubject,
@@ -1078,7 +1078,7 @@ export interface OracleSuiteReport {
   readonly reports: readonly OracleReport[];
   /**
    * Every failing verdict across the suite, for a single-glance diagnostic.
-   * Includes emission-axis (DR-7) failures alongside the five {@link ORACLE_AXES}.
+   * Includes emission-axis failures alongside the five {@link ORACLE_AXES}.
    */
   readonly failures: readonly (AxisVerdict | EmissionAxisVerdict)[];
   /**

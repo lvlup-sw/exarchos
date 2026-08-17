@@ -218,7 +218,7 @@ describe('P03-09 oracle — per-axis check discrimination', () => {
   });
 });
 
-// ─── DR-7: the emission axis observes the append, not the declaration ────────
+// ─── The emission axis observes the append, not the declaration ────────
 //
 // This axis's evidence must be an OBSERVED append (the emission recorder
 // `observeBehavior` mints and injects), never a re-read of
@@ -258,7 +258,7 @@ const emittingHandler: ObservableHandler = (_input, ctx) => {
 /** Declares the emission (via the shared declaration) but never appends. */
 const silentHandler: ObservableHandler = () => ({ id: 'req-1' });
 
-describe('P03-09 oracle — DR-7 emission axis observes the append, not the declaration', () => {
+describe('P03-09 oracle — emission axis observes the append, not the declaration', () => {
   it('OracleEmission_Recorder_IsMintedAndInjectedLikeTheEffectRecorder', async () => {
     const seenRecorders: (EmissionRecorder | undefined)[] = [];
     const capturingHandler: ObservableHandler = (_input, ctx) => {
