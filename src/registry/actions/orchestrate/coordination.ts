@@ -31,7 +31,7 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
     phases: DELEGATE_PHASES,
     roles: ROLE_TEAMMATE,
     autoEmits: [
-      { event: 'task.claimed', condition: 'always' },
+      { event: 'task.claimed', condition: 'always', role: 'primary', owner: 'orchestrate' },
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.task_claim'),
     annotations: LOCAL_MUTATION,
@@ -58,7 +58,7 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
     phases: DELEGATE_PHASES,
     roles: ROLE_TEAMMATE,
     autoEmits: [
-      { event: 'task.completed', condition: 'always' },
+      { event: 'task.completed', condition: 'always', role: 'primary', owner: 'orchestrate' },
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.task_complete'),
     annotations: LOCAL_MUTATION,
@@ -81,7 +81,7 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
     phases: DELEGATE_PHASES,
     roles: ROLE_TEAMMATE,
     autoEmits: [
-      { event: 'task.failed', condition: 'always' },
+      { event: 'task.failed', condition: 'always', role: 'primary', owner: 'orchestrate' },
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.task_fail'),
     annotations: LOCAL_MUTATION,
@@ -153,7 +153,7 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
     autoEmits: [
-      { event: 'quality.hint.generated', condition: 'conditional', description: 'When hints exist' },
+      { event: 'quality.hint.generated', condition: 'conditional', description: 'When hints exist', role: 'primary', owner: 'orchestrate' },
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.prepare_delegation'),
     annotations: LOCAL_MUTATION,
@@ -175,7 +175,7 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
     // to minutes on non-trivial repos.  CLI adapter emits heartbeats.
     longRunning: true,
     autoEmits: [
-      { event: 'gate.executed', condition: 'always' },
+      { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.prepare_synthesis'),
     annotations: LOCAL_MUTATION,
@@ -200,10 +200,10 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
     // with stack depth + GitHub API round-trip time.
     longRunning: true,
     autoEmits: [
-      { event: 'shepherd.started', condition: 'conditional', description: 'First invocation (idempotent)' },
-      { event: 'shepherd.approval_requested', condition: 'conditional', description: 'When approval needed' },
-      { event: 'shepherd.completed', condition: 'conditional', description: 'When PR merged' },
-      { event: 'gate.executed', condition: 'always' },
+      { event: 'shepherd.started', condition: 'conditional', description: 'First invocation (idempotent)', role: 'primary', owner: 'orchestrate' },
+      { event: 'shepherd.approval_requested', condition: 'conditional', description: 'When approval needed', role: 'primary', owner: 'orchestrate' },
+      { event: 'shepherd.completed', condition: 'conditional', description: 'When PR merged', role: 'primary', owner: 'orchestrate' },
+      { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.assess_stack'),
     // sentry LOW on PR #1369: `assess_stack` reads GitHub PR state but

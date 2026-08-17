@@ -40,8 +40,8 @@ export const worktreeActions: readonly BuiltinToolAction[] = [
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
     autoEmits: [
-      { event: 'worktree.adopted', condition: 'conditional', description: 'Per on-disk worktree not yet tracked' },
-      { event: 'worktree.reserved', condition: 'always' },
+      { event: 'worktree.adopted', condition: 'conditional', description: 'Per on-disk worktree not yet tracked', role: 'primary', owner: 'orchestrate' },
+      { event: 'worktree.reserved', condition: 'always', role: 'primary', owner: 'orchestrate' },
     ],
     outputSchema: withCappedShape(AcquireWorktreeOutputSchema),
     annotations: LOCAL_MUTATION_IDEMPOTENT,
@@ -57,7 +57,7 @@ export const worktreeActions: readonly BuiltinToolAction[] = [
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
     autoEmits: [
-      { event: 'worktree.released', condition: 'always' },
+      { event: 'worktree.released', condition: 'always', role: 'primary', owner: 'orchestrate' },
     ],
     outputSchema: withCappedShape(ReleaseWorktreeOutputSchema),
     annotations: LOCAL_MUTATION_IDEMPOTENT,
@@ -81,8 +81,8 @@ export const worktreeActions: readonly BuiltinToolAction[] = [
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
     autoEmits: [
-      { event: 'worktree.remove.requested', condition: 'conditional', description: 'Per delete-eligible candidate on an apply run' },
-      { event: 'worktree.remove.executed', condition: 'conditional', description: 'After each git worktree remove succeeds' },
+      { event: 'worktree.remove.requested', condition: 'conditional', description: 'Per delete-eligible candidate on an apply run', role: 'primary', owner: 'orchestrate' },
+      { event: 'worktree.remove.executed', condition: 'conditional', description: 'After each git worktree remove succeeds', role: 'primary', owner: 'orchestrate' },
     ],
     // prune_worktrees → compensable + destructive (the two-event delete split
     // is the compensating recovery seam) AND idempotent (a re-run re-classifies
@@ -142,8 +142,8 @@ export const worktreeActions: readonly BuiltinToolAction[] = [
     // default). On the default dry-run NOTHING is emitted; both lease events fire
     // only on an apply run (dryRun:false).
     autoEmits: [
-      { event: 'worktree.merge_requested', condition: 'conditional', description: 'The lease CLAIM (single-writer per integrationRef) — apply run only (dryRun:false)' },
-      { event: 'worktree.merge_executed', condition: 'conditional', description: 'The lease RELEASE (plain keyed append) — apply run only (dryRun:false)' },
+      { event: 'worktree.merge_requested', condition: 'conditional', description: 'The lease CLAIM (single-writer per integrationRef) — apply run only (dryRun:false)', role: 'primary', owner: 'orchestrate' },
+      { event: 'worktree.merge_executed', condition: 'conditional', description: 'The lease RELEASE (plain keyed append) — apply run only (dryRun:false)', role: 'primary', owner: 'orchestrate' },
     ],
     // Multi-step serialized merge (wait → claim → compose merge_orchestrate →
     // release) is the canonical long-running verb — advisory Tasks-augmented

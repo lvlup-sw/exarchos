@@ -3578,5 +3578,165 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
         true,
       );
     });
+
+    // ─── The LIVE emission edges, not a fixture ──────────────────────────
+    //
+    // Everything below walks TOOL_REGISTRY. The denominator is whatever the
+    // registry currently declares, so a thirteenth declaration file — or a new
+    // action in an existing one — is inside the assertion the moment it is
+    // added, with nothing to remember to update. A hand-written list of edges
+    // would have gone quietly stale instead.
+    //
+    // OWNER CONVENTION. An edge's `owner` is the action-declaration AREA it is
+    // declared in: the module group under `src/registry/actions/` that exports
+    // the declaring action list. `actions/workflow.ts` is the `workflow` area;
+    // everything under `actions/orchestrate/` is the `orchestrate` area. The
+    // area is a fact about WHERE the action is declared, never about WHICH
+    // event it emits — which is what makes the consistency property below
+    // capable of failing at all.
+
+    /** Every `autoEmits` entry the built-in registry declares, with its declaration site. */
+    function liveEmissionEdges(): readonly {
+      tool: string;
+      action: string;
+      emission: AutoEmission;
+    }[] {
+      const edges: { tool: string; action: string; emission: AutoEmission }[] = [];
+      for (const tool of TOOL_REGISTRY) {
+        for (const action of tool.actions) {
+          for (const emission of action.autoEmits ?? []) {
+            edges.push({ tool: tool.name, action: action.name, emission });
+          }
+        }
+      }
+      return edges;
+    }
+
+    it('EmissionRoles_EveryLiveEdge_CarriesRoleAndOwner', () => {
+      const edges = liveEmissionEdges();
+
+      // Anti-vacuity floor. Totality over an empty (or collapsed) edge set is
+      // free, so the denominator is asserted before the property is. 74 edges
+      // across 53 actions were live when this was written; the floor is a
+      // ratchet on the denominator, not a pin on the exact count.
+      expect(
+        edges.length,
+        'the live emission-edge denominator collapsed — totality below would be vacuous',
+      ).toBeGreaterThanOrEqual(70);
+      expect(new Set(edges.map((e) => e.tool)).size).toBeGreaterThanOrEqual(2);
+
+      const unannotated = edges
+        .filter((e) => e.emission.role === undefined || e.emission.owner === undefined)
+        .map(
+          (e) =>
+            `${e.tool}.${e.action} -> ${e.emission.event} (role=${String(
+              e.emission.role,
+            )}, owner=${String(e.emission.owner)})`,
+        );
+      expect(
+        unannotated,
+        `every live emission edge must declare both a role and an owner:\n${unannotated.join('\n')}`,
+      ).toEqual([]);
+
+      // The declared values are substantive, not placeholder strings.
+      for (const { tool, action, emission } of edges) {
+        expect(['primary', 'recovery'], `${tool}.${action} -> ${emission.event}`).toContain(
+          emission.role,
+        );
+        expect((emission.owner ?? '').trim().length, `${tool}.${action} -> ${emission.event}`)
+          .toBeGreaterThan(0);
+      }
+
+      // The owner vocabulary is closed over the declaration areas that carry
+      // emissions today. A third area is a deliberate change and should land
+      // here alongside the declarations that introduce it.
+      expect([...new Set(edges.map((e) => e.emission.owner))].sort()).toEqual([
+        'orchestrate',
+        'workflow',
+      ]);
+
+      // Real seam: the shipped validator, over the shipped declarations. A
+      // recovery edge whose declared expiry has lapsed fails here — which is
+      // the point of time-boxing one, so this is meant to come due rather than
+      // sit green forever.
+      const lapsed = edges
+        .map((e) => ({ e, verdict: validateAutoEmission(e.emission) }))
+        .filter(({ verdict }) => !verdict.ok)
+        .map(({ e, verdict }) => `${e.tool}.${e.action}: ${verdict.reason ?? 'unknown'}`);
+      expect(lapsed, `expired recovery edges:\n${lapsed.join('\n')}`).toEqual([]);
+    });
+
+    it('EmissionRoles_MultiDeclarerEvent_IsConforming', () => {
+      const byEvent = new Map<string, { tool: string; action: string; emission: AutoEmission }[]>();
+      for (const edge of liveEmissionEdges()) {
+        const bucket = byEvent.get(edge.emission.event) ?? [];
+        bucket.push(edge);
+        byEvent.set(edge.emission.event, bucket);
+      }
+      const multiDeclarer = [...byEvent].filter(([, edges]) => edges.length > 1);
+
+      // Several events are declared by more than one action, and that is
+      // CONFORMING — neither "one primary per event" nor "one primary per
+      // area" holds on this tree. Naming the set keeps the property below from
+      // being asserted over nothing.
+      expect(multiDeclarer.map(([event]) => event).sort()).toEqual([
+        'admission.evidence-recorded',
+        'gate.executed',
+        'onboard.executed',
+        'onboard.requested',
+        'state.patched',
+      ]);
+
+      // Internal consistency: an event's declarers either all name the SAME
+      // owner (one area's business), or each names a DISTINCT owner with at
+      // most one `primary` (a cross-area coupling with a single canonical
+      // emitter). A partially-overlapping owner set — two areas, three edges —
+      // is the incoherent shape this rules out.
+      const violations: string[] = [];
+      for (const [event, edges] of multiDeclarer) {
+        const owners = edges.map((e) => e.emission.owner);
+        const distinct = new Set(owners);
+        if (distinct.size === 1) continue;
+        if (distinct.size !== owners.length) {
+          violations.push(
+            `${event}: ${owners.length} edges over ${distinct.size} owners [${[...distinct].join(
+              ', ',
+            )}] — owners must be all-identical or all-distinct`,
+          );
+          continue;
+        }
+        const primaries = edges.filter((e) => e.emission.role === 'primary');
+        if (primaries.length > 1) {
+          violations.push(
+            `${event}: ${primaries.length} primary edges across distinct owners [${primaries
+              .map((e) => `${e.tool}.${e.action}`)
+              .join(', ')}] — at most one may be primary`,
+          );
+        }
+      }
+      expect(violations, `owner-set inconsistency:\n${violations.join('\n')}`).toEqual([]);
+
+      // Canonical conforming shape 1 — a wide fan-in inside ONE area. Every
+      // gate declaration lives under `actions/orchestrate/`, so the 24 edges
+      // share an owner and the primary count is unconstrained.
+      const gateExecuted = byEvent.get('gate.executed') ?? [];
+      expect(gateExecuted).toHaveLength(24);
+      expect([...new Set(gateExecuted.map((e) => e.emission.owner))]).toEqual(['orchestrate']);
+
+      // Canonical conforming shape 2 — a narrow fan-in ACROSS two areas.
+      // `wf update` is the canonical state-patch surface; `discover_bridge`
+      // declares the second, non-primary edge from the other area.
+      const statePatched = byEvent.get('state.patched') ?? [];
+      expect(statePatched).toHaveLength(2);
+      expect([...new Set(statePatched.map((e) => e.emission.owner))].sort()).toEqual([
+        'orchestrate',
+        'workflow',
+      ]);
+      expect(statePatched.filter((e) => e.emission.role === 'primary')).toHaveLength(1);
+      expect(
+        statePatched.find((e) => e.emission.role === 'primary')?.action,
+        'the canonical state-mutation surface must be the primary edge',
+      ).toBe('update');
+    });
   });
 });
