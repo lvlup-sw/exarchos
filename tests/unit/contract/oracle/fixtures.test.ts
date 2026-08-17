@@ -55,6 +55,27 @@
 // an expiry instead of looking like evidence. The pass / observed /
 // notObserved counts asserted beside it ARE measured from real reports.
 //
+// ── WHY THE EMISSION AXIS IS NOT IN `ORACLE_AXES`, AND WHAT COVERS IT ───────
+//
+// The emission axis is reported on `OracleReport.emissionVerdict` rather than
+// as a sixth member of the closed `ORACLE_AXES` union, so `axisCoverage()` —
+// which ranges over that union — does not produce a row for it. That is the
+// exact shape of an axis going quietly uncovered, so it is answered here rather
+// than left implicit.
+//
+// Two things cover it, and both are stronger than a census row would be:
+//
+//   1. `emissionAxisCoverage()` in the fixtures module IS the missing row, and
+//   2. `checkEmissionAxisObserved()` gives that row a TOOTH — the axis
+//      observing nothing across a run is itself a failure. No member of
+//      `ORACLE_AXES` has that: three of the five sit at `observed: 0` across
+//      the whole live surface and the suite still reports `ok`.
+//
+// Folding the axis into the union would also have made it filterable by
+// `RunOracleOptions.axes` (it always runs today) and would have required
+// removing `OracleReport.emissionVerdict`, since a verdict present in both
+// `verdicts` and that field double-counts in `failures` and `summarizeReport`.
+//
 // @oracle-sources: ../../../../src/registry.ts, the values the shipped handlers actually return when invoked through the real implementation-binding table, the appends those handlers actually record through the recorder the adapter carries into the invocation
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -63,6 +84,7 @@ import { makeTempDir, rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 import { TOOL_REGISTRY } from '../../../../src/registry.js';
 import { BINDING_TABLE } from '../../../../src/contract/bindings/binding-table.js';
 import {
+  EMISSION_AXIS,
   ORACLE_AXES,
   OPEN_ROLE_MARKER,
   axisCoverage,
@@ -93,6 +115,7 @@ import {
   realRegistryEmissionCase,
   registryDeclaredEffects,
   registryRequiredRoles,
+  runEmissionOracleSuite,
   type DispatchContextFactory,
   type RealHandlerObservationSet,
 } from '../../../../src/contract/oracle/fixtures.js';
@@ -575,4 +598,62 @@ describe('the emission axis reaches a verdict on a live subject', () => {
       serializeGeneratedDescriptor(deriveGeneratedDescriptor(appending.subject.declaration)),
     );
   }, 60_000);
+
+  it('OracleEmission_ZeroObservedSubjects_FailsForThisAxisOnly', async () => {
+    // Nothing in the registry can declare an emission yet, so the whole live
+    // envelope surface leaves the emission axis without a single verdict.
+    const vacuous = await runEmissionOracleSuite(liveOutputSubjects());
+    expect(vacuous.suite.reports.length).toBeGreaterThanOrEqual(100);
+    expect(vacuous.coverage.observed).toBe(0);
+    expect(vacuous.coverage.notObserved).toBe(vacuous.suite.reports.length);
+
+    // ── HALF ONE: zero observed subjects is a FAILURE for the emission axis.
+    //    Membership in `ORACLE_AXES` would not have bought this — a census row
+    //    at `observed: 0` fails nothing, as the three axes below demonstrate.
+    expect(vacuous.vacuity.status).toBe('fail');
+    expect(vacuous.vacuity.axis).toBe(EMISSION_AXIS);
+    expect(vacuous.vacuity.diagnostic).toContain('observed NOTHING');
+    expect(vacuous.ok).toBe(false);
+
+    // ── HALF TWO: and it reddens NOTHING else. The three axes that are all
+    //    not-observed across this same run are exactly as green as before —
+    //    the underlying suite still reports `ok` with no failing verdict, and
+    //    their census rows still read `observed: 0` without that being a fault.
+    expect(vacuous.suite.ok).toBe(true);
+    expect(
+      vacuous.suite.failures.map((f) => `${f.actionId}/${f.axis}: ${f.diagnostic}`),
+    ).toEqual([]);
+    const byAxis = new Map(vacuous.suite.coverage.map((c) => [c.axis, c]));
+    for (const axis of [
+      'missing-authorization',
+      'undeclared-effect',
+      'compatibility-break',
+    ] as const) {
+      expect(byAxis.get(axis)?.observed, axis).toBe(0);
+      expect(byAxis.get(axis)?.notObserved, axis).toBe(vacuous.suite.reports.length);
+      expect(byAxis.get(axis)?.fail, axis).toBe(0);
+    }
+
+    // The tooth names one axis, and it is not one of the five the closed union
+    // covers — which is the whole reason it can fire without touching them.
+    const unionAxes: readonly string[] = ORACLE_AXES;
+    expect(unionAxes).not.toContain(vacuous.vacuity.axis);
+
+    // ── And it is satisfiable, not a standing red: ONE live subject whose
+    //    emission axis is determinate keeps the run non-vacuous while every
+    //    other subject still reports `not-observed`.
+    const determinate = realRegistryEmissionCase('appending', stateDir, makeRealContext);
+    const withLiveSubject = await runEmissionOracleSuite([
+      ...realHandlers.subjects,
+      determinate.subject,
+    ]);
+    expect(withLiveSubject.coverage.observed).toBe(1);
+    expect(withLiveSubject.coverage.pass).toBe(1);
+    expect(withLiveSubject.coverage.notObserved).toBe(realHandlers.subjects.length);
+    expect(withLiveSubject.vacuity.status).toBe('pass');
+    expect(
+      withLiveSubject.ok,
+      withLiveSubject.suite.failures.map((f) => `${f.actionId}/${f.axis}`).join(', '),
+    ).toBe(true);
+  }, 120_000);
 });

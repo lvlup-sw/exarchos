@@ -86,15 +86,21 @@ import type { EffectClass } from '../../architecture/effect-ledger.js';
 import {
   guardRoles,
   createEffectRecorder,
+  runOracleSuite,
   AUTHORIZATION_CODES,
+  EMISSION_AXIS,
   OPEN_ROLE_MARKER,
   type ActionSafety,
   type ContractDeclaration,
+  type EmissionAxis,
+  type EmissionAxisVerdict,
   type EmissionRecorder,
   type ObservableHandler,
   type ObservationContext,
   type OracleAxis,
+  type OracleReport,
   type OracleSubject,
+  type OracleSuiteReport,
   type VolatileCarrier,
 } from './oracle-seam.js';
 
@@ -952,5 +958,134 @@ export function realRegistryEmissionCase(
       // a surface would point the authorization axis at a handler never built
       // to enforce anything.
     },
+  };
+}
+
+// ─── The emission axis's census, and its zero-observation tooth ──────────────
+//
+// `axisCoverage` ranges over the closed `ORACLE_AXES` union, of which the
+// emission axis is deliberately not a member: the seam reports it on its own
+// `OracleReport.emissionVerdict`, which folds into `ok`, into the suite's
+// `failures` and into `summarizeReport`. The census below is therefore the
+// emission axis's own coverage row — without it, it would be the one axis with
+// no vacuity reading at all.
+//
+// It is more than the missing row, though. A row in `axisCoverage` fails
+// nothing: three of the five union axes sit at `observed: 0` across the whole
+// live surface and the suite still reports `ok`. The emission axis gets a TOOTH
+// instead — observing nothing anywhere is itself a failure — which is strictly
+// stronger than membership in the union would have bought it.
+//
+// The tooth is confined to this axis BY CONSTRUCTION, not by convention: it
+// reads `report.emissionVerdict` and never touches `report.verdicts`, so it has
+// no way to redden the union axes that are legitimately all-not-observed.
+
+/** How often the emission axis actually reached a verdict across a set of reports. */
+export interface EmissionAxisCoverage {
+  readonly axis: EmissionAxis;
+  readonly pass: number;
+  readonly fail: number;
+  readonly notObserved: number;
+  /** `pass + fail` — the number of subjects on which the axis genuinely looked. */
+  readonly observed: number;
+}
+
+/**
+ * Census the emission axis across `reports`. `not-observed` is counted apart
+ * from `pass` for the same reason `axisCoverage` does it: "we did not look"
+ * must never be readable as "we looked and it was fine".
+ */
+export function emissionAxisCoverage(reports: readonly OracleReport[]): EmissionAxisCoverage {
+  let pass = 0;
+  let fail = 0;
+  let notObserved = 0;
+  for (const report of reports) {
+    if (report.emissionVerdict.status === 'pass') pass += 1;
+    else if (report.emissionVerdict.status === 'fail') fail += 1;
+    else notObserved += 1;
+  }
+  return { axis: EMISSION_AXIS, pass, fail, notObserved, observed: pass + fail };
+}
+
+/**
+ * The subject a suite-level census reports under. Vacuity is a property of the
+ * RUN rather than of any one action, and saying so beats blaming an arbitrary
+ * subject for it.
+ */
+export const EMISSION_CENSUS_SUBJECT = '<oracle-suite>';
+
+/**
+ * The zero-observation tooth: `fail` when the emission axis reached a verdict
+ * on NO subject across `reports`.
+ *
+ * A suite in that state ran the axis, got nothing back, and reported `ok` — the
+ * shape a guard takes when it has stopped being able to fail. Either no subject
+ * declares an emission, or the recorder no longer reaches the handler through
+ * {@link compositeHandlerAdapter}; both leave the axis looking inspected while
+ * being structurally incapable of a verdict.
+ *
+ * A `fail` counts as OBSERVED. Breaking the recorder's path turns a determinate
+ * `pass` into a determinate `fail`, which the suite already catches; this tooth
+ * is for the quieter case where the axis stops reaching any verdict at all.
+ */
+export function checkEmissionAxisObserved(
+  reports: readonly OracleReport[],
+): EmissionAxisVerdict {
+  const coverage = emissionAxisCoverage(reports);
+  if (reports.length === 0) {
+    return {
+      axis: EMISSION_AXIS,
+      actionId: EMISSION_CENSUS_SUBJECT,
+      status: 'not-observed',
+      diagnostic: 'no reports to census — the emission axis was never run',
+    };
+  }
+  if (coverage.observed === 0) {
+    return {
+      axis: EMISSION_AXIS,
+      actionId: EMISSION_CENSUS_SUBJECT,
+      status: 'fail',
+      diagnostic:
+        `the emission axis observed NOTHING across ${reports.length} subject(s) — all ` +
+        `${coverage.notObserved} reported 'not-observed' and none reached a verdict. Either no ` +
+        `subject declares an emission or the recorder no longer reaches the handler, and a green ` +
+        `run would be reporting on an axis that never looked`,
+    };
+  }
+  return {
+    axis: EMISSION_AXIS,
+    actionId: EMISSION_CENSUS_SUBJECT,
+    status: 'pass',
+    diagnostic:
+      `the emission axis reached a verdict on ${coverage.observed} of ${reports.length} ` +
+      `subject(s) (pass ${coverage.pass}, fail ${coverage.fail})`,
+  };
+}
+
+export interface EmissionSuiteReport {
+  /** The suite's own `ok` AND the emission axis having actually observed something. */
+  readonly ok: boolean;
+  readonly suite: OracleSuiteReport;
+  readonly coverage: EmissionAxisCoverage;
+  /** The zero-observation tooth's verdict over this run. */
+  readonly vacuity: EmissionAxisVerdict;
+}
+
+/**
+ * Run the oracle over `subjects` and apply the zero-observation tooth to the
+ * result. `suite` is the unmodified `runOracleSuite` report, so the five
+ * {@link OracleAxis} verdicts and the suite's own `ok` are visible untouched
+ * beside the emission-only judgement.
+ */
+export async function runEmissionOracleSuite(
+  subjects: readonly OracleSubject[],
+): Promise<EmissionSuiteReport> {
+  const suite = await runOracleSuite(subjects);
+  const vacuity = checkEmissionAxisObserved(suite.reports);
+  return {
+    ok: suite.ok && vacuity.status !== 'fail',
+    suite,
+    coverage: emissionAxisCoverage(suite.reports),
+    vacuity,
   };
 }
