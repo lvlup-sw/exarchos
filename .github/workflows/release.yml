@@ -269,7 +269,7 @@ jobs:
         run: bash "$GITHUB_WORKSPACE/tools/release/npm-ci-retry.sh"
 
       # DR-8: the matrix-asset counts below are DERIVED from `TARGETS`
-      # (`scripts/build-binary-targets.ts`) rather than hard-coded literals.
+      # (`tools/release/build-binary-targets.ts`) rather than hard-coded literals.
       # Previously both this workflow's `expected=` values AND
       # `scripts/release-workflow.test.ts`'s asset-set assertion were
       # transcribed from the same population by hand, so editing `TARGETS`
@@ -280,7 +280,7 @@ jobs:
         id: target-count
         run: |
           set -euo pipefail
-          count=$(bun -e "import('./scripts/build-binary-targets.ts').then(m => console.log(String(m.TARGETS.length)))")
+          count=$(bun -e "import('./tools/release/build-binary-targets.ts').then(m => console.log(String(m.TARGETS.length)))")
           echo "Derived TARGETS length: ${count}"
           echo "count=${count}" >> "$GITHUB_OUTPUT"
 
@@ -296,7 +296,7 @@ jobs:
         run: |
           set -euo pipefail
           names=$(bun -e "
-            import('./scripts/build-binary-targets.ts').then((m) => {
+            import('./tools/release/build-binary-targets.ts').then((m) => {
               const files = m.TARGETS.flatMap((t) => {
                 const base = \`exarchos-\${t.os}-\${t.arch}\${t.os === 'windows' ? '.exe' : ''}\`;
                 return [base, \`\${base}.sha512\`];
