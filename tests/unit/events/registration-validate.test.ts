@@ -29,6 +29,8 @@
 // `provider` field each redden `npx tsc --noEmit`.
 
 import { describe, it, expect } from 'vitest';
+import * as fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import {
   EFFECT_PROVIDERS,
   type EffectProvider,
@@ -71,6 +73,43 @@ import {
   type WeldDiagnosticSeverity,
   type WeldResolutionVerdict,
 } from '../../../src/events/registration-validate.js';
+
+/**
+ * The pinned stale-cover eligible count, authored and committed rather than computed. Resolved with
+ * `fs`/`fileURLToPath`, never `import … from '…json'`: `resolveJsonModule` is off in this project,
+ * and inside the compiled single-file binary a sibling JSON file is not on disk next to the module
+ * that would try to import it — an import would either fail to compile or fail at runtime in the
+ * shipped artifact, where this file's `readFileSync` call is exercised only by the test, never by
+ * production code.
+ */
+const EMISSION_ELIGIBLE_BASELINE_PATH = fileURLToPath(
+  new URL('../../support/emission-eligible-baseline.json', import.meta.url),
+);
+
+/** The shape a baseline file must have — narrowed with a type guard rather than an `as` cast. */
+function isEligibleBaseline(value: unknown): value is { eligibleCount: number } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'eligibleCount' in value &&
+    typeof (value as { eligibleCount: unknown }).eligibleCount === 'number'
+  );
+}
+
+/**
+ * Read the pinned baseline off disk. This function has exactly one caller-visible effect — read —
+ * and nothing anywhere in this file writes {@link EMISSION_ELIGIBLE_BASELINE_PATH}. A guarded run
+ * that regenerated its own baseline before comparing against it would always agree with itself; the
+ * artifact is only evidence of anything because this is a one-way read.
+ */
+function readEligibleBaseline(): { eligibleCount: number } {
+  const raw = fs.readFileSync(EMISSION_ELIGIBLE_BASELINE_PATH, 'utf8');
+  const parsed: unknown = JSON.parse(raw);
+  if (!isEligibleBaseline(parsed)) {
+    throw new Error(`malformed eligible-count baseline at ${EMISSION_ELIGIBLE_BASELINE_PATH}`);
+  }
+  return parsed;
+}
 
 /** The live catalog with extra entries merged in — the seeding seam for the falsifiers below. */
 function catalogWith(
@@ -1745,5 +1784,67 @@ describe('StaleCover — a capability weld that nothing declares it emits', () =
     // measured over — an absence with no denominator beside it is the thing this arm exists to
     // stop reading as success.
     expect(verdict.report).toContain(`${verdict.staleCoverEligibleCount} stale-cover eligible`);
+  });
+});
+
+describe('EligibleBaseline — the pinned stale-cover eligible count', () => {
+  // Direction. The comparison denominator above (EMISSION_DENOMINATOR_FLOOR) is a floor compared
+  // with `>=`, and deliberately so: it is the size of an INTERSECTION of two populations that grow
+  // independently and incidentally — declaring one more `autoEmits` on an existing action widens it
+  // without anyone touching this gate, so a check that reddened on that growth would punish the
+  // ordinary work of wiring up coverage, and an equality would get "fixed" by whoever it next
+  // inconvenienced rather than looked at.
+  //
+  // The eligible population does not move that way. `staleCoverEligibleCount` is read straight off
+  // `EVENT_ANNOTATIONS` — every boot-resolved capability weld whose lifecycle is `active` — and the
+  // ONLY way it changes is a reviewed edit to that table: registering a new capability event, or
+  // moving one across the lifecycle axis. There is no second, unrelated population it rides on, so
+  // there is no routine PR that moves it as a side effect. That is what makes an EXACT pin the right
+  // choice here rather than a copy of the floor: growth and shrink both mean "somebody edited
+  // EVENT_ANNOTATIONS", and both deserve the same one-line, reviewable re-pin in the same commit —
+  // asymmetric tolerance would only hide the case where that edit happened and the baseline was
+  // never told.
+  it('EligibleBaseline_PinnedCount_MatchesTheLiveCount', () => {
+    const baseline = readEligibleBaseline();
+    expect(baseline.eligibleCount).toBeGreaterThan(0);
+
+    // THE GATE'S OWN NUMBER.
+    const verdict = validateRegistrationWelds();
+    expect(verdict.staleCoverEligibleCount).toBe(baseline.eligibleCount);
+
+    // ...AND THE SAME COUNT READ A SECOND WAY, off the two exported building blocks rather than
+    // through the verdict, so the baseline is pinned against the population itself and not merely
+    // against a number the gate happens to publish alongside it.
+    const eligible = staleCoverEligibleWelds(bootResolvedWelds());
+    expect(eligible.length).toBe(baseline.eligibleCount);
+  });
+
+  it('EligibleBaseline_ShrinkWithNoDisposition_Fails', () => {
+    const baseline = readEligibleBaseline();
+
+    // THE KILL FIXTURE. One active capability registration — the same one every other stale-cover
+    // seed in this file uses — is retired. Nothing else about the catalog moves: same provider, same
+    // consumer, same every other row, so the eligible population shrinks by exactly one and there is
+    // no ledger row anywhere that answers for it.
+    const registration = EVENT_ANNOTATIONS[STALE_COVER_SEED_EVENT];
+    expect(registration).toBeDefined();
+    if (registration === undefined || registration.tier !== 'capability') return;
+    const shrunk = catalogWith({
+      [STALE_COVER_SEED_EVENT]: { ...registration, lifecycle: 'retired' },
+    });
+
+    const eligible = staleCoverEligibleWelds(bootResolvedWelds(shrunk));
+    expect(eligible.length).toBe(baseline.eligibleCount - 1);
+
+    // THE ASSERTION REDDENS — not "some diagnostic somewhere fired", but the exact expectation the
+    // live test makes above, run against the shrunk population and shown to throw. This is the half
+    // that carries the weight: a baseline nobody can fail against is decoration, not a guard.
+    expect(() => expect(eligible.length).toBe(baseline.eligibleCount)).toThrow();
+
+    // THE CONTROL: the untouched catalog still matches, so the failure above is caused by the
+    // seeded retirement and by nothing else in this fixture.
+    expect(staleCoverEligibleWelds(bootResolvedWelds(EVENT_ANNOTATIONS)).length).toBe(
+      baseline.eligibleCount,
+    );
   });
 });

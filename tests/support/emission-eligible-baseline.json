@@ -1,0 +1,4 @@
+{
+  "eligibleCount": 41,
+  "note": "Boot-resolved capability welds whose lifecycle is 'active' per STALE_COVER_LIFECYCLE_POLICY -- the population validateRegistrationWelds().staleCoverEligibleCount reports, and staleCoverEligibleWelds(bootResolvedWelds()) computes directly from EVENT_ANNOTATIONS. Read from disk with fs at test time (tests/unit/events/registration-validate.test.ts); the guarded run never writes this file. Update this number by hand, in the same commit that moves it, whenever EVENT_ANNOTATIONS changes which capability registrations are active -- growth and shrink both warrant a deliberate re-pin, because this population moves only on a reviewed edit to the annotation table, not as an incidental side effect of unrelated work."
+}
