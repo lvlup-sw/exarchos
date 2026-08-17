@@ -725,10 +725,10 @@ describe('ProviderComparison — the declaring tool against the declared provide
     const faulted = new Set(
       live.diagnostics
         .filter((d) => d.code === EMISSION_PROVIDER_MISMATCH_CODE)
-        .map((d) => ('action' in d ? `${d.eventType} ${d.action}` : '')),
+        .map((d) => ('action' in d ? `${d.eventType}|${d.action}` : '')),
     );
     for (const edge of agreeing) {
-      expect(faulted.has(`${edge.event} ${edge.action}`)).toBe(false);
+      expect(faulted.has(`${edge.event}|${edge.action}`)).toBe(false);
     }
 
     // HALF TWO, the clean control. Hold every other population live and substitute an emission set
@@ -882,13 +882,13 @@ describe('ProviderComparison — the declaring tool against the declared provide
     let declaredEmissionCount = 0;
     for (const tool of TOOL_REGISTRY) {
       for (const action of tool.actions) {
-        toolByAction.set(`${tool.name} ${action.name}`, tool.name);
+        toolByAction.set(`${tool.name}|${action.name}`, tool.name);
         declaredEmissionCount += action.autoEmits?.length ?? 0;
       }
     }
     expect(edges.length).toBe(declaredEmissionCount);
     for (const edge of edges) {
-      expect(toolByAction.get(`${edge.declaringTool} ${edge.action}`)).toBe(edge.declaringTool);
+      expect(toolByAction.get(`${edge.declaringTool}|${edge.action}`)).toBe(edge.declaringTool);
     }
 
     // Every declaring tool is a live composite tool name — the SAME id space `EffectProviderId`
