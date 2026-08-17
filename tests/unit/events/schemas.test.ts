@@ -100,11 +100,19 @@ import {
   VcsRequestedData,
   VcsExecutedData,
   VcsCompensatedData,
+  // The atomic tree-promotion record.
+  PromotionExecutedData,
+  AdmissionCutoverReadyData,
   type WorkflowEvent,
 } from '../../../src/events/schemas.js';
 import * as mutationOwner from '../../../src/vcs/mutation-owner.js';
+import { promoteTree, promotionPlan } from '../../../src/install/atomic-promotion.js';
+import { digestTree } from '../../../src/install/install-identity.js';
+import { DRY_RUN, isDryRun } from '../../../src/dispatch/core/effect-carrier.js';
 import { workflowStateProjection } from '../../../src/projections/views/workflow-state-projection.js';
 import { randomUUID } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import * as nodePath from 'node:path';
 
 // ─── T1: EventEmissionSource + EVENT_EMISSION_REGISTRY ──────────────────────
 
@@ -661,7 +669,11 @@ describe('EventTypes', () => {
     //   they carried no data schema, no type-map entry and no coupling tier.
     //   Declaring them here is what makes them visible to a static reader of
     //   the catalog.
-    expect(EventTypes).toHaveLength(174);
+    // Bumped 174 → 175: promotion.executed, the atomic tree-promotion record.
+    //   This one genuinely is new — the promoting code names its effect in a
+    //   typed plan and then performs it, and no event recorded that the commit
+    //   rename happened.
+    expect(EventTypes).toHaveLength(175);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');
@@ -688,6 +700,7 @@ describe('EventTypes', () => {
     expect(EventTypes).toContain('vcs.requested');
     expect(EventTypes).toContain('vcs.executed');
     expect(EventTypes).toContain('vcs.compensated');
+    expect(EventTypes).toContain('promotion.executed');
     // Retirement guard: init.executed removed in DR-5 (task 018).
     expect(EventTypes as readonly string[]).not.toContain('init.executed');
   });
@@ -4266,8 +4279,10 @@ describe('WLM operational-core merge lease schemas', () => {
     // admission replay contract), plus task 068's invariant.amended — the
     // audit record of an invariant-catalog amendment (170 → 171), plus the
     // VCS mutation ledger triad vcs.requested / vcs.executed / vcs.compensated,
-    // lifted out of the runtime registration seam into the catalog (171 → 174).
-    expect(EventTypes).toHaveLength(174);
+    // lifted out of the runtime registration seam into the catalog (171 → 174),
+    // plus promotion.executed — the atomic tree-promotion record, which no seam
+    // registered anywhere (174 → 175).
+    expect(EventTypes).toHaveLength(175);
     // No duplicate slipped in while bumping the count.
     expect(new Set(EventTypes).size).toBe(EventTypes.length);
   });
@@ -4352,6 +4367,81 @@ describe('WLM operational-core merge lease schemas', () => {
     expect(() => VcsRequestedData.parse({ kind: 'branch.create', idempotencyKey: 'k' })).toThrow();
     expect(() => VcsRequestedData.parse({ ...head, idempotencyKey: '' })).toThrow();
     expect(() => VcsRequestedData.parse({ ...head, epoch: 1.5 })).toThrow();
+  });
+
+  it('PromotionEvent_AtomicPromotionSite_HasARegisteredName', async () => {
+    // Before this registration the atomic tree-promotion site had NO name in the catalog. It
+    // builds a typed effect plan for the commit rename that makes a whole staged tree visible
+    // at once — the single non-idempotent step of an install — and then performs it, and no
+    // event said so afterwards.
+    //
+    // The binding below is deliberately read OFF THE SITE rather than restated: the plan, the
+    // owner and the digest all come from the production functions, so a rename or a reshape on
+    // the promoter's side fails here instead of leaving the event describing a site that has
+    // moved on.
+    const entries = [
+      { path: 'SKILL.md', content: '# promote me\n' },
+      { path: 'references/one.md', content: 'reference body\n' },
+    ];
+    const target = nodePath.join(tmpdir(), `exarchos-promotion-${randomUUID()}`, 'skills');
+
+    // Dry-run: the engine is structurally unreachable, so this asks the site for its plan
+    // without touching a byte of the filesystem. The owner therefore comes from the site's own
+    // default, not from a literal spelled here.
+    const outcome = await promoteTree({ target, entries }, DRY_RUN);
+    expect(isDryRun(outcome), 'the promotion site did not withhold the effect').toBe(true);
+    if (!isDryRun(outcome)) return;
+    const plan = outcome.plan;
+    expect(plan.effectClass).toBe('install');
+    expect(plan.description).toContain(target);
+    // The same plan the exported constructor builds, so the dry-run arm is reading the real one.
+    expect(plan).toEqual(promotionPlan(plan.owner, target));
+
+    // ── The name is REGISTERED, with everything registration is supposed to buy ──
+    const PROMOTION = 'promotion.executed';
+    expect(EventTypes).toContain(PROMOTION);
+    expect(isBuiltInEventType(PROMOTION), `${PROMOTION} is not a built-in event type`).toBe(true);
+    expect(getValidEventTypes()).toContain(PROMOTION);
+    expect(EVENT_DATA_SCHEMAS[PROMOTION], `${PROMOTION} has no data schema`).toBeDefined();
+    expect(serializeEventCatalog().types[PROMOTION]).toEqual({
+      source: 'auto',
+      isBuiltIn: true,
+      hasSchema: true,
+    });
+
+    // ── And the payload carries what THAT site produces ──
+    //
+    // `treeDigest` is the same content-addressed value the promoter verifies the stage against
+    // before committing, computed here by the promoter's own digest function — so the record
+    // and the verification cannot describe different trees.
+    const payload = {
+      target,
+      treeDigest: digestTree(entries),
+      owner: plan.owner,
+      recoveredPriorAttempt: false,
+    };
+    expect(PromotionExecutedData.parse(payload)).toEqual(payload);
+
+    // A record naming no destination, no digest or no owner is not a record of anything —
+    // each is required, and an empty string is refused rather than accepted as "unknown".
+    expect(() => PromotionExecutedData.parse({ ...payload, target: '' })).toThrow();
+    expect(() => PromotionExecutedData.parse({ ...payload, treeDigest: '' })).toThrow();
+    expect(() => PromotionExecutedData.parse({ ...payload, owner: '' })).toThrow();
+    // The recovery flag is required rather than defaulted. An absent field is "nobody looked",
+    // and silently reading it as `false` would record a clean first-time promotion for a run
+    // that may well have converged from an interrupted one.
+    const withoutRecovery = { target: payload.target, treeDigest: payload.treeDigest, owner: payload.owner };
+    expect(() => PromotionExecutedData.parse(withoutRecovery)).toThrow();
+
+    // ── Not a rename of the cutover-readiness record ──
+    //
+    // `admission.cutover-ready` is the nearest already-registered neighbour and says a cutover
+    // MAY proceed; this one says a tree WAS promoted. They are separate rows in the catalog,
+    // and their payload contracts do not accept each other's data — which is the concrete form
+    // of "the readiness fact was not a substitute for the effect record".
+    expect(EventTypes).toContain('admission.cutover-ready');
+    expect(EVENT_DATA_SCHEMAS[PROMOTION]).not.toBe(EVENT_DATA_SCHEMAS['admission.cutover-ready']);
+    expect(() => AdmissionCutoverReadyData.parse(payload)).toThrow();
   });
 
   it('WorktreeMergeEvents_ClassificationMaps_Exhaustive', () => {

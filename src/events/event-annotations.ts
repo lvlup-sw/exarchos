@@ -437,6 +437,16 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
   'vcs.requested': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
   'vcs.executed': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
   'vcs.compensated': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
+  // The atomic tree-promotion record, measured the same way. The promoting code
+  // in `install/atomic-promotion.ts` performs the commit rename and owns the
+  // append; no caller is asked to record it on the promoter's behalf.
+  //
+  // `capability` is unavailable for the same structural reason as the ledger
+  // above, and it is worth naming which half is missing: there is no fold. No
+  // reducer, view or telemetry surface turns a promotion into state anyone reads,
+  // and `consumedBy` is a non-empty tuple precisely so that "declared a
+  // capability, consumed by nobody" cannot be written down.
+  'promotion.executed': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
 
   // ── Capability — an effect provider appends it, and named consumers fold it ──
   //

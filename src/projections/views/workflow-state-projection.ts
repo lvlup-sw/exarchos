@@ -1143,6 +1143,10 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       case 'vcs.requested':
       case 'vcs.executed':
       case 'vcs.compensated':
+      // The atomic tree-promotion record describes a directory on disk — where a
+      // staged tree landed and what digest now lives there. No field of it is a
+      // fact about a workflow, so there is nothing here for it to fold into.
+      case 'promotion.executed':
         return view;
 
       // ── Exhaustiveness guard (#1554 guard (a)) ─────────────────────────
