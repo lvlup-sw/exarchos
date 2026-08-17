@@ -96,8 +96,13 @@ import {
   MutationExecutedData,
   PruneExecutingStartedData,
   PruneExecutedData,
+  // The VCS mutation ledger — intent, then one of two terminals.
+  VcsRequestedData,
+  VcsExecutedData,
+  VcsCompensatedData,
   type WorkflowEvent,
 } from '../../../src/events/schemas.js';
+import * as mutationOwner from '../../../src/vcs/mutation-owner.js';
 import { workflowStateProjection } from '../../../src/projections/views/workflow-state-projection.js';
 import { randomUUID } from 'node:crypto';
 
@@ -650,7 +655,13 @@ describe('EventTypes', () => {
     //   into invariant.authored: amending is not authoring, and an audit trail
     //   that recorded a correction as a fresh authoring would be a record that
     //   does not mean what it says.
-    expect(EventTypes).toHaveLength(171);
+    // Bumped 171 → 174: the VCS mutation ledger — vcs.requested, vcs.executed
+    //   and vcs.compensated. Not new events: the mutation owner has always
+    //   appended them, but through the store's runtime registration seam, so
+    //   they carried no data schema, no type-map entry and no coupling tier.
+    //   Declaring them here is what makes them visible to a static reader of
+    //   the catalog.
+    expect(EventTypes).toHaveLength(174);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');
@@ -674,6 +685,9 @@ describe('EventTypes', () => {
     expect(EventTypes).toContain('cancel.ownership-acquired');
     expect(EventTypes).toContain('cancel.compensation-retry-scheduled');
     expect(EventTypes).toContain('cancel.manual-intervention-required');
+    expect(EventTypes).toContain('vcs.requested');
+    expect(EventTypes).toContain('vcs.executed');
+    expect(EventTypes).toContain('vcs.compensated');
     // Retirement guard: init.executed removed in DR-5 (task 018).
     expect(EventTypes as readonly string[]).not.toContain('init.executed');
   });
@@ -4250,10 +4264,94 @@ describe('WLM operational-core merge lease schemas', () => {
     // projection.recovered (167 → 169), plus the #1739 cutover promotion path's
     // admission.cutover-ready first-readiness fact (169 → 170 — the 12th
     // admission replay contract), plus task 068's invariant.amended — the
-    // audit record of an invariant-catalog amendment (170 → 171).
-    expect(EventTypes).toHaveLength(171);
+    // audit record of an invariant-catalog amendment (170 → 171), plus the
+    // VCS mutation ledger triad vcs.requested / vcs.executed / vcs.compensated,
+    // lifted out of the runtime registration seam into the catalog (171 → 174).
+    expect(EventTypes).toHaveLength(174);
     // No duplicate slipped in while bumping the count.
     expect(new Set(EventTypes).size).toBe(EventTypes.length);
+  });
+
+  it('VcsLedgerEvents_RuntimeSeam_IsNoLongerUsed', () => {
+    // The mutation owner used to call `registerEventType` from its constructor for these three
+    // names. That seam buys a valid name and nothing else: a runtime registration lands in the
+    // custom set, so the name has no data schema unless one is passed, no entry in
+    // `EventDataMap`, and no coupling annotation at all — which is why the three busiest effect
+    // records in the tree were invisible to every static reader of the catalog.
+    const LEDGER = [
+      mutationOwner.VCS_REQUESTED,
+      mutationOwner.VCS_EXECUTED,
+      mutationOwner.VCS_COMPENSATED,
+    ];
+    // Read off the owner's own constants rather than re-spelling the strings here, so a rename
+    // on either side is a failure rather than two files quietly disagreeing.
+    expect(LEDGER).toEqual(['vcs.requested', 'vcs.executed', 'vcs.compensated']);
+
+    for (const name of LEDGER) {
+      // BUILT-IN, which is the thing runtime registration structurally cannot produce:
+      // `registerEventType` writes into the custom set, never into the built-in one.
+      expect(isBuiltInEventType(name), `${name} is not a built-in event type`).toBe(true);
+      expect(getValidEventTypes()).toContain(name);
+
+      // And the seam is now closed to them — a built-in name cannot be re-registered, so a
+      // caller that tries to go back to the old path gets an error rather than a silent
+      // duplicate registration.
+      expect(() => registerEventType(name, { source: 'auto' })).toThrow(
+        /collides with built-in event type/,
+      );
+      // The mirror: they cannot be unregistered either, so no test cleanup or config reload can
+      // remove a ledger name from the catalog mid-run.
+      expect(() => unregisterEventType(name)).toThrow(/Cannot unregister built-in/);
+
+      // What the seam never gave them: a parseable payload contract.
+      expect(EVENT_DATA_SCHEMAS[name], `${name} has no data schema`).toBeDefined();
+    }
+
+    // The registration helper is GONE from the owner, not merely unreachable. Left in place it
+    // would read as the live registration path for names the catalog now owns.
+    expect(Object.keys(mutationOwner)).not.toContain('ensureVcsMutationEventTypes');
+
+    // Non-vacuity for the two negative assertions above: the seam still works for a name the
+    // catalog does NOT own, so "throws" is a fact about these three, not about the seam.
+    const custom = `custom.ledger-probe-${randomUUID().slice(0, 8).replace(/[^a-z]/g, 'x')}`;
+    expect(() => registerEventType(custom, { source: 'auto' })).not.toThrow();
+    expect(isBuiltInEventType(custom)).toBe(false);
+    unregisterEventType(custom);
+
+    // The end-to-end consequence a consumer sees.
+    const catalog = serializeEventCatalog();
+    for (const name of LEDGER) {
+      expect(catalog.types[name]).toEqual({ source: 'auto', isBuiltIn: true, hasSchema: true });
+    }
+  });
+
+  it('VcsLedgerData_Payloads_CarryTheFoldedFields', () => {
+    // The ledger fold reads `epoch`, `idempotencyKey` and `kind` off every event in the stream
+    // regardless of which one it is, then the terminal-specific field. A schema that dropped
+    // one of the shared three would leave the fold reading `undefined` and silently reset the
+    // fencing token to zero.
+    const head = { kind: 'branch.create', idempotencyKey: 'key-1', epoch: 3 };
+
+    expect(VcsRequestedData.parse(head)).toEqual(head);
+    expect(VcsExecutedData.parse({ ...head, result: { branch: 'feat/x', created: true } })).toEqual({
+      ...head,
+      result: { branch: 'feat/x', created: true },
+    });
+    expect(VcsCompensatedData.parse({ ...head, error: 'git worktree add failed' })).toEqual({
+      ...head,
+      error: 'git worktree add failed',
+    });
+
+    // The terminal-specific fields are optional — a compensation recorded before the carrier
+    // captured a message is still a valid terminal.
+    expect(VcsExecutedData.parse(head)).toEqual(head);
+    expect(VcsCompensatedData.parse(head)).toEqual(head);
+
+    // A missing fencing epoch is a REJECT, not a defaulted zero: zero is a real epoch, and
+    // coercing an absent one to it would silently un-fence a stale writer.
+    expect(() => VcsRequestedData.parse({ kind: 'branch.create', idempotencyKey: 'k' })).toThrow();
+    expect(() => VcsRequestedData.parse({ ...head, idempotencyKey: '' })).toThrow();
+    expect(() => VcsRequestedData.parse({ ...head, epoch: 1.5 })).toThrow();
   });
 
   it('WorktreeMergeEvents_ClassificationMaps_Exhaustive', () => {

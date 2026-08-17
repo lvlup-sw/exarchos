@@ -40,10 +40,13 @@
 //     multi-word namespaces. These are names that were actually emitted and are actually on disk,
 //     which is a strictly stronger population than the catalog: it includes one name
 //     (`init.executed`) the catalog no longer declares.
+//     (The three `vcs.*` mutation-ledger names were part of this population when it was
+//     measured, registered at runtime by `vcs/mutation-owner.ts`. They are catalog built-ins
+//     now, so they are counted above rather than here; the measurement is unchanged either way,
+//     since they carry no digit and no multi-word namespace in either place.)
 //   • every custom event name this repo registers or documents through the `.exarchos.yml` /
-//     `exarchos.config.ts` `events:` surface — `deploy.started`, `deploy.finished`,
-//     `custom.hello`, and the three `vcs.*` ledger names `vcs/mutation-owner.ts` registers at
-//     runtime. 0 digits, 0 multi-word namespaces.
+//     `exarchos.config.ts` `events:` surface — `deploy.started`, `deploy.finished` and
+//     `custom.hello`. 0 digits, 0 multi-word namespaces.
 //
 // So the clause is adopted with zero measured counterexamples and a real, named cost: a user whose
 // config registers `deploy.rollout2` upgrades into a hard registration failure. That cost is

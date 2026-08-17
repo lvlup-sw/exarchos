@@ -54,7 +54,6 @@ import {
   type EffectOutcome,
   type EffectPlan,
 } from '../dispatch/core/effect-carrier.js';
-import { getValidEventTypes, registerEventType } from '../events/schemas.js';
 import type { EventStore } from '../events/store.js';
 import type { WorkflowEvent } from '../events/schemas.js';
 import { spawnCommandSync } from '../utils/process.js';
@@ -64,29 +63,26 @@ import { spawnCommandSync } from '../utils/process.js';
 /** The dedicated stream carrying the VCS mutation intent/terminal ledger. */
 export const VCS_MUTATION_STREAM = 'vcs-mutations';
 
+// The three names below are BUILT-IN event types declared in the event catalog
+// (`events/schemas.ts`), each with a data schema, a type-map entry and a
+// substrate-tier coupling annotation. They are named here as constants so the
+// owner and the callers that fold its ledger share one spelling, not because
+// this module owns them.
+//
+// They were previously registered from this module through the store's runtime
+// registration seam, on the reasoning that a seam is cheaper than editing the
+// catalog. It was cheaper and it was wrong: a runtime registration carries no
+// schema, no type-map entry and no coupling tier, so the three busiest effect
+// records in the tree were invisible to every static reader of the catalog.
+// Registering them through the seam now THROWS — a built-in name cannot be
+// re-registered — which is the intended one-way door.
+
 /** Durable INTENT — appended BEFORE the git/provider effect fires. */
 export const VCS_REQUESTED = 'vcs.requested';
 /** Durable success TERMINAL — appended AFTER the effect succeeds. */
 export const VCS_EXECUTED = 'vcs.executed';
 /** Durable failure TERMINAL — appended after a compensated / failed effect. */
 export const VCS_COMPENSATED = 'vcs.compensated';
-
-const VCS_EVENT_TYPES: readonly string[] = [VCS_REQUESTED, VCS_EXECUTED, VCS_COMPENSATED];
-
-/**
- * Register the three VCS-ledger event types via the event-store's runtime
- * registration seam (idempotent — only registers a name the allowlist does not
- * already carry). Using the seam avoids editing `events/schemas.ts`, the
- * same "registration seam, not source edit" posture P04-01's ledger asks for.
- */
-export function ensureVcsMutationEventTypes(): void {
-  const valid = new Set(getValidEventTypes());
-  for (const name of VCS_EVENT_TYPES) {
-    if (!valid.has(name)) {
-      registerEventType(name, { source: 'auto' });
-    }
-  }
-}
 
 // ─── Typed fencing error (mirrors P04-02 cancel-saga StaleEpochError) ─────────
 
@@ -372,7 +368,6 @@ export class VcsMutationOwner {
   private readonly stream: string;
 
   constructor(deps: VcsMutationOwnerDeps) {
-    ensureVcsMutationEventTypes();
     this.eventStore = deps.eventStore;
     this.git = deps.gitRunner ?? defaultVcsGitRunner;
     this.stream = deps.stream ?? VCS_MUTATION_STREAM;

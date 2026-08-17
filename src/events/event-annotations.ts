@@ -115,7 +115,7 @@ export type DeclaredEmissionSources = Readonly<Record<string, EventEmissionSourc
 // built-in union by construction.
 //
 // NOT typed `Record<EventType, …>` on purpose. A type-keyed table would make
-// `EventAnnotations_All170Types_CarryATierAndLifecycle` vacuous: the census difference it asserts
+// `EventAnnotations_EveryRegisteredType_CarriesATierAndLifecycle` vacuous: the census difference it asserts
 // is empty would be empty BY CONSTRUCTION, which is the Class-B defect the DR-30 gate exists to
 // catch. Keyed by `string`, forgetting an event is a runtime finding the test can actually make.
 //
@@ -422,6 +422,21 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     tier: 'substrate',
     rationale: 'operation-record',
   },
+  // The VCS mutation ledger, measured the same way as the rest of this section.
+  // The single git & worktree mutation owner appends all three itself — the
+  // intent before the git effect, one of the two terminals after — so the code
+  // performing the operation owns the append and nothing else can be claimed.
+  //
+  // `capability` is structurally unavailable to them and that is the honest
+  // reading, not a downgrade: the only reader of these events is the owner's own
+  // ledger fold, which is the emitter re-reading its own record to decide
+  // whether to replay, not a projection or view turning the emission into state
+  // anyone else depends on. Listing the emitter as its own consumer would
+  // launder "consumed by nobody" into a consumer, which is the move the
+  // non-empty `consumedBy` tuple exists to refuse.
+  'vcs.requested': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
+  'vcs.executed': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
+  'vcs.compensated': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
 
   // ── Capability — an effect provider appends it, and named consumers fold it ──
   //
