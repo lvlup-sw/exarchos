@@ -33,7 +33,10 @@ import {
   EFFECT_PROVIDERS,
   type EffectProvider,
 } from '../../../src/contract/reachability/providers.js';
-import { EFFECT_OWNERSHIP } from '../../../src/architecture/effect-ledger.js';
+import {
+  EFFECT_OWNERSHIP,
+  type EffectOwnershipRule,
+} from '../../../src/architecture/effect-ledger.js';
 import { EVENT_ANNOTATIONS } from '../../../src/events/event-annotations.js';
 import {
   EVENT_TIERS,
@@ -41,6 +44,7 @@ import {
   type EventRegistration,
 } from '../../../src/events/event-registration.js';
 import {
+  DIAGNOSTIC_SEVERITY_POLICY,
   PROVIDER_REGISTRY_DRIFT_CODE,
   RegistrationWeldError,
   UNRESOLVABLE_PROVIDER_CODE,
@@ -49,6 +53,7 @@ import {
   bootResolvedWelds,
   resolvableProviderIds,
   validateRegistrationWelds,
+  type WeldDiagnosticSeverity,
 } from '../../../src/events/registration-validate.js';
 
 /** The live catalog with extra entries merged in — the seeding seam for the falsifiers below. */
@@ -77,6 +82,74 @@ function liveCapabilityTypes(): string[] {
     .filter(([, registration]) => registration.tier === 'capability')
     .map(([eventType]) => eventType)
     .sort();
+}
+
+/**
+ * A provider entry the ledger does not back — the STALE case `providers.ts` names. Used below as
+ * the seed that makes the drift diagnostic fire without touching any weld.
+ */
+const GHOST_PROVIDER: EffectProvider = {
+  tool: 'exarchos_ghost',
+  area: 'ghost/',
+  owner: 'ghost-fs',
+  effectClass: 'filesystem',
+};
+
+/**
+ * One input that makes exactly one named diagnostic fire, holding every other population live. The
+ * severity axis has to be demonstrated over EVERY code the gate can emit, not over a favourite one
+ * — a severity that only worked for unresolvable providers would leave three faults with an
+ * undecided disposition.
+ */
+interface DiagnosticSeed {
+  readonly code: string;
+  readonly annotations: Readonly<Record<string, EventRegistration>>;
+  readonly providers: readonly EffectProvider[];
+  readonly rules: readonly EffectOwnershipRule[];
+}
+
+/**
+ * A seed per diagnostic code. Every one of these is an input the gate ALREADY reported on before
+ * the severity axis existed; nothing here introduces a new fault class.
+ */
+const DIAGNOSTIC_SEEDS: readonly DiagnosticSeed[] = [
+  {
+    code: UNRESOLVABLE_PROVIDER_CODE,
+    annotations: catalogWith({
+      'seeded.severity-unresolvable': capabilityNaming('exarchos_no_such_provider'),
+    }),
+    providers: EFFECT_PROVIDERS,
+    rules: EFFECT_OWNERSHIP,
+  },
+  {
+    code: PROVIDER_REGISTRY_DRIFT_CODE,
+    annotations: EVENT_ANNOTATIONS,
+    providers: [...EFFECT_PROVIDERS, GHOST_PROVIDER],
+    rules: EFFECT_OWNERSHIP,
+  },
+  {
+    code: 'EMPTY_CAPABILITY_DENOMINATOR',
+    annotations: {},
+    providers: EFFECT_PROVIDERS,
+    rules: EFFECT_OWNERSHIP,
+  },
+  {
+    code: 'EMPTY_PROVIDER_REGISTRY',
+    annotations: EVENT_ANNOTATIONS,
+    providers: [],
+    rules: EFFECT_OWNERSHIP,
+  },
+];
+
+/**
+ * The live severity table with every row rewritten to `severity` — DERIVED from the shipped table's
+ * keys rather than transcribed, so it stays total as codes are added and cannot quietly leave a
+ * code on its default.
+ */
+function everyDiagnosticAt(severity: WeldDiagnosticSeverity): Record<string, WeldDiagnosticSeverity> {
+  const table: Record<string, WeldDiagnosticSeverity> = {};
+  for (const code of Object.keys(DIAGNOSTIC_SEVERITY_POLICY)) table[code] = severity;
+  return table;
 }
 
 describe('RegistrationValidate — the DR-2 boot-time weld resolution gate', () => {
@@ -289,5 +362,175 @@ describe('RegistrationValidate — the DR-2 boot-time weld resolution gate', () 
       [...new Set(EFFECT_PROVIDERS.map((p) => p.tool))].sort(),
     );
     expect(EFFECT_OWNERSHIP.length).toBeGreaterThan(0);
+  });
+});
+
+describe('StartupAssertion — the severity axis on the boot refusal', () => {
+  it('StartupAssertion_BlockingSeverity_ThrowsOnAnyViolation', () => {
+    // THE UNCHANGED-BEHAVIOUR PIN. Every diagnostic the gate can emit today is `blocking` in the
+    // shipped table, so the set of inputs that refuse startup is exactly what it was before
+    // severity was expressible. Naming the four codes is the point: this is a pin on the
+    // PRE-EXISTING population, and it must redden if one of them is renamed or downgraded, not
+    // shrug and pass over a phantom.
+    const shipped = Object.entries(DIAGNOSTIC_SEVERITY_POLICY);
+    const shippedCodes = shipped.map(([code]) => code);
+    expect(shippedCodes).toEqual(
+      expect.arrayContaining([
+        UNRESOLVABLE_PROVIDER_CODE,
+        PROVIDER_REGISTRY_DRIFT_CODE,
+        'EMPTY_CAPABILITY_DENOMINATOR',
+        'EMPTY_PROVIDER_REGISTRY',
+      ]),
+    );
+    for (const [, severity] of shipped) expect(severity).toBe('blocking');
+
+    // NON-VACUOUS SEED SET: one input per code, and the codes come from the same table asserted
+    // above — so a code that no seed exercises is a hole this loop reports rather than skips.
+    expect(DIAGNOSTIC_SEEDS.map((s) => s.code).sort()).toEqual([...shippedCodes].sort());
+
+    for (const seed of DIAGNOSTIC_SEEDS) {
+      // The pure verdict first: the diagnostic fires, it is stamped `blocking`, and the boot
+      // decision follows from the stamp rather than from "the list is non-empty".
+      const verdict = validateRegistrationWelds(seed.annotations, seed.providers, seed.rules);
+      const matching = verdict.diagnostics.filter((d) => d.code === seed.code);
+      expect(matching.length).toBeGreaterThan(0);
+      for (const diagnostic of matching) expect(diagnostic.severity).toBe('blocking');
+      expect(verdict.ok).toBe(false);
+      expect(verdict.bootable).toBe(false);
+      expect(verdict.blockingCount).toBe(verdict.diagnostics.length);
+      expect(verdict.observeCount).toBe(0);
+      // The report still reads as a refusal, and the fault count is the blocking count.
+      expect(verdict.report).toContain('event registration weld resolution FAILED');
+      expect(verdict.report).toContain(`${verdict.blockingCount} fault(s)`);
+      expect(verdict.report).not.toContain('observe-only');
+
+      // ...and the gate ACTUALLY REFUSES. A sink is supplied so a gate that reported instead of
+      // throwing would be caught here rather than passing as "it did something".
+      const reported: string[] = [];
+      expect(() =>
+        assertRegistrationWeldsAtStartup(
+          seed.annotations,
+          seed.providers,
+          seed.rules,
+          WELD_RESOLUTION_POLICY,
+          DIAGNOSTIC_SEVERITY_POLICY,
+          (message) => reported.push(message),
+        ),
+      ).toThrow(RegistrationWeldError);
+      expect(reported).toEqual([]);
+    }
+  });
+
+  it('StartupAssertion_ObserveSeverity_ReportsWithoutThrowing', () => {
+    // THE OTHER ARM, over the same four inputs. Identical populations, one row-set flipped: the
+    // gate must now RETURN and report rather than refuse. Running it over the same seeds as the
+    // blocking test is what makes the pair evidence — each input is shown to be refusable AND
+    // survivable purely as a function of the severity table.
+    const observeEverything = everyDiagnosticAt('observe');
+
+    for (const seed of DIAGNOSTIC_SEEDS) {
+      const reported: string[] = [];
+      const verdict = assertRegistrationWeldsAtStartup(
+        seed.annotations,
+        seed.providers,
+        seed.rules,
+        WELD_RESOLUTION_POLICY,
+        observeEverything,
+        (message) => reported.push(message),
+      );
+
+      // Found something, and said so — but did not stop the process.
+      const matching = verdict.diagnostics.filter((d) => d.code === seed.code);
+      expect(matching.length).toBeGreaterThan(0);
+      for (const diagnostic of matching) expect(diagnostic.severity).toBe('observe');
+      expect(verdict.bootable).toBe(true);
+      expect(verdict.blockingCount).toBe(0);
+      expect(verdict.observeCount).toBe(verdict.diagnostics.length);
+
+      // `ok` is NOT weakened by the flip. An observation is still a finding, so the clean-tree
+      // signal stays false — only the boot decision moved.
+      expect(verdict.ok).toBe(false);
+
+      // REPORTED, exactly once, with the fault in it. An observation nobody is told about is
+      // indistinguishable from a check that never ran.
+      expect(reported).toHaveLength(1);
+      const message = reported[0] ?? '';
+      expect(message).toBe(verdict.report);
+      expect(message).toContain('observe-only');
+      expect(message).toContain(`${verdict.observeCount} finding(s)`);
+      expect(message).toContain(seed.code);
+      expect(message).not.toContain('FAILED');
+      // The denominators still ride the report, so an observation cannot be read without the
+      // population it was measured over.
+      expect(message).toContain(`${verdict.bootResolvedCount} boot-resolved weld(s)`);
+      expect(message).toContain(`${verdict.resolvableProviderCount} live provider(s)`);
+    }
+  });
+
+  it('StartupAssertion_ObserveSeverity_StaysSilentOnACleanTree', () => {
+    // THE ANTI-TAUTOLOGY for the test above. With everything set to `observe`, a gate that
+    // reported unconditionally would still satisfy "does not throw" — so the clean tree must
+    // produce NO report at all. This is also the live-catalog control for the axis: flipping every
+    // row to observe changes nothing about a tree that has nothing to say.
+    const reported: string[] = [];
+    const verdict = assertRegistrationWeldsAtStartup(
+      EVENT_ANNOTATIONS,
+      EFFECT_PROVIDERS,
+      EFFECT_OWNERSHIP,
+      WELD_RESOLUTION_POLICY,
+      everyDiagnosticAt('observe'),
+      (message) => reported.push(message),
+    );
+
+    expect(verdict.ok).toBe(true);
+    expect(verdict.bootable).toBe(true);
+    expect(verdict.diagnostics).toEqual([]);
+    expect(verdict.observeCount).toBe(0);
+    expect(reported).toEqual([]);
+    // ...over a non-empty population, so "nothing to report" is not "nothing to look at".
+    expect(verdict.bootResolvedCount).toBeGreaterThan(0);
+    expect(verdict.resolvableProviderCount).toBeGreaterThan(0);
+  });
+
+  it('StartupAssertion_MixedSeverities_RefusesOnTheBlockingOneAndStillNamesTheObservation', () => {
+    // The case the flip to blocking will actually walk through: one fault of each severity in the
+    // same verdict. `bootable` must follow the BLOCKING one — a severity axis that let an
+    // observation dilute a refusal would be worse than no axis at all — while the observation is
+    // still carried, so the operator is not shown half the picture.
+    const seeded = catalogWith({
+      'seeded.severity-mixed': capabilityNaming('exarchos_no_such_provider'),
+    });
+    const mixed: Record<string, WeldDiagnosticSeverity> = {
+      ...everyDiagnosticAt('observe'),
+      [UNRESOLVABLE_PROVIDER_CODE]: 'blocking',
+    };
+    const providers = [...EFFECT_PROVIDERS, GHOST_PROVIDER];
+
+    const verdict = validateRegistrationWelds(
+      seeded,
+      providers,
+      EFFECT_OWNERSHIP,
+      WELD_RESOLUTION_POLICY,
+      mixed,
+    );
+    expect(verdict.blockingCount).toBeGreaterThan(0);
+    expect(verdict.observeCount).toBeGreaterThan(0);
+    expect(verdict.bootable).toBe(false);
+    expect(verdict.report).toContain('event registration weld resolution FAILED');
+    // Both halves are in the one report: the refusal names the blocking fault, and the trailing
+    // block names the observation rather than dropping it.
+    expect(verdict.report).toContain(UNRESOLVABLE_PROVIDER_CODE);
+    expect(verdict.report).toContain('observe-only');
+    expect(verdict.report).toContain(PROVIDER_REGISTRY_DRIFT_CODE);
+
+    expect(() =>
+      assertRegistrationWeldsAtStartup(
+        seeded,
+        providers,
+        EFFECT_OWNERSHIP,
+        WELD_RESOLUTION_POLICY,
+        mixed,
+      ),
+    ).toThrow(RegistrationWeldError);
   });
 });

@@ -109,4 +109,100 @@ describe('DR-2 boot gate — initializeContext refuses to start on an unresolvab
     expect(ctx.eventStore).toBeDefined();
     ctx.eventStore.close();
   });
+
+  it('StartupAssertion_BlockingSeverity_ThrowsOnAnyViolation', async () => {
+    // THE REFUSAL IS SEVERITY-DRIVEN, asserted on the real boot path rather than on a pure call.
+    // The gate no longer refuses because "the diagnostic list is non-empty" — it refuses because a
+    // diagnostic is stamped `blocking`, and the verdict riding the thrown error is where that shows.
+    vi.resetModules();
+    vi.doMock('../../../src/events/event-annotations.js', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('../../../src/events/event-annotations.js')>();
+      return {
+        ...actual,
+        EVENT_ANNOTATIONS: Object.freeze({
+          ...actual.EVENT_ANNOTATIONS,
+          [SEEDED_EVENT]: SEEDED_REGISTRATION,
+        }),
+      };
+    });
+
+    const { initializeContext } = await import('../../../src/dispatch/core/context.js');
+    const { RegistrationWeldError } = await import('../../../src/events/registration-validate.js');
+
+    let caught: unknown;
+    try {
+      await initializeContext(tmpDir);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(RegistrationWeldError);
+    if (!(caught instanceof RegistrationWeldError)) return;
+
+    // Not bootable, and every fault that made it so is blocking — the boot decision follows the
+    // stamp. A verdict that refused with zero blocking diagnostics would be the axis being ignored.
+    expect(caught.verdict.bootable).toBe(false);
+    expect(caught.verdict.blockingCount).toBeGreaterThan(0);
+    expect(caught.verdict.observeCount).toBe(0);
+    for (const diagnostic of caught.verdict.diagnostics) {
+      expect(diagnostic.severity).toBe('blocking');
+    }
+  });
+
+  it('StartupAssertion_ObserveSeverity_ReportsWithoutThrowing', async () => {
+    // THE OTHER ARM, over the very catalog the boot path just refused. The severity table the
+    // production gate reads is all-blocking by construction in this change, so an observe-severity
+    // finding cannot be produced through `initializeContext` itself yet — arming a real one is a
+    // later, deliberate flip. What IS shown here is the property that flip depends on: hold the
+    // populations fixed at the ones the boot path uses, move ONLY the severity table, and the same
+    // input that refused startup above is reported and survived instead.
+    vi.resetModules();
+    vi.doUnmock('../../../src/events/event-annotations.js');
+
+    const { EVENT_ANNOTATIONS } = await import('../../../src/events/event-annotations.js');
+    const { EFFECT_PROVIDERS } = await import('../../../src/contract/reachability/providers.js');
+    const { EFFECT_OWNERSHIP } = await import('../../../src/architecture/effect-ledger.js');
+    const {
+      DIAGNOSTIC_SEVERITY_POLICY,
+      WELD_RESOLUTION_POLICY,
+      assertRegistrationWeldsAtStartup,
+    } = await import('../../../src/events/registration-validate.js');
+
+    const seeded = Object.freeze({ ...EVENT_ANNOTATIONS, [SEEDED_EVENT]: SEEDED_REGISTRATION });
+    const observeEverything: Record<string, 'blocking' | 'observe'> = {};
+    for (const code of Object.keys(DIAGNOSTIC_SEVERITY_POLICY)) observeEverything[code] = 'observe';
+
+    const reported: string[] = [];
+    const verdict = assertRegistrationWeldsAtStartup(
+      seeded,
+      EFFECT_PROVIDERS,
+      EFFECT_OWNERSHIP,
+      WELD_RESOLUTION_POLICY,
+      observeEverything,
+      (message) => reported.push(message),
+    );
+
+    // Returned rather than thrown, and the finding is still the one the boot path refused on.
+    expect(verdict.bootable).toBe(true);
+    expect(verdict.blockingCount).toBe(0);
+    expect(verdict.observeCount).toBeGreaterThan(0);
+    expect(verdict.ok).toBe(false);
+    expect(reported).toHaveLength(1);
+    expect(reported[0]).toContain(SEEDED_EVENT);
+    expect(reported[0]).toContain(SEEDED_PROVIDER);
+
+    // ...and the boot path with the UNSEEDED catalog reports nothing at all under the same
+    // all-observe table, so the report above is caused by the fault and not by every call.
+    const quiet: string[] = [];
+    const clean = assertRegistrationWeldsAtStartup(
+      EVENT_ANNOTATIONS,
+      EFFECT_PROVIDERS,
+      EFFECT_OWNERSHIP,
+      WELD_RESOLUTION_POLICY,
+      observeEverything,
+      (message) => quiet.push(message),
+    );
+    expect(clean.ok).toBe(true);
+    expect(quiet).toEqual([]);
+    expect(clean.bootResolvedCount).toBeGreaterThan(0);
+  });
 });
