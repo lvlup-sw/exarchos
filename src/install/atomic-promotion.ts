@@ -113,7 +113,7 @@ import {
 } from './install-identity.js';
 import {
   LIVE,
-  emissionAppender,
+  emissionRecorder,
   runEffect,
   type EffectMode,
   type EffectOutcome,
@@ -844,10 +844,10 @@ export async function promoteTree(
     return Promise.resolve(report);
   };
 
-  const appender =
+  const ledger =
     recorder === undefined
       ? undefined
-      : emissionAppender(async () => {
+      : emissionRecorder(async () => {
           // Unreachable: the success terminal fires only after the engine
           // returned, and the engine sets `report` before it does. Throwing
           // rather than returning quietly matters anyway — a sink that returns
@@ -866,7 +866,7 @@ export async function promoteTree(
           });
         });
 
-  return runEffect(mode, plan, promoted, appender);
+  return runEffect(mode, plan, promoted, ledger);
 }
 
 // ─── Directory-copy adapter (production `copyDir` seam) ───────────────────────
