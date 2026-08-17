@@ -48,18 +48,22 @@ import {
   DIAGNOSTIC_SEVERITY_POLICY,
   EMISSION_DENOMINATOR_FLOOR,
   EMISSION_PROVIDER_MISMATCH_CODE,
+  PROVIDER_DISAGREEMENT_DISPOSITIONS,
   PROVIDER_REGISTRY_DRIFT_CODE,
   RegistrationWeldError,
   UNRESOLVABLE_PROVIDER_CODE,
   WELD_RESOLUTION_POLICY,
   assertRegistrationWeldsAtStartup,
+  auditDisagreementDispositions,
   bootResolvedWelds,
   declaredEmissionEdges,
+  reportedDisagreements,
   resolvableProviderIds,
   validateRegistrationWelds,
   type EmissionEdge,
   type WeldDiagnosticCode,
   type WeldDiagnosticSeverity,
+  type WeldResolutionVerdict,
 } from '../../../src/events/registration-validate.js';
 
 /** The live catalog with extra entries merged in — the seeding seam for the falsifiers below. */
@@ -1055,5 +1059,233 @@ describe('ComparisonDenominator — the size of the set the provider comparison 
     );
     expect(emptied.comparedEmissionEdgeCount).toBe(0);
     expect(emptied.diagnostics.map((d) => d.code)).toEqual(['EMPTY_EMISSION_DENOMINATOR']);
+  });
+});
+
+describe('ProviderBreakSet — every reported disagreement is answered for', () => {
+  /**
+   * An emission edge that disagrees and that NO ledger row covers.
+   *
+   * Both ends come off live modules — a real capability event with the provider its own
+   * registration declares, and a real composite tool that is not that provider — so what is seeded
+   * is a genuine two-authority disagreement rather than a string nobody would write. Only the action
+   * name is fabricated, and that is the point: it is what makes the edge one the ledger has never
+   * seen. Throws rather than degrading into "no seed", because a falsifier that quietly stops
+   * falsifying is the way this kind of test ships green forever.
+   */
+  function unlistedDisagreement(): EmissionEdge {
+    const seed = disagreeingEmissionEdge();
+    const covered = PROVIDER_DISAGREEMENT_DISPOSITIONS.some(
+      (row) => row.event === seed.event && row.action === seed.action,
+    );
+    if (covered) throw new Error('the seeded disagreement is already in the ledger');
+    return seed;
+  }
+
+  /** The provider the LIVE catalog declares for a capability event. Throws rather than guessing. */
+  function liveProviderOf(eventType: string): string {
+    const registration = EVENT_ANNOTATIONS[eventType];
+    if (registration === undefined || registration.tier !== 'capability') {
+      throw new Error(`'${eventType}' carries no live capability registration`);
+    }
+    return registration.provider;
+  }
+
+  /** The live comparison with `extra` merged into the declared emission population. */
+  function liveVerdictPlus(extra: readonly EmissionEdge[]): WeldResolutionVerdict {
+    return validateRegistrationWelds(
+      EVENT_ANNOTATIONS,
+      EFFECT_PROVIDERS,
+      EFFECT_OWNERSHIP,
+      WELD_RESOLUTION_POLICY,
+      DIAGNOSTIC_SEVERITY_POLICY,
+      [...declaredEmissionEdges(), ...extra],
+    );
+  }
+
+  it('ProviderBreakSet_EveryDisagreementIsDispositioned', () => {
+    const live = validateRegistrationWelds();
+
+    // THE DENOMINATOR THIS RESTS ON, asserted before anything is read off it. A ledger reconciled
+    // against a comparison that has quietly stopped comparing would report a clean sweep of nothing
+    // — so the compared set is pinned at its measured floor first, and the reconciliation below is
+    // only evidence because this held.
+    expect(live.comparedEmissionEdgeCount).toBeGreaterThanOrEqual(EMISSION_DENOMINATOR_FLOOR);
+    expect(live.diagnostics.map((d) => d.code)).not.toContain('NARROWED_EMISSION_DENOMINATOR');
+    expect(live.diagnostics.map((d) => d.code)).not.toContain('EMPTY_EMISSION_DENOMINATOR');
+
+    // DERIVED, not typed. The subject is what the gate reports over the shipped catalog; nothing in
+    // this test writes down an event name, so a disagreement that appears or disappears changes the
+    // subject rather than leaving a stale literal being checked against itself.
+    const reported = reportedDisagreements(live);
+    const audit = auditDisagreementDispositions(reported);
+
+    // BOTH DIRECTIONS CLEAN: no reported edge is unanswered, and no row answers for an edge the
+    // comparison no longer reports. `toEqual([])` rather than a length check so a failure prints
+    // the offending identity and its remedy instead of a number.
+    expect(audit.diagnostics).toEqual([]);
+    expect(audit.ok).toBe(true);
+
+    // The two populations are the same size, which is only true because the match is exact on all
+    // four sides in both directions — a ledger that over- or under-covered would trip an arm above
+    // and this equality would follow it.
+    expect(audit.reportedCount).toBe(reported.length);
+    expect(audit.dispositionedCount).toBe(PROVIDER_DISAGREEMENT_DISPOSITIONS.length);
+    expect(audit.reportedCount).toBe(audit.dispositionedCount);
+
+    // Every row carries a REASON, not just a verdict. A classification with no rationale would let
+    // "somebody decided" stand in for "somebody worked it out", which is the state this ledger
+    // exists to end — and a blank string satisfies the type.
+    for (const row of PROVIDER_DISAGREEMENT_DISPOSITIONS) {
+      expect(['genuine-mismatch', 'annotation-error']).toContain(row.classification);
+      expect(row.rationale.trim().length).toBeGreaterThan(0);
+      // The row is about a disagreement, so the two sides must actually differ. A row whose two
+      // tool ids matched would be answering for an edge the comparison could never report.
+      expect(row.declaringTool).not.toBe(row.declaredProvider);
+      // ...and the provider it names is the one the LIVE catalog declares, so a row cannot drift
+      // into dispositioning a disagreement the annotation table has stopped making.
+      const registration = EVENT_ANNOTATIONS[row.event];
+      expect(registration).toBeDefined();
+      expect(registration?.tier).toBe('capability');
+      if (registration?.tier === 'capability') {
+        expect(registration.provider).toBe(row.declaredProvider);
+      }
+    }
+
+    // BOTH CLASSIFICATIONS ARE IN USE. The distinction is the substance of this ledger — a break set
+    // where every row said the same thing would mean nobody had separated "the vocabulary cannot
+    // name the truth" from "the annotation is wrong", which are opposite conclusions with opposite
+    // remedies.
+    const classifications = new Set(
+      PROVIDER_DISAGREEMENT_DISPOSITIONS.map((row) => row.classification),
+    );
+    expect([...classifications].sort()).toEqual(['annotation-error', 'genuine-mismatch']);
+  });
+
+  it('ProviderBreakSet_UndispositionedEntry_Fails', () => {
+    // THE CONTROL FIRST, so everything below is attributable to the seed rather than to the fixture.
+    const control = auditDisagreementDispositions(reportedDisagreements(liveVerdictPlus([])));
+    expect(control.diagnostics).toEqual([]);
+    expect(control.ok).toBe(true);
+
+    // ── ARM ONE: a NEW disagreement arrives and nobody has looked at it ─────────────────────────
+    const seed = unlistedDisagreement();
+    const seeded = liveVerdictPlus([seed]);
+
+    // The gate still only OBSERVES it, exactly as before — the seed changes nothing about boot, so
+    // a tree carrying an unanswered disagreement is indistinguishable from a clean one to every
+    // check that existed before this ledger. That is the hole being closed.
+    expect(seeded.bootable).toBe(true);
+    expect(seeded.blockingCount).toBe(0);
+
+    const seededReport = reportedDisagreements(seeded);
+    expect(seededReport.length).toBe(control.reportedCount + 1);
+
+    const seededAudit = auditDisagreementDispositions(seededReport);
+
+    // ...and the reconciliation REDDENS. Not "a diagnostic exists somewhere" — exactly one, naming
+    // the seeded edge by all four sides, with every pre-existing entry still answered for.
+    expect(seededAudit.ok).toBe(false);
+    expect(seededAudit.diagnostics).toHaveLength(1);
+    const finding = seededAudit.diagnostics[0];
+    expect(finding).toBeDefined();
+    if (finding === undefined) return;
+    expect(finding.code).toBe('UNDISPOSITIONED_DISAGREEMENT');
+    expect(finding.identity).toEqual({
+      event: seed.event,
+      action: seed.action,
+      declaredProvider: liveProviderOf(seed.event),
+      declaringTool: seed.declaringTool,
+    });
+    // The message tells the reader what to do, and names both classifications — a finding that only
+    // said "undispositioned" would send whoever hits it back to this file to work out what a
+    // disposition even is.
+    expect(finding.message).toContain(seed.event);
+    expect(finding.message).toContain(seed.action);
+    expect(finding.message).toContain('genuine-mismatch');
+    expect(finding.message).toContain('annotation-error');
+
+    // ── ARM TWO: the ledger stops covering an entry that is still reported ──────────────────────
+    // The complementary failure, and the one a ledger drifts into rather than arrives at: nothing
+    // about the tree changes, a row is simply dropped. Same denominator, same comparison, one fewer
+    // answer — and the audit must notice.
+    const dropped = PROVIDER_DISAGREEMENT_DISPOSITIONS[0];
+    expect(dropped).toBeDefined();
+    if (dropped === undefined) return;
+    const thinned = auditDisagreementDispositions(
+      reportedDisagreements(liveVerdictPlus([])),
+      PROVIDER_DISAGREEMENT_DISPOSITIONS.slice(1),
+    );
+    expect(thinned.ok).toBe(false);
+    expect(thinned.diagnostics.map((d) => d.code)).toEqual(['UNDISPOSITIONED_DISAGREEMENT']);
+    expect(thinned.diagnostics[0]?.identity).toEqual({
+      event: dropped.event,
+      action: dropped.action,
+      declaredProvider: dropped.declaredProvider,
+      declaringTool: dropped.declaringTool,
+    });
+  });
+
+  it('ProviderBreakSet_RowCoveringNothing_IsReportedStale', () => {
+    // THE OTHER HALF OF THE RATCHET. A row whose subject is gone reads exactly like a healthy one
+    // from inside the table — same shape, same reasoning, still counted in `dispositionedCount` —
+    // so nothing but this arm can tell the two apart. Without it the ledger could be repaired into
+    // permanent agreement by leaving rows behind after the disagreements they answered for were
+    // fixed, and the coverage check above would keep passing over a table that had stopped
+    // describing the tree.
+    const ghost = {
+      event: 'ghost.event',
+      action: 'ghost_action',
+      declaredProvider: 'exarchos_workflow',
+      declaringTool: 'exarchos_orchestrate',
+      classification: 'genuine-mismatch',
+      rationale: 'seeded row answering for a disagreement the comparison does not report',
+    } as const;
+
+    const audit = auditDisagreementDispositions(reportedDisagreements(), [
+      ...PROVIDER_DISAGREEMENT_DISPOSITIONS,
+      ghost,
+    ]);
+
+    expect(audit.ok).toBe(false);
+    expect(audit.diagnostics.map((d) => d.code)).toEqual(['STALE_DISPOSITION']);
+    expect(audit.diagnostics[0]?.identity).toEqual({
+      event: ghost.event,
+      action: ghost.action,
+      declaredProvider: ghost.declaredProvider,
+      declaringTool: ghost.declaringTool,
+    });
+    expect(audit.diagnostics[0]?.message).toContain('Delete the row');
+
+    // The count still says nine, which is the whole reason the arm is needed: a table can grow
+    // while covering less.
+    expect(audit.dispositionedCount).toBe(PROVIDER_DISAGREEMENT_DISPOSITIONS.length + 1);
+    expect(audit.reportedCount).toBe(PROVIDER_DISAGREEMENT_DISPOSITIONS.length);
+  });
+
+  it('ProviderBreakSet_MatchIsOnAllFourSides_NotTheEventAlone', () => {
+    // WHY THE KEY IS FOUR-WIDE. The break set has five separate edges on ONE event, so a ledger
+    // keyed on the event would answer for a sixth the moment it appeared — a new action wired to an
+    // already-dispositioned event would arrive pre-approved by a row written before it existed.
+    const byEvent = new Map<string, number>();
+    for (const row of PROVIDER_DISAGREEMENT_DISPOSITIONS) {
+      byEvent.set(row.event, (byEvent.get(row.event) ?? 0) + 1);
+    }
+    expect(Math.max(...byEvent.values())).toBeGreaterThan(1);
+
+    // Take a covered row, move ONE side, and the audit refuses to recognise it — proof that the
+    // other three sides did not carry the match on their own.
+    const covered = PROVIDER_DISAGREEMENT_DISPOSITIONS[0];
+    expect(covered).toBeDefined();
+    if (covered === undefined) return;
+    const movedAction = auditDisagreementDispositions([
+      {
+        event: covered.event,
+        action: `${covered.action}_relocated`,
+        declaredProvider: covered.declaredProvider,
+        declaringTool: covered.declaringTool,
+      },
+    ]);
+    expect(movedAction.diagnostics.map((d) => d.code)).toContain('UNDISPOSITIONED_DISAGREEMENT');
   });
 });
