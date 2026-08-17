@@ -118,6 +118,13 @@ export interface ContractDeclaration {
   readonly requiredRoles: readonly string[];
   /** The effect classes the contract declares this handler may perform. */
   readonly declaredEffects: readonly EffectClass[];
+  /**
+   * The event types the contract declares this handler appends — the
+   * intent/result emission set (DR-7). Optional: existing declarations predate
+   * this field and declare none, so the emission axis has nothing to verify
+   * for them and reports `not-observed` rather than a vacuous `pass`.
+   */
+  readonly declaredEmissions?: readonly string[];
   /** The declared input schema. */
   readonly inputSchema: z.ZodType;
   /** The declared output schema (the value a handler returns must satisfy it). */
@@ -159,6 +166,37 @@ export function createEffectRecorder(): EffectRecorder {
   };
 }
 
+/** One event the handler actually appended, as recorded at runtime (DR-7). */
+export interface EmissionEvent {
+  readonly eventType: string;
+  readonly evidence: string;
+}
+
+/**
+ * A runtime emission recorder threaded into the handler's observation context,
+ * minted the exact way {@link EffectRecorder} is (see the three mint sites in
+ * {@link observeBehavior}). Its evidence is an OBSERVED append: a handler that
+ * threads a real event-store append through `record()` at the point it commits
+ * is the difference between "declared to emit" and "was seen appending" —
+ * re-reading the declaration would be tautological (DR-7).
+ */
+export interface EmissionRecorder {
+  record(eventType: string, evidence: string): void;
+  readonly appended: readonly EmissionEvent[];
+}
+
+export function createEmissionRecorder(): EmissionRecorder {
+  const appended: EmissionEvent[] = [];
+  return {
+    record(eventType: string, evidence: string): void {
+      appended.push({ eventType, evidence });
+    },
+    get appended(): readonly EmissionEvent[] {
+      return appended;
+    },
+  };
+}
+
 /** The caller identity/authorization the oracle presents to a handler. */
 export interface Caller {
   readonly subjectId: string;
@@ -169,6 +207,14 @@ export interface Caller {
 export interface ObservationContext {
   readonly caller: Caller;
   readonly effects: EffectRecorder;
+  /**
+   * The emission recorder (DR-7). Optional on the TYPE only so the one
+   * existing caller-constructed literal (`fixtures.ts`'s admission probe)
+   * keeps compiling unchanged; {@link observeBehavior} always mints and
+   * injects one, so a handler reached through the oracle can rely on it being
+   * present.
+   */
+  readonly emissions?: EmissionRecorder;
 }
 
 /**
@@ -338,6 +384,12 @@ export interface Observation {
   readonly performedEffects: readonly EffectEvent[];
   readonly staticEffects: readonly EffectClass[];
   /**
+   * Events OBSERVED appended during the authorized probe (DR-7) — never a
+   * re-read of {@link ContractDeclaration.declaredEmissions}. See
+   * {@link checkDeclaredEmission}.
+   */
+  readonly performedEmissions: readonly EmissionEvent[];
+  /**
    * Whether ANY effect evidence was collected at all (a runtime record or a
    * static scan). False ⇒ the handler's effects were NOT observed, which the
    * effect axis must report as `not-observed` rather than a vacuous `pass`.
@@ -485,27 +537,31 @@ export async function observeBehavior(subject: OracleSubject): Promise<Observati
     ? [...declaration.requiredRoles]
     : [OPEN_ROLE_MARKER];
 
-  // Authorized invocation #1 — the observed output + performed effects.
+  // Authorized invocation #1 — the observed output + performed effects/emissions.
   const rec1 = createEffectRecorder();
+  const emissionRec1 = createEmissionRecorder();
   let output: unknown;
   let invocationError: string | undefined;
   try {
     output = await handler(probeInput, {
       caller: { subjectId: 'oracle-authorized', roles: authorizedRoles },
       effects: rec1,
+      emissions: emissionRec1,
     });
   } catch (err) {
     invocationError = errorMessage(err);
   }
 
-  // Authorized invocation #2 — the idempotency witness (fresh recorder).
+  // Authorized invocation #2 — the idempotency witness (fresh recorders).
   const rec2 = createEffectRecorder();
+  const emissionRec2 = createEmissionRecorder();
   let outputRepeat: unknown;
   if (invocationError === undefined) {
     try {
       outputRepeat = await handler(probeInput, {
         caller: { subjectId: 'oracle-authorized', roles: authorizedRoles },
         effects: rec2,
+        emissions: emissionRec2,
       });
     } catch (err) {
       // A handler that succeeds once then throws is itself a contradiction.
@@ -515,6 +571,7 @@ export async function observeBehavior(subject: OracleSubject): Promise<Observati
 
   // Unauthorized probe — a caller holding NO roles.
   const rec3 = createEffectRecorder();
+  const emissionRec3 = createEmissionRecorder();
   let unauthorizedRefused = false;
   let unauthorizedDetail = '';
   {
@@ -524,6 +581,7 @@ export async function observeBehavior(subject: OracleSubject): Promise<Observati
       value = await handler(probeInput, {
         caller: { subjectId: 'oracle-intruder', roles: [] },
         effects: rec3,
+        emissions: emissionRec3,
       });
     } catch (err) {
       error = err;
@@ -552,6 +610,7 @@ export async function observeBehavior(subject: OracleSubject): Promise<Observati
     performedEffects: rec1.performed,
     staticEffects,
     effectsObserved: rec1.performed.length > 0 || staticEffects.length > 0,
+    performedEmissions: emissionRec1.appended,
     authorizationProbed: subject.authorizationSurface !== undefined,
     ...(subject.authorizationSurface !== undefined
       ? { authorizationSurface: subject.authorizationSurface }
@@ -906,12 +965,81 @@ export function checkCompatibilityBreak(
   };
 }
 
+// ─── The emission axis (DR-7) ────────────────────────────────────────────────
+//
+// Reported SEPARATELY from {@link ORACLE_AXES} rather than folded into that
+// closed union: `fixtures.ts`'s `AXIS_HANDLERS` is typed `Record<OracleAxis, …>`
+// over the five original seedable axes, and this axis's own seeded-break
+// fixture and live-subject wiring are a later task's to add. The axis is
+// reported on {@link OracleReport.emissionVerdict}, using the identical
+// {@link AxisStatus} vocabulary, and participates in `ok` and `failures`
+// exactly as the other five do.
+
+/** The emission axis identifier — deliberately not a member of {@link ORACLE_AXES}. */
+export const EMISSION_AXIS = 'declared-emission';
+export type EmissionAxis = typeof EMISSION_AXIS;
+
+export interface EmissionAxisVerdict {
+  readonly axis: EmissionAxis;
+  readonly actionId: string;
+  readonly status: AxisStatus;
+  readonly diagnostic: string;
+}
+
+/**
+ * DECLARED EMISSION. A handler declaring an emission it does not perform.
+ * Evidence is an OBSERVED append — the emission recorder minted and injected
+ * into the observation context the exact way {@link EffectRecorder} is — never
+ * a re-read of {@link ContractDeclaration.declaredEmissions}, which would be
+ * tautological.
+ *
+ * `not-observed` when the contract declares no emission: there is nothing to
+ * verify, and reporting `pass` would claim positive evidence this axis never
+ * collected (see the module header's `not-observed` is NOT `pass`).
+ */
+export function checkDeclaredEmission(
+  decl: ContractDeclaration,
+  obs: Observation,
+): EmissionAxisVerdict {
+  const axis = EMISSION_AXIS;
+  const declared = [...new Set(decl.declaredEmissions ?? [])].sort(byString);
+  if (declared.length === 0) {
+    return {
+      axis,
+      actionId: decl.actionId,
+      status: 'not-observed',
+      diagnostic: 'contract declares no emission — nothing to observe as appended',
+    };
+  }
+  const appended = new Set(obs.performedEmissions.map((e) => e.eventType));
+  const missing = declared.filter((eventType) => !appended.has(eventType));
+  if (missing.length > 0) {
+    const observedList = [...appended].sort(byString).join(', ') || 'none';
+    return {
+      axis,
+      actionId: decl.actionId,
+      status: 'fail',
+      diagnostic:
+        `handler declares emission(s) [${missing.join(', ')}] but no append was observed at ` +
+        `runtime — declared {${declared.join(', ')}}; observed appends {${observedList}}`,
+    };
+  }
+  return {
+    axis,
+    actionId: decl.actionId,
+    status: 'pass',
+    diagnostic: `every declared emission was observed appended (declared {${declared.join(', ')}})`,
+  };
+}
+
 // ─── The oracle run ──────────────────────────────────────────────────────────
 
 export interface OracleReport {
   readonly actionId: string;
   readonly ok: boolean;
   readonly verdicts: readonly AxisVerdict[];
+  /** The emission axis's verdict (DR-7), reported separately — see {@link EmissionAxisVerdict}. */
+  readonly emissionVerdict: EmissionAxisVerdict;
 }
 
 export interface RunOracleOptions {
@@ -922,7 +1050,8 @@ export interface RunOracleOptions {
 /**
  * Run the oracle over one subject: observe its behavior, then compare each axis'
  * independently-derived expectation against the observation. `ok` is false iff
- * any axis returns `fail`.
+ * any axis returns `fail` — the five {@link ORACLE_AXES} verdicts plus the
+ * emission verdict (DR-7).
  */
 export async function runOracle(
   subject: OracleSubject,
@@ -939,15 +1068,19 @@ export async function runOracle(
   ];
   const wanted = opts.axes ? new Set<OracleAxis>(opts.axes) : undefined;
   const verdicts = wanted ? all.filter((v) => wanted.has(v.axis)) : all;
-  const ok = verdicts.every((v) => v.status !== 'fail');
-  return { actionId: decl.actionId, ok, verdicts };
+  const emissionVerdict = checkDeclaredEmission(decl, obs);
+  const ok = verdicts.every((v) => v.status !== 'fail') && emissionVerdict.status !== 'fail';
+  return { actionId: decl.actionId, ok, verdicts, emissionVerdict };
 }
 
 export interface OracleSuiteReport {
   readonly ok: boolean;
   readonly reports: readonly OracleReport[];
-  /** Every failing verdict across the suite, for a single-glance diagnostic. */
-  readonly failures: readonly AxisVerdict[];
+  /**
+   * Every failing verdict across the suite, for a single-glance diagnostic.
+   * Includes emission-axis (DR-7) failures alongside the five {@link ORACLE_AXES}.
+   */
+  readonly failures: readonly (AxisVerdict | EmissionAxisVerdict)[];
   /**
    * Per-axis observation census (DR-24). Makes VACUITY visible: an axis whose
    * `observed` count is 0 across the whole suite reported nothing at all, which
@@ -994,7 +1127,10 @@ export async function runOracleSuite(
   opts: RunOracleOptions = {},
 ): Promise<OracleSuiteReport> {
   const reports = await Promise.all(subjects.map((s) => runOracle(s, opts)));
-  const failures = reports.flatMap((r) => r.verdicts.filter((v) => v.status === 'fail'));
+  const failures: (AxisVerdict | EmissionAxisVerdict)[] = reports.flatMap((r) => [
+    ...r.verdicts.filter((v) => v.status === 'fail'),
+    ...(r.emissionVerdict.status === 'fail' ? [r.emissionVerdict] : []),
+  ]);
   return {
     ok: failures.length === 0,
     reports,
@@ -1013,10 +1149,10 @@ export function verdictFor(report: OracleReport, axis: OracleAxis): AxisVerdict 
   return report.verdicts.find((v) => v.axis === axis);
 }
 
-/** A deterministic one-line-per-axis summary of a report. */
+/** A deterministic one-line-per-axis summary of a report, emission axis included. */
 export function summarizeReport(report: OracleReport): string {
   const head = `${report.actionId} — ${report.ok ? 'PASS' : 'FAIL'}`;
-  const lines = report.verdicts.map(
+  const lines = [...report.verdicts, report.emissionVerdict].map(
     (v) => `  [${v.status}] ${v.axis}: ${v.diagnostic}`,
   );
   return [head, ...lines].join('\n');

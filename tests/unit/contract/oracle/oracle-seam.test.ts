@@ -1,6 +1,9 @@
+import { z } from 'zod';
 import { describe, it, expect } from 'vitest';
 import {
   ORACLE_AXES,
+  EMISSION_AXIS,
+  checkDeclaredEmission,
   checkGenerationConsistency,
   checkIncorrectHandler,
   checkMalformedOutput,
@@ -13,7 +16,11 @@ import {
   runOracleSuite,
   serializeGeneratedDescriptor,
   summarizeReport,
+  type ContractDeclaration,
+  type EmissionRecorder,
+  type ObservableHandler,
   type OracleAxis,
+  type OracleSubject,
 } from '../../../../src/contract/oracle/oracle-seam.js';
 import {
   correctBaselineSubject,
@@ -208,5 +215,121 @@ describe('P03-09 oracle — per-axis check discrimination', () => {
     const verdict = checkMissingAuthorization(subject.declaration, obs);
     expect(verdict.status).toBe('not-observed');
     expect(verdict.diagnostic).toMatch(/open-role marker|no authorization surface/);
+  });
+});
+
+// ─── DR-7: the emission axis observes the append, not the declaration ────────
+//
+// This axis's evidence must be an OBSERVED append (the emission recorder
+// `observeBehavior` mints and injects), never a re-read of
+// `ContractDeclaration.declaredEmissions` — that would be tautological. These
+// subjects are built locally rather than via `fixtures.ts`, because
+// `ContractDeclaration.declaredEmissions` and `ObservationContext.emissions`
+// are new fields no existing fixture declaration sets.
+
+const EMISSION_EVENT_TYPE = 'oracle_probe.appended';
+const EMISSION_EVIDENCE = 'store.append:oracle-probe-stream';
+
+function emissionProbeDeclaration(): ContractDeclaration {
+  return {
+    actionId: 'oracle_probe.declared_emission',
+    safety: 'local-mutation',
+    readOnly: false,
+    idempotent: true,
+    requiredRoles: [],
+    declaredEffects: [],
+    declaredEmissions: [EMISSION_EVENT_TYPE],
+    inputSchema: z.object({}),
+    outputSchema: z.object({ id: z.string() }),
+    surfaceVersion: '1.0.0',
+  };
+}
+
+function emissionProbeSubject(handler: ObservableHandler): OracleSubject {
+  return { declaration: emissionProbeDeclaration(), handler, probeInput: {} };
+}
+
+/** Records the emission it declares — the append genuinely lands. */
+const emittingHandler: ObservableHandler = (_input, ctx) => {
+  ctx.emissions?.record(EMISSION_EVENT_TYPE, EMISSION_EVIDENCE);
+  return { id: 'req-1' };
+};
+
+/** Declares the emission (via the shared declaration) but never appends. */
+const silentHandler: ObservableHandler = () => ({ id: 'req-1' });
+
+describe('P03-09 oracle — DR-7 emission axis observes the append, not the declaration', () => {
+  it('OracleEmission_Recorder_IsMintedAndInjectedLikeTheEffectRecorder', async () => {
+    const seenRecorders: (EmissionRecorder | undefined)[] = [];
+    const capturingHandler: ObservableHandler = (_input, ctx) => {
+      seenRecorders.push(ctx.emissions);
+      ctx.emissions?.record(EMISSION_EVENT_TYPE, EMISSION_EVIDENCE);
+      return { id: 'req-1' };
+    };
+    const subject = emissionProbeSubject(capturingHandler);
+    const obs = await observeBehavior(subject);
+
+    // observeBehavior invokes the handler three times (authorized ×2 for the
+    // idempotency pair, unauthorized once); a fresh recorder is minted and
+    // injected at each site — exactly the idiom the effect recorder uses at
+    // its own three mint sites. No recorder is caller-supplied.
+    expect(seenRecorders.length).toBe(3);
+    for (const rec of seenRecorders) {
+      expect(rec).toBeDefined();
+      expect(typeof rec?.record).toBe('function');
+    }
+    // Freshly minted per invocation, not one shared instance leaking state.
+    expect(new Set(seenRecorders).size).toBe(3);
+
+    // The primary (first authorized) invocation's append is what the axis
+    // reads — an OBSERVED append, not a re-read of the declaration.
+    expect(obs.performedEmissions).toEqual([
+      { eventType: EMISSION_EVENT_TYPE, evidence: EMISSION_EVIDENCE },
+    ]);
+    expect(checkDeclaredEmission(subject.declaration, obs).status).toBe('pass');
+  });
+
+  it('OracleEmission_DeclaredButNotPerformed_IsCaught', async () => {
+    const correctSubject = emissionProbeSubject(emittingHandler);
+    const brokenSubject = emissionProbeSubject(silentHandler);
+
+    // The declaration is byte-identical between the correct and broken
+    // subjects (only the handler body differs), so the generation route —
+    // a pure function of the declaration — produces a byte-identical
+    // artifact for both: "the generated files agree".
+    const correctGen = serializeGeneratedDescriptor(
+      deriveGeneratedDescriptor(correctSubject.declaration),
+    );
+    const brokenGen = serializeGeneratedDescriptor(
+      deriveGeneratedDescriptor(brokenSubject.declaration),
+    );
+    expect(brokenGen).toBe(correctGen);
+    expect(checkGenerationConsistency(brokenSubject.declaration).ok).toBe(true);
+    expect(checkGenerationConsistency(brokenSubject.declaration).digest).toBe(
+      checkGenerationConsistency(correctSubject.declaration).digest,
+    );
+
+    // The handler that genuinely appends passes the axis and the whole run.
+    const correctReport = await runOracle(correctSubject);
+    expect(correctReport.emissionVerdict.status, summarizeReport(correctReport)).toBe('pass');
+    expect(correctReport.ok, summarizeReport(correctReport)).toBe(true);
+
+    // The handler that declares the emission but never appends is caught —
+    // and it is caught EVEN THOUGH the generated files agree with each other.
+    const brokenReport = await runOracle(brokenSubject);
+    expect(brokenReport.emissionVerdict.status, summarizeReport(brokenReport)).toBe('fail');
+    expect(brokenReport.emissionVerdict.diagnostic).toContain(EMISSION_EVENT_TYPE);
+    expect(brokenReport.ok, summarizeReport(brokenReport)).toBe(false);
+
+    // Per-axis isolation: the emission axis is the ONLY failing verdict.
+    const failedAxes = [...brokenReport.verdicts, brokenReport.emissionVerdict]
+      .filter((v) => v.status === 'fail')
+      .map((v) => v.axis);
+    expect(failedAxes).toEqual([EMISSION_AXIS]);
+
+    // It surfaces in the suite's failures too, not only the per-report verdict.
+    const suite = await runOracleSuite([brokenSubject]);
+    expect(suite.ok).toBe(false);
+    expect(suite.failures).toContainEqual(brokenReport.emissionVerdict);
   });
 });
