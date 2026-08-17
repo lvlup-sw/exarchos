@@ -721,6 +721,340 @@ export function validateRegistrationWelds(
   };
 }
 
+// ─── The break set, and its disposition ─────────────────────────────────────
+//
+// A diagnostic nobody has to answer for is an alarm with the wires cut. The comparison above ships
+// at `observe` precisely BECAUSE the live catalog disagrees with itself in places, and that
+// concession is only defensible while every disagreement it reports has been looked at and written
+// down. Left open, `observe` decays into `ignore`: the day a genuinely new break appears it arrives
+// inside a wall of findings that has been scrolling past unread since the check was armed.
+//
+// So the break set is a LEDGER, and {@link auditDisagreementDispositions} is the two-way ratchet
+// over it:
+//
+//   • UNDISPOSITIONED_DISAGREEMENT — the comparison reports an edge no row answers for. This is the
+//     arm carrying the weight: a new disagreement, arriving from an annotation edit or a relocated
+//     action, REDDENS rather than joining the observed pile.
+//   • STALE_DISPOSITION — a row answers for an edge the comparison no longer reports. Each row's
+//     reasoning is about one measured fact; once that fact is gone the row is a claim the tree no
+//     longer supports, and keeping it would let the ledger outlive its subject.
+//
+// The denominator is the comparison's OWN output, never a list typed here. A row is matched on all
+// FOUR sides, because all four are what was reasoned about. Rename the action and the old row goes
+// stale while the new edge goes undispositioned — the correct pair of answers, since nobody has
+// looked at the new fact yet.
+//
+// ## The two classifications, and why the distinction is not a matter of taste
+//
+// `genuine-mismatch` is NOT "we decided to live with it". It is the case where the id space cannot
+// express the truth, so there is no value to repair the annotation TO. `EffectProviderId` is
+// `EffectProvider['tool']`, and every provider is pinned to one module area by a live ledger rule —
+// so an event whose append lives in an area no provider claims has no correct annotation available
+// at all. Both sides are then reporting different true things, and the comparison naming both is
+// the intended outcome rather than a defect awaiting repair.
+//
+// `annotation-error` is the opposite: a correct value EXISTS in the vocabulary and the row does not
+// carry it. Recording it here does not apply it. Editing the shipped catalog changes what every
+// consumer of the annotation table reads, so it belongs in a change reviewable as one — alongside
+// the graduation of these codes to `blocking` — not as a side effect of taking the measurement.
+// What the row buys is that the repair becomes a decided one-line edit instead of a rediscovery.
+
+/** How a measured disagreement was answered for. */
+export type DisagreementClassification = 'genuine-mismatch' | 'annotation-error';
+
+/**
+ * The four sides that identify ONE measured disagreement — the same four
+ * {@link EMISSION_PROVIDER_MISMATCH_CODE} reports, renamed only where the diagnostic's field name
+ * (`eventType`, `provider`) would read ambiguously next to `declaringTool`.
+ */
+export interface DisagreementIdentity {
+  /** The event both sides are talking about. */
+  readonly event: string;
+  /** The action carrying the emission declaration. */
+  readonly action: string;
+  /** The provider the event's `capability` registration declares. */
+  readonly declaredProvider: string;
+  /** The composite tool that action is registered under. */
+  readonly declaringTool: string;
+}
+
+/** The mismatch arm of the diagnostic union, named so callers can project it without re-`Extract`ing. */
+export type ProviderDisagreement = Extract<
+  WeldResolutionDiagnostic,
+  { code: typeof EMISSION_PROVIDER_MISMATCH_CODE }
+>;
+
+/**
+ * One row of the ledger: a measured disagreement, what it turned out to be, and why.
+ *
+ * `rationale` is a required field rather than an optional comment because the whole value of this
+ * table is the reasoning. A row that recorded only a classification would let "somebody decided"
+ * stand in for "somebody worked it out", which is the state this ledger exists to end.
+ */
+export interface DisagreementDisposition extends DisagreementIdentity {
+  readonly classification: DisagreementClassification;
+  readonly rationale: string;
+}
+
+/**
+ * Why the five gate actions' `admission.evidence-recorded` edges are an ANNOTATION ERROR and not a
+ * mismatch the vocabulary is unable to express.
+ *
+ * Shared by all five rows because it is one fact about one event, not five findings: the five
+ * actions differ only in which gate they run, and the emission they declare is minted by the same
+ * call in the same module for every one of them.
+ */
+const EVIDENCE_RECORDED_RATIONALE =
+  'ANNOTATION ERROR. `admission.evidence-recorded` has exactly one permitted emitter and it is a ' +
+  'MODULE, not a tool: `verbs/gates/gate-ownership-census.ts` pins the canonical evidence emitter ' +
+  'to `verbs/gates/gate-runner.ts` and fails closed (ALTERNATE_EVIDENCE_EMITTER) on any other ' +
+  'module that appends the type — and the live census reports no alternate emitter. `verbs/` is ' +
+  'the area of exactly one effect provider, `exarchos_orchestrate` (owner `orchestrate-fs`), so ' +
+  'the declaring tool is right and the declared `exarchos_workflow` (area `workflow/`) is wrong. ' +
+  'Every production caller of that runner sits under `verbs/` too; not one sits under `workflow/`. ' +
+  'The decisive point is internal to the catalog: `gate.executed` is appended by the SAME runGate ' +
+  'body inside the same durable boundary, is declared on these same five actions in the same ' +
+  'autoEmits arrays, and is annotated `exarchos_orchestrate` — where it AGREES. One append site ' +
+  'cannot have two owning composite tools, so the two rows cannot both be right. Sibling ' +
+  'admission rows emitted from `verbs/` (`admission.rollout-decision`, ' +
+  '`admission.enforcement-enabled`) already carry `exarchos_orchestrate` and agree. REMEDY: change ' +
+  "this event's `provider` to `exarchos_orchestrate`. Deliberately NOT applied here — it edits the " +
+  'shipped catalog every annotation consumer reads, and belongs with the change that graduates ' +
+  'these codes out of `observe`.';
+
+/**
+ * Why the three task lifecycle edges are a GENUINE mismatch: the id space has no value that would
+ * be correct, so agreement could only be bought by making one side assert something false.
+ */
+const TASK_LIFECYCLE_RATIONALE =
+  'GENUINE MISMATCH. All three task lifecycle events are appended by `tasks/tools.ts`, and ' +
+  '`tasks/` is claimed by no entry in the effect-provider map and by no filesystem rule in the ' +
+  'effect ledger. The id space the comparison ranges over therefore cannot name the truth: ' +
+  '`exarchos_workflow` is area `workflow/`, `exarchos_orchestrate` is area `verbs/`, and the ' +
+  'append is in neither. Each side is honest about a different fact — `verbs/composite.ts` is ' +
+  'genuinely the composite router that reaches the handler, and the annotation genuinely names the ' +
+  'workflow-state authority these events feed and that folds them. Neither is a transcription slip ' +
+  'and there is no third value to repair to. Adopting the declaring tool would buy agreement by ' +
+  'making the annotation assert an append site that does not exist, which is the comparison ' +
+  'agreeing with itself rather than with the tree. Closing this means giving `tasks/` an owner in ' +
+  'the effect ledger and a provider entry, or relocating the append into an area that already has ' +
+  'one — a change to the ownership model, not to a row in a table. Until then, the comparison ' +
+  'naming both sides IS the correct report.';
+
+/**
+ * **The measured break set.** Every disagreement the provider comparison reports on the live
+ * catalog, with a disposition apiece.
+ *
+ * Measured, not designed: the rows below were read off the comparison's own output over the shipped
+ * annotation table and the shipped tool registry. {@link auditDisagreementDispositions} re-derives
+ * that output on every run and reconciles it against this table in both directions, so the ledger
+ * cannot drift from what the gate actually reports — in either direction.
+ */
+export const PROVIDER_DISAGREEMENT_DISPOSITIONS: readonly DisagreementDisposition[] = Object.freeze([
+  {
+    event: 'admission.evidence-recorded',
+    action: 'check_contract_drift',
+    declaredProvider: 'exarchos_workflow',
+    declaringTool: 'exarchos_orchestrate',
+    classification: 'annotation-error',
+    rationale: EVIDENCE_RECORDED_RATIONALE,
+  },
+  {
+    event: 'admission.evidence-recorded',
+    action: 'check_integration_suite',
+    declaredProvider: 'exarchos_workflow',
+    declaringTool: 'exarchos_orchestrate',
+    classification: 'annotation-error',
+    rationale: EVIDENCE_RECORDED_RATIONALE,
+  },
+  {
+    event: 'admission.evidence-recorded',
+    action: 'check_mock_boundary',
+    declaredProvider: 'exarchos_workflow',
+    declaringTool: 'exarchos_orchestrate',
+    classification: 'annotation-error',
+    rationale: EVIDENCE_RECORDED_RATIONALE,
+  },
+  {
+    event: 'admission.evidence-recorded',
+    action: 'check_static_analysis',
+    declaredProvider: 'exarchos_workflow',
+    declaringTool: 'exarchos_orchestrate',
+    classification: 'annotation-error',
+    rationale: EVIDENCE_RECORDED_RATIONALE,
+  },
+  {
+    event: 'admission.evidence-recorded',
+    action: 'check_test_adequacy',
+    declaredProvider: 'exarchos_workflow',
+    declaringTool: 'exarchos_orchestrate',
+    classification: 'annotation-error',
+    rationale: EVIDENCE_RECORDED_RATIONALE,
+  },
+  {
+    event: 'task.claimed',
+    action: 'task_claim',
+    declaredProvider: 'exarchos_workflow',
+    declaringTool: 'exarchos_orchestrate',
+    classification: 'genuine-mismatch',
+    rationale: TASK_LIFECYCLE_RATIONALE,
+  },
+  {
+    event: 'task.completed',
+    action: 'task_complete',
+    declaredProvider: 'exarchos_workflow',
+    declaringTool: 'exarchos_orchestrate',
+    classification: 'genuine-mismatch',
+    rationale: TASK_LIFECYCLE_RATIONALE,
+  },
+  {
+    event: 'task.failed',
+    action: 'task_fail',
+    declaredProvider: 'exarchos_workflow',
+    declaringTool: 'exarchos_orchestrate',
+    classification: 'genuine-mismatch',
+    rationale: TASK_LIFECYCLE_RATIONALE,
+  },
+]);
+
+/** A fault in the reconciliation between the reported break set and the ledger. */
+export type DispositionDiagnostic =
+  | {
+      readonly code: 'UNDISPOSITIONED_DISAGREEMENT';
+      readonly identity: DisagreementIdentity;
+      readonly message: string;
+    }
+  | {
+      readonly code: 'STALE_DISPOSITION';
+      readonly identity: DisagreementIdentity;
+      readonly message: string;
+    };
+
+/** The reconciliation verdict, carrying both populations so neither count is readable alone. */
+export interface DispositionAuditResult {
+  /** Every reported disagreement is answered for, and every row still answers for something. */
+  readonly ok: boolean;
+  /** Disagreements the comparison reported — the denominator, derived from the live gate. */
+  readonly reportedCount: number;
+  /** Rows in the ledger. */
+  readonly dispositionedCount: number;
+  readonly diagnostics: readonly DispositionDiagnostic[];
+}
+
+/**
+ * The ledger key for one disagreement: all FOUR sides, encoded as a JSON tuple.
+ *
+ * JSON rather than a joined string because the encoding is injective for free — two different
+ * tuples cannot produce the same text, with no claim to defend about which characters a field can
+ * contain. Keying on fewer than four sides is the failure this guards: one row would then answer
+ * for edges nobody reasoned about.
+ */
+const identityKey = (identity: DisagreementIdentity): string =>
+  JSON.stringify([
+    identity.event,
+    identity.action,
+    identity.declaredProvider,
+    identity.declaringTool,
+  ]);
+
+/**
+ * The identity of one reported disagreement.
+ *
+ * This is the ONLY place a diagnostic is turned into a ledger key, which is what keeps the two in
+ * step without a second proof: drop a field from the mismatch arm and this function stops
+ * compiling, rather than the ledger quietly starting to match on three sides.
+ */
+export function disagreementIdentityOf(diagnostic: ProviderDisagreement): DisagreementIdentity {
+  return {
+    event: diagnostic.eventType,
+    action: diagnostic.action,
+    declaredProvider: diagnostic.provider,
+    declaringTool: diagnostic.declaringTool,
+  };
+}
+
+/**
+ * The disagreements a verdict reports, as identities. Sorted, so the ledger can be read in the same
+ * order the gate produces.
+ */
+export function reportedDisagreements(
+  verdict: WeldResolutionVerdict = validateRegistrationWelds(),
+): readonly DisagreementIdentity[] {
+  const identities = verdict.diagnostics
+    .filter((d): d is ProviderDisagreement => d.code === EMISSION_PROVIDER_MISMATCH_CODE)
+    .map(disagreementIdentityOf);
+  return Object.freeze(identities.sort((a, b) => byString(identityKey(a), identityKey(b))));
+}
+
+/**
+ * Reconcile the reported break set against the ledger, in BOTH directions. Pure and total: returns
+ * a verdict, never throws.
+ *
+ * Both populations are parameters with live defaults, for the same reason every population in this
+ * module is: a reconciliation that could only ever read one hard-wired input could not be shown to
+ * be capable of reporting anything, and the arm that matters here is the one that fires on an input
+ * the shipped tree does not currently produce.
+ */
+export function auditDisagreementDispositions(
+  reported: readonly DisagreementIdentity[] = reportedDisagreements(),
+  dispositions: readonly DisagreementDisposition[] = PROVIDER_DISAGREEMENT_DISPOSITIONS,
+): DispositionAuditResult {
+  const diagnostics: DispositionDiagnostic[] = [];
+  const dispositioned = new Set(dispositions.map(identityKey));
+  const reportedKeys = new Set(reported.map(identityKey));
+
+  for (const identity of reported) {
+    if (dispositioned.has(identityKey(identity))) continue;
+    diagnostics.push({
+      code: 'UNDISPOSITIONED_DISAGREEMENT',
+      identity,
+      message:
+        `action '${identity.action}' on composite tool '${identity.declaringTool}' declares it ` +
+        `emits '${identity.event}', which is registered with provider ` +
+        `'${identity.declaredProvider}' — and no row of the disposition ledger answers for it. ` +
+        'Work out which side is wrong and record it: `genuine-mismatch` when the provider ' +
+        'vocabulary has no value that would be correct (so the comparison naming both sides is the ' +
+        'right report), `annotation-error` when a correct value exists and the annotation does not ' +
+        'carry it. An observe-severity finding nobody has answered for is the state this ledger ' +
+        'exists to prevent.',
+    });
+  }
+
+  for (const row of dispositions) {
+    if (reportedKeys.has(identityKey(row))) continue;
+    diagnostics.push({
+      code: 'STALE_DISPOSITION',
+      identity: {
+        event: row.event,
+        action: row.action,
+        declaredProvider: row.declaredProvider,
+        declaringTool: row.declaringTool,
+      },
+      message:
+        `the ledger dispositions a disagreement on '${row.event}' from action '${row.action}' ` +
+        `('${row.declaredProvider}' vs '${row.declaringTool}') that the comparison no longer ` +
+        'reports. The reasoning was about one measured fact and that fact is gone — the annotation ' +
+        'was repaired, the emission moved, or the event left the capability arm. Delete the row: a ' +
+        'disposition that outlives its subject is a claim about the tree the tree does not support.',
+    });
+  }
+
+  // Code first, then identity — the same two-level ordering `declaredEmissionEdges` uses, so a
+  // reader scanning a failure sees the undispositioned entries as one block rather than
+  // interleaved with the stale rows.
+  const sorted = [...diagnostics].sort(
+    (a, b) =>
+      byString(a.code, b.code) ||
+      byString(identityKey(a.identity), identityKey(b.identity)),
+  );
+  return {
+    ok: sorted.length === 0,
+    reportedCount: reported.length,
+    dispositionedCount: dispositions.length,
+    diagnostics: Object.freeze(sorted),
+  };
+}
+
 /**
  * Where an observe-severity finding goes when the gate does not throw.
  *
@@ -911,4 +1245,23 @@ export type _RegistrationValidate_NarrowedDiagnostic_CarriesTheShortfall = Expec
  * */
 export type _RegistrationValidate_BothComparedSides_AreCompositeToolIds = Expect<
   MutuallyAssignable<EmissionEdge['declaringTool'], CompositeTool['name']>
+>;
+
+/**
+ * **The disposition-shape proof.** A ledger row is the four sides of one measured disagreement plus
+ * the two fields that ARE the decision — and nothing else.
+ *
+ * Both halves matter. Drop a side and rows start answering for edges nobody looked at: keyed on the
+ * event alone, one row would silently disposition all five gate actions the moment a sixth appeared.
+ * Add a field the identity does not have and the ledger acquires a key the comparison cannot
+ * produce, so the row could never match anything and would report as stale forever.
+ *
+ * Falsifier: widen or narrow either side and the key sets stop matching, so the build names it.
+ @proof
+ * */
+export type _RegistrationValidate_Disposition_IsTheFourSidesPlusTheDecision = Expect<
+  MutuallyAssignable<
+    keyof DisagreementDisposition,
+    keyof DisagreementIdentity | 'classification' | 'rationale'
+  >
 >;
