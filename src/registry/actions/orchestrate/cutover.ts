@@ -36,8 +36,8 @@ export const cutoverActions: readonly BuiltinToolAction[] = [
     // read-only / task-isolated callers BEFORE the handler's operator check.
     posture: 'shared-mutating',
     autoEmits: [
-      { event: 'admission.rollout-decision', condition: 'always' },
-      { event: 'admission.enforcement-enabled', condition: 'conditional', description: 'Only when every cutover-gate condition is satisfied' },
+      { event: 'admission.rollout-decision', condition: 'always', role: 'primary', owner: 'orchestrate' },
+      { event: 'admission.enforcement-enabled', condition: 'conditional', description: 'Only when every cutover-gate condition is satisfied', role: 'primary', owner: 'orchestrate' },
     ],
     outputSchema: withCappedShape(CutoverDecideOutputSchema),
     annotations: LOCAL_MUTATION,

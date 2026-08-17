@@ -48,7 +48,7 @@ export const lifecycleOpsActions: readonly BuiltinToolAction[] = [
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
     autoEmits: [
-      { event: 'workflow.pruned', condition: 'conditional', description: 'Per pruned workflow when dryRun is false' },
+      { event: 'workflow.pruned', condition: 'conditional', description: 'Per pruned workflow when dryRun is false', role: 'primary', owner: 'orchestrate' },
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.prune_stale_workflows'),
     annotations: COMPENSABLE_LOCAL,
@@ -68,7 +68,7 @@ export const lifecycleOpsActions: readonly BuiltinToolAction[] = [
     phases: new Set<string>(['plan', 'implementing']),
     roles: ROLE_LEAD,
     autoEmits: [
-      { event: 'synthesize.requested', condition: 'always' },
+      { event: 'synthesize.requested', condition: 'always', role: 'primary', owner: 'orchestrate' },
     ],
     // T9 (#1440 Op 2, preview-4 design §4.3): the registry-canonical
     // name for the design's "synthesize" verb — PR creation flow flipped
@@ -128,9 +128,13 @@ export const lifecycleOpsActions: readonly BuiltinToolAction[] = [
     phases: ALL_PHASES,
     roles: ROLE_ANY,
     autoEmits: [
-      { event: 'diagnostic.executed', condition: 'conditional', description: 'On the read-only path (no --fix)' },
-      { event: 'onboard.requested', condition: 'conditional', description: 'Under --fix (shared reconciler intent)' },
-      { event: 'onboard.executed', condition: 'conditional', description: 'Under --fix (shared reconciler result)' },
+      { event: 'diagnostic.executed', condition: 'conditional', description: 'On the read-only path (no --fix)', role: 'primary', owner: 'orchestrate' },
+      // The two onboarding rows fire ONLY on the --fix repair path, backstopping
+      // an environment that `onboard` already provisioned and that has since
+      // drifted — `onboard` stays the primary declarer of both. No expiry: the
+      // repair path is permanent infrastructure, not a time-boxed stopgap.
+      { event: 'onboard.requested', condition: 'conditional', description: 'Under --fix (shared reconciler intent)', role: 'recovery', owner: 'orchestrate' },
+      { event: 'onboard.executed', condition: 'conditional', description: 'Under --fix (shared reconciler result)', role: 'recovery', owner: 'orchestrate' },
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.doctor'),
     // sentry HIGH on PR #1369: `doctor` emits `diagnostic.executed` on

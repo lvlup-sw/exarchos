@@ -41,8 +41,11 @@ describe('handleDescribe', () => {
     const result = await handleDescribe({ actions: ['init'] }, workflowTool.actions);
     expect(result.success).toBe(true);
     const data = result.data as Record<string, Record<string, unknown>>;
+    // Projected VERBATIM, including the edge's declared role and owner —
+    // describe is a projection of the declaration, so a field added to the
+    // declaration reaches clients without describe learning about it.
     expect(data.init.autoEmits).toEqual([
-      { event: 'workflow.started', condition: 'always' },
+      { event: 'workflow.started', condition: 'always', role: 'primary', owner: 'workflow' },
     ]);
   });
 

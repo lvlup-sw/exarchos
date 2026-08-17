@@ -46,8 +46,8 @@ export const onboardingActions: readonly BuiltinToolAction[] = [
     phases: ALL_PHASES,
     roles: ROLE_ANY,
     autoEmits: [
-      { event: 'onboard.requested', condition: 'always' },
-      { event: 'onboard.executed', condition: 'conditional', description: 'On a non-dry-run that applies the plan' },
+      { event: 'onboard.requested', condition: 'always', role: 'primary', owner: 'orchestrate' },
+      { event: 'onboard.executed', condition: 'conditional', description: 'On a non-dry-run that applies the plan', role: 'primary', owner: 'orchestrate' },
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.onboard'),
     annotations: LOCAL_MUTATION,

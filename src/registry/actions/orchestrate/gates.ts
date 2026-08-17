@@ -35,8 +35,8 @@ export const gateActions: readonly BuiltinToolAction[] = [
     // emitted on every call — declaring only the evidence row here understated
     // the contract `task_complete`'s `hasPassingGate('static-analysis')` reads.
     autoEmits: [
-      { event: 'admission.evidence-recorded', condition: 'always' },
-      { event: 'gate.executed', condition: 'always' },
+      { event: 'admission.evidence-recorded', condition: 'always', role: 'primary', owner: 'orchestrate' },
+      { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_static_analysis'),
     annotations: LOCAL_MUTATION,
@@ -71,8 +71,8 @@ export const gateActions: readonly BuiltinToolAction[] = [
     // mints `gate.executed` from the same persisted evidence record it just
     // wrote — both rows are genuinely emitted on every call.
     autoEmits: [
-      { event: 'admission.evidence-recorded', condition: 'always' },
-      { event: 'gate.executed', condition: 'always' },
+      { event: 'admission.evidence-recorded', condition: 'always', role: 'primary', owner: 'orchestrate' },
+      { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_integration_suite'),
     annotations: LOCAL_MUTATION,
@@ -88,7 +88,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
     roles: ROLE_LEAD,
     gate: { blocking: false, dimension: 'D1' },
     autoEmits: [
-      { event: 'gate.executed', condition: 'always' },
+      { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_security_scan'),
     annotations: LOCAL_MUTATION,
@@ -105,7 +105,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
     roles: ROLE_LEAD,
     gate: { blocking: false, dimension: 'D3' },
     autoEmits: [
-      { event: 'gate.executed', condition: 'always' },
+      { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_context_economy'),
     annotations: LOCAL_MUTATION,
@@ -122,7 +122,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
     roles: ROLE_LEAD,
     gate: { blocking: false, dimension: 'D4' },
     autoEmits: [
-      { event: 'gate.executed', condition: 'always' },
+      { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_operational_resilience'),
     annotations: LOCAL_MUTATION,
@@ -139,7 +139,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
     roles: ROLE_LEAD,
     gate: { blocking: false, dimension: 'D5' },
     autoEmits: [
-      { event: 'gate.executed', condition: 'always' },
+      { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_workflow_determinism'),
     annotations: LOCAL_MUTATION,
@@ -177,7 +177,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
     roles: ROLE_LEAD,
     gate: { blocking: true, gateClass: 'review-verdict' },
     autoEmits: [
-      { event: 'gate.executed', condition: 'always' },
+      { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_review_verdict'),
     annotations: LOCAL_MUTATION,
@@ -193,7 +193,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
     roles: ROLE_LEAD,
     gate: { blocking: false },
     autoEmits: [
-      { event: 'gate.executed', condition: 'always' },
+      { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_convergence'),
     // sentry HIGH on PR #1369: although `check_convergence` reads
@@ -216,7 +216,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
     roles: ROLE_LEAD,
     gate: { blocking: true, dimension: 'D1', gateClass: 'provenance-chain' },
     autoEmits: [
-      { event: 'gate.executed', condition: 'always' },
+      { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_provenance_chain'),
     annotations: LOCAL_MUTATION,
@@ -243,7 +243,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
     roles: ROLE_LEAD,
     gate: { blocking: false, dimension: 'D1' },
     autoEmits: [
-      { event: 'gate.executed', condition: 'always' },
+      { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_design_completeness'),
     annotations: LOCAL_MUTATION,
@@ -260,7 +260,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
     roles: ROLE_LEAD,
     gate: { blocking: true, dimension: 'D1', gateClass: 'plan-coverage' },
     autoEmits: [
-      { event: 'gate.executed', condition: 'always' },
+      { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_plan_coverage'),
     annotations: LOCAL_MUTATION,
@@ -296,7 +296,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
     roles: ROLE_LEAD,
     gate: { blocking: true, dimension: 'D1' },
     autoEmits: [
-      { event: 'gate.executed', condition: 'always' },
+      { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_exploration_depth'),
     annotations: LOCAL_MUTATION,
@@ -344,8 +344,8 @@ export const gateActions: readonly BuiltinToolAction[] = [
     // mints `gate.executed` from the same persisted evidence record it just
     // wrote — both rows are genuinely emitted on every call.
     autoEmits: [
-      { event: 'admission.evidence-recorded', condition: 'always' },
-      { event: 'gate.executed', condition: 'always' },
+      { event: 'admission.evidence-recorded', condition: 'always', role: 'primary', owner: 'orchestrate' },
+      { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_test_adequacy'),
     annotations: LOCAL_MUTATION,
@@ -386,8 +386,8 @@ export const gateActions: readonly BuiltinToolAction[] = [
     // mints `gate.executed` from the same persisted evidence record it just
     // wrote — both rows are genuinely emitted on every call.
     autoEmits: [
-      { event: 'admission.evidence-recorded', condition: 'always' },
-      { event: 'gate.executed', condition: 'always' },
+      { event: 'admission.evidence-recorded', condition: 'always', role: 'primary', owner: 'orchestrate' },
+      { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_contract_drift'),
     annotations: LOCAL_MUTATION,
@@ -435,8 +435,8 @@ export const gateActions: readonly BuiltinToolAction[] = [
     // mints `gate.executed` from the same persisted evidence record it just
     // wrote — both rows are genuinely emitted on every call.
     autoEmits: [
-      { event: 'admission.evidence-recorded', condition: 'always' },
-      { event: 'gate.executed', condition: 'always' },
+      { event: 'admission.evidence-recorded', condition: 'always', role: 'primary', owner: 'orchestrate' },
+      { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_mock_boundary'),
     annotations: LOCAL_MUTATION,
@@ -493,9 +493,9 @@ export const gateActions: readonly BuiltinToolAction[] = [
     // heartbeat threshold.
     longRunning: true,
     autoEmits: [
-      { event: 'mutation.executing_started', condition: 'always' },
-      { event: 'mutation.executed', condition: 'always' },
-      { event: 'gate.executed', condition: 'always' },
+      { event: 'mutation.executing_started', condition: 'always', role: 'primary', owner: 'orchestrate' },
+      { event: 'mutation.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
+      { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.mutation-adequacy'),
     annotations: LOCAL_MUTATION,
@@ -512,7 +512,7 @@ export const gateActions: readonly BuiltinToolAction[] = [
     roles: ROLE_LEAD,
     gate: { blocking: false, dimension: 'D4' },
     autoEmits: [
-      { event: 'gate.executed', condition: 'always' },
+      { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_post_merge'),
     annotations: LOCAL_MUTATION,
