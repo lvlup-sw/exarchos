@@ -87,6 +87,17 @@ const EXEMPTIONS: Record<string, Exemption> = {
       'index of every other gate. Pinned so adding a gate is deliberate.',
     grantedAt: 40,
   },
+  'src/install': {
+    reason:
+      'Twenty-three install-pipeline `.ts` modules plus three `.js` re-export shims that ' +
+      'mirror the bridge \`.js → .ts\` NodeNext contract (see `.gitignore` whitelist and ' +
+      'the shim headers). The shims do not add new functionality — they exist so vite-node ' +
+      'finds a literal `.js` file at the bridge\'s specifier paths and bun follows the ' +
+      're-exports. Reducing this number means consolidating the install pipeline into a ' +
+      'subdirectory tree, which is a separate refactor; until then the count is pinned so ' +
+      'the next file is argued for.',
+    grantedAt: 26,
+  },
 };
 
 interface DirCount {
