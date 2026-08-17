@@ -38,6 +38,11 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 import type { EventRegistration } from '../../../src/events/event-registration.js';
+// Type-only, so it does not pin a module instance the `vi.resetModules()` cycles below re-import.
+import type {
+  WeldDiagnosticCode,
+  WeldDiagnosticSeverity,
+} from '../../../src/events/registration-validate.js';
 
 const SEEDED_EVENT = 'seeded.boot-unresolvable-provider';
 const SEEDED_PROVIDER = 'exarchos_provider_that_does_not_exist';
@@ -142,10 +147,17 @@ describe('DR-2 boot gate — initializeContext refuses to start on an unresolvab
     // stamp. A verdict that refused with zero blocking diagnostics would be the axis being ignored.
     expect(caught.verdict.bootable).toBe(false);
     expect(caught.verdict.blockingCount).toBeGreaterThan(0);
-    expect(caught.verdict.observeCount).toBe(0);
-    for (const diagnostic of caught.verdict.diagnostics) {
-      expect(diagnostic.severity).toBe('blocking');
-    }
+
+    // The refusal is the BLOCKING half's alone. The live tree also carries observe-severity
+    // emission-coupling findings, and this is where that separation is worth asserting rather than
+    // assuming: `blockingCount` counts only stamped-blocking diagnostics, and the observations
+    // ride the same verdict without contributing to the decision that threw.
+    const blocking = caught.verdict.diagnostics.filter((d) => d.severity === 'blocking');
+    const observed = caught.verdict.diagnostics.filter((d) => d.severity === 'observe');
+    expect(caught.verdict.blockingCount).toBe(blocking.length);
+    expect(caught.verdict.observeCount).toBe(observed.length);
+    expect(blocking.length + observed.length).toBe(caught.verdict.diagnostics.length);
+    expect(blocking.map((d) => d.eventType)).toContain(SEEDED_EVENT);
   });
 
   it('StartupAssertion_ObserveSeverity_ReportsWithoutThrowing', async () => {
@@ -168,8 +180,17 @@ describe('DR-2 boot gate — initializeContext refuses to start on an unresolvab
     } = await import('../../../src/events/registration-validate.js');
 
     const seeded = Object.freeze({ ...EVENT_ANNOTATIONS, [SEEDED_EVENT]: SEEDED_REGISTRATION });
-    const observeEverything: Record<string, 'blocking' | 'observe'> = {};
-    for (const code of Object.keys(DIAGNOSTIC_SEVERITY_POLICY)) observeEverything[code] = 'observe';
+    // Spread the shipped table and overwrite in place, so the result stays TOTAL over the
+    // diagnostic axis by type — a fresh `Record<string, …>` is not the parameter type the gate
+    // takes, and would let a code the loop missed fall back to whatever the lookup produced.
+    const observeEverything: Record<WeldDiagnosticCode, WeldDiagnosticSeverity> = {
+      ...DIAGNOSTIC_SEVERITY_POLICY,
+    };
+    const isCode = (value: string): value is WeldDiagnosticCode =>
+      Object.prototype.hasOwnProperty.call(DIAGNOSTIC_SEVERITY_POLICY, value);
+    for (const code of Object.keys(observeEverything)) {
+      if (isCode(code)) observeEverything[code] = 'observe';
+    }
 
     const reported: string[] = [];
     const verdict = assertRegistrationWeldsAtStartup(
@@ -192,6 +213,24 @@ describe('DR-2 boot gate — initializeContext refuses to start on an unresolvab
 
     // ...and the boot path with the UNSEEDED catalog reports nothing at all under the same
     // all-observe table, so the report above is caused by the fault and not by every call.
+    //
+    // The emission population is substituted for one that agrees with the annotation table
+    // everywhere, because the SHIPPED registry does not: the live tree carries real disagreements
+    // between an event's declared provider and the tool whose action declares the emission, and
+    // those are reported at observe severity on every boot. Holding that one population conforming
+    // is what leaves a genuinely quiet tree to assert silence over — the disagreements themselves
+    // are measured in `registration-validate.test.ts`, not swept up here.
+    const conformingEmissions: { event: string; action: string; declaringTool: string }[] = [];
+    for (const [event, registration] of Object.entries(EVENT_ANNOTATIONS)) {
+      if (registration.tier !== 'capability') continue;
+      conformingEmissions.push({
+        event,
+        action: `${event}-emitter`,
+        declaringTool: registration.provider,
+      });
+    }
+    expect(conformingEmissions.length).toBeGreaterThan(0);
+
     const quiet: string[] = [];
     const clean = assertRegistrationWeldsAtStartup(
       EVENT_ANNOTATIONS,
@@ -200,9 +239,11 @@ describe('DR-2 boot gate — initializeContext refuses to start on an unresolvab
       WELD_RESOLUTION_POLICY,
       observeEverything,
       (message) => quiet.push(message),
+      conformingEmissions,
     );
     expect(clean.ok).toBe(true);
     expect(quiet).toEqual([]);
     expect(clean.bootResolvedCount).toBeGreaterThan(0);
+    expect(clean.comparedEmissionEdgeCount).toBeGreaterThan(0);
   });
 });
