@@ -165,6 +165,66 @@ describe('EventAnnotations — the DR-2 tier and lifecycle assignment for the ev
     });
   });
 
+  it('PromotionEvent_SubstrateTier_CarriesOperationRecordRationale', () => {
+    // The atomic tree-promotion record. `install/atomic-promotion.ts` swaps a verified staged
+    // tree into a live destination with a bounded sequence of renames; that commit rename is
+    // the non-idempotent step, and the promoting code owns the append of the record for it.
+    //
+    // The weld claims only that. It names no provider, no consumer and no gate, and every
+    // assertion below is scoped to the claim rather than to the fact of registration.
+    const PROMOTION = 'promotion.executed';
+
+    // Read through the PORT, not the table literal — the port is what `schemas.ts` derives the
+    // emission registry through, so an annotation the port cannot resolve is one the derivation
+    // cannot see either.
+    const registration = ANNOTATED_EVENTS.registrationOf(PROMOTION);
+    expect(registration, `${PROMOTION} carries no annotation`).toBeDefined();
+    expect(registration).toEqual({
+      lifecycle: 'active',
+      tier: 'substrate',
+      rationale: 'operation-record',
+    });
+
+    // The weld has to RESOLVE, not merely be spelled. An empty ref would mean a registration
+    // that named a tier and nothing else.
+    expect(weldReferenceOf(registration!).ref.trim().length).toBeGreaterThan(0);
+
+    // The consequence that reaches the rest of the system: the derived registry classifies it
+    // `auto`, which is what "the promoting code owns the append" means on the emission axis.
+    expect(EVENT_EMISSION_REGISTRY[PROMOTION]).toBe('auto');
+
+    // NOT report-coupled. A durable effect record that landed in the model-emitted set would be
+    // a record the model could simply forget to make.
+    const reportCoupled = reportCoupledEventTypes(EventTypes);
+    expect(reportCoupled.length, 'the report-coupled census is empty — it cannot discriminate')
+      .toBeGreaterThan(0);
+    expect(reportCoupled).not.toContain(PROMOTION);
+
+    // ── The rationale is the subject, so it has to be capable of being wrong ──
+    //
+    // Two independent discriminations, because `substrate` alone is the most populated tier in
+    // the table and asserting it proves almost nothing.
+    //
+    // First: a sibling welded `substrate` for a DIFFERENT reason reads back with a different
+    // rationale, so the equality above is not satisfied by every substrate registration.
+    expect(ANNOTATED_EVENTS.registrationOf('workflow.started')).toEqual({
+      lifecycle: 'active',
+      tier: 'substrate',
+      rationale: 'transition-record',
+    });
+
+    // Second, and the one this task exists to keep straight: the cutover-readiness export
+    // record is a neighbouring, already-registered fact about promotion — and it is a
+    // materially different weld, `capability` with a named provider and a real consumer fold.
+    // Reusing it for the promotion effect would have claimed a provider and a consumer that the
+    // promotion has neither of. Reading both back here is what makes the difference an
+    // assertion rather than a note in a commit message.
+    const cutoverReady = ANNOTATED_EVENTS.registrationOf('admission.cutover-ready');
+    expect(cutoverReady).toBeDefined();
+    expect(cutoverReady!.tier).toBe('capability');
+    expect(cutoverReady).not.toEqual(registration);
+  });
+
   it('EventAnnotations_SeededTierSourceDisagreement_IsReported', () => {
     // THE FALSIFIER. `task.completed` is annotated `capability`, which derives `'auto'`. Declaring
     // it `'model'` is a tier<->source disagreement and must be reported by name — this is what

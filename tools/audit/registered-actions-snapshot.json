@@ -5,7 +5,7 @@
     "tools": 5,
     "visibleTools": 4,
     "actions": 123,
-    "eventTypes": 174
+    "eventTypes": 175
   },
   "tools": [
     {
@@ -638,6 +638,12 @@
       "lifecycle": "active",
       "tier": "substrate",
       "rationale": "session-lifecycle"
+    },
+    {
+      "type": "promotion.executed",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
     },
     {
       "type": "provider.parse-error",

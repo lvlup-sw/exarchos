@@ -516,6 +516,21 @@ export const EventTypes = [
   'vcs.requested',
   'vcs.executed',
   'vcs.compensated',
+  // The atomic tree-promotion record — the durable fact that a staged tree was
+  // swapped into a live destination by `install/atomic-promotion.ts`. That site
+  // builds a typed `EffectPlan` and runs it, and until now NOTHING named the
+  // effect: the one non-idempotent step of an install (the commit rename that
+  // makes a whole rendered tree visible at once) left no record anywhere.
+  //
+  // Deliberately NOT `admission.cutover-ready`, which is next to it in spirit
+  // and is a different fact. That event is a readiness EXPORT record — it says a
+  // cutover MAY proceed, is appended by the observer's auto-export hook on the
+  // store-wide admission stream, and is keyed on store identity. This one says a
+  // tree WAS promoted, is appended by the promoting code itself, and is keyed on
+  // the destination and the content digest of what now lives there. Reusing the
+  // readiness fact for the effect would make "allowed to promote" and "promoted"
+  // the same row.
+  'promotion.executed',
   // Phase-gate v2.12 proof substrate (DR-2 / DR-3). These are additive,
   // internal replay contracts only. They are classified `planned` below:
   // v2.12 does not expose admission actions, authorize generic appends, or
@@ -3158,6 +3173,56 @@ export const VcsCompensatedData = z.object({
   error: z.string().optional().describe('Failure message captured from the effect carrier'),
 });
 
+// ─── Atomic tree-promotion contract ─────────────────────────────────────────
+//
+// `install/atomic-promotion.ts` stages a whole tree into a sibling directory,
+// verifies its content-addressed digest, then commits with a bounded sequence of
+// atomic renames. The commit rename is the one non-idempotent moment in an
+// install — before it the destination is fully OLD, after it fully NEW — and it
+// is the moment this event records.
+//
+// ONE event, not the intent/terminal pair the VCS ledger carries, and the
+// difference is a property of the operation rather than a shortcut. The promoter
+// already recovers its own interrupted attempts from an on-disk journal, so an
+// intent record would duplicate a durable structure that exists and is read; and
+// the operation has no compensated terminal to distinguish, because a failed
+// promotion rolls all the way back to the previous complete tree and leaves the
+// destination in the state it started in.
+
+/**
+ * `promotion.executed` — the durable record that a staged tree was promoted.
+ *
+ * The payload is the identity of the promotion, not a copy of the tree: WHERE it
+ * landed, WHAT now lives there (the same content-addressed digest the promoter
+ * verifies the stage against, so the record and the verification read one value),
+ * WHO performed it, and whether it converged from an interrupted prior attempt.
+ *
+ * Deliberately omits the promoter's `directoryDurability`. That field reports
+ * whether the host can fsync a directory handle — a platform capability, not a
+ * fact about this promotion — and its vocabulary is owned by
+ * `utils/atomic-write.ts` as a type with no runtime form. Restating it as an
+ * enum here would be a second authority for a vocabulary that already has one.
+ */
+export const PromotionExecutedData = z.object({
+  target: z
+    .string()
+    .min(1)
+    .describe('Absolute destination directory the staged tree was promoted into'),
+  treeDigest: z
+    .string()
+    .min(1)
+    .describe('Content-addressed digest of the promoted tree, as verified before the commit rename'),
+  owner: z
+    .string()
+    .min(1)
+    .describe('Effect owner recorded in the promotion plan — the code that performed the promotion'),
+  recoveredPriorAttempt: z
+    .boolean()
+    .describe(
+      'True when a journal left by an interrupted earlier attempt was recovered before this promotion ran',
+    ),
+});
+
 // ─── Durable projection-health state (DR-4, wiring-closure T-06) ────────────
 //
 // The cursor/tail freshness verdict, made durable. `projections/freshness.ts`
@@ -3754,6 +3819,9 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'vcs.executed': VcsExecutedData,
   'vcs.compensated': VcsCompensatedData,
 
+  // The atomic tree-promotion record.
+  'promotion.executed': PromotionExecutedData,
+
   // DR-4 (wiring-closure T-06) — durable projection-health state.
   'projection.degraded': ProjectionDegradedData,
   'projection.recovered': ProjectionRecoveredData,
@@ -3936,6 +4004,9 @@ export type VcsRequested = z.infer<typeof VcsRequestedData>;
 export type VcsExecuted = z.infer<typeof VcsExecutedData>;
 export type VcsCompensated = z.infer<typeof VcsCompensatedData>;
 
+// The atomic tree-promotion record.
+export type PromotionExecuted = z.infer<typeof PromotionExecutedData>;
+
 // DR-4 (wiring-closure T-06) — durable projection-health state.
 export type ProjectionDegraded = z.infer<typeof ProjectionDegradedData>;
 export type ProjectionRecovered = z.infer<typeof ProjectionRecoveredData>;
@@ -4091,6 +4162,8 @@ export type EventDataMap = {
   'vcs.requested': VcsRequested;
   'vcs.executed': VcsExecuted;
   'vcs.compensated': VcsCompensated;
+  // The atomic tree-promotion record.
+  'promotion.executed': PromotionExecuted;
 
   // DR-4 (wiring-closure T-06) — durable projection-health state.
   'projection.degraded': ProjectionDegraded;

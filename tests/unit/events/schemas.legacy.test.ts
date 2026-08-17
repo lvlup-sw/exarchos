@@ -561,7 +561,12 @@ describe('EventTypes', () => {
     // `vcs.executed` and `vcs.compensated`. The mutation owner already appended
     // all three; they were registered through the store's runtime seam and so
     // carried no schema, no type-map entry and no coupling tier.
-    expect(EventTypes).toHaveLength(174);
+    //
+    // Bumped 174 → 175 for `promotion.executed`, the atomic tree-promotion
+    // record. Unlike the ledger triad this one was not registered anywhere at
+    // all: the commit rename that makes a whole staged tree visible at once left
+    // no trace in the catalog.
+    expect(EventTypes).toHaveLength(175);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');
