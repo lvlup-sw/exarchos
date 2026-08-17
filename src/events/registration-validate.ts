@@ -26,7 +26,28 @@
 // being handed a wave of unresolvable welds with no cause. Both numbers ride the verdict
 // (`bootResolvedCount`, `resolvableProviderCount`), so neither can be inspected without the other.
 //
-// ## Non-empty denominator — three ways this could go quietly vacuous, three diagnostics
+// ## The second comparison: declaring tool vs declared provider
+//
+// Reference integrity asks whether a declared provider names SOMETHING live. It cannot ask whether
+// it names the RIGHT thing, and that is a different way for the same weld to be wrong: an event
+// registered to `exarchos_workflow` whose only emission edge is declared on an `exarchos_orchestrate`
+// action resolves perfectly and still describes the wrong tool.
+//
+// Both sides of that comparison are composite tool ids. `CapabilityRegistration.provider` is
+// `EffectProviderId`, which is `EffectProvider['tool']`; the other side is the `CompositeTool.name`
+// the emitting action is registered under. So the check is an equality on ONE id space, read from
+// two independent authorities — the annotation table and {@link declaredEmissionEdges} over the
+// live tool registry.
+//
+// What it is NOT, and this is load-bearing: it resolves no module path and walks no filesystem.
+// An `AutoEmission` carries an event name and a condition, a `ToolAction` carries no module, and
+// the only path-shaped input anywhere near this seam is an async walk of `src/` — which does not
+// exist inside the compiled single-file binary and could not run at boot if it did.
+//
+// It ships at `observe` severity. The shipped catalog contains real disagreements, and refusing
+// every entry point over a break set nobody has dispositioned would be a worse gate than none.
+//
+// ## Non-empty denominator — four ways this could go quietly vacuous, four diagnostics
 //
 // A boot check that resolves nothing must FAIL, not report clean:
 //
@@ -36,6 +57,10 @@
 //   • EMPTY_PROVIDER_REGISTRY — no provider id resolves. `EFFECT_PROVIDERS` was emptied, or the
 //     ledger stopped backing every entry, so the resolution set is empty and the check would
 //     otherwise fail every weld for the wrong reason (or, with an empty subject set, none).
+//   • EMPTY_EMISSION_DENOMINATOR — boot-resolvable events exist, but no declared emission edge
+//     names one, so the provider comparison ranged over nothing. Conditioned on a NON-empty weld
+//     set precisely so it does not restate EMPTY_CAPABILITY_DENOMINATOR: that code already owns
+//     the case where the subject side is what went missing.
 //   • PROVIDER_REGISTRY_DRIFT — a provider entry the ledger no longer backs (or a tool claimed
 //     twice). Delegated to `validateEffectProviders`, never re-implemented.
 //
@@ -52,11 +77,11 @@
 // process". Neither restates the other, and each is total over its own axis by type — a new
 // diagnostic code cannot reach the boot path without somebody deciding whether it blocks.
 //
-//   • `blocking` — {@link assertRegistrationWeldsAtStartup} throws. Every diagnostic this module
-//     emits today is blocking, so the boot behaviour is exactly what it was before the axis existed.
+//   • `blocking` — {@link assertRegistrationWeldsAtStartup} throws. The four reference-integrity
+//     codes are here, so the set of inputs that refuse startup is what it has always been.
 //   • `observe`  — reported on the boot channel and the process continues. `ok` still goes false
-//     (something WAS found), but `bootable` stays true. This is the arm a new check lands on while
-//     its break set is being dispositioned, and it is graduated to `blocking` by flipping one row.
+//     (something WAS found), but `bootable` stays true. The two emission-coupling codes are here
+//     while their break set is being dispositioned; they graduate by flipping two rows.
 //
 // ## Scope: why only `capability` is resolved here, expressed as DATA
 //
@@ -94,6 +119,7 @@ import {
   type EffectProvider,
 } from '../contract/reachability/providers.js';
 import { EFFECT_OWNERSHIP, type EffectOwnershipRule } from '../architecture/effect-ledger.js';
+import { TOOL_REGISTRY, type CompositeTool } from '../registry.js';
 import { EVENT_ANNOTATIONS } from './event-annotations.js';
 import {
   weldReferenceOf,
@@ -110,6 +136,11 @@ import {
 export const UNRESOLVABLE_PROVIDER_CODE = 'UNRESOLVABLE_PROVIDER';
 /** The diagnostic code for the provider map having drifted from the effect ledger. */
 export const PROVIDER_REGISTRY_DRIFT_CODE = 'PROVIDER_REGISTRY_DRIFT';
+/**
+ * The diagnostic code for an emission edge whose declaring composite tool is not the provider the
+ * event's `capability` registration declares.
+ */
+export const EMISSION_PROVIDER_MISMATCH_CODE = 'EMISSION_PROVIDER_MISMATCH';
 
 /**
  * How one tier's weld reference is resolved. `authority` names the live registry a `boot`-resolved
@@ -219,6 +250,25 @@ export type WeldResolutionDiagnostic =
       readonly provider: null;
       readonly message: string;
       readonly severity: WeldDiagnosticSeverity;
+    }
+  | {
+      readonly code: typeof EMISSION_PROVIDER_MISMATCH_CODE;
+      readonly eventType: string;
+      /** The provider the event's registration DECLARES. */
+      readonly provider: string;
+      /** The action carrying the emission edge. */
+      readonly action: string;
+      /** The composite tool that action belongs to — the side the registration does not name. */
+      readonly declaringTool: string;
+      readonly message: string;
+      readonly severity: WeldDiagnosticSeverity;
+    }
+  | {
+      readonly code: 'EMPTY_EMISSION_DENOMINATOR';
+      readonly eventType: null;
+      readonly provider: null;
+      readonly message: string;
+      readonly severity: WeldDiagnosticSeverity;
     };
 
 /**
@@ -237,9 +287,15 @@ export type WeldDiagnosticCode = WeldResolutionDiagnostic['code'];
  * purpose — this one has no opinion about which tier a weld belongs to, and that one has no
  * opinion about what a fault costs.
  *
- * Everything is `blocking`. That is not a placeholder: it is the pre-existing behaviour, written
- * down. Introducing the axis must not change what the tree does, so the flip to `observe` is a
- * separate, deliberate edit of one row rather than a side effect of making severity expressible.
+ * The four REFERENCE-INTEGRITY rows are `blocking`. That is not a placeholder: it is the
+ * behaviour this gate shipped with, written down.
+ *
+ * The two EMISSION-COUPLING rows are `observe`, and that is the whole reason the axis exists.
+ * The comparison they carry reports against the live tree BEFORE the tree is reconciled — there
+ * are real, measured disagreements in the shipped catalog — so arming it as `blocking` would take
+ * every entry point down over a break set nobody has dispositioned yet. Graduating them is a
+ * deliberate edit of these two rows once that set is disposed of, not a side effect of some other
+ * change.
  */
 export const DIAGNOSTIC_SEVERITY_POLICY: Readonly<Record<WeldDiagnosticCode, WeldDiagnosticSeverity>> =
   Object.freeze({
@@ -247,9 +303,11 @@ export const DIAGNOSTIC_SEVERITY_POLICY: Readonly<Record<WeldDiagnosticCode, Wel
     [PROVIDER_REGISTRY_DRIFT_CODE]: 'blocking',
     EMPTY_CAPABILITY_DENOMINATOR: 'blocking',
     EMPTY_PROVIDER_REGISTRY: 'blocking',
+    [EMISSION_PROVIDER_MISMATCH_CODE]: 'observe',
+    EMPTY_EMISSION_DENOMINATOR: 'observe',
   });
 
-/** The verdict, carrying BOTH denominators so no count can be read without its population. */
+/** The verdict, carrying EVERY denominator so no count can be read without its population. */
 export interface WeldResolutionVerdict {
   /** No diagnostic of ANY severity was reported — the fully clean tree. */
   readonly ok: boolean;
@@ -263,6 +321,13 @@ export interface WeldResolutionVerdict {
   readonly bootResolvedCount: number;
   /** Distinct provider ids backed by exactly one live ledger rule — the REGISTRY denominator. */
   readonly resolvableProviderCount: number;
+  /** Emission edges declared across the tool registry — the EMISSION population. */
+  readonly emissionEdgeCount: number;
+  /**
+   * Emission edges whose event is a boot-resolved weld — the denominator of the provider
+   * comparison, and the only one of the three that can be non-empty while this one is zero.
+   */
+  readonly comparedEmissionEdgeCount: number;
   readonly diagnostics: readonly WeldResolutionDiagnostic[];
   /** How many of {@link diagnostics} are `blocking` — the count that decides {@link bootable}. */
   readonly blockingCount: number;
@@ -275,6 +340,17 @@ export interface WeldResolutionVerdict {
 // ─── Resolution ─────────────────────────────────────────────────────────────
 
 const byString = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
+/**
+ * The ordering key for one diagnostic, joined on a separator no field can contain.
+ *
+ * `action` is part of the key because the emission-coupling comparison can report SEVERAL faults
+ * for one `(event, provider)` pair — one per declaring action — and a key that stopped at the
+ * provider would leave those rows ordered by scan order rather than by anything a reader (or a
+ * golden report) can predict.
+ */
+const diagnosticSortKey = (d: WeldResolutionDiagnostic): string =>
+  [d.code, d.eventType ?? '', d.provider ?? '', 'action' in d ? d.action : ''].join('\u0000');
 
 /**
  * The provider ids that actually resolve: every tool claimed by EXACTLY ONE provider entry that is
@@ -325,6 +401,56 @@ export function bootResolvedWelds(
 }
 
 /**
+ * One declared emission edge, flattened out of the tool registry: an action says it emits an event,
+ * and the action belongs to a composite tool.
+ *
+ * {@link declaringTool} is the tool the emitting action is registered under — the SAME id space as
+ * `EffectProviderId`, which is `EffectProvider['tool']`. That is what makes the two sides
+ * comparable at all, and it is why nothing here touches a module path: an `AutoEmission` carries an
+ * event name and a condition, a `ToolAction` carries no module, and the only path-shaped input in
+ * reach is a filesystem walk of `src/` that does not exist inside the single-file binary and could
+ * not run at boot if it did.
+ */
+export interface EmissionEdge {
+  /** The event type the action declares it emits. */
+  readonly event: string;
+  /** The action carrying the declaration. */
+  readonly action: string;
+  /** The composite tool that action is registered under. */
+  readonly declaringTool: string;
+}
+
+/**
+ * Flatten the tool registry into `(event, action, declaringTool)` triples — the EMISSION population
+ * the provider comparison reads.
+ *
+ * The registry is read as a VALUE, exactly as {@link resolvableProviderIds} reads the provider map:
+ * transcribing which tool owns which action into this module would install the second authority the
+ * comparison exists to detect, and the comparison would then agree with itself. Sorted so a report
+ * is stable.
+ */
+export function declaredEmissionEdges(
+  registry: readonly CompositeTool[] = TOOL_REGISTRY,
+): readonly EmissionEdge[] {
+  const edges: EmissionEdge[] = [];
+  for (const tool of registry) {
+    for (const action of tool.actions) {
+      for (const emission of action.autoEmits ?? []) {
+        edges.push({ event: emission.event, action: action.name, declaringTool: tool.name });
+      }
+    }
+  }
+  return Object.freeze(
+    edges.sort(
+      (a, b) =>
+        byString(a.event, b.event) ||
+        byString(a.declaringTool, b.declaringTool) ||
+        byString(a.action, b.action),
+    ),
+  );
+}
+
+/**
  * Reconcile every boot-resolvable weld against the live provider registry. Pure and total: returns
  * a verdict, never throws. `ok === true` is the boot green light.
  *
@@ -340,6 +466,7 @@ export function validateRegistrationWelds(
   severityPolicy: Readonly<
     Record<WeldDiagnosticCode, WeldDiagnosticSeverity>
   > = DIAGNOSTIC_SEVERITY_POLICY,
+  emissions: readonly EmissionEdge[] = declaredEmissionEdges(),
 ): WeldResolutionVerdict {
   const diagnostics: WeldResolutionDiagnostic[] = [];
   // One lookup, so severity is stamped from the table at every emission site and never decided
@@ -407,11 +534,57 @@ export function validateRegistrationWelds(
     });
   }
 
+  // ── The emission side: does the declaring tool match the declared provider? ─
+  //
+  // Reference integrity above asks whether the declared provider names SOMETHING live. This asks
+  // the other half: whether it names the RIGHT thing — the composite tool that actually declares
+  // the emission. Both sides are composite tool ids, so the comparison is a direct equality on one
+  // id space rather than a resolution through anything.
+  //
+  // Scope is inherited, not re-decided: the subject set is {@link bootResolvedWelds}, so the
+  // capability-only scope keeps its one authority in WELD_RESOLUTION_POLICY. An event nothing emits
+  // contributes no edge and is silently in scope with nothing to compare — which is exactly what
+  // the vacuity guard below exists to notice.
+  const providerByEvent = new Map(welds.map((weld) => [weld.eventType, weld.ref]));
+  const compared = emissions.filter((edge) => providerByEvent.has(edge.event));
+  if (welds.length > 0 && compared.length === 0) {
+    diagnostics.push({
+      code: 'EMPTY_EMISSION_DENOMINATOR',
+      eventType: null,
+      provider: null,
+      severity: severityOf('EMPTY_EMISSION_DENOMINATOR'),
+      message:
+        `no declared emission edge names a boot-resolvable event, over ${welds.length} such ` +
+        `event(s) and ${emissions.length} declared edge(s) in total. Either the tool registry ` +
+        "declares no `autoEmits` at all (the field was renamed, or the registry barrel moved), or " +
+        'nothing it emits is registered at the capability tier. The provider comparison ranged ' +
+        'over an empty set and therefore cannot have found anything, which must not read as clean.',
+    });
+  }
+
+  for (const edge of compared) {
+    const declared = providerByEvent.get(edge.event);
+    if (declared === undefined || declared === edge.declaringTool) continue;
+    diagnostics.push({
+      code: EMISSION_PROVIDER_MISMATCH_CODE,
+      eventType: edge.event,
+      provider: declared,
+      action: edge.action,
+      declaringTool: edge.declaringTool,
+      severity: severityOf(EMISSION_PROVIDER_MISMATCH_CODE),
+      // All four sides in one message, so a single boot tells an operator which annotation and
+      // which action disagree without a second run to find the other half.
+      message:
+        `action '${edge.action}' on composite tool '${edge.declaringTool}' declares it emits ` +
+        `'${edge.event}', but that event is registered tier 'capability' with provider ` +
+        `'${declared}'. The declaring tool and the declared provider are the same id space ` +
+        '(EffectProvider["tool"]), so one of the two is wrong: either the annotation names the ' +
+        'wrong provider, or the emission is declared on the wrong tool.',
+    });
+  }
+
   const sorted = [...diagnostics].sort((a, b) =>
-    byString(
-      `${a.code} ${a.eventType ?? ''} ${a.provider ?? ''}`,
-      `${b.code} ${b.eventType ?? ''} ${b.provider ?? ''}`,
-    ),
+    byString(diagnosticSortKey(a), diagnosticSortKey(b)),
   );
   // ── The severity split ───────────────────────────────────────────────────
   // `ok` keeps its original meaning — nothing at all was found — because a check that reports an
@@ -432,15 +605,20 @@ export function validateRegistrationWelds(
       : `\nobserve-only — ${observed.length} finding(s) reported without blocking boot:\n` +
         observed.map(line).join('\n');
 
+  // Every count is rendered beside the population it was measured over, so no number in this
+  // report can be read without the denominator that gives it a meaning.
+  const overPopulations =
+    `${welds.length} boot-resolved weld(s), ${resolvable.length} live provider(s) ` +
+    `and ${compared.length} compared emission edge(s)`;
+
   const report = ok
     ? `event registration welds OK — ${welds.length} boot-resolved weld(s) against ` +
-      `${resolvable.length} live effect provider(s)`
+      `${resolvable.length} live effect provider(s) and ${compared.length} compared emission edge(s)`
     : bootable
-      ? `event registration welds BOOTABLE — 0 blocking fault(s) over ` +
-        `${welds.length} boot-resolved weld(s) and ${resolvable.length} live provider(s)` +
+      ? `event registration welds BOOTABLE — 0 blocking fault(s) over ${overPopulations}` +
         observedBlock
       : `event registration weld resolution FAILED — ${blocking.length} fault(s) over ` +
-        `${welds.length} boot-resolved weld(s) and ${resolvable.length} live provider(s):\n` +
+        `${overPopulations}:\n` +
         blocking.map(line).join('\n') +
         observedBlock;
 
@@ -449,6 +627,8 @@ export function validateRegistrationWelds(
     bootable,
     bootResolvedCount: welds.length,
     resolvableProviderCount: resolvable.length,
+    emissionEdgeCount: emissions.length,
+    comparedEmissionEdgeCount: compared.length,
     diagnostics: sorted,
     blockingCount: blocking.length,
     observeCount: observed.length,
@@ -488,9 +668,15 @@ export class RegistrationWeldError extends Error {
  *
  * The refusal is SEVERITY-DRIVEN: only a `blocking` diagnostic throws. An `observe` finding is
  * written to `report` and startup continues, which is what lets a new check be armed against the
- * live tree without taking every entry point down with it. Because
- * {@link DIAGNOSTIC_SEVERITY_POLICY} marks every diagnostic this module emits as `blocking`, the
- * set of inputs that halt startup is unchanged.
+ * live tree without taking every entry point down with it. The four reference-integrity codes are
+ * `blocking` in {@link DIAGNOSTIC_SEVERITY_POLICY}, so the set of inputs that HALT startup is
+ * unchanged by the emission-coupling comparison; that comparison's two codes are `observe`, and on
+ * the shipped catalog they produce a boot-channel report rather than a refusal.
+ *
+ * `emissions` trails `report` rather than sitting beside the other populations. Ordering by kind
+ * would have renumbered an argument every existing caller already passes positionally, and a silent
+ * re-binding of a severity table onto an emission parameter is a worse cost than one parameter out
+ * of thematic order.
  */
 export function assertRegistrationWeldsAtStartup(
   annotations: Readonly<Record<string, EventRegistration>> = EVENT_ANNOTATIONS,
@@ -501,8 +687,16 @@ export function assertRegistrationWeldsAtStartup(
     Record<WeldDiagnosticCode, WeldDiagnosticSeverity>
   > = DIAGNOSTIC_SEVERITY_POLICY,
   report: (message: string) => void = reportToStderr,
+  emissions: readonly EmissionEdge[] = declaredEmissionEdges(),
 ): WeldResolutionVerdict {
-  const verdict = validateRegistrationWelds(annotations, providers, rules, policy, severityPolicy);
+  const verdict = validateRegistrationWelds(
+    annotations,
+    providers,
+    rules,
+    policy,
+    severityPolicy,
+    emissions,
+  );
   if (!verdict.bootable) throw new RegistrationWeldError(verdict);
   // Survivable, but not silent. An observation nobody is told about is indistinguishable from a
   // check that was never run, which is the failure mode the severity arm exists to avoid.
@@ -584,4 +778,35 @@ export type _RegistrationValidate_EveryDiagnostic_CarriesASeverity = Expect<
  * */
 export type _RegistrationValidate_SeverityPolicy_IsTotalOverTheDiagnosticAxis = Expect<
   MutuallyAssignable<keyof typeof DIAGNOSTIC_SEVERITY_POLICY, WeldDiagnosticCode>
+>;
+
+/**
+ * **The four-sides proof.** A disagreement is only diagnosable if the diagnostic names BOTH sides
+ * and where each came from, so the mismatch arm carries the event, the declared provider, the
+ * declaring tool and the action — all four, in the one record.
+ *
+ * Falsifier: drop any one field from the arm and the key set stops matching, so a diagnostic that
+ * said only "these disagree" would fail the build rather than ship as a fault an operator has to
+ * run the gate a second time to understand.
+ @proof
+ * */
+export type _RegistrationValidate_MismatchDiagnostic_NamesBothSides = Expect<
+  MutuallyAssignable<
+    keyof Extract<WeldResolutionDiagnostic, { code: typeof EMISSION_PROVIDER_MISMATCH_CODE }>,
+    'code' | 'eventType' | 'provider' | 'action' | 'declaringTool' | 'message' | 'severity'
+  >
+>;
+
+/**
+ * The comparison is between two values of ONE id space. `EmissionEdge.declaringTool` is a
+ * `CompositeTool['name']` and the other side is an {@link EffectProviderId}, which
+ * `_RegistrationValidate_ProviderId_IsTheProviderMapKey` above pins to `EffectProvider['tool']`.
+ *
+ * Structurally both are `string` today, so this alias is not load-bearing on its own — it is the
+ * statement that makes a future BRAND on either side a build failure here, at the equality, rather
+ * than a silent always-false comparison that reports the whole catalog as broken.
+ @proof
+ * */
+export type _RegistrationValidate_BothComparedSides_AreCompositeToolIds = Expect<
+  MutuallyAssignable<EmissionEdge['declaringTool'], CompositeTool['name']>
 >;

@@ -38,6 +38,7 @@ import {
   type EffectOwnershipRule,
 } from '../../../src/architecture/effect-ledger.js';
 import { EVENT_ANNOTATIONS } from '../../../src/events/event-annotations.js';
+import { TOOL_REGISTRY } from '../../../src/registry.js';
 import {
   EVENT_TIERS,
   weldReferenceOf,
@@ -45,14 +46,18 @@ import {
 } from '../../../src/events/event-registration.js';
 import {
   DIAGNOSTIC_SEVERITY_POLICY,
+  EMISSION_PROVIDER_MISMATCH_CODE,
   PROVIDER_REGISTRY_DRIFT_CODE,
   RegistrationWeldError,
   UNRESOLVABLE_PROVIDER_CODE,
   WELD_RESOLUTION_POLICY,
   assertRegistrationWeldsAtStartup,
   bootResolvedWelds,
+  declaredEmissionEdges,
   resolvableProviderIds,
   validateRegistrationWelds,
+  type EmissionEdge,
+  type WeldDiagnosticCode,
   type WeldDiagnosticSeverity,
 } from '../../../src/events/registration-validate.js';
 
@@ -84,6 +89,54 @@ function liveCapabilityTypes(): string[] {
     .sort();
 }
 
+/** Every live capability registration as `(eventType, declaredProvider)`, read off the catalog. */
+function liveCapabilityRegistrations(): { eventType: string; provider: string }[] {
+  const rows: { eventType: string; provider: string }[] = [];
+  for (const [eventType, registration] of Object.entries(EVENT_ANNOTATIONS)) {
+    if (registration.tier !== 'capability') continue;
+    rows.push({ eventType, provider: registration.provider });
+  }
+  return rows.sort((a, b) => (a.eventType < b.eventType ? -1 : a.eventType > b.eventType ? 1 : 0));
+}
+
+/**
+ * An emission population that AGREES with the live catalog everywhere: one edge per live capability
+ * registration, declared on the very tool that registration names.
+ *
+ * DERIVED from the annotation table rather than written down, so it stays conforming as the catalog
+ * moves and cannot rot into a fixture that disagrees for a reason nobody meant. The seeds below hold
+ * it fixed so each one varies exactly ONE population — without it, the live registry's real
+ * disagreements would ride along in every seeded verdict and no seed would isolate anything.
+ */
+function conformingEmissionEdges(): readonly EmissionEdge[] {
+  return liveCapabilityRegistrations().map(({ eventType, provider }) => ({
+    event: eventType,
+    action: `${eventType}-emitter`,
+    declaringTool: provider,
+  }));
+}
+
+const CONFORMING_EMISSIONS = conformingEmissionEdges();
+
+/**
+ * One emission edge that DISAGREES: a live capability event whose declaring tool is a real
+ * composite tool OTHER than the provider its registration names.
+ *
+ * Both ends come off live modules — the event and its declared provider from the annotation table,
+ * the declaring tool from the effect-provider map — so this is a genuine two-authority
+ * disagreement, not a string nobody would ever write. It throws rather than returning a placeholder
+ * when the catalog cannot supply one, because a seed that silently degrades into "no disagreement"
+ * would make every test built on it pass by looking at nothing.
+ */
+function disagreeingEmissionEdge(): EmissionEdge {
+  for (const { eventType, provider } of liveCapabilityRegistrations()) {
+    const other = EFFECT_PROVIDERS.map((p) => p.tool).find((tool) => tool !== provider);
+    if (other === undefined) continue;
+    return { event: eventType, action: 'seeded_emitter', declaringTool: other };
+  }
+  throw new Error('no live capability registration can seed a provider disagreement');
+}
+
 /**
  * A provider entry the ledger does not back — the STALE case `providers.ts` names. Used below as
  * the seed that makes the drift diagnostic fire without touching any weld.
@@ -102,15 +155,18 @@ const GHOST_PROVIDER: EffectProvider = {
  * undecided disposition.
  */
 interface DiagnosticSeed {
-  readonly code: string;
+  readonly code: WeldDiagnosticCode;
   readonly annotations: Readonly<Record<string, EventRegistration>>;
   readonly providers: readonly EffectProvider[];
   readonly rules: readonly EffectOwnershipRule[];
+  readonly emissions: readonly EmissionEdge[];
 }
 
 /**
- * A seed per diagnostic code. Every one of these is an input the gate ALREADY reported on before
- * the severity axis existed; nothing here introduces a new fault class.
+ * A seed per diagnostic code. Each varies ONE population and holds the other three at a value that
+ * reports nothing — which is why every seed carries an explicit emission population rather than
+ * falling through to the live registry, whose real disagreements would otherwise appear in all six
+ * verdicts and make "exactly one fault fired" untestable.
  */
 const DIAGNOSTIC_SEEDS: readonly DiagnosticSeed[] = [
   {
@@ -120,35 +176,74 @@ const DIAGNOSTIC_SEEDS: readonly DiagnosticSeed[] = [
     }),
     providers: EFFECT_PROVIDERS,
     rules: EFFECT_OWNERSHIP,
+    emissions: CONFORMING_EMISSIONS,
   },
   {
     code: PROVIDER_REGISTRY_DRIFT_CODE,
     annotations: EVENT_ANNOTATIONS,
     providers: [...EFFECT_PROVIDERS, GHOST_PROVIDER],
     rules: EFFECT_OWNERSHIP,
+    emissions: CONFORMING_EMISSIONS,
   },
   {
     code: 'EMPTY_CAPABILITY_DENOMINATOR',
     annotations: {},
     providers: EFFECT_PROVIDERS,
     rules: EFFECT_OWNERSHIP,
+    emissions: CONFORMING_EMISSIONS,
   },
   {
     code: 'EMPTY_PROVIDER_REGISTRY',
     annotations: EVENT_ANNOTATIONS,
     providers: [],
     rules: EFFECT_OWNERSHIP,
+    emissions: CONFORMING_EMISSIONS,
+  },
+  {
+    code: EMISSION_PROVIDER_MISMATCH_CODE,
+    annotations: EVENT_ANNOTATIONS,
+    providers: EFFECT_PROVIDERS,
+    rules: EFFECT_OWNERSHIP,
+    emissions: [...CONFORMING_EMISSIONS, disagreeingEmissionEdge()],
+  },
+  {
+    // Boot-resolvable events exist and NOTHING claims to emit any of them, so the comparison
+    // ranged over an empty set. Distinct from EMPTY_CAPABILITY_DENOMINATOR, which is the case
+    // where the subject side is what went missing.
+    code: 'EMPTY_EMISSION_DENOMINATOR',
+    annotations: EVENT_ANNOTATIONS,
+    providers: EFFECT_PROVIDERS,
+    rules: EFFECT_OWNERSHIP,
+    emissions: [],
   },
 ];
+
+/**
+ * Narrow a raw object key back onto the diagnostic axis. The shipped table is the membership test,
+ * so this cannot admit a code the gate does not know about.
+ */
+function isWeldDiagnosticCode(value: string): value is WeldDiagnosticCode {
+  return Object.prototype.hasOwnProperty.call(DIAGNOSTIC_SEVERITY_POLICY, value);
+}
 
 /**
  * The live severity table with every row rewritten to `severity` — DERIVED from the shipped table's
  * keys rather than transcribed, so it stays total as codes are added and cannot quietly leave a
  * code on its default.
+ *
+ * Starting from a spread of the shipped table rather than from `{}` is what keeps the result TOTAL
+ * by type: a `Record<string, …>` accumulator would satisfy no caller's parameter type and would
+ * silently drop a code the loop happened to miss.
  */
-function everyDiagnosticAt(severity: WeldDiagnosticSeverity): Record<string, WeldDiagnosticSeverity> {
-  const table: Record<string, WeldDiagnosticSeverity> = {};
-  for (const code of Object.keys(DIAGNOSTIC_SEVERITY_POLICY)) table[code] = severity;
+function everyDiagnosticAt(
+  severity: WeldDiagnosticSeverity,
+): Readonly<Record<WeldDiagnosticCode, WeldDiagnosticSeverity>> {
+  const table: Record<WeldDiagnosticCode, WeldDiagnosticSeverity> = {
+    ...DIAGNOSTIC_SEVERITY_POLICY,
+  };
+  for (const code of Object.keys(table)) {
+    if (isWeldDiagnosticCode(code)) table[code] = severity;
+  }
   return table;
 }
 
@@ -156,18 +251,37 @@ describe('RegistrationValidate — the DR-2 boot-time weld resolution gate', () 
   it('RegistrationWelds_LiveCatalog_ResolvesAgainstNonEmptyPopulations', () => {
     const verdict = validateRegistrationWelds();
 
-    // The shipped catalog boots. If this ever goes red it is a real defect, not a flake.
-    expect(verdict.diagnostics).toEqual([]);
-    expect(verdict.ok).toBe(true);
+    // The shipped catalog BOOTS, and that is now a strictly weaker claim than "clean". Reference
+    // integrity is still perfect — zero blocking faults — while the emission-coupling comparison
+    // reports real, measured disagreements at `observe`, so `ok` is false and `bootable` is true.
+    // Asserting both is the point: this distinguishes "we found things" from "we refuse to boot",
+    // and a gate that had quietly weakened `ok` to mean `bootable` would fail right here.
+    expect(verdict.bootable).toBe(true);
+    expect(verdict.blockingCount).toBe(0);
+    expect(verdict.ok).toBe(false);
+    expect(verdict.observeCount).toBe(verdict.diagnostics.length);
+    expect(verdict.observeCount).toBeGreaterThan(0);
+    // Every finding is the emission comparison's. If a REFERENCE-integrity fault ever appears here
+    // it is a real defect, not a flake — and it would arrive as a blocking count above zero.
+    expect([...new Set(verdict.diagnostics.map((d) => d.code))]).toEqual([
+      EMISSION_PROVIDER_MISMATCH_CODE,
+    ]);
 
-    // NON-VACUOUS DENOMINATORS, both of them, and both derived. A gate that resolved zero welds
-    // (or resolved them against zero providers) would report exactly this same `ok: true`, which
-    // is the failure mode the two EMPTY_* diagnostics exist to make impossible.
+    // NON-VACUOUS DENOMINATORS, all three, and all derived. A gate that resolved zero welds (or
+    // resolved them against zero providers, or compared zero emission edges) would report exactly
+    // the same verdict shape, which is the failure mode the three EMPTY_* diagnostics exist to
+    // make impossible.
     const capabilityTypes = liveCapabilityTypes();
     expect(capabilityTypes.length).toBeGreaterThan(0);
     expect(verdict.bootResolvedCount).toBe(capabilityTypes.length);
     expect(verdict.resolvableProviderCount).toBeGreaterThan(0);
     expect(verdict.resolvableProviderCount).toBe(resolvableProviderIds().length);
+    expect(verdict.emissionEdgeCount).toBe(declaredEmissionEdges().length);
+    expect(verdict.comparedEmissionEdgeCount).toBeGreaterThan(0);
+    // The compared set is a STRICT subset of the declared one — most emission edges name events
+    // registered at a tier this gate does not resolve — so a comparison that had quietly widened
+    // past the capability arm would show up as these two numbers converging.
+    expect(verdict.comparedEmissionEdgeCount).toBeLessThan(verdict.emissionEdgeCount);
 
     // The subject set IS the capability tier — the policy table's `resolvedAt: 'boot'` row and the
     // catalog agree on which registrations are in scope, computed from both ends.
@@ -181,7 +295,17 @@ describe('RegistrationValidate — the DR-2 boot-time weld resolution gate', () 
     expect([...namedTools].filter((tool) => !liveTools.has(tool))).toEqual([]);
     expect(namedTools.size).toBeGreaterThan(0);
 
-    expect(verdict.report).toContain('event registration welds OK');
+    // The report reads as SURVIVED-WITH-FINDINGS, not as clean and not as a refusal, and it carries
+    // every denominator so no count in it can be read without the population it was measured over.
+    expect(verdict.report).toContain('event registration welds BOOTABLE');
+    expect(verdict.report).toContain('0 blocking fault(s)');
+    expect(verdict.report).toContain('observe-only');
+    expect(verdict.report).not.toContain('FAILED');
+    expect(verdict.report).toContain(`${verdict.bootResolvedCount} boot-resolved weld(s)`);
+    expect(verdict.report).toContain(`${verdict.resolvableProviderCount} live provider(s)`);
+    expect(verdict.report).toContain(
+      `${verdict.comparedEmissionEdgeCount} compared emission edge(s)`,
+    );
   });
 
   it('RegistrationWelds_SeededUnresolvableProvider_FailsTheGate', () => {
@@ -367,31 +491,49 @@ describe('RegistrationValidate — the DR-2 boot-time weld resolution gate', () 
 
 describe('StartupAssertion — the severity axis on the boot refusal', () => {
   it('StartupAssertion_BlockingSeverity_ThrowsOnAnyViolation', () => {
-    // THE UNCHANGED-BEHAVIOUR PIN. Every diagnostic the gate can emit today is `blocking` in the
-    // shipped table, so the set of inputs that refuse startup is exactly what it was before
-    // severity was expressible. Naming the four codes is the point: this is a pin on the
-    // PRE-EXISTING population, and it must redden if one of them is renamed or downgraded, not
-    // shrug and pass over a phantom.
+    // THE UNCHANGED-BEHAVIOUR PIN, and the exact line the two halves of this gate sit on. Every
+    // REFERENCE-INTEGRITY code is `blocking` in the shipped table, so the set of inputs that refuse
+    // startup is exactly what it was before severity was expressible; the EMISSION-COUPLING codes
+    // are `observe`, so arming that comparison against a tree it disagrees with took nothing down.
+    // Both sides are pinned by an exact set rather than a containment: a code moved from one half
+    // to the other reddens here, which is what makes the eventual graduation a deliberate act.
     const shipped = Object.entries(DIAGNOSTIC_SEVERITY_POLICY);
     const shippedCodes = shipped.map(([code]) => code);
-    expect(shippedCodes).toEqual(
-      expect.arrayContaining([
+    const codesAt = (severity: WeldDiagnosticSeverity): string[] =>
+      shipped.filter(([, s]) => s === severity).map(([code]) => code).sort();
+
+    expect(codesAt('blocking')).toEqual(
+      [
         UNRESOLVABLE_PROVIDER_CODE,
         PROVIDER_REGISTRY_DRIFT_CODE,
         'EMPTY_CAPABILITY_DENOMINATOR',
         'EMPTY_PROVIDER_REGISTRY',
-      ]),
+      ].sort(),
     );
-    for (const [, severity] of shipped) expect(severity).toBe('blocking');
+    expect(codesAt('observe')).toEqual(
+      [EMISSION_PROVIDER_MISMATCH_CODE, 'EMPTY_EMISSION_DENOMINATOR'].sort(),
+    );
 
     // NON-VACUOUS SEED SET: one input per code, and the codes come from the same table asserted
     // above — so a code that no seed exercises is a hole this loop reports rather than skips.
     expect(DIAGNOSTIC_SEEDS.map((s) => s.code).sort()).toEqual([...shippedCodes].sort());
 
-    for (const seed of DIAGNOSTIC_SEEDS) {
+    const blockingSeeds = DIAGNOSTIC_SEEDS.filter(
+      (seed) => DIAGNOSTIC_SEVERITY_POLICY[seed.code] === 'blocking',
+    );
+    expect(blockingSeeds.map((s) => s.code).sort()).toEqual(codesAt('blocking'));
+
+    for (const seed of blockingSeeds) {
       // The pure verdict first: the diagnostic fires, it is stamped `blocking`, and the boot
       // decision follows from the stamp rather than from "the list is non-empty".
-      const verdict = validateRegistrationWelds(seed.annotations, seed.providers, seed.rules);
+      const verdict = validateRegistrationWelds(
+        seed.annotations,
+        seed.providers,
+        seed.rules,
+        WELD_RESOLUTION_POLICY,
+        DIAGNOSTIC_SEVERITY_POLICY,
+        seed.emissions,
+      );
       const matching = verdict.diagnostics.filter((d) => d.code === seed.code);
       expect(matching.length).toBeGreaterThan(0);
       for (const diagnostic of matching) expect(diagnostic.severity).toBe('blocking');
@@ -415,6 +557,7 @@ describe('StartupAssertion — the severity axis on the boot refusal', () => {
           WELD_RESOLUTION_POLICY,
           DIAGNOSTIC_SEVERITY_POLICY,
           (message) => reported.push(message),
+          seed.emissions,
         ),
       ).toThrow(RegistrationWeldError);
       expect(reported).toEqual([]);
@@ -422,10 +565,12 @@ describe('StartupAssertion — the severity axis on the boot refusal', () => {
   });
 
   it('StartupAssertion_ObserveSeverity_ReportsWithoutThrowing', () => {
-    // THE OTHER ARM, over the same four inputs. Identical populations, one row-set flipped: the
-    // gate must now RETURN and report rather than refuse. Running it over the same seeds as the
-    // blocking test is what makes the pair evidence — each input is shown to be refusable AND
-    // survivable purely as a function of the severity table.
+    // THE OTHER ARM, over the same six inputs — including the two whose shipped severity is
+    // already `observe`, so this loop covers every code the gate can emit rather than only the
+    // refusable ones. Identical populations, one row-set flipped: the gate must now RETURN and
+    // report rather than refuse. Running it over the same seeds as the blocking test is what makes
+    // the pair evidence — each input is shown to be refusable AND survivable purely as a function
+    // of the severity table.
     const observeEverything = everyDiagnosticAt('observe');
 
     for (const seed of DIAGNOSTIC_SEEDS) {
@@ -437,6 +582,7 @@ describe('StartupAssertion — the severity axis on the boot refusal', () => {
         WELD_RESOLUTION_POLICY,
         observeEverything,
         (message) => reported.push(message),
+        seed.emissions,
       );
 
       // Found something, and said so — but did not stop the process.
@@ -469,9 +615,13 @@ describe('StartupAssertion — the severity axis on the boot refusal', () => {
 
   it('StartupAssertion_ObserveSeverity_StaysSilentOnACleanTree', () => {
     // THE ANTI-TAUTOLOGY for the test above. With everything set to `observe`, a gate that
-    // reported unconditionally would still satisfy "does not throw" — so the clean tree must
-    // produce NO report at all. This is also the live-catalog control for the axis: flipping every
-    // row to observe changes nothing about a tree that has nothing to say.
+    // reported unconditionally would still satisfy "does not throw" — so a clean tree must produce
+    // NO report at all.
+    //
+    // "Clean" now means the live catalog against a CONFORMING emission population, because the
+    // shipped registry genuinely disagrees with the annotations in places. Substituting only that
+    // one population is what keeps this a control rather than a second measurement: every other
+    // input is the live module, and the finding it removes is the one under test elsewhere.
     const reported: string[] = [];
     const verdict = assertRegistrationWeldsAtStartup(
       EVENT_ANNOTATIONS,
@@ -480,6 +630,7 @@ describe('StartupAssertion — the severity axis on the boot refusal', () => {
       WELD_RESOLUTION_POLICY,
       everyDiagnosticAt('observe'),
       (message) => reported.push(message),
+      CONFORMING_EMISSIONS,
     );
 
     expect(verdict.ok).toBe(true);
@@ -490,6 +641,7 @@ describe('StartupAssertion — the severity axis on the boot refusal', () => {
     // ...over a non-empty population, so "nothing to report" is not "nothing to look at".
     expect(verdict.bootResolvedCount).toBeGreaterThan(0);
     expect(verdict.resolvableProviderCount).toBeGreaterThan(0);
+    expect(verdict.comparedEmissionEdgeCount).toBeGreaterThan(0);
   });
 
   it('StartupAssertion_MixedSeverities_RefusesOnTheBlockingOneAndStillNamesTheObservation', () => {
@@ -500,7 +652,7 @@ describe('StartupAssertion — the severity axis on the boot refusal', () => {
     const seeded = catalogWith({
       'seeded.severity-mixed': capabilityNaming('exarchos_no_such_provider'),
     });
-    const mixed: Record<string, WeldDiagnosticSeverity> = {
+    const mixed: Readonly<Record<WeldDiagnosticCode, WeldDiagnosticSeverity>> = {
       ...everyDiagnosticAt('observe'),
       [UNRESOLVABLE_PROVIDER_CODE]: 'blocking',
     };
@@ -532,5 +684,207 @@ describe('StartupAssertion — the severity axis on the boot refusal', () => {
         mixed,
       ),
     ).toThrow(RegistrationWeldError);
+  });
+});
+
+describe('ProviderComparison — the declaring tool against the declared provider', () => {
+  it('ProviderComparison_DeclaringToolMatchesProvider_IsConforming', () => {
+    // HALF ONE, on the LIVE registry. Partition the shipped emission edges into the ones that agree
+    // with the annotation table and the ones that do not, computing the partition here from the two
+    // authorities directly rather than from the gate's own output — otherwise this would be the
+    // gate agreeing with itself.
+    const declaredProviderByEvent = new Map(
+      liveCapabilityRegistrations().map((row) => [row.eventType, row.provider]),
+    );
+    const comparedEdges = declaredEmissionEdges().filter((edge) =>
+      declaredProviderByEvent.has(edge.event),
+    );
+    const agreeing = comparedEdges.filter(
+      (edge) => declaredProviderByEvent.get(edge.event) === edge.declaringTool,
+    );
+    // NON-VACUOUS: if the shipped tree agreed nowhere, "no diagnostic for an agreeing edge" would
+    // be true because there are none, which is the failure mode this number rules out.
+    expect(comparedEdges.length).toBeGreaterThan(0);
+    expect(agreeing.length).toBeGreaterThan(0);
+
+    const live = validateRegistrationWelds();
+    const faulted = new Set(
+      live.diagnostics
+        .filter((d) => d.code === EMISSION_PROVIDER_MISMATCH_CODE)
+        .map((d) => ('action' in d ? `${d.eventType} ${d.action}` : '')),
+    );
+    for (const edge of agreeing) {
+      expect(faulted.has(`${edge.event} ${edge.action}`)).toBe(false);
+    }
+
+    // HALF TWO, the clean control. Hold every other population live and substitute an emission set
+    // that agrees EVERYWHERE, and the comparison reports nothing at all — so the findings above are
+    // caused by disagreement and not by the comparison firing on every edge it sees.
+    const conforming = validateRegistrationWelds(
+      EVENT_ANNOTATIONS,
+      EFFECT_PROVIDERS,
+      EFFECT_OWNERSHIP,
+      WELD_RESOLUTION_POLICY,
+      DIAGNOSTIC_SEVERITY_POLICY,
+      CONFORMING_EMISSIONS,
+    );
+    expect(conforming.diagnostics).toEqual([]);
+    expect(conforming.ok).toBe(true);
+    expect(conforming.bootable).toBe(true);
+    // ...over a compared set the same size as the capability tier, so the clean verdict is a
+    // measurement over every weld rather than over an empty set.
+    expect(conforming.comparedEmissionEdgeCount).toBe(CONFORMING_EMISSIONS.length);
+    expect(conforming.comparedEmissionEdgeCount).toBe(liveCapabilityTypes().length);
+  });
+
+  it('ProviderComparison_Disagreement_NamesBothSides', () => {
+    // ONE seeded disagreement over an otherwise conforming population, so the diagnostic under
+    // inspection is unambiguously this edge's. Both ends of the seed are read off live modules: the
+    // event and its DECLARED provider from the annotation table, the DECLARING tool from the
+    // effect-provider map.
+    const edge = disagreeingEmissionEdge();
+    const declaredProvider = new Map(
+      liveCapabilityRegistrations().map((row) => [row.eventType, row.provider]),
+    ).get(edge.event);
+    expect(declaredProvider).toBeDefined();
+    expect(edge.declaringTool).not.toBe(declaredProvider);
+
+    const verdict = validateRegistrationWelds(
+      EVENT_ANNOTATIONS,
+      EFFECT_PROVIDERS,
+      EFFECT_OWNERSHIP,
+      WELD_RESOLUTION_POLICY,
+      DIAGNOSTIC_SEVERITY_POLICY,
+      [...CONFORMING_EMISSIONS, edge],
+    );
+
+    const mismatches = verdict.diagnostics.filter(
+      (d) => d.code === EMISSION_PROVIDER_MISMATCH_CODE,
+    );
+    expect(mismatches).toHaveLength(1);
+    const mismatch = mismatches[0];
+    expect(mismatch).toBeDefined();
+    if (mismatch === undefined || mismatch.code !== EMISSION_PROVIDER_MISMATCH_CODE) return;
+
+    // BOTH SIDES, STRUCTURALLY. A diagnostic that only proved a disagreement was detected would
+    // leave an operator to run the gate again to find out which two things disagreed, so all four
+    // — the event, the declared provider, the declaring tool and the action — ride the record.
+    expect(mismatch.eventType).toBe(edge.event);
+    expect(mismatch.provider).toBe(declaredProvider);
+    expect(mismatch.declaringTool).toBe(edge.declaringTool);
+    expect(mismatch.action).toBe(edge.action);
+    expect(mismatch.declaringTool).not.toBe(mismatch.provider);
+
+    // BOTH SIDES, IN THE PROSE. The structured fields are what a tool reads; the message is what a
+    // human reads out of a boot log, and it has to carry the same four.
+    expect(mismatch.message).toContain(edge.event);
+    expect(mismatch.message).toContain(edge.action);
+    expect(mismatch.message).toContain(edge.declaringTool);
+    expect(mismatch.message).toContain(declaredProvider ?? '<undeclared>');
+
+    // OBSERVE, not blocking: the finding is reported and the tree still boots. Severity comes from
+    // the shipped table rather than from anything decided at the emission site.
+    expect(mismatch.severity).toBe('observe');
+    expect(DIAGNOSTIC_SEVERITY_POLICY[EMISSION_PROVIDER_MISMATCH_CODE]).toBe('observe');
+    expect(verdict.bootable).toBe(true);
+    expect(verdict.blockingCount).toBe(0);
+    expect(verdict.ok).toBe(false);
+
+    // ...and it reaches an operator through the EXISTING startup assertion — no second entry point.
+    const reported: string[] = [];
+    const returned = assertRegistrationWeldsAtStartup(
+      EVENT_ANNOTATIONS,
+      EFFECT_PROVIDERS,
+      EFFECT_OWNERSHIP,
+      WELD_RESOLUTION_POLICY,
+      DIAGNOSTIC_SEVERITY_POLICY,
+      (message) => reported.push(message),
+      [...CONFORMING_EMISSIONS, edge],
+    );
+    expect(returned.bootable).toBe(true);
+    expect(reported).toHaveLength(1);
+    const message = reported[0] ?? '';
+    expect(message).toContain(edge.event);
+    expect(message).toContain(edge.action);
+    expect(message).toContain(edge.declaringTool);
+    expect(message).toContain(declaredProvider ?? '<undeclared>');
+  });
+
+  it('ProviderComparison_NothingEmitsABootResolvableEvent_FailsInsteadOfPassingClean', () => {
+    // NON-EMPTY DENOMINATOR, emission side. The welds are all there and the provider map is
+    // healthy; what is missing is any declared edge naming one of those events, so the comparison
+    // ranged over nothing and cannot have found anything. Reporting clean would be a lie of exactly
+    // the shape the other two EMPTY_* codes already refuse to tell.
+    const verdict = validateRegistrationWelds(
+      EVENT_ANNOTATIONS,
+      EFFECT_PROVIDERS,
+      EFFECT_OWNERSHIP,
+      WELD_RESOLUTION_POLICY,
+      DIAGNOSTIC_SEVERITY_POLICY,
+      [],
+    );
+    expect(verdict.comparedEmissionEdgeCount).toBe(0);
+    expect(verdict.diagnostics.map((d) => d.code)).toEqual(['EMPTY_EMISSION_DENOMINATOR']);
+    expect(verdict.ok).toBe(false);
+    // The other two populations are untouched, so the fault is unambiguously the emission set's.
+    expect(verdict.bootResolvedCount).toBe(liveCapabilityTypes().length);
+    expect(verdict.resolvableProviderCount).toBeGreaterThan(0);
+
+    // An emission population that is non-empty but names only events this gate does not resolve is
+    // the SAME vacuity wearing a different face, and is caught the same way.
+    const offTier = validateRegistrationWelds(
+      EVENT_ANNOTATIONS,
+      EFFECT_PROVIDERS,
+      EFFECT_OWNERSHIP,
+      WELD_RESOLUTION_POLICY,
+      DIAGNOSTIC_SEVERITY_POLICY,
+      [{ event: 'seeded.not-in-the-catalog', action: 'a', declaringTool: 'exarchos_view' }],
+    );
+    expect(offTier.emissionEdgeCount).toBe(1);
+    expect(offTier.comparedEmissionEdgeCount).toBe(0);
+    expect(offTier.diagnostics.map((d) => d.code)).toEqual(['EMPTY_EMISSION_DENOMINATOR']);
+
+    // ...and it does NOT restate EMPTY_CAPABILITY_DENOMINATOR: with the subject side emptied, the
+    // gate names the subject side as the cause and stays quiet about the emission set.
+    const noSubjects = validateRegistrationWelds(
+      {},
+      EFFECT_PROVIDERS,
+      EFFECT_OWNERSHIP,
+      WELD_RESOLUTION_POLICY,
+      DIAGNOSTIC_SEVERITY_POLICY,
+      [],
+    );
+    expect(noSubjects.diagnostics.map((d) => d.code)).toEqual(['EMPTY_CAPABILITY_DENOMINATOR']);
+  });
+
+  it('ProviderComparison_EmissionEdges_AreReadOffTheLiveToolRegistry', () => {
+    // The population is DERIVED, never transcribed. Every edge names an action that really is
+    // registered under the tool it claims, computed here by walking the registry a second time
+    // rather than by trusting the function under test.
+    const edges = declaredEmissionEdges();
+    expect(edges.length).toBeGreaterThan(0);
+
+    const toolByAction = new Map<string, string>();
+    let declaredEmissionCount = 0;
+    for (const tool of TOOL_REGISTRY) {
+      for (const action of tool.actions) {
+        toolByAction.set(`${tool.name} ${action.name}`, tool.name);
+        declaredEmissionCount += action.autoEmits?.length ?? 0;
+      }
+    }
+    expect(edges.length).toBe(declaredEmissionCount);
+    for (const edge of edges) {
+      expect(toolByAction.get(`${edge.declaringTool} ${edge.action}`)).toBe(edge.declaringTool);
+    }
+
+    // Every declaring tool is a live composite tool name — the SAME id space `EffectProviderId`
+    // draws from, which is the only reason the two sides are comparable at all.
+    const toolNames = new Set(TOOL_REGISTRY.map((tool) => tool.name));
+    expect([...new Set(edges.map((e) => e.declaringTool))].filter((t) => !toolNames.has(t))).toEqual(
+      [],
+    );
+
+    // Injectable, so the comparison can be exercised on a population that is not the live one.
+    expect(declaredEmissionEdges([])).toEqual([]);
   });
 });
