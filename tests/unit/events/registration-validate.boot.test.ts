@@ -246,4 +246,50 @@ describe('DR-2 boot gate — initializeContext refuses to start on an unresolvab
     expect(clean.bootResolvedCount).toBeGreaterThan(0);
     expect(clean.comparedEmissionEdgeCount).toBeGreaterThan(0);
   });
+
+  it('BootGate_NewDiagnostics_AreReachedThroughTheRealSeam', async () => {
+    // The two arms above call `initializeContext` too, but only to prove the WELD REFERENCE
+    // half of the gate — the seeded-provider refusal and its positive control. Neither exercises
+    // the emission-provider comparison, and the observe-severity test above calls
+    // `assertRegistrationWeldsAtStartup` directly, which is exactly the "directly-called
+    // validator" this test must NOT be: `initializeContext` calls the gate with every argument
+    // defaulted and discards the verdict it returns, so the only production-observable evidence
+    // that the comparison ran is the report `assertRegistrationWeldsAtStartup` writes to stderr
+    // when `observeCount > 0`. This test spies on that channel over the real, unmocked boot call,
+    // so what it proves is that the comparison (and the guard behind it) executes on the shared
+    // production path, not merely against a function called in isolation.
+    vi.resetModules();
+    vi.doUnmock('../../../src/events/event-annotations.js');
+
+    const { initializeContext } = await import('../../../src/dispatch/core/context.js');
+    const { EMISSION_PROVIDER_MISMATCH_CODE } = await import(
+      '../../../src/events/registration-validate.js'
+    );
+
+    const written: string[] = [];
+    const stderrSpy = vi
+      .spyOn(process.stderr, 'write')
+      .mockImplementation((chunk: string | Uint8Array) => {
+        written.push(chunk.toString());
+        return true;
+      });
+
+    try {
+      // Boots clean — no BLOCKING fault, the same property `InitializeContext_LiveCatalog_
+      // BootsClean` holds. What this call adds is what rides along with that clean boot: the
+      // live catalog's real emission-provider disagreements, reported rather than swallowed.
+      const ctx = await initializeContext(tmpDir);
+      ctx.eventStore.close();
+
+      expect(stderrSpy).toHaveBeenCalled();
+      const report = written.join('');
+      // The diagnostic's own exported code, not a hand-typed string, so a rename of the constant
+      // reddens this assertion instead of leaving it quietly matching a stale label. If this
+      // comparison stopped running — or the live catalog stopped disagreeing with itself — stderr
+      // would stay silent and this line is what would catch it.
+      expect(report).toContain(`[${EMISSION_PROVIDER_MISMATCH_CODE}]`);
+    } finally {
+      stderrSpy.mockRestore();
+    }
+  });
 });
