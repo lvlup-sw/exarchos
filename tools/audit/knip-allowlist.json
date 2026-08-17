@@ -789,5 +789,12 @@
     "owner": "@reedsalus",
     "permanent": true,
     "rationale": "Codegen-emitted by tools/release/codegen-runtimes.ts (getEmbeddedRuntime is written into the generated runtimes module) and pinned by its codegen test. The symbol is regenerated on every build; removing it needs generator + pin changes (out of scope for the ratchet). Permanent by construction."
+  },
+  {
+    "symbol": "loadAllRuntimes",
+    "file": "src/install/runtimes/load.ts",
+    "owner": "@reedsalus",
+    "expires": "2026-11-30",
+    "rationale": "Consumed by the install-skills bridge at src/lifecycle/install-skills-bridge.js via the .js → .ts re-export shim at src/install/runtimes/load.js (NodeNext contract: the bridge is .js to keep tsc (allowJs: false) away while bun's --compile bundler still follows its imports). knip does not follow the shim's re-export chain back into the bridge's .js importer and reports this symbol as unreferenced. The bridge is the only live consumer; delete this exemption when the bridge moves to a .ts source (the matching tsconfig exclude + bridge-as-ts plan tracked in the PR body)."
   }
 ]
