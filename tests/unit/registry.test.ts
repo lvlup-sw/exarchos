@@ -39,6 +39,8 @@ import { dirname, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { LAUNCHER_VERB_CONFORMANCE } from '../../src/runtime/launcher/verb.js';
 import { TIER1_HARNESSES } from '../../src/runtime/launcher/harness-registry.js';
+import { validateAutoEmission } from '../../src/registry/gate-metadata.js';
+import type { AutoEmission } from '../../src/registry/gate-metadata.js';
 
 describe('buildCompositeSchema', () => {
   it('should create a discriminated union from two actions', () => {
@@ -3496,6 +3498,85 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
           }`,
         ).toBe(true);
       }
+    });
+  });
+
+  describe('AutoEmission role, owner, and recovery expiry', () => {
+    it('AutoEmission_DeclaredRole_IsNotInferred', () => {
+      const farFuture = '2999-01-01T00:00:00.000Z';
+
+      const primary: AutoEmission = {
+        event: 'workflow.updated',
+        condition: 'always',
+        role: 'primary',
+        owner: 'workflow-core',
+      };
+      const recovery: AutoEmission = {
+        event: 'workflow.updated',
+        condition: 'conditional',
+        role: 'recovery',
+        owner: 'workflow-core',
+        recoveryExpiresAt: farFuture,
+      };
+      const undeclared: AutoEmission = {
+        event: 'workflow.updated',
+        condition: 'always',
+      };
+
+      // Each edge's role is exactly what was declared on IT, never a default
+      // and never something computed from another edge.
+      expect(primary.role).toBe('primary');
+      expect(recovery.role).toBe('recovery');
+      expect(undeclared.role).toBeUndefined();
+
+      // Swapping array position must not change which edge is which — a
+      // role read from position rather than the declaration would flip
+      // these when the order is reversed.
+      const forward = [primary, recovery, undeclared];
+      const reversed = [...forward].reverse();
+      expect(reversed.map((edge) => edge.role)).toEqual(
+        [...forward.map((edge) => edge.role)].reverse(),
+      );
+
+      // Validation tracks each edge's OWN declared role/expiry, independent
+      // of where it sits in the list: the primary and the undeclared edge
+      // carry no expiry contract and always pass; the recovery edge passes
+      // here because its own recoveryExpiresAt has not lapsed.
+      for (const edge of forward) {
+        expect(validateAutoEmission(edge).ok).toBe(true);
+      }
+      for (const edge of reversed) {
+        expect(validateAutoEmission(edge).ok).toBe(true);
+      }
+    });
+
+    it('AutoEmission_RecoveryEdgeWithExpiredOwner_Fails', () => {
+      const expiredAt = '2000-01-01T00:00:00.000Z';
+      const recovery: AutoEmission = {
+        event: 'gate.executed',
+        condition: 'conditional',
+        role: 'recovery',
+        owner: 'gate-provider-registry',
+        recoveryExpiresAt: expiredAt,
+      };
+
+      const verdict = validateAutoEmission(recovery, new Date('2026-01-01T00:00:00.000Z'));
+
+      expect(verdict.ok).toBe(false);
+      expect(verdict.reason).toContain('gate.executed');
+      expect(verdict.reason).toContain('gate-provider-registry');
+      expect(verdict.reason).toContain(expiredAt);
+
+      // A recovery edge whose expiry has NOT lapsed yet must still pass —
+      // this pins that the failure above is about the timestamp having
+      // lapsed, not merely about being a recovery edge.
+      const notYetExpired: AutoEmission = {
+        ...recovery,
+        recoveryExpiresAt: '2999-01-01T00:00:00.000Z',
+      };
+      expect(validateAutoEmission(notYetExpired, new Date('2026-01-01T00:00:00.000Z')).ok).toBe(
+        true,
+      );
     });
   });
 });
