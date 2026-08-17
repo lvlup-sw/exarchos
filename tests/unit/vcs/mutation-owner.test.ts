@@ -18,7 +18,13 @@ import { EventStore } from '../../../src/events/store.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 import { capabilitiesForPosture } from '../../../src/workflow/capabilities/posture-mapping.js';
 import type { Capability } from '../../../src/runtime/agents/capabilities.js';
-import { DRY_RUN, isDryRun, isError, isSuccess } from '../../../src/dispatch/core/effect-carrier.js';
+import {
+  DRY_RUN,
+  emissionsWhen,
+  isDryRun,
+  isError,
+  isSuccess,
+} from '../../../src/dispatch/core/effect-carrier.js';
 import {
   VcsMutationOwner,
   VcsStaleEpochError,
@@ -32,6 +38,8 @@ import {
   VCS_MUTATION_STREAM,
   VCS_REQUESTED,
   VCS_EXECUTED,
+  VCS_COMPENSATED,
+  VCS_LEDGER_EMISSIONS,
   type VcsGitOutput,
   type VcsGitRunner,
 } from '../../../src/vcs/mutation-owner.js';
@@ -470,6 +478,97 @@ describe('VCS mutation owner (P04-05)', () => {
     expect(branchExists(repo, 'feature/should-be-compensated')).toBe(false);
     // A compensated terminal is recorded, so the key is closed, not orphaned.
     expect(await o.openIntents()).not.toContain('wt-fail-1');
+  });
+
+  // ── intent → effect → terminal ordering ────────────────────────────────────
+
+  it('MutationOwner_IntentThenTerminalOrdering_IsPreserved', async () => {
+    // Each arm gets its own ledger stream so the assertions can be exact whole-
+    // stream arrays. An array read in stream order is what makes this ordering
+    // rather than presence: the reversed ledger is a different array, whereas
+    // the SET of events is the same either way.
+    function ownerOn(stream: string): VcsMutationOwner {
+      return new VcsMutationOwner({ eventStore: store, stream, gitRunner: neverRunner().runner });
+    }
+    const typesOn = async (stream: string): Promise<string[]> =>
+      (await store.query(stream)).map((e) => e.type);
+
+    // ── the success arm ──────────────────────────────────────────────────────
+    const successStream = 'ordering-success';
+    // What the ledger looked like AT THE MOMENT the effect ran. Snapshotting
+    // from inside the thunk is the other half of the ordering proof: an
+    // implementation that recorded both facts after the effect, or recorded the
+    // terminal first, leaves the FINAL stream looking plausible while producing
+    // a different snapshot here.
+    let duringSuccess: string[] = [];
+    const succeeded = await ownerOn(successStream).mutate<{ probe: string }>(
+      {
+        kind: 'branch.create',
+        idempotencyKey: 'ordering-1',
+        epoch: 1,
+        description: 'ordering probe that succeeds',
+      },
+      async () => {
+        duringSuccess = await typesOn(successStream);
+        return { probe: 'ok' };
+      },
+    );
+
+    expect(isSuccess(succeeded)).toBe(true);
+    // The INTENT was already durable when the effect ran, and NO terminal was.
+    expect(duringSuccess).toEqual([VCS_REQUESTED]);
+    // Exactly one terminal, and it lands after the intent.
+    expect(await typesOn(successStream)).toEqual([VCS_REQUESTED, VCS_EXECUTED]);
+
+    // ── the failure arm ──────────────────────────────────────────────────────
+    const failureStream = 'ordering-failure';
+    let duringFailure: string[] = [];
+    const compensated = await ownerOn(failureStream).mutate<{ probe: string }>(
+      {
+        kind: 'branch.create',
+        idempotencyKey: 'ordering-2',
+        epoch: 1,
+        description: 'ordering probe that fails',
+      },
+      async (): Promise<{ probe: string }> => {
+        duringFailure = await typesOn(failureStream);
+        throw new Error('the effect refused');
+      },
+    );
+
+    expect(isError(compensated)).toBe(true);
+    expect(duringFailure).toEqual([VCS_REQUESTED]);
+    // The two terminals are mutually exclusive: a failed run records the
+    // compensated one and ONLY it, still after the intent.
+    expect(await typesOn(failureStream)).toEqual([VCS_REQUESTED, VCS_COMPENSATED]);
+
+    // ── and the ordering is DECLARED, not incidental ─────────────────────────
+    //
+    // The same request withheld as a dry-run reports the plan, so the ledger
+    // observed above can be compared against what the owner promised to write
+    // rather than against a sequence restated here.
+    const withheld = await ownerOn('ordering-plan').mutate<{ probe: string }>(
+      {
+        kind: 'branch.create',
+        idempotencyKey: 'ordering-3',
+        epoch: 1,
+        description: 'ordering probe that is withheld',
+        mode: DRY_RUN,
+      },
+      () => Promise.resolve({ probe: 'never' }),
+    );
+    expect(isDryRun(withheld)).toBe(true);
+    if (isDryRun(withheld)) {
+      const names = (when: 'before' | 'on-success' | 'on-failure'): string[] =>
+        emissionsWhen(withheld.plan, when).map((emission) => emission.event);
+      expect(names('before')).toEqual([VCS_REQUESTED]);
+      expect(names('on-success')).toEqual([VCS_EXECUTED]);
+      expect(names('on-failure')).toEqual([VCS_COMPENSATED]);
+      expect(withheld.plan.emits).toEqual(VCS_LEDGER_EMISSIONS);
+    }
+    // A withheld run records nothing at all, so the declaration above cost the
+    // ledger nothing to read.
+    expect(await typesOn('ordering-plan')).toEqual([]);
   });
 
   // ── (f) fenced-out stale owner rejected ────────────────────────────────────

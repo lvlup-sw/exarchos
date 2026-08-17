@@ -29,14 +29,18 @@ import { makeTempDir, rmrf } from '../../../tools/test-helpers/temp-dir.js';
 import { digestTree, type DigestEntry } from '../../../src/install/install-identity.js';
 import { DRY_RUN, LIVE, isDryRun, isError, isSuccess } from '../../../src/dispatch/core/effect-carrier.js';
 import {
+  PROMOTION_EXECUTED,
   PromotionError,
   atomicCopyTreeSync,
   defaultPromotionIo,
   promoteTree,
   promoteTreeSync,
+  promotionPlan,
   recoverInterruptedPromotion,
+  type PromotionExecutedRecord,
   type PromotionIo,
 } from '../../../src/install/atomic-promotion.js';
+import { PromotionExecutedData } from '../../../src/events/schemas.js';
 
 // ─── Fixtures + helpers ───────────────────────────────────────────────────────
 
@@ -381,12 +385,30 @@ describe('promoteTreeSync — hard crash + idempotent recovery (EFF-012)', () =>
 // ─── Effect carrier + dry-run (P04-01) ───────────────────────────────────────
 
 describe('promoteTree — effect carrier', () => {
-  it('dry-run performs NO promotion and returns the withheld plan', async () => {
+  /**
+   * A recorder standing in for the durable store a production caller supplies:
+   * it keeps every record it was handed, in the order it was handed them.
+   */
+  function collectingRecorder(): {
+    recorder: (record: PromotionExecutedRecord) => void;
+    records: PromotionExecutedRecord[];
+  } {
+    const records: PromotionExecutedRecord[] = [];
+    return {
+      recorder: (record) => {
+        records.push(record);
+      },
+      records,
+    };
+  }
+
+  it('dry-run performs NO promotion, returns the withheld plan, and records NOTHING', async () => {
     writeTree(target, OLD_TREE);
     let touched = false;
     const io = wrapIo(defaultPromotionIo(), () => { touched = true; });
+    const { recorder, records } = collectingRecorder();
 
-    const outcome = await promoteTree({ target, entries: NEW_TREE }, DRY_RUN, io);
+    const outcome = await promoteTree({ target, entries: NEW_TREE }, DRY_RUN, io, recorder);
 
     expect(isDryRun(outcome)).toBe(true);
     if (isDryRun(outcome)) {
@@ -398,10 +420,14 @@ describe('promoteTree — effect carrier', () => {
     expect(touched).toBe(false);
     expect(diskDigest(target)).toBe(OLD_DIGEST);
     expectNoScaffolding();
+    // A withheld effect leaves the ledger as silent as it leaves the disk: the
+    // recorder was supplied and still never reached.
+    expect(records).toEqual([]);
   });
 
   it('live success returns a success carrier with the promotion report', async () => {
-    const outcome = await promoteTree({ target, entries: NEW_TREE }, LIVE);
+    const { recorder } = collectingRecorder();
+    const outcome = await promoteTree({ target, entries: NEW_TREE }, LIVE, defaultPromotionIo(), recorder);
     expect(isSuccess(outcome)).toBe(true);
     if (isSuccess(outcome)) {
       expect(outcome.value.promoted).toBe(true);
@@ -415,7 +441,8 @@ describe('promoteTree — effect carrier', () => {
     const io = wrapIo(defaultPromotionIo(), (op, from) => {
       if (op === 'rename' && from.includes('.exarchos-stage')) throw new InjectedFault('boom');
     });
-    const outcome = await promoteTree({ target, entries: NEW_TREE }, LIVE, io);
+    const { recorder, records } = collectingRecorder();
+    const outcome = await promoteTree({ target, entries: NEW_TREE }, LIVE, io, recorder);
     expect(isError(outcome)).toBe(true);
     if (isError(outcome)) {
       expect(outcome.error.code).toBe('INSTALL_EFFECT_FAILED');
@@ -423,6 +450,92 @@ describe('promoteTree — effect carrier', () => {
     }
     // Rolled back to fully OLD despite the failure.
     expect(diskDigest(target)).toBe(OLD_DIGEST);
+    // A promotion that rolled back records nothing — there is no success
+    // terminal to fire and the plan declares no failure terminal to invent one.
+    expect(records).toEqual([]);
+  });
+
+  it('PromoteTree_LiveMode_CommitsItsEventBeforeReturning', async () => {
+    // "Committed before returning" cannot be observed after the fact: by then
+    // "committed first" and "committed at some point" look identical. So the
+    // recorder is made to BLOCK, and the question becomes whether the promotion
+    // promise can settle while its record is still in flight. If the append
+    // were fire-and-forget — or moved after the return — it could, and the
+    // assertion below that nothing has settled yet turns red.
+    let releaseRecorder!: () => void;
+    let recorderEntered!: () => void;
+    const held = new Promise<void>((resolve) => { releaseRecorder = resolve; });
+    const entered = new Promise<void>((resolve) => { recorderEntered = resolve; });
+
+    // One log, written by both the recorder and the promotion's continuation,
+    // so the ORDER of the two is what is being read back — not their presence.
+    const order: string[] = [];
+    const recorded: PromotionExecutedRecord[] = [];
+
+    const settling = promoteTree(
+      { target, entries: NEW_TREE },
+      LIVE,
+      defaultPromotionIo(),
+      async (record) => {
+        recorderEntered();
+        await held;
+        recorded.push(record);
+        order.push('committed');
+      },
+    ).then((outcome) => {
+      order.push('returned');
+      return outcome;
+    });
+
+    // The recorder is inside its append and has not been let out.
+    await entered;
+    // Give the promotion every chance to settle early, if it were going to.
+    await new Promise((resolve) => { setImmediate(resolve); });
+    await new Promise((resolve) => { setTimeout(resolve, 0); });
+    expect(order, 'the promotion returned while its record was still in flight').toEqual([]);
+
+    releaseRecorder();
+    const outcome = await settling;
+
+    // The commit strictly precedes the return, read off ONE ordered log.
+    expect(order).toEqual(['committed', 'returned']);
+    expect(isSuccess(outcome)).toBe(true);
+
+    // And what was committed is the registered fact, with the payload the
+    // catalog's schema demands — read through the schema, not restated.
+    expect(recorded).toHaveLength(1);
+    const record = recorded[0];
+    expect(PromotionExecutedData.parse(record)).toEqual(record);
+    expect(record?.target).toBe(target);
+    expect(record?.treeDigest).toBe(NEW_DIGEST);
+    expect(record?.recoveredPriorAttempt).toBe(false);
+    // The owner on the record is the plan's own, so the two cannot drift.
+    expect(record?.owner).toBe(promotionPlan('install/atomic-promotion', target).owner);
+    // The site declares exactly this name, on success only.
+    expect(promotionPlan('install/atomic-promotion', target).emits).toEqual([
+      { event: PROMOTION_EXECUTED, when: 'on-success' },
+    ]);
+    // The tree really did land — the record describes a promotion that happened.
+    expect(diskDigest(target)).toBe(NEW_DIGEST);
+  });
+
+  it('PromoteTree_LiveModeWithNoRecorder_RefusesBeforeTouchingTheTree', async () => {
+    writeTree(target, OLD_TREE);
+    let touched = false;
+    const io = wrapIo(defaultPromotionIo(), () => { touched = true; });
+
+    // The plan declares an emission, so a live call with no capability to
+    // record it is refused UP FRONT. The refusal propagates rather than
+    // arriving as an error carrier: an unrecordable fact is a wiring fault in
+    // the caller, not a failure of the promotion.
+    await expect(promoteTree({ target, entries: NEW_TREE }, LIVE, io)).rejects.toThrow(
+      /EMISSION_NOT_RECORDED|declares 1/,
+    );
+
+    // The one thing that must be true of a refusal: nothing moved.
+    expect(touched).toBe(false);
+    expect(diskDigest(target)).toBe(OLD_DIGEST);
+    expectNoScaffolding();
   });
 });
 
