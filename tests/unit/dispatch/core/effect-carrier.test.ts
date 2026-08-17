@@ -5,15 +5,18 @@ import {
   failed,
   plannedDryRun,
   emissionsWhen,
+  emissionAppender,
   isSuccess,
   isError,
   isDryRun,
   toEffectError,
+  UnrecordedEmissionError,
   LIVE,
   DRY_RUN,
   type EffectPlan,
   type EffectEmission,
   type EmissionAppender,
+  type EmissionSink,
 } from '../../../../src/dispatch/core/effect-carrier.js';
 import { EventTypes } from '../../../../src/events/schemas.js';
 
@@ -53,6 +56,36 @@ const PROMOTION_PLAN: EffectPlan = {
 
 const names = (emissions: readonly EffectEmission[]): readonly string[] =>
   emissions.map((emission) => emission.event);
+
+/**
+ * The one deliberate type bypass in this file, isolated to a single helper.
+ *
+ * It exists to reach the boundary the compile-time proofs cannot: an untyped or
+ * transpiled caller can put any shape on the appender parameter, and the runtime
+ * brand check is what catches it there. Everything else in this file goes
+ * through the real constructor.
+ */
+const asAppender = (forgery: unknown): EmissionAppender => forgery as EmissionAppender;
+
+/** Exactly the signature the port used to have, and exactly as inert as before. */
+const PORT_SHAPED_NO_OP: EmissionSink = () => undefined;
+
+/**
+ * Copy the module-private capability brand off a genuine appender.
+ *
+ * No production caller can do this — the symbol is unexported and unnameable —
+ * but a test can, and it is the only way to exercise the SECOND gate (evidence)
+ * independently of the first (capability). A forgery that clears the brand check
+ * still has to produce receipts it cannot mint.
+ */
+function forgeBrandedAppender(
+  append: (emission: EffectEmission, plan: EffectPlan) => unknown,
+): EmissionAppender {
+  const genuine = emissionAppender(() => undefined);
+  const [brand] = Object.getOwnPropertySymbols(genuine);
+  expect(brand).toBeDefined();
+  return asAppender({ [brand]: true, append });
+}
 
 describe('effect carrier constructors + guards', () => {
   it('succeeded builds a success arm that only isSuccess narrows', () => {
@@ -163,9 +196,9 @@ describe('runEffect — declared emissions', () => {
   it('EffectPlan_DryRunArm_ReachesNeitherThunkNorAppender', async () => {
     const execute = vi.fn().mockResolvedValue('SHOULD NOT RUN');
     const appended: EffectEmission[] = [];
-    const append: EmissionAppender = (emission) => {
+    const append = emissionAppender((emission) => {
       appended.push(emission);
-    };
+    });
 
     const outcome = await runEffect(DRY_RUN, LEDGER_PLAN, execute, append);
 
@@ -179,9 +212,9 @@ describe('runEffect — declared emissions', () => {
     // the assertions above measure the dry-run arm rather than an inert port.
     const liveExecute = vi.fn().mockResolvedValue('ran');
     const liveAppended: EffectEmission[] = [];
-    const liveAppend: EmissionAppender = (emission) => {
+    const liveAppend = emissionAppender((emission) => {
       liveAppended.push(emission);
-    };
+    });
     await runEffect(LIVE, LEDGER_PLAN, liveExecute, liveAppend);
     expect(liveExecute).toHaveBeenCalledTimes(1);
     expect(names(liveAppended)).toEqual(['vcs.requested', 'vcs.executed']);
@@ -189,9 +222,9 @@ describe('runEffect — declared emissions', () => {
 
   it('appends the intent before the thunk and exactly one terminal after it', async () => {
     const trace: string[] = [];
-    const append: EmissionAppender = (emission) => {
+    const append = emissionAppender((emission) => {
       trace.push(emission.event);
-    };
+    });
 
     const success = await runEffect(
       LIVE,
@@ -220,10 +253,109 @@ describe('runEffect — declared emissions', () => {
   });
 
   it('appends nothing when the plan declares nothing', async () => {
-    const append = vi.fn();
-    const outcome = await runEffect(LIVE, PLAN, () => Promise.resolve(1), append);
+    const sink = vi.fn();
+    const outcome = await runEffect(LIVE, PLAN, () => Promise.resolve(1), emissionAppender(sink));
     expect(isSuccess(outcome)).toBe(true);
-    expect(append).not.toHaveBeenCalled();
+    expect(sink).not.toHaveBeenCalled();
+  });
+});
+
+describe('runEffect — the append is on the way to a committed value', () => {
+  it('EffectCarrier_NoOpAppender_CannotYieldACommittedValue', async () => {
+    // The population: every way a caller can "supply nothing" and still expect
+    // the effect to commit. None of them may reach a `success` arm.
+    const noOps: readonly { readonly label: string; readonly appender?: EmissionAppender }[] = [
+      // 1. The omitted appender — this is the shape that USED to commit, because
+      //    the port defaulted to an inert no-op.
+      { label: 'omitted' },
+      // 2. The bare lambda the type now rejects, forced past the compiler the way
+      //    an untyped caller would.
+      { label: 'bare no-op lambda', appender: asAppender(() => undefined) },
+      // 3. The port's OLD signature, typed as such — records nothing. Getting
+      //    the shape right is not getting the capability.
+      { label: 'port-shaped no-op', appender: asAppender(PORT_SHAPED_NO_OP) },
+      // 4. An object literal carrying an `append` method but no brand.
+      {
+        label: 'unbranded append method',
+        appender: asAppender({ append: () => Promise.resolve() }),
+      },
+    ];
+
+    for (const { label, appender } of noOps) {
+      const execute = vi.fn().mockResolvedValue('COMMITTED');
+      await expect(
+        runEffect(LIVE, LEDGER_PLAN, execute, appender),
+        label,
+      ).rejects.toThrow(UnrecordedEmissionError);
+      // No committed value, and no effect either: an owner that cannot record
+      // must not perform the mutation and then discover it has no ledger.
+      expect(execute, label).not.toHaveBeenCalled();
+    }
+  });
+
+  it('rejects a forged capability whose append mints no evidence', async () => {
+    // Clears the brand check (the symbol was copied off a real appender) but
+    // records nothing and returns a plain record instead of a minted receipt.
+    // The effect runs — the forgery got that far — but the value is still not
+    // committed, because the terminal produced no evidence.
+    const execute = vi.fn().mockResolvedValue('COMMITTED');
+    const forged = forgeBrandedAppender((emission) =>
+      Promise.resolve({ event: emission.event, when: emission.when }),
+    );
+
+    await expect(runEffect(LIVE, LEDGER_PLAN, execute, forged)).rejects.toThrow(
+      UnrecordedEmissionError,
+    );
+  });
+
+  it('commits once a genuine appender has recorded the declared emissions', async () => {
+    // The control that keeps the four rejections above from passing against an
+    // implementation that simply never commits anything.
+    const recorded: string[] = [];
+    const execute = vi.fn().mockResolvedValue('COMMITTED');
+    const outcome = await runEffect(
+      LIVE,
+      LEDGER_PLAN,
+      execute,
+      emissionAppender((emission) => {
+        recorded.push(emission.event);
+      }),
+    );
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(isSuccess(outcome)).toBe(true);
+    if (isSuccess(outcome)) expect(outcome.value).toBe('COMMITTED');
+    expect(recorded).toEqual(['vcs.requested', 'vcs.executed']);
+  });
+
+  it('leaves a plan that declares no emissions inert — no capability required', async () => {
+    // The owners that predate the emission axis pass no appender at all. Nothing
+    // is declared, so nothing is missing, and the carrier behaves as it always
+    // did. Gating THIS case would break them.
+    const outcome = await runEffect(LIVE, PLAN, () => Promise.resolve('committed'));
+    expect(isSuccess(outcome)).toBe(true);
+    if (isSuccess(outcome)) expect(outcome.value).toBe('committed');
+  });
+
+  it('withholds the refusal in dry-run — neither thunk nor capability is reached', async () => {
+    // The dry-run guarantee outranks the commit gate: a withheld effect records
+    // nothing, so it cannot be missing a record either.
+    const execute = vi.fn().mockResolvedValue('SHOULD NOT RUN');
+    const outcome = await runEffect(DRY_RUN, LEDGER_PLAN, execute);
+    expect(execute).not.toHaveBeenCalled();
+    expect(isDryRun(outcome)).toBe(true);
+  });
+
+  it('propagates a sink failure instead of capturing it into the error arm', async () => {
+    const execute = vi.fn().mockResolvedValue('COMMITTED');
+    const append = emissionAppender(() => {
+      throw new Error('ledger unavailable');
+    });
+
+    await expect(runEffect(LIVE, LEDGER_PLAN, execute, append)).rejects.toThrow(
+      'ledger unavailable',
+    );
+    expect(execute).not.toHaveBeenCalled();
   });
 });
 
