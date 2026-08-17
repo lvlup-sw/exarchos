@@ -453,6 +453,57 @@ export async function runEffect<T>(
   return outcome;
 }
 
+// ─── Idempotency key: the stream dimension is part of construction ──────────
+//
+// `storage/sqlite/schema.ts` declares `PRIMARY KEY (streamId, idempotencyKey)`
+// on the claims table, so two streams reusing the same key TEXT already cannot
+// collide once a claim lands — that guarantee needs no help from this type and
+// predates it.
+//
+// What the composite primary key does NOT close: nothing stops a caller from
+// building "the key" as a bare string with no stream in view at all, and
+// handing it to a store call that supplies the stream on a separate argument.
+// The two can drift — a copy-pasted key built for one stream, threaded through
+// code that appends to another — and nothing notices, because a bare string
+// carries no stream of its own to disagree with. This type closes that by
+// making the stream part of what gets BUILT, not merely part of where the
+// result later gets filed: a key that has not named its stream cannot exist,
+// so there is nothing to thread anywhere, correctly or otherwise.
+
+/**
+ * A durable idempotency key, always scoped to the stream it will be claimed
+ * against. `value` is the composed text a store call claims; `stream` and
+ * `key` are kept alongside it so a consumer can read either dimension back
+ * without re-parsing the composition.
+ */
+export interface EffectIdempotencyKey {
+  readonly stream: string;
+  readonly key: string;
+  readonly value: string;
+}
+
+/**
+ * The ONLY construction path for an {@link EffectIdempotencyKey}.
+ *
+ * Rejects a missing or blank stream HERE, at construction, rather than
+ * downstream at whichever store call eventually claims the key. By the time a
+ * store call runs, a caller that built the text by hand has already made the
+ * omission unrecoverable — the fix belongs at the one place a key comes into
+ * existence, not at every place one might later be spent.
+ */
+export function effectIdempotencyKey(stream: string, key: string): EffectIdempotencyKey {
+  if (typeof stream !== 'string' || stream.trim().length === 0) {
+    throw new TypeError(
+      'effectIdempotencyKey requires a non-empty stream — an idempotency key ' +
+        'built without its stream dimension cannot be constructed.',
+    );
+  }
+  if (typeof key !== 'string' || key.trim().length === 0) {
+    throw new TypeError('effectIdempotencyKey requires a non-empty key.');
+  }
+  return { stream, key, value: `${stream}:${key}` };
+}
+
 // ─── Compile-time proofs (verified by `npm run typecheck`) ───────────────────
 //
 // These exported type aliases live in a NON-TEST source file on purpose. The

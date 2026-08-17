@@ -6,6 +6,7 @@ import {
   plannedDryRun,
   emissionsWhen,
   emissionAppender,
+  effectIdempotencyKey,
   isSuccess,
   isError,
   isDryRun,
@@ -356,6 +357,35 @@ describe('runEffect — the append is on the way to a committed value', () => {
       'ledger unavailable',
     );
     expect(execute).not.toHaveBeenCalled();
+  });
+});
+
+describe('effectIdempotencyKey', () => {
+  it('EffectIdempotency_KeyBuiltWithoutStream_IsRejectedAtConstruction', () => {
+    // The falsifier this test exists for: construction-time rejection, not a
+    // cross-stream collision. The claims table's composite primary key
+    // (`PRIMARY KEY (streamId, idempotencyKey)`) already makes two streams
+    // reusing the same key text impossible to collide once a claim lands —
+    // asserting THAT would pass identically whether or not the stream
+    // dimension is folded into the key's own construction, and would measure
+    // nothing about this change. What did not hold before this constructor
+    // existed: a key built with no stream in view at all could still be
+    // built. That is the omission this test seeds.
+    expect(() => effectIdempotencyKey('', 'branch-create')).toThrow(TypeError);
+    expect(() => effectIdempotencyKey('   ', 'branch-create')).toThrow(TypeError);
+    expect(() => effectIdempotencyKey(undefined as unknown as string, 'branch-create')).toThrow(
+      TypeError,
+    );
+
+    // Control: the same call, with a real stream, builds — and the stream is
+    // legible in the composed value, not merely accepted and discarded.
+    const built = effectIdempotencyKey('vcs-mutations', 'branch-create');
+    expect(built.stream).toBe('vcs-mutations');
+    expect(built.key).toBe('branch-create');
+    expect(built.value).toBe('vcs-mutations:branch-create');
+
+    // A blank key is rejected on the same terms as a blank stream.
+    expect(() => effectIdempotencyKey('vcs-mutations', '')).toThrow(TypeError);
   });
 });
 
