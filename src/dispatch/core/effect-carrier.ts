@@ -237,10 +237,10 @@ export function toEffectError(plan: EffectPlan, cause: unknown): EffectError {
 //
 // The port is a BRANDED CAPABILITY, not a bare function type. A bare function
 // type is satisfied by `() => {}`, and that is the hole: an owner could hand the
-// carrier a do-nothing appender, watch the effect run, and get a committed value
+// carrier a do-nothing recorder, watch the effect run, and get a committed value
 // back as though the fact had been recorded. Recording is the PRECONDITION for
 // the effect, so the two must not be separable that way — the committed value
-// has to be unreachable without the append, not merely discouraged without it.
+// has to be unreachable without the record, not merely discouraged without it.
 //
 // Two brands close it, both module-private `unique symbol`s. Nothing outside
 // this file can name either property, so neither the capability nor its receipt
@@ -250,20 +250,38 @@ export function toEffectError(plan: EffectPlan, cause: unknown): EffectError {
 //
 // Why a brand over a store-derived constructor: this module deliberately does
 // not know where a fact lands (see {@link EmissionSink}), and the owners that
-// will adopt this append through their OWN typed helpers rather than through a
+// will adopt this record through their OWN typed helpers rather than through a
 // raw store handle. A constructor taking a store would hard-wire the carrier to
 // one store shape and still leave those owners without an adoptable path; a
 // constructor taking their existing sink gives them one and does the closing
 // just as completely, because the brand — not the argument — is the tooth.
+//
+// ── Why the verb is `record` and not `append` ────────────────────────────────
+// `append` is this package's EVENT-STORE verb: every other `.append(…)` in
+// `src/` is a store call, `store.append(streamId, event)`. This module holds no
+// store, constructs no event, and has exactly one runtime-free `import type` —
+// it hands an emission to the owner's sink and the OWNER appends. Naming the
+// capability's method `append` therefore claimed an operation the module's own
+// {@link EmissionSink} doc explicitly disclaims, while the rest of its
+// vocabulary already said `record` ({@link UnrecordedEmissionError},
+// `EMISSION_NOT_RECORDED`, "a plan that records nothing").
+//
+// It also mis-described the call to a reader, and to the ownership census that
+// scans for direct evidence emitters: reading a `recorder.append(emission, plan)`
+// hand-off as a store append, the census took the plan for the event, found no
+// `type`, and reported an unresolvable emitter in a module that cannot reach a
+// store. The fix is the accurate verb, not an acknowledgement row — the census
+// keeps full coverage here, so a real store append added to this module later is
+// still caught.
 
 /** Module-private capability brand: unnameable elsewhere, therefore unforgeable. */
-const EMISSION_APPENDER_BRAND: unique symbol = Symbol('exarchos.effect.emissionAppender');
+const EMISSION_RECORDER_BRAND: unique symbol = Symbol('exarchos.effect.emissionRecorder');
 
-/** Module-private evidence brand. Only {@link emissionAppender} mints one. */
+/** Module-private evidence brand. Only {@link emissionRecorder} mints one. */
 const EMISSION_RECEIPT_BRAND: unique symbol = Symbol('exarchos.effect.emissionReceipt');
 
 /**
- * Evidence that one declared emission was appended.
+ * Evidence that one declared emission was recorded.
  *
  * Minted by the capability AFTER its sink returns, so a sink that throws yields
  * no receipt. This is what makes the commit gate causal rather than nominal: the
@@ -291,16 +309,16 @@ export type EmissionSink = (
 ) => void | Promise<void>;
 
 /**
- * The capability a declared emission is appended through.
+ * The capability a declared emission is recorded through.
  *
- * An appender failure is NOT an effect failure: it propagates rather than being
+ * A recorder failure is NOT an effect failure: it propagates rather than being
  * captured into the `error` arm. Recording the intent is the precondition for
  * running the effect at all, so an owner that cannot write the ledger must not
  * proceed as though it had.
  */
-export interface EmissionAppender {
-  readonly [EMISSION_APPENDER_BRAND]: true;
-  append(emission: EffectEmission, plan: EffectPlan): Promise<EmissionReceipt>;
+export interface EmissionRecorder {
+  readonly [EMISSION_RECORDER_BRAND]: true;
+  record(emission: EffectEmission, plan: EffectPlan): Promise<EmissionReceipt>;
 }
 
 /**
@@ -308,13 +326,13 @@ export interface EmissionAppender {
  *
  * Deliberately the whole surface: an owner wraps the sink it already has and
  * gets something the carrier will accept. Nothing else will do — not the sink
- * itself, not a lambda of the right arity, not an object literal carrying an
- * `append` method, because none of the three can name the brand.
+ * itself, not a lambda of the right arity, not an object literal carrying a
+ * `record` method, because none of the three can name the brand.
  */
-export function emissionAppender(sink: EmissionSink): EmissionAppender {
+export function emissionRecorder(sink: EmissionSink): EmissionRecorder {
   return {
-    [EMISSION_APPENDER_BRAND]: true,
-    async append(emission, plan) {
+    [EMISSION_RECORDER_BRAND]: true,
+    async record(emission, plan) {
       await sink(emission, plan);
       return { [EMISSION_RECEIPT_BRAND]: true, event: emission.event, when: emission.when };
     },
@@ -327,13 +345,13 @@ export function emissionAppender(sink: EmissionSink): EmissionAppender {
  * shape here that `tsc` would have rejected. The compile-time proof and this
  * guard are the same claim enforced on both sides of that boundary.
  */
-function isEmissionAppender(candidate: unknown): candidate is EmissionAppender {
+function isEmissionRecorder(candidate: unknown): candidate is EmissionRecorder {
   if (typeof candidate !== 'object' || candidate === null) return false;
-  if (!(EMISSION_APPENDER_BRAND in candidate)) return false;
-  return candidate[EMISSION_APPENDER_BRAND] === true;
+  if (!(EMISSION_RECORDER_BRAND in candidate)) return false;
+  return candidate[EMISSION_RECORDER_BRAND] === true;
 }
 
-/** The same check for the evidence, so a forged appender's return is caught too. */
+/** The same check for the evidence, so a forged recorder's return is caught too. */
 function isEmissionReceipt(candidate: unknown): candidate is EmissionReceipt {
   if (typeof candidate !== 'object' || candidate === null) return false;
   if (!(EMISSION_RECEIPT_BRAND in candidate)) return false;
@@ -358,35 +376,35 @@ export class UnrecordedEmissionError extends Error {
   ) {
     super(
       `effect '${plan.description}' (owner ${plan.owner}) declares ${declared} '${when}' ` +
-        `emission(s) but evidenced ${appended}; a committed value requires the append. ` +
-        'Pass an appender built by emissionAppender().',
+        `emission(s) but evidenced ${appended}; a committed value requires the record. ` +
+        'Pass a recorder built by emissionRecorder().',
     );
     this.name = 'UnrecordedEmissionError';
   }
 }
 
 /**
- * Append every emission a plan declares for one condition, in order, and return
+ * Record every emission a plan declares for one condition, in order, and return
  * the receipts.
  *
- * A plan declaring nothing for the condition appends nothing and needs no
+ * A plan declaring nothing for the condition records nothing and needs no
  * capability — that is what keeps a plan with no `emits` inert. Once a plan does
  * declare, though, the run may only continue on evidence: one minted receipt per
  * declared emission. Anything less throws.
  */
-async function appendEmissions(
+async function recordEmissions(
   plan: EffectPlan,
   when: EmissionCondition,
-  append: EmissionAppender | undefined,
+  recorder: EmissionRecorder | undefined,
 ): Promise<readonly EmissionReceipt[]> {
   const declared = emissionsWhen(plan, when);
   if (declared.length === 0) return [];
-  if (!isEmissionAppender(append)) {
+  if (!isEmissionRecorder(recorder)) {
     throw new UnrecordedEmissionError(plan, when, 0, declared.length);
   }
   const receipts: EmissionReceipt[] = [];
   for (const emission of declared) {
-    const receipt: unknown = await append.append(emission, plan);
+    const receipt: unknown = await recorder.record(emission, plan);
     if (!isEmissionReceipt(receipt)) break;
     receipts.push(receipt);
   }
@@ -400,7 +418,7 @@ async function appendEmissions(
  * Run an effect through its typed owner and return a typed carrier.
  *
  * The dry-run guarantee is structural: when `mode.kind === 'dry-run'`, the
- * `execute` thunk is **never invoked** and `append` is **never called** — the
+ * `execute` thunk is **never invoked** and `record` is **never called** — the
  * function returns the {@link EffectPlan} directly, ahead of every other
  * statement. There is no code path in dry-run mode that reaches either, so a
  * dry-run provably performs no real effect and records no fact. Declaring
@@ -411,21 +429,21 @@ async function appendEmissions(
  * terminal fires — whichever condition the outcome met. A thrown value from the
  * thunk is captured into an `error` carrier rather than propagating, so
  * `runEffect` never rejects for an effect failure. Only the thunk sits inside
- * the `try`, so a terminal append cannot be mistaken for the effect failing.
+ * the `try`, so a terminal record cannot be mistaken for the effect failing.
  *
- * A plan declaring no emissions appends nothing, needs no capability, and leaves
+ * A plan declaring no emissions records nothing, needs no capability, and leaves
  * the three-arm carrier exactly as it is. A plan that DOES declare gets the
  * commit gate: the effect is refused up front unless a real
- * {@link EmissionAppender} was supplied — so the thunk does not run either — and
- * the `return` below is reached only after the terminal append produced one
+ * {@link EmissionRecorder} was supplied — so the thunk does not run either — and
+ * the `return` below is reached only after the terminal record produced one
  * minted receipt per declared emission. There is no path from a no-op to a
- * committed value; the append is not merely expected, it is on the way.
+ * committed value; the record is not merely expected, it is on the way.
  */
 export async function runEffect<T>(
   mode: EffectMode,
   plan: EffectPlan,
   execute: () => Promise<T>,
-  append?: EmissionAppender,
+  recorder?: EmissionRecorder,
 ): Promise<EffectOutcome<T>> {
   if (mode.kind === 'dry-run') {
     return plannedDryRun(plan);
@@ -434,10 +452,10 @@ export async function runEffect<T>(
   // must not perform the effect at all, and a plan whose only emission is a
   // terminal would otherwise mutate the world before discovering that.
   const declaredCount = plan.emits?.length ?? 0;
-  if (declaredCount > 0 && !isEmissionAppender(append)) {
+  if (declaredCount > 0 && !isEmissionRecorder(recorder)) {
     throw new UnrecordedEmissionError(plan, 'before', 0, declaredCount);
   }
-  await appendEmissions(plan, 'before', append);
+  await recordEmissions(plan, 'before', recorder);
 
   let outcome: EffectOutcome<T>;
   let terminal: EmissionCondition;
@@ -449,7 +467,7 @@ export async function runEffect<T>(
     terminal = 'on-failure';
   }
 
-  await appendEmissions(plan, terminal, append);
+  await recordEmissions(plan, terminal, recorder);
   return outcome;
 }
 
@@ -521,7 +539,7 @@ type IsNotAssignable<A, B> = A extends B ? false : true;
 type MutuallyAssignable<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
 
 /**
- * **The hole, closed.** A bare no-op lambda is not an {@link EmissionAppender}.
+ * **The hole, closed.** A bare no-op lambda is not an {@link EmissionRecorder}.
  * This is the whole point: the port used to be a function type, so `() => {}`
  * satisfied it and a caller could buy a committed value with nothing.
  *
@@ -529,8 +547,8 @@ type MutuallyAssignable<A, B> = [A] extends [B] ? ([B] extends [A] ? true : fals
  * to a function type, and this alias stops being `true`.
  * @proof
  */
-export type _EffectCarrier_NoOpLambda_IsNotAnEmissionAppender = Expect<
-  IsNotAssignable<() => void, EmissionAppender>
+export type _EffectCarrier_NoOpLambda_IsNotAnEmissionRecorder = Expect<
+  IsNotAssignable<() => void, EmissionRecorder>
 >;
 
 /**
@@ -540,28 +558,28 @@ export type _EffectCarrier_NoOpLambda_IsNotAnEmissionAppender = Expect<
  * the closure cannot be sidestepped by getting the arity right.
  * @proof
  */
-export type _EffectCarrier_PortShapedLambda_IsNotAnEmissionAppender = Expect<
-  IsNotAssignable<EmissionSink, EmissionAppender>
+export type _EffectCarrier_PortShapedLambda_IsNotAnEmissionRecorder = Expect<
+  IsNotAssignable<EmissionSink, EmissionRecorder>
 >;
 
 /**
- * Nor an object literal carrying an `append` method of the exact declared
+ * Nor an object literal carrying a `record` method of the exact declared
  * signature. Structural typing is what would otherwise let a hand-rolled stub
  * back in through the object form once the lambda form was closed; the brand is
  * module-private, so no external declaration can name it.
  * @proof
  */
-export type _EffectCarrier_UnbrandedAppendMethod_IsNotAnEmissionAppender = Expect<
+export type _EffectCarrier_UnbrandedRecordMethod_IsNotAnEmissionRecorder = Expect<
   IsNotAssignable<
-    { append(emission: EffectEmission, plan: EffectPlan): Promise<EmissionReceipt> },
-    EmissionAppender
+    { record(emission: EffectEmission, plan: EffectPlan): Promise<EmissionReceipt> },
+    EmissionRecorder
   >
 >;
 
 /**
- * The evidence is unforgeable on the same terms. A plain record naming the event
+ * The evidence is unforgeable on the same terms. A plain object naming the event
  * and the condition is not an {@link EmissionReceipt}, so the commit gate cannot
- * be satisfied by a value that merely describes an append that never happened.
+ * be satisfied by a value that merely describes a record never written.
  * @proof
  */
 export type _EffectCarrier_PlainRecord_IsNotAnEmissionReceipt = Expect<
@@ -569,11 +587,11 @@ export type _EffectCarrier_PlainRecord_IsNotAnEmissionReceipt = Expect<
 >;
 
 /**
- * **The unreachability proof.** `runEffect`'s appender parameter is EXACTLY the
+ * **The unreachability proof.** `runEffect`'s recorder parameter is EXACTLY the
  * minted capability (or nothing at all — the inert case, for a plan that
  * declares no emissions and therefore has no record to be missing). Read with
  * the three negative proofs above, this is the chain: the only value that can
- * occupy that parameter is one {@link emissionAppender} produced, and the
+ * occupy that parameter is one {@link emissionRecorder} produced, and the
  * runtime gate then refuses a committed value until that capability has minted a
  * receipt per declared emission.
  *
@@ -587,32 +605,32 @@ export type _EffectCarrier_PlainRecord_IsNotAnEmissionReceipt = Expect<
  * capability wrapping a sink that goes nowhere — leaves this alias `true`,
  * because such a default is well-typed by construction. Nothing at the type
  * level can tell that sink from a durable one. The runtime half covers it: the
- * behavior test asserts that an OMITTED appender refuses to commit, which a
+ * behavior test asserts that an OMITTED recorder refuses to commit, which a
  * defaulted no-op would turn red.
  * @proof
  */
 export type _EffectCarrier_CommittedValue_IsUnreachableWithoutTheCapability = Expect<
-  MutuallyAssignable<Parameters<typeof runEffect>[3], EmissionAppender | undefined>
+  MutuallyAssignable<Parameters<typeof runEffect>[3], EmissionRecorder | undefined>
 >;
 
 /**
  * The capability yields EVIDENCE, not `void`. This is the type-level half of the
- * commit gate: widen `append` back to a `void` return and the carrier would have
+ * commit gate: widen `record` back to a `void` return and the carrier would have
  * nothing to count, so the gate would degrade to "we called something" — which
  * is what a no-op passes.
  * @proof
  */
-export type _EffectCarrier_Append_YieldsAMintedReceipt = Expect<
-  MutuallyAssignable<Awaited<ReturnType<EmissionAppender['append']>>, EmissionReceipt>
+export type _EffectCarrier_Record_YieldsAMintedReceipt = Expect<
+  MutuallyAssignable<Awaited<ReturnType<EmissionRecorder['record']>>, EmissionReceipt>
 >;
 
 /**
  * …and the negatives are not vacuous: the constructor really does mint the
  * capability, so the aliases above reject the unbranded case rather than
- * rejecting everything. Without this line, narrowing {@link EmissionAppender} to
+ * rejecting everything. Without this line, narrowing {@link EmissionRecorder} to
  * something nothing can produce would leave every proof here passing.
  * @proof
  */
 export type _EffectCarrier_Constructor_MintsTheCapability = Expect<
-  ReturnType<typeof emissionAppender> extends EmissionAppender ? true : false
+  ReturnType<typeof emissionRecorder> extends EmissionRecorder ? true : false
 >;

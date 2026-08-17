@@ -47,7 +47,7 @@
 import {
   LIVE,
   effectIdempotencyKey,
-  emissionAppender,
+  emissionRecorder,
   plannedDryRun,
   runEffect,
   succeeded,
@@ -557,12 +557,12 @@ export class VcsMutationOwner {
       }
     };
 
-    // Which append failed, so the typed codes below stay distinguishable. An
-    // appender failure PROPAGATES out of the carrier rather than becoming an
+    // Which append failed, so the typed codes below stay distinguishable. A
+    // recorder failure PROPAGATES out of the carrier rather than becoming an
     // error carrier — recording is the precondition for the effect, not part of
     // it — so this method is what turns it back into this owner's vocabulary.
     let failedWhen: EmissionCondition | undefined;
-    const ledger = emissionAppender(async (emission) => {
+    const ledger = emissionRecorder(async (emission) => {
       try {
         await this.append(
           emission.event,
