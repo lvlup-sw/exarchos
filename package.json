@@ -1,7 +1,7 @@
 {
   "name": "@lvlup-sw/exarchos",
-  "version": "2.12.0-preview.3",
-  "description": "Structure for agentic development \u2014 durable SDLC workflows, convergence gates, agent teams, and audit trails for Claude Code",
+  "version": "2.12.0-preview.4",
+  "description": "Structure for agentic development — durable SDLC workflows, convergence gates, agent teams, and audit trails for Claude Code",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -21,7 +21,7 @@
     "build:binary": "bun run tools/release/build-binary.ts --all",
     "build:release-verifier": "bun build src/install/release/release-verify-cli.ts --target=node --format=esm --banner \"#!/usr/bin/env node\" --outfile dist/release-verify.js",
     "codegen:runtimes": "bun run tools/release/codegen-runtimes.ts",
-    "runtimes:guard": "npm run codegen:runtimes && git diff --exit-code -- src/install/runtimes/embedded.ts || (echo 'src/install/runtimes/embedded.ts is out of sync with content/harness/runtimes/*.yaml \u2014 run npm run codegen:runtimes' && exit 1)",
+    "runtimes:guard": "npm run codegen:runtimes && git diff --exit-code -- src/install/runtimes/embedded.ts || (echo 'src/install/runtimes/embedded.ts is out of sync with content/harness/runtimes/*.yaml — run npm run codegen:runtimes' && exit 1)",
     "generate:agents": "tsx src/runtime/agents/generate-agents.ts",
     "generate:docs": "tsx tools/audit/core/generate-docs.ts",
     "build:skills": "npm run generate:agents && node dist/install/build-skills.js",
