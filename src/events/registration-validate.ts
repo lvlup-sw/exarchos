@@ -47,9 +47,10 @@
 // It ships at `observe` severity. The shipped catalog contains real disagreements, and refusing
 // every entry point over a break set nobody has dispositioned would be a worse gate than none.
 //
-// ## Non-empty denominator — four ways this could go quietly vacuous, four diagnostics
+// ## Denominator integrity — five ways this could go quietly wrong, five diagnostics
 //
-// A boot check that resolves nothing must FAIL, not report clean:
+// A boot check that resolves nothing must FAIL, not report clean — and so must one that has
+// quietly stopped resolving most of what it used to:
 //
 //   • EMPTY_CAPABILITY_DENOMINATOR — no annotated registration is boot-resolvable at all. The
 //     annotation table was emptied, renamed, or every `capability` entry was re-tiered, so no
@@ -61,8 +62,33 @@
 //     names one, so the provider comparison ranged over nothing. Conditioned on a NON-empty weld
 //     set precisely so it does not restate EMPTY_CAPABILITY_DENOMINATOR: that code already owns
 //     the case where the subject side is what went missing.
+//   • NARROWED_EMISSION_DENOMINATOR — the comparison still ranges over something, but over far
+//     less than it was measured to. See below; this is the one the vacuity guards cannot see.
 //   • PROVIDER_REGISTRY_DRIFT — a provider entry the ledger no longer backs (or a tool claimed
 //     twice). Delegated to `validateEffectProviders`, never re-implemented.
+//
+// ## Why emptiness is not enough, and why the floor only ratchets one way
+//
+// Emptiness is a CLIFF, and a vacuity guard can stand at the edge of it. Narrowing is a SLOPE, and
+// every point on it satisfies "non-empty": a comparison that used to range over the whole welded
+// intersection and now ranges over five edges reports the same shape as a healthy one — same
+// verdict fields, same "conforming" reading, no guard tripped. The population that shrinks it is
+// not even authored here. It is the product of two other tables (which events are welded, and
+// which actions declare an `autoEmits`), so it can collapse as a side effect of an edit that
+// touched neither this module nor anything a reader would think to re-measure.
+//
+// {@link EMISSION_DENOMINATOR_FLOOR} is therefore a measured floor, and it RATCHETS. Growth is
+// ordinary — every event registered at the capability tier that something declares it emits widens
+// the intersection, and a check that reddened on that would punish the work it exists to support.
+// Shrinkage is the defect, so the comparison is `<`, never `!==`. Lowering the floor is a
+// deliberate edit of one line with a reason attached, which is exactly the visibility a silent
+// narrowing denies.
+//
+// The floor is a CONSTANT rather than another injectable population, and that is a considered
+// asymmetry with everything else in this module. Varying the threshold would exercise the
+// comparison operator; varying the emission set exercises the property — and the emission set is
+// already a parameter, so the falsifier that matters (an intersection that is genuinely smaller)
+// is constructible without opening the floor to a caller who could relax it to zero.
 //
 // ## Severity: which faults stop the process, expressed as a SECOND table
 //
@@ -141,6 +167,21 @@ export const PROVIDER_REGISTRY_DRIFT_CODE = 'PROVIDER_REGISTRY_DRIFT';
  * event's `capability` registration declares.
  */
 export const EMISSION_PROVIDER_MISMATCH_CODE = 'EMISSION_PROVIDER_MISMATCH';
+
+/**
+ * The measured size of the set the provider comparison ranges over: declared emission edges whose
+ * event carries a boot-resolvable weld.
+ *
+ * It is a FLOOR, not an expectation. The comparison is `compared < EMISSION_DENOMINATOR_FLOOR`, so
+ * a wider intersection passes untouched — registering more capability events, or declaring more
+ * emissions on the actions that already carry them, is the ordinary direction of travel and must
+ * not redden anything. A narrower one is the fault: it means the comparison silently stopped
+ * covering ground it used to cover, while still passing every non-empty check in this file.
+ *
+ * Raising it is free and welcome. LOWERING it is the deliberate act this number exists to force —
+ * one line, in a commit that can be asked why.
+ */
+export const EMISSION_DENOMINATOR_FLOOR = 46;
 
 /**
  * How one tier's weld reference is resolved. `authority` names the live registry a `boot`-resolved
@@ -269,6 +310,17 @@ export type WeldResolutionDiagnostic =
       readonly provider: null;
       readonly message: string;
       readonly severity: WeldDiagnosticSeverity;
+    }
+  | {
+      readonly code: 'NARROWED_EMISSION_DENOMINATOR';
+      readonly eventType: null;
+      readonly provider: null;
+      /** How many edges the comparison actually ranged over — non-zero, or this is the empty case. */
+      readonly compared: number;
+      /** The measured size it is held at, so the shortfall is readable without a second lookup. */
+      readonly floor: number;
+      readonly message: string;
+      readonly severity: WeldDiagnosticSeverity;
     };
 
 /**
@@ -290,12 +342,16 @@ export type WeldDiagnosticCode = WeldResolutionDiagnostic['code'];
  * The four REFERENCE-INTEGRITY rows are `blocking`. That is not a placeholder: it is the
  * behaviour this gate shipped with, written down.
  *
- * The two EMISSION-COUPLING rows are `observe`, and that is the whole reason the axis exists.
+ * The three EMISSION-COUPLING rows are `observe`, and that is the whole reason the axis exists.
  * The comparison they carry reports against the live tree BEFORE the tree is reconciled — there
  * are real, measured disagreements in the shipped catalog — so arming it as `blocking` would take
  * every entry point down over a break set nobody has dispositioned yet. Graduating them is a
- * deliberate edit of these two rows once that set is disposed of, not a side effect of some other
+ * deliberate edit of these rows once that set is disposed of, not a side effect of some other
  * change.
+ *
+ * `NARROWED_EMISSION_DENOMINATOR` sits here for a second reason of its own: a floor that refused
+ * startup would turn any legitimate re-tiering of a capability event into an unbootable tree for
+ * every entry point at once, which is a far worse outcome than the narrowing it is watching for.
  */
 export const DIAGNOSTIC_SEVERITY_POLICY: Readonly<Record<WeldDiagnosticCode, WeldDiagnosticSeverity>> =
   Object.freeze({
@@ -305,6 +361,7 @@ export const DIAGNOSTIC_SEVERITY_POLICY: Readonly<Record<WeldDiagnosticCode, Wel
     EMPTY_PROVIDER_REGISTRY: 'blocking',
     [EMISSION_PROVIDER_MISMATCH_CODE]: 'observe',
     EMPTY_EMISSION_DENOMINATOR: 'observe',
+    NARROWED_EMISSION_DENOMINATOR: 'observe',
   });
 
 /** The verdict, carrying EVERY denominator so no count can be read without its population. */
@@ -326,6 +383,10 @@ export interface WeldResolutionVerdict {
   /**
    * Emission edges whose event is a boot-resolved weld — the denominator of the provider
    * comparison, and the only one of the three that can be non-empty while this one is zero.
+   *
+   * This is the number {@link EMISSION_DENOMINATOR_FLOOR} holds a floor under, so a reader of a
+   * verdict can see how wide the comparison actually was rather than inferring it from the absence
+   * of findings — an absence a narrowed comparison produces just as convincingly as a healthy one.
    */
   readonly comparedEmissionEdgeCount: number;
   readonly diagnostics: readonly WeldResolutionDiagnostic[];
@@ -562,6 +623,30 @@ export function validateRegistrationWelds(
     });
   }
 
+  // The case the guard above CANNOT see. `compared.length > 0` is what keeps the two disjoint by
+  // construction rather than by convention: emptiness belongs to the code above, and everything
+  // this one reports is a set that was non-empty and still too small. A comparison narrowed to a
+  // handful of edges produces a verdict indistinguishable from a healthy one — non-empty
+  // populations, no mismatch, `ok: true` — so nothing else in this file would notice it.
+  if (compared.length > 0 && compared.length < EMISSION_DENOMINATOR_FLOOR) {
+    diagnostics.push({
+      code: 'NARROWED_EMISSION_DENOMINATOR',
+      eventType: null,
+      provider: null,
+      compared: compared.length,
+      floor: EMISSION_DENOMINATOR_FLOOR,
+      severity: severityOf('NARROWED_EMISSION_DENOMINATOR'),
+      message:
+        `the provider comparison ranged over ${compared.length} emission edge(s), below the ` +
+        `measured floor of ${EMISSION_DENOMINATOR_FLOOR}, out of ${emissions.length} declared ` +
+        `edge(s) against ${welds.length} boot-resolvable event(s). The set is not empty, so every ` +
+        'vacuity check in this gate is satisfied and the comparison still reports on whatever is ' +
+        'left — which is how a narrowing hides. Either an annotation was re-tiered off the ' +
+        'capability arm, or actions stopped declaring the `autoEmits` that named those events. If ' +
+        'the shrink is intended, lower EMISSION_DENOMINATOR_FLOOR in the same change and say why.',
+    });
+  }
+
   for (const edge of compared) {
     const declared = providerByEvent.get(edge.event);
     if (declared === undefined || declared === edge.declaringTool) continue;
@@ -794,6 +879,23 @@ export type _RegistrationValidate_MismatchDiagnostic_NamesBothSides = Expect<
   MutuallyAssignable<
     keyof Extract<WeldResolutionDiagnostic, { code: typeof EMISSION_PROVIDER_MISMATCH_CODE }>,
     'code' | 'eventType' | 'provider' | 'action' | 'declaringTool' | 'message' | 'severity'
+  >
+>;
+
+/**
+ * **The shortfall proof.** A narrowing is only actionable if the diagnostic carries BOTH numbers —
+ * how far the comparison actually reached and how far it was measured to reach. A record naming
+ * only one of them would leave a reader to guess the shortfall from prose, or to re-import the
+ * constant to work it out.
+ *
+ * Falsifier: drop `compared` or `floor` from the arm and the key set stops matching, so the build
+ * names it rather than shipping a fault an operator cannot size.
+ @proof
+ * */
+export type _RegistrationValidate_NarrowedDiagnostic_CarriesTheShortfall = Expect<
+  MutuallyAssignable<
+    keyof Extract<WeldResolutionDiagnostic, { code: 'NARROWED_EMISSION_DENOMINATOR' }>,
+    'code' | 'eventType' | 'provider' | 'compared' | 'floor' | 'message' | 'severity'
   >
 >;
 
