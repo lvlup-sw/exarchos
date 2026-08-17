@@ -34,8 +34,8 @@ import {
   findSkillsSourceDir,
   findCommandAliasesSourceDir,
 } from '../install/install-skills.ts';
-import { loadAllRuntimes } from '../install/runtimes/load.js';
-import { EMBEDDED_RUNTIMES } from '../install/runtimes/embedded.js';
+import { loadAllRuntimes } from '../install/runtimes/load.ts';
+import { EMBEDDED_RUNTIMES } from '../install/runtimes/embedded.ts';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 

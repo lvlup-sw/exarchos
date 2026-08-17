@@ -8,8 +8,12 @@ import { detectLanguage, compile, execute, runSolution } from './compiler.js';
 const TEST_DIR = join(dirname(fileURLToPath(import.meta.url)), '.test-fixtures');
 
 function hasGpp(): boolean {
+  // `which g++` is not enough: windows-latest runners ship a g++ shim that
+  // resolves but cannot actually compile (no MSVC toolchain in PATH). Probe
+  // by running `g++ --version` instead — that requires a real executable
+  // that responds to its driver flag, which a shim does not.
   try {
-    execFileSync('which', ['g++']);
+    execFileSync('g++', ['--version'], { stdio: 'ignore' });
     return true;
   } catch {
     return false;
