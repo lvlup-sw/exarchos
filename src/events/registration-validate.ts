@@ -39,6 +39,25 @@
 //   • PROVIDER_REGISTRY_DRIFT — a provider entry the ledger no longer backs (or a tool claimed
 //     twice). Delegated to `validateEffectProviders`, never re-implemented.
 //
+// ## Severity: which faults stop the process, expressed as a SECOND table
+//
+// Reference integrity is not the only thing worth reconciling at this seam, and the checks that
+// come after it will legitimately report against the live tree before the tree is repaired. A gate
+// with no severity axis cannot say that: any non-empty diagnostic list refuses startup, so the
+// first such check makes the tree unbootable for every entry point at once.
+//
+// {@link DIAGNOSTIC_SEVERITY_POLICY} is therefore the severity decision, and it is deliberately a
+// SEPARATE table from {@link WELD_RESOLUTION_POLICY}: one is keyed by tier and answers "where is
+// this weld resolved", the other is keyed by diagnostic code and answers "does this fault stop the
+// process". Neither restates the other, and each is total over its own axis by type — a new
+// diagnostic code cannot reach the boot path without somebody deciding whether it blocks.
+//
+//   • `blocking` — {@link assertRegistrationWeldsAtStartup} throws. Every diagnostic this module
+//     emits today is blocking, so the boot behaviour is exactly what it was before the axis existed.
+//   • `observe`  — reported on the boot channel and the process continues. `ok` still goes false
+//     (something WAS found), but `bootable` stays true. This is the arm a new check lands on while
+//     its break set is being dispositioned, and it is graduated to `blocking` by flipping one row.
+//
 // ## Scope: why only `capability` is resolved here, expressed as DATA
 //
 // {@link WELD_RESOLUTION_POLICY} is `Readonly<Record<EventTier, WeldResolutionPolicy>>` — TOTAL
@@ -162,6 +181,15 @@ export const WELD_RESOLUTION_POLICY: Readonly<Record<EventTier, WeldResolutionPo
 
 // ─── Diagnostics ────────────────────────────────────────────────────────────
 
+/**
+ * Whether a diagnostic stops the process.
+ *
+ * `blocking` throws out of {@link assertRegistrationWeldsAtStartup}; `observe` is written to the
+ * boot channel and startup continues. The distinction exists so a check can be armed and measured
+ * against the live tree before it is allowed to refuse every entry point.
+ */
+export type WeldDiagnosticSeverity = 'blocking' | 'observe';
+
 /** A single weld-resolution fault. `eventType`/`provider` are `null` for population-level faults. */
 export type WeldResolutionDiagnostic =
   | {
@@ -169,34 +197,77 @@ export type WeldResolutionDiagnostic =
       readonly eventType: string;
       readonly provider: string;
       readonly message: string;
+      readonly severity: WeldDiagnosticSeverity;
     }
   | {
       readonly code: typeof PROVIDER_REGISTRY_DRIFT_CODE;
       readonly eventType: null;
       readonly provider: string;
       readonly message: string;
+      readonly severity: WeldDiagnosticSeverity;
     }
   | {
       readonly code: 'EMPTY_CAPABILITY_DENOMINATOR';
       readonly eventType: null;
       readonly provider: null;
       readonly message: string;
+      readonly severity: WeldDiagnosticSeverity;
     }
   | {
       readonly code: 'EMPTY_PROVIDER_REGISTRY';
       readonly eventType: null;
       readonly provider: null;
       readonly message: string;
+      readonly severity: WeldDiagnosticSeverity;
     };
+
+/**
+ * Every code this gate can emit, read OFF the diagnostic union rather than listed beside it. A
+ * second list would be a second authority: a code renamed on one side and not the other would go
+ * unnoticed, and the severity table below would silently stop covering it.
+ */
+export type WeldDiagnosticCode = WeldResolutionDiagnostic['code'];
+
+/**
+ * Which diagnostics stop the process.
+ *
+ * `Readonly<Record<WeldDiagnosticCode, …>>` makes the table TOTAL over the diagnostic axis, the
+ * same way {@link WELD_RESOLUTION_POLICY} is total over the tier axis: a new diagnostic is a `tsc`
+ * error here until somebody decides whether it blocks boot. The two tables are kept apart on
+ * purpose — this one has no opinion about which tier a weld belongs to, and that one has no
+ * opinion about what a fault costs.
+ *
+ * Everything is `blocking`. That is not a placeholder: it is the pre-existing behaviour, written
+ * down. Introducing the axis must not change what the tree does, so the flip to `observe` is a
+ * separate, deliberate edit of one row rather than a side effect of making severity expressible.
+ */
+export const DIAGNOSTIC_SEVERITY_POLICY: Readonly<Record<WeldDiagnosticCode, WeldDiagnosticSeverity>> =
+  Object.freeze({
+    [UNRESOLVABLE_PROVIDER_CODE]: 'blocking',
+    [PROVIDER_REGISTRY_DRIFT_CODE]: 'blocking',
+    EMPTY_CAPABILITY_DENOMINATOR: 'blocking',
+    EMPTY_PROVIDER_REGISTRY: 'blocking',
+  });
 
 /** The verdict, carrying BOTH denominators so no count can be read without its population. */
 export interface WeldResolutionVerdict {
+  /** No diagnostic of ANY severity was reported — the fully clean tree. */
   readonly ok: boolean;
+  /**
+   * No BLOCKING diagnostic was reported, so startup proceeds. This is the boot decision, and it is
+   * deliberately weaker than {@link ok}: an observe-severity finding leaves the tree bootable while
+   * still refusing to report clean.
+   */
+  readonly bootable: boolean;
   /** Annotated registrations whose tier policy is `resolvedAt: 'boot'` — the SUBJECT denominator. */
   readonly bootResolvedCount: number;
   /** Distinct provider ids backed by exactly one live ledger rule — the REGISTRY denominator. */
   readonly resolvableProviderCount: number;
   readonly diagnostics: readonly WeldResolutionDiagnostic[];
+  /** How many of {@link diagnostics} are `blocking` — the count that decides {@link bootable}. */
+  readonly blockingCount: number;
+  /** How many of {@link diagnostics} are `observe` — reported, survivable, still not clean. */
+  readonly observeCount: number;
   /** Deterministic, human-readable summary (green light or the fault list). */
   readonly report: string;
 }
@@ -266,8 +337,14 @@ export function validateRegistrationWelds(
   providers: readonly EffectProvider[] = EFFECT_PROVIDERS,
   rules: readonly EffectOwnershipRule[] = EFFECT_OWNERSHIP,
   policy: Readonly<Record<EventTier, WeldResolutionPolicy>> = WELD_RESOLUTION_POLICY,
+  severityPolicy: Readonly<
+    Record<WeldDiagnosticCode, WeldDiagnosticSeverity>
+  > = DIAGNOSTIC_SEVERITY_POLICY,
 ): WeldResolutionVerdict {
   const diagnostics: WeldResolutionDiagnostic[] = [];
+  // One lookup, so severity is stamped from the table at every emission site and never decided
+  // inline. A diagnostic constructed with a hard-coded severity would be a third authority.
+  const severityOf = (code: WeldDiagnosticCode): WeldDiagnosticSeverity => severityPolicy[code];
 
   // ── The registry side, and its drift ─────────────────────────────────────
   // Reported BEFORE the welds so the cause is named, not just its consequences.
@@ -276,6 +353,7 @@ export function validateRegistrationWelds(
       code: PROVIDER_REGISTRY_DRIFT_CODE,
       eventType: null,
       provider: drift.tool,
+      severity: severityOf(PROVIDER_REGISTRY_DRIFT_CODE),
       message:
         `[${drift.code}] ${drift.message} A weld cannot be resolved against a provider map that ` +
         `has drifted from the effect ledger — reconcile ` +
@@ -290,6 +368,7 @@ export function validateRegistrationWelds(
       code: 'EMPTY_PROVIDER_REGISTRY',
       eventType: null,
       provider: null,
+      severity: severityOf('EMPTY_PROVIDER_REGISTRY'),
       message:
         'no effect-provider id resolves — the provider map is empty or nothing in it is backed by ' +
         'a live EFFECT_OWNERSHIP rule. Every capability weld would fail for a reason that is not ' +
@@ -304,6 +383,7 @@ export function validateRegistrationWelds(
       code: 'EMPTY_CAPABILITY_DENOMINATOR',
       eventType: null,
       provider: null,
+      severity: severityOf('EMPTY_CAPABILITY_DENOMINATOR'),
       message:
         'no annotated registration is boot-resolvable — nothing in the catalog carries a tier whose ' +
         `WELD_RESOLUTION_POLICY entry is resolvedAt: 'boot' (today that is the 'capability' tier). ` +
@@ -318,6 +398,7 @@ export function validateRegistrationWelds(
       code: UNRESOLVABLE_PROVIDER_CODE,
       eventType: weld.eventType,
       provider: weld.ref,
+      severity: severityOf(UNRESOLVABLE_PROVIDER_CODE),
       message:
         `event '${weld.eventType}' is registered tier 'capability' with provider '${weld.ref}', ` +
         `which names no live effect provider. Resolvable ids: [${resolvable.join(', ')}]. ` +
@@ -332,23 +413,58 @@ export function validateRegistrationWelds(
       `${b.code} ${b.eventType ?? ''} ${b.provider ?? ''}`,
     ),
   );
+  // ── The severity split ───────────────────────────────────────────────────
+  // `ok` keeps its original meaning — nothing at all was found — because a check that reports an
+  // observation has NOT found the tree clean. `bootable` is the strictly weaker boot decision, and
+  // it is the only one `assertRegistrationWeldsAtStartup` reads.
+  const blocking = sorted.filter((d) => d.severity === 'blocking');
+  const observed = sorted.filter((d) => d.severity === 'observe');
   const ok = sorted.length === 0;
+  const bootable = blocking.length === 0;
+
+  const line = (d: WeldResolutionDiagnostic): string =>
+    `  [${d.code}] ${d.eventType ?? d.provider ?? '<catalog>'}: ${d.message}`;
+  // Observations are a TRAILING block rather than an inline tag, so that with no observations the
+  // rendered report is character-for-character the one this gate produced before severity existed.
+  const observedBlock =
+    observed.length === 0
+      ? ''
+      : `\nobserve-only — ${observed.length} finding(s) reported without blocking boot:\n` +
+        observed.map(line).join('\n');
+
   const report = ok
     ? `event registration welds OK — ${welds.length} boot-resolved weld(s) against ` +
       `${resolvable.length} live effect provider(s)`
-    : `event registration weld resolution FAILED — ${sorted.length} fault(s) over ` +
-      `${welds.length} boot-resolved weld(s) and ${resolvable.length} live provider(s):\n` +
-      sorted
-        .map((d) => `  [${d.code}] ${d.eventType ?? d.provider ?? '<catalog>'}: ${d.message}`)
-        .join('\n');
+    : bootable
+      ? `event registration welds BOOTABLE — 0 blocking fault(s) over ` +
+        `${welds.length} boot-resolved weld(s) and ${resolvable.length} live provider(s)` +
+        observedBlock
+      : `event registration weld resolution FAILED — ${blocking.length} fault(s) over ` +
+        `${welds.length} boot-resolved weld(s) and ${resolvable.length} live provider(s):\n` +
+        blocking.map(line).join('\n') +
+        observedBlock;
 
   return {
     ok,
+    bootable,
     bootResolvedCount: welds.length,
     resolvableProviderCount: resolvable.length,
     diagnostics: sorted,
+    blockingCount: blocking.length,
+    observeCount: observed.length,
     report,
   };
+}
+
+/**
+ * Where an observe-severity finding goes when the gate does not throw.
+ *
+ * stderr, not stdout: the `exarchos mcp` facade owns stdout for the JSON-RPC stream, so a boot
+ * notice written there would corrupt the protocol rather than inform anybody. Injectable for the
+ * same reason every population above is — a report nothing can capture cannot be shown to happen.
+ */
+function reportToStderr(message: string): void {
+  process.stderr.write(`${message}\n`);
 }
 
 /** Thrown when a registration's weld does not resolve — refuses process startup. */
@@ -369,15 +485,28 @@ export class RegistrationWeldError extends Error {
  *
  * Same shape as `contract/bindings/verify-bindings.ts::assertBindingsAtStartup`, deliberately: a
  * declaration whose reference does not resolve is a startup fault, never a first-call surprise.
+ *
+ * The refusal is SEVERITY-DRIVEN: only a `blocking` diagnostic throws. An `observe` finding is
+ * written to `report` and startup continues, which is what lets a new check be armed against the
+ * live tree without taking every entry point down with it. Because
+ * {@link DIAGNOSTIC_SEVERITY_POLICY} marks every diagnostic this module emits as `blocking`, the
+ * set of inputs that halt startup is unchanged.
  */
 export function assertRegistrationWeldsAtStartup(
   annotations: Readonly<Record<string, EventRegistration>> = EVENT_ANNOTATIONS,
   providers: readonly EffectProvider[] = EFFECT_PROVIDERS,
   rules: readonly EffectOwnershipRule[] = EFFECT_OWNERSHIP,
   policy: Readonly<Record<EventTier, WeldResolutionPolicy>> = WELD_RESOLUTION_POLICY,
+  severityPolicy: Readonly<
+    Record<WeldDiagnosticCode, WeldDiagnosticSeverity>
+  > = DIAGNOSTIC_SEVERITY_POLICY,
+  report: (message: string) => void = reportToStderr,
 ): WeldResolutionVerdict {
-  const verdict = validateRegistrationWelds(annotations, providers, rules, policy);
-  if (!verdict.ok) throw new RegistrationWeldError(verdict);
+  const verdict = validateRegistrationWelds(annotations, providers, rules, policy, severityPolicy);
+  if (!verdict.bootable) throw new RegistrationWeldError(verdict);
+  // Survivable, but not silent. An observation nobody is told about is indistinguishable from a
+  // check that was never run, which is the failure mode the severity arm exists to avoid.
+  if (verdict.observeCount > 0) report(verdict.report);
   return verdict;
 }
 
@@ -433,4 +562,26 @@ export type _RegistrationValidate_ProviderField_IsUniqueToTheCapabilityArm = Exp
  * */
 export type _RegistrationValidate_Policy_IsTotalOverTheTierAxis = Expect<
   MutuallyAssignable<keyof typeof WELD_RESOLUTION_POLICY, EventTier>
+>;
+
+/**
+ * **The severity proof.** EVERY arm of the diagnostic union carries a severity, so no fault can
+ * reach the boot decision without one. Drop the field from a single arm and
+ * `WeldResolutionDiagnostic['severity']` stops resolving — the build names the arm rather than the
+ * gate quietly treating an unstamped diagnostic as harmless (or, worse, as fatal by accident).
+ @proof
+ * */
+export type _RegistrationValidate_EveryDiagnostic_CarriesASeverity = Expect<
+  MutuallyAssignable<WeldResolutionDiagnostic['severity'], WeldDiagnosticSeverity>
+>;
+
+/**
+ * The severity table is TOTAL over the diagnostic axis, mirroring the tier proof above and for the
+ * same reason: widen the annotation to `Partial<…>` or an index signature and a new diagnostic
+ * could arrive with no severity decision, defaulting into whichever arm the lookup happens to
+ * produce. The codes are read off the union, so the two cannot drift apart.
+ @proof
+ * */
+export type _RegistrationValidate_SeverityPolicy_IsTotalOverTheDiagnosticAxis = Expect<
+  MutuallyAssignable<keyof typeof DIAGNOSTIC_SEVERITY_POLICY, WeldDiagnosticCode>
 >;
