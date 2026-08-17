@@ -23,6 +23,8 @@
  * number the checker would then compare against. A derivation that reports a
  * value it cannot stand behind is the defect DR-27 exists to remove.
  */
+import { fileURLToPath } from 'node:url';
+import * as path from 'node:path';
 import { censusLiveOutputSchemas } from '../../conformance/src/bindings/output-schema.js';
 import {
   censusLiveEventNameGrammar,
@@ -41,6 +43,41 @@ export interface TsDerivedValues {
 }
 
 export function deriveTsPremises(): TsDerivedValues {
+  // `event-types-total` couples to a premise document that does not exist in
+  // this tree yet: the sibling re-scope spec is the change that both creates
+  // it and arms `check-measured-premises.mjs` to scan it, by adding it to
+  // `DEFAULT_DOCUMENTS` (or annotating `.exarchos/invariants.md`, which is
+  // already in scope). Until then nothing in the repo asserts
+  // `<!-- measured: event-types-total -->N<!-- /measured -->`, so this
+  // derivation is the only place the value is bound to the live catalog —
+  // recording that binding here, against `EventTypes.length` rather than a
+  // typed number, is what keeps the eventual annotation from being able to go
+  // stale the moment the catalog grows again.
+  //
+  // Checked first and fails closed the same way the two census values below
+  // already do: a derivation that reports a number it cannot stand behind is
+  // the defect this entrypoint exists to remove, and an empty `EventTypes` —
+  // a broken import, a shadowed module, a resolution that silently returned
+  // nothing — is exactly that. `EventTypes.length` is never legitimately zero
+  // on a working tree, so refusing to emit one is the honest response. It has
+  // to run before the census calls below: both of them default their own
+  // parameters from this same `EventTypes` binding, so an emptied catalog
+  // would otherwise surface as one of THEIR diagnostics instead of naming the
+  // value that actually went stale.
+  // Widened to `number`: `EventTypes` is `as const`, so `.length` is typed as
+  // the literal count on the live tree and `tsc` (rightly) flags a literal-vs-
+  // 0 comparison as unreachable. The guard exists for the case the type system
+  // cannot see — a mocked or otherwise degenerate import — so the runtime
+  // value has to be treated as the `number` it actually is at that seam.
+  const eventTypesTotal: number = EventTypes.length;
+  if (eventTypesTotal === 0) {
+    throw new Error(
+      'event-types-total census is not trustworthy — EventTypes resolved to 0 ' +
+        'entries. Refusing to emit a value the premise document coupling could ' +
+        'not stand behind.',
+    );
+  }
+
   const census = censusLiveOutputSchemas();
   const grammar = censusLiveEventNameGrammar();
 
@@ -69,7 +106,7 @@ export function deriveTsPremises(): TsDerivedValues {
     'output-schema-total': census.total,
     'output-schema-vacuous': census.vacuousCount,
     'output-schema-substantive': census.substantiveCount,
-    'event-types-total': EventTypes.length,
+    'event-types-total': eventTypesTotal,
     'report-coupled-events': coupling.reportCoupledCount,
     // Task 015's measured disagreement between the two authorities that decide
     // what an event name may be: the shipped `EVENT_NAME_PATTERN` and the DR-3
@@ -79,10 +116,27 @@ export function deriveTsPremises(): TsDerivedValues {
   };
 }
 
-try {
-  process.stdout.write(`${JSON.stringify(deriveTsPremises())}\n`);
-} catch (err) {
-  const message = err instanceof Error ? err.message : String(err);
-  process.stderr.write(`measured-premises-derive: ${message}\n`);
-  process.exit(1);
+/**
+ * True only when this module is `tsx`'s entry script, following the same
+ * check `check-measured-premises.mjs` already makes on itself. Without it,
+ * importing this module for `deriveTsPremises` alone — the seam a unit test
+ * needs to exercise the fail-closed guard above without shelling out — would
+ * also run the CLI's stdout/exit side effects on every import, including the
+ * `process.exit(1)` branch, which would tear down the importing process
+ * rather than let a test observe the thrown error.
+ */
+const invokedDirectly = (() => {
+  const argv1 = process.argv[1];
+  if (!argv1) return false;
+  return path.resolve(argv1) === path.resolve(fileURLToPath(import.meta.url));
+})();
+
+if (invokedDirectly) {
+  try {
+    process.stdout.write(`${JSON.stringify(deriveTsPremises())}\n`);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`measured-premises-derive: ${message}\n`);
+    process.exit(1);
+  }
 }
