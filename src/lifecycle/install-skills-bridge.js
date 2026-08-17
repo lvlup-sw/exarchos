@@ -33,7 +33,7 @@ import {
   installSkills,
   findSkillsSourceDir,
   findCommandAliasesSourceDir,
-} from '../install/install-skills.ts';
+} from '../install/install-skills.js';
 import { loadAllRuntimes } from '../install/runtimes/load.js';
 import { EMBEDDED_RUNTIMES } from '../install/runtimes/embedded.js';
 import { fileURLToPath } from 'node:url';

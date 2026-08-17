@@ -12,14 +12,23 @@ src/**/*.js.map
 src/**/*.d.ts
 src/**/*.d.ts.map
 
-# ...except the install-skills bridge, which is AUTHORED JavaScript, not output.
-# It is `.js` on purpose: tsc runs `allowJs: false` and must never resolve it,
-# while bun's `--compile` bundler must, or the installer never reaches the
-# binary. The rule above is written for compiled output and cannot tell the two
-# apart, so it silently untracked this file when the server tree folded into
-# `src/`, and a fresh clone then failed `npm run build` at the bundle step.
+# ...except the install-skills bridge AND the `.js → .ts` re-export shims
+# the bridge imports. The bridge is `.js` on purpose: tsc runs
+# `allowJs: false` and must never resolve it, while bun's `--compile`
+# bundler must, or the installer never reaches the binary. The bridge's
+# imports name `.js` specifiers (NodeNext contract) but only `.ts`
+# siblings exist; the shims re-export from the `.ts` originals so:
+#   1. Vite/vite-node finds a literal `.js` file at the specifier path
+#      (no NodeNext extension fallback needed).
+#   2. bun follows the `.js` re-exports into the bundled binary.
+#   3. tsc with `allowJs: false` skips them.
+# The ignore rule above is written for compiled output and cannot tell
+# authored re-exports apart, so each must be whitelisted.
 !src/lifecycle/install-skills-bridge.js
 !src/lifecycle/install-skills-bridge.d.ts
+!src/install/install-skills.js
+!src/install/runtimes/load.js
+!src/install/runtimes/embedded.js
 # Authored ambient `bun:sqlite` types — not tsc output. The servers/ fold
 # moved this file onto the `src/**/*.d.ts` ignore, so a fresh clone lost
 # the only declaration `prepare`/`tsc` uses for that import.

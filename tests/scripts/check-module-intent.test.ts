@@ -250,6 +250,15 @@ describe('check-module-intent CLI (DR-7/DR-8)', () => {
     // have reported a module the shipped binary statically depends on as dead —
     // and the only way to make the gate green would have been to declare a
     // falsehood about it.
+    //
+    // The bridge's `import` statements name `.js` siblings that re-export from
+    // the `.ts` originals (see `src/install/runtimes/embedded.js` and
+    // `src/install/install-skills.js`) so vite-node finds a literal `.js` file
+    // at the specifier path and bun's `--compile` bundler follows the
+    // re-exports into the binary. The assertion below pins the live import
+    // edge in the bridge so the test cannot pass on a bridge that no longer
+    // references the subject module — the proof gate, not the allowlist,
+    // decides whether `embedded.ts` is reported as dead.
     const bridge = readFileSync(
       path.join(REPO_ROOT, 'src', 'lifecycle', 'install-skills-bridge.js'),
       'utf8',
