@@ -57,7 +57,13 @@ function registryWith(
 }
 
 describe('EventAnnotations — the DR-2 tier and lifecycle assignment for the event catalog', () => {
-  it('EventAnnotations_All170Types_CarryATierAndLifecycle', () => {
+  it('EventAnnotations_EveryRegisteredType_CarriesATierAndLifecycle', () => {
+    // The name carried a cardinality (`All170Types`) and the catalog outgrew it twice without
+    // anything going red, because every assertion in this test is RELATIVE — the denominator is
+    // read from the registry, never written down. A number in the name of a test that
+    // deliberately holds no number was the only stale part of it, so the number is gone rather
+    // than bumped.
+    //
     // NON-VACUOUS DENOMINATOR, from two independent reads of the storage module. A census over an
     // empty population reports "no gaps" and means nothing; a census over one store cannot notice
     // that the other store grew.
@@ -108,6 +114,55 @@ describe('EventAnnotations — the DR-2 tier and lifecycle assignment for the ev
       .map((declaration) => declaration.id);
     expect(failingTheGuard).toEqual([]);
     expect(declarations.length).toBe(registered.length);
+  });
+
+  it('VcsLedgerEvents_SubstrateTier_CarryOperationRecordRationale', () => {
+    // The three names the git & worktree mutation owner appends around every
+    // non-idempotent git effect: the intent before it and one of two terminals after.
+    //
+    // They are the WEAKEST weld in the union, and the assertions below say exactly that and
+    // no more. `substrate`/`operation-record` claims only that the code performing the
+    // operation owns the append; it does NOT claim a consumer, a provider or a gate.
+    const LEDGER = ['vcs.requested', 'vcs.executed', 'vcs.compensated'] as const;
+
+    for (const eventType of LEDGER) {
+      // Read through the PORT, not the table literal — the port is what `schemas.ts` derives
+      // the emission registry through, so an annotation the port cannot resolve is one the
+      // registry derivation cannot see either.
+      const registration = ANNOTATED_EVENTS.registrationOf(eventType);
+      expect(registration, `${eventType} carries no annotation`).toBeDefined();
+      expect(registration).toEqual({
+        lifecycle: 'active',
+        tier: 'substrate',
+        rationale: 'operation-record',
+      });
+
+      // The weld has to RESOLVE, not merely be spelled. `weldReferenceOf` is the runtime
+      // carrier of the union's exhaustiveness, so an empty ref would mean a registration that
+      // named a tier and nothing else.
+      expect(weldReferenceOf(registration!).ref.trim().length).toBeGreaterThan(0);
+
+      // The consequence that reaches the rest of the system: the derived registry classifies
+      // all three `auto`. This is what "the handler owns the append" means on the emission
+      // axis, and it is the reason no model is ever nagged to hand-emit a ledger record.
+      expect(EVENT_EMISSION_REGISTRY[eventType]).toBe('auto');
+    }
+
+    // NOT report-coupled — the population a shrink ratchet reads. A ledger record that landed
+    // in the model-emitted set would be a durable effect record the model could forget to make.
+    const reportCoupled = reportCoupledEventTypes(EventTypes);
+    expect(reportCoupled.length, 'the report-coupled census is empty — it cannot discriminate')
+      .toBeGreaterThan(0);
+    for (const eventType of LEDGER) expect(reportCoupled).not.toContain(eventType);
+
+    // And the negative direction, so the block above is not passing because every event in the
+    // catalog happens to be an operation record: a sibling in the SAME table is welded
+    // elsewhere, and reading it back gives a different rationale.
+    expect(ANNOTATED_EVENTS.registrationOf('workflow.started')).toEqual({
+      lifecycle: 'active',
+      tier: 'substrate',
+      rationale: 'transition-record',
+    });
   });
 
   it('EventAnnotations_SeededTierSourceDisagreement_IsReported', () => {

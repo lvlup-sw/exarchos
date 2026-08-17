@@ -499,6 +499,23 @@ export const EventTypes = [
   // while a fresh export invocation mints a distinct key and a new pair.
   'export.requested',
   'export.executed',
+  // The VCS mutation ledger — the durable intent/terminal record the single git
+  // & worktree mutation owner writes around every non-idempotent git effect.
+  // `vcs.requested` is the INTENT appended BEFORE the effect; `vcs.executed` and
+  // `vcs.compensated` are the two mutually-exclusive TERMINALS appended after it
+  // (success, and failure-with-compensation respectively). Folding the ledger
+  // stream yields the fencing epoch, the idempotency replay cache and the set of
+  // open intents, so an interrupted run converges on retry instead of leaving an
+  // on-disk worktree or branch nothing recorded.
+  //
+  // These three used to be registered through the store's runtime registration
+  // seam from the owner's constructor, which meant they carried no data schema,
+  // no entry in the type map and no coupling tier — invisible to every static
+  // reader of the catalog. They are declared here instead, so the catalog is the
+  // one place a VCS ledger name exists.
+  'vcs.requested',
+  'vcs.executed',
+  'vcs.compensated',
   // Phase-gate v2.12 proof substrate (DR-2 / DR-3). These are additive,
   // internal replay contracts only. They are classified `planned` below:
   // v2.12 does not expose admission actions, authorize generic appends, or
@@ -3066,6 +3083,81 @@ export const ExportExecutedData = z.object({
     .describe('Same key as the paired export.requested intent (INV-8)'),
 });
 
+// ─── VCS mutation ledger contract ───────────────────────────────────────────
+//
+// The intent/terminal record the single git & worktree mutation owner appends
+// around every non-idempotent git effect. The three payloads share a common
+// head — the mutation `kind`, the caller's `idempotencyKey` and the monotonic
+// fencing `epoch` — because the ledger fold reads exactly those three fields off
+// EVERY event in the stream regardless of which one it is: `epoch` maximises
+// into the current owner's fencing token, `idempotencyKey` keys the replay
+// cache, and `kind` discriminates the mutation family for the audit trail.
+//
+// The terminals then diverge on the one field each carries: `vcs.executed` holds
+// the effect's `result` (replayed verbatim to a duplicate request, so a repeated
+// key cannot mint a second worktree, branch, PR or merge) and `vcs.compensated`
+// holds the failure's `error`. Splitting the terminal in two rather than
+// carrying a status flag is what makes "already terminated as compensated"
+// distinguishable from "already executed" without inspecting a payload field.
+
+/** The fields every VCS ledger event carries — the ones the ledger fold reads. */
+const vcsLedgerCommonFields = {
+  kind: z
+    .string()
+    .min(1)
+    .describe('Mutation family for the audit trail (e.g. branch.create, worktree.add)'),
+  idempotencyKey: z
+    .string()
+    .min(1)
+    .describe(
+      'Caller-supplied key; a duplicate replays the recorded terminal and performs no second effect',
+    ),
+  epoch: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe(
+      'Monotonic fencing token of the requesting owner; a writer below the ledger high-water mark has lost ownership and is rejected',
+    ),
+};
+
+/**
+ * `vcs.requested` — the durable INTENT, appended BEFORE the git effect fires.
+ *
+ * An intent with no matching terminal is the recoverable state: the effect is
+ * probe-before-mutate, so re-running the same key either no-ops or completes the
+ * partial mutation, and the missing terminal is then recorded.
+ */
+export const VcsRequestedData = z.object({ ...vcsLedgerCommonFields });
+
+/**
+ * `vcs.executed` — the success TERMINAL, appended AFTER the effect succeeds.
+ *
+ * `result` is the effect's own outcome carrier and is replayed verbatim to a
+ * later request bearing the same key, which is what makes duplicate creates
+ * impossible rather than merely unlikely.
+ */
+export const VcsExecutedData = z.object({
+  ...vcsLedgerCommonFields,
+  result: z
+    .record(z.string(), z.unknown())
+    .optional()
+    .describe('The effect outcome, replayed verbatim to a duplicate request bearing the same key'),
+});
+
+/**
+ * `vcs.compensated` — the failure TERMINAL, appended after a failed effect and
+ * any compensation it triggered (a multi-step create that fails partway undoes
+ * the state it minted, so no orphaned worktree or branch survives).
+ *
+ * Deliberately sticky: unlike an `executed` terminal, this one is never
+ * re-verified against reality and never falls through to a re-run.
+ */
+export const VcsCompensatedData = z.object({
+  ...vcsLedgerCommonFields,
+  error: z.string().optional().describe('Failure message captured from the effect carrier'),
+});
+
 // ─── Durable projection-health state (DR-4, wiring-closure T-06) ────────────
 //
 // The cursor/tail freshness verdict, made durable. `projections/freshness.ts`
@@ -3657,6 +3749,11 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'export.requested': ExportRequestedData,
   'export.executed': ExportExecutedData,
 
+  // The VCS mutation ledger — intent, then one of two terminals.
+  'vcs.requested': VcsRequestedData,
+  'vcs.executed': VcsExecutedData,
+  'vcs.compensated': VcsCompensatedData,
+
   // DR-4 (wiring-closure T-06) — durable projection-health state.
   'projection.degraded': ProjectionDegradedData,
   'projection.recovered': ProjectionRecoveredData,
@@ -3834,6 +3931,11 @@ export type PruneExecuted = z.infer<typeof PruneExecutedData>;
 export type ExportRequested = z.infer<typeof ExportRequestedData>;
 export type ExportExecuted = z.infer<typeof ExportExecutedData>;
 
+// The VCS mutation ledger — intent, then one of two terminals.
+export type VcsRequested = z.infer<typeof VcsRequestedData>;
+export type VcsExecuted = z.infer<typeof VcsExecutedData>;
+export type VcsCompensated = z.infer<typeof VcsCompensatedData>;
+
 // DR-4 (wiring-closure T-06) — durable projection-health state.
 export type ProjectionDegraded = z.infer<typeof ProjectionDegradedData>;
 export type ProjectionRecovered = z.infer<typeof ProjectionRecoveredData>;
@@ -3985,6 +4087,10 @@ export type EventDataMap = {
   // DR-6 (lifecycle-verbs task 012) — export two-event contract (INV-13 / INV-8).
   'export.requested': ExportRequested;
   'export.executed': ExportExecuted;
+  // The VCS mutation ledger — intent, then one of two terminals.
+  'vcs.requested': VcsRequested;
+  'vcs.executed': VcsExecuted;
+  'vcs.compensated': VcsCompensated;
 
   // DR-4 (wiring-closure T-06) — durable projection-health state.
   'projection.degraded': ProjectionDegraded;

@@ -556,7 +556,12 @@ describe('EventTypes', () => {
     //
     // Task 068 (DR-23): bumped 170 → 171 for `invariant.amended`, emitted by
     // the `invariants_amend` composite handler on commit.
-    expect(EventTypes).toHaveLength(171);
+    //
+    // Bumped 171 → 174 for the VCS mutation ledger — `vcs.requested`,
+    // `vcs.executed` and `vcs.compensated`. The mutation owner already appended
+    // all three; they were registered through the store's runtime seam and so
+    // carried no schema, no type-map entry and no coupling tier.
+    expect(EventTypes).toHaveLength(174);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');

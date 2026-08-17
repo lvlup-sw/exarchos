@@ -1134,6 +1134,15 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       // #1242 — folds into the rehydration projection's handoff slot only; it
       // carries no workflow_state-affecting fields.
       case 'workflow.handoff_summarized':
+      // The VCS mutation ledger rides its own dedicated `vcs-mutations` stream,
+      // never a feature stream. Its only reader is the mutation owner's own
+      // fold, which re-reads the ledger to recover the fencing epoch and the
+      // idempotency replay cache before acting — deliberately NOT a consumer of
+      // projected workflow state, and folding it here would put an effect
+      // record into a view no caller asks for it from.
+      case 'vcs.requested':
+      case 'vcs.executed':
+      case 'vcs.compensated':
         return view;
 
       // ── Exhaustiveness guard (#1554 guard (a)) ─────────────────────────
