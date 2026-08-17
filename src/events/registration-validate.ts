@@ -47,7 +47,22 @@
 // It ships at `observe` severity. The shipped catalog contains real disagreements, and refusing
 // every entry point over a break set nobody has dispositioned would be a worse gate than none.
 //
-// ## Denominator integrity — five ways this could go quietly wrong, five diagnostics
+// ## The third comparison: a weld nothing declares it emits
+//
+// Both comparisons above range over emission EDGES, so both are blind in the same direction: a
+// capability registration nothing emits contributes no edge and is therefore examined by neither.
+// It resolves (its provider is live), it never disagrees (there is no declaring tool to disagree
+// with), and it declares an effect and a consumer fold that the tree does not contain. That is
+// stale cover, and {@link STALE_CAPABILITY_COVER_CODE} is the arm that reports it.
+//
+// Its eligible population is narrowed on the LIFECYCLE axis, which is orthogonal to the tier axis
+// the other two inherit. `planned` and `retired` are the states in which nothing is supposed to
+// emit the event, so a missing edge is the tree conforming rather than a fault; excluding them is
+// mandatory or the check fires on correct code and gets switched off. The exclusion is a table over
+// the axis ({@link STALE_COVER_LIFECYCLE_POLICY}), never a list of exempt event names — the
+// difference is that a table cannot go stale, and the reasoning is with the policy.
+//
+// ## Denominator integrity — seven ways this could go quietly wrong, seven diagnostics
 //
 // A boot check that resolves nothing must FAIL, not report clean — and so must one that has
 // quietly stopped resolving most of what it used to:
@@ -64,8 +79,15 @@
 //     the case where the subject side is what went missing.
 //   • NARROWED_EMISSION_DENOMINATOR — the comparison still ranges over something, but over far
 //     less than it was measured to. See below; this is the one the vacuity guards cannot see.
+//   • EMPTY_STALE_COVER_DENOMINATOR — boot-resolvable welds exist and the lifecycle axis excluded
+//     every one of them, so the stale-cover check had no subject. Conditioned on a NON-empty weld
+//     set for the same reason as the code above: the vanished-capability-arm case already has an
+//     owner, and this one owns what that owner cannot see.
 //   • PROVIDER_REGISTRY_DRIFT — a provider entry the ledger no longer backs (or a tool claimed
 //     twice). Delegated to `validateEffectProviders`, never re-implemented.
+//
+// The seventh is STALE_CAPABILITY_COVER itself — a per-event fault rather than a denominator one,
+// listed here because its denominator is the one above and neither is readable without the other.
 //
 // ## Why emptiness is not enough, and why the floor only ratchets one way
 //
@@ -151,6 +173,7 @@ import {
   weldReferenceOf,
   type CapabilityRegistration,
   type EffectProviderId,
+  type EventLifecycle,
   type EventRegistration,
   type EventTier,
   type EventTierVariant,
@@ -167,6 +190,11 @@ export const PROVIDER_REGISTRY_DRIFT_CODE = 'PROVIDER_REGISTRY_DRIFT';
  * event's `capability` registration declares.
  */
 export const EMISSION_PROVIDER_MISMATCH_CODE = 'EMISSION_PROVIDER_MISMATCH';
+/**
+ * The diagnostic code for a capability registration that is supposed to be emitted and that no
+ * declared emission edge names — a weld claiming cover nothing in the tool registry backs.
+ */
+export const STALE_CAPABILITY_COVER_CODE = 'STALE_CAPABILITY_COVER';
 
 /**
  * The measured size of the set the provider comparison ranges over: declared emission edges whose
@@ -251,6 +279,74 @@ export const WELD_RESOLUTION_POLICY: Readonly<Record<EventTier, WeldResolutionPo
     },
   });
 
+/**
+ * Whether one lifecycle state's registrations belong in the stale-cover population.
+ *
+ * A discriminated union rather than a bare boolean, because the EXCLUDED arm is the one that has to
+ * carry a reason. `eligible: false` on its own records a decision with none of the thinking behind
+ * it, and the next reader cannot tell a state that is structurally unnameable from one somebody
+ * switched off to make a check go green.
+ */
+export type StaleCoverEligibility =
+  | {
+      readonly eligible: true;
+      /** What a MISSING emission edge means here — the reason the check has a subject at all. */
+      readonly note: string;
+    }
+  | {
+      readonly eligible: false;
+      /** Which half of the not-emitted axis this is: nothing emits it yet, or nothing emits it now. */
+      readonly unemitted: 'not-yet' | 'not-any-more';
+      readonly note: string;
+    };
+
+/**
+ * Which lifecycle states the stale-cover check ranges over.
+ *
+ * `Readonly<Record<EventLifecycle, …>>` makes this TOTAL over the lifecycle axis, exactly as
+ * {@link WELD_RESOLUTION_POLICY} is total over the tier axis: a fourth lifecycle state is a `tsc`
+ * error here until somebody decides whether an unnamed registration in it is a defect. The two
+ * tables stay apart because they answer different questions about the same registration — one asks
+ * where its reference is resolved, this one asks whether anything is supposed to emit it — and the
+ * axes are independent, so a `retired` capability event is an ordinary record rather than a
+ * contradiction.
+ *
+ * **THE EXCLUSION IS THE POINT, and it is why this is a table over the axis and not a list of
+ * exempt event names.** An event nothing emits yet, and an event nothing emits any more, are both
+ * registrations that no emission edge CAN name: the tree is conforming and a check that reported
+ * them would be firing on correct code. Written as a list of event types, that observation would be
+ * true on the day it was taken and quietly false afterwards — every newly-planned event would
+ * arrive unlisted and red, the list would be topped up until it was a rubber stamp, and the day a
+ * genuinely stale active weld appeared it would be waved through with everything else. Read off the
+ * lifecycle field, the exemption cannot go stale, because it is not a record of WHICH events are
+ * non-emitting; it is the statement that a non-emitting event has no edge to be named by.
+ */
+export const STALE_COVER_LIFECYCLE_POLICY: Readonly<Record<EventLifecycle, StaleCoverEligibility>> =
+  Object.freeze({
+    active: {
+      eligible: true,
+      note:
+        'Something is supposed to emit it. A capability registration is a claim that an effect ' +
+        'provider appends the event and that at least one fold consumes it, so an active one that ' +
+        'no declared emission edge names is a weld with nothing on the other end.',
+    },
+    planned: {
+      eligible: false,
+      unemitted: 'not-yet',
+      note:
+        'The data schema and the type-map entry exist and nothing emits the event yet. There is no ' +
+        'edge to find, so the absence is the expected reading of a conforming tree, not a fault.',
+    },
+    retired: {
+      eligible: false,
+      unemitted: 'not-any-more',
+      note:
+        'The registration is KEPT so historical logs stay replayable, and nothing emits the event ' +
+        'any more. Its weld still records what it was welded to while it was live; the missing ' +
+        'emission edge is what retirement MEANS, so reporting it would be reporting the intent.',
+    },
+  });
+
 // ─── Diagnostics ────────────────────────────────────────────────────────────
 
 /**
@@ -321,6 +417,32 @@ export type WeldResolutionDiagnostic =
       readonly floor: number;
       readonly message: string;
       readonly severity: WeldDiagnosticSeverity;
+    }
+  | {
+      readonly code: typeof STALE_CAPABILITY_COVER_CODE;
+      readonly eventType: string;
+      /** The provider the registration declares — the cover nothing in the registry is backing. */
+      readonly provider: string;
+      /**
+       * The lifecycle that put this registration in the population, carried on the finding so the
+       * exclusion axis is readable from the fault itself. A reader who thinks a lifecycle should
+       * have been excluded can see which one admitted the event without re-reading the catalog.
+       */
+      readonly lifecycle: EventLifecycle;
+      readonly message: string;
+      readonly severity: WeldDiagnosticSeverity;
+    }
+  | {
+      readonly code: 'EMPTY_STALE_COVER_DENOMINATOR';
+      readonly eventType: null;
+      readonly provider: null;
+      /**
+       * Boot-resolvable welds the lifecycle axis excluded — the population that swallowed the
+       * subject set, so a reader can tell "everything was retired" from "there were no welds".
+       */
+      readonly excludedByLifecycle: number;
+      readonly message: string;
+      readonly severity: WeldDiagnosticSeverity;
     };
 
 /**
@@ -342,7 +464,7 @@ export type WeldDiagnosticCode = WeldResolutionDiagnostic['code'];
  * The four REFERENCE-INTEGRITY rows are `blocking`. That is not a placeholder: it is the
  * behaviour this gate shipped with, written down.
  *
- * The three EMISSION-COUPLING rows are `observe`, and that is the whole reason the axis exists.
+ * The five EMISSION-COUPLING rows are `observe`, and that is the whole reason the axis exists.
  * The comparison they carry reports against the live tree BEFORE the tree is reconciled — there
  * are real, measured disagreements in the shipped catalog — so arming it as `blocking` would take
  * every entry point down over a break set nobody has dispositioned yet. Graduating them is a
@@ -352,6 +474,12 @@ export type WeldDiagnosticCode = WeldResolutionDiagnostic['code'];
  * `NARROWED_EMISSION_DENOMINATOR` sits here for a second reason of its own: a floor that refused
  * startup would turn any legitimate re-tiering of a capability event into an unbootable tree for
  * every entry point at once, which is a far worse outcome than the narrowing it is watching for.
+ *
+ * `STALE_CAPABILITY_COVER` sits here for the same reason its sibling comparison does — the shipped
+ * catalog carries a measured break set of active capability registrations nothing declares it
+ * emits, and refusing every entry point over a set nobody has dispositioned would be a worse gate
+ * than none. Its vacuity guard rides at the same severity so the two cannot be read apart: a fault
+ * and the reason its denominator vanished should not arrive with different weights.
  */
 export const DIAGNOSTIC_SEVERITY_POLICY: Readonly<Record<WeldDiagnosticCode, WeldDiagnosticSeverity>> =
   Object.freeze({
@@ -362,6 +490,8 @@ export const DIAGNOSTIC_SEVERITY_POLICY: Readonly<Record<WeldDiagnosticCode, Wel
     [EMISSION_PROVIDER_MISMATCH_CODE]: 'observe',
     EMPTY_EMISSION_DENOMINATOR: 'observe',
     NARROWED_EMISSION_DENOMINATOR: 'observe',
+    [STALE_CAPABILITY_COVER_CODE]: 'observe',
+    EMPTY_STALE_COVER_DENOMINATOR: 'observe',
   });
 
 /** The verdict, carrying EVERY denominator so no count can be read without its population. */
@@ -389,6 +519,17 @@ export interface WeldResolutionVerdict {
    * of findings — an absence a narrowed comparison produces just as convincingly as a healthy one.
    */
   readonly comparedEmissionEdgeCount: number;
+  /**
+   * Boot-resolved welds whose lifecycle admits them to the stale-cover check — the subject
+   * population of that check, and the only denominator in this verdict the lifecycle axis narrows.
+   *
+   * It rides the verdict rather than staying implicit for the reason every other count here does,
+   * and more sharply: a check that finds nothing because it is looking at nothing publishes exactly
+   * the shape of one that finds nothing because the tree is clean. Zero is a FAULT
+   * (`EMPTY_STALE_COVER_DENOMINATOR`), never a pass, and this number is how a reader sees which of
+   * the two they are holding.
+   */
+  readonly staleCoverEligibleCount: number;
   readonly diagnostics: readonly WeldResolutionDiagnostic[];
   /** How many of {@link diagnostics} are `blocking` — the count that decides {@link bootable}. */
   readonly blockingCount: number;
@@ -442,23 +583,62 @@ export function resolvableProviderIds(
 }
 
 /**
- * The boot-resolvable welds in an annotation table: `(eventType, ref)` for every registration whose
- * tier policy says `resolvedAt: 'boot'`.
+ * One boot-resolvable weld: the event, the reference its tier policy resolves, and the LIFECYCLE
+ * state the registration carries.
  *
- * The ref comes from task 009's {@link weldReferenceOf}, whose `switch` has no `default` beyond the
- * `never` binding — so "what is this registration welded to" has ONE runtime authority and a sixth
- * tier cannot slip past it. Sorted by event type.
+ * `lifecycle` rides on the same record as `ref` rather than being recovered downstream from a
+ * second walk of the annotation table, because the two questions this module asks about a
+ * registration — does its reference resolve, and is anything supposed to emit it — must be asked of
+ * the same row. A second walk would be a second authority for which registrations are in scope, and
+ * the two could disagree the moment {@link WELD_RESOLUTION_POLICY} moved.
+ */
+export interface BootResolvedWeld {
+  readonly eventType: string;
+  readonly ref: string;
+  readonly lifecycle: EventLifecycle;
+}
+
+/**
+ * The boot-resolvable welds in an annotation table: `(eventType, ref, lifecycle)` for every
+ * registration whose tier policy says `resolvedAt: 'boot'`.
+ *
+ * The ref comes from {@link weldReferenceOf}, whose `switch` has no `default` beyond the `never`
+ * binding — so "what is this registration welded to" has ONE runtime authority and a sixth tier
+ * cannot slip past it. Sorted by event type.
  */
 export function bootResolvedWelds(
   annotations: Readonly<Record<string, EventRegistration>> = EVENT_ANNOTATIONS,
   policy: Readonly<Record<EventTier, WeldResolutionPolicy>> = WELD_RESOLUTION_POLICY,
-): readonly { readonly eventType: string; readonly ref: string }[] {
-  const welds: { eventType: string; ref: string }[] = [];
+): readonly BootResolvedWeld[] {
+  const welds: BootResolvedWeld[] = [];
   for (const [eventType, registration] of Object.entries(annotations)) {
     if (policy[registration.tier].resolvedAt !== 'boot') continue;
-    welds.push({ eventType, ref: weldReferenceOf(registration).ref });
+    welds.push({
+      eventType,
+      ref: weldReferenceOf(registration).ref,
+      lifecycle: registration.lifecycle,
+    });
   }
   return Object.freeze(welds.sort((a, b) => byString(a.eventType, b.eventType)));
+}
+
+/**
+ * The welds the stale-cover check ranges over: those whose lifecycle
+ * {@link STALE_COVER_LIFECYCLE_POLICY} marks eligible.
+ *
+ * The filter reads the TABLE, and that is the whole mechanism. Written as `lifecycle === 'active'`
+ * the same rows would come out today and the policy would become decoration — a second authority
+ * that agrees by luck until somebody edits one of the two. `lifecyclePolicy` is a parameter with
+ * the live default for the same reason every other population in this module is one: a filter that
+ * could only ever consult one hard-wired table could not be shown to be consulting it at all.
+ */
+export function staleCoverEligibleWelds(
+  welds: readonly BootResolvedWeld[],
+  lifecyclePolicy: Readonly<
+    Record<EventLifecycle, StaleCoverEligibility>
+  > = STALE_COVER_LIFECYCLE_POLICY,
+): readonly BootResolvedWeld[] {
+  return Object.freeze(welds.filter((weld) => lifecyclePolicy[weld.lifecycle].eligible));
 }
 
 /**
@@ -528,6 +708,9 @@ export function validateRegistrationWelds(
     Record<WeldDiagnosticCode, WeldDiagnosticSeverity>
   > = DIAGNOSTIC_SEVERITY_POLICY,
   emissions: readonly EmissionEdge[] = declaredEmissionEdges(),
+  lifecyclePolicy: Readonly<
+    Record<EventLifecycle, StaleCoverEligibility>
+  > = STALE_COVER_LIFECYCLE_POLICY,
 ): WeldResolutionVerdict {
   const diagnostics: WeldResolutionDiagnostic[] = [];
   // One lookup, so severity is stamped from the table at every emission site and never decided
@@ -668,6 +851,68 @@ export function validateRegistrationWelds(
     });
   }
 
+  // ── The stale-cover check: an active weld nothing declares it emits ───────
+  //
+  // Everything above can only speak about events something DOES emit. A capability registration
+  // that contributes no emission edge is invisible to all of it and passes by not being looked at,
+  // which is the cheapest way for a weld to be wrong: it declares a provider and a consumer fold,
+  // and the tree contains neither the emission nor anything that notices the emission is missing.
+  // That is cover rather than coupling, and it is what this arm reports.
+  //
+  // The population is narrowed by LIFECYCLE and by nothing else. A `planned` or `retired`
+  // registration is one no edge can name, so firing on it would be firing on a conforming tree —
+  // and the exclusion is read out of a table that is total over the axis rather than out of a list
+  // of exempt event names, which would need topping up every time an event was planned and would
+  // be a rubber stamp within a release. See {@link STALE_COVER_LIFECYCLE_POLICY}.
+  const eligible = staleCoverEligibleWelds(welds, lifecyclePolicy);
+  const excludedByLifecycle = welds.length - eligible.length;
+
+  // Conditioned on a non-empty WELD set for the same reason EMPTY_EMISSION_DENOMINATOR is: the case
+  // where the capability arm itself went missing already has an owner, and two codes reporting one
+  // fact would leave a reader guessing which is the cause. What this one owns is the case that code
+  // cannot see — welds exist, and the lifecycle axis excluded every one of them.
+  if (welds.length > 0 && eligible.length === 0) {
+    diagnostics.push({
+      code: 'EMPTY_STALE_COVER_DENOMINATOR',
+      eventType: null,
+      provider: null,
+      excludedByLifecycle,
+      severity: severityOf('EMPTY_STALE_COVER_DENOMINATOR'),
+      message:
+        `no boot-resolvable weld is stale-cover eligible, over ${welds.length} such weld(s) — the ` +
+        `lifecycle axis excluded every one of them. A capability arm holding nothing that anything ` +
+        'is supposed to emit is either a catalog that has been retired wholesale or a lifecycle ' +
+        'field that has stopped being read, and in both cases the stale-cover check ranged over an ' +
+        'empty set and cannot have found anything. An absence measured over nothing must not read ' +
+        'as clean.',
+    });
+  }
+
+  // Membership in the DECLARED population, not in the compared one. The two coincide by
+  // construction — a declared edge naming a boot-resolved event is exactly what `compared` collects
+  // — and taking it from `emissions` says the honest thing: the question is whether ANY action in
+  // the registry claims to emit this event, with no filter of this module's in between.
+  const namedByAnEdge = new Set(emissions.map((edge) => edge.event));
+  for (const weld of eligible) {
+    if (namedByAnEdge.has(weld.eventType)) continue;
+    diagnostics.push({
+      code: STALE_CAPABILITY_COVER_CODE,
+      eventType: weld.eventType,
+      provider: weld.ref,
+      lifecycle: weld.lifecycle,
+      severity: severityOf(STALE_CAPABILITY_COVER_CODE),
+      message:
+        `event '${weld.eventType}' is registered tier 'capability' with provider '${weld.ref}' ` +
+        `and lifecycle '${weld.lifecycle}', and no action in the tool registry declares that it ` +
+        'emits it. The registration claims an effect provider appends the event and that something ' +
+        'folds the result, so with no declared emission edge it is cover rather than coupling — ' +
+        'and the provider comparison cannot report on it either, because there is no declaring ' +
+        'tool to compare the declared provider against. Either an action is missing the autoEmits ' +
+        "entry that would name it, or nothing emits the event and the registration's lifecycle " +
+        'should say so.',
+    });
+  }
+
   const sorted = [...diagnostics].sort((a, b) =>
     byString(diagnosticSortKey(a), diagnosticSortKey(b)),
   );
@@ -682,8 +927,9 @@ export function validateRegistrationWelds(
 
   const line = (d: WeldResolutionDiagnostic): string =>
     `  [${d.code}] ${d.eventType ?? d.provider ?? '<catalog>'}: ${d.message}`;
-  // Observations are a TRAILING block rather than an inline tag, so that with no observations the
-  // rendered report is character-for-character the one this gate produced before severity existed.
+  // Observations are a TRAILING block rather than an inline tag, so a report with none of them is
+  // the plain refusal (or the plain green light) with nothing appended — the severity axis costs a
+  // reader who has no observations to read exactly nothing.
   const observedBlock =
     observed.length === 0
       ? ''
@@ -693,12 +939,13 @@ export function validateRegistrationWelds(
   // Every count is rendered beside the population it was measured over, so no number in this
   // report can be read without the denominator that gives it a meaning.
   const overPopulations =
-    `${welds.length} boot-resolved weld(s), ${resolvable.length} live provider(s) ` +
-    `and ${compared.length} compared emission edge(s)`;
+    `${welds.length} boot-resolved weld(s), ${eligible.length} stale-cover eligible, ` +
+    `${resolvable.length} live provider(s) and ${compared.length} compared emission edge(s)`;
 
   const report = ok
-    ? `event registration welds OK — ${welds.length} boot-resolved weld(s) against ` +
-      `${resolvable.length} live effect provider(s) and ${compared.length} compared emission edge(s)`
+    ? `event registration welds OK — ${welds.length} boot-resolved weld(s) ` +
+      `(${eligible.length} stale-cover eligible) against ${resolvable.length} live effect ` +
+      `provider(s) and ${compared.length} compared emission edge(s)`
     : bootable
       ? `event registration welds BOOTABLE — 0 blocking fault(s) over ${overPopulations}` +
         observedBlock
@@ -714,6 +961,7 @@ export function validateRegistrationWelds(
     resolvableProviderCount: resolvable.length,
     emissionEdgeCount: emissions.length,
     comparedEmissionEdgeCount: compared.length,
+    staleCoverEligibleCount: eligible.length,
     diagnostics: sorted,
     blockingCount: blocking.length,
     observeCount: observed.length,
@@ -1107,6 +1355,9 @@ export function assertRegistrationWeldsAtStartup(
   > = DIAGNOSTIC_SEVERITY_POLICY,
   report: (message: string) => void = reportToStderr,
   emissions: readonly EmissionEdge[] = declaredEmissionEdges(),
+  lifecyclePolicy: Readonly<
+    Record<EventLifecycle, StaleCoverEligibility>
+  > = STALE_COVER_LIFECYCLE_POLICY,
 ): WeldResolutionVerdict {
   const verdict = validateRegistrationWelds(
     annotations,
@@ -1115,6 +1366,7 @@ export function assertRegistrationWeldsAtStartup(
     policy,
     severityPolicy,
     emissions,
+    lifecyclePolicy,
   );
   if (!verdict.bootable) throw new RegistrationWeldError(verdict);
   // Survivable, but not silent. An observation nobody is told about is indistinguishable from a
@@ -1245,6 +1497,56 @@ export type _RegistrationValidate_NarrowedDiagnostic_CarriesTheShortfall = Expec
  * */
 export type _RegistrationValidate_BothComparedSides_AreCompositeToolIds = Expect<
   MutuallyAssignable<EmissionEdge['declaringTool'], CompositeTool['name']>
+>;
+
+/**
+ * **The lifecycle-exclusion proof.** The stale-cover policy is TOTAL over the lifecycle axis, the
+ * same way the resolution policy is total over the tier axis and the severity policy is total over
+ * the diagnostic axis.
+ *
+ * This is the one that makes the exclusion STRUCTURAL rather than a convention. A fourth lifecycle
+ * state — or a widening of this annotation to `Partial<…>` or an index signature — would otherwise
+ * let a registration arrive with no eligibility decision and be admitted or skipped by whatever the
+ * lookup happened to produce, which is exactly the silent drift a hand-maintained exemption list
+ * suffers from and the reason this is a table over the axis at all.
+ @proof
+ * */
+export type _RegistrationValidate_StaleCoverPolicy_IsTotalOverTheLifecycleAxis = Expect<
+  MutuallyAssignable<keyof typeof STALE_COVER_LIFECYCLE_POLICY, EventLifecycle>
+>;
+
+/**
+ * The population the stale-cover check filters is the population the resolution check produced, so
+ * the two cannot come to disagree about which registrations are in scope: `staleCoverEligibleWelds`
+ * consumes {@link BootResolvedWeld}s and returns them, narrowing on lifecycle and nothing else.
+ *
+ * Falsifier: give the eligible set its own record shape and this alias stops holding — which is the
+ * moment a second walk of the annotation table could start admitting rows the tier policy excluded.
+ @proof
+ * */
+export type _RegistrationValidate_StaleCoverPopulation_IsASubsetOfTheResolvedWelds = Expect<
+  MutuallyAssignable<
+    ReturnType<typeof staleCoverEligibleWelds>[number],
+    ReturnType<typeof bootResolvedWelds>[number]
+  >
+>;
+
+/**
+ * **The stale-cover shape proof.** The finding names the event, the cover it claims, and the
+ * lifecycle that admitted it to the population — all three, in the one record.
+ *
+ * The lifecycle field is the load-bearing one and the reason this proof exists: without it a reader
+ * looking at a wall of stale-cover findings cannot tell whether the exclusion axis is working, and
+ * would have to re-read the catalog to check that the check was not reporting retired events.
+ *
+ * Falsifier: drop any of the three and the key set stops matching, so the build names it.
+ @proof
+ * */
+export type _RegistrationValidate_StaleCoverDiagnostic_NamesTheEventAndItsLifecycle = Expect<
+  MutuallyAssignable<
+    keyof Extract<WeldResolutionDiagnostic, { code: typeof STALE_CAPABILITY_COVER_CODE }>,
+    'code' | 'eventType' | 'provider' | 'lifecycle' | 'message' | 'severity'
+  >
 >;
 
 /**
