@@ -9,8 +9,13 @@ import { compile } from './compiler.js';
 const TEST_DIR = join(dirname(fileURLToPath(import.meta.url)), '.test-sandbox-fixtures');
 
 function hasGpp(): boolean {
+  // `which g++` is not enough: windows-latest runners ship a g++ shim that
+  // resolves yet cannot compile (no MSVC toolchain in PATH). Probe by running
+  // `g++ --version` instead — a shim does not respond to its driver flag, so
+  // this catches the case where `which` alone would say yes and the compile
+  // path would then fail.
   try {
-    execFileSync('which', ['g++']);
+    execFileSync('g++', ['--version'], { stdio: 'ignore' });
     return true;
   } catch {
     return false;

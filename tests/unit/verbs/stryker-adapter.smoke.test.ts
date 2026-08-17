@@ -251,7 +251,7 @@ describe.skipIf(process.platform === 'win32')('stryker-adapter composed path —
         path.join(serverDir, 'src', 'fixture', 'add.test.ts'),
         [
           "import { describe, it, expect } from 'vitest';",
-          "import { add } from '../orchestrate/add.js';",
+          "import { add } from './add.js';",
           "describe('add', () => {",
           "  it('adds two numbers', () => {",
           '    expect(add(2, 3)).toBe(5);',
@@ -284,7 +284,7 @@ describe.skipIf(process.platform === 'win32')('stryker-adapter composed path —
         path.join(serverDir, 'src', 'fixture', 'add.test.ts'),
         [
           "import { describe, it, expect } from 'vitest';",
-          "import { add, double } from '../orchestrate/add.js';",
+          "import { add, double } from './add.js';",
           "describe('add', () => {",
           "  it('adds two numbers', () => {",
           '    expect(add(2, 3)).toBe(5);',
