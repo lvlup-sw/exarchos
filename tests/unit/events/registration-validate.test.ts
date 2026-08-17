@@ -46,6 +46,7 @@ import {
 } from '../../../src/events/event-registration.js';
 import {
   DIAGNOSTIC_SEVERITY_POLICY,
+  EMISSION_DENOMINATOR_FLOOR,
   EMISSION_PROVIDER_MISMATCH_CODE,
   PROVIDER_REGISTRY_DRIFT_CODE,
   RegistrationWeldError,
@@ -215,6 +216,15 @@ const DIAGNOSTIC_SEEDS: readonly DiagnosticSeed[] = [
     providers: EFFECT_PROVIDERS,
     rules: EFFECT_OWNERSHIP,
     emissions: [],
+  },
+  {
+    // Non-empty and still too small: one conforming edge, so nothing disagrees and no vacuity
+    // guard has anything to say. The only thing wrong with this population is its SIZE.
+    code: 'NARROWED_EMISSION_DENOMINATOR',
+    annotations: EVENT_ANNOTATIONS,
+    providers: EFFECT_PROVIDERS,
+    rules: EFFECT_OWNERSHIP,
+    emissions: CONFORMING_EMISSIONS.slice(0, 1),
   },
 ];
 
@@ -511,7 +521,11 @@ describe('StartupAssertion — the severity axis on the boot refusal', () => {
       ].sort(),
     );
     expect(codesAt('observe')).toEqual(
-      [EMISSION_PROVIDER_MISMATCH_CODE, 'EMPTY_EMISSION_DENOMINATOR'].sort(),
+      [
+        EMISSION_PROVIDER_MISMATCH_CODE,
+        'EMPTY_EMISSION_DENOMINATOR',
+        'NARROWED_EMISSION_DENOMINATOR',
+      ].sort(),
     );
 
     // NON-VACUOUS SEED SET: one input per code, and the codes come from the same table asserted
@@ -886,5 +900,160 @@ describe('ProviderComparison — the declaring tool against the declared provide
 
     // Injectable, so the comparison can be exercised on a population that is not the live one.
     expect(declaredEmissionEdges([])).toEqual([]);
+  });
+});
+
+describe('ComparisonDenominator — the size of the set the provider comparison ranges over', () => {
+  /**
+   * The intersection, walked from the two LIVE authorities directly: the annotation table says
+   * which events carry a boot-resolvable weld, the tool registry says which actions declare an
+   * emission. Deliberately not routed through `declaredEmissionEdges`, which is part of the
+   * subject — a denominator read back out of the thing under test agrees with it by construction
+   * and could not report a narrowing in either of them.
+   */
+  function liveIntersectionSize(): number {
+    const welded = new Set(liveCapabilityTypes());
+    let size = 0;
+    for (const tool of TOOL_REGISTRY) {
+      for (const action of tool.actions) {
+        for (const emission of action.autoEmits ?? []) {
+          if (welded.has(emission.event)) size += 1;
+        }
+      }
+    }
+    return size;
+  }
+
+  /** Declared edges naming events this gate does not resolve — real, and never compared. */
+  function offTierEmissionEdges(): readonly EmissionEdge[] {
+    const welded = new Set(liveCapabilityTypes());
+    return declaredEmissionEdges().filter((edge) => !welded.has(edge.event));
+  }
+
+  it('ComparisonDenominator_LiveIntersection_IsNonEmptyAtMeasuredSize', () => {
+    const intersection = liveIntersectionSize();
+    const verdict = validateRegistrationWelds();
+
+    // OBSERVABLE, NOT INFERRED. The verdict's own number is the measured one, so the denominator
+    // can be read off a boot rather than reconstructed by whoever is suspicious of it. Without
+    // this equality the count could be anything the gate cared to publish.
+    expect(verdict.comparedEmissionEdgeCount).toBe(intersection);
+
+    // NON-EMPTY — and so is the floor, which matters more than it looks: a floor of zero is a
+    // ratchet that ratchets nothing, satisfied by every population including the empty one.
+    expect(intersection).toBeGreaterThan(0);
+    expect(EMISSION_DENOMINATOR_FLOOR).toBeGreaterThan(0);
+
+    // AT ITS MEASURED SIZE, one-directionally, and the direction is the whole design. `>=` rather
+    // than `===` because widening this set is the ordinary direction of travel — every capability
+    // event something declares it emits adds to it — and a check that reddened on growth would
+    // punish exactly the work it exists to protect. Shrinkage is the defect; the seeded-shrink
+    // test below runs this same expectation against a smaller population and shows it throw.
+    expect(intersection).toBeGreaterThanOrEqual(EMISSION_DENOMINATOR_FLOOR);
+
+    // ...and the floor is not set ABOVE the live tree. A ratchet that is always tripped reports a
+    // narrowing that is not happening, and would be tuned out within a week.
+    expect(verdict.diagnostics.map((d) => d.code)).not.toContain('NARROWED_EMISSION_DENOMINATOR');
+
+    // The intersection is a STRICT subset of the declared population: most emission edges name
+    // events registered at a tier this gate does not resolve. Two numbers that had converged would
+    // mean the comparison had quietly widened past the capability arm — the opposite drift, hidden
+    // by the same unpinned denominator.
+    expect(verdict.emissionEdgeCount).toBeGreaterThan(0);
+    expect(intersection).toBeLessThan(verdict.emissionEdgeCount);
+  });
+
+  it('ComparisonDenominator_SeededShrink_FailsRatherThanPassingClean', () => {
+    // THE KILL FIXTURE FOR THE FLOOR. Every population except the emission set is the live module.
+    // The emission set keeps every declared edge whose event this gate does NOT resolve, and keeps
+    // only a handful of the ones it does — so nothing is empty, nothing disagrees, and the single
+    // variable is the SIZE of the set the comparison ranges over.
+    const offTier = offTierEmissionEdges();
+    expect(offTier.length).toBeGreaterThan(0);
+    const kept = CONFORMING_EMISSIONS.slice(0, 3);
+    expect(kept).toHaveLength(3);
+
+    const verdict = validateRegistrationWelds(
+      EVENT_ANNOTATIONS,
+      EFFECT_PROVIDERS,
+      EFFECT_OWNERSHIP,
+      WELD_RESOLUTION_POLICY,
+      DIAGNOSTIC_SEVERITY_POLICY,
+      [...kept, ...offTier],
+    );
+
+    // Non-empty on every axis a vacuity guard can see...
+    expect(verdict.bootResolvedCount).toBeGreaterThan(0);
+    expect(verdict.resolvableProviderCount).toBeGreaterThan(0);
+    expect(verdict.emissionEdgeCount).toBeGreaterThan(0);
+    expect(verdict.comparedEmissionEdgeCount).toBe(kept.length);
+    expect(verdict.comparedEmissionEdgeCount).toBeGreaterThan(0);
+
+    // ...so the existing guards are SATISFIED, which is the entire reason this case needs its own.
+    // The zero case belongs to EMPTY_EMISSION_DENOMINATOR and cannot see a set of three; the
+    // subject side is intact, so the capability guard has nothing to say; and every kept edge
+    // agrees with its annotation, so a gate that only reported mismatches would call this clean.
+    const codes = verdict.diagnostics.map((d) => d.code);
+    expect(codes).not.toContain('EMPTY_EMISSION_DENOMINATOR');
+    expect(codes).not.toContain('EMPTY_CAPABILITY_DENOMINATOR');
+    expect(codes).not.toContain(EMISSION_PROVIDER_MISMATCH_CODE);
+
+    // THE ASSERTION REDDENS — not "a diagnostic appeared", but the very expectation the live test
+    // makes, run against this population and shown to throw. An assertion whose operator can never
+    // fail is the failure mode a floor is most likely to ship with.
+    expect(() =>
+      expect(verdict.comparedEmissionEdgeCount).toBeGreaterThanOrEqual(EMISSION_DENOMINATOR_FLOOR),
+    ).toThrow();
+
+    // ...and the GATE says so too, so the property does not live only in this file. The finding
+    // sizes the shortfall — how far it reached and how far it should have — rather than making an
+    // operator import a constant to work out how bad it is.
+    expect(verdict.ok).toBe(false);
+    const narrowing = verdict.diagnostics.filter(
+      (d) => d.code === 'NARROWED_EMISSION_DENOMINATOR',
+    );
+    expect(narrowing).toHaveLength(1);
+    const finding = narrowing[0];
+    expect(finding).toBeDefined();
+    if (finding === undefined || finding.code !== 'NARROWED_EMISSION_DENOMINATOR') return;
+    expect(finding.compared).toBe(kept.length);
+    expect(finding.floor).toBe(EMISSION_DENOMINATOR_FLOOR);
+    expect(finding.message).toContain(`${EMISSION_DENOMINATOR_FLOOR}`);
+    expect(finding.message).toContain(`${kept.length}`);
+
+    // OBSERVE, not blocking. A floor that refused startup would turn any legitimate re-tiering of
+    // a capability event into an unbootable tree for every entry point at once — worse than the
+    // narrowing it watches for.
+    expect(finding.severity).toBe('observe');
+    expect(verdict.bootable).toBe(true);
+    expect(verdict.blockingCount).toBe(0);
+
+    // THE CONTROL, and the reason any of the above is evidence: put the removed edges back and the
+    // identical call is clean. The finding is caused by the shrink, not by the fixture.
+    const restored = validateRegistrationWelds(
+      EVENT_ANNOTATIONS,
+      EFFECT_PROVIDERS,
+      EFFECT_OWNERSHIP,
+      WELD_RESOLUTION_POLICY,
+      DIAGNOSTIC_SEVERITY_POLICY,
+      [...CONFORMING_EMISSIONS, ...offTier],
+    );
+    expect(restored.comparedEmissionEdgeCount).toBeGreaterThanOrEqual(EMISSION_DENOMINATOR_FLOOR);
+    expect(restored.diagnostics).toEqual([]);
+    expect(restored.ok).toBe(true);
+
+    // ...and the two denominator faults stay DISJOINT. Drop the compared edges entirely and the
+    // empty case fires ALONE — the floor does not ride along to report the same thing twice, which
+    // is what it would do if it were a restatement of the vacuity guard rather than its complement.
+    const emptied = validateRegistrationWelds(
+      EVENT_ANNOTATIONS,
+      EFFECT_PROVIDERS,
+      EFFECT_OWNERSHIP,
+      WELD_RESOLUTION_POLICY,
+      DIAGNOSTIC_SEVERITY_POLICY,
+      offTier,
+    );
+    expect(emptied.comparedEmissionEdgeCount).toBe(0);
+    expect(emptied.diagnostics.map((d) => d.code)).toEqual(['EMPTY_EMISSION_DENOMINATOR']);
   });
 });
