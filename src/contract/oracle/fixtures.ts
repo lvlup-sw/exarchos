@@ -53,6 +53,7 @@
 // is imported only by the oracle's co-located tests.
 // ────────────────────────────────────────────────────────────────────────────
 
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { z } from 'zod';
 import {
   TOOL_REGISTRY,
@@ -89,6 +90,7 @@ import {
   OPEN_ROLE_MARKER,
   type ActionSafety,
   type ContractDeclaration,
+  type EmissionRecorder,
   type ObservableHandler,
   type ObservationContext,
   type OracleAxis,
@@ -445,6 +447,35 @@ export interface RealHandlerObservationSet {
  */
 export type DispatchContextFactory = (stateDir: string) => DispatchContext;
 
+// ─── Reaching the oracle's emission recorder from inside a real handler ──────
+//
+// The oracle mints a fresh emission recorder per invocation and injects it on
+// the {@link ObservationContext}. A real {@link CompositeHandler}, however,
+// takes exactly two arguments and its second is `DispatchContext` — a shipped,
+// closed interface. Neither can carry the recorder without changing a
+// production type for a test-only observation, and stuffing it into `args`
+// would put an unknown key in front of every shipped handler's argument parse.
+//
+// So it rides an AsyncLocalStorage scope the adapter opens around the
+// invocation — the same primitive `dispatch-context.ts` uses to reach append
+// sites without an argument refactor, so it survives the
+// `runWithDispatchContext` hop and every async continuation beneath it.
+
+const emissionScope = new AsyncLocalStorage<EmissionRecorder>();
+
+/**
+ * The emission recorder the oracle injected for the invocation in flight, or
+ * `undefined` outside an observed dispatch.
+ *
+ * A handler that appends events calls this at the point it commits, exactly
+ * where it would call `eventStore.append`. One that never calls it is observed
+ * appending nothing — which is the whole signal, so the absence is deliberately
+ * silent rather than an error.
+ */
+export function observedEmissionRecorder(): EmissionRecorder | undefined {
+  return emissionScope.getStore();
+}
+
 /**
  * Adapt a REAL composite handler to an {@link ObservableHandler}.
  *
@@ -460,6 +491,13 @@ export type DispatchContextFactory = (stateDir: string) => DispatchContext;
  * Because the adapter does not decide, the verdict is the HANDLER's: one that
  * consults the trusted-caller boundary refuses the intruder, and one that skips
  * authorization serves it and is caught.
+ *
+ * It also carries the observation context's emission recorder into the
+ * invocation (see {@link observedEmissionRecorder}). Without that hop the
+ * recorder is injected and then dropped at this boundary, and EVERY real
+ * subject's emission axis reports `not-observed` for a reason that is an
+ * artifact of the adapter rather than a fact about the handler — the axis
+ * would look inspected while being structurally incapable of a verdict.
  */
 export function compositeHandlerAdapter(
   load: CompositeHandlerLoader,
@@ -479,16 +517,27 @@ export function compositeHandlerAdapter(
       (role) => role === OPEN_ROLE_MARKER || held.has(role),
     );
     const dispatchCtx = makeContext(stateDir);
-    if (!holdsRequiredRole) {
-      return handler(args, dispatchCtx);
-    }
-    const authorization = snapshotCallerAuthorization(
-      deriveLocalOperatorIdentity(stateDir),
-      undefined,
-    );
-    return runWithDispatchContext(mintDispatchContext(undefined, authorization), () =>
-      handler(args, { ...dispatchCtx, callerIdentity: authorization.identity }),
-    );
+
+    const invoke = (): Promise<ToolResult> => {
+      if (!holdsRequiredRole) {
+        return handler(args, dispatchCtx);
+      }
+      const authorization = snapshotCallerAuthorization(
+        deriveLocalOperatorIdentity(stateDir),
+        undefined,
+      );
+      return Promise.resolve(
+        runWithDispatchContext(mintDispatchContext(undefined, authorization), () =>
+          handler(args, { ...dispatchCtx, callerIdentity: authorization.identity }),
+        ),
+      );
+    };
+
+    // No recorder on the context means the caller is not observing emissions
+    // here (the admission probe below, for one). Opening a scope over a
+    // throwaway recorder would tell the handler it is being watched when
+    // nothing will read what it records, so the scope simply stays closed.
+    return ctx.emissions === undefined ? invoke() : emissionScope.run(ctx.emissions, invoke);
   };
 }
 
@@ -635,6 +684,20 @@ export interface RealRegistryCase {
 }
 
 /**
+ * The wire envelope a probe handler returns, carried as the `ToolResult` the
+ * `CompositeHandler` signature declares — the same reinterpretation the shipped
+ * composite handlers make when they hand a wrapped envelope back across the
+ * dispatch boundary.
+ *
+ * Every probe below goes through this one conversion so the reinterpretation
+ * lives at a single named site rather than being repeated, unexplained, at each
+ * handler's return.
+ */
+function probeEnvelope(result: ToolResult): ToolResult {
+  return toEnvelope(result) as unknown as ToolResult;
+}
+
+/**
  * The real handler that ENFORCES: it reads the trusted caller-authorization
  * snapshot off the production dispatch scope (`getDispatchContext()`) and fails
  * closed with the real `TRUSTED_CALLER_REQUIRED` authorization-family code when
@@ -644,30 +707,44 @@ export interface RealRegistryCase {
 const enforcingRealHandler: CompositeHandler = async (): Promise<ToolResult> => {
   const dispatchScope = getDispatchContext();
   if (dispatchScope?.authorization === undefined) {
-    return toEnvelope({
+    return probeEnvelope({
       success: false,
       error: {
         code: TRUSTED_CALLER_REQUIRED,
         message: 'guarded_read requires trusted dispatch caller identity.',
         action: REAL_REGISTRY_PROBE_ACTION,
       },
-    }) as unknown as ToolResult;
+    });
   }
-  return toEnvelope({ success: true, data: { guarded: true } }) as unknown as ToolResult;
+  return probeEnvelope({ success: true, data: { guarded: true } });
 };
 
 /** The real handler that SKIPS authorization: it never consults the boundary. */
 const skippingRealHandler: CompositeHandler = async (): Promise<ToolResult> =>
-  toEnvelope({ success: true, data: { guarded: true } }) as unknown as ToolResult;
+  probeEnvelope({ success: true, data: { guarded: true } });
 
-/** Build the real probe action, running it through the registry's own validator. */
-function buildRealProbeAction(): ExtensionToolAction {
+/** What varies between the controlled probe registrations. */
+interface RealProbeSpec {
+  readonly toolName: string;
+  readonly actionName: string;
+  readonly roles: readonly string[];
+  readonly description: string;
+}
+
+/**
+ * Build a real probe action, running it through the registry's own validator.
+ *
+ * Shared by every controlled case below, so each one is registered by ONE code
+ * path: a probe cannot quietly acquire looser annotations or skip the validator
+ * that the others go through.
+ */
+function buildRealProbeAction(spec: RealProbeSpec): ExtensionToolAction {
   const action: ExtensionToolAction = {
-    name: REAL_REGISTRY_PROBE_ACTION,
-    description: 'Oracle authorization probe — a real read guarded by the trusted-caller boundary.',
+    name: spec.actionName,
+    description: spec.description,
     schema: z.object({}).strict(),
     phases: new Set(['delegate']),
-    roles: new Set([REAL_REGISTRY_PROBE_ROLE]),
+    roles: new Set(spec.roles),
     // DR-4 (task 055): the probe is a FIXTURE action, deliberately absent from
     // the built-in registry the vacuity census enumerates, so it has no
     // allowlist id to waive. The bounded out-of-registry escape keeps it
@@ -690,8 +767,24 @@ function buildRealProbeAction(): ExtensionToolAction {
   // The REAL registration-time invariant loop — the same call `registry.ts`
   // makes over every built-in action at module load. A declaration that could
   // not be registered for real is not a real registration.
-  validateAction(action, REAL_REGISTRY_PROBE_TOOL);
+  validateAction(action, spec.toolName);
   return action;
+}
+
+/**
+ * Mint the REAL, non-serializable implementation binding for a probe tool
+ * through the real binding-table constructor — the binding is produced exactly
+ * as the shipped table's entries are, not hand-assembled.
+ */
+function realProbeBinding(toolName: string, handler: CompositeHandler): ImplementationBinding {
+  const loaders: Record<string, CompositeHandlerLoader> = {
+    [toolName]: () => Promise.resolve(handler),
+  };
+  const [binding] = buildBindingTable(loaders);
+  if (binding === undefined || !isImplementationBinding(binding)) {
+    throw new Error(`oracle fixtures: binding table produced no valid binding for '${toolName}'`);
+  }
+  return binding;
 }
 
 /**
@@ -705,7 +798,12 @@ export function realRegistryAuthorizationCase(
   stateDir: string,
   makeContext: DispatchContextFactory,
 ): RealRegistryCase {
-  const action = buildRealProbeAction();
+  const action = buildRealProbeAction({
+    toolName: REAL_REGISTRY_PROBE_TOOL,
+    actionName: REAL_REGISTRY_PROBE_ACTION,
+    roles: [REAL_REGISTRY_PROBE_ROLE],
+    description: 'Oracle authorization probe — a real read guarded by the trusted-caller boundary.',
+  });
   const tool: CompositeTool = {
     name: REAL_REGISTRY_PROBE_TOOL,
     description: 'Oracle authorization probe tool.',
@@ -714,15 +812,7 @@ export function realRegistryAuthorizationCase(
   };
 
   const handler = variant === 'enforcing' ? enforcingRealHandler : skippingRealHandler;
-  const loaders: Record<string, CompositeHandlerLoader> = {
-    [tool.name]: () => Promise.resolve(handler),
-  };
-  // The REAL binding-table constructor over a REAL loader map — the binding is
-  // minted exactly as the shipped table's entries are.
-  const [binding] = buildBindingTable(loaders);
-  if (binding === undefined || !isImplementationBinding(binding)) {
-    throw new Error('realRegistryAuthorizationCase: binding table produced no valid binding');
-  }
+  const binding = realProbeBinding(tool.name, handler);
 
   const actionId = `${tool.name}.${action.name}`;
   const declaration = realActionDeclaration(actionId, action);
@@ -744,6 +834,123 @@ export function realRegistryAuthorizationCase(
       // authorization substrate, so withholding the principal is a genuine
       // runtime condition — the authorization axis is truly probeable.
       authorizationSurface: 'dispatch-authority',
+    },
+  };
+}
+
+// ─── The controlled real-registry emission case ──────────────────────────────
+//
+// `ToolAction` carries no per-action emission declaration — coupling an action
+// to the events it appends is precisely the gap this axis exists to expose — so
+// no shipped action can give the emission axis a determinate verdict today, and
+// the axis would read `not-observed` right across the live surface.
+//
+// Rather than hand-build an observation, this registers a real action the way
+// the authorization case does: through the registry's own validator, bound by
+// the real binding-table constructor, reached through `compositeHandlerAdapter`
+// and the real dispatch scope. Only the handler body varies — one records its
+// append where it commits, the other declares the append and never makes it.
+
+/** The real tool name the emission case registers under. */
+export const REAL_REGISTRY_EMISSION_TOOL = 'exarchos_oracle_emission_probe';
+/** The real action name the emission case registers. */
+export const REAL_REGISTRY_EMISSION_ACTION = 'audited_read';
+/** The event type the emission case's action declares it appends. */
+export const REAL_REGISTRY_EMISSION_EVENT = 'oracle_probe.audit_appended';
+
+/**
+ * `appending` records its append through the recorder the adapter put in scope;
+ * `silent` declares the same emission and never appends. Both are real handlers
+ * bound the real way — the difference is exactly the defect the emission axis
+ * has to catch.
+ */
+export type EmissionVariant = 'appending' | 'silent';
+
+/**
+ * The real handler that APPENDS. It reaches the oracle's recorder
+ * ({@link observedEmissionRecorder}) at the point a shipped handler would call
+ * `eventStore.append`: the recorder stands in for the store so the probe stays
+ * offline and writes to no real stream, but the CALL SITE is the handler's own
+ * commit point, and that is what the axis observes.
+ *
+ * The optional call is deliberate. Outside an observed dispatch there is
+ * nothing to record into, and if the adapter ever stops carrying the recorder
+ * this handler silently becomes indistinguishable from its silent twin — which
+ * is the failure the emission axis then reports, rather than a thrown error
+ * from the harness.
+ */
+const appendingRealHandler: CompositeHandler = async (): Promise<ToolResult> => {
+  observedEmissionRecorder()?.record(
+    REAL_REGISTRY_EMISSION_EVENT,
+    `append:${REAL_REGISTRY_EMISSION_TOOL}.${REAL_REGISTRY_EMISSION_ACTION}`,
+  );
+  return probeEnvelope({ success: true, data: { audited: true } });
+};
+
+/** The real handler that declares the emission and never performs it. */
+const silentRealHandler: CompositeHandler = async (): Promise<ToolResult> =>
+  probeEnvelope({ success: true, data: { audited: true } });
+
+/**
+ * A real action in a real registry instance, bound to a real handler, observed
+ * through the real dispatch surface. The `silent` variant is the acceptance
+ * case: a REAL handler that declares an emission it never performs must be
+ * caught on the emission axis, and the `appending` variant shows the rule is
+ * discriminating rather than blanket.
+ */
+export function realRegistryEmissionCase(
+  variant: EmissionVariant,
+  stateDir: string,
+  makeContext: DispatchContextFactory,
+): RealRegistryCase {
+  const action = buildRealProbeAction({
+    toolName: REAL_REGISTRY_EMISSION_TOOL,
+    actionName: REAL_REGISTRY_EMISSION_ACTION,
+    // The open-role marker, as the built-ins overwhelmingly declare. This probe
+    // is about emissions; declaring a restrictive role its handler ignores would
+    // seed an authorization defect that has nothing to do with the axis under
+    // observation and would redden a second axis for a fixture-only reason.
+    roles: [OPEN_ROLE_MARKER],
+    description:
+      'Oracle emission probe — a real read that records an audit append where it commits.',
+  });
+  const tool: CompositeTool = {
+    name: REAL_REGISTRY_EMISSION_TOOL,
+    description: 'Oracle emission probe tool.',
+    actions: [action],
+    hidden: true,
+  };
+
+  const handler = variant === 'appending' ? appendingRealHandler : silentRealHandler;
+  const binding = realProbeBinding(tool.name, handler);
+
+  const actionId = `${tool.name}.${action.name}`;
+  const declaration: ContractDeclaration = {
+    ...realActionDeclaration(actionId, action),
+    // Every other field is registry-derived. This one cannot be, because the
+    // registry has nowhere to declare it yet; it is stated on the declaration
+    // BOTH variants share, so the two remain byte-identical under
+    // `deriveGeneratedDescriptor` — no generated artifact can tell the
+    // appending handler from the silent one, and only the observation can.
+    declaredEmissions: [REAL_REGISTRY_EMISSION_EVENT],
+  };
+  return {
+    tool,
+    action,
+    binding,
+    subject: {
+      declaration,
+      handler: compositeHandlerAdapter(
+        binding.load,
+        action.name,
+        declaration.requiredRoles,
+        stateDir,
+        makeContext,
+      ),
+      probeInput: {},
+      // No `authorizationSurface`: this subject probes emissions, and claiming
+      // a surface would point the authorization axis at a handler never built
+      // to enforce anything.
     },
   };
 }

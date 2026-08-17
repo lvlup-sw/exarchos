@@ -55,7 +55,7 @@
 // an expiry instead of looking like evidence. The pass / observed /
 // notObserved counts asserted beside it ARE measured from real reports.
 //
-// @oracle-sources: ../../../../src/registry.ts, the values the shipped handlers actually return when invoked through the real implementation-binding table
+// @oracle-sources: ../../../../src/registry.ts, the values the shipped handlers actually return when invoked through the real implementation-binding table, the appends those handlers actually record through the recorder the adapter carries into the invocation
 // ────────────────────────────────────────────────────────────────────────────
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -77,6 +77,9 @@ import {
   type OracleSubject,
 } from '../../../../src/contract/oracle/oracle-seam.js';
 import {
+  REAL_REGISTRY_EMISSION_ACTION,
+  REAL_REGISTRY_EMISSION_EVENT,
+  REAL_REGISTRY_EMISSION_TOOL,
   REAL_REGISTRY_PROBE_ACTION,
   REAL_REGISTRY_PROBE_ROLE,
   REAL_REGISTRY_PROBE_TOOL,
@@ -87,6 +90,7 @@ import {
   realHandlerSubjects,
   realRegistryActions,
   realRegistryAuthorizationCase,
+  realRegistryEmissionCase,
   registryDeclaredEffects,
   registryRequiredRoles,
   type DispatchContextFactory,
@@ -497,4 +501,78 @@ describe('DR-24 — the volatility mask is auditable, not a hole', () => {
       for (const path of obs.maskedCarriers) expect(declared.has(path)).toBe(true);
     }
   }, 120_000);
+});
+
+// ─── The emission axis on the LIVE path ──────────────────────────────────────
+//
+// The oracle mints an emission recorder per invocation and injects it on the
+// observation context, but `compositeHandlerAdapter` is the boundary every real
+// subject is reached through. Until the adapter carried the recorder across
+// that boundary, it was injected and then dropped, and every real subject's
+// emission axis reported `not-observed` for a reason that was an artifact of
+// the harness rather than a fact about the handler.
+//
+// The pair below is the same construction the authorization case uses: a real
+// action registered through the registry's own validator, bound by the real
+// binding-table constructor, invoked through the adapter and the real dispatch
+// scope. Only the handler body differs — one records its append where it
+// commits, the other declares the append and never makes it — so the verdict
+// is the HANDLER's and the two are indistinguishable to anything reading the
+// declaration.
+
+describe('the emission axis reaches a verdict on a live subject', () => {
+  it('OracleEmission_LiveSubject_ProducesADeterminateVerdict', async () => {
+    const appending = realRegistryEmissionCase('appending', stateDir, makeRealContext);
+    const silent = realRegistryEmissionCase('silent', stateDir, makeRealContext);
+
+    // The subject under observation is reached through a REAL, non-serializable
+    // implementation binding — not a hand-built observation object.
+    expect(appending.binding.tool).toBe(REAL_REGISTRY_EMISSION_TOOL);
+    expect(typeof appending.binding.load).toBe('function');
+    expect(appending.subject.declaration.actionId).toBe(
+      `${REAL_REGISTRY_EMISSION_TOOL}.${REAL_REGISTRY_EMISSION_ACTION}`,
+    );
+    expect(appending.subject.declaration.declaredEmissions).toEqual([
+      REAL_REGISTRY_EMISSION_EVENT,
+    ]);
+
+    // The recorder the seam minted really crossed the adapter: the observation
+    // carries the append the handler itself recorded, evidence and all. Read
+    // off `performedEmissions`, which is populated from the recorder — not from
+    // the declaration, which would make the whole axis tautological.
+    const obs = await observeBehavior(appending.subject);
+    expect(obs.performedEmissions.map((e) => e.eventType)).toEqual([
+      REAL_REGISTRY_EMISSION_EVENT,
+    ]);
+    expect(obs.performedEmissions[0]?.evidence).toContain(REAL_REGISTRY_EMISSION_ACTION);
+
+    // DETERMINATE: `pass`, not the `not-observed` a live subject reports when
+    // the axis is structurally unable to look.
+    const appendingReport = await runOracle(appending.subject);
+    expect(appendingReport.emissionVerdict.status, summarizeReport(appendingReport)).toBe('pass');
+    expect(appendingReport.emissionVerdict.status).not.toBe('not-observed');
+    expect(appendingReport.ok, summarizeReport(appendingReport)).toBe(true);
+
+    // Determinate in the other direction too, which is what makes the `pass`
+    // above discriminating rather than a default: the twin that declares the
+    // same emission and never records it is caught.
+    const silentReport = await runOracle(silent.subject);
+    expect(silentReport.emissionVerdict.status, summarizeReport(silentReport)).toBe('fail');
+    expect(silentReport.emissionVerdict.diagnostic).toContain(REAL_REGISTRY_EMISSION_EVENT);
+    expect(silentReport.ok, summarizeReport(silentReport)).toBe(false);
+
+    // Per-axis isolation: the emission axis is the only thing that moved, so
+    // the probe is not reddening a neighbouring axis for a fixture-only reason.
+    expect(silentReport.verdicts.filter((v) => v.status === 'fail')).toEqual([]);
+
+    // Independence, on a REAL registration: the two declarations are
+    // byte-identical, so no generated artifact — and no
+    // declaration-to-declaration drift guard — can tell the appending handler
+    // from the silent one. Only the behavioral observation can.
+    expect(
+      serializeGeneratedDescriptor(deriveGeneratedDescriptor(silent.subject.declaration)),
+    ).toBe(
+      serializeGeneratedDescriptor(deriveGeneratedDescriptor(appending.subject.declaration)),
+    );
+  }, 60_000);
 });

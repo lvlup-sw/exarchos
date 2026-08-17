@@ -10,7 +10,7 @@
     "src/config/guards.ts": 1,
     "src/config/register.ts": 1,
     "src/contract/bindings/binding-table.ts": 1,
-    "src/contract/oracle/fixtures.ts": 3,
+    "src/contract/oracle/fixtures.ts": 1,
     "src/dispatch/core/dispatch.ts": 1,
     "src/dispatch/tasks-augmented.ts": 3,
     "src/events/subscriptions.ts": 1,
