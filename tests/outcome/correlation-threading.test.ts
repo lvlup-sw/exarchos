@@ -16,8 +16,8 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { EventStore } from '../../servers/exarchos-mcp/src/event-store/store.js';
-import { dispatch } from '../../servers/exarchos-mcp/src/core/dispatch.js';
+import { EventStore } from '../../src/events/store.js';
+import { dispatch } from '../../src/dispatch/core/dispatch.js';
 
 const tempDirs: string[] = [];
 
@@ -34,7 +34,7 @@ describe('Three-field correlation threading at dispatch boundary (#1291)', () =>
     // the teardown.
     while (tempDirs.length > 0) {
       const dir = tempDirs.pop()!;
-      await fs.rm(dir, { recursive: true, force: true });
+      await fs.rm(dir, { recursive: true, force: true, maxRetries: 3 });
     }
   });
 

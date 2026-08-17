@@ -1,5 +1,0 @@
-[install]
-# Block npm packages published less than 7 days ago to defend against
-# fast-published supply-chain worms. Override with: bun add <pkg> --minimum-release-age 0
-minimumReleaseAge = 604800
-minimumReleaseAgeExcludes = []

@@ -1,0 +1,213 @@
+{
+  "$comment": [
+    "Enforcer-wiring manifest (task 011, DR-5/DR-8). One entry per",
+    "scripts/check-*|lint-* PRIMARY (self-tests `.test.*` are excluded). The",
+    "check-enforcer-wiring.mjs gate verifies each claim by TRANSITIVELY walking",
+    "npm-script chains + workflow run-steps and inspecting per-term exit-code",
+    "handling. It models four trap classes a name-grep cannot see:",
+    "  1 orphan               — no workflow references it at all.",
+    "  2 unreachable-npm      — referenced only from an npm script no workflow runs.",
+    "  3 exit-code-swallowed  — runs in CI but `|| true` / continue-on-error eats its exit.",
+    "  4 missing-synchronize  — a diff-dependent gate whose host workflow can't re-run on a push.",
+    "",
+    "`unfilteredCiPath: true` is a CLAIM that the named workflow runs this",
+    "primary on a lane that fires on EVERY pull request — no `on.pull_request`",
+    "paths/branches narrowing, and no filtering `if:` on the hosting job or step.",
+    "It is VERIFIED against the parsed workflow (analyzeCiPathFilters), never",
+    "asserted, and `ciStepMatch` locates the hosting step when the step does not",
+    "name the script literally (an `npm run` indirection). Every grep-gates",
+    "primary below carries the claim, so the adjudication has live subjects and a",
+    "path filter added to that lane fails HERE rather than silently converting",
+    "sixteen gates into skipped-as-passed ones (#1711). Entries hosted elsewhere",
+    "deliberately omit the key: test-mcp and test-root are path-filtered by",
+    "design, and pr-body-check.yml / benchmark-gate.yml are separate workflows.",
+    "",
+    "disposition ∈ { gating, advisory, retired }.",
+    "  gating   — MUST be reachable-AND-failable from `workflow`; if `diffDependent`,",
+    "             that workflow's pull_request trigger MUST include `synchronize`.",
+    "  advisory — intentionally non-blocking (neutered / continue-on-error). MUST still",
+    "             be reachable from some workflow, and MUST carry a rationale.",
+    "  retired  — deliberately dead. MUST NOT be reachable-and-failable from any workflow,",
+    "             and MUST carry a rationale. The file itself is typically deleted."
+  ],
+  "primaries": [
+    {
+      "script": "tools/audit/gates/check-begin-immediate-substrate.sh",
+      "disposition": "gating",
+      "workflow": ".github/workflows/ci.yml",
+      "diffDependent": false,
+      "unfilteredCiPath": true,
+      "rationale": "grep-gates step: BEGIN IMMEDIATE substrate-only layering gate (#1342 P1.E)."
+    },
+    {
+      "script": "tools/audit/gates/check-benchmark-regression.sh",
+      "disposition": "advisory",
+      "workflow": ".github/workflows/benchmark-gate.yml",
+      "rationale": "Runs in benchmark-gate.yml under `continue-on-error: true` by design — perf variance is noisy, so a regression is reported but does not block the merge. Reachable-but-non-failable is intentional, not a defect."
+    },
+    {
+      "script": "tools/audit/gates/check-coverage-ratchet.mjs",
+      "disposition": "gating",
+      "workflow": ".github/workflows/ci.yml",
+      "diffDependent": false,
+      "rationale": "test-mcp step (DR-5), BLOCKING (task 009): `node tools/audit/gates/check-coverage-ratchet.mjs` (no `--observe`) now fails the job on a coverage regression beyond its floored epsilon. The live coverage baseline (tools/audit/coverage-baseline.json — totals + run-ids + measured spread from 3 green CI runs on this feature branch: 29622454248, 29623082084, 29624088763) was captured and the observe flag dropped in the same change. Its scripts/ self-test (check-coverage-ratchet.test.sh) re-asserts unfiltered in grep-gates (DR-10)."
+    },
+    {
+      "script": "scripts/check-design-completeness.sh",
+      "disposition": "retired",
+      "rationale": "Debloat wave-1 (task 011): design/plan collapsed into a single docs/specs doc (#1581); the standalone design-completeness enforcer no longer maps to a live phase artifact and was never wired into any workflow. Retired and file deleted."
+    },
+    {
+      "script": "tools/audit/gates/check-enforcer-wiring.mjs",
+      "disposition": "gating",
+      "workflow": ".github/workflows/ci.yml",
+      "diffDependent": false,
+      "unfilteredCiPath": true,
+      "rationale": "This gate itself (task 011): a grep-gates step on the unfiltered host, so it fires on every PR and fails CI whenever a primary drifts from its manifest disposition."
+    },
+    {
+      "script": "tools/audit/gates/check-event-store-composition-root.mjs",
+      "disposition": "gating",
+      "workflow": ".github/workflows/ci.yml",
+      "diffDependent": false,
+      "unfilteredCiPath": true,
+      "rationale": "grep-gates step: event-store access only via the composition root (#1342)."
+    },
+    {
+      "script": "tools/audit/gates/check-golden-fixture-note.mjs",
+      "disposition": "gating",
+      "workflow": ".github/workflows/pr-body-check.yml",
+      "diffDependent": true,
+      "rationale": "Wired into pr-body-check.yml (task 011): asserts a GOLDEN-FIXTURE-UPDATE marker when a load-bearing fixture changes (DR-15). It reads the PR diff, so its host workflow MUST re-run on `synchronize` or a fixture pushed after open leaves a stale green."
+    },
+    {
+      "script": "tools/audit/gates/check-gate-runner-ownership.mjs",
+      "disposition": "gating",
+      "workflow": ".github/workflows/ci.yml",
+      "diffDependent": false,
+      "unfilteredCiPath": true,
+      "rationale": "Unfiltered zero-dependency census: exact typed owners cover every production gate emitter, provider registration, playbook observation, and v3.0-reserved custom-shell transition guard."
+    },
+    {
+      "script": "tools/audit/gates/check-measured-premises.mjs",
+      "disposition": "gating",
+      "workflow": ".github/workflows/ci.yml",
+      "diffDependent": false,
+      "unfilteredCiPath": true,
+      "rationale": "grep-gates deps-tail step (task 054, DR-27): every annotated numeric claim in docs/specs/2026-08-06-internal-mechanics-overhaul.md is re-derived from the artifact that produces it (outputSchema census, EventTypes array, counted source scans) and a disagreement fails CI — the document cannot assert a number nothing produces. Rides the tsx-backed tail, not the zero-dep prefix, because the vacuity census must read the Zod schema OBJECT (a named binding launders a source-text grep). Deliberately NOT diffDependent and deliberately unfiltered: premises go stale when the CODE moves, which is exactly the PR a docs-path filter would skip. TWO call sites, not one: the ci.yml step invokes the gate DIRECTLY with `--tolerate-gaps-until`, while `npm run validate` reaches it through scripts/run-validate.mjs and reads the DR-7 verdict severity from the `outcomes` declaration in scripts/validate-manifest.json. The #1789 toleration date is therefore spelled three times (ci.yml, validate-manifest.json, installer-verify.test.ts). They are not one declaration, so they are bound by a gate instead: `MeasuredPremisesToleration_ThreeCallSites_CarryOneDate` in run-validate.test.ts reads all three and fails when they disagree — and fails just as loudly if a rename makes it stop finding one of them. Either way drift and rung-map failures exit 1 and fail the lane, while the `gaps` verdict exits 3 and is rendered as GAPS (never PASS) under a dated, issue-tracked advisory that fails once it expires. Its self-test (check-measured-premises.test.ts, including the rev-3 kill fixture) re-asserts on the same host per DR-24."
+    },
+    {
+      "script": "tools/audit/gates/check-module-intent.mjs",
+      "disposition": "gating",
+      "workflow": ".github/workflows/ci.yml",
+      "diffDependent": false,
+      "unfilteredCiPath": true,
+      "rationale": "grep-gates step (task 013): every dead-in-prod module must declare intent — a RESERVED(issue, owner, expires) header with a future expiry, or a declared allowlist class whose member carries an owner and a rationale (DR-7). Fails closed on a reachability-scan crash (DR-8). Scans the whole tree (not a PR diff), so not diffDependent. Task 080 widened the default root set to BOTH first-party source trees: it was the MCP package alone, so root `src/` — advisory-registry, shim-registry, projection-containment, friction-signal — was outside the gate entirely (DR-9)."
+    },
+    {
+      "script": "tools/audit/gates/check-mutation-gate.mjs",
+      "disposition": "advisory",
+      "workflow": ".github/workflows/ci.yml",
+      "rationale": "test-mcp step (DR-7), OBSERVE MODE, pull_request events only: `node tools/audit/gates/check-mutation-gate.mjs --observe` logs the diff-scoped mutation-adequacy verdict and always exits 0 during the CI soak window. DEFERRED (task 009 scope change, #1720): the flip to `gating` does NOT land alongside the coverage ratchet's flip — the diff-scoped mutation gate degrades in CI because StrykerJS dry-run fails on the full server suite. Stays advisory/observe until #1720 resolves; that issue is this entry's exit condition. Advisory disposition MATCHES the actual non-blocking state per the manifest honesty contract; its scripts/ self-test (check-mutation-gate.test.sh) re-asserts unfiltered in grep-gates (DR-10)."
+    },
+    {
+      "script": "tools/audit/gates/check-no-state-json.mjs",
+      "disposition": "gating",
+      "workflow": ".github/workflows/ci.yml",
+      "diffDependent": false,
+      "unfilteredCiPath": true,
+      "rationale": "grep-gates step: no raw .state.json read/write in production (#1504)."
+    },
+    {
+      "script": "tools/audit/gates/check-prefix-fingerprint.mjs",
+      "disposition": "gating",
+      "workflow": ".github/workflows/ci.yml",
+      "diffDependent": false,
+      "unfilteredCiPath": true,
+      "rationale": "Wired into grep-gates (task 011). Previously reachable ONLY via `npm run validate`, which no workflow invokes (class-2 unreachable): a real prefix-fingerprint drift (DR-12) would have passed CI. Now a failable grep-gates step on every PR."
+    },
+    {
+      "script": "scripts/check-property-tests.sh",
+      "disposition": "retired",
+      "rationale": "Debloat wave-1 (task 011): the fast-check property-test convention it enforced is now carried by the co-located vitest suites themselves; the standalone shell enforcer was never wired into any workflow and duplicated coverage. Retired and file deleted."
+    },
+    {
+      "script": "tools/audit/gates/check-prose-lint.mjs",
+      "disposition": "gating",
+      "workflow": ".github/workflows/ci.yml",
+      "diffDependent": false,
+      "unfilteredCiPath": true,
+      "rationale": "Wired into grep-gates (task 011). Previously reachable ONLY via `npm run validate` (class-2 unreachable): slop re-introduced into the rehydration prose (DR-13) would have passed CI. Now a failable grep-gates step on every PR."
+    },
+    {
+      "script": "tools/audit/gates/check-query-upcast-choke-point.mjs",
+      "disposition": "gating",
+      "workflow": ".github/workflows/ci.yml",
+      "diffDependent": false,
+      "unfilteredCiPath": true,
+      "rationale": "grep-gates step: migrateEvents at the read seam (#1556)."
+    },
+    {
+      "script": "tools/audit/gates/check-single-workflow-fold.mjs",
+      "disposition": "gating",
+      "workflow": ".github/workflows/ci.yml",
+      "diffDependent": false,
+      "unfilteredCiPath": true,
+      "rationale": "grep-gates step: one canonical workflow-state reducer (#1554)."
+    },
+    {
+      "script": "tools/audit/gates/check-type-debt.mjs",
+      "disposition": "gating",
+      "workflow": ".github/workflows/ci.yml",
+      "diffDependent": false,
+      "unfilteredCiPath": true,
+      "rationale": "grep-gates zero-dep-prefix step (DR-9): per-file `as unknown as` count-budget register, BLOCKING from merge day one. Scans the whole src tree (not a PR diff), so not diffDependent. Its scripts/ self-test (check-type-debt.test.sh) also re-asserts unfiltered in grep-gates (DR-10)."
+    },
+    {
+      "script": "tools/audit/gates/check-windows-portability.mjs",
+      "disposition": "gating",
+      "workflow": ".github/workflows/ci.yml",
+      "diffDependent": false,
+      "unfilteredCiPath": true,
+      "rationale": "grep-gates step: Windows-portability anti-patterns (#1623)."
+    },
+    {
+      "script": "tools/audit/gates/check-withsession-idempotency.sh",
+      "disposition": "gating",
+      "workflow": ".github/workflows/ci.yml",
+      "diffDependent": false,
+      "unfilteredCiPath": true,
+      "rationale": "grep-gates step: withSession idempotency contract (#1342 P1.D)."
+    },
+    {
+      "script": "tools/audit/gates/check-wlm-wiring.mjs",
+      "disposition": "gating",
+      "workflow": ".github/workflows/ci.yml",
+      "diffDependent": false,
+      "unfilteredCiPath": true,
+      "rationale": "grep-gates step: WLM DR-1 retry adapter + DR-2 skills reroute (task-004)."
+    },
+    {
+      "script": "tools/audit/gates/lint-envelopes.mjs",
+      "disposition": "gating",
+      "workflow": ".github/workflows/ci.yml",
+      "diffDependent": false,
+      "unfilteredCiPath": true,
+      "ciStepMatch": "npm run lint:envelopes",
+      "rationale": "grep-gates deps-tail step (#1706 DR-2, task 002): the error-envelope lint (`eslint --config eslint.envelopes.config.js` over src/verbs/**) runs on the UNFILTERED grep-gates lane, never the filtered test-root lint:windows step, so a registered MCP handler that lets a throw abnormally complete it (discarding a meaningful error.code) fails CI on every PR. Scans the whole verbs/** tree, not a PR diff, so not diffDependent."
+    },
+    {
+      "script": "tools/audit/gates/lint-inv6.mjs",
+      "disposition": "advisory",
+      "workflow": ".github/workflows/ci.yml",
+      "rationale": "Advisory by design (class-3 neutered instance): `skills:guard` runs `(npm run lint:inv6 || true)`, so lint-inv6 executes on every PR (via test-root `npm run skills:guard`) and prints its INV-6 findings, but its exit code is deliberately swallowed so it cannot fail CI. The `|| true` is intentional and documented in lint-inv6.mjs itself."
+    },
+    {
+      "script": "tools/audit/gates/lint-test-first-drift.mjs",
+      "disposition": "gating",
+      "workflow": ".github/workflows/ci.yml",
+      "diffDependent": false,
+      "rationale": "Correctly wired and LEFT ALONE (task 011): the same `skills:guard` line chains it with `&&` (`... && npm run lint:test-first-drift`), so its exit code propagates and it CAN fail CI via test-root `npm run skills:guard`."
+    }
+  ]
+}

@@ -12,15 +12,37 @@ src/**/*.js.map
 src/**/*.d.ts
 src/**/*.d.ts.map
 
+# ...except the install-skills bridge AND the `.js → .ts` re-export shims
+# the bridge imports. The bridge is `.js` on purpose: tsc runs
+# `allowJs: false` and must never resolve it, while bun's `--compile`
+# bundler must, or the installer never reaches the binary. The bridge's
+# imports name `.js` specifiers (NodeNext contract) but only `.ts`
+# siblings exist; the shims re-export from the `.ts` originals so:
+#   1. Vite/vite-node finds a literal `.js` file at the specifier path
+#      (no NodeNext extension fallback needed).
+#   2. bun follows the `.js` re-exports into the bundled binary.
+#   3. tsc with `allowJs: false` skips them.
+# The ignore rule above is written for compiled output and cannot tell
+# authored re-exports apart, so each must be whitelisted.
+!src/lifecycle/install-skills-bridge.js
+!src/lifecycle/install-skills-bridge.d.ts
+!src/install/install-skills.js
+!src/install/runtimes/load.js
+!src/install/runtimes/embedded.js
+# Authored ambient `bun:sqlite` types — not tsc output. The servers/ fold
+# moved this file onto the `src/**/*.d.ts` ignore, so a fresh clone lost
+# the only declaration `prepare`/`tsc` uses for that import.
+!src/storage/__shims__/bun-sqlite.d.ts
+
 # Ignore node_modules in plugins
 plugins/*/servers/*/node_modules/
 plugins/*/servers/*/dist/
 plugins/*/servers/*/coverage/
 
 # Stryker mutation-testing artifacts (DR-7 runner substrate, task 012)
-servers/exarchos-mcp/reports/
-servers/exarchos-mcp/.stryker-tmp/
-servers/exarchos-mcp/stryker.log
+reports/
+.stryker-tmp/
+stryker.log
 
 # Local settings
 *.local.json
@@ -41,14 +63,14 @@ servers/exarchos-mcp/stryker.log
 benchmark-results.json
 
 # VitePress build output
-documentation/.vitepress/dist/
-documentation/.vitepress/cache/
+docs/.vitepress/dist/
+docs/.vitepress/cache/
 
 # Bootstrap installers staged into the Pages /public dir at deploy time.
-# Source-of-truth lives at scripts/get-exarchos.{sh,ps1}; the copies are
+# Source-of-truth lives at tools/release/get-exarchos.{sh,ps1}; the copies are
 # build artifacts produced by .github/workflows/docs.yml.
-documentation/public/get-exarchos.sh
-documentation/public/get-exarchos.ps1
+docs/public/get-exarchos.sh
+docs/public/get-exarchos.ps1
 
 # Sensitive/local files
 .env
@@ -60,3 +82,38 @@ docs/marketing/
 
 # Lavish review artifacts (local HTML review surfaces; not source)
 .lavish/
+
+# Relocated document subtrees, mounted locally by `npm run docs:mount`.
+#
+# These live in the external documents repository now. The mount is a symlink,
+# and a symlink stores its target as content — committing one would hard-code
+# one machine's layout into every checkout and dangle for everyone else. A
+# dangling link is worse than an absent directory: a tree walk sees an entry
+# and fails on read instead of skipping it.
+#
+# One line per relocated subtree, so a subtree that has NOT been relocated is
+# still tracked normally and `docs:mount` refuses to shadow it.
+#
+# NO TRAILING SLASH. A trailing slash matches a DIRECTORY, and the mount is a
+# SYMLINK — which git treats as a file. Written as `docs/audits/` these
+# patterns matched nothing, the links were committed with mode 120000, and
+# their content was one machine's relative path, which dangles everywhere else.
+docs/adrs
+docs/architecture
+docs/assets
+docs/audits
+docs/bugs
+docs/contexts
+docs/designs
+docs/followups
+docs/guides
+docs/market
+docs/migrations
+docs/plans
+docs/proposals
+docs/rca
+docs/refactors
+docs/references
+docs/research
+docs/runbooks
+docs/specs

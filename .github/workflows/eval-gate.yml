@@ -6,14 +6,14 @@ on:
       - 'skills/**'
       - 'commands/**'
       - 'rules/**'
-      - 'evals/**'
-      - 'servers/exarchos-mcp/src/workflow/playbooks.ts'
-      - 'servers/exarchos-mcp/src/cli-commands/**'
-      - 'servers/exarchos-mcp/src/orchestrate/prepare-delegation.ts'
-      - 'servers/exarchos-mcp/src/evals/**'
+      - 'tests/evals/**'
+      - 'src/workflow/playbooks.ts'
+      - 'src/cli-commands/**'
+      - 'src/verbs/team/prepare-delegation.ts'
+      - 'tools/evals/evals/**'
       # Opt-in eval package (DR-3): owns the promptfoo dep the graders
       # dynamic-import. A change here must re-run the eval gate.
-      - 'servers/exarchos-mcp/evals-pkg/**'
+      - 'tools/evals-pkg/**'
       - '.github/workflows/eval-gate.yml'
 
 # Build native modules from source rather than fetching prebuilt binaries from
@@ -44,31 +44,31 @@ jobs:
           cache: 'npm'
           cache-dependency-path: |
             package-lock.json
-            servers/exarchos-mcp/package-lock.json
-            servers/exarchos-mcp/evals-pkg/package-lock.json
+            package-lock.json
+            tools/evals-pkg/package-lock.json
 
-      # Bun is required to run `dist/evals/run-evals-cli.js` because the eval
-      # runner's import graph reaches `storage/sqlite-backend.ts`, which uses
+      # Bun is required to run the eval CLI because the runner's import graph
+      # reaches `storage/sqlite-backend.ts`, which uses
       # `import { Database } from 'bun:sqlite'`. Node 24's ESM loader rejects
-      # the `bun:` URL scheme; bun resolves it natively.
+      # the `bun:` URL scheme; bun resolves it natively. The CLI lives under
+      # `tools/evals/` (outside the product `tsc` emit), so the job runs the
+      # TypeScript entry directly.
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.13
 
-      # Default MCP-server deps only — promptfoo is NO LONGER here (DR-3); it
-      # lives in the opt-in eval package installed below. Retry-with-timeout so
-      # a transient registry/CDN stall doesn't hang to the job timeout (RCA
+      # Product deps only — promptfoo is NOT here (DR-3); it lives in the
+      # opt-in eval package installed below. Retry-with-timeout so a transient
+      # registry/CDN stall doesn't hang to the job timeout (RCA
       # 2026-05-30-state-source-integrity).
       - name: Install Dependencies
-        working-directory: servers/exarchos-mcp
-        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
+        run: bash "$GITHUB_WORKSPACE/tools/release/npm-ci-retry.sh"
 
       # Build the server (incl. the eval runner + graders) BEFORE installing the
       # eval package — the ambient promptfoo shim keeps `tsc` green here without
       # promptfoo, and building first guarantees the server typecheck never sees
       # the real package.
       - name: Build
-        working-directory: servers/exarchos-mcp
         run: npm run build
 
       # The eval gate is the one job that genuinely needs `promptfoo` (the
@@ -77,8 +77,8 @@ jobs:
       # from which the graders' loader (promptfoo-loader.ts) resolves it at
       # runtime.
       - name: Install eval package (promptfoo)
-        working-directory: servers/exarchos-mcp/evals-pkg
-        run: bash "$GITHUB_WORKSPACE/scripts/npm-ci-retry.sh"
+        working-directory: tools/evals-pkg
+        run: bash "$GITHUB_WORKSPACE/tools/release/npm-ci-retry.sh"
 
       # DR-14: enforce the strict-flag ratchet on the eval workspace itself.
       # promptfoo is installed above, so evals-pkg tsc resolves it under the
@@ -87,22 +87,20 @@ jobs:
       # not reach evals-pkg/src). This is the continuous "every typecheck
       # green" enforcement the flag-presence guard test cannot provide.
       - name: Typecheck eval package (DR-14 strict flags)
-        working-directory: servers/exarchos-mcp/evals-pkg
+        working-directory: tools/evals-pkg
         run: npm run typecheck
 
       - name: Run Regression Evals
-        working-directory: servers/exarchos-mcp
         run: |
-          echo '{"ci": true, "layer": "regression"}' | bun dist/evals/run-evals-cli.js
+          echo '{"ci": true, "layer": "regression"}' | bun tools/evals/evals/run-evals-cli.ts
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          EVALS_DIR: ../../evals
+          EVALS_DIR: ./tests/evals
 
       - name: Run Capability Evals (advisory)
-        working-directory: servers/exarchos-mcp
         continue-on-error: true
         run: |
-          echo '{"ci": true, "layer": "capability"}' | bun dist/evals/run-evals-cli.js
+          echo '{"ci": true, "layer": "capability"}' | bun tools/evals/evals/run-evals-cli.ts
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          EVALS_DIR: ../../evals
+          EVALS_DIR: ./tests/evals

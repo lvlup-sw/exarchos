@@ -1,0 +1,237 @@
+{
+  "capturedAt": "2026-08-13",
+  "tree": "03413967a346c78efb548ac3452e382ca681ec7f",
+  "source": "src",
+  "authority": "This file maps first-level src/ directories onto the published L1-L9 targets. Nested layer ids (adapters/cli, adapters/mcp) are named by LAYER_ALLOWED_IMPORTS and resolved by longest declared prefix; they are not first-level map keys. docs/system-design.html is orientation prose, not the nameability of those nested ids.",
+  "counts": {
+    "directories": 27,
+    "mapped": 25,
+    "exceptions": 2,
+    "targets": 11,
+    "publishedLayers": 9
+  },
+  "publishedLayers": {
+    "L1": {
+      "name": "Storage",
+      "targets": [
+        "storage"
+      ]
+    },
+    "L2": {
+      "name": "Event store",
+      "targets": [
+        "events"
+      ]
+    },
+    "L3": {
+      "name": "Projections",
+      "targets": [
+        "projections"
+      ]
+    },
+    "L4": {
+      "name": "Workflow primitives",
+      "targets": [
+        "workflow"
+      ]
+    },
+    "L5": {
+      "name": "Dispatch core",
+      "targets": [
+        "contract",
+        "dispatch"
+      ]
+    },
+    "L6": {
+      "name": "Composite tools",
+      "targets": [
+        "verbs"
+      ]
+    },
+    "L7": {
+      "name": "Lifecycle verbs",
+      "targets": [
+        "lifecycle"
+      ]
+    },
+    "L8": {
+      "name": "Adapters",
+      "targets": [
+        "adapters"
+      ]
+    },
+    "L9": {
+      "name": "Cooperative agents",
+      "targets": [
+        "runtime"
+      ]
+    }
+  },
+  "nonLayerPeers": {
+    "install": "Declared non-layer peer. It installs and packages the engine rather than sitting in its call graph, so it is a sibling of L1-L9, not a tenth layer."
+  },
+  "splitNote": "L5 (Dispatch core) is the one layer served by two target directories: `contract` (what may be called, and its authority) and `dispatch` (the single function that calls it). They are split because the contract is asserted independently of the dispatcher that honours it.",
+  "directories": {
+    "adapters": {
+      "disposition": "mapped",
+      "target": "adapters",
+      "layer": "L8",
+      "reason": "CLI and MCP over one dispatch core \u2014 L8 itself."
+    },
+    "architecture": {
+      "disposition": "exception",
+      "destination": "tools/conformance/",
+      "reason": "Conformance scanners and seam audits. They read the tree; they are not part of it. Extraction named in the plan."
+    },
+    "cli": {
+      "disposition": "mapped",
+      "target": "adapters",
+      "layer": "L8",
+      "reason": "Follow-loop and formatter are CLI adapter surface."
+    },
+    "config": {
+      "disposition": "mapped",
+      "target": "workflow",
+      "layer": "L4",
+      "reason": "Cross-cutting by nature, but its output is the resolved config the dispatch context and workflow guards read. Placed at its consumer, not split."
+    },
+    "contract": {
+      "disposition": "mapped",
+      "target": "contract",
+      "layer": "L5",
+      "reason": "Authority collection, digests, IR and admission \u2014 the contract half of the L5 split. Task 014 folded schemas/, sdk/ and shared/ in: all three are contract surface."
+    },
+    "describe": {
+      "disposition": "mapped",
+      "target": "lifecycle",
+      "layer": "L7",
+      "reason": "L7 names describe explicitly among its generic windows over the log."
+    },
+    "dispatch": {
+      "disposition": "mapped",
+      "target": "dispatch",
+      "layer": "L5",
+      "reason": "Caller identity, dispatch context, elicitation dispatch \u2014 the dispatch half of the L5 split. Task 014 folded core/ in: context.ts and dispatch.ts ARE the single dispatch function L5 describes."
+    },
+    "events": {
+      "disposition": "mapped",
+      "target": "events",
+      "layer": "L2",
+      "reason": "Append, expected-sequence, idempotency, the composite reader \u2014 L2 itself. Task 012 renamed event-store/ to match its target."
+    },
+    "hooks": {
+      "disposition": "mapped",
+      "target": "adapters",
+      "layer": "L8",
+      "reason": "Hook config is an adapter-side integration point."
+    },
+    "install": {
+      "disposition": "mapped",
+      "target": "install",
+      "layer": null,
+      "reason": "Atomic promotion and freshness checks. Declared NON-layer peer: it installs the engine rather than sitting in its call graph."
+    },
+    "lifecycle": {
+      "disposition": "mapped",
+      "target": "lifecycle",
+      "layer": "L7",
+      "reason": "Command bodies invoked by the CLI adapter; the logic is verb-shaped, the surface is not. Task 017 moved it from `cli-commands/` to its L7 target."
+    },
+    "mcp": {
+      "disposition": "mapped",
+      "target": "adapters",
+      "layer": "L8",
+      "reason": "MCP wire methods (elicitation, notifications, tasks) are adapter surface."
+    },
+    "ndjson": {
+      "disposition": "mapped",
+      "target": "adapters",
+      "layer": "L8",
+      "reason": "Frame encoding and heartbeat are transport framing beneath the adapters."
+    },
+    "projections": {
+      "disposition": "mapped",
+      "target": "projections",
+      "layer": "L3",
+      "reason": "Pure reducers, cursors, snapshot/rebuild \u2014 L3 itself. Task 012 folded views/, telemetry/, quality/, session/ and task-store/ in as subdirectories; each remains a read model that derives and never decides."
+    },
+    "pruner": {
+      "disposition": "mapped",
+      "target": "verbs",
+      "layer": "L6",
+      "reason": "Prune coordinator and scoring are a composite-tool action."
+    },
+    "registry": {
+      "disposition": "mapped",
+      "target": "contract",
+      "layer": "L5",
+      "reason": "The tool-declaration authority, decomposed out of one 4,587-line module. Classified with the contract half of L5 because the contract compiler derives its meta-model from these declarations. It keeps its own directory at the root of src/ rather than nesting under contract/: every layer's schemas feed INTO the declarations, so nesting would point the contract layer's import surface at the whole tree."
+    },
+    "review": {
+      "disposition": "mapped",
+      "target": "verbs",
+      "layer": "L6",
+      "reason": "Review dispatch, classifier and check catalog are composite-tool actions."
+    },
+    "runbooks": {
+      "disposition": "mapped",
+      "target": "lifecycle",
+      "layer": "L7",
+      "reason": "Resolved here per plan: runbooks are generic operator windows, the same shape as ps/describe/wait/export."
+    },
+    "runtime": {
+      "disposition": "mapped",
+      "target": "runtime",
+      "layer": "L9",
+      "reason": "Environment detection and command shims \u2014 L9 itself."
+    },
+    "stack": {
+      "disposition": "mapped",
+      "target": "verbs",
+      "layer": "L6",
+      "reason": "Stack tools are composite-tool actions."
+    },
+    "storage": {
+      "disposition": "mapped",
+      "target": "storage",
+      "layer": "L1",
+      "reason": "The SQLite backend, its lifecycle and the sidecar merger \u2014 L1 itself. Task 012 folded artifacts/ in: the content-addressed store is persistence, and its path-containment guards travel with it."
+    },
+    "sync": {
+      "disposition": "mapped",
+      "target": "lifecycle",
+      "layer": "L7",
+      "reason": "Outbox and sync handler are lifecycle-shaped generic windows, not workflow primitives."
+    },
+    "tasks": {
+      "disposition": "mapped",
+      "target": "verbs",
+      "layer": "L6",
+      "reason": "Task tools are composite-tool actions."
+    },
+    "utils": {
+      "disposition": "exception",
+      "destination": "(unresolved \u2014 task 020)",
+      "reason": "atomic-write, paths, process, task-id: genuinely cross-cutting with consumers in five layers. Splitting it is a task 020 decision, not a naming one; recorded unresolved rather than forced."
+    },
+    "vcs": {
+      "disposition": "mapped",
+      "target": "adapters",
+      "layer": "L8",
+      "reason": "GitHub/GitLab/ADO providers adapt an external system; same shape as L8."
+    },
+    "verbs": {
+      "disposition": "mapped",
+      "target": "verbs",
+      "layer": "L6",
+      "reason": "The action bodies behind the composite tools \u2014 the largest single directory in the tree (159 files) and squarely L6. Task 015 regrouped it from a flat `orchestrate/` into capability families; it now sits at its target."
+    },
+    "workflow": {
+      "disposition": "mapped",
+      "target": "workflow",
+      "layer": "L4",
+      "reason": "State machines, phase contracts, guards, checkpoint \u2014 L4 itself. Task 013 folded topology/ in: the phase-contract loader and staleness signal are workflow-primitive data, not a layer of their own."
+    }
+  },
+  "staleEntriesNote": "Task 043 removed src/__tests__ and src/commands and their entries here. Both were disposition:exception \"(stays test-adjacent)\" describing 44 and 3 test files that task 030 had already lifted into tests/ \u2014 so the directories had been EMPTY since then, tracked by nothing, and invisible to every census that reads git rather than the filesystem. The exceptions are discharged, not violated: their contents went exactly where the entries said they belonged. Counts re-derived from the live tree, 28 -> 26 directories."
+}

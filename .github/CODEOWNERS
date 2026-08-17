@@ -1,12 +1,15 @@
 # Default owner
 * @reedsalus
 
-# MCP server
-servers/exarchos-mcp/ @reedsalus
+# Product source
+src/ @reedsalus
 
-# Validation scripts
-scripts/ @reedsalus
+# Repo automation: gates, build/publish scripts, conformance suite, lint rules
+tools/ @reedsalus
 
-# Skills and commands
-skills/ @reedsalus
-commands/ @reedsalus
+# Authored content, and the generated trees rendered from it
+content/ @reedsalus
+rendered/ @reedsalus
+
+# The single test tree
+tests/ @reedsalus

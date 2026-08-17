@@ -4,20 +4,14 @@
     "core": [
       {
         "id": "commands",
-        "source": "commands",
+        "source": "rendered/commands",
         "target": "commands",
         "type": "directory"
       },
       {
         "id": "skills",
-        "source": "skills",
+        "source": "rendered/skills",
         "target": "skills",
-        "type": "directory"
-      },
-      {
-        "id": "scripts",
-        "source": "scripts",
-        "target": "scripts",
         "type": "directory"
       }
     ],
@@ -29,7 +23,7 @@
         "required": true,
         "type": "bundled",
         "bundlePath": "dist/exarchos-mcp.js",
-        "devEntryPoint": "servers/exarchos-mcp/dist/index.js"
+        "devEntryPoint": "dist/index.js"
       },
       {
         "id": "microsoft-learn",

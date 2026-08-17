@@ -44,7 +44,7 @@ VERSION=$(node -p "require('./package.json').version")
 
 ### 3. Propagate the version everywhere
 
-`scripts/sync-versions.sh` (driven by `npm run version:sync`) is the single source-of-truth bumper. It patches all seven derived call sites:
+`tools/release/sync-versions.sh` (driven by `npm run version:sync`) is the single source-of-truth bumper. It patches all seven derived call sites:
 
 | Sink | Field |
 |------|-------|
@@ -61,7 +61,7 @@ npm run version:sync
 npm run version:check                       # confirms zero drift across the 7 sinks
 ```
 
-`--check` exits 1 with a `MISMATCH:` line per drifted site if anything is out of sync — never short-circuits, so one run reports every problem. Add a sink by extending the `ts_sites` registry in `scripts/sync-versions.sh` (single registration point — see DIM-1 in `axiom:backend-quality`).
+`--check` exits 1 with a `MISMATCH:` line per drifted site if anything is out of sync — never short-circuits, so one run reports every problem. Add a sink by extending the `ts_sites` registry in `tools/release/sync-versions.sh` (single registration point — see DIM-1 in `axiom:backend-quality`).
 
 > **Also bump `PREVIEW_VERSION` (NOT covered by `version:sync`).** `src/packaging-consistency.test.ts` pins a `PREVIEW_VERSION` constant as the deliberate release-tag/version coordination gate. `version:sync` does **not** touch it (it's a test, not a sink), so a version bump leaves `main`'s own `npm run test:run` **red** until you hand-edit it:
 >
@@ -88,7 +88,7 @@ Fail fast if any of these break. Don't tag a release that doesn't typecheck.
 
 ### 5. Commit + tag + push
 
-`scripts/sync-versions.sh` already wrote the seven derived files; `npm version` handled `package.json` + `package-lock.json`. Stage, commit, tag, push.
+`tools/release/sync-versions.sh` already wrote the seven derived files; `npm version` handled `package.json` + `package-lock.json`. Stage, commit, tag, push.
 
 ```bash
 git add package.json package-lock.json manifest.json .claude-plugin/plugin.json \
@@ -125,8 +125,8 @@ If `publish-release` ever attaches a different number of assets, the invariant i
 The `lvlup-sw/.github` marketplace `marketplace.json` declares the version that `/plugin install exarchos@lvlup-sw` will resolve. **End users installing through Claude Code's plugin path resolve through this file** — if it isn't bumped, the published npm version is unreachable via the plugin surface and `/plugin install` keeps serving the previous pin (or a stale npm-cache entry of it). The bootstrap installer (`curl … | bash`) is independent of this; the plugin path is not.
 
 ```bash
-bash scripts/sync-marketplace.sh            # bumps marketplace.json + prunes stale cache + pushes
-bash scripts/sync-marketplace.sh --check    # verify after
+bash tools/release/sync-marketplace.sh            # bumps marketplace.json + prunes stale cache + pushes
+bash tools/release/sync-marketplace.sh --check    # verify after
 ```
 
 The script commits and pushes to `lvlup-sw/.github` automatically. If the push fails (branch protection or stale local clone), resolve it before moving on — do not skip this step:
@@ -151,7 +151,7 @@ The whole point of an rc tag is to dogfood the install path before stable. Run i
 
 ```bash
 # Real install — drops the binary at $HOME/.local/bin/exarchos:
-bash scripts/get-exarchos.sh --version "v${VERSION}"
+bash tools/release/get-exarchos.sh --version "v${VERSION}"
 
 # Or via the public bootstrap entry-point once the release is live
 # (served from GitHub Pages alongside the docs site, see docs.yml):
@@ -165,7 +165,7 @@ exarchos doctor                             # smoke-test
 For dry-run preview (no download, no PATH mutation):
 
 ```bash
-bash scripts/get-exarchos.sh --version "v${VERSION}" --dry-run
+bash tools/release/get-exarchos.sh --version "v${VERSION}" --dry-run
 ```
 
 ### 9. Report
@@ -175,7 +175,7 @@ Tell the user:
 - Tag created and pushed
 - GitHub Release URL (`gh release view "v${VERSION}" --json url --jq .url`)
 - Marketplace pin bumped (verified via the `gh api` check in step 7)
-- For `-rc` tags: the exact `bash scripts/get-exarchos.sh --version v${VERSION}` command
+- For `-rc` tags: the exact `bash tools/release/get-exarchos.sh --version v${VERSION}` command
 
 ---
 
@@ -183,7 +183,7 @@ Tell the user:
 
 Before `sync-versions.sh` covered the TypeScript constants, every release required hand-editing five `.ts` files in lockstep with `package.json`. Multiple missed bumps shipped with stale `SERVER_VERSION` strings (PR #1176 review-finding-2 caught one in v2.9). The bumper now owns the entire fan-out — `npm run version:sync` is sufficient.
 
-If you find yourself editing a version literal by hand, that's a sign a new sink slipped into the codebase without being registered. Add it to the `ts_sites` registry (or to the JSON-sinks block) in `scripts/sync-versions.sh`, extend `scripts/sync-versions.test.sh`, and the next release picks it up automatically.
+If you find yourself editing a version literal by hand, that's a sign a new sink slipped into the codebase without being registered. Add it to the `ts_sites` registry (or to the JSON-sinks block) in `tools/release/sync-versions.sh`, extend `scripts/sync-versions.test.sh`, and the next release picks it up automatically.
 
 ## Why not `claude plugin update`?
 

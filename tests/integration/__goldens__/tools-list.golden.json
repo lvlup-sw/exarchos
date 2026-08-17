@@ -1,0 +1,2738 @@
+{
+  "tools": [
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Event sourcing — append and query events in streams\n\nActions:\n- append(stream, event, expectedSequence?, idempotencyKey?): Append an event to a stream\n- query(stream, filter?, limit?, offset?, fields?): Query events from a stream with optional filtering\n- batch_append(stream, events): Append multiple events to a stream atomically\n- describe(actions?, eventTypes?, emissionGuide?): Return schemas for actions and/or event types, or the emission guide. At least one of actions, eventTypes, or emissionGuide must be provided.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "append",
+              "query",
+              "batch_append",
+              "describe"
+            ],
+            "type": "string"
+          },
+          "actions": {
+            "description": "Action names to describe. Returns full schema + description for each.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10,
+            "minItems": 1,
+            "type": "array"
+          },
+          "emissionGuide": {
+            "description": "When true, returns the full event emission catalog grouped by source",
+            "type": "boolean"
+          },
+          "event": {
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "eventTypes": {
+            "description": "Event type names to describe. Returns data schema, emission source, and built-in status for each.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "type": "array"
+          },
+          "events": {
+            "items": {
+              "additionalProperties": {},
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "expectedSequence": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "fields": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "filter": {
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "idempotencyKey": {
+            "type": "string"
+          },
+          "limit": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          },
+          "offset": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "stream": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "type": "object"
+      },
+      "name": "exarchos_event",
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "_cacheHints": {
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "const": "ephemeral",
+                    "type": "string"
+                  },
+                  "position": {
+                    "type": "string"
+                  },
+                  "ttl": {
+                    "const": "1h",
+                    "type": "string"
+                  },
+                  "type": {
+                    "const": "cache_boundary",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "position",
+                  "kind",
+                  "ttl"
+                ],
+                "type": "object"
+              },
+              "_corrections": {
+                "additionalProperties": false,
+                "properties": {
+                  "applied": {
+                    "items": {},
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "applied"
+                ],
+                "type": "object"
+              },
+              "_eventHints": {
+                "additionalProperties": false,
+                "properties": {
+                  "checked": {
+                    "type": "number"
+                  },
+                  "missing": {
+                    "items": {
+                      "additionalProperties": {},
+                      "properties": {
+                        "description": {
+                          "type": "string"
+                        },
+                        "eventType": {
+                          "type": "string"
+                        },
+                        "requiredFields": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "required": [
+                        "eventType",
+                        "description"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "phase": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "missing",
+                  "phase",
+                  "checked"
+                ],
+                "type": "object"
+              },
+              "_meta": {
+                "additionalProperties": {},
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "_perf": {
+                "additionalProperties": false,
+                "properties": {
+                  "bytes": {
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "ms": {
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "tokens": {
+                    "minimum": 0,
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "ms",
+                  "bytes",
+                  "tokens"
+                ],
+                "type": "object"
+              },
+              "data": {},
+              "next_actions": {
+                "items": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "hint": {
+                          "type": "string"
+                        },
+                        "idempotencyKey": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "reason": {
+                          "type": "string"
+                        },
+                        "ttl_suggestion_ms": {
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991,
+                          "type": "integer"
+                        },
+                        "validTargets": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "verb": {
+                          "const": "retry_with_task",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "verb",
+                        "reason",
+                        "ttl_suggestion_ms"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "hint": {
+                          "type": "string"
+                        },
+                        "idempotencyKey": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "reason": {
+                          "type": "string"
+                        },
+                        "validTargets": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "verb": {
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "verb",
+                        "reason"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              "success": {
+                "const": true,
+                "type": "boolean"
+              },
+              "warnings": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "success",
+              "data",
+              "next_actions",
+              "_meta",
+              "_perf"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "_corrections": {
+                "additionalProperties": {},
+                "properties": {
+                  "applied": {
+                    "items": {
+                      "additionalProperties": {},
+                      "properties": {
+                        "param": {
+                          "type": "string"
+                        },
+                        "rule": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "param",
+                        "rule"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "applied"
+                ],
+                "type": "object"
+              },
+              "_meta": {
+                "additionalProperties": {},
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "_perf": {
+                "additionalProperties": false,
+                "properties": {
+                  "bytes": {
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "ms": {
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "tokens": {
+                    "minimum": 0,
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "ms",
+                  "bytes",
+                  "tokens"
+                ],
+                "type": "object"
+              },
+              "error": {
+                "additionalProperties": {},
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "suggestedFix": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "params": {
+                        "additionalProperties": {},
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "type": "object"
+                      },
+                      "tool": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "tool",
+                      "params"
+                    ],
+                    "type": "object"
+                  },
+                  "validTargets": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "code",
+                  "message"
+                ],
+                "type": "object"
+              },
+              "success": {
+                "const": false,
+                "type": "boolean"
+              },
+              "warnings": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "success",
+              "error",
+              "_meta",
+              "_perf"
+            ],
+            "type": "object"
+          }
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Task coordination — claim, complete, and fail tasks\n\nActions:\n- task_claim(taskId, agentId, streamId?, featureId?): Claim a task for execution\n- task_complete(taskId, result?, evidence?, streamId?, featureId?): Mark a task as complete with optional result and evidence. Auto-emits task.completed event. When evidence is provided, verified=true in event data; otherwise verified=false\n- task_fail(taskId, error, diagnostics?, streamId?, featureId?): Mark a task as failed with error details. Auto-emits task.failed event\n- review_triage(featureId, prs, activeWorkflows?, pendingCodeRabbitReviews?): Score PRs by risk and dispatch to CodeRabbit or self-hosted review based on velocity\n- prepare_delegation(featureId, tasks?, planPath?, nativeIsolation?, riskTier?, detail?, outputFormat?): Query delegation readiness and prepare quality hints for subagent dispatch\n- prepare_synthesis(featureId, repoRoot): Run pre-synthesis checks: tests, typecheck, stack health. Emits events for readiness views and eval flywheel.\n- assess_stack(featureId, prNumbers, limit?, offset?): Assess PR stack health during synthesize: CI status, reviews, comments. Emits events for the shepherd iteration loop (within synthesize phase) and eval flywheel.\n- check_static_analysis(featureId, taskId?, branch?, baseBranch?, repoRoot?, worktreePath?, skipLint?, skipTypecheck?): Run static analysis gate (lint + typecheck) and persist canonical subject-bound evidence.\n- check_integration_suite(featureId, repoRoot?, worktreePath?, taskId?, branch?, baseBranch?, testScript?): Run the FULL test suite against the integration tip and fold file-LOAD failures into the failure count (#1329). vitest counts a file that throws at import as \"1 failed suite / 0 failed tests\" — invisible to per-task gates; this gate makes a load cascade a hard FAIL. Set repoRoot to the integration worktree (or \"auto\" to resolve the calling delegation's worktree). Persists canonical subject-bound evidence. Do NOT use for a single task's scoped tests — use check_static_analysis / check_test_adequacy for per-task verification; this gate is the cumulative-regression backstop between merges.\n- check_security_scan(featureId, diffContent?): Run security pattern scan on diff. Emits gate.executed event with dimension D1.\n- check_context_economy(featureId, repoRoot?, baseBranch?): Check code complexity impacting LLM context consumption. Emits gate.executed event with dimension D3.\n- check_operational_resilience(featureId, repoRoot?, baseBranch?): Check for operational anti-patterns (empty catches, swallowed errors, console.log). Emits gate.executed event with dimension D4.\n- check_workflow_determinism(featureId, repoRoot?, baseBranch?): Check test reliability and determinism (.only/.skip, non-deterministic time/random, debug artifacts). Emits gate.executed event with dimension D5.\n- check_review_verdict(featureId, high, medium, low, blockedReason?, dimensionResults?, pluginFindings?, maxFixCycles?): Compute review verdict from finding counts. Emits per-dimension and summary gate.executed events. On NEEDS_FIXES, bounds the fix-loop via the shared escalation policy (DR-3): returns escalate:true when the auto-fix bound is hit or a finding is intent-touching.\n- check_convergence(featureId, workflowId?): Query D1-D5 convergence status from gate.executed events. Emits gate.executed event on each invocation. Returns overall pass/fail and per-dimension summary.\n- check_provenance_chain(featureId, designPath, planPath): Verify design requirement traceability (DR-N) from design doc to plan tasks. Emits gate.executed event with dimension D1.\n- check_design_completeness(featureId, stateFile?, designPath?, planPath?): DEPRECATED (#1581): delegates to check_plan_coverage on the unified docs/specs/ artifact; its acceptance-criteria check folded into plan-coverage. Use check_plan_coverage. Removed in a future minor version.\n- check_plan_coverage(featureId, designPath, planPath): Verify plan tasks cover all design sections. Emits gate.executed event with dimension D1.\n- check_exploration_depth(featureId, designPath?, designDepth?, stateFile?): Deep-depth planning gate (DR-4): verifies a `deep`-designDepth spec carries the template-required `### Exploration` section citing the /exarchos:discover research pass by report path + correlationId, failing when the section is absent (or present but not citing the pass). SELF-SKIPS at thin/standard depth — the Exploration citation is a deep-only obligation. Resolves designDepth + the unified docs/specs/ artifact path from explicit args, then from workflow state. Emits a gate.executed event (gate \"exploration-depth\", layer planning, dimension D1) on every path, including the skip.\n- check_test_adequacy(featureId, taskId, branch?, baseBranch?, repoRoot?, worktreePath?, operationId?, phase?, riskTier?, boundaryTouching?): Per-task test-adequacy kill probe (mutation-testing-at-N=1): reverts the task's source hunks (keeping tests), re-runs the new/changed tests, and asserts at least one goes red — proving the tests are not vacuous. Restores the working tree unconditionally (INV-14) and persists canonical subject-bound evidence. Pass repoRoot (\"auto\" to resolve the calling delegation's worktree). Stamp riskTier + boundaryTouching (from prepare_delegation) to let the gate self-skip when the verification policy excludes it for that tier (skipped-by-policy). This is the sole per-task verification gate: it subsumes the regression-coverage intent of the retired check_tdd_compliance (#1587) — outcome-based test adequacy, test-after, NOT commit-order test-first.\n- check_contract_drift(featureId, taskId, branch?, baseBranch?, repoRoot?, worktreePath?, operationId?, riskTier?, boundaryTouching?): Per-task contract-drift gate (verification-ladder slice 1): regenerates schema bindings (codegen), typechecks the regen, then runs a breaking-change diff against the MERGE-BASE (git merge-base baseBranch HEAD). A drift gate, NOT a write-lock — reports findings, never mutates the tree. Persists canonical subject-bound evidence. Degrades to a skipped/advisory pass when no contract tool resolves (INV-4). Pass repoRoot (\"auto\" to resolve the calling delegation's worktree). On a clean pass, surfaces a one-semantic-test steer in next_actions.\n- check_mock_boundary(featureId, taskId, branch?, baseBranch?, repoRoot?, worktreePath?, operationId?, reason?, riskTier?, boundaryTouching?): Per-task mock-boundary gate (verification-ladder slice 1, SIV-4): scans the task's NEW test hunks for mock sites (mock/stub/spy/fake/patch/monkeypatch at an identifier boundary) and cross-references each mocked target against the resolved `ownership.firstParty` scope. Mocking a FIRST-PARTY module is low-risk (its contract is visible); mocking an UNOWNED dependency asserts against a fiction — the high-risk pattern. ADVISORY by default (severity resolved via DEFAULTS.review.gates, like tdd-compliance; a project review-gate override still wins). On an unowned finding, surfaces a per-finding steer in next_actions (replace with a hermetic fixture / contract-verified stub / a fake). An explicit `reason` is an escape hatch that passes the gate advisory AND records the acknowledgement in durable evidence. Pass repoRoot (\"auto\" to resolve the calling delegation's worktree).\n- mutation-adequacy(featureId, base, taskId?, worktreePath?, operationId?, threshold?, scope?, offline?): Verification-ladder slice 3 (R5): the mutation-adequacy backstop for the relaxed verification mix. Runs the resolved mutation command DIFF-SCOPED against `base` (Stryker --since / cargo-mutants --in-diff / mutmut path restriction, resolved from the toolchains SoT), parses the Stryker mutation-testing-report-schema, and returns the fixed carrier {passed, mutationScore, killed, survived, noCoverage, total, report}. Surviving + NoCoverage mutants become next_actions (\"write a test that kills <file>:<line>\"). ADVISORY by default (severity resolved via DEFAULTS.review.gates['mutation-adequacy']; an explicit override can raise it to blocking). An unresolved mutation command → Skipped (reason names remediation); a malformed/empty report → Warning (degrade, never throws). scope:'full' runs full-tree only with offline:true (nightly lane); else a deferred advisory (no inline run). Emits mutation.executing_started/executed (INV-10) and a foldable gate.executed carrying mutationScore (INV-1); operationId makes the gate emission idempotent (INV-8). Reuse `base` as a string verbatim.\n- check_post_merge(featureId, prUrl, mergeSha): Post-merge regression check. Emits gate.executed event with dimension D4.\n- merge_orchestrate(featureId, sourceBranch, targetBranch, taskId?, strategy, dryRun?, resume?, repoRoot?, leaseOperationId?): Top-level merge orchestrator (DR-MO-1): runs preflight, emits merge.preflight, then delegates to the executor on pass; handles abort/dryRun/resume. Use for: merging a task/feature source branch into the integration target with full preflight + compensating recovery from the main worktree. Do NOT use for: a raw provider PR/MR merge (use merge_pr); verifying a directory is a git worktree (use verify_worktree); or requesting synthesis/PR creation on a oneshot workflow (use request_synthesize).\n- check_task_decomposition(featureId, planPath): Task decomposition quality check at plan boundary. Emits gate.executed event with dimension D5.\n- check_event_emissions(featureId, workflowId?): Check for expected-but-missing model-emitted events in the current workflow phase. Returns structured hints for missing events.\n- extract_task(planPath, taskId): Extract a task definition from a plan file by task ID\n- review_diff(worktreePath?, baseBranch?): Collect diff statistics for a worktree branch against its base\n- verify_worktree(cwd?): Verify a directory is a valid git worktree\n- select_debug_track(featureId?, urgency?, rootCauseKnown?, stateFile?): Select hotfix or thorough debug track based on urgency and root cause knowledge\n- investigation_timer(featureId?, startedAt?, stateFile?, budgetMinutes?): Check investigation time budget and recommend continue or escalate\n- check_coverage_thresholds(coverageFile, lineThreshold?, branchThreshold?, functionThreshold?): Check code coverage metrics against threshold values\n- assess_refactor_scope(featureId?, files?, stateFile?): Assess refactoring scope and recommend polish or overhaul track\n- check_pr_comments(pr, repo?): Check PR for unresolved review comment threads\n- validate_pr_body(pr?, bodyFile?, body?, template?, featureId?): Validate PR body contains required sections (Summary, Changes, Test Plan)\n- validate_pr_stack(baseBranch): Validate PR stack ordering and base branch consistency\n- debug_review_gate(repoRoot, baseBranch, skipRun?): Run debug-track review gate: verify test files exist and pass for changed files\n- extract_fix_tasks(featureId?, stateFile?, reviewReport?, repoRoot?): Extract fix tasks from review findings and map to worktrees\n- classify_review_items(featureId, actionItems): Group ActionItems by file and recommend dispatch strategy (direct/delegate-fixer/delegate-scaffolder) per group (#1159)\n- generate_traceability(designFile, planFile, outputFile?): Generate a traceability matrix mapping design sections to plan tasks\n- spec_coverage_check(planFile, repoRoot, skipRun?, coveragePhase?): Verify that test files referenced in the plan exist in the repo\n- verify_worktree_baseline(worktreePath): Verify a worktree passes baseline tests before task work begins\n- setup_worktree(repoRoot, taskId, taskName, baseBranch?, skipTests?, branch?, featureId?): Create a git worktree for a task with branch and baseline verification\n- verify_delegation_saga(featureId, stateDir?): Verify delegation event saga completeness (spawned, dispatched, disbanded)\n- post_delegation_check(stateFile?, featureId?, repoRoot, skipTests?): Run post-delegation checks: task completion, test pass, branch existence\n- reconcile_state(stateFile?, featureId?, repoRoot): Reconcile workflow state file against git and filesystem reality\n- pre_synthesis_check(featureId?, stateFile?, repoRoot?, skipTests?, skipStack?, testCommand?): Run pre-synthesis checks: task completion, reviews, tests, and stack health\n- check_coderabbit(owner, repo, prNumbers): Query CodeRabbit review state on GitHub PRs — APPROVED/NONE → pass, else fail\n- check_polish_scope(repoRoot, baseBranch?): Check if polish refactor scope has expanded beyond limits (>5 files, >2 modules)\n- needs_schema_sync(repoRoot, baseBranch?, diffFile?): Detect API file modifications (Endpoints.cs, Models/, Requests/, etc.) requiring schema sync\n- verify_doc_links(docFile?, docsDir?): Check that internal markdown links resolve to existing files\n- verify_review_triage(featureId?, stateFile?, eventStream?): Verify review triage routing — check review.routed events against state PRs\n- check_invariant_conformance(featureId, workflowType?, phase?, touchedFiles?, diff?, diffContent?, repoRoot?): Evaluate invariant conformance as a review dimension (DR-3/DR-4). Projects the effective invariant catalog for (workflow-type, review, touched-files), evaluates check-mode combinator trees against the diff, renders audit-mode prompts for the review subagent, and folds findings into the review verdict by context-resolved severity. Emits gate.executed; read-only otherwise.\n- prepare_review(featureId, scope?, dimensions?, repoRoot?, artifact?, spec?, designDepth?): Prepare a review pass as structured data. Default scope serves the back-of-pipeline code-review check catalog. scope:\"plan\" serves the DR-10 front-of-pipeline plan-review provisioning — a dispatched, fresh-context, adversarial (refute-the-plan) read-only pass over the unified docs/specs/ artifact, provisioned with only {artifact, spec} (never the authoring transcript) and depth-scaled by the frozen designDepth.\n- discover_bridge(featureId, artifact, confirm?, reportPath?, discoverFeatureId?, correlationId?): Opt-in deep-rung escalation (DR-7): bridge the unified spec to a /exarchos:discover research pre-pass, stitched by a deterministic correlationId. Requires author confirmation (confirm:true) — never auto-spawns. On confirmation it records the link as a state.patched event on the feature stream (report path + discover stream id + correlationId) so provenance spans both documents.\n- prune_stale_workflows(dryRun?, force?, includeOneShot?): Find stale non-terminal workflows and cancel them. Defaults to dry-run; pass dryRun:false to actually prune. Auto-emits workflow.pruned event per pruned workflow.\n- request_synthesize(featureId, reason?): Opt-in event for oneshot workflows with synthesisPolicy:on-request. Appending a synthesize.requested event flips the choice-state guard so finalize_oneshot routes to the synthesize phase. Auto-emits synthesize.requested.\n- finalize_oneshot(featureId): Resolve the oneshot choice-state at the end of implementing: transitions to synthesize (PR path) or completed (direct-commit path) based on the synthesisOptedIn / synthesisOptedOut guards. The transition itself is emitted by the workflow set handler.\n- runbook(phase?, id?): List available runbooks or get a resolved runbook with schemas\n- agent_spec(agent, context?, outputFormat?): Retrieve agent specification for subagent dispatch\n- doctor(timeoutMs?, format?, fix?): Run exarchos environment diagnostics — 12 checks across runtime, storage, VCS, agent config, plugin, env, and remote surfaces. Read-only by default; emits diagnostic.executed on completion. Pass --fix to repair reconcilable drift through the shared onboarding reconciler (the same apply onboard uses) — under --fix it emits onboard.requested then onboard.executed with trigger doctor-fix (NOT diagnostic.executed) and re-runs the checks to report residuals. Do not use --fix for a read-only diagnosis; omit it.\n- create_pr(title, body, base, head, draft?, labels?, featureId?): Create a pull/merge request via the VCS provider abstraction. Auto-emits pr.created event.\n- merge_pr(prId, strategy): Merge a pull/merge request via the VCS provider abstraction. Auto-emits pr.merged event on success.\n- check_ci(prId): Check CI status for a pull/merge request via the VCS provider abstraction. Read-only, no events emitted.\n- list_prs(state?, head?, base?): List pull/merge requests via the VCS provider abstraction. Read-only, no events emitted.\n- get_pr_comments(prId, limit?, offset?, fields?): Get comments on a pull/merge request via the VCS provider abstraction. Read-only, no events emitted.\n- add_pr_comment(prId, body, threadId?): Add a comment to a pull/merge request via the VCS provider abstraction. Pass threadId to reply into an existing review-comment thread (provider-agnostic addReply) instead of posting a PR-level comment. Auto-emits pr.commented event.\n- create_issue(title, body, labels?): Create an issue via the VCS provider abstraction. Auto-emits issue.created event.\n- onboard(new?, runtime?, vcs?, dryRun?, force?, noHooks?, format?): Onboard (or re-onboard) the current repo: detect runtimes + VCS, write/reconcile agent config, install skills, then verify against doctor — driving the repo to a green doctor. Idempotent; re-running reconciles drift only. Use --dry-run to preview the plan without writing, --new <name> to scaffold a fresh project first, --force to overwrite hand-edited config, and --no-hooks to skip the SessionStart binding. Do not use to re-run individual diagnostics — use doctor for that. Emits onboard.requested then onboard.executed (skipped under --dry-run).\n- invariants_scaffold(tier?, path?, repoRoot?, allowReservedTier?): Create a starter invariant catalog file for a tier (dev | user) and idempotently register it in .exarchos.yml. Emits no events; never overwrites an existing catalog file. Do not use when the catalog file already exists, or to add an entry to an existing catalog — use invariants_add for that. After scaffolding, run doctor and inspect the resolved catalog via the invariants_effective view.\n- invariants_add(entry, catalog?, tier?, id?, dryRun?, repoRoot?, allowReservedTier?): Validate one invariant entry against the v3 schema (including the sandbox-safe .strict() enforcement DSL) and append it to a registered catalog. Defaults to dryRun:true — returns the rendered YAML entry + a file diff without writing; pass dryRun:false to commit (auto-assigns the next free id, emits invariant.authored). Do not use to create a new catalog file — use invariants_scaffold first. Do not embed script/exec/code in enforcement; the DSL is declarative-only and rejects executable escape hatches. After committing, run doctor and inspect the result via the invariants_effective view.\n- invariants_amend(id, patch, catalog?, tier?, dryRun?, repoRoot?, allowReservedTier?): Amend one EXISTING invariant entry in a registered catalog, in place. `id` names the entry to correct and is not itself patchable; `patch` names the top-level fields to replace, and any field the patch omits is carried through unchanged. The merged entry is re-validated against the full v3 schema (including the sandbox-safe .strict() enforcement DSL). Defaults to dryRun:true — returns the amended YAML entry + a before/after diff without writing; pass dryRun:false to commit (emits invariant.amended). Use this, NOT invariants_add, to correct a shipped invariant: invariants_add only appends, and re-using an existing id there is rejected. Do not hand-edit catalog YAML. After committing, run doctor and inspect the result via the invariants_effective view.\n- acquire_worktree(repoRoot, worktreeId, path?, featureId?, ownerPid?, ownerStartedAt?): Acquire a worktree for the live process: adopt-then-reserve composite. Adopts every on-disk worktree under repoRoot first (the adopt-gate), then reserves worktreeId for the caller. Idempotent. Auto-emits worktree.adopted (per newly tracked worktree) and worktree.reserved. Use for: claiming a worktree for the current process before it does isolated work. Do NOT use for: reading the governed set (use worktrees); freeing a claim (use release_worktree).\n- release_worktree(worktreeId): Release the caller's worktree reservation. Appends worktree.released for worktreeId; a no-op when nothing is held (idempotent). Auto-emits worktree.released. Use for: freeing a worktree the current process reserved once its isolated work is done. Do NOT use for: freeing another live owner's claim (refused — reaping a dead owner is ps probe:true / reconcile's job); deleting the worktree from disk (use prune_worktrees).\n- prune_worktrees(repoRoot, dryRun?, pruneOrphans?, yes?): Garbage-collect governed worktrees through the fail-closed safety ladder. Defaults to dry-run (report candidates + reclaimable bytes + grouped skip reasons, delete nothing); pass dryRun:false to apply. Orphan deletion needs pruneOrphans:true + yes:true on an apply run. Auto-emits worktree.remove.requested then worktree.remove.executed per deleted worktree. Use for: reclaiming released/orphan governed worktrees + their branches from the main worktree. Do NOT use for: freeing a live reservation (use release_worktree); listing the governed set (use worktrees).\n- serialize_merge(featureId, integrationRef, sourceBranch, strategy, taskId?, repoRoot?, timeoutMs?, dryRun?): Serialize an integration-branch merge behind an optimistic per-integrationRef lease, then compose merge_orchestrate UNCHANGED. DEFAULTS TO DRY-RUN (INV-5c): omitting dryRun (or dryRun:true) claims NO lease, runs NO merge, and returns the planned effect (integration head + merge params); pass dryRun:false to actually claim the lease and execute. Grants at most one in-flight merge per integrationRef: a held slot bounded-waits (re-folding worktrees@v1) and reclaims a provably-dead holder inline, or returns a structured merge-slot-timeout. Auto-emits worktree.merge_requested (claim) then worktree.merge_executed (release) ONLY on an apply run. Use for: landing a source branch onto a shared integration ref under cross-process serialization. Do NOT use for: a single unsynchronized merge (use merge_orchestrate); a raw provider PR merge (use merge_pr).\n- cutover_readiness(): Assess the six-condition cutover gate against this store: fold every <featureId>/admission-shadow sidecar stream (admission.shadow-attempt + admission.disagreement-disposition) plus the live shadow sink and observer health, and return the full CutoverGateReport with every unmet condition named individually. Read-only — appends nothing, writes nothing. An empty store yields NO evidence (unmet conditions), never clean evidence. Use for: checking how far the store is from flipping enforcement off the legacy HSM guard path. Do NOT use for: recording a rollout decision (use cutover_decide).\n- cutover_decide(): Event-source the enforcement rollout decision (operator-only, T-03 pattern: the ambient dispatch authorization must carry role 'operator' with a mutating posture — a delegated agent is denied). Runs the identical six-condition assessment to cutover_readiness, ALWAYS appends an admission.rollout-decision fact (outcome derived from the evidence: approve-enforcement or continue-shadow), and appends admission.enforcement-enabled ONLY when the gate is satisfied — an unsatisfied gate returns a typed CUTOVER_GATE_NOT_SATISFIED error naming the unmet conditions. Both facts land on the reserved exarchos-admission stream under natural-identity idempotency keys. Use for: recording the governance decision to flip (or keep shadowing). Do NOT use for: a side-effect-free readiness check (use cutover_readiness).\n- describe(actions): Return full schemas, descriptions, gate metadata, and phase/role info for specific actions",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "task_claim",
+              "task_complete",
+              "task_fail",
+              "review_triage",
+              "prepare_delegation",
+              "prepare_synthesis",
+              "assess_stack",
+              "check_static_analysis",
+              "check_integration_suite",
+              "check_security_scan",
+              "check_context_economy",
+              "check_operational_resilience",
+              "check_workflow_determinism",
+              "check_review_verdict",
+              "check_convergence",
+              "check_provenance_chain",
+              "check_design_completeness",
+              "check_plan_coverage",
+              "check_exploration_depth",
+              "check_test_adequacy",
+              "check_contract_drift",
+              "check_mock_boundary",
+              "mutation-adequacy",
+              "check_post_merge",
+              "merge_orchestrate",
+              "check_task_decomposition",
+              "check_event_emissions",
+              "extract_task",
+              "review_diff",
+              "verify_worktree",
+              "select_debug_track",
+              "investigation_timer",
+              "check_coverage_thresholds",
+              "assess_refactor_scope",
+              "check_pr_comments",
+              "validate_pr_body",
+              "validate_pr_stack",
+              "debug_review_gate",
+              "extract_fix_tasks",
+              "classify_review_items",
+              "generate_traceability",
+              "spec_coverage_check",
+              "verify_worktree_baseline",
+              "setup_worktree",
+              "verify_delegation_saga",
+              "post_delegation_check",
+              "reconcile_state",
+              "pre_synthesis_check",
+              "check_coderabbit",
+              "check_polish_scope",
+              "needs_schema_sync",
+              "verify_doc_links",
+              "verify_review_triage",
+              "check_invariant_conformance",
+              "prepare_review",
+              "discover_bridge",
+              "prune_stale_workflows",
+              "request_synthesize",
+              "finalize_oneshot",
+              "runbook",
+              "agent_spec",
+              "doctor",
+              "create_pr",
+              "merge_pr",
+              "check_ci",
+              "list_prs",
+              "get_pr_comments",
+              "add_pr_comment",
+              "create_issue",
+              "onboard",
+              "invariants_scaffold",
+              "invariants_add",
+              "invariants_amend",
+              "acquire_worktree",
+              "release_worktree",
+              "prune_worktrees",
+              "serialize_merge",
+              "cutover_readiness",
+              "cutover_decide",
+              "describe"
+            ],
+            "type": "string"
+          },
+          "actionItems": {
+            "items": {
+              "additionalProperties": {},
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "actions": {
+            "description": "Action names to describe. Returns full schema + description for each.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10,
+            "minItems": 1,
+            "type": "array"
+          },
+          "activeWorkflows": {
+            "items": {
+              "properties": {
+                "phase": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "phase"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "agent": {
+            "enum": [
+              "implementer",
+              "fixer",
+              "reviewer",
+              "scaffolder"
+            ],
+            "type": "string"
+          },
+          "agentId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "allowReservedTier": {
+            "type": "boolean"
+          },
+          "artifact": {
+            "type": "string"
+          },
+          "base": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "baseBranch": {
+            "type": "string"
+          },
+          "blockedReason": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "bodyFile": {
+            "type": "string"
+          },
+          "boundaryTouching": {
+            "type": "boolean"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "branchThreshold": {
+            "type": "number"
+          },
+          "budgetMinutes": {
+            "type": "number"
+          },
+          "catalog": {
+            "type": "string"
+          },
+          "confirm": {
+            "type": "boolean"
+          },
+          "context": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "correlationId": {
+            "type": "string"
+          },
+          "coverageFile": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "coveragePhase": {
+            "enum": [
+              "plan",
+              "post-implementation"
+            ],
+            "type": "string"
+          },
+          "cwd": {
+            "type": "string"
+          },
+          "designDepth": {
+            "enum": [
+              "thin",
+              "standard",
+              "deep"
+            ],
+            "type": "string"
+          },
+          "designFile": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "designPath": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "detail": {
+            "description": "DR-4: inline the full per-task implementer prompt instead of the deduped template + per-task deltas",
+            "type": "boolean"
+          },
+          "diagnostics": {
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "diff": {
+            "type": "string"
+          },
+          "diffContent": {
+            "type": "string"
+          },
+          "diffFile": {
+            "type": "string"
+          },
+          "dimensionResults": {
+            "additionalProperties": {
+              "properties": {
+                "findingCount": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "passed": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "passed",
+                "findingCount"
+              ],
+              "type": "object"
+            },
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "dimensions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "discoverFeatureId": {
+            "type": "string"
+          },
+          "docFile": {
+            "type": "string"
+          },
+          "docsDir": {
+            "type": "string"
+          },
+          "draft": {
+            "type": "boolean"
+          },
+          "dryRun": {
+            "type": "boolean"
+          },
+          "entry": {
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "error": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "eventStream": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "evidence": {
+            "properties": {
+              "output": {
+                "type": "string"
+              },
+              "passed": {
+                "type": "boolean"
+              },
+              "type": {
+                "enum": [
+                  "test",
+                  "build",
+                  "typecheck",
+                  "manual"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "output",
+              "passed"
+            ],
+            "type": "object"
+          },
+          "featureId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "fields": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "files": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "fix": {
+            "type": "boolean"
+          },
+          "force": {
+            "type": "boolean"
+          },
+          "format": {
+            "enum": [
+              "table",
+              "json"
+            ],
+            "type": "string"
+          },
+          "functionThreshold": {
+            "type": "number"
+          },
+          "head": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "high": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "id": {
+            "type": "string"
+          },
+          "includeOneShot": {
+            "type": "boolean"
+          },
+          "integrationRef": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "labels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "leaseOperationId": {
+            "type": "string"
+          },
+          "limit": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          },
+          "lineThreshold": {
+            "type": "number"
+          },
+          "low": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxFixCycles": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          },
+          "medium": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "mergeSha": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "nativeIsolation": {
+            "default": false,
+            "description": "When true, skip worktree-related blockers (the host platform handles isolation natively)",
+            "type": "boolean"
+          },
+          "new": {
+            "type": "string"
+          },
+          "noHooks": {
+            "type": "boolean"
+          },
+          "offline": {
+            "type": "boolean"
+          },
+          "offset": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "operationId": {
+            "type": "string"
+          },
+          "outputFile": {
+            "type": "string"
+          },
+          "outputFormat": {
+            "default": "full",
+            "description": "DR-4: 'prompt-only' is an alias for detail:true; 'full' (default) returns the deduped template + per-task deltas",
+            "enum": [
+              "full",
+              "prompt-only"
+            ],
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "ownerPid": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          },
+          "ownerStartedAt": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "patch": {
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "path": {
+            "type": "string"
+          },
+          "pendingCodeRabbitReviews": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "planFile": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "planPath": {
+            "description": "Decomposition markdown path; lifts per-task **Risk Tier:**/**Boundary Touching:** stamps onto tasks",
+            "type": "string"
+          },
+          "pluginFindings": {
+            "items": {
+              "properties": {
+                "category": {
+                  "type": "string"
+                },
+                "dimension": {
+                  "type": "string"
+                },
+                "file": {
+                  "type": "string"
+                },
+                "intentTouching": {
+                  "type": "boolean"
+                },
+                "line": {
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991,
+                  "type": "integer"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "severity": {
+                  "enum": [
+                    "HIGH",
+                    "MEDIUM",
+                    "LOW"
+                  ],
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "source",
+                "severity",
+                "message"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "pr": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          },
+          "prId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "prNumbers": {
+            "items": {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "prUrl": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "prs": {
+            "items": {
+              "properties": {
+                "filesChanged": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "linesChanged": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "newFiles": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "number": {
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991,
+                  "type": "integer"
+                },
+                "paths": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "number",
+                "paths",
+                "linesChanged",
+                "filesChanged",
+                "newFiles"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "pruneOrphans": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "repo": {
+            "type": "string"
+          },
+          "repoRoot": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "reportPath": {
+            "type": "string"
+          },
+          "result": {
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "resume": {
+            "type": "boolean"
+          },
+          "reviewReport": {
+            "type": "string"
+          },
+          "riskTier": {
+            "description": "Explicit workflow risk-tier override; wins over the derived max-of-tiers",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "type": "string"
+          },
+          "rootCauseKnown": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "runtime": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "skipLint": {
+            "type": "boolean"
+          },
+          "skipRun": {
+            "type": "boolean"
+          },
+          "skipStack": {
+            "type": "boolean"
+          },
+          "skipTests": {
+            "type": "boolean"
+          },
+          "skipTypecheck": {
+            "type": "boolean"
+          },
+          "sourceBranch": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "spec": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "open",
+              "closed",
+              "merged",
+              "all"
+            ],
+            "type": "string"
+          },
+          "stateDir": {
+            "type": "string"
+          },
+          "stateFile": {
+            "type": "string"
+          },
+          "strategy": {
+            "enum": [
+              "squash",
+              "rebase",
+              "merge"
+            ],
+            "type": "string"
+          },
+          "streamId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "targetBranch": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "taskId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "taskName": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "tasks": {
+            "items": {
+              "properties": {
+                "blockedBy": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "boundaryTouching": {
+                  "type": "boolean"
+                },
+                "files": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "riskTier": {
+                  "enum": [
+                    "low",
+                    "medium",
+                    "high"
+                  ],
+                  "type": "string"
+                },
+                "testLayer": {
+                  "enum": [
+                    "acceptance",
+                    "integration",
+                    "unit",
+                    "property"
+                  ],
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "title"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "template": {
+            "type": "string"
+          },
+          "testCommand": {
+            "type": "string"
+          },
+          "testScript": {
+            "type": "string"
+          },
+          "threadId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "threshold": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "tier": {
+            "enum": [
+              "dev",
+              "user"
+            ],
+            "type": "string"
+          },
+          "timeoutMs": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          },
+          "title": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "touchedFiles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "urgency": {
+            "type": "string"
+          },
+          "vcs": {
+            "type": "string"
+          },
+          "workflowId": {
+            "type": "string"
+          },
+          "workflowType": {
+            "type": "string"
+          },
+          "worktreeId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "worktreePath": {
+            "type": "string"
+          },
+          "yes": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "type": "object"
+      },
+      "name": "exarchos_orchestrate",
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "_cacheHints": {
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "const": "ephemeral",
+                    "type": "string"
+                  },
+                  "position": {
+                    "type": "string"
+                  },
+                  "ttl": {
+                    "const": "1h",
+                    "type": "string"
+                  },
+                  "type": {
+                    "const": "cache_boundary",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "position",
+                  "kind",
+                  "ttl"
+                ],
+                "type": "object"
+              },
+              "_corrections": {
+                "additionalProperties": false,
+                "properties": {
+                  "applied": {
+                    "items": {},
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "applied"
+                ],
+                "type": "object"
+              },
+              "_eventHints": {
+                "additionalProperties": false,
+                "properties": {
+                  "checked": {
+                    "type": "number"
+                  },
+                  "missing": {
+                    "items": {
+                      "additionalProperties": {},
+                      "properties": {
+                        "description": {
+                          "type": "string"
+                        },
+                        "eventType": {
+                          "type": "string"
+                        },
+                        "requiredFields": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "required": [
+                        "eventType",
+                        "description"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "phase": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "missing",
+                  "phase",
+                  "checked"
+                ],
+                "type": "object"
+              },
+              "_meta": {
+                "additionalProperties": {},
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "_perf": {
+                "additionalProperties": false,
+                "properties": {
+                  "bytes": {
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "ms": {
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "tokens": {
+                    "minimum": 0,
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "ms",
+                  "bytes",
+                  "tokens"
+                ],
+                "type": "object"
+              },
+              "data": {},
+              "next_actions": {
+                "items": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "hint": {
+                          "type": "string"
+                        },
+                        "idempotencyKey": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "reason": {
+                          "type": "string"
+                        },
+                        "ttl_suggestion_ms": {
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991,
+                          "type": "integer"
+                        },
+                        "validTargets": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "verb": {
+                          "const": "retry_with_task",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "verb",
+                        "reason",
+                        "ttl_suggestion_ms"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "hint": {
+                          "type": "string"
+                        },
+                        "idempotencyKey": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "reason": {
+                          "type": "string"
+                        },
+                        "validTargets": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "verb": {
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "verb",
+                        "reason"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              "success": {
+                "const": true,
+                "type": "boolean"
+              },
+              "warnings": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "success",
+              "data",
+              "next_actions",
+              "_meta",
+              "_perf"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "_corrections": {
+                "additionalProperties": {},
+                "properties": {
+                  "applied": {
+                    "items": {
+                      "additionalProperties": {},
+                      "properties": {
+                        "param": {
+                          "type": "string"
+                        },
+                        "rule": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "param",
+                        "rule"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "applied"
+                ],
+                "type": "object"
+              },
+              "_meta": {
+                "additionalProperties": {},
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "_perf": {
+                "additionalProperties": false,
+                "properties": {
+                  "bytes": {
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "ms": {
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "tokens": {
+                    "minimum": 0,
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "ms",
+                  "bytes",
+                  "tokens"
+                ],
+                "type": "object"
+              },
+              "error": {
+                "additionalProperties": {},
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "suggestedFix": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "params": {
+                        "additionalProperties": {},
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "type": "object"
+                      },
+                      "tool": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "tool",
+                      "params"
+                    ],
+                    "type": "object"
+                  },
+                  "validTargets": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "code",
+                  "message"
+                ],
+                "type": "object"
+              },
+              "success": {
+                "const": false,
+                "type": "boolean"
+              },
+              "warnings": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "success",
+              "error",
+              "_meta",
+              "_perf"
+            ],
+            "type": "object"
+          }
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "description": "CQRS materialized views — pipeline, tasks, workflow status, stack, and telemetry\n\nActions:\n- pipeline(limit?, offset?, includeCompleted?, detail?, repoRoot?, scope?): Aggregated view of active workflows with stack positions, repo-scoped by default to the caller's repo (excludes completed/cancelled unless includeCompleted=true). Returns ≤ 10 compact entries; data.page carries {total, offset, limit, hasMore} and data.scope/data.unscopedTotal report the effective scope and the pre-scope count so hidden rows are perceivable. Pass scope='all' to span every repo, an explicit repoRoot to scope to another repo, or detail=true for the full per-task map.\n- tasks(workflowId?, filter?, limit?, offset?, fields?, detail?): Task detail view with filtering and projection\n- workflow_status(workflowId?, limit?, offset?, detail?, asOf?): Workflow phase, task counts, and metadata\n- stack_status(streamId?, limit?, offset?, detail?): Get current stack positions from events\n- stack_place(streamId, position, taskId, branch?, prUrl?): Record a stack position for a task\n- telemetry(compact?, tool?, sort?, limit?, offset?, detail?, operationId?, correlationId?, causationId?): Get telemetry metrics with per-tool performance data and optimization hints\n- team_performance(workflowId?, limit?, offset?, detail?): Team performance metrics from delegation events\n- delegation_timeline(workflowId?, limit?, offset?, detail?, operationId?, correlationId?, causationId?): Delegation timeline with bottleneck detection\n- code_quality(workflowId?, skill?, gate?, limit?, offset?, detail?, operationId?, correlationId?, causationId?): Code quality metrics with gate pass rates, skill attribution, and regression detection\n- eval_results(workflowId?, skill?, limit?, offset?, detail?, operationId?, correlationId?, causationId?): Evaluation suite results with per-skill pass/fail rates and regression flags\n- quality_correlation(workflowId?, limit?, offset?, detail?, operationId?, correlationId?, causationId?): Per-skill correlation of code-quality gate pass rates with eval scores\n- quality_attribution(workflowId?, dimension?, skill?, timeRange?, limit?, offset?, detail?, operationId?, correlationId?, causationId?): Attribute quality outcomes across a dimension (skill / model / gate / prompt-version)\n- delegation_readiness(workflowId?, tasks?, detail?): Check delegation readiness: plan approval, quality gates, and worktree status. Pass `tasks` to scope readiness to the active wave instead of every historical assignment (WFQ-002).\n- session_provenance(sessionId?, workflowId?, metric?): Per-session provenance roll-up (tokens, tools, cost attribution) — query by sessionId or workflowId, optionally narrowed by metric\n- provenance(workflowId?, operationId?, correlationId?, causationId?): Design-to-task provenance: per-requirement coverage and orphan-task detection from the design.linked / task.assigned event chain\n- synthesis_readiness(workflowId?): Check synthesis readiness: task completion, reviews, tests, and typecheck status\n- shepherd_status(workflowId?): PR shepherd status: CI, comments, unresolved findings, and iteration tracking\n- convergence(workflowId?, limit?, offset?, detail?): Per-dimension gate convergence status (D1-D5) from gate.executed events\n- gate_reliability(workflowId?, detail?): Diagnostic gate reliability: per-gate false-positive rate and verdict provenance from admission evidence/contradiction events (no admission authority)\n- quality_hints(workflowId?, skill?): Generate quality improvement hints from code quality view\n- invariants_effective(phase, workflowType, repoRoot?, touchedFiles?): Effective invariant catalog (merged dev + user catalogs, overrides clamped to each floor, projected to the given phase/workflow) — the resolveEffectiveCatalog payload (DR-7)\n- worktrees(limit?, offset?): List the governed worktree set — the live worktrees@v1 projection (each entry: worktreeId, path, featureId, lifecycle state, owner pid/start-time). Read-only; emits no events. DR-3 bounded output: omitting limit caps the item count deterministically and, if the capped page would still blow the output-token budget, returns a counts-by-state summary + first page instead of per-item detail; narrow with limit/offset. Use for: inspecting which worktrees are governed and their reservation/orphan state. Do NOT use for: claiming or freeing a worktree (use acquire_worktree / release_worktree); the in-flight merge/prune liveness set (use ps).\n- ps(scope?, probe?, status?, phase?, workflowType?, all?, limit?): Scope-parameterized process-plane lister composing three folds (DR-3). scope:'all' (DEFAULT) returns a workflows section (every tracked workflow: featureId, workflowType, phase, status, age) PLUS an operations section (every IN-FLIGHT liveness instance across merge/launch/mutation/prune — a started-without-terminal pair, surface-generic). scope:'workflow' returns the workflows section only; filter it with status/phase/workflowType and all:true to include terminal workflows. scope:'worktree' preserves the WLM-6 worktree capabilities: the worktrees@v1 inFlightMerges/launches/inFlightPrunes fold, and probe:true (valid ONLY in this scope) runs the on-demand DR-5 process probe emitting worktree.released / worktree.orphan_detected + reconciling dead holders. probe on a non-worktree scope is INVALID_INPUT. Idempotent: a pure read except scope:'worktree' probe:true, whose heals re-converge. Use for: a snapshot of what workflows exist and what operations are in flight. Do NOT use for: the governed worktree set (use worktrees); blocking until a condition holds (use wait).\n- wait(featureId?, phase?, status?, operation?, integrationRef?, until?, timeoutMs?): Block until an event-log predicate holds; PURE CONSUMER — emits NO events, never hangs (structured WAIT_TIMEOUT on expiry). Feature-scoped (needs featureId, pick one): phase resolves on entering the target phase (already-passed ⇒ immediate; a failed/cancelled terminal first ⇒ WAIT_FAILED); status resolves on the requested terminal (completed/failed/cancelled; a DIFFERENT terminal ⇒ WAIT_FAILED); operation <surface> is the S-6 predicate for feature-scoped surfaces (merge, mutation), resolving when the unpaired executing_started gains its registry terminal by instance key (none in flight ⇒ immediate; launch/prune ⇒ INVALID_INPUT → use until). Worktree scope: until:'merge' (default) awaits the serialized merge on integrationRef, until:'idle' awaits prune-idle; timeoutMs bounds it. Use for: gating on a phase/status/operation/merge/idle condition. Do NOT use for: a snapshot (use ps/inspect); running a merge (use serialize_merge).\n- inspect(featureId, limit?, follow?): Project a single workflow in one read: state (phase / workflowType / timestamps via the canonical event-store-first resolveWorkflowState — SQLite is the only source of truth, NEVER .state.json presence), the recent event tail + the latest dispatch correlation tuple, the artifact map, and task progress (roster + counts-by-status). Read-only; emits no events. Cold-probe safe: an unknown/never-init'd featureId returns workflowExists:false and appends nothing (no phantom stream). Bound the event tail with limit (the full state/artifacts/tasks are always complete). Use for: a one-call status snapshot of a specific workflow. Do NOT use for: the cross-workflow pipeline roll-up (use pipeline); mutating or advancing a workflow (use exarchos_workflow).\n- export(featureId, output?): Write a portable diagnostic zip bundle of ONE workflow to disk: events.jsonl (the domain event stream, one JSON event/line), state.json (fold(events.jsonl) via the canonical projection — replaying events.jsonl reconstructs it), metadata.json (featureId / eventCount / phase / workflowType / artifacts + missingArtifacts), and artifacts/ (every referenced artifact FILE that exists; missing references are tolerated and listed). Default destination ./<featureId>-export.zip; override with output. Writes to a path OUTSIDE .exarchos/ (openWorld) and journals the INV-13 export.requested → export.executed pair around the write, so a crash between the two is completed WITHOUT duplicating the intent and a fresh invocation mints a new pair (INV-8). Cold-probe safe: an unknown featureId returns workflowExists:false, writes no zip and emits no events. Use for: capturing a self-contained, replayable snapshot of a workflow for diagnosis or handoff. Do NOT use for: a live status snapshot (use inspect); advancing or mutating the workflow (use exarchos_workflow).\n- describe(actions): Return full schemas, descriptions, gate metadata, and phase/role info for specific actions",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "pipeline",
+              "tasks",
+              "workflow_status",
+              "stack_status",
+              "stack_place",
+              "telemetry",
+              "team_performance",
+              "delegation_timeline",
+              "code_quality",
+              "eval_results",
+              "quality_correlation",
+              "quality_attribution",
+              "delegation_readiness",
+              "session_provenance",
+              "provenance",
+              "synthesis_readiness",
+              "shepherd_status",
+              "convergence",
+              "gate_reliability",
+              "quality_hints",
+              "invariants_effective",
+              "worktrees",
+              "ps",
+              "wait",
+              "inspect",
+              "export",
+              "describe"
+            ],
+            "type": "string"
+          },
+          "actions": {
+            "description": "Action names to describe. Returns full schema + description for each.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10,
+            "minItems": 1,
+            "type": "array"
+          },
+          "all": {
+            "type": "boolean"
+          },
+          "asOf": {
+            "properties": {
+              "untilSequence": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "untilTimestamp": {
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "causationId": {
+            "type": "string"
+          },
+          "compact": {
+            "type": "boolean"
+          },
+          "correlationId": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "boolean"
+          },
+          "dimension": {
+            "enum": [
+              "skill",
+              "model",
+              "gate",
+              "prompt-version"
+            ],
+            "type": "string"
+          },
+          "featureId": {
+            "minLength": 1,
+            "pattern": "^[a-z0-9-]+$",
+            "type": "string"
+          },
+          "fields": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "filter": {
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "follow": {
+            "type": "boolean"
+          },
+          "gate": {
+            "type": "string"
+          },
+          "includeCompleted": {
+            "type": "boolean"
+          },
+          "integrationRef": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "limit": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          },
+          "metric": {
+            "type": "string"
+          },
+          "offset": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "operationId": {
+            "type": "string"
+          },
+          "output": {
+            "type": "string"
+          },
+          "phase": {
+            "description": "SDLC phase to project for (e.g. ideate, plan, delegate)",
+            "type": "string"
+          },
+          "position": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "prUrl": {
+            "type": "string"
+          },
+          "probe": {
+            "type": "boolean"
+          },
+          "repoRoot": {
+            "type": "string"
+          },
+          "scope": {
+            "enum": [
+              "repo",
+              "all",
+              "workflow",
+              "worktree"
+            ],
+            "type": "string"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "skill": {
+            "type": "string"
+          },
+          "sort": {
+            "enum": [
+              "tokens",
+              "invocations",
+              "duration"
+            ],
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "streamId": {
+            "type": "string"
+          },
+          "taskId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "tasks": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "timeRange": {
+            "properties": {
+              "end": {
+                "type": "string"
+              },
+              "start": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "start",
+              "end"
+            ],
+            "type": "object"
+          },
+          "timeoutMs": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          },
+          "tool": {
+            "type": "string"
+          },
+          "touchedFiles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "until": {
+            "enum": [
+              "merge",
+              "idle"
+            ],
+            "type": "string"
+          },
+          "workflowId": {
+            "type": "string"
+          },
+          "workflowType": {
+            "description": "Workflow kind to project for (e.g. feature, debug, discovery)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "type": "object"
+      },
+      "name": "exarchos_view",
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "_cacheHints": {
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "const": "ephemeral",
+                    "type": "string"
+                  },
+                  "position": {
+                    "type": "string"
+                  },
+                  "ttl": {
+                    "const": "1h",
+                    "type": "string"
+                  },
+                  "type": {
+                    "const": "cache_boundary",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "position",
+                  "kind",
+                  "ttl"
+                ],
+                "type": "object"
+              },
+              "_corrections": {
+                "additionalProperties": false,
+                "properties": {
+                  "applied": {
+                    "items": {},
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "applied"
+                ],
+                "type": "object"
+              },
+              "_eventHints": {
+                "additionalProperties": false,
+                "properties": {
+                  "checked": {
+                    "type": "number"
+                  },
+                  "missing": {
+                    "items": {
+                      "additionalProperties": {},
+                      "properties": {
+                        "description": {
+                          "type": "string"
+                        },
+                        "eventType": {
+                          "type": "string"
+                        },
+                        "requiredFields": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "required": [
+                        "eventType",
+                        "description"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "phase": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "missing",
+                  "phase",
+                  "checked"
+                ],
+                "type": "object"
+              },
+              "_meta": {
+                "additionalProperties": {},
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "_perf": {
+                "additionalProperties": false,
+                "properties": {
+                  "bytes": {
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "ms": {
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "tokens": {
+                    "minimum": 0,
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "ms",
+                  "bytes",
+                  "tokens"
+                ],
+                "type": "object"
+              },
+              "data": {},
+              "next_actions": {
+                "items": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "hint": {
+                          "type": "string"
+                        },
+                        "idempotencyKey": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "reason": {
+                          "type": "string"
+                        },
+                        "ttl_suggestion_ms": {
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991,
+                          "type": "integer"
+                        },
+                        "validTargets": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "verb": {
+                          "const": "retry_with_task",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "verb",
+                        "reason",
+                        "ttl_suggestion_ms"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "hint": {
+                          "type": "string"
+                        },
+                        "idempotencyKey": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "reason": {
+                          "type": "string"
+                        },
+                        "validTargets": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "verb": {
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "verb",
+                        "reason"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              "success": {
+                "const": true,
+                "type": "boolean"
+              },
+              "warnings": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "success",
+              "data",
+              "next_actions",
+              "_meta",
+              "_perf"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "_corrections": {
+                "additionalProperties": {},
+                "properties": {
+                  "applied": {
+                    "items": {
+                      "additionalProperties": {},
+                      "properties": {
+                        "param": {
+                          "type": "string"
+                        },
+                        "rule": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "param",
+                        "rule"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "applied"
+                ],
+                "type": "object"
+              },
+              "_meta": {
+                "additionalProperties": {},
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "_perf": {
+                "additionalProperties": false,
+                "properties": {
+                  "bytes": {
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "ms": {
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "tokens": {
+                    "minimum": 0,
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "ms",
+                  "bytes",
+                  "tokens"
+                ],
+                "type": "object"
+              },
+              "error": {
+                "additionalProperties": {},
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "suggestedFix": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "params": {
+                        "additionalProperties": {},
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "type": "object"
+                      },
+                      "tool": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "tool",
+                      "params"
+                    ],
+                    "type": "object"
+                  },
+                  "validTargets": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "code",
+                  "message"
+                ],
+                "type": "object"
+              },
+              "success": {
+                "const": false,
+                "type": "boolean"
+              },
+              "warnings": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "success",
+              "error",
+              "_meta",
+              "_perf"
+            ],
+            "type": "object"
+          }
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Workflow lifecycle management — init, read, update, cancel, cleanup, checkpoint, reconcile, and rehydrate workflows\n\nActions:\n- init(featureId, workflowType, synthesisPolicy?): Initialize a new workflow. Auto-emits workflow.started event. For workflowType=oneshot, an optional synthesisPolicy (always | never | on-request) seeds state.oneshot.synthesisPolicy; silently ignored for other workflow types.\n- get(featureId, query?, fields?, asOf?): Read workflow state with optional query or field projection\n- transition(featureId, target): Transition the workflow to a target phase. Canonical phase-mutation action. Routes through the HSM transition guard primitive — emits exactly one workflow.transition event on success, or returns a structured error envelope (validTargets, expectedShape, suggestedFix) on guard/topology failure.\n- update(featureId, updates): Mutate non-phase workflow state fields (artifacts, planReview, task results, etc.). Canonical state-mutation surface. Emits exactly one state.patched event on success. For phase changes use action: transition.\n- cancel(featureId, dryRun?, reason?): Cancel a workflow with saga compensation. Auto-emits workflow.cancel and compensation events\n- cleanup(featureId, mergeVerified, prUrl?, mergedBranches?, dryRun?): Resolve a merged workflow to completed. Verifies merge, backfills synthesis metadata, force-resolves reviews, transitions to completed. Auto-emits workflow.cleanup event\n- reconcile(featureId): Rebuild workflow state from event store. Applies events newer than state _eventSequence. Idempotent — no new events returns {reconciled: false, eventsApplied: 0}. Use after compaction or crash recovery\n- rehydrate(featureId, deliveryPath?): Rehydrate the canonical workflow document for a feature via the rehydration@v1 projection. Loads the latest snapshot and folds events written since, returning the full RehydrationDocument. Emits workflow.rehydrated on successful hydration (T032, DR-4) — the event records the deliveryPath used so downstream observers can correlate cache hints. Optional deliveryPath ∈ {direct, ndjson, snapshot}; defaults to \"direct\".\n- checkpoint(featureId, summary?, handoff?): Create an explicit checkpoint, resetting the operation counter. Persists checkpoint metadata to workflow state and emits workflow.checkpoint event\n- feedback(message, sessionContext?): File an agent→runtime friction report onto the shared meta/feedback stream (cross-workflow, queryable). Emits feedback.recorded; optionally POSTs upstream when .exarchos.yml sets feedback.upstream. No featureId — feedback is not feature-scoped.\n- describe(actions?, topology?, playbook?, config?): Return full schemas, descriptions, gate metadata, and phase/role info for specific actions. Optionally return HSM topology, phase playbooks, or annotated project config.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "init",
+              "get",
+              "transition",
+              "update",
+              "cancel",
+              "cleanup",
+              "reconcile",
+              "rehydrate",
+              "checkpoint",
+              "feedback",
+              "describe"
+            ],
+            "type": "string"
+          },
+          "actions": {
+            "description": "Action names to describe. Returns full schema + description for each.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10,
+            "minItems": 1,
+            "type": "array"
+          },
+          "asOf": {
+            "properties": {
+              "untilSequence": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "untilTimestamp": {
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "config": {
+            "description": "When true, returns annotated project config showing values and sources (default vs .exarchos.yml).",
+            "type": "boolean"
+          },
+          "deliveryPath": {
+            "enum": [
+              "direct",
+              "ndjson",
+              "snapshot"
+            ],
+            "type": "string"
+          },
+          "dryRun": {
+            "type": "boolean"
+          },
+          "featureId": {
+            "minLength": 1,
+            "pattern": "^[a-z0-9-]+$",
+            "type": "string"
+          },
+          "fields": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "handoff": {
+            "additionalProperties": false,
+            "properties": {
+              "context": {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              "nextSteps": {
+                "items": {
+                  "maxLength": 256,
+                  "type": "string"
+                },
+                "maxItems": 10,
+                "type": "array"
+              },
+              "suggestions": {
+                "items": {
+                  "maxLength": 256,
+                  "type": "string"
+                },
+                "maxItems": 10,
+                "type": "array"
+              }
+            },
+            "type": "object"
+          },
+          "mergeVerified": {
+            "type": "boolean"
+          },
+          "mergedBranches": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "message": {
+            "description": "The friction report (required, non-empty).",
+            "minLength": 1,
+            "type": "string"
+          },
+          "playbook": {
+            "description": "Workflow type for phase playbooks. \"all\" lists types.",
+            "type": "string"
+          },
+          "prUrl": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            ]
+          },
+          "query": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "sessionContext": {
+            "description": "Optional provenance: the workflow / action / errorCode the agent hit friction in.",
+            "properties": {
+              "action": {
+                "type": "string"
+              },
+              "errorCode": {
+                "type": "string"
+              },
+              "workflow": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "synthesisPolicy": {
+            "enum": [
+              "always",
+              "never",
+              "on-request"
+            ],
+            "type": "string"
+          },
+          "target": {
+            "description": "Target phase (must be a declared transition from the current phase)",
+            "minLength": 1,
+            "type": "string"
+          },
+          "topology": {
+            "description": "Workflow type to return HSM topology for. Use \"all\" to list all types.",
+            "type": "string"
+          },
+          "updates": {
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "workflowType": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "type": "object"
+      },
+      "name": "exarchos_workflow",
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "_cacheHints": {
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "const": "ephemeral",
+                    "type": "string"
+                  },
+                  "position": {
+                    "type": "string"
+                  },
+                  "ttl": {
+                    "const": "1h",
+                    "type": "string"
+                  },
+                  "type": {
+                    "const": "cache_boundary",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "position",
+                  "kind",
+                  "ttl"
+                ],
+                "type": "object"
+              },
+              "_corrections": {
+                "additionalProperties": false,
+                "properties": {
+                  "applied": {
+                    "items": {},
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "applied"
+                ],
+                "type": "object"
+              },
+              "_eventHints": {
+                "additionalProperties": false,
+                "properties": {
+                  "checked": {
+                    "type": "number"
+                  },
+                  "missing": {
+                    "items": {
+                      "additionalProperties": {},
+                      "properties": {
+                        "description": {
+                          "type": "string"
+                        },
+                        "eventType": {
+                          "type": "string"
+                        },
+                        "requiredFields": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "required": [
+                        "eventType",
+                        "description"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "phase": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "missing",
+                  "phase",
+                  "checked"
+                ],
+                "type": "object"
+              },
+              "_meta": {
+                "additionalProperties": {},
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "_perf": {
+                "additionalProperties": false,
+                "properties": {
+                  "bytes": {
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "ms": {
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "tokens": {
+                    "minimum": 0,
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "ms",
+                  "bytes",
+                  "tokens"
+                ],
+                "type": "object"
+              },
+              "data": {},
+              "next_actions": {
+                "items": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "hint": {
+                          "type": "string"
+                        },
+                        "idempotencyKey": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "reason": {
+                          "type": "string"
+                        },
+                        "ttl_suggestion_ms": {
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991,
+                          "type": "integer"
+                        },
+                        "validTargets": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "verb": {
+                          "const": "retry_with_task",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "verb",
+                        "reason",
+                        "ttl_suggestion_ms"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "hint": {
+                          "type": "string"
+                        },
+                        "idempotencyKey": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "reason": {
+                          "type": "string"
+                        },
+                        "validTargets": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "verb": {
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "verb",
+                        "reason"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              "success": {
+                "const": true,
+                "type": "boolean"
+              },
+              "warnings": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "success",
+              "data",
+              "next_actions",
+              "_meta",
+              "_perf"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "_corrections": {
+                "additionalProperties": {},
+                "properties": {
+                  "applied": {
+                    "items": {
+                      "additionalProperties": {},
+                      "properties": {
+                        "param": {
+                          "type": "string"
+                        },
+                        "rule": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "param",
+                        "rule"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "applied"
+                ],
+                "type": "object"
+              },
+              "_meta": {
+                "additionalProperties": {},
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "_perf": {
+                "additionalProperties": false,
+                "properties": {
+                  "bytes": {
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "ms": {
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "tokens": {
+                    "minimum": 0,
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "ms",
+                  "bytes",
+                  "tokens"
+                ],
+                "type": "object"
+              },
+              "error": {
+                "additionalProperties": {},
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "suggestedFix": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "params": {
+                        "additionalProperties": {},
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "type": "object"
+                      },
+                      "tool": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "tool",
+                      "params"
+                    ],
+                    "type": "object"
+                  },
+                  "validTargets": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "code",
+                  "message"
+                ],
+                "type": "object"
+              },
+              "success": {
+                "const": false,
+                "type": "boolean"
+              },
+              "warnings": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "success",
+              "error",
+              "_meta",
+              "_perf"
+            ],
+            "type": "object"
+          }
+        ],
+        "type": "object"
+      }
+    }
+  ]
+}

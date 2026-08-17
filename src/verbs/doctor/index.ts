@@ -1,0 +1,488 @@
+/**
+ * handleDoctor — composes the 16 per-check modules into a single MCP
+ * action.
+ *
+ * Design notes:
+ *   - Parallel fan-out with `Promise.all` so wall-time is bounded by the
+ *     slowest check, not the sum. Every check receives the same
+ *     AbortSignal so a caller-initiated abort cancels everything at
+ *     once (DIM-7).
+ *   - Per-check timeout wrapped with `runCheckWithTimeout`: a race
+ *     between the check and a sleep returning a Warning CheckResult.
+ *     Timeouts are non-fatal — the composer reports what it knows and
+ *     lets the operator follow the `fix` hint.
+ *   - External abort is a caller exception, not a result — we rethrow
+ *     AbortError so the surrounding dispatch path can distinguish
+ *     user-cancellation from a result-bearing outcome (DIM-7).
+ *   - Testable seam: `handleDoctorWithChecks` takes an explicit `checks`
+ *     array and `buildProbes` factory so tests never rely on the real
+ *     probe bundle or the canonical check list (DIM-4).
+ */
+
+import type { DispatchContext } from '../../dispatch/core/dispatch.js';
+import type { ToolResult } from '../../format.js';
+import { DOCTOR_STREAM_ID } from '../../dispatch/core/infra-streams.js';
+import { buildProbes as defaultBuildProbes } from './probes.js';
+import type { DoctorProbes } from './probes.js';
+import { DoctorOutputSchema, type CheckResult, type DoctorSummary } from './schema.js';
+import type { CheckFn } from './checks/__shared__/make-stub-probes.js';
+import {
+  reconcileWithEvents,
+  type ApplyCtx,
+  type DetectOptions,
+} from '../../dispatch/core/onboarding/reconcile.js';
+import { buildOnboardEventCtx } from '../../dispatch/core/onboarding/event-ctx.js';
+import type { ReconcilePlan, ReconcileResult } from '../../dispatch/core/onboarding/types.js';
+import type { WriterDeps } from '../init/probes.js';
+import { buildWriterDeps } from '../init/probes.js';
+import { getAllWriters } from '../init/index.js';
+import type { RuntimeConfigWriter } from '../init/writers/writer.js';
+import type { SeedResult } from '../init/seed-exarchos-config.js';
+import type { PlanStep } from '../../dispatch/core/onboarding/types.js';
+
+import { runtimeNodeVersion } from './checks/runtime-node-version.js';
+import { storageStateDir } from './checks/storage-state-dir.js';
+import { storageSqliteHealth } from './checks/storage-sqlite-health.js';
+import { storePathDivergence } from './checks/store-path-divergence.js';
+import { envVariables } from './checks/env-variables.js';
+import { vcsGitAvailable } from './checks/vcs-git-available.js';
+import { agentConfigValid } from './checks/agent-config-valid.js';
+import { agentMcpRegistered } from './checks/agent-mcp-registered.js';
+import { sessionStartHook } from './checks/session-start-hook.js';
+import { onrampBlockDrift } from './checks/onramp-block-drift.js';
+import { retiredHooksPresent } from './checks/retired-hooks-present.js';
+import { staleSkillDirs } from './checks/stale-skill-dirs.js';
+import { pluginSkillHashSync } from './checks/plugin-skill-hash-sync.js';
+import { pluginVersionMatch } from './checks/plugin-version-match.js';
+import { installFreshness } from './checks/install-freshness.js';
+import { remoteMcpStub } from './checks/remote-mcp-stub.js';
+import { invariantsCatalog } from './checks/invariants-catalog.js';
+import { verificationToolchain } from './checks/verification-toolchain.js';
+
+// ─── Canonical check list ──────────────────────────────────────────────────
+
+/** All 18 checks. Order is preserved in the output — callers can scan
+ * top-to-bottom for the first Fail. DR-11 B-5 (Task 019) added
+ * `store-path-divergence` in the `storage` block: the read-only check that
+ * fires when the CLI and Claude Code plugin surfaces resolve DIFFERENT event
+ * stores (state silently splits); its remediation is the documented
+ * `WORKFLOW_STATE_DIR` precedence, not a store migration.
+ * DR-8 added `session-start-hook` (#1485):
+ * the SessionStart binding presence check that lands the default-on hook step.
+ * Task 009 (design §4.6) added `verification-toolchain`: the read-only check
+ * reporting whether the verification ladder's runtime resolves. DR-5/DR-7 (Task
+ * 017) added `onramp-block-drift` (the Task 013 drift finding, previously
+ * unregistered) and `retired-hooks-present` (the uninstall-reachability check),
+ * placed together in the `agent` block. `onramp-block-drift` precedes
+ * `retired-hooks-present` so its `generate` block-write step lands before the
+ * `hook` removal step (the reconciler also enforces this ordering explicitly).
+ * DR-3/DR-8 (Task 011) added `stale-skill-dirs`: the read-only residue finding
+ * for the onboard rename migration, in the `plugin` block so its remediation
+ * degrades to the cli-only install step (the migration itself).
+ * P05-04 added `install-freshness`: the read-only view of the install-identity
+ * freshness gate (binary/plugin/skill/schema/cache), placed in the `plugin`
+ * block after `plugin-version-match`; it diagnoses the "upgraded binary, stale
+ * plugin/skill/cache" case the dispatch chokepoint blocks at runtime. */
+export const ALL_CHECKS: ReadonlyArray<CheckFn> = [
+  runtimeNodeVersion,
+  storageStateDir,
+  storageSqliteHealth,
+  storePathDivergence,
+  envVariables,
+  vcsGitAvailable,
+  agentConfigValid,
+  agentMcpRegistered,
+  sessionStartHook,
+  onrampBlockDrift,
+  retiredHooksPresent,
+  staleSkillDirs,
+  pluginSkillHashSync,
+  pluginVersionMatch,
+  installFreshness,
+  remoteMcpStub,
+  invariantsCatalog,
+  verificationToolchain,
+];
+
+// ─── Per-check timeout ─────────────────────────────────────────────────────
+
+async function runCheckWithTimeout(
+  check: CheckFn,
+  probes: DoctorProbes,
+  signal: AbortSignal,
+  timeoutMs: number,
+): Promise<CheckResult> {
+  // Extract a usable name for the timeout Warning result. Falls back to
+  // a sentinel when the function has no binding name (e.g. arrow
+  // expressions returned by a factory). Schema requires name.length >= 1.
+  const fnBindingName = (check as { name?: string }).name;
+  const fnName = fnBindingName && fnBindingName.length > 0 ? fnBindingName : 'unknown-check';
+
+  const meta = check as { meta?: { name?: string; category?: string } };
+  const checkCategory = meta.meta?.category ?? 'runtime';
+  const checkName = meta.meta?.name ?? fnName;
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<CheckResult>((resolve) => {
+    timer = setTimeout(() => {
+      resolve({
+        category: checkCategory as CheckResult['category'],
+        name: checkName,
+        status: 'Warning',
+        message: `Check ${checkName} did not complete within ${timeoutMs}ms`,
+        fix: `Check exceeded ${timeoutMs}ms timeout; investigate manually`,
+        durationMs: timeoutMs,
+      });
+    }, timeoutMs);
+  });
+
+  try {
+    const result = await Promise.race([check(probes, signal), timeoutPromise]);
+    return result;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+// ─── Checks-only runner (no event emission) ─────────────────────────────────
+
+/**
+ * Run the doctor checks and return the raw `CheckResult[]` WITHOUT emitting a
+ * `diagnostic.executed` event.
+ *
+ * This is the check-execution core that the MUTATING paths (`doctor --fix` and
+ * `onboard`) use to obtain the `actual` results their reconcile `diff`
+ * classifies. They must NOT go through {@link handleDoctorWithChecks}, whose
+ * read-only branch fires `diagnostic.executed`: a mutating run's audit trail is
+ * the `onboard.requested` / `onboard.executed` two-event split, and a stray
+ * `diagnostic.executed` from each internal check pass would double-count the run
+ * and blur the read-only-vs-mutating boundary (DR-4 / INV-1 / INV-13).
+ *
+ * It also honours the `runDoctorChecks(repoRoot)` seam contract: the checks run
+ * against `repoRoot` by building the probes over a cwd-retargeted context, so a
+ * caller targeting a different root (e.g. an `onboard --new` greenfield dir)
+ * gets results for THAT root rather than the dispatch cwd.
+ */
+export async function runChecksOnly(
+  ctx: DispatchContext,
+  repoRoot: string,
+  checks: ReadonlyArray<CheckFn> = ALL_CHECKS,
+  buildProbes: BuildProbesFn = defaultBuildProbes,
+  timeoutMs = 2000,
+): Promise<readonly CheckResult[]> {
+  const checkCtx: DispatchContext =
+    ctx.cwd === repoRoot ? ctx : { ...ctx, cwd: repoRoot };
+  const probes = buildProbes(checkCtx);
+  const controller = new AbortController();
+  return Promise.all(
+    checks.map((c) => runCheckWithTimeout(c, probes, controller.signal, timeoutMs)),
+  );
+}
+
+// ─── Handler ───────────────────────────────────────────────────────────────
+
+export interface HandleDoctorArgs {
+  readonly timeoutMs?: number;
+  readonly format?: 'table' | 'json';
+  /**
+   * DR-4: repair drift through the SHARED reconciler. When set, doctor runs the
+   * checks, builds the structured `ReconcilePlan`, routes it through the SAME
+   * `apply` `onboard` uses (via `reconcileWithEvents` with `trigger:'doctor-fix'`),
+   * re-runs the checks, and reports residuals. Bare `doctor` (this unset) stays
+   * read-only — it only emits `diagnostic.executed`, never an `onboard.*` event.
+   */
+  readonly fix?: boolean;
+  /** Optional caller-supplied AbortSignal. When aborted, the composer
+   * propagates cancellation to every running check and rethrows
+   * AbortError. Used by long-running CLI invocations and MCP callers
+   * that want to cancel mid-flight. */
+  readonly externalSignal?: AbortSignal;
+}
+
+/**
+ * The injected dependency bundle for the `doctor --fix` path (DR-4). Production
+ * callers use {@link defaultDoctorFixDeps} (real init writers + real writer deps
+ * + the real doctor composer as `runDoctorChecks`); tests inject a fixture repo,
+ * a stateful `runDoctorChecks`, and a stub `seed`.
+ *
+ * `doctor --fix` reuses the reconciler DIRECTLY (it imports
+ * `reconcileWithEvents` from `dispatch/core/onboarding/reconcile.js`) rather than calling
+ * the `onboard` handler — the two share the ONE `apply`, which is what makes them
+ * converge by construction (DR-4). This is the single injection axis; the event
+ * seam (over `ctx.eventStore`) is built internally so callers cannot mis-wire the
+ * two-event split (the CAS-pin idempotency trap).
+ */
+export interface DoctorFixDeps {
+  /** Repo root the fix reconciles (the dispatch cwd in prod; a fixture in tests). */
+  readonly repoRoot: string;
+  /**
+   * Produces the doctor `actual` check results the reconciler's `diff`
+   * classifies. The reconciler calls this for the plan; doctor re-runs the
+   * checks itself for the post-fix residual report. The real composer runs the
+   * 13 checks; tests stub it.
+   */
+  readonly runDoctorChecks: (repoRoot: string) => Promise<readonly CheckResult[]>;
+  /** Writer deps for GENERATE (real-fs in prod, fixture-redirected in tests). */
+  readonly writerDeps: WriterDeps;
+  /** Init writers GENERATE routes through (the production set by default). */
+  readonly writers: ReadonlyArray<RuntimeConfigWriter>;
+  /** Config seeder (defaults to the real `seedExarchosConfig` via `apply`). */
+  readonly seed?: (repoRoot: string, force: boolean) => SeedResult;
+  /** CLI-only install hook (real `npx` install is task 015; no-op default). */
+  readonly installStep?: (step: PlanStep, ctx: ApplyCtx) => Promise<void>;
+  /** Lifecycle-hook installer (real #1485 binding lives in onboard/hooks.ts). */
+  readonly installHook?: (step: PlanStep, ctx: ApplyCtx) => Promise<void>;
+  /** Threaded into `detectDesiredState` (runtime/vcs/command overrides). */
+  readonly detectOptions?: DetectOptions;
+}
+
+/** The post-fix re-diff residual surfaced on a `doctor --fix` result. */
+export interface DoctorFixSummary {
+  /** The plan that was reconciled (the structured doctor diff). */
+  readonly plan: ReconcilePlan;
+  /** The apply result (which steps applied/skipped/residual + advisories). */
+  readonly result?: ReconcileResult;
+  /** The post-apply re-diff: plan steps still outstanding after the fix. */
+  readonly residual: ReconcilePlan;
+}
+
+export type BuildProbesFn = (ctx: DispatchContext) => DoctorProbes;
+
+/**
+ * Stream ID for diagnostic events. Doctor is phase-independent and
+ * not tied to any workflow, so a dedicated stream keeps diagnostic
+ * history separate from workflow streams. (`DOCTOR_STREAM_ID` is imported
+ * from `dispatch/core/infra-streams.js` at the top of the module; re-exported here so
+ * callers keep their single import site alongside the handler.)
+ */
+export { DOCTOR_STREAM_ID };
+
+/**
+ * Testable seam — accepts an explicit `checks` list and `buildProbes`
+ * factory. Production callers use `handleDoctor` which binds these to
+ * the real canonical sources.
+ */
+export async function handleDoctorWithChecks(
+  args: HandleDoctorArgs,
+  ctx: DispatchContext,
+  checks: ReadonlyArray<CheckFn>,
+  buildProbes: BuildProbesFn,
+  fixDeps?: DoctorFixDeps,
+): Promise<ToolResult> {
+  // DR-4: `--fix` routes through the SHARED reconciler BEFORE the read-only
+  // diagnosis. It emits the `onboard.requested`/`onboard.executed` split with
+  // `trigger:'doctor-fix'` (NOT `diagnostic.executed`) and then runs the checks
+  // a final time to report the post-fix residual. Bare `doctor` skips this
+  // entirely and stays read-only.
+  let fixSummary: DoctorFixSummary | undefined;
+  if (args.fix) {
+    fixSummary = await runDoctorFix(ctx, fixDeps ?? defaultDoctorFixDeps(ctx));
+  }
+
+  const timeoutMs = args.timeoutMs ?? 2000;
+  const controller = new AbortController();
+  const probes = buildProbes(ctx);
+  const startedAt = Date.now();
+
+  // Wire the external signal so caller-initiated cancellation aborts
+  // the per-check controller too. Do NOT abort the controller if the
+  // external signal is never supplied.
+  const externalSignal = args.externalSignal;
+  if (externalSignal) {
+    if (externalSignal.aborted) controller.abort();
+    else {
+      externalSignal.addEventListener('abort', () => controller.abort(), {
+        once: true,
+      });
+    }
+  }
+
+  const pending = Promise.all(
+    checks.map((c) => runCheckWithTimeout(c, probes, controller.signal, timeoutMs)),
+  );
+
+  // Abort handling: caller abort short-circuits the waiter with an
+  // AbortError. The per-check controller already propagated the signal
+  // to each running check.
+  const results = await Promise.race([
+    pending,
+    new Promise<never>((_, reject) => {
+      if (externalSignal?.aborted) {
+        reject(new DOMException('Aborted', 'AbortError'));
+        return;
+      }
+      externalSignal?.addEventListener(
+        'abort',
+        () => reject(new DOMException('Aborted', 'AbortError')),
+        { once: true },
+      );
+    }),
+  ]);
+
+  const summary = tallySummary(results);
+  const durationMs = Date.now() - startedAt;
+
+  // DIM-3: validate the output shape through Zod. A parse failure here
+  // is a programming error (check returned an invalid shape or tally
+  // disagrees with the refinement), not a user-facing condition —
+  // throw loud so the defect is caught in CI, not silently forwarded.
+  const output = DoctorOutputSchema.parse({ checks: results, summary });
+
+  // Emit diagnostic.executed after the successful run — but ONLY on the
+  // read-only path. Under `--fix` the audit trail is the shared
+  // `onboard.requested`/`onboard.executed` split (already emitted by the
+  // reconciler with `trigger:'doctor-fix'`); a `diagnostic.executed` here would
+  // double-count the run and blur the read-only-vs-mutating boundary (DR-4). If
+  // the caller aborted above, control never reaches here — the abort path
+  // rejects before any partial event is written (DIM-7).
+  if (!args.fix) {
+    void emitDiagnosticEvent(ctx, output.checks, summary, durationMs).catch(() => {
+      // best-effort telemetry; do not fail doctor output
+    });
+  }
+
+  return {
+    success: true,
+    // On the fix path the structured reconcile summary (plan + apply result +
+    // post-fix residual) rides alongside the final read-only checks so callers
+    // can see both what was reconciled and what (if anything) still drifts.
+    data: fixSummary ? { ...output, postFix: fixSummary } : output,
+  };
+}
+
+// ─── doctor --fix (DR-4) ─────────────────────────────────────────────────────
+
+/**
+ * `runDoctorFix` — repair drift through the SHARED reconciler (DR-4).
+ *
+ * Builds the event seam over the real {@link DispatchContext.eventStore} and the
+ * apply seam from the injected {@link DoctorFixDeps}, then calls
+ * {@link reconcileWithEvents} with `trigger:'doctor-fix'`. The reconciler runs
+ * `detect`→`diff`→`apply` and emits the DR-7 two-event split; we then re-run the
+ * doctor checks and re-`diff` to surface the post-fix residual.
+ *
+ * Reuse, not re-implementation: this is the EXACT `apply` `onboard` drives, so a
+ * `doctor --fix` and an `onboard` over the same repo converge by construction.
+ * We import the reconciler directly (never the `onboard` handler) so the two
+ * facades stay independent (INV-2) while sharing the one behavior.
+ */
+async function runDoctorFix(
+  ctx: DispatchContext,
+  deps: DoctorFixDeps,
+): Promise<DoctorFixSummary> {
+  const eventCtx = buildOnboardEventCtx(ctx);
+  const applyCtx = buildFixApplyCtx(deps);
+
+  const outcome = await reconcileWithEvents(
+    {
+      repoRoot: deps.repoRoot,
+      trigger: 'doctor-fix',
+      runDoctorChecks: deps.runDoctorChecks,
+      ...(deps.detectOptions ? { detectOptions: deps.detectOptions } : {}),
+    },
+    eventCtx,
+    applyCtx,
+  );
+
+  // Post-fix re-diff: re-run the checks and classify what (if anything) remains.
+  const { diff } = await import('../../dispatch/core/onboarding/reconcile.js');
+  const postChecks = await deps.runDoctorChecks(deps.repoRoot);
+  const residual = diff({ runtimes: [], vcs: 'git', commands: {} }, postChecks);
+
+  return {
+    plan: outcome.plan,
+    ...(outcome.result ? { result: outcome.result } : {}),
+    residual,
+  };
+}
+
+/** Build the {@link ApplyCtx} side-effect bundle for a `doctor --fix` run. */
+function buildFixApplyCtx(deps: DoctorFixDeps): ApplyCtx {
+  return {
+    repoRoot: deps.repoRoot,
+    // doctor --fix runs from the CLI surface (it is a local maintenance verb), so
+    // cli-only install steps execute rather than downgrading to an advisory.
+    surface: 'cli',
+    writerDeps: deps.writerDeps,
+    writers: deps.writers,
+    ...(deps.seed ? { seed: deps.seed } : {}),
+    ...(deps.installStep ? { installStep: deps.installStep } : {}),
+    ...(deps.installHook ? { installHook: deps.installHook } : {}),
+  };
+}
+
+/**
+ * Production `doctor --fix` deps: the real init writers + writer deps + the real
+ * doctor composer as `runDoctorChecks` (reusing the 13-check composer verbatim —
+ * one check source, INV-2/DR-4). `repoRoot` is the dispatch cwd. The
+ * `installHook`/`installStep` hooks default to the reconciler's no-ops until
+ * tasks 012/015 supply the real binders.
+ */
+export function defaultDoctorFixDeps(ctx: DispatchContext): DoctorFixDeps {
+  return {
+    repoRoot: ctx.cwd ?? process.cwd(),
+    // Run the checks WITHOUT emitting `diagnostic.executed` (the fix path's audit
+    // trail is the onboard two-event split, not a read-only diagnostic event)
+    // and honour the requested `repoRoot` per the seam contract.
+    runDoctorChecks: (repoRoot) => runChecksOnly(ctx, repoRoot),
+    writerDeps: buildWriterDeps(),
+    writers: getAllWriters(),
+  };
+}
+
+/** Emit a `diagnostic.executed` event with summary, checkCount,
+ * failedCheckNames, and durationMs. Schema for the event payload lives
+ * in event-store/schemas.ts. */
+async function emitDiagnosticEvent(
+  ctx: DispatchContext,
+  results: ReadonlyArray<CheckResult>,
+  summary: DoctorSummary,
+  durationMs: number,
+): Promise<void> {
+  const failedCheckNames = results
+    .filter((r) => r.status === 'Fail')
+    .map((r) => r.name);
+  await ctx.eventStore.append(DOCTOR_STREAM_ID, {
+    type: 'diagnostic.executed' as const,
+    data: {
+      summary,
+      checkCount: results.length,
+      failedCheckNames,
+      durationMs,
+    },
+  });
+}
+
+/** Group results by status and count them. Pure — takes the results
+ * array, returns a DoctorSummary whose totals equal the array length. */
+function tallySummary(results: ReadonlyArray<CheckResult>): DoctorSummary {
+  const summary: DoctorSummary = { passed: 0, warnings: 0, failed: 0, skipped: 0 };
+  for (const r of results) {
+    switch (r.status) {
+      case 'Pass':
+        summary.passed += 1;
+        break;
+      case 'Warning':
+        summary.warnings += 1;
+        break;
+      case 'Fail':
+        summary.failed += 1;
+        break;
+      case 'Skipped':
+        summary.skipped += 1;
+        break;
+    }
+  }
+  return summary;
+}
+
+/**
+ * Production entry point — binds the real check list and real probe
+ * factory.
+ */
+export async function handleDoctor(
+  args: HandleDoctorArgs,
+  ctx: DispatchContext,
+): Promise<ToolResult> {
+  return handleDoctorWithChecks(args, ctx, ALL_CHECKS, defaultBuildProbes);
+}

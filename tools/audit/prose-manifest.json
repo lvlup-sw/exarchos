@@ -1,0 +1,3360 @@
+{
+  "destinationRepo": "lvlup-sw/docs",
+  "destinationKey": "exarchos",
+  "capturedAt": "2026-08-13",
+  "subtrees": [
+    "docs/ARCHITECTURE.md",
+    "docs/The-Complete-Guide-to-Building-Skill-for-Claude.pdf",
+    "docs/adrs",
+    "docs/architecture",
+    "docs/assets",
+    "docs/audits",
+    "docs/bugs",
+    "docs/contexts",
+    "docs/designs",
+    "docs/followups",
+    "docs/guides",
+    "docs/market",
+    "docs/migrations",
+    "docs/plans",
+    "docs/proposals",
+    "docs/rca",
+    "docs/refactors",
+    "docs/references",
+    "docs/research",
+    "docs/runbooks",
+    "docs/skills-authoring.md",
+    "docs/specs",
+    "docs/tool-reference.md"
+  ],
+  "counts": {
+    "files": 554,
+    "bytes": 13075018
+  },
+  "entries": [
+    {
+      "source": "docs/adrs/2026-05-24-hook-layer-observe-only.md",
+      "destination": "exarchos/docs/adrs/2026-05-24-hook-layer-observe-only.md",
+      "bytes": 14212,
+      "digest": "sha256:1887854be4c2eb8b140fec390b3e99651163ce5db0bd7360dd48ca6cf764b3a0"
+    },
+    {
+      "source": "docs/adrs/adversarial-convergence-theory.md",
+      "destination": "exarchos/docs/adrs/adversarial-convergence-theory.md",
+      "bytes": 18944,
+      "digest": "sha256:a03a351299b80bc9c13c735cc2010b2cceea0dc26a1ca35b4bee7c107a161c18"
+    },
+    {
+      "source": "docs/adrs/agentic-workflow-theory.md",
+      "destination": "exarchos/docs/adrs/agentic-workflow-theory.md",
+      "bytes": 29237,
+      "digest": "sha256:4c979f7d0f0b51c60e3f253ceaf740baa16e147ae273b4a751d567a938be1a68"
+    },
+    {
+      "source": "docs/adrs/cicd-workflow-design.md",
+      "destination": "exarchos/docs/adrs/cicd-workflow-design.md",
+      "bytes": 12586,
+      "digest": "sha256:b70ccce33f1c4ca2214811c96514a86df9655b17f0f94203779eb39a04ec4d8f"
+    },
+    {
+      "source": "docs/adrs/context-token-budget.md",
+      "destination": "exarchos/docs/adrs/context-token-budget.md",
+      "bytes": 3185,
+      "digest": "sha256:83d1eccb1982cc778e9e6bd1e3a0acd311ffadb7caaee312fc822741536b9fd3"
+    },
+    {
+      "source": "docs/adrs/distributed-sdlc-pipeline.md",
+      "destination": "exarchos/docs/adrs/distributed-sdlc-pipeline.md",
+      "bytes": 146874,
+      "digest": "sha256:5d3ca23a5d00974d90e9af8efab34dce7b6c29f9b39a899430bd200a4267404b"
+    },
+    {
+      "source": "docs/adrs/installation-hardening-plan.md",
+      "destination": "exarchos/docs/adrs/installation-hardening-plan.md",
+      "bytes": 6479,
+      "digest": "sha256:be8767befce5b3caa599d94d6bffd61f709003a67216396aab6d959c09b0a1de"
+    },
+    {
+      "source": "docs/adrs/mcp-subagent-limitations.md",
+      "destination": "exarchos/docs/adrs/mcp-subagent-limitations.md",
+      "bytes": 5131,
+      "digest": "sha256:934847f5c2ddb705f5a8cf54aa91dfac425d2b695a3d29d594def953d7403e0d"
+    },
+    {
+      "source": "docs/adrs/system-index.md",
+      "destination": "exarchos/docs/adrs/system-index.md",
+      "bytes": 35866,
+      "digest": "sha256:0772a4fefb1adf7d582ab15af3570adcb077326e6848cc7cba82e4f400f27e5c"
+    },
+    {
+      "source": "docs/adrs/transformer-neuroanatomy-applied-agent-tooling.md",
+      "destination": "exarchos/docs/adrs/transformer-neuroanatomy-applied-agent-tooling.md",
+      "bytes": 43435,
+      "digest": "sha256:fc64f2b433d725c07d7a46fbd541c966bf0b7fdd1e6771bdd9fc48716bbabc89"
+    },
+    {
+      "source": "docs/adrs/transformer-neuroanatomy-synthesis.md",
+      "destination": "exarchos/docs/adrs/transformer-neuroanatomy-synthesis.md",
+      "bytes": 23315,
+      "digest": "sha256:8b604c74fb7c5c490ed293707a51231a702ca02c35b7e601731fd791bd419600"
+    },
+    {
+      "source": "docs/ARCHITECTURE.md",
+      "destination": "exarchos/docs/ARCHITECTURE.md",
+      "bytes": 7253,
+      "digest": "sha256:f7711bb5eee339935ff04039cb4e45935c3fee30d891815971f80c07f01233d1"
+    },
+    {
+      "source": "docs/architecture/invariants-v3-contract-seam.md",
+      "destination": "exarchos/docs/architecture/invariants-v3-contract-seam.md",
+      "bytes": 2811,
+      "digest": "sha256:c409d31dd3e8ca6c02a09dde3e9c609ad02118983c2f391a80a6a2ab04280f5f"
+    },
+    {
+      "source": "docs/architecture/invariants/references/deterministic-checks.md",
+      "destination": "exarchos/docs/architecture/invariants/references/deterministic-checks.md",
+      "bytes": 9898,
+      "digest": "sha256:d648fcb2a5aa5b08ee0647826decf86cc312a2d3cc7c13d78c0d308e3fa5f082"
+    },
+    {
+      "source": "docs/architecture/invariants/references/INV-1-event-sourcing.md",
+      "destination": "exarchos/docs/architecture/invariants/references/INV-1-event-sourcing.md",
+      "bytes": 8003,
+      "digest": "sha256:b1bdec8e83364090cb312468227355142d728922df765a2f56d788e56239e5d9"
+    },
+    {
+      "source": "docs/architecture/invariants/references/INV-2-facade-equivalence.md",
+      "destination": "exarchos/docs/architecture/invariants/references/INV-2-facade-equivalence.md",
+      "bytes": 7740,
+      "digest": "sha256:6b79030bf222bde88833017d0d948b88a2f1da51175b4fc52c82d6f9888bedb5"
+    },
+    {
+      "source": "docs/architecture/invariants/references/INV-3-basileus-forward.md",
+      "destination": "exarchos/docs/architecture/invariants/references/INV-3-basileus-forward.md",
+      "bytes": 6319,
+      "digest": "sha256:ae98b35ddeac8082bbd275f0deb20e6d594f058c6316d2813dc74bd7b15db346"
+    },
+    {
+      "source": "docs/architecture/invariants/references/INV-4-platform-agnosticity.md",
+      "destination": "exarchos/docs/architecture/invariants/references/INV-4-platform-agnosticity.md",
+      "bytes": 7540,
+      "digest": "sha256:587ef40472fb78807e7267e6db4679b1a1239f5e19e37235d221ae7d0c852a69"
+    },
+    {
+      "source": "docs/architecture/invariants/references/INV-5a-input-ergonomics.md",
+      "destination": "exarchos/docs/architecture/invariants/references/INV-5a-input-ergonomics.md",
+      "bytes": 4968,
+      "digest": "sha256:03e24a71220edec69d378e27d24b16194c72e0f35e94d70bdea830e80574dea2"
+    },
+    {
+      "source": "docs/architecture/invariants/references/INV-5b-output-contract.md",
+      "destination": "exarchos/docs/architecture/invariants/references/INV-5b-output-contract.md",
+      "bytes": 8523,
+      "digest": "sha256:bc8e324e17bfa7cf75d495c8eaac30bd322a6b5b836b80ae8c329ee1857c54f9"
+    },
+    {
+      "source": "docs/architecture/invariants/references/INV-5c-aspire-verbs.md",
+      "destination": "exarchos/docs/architecture/invariants/references/INV-5c-aspire-verbs.md",
+      "bytes": 4896,
+      "digest": "sha256:028303c97c961492a8edd19b0100d907c5af6f8a959f33b84c4fc8dfab89c2ed"
+    },
+    {
+      "source": "docs/architecture/invariants/references/INV-5d-action-discriminator.md",
+      "destination": "exarchos/docs/architecture/invariants/references/INV-5d-action-discriminator.md",
+      "bytes": 8569,
+      "digest": "sha256:1c73d32240b970f04e9885bd1edfabdfddce1aa8c495b170a0ff6c6112cf8c95"
+    },
+    {
+      "source": "docs/architecture/invariants/references/INV-6-workflow-agnosticism.md",
+      "destination": "exarchos/docs/architecture/invariants/references/INV-6-workflow-agnosticism.md",
+      "bytes": 6731,
+      "digest": "sha256:1759de101b9aa8451e2fde9f8e50d39fa1dbb6d3cbc04704c2e5f989cdba1b78"
+    },
+    {
+      "source": "docs/architecture/projections.md",
+      "destination": "exarchos/docs/architecture/projections.md",
+      "bytes": 34170,
+      "digest": "sha256:b8167e63cb89a5637b09102971ba2d24b393b3fe6f20e6f3b24989f51d073706"
+    },
+    {
+      "source": "docs/architecture/runtime.md",
+      "destination": "exarchos/docs/architecture/runtime.md",
+      "bytes": 36369,
+      "digest": "sha256:427d4dd3b2bbaa3965223053a4a1f1141b20d17953640084e34f8cb98e5f4d8e"
+    },
+    {
+      "source": "docs/assets/agent-principles-contract-generation.svg",
+      "destination": "exarchos/docs/assets/agent-principles-contract-generation.svg",
+      "bytes": 3561,
+      "digest": "sha256:79e49bd86765c5cde0bdf161dcb2a7b35784e5c7fa374a81bcd8b6dae09802de"
+    },
+    {
+      "source": "docs/assets/agent-principles-functional-core.svg",
+      "destination": "exarchos/docs/assets/agent-principles-functional-core.svg",
+      "bytes": 3226,
+      "digest": "sha256:f9a10aa4915da84ef0f9fe15fa726116d868787c2c9a1264f8eb715bb6cd41fc"
+    },
+    {
+      "source": "docs/assets/agent-principles-integration-closure.svg",
+      "destination": "exarchos/docs/assets/agent-principles-integration-closure.svg",
+      "bytes": 3760,
+      "digest": "sha256:5b2cca57201c37419352f9653ff72c11b8315324d5e4b395997fe28e8edbf661"
+    },
+    {
+      "source": "docs/assets/agent-principles-proof-ladder.svg",
+      "destination": "exarchos/docs/assets/agent-principles-proof-ladder.svg",
+      "bytes": 2833,
+      "digest": "sha256:e37c251eb16dde934a2a9377cd1ae0e387bd349b4a17e50c846631020b008b2d"
+    },
+    {
+      "source": "docs/assets/architecture.svg",
+      "destination": "exarchos/docs/assets/architecture.svg",
+      "bytes": 13438,
+      "digest": "sha256:e0662b5bb273e3d2156153345765d9fe1bedcfad65d2a61f15709d641fb93274"
+    },
+    {
+      "source": "docs/assets/demo-ideate.tape",
+      "destination": "exarchos/docs/assets/demo-ideate.tape",
+      "bytes": 6445,
+      "digest": "sha256:dc5ebd809d73ae834aee948a39db4f0341cffae97835a9ab82db3bf4ad6e476d"
+    },
+    {
+      "source": "docs/assets/demo-rehydrate.gif",
+      "destination": "exarchos/docs/assets/demo-rehydrate.gif",
+      "bytes": 151993,
+      "digest": "sha256:5b74f6bbeac7e47df35c58c2c0d5b34dd6a93b2d8916db04057c440645177727"
+    },
+    {
+      "source": "docs/assets/demo-rehydrate.mp4",
+      "destination": "exarchos/docs/assets/demo-rehydrate.mp4",
+      "bytes": 149511,
+      "digest": "sha256:ced31a5645976631ec979310a028243fb193678a70e7daa1eeff5249a82ff2ba"
+    },
+    {
+      "source": "docs/assets/demo-rehydrate.tape",
+      "destination": "exarchos/docs/assets/demo-rehydrate.tape",
+      "bytes": 3339,
+      "digest": "sha256:8fd097a8282237eeaf50c7809c8314ea5ad7d0855736245f861d34c3d47fdbdc"
+    },
+    {
+      "source": "docs/assets/demo-scripts/checkpoint.sh",
+      "destination": "exarchos/docs/assets/demo-scripts/checkpoint.sh",
+      "bytes": 596,
+      "digest": "sha256:cb5db0a8a12897f5b357b2855bf04660fbdb603fdcc90bf6a34dfdf0d62afad4"
+    },
+    {
+      "source": "docs/assets/demo-scripts/continue.sh",
+      "destination": "exarchos/docs/assets/demo-scripts/continue.sh",
+      "bytes": 386,
+      "digest": "sha256:ea64d059ce0a0c9d6357a80721284e0f24a90f6e89ead374081ce484701cf86c"
+    },
+    {
+      "source": "docs/assets/demo-scripts/delegate.sh",
+      "destination": "exarchos/docs/assets/demo-scripts/delegate.sh",
+      "bytes": 1321,
+      "digest": "sha256:726092273274c5136e24559b22a0bd2cb8c111be1ebf14c942037adb45eb0073"
+    },
+    {
+      "source": "docs/assets/demo-scripts/ideate-approaches.sh",
+      "destination": "exarchos/docs/assets/demo-scripts/ideate-approaches.sh",
+      "bytes": 1134,
+      "digest": "sha256:21b0c3fad686ce74f38c3ccfcf213fe586e1530c7754ba46ade6e7ec7a318e3d"
+    },
+    {
+      "source": "docs/assets/demo-scripts/ideate-init.sh",
+      "destination": "exarchos/docs/assets/demo-scripts/ideate-init.sh",
+      "bytes": 189,
+      "digest": "sha256:eba3cba34dcd7a152dd2f9258949fe9108fbd47a6c2dfb77360dd94789030ada"
+    },
+    {
+      "source": "docs/assets/demo-scripts/ideate-question.sh",
+      "destination": "exarchos/docs/assets/demo-scripts/ideate-question.sh",
+      "bytes": 280,
+      "digest": "sha256:c25f23fa98ef05ba5031ac713694e7189e5c1890a118eb9cafc12ffbee4e1d88"
+    },
+    {
+      "source": "docs/assets/demo-scripts/ideate-saved.sh",
+      "destination": "exarchos/docs/assets/demo-scripts/ideate-saved.sh",
+      "bytes": 543,
+      "digest": "sha256:fd09d4444dd80758984e34457ea68c5107275cfca4848815f819080510d9407c"
+    },
+    {
+      "source": "docs/assets/demo-scripts/new-session.sh",
+      "destination": "exarchos/docs/assets/demo-scripts/new-session.sh",
+      "bytes": 173,
+      "digest": "sha256:6cd586af192e16a169a8c265041c61cdfcc69972a4bc36a51fe52cadb21c0f8a"
+    },
+    {
+      "source": "docs/assets/demo-scripts/plan.sh",
+      "destination": "exarchos/docs/assets/demo-scripts/plan.sh",
+      "bytes": 923,
+      "digest": "sha256:542095ca8034b85715c209fd6ddc20d99526d850d3c42490997100a330fe5d8a"
+    },
+    {
+      "source": "docs/assets/demo-scripts/prompt.sh",
+      "destination": "exarchos/docs/assets/demo-scripts/prompt.sh",
+      "bytes": 132,
+      "digest": "sha256:cda6835c60c58ae67fae9c6c02afd8235d4f82cb023008e3b75cdfbf89f09dcf"
+    },
+    {
+      "source": "docs/assets/demo-scripts/rehydrate.sh",
+      "destination": "exarchos/docs/assets/demo-scripts/rehydrate.sh",
+      "bytes": 1038,
+      "digest": "sha256:54509d293f5c6da71ce808ed6fa62561e4fcc7703f3528440369642b97ebe529"
+    },
+    {
+      "source": "docs/assets/superpowers-comparison.svg",
+      "destination": "exarchos/docs/assets/superpowers-comparison.svg",
+      "bytes": 3525,
+      "digest": "sha256:8f41c8af847630265dc77d240a680782e3a914a658404c8f374c45a0422e51bf"
+    },
+    {
+      "source": "docs/audits/2026-02-06-testing-gaps.md",
+      "destination": "exarchos/docs/audits/2026-02-06-testing-gaps.md",
+      "bytes": 18261,
+      "digest": "sha256:48cfd15695eef2e750ab94814a902b97340d3167cf6ec08e76ffde621a837f5c"
+    },
+    {
+      "source": "docs/audits/2026-04-18-v2.8.0-dogfood.md",
+      "destination": "exarchos/docs/audits/2026-04-18-v2.8.0-dogfood.md",
+      "bytes": 17977,
+      "digest": "sha256:9285d92b686bfd961a699005b07ffa6165ab5ef4c6c6f2302fd54c5b115c7b52"
+    },
+    {
+      "source": "docs/audits/2026-06-20-state-json-field-coverage.md",
+      "destination": "exarchos/docs/audits/2026-06-20-state-json-field-coverage.md",
+      "bytes": 15565,
+      "digest": "sha256:24bf88ebe90cfe615e8998d85ea3baceab83cfdc57534d8df4ff0a51c280f60d"
+    },
+    {
+      "source": "docs/audits/2026-07-21-phase-gate-transition-admission.md",
+      "destination": "exarchos/docs/audits/2026-07-21-phase-gate-transition-admission.md",
+      "bytes": 94003,
+      "digest": "sha256:10ba81b786c990d540d99c5227e6127b0fd8b95c8a3cdcafa990e79fe21f65ff"
+    },
+    {
+      "source": "docs/audits/2026-07-21-phase-gate-v212-dogfood.md",
+      "destination": "exarchos/docs/audits/2026-07-21-phase-gate-v212-dogfood.md",
+      "bytes": 31336,
+      "digest": "sha256:2ee0d22e56cfbcda1a8814986a801cfe8bcb5941c5aac48188791ce17a2d69f0"
+    },
+    {
+      "source": "docs/audits/2026-07-21-structural-principles-codebase-assessment.md",
+      "destination": "exarchos/docs/audits/2026-07-21-structural-principles-codebase-assessment.md",
+      "bytes": 26303,
+      "digest": "sha256:415189269b58ca784bef4a3992ea1da8a713ec0dd849d053b543c9e1852a6426"
+    },
+    {
+      "source": "docs/audits/2026-08-04-wiring-audit.md",
+      "destination": "exarchos/docs/audits/2026-08-04-wiring-audit.md",
+      "bytes": 12031,
+      "digest": "sha256:1dc4a4e2d450f0772cfe763d618be0259f300273c2ea7a2813f910d871a5f168"
+    },
+    {
+      "source": "docs/audits/structural-closure-delta-audit/2026-07-23-structural-closure-delta-audit.md",
+      "destination": "exarchos/docs/audits/structural-closure-delta-audit/2026-07-23-structural-closure-delta-audit.md",
+      "bytes": 196939,
+      "digest": "sha256:cfd861b92202cd8a78a20ebbcedb74a89e49cbdd552dff6698cb55415199198f"
+    },
+    {
+      "source": "docs/audits/structural-closure-delta-audit/api-contract-codegen.json",
+      "destination": "exarchos/docs/audits/structural-closure-delta-audit/api-contract-codegen.json",
+      "bytes": 46220,
+      "digest": "sha256:5202e48bdc4d6ffd6ba8424d5dd747586a405df7bdadadc25a07c8a38c96fdcc"
+    },
+    {
+      "source": "docs/audits/structural-closure-delta-audit/artifacts.json",
+      "destination": "exarchos/docs/audits/structural-closure-delta-audit/artifacts.json",
+      "bytes": 34154,
+      "digest": "sha256:398877ea31d037c74ff74b277db241a77eae2e04a8b56afe24132f8004d48061"
+    },
+    {
+      "source": "docs/audits/structural-closure-delta-audit/codebase-metrics.json",
+      "destination": "exarchos/docs/audits/structural-closure-delta-audit/codebase-metrics.json",
+      "bytes": 46943,
+      "digest": "sha256:62c705035e487c2665945ff70b150652a2657dcc92f17b8b25e6c6c8513f0659"
+    },
+    {
+      "source": "docs/audits/structural-closure-delta-audit/contracts.json",
+      "destination": "exarchos/docs/audits/structural-closure-delta-audit/contracts.json",
+      "bytes": 496633,
+      "digest": "sha256:efe3bcdd1c51885e9f6318fac950e2b22d539d390899b7f15f55b9bdea120a57"
+    },
+    {
+      "source": "docs/audits/structural-closure-delta-audit/effects.json",
+      "destination": "exarchos/docs/audits/structural-closure-delta-audit/effects.json",
+      "bytes": 191668,
+      "digest": "sha256:94add429c294323afe8e174c334068cc99757190dd16d94d614c718e2e7b5bd9"
+    },
+    {
+      "source": "docs/audits/structural-closure-delta-audit/implementation/METADATA.json",
+      "destination": "exarchos/docs/audits/structural-closure-delta-audit/implementation/METADATA.json",
+      "bytes": 416,
+      "digest": "sha256:24bee7f2dc0c4d476b3a27e3d6fdee2bdea728ebdad2b990b78c2cf3cef20af8"
+    },
+    {
+      "source": "docs/audits/structural-closure-delta-audit/implementation/phase-gate-v212-proof-substrate.bundle",
+      "destination": "exarchos/docs/audits/structural-closure-delta-audit/implementation/phase-gate-v212-proof-substrate.bundle",
+      "bytes": 240089,
+      "digest": "sha256:52c909cc68b1bb8a7452e690b7a3571b2517eb5d47f61496180016a00fddb160"
+    },
+    {
+      "source": "docs/audits/structural-closure-delta-audit/implementation/phase-gate-v212-proof-substrate.diff",
+      "destination": "exarchos/docs/audits/structural-closure-delta-audit/implementation/phase-gate-v212-proof-substrate.diff",
+      "bytes": 746205,
+      "digest": "sha256:5c8488ba532fb273b7fbcf086d5bcb3979ae5fb58694876c3111992eff9190d3"
+    },
+    {
+      "source": "docs/audits/structural-closure-delta-audit/implementation/README.md",
+      "destination": "exarchos/docs/audits/structural-closure-delta-audit/implementation/README.md",
+      "bytes": 1119,
+      "digest": "sha256:8e10d3655b8186bef78e283933cf50ef2337a95bc3cf1ddb12972d60b77f3fd8"
+    },
+    {
+      "source": "docs/audits/structural-closure-delta-audit/implementation/SHA256SUMS.txt",
+      "destination": "exarchos/docs/audits/structural-closure-delta-audit/implementation/SHA256SUMS.txt",
+      "bytes": 481,
+      "digest": "sha256:ef26dd46d39e8245b4bb1d1505a0cbae37a86252c2286496fe8b1f29d46280a1"
+    },
+    {
+      "source": "docs/audits/structural-closure-delta-audit/manifest.json",
+      "destination": "exarchos/docs/audits/structural-closure-delta-audit/manifest.json",
+      "bytes": 64584,
+      "digest": "sha256:775fa841dad13c61f4562e3f85812106bfbfc9f2cd196f08e7d86cbfb0e7ab82"
+    },
+    {
+      "source": "docs/audits/structural-closure-delta-audit/README.md",
+      "destination": "exarchos/docs/audits/structural-closure-delta-audit/README.md",
+      "bytes": 2288,
+      "digest": "sha256:f4293e1663dba8d151010152f532320054ba78833e413b0d1ef21f4adceaaee7"
+    },
+    {
+      "source": "docs/audits/structural-closure-delta-audit/remediation-backlog.json",
+      "destination": "exarchos/docs/audits/structural-closure-delta-audit/remediation-backlog.json",
+      "bytes": 174504,
+      "digest": "sha256:37b97b398b866012d9d886c86a6a09513cf98aa327254458684348dd392ecf8f"
+    },
+    {
+      "source": "docs/audits/structural-closure-delta-audit/ship-surface.json",
+      "destination": "exarchos/docs/audits/structural-closure-delta-audit/ship-surface.json",
+      "bytes": 966978,
+      "digest": "sha256:622531c3060eafb27a424c019baff4fc1b3ede047c2cd0b0f965e580688cf662"
+    },
+    {
+      "source": "docs/audits/structural-closure-delta-audit/sources/agent-principles.md",
+      "destination": "exarchos/docs/audits/structural-closure-delta-audit/sources/agent-principles.md",
+      "bytes": 22253,
+      "digest": "sha256:be34aa7593eab0ac619ee1db7a5be78ba44ee85c81caa2c9c2fda6daeee25109"
+    },
+    {
+      "source": "docs/audits/structural-closure-delta-audit/sources/diagrams/agent-principles-contract-generation.svg",
+      "destination": "exarchos/docs/audits/structural-closure-delta-audit/sources/diagrams/agent-principles-contract-generation.svg",
+      "bytes": 3561,
+      "digest": "sha256:79e49bd86765c5cde0bdf161dcb2a7b35784e5c7fa374a81bcd8b6dae09802de"
+    },
+    {
+      "source": "docs/audits/structural-closure-delta-audit/sources/diagrams/agent-principles-functional-core.svg",
+      "destination": "exarchos/docs/audits/structural-closure-delta-audit/sources/diagrams/agent-principles-functional-core.svg",
+      "bytes": 3226,
+      "digest": "sha256:f9a10aa4915da84ef0f9fe15fa726116d868787c2c9a1264f8eb715bb6cd41fc"
+    },
+    {
+      "source": "docs/audits/structural-closure-delta-audit/sources/diagrams/agent-principles-integration-closure.svg",
+      "destination": "exarchos/docs/audits/structural-closure-delta-audit/sources/diagrams/agent-principles-integration-closure.svg",
+      "bytes": 3760,
+      "digest": "sha256:5b2cca57201c37419352f9653ff72c11b8315324d5e4b395997fe28e8edbf661"
+    },
+    {
+      "source": "docs/audits/structural-closure-delta-audit/sources/diagrams/agent-principles-proof-ladder.svg",
+      "destination": "exarchos/docs/audits/structural-closure-delta-audit/sources/diagrams/agent-principles-proof-ladder.svg",
+      "bytes": 2833,
+      "digest": "sha256:e37c251eb16dde934a2a9377cd1ae0e387bd349b4a17e50c846631020b008b2d"
+    },
+    {
+      "source": "docs/audits/structural-closure-delta-audit/sources/phase-gate-redesign-strategy.md",
+      "destination": "exarchos/docs/audits/structural-closure-delta-audit/sources/phase-gate-redesign-strategy.md",
+      "bytes": 17052,
+      "digest": "sha256:60b2d9e1eb559769d8e95a7b674e390baf9a559928e1c826094d842da7252362"
+    },
+    {
+      "source": "docs/audits/structural-closure-delta-audit/sources/phase-gate-transition-admission-roadmap-traceability.md",
+      "destination": "exarchos/docs/audits/structural-closure-delta-audit/sources/phase-gate-transition-admission-roadmap-traceability.md",
+      "bytes": 1917,
+      "digest": "sha256:eee3667a50bb873526f5e70f6785fbd9431ef9f263de78211b8050fefa49f281"
+    },
+    {
+      "source": "docs/audits/structural-closure-delta-audit/sources/phase-gate-transition-admission-roadmap.md",
+      "destination": "exarchos/docs/audits/structural-closure-delta-audit/sources/phase-gate-transition-admission-roadmap.md",
+      "bytes": 94211,
+      "digest": "sha256:0996effc69738c2d5fd7cc45f61cafa1acbe60554d031c178c3841b9a4c6e61b"
+    },
+    {
+      "source": "docs/audits/structural-closure-delta-audit/sources/phase-gate-transition-admission.md",
+      "destination": "exarchos/docs/audits/structural-closure-delta-audit/sources/phase-gate-transition-admission.md",
+      "bytes": 94003,
+      "digest": "sha256:10ba81b786c990d540d99c5227e6127b0fd8b95c8a3cdcafa990e79fe21f65ff"
+    },
+    {
+      "source": "docs/audits/structural-closure-delta-audit/sources/phase-gate-v212-dogfood-remediation.md",
+      "destination": "exarchos/docs/audits/structural-closure-delta-audit/sources/phase-gate-v212-dogfood-remediation.md",
+      "bytes": 38317,
+      "digest": "sha256:b07a936169bcb8f349d556ebe1e5d2d7822c34d4c81c53c1da0dc99e64934f2a"
+    },
+    {
+      "source": "docs/audits/structural-closure-delta-audit/sources/phase-gate-v212-dogfood.md",
+      "destination": "exarchos/docs/audits/structural-closure-delta-audit/sources/phase-gate-v212-dogfood.md",
+      "bytes": 31336,
+      "digest": "sha256:2ee0d22e56cfbcda1a8814986a801cfe8bcb5941c5aac48188791ce17a2d69f0"
+    },
+    {
+      "source": "docs/audits/structural-closure-delta-audit/sources/phase-gate-v212-proof-substrate-traceability.md",
+      "destination": "exarchos/docs/audits/structural-closure-delta-audit/sources/phase-gate-v212-proof-substrate-traceability.md",
+      "bytes": 1439,
+      "digest": "sha256:ba735efdaac020df4083c8601403caf9d4c6bb415e5e277f6003dfabbca00729"
+    },
+    {
+      "source": "docs/audits/structural-closure-delta-audit/sources/phase-gate-v212-proof-substrate.md",
+      "destination": "exarchos/docs/audits/structural-closure-delta-audit/sources/phase-gate-v212-proof-substrate.md",
+      "bytes": 30718,
+      "digest": "sha256:26003cf9e6f7984233df903994c9fd6b90ec1c054eb7dd87797ab23bb5deb45e"
+    },
+    {
+      "source": "docs/audits/structural-closure-delta-audit/sources/README.md",
+      "destination": "exarchos/docs/audits/structural-closure-delta-audit/sources/README.md",
+      "bytes": 1608,
+      "digest": "sha256:9efef93b41d8102cb0c3ac0ea8f49edb1073b2e6e8d459c60fede89530d6a7bb"
+    },
+    {
+      "source": "docs/audits/structural-closure-delta-audit/sources/structural-closure-audit-spec.md",
+      "destination": "exarchos/docs/audits/structural-closure-delta-audit/sources/structural-closure-audit-spec.md",
+      "bytes": 110898,
+      "digest": "sha256:7b9e47e9dad645a74cca64d94fd110ce66b45a42767f8d7cb7d77bf2c0a0b5d3"
+    },
+    {
+      "source": "docs/audits/structural-closure-delta-audit/sources/structural-closure-audit-traceability.md",
+      "destination": "exarchos/docs/audits/structural-closure-delta-audit/sources/structural-closure-audit-traceability.md",
+      "bytes": 1697,
+      "digest": "sha256:0e02f2fdc47527fe35a3bf5d75852cb3adf3ae2e7be56051bcc5b64208f6d885"
+    },
+    {
+      "source": "docs/audits/structural-closure-delta-audit/sources/structural-principles-codebase-assessment.md",
+      "destination": "exarchos/docs/audits/structural-closure-delta-audit/sources/structural-principles-codebase-assessment.md",
+      "bytes": 26303,
+      "digest": "sha256:415189269b58ca784bef4a3992ea1da8a713ec0dd849d053b543c9e1852a6426"
+    },
+    {
+      "source": "docs/audits/structural-closure-delta-audit/unified-remediation-plan.md",
+      "destination": "exarchos/docs/audits/structural-closure-delta-audit/unified-remediation-plan.md",
+      "bytes": 28547,
+      "digest": "sha256:0dd3b5f3cb0cda07ee5f2ae3528d38a001dd6108b3c8a5f0a17453c248254737"
+    },
+    {
+      "source": "docs/audits/structural-closure-delta-audit/v3-lowering.json",
+      "destination": "exarchos/docs/audits/structural-closure-delta-audit/v3-lowering.json",
+      "bytes": 69228,
+      "digest": "sha256:218cbf76976a82f2c46e474522e2a120d9eee33484677f526a2d67be901034e7"
+    },
+    {
+      "source": "docs/bugs/2026-02-05-workflow-state-mcp-issues.md",
+      "destination": "exarchos/docs/bugs/2026-02-05-workflow-state-mcp-issues.md",
+      "bytes": 6532,
+      "digest": "sha256:517cefb54cf91659c9652c4532cc30031133c924f819335925c9561d96eb73d7"
+    },
+    {
+      "source": "docs/bugs/2026-02-05-workflow-state-partial-update-overwrites.md",
+      "destination": "exarchos/docs/bugs/2026-02-05-workflow-state-partial-update-overwrites.md",
+      "bytes": 3206,
+      "digest": "sha256:e26a176956d8f714744809bee730793f81ab5be5034b65c312abd0ae4adefc35"
+    },
+    {
+      "source": "docs/bugs/2026-02-06-workflow-state-testing-gaps.md",
+      "destination": "exarchos/docs/bugs/2026-02-06-workflow-state-testing-gaps.md",
+      "bytes": 8305,
+      "digest": "sha256:404d9262302278961d3c7d8188b8eaffbbc76915c4daf9c277c1d29e38849f70"
+    },
+    {
+      "source": "docs/bugs/2026-04-30-agency-csl-auto-pr-wave1.md",
+      "destination": "exarchos/docs/bugs/2026-04-30-agency-csl-auto-pr-wave1.md",
+      "bytes": 14361,
+      "digest": "sha256:2430d4434552b46b33de9633dd81d440e3811669ecb3d215e4b048c50376b88b"
+    },
+    {
+      "source": "docs/bugs/2026-05-04-check-task-decomposition-parser-false-positives.md",
+      "destination": "exarchos/docs/bugs/2026-05-04-check-task-decomposition-parser-false-positives.md",
+      "bytes": 4802,
+      "digest": "sha256:78aaa6951c9529e9442b4703f2450e97ef5623cce1804d8f65ffa60bdf0f485b"
+    },
+    {
+      "source": "docs/bugs/audit.md",
+      "destination": "exarchos/docs/bugs/audit.md",
+      "bytes": 10336,
+      "digest": "sha256:390beeecfd670983d846184691701ae106ef37d7f646f640be0e277932b4c054"
+    },
+    {
+      "source": "docs/bugs/exarchos-windows-bug.md",
+      "destination": "exarchos/docs/bugs/exarchos-windows-bug.md",
+      "bytes": 2493,
+      "digest": "sha256:8c5d76bd2bf3a859eab2aa8f4eeecf414c62dee6ddfad893ac099d56f4390ed3"
+    },
+    {
+      "source": "docs/bugs/mcp-tool-call.md",
+      "destination": "exarchos/docs/bugs/mcp-tool-call.md",
+      "bytes": 11598,
+      "digest": "sha256:dfa4f06103b936e12b20e17b72a9c1769e5f7d5c498f9469a23601611f91f4df"
+    },
+    {
+      "source": "docs/contexts/2026-05-07-insights-friction-discovery.md",
+      "destination": "exarchos/docs/contexts/2026-05-07-insights-friction-discovery.md",
+      "bytes": 9845,
+      "digest": "sha256:bd550938ddcc4f597dd8dd58373484b574304367b9840ccf1354b9f32dfc4de8"
+    },
+    {
+      "source": "docs/contexts/2026-05-07-p4-shepherd-handoff.md",
+      "destination": "exarchos/docs/contexts/2026-05-07-p4-shepherd-handoff.md",
+      "bytes": 5155,
+      "digest": "sha256:aa9bb4f9465f4d6a1a7222d88cb86f919792beb2882704643a7f3d73b75aa220"
+    },
+    {
+      "source": "docs/designs/archive/2026-01-05-context-exhaustion-mitigation.md",
+      "destination": "exarchos/docs/designs/archive/2026-01-05-context-exhaustion-mitigation.md",
+      "bytes": 2394,
+      "digest": "sha256:c550d404b3c1aed065e40a033753118123ec6918c55f47f41d2130cc06e3f4db"
+    },
+    {
+      "source": "docs/designs/archive/2026-01-05-delegate-pr-fixes-spawn.md",
+      "destination": "exarchos/docs/designs/archive/2026-01-05-delegate-pr-fixes-spawn.md",
+      "bytes": 5380,
+      "digest": "sha256:833a08071134a80e09978de446680ddc0e72462a90e0e9de5a406fd5f6a9a70a"
+    },
+    {
+      "source": "docs/designs/archive/2026-01-05-jules-api-schema-fix.md",
+      "destination": "exarchos/docs/designs/archive/2026-01-05-jules-api-schema-fix.md",
+      "bytes": 4000,
+      "digest": "sha256:194c8cbee92212aa4ea04b55c73cb485660f12d175866d24e6e4f76bbe73cc35"
+    },
+    {
+      "source": "docs/designs/archive/2026-01-05-jules-conversation-tools.md",
+      "destination": "exarchos/docs/designs/archive/2026-01-05-jules-conversation-tools.md",
+      "bytes": 7676,
+      "digest": "sha256:766d9e35377c82f703bbebf74cbd8410277572cc25688e2db8dbc008f78af953"
+    },
+    {
+      "source": "docs/designs/archive/2026-01-06-repo-management.md",
+      "destination": "exarchos/docs/designs/archive/2026-01-06-repo-management.md",
+      "bytes": 19867,
+      "digest": "sha256:da92cbb9592def5742a235c37b07c835f4e5e4d8309d8e606b426ba3d84e895b"
+    },
+    {
+      "source": "docs/designs/archive/2026-01-06-workflow-phase-restructuring.md",
+      "destination": "exarchos/docs/designs/archive/2026-01-06-workflow-phase-restructuring.md",
+      "bytes": 11847,
+      "digest": "sha256:8fcbfc7d6ad635619703b3ca90eb4cb757c2fa43e3839f138ab775a72711f7e7"
+    },
+    {
+      "source": "docs/designs/archive/2026-01-09-coderabbit-renovate-config.md",
+      "destination": "exarchos/docs/designs/archive/2026-01-09-coderabbit-renovate-config.md",
+      "bytes": 15074,
+      "digest": "sha256:931b453eed9de7cf94d0af2d7ed3afdd19e425d1ec86fdb9ddc1d4293c360e6e"
+    },
+    {
+      "source": "docs/designs/archive/2026-01-27-debug-workflow.md",
+      "destination": "exarchos/docs/designs/archive/2026-01-27-debug-workflow.md",
+      "bytes": 13824,
+      "digest": "sha256:8cbc64b3500fe867624cd75bc352e973f36bdc9973114da0b60e08cd2cf6091f"
+    },
+    {
+      "source": "docs/designs/archive/2026-02-02-refactor-workflow.md",
+      "destination": "exarchos/docs/designs/archive/2026-02-02-refactor-workflow.md",
+      "bytes": 14113,
+      "digest": "sha256:f3e06dc4d326fd4ac8d557958093bce8a28b3e9a4f275966a326cb5b39e4e05a"
+    },
+    {
+      "source": "docs/designs/archive/2026-02-04-workflow-state-mcp.md",
+      "destination": "exarchos/docs/designs/archive/2026-02-04-workflow-state-mcp.md",
+      "bytes": 57418,
+      "digest": "sha256:fcbbdc12fa8e6fdf16732a3ef7aeef400e3be1c41de39259748670c1f8c43857"
+    },
+    {
+      "source": "docs/designs/archive/2026-02-05-distributed-agentic-sdlc.md",
+      "destination": "exarchos/docs/designs/archive/2026-02-05-distributed-agentic-sdlc.md",
+      "bytes": 20014,
+      "digest": "sha256:78e9ed5b33c7a073e670c947ec204ffe00e251f2972331bb555210b9c8d30678"
+    },
+    {
+      "source": "docs/designs/archive/2026-02-05-exarchos.md",
+      "destination": "exarchos/docs/designs/archive/2026-02-05-exarchos.md",
+      "bytes": 31864,
+      "digest": "sha256:b2a341977485c8df2e3a6f61331c478d9c26764c00434343d944a50e04f94c01"
+    },
+    {
+      "source": "docs/designs/archive/2026-02-11-sync-engine-completion.md",
+      "destination": "exarchos/docs/designs/archive/2026-02-11-sync-engine-completion.md",
+      "bytes": 12794,
+      "digest": "sha256:abc5fab2550dd7e3f6ecda690175a2c62bb09964254f5128771c01d928cb836f"
+    },
+    {
+      "source": "docs/designs/archive/2026-02-12-installer-overhaul.md",
+      "destination": "exarchos/docs/designs/archive/2026-02-12-installer-overhaul.md",
+      "bytes": 24498,
+      "digest": "sha256:be373f09bee557f6061c92cdacc6c5301eed694fe0ac1e1dc5d8ce5eab1104c0"
+    },
+    {
+      "source": "docs/designs/archive/2026-02-12-progressive-disclosure-hooks.md",
+      "destination": "exarchos/docs/designs/archive/2026-02-12-progressive-disclosure-hooks.md",
+      "bytes": 21394,
+      "digest": "sha256:9631b93cdaf50efc39efc1917dbe4f015cc6d1ed152c0b0b8bfa7d2c50ad4c2a"
+    },
+    {
+      "source": "docs/designs/archive/2026-02-12-sdlc-benchmarks.md",
+      "destination": "exarchos/docs/designs/archive/2026-02-12-sdlc-benchmarks.md",
+      "bytes": 16489,
+      "digest": "sha256:141b73da3f9e7a1d83094f4fdf316193a984074cb6c6ee842babca138c11b808"
+    },
+    {
+      "source": "docs/designs/archive/2026-02-13-sdlc-eval-framework.md",
+      "destination": "exarchos/docs/designs/archive/2026-02-13-sdlc-eval-framework.md",
+      "bytes": 26858,
+      "digest": "sha256:93c0b568b8f2a5c42dc34ab456abdeb91091ae69782363242a1a9f9d6f311161"
+    },
+    {
+      "source": "docs/designs/archive/2026-02-13-skills-content-modernization.md",
+      "destination": "exarchos/docs/designs/archive/2026-02-13-skills-content-modernization.md",
+      "bytes": 18365,
+      "digest": "sha256:55d28246dfe2f8c44c6edc1ec7c91bda61e8c554e31715454212d067813ee9a1"
+    },
+    {
+      "source": "docs/designs/archive/2026-02-15-autonomous-code-verification.md",
+      "destination": "exarchos/docs/designs/archive/2026-02-15-autonomous-code-verification.md",
+      "bytes": 29203,
+      "digest": "sha256:ef455e2094d7bc6b4fbb1f600585625d3357c6e445a276795d2ab600470acc3a"
+    },
+    {
+      "source": "docs/designs/archive/2026-02-15-content-hardening-trigger-harness.md",
+      "destination": "exarchos/docs/designs/archive/2026-02-15-content-hardening-trigger-harness.md",
+      "bytes": 17447,
+      "digest": "sha256:247449a38721b07b189222b22fde9faf8f22dbf2e5c902aca959b7cde5afb9ca"
+    },
+    {
+      "source": "docs/designs/archive/2026-02-16-agent-teams-deep-integration.md",
+      "destination": "exarchos/docs/designs/archive/2026-02-16-agent-teams-deep-integration.md",
+      "bytes": 19766,
+      "digest": "sha256:da1d39cc4f576a34d05de09cc5b0885a74c12c646ad14ae6aa9b872e01f5e893"
+    },
+    {
+      "source": "docs/designs/archive/2026-02-16-coderabbit-review-gate.md",
+      "destination": "exarchos/docs/designs/archive/2026-02-16-coderabbit-review-gate.md",
+      "bytes": 10330,
+      "digest": "sha256:5ceabc858e8ca5dac9aec846564fc4dc4e42cede05a2a8cf3cc6307a967b5e91"
+    },
+    {
+      "source": "docs/designs/archive/2026-02-17-distribution-strategy.md",
+      "destination": "exarchos/docs/designs/archive/2026-02-17-distribution-strategy.md",
+      "bytes": 17368,
+      "digest": "sha256:e71375eeb9afefd9e44cc3c7a30025b65408046d02f6dad271ae7985338ded85"
+    },
+    {
+      "source": "docs/designs/archive/2026-02-17-native-agent-teams-integration.md",
+      "destination": "exarchos/docs/designs/archive/2026-02-17-native-agent-teams-integration.md",
+      "bytes": 37149,
+      "digest": "sha256:7b94e27c2f89b272ccf09a3cf44531270a66b7e5139543e828f313869693aede"
+    },
+    {
+      "source": "docs/designs/archive/2026-02-17-verification-mcp-hardening.md",
+      "destination": "exarchos/docs/designs/archive/2026-02-17-verification-mcp-hardening.md",
+      "bytes": 14357,
+      "digest": "sha256:d95bb447a32a7c3c2f0b69f62d74c869045ab66000820bc2f4b0bced0e32ba04"
+    },
+    {
+      "source": "docs/designs/archive/2026-02-18-context-reload.md",
+      "destination": "exarchos/docs/designs/archive/2026-02-18-context-reload.md",
+      "bytes": 16462,
+      "digest": "sha256:91118f9b2e0acb3afbbb46b05c6bfd444f8e5c72ba6740256ca78165c6f81cb6"
+    },
+    {
+      "source": "docs/designs/archive/2026-02-18-hybrid-review-strategy.md",
+      "destination": "exarchos/docs/designs/archive/2026-02-18-hybrid-review-strategy.md",
+      "bytes": 22972,
+      "digest": "sha256:d20d148366c8cb7205756a002081f4f25d8a8f32984e288eb4edbb3b5b916f00"
+    },
+    {
+      "source": "docs/designs/archive/2026-02-20-eval-framework-phase-2.md",
+      "destination": "exarchos/docs/designs/archive/2026-02-20-eval-framework-phase-2.md",
+      "bytes": 19401,
+      "digest": "sha256:18ac8ff5f0ee245cfd29d88d4de17794adbcadd489e24132bc104c585333129b"
+    },
+    {
+      "source": "docs/designs/archive/2026-02-20-io-hardening.md",
+      "destination": "exarchos/docs/designs/archive/2026-02-20-io-hardening.md",
+      "bytes": 13217,
+      "digest": "sha256:604148f3fcd386e35b233181e8e09f325ae65a8f3516dbdb8e5bc13a5c44b0de"
+    },
+    {
+      "source": "docs/designs/archive/2026-02-20-phase-0-completion.md",
+      "destination": "exarchos/docs/designs/archive/2026-02-20-phase-0-completion.md",
+      "bytes": 12953,
+      "digest": "sha256:2a25809ce673ba219a74c7055319cf4518baaa30d2003ab99f764d418a36305c"
+    },
+    {
+      "source": "docs/designs/archive/2026-02-21-codebase-audit-fix.md",
+      "destination": "exarchos/docs/designs/archive/2026-02-21-codebase-audit-fix.md",
+      "bytes": 8559,
+      "digest": "sha256:d696a041b536a3a4f22d709d46897854ea4e681ae339549ae40f863b95184513"
+    },
+    {
+      "source": "docs/designs/archive/2026-02-21-delegation-bugfix-sprint.md",
+      "destination": "exarchos/docs/designs/archive/2026-02-21-delegation-bugfix-sprint.md",
+      "bytes": 11589,
+      "digest": "sha256:a11221bc1a943db6ab684f8ff78d2dd57cce616b7c5f4c053dad0b338137dca2"
+    },
+    {
+      "source": "docs/designs/archive/2026-02-21-storage-layer-audit.md",
+      "destination": "exarchos/docs/designs/archive/2026-02-21-storage-layer-audit.md",
+      "bytes": 21671,
+      "digest": "sha256:279c300835427f2aa9a52a10954632714374dd5c94c5e883a80931561ae37075"
+    },
+    {
+      "source": "docs/designs/archive/2026-02-22-hardening-validation-eval-closure.md",
+      "destination": "exarchos/docs/designs/archive/2026-02-22-hardening-validation-eval-closure.md",
+      "bytes": 17416,
+      "digest": "sha256:abaf3633b39cc65e7b9fc0f528ab253f8721009c718559f380bbfa059b08e5ca"
+    },
+    {
+      "source": "docs/designs/archive/2026-02-22-quick-wins-and-eval-expansion.md",
+      "destination": "exarchos/docs/designs/archive/2026-02-22-quick-wins-and-eval-expansion.md",
+      "bytes": 8643,
+      "digest": "sha256:026b74815bf044a7c7866fed7996a066b865b194d22d9dc74b996528d3553da0"
+    },
+    {
+      "source": "docs/designs/archive/2026-02-24-audit-validation-and-checkpointing.md",
+      "destination": "exarchos/docs/designs/archive/2026-02-24-audit-validation-and-checkpointing.md",
+      "bytes": 29761,
+      "digest": "sha256:50e7275c00c8ff9575e00b42e43e8e6551d93c56441e4eb1ac448c10894e1430"
+    },
+    {
+      "source": "docs/designs/archive/2026-02-24-session-provenance-capture.md",
+      "destination": "exarchos/docs/designs/archive/2026-02-24-session-provenance-capture.md",
+      "bytes": 32678,
+      "digest": "sha256:79610eb75bc7f178f1b32375b6b5635a21690270c6c72cefdc1c5789483033d9"
+    },
+    {
+      "source": "docs/designs/archive/2026-02-25-verification-flywheel-closure.md",
+      "destination": "exarchos/docs/designs/archive/2026-02-25-verification-flywheel-closure.md",
+      "bytes": 29496,
+      "digest": "sha256:b82ff127628bc80f72b75ea5dd554c80abc8addec9c67cff90e5d71e4db3dd9d"
+    },
+    {
+      "source": "docs/designs/archive/2026-02-27-flywheel-activation.md",
+      "destination": "exarchos/docs/designs/archive/2026-02-27-flywheel-activation.md",
+      "bytes": 8428,
+      "digest": "sha256:58ade0cc4c37a4be17abb16434a13845de1e72bf1495815e1dae02f5a74db1f2"
+    },
+    {
+      "source": "docs/designs/archive/2026-02-28-adversarial-convergence-gates.md",
+      "destination": "exarchos/docs/designs/archive/2026-02-28-adversarial-convergence-gates.md",
+      "bytes": 12538,
+      "digest": "sha256:1fcfcbeec68a3b61d450a69dae26cc2e19e09f8c989251b114c99c4eb9120825"
+    },
+    {
+      "source": "docs/designs/archive/2026-03-05-ga-extensibility.md",
+      "destination": "exarchos/docs/designs/archive/2026-03-05-ga-extensibility.md",
+      "bytes": 31506,
+      "digest": "sha256:cc05f5fdd365503477ccf7794942b842baca22b1ef1b5f9d09a5092e5381d713"
+    },
+    {
+      "source": "docs/designs/archive/2026-03-06-release-hardening.md",
+      "destination": "exarchos/docs/designs/archive/2026-03-06-release-hardening.md",
+      "bytes": 8362,
+      "digest": "sha256:7b510792c94880f6527894342d5d22ae435dfe4b444383647228f62b814d177d"
+    },
+    {
+      "source": "docs/designs/archive/2026-03-07-copilot-cli-support.md",
+      "destination": "exarchos/docs/designs/archive/2026-03-07-copilot-cli-support.md",
+      "bytes": 14774,
+      "digest": "sha256:6a00aa35b8da93d62209c051deb8ebabf53e25efca5f2dd61b6a397a8af43a82"
+    },
+    {
+      "source": "docs/designs/archive/2026-03-07-open-issues-consolidation.md",
+      "destination": "exarchos/docs/designs/archive/2026-03-07-open-issues-consolidation.md",
+      "bytes": 10265,
+      "digest": "sha256:c75759a97e4642e971043a2a1f8f9cf70207494a8bb125df5130177f20f0a9c0"
+    },
+    {
+      "source": "docs/designs/archive/2026-03-08-lazy-schema-runbook-protocol.md",
+      "destination": "exarchos/docs/designs/archive/2026-03-08-lazy-schema-runbook-protocol.md",
+      "bytes": 29094,
+      "digest": "sha256:5f17ff8348a5711f26010dd25d868dcdb8ede6e70e5074987dc677dec050943e"
+    },
+    {
+      "source": "docs/designs/archive/2026-03-08-native-subagent-integration.md",
+      "destination": "exarchos/docs/designs/archive/2026-03-08-native-subagent-integration.md",
+      "bytes": 36349,
+      "digest": "sha256:0f26d2fd91d7874b725314577c5566f9602bd84da96e2e08f9a493d8a7cf9dce"
+    },
+    {
+      "source": "docs/designs/archive/2026-03-08-vitepress-docs.md",
+      "destination": "exarchos/docs/designs/archive/2026-03-08-vitepress-docs.md",
+      "bytes": 23576,
+      "digest": "sha256:8e2db4eac7734090c5d7991d88a9141b629bb198d1fdc9a0fb016972d496543b"
+    },
+    {
+      "source": "docs/designs/archive/2026-03-09-consolidated-post-merge-fixes.md",
+      "destination": "exarchos/docs/designs/archive/2026-03-09-consolidated-post-merge-fixes.md",
+      "bytes": 21848,
+      "digest": "sha256:680d45959590fed52a490af53cbb50344efc35f1abb6489e66b17f95663ff491"
+    },
+    {
+      "source": "docs/designs/archive/2026-03-09-platform-agnosticity-spike.md",
+      "destination": "exarchos/docs/designs/archive/2026-03-09-platform-agnosticity-spike.md",
+      "bytes": 12416,
+      "digest": "sha256:3d17e559af175608738967e1555068afdbe4a6e551e5e053ec5bea6d60fd5439"
+    },
+    {
+      "source": "docs/designs/archive/2026-03-09-platform-agnosticity.md",
+      "destination": "exarchos/docs/designs/archive/2026-03-09-platform-agnosticity.md",
+      "bytes": 11702,
+      "digest": "sha256:fef47cc6c2883d69ccc2233970c35bc295afa7184a71d87a7b7430b04861d62c"
+    },
+    {
+      "source": "docs/designs/archive/2026-03-09-tool-introspection.md",
+      "destination": "exarchos/docs/designs/archive/2026-03-09-tool-introspection.md",
+      "bytes": 18407,
+      "digest": "sha256:b133ee94dd197874f3d8ceb8ac168e53082ed3c8e1a7121714540ac8163318b0"
+    },
+    {
+      "source": "docs/designs/archive/2026-03-10-neuroanatomy-workflow-refinements.md",
+      "destination": "exarchos/docs/designs/archive/2026-03-10-neuroanatomy-workflow-refinements.md",
+      "bytes": 25490,
+      "digest": "sha256:d1d8261025c31695ef23bd60f97446f93efc0d02c192248cc7fa1ce69c14936f"
+    },
+    {
+      "source": "docs/designs/archive/2026-03-10-outside-in-tdd-refinement.md",
+      "destination": "exarchos/docs/designs/archive/2026-03-10-outside-in-tdd-refinement.md",
+      "bytes": 22405,
+      "digest": "sha256:ee13d3c84d1d01853138cd50ed1003f84e4e66e9248b0e21b00db53970dea2bc"
+    },
+    {
+      "source": "docs/designs/archive/2026-03-11-port-run-scripts-to-typescript.md",
+      "destination": "exarchos/docs/designs/archive/2026-03-11-port-run-scripts-to-typescript.md",
+      "bytes": 9462,
+      "digest": "sha256:4f263ae49ce11cc3db92bb490cca9b266348d1139b778b2a7b4bed3382b69e28"
+    },
+    {
+      "source": "docs/designs/archive/2026-03-11-prune-and-debt-audit.md",
+      "destination": "exarchos/docs/designs/archive/2026-03-11-prune-and-debt-audit.md",
+      "bytes": 23913,
+      "digest": "sha256:bc2a5903fc9a81d230eb3cf8df5fbf85534ede44dc476493b688e44530aad633"
+    },
+    {
+      "source": "docs/designs/archive/2026-03-13-backend-quality-plugin.md",
+      "destination": "exarchos/docs/designs/archive/2026-03-13-backend-quality-plugin.md",
+      "bytes": 16546,
+      "digest": "sha256:4b0c92a54ac5d60c91765de14f371610ca53934a39eeb7a1204e34e2b42af1c8"
+    },
+    {
+      "source": "docs/designs/archive/2026-03-13-project-config.md",
+      "destination": "exarchos/docs/designs/archive/2026-03-13-project-config.md",
+      "bytes": 24937,
+      "digest": "sha256:3bc196057da885169c49bf6ef5dc65685e4e82098757387d3b60e6df114a3e58"
+    },
+    {
+      "source": "docs/designs/archive/2026-03-14-create-exarchos.md",
+      "destination": "exarchos/docs/designs/archive/2026-03-14-create-exarchos.md",
+      "bytes": 11776,
+      "digest": "sha256:0d3df0126394b35cada1604731b2f853a49f099f4f3aa098a6d11c1890a56f1a"
+    },
+    {
+      "source": "docs/designs/archive/2026-03-14-exarchos-messaging.md",
+      "destination": "exarchos/docs/designs/archive/2026-03-14-exarchos-messaging.md",
+      "bytes": 5472,
+      "digest": "sha256:3d6342354a59b8d23302368e02aecfdf1c7e337d6b560a41ac91f1a7dd77d57e"
+    },
+    {
+      "source": "docs/designs/archive/2026-03-14-icpc-benchmark-comparison.md",
+      "destination": "exarchos/docs/designs/archive/2026-03-14-icpc-benchmark-comparison.md",
+      "bytes": 19420,
+      "digest": "sha256:148195e79b9afa8ff40ccc3746ff3ebcbe423f3a7a936822ce3284b9ca0068a3"
+    },
+    {
+      "source": "docs/designs/archive/2026-03-14-platform-portability.md",
+      "destination": "exarchos/docs/designs/archive/2026-03-14-platform-portability.md",
+      "bytes": 17956,
+      "digest": "sha256:0e7f65ed2e3f1511498c12f76961a766d6baf15eedbd9d9ef01b91b97e2c71f2"
+    },
+    {
+      "source": "docs/designs/archive/2026-03-15-plugin-integration-overhaul.md",
+      "destination": "exarchos/docs/designs/archive/2026-03-15-plugin-integration-overhaul.md",
+      "bytes": 8044,
+      "digest": "sha256:5c46bf7afa741f54c614f47df01252286bc67cac751aabc23e0e9c75825823b0"
+    },
+    {
+      "source": "docs/designs/archive/2026-04-08-platform-agnostic-skills.md",
+      "destination": "exarchos/docs/designs/archive/2026-04-08-platform-agnostic-skills.md",
+      "bytes": 37176,
+      "digest": "sha256:cebcec5bcfd073e5396532ec7e4afb905b15dfbaef4e48fe65161356878e1ec5"
+    },
+    {
+      "source": "docs/designs/archive/2026-04-09-stabilization-sweep.md",
+      "destination": "exarchos/docs/designs/archive/2026-04-09-stabilization-sweep.md",
+      "bytes": 7073,
+      "digest": "sha256:612aae5c023fe6b7909ce8cd9fe5eb75af641bc5af6aaf5e80ae3ae54e2d54b5"
+    },
+    {
+      "source": "docs/designs/archive/2026-04-11-oneshot-and-pruning.md",
+      "destination": "exarchos/docs/designs/archive/2026-04-11-oneshot-and-pruning.md",
+      "bytes": 19477,
+      "digest": "sha256:54ebdae7295fda94aefdf3b318953095f61770a38f1c604af114a262a9850dea"
+    },
+    {
+      "source": "docs/designs/archive/2026-04-14-cli-vs-mcp-facade-analysis.md",
+      "destination": "exarchos/docs/designs/archive/2026-04-14-cli-vs-mcp-facade-analysis.md",
+      "bytes": 20648,
+      "digest": "sha256:7cad020fe05d9981e3ed55f6c87635722c309525dcbcc67d37820db37828ab3f"
+    },
+    {
+      "source": "docs/designs/archive/2026-04-15-exarchos-doctor.md",
+      "destination": "exarchos/docs/designs/archive/2026-04-15-exarchos-doctor.md",
+      "bytes": 15137,
+      "digest": "sha256:435b8a216f0cd8a686b1ea3eb1942d77933ed300114cade40dbb5aa5108bfc24"
+    },
+    {
+      "source": "docs/designs/archive/2026-04-17-self-healing-shepherd.md",
+      "destination": "exarchos/docs/designs/archive/2026-04-17-self-healing-shepherd.md",
+      "bytes": 17841,
+      "digest": "sha256:3613d95171dd2923b05ff415438e82064bebec5becc589e3233f7a4d2c04e7ae"
+    },
+    {
+      "source": "docs/designs/archive/2026-04-17-tdd-swarm.md",
+      "destination": "exarchos/docs/designs/archive/2026-04-17-tdd-swarm.md",
+      "bytes": 16789,
+      "digest": "sha256:532c21b287c68b5904fd832f826dfb86192dc305c0b057431eb2c871b77a03ad"
+    },
+    {
+      "source": "docs/designs/archive/2026-04-17-v280-final.md",
+      "destination": "exarchos/docs/designs/archive/2026-04-17-v280-final.md",
+      "bytes": 7867,
+      "digest": "sha256:fb101f9a17dbdd3e83096ed19ef822b93ab8abfe3b361d12a2408c9f16b784ef"
+    },
+    {
+      "source": "docs/designs/archive/2026-04-18-solver-aided-governance.md",
+      "destination": "exarchos/docs/designs/archive/2026-04-18-solver-aided-governance.md",
+      "bytes": 29696,
+      "digest": "sha256:c7970fdec60bfbffbae5b2b96fc0641ce8c6cd5273655c242326fc38e948f283"
+    },
+    {
+      "source": "docs/designs/archive/2026-04-18-strategic-framing-exarchos-basileus.md",
+      "destination": "exarchos/docs/designs/archive/2026-04-18-strategic-framing-exarchos-basileus.md",
+      "bytes": 436,
+      "digest": "sha256:384ffe50be575964e942654dcc4bfb7867749ade638e96ac98c91a0f1c143fe2"
+    },
+    {
+      "source": "docs/designs/archive/2026-04-18-typespec-contracts-pipeline.md",
+      "destination": "exarchos/docs/designs/archive/2026-04-18-typespec-contracts-pipeline.md",
+      "bytes": 510,
+      "digest": "sha256:fd20328dbc292bd66e660a39a5d570ce7f0619b8dea1c9b3a7ca95f020595ae4"
+    },
+    {
+      "source": "docs/designs/archive/2026-04-19-fixer-token-efficiency.md",
+      "destination": "exarchos/docs/designs/archive/2026-04-19-fixer-token-efficiency.md",
+      "bytes": 12743,
+      "digest": "sha256:fd6ec8f65672f6d2a0a710fbee826d341839d93ba3f420472299e3b3d89be8a8"
+    },
+    {
+      "source": "docs/designs/archive/2026-04-19-process-fidelity-harness.md",
+      "destination": "exarchos/docs/designs/archive/2026-04-19-process-fidelity-harness.md",
+      "bytes": 18995,
+      "digest": "sha256:c56e9653bd8f11d2a3ce5af15ce6d0ad62590b7d4e2099a6b966340f73258888"
+    },
+    {
+      "source": "docs/designs/archive/2026-04-21-install-rewrite.md",
+      "destination": "exarchos/docs/designs/archive/2026-04-21-install-rewrite.md",
+      "bytes": 14463,
+      "digest": "sha256:03369ca4ba28c461e7f2d434a902b100be091e9dfb208f2425590cdcfb5f2b64"
+    },
+    {
+      "source": "docs/designs/archive/2026-04-23-rehydrate-foundation.md",
+      "destination": "exarchos/docs/designs/archive/2026-04-23-rehydrate-foundation.md",
+      "bytes": 27671,
+      "digest": "sha256:143ae09b8279e90079d3c7c7e484e4a18b03096d377ab709857fbb5b0d96583b"
+    },
+    {
+      "source": "docs/designs/archive/2026-04-25-delegation-runtime-parity.md",
+      "destination": "exarchos/docs/designs/archive/2026-04-25-delegation-runtime-parity.md",
+      "bytes": 15158,
+      "digest": "sha256:cd9bc9bb9aae87911dbb00fbfea8b303de9eb48a5a77eca3453cf018f9361cb7"
+    },
+    {
+      "source": "docs/designs/archive/2026-04-26-autonomous-merge-orchestrator.md",
+      "destination": "exarchos/docs/designs/archive/2026-04-26-autonomous-merge-orchestrator.md",
+      "bytes": 28919,
+      "digest": "sha256:78c682515c97ed6ffe1c3ab59ef3e00dac36a7c134c7fc536648e3c2ba483db7"
+    },
+    {
+      "source": "docs/designs/archive/2026-05-04-v290-dogfood-bundle.md",
+      "destination": "exarchos/docs/designs/archive/2026-05-04-v290-dogfood-bundle.md",
+      "bytes": 19973,
+      "digest": "sha256:6da45b1449031c7a5b307fcabd73dafa7d1593a760bfe0023d94ddefd48be475"
+    },
+    {
+      "source": "docs/designs/archive/2026-05-05-e2e-v29-revisited.md",
+      "destination": "exarchos/docs/designs/archive/2026-05-05-e2e-v29-revisited.md",
+      "bytes": 25708,
+      "digest": "sha256:0aefcfc7bb7c654a9c6a9c19c5758b3f34da124441c457d8c1911cc11dbe81a8"
+    },
+    {
+      "source": "docs/designs/archive/2026-05-06-checkpoint-handoff-enrichment.md",
+      "destination": "exarchos/docs/designs/archive/2026-05-06-checkpoint-handoff-enrichment.md",
+      "bytes": 21343,
+      "digest": "sha256:aebf694545918f144b2c745a8ce18fc43a229674acfef1cbb5eb315ad5b5ba25"
+    },
+    {
+      "source": "docs/designs/archive/2026-05-06-v29-bug-cluster-combined-fix.md",
+      "destination": "exarchos/docs/designs/archive/2026-05-06-v29-bug-cluster-combined-fix.md",
+      "bytes": 27973,
+      "digest": "sha256:b463588d575d24990e187d32570f81416b9dc9def476adf8b382a36bc0718d70"
+    },
+    {
+      "source": "docs/designs/archive/2026-05-06-workflow-builder-sdk.md",
+      "destination": "exarchos/docs/designs/archive/2026-05-06-workflow-builder-sdk.md",
+      "bytes": 48473,
+      "digest": "sha256:7a2dc857e6d028ee83bc419901856fbd0b82fe4a914cd8809eefde4953a6ac63"
+    },
+    {
+      "source": "docs/designs/archive/2026-05-07-milestone-16-mcp-alignment.md",
+      "destination": "exarchos/docs/designs/archive/2026-05-07-milestone-16-mcp-alignment.md",
+      "bytes": 26158,
+      "digest": "sha256:323eae482dce73a842ece35d85384d49e0a99742bcbfc544e441bff9492dc5a8"
+    },
+    {
+      "source": "docs/designs/archive/2026-05-08-checkpoint-handoff-bundle.md",
+      "destination": "exarchos/docs/designs/archive/2026-05-08-checkpoint-handoff-bundle.md",
+      "bytes": 20687,
+      "digest": "sha256:b02998669335397c02d14b5874f9ff9e44d554fd87af30e40d2cdb5b84f2aa0c"
+    },
+    {
+      "source": "docs/designs/archive/2026-05-08-durable-event-store-substrate.md",
+      "destination": "exarchos/docs/designs/archive/2026-05-08-durable-event-store-substrate.md",
+      "bytes": 27404,
+      "digest": "sha256:2cd92b15d938560826f18899cb61e7cd062123c4f24f14a2e5d115e2818c4778"
+    },
+    {
+      "source": "docs/designs/archive/2026-05-08-eventstore-appender-consumer-migration.md",
+      "destination": "exarchos/docs/designs/archive/2026-05-08-eventstore-appender-consumer-migration.md",
+      "bytes": 8877,
+      "digest": "sha256:d1e2d0d7c3aeb0fffefed4e744cc3093f182a4169dddbe691331c3134f1942f9"
+    },
+    {
+      "source": "docs/designs/archive/2026-05-09-v2-10-0-preview-1-substrate-stabilization.md",
+      "destination": "exarchos/docs/designs/archive/2026-05-09-v2-10-0-preview-1-substrate-stabilization.md",
+      "bytes": 22581,
+      "digest": "sha256:5ed0410361d41942fac77ee9787b9645771ffa90414aef35bac87a08f700ff83"
+    },
+    {
+      "source": "docs/designs/archive/2026-05-09-v2-11-substrate-cut.md",
+      "destination": "exarchos/docs/designs/archive/2026-05-09-v2-11-substrate-cut.md",
+      "bytes": 17279,
+      "digest": "sha256:250b40d48301253240f1abcf0cbb5459cd9c948b04341d51e7d7df8a169b843c"
+    },
+    {
+      "source": "docs/designs/archive/2026-05-10-v2-10-0-preview-2-marten-primitives.md",
+      "destination": "exarchos/docs/designs/archive/2026-05-10-v2-10-0-preview-2-marten-primitives.md",
+      "bytes": 45106,
+      "digest": "sha256:4dfa62864a5318842ebbe212ab0409ae89237f6fc058692a7a2f606b5583334b"
+    },
+    {
+      "source": "docs/designs/archive/2026-05-11-marten-followups.md",
+      "destination": "exarchos/docs/designs/archive/2026-05-11-marten-followups.md",
+      "bytes": 23485,
+      "digest": "sha256:19312e3449917b3edefc1ff455fad23853bb91b90373d2bac1f492d0faf143cf"
+    },
+    {
+      "source": "docs/designs/archive/2026-05-13-wave-0-carrier-swap.md",
+      "destination": "exarchos/docs/designs/archive/2026-05-13-wave-0-carrier-swap.md",
+      "bytes": 22869,
+      "digest": "sha256:a4d7aa683089dae1f2bc6f7b16f8ee2b66a4499ed78c8707f1a3dba430576ca7"
+    },
+    {
+      "source": "docs/designs/archive/2026-05-14-wave1-data-safety-substrate.md",
+      "destination": "exarchos/docs/designs/archive/2026-05-14-wave1-data-safety-substrate.md",
+      "bytes": 24683,
+      "digest": "sha256:352229d88eb7be76d440cc4c300184d5303b2b329a90174141b0ed3ae5a9e794"
+    },
+    {
+      "source": "docs/designs/archive/2026-05-15-v2-10-0-preview-3-closeout.md",
+      "destination": "exarchos/docs/designs/archive/2026-05-15-v2-10-0-preview-3-closeout.md",
+      "bytes": 21402,
+      "digest": "sha256:c3dfc1a96086326e2be892510e2e5c6197eb1d8f3cf8f2a18519371452e3e3ea"
+    },
+    {
+      "source": "docs/designs/archive/2026-05-15-v2-10-0-preview-4-feature-freeze.md",
+      "destination": "exarchos/docs/designs/archive/2026-05-15-v2-10-0-preview-4-feature-freeze.md",
+      "bytes": 29935,
+      "digest": "sha256:7fc3f6a4b3cf057323189facf3332d7b626f1fc197aef4ce4397b230c5d4082e"
+    },
+    {
+      "source": "docs/designs/archive/2026-05-15-wave2-wave3-polish.md",
+      "destination": "exarchos/docs/designs/archive/2026-05-15-wave2-wave3-polish.md",
+      "bytes": 23005,
+      "digest": "sha256:63a6a3670ad8fc1f2ee6828086691ee546250e3568777f5c2826bb1332347036"
+    },
+    {
+      "source": "docs/designs/archive/2026-05-16-correlation-consumer-wiring.md",
+      "destination": "exarchos/docs/designs/archive/2026-05-16-correlation-consumer-wiring.md",
+      "bytes": 8037,
+      "digest": "sha256:1f9a26acc34b4dd3c743b3e42389af21ee7cb6e0591fe4f1be5dafb7d7b9bf1a"
+    },
+    {
+      "source": "docs/designs/archive/2026-05-16-correlation-indexed-columns.md",
+      "destination": "exarchos/docs/designs/archive/2026-05-16-correlation-indexed-columns.md",
+      "bytes": 29436,
+      "digest": "sha256:373d81f62994336fc2e0dbdccf9275b05ae9e9ef40acf1ed0a95b5ac4d4f2aee"
+    },
+    {
+      "source": "docs/designs/archive/2026-05-16-event-sourced-task-store-high-trio.md",
+      "destination": "exarchos/docs/designs/archive/2026-05-16-event-sourced-task-store-high-trio.md",
+      "bytes": 21638,
+      "digest": "sha256:d59d59538d2beac40400c0726e0324cf87c41e0b473692a3c3a7ee38df2de6ab"
+    },
+    {
+      "source": "docs/designs/archive/2026-05-17-preview-4-substrate-hygiene.md",
+      "destination": "exarchos/docs/designs/archive/2026-05-17-preview-4-substrate-hygiene.md",
+      "bytes": 16247,
+      "digest": "sha256:8085cb274515e733c85b43736cd3317db3f2a7b06876793468dbf3ef9dac16e1"
+    },
+    {
+      "source": "docs/designs/archive/2026-05-17-preview-4-substrate-realization.md",
+      "destination": "exarchos/docs/designs/archive/2026-05-17-preview-4-substrate-realization.md",
+      "bytes": 20897,
+      "digest": "sha256:aee0e486c059f0c25e3faed19ab80c49d017202a53b11116c1063e21369be9ce"
+    },
+    {
+      "source": "docs/designs/archive/2026-05-18-preview-4-invariant-audit-pair.md",
+      "destination": "exarchos/docs/designs/archive/2026-05-18-preview-4-invariant-audit-pair.md",
+      "bytes": 14107,
+      "digest": "sha256:391c77d8b69125a4f522a5c0cf82fb66d6f0d415a02a9b5b6bb2a87f908c558c"
+    },
+    {
+      "source": "docs/designs/archive/2026-05-23-invariants-projection-and-extensibility.md",
+      "destination": "exarchos/docs/designs/archive/2026-05-23-invariants-projection-and-extensibility.md",
+      "bytes": 18695,
+      "digest": "sha256:0542237713334fa2801d925273c956e5e93508dff87ad29033de1748da042b24"
+    },
+    {
+      "source": "docs/designs/archive/2026-05-23-v2-10-0-rc-dogfooding-reliability.md",
+      "destination": "exarchos/docs/designs/archive/2026-05-23-v2-10-0-rc-dogfooding-reliability.md",
+      "bytes": 12405,
+      "digest": "sha256:6be29fa91eefffd79ce547f77aa9fdace90ee3b892858ea425d9f660f26382a5"
+    },
+    {
+      "source": "docs/designs/archive/2026-05-24-axiom-excision.md",
+      "destination": "exarchos/docs/designs/archive/2026-05-24-axiom-excision.md",
+      "bytes": 10302,
+      "digest": "sha256:2cb7fb164f8970e7af092ccbcb0fbfaedd7bfad298454cd7d80f46a24394e4e1"
+    },
+    {
+      "source": "docs/designs/archive/2026-05-24-invariants-dev-catalog-v3-content.md",
+      "destination": "exarchos/docs/designs/archive/2026-05-24-invariants-dev-catalog-v3-content.md",
+      "bytes": 14428,
+      "digest": "sha256:016e30d72b72845aa0c3a2a62889a14c03af19dca1844e15e30ee8de70097686"
+    },
+    {
+      "source": "docs/designs/archive/2026-05-24-rc2-auto-emission-audit.md",
+      "destination": "exarchos/docs/designs/archive/2026-05-24-rc2-auto-emission-audit.md",
+      "bytes": 12134,
+      "digest": "sha256:fc3b53b8e789aee15d8d98ec2dc93edd384ee12bb33a43cdc9c2ccdf2aa1c496"
+    },
+    {
+      "source": "docs/designs/archive/2026-05-24-sdlc-catalog-authoring.md",
+      "destination": "exarchos/docs/designs/archive/2026-05-24-sdlc-catalog-authoring.md",
+      "bytes": 9053,
+      "digest": "sha256:9eac8a2bb3984a66bfdf4710768d53399db3b777729943a943c1ba9e2241f556"
+    },
+    {
+      "source": "docs/designs/archive/2026-05-24-v2.10.0-ga-completion.md",
+      "destination": "exarchos/docs/designs/archive/2026-05-24-v2.10.0-ga-completion.md",
+      "bytes": 12021,
+      "digest": "sha256:2cfa2aa0d0e7d23195d1ab722fcc38ae6fe65c740a89cb4c6aaf11e393185d7c"
+    },
+    {
+      "source": "docs/designs/archive/2026-05-25-invariants-authoring-wizard.md",
+      "destination": "exarchos/docs/designs/archive/2026-05-25-invariants-authoring-wizard.md",
+      "bytes": 15700,
+      "digest": "sha256:5c1c8fdf463fc86ded6a4e4fd17922e8bfd749b60aa7f89bec7460a956f0aa0d"
+    },
+    {
+      "source": "docs/designs/archive/2026-05-30-design-gate-parity.md",
+      "destination": "exarchos/docs/designs/archive/2026-05-30-design-gate-parity.md",
+      "bytes": 9694,
+      "digest": "sha256:fc313148b2b2805a1762c291735f6ecb0107e06fb6bce5ec58be04ade1637a70"
+    },
+    {
+      "source": "docs/designs/archive/2026-05-31-cross-harness-canonical-names-plan.md",
+      "destination": "exarchos/docs/designs/archive/2026-05-31-cross-harness-canonical-names-plan.md",
+      "bytes": 6644,
+      "digest": "sha256:4213f77c53fd9223333f6fb1ddbc8520d3a80f7a6e356045351952f4dcf07115"
+    },
+    {
+      "source": "docs/designs/archive/2026-05-31-cross-harness-canonical-names.md",
+      "destination": "exarchos/docs/designs/archive/2026-05-31-cross-harness-canonical-names.md",
+      "bytes": 6208,
+      "digest": "sha256:50fb954fbaf0b8779d4096ae2e72fb4e34c8d97c7bb74770c6b64b4592756fa6"
+    },
+    {
+      "source": "docs/designs/archive/2026-05-31-harness-binding-and-lifecycle-hooks.md",
+      "destination": "exarchos/docs/designs/archive/2026-05-31-harness-binding-and-lifecycle-hooks.md",
+      "bytes": 18740,
+      "digest": "sha256:01c005503c8c691f74b3862ca65fa2894d9c8ca4d0dc02f93ddb71a61d5af306"
+    },
+    {
+      "source": "docs/designs/archive/2026-05-31-implementer-worktree-base.md",
+      "destination": "exarchos/docs/designs/archive/2026-05-31-implementer-worktree-base.md",
+      "bytes": 7530,
+      "digest": "sha256:dbbc80216ca7fe39afb6587fcaab384d14fbef4304a5dcb18c4bc537f52c37d6"
+    },
+    {
+      "source": "docs/designs/archive/2026-05-31-onboard-doctor-consolidation.md",
+      "destination": "exarchos/docs/designs/archive/2026-05-31-onboard-doctor-consolidation.md",
+      "bytes": 16046,
+      "digest": "sha256:e8df1b7134c1e227a8b328254a74ea8b2d20507a9124e06531f7492342dd94de"
+    },
+    {
+      "source": "docs/designs/archive/2026-06-06-onboard-doctor-consolidation.md",
+      "destination": "exarchos/docs/designs/archive/2026-06-06-onboard-doctor-consolidation.md",
+      "bytes": 21280,
+      "digest": "sha256:ba91982e17026811fef3f8560e72e58f32119c0a0f3d816255c787f999c3e99d"
+    },
+    {
+      "source": "docs/designs/archive/2026-06-09-verification-ladder-slice1.md",
+      "destination": "exarchos/docs/designs/archive/2026-06-09-verification-ladder-slice1.md",
+      "bytes": 19603,
+      "digest": "sha256:14e703473bd256e7754c8631d0244bce8e95df1e904049ec1fc79559a964fd65"
+    },
+    {
+      "source": "docs/designs/archive/2026-06-11-verification-ladder-slice2.md",
+      "destination": "exarchos/docs/designs/archive/2026-06-11-verification-ladder-slice2.md",
+      "bytes": 17927,
+      "digest": "sha256:b93366040a5f7c0cb00bba31dbbd25d9b865ccc711a1a317e32b8cdd09473b2a"
+    },
+    {
+      "source": "docs/designs/archive/2026-06-15-verification-ladder-slice3.md",
+      "destination": "exarchos/docs/designs/archive/2026-06-15-verification-ladder-slice3.md",
+      "bytes": 16914,
+      "digest": "sha256:03c746c03b6f18aeb775277a67e3732610e65cc2ba9713907c20ec1b9065e941"
+    },
+    {
+      "source": "docs/designs/archive/2026-06-16-phase-kind-binding.md",
+      "destination": "exarchos/docs/designs/archive/2026-06-16-phase-kind-binding.md",
+      "bytes": 16874,
+      "digest": "sha256:871a1c1512e9ef16f6fbe34979bd87da822af07e94efb73c7031bafc8657b09d"
+    },
+    {
+      "source": "docs/designs/archive/2026-06-17-phase-kind-binding-completion.md",
+      "destination": "exarchos/docs/designs/archive/2026-06-17-phase-kind-binding-completion.md",
+      "bytes": 17278,
+      "digest": "sha256:e46466c3b62eb0aa2468c3146773ee5137e5189e0b2092293b79231ed66fc271"
+    },
+    {
+      "source": "docs/designs/archive/2026-06-19-v2.11.0-preview.1.md",
+      "destination": "exarchos/docs/designs/archive/2026-06-19-v2.11.0-preview.1.md",
+      "bytes": 17766,
+      "digest": "sha256:73610ef13e83995dde6d787c59c218d8a9324ef678537fbd2562c79ee6becb5c"
+    },
+    {
+      "source": "docs/designs/archive/2026-06-20-bounded-fold-primitive-1555.md",
+      "destination": "exarchos/docs/designs/archive/2026-06-20-bounded-fold-primitive-1555.md",
+      "bytes": 7310,
+      "digest": "sha256:9c898e3103bc7cb61e080c188328c0c9bc86367e71056c26389f9483a80c529b"
+    },
+    {
+      "source": "docs/designs/archive/2026-06-20-w3-event-sourcing-read-path.md",
+      "destination": "exarchos/docs/designs/archive/2026-06-20-w3-event-sourcing-read-path.md",
+      "bytes": 12168,
+      "digest": "sha256:3a8cfa345e662b0790306980c7b368b84ed2e3be534bc73a23cd28585cd41481"
+    },
+    {
+      "source": "docs/designs/archive/2026-06-21-design-plan-collapse.md",
+      "destination": "exarchos/docs/designs/archive/2026-06-21-design-plan-collapse.md",
+      "bytes": 25458,
+      "digest": "sha256:13aba65596759d7ee5fcafbe594c6aeffc749b9874946681e4907a4e6f7399fa"
+    },
+    {
+      "source": "docs/designs/archive/2026-06-21-methodology-reconciliation.md",
+      "destination": "exarchos/docs/designs/archive/2026-06-21-methodology-reconciliation.md",
+      "bytes": 8027,
+      "digest": "sha256:bdc3df20e4c01491c8057aea34042aef5ab848fa5cc757cb1a9b2c28d1627880"
+    },
+    {
+      "source": "docs/designs/archive/2026-06-21-phase4-test-first-excision.md",
+      "destination": "exarchos/docs/designs/archive/2026-06-21-phase4-test-first-excision.md",
+      "bytes": 11775,
+      "digest": "sha256:78e0975da0fcad57185b018ec28f5a3c11a0e19de55cf1265dbe9dc453f5d5db"
+    },
+    {
+      "source": "docs/designs/archive/2026-06-21-ship-gate-methodology.md",
+      "destination": "exarchos/docs/designs/archive/2026-06-21-ship-gate-methodology.md",
+      "bytes": 35086,
+      "digest": "sha256:e32d034dec789060ad93be9aea92a0fcbe1af7da76ceaff7790b96c81e287d1b"
+    },
+    {
+      "source": "docs/designs/archive/2026-06-21-v2.11.0-preview.3-merge-orchestrator-hardening.md",
+      "destination": "exarchos/docs/designs/archive/2026-06-21-v2.11.0-preview.3-merge-orchestrator-hardening.md",
+      "bytes": 18584,
+      "digest": "sha256:f16101215485c486b3a674500c49c5a47d00d75d8e795f31994b7bbdaf6c6460"
+    },
+    {
+      "source": "docs/designs/archive/2026-06-21-worktree-lifecycle-manager.md",
+      "destination": "exarchos/docs/designs/archive/2026-06-21-worktree-lifecycle-manager.md",
+      "bytes": 23404,
+      "digest": "sha256:bf23aa544dc7077351cf73ec482ac042f48c56a3f7420b3f34cf24aff3fe1082"
+    },
+    {
+      "source": "docs/designs/archive/2026-06-22-event-store-concurrency-optimal.md",
+      "destination": "exarchos/docs/designs/archive/2026-06-22-event-store-concurrency-optimal.md",
+      "bytes": 16584,
+      "digest": "sha256:18d0ca7e11ecc5836a7642cc908c3542aec237eca2df3165179dce0706811fd6"
+    },
+    {
+      "source": "docs/designs/archive/2026-06-23-ship-gate-sdk-migration.md",
+      "destination": "exarchos/docs/designs/archive/2026-06-23-ship-gate-sdk-migration.md",
+      "bytes": 6128,
+      "digest": "sha256:dcc16e8a9ea08f692a54b1fb4e40d3ec57023597d03154276fd71e8c26efd9bc"
+    },
+    {
+      "source": "docs/designs/archive/2026-06-23-siv-boundary-closeout.md",
+      "destination": "exarchos/docs/designs/archive/2026-06-23-siv-boundary-closeout.md",
+      "bytes": 14172,
+      "digest": "sha256:0218a79d71f72a306d004c056fde8f8edba3f75d79a33f0d5b92ca17ea196a63"
+    },
+    {
+      "source": "docs/designs/future/remote-mcp-deployment.md",
+      "destination": "exarchos/docs/designs/future/remote-mcp-deployment.md",
+      "bytes": 491,
+      "digest": "sha256:40f20d6d36a806109ab4298b58ac76bdcb9b742a9bc8a5cdef310a405b83a5f8"
+    },
+    {
+      "source": "docs/followups/2026-05-13-pr-a-1367-formatresult-cleanup.md",
+      "destination": "exarchos/docs/followups/2026-05-13-pr-a-1367-formatresult-cleanup.md",
+      "bytes": 9313,
+      "digest": "sha256:34211b6138e0d571aac34efa1ba1605aac3230074a0bf6bfa2f5086200854620"
+    },
+    {
+      "source": "docs/followups/2026-05-13-pr-a-audit.md",
+      "destination": "exarchos/docs/followups/2026-05-13-pr-a-audit.md",
+      "bytes": 23803,
+      "digest": "sha256:0dcf37a93d21ea9cf8037dc3af63c58780eb10d5c7a363fbf932f637c020446f"
+    },
+    {
+      "source": "docs/followups/2026-05-13-pr-b-1368-cli-wiring.md",
+      "destination": "exarchos/docs/followups/2026-05-13-pr-b-1368-cli-wiring.md",
+      "bytes": 9442,
+      "digest": "sha256:c5b059b9e2094d251cf8a12449debb8d0ae25fecf1e89fbb65d4b32034cf375b"
+    },
+    {
+      "source": "docs/followups/2026-05-13-pr-c-1366-zod-v4-migration.md",
+      "destination": "exarchos/docs/followups/2026-05-13-pr-c-1366-zod-v4-migration.md",
+      "bytes": 17288,
+      "digest": "sha256:61bf7b7b75b7888088d4588f55427004bdb534bd02dc5413e55538d27f5a90a0"
+    },
+    {
+      "source": "docs/guides/authoring-invariants.md",
+      "destination": "exarchos/docs/guides/authoring-invariants.md",
+      "bytes": 13525,
+      "digest": "sha256:bed7e460b5db725cc64c006c214ab280edf5422def310a1e06eb148ac13bcae9"
+    },
+    {
+      "source": "docs/guides/ci-gate-hosting.md",
+      "destination": "exarchos/docs/guides/ci-gate-hosting.md",
+      "bytes": 5685,
+      "digest": "sha256:20f2f906f2d88f2a459a6164311f9bc82a657e7ac253db5dc86d13d0ae6d8c45"
+    },
+    {
+      "source": "docs/guides/ci-required-windows-lane.md",
+      "destination": "exarchos/docs/guides/ci-required-windows-lane.md",
+      "bytes": 3965,
+      "digest": "sha256:2eec76a3f3fb7f633a23cd4518bdd02031dc12ecff39c31adf42176dc8b6cfb4"
+    },
+    {
+      "source": "docs/guides/exarchos-yml-invariants.md",
+      "destination": "exarchos/docs/guides/exarchos-yml-invariants.md",
+      "bytes": 5259,
+      "digest": "sha256:01ebfa0be0f92307ba0cd025ec33d88be2cc3840b870b65b1c3b13d7b1579b4d"
+    },
+    {
+      "source": "docs/guides/exarchos-yml-verification.md",
+      "destination": "exarchos/docs/guides/exarchos-yml-verification.md",
+      "bytes": 3838,
+      "digest": "sha256:43f52ab22a4762809eb551e63544a5a3ec391e2d9afe6deaf84ebaad5171d8b9"
+    },
+    {
+      "source": "docs/guides/flywheel-activation.md",
+      "destination": "exarchos/docs/guides/flywheel-activation.md",
+      "bytes": 14232,
+      "digest": "sha256:cc2affa20e1472cf3d9c4dd2ecfd2a5298f180c47d931a2efe6893f6fb5e8cd7"
+    },
+    {
+      "source": "docs/guides/gold-standard-review-guide.md",
+      "destination": "exarchos/docs/guides/gold-standard-review-guide.md",
+      "bytes": 12159,
+      "digest": "sha256:faf056370ef291e96bffae0c48d217625032cb50b76ffd1e3f0b3fd1f92d01ea"
+    },
+    {
+      "source": "docs/guides/opt-in-tracking.md",
+      "destination": "exarchos/docs/guides/opt-in-tracking.md",
+      "bytes": 3439,
+      "digest": "sha256:3823454d15a5325ab24c44c2158ea89c27d1ef0090a44d5c5e00d637a196315c"
+    },
+    {
+      "source": "docs/guides/ship-gate-pre-push-hook.md",
+      "destination": "exarchos/docs/guides/ship-gate-pre-push-hook.md",
+      "bytes": 4419,
+      "digest": "sha256:12ff9979e2cd6caa5e46d5db43338a862feb4e6e74ecc999b3cd22ce40d8c251"
+    },
+    {
+      "source": "docs/guides/toolchain-resolution.md",
+      "destination": "exarchos/docs/guides/toolchain-resolution.md",
+      "bytes": 5903,
+      "digest": "sha256:4891903ee472ecdfd38658cebd8a48fe05197df688e38a497fddc919e32be037"
+    },
+    {
+      "source": "docs/market/copy-templates.md",
+      "destination": "exarchos/docs/market/copy-templates.md",
+      "bytes": 3768,
+      "digest": "sha256:d5113d1366de1b672a245c69ad14f9cfcaeccf5e676f4d2421889bf2e09051f2"
+    },
+    {
+      "source": "docs/migrations/rehydrate-foundation-followups.md",
+      "destination": "exarchos/docs/migrations/rehydrate-foundation-followups.md",
+      "bytes": 8523,
+      "digest": "sha256:9b985e73119dddc578fc08ca99de218d32cc38fdf03af8cb3a9ab3ad6d6f2197"
+    },
+    {
+      "source": "docs/plans/archive/2026-01-05-cicd-phase0-completion.md",
+      "destination": "exarchos/docs/plans/archive/2026-01-05-cicd-phase0-completion.md",
+      "bytes": 13529,
+      "digest": "sha256:1d03a6ac26978e96872fb2137550b188bf2612cb15f36865698e0610f277b965"
+    },
+    {
+      "source": "docs/plans/archive/2026-01-05-delegate-pr-fixes-spawn.md",
+      "destination": "exarchos/docs/plans/archive/2026-01-05-delegate-pr-fixes-spawn.md",
+      "bytes": 668,
+      "digest": "sha256:0e58b0261095194540c75d417d1731ff443569eaed95ccfad9d6415041c06c0a"
+    },
+    {
+      "source": "docs/plans/archive/2026-01-05-jules-api-schema-fix.md",
+      "destination": "exarchos/docs/plans/archive/2026-01-05-jules-api-schema-fix.md",
+      "bytes": 647,
+      "digest": "sha256:2ab90d981e63b3aee91471d84fef7aea80add71d7ef39f746827ee1f98ad0597"
+    },
+    {
+      "source": "docs/plans/archive/2026-01-05-jules-conversation-tools.md",
+      "destination": "exarchos/docs/plans/archive/2026-01-05-jules-conversation-tools.md",
+      "bytes": 684,
+      "digest": "sha256:92750d1541aa4dbfe409f4737c585eb62f99ae7ebe02eda7b7cbe8158564c0ec"
+    },
+    {
+      "source": "docs/plans/archive/2026-01-06-repo-management.md",
+      "destination": "exarchos/docs/plans/archive/2026-01-06-repo-management.md",
+      "bytes": 657,
+      "digest": "sha256:ce707b6d436b9e5b1d80aedaa7e325a639a92a71959090f679b11991f3da7029"
+    },
+    {
+      "source": "docs/plans/archive/2026-01-06-workflow-phase-restructuring.md",
+      "destination": "exarchos/docs/plans/archive/2026-01-06-workflow-phase-restructuring.md",
+      "bytes": 679,
+      "digest": "sha256:547d4a5be96c8be2406ebaa0cca5d96441c97b6b8884f11bca65e5addab4810c"
+    },
+    {
+      "source": "docs/plans/archive/2026-01-09-coderabbit-renovate-config.md",
+      "destination": "exarchos/docs/plans/archive/2026-01-09-coderabbit-renovate-config.md",
+      "bytes": 680,
+      "digest": "sha256:8c5cdc78adf98b9f5cd1d60cde46afd7eb4a469040284dbb3e7f8962494bd4fb"
+    },
+    {
+      "source": "docs/plans/archive/2026-01-27-debug-workflow.md",
+      "destination": "exarchos/docs/plans/archive/2026-01-27-debug-workflow.md",
+      "bytes": 632,
+      "digest": "sha256:6829130052823a01693963fdec65724a02d5e7185913529a138733eebf2b3793"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-02-refactor-workflow.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-02-refactor-workflow.md",
+      "bytes": 635,
+      "digest": "sha256:4515061bae9a8e3bd19ba83a712954f53820b2616e3939996b13a82233e080a0"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-04-workflow-state-mcp.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-04-workflow-state-mcp.md",
+      "bytes": 646,
+      "digest": "sha256:9ab1e95e6b7e793a3d7e5e008b8ff1d17528f12a731a267012ae5ca6a9fc7df7"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-05-agent-teams-bridge.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-05-agent-teams-bridge.md",
+      "bytes": 36302,
+      "digest": "sha256:f9de77aa360d70a6112f4d597fc06496b44e6498dba403046353d5e8dc20c182"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-05-installer-refactor.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-05-installer-refactor.md",
+      "bytes": 13378,
+      "digest": "sha256:b33dd3126623020295e0e21345f33db6090766cf45402130dac35219e9e8401e"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-06-audit-fixes.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-06-audit-fixes.md",
+      "bytes": 11303,
+      "digest": "sha256:9b232ea3921b8af0212a213a8c783b7dbf53e249da9a4511b58fc2ee0eca4b2a"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-06-testing-gaps.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-06-testing-gaps.md",
+      "bytes": 15263,
+      "digest": "sha256:104739134122d94f2393dc969076aa0bb2c9d511bfece7127cac99479f7a4e4f"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-08-test-coverage.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-08-test-coverage.md",
+      "bytes": 9705,
+      "digest": "sha256:54a1687c2c2fc09bbb3052b2618ddda3a126ff84efd73bda3cf0ce74283ec22a"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-10-arch-rigor.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-10-arch-rigor.md",
+      "bytes": 16591,
+      "digest": "sha256:70ede9dfc55befa962cfce1172b5d63100ffa5dffb5782839f14eeb1ddfb3a82"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-11-mcp-consistency.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-11-mcp-consistency.md",
+      "bytes": 8948,
+      "digest": "sha256:730bdcce435cf4ea65031b5c02e7429bb033d66e40a82971a1f1dbd48df88bba"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-11-optimization-sweep.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-11-optimization-sweep.md",
+      "bytes": 23526,
+      "digest": "sha256:fc99d6b52d0d14168a49f3f43bc515cadb56d199172d700cc1da85f4d9418239"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-11-optimize-mcp.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-11-optimize-mcp.md",
+      "bytes": 15887,
+      "digest": "sha256:0d508beb08e64720788def2ba55b2b0deff2c777f2de848760626e2a56aad873"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-12-exarchos-mcp-optimize.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-12-exarchos-mcp-optimize.md",
+      "bytes": 17468,
+      "digest": "sha256:088f929d3bf0bc2e2cb429c3c5ccf6258d137de465a6d27c6c63c1c95928faea"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-12-installer-overhaul.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-12-installer-overhaul.md",
+      "bytes": 639,
+      "digest": "sha256:81fdee608203cdb1a1b49679b0f11f33ea660eda331d7de6d817443ae96e61b4"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-12-optimize-mcp-docs-gaps.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-12-optimize-mcp-docs-gaps.md",
+      "bytes": 7174,
+      "digest": "sha256:dcbda67129bb485ec1e1703f9b6c5ee26e7f0f351ea832c753202bf4dad200d9"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-12-progressive-disclosure-hooks.plan.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-12-progressive-disclosure-hooks.plan.md",
+      "bytes": 31171,
+      "digest": "sha256:7983650709e9544e5594f1cbebbff9edfae7e6443f9ee3dda11e9943b09e53a7"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-12-sdlc-benchmarks.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-12-sdlc-benchmarks.md",
+      "bytes": 639,
+      "digest": "sha256:6b72f8581d61d4967c8d6618ae0b5d089aa2cb3c832417bf207da940322a06b9"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-13-sdlc-eval-framework.plan.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-13-sdlc-eval-framework.plan.md",
+      "bytes": 26536,
+      "digest": "sha256:701d1e24e5ec311a2be9905f5e1c9acd5bd4530ad82acf07f47d4d96d67b099d"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-13-skills-content-modernization.plan.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-13-skills-content-modernization.plan.md",
+      "bytes": 41105,
+      "digest": "sha256:ccb006feffd4d4401686733d5a52854c9c6a3d17f311e45101b35638350ce924"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-14-refactor-hooks-installer-bundling.plan.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-14-refactor-hooks-installer-bundling.plan.md",
+      "bytes": 9556,
+      "digest": "sha256:ecea712e153aac837dd564c7b73c93d4b3e089c67f006528ae974e0652bb9d67"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-15-autonomous-code-verification.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-15-autonomous-code-verification.md",
+      "bytes": 679,
+      "digest": "sha256:119ab997fc6b1ef8ef8884fa2d56924664f3483bb0e8e4a981ab020dfef65690"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-15-content-hardening-trigger-harness.plan.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-15-content-hardening-trigger-harness.plan.md",
+      "bytes": 16904,
+      "digest": "sha256:ba1d0d12502499ef203e768f2cec3f39ef94bce9ac57e3c69eafd5d0428f6c95"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-15-prose-validation-scripts.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-15-prose-validation-scripts.md",
+      "bytes": 24078,
+      "digest": "sha256:bff8b114e636d5806c67eebfea4a5348ae08ccbd33a31381a1f2b2a40ef5d5db"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-16-agent-teams-deep-integration.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-16-agent-teams-deep-integration.md",
+      "bytes": 679,
+      "digest": "sha256:edd2935ce465aaf567114a41f60570ac0908a40a6bb12258b78b1e3f6747c014"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-16-cleanup-command.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-16-cleanup-command.md",
+      "bytes": 16096,
+      "digest": "sha256:ecf11121562951d9081232ef56c334934274c0dca6a35a6b64929fe7e3418818"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-16-coderabbit-review-gate.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-16-coderabbit-review-gate.md",
+      "bytes": 655,
+      "digest": "sha256:0df523e6a53391aa74c7f5e2a9b72ebcaea2192721fb376c3e86003462b18046"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-16-event-cleanup-368.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-16-event-cleanup-368.md",
+      "bytes": 14044,
+      "digest": "sha256:67e0bd73e67f3e865053195d2096f9a4dde3e03044c2464b72d58bf943a4e835"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-16-issue-prioritization.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-16-issue-prioritization.md",
+      "bytes": 7524,
+      "digest": "sha256:2566ceb6d0ca02dc9f425f0a02241805e7e030569ccc0b4dc7684027538eefed"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-16-optimize-audit-refactor.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-16-optimize-audit-refactor.md",
+      "bytes": 25690,
+      "digest": "sha256:9711171df802d2a98639010d06188bfb5299f271fe986d695e3defa020a6cbb1"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-16-optimize-prompt-staleness.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-16-optimize-prompt-staleness.md",
+      "bytes": 14074,
+      "digest": "sha256:e2980c6c4f5d9ad6aa5ecac83154e8a7990d0199b54c0f4c3b46080c7f96424c"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-16-refactor-team-coordinator.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-16-refactor-team-coordinator.md",
+      "bytes": 10965,
+      "digest": "sha256:146e2ccb7a4ab3376247ac32969520d2c135e1cebbe03d8c5db8daa0754f2ac9"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-17-distribution-strategy-followup.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-17-distribution-strategy-followup.md",
+      "bytes": 10553,
+      "digest": "sha256:1bf6f44c2f28304d854817a2108d94688322b800df8d0987a2a8089917246ae6"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-17-distribution-strategy.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-17-distribution-strategy.md",
+      "bytes": 676,
+      "digest": "sha256:808ea977c8dcdeb059d04ffd3344bf379e460a55495e1536c70e29b625a47973"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-17-native-agent-teams-integration-traceability.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-17-native-agent-teams-integration-traceability.md",
+      "bytes": 2063,
+      "digest": "sha256:083f410f442b9e23586eef5c339b0712548ebaa19353dd1b0deab5940e2860e7"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-17-native-agent-teams-integration.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-17-native-agent-teams-integration.md",
+      "bytes": 687,
+      "digest": "sha256:5c2bc34b78020c2432bcf90894dc915e2bb7a654823b63db39224bba2a7a961e"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-17-optimize-audit-v2.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-17-optimize-audit-v2.md",
+      "bytes": 32893,
+      "digest": "sha256:d1df782e6c074fbf824104d7dcefec991f91596fb21aa2a837ceda042b47d56a"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-17-verification-mcp-hardening.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-17-verification-mcp-hardening.md",
+      "bytes": 688,
+      "digest": "sha256:e2736fb9351701a57d27ee5bef12dd233522cfdf23709c82a13fa72bc96a3ef1"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-18-context-reload-traceability.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-18-context-reload-traceability.md",
+      "bytes": 1721,
+      "digest": "sha256:eadd966111246f91074f5c05ae8f8ec43573b3855057b53cb02aff7fec55199b"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-18-context-reload.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-18-context-reload.md",
+      "bytes": 631,
+      "digest": "sha256:7bb251742bd8e38ec881ac8e6354ab63a95d88c35ab573dec7fee75ce7cfc247"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-18-hybrid-review-strategy-traceability.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-18-hybrid-review-strategy-traceability.md",
+      "bytes": 1792,
+      "digest": "sha256:83e2b07d1f5943b2875576dc7d5fecd099fc6708974785ee12126218b81ae392"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-18-hybrid-review-strategy.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-18-hybrid-review-strategy.md",
+      "bytes": 655,
+      "digest": "sha256:5e3b2e3a4dabf7d936f4254b19b40bfce6cf380a665a97bb9ce7fe37b1e6916c"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-19-distribution-strategy-phase1b.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-19-distribution-strategy-phase1b.md",
+      "bytes": 33786,
+      "digest": "sha256:d5a36fa3e5bcaad8fbe785489c95a45fe2df6765ababa667e9a29209833f4f98"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-19-verification-phase2.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-19-verification-phase2.md",
+      "bytes": 16520,
+      "digest": "sha256:ef793ec75f5d1c6a9c52d1b92317d15239aefa96deed1518da76c907e610cd6a"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-20-eval-framework-phase-2.plan.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-20-eval-framework-phase-2.plan.md",
+      "bytes": 22009,
+      "digest": "sha256:6bb245676b2c9d4d11de631212673f90c35e2eaf1a32a011d5c0a39c87cc9475"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-20-eval-framework-phase-3.plan.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-20-eval-framework-phase-3.plan.md",
+      "bytes": 4805,
+      "digest": "sha256:49f17b75bd96d4d45e4c6b2ada77865e24f4eebedcd28128f8de59803615cd4a"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-20-io-hardening.plan.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-20-io-hardening.plan.md",
+      "bytes": 18065,
+      "digest": "sha256:9707f97ae5196996af2c8a581bc5894f52ef7bd72d87af6ff9fb03d5e061dac6"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-20-phase-0-completion.plan.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-20-phase-0-completion.plan.md",
+      "bytes": 13710,
+      "digest": "sha256:a56661a16f32f03f2c3f39b530d183ad0aeba4df418c99bb35a18c8c51a2b639"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-21-codebase-audit-fix.plan.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-21-codebase-audit-fix.plan.md",
+      "bytes": 15404,
+      "digest": "sha256:dd8a1a3aecec4f0734bdfc0fb4452dc954dab4b9a61044e83086fb1f7b1647b2"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-21-delegation-bugfix-sprint.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-21-delegation-bugfix-sprint.md",
+      "bytes": 664,
+      "digest": "sha256:21557034082a31b95a77f23abcadddbb456976fda16c4a9d9219c7f40d2bebab"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-21-storage-layer-audit.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-21-storage-layer-audit.md",
+      "bytes": 659,
+      "digest": "sha256:6897f7ba9e49a25f1712905fcb68bdc01b3939e99ba34598065c45455c821a4e"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-22-hardening-validation-eval-closure.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-22-hardening-validation-eval-closure.md",
+      "bytes": 727,
+      "digest": "sha256:2d84730849d195a7b978669d5a69de6f516b000bd8379fb3f502f0df5e1d023b"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-22-quick-wins-and-eval-expansion.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-22-quick-wins-and-eval-expansion.md",
+      "bytes": 701,
+      "digest": "sha256:d9449e1842923800bc26ef678003d541c2f5a353823351ec6d83a076129665ef"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-23-verification-flywheel.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-23-verification-flywheel.md",
+      "bytes": 23857,
+      "digest": "sha256:15cd5e31e2badb0525da9526fa68c8bc3f982be8ca90a1d777c08fba4a733908"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-24-audit-validation-and-checkpointing.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-24-audit-validation-and-checkpointing.md",
+      "bytes": 701,
+      "digest": "sha256:f31e9f1de5f2c136820a447a1584c26e592f9b6a63671567aff3e1534db4bf1a"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-24-session-provenance-capture.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-24-session-provenance-capture.md",
+      "bytes": 698,
+      "digest": "sha256:c14007cc3fc52e20c245a9f9d0a60f0d1acb6df06f9cba50b73dbb38c3f1e8f5"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-25-verification-flywheel-closure.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-25-verification-flywheel-closure.md",
+      "bytes": 683,
+      "digest": "sha256:1fe5d8efd4dc7f588ca778d07383cd20f1e6cd22f91e57e3022e71822f057d4d"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-27-flywheel-activation.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-27-flywheel-activation.md",
+      "bytes": 643,
+      "digest": "sha256:fada7871af7333f010653ceb1c9cf3fbc7bdc13cab72a2589d5c8a10810695c1"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-28-gate-integration.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-28-gate-integration.md",
+      "bytes": 19596,
+      "digest": "sha256:7fd0775af22a3bca9a562573ad3e83923aba58557d161ece96998044800a133a"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-28-provenance-convergence-wiring.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-28-provenance-convergence-wiring.md",
+      "bytes": 13569,
+      "digest": "sha256:93d515a3903e427a06f88218e775ccd658f5104080d990c43af3c255df294719"
+    },
+    {
+      "source": "docs/plans/archive/2026-02-28-remove-graphite.md",
+      "destination": "exarchos/docs/plans/archive/2026-02-28-remove-graphite.md",
+      "bytes": 22138,
+      "digest": "sha256:8f2760ab94e107324cedb9cb1db9ad27dffa80844b16e50699d98ce19f568714"
+    },
+    {
+      "source": "docs/plans/archive/2026-03-01-gate-telemetry-consolidation.md",
+      "destination": "exarchos/docs/plans/archive/2026-03-01-gate-telemetry-consolidation.md",
+      "bytes": 14213,
+      "digest": "sha256:874a14b6c273d3a19130d3373942d517fb403034e6984f704b2a3228cb4aa47c"
+    },
+    {
+      "source": "docs/plans/archive/2026-03-01-plugin-self-contained.md",
+      "destination": "exarchos/docs/plans/archive/2026-03-01-plugin-self-contained.md",
+      "bytes": 18568,
+      "digest": "sha256:4e1e4ecb43ce1b6efaa9905fd58d9ce213ec2688938edefc4426348898c5b669"
+    },
+    {
+      "source": "docs/plans/archive/2026-03-02-model-emitted-event-reliability.md",
+      "destination": "exarchos/docs/plans/archive/2026-03-02-model-emitted-event-reliability.md",
+      "bytes": 16511,
+      "digest": "sha256:c61a8e09cfe203922fb9eebbd7c91a8300a71388f7857194b6613cd79ae86663"
+    },
+    {
+      "source": "docs/plans/archive/2026-03-05-ga-extensibility.md",
+      "destination": "exarchos/docs/plans/archive/2026-03-05-ga-extensibility.md",
+      "bytes": 685,
+      "digest": "sha256:f459d3e23ded888c72f5de2f62e01dcbe0a5c655df2ba5b5dcf79d5c33e0487b"
+    },
+    {
+      "source": "docs/plans/archive/2026-03-06-release-hardening.md",
+      "destination": "exarchos/docs/plans/archive/2026-03-06-release-hardening.md",
+      "bytes": 635,
+      "digest": "sha256:c151d97595b715085551a7746fefdeb0866fc711b21a3e8b7d1a2df3d276e500"
+    },
+    {
+      "source": "docs/plans/archive/2026-03-07-copilot-cli-support.md",
+      "destination": "exarchos/docs/plans/archive/2026-03-07-copilot-cli-support.md",
+      "bytes": 653,
+      "digest": "sha256:7ae3880b8b06bc8d83c557f5ebf63f0211a316783b19749f2e951997093ee1ba"
+    },
+    {
+      "source": "docs/plans/archive/2026-03-07-open-issues-consolidation.md",
+      "destination": "exarchos/docs/plans/archive/2026-03-07-open-issues-consolidation.md",
+      "bytes": 667,
+      "digest": "sha256:1333a068d50e11d9c1afbab69761ce5f4630d5ac68982c54f810bf975bac5466"
+    },
+    {
+      "source": "docs/plans/archive/2026-03-08-lazy-schema-runbook-protocol.md",
+      "destination": "exarchos/docs/plans/archive/2026-03-08-lazy-schema-runbook-protocol.md",
+      "bytes": 681,
+      "digest": "sha256:29d9e36fbc4a098bb31dfd685a5a662a5ac3d1224f3009f1e741523d6a098cdb"
+    },
+    {
+      "source": "docs/plans/archive/2026-03-08-native-subagent-integration.md",
+      "destination": "exarchos/docs/plans/archive/2026-03-08-native-subagent-integration.md",
+      "bytes": 675,
+      "digest": "sha256:5c42e3effd10b9c5d6b2cca78cfb310189145a07525a67007687b03da6064d98"
+    },
+    {
+      "source": "docs/plans/archive/2026-03-08-vitepress-docs.md",
+      "destination": "exarchos/docs/plans/archive/2026-03-08-vitepress-docs.md",
+      "bytes": 637,
+      "digest": "sha256:839e4ea1df48ecead2cb63f1e0211da6e6b75fe9e6aac52f37ccb30bf6164fce"
+    },
+    {
+      "source": "docs/plans/archive/2026-03-09-consolidated-post-merge-fixes.md",
+      "destination": "exarchos/docs/plans/archive/2026-03-09-consolidated-post-merge-fixes.md",
+      "bytes": 683,
+      "digest": "sha256:64e3e732655a2209aad17adc5cdfc9b167026ac478d30b4bc2219ffa01478486"
+    },
+    {
+      "source": "docs/plans/archive/2026-03-09-platform-agnosticity.md",
+      "destination": "exarchos/docs/plans/archive/2026-03-09-platform-agnosticity.md",
+      "bytes": 651,
+      "digest": "sha256:22c9e945e6ab0a7e0a72a3d3069cea62491f9c6223c7d44b3a8f7bf2456795b1"
+    },
+    {
+      "source": "docs/plans/archive/2026-03-09-tool-introspection.md",
+      "destination": "exarchos/docs/plans/archive/2026-03-09-tool-introspection.md",
+      "bytes": 650,
+      "digest": "sha256:837253227c0f3c363d16d84695bce1b83c529c1eb5660206107639dfcf3f29b1"
+    },
+    {
+      "source": "docs/plans/archive/2026-03-10-neuroanatomy-workflow-refinements.md",
+      "destination": "exarchos/docs/plans/archive/2026-03-10-neuroanatomy-workflow-refinements.md",
+      "bytes": 708,
+      "digest": "sha256:6dea3c91cfb3c92267a344ca48a8fccdbbb5c37e8c8ed3e0b5df8ed7a47951d7"
+    },
+    {
+      "source": "docs/plans/archive/2026-03-10-outside-in-tdd-refinement.md",
+      "destination": "exarchos/docs/plans/archive/2026-03-10-outside-in-tdd-refinement.md",
+      "bytes": 667,
+      "digest": "sha256:e6f7c08120a42c729e5c27edc9a73d5fe03851bc06eb7e3f90dd5095ad38dc01"
+    },
+    {
+      "source": "docs/plans/archive/2026-03-11-eventstore-threading.md",
+      "destination": "exarchos/docs/plans/archive/2026-03-11-eventstore-threading.md",
+      "bytes": 12788,
+      "digest": "sha256:42904f74f0091efa021106b681a05428e4cac8d2a9462bb3b08697df59ec5099"
+    },
+    {
+      "source": "docs/plans/archive/2026-03-11-port-run-scripts-to-typescript.md",
+      "destination": "exarchos/docs/plans/archive/2026-03-11-port-run-scripts-to-typescript.md",
+      "bytes": 699,
+      "digest": "sha256:b6e8ed22dd62a1f7ce5611b1f62e2302d76f9aa5840b22fe2dcb09254163bd67"
+    },
+    {
+      "source": "docs/plans/archive/2026-03-11-prune-and-debt-audit.md",
+      "destination": "exarchos/docs/plans/archive/2026-03-11-prune-and-debt-audit.md",
+      "bytes": 661,
+      "digest": "sha256:c0262368cbac3013137d22b7476b337178525a4a8acbcd6580b711e599820b80"
+    },
+    {
+      "source": "docs/plans/archive/2026-03-13-backend-quality-plugin.md",
+      "destination": "exarchos/docs/plans/archive/2026-03-13-backend-quality-plugin.md",
+      "bytes": 663,
+      "digest": "sha256:768d7a3845fee237ed06729e42d37cf5b0b54213da7b569ff043a6ec7079d5c8"
+    },
+    {
+      "source": "docs/plans/archive/2026-03-13-project-config.md",
+      "destination": "exarchos/docs/plans/archive/2026-03-13-project-config.md",
+      "bytes": 654,
+      "digest": "sha256:0b0cdb2d6492a60fd3735e7e2d237eb75c3bf159c6ed96f290a94ab71ea9a70e"
+    },
+    {
+      "source": "docs/plans/archive/2026-03-14-create-exarchos.md",
+      "destination": "exarchos/docs/plans/archive/2026-03-14-create-exarchos.md",
+      "bytes": 627,
+      "digest": "sha256:54ccccdf39cee4488594b5e1d8138f1bf8ab1ab5df16238ed549fcf38acbdb67"
+    },
+    {
+      "source": "docs/plans/archive/2026-03-14-exarchos-messaging.md",
+      "destination": "exarchos/docs/plans/archive/2026-03-14-exarchos-messaging.md",
+      "bytes": 639,
+      "digest": "sha256:9a9158137c9b5e1ec334b49283a76207865ac68e357de9e3950dc84074b64117"
+    },
+    {
+      "source": "docs/plans/archive/2026-03-14-extract-assay-standalone.md",
+      "destination": "exarchos/docs/plans/archive/2026-03-14-extract-assay-standalone.md",
+      "bytes": 7194,
+      "digest": "sha256:73ebe55edde7e86ced82a387944fa5e61992bf58bbf620896aeb40624657c747"
+    },
+    {
+      "source": "docs/plans/archive/2026-03-14-icpc-benchmark-comparison.plan.md",
+      "destination": "exarchos/docs/plans/archive/2026-03-14-icpc-benchmark-comparison.plan.md",
+      "bytes": 18330,
+      "digest": "sha256:20f3f4cdc788928eec5e20dc70f7c6e19436a5d8bae892de0725bbffdc0eafcc"
+    },
+    {
+      "source": "docs/plans/archive/2026-03-14-platform-portability.md",
+      "destination": "exarchos/docs/plans/archive/2026-03-14-platform-portability.md",
+      "bytes": 682,
+      "digest": "sha256:cfe959eb3f5a2f88b7d2974607c229a73a140571143e3dfba330d2516b8e6e90"
+    },
+    {
+      "source": "docs/plans/archive/2026-03-15-plugin-integration-overhaul.md",
+      "destination": "exarchos/docs/plans/archive/2026-03-15-plugin-integration-overhaul.md",
+      "bytes": 675,
+      "digest": "sha256:74f5b7705096ebdb88dde7f7810342e58b35d7abe8a4d1c4861f9174591ec226"
+    },
+    {
+      "source": "docs/plans/archive/2026-04-04-channels-eventing-redesign.md",
+      "destination": "exarchos/docs/plans/archive/2026-04-04-channels-eventing-redesign.md",
+      "bytes": 19674,
+      "digest": "sha256:99ebb9808f4f7445b7919a04f5a03df27804163384e7a119f99344d7e7677516"
+    },
+    {
+      "source": "docs/plans/archive/2026-04-08-platform-agnostic-skills.md",
+      "destination": "exarchos/docs/plans/archive/2026-04-08-platform-agnostic-skills.md",
+      "bytes": 676,
+      "digest": "sha256:c9eda8612c7603b55d23ff3beeb50828a60b409e9f6259da197b4a54b87376c9"
+    },
+    {
+      "source": "docs/plans/archive/2026-04-09-stabilization-sweep.md",
+      "destination": "exarchos/docs/plans/archive/2026-04-09-stabilization-sweep.md",
+      "bytes": 643,
+      "digest": "sha256:7b2040bfc6d73b2f9863ca63e226d31a5f3e0dc5d077791324b467bcc556c72e"
+    },
+    {
+      "source": "docs/plans/archive/2026-04-11-oneshot-and-pruning.md",
+      "destination": "exarchos/docs/plans/archive/2026-04-11-oneshot-and-pruning.md",
+      "bytes": 669,
+      "digest": "sha256:98ac12436e547258a89f1ab2cc023d2ac62d52ccfa617bf6a8f8cf24769269e4"
+    },
+    {
+      "source": "docs/plans/archive/2026-04-14-cli-vs-mcp-facade-analysis.md",
+      "destination": "exarchos/docs/plans/archive/2026-04-14-cli-vs-mcp-facade-analysis.md",
+      "bytes": 672,
+      "digest": "sha256:b03014e37fcedbb788d458eb99fc4cd633dcc2aa8da055251d660180d91977cf"
+    },
+    {
+      "source": "docs/plans/archive/2026-04-15-exarchos-doctor.md",
+      "destination": "exarchos/docs/plans/archive/2026-04-15-exarchos-doctor.md",
+      "bytes": 627,
+      "digest": "sha256:2531d44a95ec0b53ecad02015fa22287148eb0a878a9d9f349abe0046f5064cc"
+    },
+    {
+      "source": "docs/plans/archive/2026-04-17-v280-final.md",
+      "destination": "exarchos/docs/plans/archive/2026-04-17-v280-final.md",
+      "bytes": 609,
+      "digest": "sha256:c7aed167a431fb9c55c06e323ad8ee08ed3ebbbccbf326a2f8f6b0ef30ad681e"
+    },
+    {
+      "source": "docs/plans/archive/2026-04-18-solver-aided-governance.md",
+      "destination": "exarchos/docs/plans/archive/2026-04-18-solver-aided-governance.md",
+      "bytes": 659,
+      "digest": "sha256:46409eb41513cfc795669e42b3482a4f63b4d73e41c44c7b5db3a0073ad01f5d"
+    },
+    {
+      "source": "docs/plans/archive/2026-04-19-fixer-token-efficiency.md",
+      "destination": "exarchos/docs/plans/archive/2026-04-19-fixer-token-efficiency.md",
+      "bytes": 658,
+      "digest": "sha256:fb3bdd77414a3e1c3d7f772d5f01b25c9000bbd6cf1cd034c8b380db298e6147"
+    },
+    {
+      "source": "docs/plans/archive/2026-04-21-install-rewrite.md",
+      "destination": "exarchos/docs/plans/archive/2026-04-21-install-rewrite.md",
+      "bytes": 632,
+      "digest": "sha256:ff5e0c1a7e1b3216b8fcaefb53670a2b23c496a3512ab23fa39f678671e9a01f"
+    },
+    {
+      "source": "docs/plans/archive/2026-04-23-rehydrate-foundation.md",
+      "destination": "exarchos/docs/plans/archive/2026-04-23-rehydrate-foundation.md",
+      "bytes": 647,
+      "digest": "sha256:e694c3d8e1ac9f3b67063df579c827a234d0da1db733267116ad323220815c96"
+    },
+    {
+      "source": "docs/plans/archive/2026-04-25-delegation-runtime-parity.md",
+      "destination": "exarchos/docs/plans/archive/2026-04-25-delegation-runtime-parity.md",
+      "bytes": 670,
+      "digest": "sha256:f049f212a82b2edc8c14e484ce462bfea9b7b2856a81f7245aa21a8de23289e8"
+    },
+    {
+      "source": "docs/plans/archive/2026-04-26-autonomous-merge-orchestrator.md",
+      "destination": "exarchos/docs/plans/archive/2026-04-26-autonomous-merge-orchestrator.md",
+      "bytes": 696,
+      "digest": "sha256:40ab3dd7f043646e1336b8f44ff2aa0180022f4beda737c116ddf2a412e7f32b"
+    },
+    {
+      "source": "docs/plans/archive/2026-04-26-eventstore-constructor-injection.md",
+      "destination": "exarchos/docs/plans/archive/2026-04-26-eventstore-constructor-injection.md",
+      "bytes": 7842,
+      "digest": "sha256:f0f9bc70c18b51208ed947276f7ae0f37312349debb4433178fca2ab0cfe524f"
+    },
+    {
+      "source": "docs/plans/archive/2026-04-26-v29-event-projection-cluster.md",
+      "destination": "exarchos/docs/plans/archive/2026-04-26-v29-event-projection-cluster.md",
+      "bytes": 12522,
+      "digest": "sha256:733281d48e1da986b1f30b5a9325e42087b112c2e4a2f63421274766b93ddf2c"
+    },
+    {
+      "source": "docs/plans/archive/2026-04-28-test-runtime-resolver.md",
+      "destination": "exarchos/docs/plans/archive/2026-04-28-test-runtime-resolver.md",
+      "bytes": 18718,
+      "digest": "sha256:722790912b0bc216ff115d2c44df64dc0a8f2e1e5f1510c7f5c2ce1921b6fa39"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-04-v290-dogfood-bundle.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-04-v290-dogfood-bundle.md",
+      "bytes": 652,
+      "digest": "sha256:4adafdb02f3720c9a355371a04afe8c9d6c8256d9047b671d2da5c833712163f"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-05-e2e-v29-revisited.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-05-e2e-v29-revisited.md",
+      "bytes": 661,
+      "digest": "sha256:f238e9174a66d2a11df98951261c2fd9417285f9fc771053077982004b1925e5"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-06-v29-bug-cluster-combined-fix.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-06-v29-bug-cluster-combined-fix.md",
+      "bytes": 685,
+      "digest": "sha256:dbb66651927c5d1f6cdc6129c52ed89a32b6836ad8c49f53ca79a1d151243787"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-06-workflow-builder-sdk-traceability.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-06-workflow-builder-sdk-traceability.md",
+      "bytes": 3265,
+      "digest": "sha256:511699129d1fa7dd3891abaf9f1984d61d5a863064370c6fd2a853917e623478"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-06-workflow-builder-sdk.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-06-workflow-builder-sdk.md",
+      "bytes": 647,
+      "digest": "sha256:eead7bca4fcd23c4d9f90184b1d2881d024be51854f4443c25ed39b9cd70c37b"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-08-checkpoint-handoff-bundle.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-08-checkpoint-handoff-bundle.md",
+      "bytes": 691,
+      "digest": "sha256:a3c283241f170d250386dfe253d48058d8ce82f84b800e3c1a463d2c075cdb9e"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-08-durable-event-store-substrate-p8-review-fixes.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-08-durable-event-store-substrate-p8-review-fixes.md",
+      "bytes": 16948,
+      "digest": "sha256:ec3a40b7572535871974232450c5da142ad8175241184e312642c2faf560b06d"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-08-durable-event-store-substrate-traceability.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-08-durable-event-store-substrate-traceability.md",
+      "bytes": 2183,
+      "digest": "sha256:acd307b32b55bbf352ee665e38133bf8aeed3d59ed2e42bec07379d163e88ae1"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-08-durable-event-store-substrate.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-08-durable-event-store-substrate.md",
+      "bytes": 736,
+      "digest": "sha256:3935cb1c4a925c3556c705d4caedc693e9e2f9c7a93ce2925f16406648cee2a4"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-08-eventstore-appender-consumer-migration.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-08-eventstore-appender-consumer-migration.md",
+      "bytes": 717,
+      "digest": "sha256:3c1ac3a64e633cfcdc215334706f79225ef4d719632f82b41c4364a1481cf9e6"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-08-rehydration-machinery-plan.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-08-rehydration-machinery-plan.md",
+      "bytes": 30743,
+      "digest": "sha256:b80ae4391f9c437e41e608fcfa24fc12f1ea86952d38179be2d0d8f7a2e8327b"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-09-rehydration-machinery-fixes.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-09-rehydration-machinery-fixes.md",
+      "bytes": 6323,
+      "digest": "sha256:ef46229cbb1f4a54c4933118fdea248964e973e31873dfd49061a093066547d8"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-09-v2-10-0-preview-1-substrate-stabilization.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-09-v2-10-0-preview-1-substrate-stabilization.md",
+      "bytes": 734,
+      "digest": "sha256:26954fbe79194b94b9ac4737dcbdfcc304dc281be92ff75e0b5937cd6e6f3f6d"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-09-v2-11-substrate-cut.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-09-v2-11-substrate-cut.md",
+      "bytes": 646,
+      "digest": "sha256:6753a0a5d25cab1222059da28b1a2652917d42c1205a6ec77a15c40f0144b075"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-10-v2-10-0-preview-2-marten-primitives.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-10-v2-10-0-preview-2-marten-primitives.md",
+      "bytes": 692,
+      "digest": "sha256:af7ddcac4c09334f71f97cbc43958084a799fca9737220831f7572aa8162c2e2"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-11-marten-followups.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-11-marten-followups.md",
+      "bytes": 646,
+      "digest": "sha256:352f056559b229f9145447da9367be1c1c8bab7329849eaa298a3dce0cd04489"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-13-wave-0-carrier-swap.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-13-wave-0-carrier-swap.md",
+      "bytes": 646,
+      "digest": "sha256:f961e1e70ffe577d34a6def1624d77298d8f30037c180cb29185ded4a5aad93c"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-13-wave-0-followups-stack-execution.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-13-wave-0-followups-stack-execution.md",
+      "bytes": 15697,
+      "digest": "sha256:6de5abb3f825a8f890444858a3a1344336a54a09d3aa9bd00582ab53bcc4516d"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-14-wave1-fixes.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-14-wave1-fixes.md",
+      "bytes": 15649,
+      "digest": "sha256:6d443d85df2cce9114719b17cec4d81d26f92723ee905e67d4c3c7209ec2d1b6"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-14-wave1-substrate.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-14-wave1-substrate.md",
+      "bytes": 29382,
+      "digest": "sha256:b0cf4697045e794f5b2cc6c04fbac833f897103eccd4eac34df52197a7f81d37"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-15-v2-10-0-preview-3-closeout.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-15-v2-10-0-preview-3-closeout.md",
+      "bytes": 673,
+      "digest": "sha256:7dc7aab94a7466fe78b0673f1b009afac202cb61b73fb8d6327b7f9ca9f54515"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-15-v2-10-0-preview-4-feature-freeze.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-15-v2-10-0-preview-4-feature-freeze.md",
+      "bytes": 705,
+      "digest": "sha256:7843bdcc7cda2cb69e65e2ef875f12015f3caa839ed9aab59b4a15c73a657548"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-15-wave2-wave3-polish.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-15-wave2-wave3-polish.md",
+      "bytes": 664,
+      "digest": "sha256:50b0c739b983e6e9773082fde053ea320644b478b5298d695ef3c55642eef1c7"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-16-correlation-consumer-wiring.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-16-correlation-consumer-wiring.md",
+      "bytes": 686,
+      "digest": "sha256:ffec7786e2e224be2a6d1e59e3c5d91262233cb2a048255d40658e76211192a2"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-16-correlation-indexed-columns.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-16-correlation-indexed-columns.md",
+      "bytes": 698,
+      "digest": "sha256:b31e8fb4f39b9123db340e3e412593dd5f4bae6eb8643ed4b9701377fae8a855"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-16-event-sourced-task-store-high-trio.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-16-event-sourced-task-store-high-trio.md",
+      "bytes": 703,
+      "digest": "sha256:73156ff051eeeee2328c65c8bfa4bde927b6df684fdbee1573bd5657440e47d0"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-17-preview-4-substrate-hygiene.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-17-preview-4-substrate-hygiene.md",
+      "bytes": 693,
+      "digest": "sha256:514b87c51b85c806ac18658a594e8b23841b9ed1dc6e97ca11dc9eac01bd3c7c"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-17-preview-4-substrate-realization.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-17-preview-4-substrate-realization.md",
+      "bytes": 694,
+      "digest": "sha256:daf77aa488c2a931d55994cc145e07359594555275588b70f8598bfa82429f8c"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-18-preview-4-invariant-audit-pair.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-18-preview-4-invariant-audit-pair.md",
+      "bytes": 706,
+      "digest": "sha256:ce38d607fed08882e74c0c8a227ee149dddf6094693ad1ae4f368692b039d630"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-20-invariants-catalog-v2-implementation.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-20-invariants-catalog-v2-implementation.md",
+      "bytes": 29721,
+      "digest": "sha256:9643145ffa674b8ce3024349c04991a9b1b648dba2d71da5ff1df442a69da066"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-23-invariants-projection-and-extensibility.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-23-invariants-projection-and-extensibility.md",
+      "bytes": 736,
+      "digest": "sha256:14654322ba99560067c5275d98a2ffc6187e680a7ae3454906821302ae8dcc0b"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-23-v2-10-0-rc-dogfooding-reliability.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-23-v2-10-0-rc-dogfooding-reliability.md",
+      "bytes": 713,
+      "digest": "sha256:c89ab9ec2f8e828481c2da3dfce98cb6757c38213656f88ec20164cab494eae2"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-24-axiom-excision.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-24-axiom-excision.md",
+      "bytes": 646,
+      "digest": "sha256:93595a2b6400515eb5bd00190fcb82ef89cdfdbcb36909838db007eb7ef97dae"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-24-invariants-dev-catalog-v3-content.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-24-invariants-dev-catalog-v3-content.md",
+      "bytes": 703,
+      "digest": "sha256:db3e88edf08cfcae4889fa7d68bbb48c5cc4d004f1fcc1ad08849d02bde1c197"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-24-rc2-auto-emission.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-24-rc2-auto-emission.md",
+      "bytes": 9059,
+      "digest": "sha256:fbf62ee04e45ba05a6b2d09c3312172b6062f9df567f19b6e4e15ed91bd531ec"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-24-sdlc-catalog-authoring.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-24-sdlc-catalog-authoring.md",
+      "bytes": 686,
+      "digest": "sha256:6ff35fab4d6f405d5fffe6a64ea4d1c09f1b7430dadf0e89f1be8da04cab69cd"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-24-v2.10.0-ga-completion.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-24-v2.10.0-ga-completion.md",
+      "bytes": 654,
+      "digest": "sha256:9fc1b083e6bb0fbf67de8ee44eb59f54f279445510bac4a698a9ad0eb4918993"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-25-invariant-tier-clarity.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-25-invariant-tier-clarity.md",
+      "bytes": 4779,
+      "digest": "sha256:080e9f185350c0b55151eaffe1a3cf8ef7b33822698a4441030499a598e8eb0b"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-25-invariants-authoring-wizard.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-25-invariants-authoring-wizard.md",
+      "bytes": 702,
+      "digest": "sha256:36122006fe8f7c8495a9ad170d8291e89f3642a20cfa4ad27e94385d8d8cb9ba"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-30-design-gate-parity.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-30-design-gate-parity.md",
+      "bytes": 680,
+      "digest": "sha256:6cf5588073e4c29829faf1cd166e37fb6a8c7400fd810fd7ecb33143cba488cb"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-30-refactor-1486-subissues.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-30-refactor-1486-subissues.md",
+      "bytes": 6990,
+      "digest": "sha256:74965784110c07fd26fbf09b1fbbba7795c2f4a26f852469c2f07cc24eb34675"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-31-harness-binding-and-lifecycle-hooks.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-31-harness-binding-and-lifecycle-hooks.md",
+      "bytes": 733,
+      "digest": "sha256:418eeb6b7554b7173c38bbc94e47032c194d0b368ab64cebde0a6c56464009d0"
+    },
+    {
+      "source": "docs/plans/archive/2026-05-31-toolchain-registry-consolidation.md",
+      "destination": "exarchos/docs/plans/archive/2026-05-31-toolchain-registry-consolidation.md",
+      "bytes": 10852,
+      "digest": "sha256:8151d8dcc73ea69e8ceb5e97d6852bd2b154d397f3d822e58f7b5454cf7c9c6d"
+    },
+    {
+      "source": "docs/plans/archive/2026-06-06-onboard-doctor-consolidation-traceability.md",
+      "destination": "exarchos/docs/plans/archive/2026-06-06-onboard-doctor-consolidation-traceability.md",
+      "bytes": 3908,
+      "digest": "sha256:708510cb4757294759d97babb159ea59c640cc3fad54559501e9bc59d8b60423"
+    },
+    {
+      "source": "docs/plans/archive/2026-06-06-onboard-doctor-consolidation.md",
+      "destination": "exarchos/docs/plans/archive/2026-06-06-onboard-doctor-consolidation.md",
+      "bytes": 700,
+      "digest": "sha256:067e0eb18240d6b893dac59b8984137954ce7128ea256402d66815aed3f85a32"
+    },
+    {
+      "source": "docs/plans/archive/2026-06-09-verification-ladder-slice1-traceability.md",
+      "destination": "exarchos/docs/plans/archive/2026-06-09-verification-ladder-slice1-traceability.md",
+      "bytes": 2383,
+      "digest": "sha256:838e79172c2d7379f384a4233071dab0521e014e0472e7e945e93fcc698c06f9"
+    },
+    {
+      "source": "docs/plans/archive/2026-06-09-verification-ladder-slice1.md",
+      "destination": "exarchos/docs/plans/archive/2026-06-09-verification-ladder-slice1.md",
+      "bytes": 676,
+      "digest": "sha256:6ef73ab5bd98e43c8eb238a4b74fd7999fab6912e6fd66a1df50cd5d8161436c"
+    },
+    {
+      "source": "docs/plans/archive/2026-06-11-verification-ladder-slice2.md",
+      "destination": "exarchos/docs/plans/archive/2026-06-11-verification-ladder-slice2.md",
+      "bytes": 686,
+      "digest": "sha256:54ebf677bc9a30ec9345b553c110cdbe0b6bef2879c0cdc25a5e5bbbff7f019f"
+    },
+    {
+      "source": "docs/plans/archive/2026-06-15-verification-ladder-slice3.md",
+      "destination": "exarchos/docs/plans/archive/2026-06-15-verification-ladder-slice3.md",
+      "bytes": 686,
+      "digest": "sha256:b4007759d61cbeb98191df1d82621f2f919662f3e58a7caacb4f70e01bdb2c2c"
+    },
+    {
+      "source": "docs/plans/archive/2026-06-16-phase-kind-binding-traceability.md",
+      "destination": "exarchos/docs/plans/archive/2026-06-16-phase-kind-binding-traceability.md",
+      "bytes": 3728,
+      "digest": "sha256:9ee2b9d3b6773900cdbb6047fe106455773a420af26626dff59af4dc771b21a6"
+    },
+    {
+      "source": "docs/plans/archive/2026-06-16-phase-kind-binding.md",
+      "destination": "exarchos/docs/plans/archive/2026-06-16-phase-kind-binding.md",
+      "bytes": 653,
+      "digest": "sha256:bbbb7230f7a5f5da8b1e9a9c86e57a03dc94fe88f7490716b0a0eeeb86ad0ea6"
+    },
+    {
+      "source": "docs/plans/archive/2026-06-17-phase-kind-binding-completion.md",
+      "destination": "exarchos/docs/plans/archive/2026-06-17-phase-kind-binding-completion.md",
+      "bytes": 697,
+      "digest": "sha256:69118962843fa5d37d04a6591d8b0795cbc84230f71faf74877ec12260cc28e4"
+    },
+    {
+      "source": "docs/plans/archive/2026-06-19-v2.11.0-preview.1-wave1.md",
+      "destination": "exarchos/docs/plans/archive/2026-06-19-v2.11.0-preview.1-wave1.md",
+      "bytes": 7863,
+      "digest": "sha256:e055b9a6121d9cd32bde95b04bbcf71527c1a6d3f370f655d8d8a751cd33823f"
+    },
+    {
+      "source": "docs/plans/archive/2026-06-19-v2.11.0-preview.1-wave2.md",
+      "destination": "exarchos/docs/plans/archive/2026-06-19-v2.11.0-preview.1-wave2.md",
+      "bytes": 17968,
+      "digest": "sha256:a4115669e32c5521b893626a754a6d1d2bb3fb385b29974437ca2d319d412cf4"
+    },
+    {
+      "source": "docs/plans/archive/2026-06-20-bounded-fold-primitive-1555.md",
+      "destination": "exarchos/docs/plans/archive/2026-06-20-bounded-fold-primitive-1555.md",
+      "bytes": 688,
+      "digest": "sha256:d7895356269a830ca85d22900047f8278467dc369565e573a1021846636d560a"
+    },
+    {
+      "source": "docs/plans/archive/2026-06-20-w3-event-sourcing-read-path.md",
+      "destination": "exarchos/docs/plans/archive/2026-06-20-w3-event-sourcing-read-path.md",
+      "bytes": 696,
+      "digest": "sha256:df67a36c96b93e485f44c9b444565185e43cb02f4fe5467458698ef1703da894"
+    },
+    {
+      "source": "docs/plans/archive/2026-06-21-design-plan-collapse.md",
+      "destination": "exarchos/docs/plans/archive/2026-06-21-design-plan-collapse.md",
+      "bytes": 693,
+      "digest": "sha256:c08f59af8c0405d513620b855dc28841899af25835ea67aaf6ab106e046be221"
+    },
+    {
+      "source": "docs/plans/archive/2026-06-21-phase4-test-first-excision.md",
+      "destination": "exarchos/docs/plans/archive/2026-06-21-phase4-test-first-excision.md",
+      "bytes": 684,
+      "digest": "sha256:1f676b534b9eb442d8a36e58ef6a5158188bdad63e6885f0e5b7a3805dcae718"
+    },
+    {
+      "source": "docs/plans/archive/2026-06-21-v2.11.0-preview.3-merge-orchestrator-hardening.md",
+      "destination": "exarchos/docs/plans/archive/2026-06-21-v2.11.0-preview.3-merge-orchestrator-hardening.md",
+      "bytes": 717,
+      "digest": "sha256:3d913ba1416d14d35f26d0ef551a6fe6412a5fa7e85359a5dfbcc8f7e73596aa"
+    },
+    {
+      "source": "docs/plans/archive/2026-06-22-event-store-concurrency-optimal.md",
+      "destination": "exarchos/docs/plans/archive/2026-06-22-event-store-concurrency-optimal.md",
+      "bytes": 711,
+      "digest": "sha256:180a9766db972db25ea2f8df7320d63449c695aebf4624c0cfbbff35842664b9"
+    },
+    {
+      "source": "docs/plans/archive/2026-06-22-ship-gate-methodology.md",
+      "destination": "exarchos/docs/plans/archive/2026-06-22-ship-gate-methodology.md",
+      "bytes": 17709,
+      "digest": "sha256:1fb62a429ae7535d23c47fe3583a9ec643fdd72175fcaf8d7be4f04c1bc3214d"
+    },
+    {
+      "source": "docs/plans/archive/2026-06-23-siv-boundary-closeout.md",
+      "destination": "exarchos/docs/plans/archive/2026-06-23-siv-boundary-closeout.md",
+      "bytes": 686,
+      "digest": "sha256:54623fcafaa6feedabaa6b2996d85269c27bf51f543b26398ce4b1d8dc0397ba"
+    },
+    {
+      "source": "docs/proposals/2026-05-20-invariants-catalog-v2-spec.md",
+      "destination": "exarchos/docs/proposals/2026-05-20-invariants-catalog-v2-spec.md",
+      "bytes": 47445,
+      "digest": "sha256:5f6d2d0fafa3e7c2ad6991e3ce28dda4196cb63773704f27bb8af65750b71307"
+    },
+    {
+      "source": "docs/proposals/2026-05-23-invariants-projection-and-extensibility.md",
+      "destination": "exarchos/docs/proposals/2026-05-23-invariants-projection-and-extensibility.md",
+      "bytes": 712,
+      "digest": "sha256:e8b21c2ed3769c29bd465afc122119d06128bb5e0a3a9a49f25b55b60bf7debe"
+    },
+    {
+      "source": "docs/rca/.gitkeep",
+      "destination": "exarchos/docs/rca/.gitkeep",
+      "bytes": 0,
+      "digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "source": "docs/rca/2026-02-25-persistence-hydration-806.md",
+      "destination": "exarchos/docs/rca/2026-02-25-persistence-hydration-806.md",
+      "bytes": 5906,
+      "digest": "sha256:9fd07516de871fa373050eb993835a686aa6233db5ce849df435ba3002dde644"
+    },
+    {
+      "source": "docs/rca/2026-04-10-review-guard-contract-drift.md",
+      "destination": "exarchos/docs/rca/2026-04-10-review-guard-contract-drift.md",
+      "bytes": 19742,
+      "digest": "sha256:5ed42f48ca1689774dca8adad33d690145e1540ecc86a04a806cf6ddf0622a71"
+    },
+    {
+      "source": "docs/rca/2026-04-14-sidecar-event-visibility-1082.md",
+      "destination": "exarchos/docs/rca/2026-04-14-sidecar-event-visibility-1082.md",
+      "bytes": 6556,
+      "digest": "sha256:e0baf2a06140cc418e345b8a73c3b62d7b1c3fea8a6318362f87e6467fabee27"
+    },
+    {
+      "source": "docs/rca/2026-04-26-v29-event-projection-cluster.md",
+      "destination": "exarchos/docs/rca/2026-04-26-v29-event-projection-cluster.md",
+      "bytes": 13732,
+      "digest": "sha256:88165a38cba746f65e02f01960bf64bb443d344b8dcb608f8fd35b997d3e7962"
+    },
+    {
+      "source": "docs/rca/2026-04-27-v29-rc1-orchestrate-cluster.md",
+      "destination": "exarchos/docs/rca/2026-04-27-v29-rc1-orchestrate-cluster.md",
+      "bytes": 15974,
+      "digest": "sha256:ca9798a8963502320c57d9b61082ba83365176ade026f0c467db0d2c6cec1718"
+    },
+    {
+      "source": "docs/rca/2026-05-08-rehydrate-behavioral-gap.md",
+      "destination": "exarchos/docs/rca/2026-05-08-rehydrate-behavioral-gap.md",
+      "bytes": 13777,
+      "digest": "sha256:1958d8ebf1d486fccb35cd4a02f45b786bddf68542387621a011a3d2f9878c4d"
+    },
+    {
+      "source": "docs/rca/2026-05-30-state-source-integrity.md",
+      "destination": "exarchos/docs/rca/2026-05-30-state-source-integrity.md",
+      "bytes": 9731,
+      "digest": "sha256:23b81542e0f57468e3882176a04cc835080a98c6ee7e8a971ec592104317442a"
+    },
+    {
+      "source": "docs/rca/2026-05-31-implementer-worktree-base.md",
+      "destination": "exarchos/docs/rca/2026-05-31-implementer-worktree-base.md",
+      "bytes": 9532,
+      "digest": "sha256:5b2926435139d233af111696e2d6579fe51faea1360c07b4a3133f095f490fbf"
+    },
+    {
+      "source": "docs/rca/2026-05-31-npm-ci-playwright-browser-wedge.md",
+      "destination": "exarchos/docs/rca/2026-05-31-npm-ci-playwright-browser-wedge.md",
+      "bytes": 8331,
+      "digest": "sha256:ff6c698ae23954e7e1d598c7519c9e025415aa54f9cc4ea2e247eea4c6e61118"
+    },
+    {
+      "source": "docs/rca/2026-06-21-worktree-isolation-write-leak.md",
+      "destination": "exarchos/docs/rca/2026-06-21-worktree-isolation-write-leak.md",
+      "bytes": 9665,
+      "digest": "sha256:e9eacb6c320b235ce1934c7d9e9043ac5e8bd9043aee6b6e6ebf25294e86cb7f"
+    },
+    {
+      "source": "docs/refactors/2026-05-08-rehydration-machinery-brief.md",
+      "destination": "exarchos/docs/refactors/2026-05-08-rehydration-machinery-brief.md",
+      "bytes": 10318,
+      "digest": "sha256:9d0a5831db86c1e27ad0516e303162cb099c788f05c11a717904c3b1032488ad"
+    },
+    {
+      "source": "docs/references/2026-05-07-ev2-mcp-agent-output-contract.md",
+      "destination": "exarchos/docs/references/2026-05-07-ev2-mcp-agent-output-contract.md",
+      "bytes": 26146,
+      "digest": "sha256:f332e7b115dec73727d074992fd29e903587d7c66ad2a00d915aaf0eacae6000"
+    },
+    {
+      "source": "docs/references/2026-05-13-exarchos-dogfood-findings.md",
+      "destination": "exarchos/docs/references/2026-05-13-exarchos-dogfood-findings.md",
+      "bytes": 31842,
+      "digest": "sha256:1b8a9d02f0a3646ff3f842e14bf58082d98330fb7754b4fb2ca03cc2c509dcbe"
+    },
+    {
+      "source": "docs/references/exarchos-1098-comment.md",
+      "destination": "exarchos/docs/references/exarchos-1098-comment.md",
+      "bytes": 8272,
+      "digest": "sha256:3b7714b74fe1777876a5ff12a4156d6c5de5217cd8b54e407b5113641c89d9d9"
+    },
+    {
+      "source": "docs/references/exarchos-install-skills-bug-report.md",
+      "destination": "exarchos/docs/references/exarchos-install-skills-bug-report.md",
+      "bytes": 5983,
+      "digest": "sha256:24a4a1b483324dcec676f0c017bf1b61cb9df4aafb65d8af4aa5e64f1c028296"
+    },
+    {
+      "source": "docs/references/gemini-convo.md",
+      "destination": "exarchos/docs/references/gemini-convo.md",
+      "bytes": 2833,
+      "digest": "sha256:1ec8797bbc5445d0f0f99d8dea941dbd6b2d6dd864fd1eb5faa28e6dd19fdb68"
+    },
+    {
+      "source": "docs/references/placeholder-vocabulary.md",
+      "destination": "exarchos/docs/references/placeholder-vocabulary.md",
+      "bytes": 2276,
+      "digest": "sha256:ffe4189a7100688b2b38ebf638dd69c491d399cd6b5eddb79e68c5b42f51832d"
+    },
+    {
+      "source": "docs/references/runtime-notes.md",
+      "destination": "exarchos/docs/references/runtime-notes.md",
+      "bytes": 1354,
+      "digest": "sha256:bd98710fe3ed2edf37f0b2dcdf3910d0dc56df5cf22ad770351619175107c957"
+    },
+    {
+      "source": "docs/references/Semantic_Merge_Queue_PRD.pdf",
+      "destination": "exarchos/docs/references/Semantic_Merge_Queue_PRD.pdf",
+      "bytes": 32185,
+      "digest": "sha256:673fac0273e3048d099c4c0177682d3591175397fc3b04f360158b7582edb52b"
+    },
+    {
+      "source": "docs/research/2026-04-19-azd-aspire-integration.md",
+      "destination": "exarchos/docs/research/2026-04-19-azd-aspire-integration.md",
+      "bytes": 15401,
+      "digest": "sha256:0d4038fe5d7718c176f2677c8025c6a271d0a7de34c823e2c8877600fa7a077c"
+    },
+    {
+      "source": "docs/research/2026-04-19-e2e-testing-strategy.md",
+      "destination": "exarchos/docs/research/2026-04-19-e2e-testing-strategy.md",
+      "bytes": 31138,
+      "digest": "sha256:63cce9a5024d45499db366afc5ada2b9f225de6d6826adc84502fd5539aa42f0"
+    },
+    {
+      "source": "docs/research/2026-04-23-rehydrate-differentiation.md",
+      "destination": "exarchos/docs/research/2026-04-23-rehydrate-differentiation.md",
+      "bytes": 23027,
+      "digest": "sha256:254151bedd8afda280f03899b720d7459ca055c163d5ab720adb67e7a8c74d80"
+    },
+    {
+      "source": "docs/research/2026-04-25-delegation-platform-agnosticity.md",
+      "destination": "exarchos/docs/research/2026-04-25-delegation-platform-agnosticity.md",
+      "bytes": 21089,
+      "digest": "sha256:1865cfebbbac350e9901f0b816f134f6b35bbbfce976c9294705d7452a564475"
+    },
+    {
+      "source": "docs/research/2026-04-25-marketing-positioning.md",
+      "destination": "exarchos/docs/research/2026-04-25-marketing-positioning.md",
+      "bytes": 19304,
+      "digest": "sha256:a93ce1d32e446adecd49069716a767a040f4ae06bf6ee216d9e8d05fc5391fc1"
+    },
+    {
+      "source": "docs/research/2026-04-25-readme-amendments.md",
+      "destination": "exarchos/docs/research/2026-04-25-readme-amendments.md",
+      "bytes": 16597,
+      "digest": "sha256:848f8fe7876e93419f798c727b4453b12c23d75bcf087a39a37782d24473e809"
+    },
+    {
+      "source": "docs/research/2026-05-06-rank-fusion-algorithm-spike-strategos-57.md",
+      "destination": "exarchos/docs/research/2026-05-06-rank-fusion-algorithm-spike-strategos-57.md",
+      "bytes": 18260,
+      "digest": "sha256:affef88472712a48dfd24244320c245c615112fca7d12df945ee03ad309108af"
+    },
+    {
+      "source": "docs/research/2026-05-06-strategos-issues-for-workflow-builder-sdk.md",
+      "destination": "exarchos/docs/research/2026-05-06-strategos-issues-for-workflow-builder-sdk.md",
+      "bytes": 19747,
+      "digest": "sha256:7f2233041d375b8faa97ff3395636e0e5cbd6d9c979aff60aa04afc2329bc921"
+    },
+    {
+      "source": "docs/research/2026-05-07-checkpoint-cluster-fitness.md",
+      "destination": "exarchos/docs/research/2026-05-07-checkpoint-cluster-fitness.md",
+      "bytes": 7765,
+      "digest": "sha256:d771b5fc63506b406ed80e076a9a08512cc20a3806979007b4a9deb914e5db9b"
+    },
+    {
+      "source": "docs/research/2026-05-07-design-invariants-skill.md",
+      "destination": "exarchos/docs/research/2026-05-07-design-invariants-skill.md",
+      "bytes": 40608,
+      "digest": "sha256:457c86639658e481d36b504c905c8fde9e9b1b40f607fbbc251d1d0a0c159122"
+    },
+    {
+      "source": "docs/research/2026-05-07-vcsprovider-thread-reply-fitness.md",
+      "destination": "exarchos/docs/research/2026-05-07-vcsprovider-thread-reply-fitness.md",
+      "bytes": 6352,
+      "digest": "sha256:2b38efc462e659af45a02862e9dd2acdb5067cbcf33712da4c9753340e4d6b71"
+    },
+    {
+      "source": "docs/research/2026-05-08-1119-merge-orchestrator-audit.md",
+      "destination": "exarchos/docs/research/2026-05-08-1119-merge-orchestrator-audit.md",
+      "bytes": 31576,
+      "digest": "sha256:a236b55f9daca25895edf4735afe1878986d194c46fb98a435c6791034eff33a"
+    },
+    {
+      "source": "docs/research/2026-05-08-marten-event-store-lessons.md",
+      "destination": "exarchos/docs/research/2026-05-08-marten-event-store-lessons.md",
+      "bytes": 23936,
+      "digest": "sha256:e0dc97aa7e08a44f4c7737e418dbda03381b05d075287d03f328136a72885a70"
+    },
+    {
+      "source": "docs/research/2026-05-08-rehydrate-machinery-reinit.md",
+      "destination": "exarchos/docs/research/2026-05-08-rehydrate-machinery-reinit.md",
+      "bytes": 46251,
+      "digest": "sha256:e80c4624c36d6656bc54c30fd34eb13dddce5d767f9b8895992e026ec182b28a"
+    },
+    {
+      "source": "docs/research/2026-05-08-trevin-agent-native-cli-evaluation.md",
+      "destination": "exarchos/docs/research/2026-05-08-trevin-agent-native-cli-evaluation.md",
+      "bytes": 31101,
+      "digest": "sha256:3c4a49e5eadf8fa6e1d4323e5283016d301d42c95864a652b9dae547928261ec"
+    },
+    {
+      "source": "docs/research/2026-05-10-v2-10-pre2-implementation-audit-findings.md",
+      "destination": "exarchos/docs/research/2026-05-10-v2-10-pre2-implementation-audit-findings.md",
+      "bytes": 38323,
+      "digest": "sha256:c7f1472f8bb049052b2ad6255c2bd9af021e5817bd98ca314358d7cdd20b4778"
+    },
+    {
+      "source": "docs/research/2026-05-10-v2-10-pre2-implementation-audit-handoff.md",
+      "destination": "exarchos/docs/research/2026-05-10-v2-10-pre2-implementation-audit-handoff.md",
+      "bytes": 18530,
+      "digest": "sha256:56b3426b81c63d97b97ecf071b176ff13992d4d9cb8d7c532031e2b70076ca8a"
+    },
+    {
+      "source": "docs/research/2026-05-13-windows-dogfood-remediation.md",
+      "destination": "exarchos/docs/research/2026-05-13-windows-dogfood-remediation.md",
+      "bytes": 47267,
+      "digest": "sha256:f70492a00e67204f9566a351bd45577de3413e2ddffebcdaa3b69022cb8baf9f"
+    },
+    {
+      "source": "docs/research/2026-05-13-zod-v4-breaking-changes.md",
+      "destination": "exarchos/docs/research/2026-05-13-zod-v4-breaking-changes.md",
+      "bytes": 35422,
+      "digest": "sha256:bfefcd81e8f4858ae8784b51b1bf0658cda117b2da6c4d135c0eeeee8e938a80"
+    },
+    {
+      "source": "docs/research/2026-05-13-zod-v4-decision-record-addendum.md",
+      "destination": "exarchos/docs/research/2026-05-13-zod-v4-decision-record-addendum.md",
+      "bytes": 11475,
+      "digest": "sha256:85d3b96d3e5633bb95745c14b078300b00e8b861a84affb8c887ec72d6231f7a"
+    },
+    {
+      "source": "docs/research/2026-05-13-zod-v4-decision-record.md",
+      "destination": "exarchos/docs/research/2026-05-13-zod-v4-decision-record.md",
+      "bytes": 13624,
+      "digest": "sha256:1a30a2ad63f50676f3379754bb6f025ea5553a568a6e041b3133d0f76652bf3e"
+    },
+    {
+      "source": "docs/research/2026-05-14-entireio-cli-harness-strategy.md",
+      "destination": "exarchos/docs/research/2026-05-14-entireio-cli-harness-strategy.md",
+      "bytes": 26115,
+      "digest": "sha256:286f05e406af38c72d1d9f7e611038140f26d7b0278c3c14a4b0f967201f62e8"
+    },
+    {
+      "source": "docs/research/2026-05-14-semantic-merge-queue-audit.md",
+      "destination": "exarchos/docs/research/2026-05-14-semantic-merge-queue-audit.md",
+      "bytes": 76752,
+      "digest": "sha256:edcc9fddad8da898c916a945ef091b6594d9cbaf39da430221db0d8714e4d38d"
+    },
+    {
+      "source": "docs/research/2026-05-15-eval-suite-redesign-seed.md",
+      "destination": "exarchos/docs/research/2026-05-15-eval-suite-redesign-seed.md",
+      "bytes": 27756,
+      "digest": "sha256:60085fdc6f9365e64b57567fc7e6746921c1eb788cebf16d841c9c58417c3d0b"
+    },
+    {
+      "source": "docs/research/2026-05-16-event-sourced-task-store-audit.md",
+      "destination": "exarchos/docs/research/2026-05-16-event-sourced-task-store-audit.md",
+      "bytes": 19234,
+      "digest": "sha256:92ec6edb6179e26c79805e7c1949f16af093f18defde414b72fab5a3c3cb54c1"
+    },
+    {
+      "source": "docs/research/2026-05-16-v2-10-0-preview-4-bundle-audit.md",
+      "destination": "exarchos/docs/research/2026-05-16-v2-10-0-preview-4-bundle-audit.md",
+      "bytes": 19208,
+      "digest": "sha256:518c39f8d55ae1e9d79beb86b026e9c3811a3e439b1a43676dabf0d5229fc354"
+    },
+    {
+      "source": "docs/research/2026-05-18-invariant-content-audit.md",
+      "destination": "exarchos/docs/research/2026-05-18-invariant-content-audit.md",
+      "bytes": 34870,
+      "digest": "sha256:a7143dd689d207d637c3a59120ee7c9d41c4d908bffaef939c5510edc09a2deb"
+    },
+    {
+      "source": "docs/research/2026-05-18-phase-transition-invariant-audit.md",
+      "destination": "exarchos/docs/research/2026-05-18-phase-transition-invariant-audit.md",
+      "bytes": 46271,
+      "digest": "sha256:b97b721032613ec6d2239455520e286d74b8fcb3e9800bb0d1e70846a2a7570c"
+    },
+    {
+      "source": "docs/research/2026-05-20-runtime-invariants-gap-analysis.md",
+      "destination": "exarchos/docs/research/2026-05-20-runtime-invariants-gap-analysis.md",
+      "bytes": 19226,
+      "digest": "sha256:8b860179627db19b03fdd55d7260841b6cfe7bc8c78a8918ccf989ee1fda5f01"
+    },
+    {
+      "source": "docs/research/2026-05-20-runtime-invariants-research-survey.md",
+      "destination": "exarchos/docs/research/2026-05-20-runtime-invariants-research-survey.md",
+      "bytes": 26549,
+      "digest": "sha256:01a44c4d16fcaf991d48c0182c16f08ab1435ab747b4756661007d27f87d3cda"
+    },
+    {
+      "source": "docs/research/2026-05-20-substrate-vs-authoring.md",
+      "destination": "exarchos/docs/research/2026-05-20-substrate-vs-authoring.md",
+      "bytes": 13328,
+      "digest": "sha256:272e2da869c6fe2f9593c335b5663e90d0aa0efd9673fca234ddadc46f0ed420"
+    },
+    {
+      "source": "docs/research/2026-05-20-workload-agnosticism-stress-test.md",
+      "destination": "exarchos/docs/research/2026-05-20-workload-agnosticism-stress-test.md",
+      "bytes": 16607,
+      "digest": "sha256:1dda962c1c1d7cc817b2e5bc81714973c3a78f10358086b414de4da39f0ffeb6"
+    },
+    {
+      "source": "docs/research/2026-05-23-issue-1301-leak-rootcause.md",
+      "destination": "exarchos/docs/research/2026-05-23-issue-1301-leak-rootcause.md",
+      "bytes": 5056,
+      "digest": "sha256:df5463397fb13d4262cdf3d8a4aeb04f717a94bccff4a5381204cccd618727af"
+    },
+    {
+      "source": "docs/research/2026-05-23-v2-10-0-preview-4-build-review.md",
+      "destination": "exarchos/docs/research/2026-05-23-v2-10-0-preview-4-build-review.md",
+      "bytes": 30796,
+      "digest": "sha256:f1d90b8eef5ed61796d854074c92be4970d24e4ba4dc29dc7835f28324887009"
+    },
+    {
+      "source": "docs/research/2026-05-24-auto-emission-audit.md",
+      "destination": "exarchos/docs/research/2026-05-24-auto-emission-audit.md",
+      "bytes": 8327,
+      "digest": "sha256:a480338a90ecdcdad037a21bdc6ca65986a56593c45f3ca0500641b293b1f449"
+    },
+    {
+      "source": "docs/research/2026-05-24-hooks-templating-and-invariants-onboarding.md",
+      "destination": "exarchos/docs/research/2026-05-24-hooks-templating-and-invariants-onboarding.md",
+      "bytes": 24431,
+      "digest": "sha256:7eaf47cf4d0a3f4082735ecd195182e2861c42a953c64ea52cf484f2962f1d05"
+    },
+    {
+      "source": "docs/research/2026-05-24-sdlc-consumer-invariants.md",
+      "destination": "exarchos/docs/research/2026-05-24-sdlc-consumer-invariants.md",
+      "bytes": 10974,
+      "digest": "sha256:f3816a4f862614a3f66171cf308af79dc4855e726999d25c89996e0481fd82ce"
+    },
+    {
+      "source": "docs/research/2026-06-02-mutation-testing-first-class-tool.md",
+      "destination": "exarchos/docs/research/2026-06-02-mutation-testing-first-class-tool.md",
+      "bytes": 23671,
+      "digest": "sha256:99d55a834ccb1b13ca083fade4c48829316d08f9fcae02c8623feccc5887583f"
+    },
+    {
+      "source": "docs/research/2026-06-02-verification-pipeline-recommendations.md",
+      "destination": "exarchos/docs/research/2026-06-02-verification-pipeline-recommendations.md",
+      "bytes": 18462,
+      "digest": "sha256:4aecd78a1ab0e81db50c33b428e610c8276ca9801b381469a30d61ca8b8027fc"
+    },
+    {
+      "source": "docs/research/2026-06-02-verification-token-efficiency.md",
+      "destination": "exarchos/docs/research/2026-06-02-verification-token-efficiency.md",
+      "bytes": 28763,
+      "digest": "sha256:9108172050591ddd7e279c8b6b8cc5487559590bd4e4a87db5512e2522cdecf2"
+    },
+    {
+      "source": "docs/research/2026-06-06-claude-md-best-practices-refactor.md",
+      "destination": "exarchos/docs/research/2026-06-06-claude-md-best-practices-refactor.md",
+      "bytes": 18591,
+      "digest": "sha256:3831d597d10bbdb637514b2e3bd72f87e6da22adeea4d4eb87cc97ce34a8a2ed"
+    },
+    {
+      "source": "docs/research/2026-06-06-lvlup-sw-claude-md-fleet-audit.md",
+      "destination": "exarchos/docs/research/2026-06-06-lvlup-sw-claude-md-fleet-audit.md",
+      "bytes": 15006,
+      "digest": "sha256:d27274cafdd04165aad89e1517362ab5e0aba3c7c9dc3d1b4881e70a24f7fc18"
+    },
+    {
+      "source": "docs/research/2026-06-06-structural-integration-verification.md",
+      "destination": "exarchos/docs/research/2026-06-06-structural-integration-verification.md",
+      "bytes": 32341,
+      "digest": "sha256:5207d99d3d29e2c934e76e1e9cd61dd13ba0ba8d92751b5be1815f914d6c40be"
+    },
+    {
+      "source": "docs/research/2026-06-16-phase-kind-binding-architecture.md",
+      "destination": "exarchos/docs/research/2026-06-16-phase-kind-binding-architecture.md",
+      "bytes": 25932,
+      "digest": "sha256:b1563917713a90780847e30f31e2f8f64b5e5fd576019acef5a40ed9c9427e4c"
+    },
+    {
+      "source": "docs/research/2026-06-16-readme-voice-refactor.md",
+      "destination": "exarchos/docs/research/2026-06-16-readme-voice-refactor.md",
+      "bytes": 4130,
+      "digest": "sha256:cac9224014c098c7a6a5a91f10405e0edef9d4b3224c2ec9480cb187d251148b"
+    },
+    {
+      "source": "docs/research/2026-06-18-event-sourcing-leverage-study.md",
+      "destination": "exarchos/docs/research/2026-06-18-event-sourcing-leverage-study.md",
+      "bytes": 45771,
+      "digest": "sha256:3000618f50703904c1ab3bd9032e3239acd7c3afc4f9fd9e631f214a9da78f22"
+    },
+    {
+      "source": "docs/research/2026-06-19-token-attribution-1525.md",
+      "destination": "exarchos/docs/research/2026-06-19-token-attribution-1525.md",
+      "bytes": 13381,
+      "digest": "sha256:d56d7420d303dba73da4d2a375cb97c93361a5baaf464bed084753bd08bcfcd4"
+    },
+    {
+      "source": "docs/research/2026-06-21-harness-agnosticism-strategy.md",
+      "destination": "exarchos/docs/research/2026-06-21-harness-agnosticism-strategy.md",
+      "bytes": 32540,
+      "digest": "sha256:6d41e680b75a2ec4d5bec353ea4fbbb0872daae718764a8cbc3120360b40564c"
+    },
+    {
+      "source": "docs/research/2026-06-21-methodology-decisions-research.md",
+      "destination": "exarchos/docs/research/2026-06-21-methodology-decisions-research.md",
+      "bytes": 9689,
+      "digest": "sha256:9ae5d8f59e8ff055b6681b8962b8bf89a40beb5d536b3abb1079388b13dc2cd5"
+    },
+    {
+      "source": "docs/research/2026-06-21-methodology-drift-audit.md",
+      "destination": "exarchos/docs/research/2026-06-21-methodology-drift-audit.md",
+      "bytes": 18815,
+      "digest": "sha256:633fbf21249ab6669e0595f9fbcefac772db6161c77edf8a252d365425359922"
+    },
+    {
+      "source": "docs/research/2026-06-21-per-runtime-worktree-confinement.md",
+      "destination": "exarchos/docs/research/2026-06-21-per-runtime-worktree-confinement.md",
+      "bytes": 13663,
+      "digest": "sha256:4667be6e46fdc5c8ca56bbbfde16434e8c04a26c2d3316000e93a9fa3048713f"
+    },
+    {
+      "source": "docs/research/2026-06-21-treehouse-worktree-mining.md",
+      "destination": "exarchos/docs/research/2026-06-21-treehouse-worktree-mining.md",
+      "bytes": 24134,
+      "digest": "sha256:00d62596c7d402fb59c19a79b1a2a2dad410bd7a177d6649bd83e66eea923c1b"
+    },
+    {
+      "source": "docs/research/2026-06-22-concurrency-guarantees.md",
+      "destination": "exarchos/docs/research/2026-06-22-concurrency-guarantees.md",
+      "bytes": 14731,
+      "digest": "sha256:7407b69912d7c4fe0bfcc439ff210077540f4c18de69868babebda11ae783e22"
+    },
+    {
+      "source": "docs/research/2026-06-23-rehydration-report-optimization.md",
+      "destination": "exarchos/docs/research/2026-06-23-rehydration-report-optimization.md",
+      "bytes": 15105,
+      "digest": "sha256:17723524c89f4df81283d9a929baea7d03490c1b4023f00a3494c278ed11908e"
+    },
+    {
+      "source": "docs/research/2026-07-09-pi-embedding-spec-verification.md",
+      "destination": "exarchos/docs/research/2026-07-09-pi-embedding-spec-verification.md",
+      "bytes": 28415,
+      "digest": "sha256:bb86e3dc00279ac9be621401bff47c2781b0b315432ad0313a423c73f1655fd8"
+    },
+    {
+      "source": "docs/research/2026-07-11-tool-surface-token-economy-audit.md",
+      "destination": "exarchos/docs/research/2026-07-11-tool-surface-token-economy-audit.md",
+      "bytes": 23375,
+      "digest": "sha256:3ba699a5b3df239ec884eeb1efa10da914021cabb7c245a898ee1646b409e8c0"
+    },
+    {
+      "source": "docs/research/2026-07-21-phase-gate-redesign-strategy.md",
+      "destination": "exarchos/docs/research/2026-07-21-phase-gate-redesign-strategy.md",
+      "bytes": 17052,
+      "digest": "sha256:60b2d9e1eb559769d8e95a7b674e390baf9a559928e1c826094d842da7252362"
+    },
+    {
+      "source": "docs/research/2026-07-23-phase-gate-v212-dogfood-remediation.html",
+      "destination": "exarchos/docs/research/2026-07-23-phase-gate-v212-dogfood-remediation.html",
+      "bytes": 92390,
+      "digest": "sha256:75bc66892cc61016a9ecc3fabde15838e5af601a1a1f3f3e53a2e1b870caf22b"
+    },
+    {
+      "source": "docs/research/2026-07-23-phase-gate-v212-dogfood-remediation.md",
+      "destination": "exarchos/docs/research/2026-07-23-phase-gate-v212-dogfood-remediation.md",
+      "bytes": 38317,
+      "digest": "sha256:b07a936169bcb8f349d556ebe1e5d2d7822c34d4c81c53c1da0dc99e64934f2a"
+    },
+    {
+      "source": "docs/research/2026-07-DR9-content-injection-verification.md",
+      "destination": "exarchos/docs/research/2026-07-DR9-content-injection-verification.md",
+      "bytes": 19830,
+      "digest": "sha256:9c414c9ddf9216e0a5b2af1136fa11df51c16a40465fd8e4604f7c8aa7efd249"
+    },
+    {
+      "source": "docs/research/2026-08-04-coordination-pull-vs-push-sota.md",
+      "destination": "exarchos/docs/research/2026-08-04-coordination-pull-vs-push-sota.md",
+      "bytes": 29554,
+      "digest": "sha256:ca9362af231e0119f984a7cf3e4806d3e2c0851fe4271ea4010d643e9b039b8f"
+    },
+    {
+      "source": "docs/research/2026-08-04-dkg-claiming-swarm.md",
+      "destination": "exarchos/docs/research/2026-08-04-dkg-claiming-swarm.md",
+      "bytes": 36591,
+      "digest": "sha256:ac099e160653a6cf67f838ca2d99916e5fe93b93d46a030c01f02dbe172d3056"
+    },
+    {
+      "source": "docs/research/2026-08-04-theoretical-optimum-coordination.md",
+      "destination": "exarchos/docs/research/2026-08-04-theoretical-optimum-coordination.md",
+      "bytes": 19251,
+      "digest": "sha256:ddf40606f88faa51803a18ad8c9c5a0bf13d6c056ed17a6e6ea705c84c6e93d2"
+    },
+    {
+      "source": "docs/research/2026-08-06-mcp-2026-07-28-architectural-composition.md",
+      "destination": "exarchos/docs/research/2026-08-06-mcp-2026-07-28-architectural-composition.md",
+      "bytes": 38738,
+      "digest": "sha256:1cda6eefe969adc4bfd6313ac2af2fa367c018e319627ba09b4ac630889df1d6"
+    },
+    {
+      "source": "docs/research/2026-08-06-mcp-spec-2026-07-28-migration-evaluation.md",
+      "destination": "exarchos/docs/research/2026-08-06-mcp-spec-2026-07-28-migration-evaluation.md",
+      "bytes": 41555,
+      "digest": "sha256:da4a55552c477e25b88c6bc271d2cba9f1ee275269934c69818aeae41b29070b"
+    },
+    {
+      "source": "docs/research/brainstorm.md",
+      "destination": "exarchos/docs/research/brainstorm.md",
+      "bytes": 3948,
+      "digest": "sha256:a1346518dabaf73eb00673ed4e01c62b57e889bce9249c7ba5f43c86d0faa6a8"
+    },
+    {
+      "source": "docs/research/fixer-token-efficiency.md",
+      "destination": "exarchos/docs/research/fixer-token-efficiency.md",
+      "bytes": 10340,
+      "digest": "sha256:9c6f1c97d156635a17b9480e33bed9c9819a18539bdd11d1d0fde7454a5aa3f7"
+    },
+    {
+      "source": "docs/runbooks/correlation-filters.md",
+      "destination": "exarchos/docs/runbooks/correlation-filters.md",
+      "bytes": 3890,
+      "digest": "sha256:e0a70fb9c831897297d31c5e782f213d7ca6c288a93ec56d936ddbd5a51d94ef"
+    },
+    {
+      "source": "docs/runbooks/merged-feature-audit.md",
+      "destination": "exarchos/docs/runbooks/merged-feature-audit.md",
+      "bytes": 43264,
+      "digest": "sha256:c072bb5e0223780f9cd0aac839eeef6e4ad34ef7d618007c86298c7142c2038b"
+    },
+    {
+      "source": "docs/skills-authoring.md",
+      "destination": "exarchos/docs/skills-authoring.md",
+      "bytes": 6155,
+      "digest": "sha256:da119f32f02712924027abca34c5a64d6268daa1905cf546e092a2b9a21be34e"
+    },
+    {
+      "source": "docs/specs/2026-06-23-v2.11.0-rc.1-build.md",
+      "destination": "exarchos/docs/specs/2026-06-23-v2.11.0-rc.1-build.md",
+      "bytes": 25604,
+      "digest": "sha256:12f51f2339a499b6553e15037fae07c15786a265b1ec1c3e66c8d3d088e953bc"
+    },
+    {
+      "source": "docs/specs/2026-06-25-rc1-closeout.md",
+      "destination": "exarchos/docs/specs/2026-06-25-rc1-closeout.md",
+      "bytes": 43729,
+      "digest": "sha256:a42182bbd280258c5d7f6b17886f4714a1172dd35020f839b8330cb7fb2177de"
+    },
+    {
+      "source": "docs/specs/2026-06-25-wlm-foundation.md",
+      "destination": "exarchos/docs/specs/2026-06-25-wlm-foundation.md",
+      "bytes": 46294,
+      "digest": "sha256:16c9c695f05f9089e7e808cbbaa549158988550c1b41d9bf643f800e908299c6"
+    },
+    {
+      "source": "docs/specs/2026-06-26-wlm-operational-core.md",
+      "destination": "exarchos/docs/specs/2026-06-26-wlm-operational-core.md",
+      "bytes": 33397,
+      "digest": "sha256:45c758875b386d6b35a1b527552934928b648ee10a6d1e3dbb124f1c718fe0de"
+    },
+    {
+      "source": "docs/specs/2026-06-29-risk-verification-closeout.md",
+      "destination": "exarchos/docs/specs/2026-06-29-risk-verification-closeout.md",
+      "bytes": 30344,
+      "digest": "sha256:f5f8380a3553f526cf36552a3a3e72317634bf5edda401ec765888bf89bd9274"
+    },
+    {
+      "source": "docs/specs/2026-07-02-harness-launcher.md",
+      "destination": "exarchos/docs/specs/2026-07-02-harness-launcher.md",
+      "bytes": 43752,
+      "digest": "sha256:62596f65619ddc09cde8137278ed4540c81a6ef0616745b17ff5fd1491100697"
+    },
+    {
+      "source": "docs/specs/2026-07-03-wlm-6-surface-and-workflow-fixes.md",
+      "destination": "exarchos/docs/specs/2026-07-03-wlm-6-surface-and-workflow-fixes.md",
+      "bytes": 36938,
+      "digest": "sha256:e29be2ba4745664f35c25995b0e3592cc43f02e683563cc5f070189cd2925071"
+    },
+    {
+      "source": "docs/specs/2026-07-03-wlm-reconcile-enforce.md",
+      "destination": "exarchos/docs/specs/2026-07-03-wlm-reconcile-enforce.md",
+      "bytes": 37755,
+      "digest": "sha256:773e46a4fccc21aa89cab8857c25ba71e2b16c82a0da3688d1703d0bf11d869e"
+    },
+    {
+      "source": "docs/specs/2026-07-04-harness-conform-and-shrink.md",
+      "destination": "exarchos/docs/specs/2026-07-04-harness-conform-and-shrink.md",
+      "bytes": 51982,
+      "digest": "sha256:ee16d956746a9d7d24c2860648243e00e68eda308f6d63979c30aa26be3bb830"
+    },
+    {
+      "source": "docs/specs/2026-07-07-lifecycle-verbs.md",
+      "destination": "exarchos/docs/specs/2026-07-07-lifecycle-verbs.md",
+      "bytes": 69834,
+      "digest": "sha256:ec1ef151bdbf985af593879a7c1973d8d10513e2171e44be2f721e381a45aaea"
+    },
+    {
+      "source": "docs/specs/2026-07-09-1670-delegation-empirical-testing.md",
+      "destination": "exarchos/docs/specs/2026-07-09-1670-delegation-empirical-testing.md",
+      "bytes": 34187,
+      "digest": "sha256:ca7ca8e3a77953916d98950741c891c63e7fa8d569551ed6b4b86f6f4f934c59"
+    },
+    {
+      "source": "docs/specs/2026-07-09-refactor-pipeline-view-economy.md",
+      "destination": "exarchos/docs/specs/2026-07-09-refactor-pipeline-view-economy.md",
+      "bytes": 42603,
+      "digest": "sha256:3e63d71980a6b2d983b675d55fa77fe0f647ea6bb80d830ecfee8a45bbf9f74f"
+    },
+    {
+      "source": "docs/specs/2026-07-10-1677-verification-pillar-benchmarks.md",
+      "destination": "exarchos/docs/specs/2026-07-10-1677-verification-pillar-benchmarks.md",
+      "bytes": 50389,
+      "digest": "sha256:05e7aa6221c7711f4effcf116246bc83a95509929ea4d543a09720aa64443717"
+    },
+    {
+      "source": "docs/specs/2026-07-12-tool-token-economy-remediation.md",
+      "destination": "exarchos/docs/specs/2026-07-12-tool-token-economy-remediation.md",
+      "bytes": 50861,
+      "digest": "sha256:510da759365285111ffec26c1a6cc6be9374f3048547928be106f223819194fd"
+    },
+    {
+      "source": "docs/specs/2026-07-14-1342-marten-consumers.md",
+      "destination": "exarchos/docs/specs/2026-07-14-1342-marten-consumers.md",
+      "bytes": 39086,
+      "digest": "sha256:796225ce0d5d1a67ad815298d81953d1ae42b7af740ae81102d012852d26063c"
+    },
+    {
+      "source": "docs/specs/2026-07-15-debloat-wave1-structural-enforcement-baseline.md",
+      "destination": "exarchos/docs/specs/2026-07-15-debloat-wave1-structural-enforcement-baseline.md",
+      "bytes": 12695,
+      "digest": "sha256:31ee0884dd4b08350d8e3783a678e2a5fdad5aed62a6ca2de6c06d8bfd953072"
+    },
+    {
+      "source": "docs/specs/2026-07-15-debloat-wave1-structural-enforcement-t8-baseline.md",
+      "destination": "exarchos/docs/specs/2026-07-15-debloat-wave1-structural-enforcement-t8-baseline.md",
+      "bytes": 11095,
+      "digest": "sha256:177f5382cf0ab54e4fb20e399aa2ca8863de8cc37e0ec79ee36309c37ce9578f"
+    },
+    {
+      "source": "docs/specs/2026-07-15-debloat-wave1-structural-enforcement-traceability.md",
+      "destination": "exarchos/docs/specs/2026-07-15-debloat-wave1-structural-enforcement-traceability.md",
+      "bytes": 2666,
+      "digest": "sha256:b5d9147cbd7fbae2374907b5a0f53d86f14d5edb485592e0cbced2a9632a16da"
+    },
+    {
+      "source": "docs/specs/2026-07-15-debloat-wave1-structural-enforcement.md",
+      "destination": "exarchos/docs/specs/2026-07-15-debloat-wave1-structural-enforcement.md",
+      "bytes": 103273,
+      "digest": "sha256:879b9b089d20679c8cc740db1608e75a53cfc8e4073668709d74684a75af9b64"
+    },
+    {
+      "source": "docs/specs/2026-07-17-wave-s-enforcement-substrate-baseline.md",
+      "destination": "exarchos/docs/specs/2026-07-17-wave-s-enforcement-substrate-baseline.md",
+      "bytes": 19947,
+      "digest": "sha256:b4d9037fdb08a2d8b3c063b859e580dd43e6d54fb0e7273a092fe3caa44e7573"
+    },
+    {
+      "source": "docs/specs/2026-07-17-wave-s-enforcement-substrate-traceability.md",
+      "destination": "exarchos/docs/specs/2026-07-17-wave-s-enforcement-substrate-traceability.md",
+      "bytes": 1846,
+      "digest": "sha256:460b669e56e57230b2bc39dd11a49dd6011a93ee8c7eb13cd332624553970e84"
+    },
+    {
+      "source": "docs/specs/2026-07-17-wave-s-enforcement-substrate.md",
+      "destination": "exarchos/docs/specs/2026-07-17-wave-s-enforcement-substrate.md",
+      "bytes": 61722,
+      "digest": "sha256:5c389d9dca420c1f12aad3fdd7c8553d06cdf0523b1f3151a1f2f573a7b4bf69"
+    },
+    {
+      "source": "docs/specs/2026-07-18-test-mass-consolidation-traceability.md",
+      "destination": "exarchos/docs/specs/2026-07-18-test-mass-consolidation-traceability.md",
+      "bytes": 2086,
+      "digest": "sha256:bc2e06eae46354d857d2bb904c9a0d192c17dab392d4c71d09aef2ab5f4ae372"
+    },
+    {
+      "source": "docs/specs/2026-07-18-test-mass-consolidation.md",
+      "destination": "exarchos/docs/specs/2026-07-18-test-mass-consolidation.md",
+      "bytes": 38224,
+      "digest": "sha256:3eb3cc730ba0808fe872aa68ca7b7d3b5b40c7cf7978b0dcbcd4a0c5fc6ede58"
+    },
+    {
+      "source": "docs/specs/2026-07-20-enforcement-phase2-lints-traceability.md",
+      "destination": "exarchos/docs/specs/2026-07-20-enforcement-phase2-lints-traceability.md",
+      "bytes": 1372,
+      "digest": "sha256:a6ae23d077704aa38a1a05d7e11d451c7cc036774d17e7323e9c1fc933daa1a7"
+    },
+    {
+      "source": "docs/specs/2026-07-20-enforcement-phase2-lints.md",
+      "destination": "exarchos/docs/specs/2026-07-20-enforcement-phase2-lints.md",
+      "bytes": 25368,
+      "digest": "sha256:831609ce63380e304043fac537dfd8c8ea487575a6ad02f21580552214b00ba3"
+    },
+    {
+      "source": "docs/specs/2026-07-21-phase-gate-transition-admission-roadmap-traceability.md",
+      "destination": "exarchos/docs/specs/2026-07-21-phase-gate-transition-admission-roadmap-traceability.md",
+      "bytes": 1917,
+      "digest": "sha256:eee3667a50bb873526f5e70f6785fbd9431ef9f263de78211b8050fefa49f281"
+    },
+    {
+      "source": "docs/specs/2026-07-21-phase-gate-transition-admission-roadmap.md",
+      "destination": "exarchos/docs/specs/2026-07-21-phase-gate-transition-admission-roadmap.md",
+      "bytes": 94211,
+      "digest": "sha256:0996effc69738c2d5fd7cc45f61cafa1acbe60554d031c178c3841b9a4c6e61b"
+    },
+    {
+      "source": "docs/specs/2026-07-21-phase-gate-v212-proof-substrate-traceability.md",
+      "destination": "exarchos/docs/specs/2026-07-21-phase-gate-v212-proof-substrate-traceability.md",
+      "bytes": 1439,
+      "digest": "sha256:ba735efdaac020df4083c8601403caf9d4c6bb415e5e277f6003dfabbca00729"
+    },
+    {
+      "source": "docs/specs/2026-07-21-phase-gate-v212-proof-substrate.md",
+      "destination": "exarchos/docs/specs/2026-07-21-phase-gate-v212-proof-substrate.md",
+      "bytes": 30718,
+      "digest": "sha256:26003cf9e6f7984233df903994c9fd6b90ec1c054eb7dd87797ab23bb5deb45e"
+    },
+    {
+      "source": "docs/specs/2026-07-23-structural-closure-delta-audit-traceability.md",
+      "destination": "exarchos/docs/specs/2026-07-23-structural-closure-delta-audit-traceability.md",
+      "bytes": 1697,
+      "digest": "sha256:0e02f2fdc47527fe35a3bf5d75852cb3adf3ae2e7be56051bcc5b64208f6d885"
+    },
+    {
+      "source": "docs/specs/2026-07-23-structural-closure-delta-audit.md",
+      "destination": "exarchos/docs/specs/2026-07-23-structural-closure-delta-audit.md",
+      "bytes": 110940,
+      "digest": "sha256:6f19ffc0b3431fe08183a0db87ee3123602e1e11cf40c430eefa9c4117eb827d"
+    },
+    {
+      "source": "docs/specs/2026-08-04-wiring-closure-and-unified-integration-suite.md",
+      "destination": "exarchos/docs/specs/2026-08-04-wiring-closure-and-unified-integration-suite.md",
+      "bytes": 74091,
+      "digest": "sha256:03b46d7a36746413085e5e3b4b2a1897315e0d5d6cc2fcb61c672dc350658cac"
+    },
+    {
+      "source": "docs/specs/2026-08-05-design-knowledge-graph.md",
+      "destination": "exarchos/docs/specs/2026-08-05-design-knowledge-graph.md",
+      "bytes": 19275,
+      "digest": "sha256:f7c11ccd1e5070b7c15286d010a7117e8773cb9f43acc1a44218b4460aa20841"
+    },
+    {
+      "source": "docs/specs/2026-08-05-event-taxonomy-v2.md",
+      "destination": "exarchos/docs/specs/2026-08-05-event-taxonomy-v2.md",
+      "bytes": 23418,
+      "digest": "sha256:ef3aae5645a92b526caaf8a0887e7bbea8d99fe2fe4a9d85fbdbafaf7c8df851"
+    },
+    {
+      "source": "docs/specs/2026-08-05-remote-work-claiming.md",
+      "destination": "exarchos/docs/specs/2026-08-05-remote-work-claiming.md",
+      "bytes": 16796,
+      "digest": "sha256:ce853560e20412dfda95d67fce8ea200522c9e66ad06aad41ca882d30548057c"
+    },
+    {
+      "source": "docs/specs/2026-08-06-internal-mechanics-overhaul.md",
+      "destination": "exarchos/docs/specs/2026-08-06-internal-mechanics-overhaul.md",
+      "bytes": 214569,
+      "digest": "sha256:62eff674535baf781815e3a98f014fa1aba0d090618bbbc2223bc73256275474"
+    },
+    {
+      "source": "docs/specs/2026-08-08-internal-mechanics-residue.md",
+      "destination": "exarchos/docs/specs/2026-08-08-internal-mechanics-residue.md",
+      "bytes": 53617,
+      "digest": "sha256:a0a377eb2bc3b1a0de3fa34648ddd3518749184b94582bbd7bc40a051a36a068"
+    },
+    {
+      "source": "docs/specs/2026-08-11-comment-hygiene-enforcement.md",
+      "destination": "exarchos/docs/specs/2026-08-11-comment-hygiene-enforcement.md",
+      "bytes": 59752,
+      "digest": "sha256:7bbde30c85727ab830b27c2a33173f0040b961f01d71e923fd029afd0847e4de"
+    },
+    {
+      "source": "docs/specs/2026-08-11-exarchos-repo-structure-cleanup.md",
+      "destination": "exarchos/docs/specs/2026-08-11-exarchos-repo-structure-cleanup.md",
+      "bytes": 201165,
+      "digest": "sha256:4d58e52f4a693924315ce9faab2569369b6b5bfa69d2ca3ea0c549fe14c3b7b4"
+    },
+    {
+      "source": "docs/The-Complete-Guide-to-Building-Skill-for-Claude.pdf",
+      "destination": "exarchos/docs/The-Complete-Guide-to-Building-Skill-for-Claude.pdf",
+      "bytes": 561652,
+      "digest": "sha256:66cbcc06df9271e0bb59986582646f0c4c7c94697554f893f937a5a55cef736d"
+    },
+    {
+      "source": "docs/tool-reference.md",
+      "destination": "exarchos/docs/tool-reference.md",
+      "bytes": 7604,
+      "digest": "sha256:9644bdbc8dd75336e77888df257d1163005bf457c5587095b1fe41cabc23b922"
+    }
+  ]
+}

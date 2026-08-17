@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "noEmit": true
+  },
+  "include": [
+    "src/**/*",
+    // `bindings/registry.ts` binds the LIVE registry by design, and the registry
+    // transitively reaches the SQLite backend, whose `bun:sqlite` import is typed
+    // only by this ambient shim. The subject's own tsconfig picks it up through
+    // its `src/**/*`; this project has to name it.
+    "../../src/storage/__shims__/bun-sqlite.d.ts",
+    // NodeNext will not attach a sibling `.d.ts` to a `.mjs` import across
+    // this package boundary. The `.d.mts` sidecar is the matching declaration.
+    "../audit/lib/codeowners-match.d.mts"
+  ],
+  "exclude": ["node_modules", "**/*.test.ts"]
+}

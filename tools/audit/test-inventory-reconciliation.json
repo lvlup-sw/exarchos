@@ -1,0 +1,450 @@
+{
+  "note": "Task 034. The one-time reconciliation of the task 002 test inventory against the tree after tasks 010-033. Identity is (suite, name) \u2014 the runner is deliberately EXCLUDED, because task 019 dissolved the nested vitest package and `vitest:nested` ceased to exist, which reports all 10,986 of that package's tests as lost on a runner-bearing id. Every entry below is a test whose NAME changed while its file survived; no test file and no test case was lost. `test-inventory.test.ts` re-checks each one: `from` must be absent and `to` must be present, so re-renaming or deleting one of these fails rather than quietly re-opening the gap this audit closed.",
+  "originCommit": "d53817389",
+  "originIds": 12562,
+  "currentIds": 12753,
+  "renames": [
+    {
+      "from": "DR-0 / task 050 \u2014 SDK patch lifetime policy::PatchLifetime_PatchPackage_IsInstalledAndWiredToPostinstall",
+      "fromFile": "servers/exarchos-mcp/src/__tests__/sdk-patch-policy.test.ts",
+      "to": "DR-0 / task 050 \u2014 SDK patch lifetime policy::PatchLifetime_LiveTree_AgreesWithTheDeclaredPin",
+      "toFile": "tests/unit/sdk-patch-policy.test.ts",
+      "similarity": 0.78
+    },
+    {
+      "from": "DR-14: noUncheckedIndexedAccess ratchet (root)::FixWave_BothStrictFlags_FullSuitesGreen",
+      "fromFile": "src/tsconfig-strictness.test.ts",
+      "to": "DR-14: strict-flag ratchet (product project)::FixWave_BothStrictFlags_FullSuitesGreen",
+      "toFile": "tests/unit/tsconfig-strictness.test.ts",
+      "similarity": 0.5
+    },
+    {
+      "from": "DR-14: noUncheckedIndexedAccess ratchet (root)::FixWave_CastBudget_MeasuredAndWithinDeclaredLimit",
+      "fromFile": "src/tsconfig-strictness.test.ts",
+      "to": "DR-14: escape-hatch census::FixWave_CastBudget_MeasuredAndWithinDeclaredLimit",
+      "toFile": "tests/unit/tsconfig-strictness.test.ts",
+      "similarity": 0.5
+    },
+    {
+      "from": "DR-14: noUncheckedIndexedAccess ratchet (root)::ScriptsCastCensus_Roots_CoverEveryTypecheckedTree",
+      "fromFile": "src/tsconfig-strictness.test.ts",
+      "to": "DR-14: escape-hatch census::ScriptsCastCensus_Roots_CoverEveryTypecheckedTree",
+      "toFile": "tests/unit/tsconfig-strictness.test.ts",
+      "similarity": 0.5
+    },
+    {
+      "from": "DR-14: noUncheckedIndexedAccess ratchet (root)::TsconfigRoot_ExactOptionalPropertyTypesEnabled_TypecheckGreen",
+      "fromFile": "src/tsconfig-strictness.test.ts",
+      "to": "DR-14: strict-flag ratchet (product project)::TsconfigRoot_ExactOptionalPropertyTypesEnabled_TypecheckGreen",
+      "toFile": "tests/unit/tsconfig-strictness.test.ts",
+      "similarity": 0.5
+    },
+    {
+      "from": "DR-14: noUncheckedIndexedAccess ratchet (root)::TsconfigRoot_NoUncheckedIndexedAccessEnabled_TypecheckGreen",
+      "fromFile": "src/tsconfig-strictness.test.ts",
+      "to": "DR-14: strict-flag ratchet (product project)::TsconfigRoot_NoUncheckedIndexedAccessEnabled_TypecheckGreen",
+      "toFile": "tests/unit/tsconfig-strictness.test.ts",
+      "similarity": 0.5
+    },
+    {
+      "from": "DR-14: noUncheckedIndexedAccess ratchet (server)::TsconfigServer_ExactOptionalPropertyTypesEnabled_TypecheckGreen",
+      "fromFile": "servers/exarchos-mcp/src/tsconfig-strictness.test.ts",
+      "to": "DR-14: strict-flag ratchet (product project)::TsconfigRoot_ExactOptionalPropertyTypesEnabled_TypecheckGreen",
+      "toFile": "tests/unit/tsconfig-strictness.test.ts",
+      "similarity": 0.38
+    },
+    {
+      "from": "DR-14: noUncheckedIndexedAccess ratchet (server)::TsconfigServer_NoUncheckedIndexedAccessEnabled_TypecheckGreen",
+      "fromFile": "servers/exarchos-mcp/src/tsconfig-strictness.test.ts",
+      "to": "DR-14: strict-flag ratchet (product project)::TsconfigRoot_NoUncheckedIndexedAccessEnabled_TypecheckGreen",
+      "toFile": "tests/unit/tsconfig-strictness.test.ts",
+      "similarity": 0.38
+    },
+    {
+      "from": "DR-14: strict-flag ratchet (DR-3 eval workspace)::TsconfigEvalPkg_ExactOptionalPropertyTypesEnabled_TypecheckGreen",
+      "fromFile": "servers/exarchos-mcp/src/tsconfig-strictness.test.ts",
+      "to": "DR-14: strict-flag ratchet (product project)::TsconfigRoot_ExactOptionalPropertyTypesEnabled_TypecheckGreen",
+      "toFile": "tests/unit/tsconfig-strictness.test.ts",
+      "similarity": 0.63
+    },
+    {
+      "from": "DR-14: strict-flag ratchet (DR-3 eval workspace)::TsconfigEvalPkg_NoUncheckedIndexedAccessEnabled_TypecheckGreen",
+      "fromFile": "servers/exarchos-mcp/src/tsconfig-strictness.test.ts",
+      "to": "DR-14: strict-flag ratchet (product project)::TsconfigRoot_NoUncheckedIndexedAccessEnabled_TypecheckGreen",
+      "toFile": "tests/unit/tsconfig-strictness.test.ts",
+      "similarity": 0.63
+    },
+    {
+      "from": "Derivations the inventory rests on::SuiteResolution_McpTest_IsNeverClaimedByTheRootSuite",
+      "fromFile": "scripts/guard-inventory.test.ts",
+      "to": "Derivations the inventory rests on::SuiteResolution_EveryCollectedTest_ResolvesToTheOneSuite",
+      "toFile": "tests/scripts/guard-inventory.test.ts",
+      "similarity": 0.71
+    },
+    {
+      "from": "EFF-012 \u2014 onboarding install converges per supported runtime::discovers the supported runtimes from runtimes/*.yaml",
+      "fromFile": "servers/exarchos-mcp/src/install/atomic-promotion.test.ts",
+      "to": "EFF-012 \u2014 onboarding install converges per supported runtime::discovers the supported runtimes from content/harness/runtimes/*.yaml",
+      "toFile": "tests/unit/install/atomic-promotion.test.ts",
+      "similarity": 0.87
+    },
+    {
+      "from": "ExistingClaudeCodeInstall_AfterMigration_RendersIdenticalOutput::re-rendering skills-src produces byte-identical skills/claude output",
+      "fromFile": "src/build-skills.migration.test.ts",
+      "to": "ExistingClaudeCodeInstall_AfterMigration_RendersIdenticalOutput::re-rendering content produces byte-identical skills/claude output",
+      "toFile": "tests/unit/install/build-skills.migration.test.ts",
+      "similarity": 0.91
+    },
+    {
+      "from": "canonical-skills map (T1, #1472)::references only skill dirs that exist under skills-src/<dir>/SKILL.md",
+      "fromFile": "src/config/canonical-skills.test.ts",
+      "to": "canonical-skills map (T1, #1472)::references only skill dirs that exist under content/<dir>/SKILL.md",
+      "toFile": "tests/unit/install/config/canonical-skills.test.ts",
+      "similarity": 0.92
+    },
+    {
+      "from": "dev-catalog v3 content \u2014 CR-2 mode:check enforcement::inv13_executedOutsideOrchestrateScope_producesNoFinding",
+      "fromFile": "servers/exarchos-mcp/src/architecture/dev-catalog-content.test.ts",
+      "to": "dev-catalog v3 content \u2014 CR-2 mode:check enforcement::inv13_addsBothRequestedAndExecuted_producesNoFinding",
+      "toFile": "tests/unit/architecture/dev-catalog-content.test.ts",
+      "similarity": 0.89
+    },
+    {
+      "from": "discoverProtectedFiles \u2014 generated from the LIVE tree, not hand-listed::does NOT include event-store/tools.test.ts (imports fast-check, but a consolidation target)",
+      "fromFile": "scripts/audit/check-protected.test.ts",
+      "to": "discoverProtectedFiles \u2014 generated from the LIVE tree, not hand-listed::does NOT include events/tools.test.ts (imports fast-check, but a consolidation target)",
+      "toFile": "tests/scripts/audit/check-protected.test.ts",
+      "similarity": 0.9
+    },
+    {
+      "from": "discoverProtectedFiles \u2014 generated from the LIVE tree, not hand-listed::finds the views/parity and event-store/parity area files (literal name, not suffix-matched)",
+      "fromFile": "scripts/audit/check-protected.test.ts",
+      "to": "discoverProtectedFiles \u2014 generated from the LIVE tree, not hand-listed::finds the projections/views/parity and events/parity area files (literal name, not suffix-matched)",
+      "toFile": "tests/scripts/audit/check-protected.test.ts",
+      "similarity": 0.9
+    },
+    {
+      "from": "findProtectedViolations \u2014 the change-set intersection::ignores files outside SRC_ROOT entirely (not a false positive on unrelated paths)",
+      "fromFile": "scripts/audit/check-protected.test.ts",
+      "to": "findProtectedViolations \u2014 the change-set intersection::ignores files outside every protected root entirely (not a false positive on unrelated paths)",
+      "toFile": "tests/scripts/audit/check-protected.test.ts",
+      "similarity": 0.88
+    },
+    {
+      "from": "hooks-src/hooks.json source (#1485 T5; shrink DR-7)::HooksSource_ContainsSessionStartAndSubagentStop_NoSessionEnd",
+      "fromFile": "src/build-hooks.test.ts",
+      "to": "content/harness/hooks/hooks.json source (#1485 T5; shrink DR-7)::HooksSource_ContainsSessionStartAndSubagentStop_NoSessionEnd",
+      "toFile": "tests/unit/install/build-hooks.test.ts",
+      "similarity": 0.8
+    },
+    {
+      "from": "isKeepClassRelPath \u2014 suffix/area/explicit classifier (DR-5)::is NOT fooled by a file merely importing fast-check (event-store/tools.test.ts)",
+      "fromFile": "scripts/audit/check-protected.test.ts",
+      "to": "isKeepClassRelPath \u2014 suffix/area/explicit classifier (DR-5)::is NOT fooled by a file merely importing fast-check (events/tools.test.ts)",
+      "toFile": "tests/scripts/audit/check-protected.test.ts",
+      "similarity": 0.88
+    },
+    {
+      "from": "live documentation \u2194 registered schema agreement (WFQ-011 drift guard)::every exarchos_* example in skills-src/ and commands/ validates clean",
+      "fromFile": "servers/exarchos-mcp/src/quality/skill-example-validator.test.ts",
+      "to": "live documentation \u2194 registered schema agreement (WFQ-011 drift guard)::every exarchos_* example in content/ and commands/ validates clean",
+      "toFile": "tests/unit/projections/quality/skill-example-validator.test.ts",
+      "similarity": 0.89
+    },
+    {
+      "from": "runtimes/claude.yaml presence::ClaudeYaml_ChainToken_UsesSkillInvocation",
+      "fromFile": "src/runtimes/presence-claude.test.ts",
+      "to": "content/harness/runtimes/claude.yaml presence::ClaudeYaml_ChainToken_UsesSkillInvocation",
+      "toFile": "tests/unit/install/runtimes/presence-claude.test.ts",
+      "similarity": 0.78
+    },
+    {
+      "from": "runtimes/claude.yaml presence::ClaudeYaml_HooksDescriptor_IsClaudeJsonInjecting",
+      "fromFile": "src/runtimes/presence-claude.test.ts",
+      "to": "content/harness/runtimes/claude.yaml presence::ClaudeYaml_HooksDescriptor_IsClaudeJsonInjecting",
+      "toFile": "tests/unit/install/runtimes/presence-claude.test.ts",
+      "similarity": 0.78
+    },
+    {
+      "from": "runtimes/claude.yaml presence::ClaudeYaml_McpPrefix_MatchesPluginNaming",
+      "fromFile": "src/runtimes/presence-claude.test.ts",
+      "to": "content/harness/runtimes/claude.yaml presence::ClaudeYaml_McpPrefix_MatchesPluginNaming",
+      "toFile": "tests/unit/install/runtimes/presence-claude.test.ts",
+      "similarity": 0.78
+    },
+    {
+      "from": "runtimes/claude.yaml presence::ClaudeYaml_SpawnAgentCall_UsesTaskTool",
+      "fromFile": "src/runtimes/presence-claude.test.ts",
+      "to": "content/harness/runtimes/claude.yaml presence::ClaudeYaml_SpawnAgentCall_UsesTaskTool",
+      "toFile": "tests/unit/install/runtimes/presence-claude.test.ts",
+      "similarity": 0.78
+    },
+    {
+      "from": "runtimes/claude.yaml presence::LoadAllRuntimes_ClaudeYamlPresent_HasClaudeCapabilities",
+      "fromFile": "src/runtimes/presence-claude.test.ts",
+      "to": "content/harness/runtimes/claude.yaml presence::LoadAllRuntimes_ClaudeYamlPresent_HasClaudeCapabilities",
+      "toFile": "tests/unit/install/runtimes/presence-claude.test.ts",
+      "similarity": 0.78
+    },
+    {
+      "from": "runtimes/claude.yaml supportedCapabilities::ClaudeYaml_AdapterAlignment_MatchesSupportLevels",
+      "fromFile": "servers/exarchos-mcp/src/runtimes/claude.test.ts",
+      "to": "content/harness/runtimes/claude.yaml supportedCapabilities::ClaudeYaml_AdapterAlignment_MatchesSupportLevels",
+      "toFile": "tests/unit/runtime/runtimes/claude.test.ts",
+      "similarity": 0.78
+    },
+    {
+      "from": "runtimes/claude.yaml supportedCapabilities::ClaudeYaml_SupportedCapabilities_AllElevenAreNative",
+      "fromFile": "servers/exarchos-mcp/src/runtimes/claude.test.ts",
+      "to": "content/harness/runtimes/claude.yaml supportedCapabilities::ClaudeYaml_SupportedCapabilities_AllElevenAreNative",
+      "toFile": "tests/unit/runtime/runtimes/claude.test.ts",
+      "similarity": 0.75
+    },
+    {
+      "from": "runtimes/codex.yaml presence::CodexYaml_SkillsInstallPath_AgentsStandard",
+      "fromFile": "src/runtimes/presence-codex.test.ts",
+      "to": "content/harness/runtimes/codex.yaml presence::CodexYaml_SkillsInstallPath_AgentsStandard",
+      "toFile": "tests/unit/install/runtimes/presence-codex.test.ts",
+      "similarity": 0.78
+    },
+    {
+      "from": "runtimes/codex.yaml presence::CodexYaml_SpawnAgentCall_UsesMultiAgentPrimitive",
+      "fromFile": "src/runtimes/presence-codex.test.ts",
+      "to": "content/harness/runtimes/codex.yaml presence::CodexYaml_SpawnAgentCall_UsesMultiAgentPrimitive",
+      "toFile": "tests/unit/install/runtimes/presence-codex.test.ts",
+      "similarity": 0.78
+    },
+    {
+      "from": "runtimes/codex.yaml presence::LoadAllRuntimes_CodexYamlPresent_HasSubagents",
+      "fromFile": "src/runtimes/presence-codex.test.ts",
+      "to": "content/harness/runtimes/codex.yaml presence::LoadAllRuntimes_CodexYamlPresent_HasSubagents",
+      "toFile": "tests/unit/install/runtimes/presence-codex.test.ts",
+      "similarity": 0.78
+    },
+    {
+      "from": "runtimes/codex.yaml supportedCapabilities (Task 7b)::CodexYaml_AdapterAlignment_MatchesSupportLevels",
+      "fromFile": "servers/exarchos-mcp/src/runtimes/codex.test.ts",
+      "to": "content/harness/runtimes/codex.yaml supportedCapabilities (Task 7b)::CodexYaml_AdapterAlignment_MatchesSupportLevels",
+      "toFile": "tests/unit/runtime/runtimes/codex.test.ts",
+      "similarity": 0.8
+    },
+    {
+      "from": "runtimes/codex.yaml supportedCapabilities (Task 7b)::CodexYaml_SupportedCapabilities_ExcludesClaudeOnlyCapabilities",
+      "fromFile": "servers/exarchos-mcp/src/runtimes/codex.test.ts",
+      "to": "content/harness/runtimes/codex.yaml supportedCapabilities (Task 7b)::CodexYaml_SupportedCapabilities_ExcludesClaudeOnlyCapabilities",
+      "toFile": "tests/unit/runtime/runtimes/codex.test.ts",
+      "similarity": 0.78
+    },
+    {
+      "from": "runtimes/codex.yaml supportedCapabilities (Task 7b)::CodexYaml_SupportedCapabilities_SixNativeTwoAdvisory",
+      "fromFile": "servers/exarchos-mcp/src/runtimes/codex.test.ts",
+      "to": "content/harness/runtimes/codex.yaml supportedCapabilities (Task 7b)::CodexYaml_SupportedCapabilities_SixNativeTwoAdvisory",
+      "toFile": "tests/unit/runtime/runtimes/codex.test.ts",
+      "similarity": 0.78
+    },
+    {
+      "from": "runtimes/copilot.yaml presence::CopilotYaml_SkillsInstallPath_CopilotConfig",
+      "fromFile": "src/runtimes/presence-copilot.test.ts",
+      "to": "content/harness/runtimes/copilot.yaml presence::CopilotYaml_SkillsInstallPath_CopilotConfig",
+      "toFile": "tests/unit/install/runtimes/presence-copilot.test.ts",
+      "similarity": 0.78
+    },
+    {
+      "from": "runtimes/copilot.yaml presence::CopilotYaml_SpawnAgentCall_UsesLocalTaskAgentPrimitive",
+      "fromFile": "src/runtimes/presence-copilot.test.ts",
+      "to": "content/harness/runtimes/copilot.yaml presence::CopilotYaml_SpawnAgentCall_UsesLocalTaskAgentPrimitive",
+      "toFile": "tests/unit/install/runtimes/presence-copilot.test.ts",
+      "similarity": 0.78
+    },
+    {
+      "from": "runtimes/copilot.yaml presence::LoadAllRuntimes_CopilotYamlPresent_HasSubagents",
+      "fromFile": "src/runtimes/presence-copilot.test.ts",
+      "to": "content/harness/runtimes/copilot.yaml presence::LoadAllRuntimes_CopilotYamlPresent_HasSubagents",
+      "toFile": "tests/unit/install/runtimes/presence-copilot.test.ts",
+      "similarity": 0.78
+    },
+    {
+      "from": "runtimes/copilot.yaml \u2014 local task --agent primitive::CopilotYaml_AdapterAlignment_MatchesSupportLevels",
+      "fromFile": "servers/exarchos-mcp/src/runtimes/copilot.test.ts",
+      "to": "content/harness/runtimes/copilot.yaml \u2014 local task --agent primitive::CopilotYaml_AdapterAlignment_MatchesSupportLevels",
+      "toFile": "tests/unit/runtime/runtimes/copilot.test.ts",
+      "similarity": 0.83
+    },
+    {
+      "from": "runtimes/copilot.yaml \u2014 local task --agent primitive::CopilotYaml_SpawnAgentCall_ReferencesGeneratedAgentName",
+      "fromFile": "servers/exarchos-mcp/src/runtimes/copilot.test.ts",
+      "to": "content/harness/runtimes/copilot.yaml \u2014 local task --agent primitive::CopilotYaml_SpawnAgentCall_ReferencesGeneratedAgentName",
+      "toFile": "tests/unit/runtime/runtimes/copilot.test.ts",
+      "similarity": 0.83
+    },
+    {
+      "from": "runtimes/copilot.yaml \u2014 local task --agent primitive::CopilotYaml_SpawnAgentCall_UsesLocalTaskAgentNotDelegate",
+      "fromFile": "servers/exarchos-mcp/src/runtimes/copilot.test.ts",
+      "to": "content/harness/runtimes/copilot.yaml \u2014 local task --agent primitive::CopilotYaml_SpawnAgentCall_UsesLocalTaskAgentNotDelegate",
+      "toFile": "tests/unit/runtime/runtimes/copilot.test.ts",
+      "similarity": 0.83
+    },
+    {
+      "from": "runtimes/copilot.yaml \u2014 local task --agent primitive::CopilotYaml_StaleJustificationComment_Removed",
+      "fromFile": "servers/exarchos-mcp/src/runtimes/copilot.test.ts",
+      "to": "content/harness/runtimes/copilot.yaml \u2014 local task --agent primitive::CopilotYaml_StaleJustificationComment_Removed",
+      "toFile": "tests/unit/runtime/runtimes/copilot.test.ts",
+      "similarity": 0.83
+    },
+    {
+      "from": "runtimes/copilot.yaml \u2014 local task --agent primitive::CopilotYaml_SupportedCapabilities_SixNativeTwoAdvisory",
+      "fromFile": "servers/exarchos-mcp/src/runtimes/copilot.test.ts",
+      "to": "content/harness/runtimes/copilot.yaml \u2014 local task --agent primitive::CopilotYaml_SupportedCapabilities_SixNativeTwoAdvisory",
+      "toFile": "tests/unit/runtime/runtimes/copilot.test.ts",
+      "similarity": 0.83
+    },
+    {
+      "from": "runtimes/cursor.yaml presence::CursorYaml_AdapterAlignment_MatchesSupportLevels",
+      "fromFile": "src/runtimes/presence-cursor.test.ts",
+      "to": "content/harness/runtimes/cursor.yaml presence::CursorYaml_AdapterAlignment_MatchesSupportLevels",
+      "toFile": "tests/unit/install/runtimes/presence-cursor.test.ts",
+      "similarity": 0.78
+    },
+    {
+      "from": "runtimes/cursor.yaml presence::CursorYaml_HasSubagents_True",
+      "fromFile": "src/runtimes/presence-cursor.test.ts",
+      "to": "content/harness/runtimes/cursor.yaml presence::CursorYaml_HasSubagents_True",
+      "toFile": "tests/unit/install/runtimes/presence-cursor.test.ts",
+      "similarity": 0.78
+    },
+    {
+      "from": "runtimes/cursor.yaml presence::CursorYaml_SpawnAgentCall_ReferencesGeneratedAgentName",
+      "fromFile": "src/runtimes/presence-cursor.test.ts",
+      "to": "content/harness/runtimes/cursor.yaml presence::CursorYaml_SpawnAgentCall_ReferencesGeneratedAgentName",
+      "toFile": "tests/unit/install/runtimes/presence-cursor.test.ts",
+      "similarity": 0.78
+    },
+    {
+      "from": "runtimes/cursor.yaml presence::CursorYaml_SpawnAgentCall_UsesNativeTaskTool",
+      "fromFile": "src/runtimes/presence-cursor.test.ts",
+      "to": "content/harness/runtimes/cursor.yaml presence::CursorYaml_SpawnAgentCall_UsesNativeTaskTool",
+      "toFile": "tests/unit/install/runtimes/presence-cursor.test.ts",
+      "similarity": 0.78
+    },
+    {
+      "from": "runtimes/cursor.yaml presence::CursorYaml_SupportedCapabilities_SixNativeTwoAdvisory",
+      "fromFile": "src/runtimes/presence-cursor.test.ts",
+      "to": "content/harness/runtimes/cursor.yaml presence::CursorYaml_SupportedCapabilities_SixNativeTwoAdvisory",
+      "toFile": "tests/unit/install/runtimes/presence-cursor.test.ts",
+      "similarity": 0.78
+    },
+    {
+      "from": "runtimes/generic.yaml presence::LoadAllRuntimes_GenericYamlPresent_HasCanonicalCapabilities",
+      "fromFile": "src/runtimes/presence-generic.test.ts",
+      "to": "content/harness/runtimes/generic.yaml presence::LoadAllRuntimes_GenericYamlPresent_HasCanonicalCapabilities",
+      "toFile": "tests/unit/install/runtimes/presence-generic.test.ts",
+      "similarity": 0.78
+    },
+    {
+      "from": "runtimes/opencode.yaml presence::LoadAllRuntimes_OpencodeYamlPresent_HasSubagents",
+      "fromFile": "src/runtimes/presence-opencode.test.ts",
+      "to": "content/harness/runtimes/opencode.yaml presence::LoadAllRuntimes_OpencodeYamlPresent_HasSubagents",
+      "toFile": "tests/unit/install/runtimes/presence-opencode.test.ts",
+      "similarity": 0.78
+    },
+    {
+      "from": "runtimes/opencode.yaml presence::OpencodeYaml_SkillsInstallPath_GlobalConfig",
+      "fromFile": "src/runtimes/presence-opencode.test.ts",
+      "to": "content/harness/runtimes/opencode.yaml presence::OpencodeYaml_SkillsInstallPath_GlobalConfig",
+      "toFile": "tests/unit/install/runtimes/presence-opencode.test.ts",
+      "similarity": 0.78
+    },
+    {
+      "from": "runtimes/opencode.yaml presence::OpencodeYaml_SpawnAgentCall_MatchesClaudeTaskSyntax",
+      "fromFile": "src/runtimes/presence-opencode.test.ts",
+      "to": "content/harness/runtimes/opencode.yaml presence::OpencodeYaml_SpawnAgentCall_MatchesClaudeTaskSyntax",
+      "toFile": "tests/unit/install/runtimes/presence-opencode.test.ts",
+      "similarity": 0.78
+    },
+    {
+      "from": "runtimes/opencode.yaml supportedCapabilities::OpencodeYaml_AdapterAlignment_MatchesSupportLevels",
+      "fromFile": "servers/exarchos-mcp/src/runtimes/opencode.test.ts",
+      "to": "content/harness/runtimes/opencode.yaml supportedCapabilities::OpencodeYaml_AdapterAlignment_MatchesSupportLevels",
+      "toFile": "tests/unit/runtime/runtimes/opencode.test.ts",
+      "similarity": 0.78
+    },
+    {
+      "from": "runtimes/opencode.yaml supportedCapabilities::OpencodeYaml_SpawnAgentCall_ReferencesGeneratedAgentName",
+      "fromFile": "servers/exarchos-mcp/src/runtimes/opencode.test.ts",
+      "to": "content/harness/runtimes/opencode.yaml supportedCapabilities::OpencodeYaml_SpawnAgentCall_ReferencesGeneratedAgentName",
+      "toFile": "tests/unit/runtime/runtimes/opencode.test.ts",
+      "similarity": 0.78
+    },
+    {
+      "from": "runtimes/opencode.yaml supportedCapabilities::OpencodeYaml_SupportedCapabilities_SixNativeTwoAdvisory",
+      "fromFile": "servers/exarchos-mcp/src/runtimes/opencode.test.ts",
+      "to": "content/harness/runtimes/opencode.yaml supportedCapabilities::OpencodeYaml_SupportedCapabilities_SixNativeTwoAdvisory",
+      "toFile": "tests/unit/runtime/runtimes/opencode.test.ts",
+      "similarity": 0.75
+    },
+    {
+      "from": "scripts/get-exarchos.sh (shell harness)::passes the full scripts/get-exarchos.test.sh suite",
+      "fromFile": "scripts/get-exarchos.test.ts",
+      "to": "tools/release/get-exarchos.sh (shell harness)::passes the full tests/scripts/get-exarchos.test.sh suite",
+      "toFile": "tests/tools/release/get-exarchos.test.ts",
+      "similarity": 0.91
+    },
+    {
+      "from": "sidecar layer removal (#1494)::no file under src/orchestrate references the deleted sidecar layer",
+      "fromFile": "servers/exarchos-mcp/src/orchestrate/sidecar-removal.test.ts",
+      "to": "sidecar layer removal (#1494)::no file under src/verbs references the deleted sidecar layer",
+      "toFile": "tests/unit/verbs/sidecar-removal.test.ts",
+      "similarity": 0.91
+    },
+    {
+      "from": "stryker-adapter pure helpers::isMutatableServerSource restricts to changed servers/exarchos-mcp/src/** production files",
+      "fromFile": "servers/exarchos-mcp/src/orchestrate/stryker-adapter.smoke.test.ts",
+      "to": "stryker-adapter pure helpers::isMutatableServerSource restricts to changed src/** production files",
+      "toFile": "tests/unit/verbs/stryker-adapter.smoke.test.ts",
+      "similarity": 0.77
+    },
+    {
+      "from": "views/tools.ts composite error paths > HandleViewAction_UnknownAction_ReturnsUnknownAction::should return UNKNOWN_ACTION for an unrecognized action string",
+      "fromFile": "servers/exarchos-mcp/src/__tests__/views/tools-error-paths.test.ts",
+      "to": "projections/views/tools.ts composite error paths > HandleViewAction_UnknownAction_ReturnsUnknownAction::should return UNKNOWN_ACTION for an unrecognized action string",
+      "toFile": "tests/unit/views/tools-error-paths.test.ts",
+      "similarity": 0.94
+    },
+    {
+      "from": "views/tools.ts composite error paths > HandleViewConvergence_QueryThrowsError_ReturnsViewError::should return VIEW_ERROR when queryDeltaEvents throws an Error",
+      "fromFile": "servers/exarchos-mcp/src/__tests__/views/tools-error-paths.test.ts",
+      "to": "projections/views/tools.ts composite error paths > HandleViewConvergence_QueryThrowsError_ReturnsViewError::should return VIEW_ERROR when queryDeltaEvents throws an Error",
+      "toFile": "tests/unit/views/tools-error-paths.test.ts",
+      "similarity": 0.93
+    },
+    {
+      "from": "views/tools.ts composite error paths > HandleViewProvenance_QueryThrowsError_ReturnsViewError::should return VIEW_ERROR when queryDeltaEvents throws an Error",
+      "fromFile": "servers/exarchos-mcp/src/__tests__/views/tools-error-paths.test.ts",
+      "to": "projections/views/tools.ts composite error paths > HandleViewProvenance_QueryThrowsError_ReturnsViewError::should return VIEW_ERROR when queryDeltaEvents throws an Error",
+      "toFile": "tests/unit/views/tools-error-paths.test.ts",
+      "similarity": 0.93
+    },
+    {
+      "from": "views/tools.ts composite error paths > HandleViewShepherdStatus_QueryThrowsNonError_ReturnsViewError::should return VIEW_ERROR when queryDeltaEvents throws a string error",
+      "fromFile": "servers/exarchos-mcp/src/__tests__/views/tools-error-paths.test.ts",
+      "to": "projections/views/tools.ts composite error paths > HandleViewShepherdStatus_QueryThrowsNonError_ReturnsViewError::should return VIEW_ERROR when queryDeltaEvents throws a string error",
+      "toFile": "tests/unit/views/tools-error-paths.test.ts",
+      "similarity": 0.94
+    },
+    {
+      "from": "vitest.config::VitestConfig_McpWorkspace_DeclaresExplicitTimeouts",
+      "fromFile": "test/setup/vitest-config.test.ts",
+      "to": "vitest.config::VitestConfig_CoreTier_DeclaresExplicitTimeouts",
+      "toFile": "tests/architecture/vitest-config.test.ts",
+      "similarity": 0.8
+    },
+    {
+      "from": "vitest.config::VitestConfig_TieredTimeoutPolicy_IsCoherentAcrossBothWorkspaces",
+      "fromFile": "test/setup/vitest-config.test.ts",
+      "to": "vitest.config::VitestConfig_TieredTimeoutPolicy_IsCoherent",
+      "toFile": "tests/architecture/vitest-config.test.ts",
+      "similarity": 0.8
+    }
+  ],
+  "staleDestinationNote": "Task 047 retargeted one rename destination. Its `to` id embeds the SUITE path, and task 036 moved get-exarchos.sh from scripts/ to tools/release/ \u2014 so the id the ledger pinned stopped existing while the case itself never moved. The reconciliation asserts every destination is live, which is what caught it; the case name still cites tests/scripts/get-exarchos.test.sh because that harness genuinely lives there."
+}

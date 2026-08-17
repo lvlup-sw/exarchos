@@ -22,14 +22,14 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { EventStore } from '../../servers/exarchos-mcp/src/event-store/store.js';
-import { withTelemetry } from '../../servers/exarchos-mcp/src/telemetry/middleware.js';
-import type { CoreHandler } from '../../servers/exarchos-mcp/src/telemetry/middleware.js';
-import { handleViewTelemetry } from '../../servers/exarchos-mcp/src/telemetry/tools.js';
+import { EventStore } from '../../src/events/store.js';
+import { withTelemetry } from '../../src/projections/telemetry/middleware.js';
+import type { CoreHandler } from '../../src/projections/telemetry/middleware.js';
+import { handleViewTelemetry } from '../../src/projections/telemetry/tools.js';
 import {
   handleInit,
   handleUpdate,
-} from '../../servers/exarchos-mcp/src/workflow/tools.js';
+} from '../../src/workflow/tools.js';
 
 interface TelemetryToolEntry {
   readonly tool: string;

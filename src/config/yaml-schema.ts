@@ -1,0 +1,322 @@
+import { z } from 'zod';
+import {
+  InvariantsConfigSchema,
+  ExarchosConfigSchema,
+  StorageConfigSchema,
+  SynthesisConfigSchema,
+  EscalationConfigSchema,
+} from './exarchos-config-schema.js';
+import { VERIFICATION_GATE_NAMES } from '../workflow/verification-policy.js';
+import {
+  REMOVED_PRUNE_CONFIG_KNOBS,
+  PRUNE_CONFIG_KNOWN_KEYS,
+  removedPruneKnobMessage,
+  unrecognizedPruneKeyMessage,
+} from './prune-removed-knobs.js';
+
+// ─── Dimension Configuration ────────────────────────────────────────────────
+
+const DimensionSeverity = z.enum(['blocking', 'warning', 'disabled']);
+
+const DimensionLongform = z.object({
+  severity: DimensionSeverity.optional(),
+  enabled: z.boolean().optional(),
+}).strict();
+
+const DimensionConfig = z.union([DimensionSeverity, DimensionLongform]);
+
+const DimensionKey = z.enum(['D1', 'D2', 'D3', 'D4', 'D5']);
+
+// v4: `z.record(K, V)` makes ALL enum keys required (a breaking change from
+// v3 where they were partial). `z.partialRecord(K, V)` restores the v3
+// partial-record behavior — any subset of `D1..D5` is valid.
+const DimensionsMap = z.partialRecord(DimensionKey, DimensionConfig);
+
+// ─── Gate Configuration ─────────────────────────────────────────────────────
+
+const GateConfig = z.object({
+  enabled: z.boolean().optional(),
+  blocking: z.boolean().optional(),
+  params: z.record(z.string(), z.unknown()).optional(),
+}).strict();
+
+// ─── Risk Weights ───────────────────────────────────────────────────────────
+
+const RiskWeights = z.record(z.string(), z.number()).refine(
+  (weights) => {
+    const values = Object.values(weights);
+    if (values.length === 0) return true;
+    const sum = values.reduce((acc, v) => acc + v, 0);
+    return Math.abs(sum - 1.0) < 0.001;
+  },
+  { message: 'Risk weights must sum to 1.0' },
+);
+
+// ─── Routing Configuration ──────────────────────────────────────────────────
+
+const RoutingConfig = z.object({
+  'coderabbit-threshold': z.number().min(0).max(1).optional(),
+  'risk-weights': RiskWeights.optional(),
+}).strict();
+
+// ─── Review Configuration ───────────────────────────────────────────────────
+
+const ReviewConfig = z.object({
+  dimensions: DimensionsMap.optional(),
+  gates: z.record(z.string(), GateConfig).optional(),
+  // DR-3: mutation score enforcement at review→synthesize. Advisory by default.
+  'mutation-enforcement': z.enum(['block', 'advisory']).optional(),
+  routing: RoutingConfig.optional(),
+}).strict();
+
+// ─── VCS Configuration ─────────────────────────────────────────────────────
+
+const VcsConfig = z.object({
+  provider: z.enum(['github', 'gitlab', 'azure-devops']).optional(),
+  settings: z.record(z.string(), z.unknown()).optional(),
+}).strict();
+
+// ─── Workflow Phase Configuration ───────────────────────────────────────────
+
+const PhaseConfig = z.object({
+  'human-checkpoint': z.boolean().optional(),
+}).strict();
+
+const WorkflowConfig = z.object({
+  'skip-phases': z.array(z.string()).optional(),
+  'max-fix-cycles': z.number().int().min(1).max(10).optional(),
+  // DR-1: bound on plan-review revise cycles. Injected at transition time as the
+  // reserved ephemeral `_maxPlanRevisions` for the pure `revisionsExhausted`
+  // guard; never event-sourced (INV-1 — a config threshold is not a fact).
+  'max-plan-revisions': z.number().int().min(1).max(10).optional(),
+  'required-reviews': z.array(z.string().min(1)).optional(),
+  phases: z.record(z.string(), PhaseConfig).optional(),
+}).strict();
+
+// ─── Agents Configuration ──────────────────────────────────────────────────
+
+const AgentModelValue = z.enum(['opus', 'sonnet', 'haiku']);
+const AgentSpecIdKey = z.enum(['implementer', 'fixer', 'reviewer', 'scaffolder']);
+
+// DR-1 (#1672): tier→model policy keys. A partial record — an operator may
+// re-map a single tier and inherit the documented default for the rest. The
+// monotonicity + high-tier-floor guard runs at config-resolution time
+// (`resolve.ts:validateTierModels`), not here, so the structured error can name
+// the offending cell across the FULL merged table.
+const RiskTierKey = z.enum(['low', 'medium', 'high']);
+
+const AgentsConfig = z.object({
+  'default-model': AgentModelValue.optional(),
+  models: z.partialRecord(AgentSpecIdKey, AgentModelValue).optional(),
+  'tier-models': z.partialRecord(RiskTierKey, AgentModelValue).optional(),
+}).strict();
+
+// ─── Tools Configuration ───────────────────────────────────────────────────
+
+const ToolsConfig = z.object({
+  'default-branch': z.string().optional(),
+  'commit-style': z.enum(['conventional', 'freeform']).optional(),
+  'pr-template': z.string().optional(),
+  'auto-merge': z.boolean().optional(),
+  'pr-strategy': z.enum(['github-native', 'single']).optional(),
+}).strict();
+
+// ─── Hook Configuration ────────────────────────────────────────────────────
+
+const HookAction = z.object({
+  command: z.string(),
+  timeout: z.number().int().min(1000).max(300000).optional(),
+}).strict();
+
+const HooksConfig = z.object({
+  on: z.record(z.string(), z.array(HookAction)).optional(),
+}).strict();
+
+// ─── Plugin Configuration ─────────────────────────────────────────────────
+
+const PluginConfig = z.object({
+  enabled: z.boolean().default(true),
+}).strict();
+
+const PluginsConfig = z.object({
+  impeccable: PluginConfig.optional(),
+}).strict();
+
+// ─── Invariants Configuration ─────────────────────────────────────────────
+//
+// invariants-catalog-v2 (#1441 / spec 2026-05-20) — dev-invariants gating.
+//
+// `ProjectConfigSchema` reuses the canonical `InvariantsConfigSchema`
+// definition from `exarchos-config-schema.ts` (PR #1459 CodeRabbit
+// finding 2 — single source of truth). The committed root `.exarchos.yml`
+// (which carries the other project-level keys `agents` / `review` / `vcs`
+// / `workflow` / `tools` validated by this schema) continues to parse
+// cleanly under `ProjectConfigSchema.strict()` via this shared block.
+// The architecture-invariants loader does NOT consume this projection —
+// it slices the `invariants` block out of the raw YAML directly via
+// `architecture/invariants-loader.ts:readInvariantsConfig`, decoupling
+// the loader from this schema's other concerns.
+//
+// Spec: docs/proposals/2026-05-20-invariants-catalog-v2-spec.md §4.0
+// User-facing doc: docs/guides/exarchos-yml-invariants.md
+
+// ─── Prune Configuration ──────────────────────────────────────────────────
+
+const PruneConfig = z
+  .object({
+    // `stale-after-days` (and the legacy `threshold-minutes` alias) removed
+    // (DR-9): per-phase staleness lives in `topology.yaml` `staleness` blocks.
+    // A bare `.strict()` would surface a legacy `stale-after-days:` as an OPAQUE
+    // `unrecognized_keys` error that names neither the removal, #1334, nor the
+    // real config surface — the form DR-9 bars. `.passthrough().superRefine`
+    // keeps the removed key VISIBLE and emits the shared ACTIONABLE message
+    // instead (identical to the `prune_stale_workflows` action seam), while
+    // genuinely-unknown keys (typos) are still rejected.
+    'max-batch-size': z.number().int().min(1).max(100).default(25),
+    'phase-exclusions': z.array(z.string()).default(['delegate', 'review', 'synthesize']),
+    'malformed-handling': z.enum(['report', 'include', 'skip']).default('report'),
+    'require-dry-run': z.boolean().default(true),
+  })
+  .passthrough()
+  .superRefine((val, ctx) => {
+    for (const key of Object.keys(val)) {
+      if (REMOVED_PRUNE_CONFIG_KNOBS.has(key)) {
+        ctx.addIssue({ code: 'custom', path: [key], message: removedPruneKnobMessage(key) });
+      } else if (!PRUNE_CONFIG_KNOWN_KEYS.has(key)) {
+        ctx.addIssue({ code: 'custom', path: [key], message: unrecognizedPruneKeyMessage(key) });
+      }
+    }
+  });
+
+// ─── Checkpoint Configuration ─────────────────────────────────────────────
+
+const CheckpointConfig = z.object({
+  'operation-threshold': z.number().int().min(1).default(20),
+  'enforce-on-phase-transition': z.boolean().default(true),
+  'enforce-on-wave-dispatch': z.boolean().default(true),
+}).strict();
+
+// ─── Verification Configuration ────────────────────────────────────────────
+//
+// verification-ladder slice 1, R2 (#1517 / task 001) — the per-cell override
+// layer that composes ON TOP of the frozen base policy table in
+// `workflow/verification-policy.ts`. The base table maps each
+// `(riskTier, boundaryTouching)` cell to an ordered gate sequence; this block
+// lets a consumer REPLACE the sequence for any cell in `.exarchos.yml`. The
+// resolver (a later task) layers these overrides over the table — this block
+// only describes the override surface.
+//
+// `VERIFICATION_GATE_NAMES` is the single source of truth for the gate-name
+// vocabulary (imported, never re-declared). A cell value is an ordered,
+// DUPLICATE-FREE list of those names. An EMPTY array is valid — it is the
+// explicit "run nothing for this cell" override (distinct from an omitted cell,
+// which inherits the base table). `.strict()` at every level so a typo'd cell
+// key (`lowww:`) or stray field fails at parse rather than being silently
+// ignored.
+
+/** Ordered, duplicate-free list of gate names for a single policy cell. */
+const VerificationGateSequence = z
+  .array(z.enum(VERIFICATION_GATE_NAMES))
+  .refine(
+    (gates) => new Set(gates).size === gates.length,
+    { message: 'verification gate sequence must not contain duplicates' },
+  );
+
+/**
+ * The boundary-touching sub-policy: per-tier gate sequences applied when a task
+ * crosses an I/O / schema boundary. Mirrors the base-tier keys.
+ */
+const VerificationBoundaryPolicy = z
+  .object({
+    low: VerificationGateSequence.optional(),
+    medium: VerificationGateSequence.optional(),
+    high: VerificationGateSequence.optional(),
+  })
+  .strict();
+
+/**
+ * The policy-overlay: base-tier gate sequences plus an optional `boundary`
+ * sub-policy. Every key optional — a consumer overrides only the cells it
+ * cares about; omitted cells fall through to the base table.
+ */
+const VerificationPolicyConfig = z
+  .object({
+    low: VerificationGateSequence.optional(),
+    medium: VerificationGateSequence.optional(),
+    high: VerificationGateSequence.optional(),
+    boundary: VerificationBoundaryPolicy.optional(),
+  })
+  .strict();
+
+const VerificationConfig = z
+  .object({
+    policy: VerificationPolicyConfig.optional(),
+  })
+  .strict();
+
+/**
+ * Validated `.exarchos.yml` `verification:` block — the per-cell policy
+ * overlay. The resolver (R2 follow-on) and `ResolvedProjectConfig.verification`
+ * share this single overlay-shape type; it is NOT a copy of the base table.
+ */
+export type VerificationPolicyOverlay = z.infer<typeof VerificationPolicyConfig>;
+
+/**
+ * Where authored workflow artifacts live (DR-6). Both prefixes are relative to
+ * the project root — an absolute path is rejected, because these are matched
+ * against the repo-relative paths recorded in a workflow's artifact map, and an
+ * absolute prefix could never match one. The resolver (`config/artifacts.ts`)
+ * POSIX-normalizes whatever separator form arrives and appends the trailing
+ * slash, so an operator may write `docs/specs`, `docs/specs/`, or `docs\specs`.
+ */
+const ArtifactsConfig = z.object({
+  'spec-dir': z.string().min(1).refine((v) => !/^([a-zA-Z]:)?[\\/]/.test(v), {
+    message: 'spec-dir must be relative to the project root, not absolute',
+  }).optional(),
+  'legacy-design-dir': z.string().min(1).refine((v) => !/^([a-zA-Z]:)?[\\/]/.test(v), {
+    message: 'legacy-design-dir must be relative to the project root, not absolute',
+  }).optional(),
+}).strict();
+
+// ─── Top-Level Project Config ──────────────────────────────────────────────
+
+export const ProjectConfigSchema = z.object({
+  agents: AgentsConfig.optional(),
+  artifacts: ArtifactsConfig.optional(),
+  review: ReviewConfig.optional(),
+  vcs: VcsConfig.optional(),
+  workflow: WorkflowConfig.optional(),
+  tools: ToolsConfig.optional(),
+  hooks: HooksConfig.optional(),
+  plugins: PluginsConfig.optional(),
+  prune: PruneConfig.optional(),
+  checkpoint: CheckpointConfig.optional(),
+  verification: VerificationConfig.optional(),
+  invariants: InvariantsConfigSchema.optional(),
+  storage: StorageConfigSchema.optional(),
+  synthesis: SynthesisConfigSchema.optional(),
+  escalation: EscalationConfigSchema.optional(),
+}).strict();
+
+export type ProjectConfig = z.infer<typeof ProjectConfigSchema>;
+
+// ─── Unified `.exarchos.yml` schema (#1479 dual-reader reconciliation) ──────
+//
+// The same `.exarchos.yml` is read by two paths that historically used
+// disjoint, both-`.strict()` schemas:
+//   - `loadExarchosConfig` (config/load-exarchos-config.ts) → ExarchosConfigSchema
+//     (test/typecheck/install/qualityHints/handoffLint/cli/invariants)
+//   - the architecture invariants loader's `readInvariantsConfig` → a hand-
+//     rolled lenient slice of the `invariants:` block.
+// Because each schema rejected the other's keys, a file valid for one reader
+// threw for the other, and a typo'd key silently kept its invariants block
+// alive on the lenient path. The unified schema is the merge of both
+// concern-schemas: a key valid in EITHER is accepted; a key valid in NEITHER
+// (a genuine typo) is still rejected. Both readers now share this one schema,
+// so they reach the same verdict on any given file. The shared `invariants`
+// block is identical in both source schemas, so the merge is conflict-free.
+export const FullExarchosConfigSchema = ExarchosConfigSchema.merge(
+  ProjectConfigSchema,
+).strict();
+
+export type FullExarchosConfig = z.infer<typeof FullExarchosConfigSchema>;

@@ -6,7 +6,7 @@
 // longer maps to a standalone command. The #1355 per-runtime manifest-parity
 // regression it guarded is now covered at the unit tier against the REAL
 // `installSkills` seam in
-// `servers/exarchos-mcp/src/orchestrate/onboard/install.test.ts`.
+// `src/verbs/onboard/install.test.ts`.
 //
 // This outcome test instead pins the operator-visible end-to-end contract of
 // the consolidated verb, run against the real bun-compiled platform binary
@@ -41,7 +41,7 @@ const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 
 // Locate the platform binary produced by `npm run build` — the same
-// `exarchos-<os>-<arch>[.exe]` convention `scripts/build-binary.ts` emits.
+// `exarchos-<os>-<arch>[.exe]` convention `tools/release/build-binary.ts` emits.
 function platformBinaryName(): string {
   const platform = os.platform();
   const arch = os.arch();

@@ -1,7 +1,7 @@
 name: Renovate
 
 on:
-  # Weekend schedule matching renovate-config/renovate.json
+  # Weekend schedule matching tools/renovate-config/renovate.json
   schedule:
     - cron: '0 13 * * 6'  # Saturday 6am Denver (13:00 UTC)
     - cron: '0 13 * * 0'  # Sunday 6am Denver (13:00 UTC)

@@ -1,0 +1,412 @@
+#!/usr/bin/env node
+/**
+ * Windows-portability anti-pattern CI gate (#1623, follow-up to #1620).
+ *
+ * The blocking `windows-latest` job (#1620) catches Windows breakage, but only
+ * after an ~8-minute run. This gate fires in seconds and flags the four
+ * known, high-signal regressions at PR time:
+ *
+ *   1. **Shell-shim spawn** — `execFile(Sync)`/`spawn(Sync)` with a bare
+ *      package-manager name (`npm`, `npx`, `bun`, …). Neither spawns through a
+ *      shell, so a `.cmd` shim won't launch on Windows. Route through
+ *      `runCommandSync`/`spawnCommandSync` (src/utils/process.ts).
+ *      The shim NAMES are read from that helper's own `WINDOWS_CMD_SHIMS`
+ *      rather than transcribed here — a transcribed copy is how `bun`/`bunx`
+ *      came to be shims the helper handled and this gate did not police.
+ *   2. **Non-portable module path** — `new URL(import.meta.url).pathname`, which
+ *      yields `/D:/…` on Windows and doubles to `D:\D:\…` under `path.resolve`.
+ *      Use `fileURLToPath(import.meta.url)`.
+ *   3. **Leaked SQLite handle in test teardown** — a `*.test.ts` that constructs
+ *      `new EventStore(` and removes a temp dir with a recursive `rm`/`rmSync`,
+ *      but neither imports the Windows-safe `rmrf`/`rmrfAsync` helper nor closes
+ *      the store (`.close()`). On NTFS the open `exarchos.db` handle blocks the
+ *      unlink (EPERM/EBUSY). Use `rmrf`/`rmrfAsync`, or `eventStore.close()`
+ *      before removing.
+ *   4. **Dynamic-bin spawn** — `execFile(Sync)`/`spawn(Sync)` with a RESOLVED
+ *      command *variable* (not a string literal). A literal `'git'` is a real
+ *      `.exe`; a variable bin can resolve to a `npm`/`npx` `.cmd` shim that raw
+ *      execFile/spawn can't launch on Windows (CVE-2024-27980). Route through
+ *      `runCommandSync`/`spawnCommandSync`. The literal-name rule (1) can't see
+ *      a variable bin — this is the hole that shipped the test-adequacy
+ *      false-red kill probe. Production files only; the spawn helper is exempt.
+ *
+ * ## Scan roots
+ *
+ * The gate's claim is repository-wide, so its subject must be too. It walks
+ * the repo root (which includes `src/` and `tools/audit/`). The default used
+ * to be the MCP package alone, which is why a literal `spawnSync('npx', …)`
+ * sat in a CI wrapper unseen: the gate was green about a tree it never opened.
+ *
+ *   Exit 0 — clean.  Exit 1 — violations (`path:line  excerpt` on stderr).
+ *   Exit 2 — usage / environment error.
+ *
+ * Flags:
+ *   --src-root <path>       Root to walk; repeatable. Replaces the defaults.
+ *   --spawn-helper <path>   Source to read the shim vocabulary from. Exists for
+ *                           the self-test's fail-closed cases only; production
+ *                           usage never passes it.
+ *   --help                  Show usage.
+ */
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import * as path from 'node:path';
+import process from 'node:process';
+
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(SCRIPT_DIR, '..', '..', '..');
+const DEFAULT_ROOTS = [REPO_ROOT];
+
+function parseArgs(argv) {
+  const roots = [];
+  let spawnHelper = DEFAULT_SPAWN_HELPER;
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === '--help') return { help: true };
+    if (argv[i] === '--src-root') {
+      const value = argv[++i];
+      if (!value) return { error: '--src-root requires a path' };
+      roots.push(path.resolve(value));
+    } else if (argv[i] === '--spawn-helper') {
+      const value = argv[++i];
+      if (!value) return { error: '--spawn-helper requires a path' };
+      spawnHelper = path.resolve(value);
+    } else {
+      // An unrecognised token was silently ignored, which is the worst possible
+      // handling for THIS gate: a misspelled `--src-roots` left `roots` empty,
+      // so the scan fell back to DEFAULT_ROOTS and reported success about a
+      // tree the caller never asked about. A gate that answers a different
+      // question than the one it was asked is a gate that isn't there.
+      return {
+        error:
+          `unrecognised argument '${argv[i]}'. Known: --src-root <path>, ` +
+          '--spawn-helper <path>, --help.',
+      };
+    }
+  }
+  return { roots: roots.length > 0 ? roots : DEFAULT_ROOTS, spawnHelper };
+}
+
+/**
+ * The bare command names that ship as `.cmd` batch shims on Windows, READ FROM
+ * the spawn helper that owns the fact rather than copied.
+ *
+ * `utils/process.ts` is TypeScript and this gate is a zero-dependency `.mjs`, so
+ * the value is extracted textually — but this is a DATA read from the single
+ * authority, not a code claim, and it fails CLOSED: an unreadable or empty
+ * `WINDOWS_CMD_SHIMS` exits 2 rather than silently policing nothing. The gate's
+ * previous hard-coded five had already drifted from the helper's seven, so
+ * `bun`/`bunx` were shims the runtime handled and the gate ignored.
+ */
+const DEFAULT_SPAWN_HELPER = path.join(REPO_ROOT, 'src', 'utils', 'process.ts');
+
+function readShimNames(helperPath) {
+  let source;
+  try {
+    source = readFileSync(helperPath, 'utf8');
+  } catch {
+    return { error: `cannot read the spawn helper: ${helperPath}` };
+  }
+  const block = /const\s+WINDOWS_CMD_SHIMS\s*=\s*new\s+Set\s*\(\s*\[([\s\S]*?)\]\s*\)/.exec(source);
+  if (!block) {
+    return {
+      error:
+        `WINDOWS_CMD_SHIMS not found in ${helperPath}; ` +
+        'the shim vocabulary must be derived from the helper that owns it.',
+    };
+  }
+  // Comments inside the set body must not contribute names.
+  const body = stripComments(block[1]);
+  const names = [...body.matchAll(/['"]([A-Za-z0-9_.-]+)['"]/g)].map((m) => m[1]);
+  if (names.length === 0) {
+    return { error: 'WINDOWS_CMD_SHIMS is empty; refusing to police an empty vocabulary.' };
+  }
+  return { names };
+}
+
+// Replace comments with same-length blanks (newlines preserved) so a prose
+// mention in a docstring cannot trip the gate, while offsets still map to the
+// correct source line.
+function stripComments(content) {
+  const blank = (s) => s.replace(/[^\n]/g, ' ');
+  // Block comments first.
+  const noBlock = content.replace(/\/\*[\s\S]*?\*\//g, blank);
+  // Line comments, string-aware: a `//` inside a '', "", or `` literal is not a
+  // comment, so it must not blank the rest of the line (CodeRabbit #1624).
+  return noBlock
+    .split('\n')
+    .map((line) => {
+      let quote = null;
+      for (let i = 0; i < line.length; i++) {
+        const c = line[i];
+        if (quote) {
+          if (c === '\\') i++;
+          else if (c === quote) quote = null;
+        } else if (c === '"' || c === "'" || c === '`') {
+          quote = c;
+        } else if (c === '/' && line[i + 1] === '/') {
+          return line.slice(0, i) + ' '.repeat(line.length - i);
+        }
+      }
+      return line;
+    })
+    .join('\n');
+}
+
+function lineOf(content, index) {
+  return content.slice(0, index).split('\n').length;
+}
+
+function* walk(dir) {
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const e of entries) {
+    // Exclude by PROPERTY — dependency trees, build output, and dot-dirs (which
+    // covers `.git`, `.worktrees`, `.github` caches and anything else tooling
+    // hides) — never by naming a source subtree.
+    if (e.name === 'node_modules' || e.name === 'dist' || e.name.startsWith('.')) continue;
+    const full = path.join(dir, e.name);
+    if (e.isDirectory()) {
+      yield* walk(full);
+    } else if (e.isFile() && /\.(ts|mts|mjs)$/.test(e.name)) {
+      yield full;
+    }
+  }
+}
+
+/**
+ * Walk every scan root, tagging each file with the root it came from (the
+ * anchor `ciToolingRel` needs) and visiting each file at most once, so nested
+ * or repeated `--src-root` values cannot double-report.
+ */
+function* walkRoots(roots) {
+  const seen = new Set();
+  for (const root of roots) {
+    for (const file of walk(root)) {
+      if (seen.has(file)) continue;
+      seen.add(file);
+      yield { root, file };
+    }
+  }
+}
+
+/**
+ * Rule 1 — a bare shim name spawned without a shell.
+ *
+ * Both the CALL set and the NAME set were narrower than the defect. `spawn`
+ * and `spawnSync` bypass the shell exactly as `execFile` does, so a literal
+ * `spawnSync('npx', …)` fell through this rule; and because rule 4 requires an
+ * IDENTIFIER first argument, it fell through that one too — a literal was too
+ * specific for one rule and too general for the other, and the one real
+ * instance of it in the tree shipped.
+ */
+function buildSpawnRe(shimNames) {
+  const alternatives = shimNames.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  // `i` as well as `g`: Windows resolves shim names case-insensitively, so
+  // `spawnSync('NPM', …)` launches `npm.cmd` exactly as `'npm'` does. A
+  // case-sensitive pattern let the spelling decide whether the rule applied.
+  return new RegExp(
+    `\\b(?:execFile|execFileSync|spawn|spawnSync)\\s*\\(\\s*['"\`](?:${alternatives})['"\`]`,
+    'gi',
+  );
+}
+const URL_PATHNAME_RE = /new\s+URL\s*\(\s*import\.meta\.url\s*\)\s*\.pathname/g;
+const RECURSIVE_RM_RE = /\b(?:fs\.|fsp\.|fsPromises\.)?rm(?:Sync)?\s*\([^;]{0,160}recursive/g;
+// 4 — dynamic-bin spawn: execFile/spawn whose first arg is a RESOLVED command
+// variable (an identifier, not a string literal). A literal `'git'` is a real
+// `.exe` and launches fine; but a variable bin can resolve to a `npm`/`npx`/…
+// `.cmd` shim that raw execFile/spawn can't launch on Windows since
+// CVE-2024-27980 — it must route through runCommandSync/spawnCommandSync. The
+// literal-name SPAWN_RE above cannot see a variable bin: that blind spot is
+// what shipped the test-adequacy false-red kill probe (#1623).
+//
+// `process.execPath` is excluded, and by PROPERTY rather than by name: it is an
+// absolute path to the currently-running Node executable, so it can never
+// resolve to a `.cmd` shim and needs no shell on any platform. That is the same
+// fact the bench exemption below already rests on ("they may spawn a bin — the
+// running node via process.execPath — the shipped code wouldn't"); stating it
+// once here lets a production file re-invoke its own interpreter, which is the
+// portable form the shim rules are steering callers TOWARDS.
+const DYNAMIC_SPAWN_RE =
+  /\b(?:execFile|execFileSync|spawn|spawnSync)\s*\(\s*(?!process\.execPath\b)[A-Za-z_$][\w$.]*/g;
+// The shell-aware spawn helpers legitimately call raw execFile/spawn with a
+// variable bin — that is their whole job. Exempt only this file.
+const SPAWN_HELPER_RE = /utils[/\\]process\.ts$/;
+// CI/build tooling is NOT shipped runtime — it runs on the ubuntu CI host,
+// and the audit gates that shell out a tool (knip-diff / cycle-gate →
+// `node_modules/.bin/*`) DEGRADE-TO-FAIL-CLOSED on a spawn error (incl. win32,
+// where Node can't exec a `.cmd`/`.ps1` shim directly): a spawn failure
+// returns `found:false` → the gate fails closed rather than mis-running. So
+// the dynamic-bin rule (rule 4), whose own scope is "Production files only",
+// does not apply to these. Rule 2 (url-pathname) is a genuine cross-platform
+// path bug and STILL applies to tooling.
+//
+// Known CI-tooling roots, hard-anchored (`^`) so a shipped path such as
+// `src/servers/foo/scripts/` or `src/tools/audit/` cannot borrow the
+// exemption by directory name alone:
+//   - repo-root `scripts/` (legacy / fixture layout)
+//   - `tools/audit/` (post-fold home of the audit gates)
+//   - `servers/<name>/scripts/` (nested package CI scripts)
+// The string tested against this regex must be the file's position relative
+// to the SCAN ROOT — see the `ciToolingRel` comment at the call site.
+const CI_TOOLING_RE =
+  /^(?:scripts[/\\]|tools[/\\]audit[/\\]|servers[/\\][^/\\]+[/\\]scripts[/\\])/;
+// Test-tree harnesses (helpers, evals, benchmark runners) are not shipped
+// runtime. Rule 4 is production-only; `*.test.ts` already skips it via
+// `isTest`, but sibling harness files are not `*.test.ts`.
+const UNDER_TESTS_RE = /^tests[/\\]/;
+
+function main() {
+  const args = parseArgs(process.argv.slice(2));
+  if (args.help) {
+    process.stdout.write(
+      'Usage: check-windows-portability.mjs [--src-root <path>]... [--spawn-helper <path>]\n',
+    );
+    return 0;
+  }
+  if (args.error) {
+    process.stderr.write(`error: ${args.error}\n`);
+    return 2;
+  }
+  for (const root of args.roots) {
+    let rootStat;
+    try {
+      rootStat = statSync(root);
+    } catch {
+      process.stderr.write(`error: root not found: ${root}\n`);
+      return 2;
+    }
+    if (!rootStat.isDirectory()) {
+      process.stderr.write(`error: root is not a directory: ${root}\n`);
+      return 2;
+    }
+  }
+  const shims = readShimNames(args.spawnHelper);
+  if (shims.error) {
+    process.stderr.write(`error: ${shims.error}\n`);
+    return 2;
+  }
+  const SPAWN_RE = buildSpawnRe(shims.names);
+
+  const violations = [];
+  const record = (file, content, index, why) => {
+    const rel = path.relative(REPO_ROOT, file);
+    const line = lineOf(content, index);
+    const excerpt = content.split('\n')[line - 1]?.trim().slice(0, 120) ?? '';
+    violations.push(`${rel}:${line}  [${why}]  ${excerpt}`);
+  };
+
+  for (const { root, file } of walkRoots(args.roots)) {
+    const raw = readFileSync(file, 'utf8');
+    const src = stripComments(raw);
+    const isTest = /\.test\.ts$/.test(file);
+    // Benchmarks are dev-only tooling, never the shipped runtime path; like
+    // tests they may spawn a bin (the running `node` via process.execPath) the
+    // shipped code wouldn't, so they're exempt from the dynamic-spawn rule.
+    const isBench = /\.bench\.ts$/.test(file);
+    // CI/build tooling under tools/audit/ (and the legacy scripts/ roots) is
+    // exempt from the dynamic-spawn rule for the same reason as benches
+    // (dev/CI-only, fail-closed on spawn error).
+    //
+    // CI_TOOLING_RE is now hard-anchored (`^`) so it only matches at the START
+    // of the string tested against it — that string must be the file's
+    // position in the tree the anchor is meant to describe. A real repo file
+    // is always a descendant of REPO_ROOT, so `path.relative(REPO_ROOT, file)`
+    // is that position (e.g. `tools/audit/core/stryker-adapter.mjs`).
+    // The self-test's synthetic fixtures pass `--src-root` OUTSIDE the repo (a
+    // mktemp dir standing in for "a repo subtree"), so their
+    // `path.relative(REPO_ROOT, file)` is a long, irrelevant `../…` climb — for
+    // those, `args.root` itself stands in for "repo root", so fall back to
+    // root-relative. `record()` above stays REPO_ROOT-relative always — that is
+    // purely for the human-readable violation path, not this anchor decision.
+    const repoRootRel = path.relative(REPO_ROOT, file);
+    // Boundary-aware "outside REPO_ROOT" test: only a leading parent segment
+    // (`..` exactly, or `..<sep>…`) or an absolute result (cross-drive on win32,
+    // where `path.relative` cannot produce a relative path) means the file lives
+    // outside the repo. A bare `startsWith('..')` misclassifies an in-repo path
+    // whose first segment merely begins with dots (e.g. `..fixtures/…`) and reads
+    // a cross-drive absolute result as in-repo.
+    const outsideRepo =
+      repoRootRel === '..' ||
+      repoRootRel.startsWith(`..${path.sep}`) ||
+      path.isAbsolute(repoRootRel);
+    const ciToolingRel = outsideRepo ? path.relative(root, file) : repoRootRel;
+    const isCiTooling = CI_TOOLING_RE.test(ciToolingRel);
+    const isUnderTests = UNDER_TESTS_RE.test(ciToolingRel);
+
+    // 2 — non-portable module path (anywhere)
+    for (const m of src.matchAll(URL_PATHNAME_RE)) {
+      record(file, raw, m.index, 'url-pathname: use fileURLToPath(import.meta.url)');
+    }
+
+    if (!isTest) {
+      // 1 — shell-shim spawn (production only; tests and fail-closed CI
+      // tooling may exercise the raw form)
+      if (!isCiTooling) {
+        for (const m of src.matchAll(SPAWN_RE)) {
+          record(
+            file,
+            raw,
+            m.index,
+            'spawn-shim: route the shim via runCommandSync/spawnCommandSync',
+          );
+        }
+      }
+      // 4 — dynamic-bin spawn (production only; the spawn helper + benches +
+      // fail-closed CI tooling + the tests/ tree are exempt)
+      if (!SPAWN_HELPER_RE.test(file) && !isBench && !isCiTooling && !isUnderTests) {
+        for (const m of src.matchAll(DYNAMIC_SPAWN_RE)) {
+          record(
+            file,
+            raw,
+            m.index,
+            'dynamic-spawn: a resolved command bin must route through runCommandSync/spawnCommandSync',
+          );
+        }
+      }
+    } else {
+      // 3 — leaked SQLite handle in test teardown.
+      //
+      // `new EventStore(dir)` is lazy — the `exarchos.db` handle only opens on
+      // the first append/query/read. So flag only files that BOTH construct AND
+      // *exercise* the store (otherwise no handle, no leak). A teardown is
+      // considered safe if it uses the Windows-safe helper (`rmrf`/`rmrfAsync`),
+      // closes the store (`.close()`), or rides out the lock with retries
+      // (`maxRetries`) — any of which the green windows-latest run accepts.
+      const exercisesStore =
+        /\bnew\s+EventStore\s*\(/.test(src) &&
+        /\.(?:append|appendValidated|batchAppend|query|queryByType|getReadBackend|ensureSqliteBackend)\s*\(/.test(
+          src,
+        );
+      const safe =
+        /\brmrf(?:Async)?\b/.test(src) ||
+        /\.close\s*\(/.test(src) ||
+        /\bmaxRetries\b/.test(src);
+      if (exercisesStore && !safe) {
+        for (const m of src.matchAll(RECURSIVE_RM_RE)) {
+          record(
+            file,
+            raw,
+            m.index,
+            'handle-leak: close the store or use rmrf/rmrfAsync (or maxRetries) before rm',
+          );
+        }
+      }
+    }
+  }
+
+  if (violations.length > 0) {
+    process.stderr.write(
+      `Windows-portability gate: ${violations.length} violation(s):\n` +
+        violations.map((v) => `  ${v}`).join('\n') +
+        '\n',
+    );
+    return 1;
+  }
+  process.stdout.write('Windows-portability gate: clean.\n');
+  return 0;
+}
+
+process.exit(main());
