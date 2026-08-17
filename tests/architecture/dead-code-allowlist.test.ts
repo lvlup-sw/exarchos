@@ -51,8 +51,17 @@ function walkHasTs(dir: string): boolean {
  *
  * Four OTHER findings surfaced by the same widening were deleted rather than
  * exempted, which is why this is +8 and not +12.
+ *
+ * 113 → 114 (PR #1817 bridge shim fix, bc716ff8). The install-skills bridge
+ * consumes `loadAllRuntimes` via `src/install/runtimes/load.js`, a `.js` →
+ * `.ts` re-export shim. knip does not follow the shim's re-export chain back
+ * through the bridge's `.js` importer (the bridge is `.js` to keep tsc
+ * (allowJs: false) away while bun's `--compile` still follows it). The bridge
+ * is the only live consumer of the symbol; the exemption's expiry forces a
+ * re-decision when the bridge moves to a `.ts` source or the `.js` import chain
+ * becomes visible to knip.
  */
-const ALLOWLIST_BUDGET = 113;
+const ALLOWLIST_BUDGET = 114;
 
 /** Reasons that are not reasons. A rationale matching any of these is a stub. */
 const STUB_RATIONALE = /^(n\/?a|tbd|todo|fixme|wip|unused|dead|legacy|see above|\?+|-+)\.?$/i;
