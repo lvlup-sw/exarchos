@@ -40,6 +40,10 @@ import {
 } from '../../../src/events/event-registration.js';
 import { eventDeclarations, isEventRegistration } from '../../../src/events/event-declarations.js';
 import {
+  bootResolvedWelds,
+  staleCoverEligibleWelds,
+} from '../../../src/events/registration-validate.js';
+import {
   ANNOTATED_EVENTS,
   EVENT_ANNOTATIONS,
   reportCoupledEventTypes,
@@ -223,6 +227,74 @@ describe('EventAnnotations — the DR-2 tier and lifecycle assignment for the ev
     expect(cutoverReady).toBeDefined();
     expect(cutoverReady!.tier).toBe('capability');
     expect(cutoverReady).not.toEqual(registration);
+  });
+
+  it('EmissionViolation_SubstrateTier_CarriesOperationRecordRationale', () => {
+    // The post-dispatch verifier's report that a handler completed an operation without an
+    // event its own registration declares unconditionally. The code that detects the miss owns
+    // the append of the finding, which is the whole of the claim `substrate`/`operation-record`
+    // makes — no provider, no consumer, no gate.
+    const VIOLATION = 'emission.violated';
+
+    // Read through the PORT, not the table literal — the port is what `schemas.ts` derives the
+    // emission registry through, so an annotation the port cannot resolve is one the derivation
+    // cannot see either.
+    const registration = ANNOTATED_EVENTS.registrationOf(VIOLATION);
+    expect(registration, `${VIOLATION} carries no annotation`).toBeDefined();
+    expect(registration).toEqual({
+      lifecycle: 'active',
+      tier: 'substrate',
+      rationale: 'operation-record',
+    });
+
+    // The weld has to RESOLVE, not merely be spelled. An empty ref would mean a registration
+    // that named a tier and nothing else.
+    expect(weldReferenceOf(registration!).ref.trim().length).toBeGreaterThan(0);
+
+    // The consequence that reaches the rest of the system: the derived registry classifies it
+    // `auto`. The verifier appends its own finding, so no model is ever asked to report that
+    // Exarchos dropped an emission — which is a record the party at fault would be writing.
+    expect(EVENT_EMISSION_REGISTRY[VIOLATION]).toBe('auto');
+
+    // NOT report-coupled. A violation report in the model-emitted set would be a bug report the
+    // model could decline to file, and the one thing a missed-emission check cannot tolerate is
+    // a missed emission of its own.
+    const reportCoupled = reportCoupledEventTypes(EventTypes);
+    expect(reportCoupled.length, 'the report-coupled census is empty — it cannot discriminate')
+      .toBeGreaterThan(0);
+    expect(reportCoupled).not.toContain(VIOLATION);
+
+    // ── The rationale is the subject, so it has to be capable of being wrong ──
+    //
+    // `substrate` is the most populated tier in the table, so asserting it alone proves nearly
+    // nothing. A sibling welded `substrate` for a DIFFERENT reason reads back with a different
+    // rationale, which is what stops the equality above from being satisfied by any substrate
+    // row at all.
+    expect(ANNOTATED_EVENTS.registrationOf('workflow.started')).toEqual({
+      lifecycle: 'active',
+      tier: 'substrate',
+      rationale: 'transition-record',
+    });
+
+    // ── The tier's operative consequence, asserted against a non-empty population ──
+    //
+    // `substrate` keeps this registration OUT of the boot-resolved weld set, and therefore out
+    // of the stale-cover population the boot gate ranges over. That is the honest reading and
+    // not a dodge: the finding is read by whoever investigates the bug, and reading is not
+    // folding — there is no reducer, view or telemetry surface to name as a `ConsumerId`.
+    //
+    // Guarded against vacuity in both directions, because "absent from a set" is the classic
+    // assertion that passes by the set being empty or by the check having stopped running: the
+    // population is asserted non-empty AND asserted to contain a known capability event, so a
+    // resolver that returned nothing would fail here rather than agree.
+    const welds = bootResolvedWelds();
+    const eligible = staleCoverEligibleWelds(welds);
+    const boundTypes = welds.map((w) => w.eventType);
+    expect(boundTypes.length, 'the boot-resolved weld set is empty — it cannot discriminate')
+      .toBeGreaterThan(0);
+    expect(boundTypes).toContain('task.completed');
+    expect(boundTypes).not.toContain(VIOLATION);
+    expect(eligible.map((w) => w.eventType)).not.toContain(VIOLATION);
   });
 
   it('EventAnnotations_SeededTierSourceDisagreement_IsReported', () => {

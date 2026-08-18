@@ -531,6 +531,17 @@ export const EventTypes = [
   // readiness fact for the effect would make "allowed to promote" and "promoted"
   // the same row.
   'promotion.executed',
+  // The emission-violation report — the durable record that a handler finished
+  // an operation without appending an event its own registration declares
+  // unconditionally. The post-dispatch verifier appends it; a violation is an
+  // Exarchos bug rather than agent misbehavior, which is why it is a recorded
+  // fact and not a thrown error the caller sees.
+  //
+  // It has to exist as a NAME in the catalog before anything can report through
+  // it. A verifier that discovered a missed emission and had nowhere to write
+  // the finding would be an assertion whose only output is a log line, and the
+  // whole point of the check is that the miss survives the run that found it.
+  'emission.violated',
   // Phase-gate v2.12 proof substrate (DR-2 / DR-3). These are additive,
   // internal replay contracts only. They are classified `planned` below:
   // v2.12 does not expose admission actions, authorize generic appends, or
@@ -3223,6 +3234,49 @@ export const PromotionExecutedData = z.object({
     ),
 });
 
+// ─── Emission-violation report ──────────────────────────────────────────────
+//
+// The durable finding that a handler completed an operation without appending
+// an event its own registration declares unconditionally. The post-dispatch
+// verifier is the only writer, and the fault it reports is ours: the handler
+// promised an emission the dispatch chain then failed to observe.
+//
+// Registered ahead of the verifier that appends it, because a check with
+// nowhere to write its finding degrades to a log line — the miss has to
+// outlive the run that noticed it or the whole assertion is unfalsifiable
+// after the fact.
+
+/**
+ * `emission.violated` — an operation finished with declared emissions unlanded.
+ *
+ * The payload has to answer all three of WHICH operation, WHAT it was supposed
+ * to emit, and WHICH RUN it happened on, because a report naming only the
+ * action is unactionable: the same action can declare several emissions, and
+ * "this action missed something" does not say which contract broke or let a
+ * reader join the finding back to the surrounding events of that dispatch.
+ *
+ * `missingEvents` is the FULL set rather than the first miss. Reporting one
+ * name per violation would turn a handler that dropped three emissions into a
+ * finding that reads as though it dropped one, and each repair would reveal the
+ * next — the shape that makes a fault look smaller every time it is examined.
+ */
+export const EmissionViolatedData = z.object({
+  action: z
+    .string()
+    .min(1)
+    .describe('The dispatched action whose handler completed without its declared emissions'),
+  missingEvents: z
+    .array(z.string().min(1))
+    .min(1)
+    .describe(
+      'Every unconditionally declared event name that did not land — the full set, not the first miss',
+    ),
+  operationId: z
+    .string()
+    .min(1)
+    .describe('Identifier of the dispatch operation the verifier assessed, joining this finding to that run'),
+});
+
 // ─── Durable projection-health state (DR-4, wiring-closure T-06) ────────────
 //
 // The cursor/tail freshness verdict, made durable. `projections/freshness.ts`
@@ -3822,6 +3876,9 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   // The atomic tree-promotion record.
   'promotion.executed': PromotionExecutedData,
 
+  // The emission-violation report.
+  'emission.violated': EmissionViolatedData,
+
   // DR-4 (wiring-closure T-06) — durable projection-health state.
   'projection.degraded': ProjectionDegradedData,
   'projection.recovered': ProjectionRecoveredData,
@@ -4007,6 +4064,9 @@ export type VcsCompensated = z.infer<typeof VcsCompensatedData>;
 // The atomic tree-promotion record.
 export type PromotionExecuted = z.infer<typeof PromotionExecutedData>;
 
+// The emission-violation report.
+export type EmissionViolated = z.infer<typeof EmissionViolatedData>;
+
 // DR-4 (wiring-closure T-06) — durable projection-health state.
 export type ProjectionDegraded = z.infer<typeof ProjectionDegradedData>;
 export type ProjectionRecovered = z.infer<typeof ProjectionRecoveredData>;
@@ -4164,6 +4224,8 @@ export type EventDataMap = {
   'vcs.compensated': VcsCompensated;
   // The atomic tree-promotion record.
   'promotion.executed': PromotionExecuted;
+  // The emission-violation report.
+  'emission.violated': EmissionViolated;
 
   // DR-4 (wiring-closure T-06) — durable projection-health state.
   'projection.degraded': ProjectionDegraded;
