@@ -566,7 +566,12 @@ describe('EventTypes', () => {
     // record. Unlike the ledger triad this one was not registered anywhere at
     // all: the commit rename that makes a whole staged tree visible at once left
     // no trace in the catalog.
-    expect(EventTypes).toHaveLength(175);
+    //
+    // Bumped 175 → 176 for `emission.violated`, the post-dispatch verifier's
+    // report that a handler completed without an event its own registration
+    // declares unconditionally. Also new: the catalog held no contract-violation
+    // name at all, so a detected miss had nowhere durable to land.
+    expect(EventTypes).toHaveLength(176);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');

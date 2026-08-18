@@ -102,6 +102,8 @@ import {
   VcsCompensatedData,
   // The atomic tree-promotion record.
   PromotionExecutedData,
+  // The emission-violation report.
+  EmissionViolatedData,
   AdmissionCutoverReadyData,
   type WorkflowEvent,
 } from '../../../src/events/schemas.js';
@@ -673,7 +675,12 @@ describe('EventTypes', () => {
     //   This one genuinely is new — the promoting code names its effect in a
     //   typed plan and then performs it, and no event recorded that the commit
     //   rename happened.
-    expect(EventTypes).toHaveLength(175);
+    // Bumped 175 → 176: emission.violated, the report the post-dispatch
+    //   verifier appends when a handler finishes without an emission its own
+    //   registration declares unconditionally. No contract-violation name of any
+    //   kind existed in the catalog, so the check had nowhere to write a finding
+    //   that survived the run.
+    expect(EventTypes).toHaveLength(176);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');
@@ -4281,8 +4288,10 @@ describe('WLM operational-core merge lease schemas', () => {
     // VCS mutation ledger triad vcs.requested / vcs.executed / vcs.compensated,
     // lifted out of the runtime registration seam into the catalog (171 → 174),
     // plus promotion.executed — the atomic tree-promotion record, which no seam
-    // registered anywhere (174 → 175).
-    expect(EventTypes).toHaveLength(175);
+    // registered anywhere (174 → 175), plus emission.violated — the
+    // post-dispatch verifier's report of a declared emission that did not land
+    // (175 → 176).
+    expect(EventTypes).toHaveLength(176);
     // No duplicate slipped in while bumping the count.
     expect(new Set(EventTypes).size).toBe(EventTypes.length);
   });
@@ -4442,6 +4451,84 @@ describe('WLM operational-core merge lease schemas', () => {
     expect(EventTypes).toContain('admission.cutover-ready');
     expect(EVENT_DATA_SCHEMAS[PROMOTION]).not.toBe(EVENT_DATA_SCHEMAS['admission.cutover-ready']);
     expect(() => AdmissionCutoverReadyData.parse(payload)).toThrow();
+  });
+
+  it('EmissionViolation_Registered_CarriesActionAndMissingSet', () => {
+    // The catalog held no contract-violation name of any kind before this, so the
+    // post-dispatch verifier had nowhere to write a finding that outlived the run
+    // that produced it. The registration is what turns "a check that logs" into
+    // "a check that leaves evidence".
+    const VIOLATION = 'emission.violated';
+
+    // ── Registered, with everything registration is supposed to buy ──
+    expect(EventTypes).toContain(VIOLATION);
+    expect(isBuiltInEventType(VIOLATION), `${VIOLATION} is not a built-in event type`).toBe(true);
+    expect(getValidEventTypes()).toContain(VIOLATION);
+    expect(EVENT_DATA_SCHEMAS[VIOLATION], `${VIOLATION} has no data schema`).toBeDefined();
+    expect(serializeEventCatalog().types[VIOLATION]).toEqual({
+      source: 'auto',
+      isBuiltIn: true,
+      hasSchema: true,
+    });
+
+    // ── The payload answers WHICH operation, WHAT was missed, and WHICH RUN ──
+    const report = {
+      action: 'exarchos_workflow.transition',
+      missingEvents: ['workflow.transition', 'phase.blocked'],
+      operationId: 'op-8f21c4',
+    };
+    expect(EmissionViolatedData.parse(report)).toEqual(report);
+
+    // THE SUBJECT OF THIS TEST. A report naming only the action is not a report:
+    // one action can declare several emissions, so "this action missed
+    // something" names a suspect and no evidence. Both of the other two fields
+    // are required for the same reason and each is asserted separately, so a
+    // schema that dropped one and kept the other still fails here.
+    expect(() => EmissionViolatedData.parse({ action: report.action })).toThrow();
+    expect(() =>
+      EmissionViolatedData.parse({ action: report.action, operationId: report.operationId }),
+    ).toThrow();
+    expect(() =>
+      EmissionViolatedData.parse({ action: report.action, missingEvents: report.missingEvents }),
+    ).toThrow();
+
+    // The missing set is a SET OF NAMES, and an empty one is refused rather than
+    // accepted as a violation with nothing missing. Accepting `[]` would let the
+    // verifier record a clean run as a violation and a violation as a clean run
+    // with equal validity, which is the one distinction the event exists to make.
+    expect(() => EmissionViolatedData.parse({ ...report, missingEvents: [] })).toThrow();
+    expect(() => EmissionViolatedData.parse({ ...report, missingEvents: [''] })).toThrow();
+
+    // FULL, not first. A handler that dropped three emissions has to read as
+    // three; truncating to the first would make each repair uncover the next and
+    // the fault look smaller every time anyone looked at it.
+    const three = {
+      ...report,
+      missingEvents: ['vcs.requested', 'vcs.executed', 'promotion.executed'],
+    };
+    expect(EmissionViolatedData.parse(three).missingEvents).toEqual(three.missingEvents);
+
+    // Empty strings are refused on the scalars too — "unknown" recorded as ''
+    // reads downstream as a field that was populated.
+    expect(() => EmissionViolatedData.parse({ ...report, action: '' })).toThrow();
+    expect(() => EmissionViolatedData.parse({ ...report, operationId: '' })).toThrow();
+
+    // ── Not a passthrough ──
+    //
+    // The block above is only meaningful if this schema rejects things at all
+    // rather than accepting whatever it is handed. A neighbouring registered
+    // payload from the same section of the catalog is refused, and this one is
+    // refused by it — so the contract is specific to the violation report and the
+    // two rows do not describe each other.
+    const promotionPayload = {
+      target: '/tmp/exarchos-skills',
+      treeDigest: 'sha256-abc',
+      owner: 'install/atomic-promotion',
+      recoveredPriorAttempt: false,
+    };
+    expect(() => EmissionViolatedData.parse(promotionPayload)).toThrow();
+    expect(() => PromotionExecutedData.parse(report)).toThrow();
+    expect(EVENT_DATA_SCHEMAS[VIOLATION]).not.toBe(EVENT_DATA_SCHEMAS['promotion.executed']);
   });
 
   it('WorktreeMergeEvents_ClassificationMaps_Exhaustive', () => {

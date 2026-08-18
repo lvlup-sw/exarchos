@@ -447,6 +447,19 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
   // and `consumedBy` is a non-empty tuple precisely so that "declared a
   // capability, consumed by nobody" cannot be written down.
   'promotion.executed': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
+  // The emission-violation report, measured the same way. The post-dispatch
+  // verifier detects the miss and appends the finding in the same pass — the
+  // code performing the check owns the record of it, and no handler is asked to
+  // report its own broken emission contract.
+  //
+  // `capability` is unavailable for the familiar structural reason, and it is
+  // worth being exact about which half is absent here, because this one is
+  // easily misread as coupled: the finding is READ — by whoever investigates the
+  // bug it reports — but reading is not folding. No reducer, view or telemetry
+  // surface turns a violation into state any code path depends on, so there is
+  // no `ConsumerId` to name, and `consumedBy` is a non-empty tuple precisely so
+  // that "a human will look at it" cannot be written down as a consumer.
+  'emission.violated': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
 
   // ── Capability — an effect provider appends it, and named consumers fold it ──
   //

@@ -1147,6 +1147,12 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       // staged tree landed and what digest now lives there. No field of it is a
       // fact about a workflow, so there is nothing here for it to fold into.
       case 'promotion.executed':
+      // The emission-violation report is a finding about the dispatch chain, not
+      // a fact about the work the dispatch was doing. Folding it here would put
+      // "Exarchos has a bug" into a workflow's projected state, where a caller
+      // asking about phase or task progress would read it as something the
+      // workflow did.
+      case 'emission.violated':
         return view;
 
       // ── Exhaustiveness guard (#1554 guard (a)) ─────────────────────────
