@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import type { ProjectConfig } from '../../../src/config/yaml-schema.js';
-import { resolveConfig, DEFAULTS } from '../../../src/config/resolve.js';
+import {
+  resolveConfig,
+  DEFAULTS,
+  EMISSION_ENFORCEMENT_FALLBACK,
+  resolveEmissionEnforcement,
+} from '../../../src/config/resolve.js';
+import { emissionViolationBlocks } from '../../../src/dispatch/core/interceptors/emission-verifier.js';
 
 describe('resolveConfig', () => {
   it('resolveConfig_NoStorageBlock_DefaultsSynchronousNormal', () => {
@@ -475,6 +481,65 @@ describe('resolveConfig', () => {
       expect(Object.isFrozen(project.verification!.policy!.boundary)).toBe(false);
       cells.push('check_test_adequacy');
       expect(cells).toHaveLength(2);
+    });
+  });
+
+  describe('emission enforcement', () => {
+    it('EmissionEnforcement_CiAndDev_DefaultToFailing', () => {
+      // One default, not a per-environment pair. A mode that only bit in CI
+      // would mean the run most likely to catch the drift early is the one
+      // that never fails.
+      const original = process.env.CI;
+      try {
+        for (const ci of ['true', 'false', undefined]) {
+          if (ci === undefined) delete process.env.CI;
+          else process.env.CI = ci;
+
+          expect(resolveConfig({}).events.emissionEnforcement).toBe('block');
+        }
+      } finally {
+        if (original === undefined) delete process.env.CI;
+        else process.env.CI = original;
+      }
+
+      expect(DEFAULTS.events.emissionEnforcement).toBe('block');
+
+      // And the key is real: an operator can still opt out explicitly.
+      expect(
+        resolveConfig({ events: { 'emission-enforcement': 'advisory' } }).events
+          .emissionEnforcement,
+      ).toBe('advisory');
+    });
+
+    it('EmissionEnforcement_NoProjectConfig_UsesTheStatedFallback', () => {
+      // `initializeContext` returns without a `projectConfig` when no
+      // `projectRoot` is supplied, so the resolved default never applies on
+      // that path. The fallback is stated rather than inherited — and it does
+      // not go lenient just because no config file was found.
+      expect(resolveEmissionEnforcement(undefined)).toBe(EMISSION_ENFORCEMENT_FALLBACK);
+      expect(EMISSION_ENFORCEMENT_FALLBACK).toBe('block');
+      expect(EMISSION_ENFORCEMENT_FALLBACK).toBe(DEFAULTS.events.emissionEnforcement);
+
+      const violated = {
+        status: 'violated',
+        missingEvents: ['workflow.started'],
+        lifecycleViolations: [],
+        required: ['workflow.started'],
+      } as const;
+
+      // No config at all still blocks.
+      expect(emissionViolationBlocks(violated, undefined)).toBe(true);
+      // An explicit opt-out is still honoured.
+      expect(
+        emissionViolationBlocks(violated, resolveConfig({ events: { 'emission-enforcement': 'advisory' } })),
+      ).toBe(false);
+      // A question that was never asked never blocks, under any mode.
+      expect(
+        emissionViolationBlocks(
+          { status: 'not-applicable', reason: 'no-stream', missingEvents: [], lifecycleViolations: [], required: ['x'] },
+          undefined,
+        ),
+      ).toBe(false);
     });
   });
 });

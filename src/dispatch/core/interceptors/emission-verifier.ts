@@ -70,6 +70,18 @@
  * unknown registration is an unanswered question, and it already has its own
  * diagnostic — treating it as a fault here would double-report it under a name
  * that does not describe it.
+ *
+ * ── Enforcement is a mode, and the no-config path states its own ────────────
+ *
+ * Whether a violation blocks is `events.emission-enforcement`, resolved once
+ * from `.exarchos.yml`. `block` is the default and does not vary by
+ * environment.
+ *
+ * `initializeContext` returns without a `projectConfig` whenever no
+ * `projectRoot` is supplied — the CLI cold start, and most tests. On that path
+ * the resolved default is never consulted at all, so this interceptor names the
+ * mode it uses instead of inheriting a default that cannot reach it. Both land
+ * on `block`: the absence of a config file is not an opt-out of enforcement.
  */
 
 import type { EventStore } from '../../../events/store.js';
@@ -78,6 +90,11 @@ import type {
   EventLifecycle,
   EventRegistration,
 } from '../../../events/event-registration.js';
+import {
+  resolveEmissionEnforcement,
+  type EmissionEnforcementMode,
+  type ResolvedProjectConfig,
+} from '../../../config/resolve.js';
 // Via the published `registry.js` identity, not `registry/gate-metadata.js`:
 // the dispatch layer reaches the declarations through the barrel every other
 // consumer uses, and the layer-boundary audit holds it to that.
@@ -282,6 +299,22 @@ export function verifyDeclaredEmissions(input: {
     : { status: 'violated', missingEvents, lifecycleViolations: lifecycle, required };
 }
 
+/**
+ * Whether this verdict should FAIL the run, given the config that was resolved
+ * — or the absence of one.
+ *
+ * Total over both arguments. A `not-applicable` verdict never blocks under any
+ * mode: it is the record of a question that was not asked, and failing on it
+ * would make "we could not check" indistinguishable from "we checked and it was
+ * wrong".
+ */
+export function emissionViolationBlocks(
+  verdict: EmissionVerdict,
+  config?: Pick<ResolvedProjectConfig, 'events'>,
+): boolean {
+  return verdict.status === 'violated' && resolveEmissionEnforcement(config) === 'block';
+}
+
 // ─── Interceptor entry point ────────────────────────────────────────────────
 
 export interface EmissionVerifierCall {
@@ -297,6 +330,12 @@ export interface EmissionVerifierCall {
   readonly declared: readonly AutoEmission[] | undefined;
   /** Registration table for the lifecycle axis. Injectable for tests. */
   readonly annotations?: Readonly<Record<string, EventRegistration>>;
+  /**
+   * The resolved project config, when one was resolved at all. Absent on the
+   * no-`projectRoot` path — see the header; the fallback is stated, not
+   * inherited.
+   */
+  readonly projectConfig?: Pick<ResolvedProjectConfig, 'events'>;
 }
 
 /**
@@ -374,16 +413,21 @@ export async function runEmissionVerifierInterceptor(
         { idempotencyKey: `emission.violated:${call.operationId}` },
       );
     }
-    verifierLogger.warn(
-      {
-        tool: call.tool,
-        action: call.action,
-        operationId: call.operationId,
-        missingEvents: verdict.missingEvents,
-        lifecycleViolations: verdict.lifecycleViolations,
-      },
-      'declared emissions did not land: the handler and its registration have drifted',
-    );
+    // The mode changes how loudly this reads, never whether it was recorded: a
+    // finding suppressed to keep an advisory run quiet is a finding lost.
+    const enforcement: EmissionEnforcementMode = resolveEmissionEnforcement(call.projectConfig);
+    const report = {
+      tool: call.tool,
+      action: call.action,
+      operationId: call.operationId,
+      missingEvents: verdict.missingEvents,
+      lifecycleViolations: verdict.lifecycleViolations,
+      enforcement,
+    };
+    const message =
+      'declared emissions did not land: the handler and its registration have drifted';
+    if (enforcement === 'block') verifierLogger.error(report, message);
+    else verifierLogger.warn(report, message);
     return verdict;
   } catch (err) {
     verifierLogger.warn(
