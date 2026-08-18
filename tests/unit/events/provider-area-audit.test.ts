@@ -1,14 +1,13 @@
 /**
- * The provider-area audit: does a registration's `provider` name the area its
- * event is actually appended from?
+ * The provider-area audit, over the real tree.
  *
- * The baseline below is a MEASUREMENT, not a suppression list. The audit keeps
- * reporting every one of these on every run; this file only pins what the tree
- * looks like today so the set cannot grow unnoticed. That distinction is the
- * whole reason it lives here and not beside the policy: a disposition table in
- * `src/` would make the findings disappear, and the check would then have to be
- * unwound before it could ever be promoted to blocking — which is exactly the
- * position the emission-coupling diagnostics are stuck in.
+ * The two baselines below are MEASUREMENTS, not suppression lists. The audit
+ * keeps reporting every entry on every run; this file only pins what the tree
+ * looks like today so neither set can grow unnoticed. That distinction is why
+ * they live here and not beside the policy: a disposition table in `src/` makes
+ * findings disappear, and would then have to be unwound before the check could
+ * be promoted to blocking — which is exactly where the emission-coupling
+ * diagnostics are stuck.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -23,39 +22,42 @@ import { scanEvidenceEmission } from '../../../tools/test-helpers/evidence-emiss
 const SOURCE_ROOT = join(process.cwd(), 'src');
 
 /**
- * Every provider-area mismatch in the tree today, `event → the areas it is
- * appended from`.
+ * Definite faults: the append lands inside an area owned by a provider other
+ * than the one annotated, so exactly one of the two claims is false.
  *
- * SHRINK-ONLY. An entry leaves when the append moves into the declared area, or
- * when the annotation is corrected to name the area that actually appends.
- * Adding one is a deliberate act that fails here first.
- *
- * Four groups, and they do not have the same remedy:
- *   • `tasks/`, `stack/`, `runtime/`, `review/`, `lifecycle/` — appends from
- *     areas NO provider governs, so no annotation can be right.
- *   • `projections/telemetry/` — the dispatch wrapper, which is not an action
- *     and has no provider of its own.
- *   • `workflow/compensation.ts` on two worktree events — a governed area, but
- *     not the one the annotation names.
- *   • `gate.executed` — genuinely appended from two areas, which the
- *     tool-against-tool comparison cannot express at all.
+ * SHRINK-ONLY. Both are worktree lifecycle events annotated
+ * `exarchos_orchestrate` (`verbs/`) and appended by the saga compensation path
+ * in `workflow/` — the area `exarchos_workflow` owns. No existing check reports
+ * them: the tool-against-tool comparison cannot see an append site at all.
  */
-const MEASURED_MISMATCHES: Readonly<Record<string, readonly string[]>> = Object.freeze({
-  'gate.executed': ['projections/telemetry/middleware.ts'],
-  'launch.executed': ['runtime/launcher/liveness.ts'],
-  'launch.executing_started': ['runtime/launcher/liveness.ts'],
-  'review.routed': ['review/tools.ts'],
-  'stack.position-filled': ['stack/tools.ts'],
-  'subagent.tokens_used': ['lifecycle/subagent-stop.ts'],
-  'task.claimed': ['tasks/tools.ts'],
-  'task.completed': ['tasks/tools.ts'],
-  'task.failed': ['tasks/tools.ts'],
-  'tool.action_errored': ['projections/telemetry/middleware.ts'],
-  'tool.completed': ['projections/telemetry/middleware.ts'],
-  'tool.errored': ['projections/telemetry/middleware.ts'],
-  'worktree.adopted': ['workflow/compensation.ts'],
-  'worktree.remove.executed': ['workflow/compensation.ts'],
-});
+const MEASURED_CONTRADICTIONS: readonly string[] = Object.freeze([
+  'worktree.adopted -> workflow/compensation.ts (owned by exarchos_workflow)',
+  'worktree.remove.executed -> workflow/compensation.ts (owned by exarchos_workflow)',
+]);
+
+/**
+ * The structural gap: appends from areas NO provider owns, so no annotation
+ * over the current vocabulary could be right.
+ *
+ * SHRINK-ONLY, and this is the number the emission model has to answer for.
+ * Four kinds sit here — the dispatch wrapper (`projections/telemetry/`), the
+ * process hooks (`lifecycle/`, `runtime/launcher/`), and two ordinary handler
+ * trees that simply have no provider (`tasks/`, `stack/`, `review/`).
+ */
+const MEASURED_UNGOVERNED: readonly string[] = Object.freeze([
+  'gate.executed -> projections/telemetry/middleware.ts',
+  'launch.executed -> runtime/launcher/liveness.ts',
+  'launch.executing_started -> runtime/launcher/liveness.ts',
+  'review.routed -> review/tools.ts',
+  'stack.position-filled -> stack/tools.ts',
+  'subagent.tokens_used -> lifecycle/subagent-stop.ts',
+  'task.claimed -> tasks/tools.ts',
+  'task.completed -> tasks/tools.ts',
+  'task.failed -> tasks/tools.ts',
+  'tool.action_errored -> projections/telemetry/middleware.ts',
+  'tool.completed -> projections/telemetry/middleware.ts',
+  'tool.errored -> projections/telemetry/middleware.ts',
+]);
 
 /** A census carrying exactly the sites a test supplies. */
 function censusOf(modulesByEvent: Record<string, readonly string[]>): AppendSiteCensus {
@@ -66,20 +68,23 @@ function censusOf(modulesByEvent: Record<string, readonly string[]>): AppendSite
   };
 }
 
-const capability = (provider: string, lifecycle: 'active' | 'planned' = 'active'): EventRegistration =>
+const capability = (
+  provider: string,
+  lifecycle: 'active' | 'planned' = 'active',
+): EventRegistration =>
   ({ lifecycle, tier: 'capability', provider, consumedBy: ['workflow-state@v1'] }) as EventRegistration;
 
 describe('provider-area audit', () => {
-  it('ProviderArea_LiveTree_MatchesTheMeasuredBaseline', async () => {
+  it('ProviderArea_LiveTree_MatchesTheMeasuredBaselines', async () => {
     const census = await scanAppendSites(
       SOURCE_ROOT,
       scanEvidenceEmission,
       EVIDENCE_DISCRIMINANT_CONSTANTS,
     );
 
-    // THE DENOMINATORS FIRST. A scan that read nothing produces an empty
-    // finding set that is indistinguishable from a clean tree, so the
-    // population is asserted before any verdict drawn from it.
+    // THE DENOMINATORS FIRST. A scan that read nothing produces an empty finding
+    // set indistinguishable from a clean tree, so the population is asserted
+    // before any verdict drawn from it.
     expect(census.scannedModuleCount, 'the scan read no modules').toBeGreaterThan(500);
     expect(census.modulesByEvent.size, 'the scan resolved no append sites').toBeGreaterThan(50);
 
@@ -87,66 +92,77 @@ describe('provider-area audit', () => {
     expect(audit.subjectCount, 'no capability registration was assessed').toBeGreaterThan(40);
     expect(audit.measuredCount, 'no subject had a measured append site').toBeGreaterThan(25);
 
-    const found: Record<string, readonly string[]> = {};
-    for (const d of audit.diagnostics) found[d.event] = d.foreignModules;
-    expect(found).toEqual(MEASURED_MISMATCHES);
+    expect(
+      audit.contradictions
+        .map((d) => `${d.event} -> ${d.module} (owned by ${d.owningProvider})`)
+        .sort(),
+    ).toEqual([...MEASURED_CONTRADICTIONS].sort());
+
+    expect(audit.ungoverned.map((d) => `${d.event} -> ${d.module}`).sort()).toEqual(
+      [...MEASURED_UNGOVERNED].sort(),
+    );
   }, 120_000);
 
-  it('ProviderArea_AppendOutsideTheDeclaredArea_IsReported', () => {
-    // The kill probe. `exarchos_workflow` is area `workflow/`; the append is
-    // measured in `verbs/`, so the claim is false and must be named.
-    const audit = auditProviderAreas(
-      censusOf({ 'seeded.event': ['verbs/somewhere.ts'] }),
-      { 'seeded.event': capability('exarchos_workflow') },
-    );
+  it('ProviderArea_AppendInAnotherProvidersArea_IsAContradiction', () => {
+    // `exarchos_workflow` owns `workflow/`; the append is measured in `verbs/`,
+    // which `exarchos_orchestrate` owns. Both cannot own it.
+    const audit = auditProviderAreas(censusOf({ 'seeded.event': ['verbs/somewhere.ts'] }), {
+      'seeded.event': capability('exarchos_workflow'),
+    });
 
     expect(audit.ok).toBe(false);
-    expect(audit.diagnostics).toHaveLength(1);
-    expect(audit.diagnostics[0]?.event).toBe('seeded.event');
-    expect(audit.diagnostics[0]?.declaredArea).toBe('workflow/');
-    expect(audit.diagnostics[0]?.foreignModules).toEqual(['verbs/somewhere.ts']);
+    expect(audit.contradictions).toHaveLength(1);
+    expect(audit.contradictions[0]?.owningProvider).toBe('exarchos_orchestrate');
+    expect(audit.ungoverned).toEqual([]);
 
-    // ...and the same registration with the append INSIDE its area is clean,
-    // so the arm above is attributable to the area and not to the fixture.
-    const inside = auditProviderAreas(
-      censusOf({ 'seeded.event': ['workflow/somewhere.ts'] }),
-      { 'seeded.event': capability('exarchos_workflow') },
-    );
+    // The same registration with the append INSIDE its own area is clean, so
+    // the arm above is attributable to the area and not to the fixture.
+    const inside = auditProviderAreas(censusOf({ 'seeded.event': ['workflow/somewhere.ts'] }), {
+      'seeded.event': capability('exarchos_workflow'),
+    });
     expect(inside.ok).toBe(true);
+    expect(inside.contradictions).toEqual([]);
     expect(inside.measuredCount).toBe(1);
   });
 
+  it('ProviderArea_AppendOutsideEveryArea_IsUngovernedNotAFault', () => {
+    // A tool dispatches well beyond its own area, so an append in an
+    // unclaimed tree is NOT evidence the annotation is wrong. It is the absence
+    // of a claim, it must not fail the audit, and it must stay visible.
+    const audit = auditProviderAreas(censusOf({ 'seeded.event': ['tasks/tools.ts'] }), {
+      'seeded.event': capability('exarchos_orchestrate'),
+    });
+
+    expect(audit.contradictions).toEqual([]);
+    expect(audit.ok, 'an ungoverned append must not read as a contradiction').toBe(true);
+    expect(audit.ungoverned).toHaveLength(1);
+    expect(audit.ungoverned[0]?.module).toBe('tasks/tools.ts');
+  });
+
   it('ProviderArea_NoMeasuredSite_IsCountedNotReported', () => {
-    // Absence is a different answer from contradiction. An `active`
-    // registration the census could not place is counted so it stays visible,
-    // but it is NOT a mismatch: reporting it as one would put an unanswerable
-    // finding under the same name as an actionable one.
+    // Absence is a different answer from contradiction.
     const active = auditProviderAreas(censusOf({}), {
       'seeded.event': capability('exarchos_workflow'),
     });
-    expect(active.diagnostics).toEqual([]);
+    expect(active.contradictions).toEqual([]);
     expect(active.measuredCount).toBe(0);
     expect(active.unmeasured).toEqual([
       { event: 'seeded.event', declaredProvider: 'exarchos_workflow' },
     ]);
 
-    // A `planned` registration correctly has no emitter at all, so it is not
-    // even counted as unmeasured — that would report the lifecycle working.
+    // A `planned` registration correctly has no emitter, so it is not even
+    // counted as unmeasured — that would report the lifecycle working.
     const planned = auditProviderAreas(censusOf({}), {
       'seeded.event': capability('exarchos_workflow', 'planned'),
     });
     expect(planned.unmeasured).toEqual([]);
-    expect(planned.ok).toBe(true);
   });
 
   it('ProviderArea_UnresolvableProviderId_IsLeftToTheWeldGate', () => {
-    // An id naming no provider is the weld gate's finding. Reporting it here
-    // too would make an echo look like corroboration.
-    const audit = auditProviderAreas(
-      censusOf({ 'seeded.event': ['verbs/somewhere.ts'] }),
-      { 'seeded.event': capability('exarchos_not_a_tool') },
-    );
-    expect(audit.diagnostics).toEqual([]);
+    const audit = auditProviderAreas(censusOf({ 'seeded.event': ['verbs/somewhere.ts'] }), {
+      'seeded.event': capability('exarchos_not_a_tool'),
+    });
+    expect(audit.contradictions).toEqual([]);
     expect(audit.subjectCount).toBe(0);
   });
 });

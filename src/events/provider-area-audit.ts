@@ -1,36 +1,43 @@
 /**
- * Does a registration's `provider` name the area the event is actually
- * appended from?
+ * Is a registration's `provider` claim consistent with where the event is
+ * actually appended?
  *
- * ── The hole this closes ────────────────────────────────────────────────────
+ * ── What `provider` means, and what this may therefore conclude ─────────────
  *
- * `provider` is defined as the effect provider that APPENDS the event, and a
- * provider is a tool bound to an area of the tree (`exarchos_orchestrate →
- * verbs/`). The existing provider comparison checks the declared provider
- * against the DECLARING TOOL — one declaration against another — and never
- * looks at where the append happens.
+ * A provider's IDENTITY is its composite tool (`event-registration.ts` says so
+ * outright), and each provider is bound to the area whose filesystem effects it
+ * owns — `exarchos_orchestrate → verbs/`. A tool dispatches into modules well
+ * beyond its own area, so "the append is outside the declared provider's area"
+ * is NOT by itself a fault. `review.routed` is appended from `review/` by an
+ * action registered on `exarchos_orchestrate`; that is a tool reaching its own
+ * callee, not a wrong annotation.
  *
- * That leaves two failures indistinguishable from health. A provider naming the
- * wrong area produces no diagnostic at all. And a reported disagreement can be
- * "repaired" by adopting the declaring tool, which buys agreement while
- * asserting an append site that does not exist — the comparison agreeing with
- * itself rather than with the tree.
+ * So this audit deliberately does not draw that conclusion. It reports the two
+ * things the measurement can actually support:
  *
- * Measuring the append site makes the provider claim falsifiable against
- * something that is not another declaration.
+ *   • {@link ProviderAreaContradiction} — the append happens inside a DIFFERENT
+ *     provider's area. Two providers cannot both own one append, so exactly one
+ *     of the two claims is false. This is a fault.
+ *
+ *   • {@link UngovernedAppendArea} — the append happens in an area no provider
+ *     owns at all. Not a contradiction: it is the absence of a claim, and no
+ *     annotation over the current vocabulary could be right, because the
+ *     vocabulary has no name for that area. This is the structural gap, and it
+ *     is reported so its size is a number rather than an impression.
+ *
+ * Separating them matters because the remedies are opposites. A contradiction
+ * is repaired by correcting one side. An ungoverned append is repaired by
+ * widening the model or moving the append — and "fixing" it by picking whatever
+ * tool routes the call would assert an append site that does not exist, which
+ * is the comparison agreeing with itself rather than with the tree.
  *
  * ── Absence is its own answer ───────────────────────────────────────────────
  *
- * An event with no measured append site is NOT reported as a mismatch. It is
- * counted, separately, because the two readings have opposite remedies: a
- * `planned` registration correctly has no emitter, while an `active` one with
- * no measured site means either the census could not read the append or nothing
- * performs it. Folding those into the mismatch arm would put an unanswerable
- * finding next to an actionable one under the same name.
- *
- * The counts ride the result for the reason every denominator in this codebase
- * does: a check that examined nothing publishes exactly the shape of a check
- * that examined everything and found it clean.
+ * An event with no measured append site is counted, never reported as a fault.
+ * A `planned` registration correctly has no emitter; an `active` one with no
+ * measured site means either nothing performs it or the census could not read
+ * it. Both are unanswerable here and neither belongs beside an actionable
+ * finding under the same name.
  */
 
 import type { AppendSiteCensus } from './append-site-census.js';
@@ -41,16 +48,24 @@ import {
   type EffectProvider,
 } from '../contract/reachability/providers.js';
 
-/** The one fault this audit reports. */
-export interface ProviderAreaMismatch {
-  readonly code: 'PROVIDER_AREA_MISMATCH';
+/** The append lands inside an area a DIFFERENT provider owns. Exactly one claim is false. */
+export interface ProviderAreaContradiction {
+  readonly code: 'PROVIDER_AREA_CONTRADICTION';
   readonly event: string;
-  /** The provider the registration declares. */
   readonly declaredProvider: string;
-  /** The area that provider is bound to. */
-  readonly declaredArea: string;
-  /** Measured append modules that lie outside {@link declaredArea}. */
-  readonly foreignModules: readonly string[];
+  /** The module performing the append. */
+  readonly module: string;
+  /** The provider that owns the area the append is in. */
+  readonly owningProvider: string;
+  readonly message: string;
+}
+
+/** The append lands in an area no provider owns, so no annotation could be right. */
+export interface UngovernedAppendArea {
+  readonly code: 'UNGOVERNED_APPEND_AREA';
+  readonly event: string;
+  readonly declaredProvider: string;
+  readonly module: string;
   readonly message: string;
 }
 
@@ -61,29 +76,38 @@ export interface UnmeasuredEmission {
 }
 
 export interface ProviderAreaAuditResult {
-  /** No capability registration names an area its event is appended outside of. */
+  /** No contradiction was found. Ungoverned appends do NOT clear this flag — see below. */
   readonly ok: boolean;
   /** Capability registrations with a resolvable provider — the SUBJECT population. */
   readonly subjectCount: number;
   /** Of those, how many the census measured at least one append site for. */
   readonly measuredCount: number;
-  /** `active` subjects with no measured append site. Counted, never a mismatch. */
   readonly unmeasured: readonly UnmeasuredEmission[];
-  readonly diagnostics: readonly ProviderAreaMismatch[];
+  /** Definite faults: one of the two claims is false. */
+  readonly contradictions: readonly ProviderAreaContradiction[];
+  /**
+   * The structural gap, reported rather than judged. Kept OFF {@link ok} on
+   * purpose: an ungoverned append is not something the annotator did wrong, and
+   * failing on it would demand a repair the vocabulary cannot express.
+   */
+  readonly ungoverned: readonly UngovernedAppendArea[];
 }
 
-/** The area a provider id is bound to, or `undefined` when the id resolves to no provider. */
-function areaOf(
-  provider: string,
+/** The provider that owns the area `module` sits in, if any. */
+function owningProviderOf(
+  module: string,
   providers: readonly EffectProvider[],
-): string | undefined {
-  return providers.find((entry) => entry.tool === provider)?.area;
+): EffectProvider | undefined {
+  // Longest area first, so `projections/views/` wins over a hypothetical
+  // `projections/` rather than depending on declaration order.
+  return [...providers]
+    .sort((a, b) => b.area.length - a.area.length)
+    .find((provider) => module.startsWith(provider.area));
 }
 
 /**
- * Compare every capability registration's declared provider area against the
- * measured append sites for its event. Pure and total: returns a verdict,
- * never throws.
+ * Compare every capability registration's provider against the measured append
+ * sites for its event. Pure and total: returns a verdict, never throws.
  *
  * Every population is a parameter with a live default, following the rest of
  * this layer: an audit that could only read one hard-wired input could not be
@@ -94,18 +118,18 @@ export function auditProviderAreas(
   annotations: Readonly<Record<string, EventRegistration>> = EVENT_ANNOTATIONS,
   providers: readonly EffectProvider[] = EFFECT_PROVIDERS,
 ): ProviderAreaAuditResult {
-  const diagnostics: ProviderAreaMismatch[] = [];
+  const contradictions: ProviderAreaContradiction[] = [];
+  const ungoverned: UngovernedAppendArea[] = [];
   const unmeasured: UnmeasuredEmission[] = [];
   let subjectCount = 0;
   let measuredCount = 0;
 
   for (const [event, registration] of Object.entries(annotations)) {
     if (registration.tier !== 'capability') continue;
-    const declaredArea = areaOf(registration.provider, providers);
-    // An id that resolves to no provider is the weld gate's fault to report,
-    // not this one's. Two checks naming the same defect make the second look
-    // like corroboration when it is an echo.
-    if (declaredArea === undefined) continue;
+    const declared = providers.find((entry) => entry.tool === registration.provider);
+    // An id naming no provider is the weld gate's finding. Reporting it here as
+    // well would make an echo look like corroboration.
+    if (declared === undefined) continue;
     subjectCount += 1;
 
     const modules = census.modulesByEvent.get(event) ?? [];
@@ -117,32 +141,48 @@ export function auditProviderAreas(
     }
     measuredCount += 1;
 
-    const foreignModules = modules.filter((module) => !module.startsWith(declaredArea));
-    if (foreignModules.length === 0) continue;
-
-    diagnostics.push({
-      code: 'PROVIDER_AREA_MISMATCH',
-      event,
-      declaredProvider: registration.provider,
-      declaredArea,
-      foreignModules,
-      message:
-        `event '${event}' is registered with provider '${registration.provider}', whose area is ` +
-        `'${declaredArea}', but it is appended from ${foreignModules.map((m) => `'${m}'`).join(', ')}. ` +
-        'A provider names the effect area that performs the append, so one of the two is wrong: ' +
-        'either the annotation names the wrong provider, or the append belongs in the area the ' +
-        'annotation claims. Adopting whichever tool happens to route the call would satisfy the ' +
-        'tool-against-tool comparison while leaving this one reporting, which is the point of ' +
-        'measuring the site rather than reading a second declaration.',
-    });
+    for (const module of modules) {
+      if (module.startsWith(declared.area)) continue;
+      const owner = owningProviderOf(module, providers);
+      if (owner === undefined) {
+        ungoverned.push({
+          code: 'UNGOVERNED_APPEND_AREA',
+          event,
+          declaredProvider: registration.provider,
+          module,
+          message:
+            `event '${event}' is appended from '${module}', which lies in no provider's area. ` +
+            'The registration names a provider because every capability event is welded to one, ' +
+            'but no value in the current vocabulary describes this append site, so the annotation ' +
+            'cannot be made right by editing it. Either the append belongs in a governed area, or ' +
+            'the model needs a way to name an emitter that is not one of the five composite tools.',
+        });
+        continue;
+      }
+      contradictions.push({
+        code: 'PROVIDER_AREA_CONTRADICTION',
+        event,
+        declaredProvider: registration.provider,
+        module,
+        owningProvider: owner.tool,
+        message:
+          `event '${event}' is registered with provider '${registration.provider}' (area ` +
+          `'${declared.area}'), but it is appended from '${module}', which is inside ` +
+          `'${owner.area}' — the area owned by '${owner.tool}'. Two providers cannot both own one ` +
+          'append, so exactly one of the two claims is false: either the annotation names the ' +
+          'wrong provider, or the append belongs in the area the annotation claims.',
+      });
+    }
   }
 
-  const sorted = [...diagnostics].sort((a, b) => a.event.localeCompare(b.event));
+  const byEvent = (a: { event: string }, b: { event: string }): number =>
+    a.event.localeCompare(b.event);
   return Object.freeze({
-    ok: sorted.length === 0,
+    ok: contradictions.length === 0,
     subjectCount,
     measuredCount,
-    unmeasured: Object.freeze(unmeasured.sort((a, b) => a.event.localeCompare(b.event))),
-    diagnostics: Object.freeze(sorted),
+    unmeasured: Object.freeze([...unmeasured].sort(byEvent)),
+    contradictions: Object.freeze([...contradictions].sort(byEvent)),
+    ungoverned: Object.freeze([...ungoverned].sort(byEvent)),
   });
 }
