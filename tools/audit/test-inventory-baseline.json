@@ -1,13 +1,13 @@
 {
-  "capturedAt": "2026-08-17",
+  "capturedAt": "2026-08-18",
   "discovery": "extension-based over tracked files; not a runner glob",
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1183,
-    "parsedFiles": 1138,
+    "testFiles": 1185,
+    "parsedFiles": 1140,
     "shellFiles": 45,
-    "cases": 13205,
+    "cases": 13241,
     "dynamicTitles": 144,
     "unparseableFiles": 0
   },
@@ -8083,6 +8083,27 @@
         {
           "suite": "#1436 — elicitation-roundtrip capability-absent path",
           "name": "ElicitationRoundtrip_CapabilityAbsent_LegacyInvalidInputAndNoElicitationEvents",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/emission-verifier-policy.test.ts": {
+      "file": "tests/integration/emission-verifier-policy.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "emission verifier policy",
+          "name": "EmissionVerifier_AllIndeterminateRun_FailsRatherThanReportingClean",
+          "dynamic": false
+        },
+        {
+          "suite": "emission verifier policy",
+          "name": "EmissionPolicy_SeededSkippedEmission_FailsTheSuite",
+          "dynamic": false
+        },
+        {
+          "suite": "emission verifier policy",
+          "name": "a mixed run reports the determinate count it actually earned",
           "dynamic": false
         }
       ]
@@ -16400,6 +16421,16 @@
           "suite": "resolveConfig > verification resolution",
           "name": "ResolveConfig_DoesNotFreezeCallerVerificationOverlay",
           "dynamic": false
+        },
+        {
+          "suite": "resolveConfig > emission enforcement",
+          "name": "EmissionEnforcement_CiAndDev_DefaultToFailing",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveConfig > emission enforcement",
+          "name": "EmissionEnforcement_NoProjectConfig_UsesTheStatedFallback",
+          "dynamic": false
         }
       ]
     },
@@ -20641,6 +20672,41 @@
           "suite": "dispatch > retry_with_task hint (Preview-4 §4.4)",
           "name": "Dispatch_SlowTaskSuitableAction_EmitsRetryWithTaskHintInMeta",
           "dynamic": false
+        },
+        {
+          "suite": "emission verifier — structural reachability",
+          "name": "EmissionVerifier_EveryHandlerCompletingBranch_ReachesIt",
+          "dynamic": false
+        },
+        {
+          "suite": "emission verifier — structural reachability",
+          "name": "EmissionVerifier_SeededBypassingBranch_FailsTheAssertion",
+          "dynamic": false
+        },
+        {
+          "suite": "emission verifier — contract evaluation",
+          "name": "EmissionVerifier_ConditionalOnlyAction_IsNotApplicableRatherThanOk",
+          "dynamic": false
+        },
+        {
+          "suite": "emission verifier — contract evaluation",
+          "name": "EmissionVerifier_MissingUnconditionalEmissions_ReportsTheFullSet",
+          "dynamic": false
+        },
+        {
+          "suite": "emission verifier — contract evaluation",
+          "name": "EmissionVerifier_UnlandedContract_AppendsTheViolationToTheLog",
+          "dynamic": false
+        },
+        {
+          "suite": "emission verifier — contract evaluation",
+          "name": "EmissionVerifier_UnreadableStore_IsNotApplicableAndNeverThrows",
+          "dynamic": false
+        },
+        {
+          "suite": "emission verifier — contract evaluation",
+          "name": "EmissionVerifier_NoUnconditionalContract_TouchesTheStoreNotAtAll",
+          "dynamic": false
         }
       ]
     },
@@ -20797,46 +20863,46 @@
         },
         {
           "suite": "runEffect — declared emissions",
-          "name": "EffectPlan_DryRunArm_ReachesNeitherThunkNorAppender",
+          "name": "EffectPlan_DryRunArm_ReachesNeitherThunkNorRecorder",
           "dynamic": false
         },
         {
           "suite": "runEffect — declared emissions",
-          "name": "appends the intent before the thunk and exactly one terminal after it",
+          "name": "records the intent before the thunk and exactly one terminal after it",
           "dynamic": false
         },
         {
           "suite": "runEffect — declared emissions",
-          "name": "appends nothing when the plan declares nothing",
+          "name": "records nothing when the plan declares nothing",
           "dynamic": false
         },
         {
-          "suite": "runEffect — the append is on the way to a committed value",
-          "name": "EffectCarrier_NoOpAppender_CannotYieldACommittedValue",
+          "suite": "runEffect — the record is on the way to a committed value",
+          "name": "EffectCarrier_NoOpRecorder_CannotYieldACommittedValue",
           "dynamic": false
         },
         {
-          "suite": "runEffect — the append is on the way to a committed value",
-          "name": "rejects a forged capability whose append mints no evidence",
+          "suite": "runEffect — the record is on the way to a committed value",
+          "name": "rejects a forged capability whose record mints no evidence",
           "dynamic": false
         },
         {
-          "suite": "runEffect — the append is on the way to a committed value",
-          "name": "commits once a genuine appender has recorded the declared emissions",
+          "suite": "runEffect — the record is on the way to a committed value",
+          "name": "commits once a genuine recorder has recorded the declared emissions",
           "dynamic": false
         },
         {
-          "suite": "runEffect — the append is on the way to a committed value",
+          "suite": "runEffect — the record is on the way to a committed value",
           "name": "leaves a plan that declares no emissions inert — no capability required",
           "dynamic": false
         },
         {
-          "suite": "runEffect — the append is on the way to a committed value",
+          "suite": "runEffect — the record is on the way to a committed value",
           "name": "withholds the refusal in dry-run — neither thunk nor capability is reached",
           "dynamic": false
         },
         {
-          "suite": "runEffect — the append is on the way to a committed value",
+          "suite": "runEffect — the record is on the way to a committed value",
           "name": "propagates a sink failure instead of capturing it into the error arm",
           "dynamic": false
         },
@@ -20848,6 +20914,37 @@
         {
           "suite": "toEffectError",
           "name": "derives a class-scoped code and preserves the cause",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/dispatch/core/emission-verifier.test.ts": {
+      "file": "tests/unit/dispatch/core/emission-verifier.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "EmissionVerifier lifecycle axis",
+          "name": "EmissionVerifier_PlannedOrRetiredEmittedAtRuntime_Fails",
+          "dynamic": false
+        },
+        {
+          "suite": "EmissionVerifier lifecycle axis",
+          "name": "EmissionVerifier_ConditionalEdge_IsNotCountedSatisfied",
+          "dynamic": false
+        },
+        {
+          "suite": "EmissionVerifier lifecycle axis",
+          "name": "reports an active landing and an unregistered landing as no fault",
+          "dynamic": false
+        },
+        {
+          "suite": "EmissionVerifier lifecycle axis",
+          "name": "reports a repeated non-emitting landing once",
+          "dynamic": false
+        },
+        {
+          "suite": "EmissionVerifier lifecycle axis",
+          "name": "reports a missing emission and a lifecycle violation together",
           "dynamic": false
         }
       ]
@@ -22236,6 +22333,11 @@
         },
         {
           "suite": "EventAnnotations — the DR-2 tier and lifecycle assignment for the event catalog",
+          "name": "EmissionViolation_SubstrateTier_CarriesOperationRecordRationale",
+          "dynamic": false
+        },
+        {
+          "suite": "EventAnnotations — the DR-2 tier and lifecycle assignment for the event catalog",
           "name": "EventAnnotations_SeededTierSourceDisagreement_IsReported",
           "dynamic": false
         },
@@ -23099,6 +23201,76 @@
         {
           "suite": "ComparisonDenominator — the size of the set the provider comparison ranges over",
           "name": "ComparisonDenominator_SeededShrink_FailsRatherThanPassingClean",
+          "dynamic": false
+        },
+        {
+          "suite": "ProviderBreakSet — every reported disagreement is answered for",
+          "name": "ProviderBreakSet_EveryDisagreementIsDispositioned",
+          "dynamic": false
+        },
+        {
+          "suite": "ProviderBreakSet — every reported disagreement is answered for",
+          "name": "ProviderBreakSet_UndispositionedEntry_Fails",
+          "dynamic": false
+        },
+        {
+          "suite": "ProviderBreakSet — every reported disagreement is answered for",
+          "name": "ProviderBreakSet_RowCoveringNothing_IsReportedStale",
+          "dynamic": false
+        },
+        {
+          "suite": "ProviderBreakSet — every reported disagreement is answered for",
+          "name": "ProviderBreakSet_MatchIsOnAllFourSides_NotTheEventAlone",
+          "dynamic": false
+        },
+        {
+          "suite": "StaleCover — a capability weld that nothing declares it emits",
+          "name": "StaleCover_ActiveWeldNamedByNoEdge_FailsAsStale",
+          "dynamic": false
+        },
+        {
+          "suite": "StaleCover — a capability weld that nothing declares it emits",
+          "name": "StaleCover_PlannedOrRetired_IsExcludedByLifecycle",
+          "dynamic": false
+        },
+        {
+          "suite": "StaleCover — a capability weld that nothing declares it emits",
+          "name": "StaleCover_EmptyEligiblePopulation_FailsInsteadOfPassingClean",
+          "dynamic": false
+        },
+        {
+          "suite": "StaleCover — a capability weld that nothing declares it emits",
+          "name": "StaleCover_LiveCatalog_ReportsTheEligibleCountBesideTheVerdict",
+          "dynamic": false
+        },
+        {
+          "suite": "StaleCoverBreakSet — every active unnamed weld is answered for",
+          "name": "StaleCoverBreakSet_EveryActiveUnnamedWeld_IsDispositioned",
+          "dynamic": false
+        },
+        {
+          "suite": "StaleCoverBreakSet — every active unnamed weld is answered for",
+          "name": "StaleCoverBreakSet_UndispositionedEntry_Fails",
+          "dynamic": false
+        },
+        {
+          "suite": "StaleCoverBreakSet — every active unnamed weld is answered for",
+          "name": "StaleCoverBreakSet_RowCoveringNothing_IsReportedObsolete",
+          "dynamic": false
+        },
+        {
+          "suite": "StaleCoverBreakSet — every active unnamed weld is answered for",
+          "name": "StaleCoverBreakSet_MatchIncludesTheLifecycleSide",
+          "dynamic": false
+        },
+        {
+          "suite": "EligibleBaseline — the pinned stale-cover eligible count",
+          "name": "EligibleBaseline_PinnedCount_MatchesTheLiveCount",
+          "dynamic": false
+        },
+        {
+          "suite": "EligibleBaseline — the pinned stale-cover eligible count",
+          "name": "EligibleBaseline_ShrinkWithNoDisposition_Fails",
           "dynamic": false
         }
       ]
@@ -25179,6 +25351,11 @@
         {
           "suite": "WLM operational-core merge lease schemas",
           "name": "PromotionEvent_AtomicPromotionSite_HasARegisteredName",
+          "dynamic": false
+        },
+        {
+          "suite": "WLM operational-core merge lease schemas",
+          "name": "EmissionViolation_Registered_CarriesActionAndMissingSet",
           "dynamic": false
         },
         {
@@ -27369,7 +27546,7 @@
         },
         {
           "suite": "promoteTree — effect carrier",
-          "name": "dry-run performs NO promotion and returns the withheld plan",
+          "name": "dry-run performs NO promotion, returns the withheld plan, and records NOTHING",
           "dynamic": false
         },
         {
@@ -27380,6 +27557,16 @@
         {
           "suite": "promoteTree — effect carrier",
           "name": "live failure is captured into a structured error carrier (no throw)",
+          "dynamic": false
+        },
+        {
+          "suite": "promoteTree — effect carrier",
+          "name": "PromoteTree_LiveMode_CommitsItsEventBeforeReturning",
+          "dynamic": false
+        },
+        {
+          "suite": "promoteTree — effect carrier",
+          "name": "PromoteTree_LiveModeWithNoRecorder_RefusesBeforeTouchingTheTree",
           "dynamic": false
         },
         {
@@ -47405,6 +47592,11 @@
         {
           "suite": "VCS mutation owner (P04-05)",
           "name": "compensates the minted branch when worktree add fails (no orphaned on-disk state)",
+          "dynamic": false
+        },
+        {
+          "suite": "VCS mutation owner (P04-05)",
+          "name": "MutationOwner_IntentThenTerminalOrdering_IsPreserved",
           "dynamic": false
         },
         {
