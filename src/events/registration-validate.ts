@@ -169,6 +169,7 @@ import {
 import { EFFECT_OWNERSHIP, type EffectOwnershipRule } from '../architecture/effect-ledger.js';
 import { TOOL_REGISTRY, type CompositeTool } from '../registry.js';
 import { EVENT_ANNOTATIONS } from './event-annotations.js';
+import { MODULE_EMISSIONS, type ModuleEmission } from './module-emissions.js';
 import {
   weldReferenceOf,
   type CapabilityRegistration,
@@ -711,6 +712,7 @@ export function validateRegistrationWelds(
   lifecyclePolicy: Readonly<
     Record<EventLifecycle, StaleCoverEligibility>
   > = STALE_COVER_LIFECYCLE_POLICY,
+  moduleEmissions: readonly ModuleEmission[] = MODULE_EMISSIONS,
 ): WeldResolutionVerdict {
   const diagnostics: WeldResolutionDiagnostic[] = [];
   // One lookup, so severity is stamped from the table at every emission site and never decided
@@ -893,6 +895,16 @@ export function validateRegistrationWelds(
   // — and taking it from `emissions` says the honest thing: the question is whether ANY action in
   // the registry claims to emit this event, with no filter of this module's in between.
   const namedByAnEdge = new Set(emissions.map((edge) => edge.event));
+  // The action surface is not the only one that can name an emitter. A wrapper,
+  // hook or interceptor performs an append that no action's `autoEmits` can
+  // honestly carry, and before this surface existed such an event read as cover
+  // — a registration claiming a coupling nothing in the tree stated. Declaring
+  // it there is a real answer to the question this check asks, so it counts.
+  //
+  // It cannot become a rubber stamp: `auditEmitterClosure` fails any row whose
+  // append is not measured in the module it names, so a row added to silence
+  // this check reddens there instead.
+  for (const row of moduleEmissions) namedByAnEdge.add(row.event);
   for (const weld of eligible) {
     if (namedByAnEdge.has(weld.eventType)) continue;
     diagnostics.push({
@@ -1330,36 +1342,7 @@ export interface StaleCoverDisposition extends StaleCoverIdentity {
   readonly rationale: string;
 }
 
-/**
- * Why the three per-dispatch telemetry rows have no declaring action: their append is the DISPATCH
- * WRAPPER's, and it runs around every action rather than inside any one of them.
- */
-const TELEMETRY_MIDDLEWARE_RATIONALE =
-  'UNMODELLED EMITTER. `projections/telemetry/middleware.ts` wraps the handler for EVERY action ' +
-  'and appends these rows to the singleton telemetry stream from that wrapper — after the handler ' +
-  'returns, keyed by the tool name it was invoked with, and swallowing its own failures so a ' +
-  'telemetry drop can never fail a workflow. The append is therefore the wrapper effect, not any ' +
-  "action's effect: no single action performs it, and declaring it on all of them would assert " +
-  'that every action in the registry independently emits the telemetry row, which is false in ' +
-  'every case and would put a hundred-odd edges into the comparison naming one append site. The ' +
-  'sibling row minted by the same wrapper, `quality.hint.generated`, IS declared on one action, ' +
-  'which is the same defect from the other side and out of scope here. Closing this means giving ' +
-  'the emission vocabulary a way to say "the dispatch layer emits this", which is a change to what ' +
-  'an emission edge is.';
 
-/**
- * Why the two live-shadow evidence rows have no declaring action: the observer that appends them
- * is installed at process wiring and drains on its own settlement chain.
- */
-const LIVE_SHADOW_OBSERVER_RATIONALE =
-  'UNMODELLED EMITTER. `workflow/admission/live-shadow-observer.ts` appends these on the observer ' +
-  'sink drain, from a target installed when the process is wired rather than from a dispatched ' +
-  'action. The events record what the shadow evaluation OBSERVED about a transition somebody else ' +
-  'performed, so there is no action whose effect they are — the action that triggered the ' +
-  'transition did not emit them, and the observer is not an action. The reserved write surface ' +
-  'confirms the same reading from the other side: `registry/gate-metadata.ts` holds both types in ' +
-  'the reserved append registry, so `exarchos_event.append` REFUSES a caller-minted one and points ' +
-  'at a typed handler that is not registered as an action either.';
 
 
 
@@ -1377,40 +1360,6 @@ const LIVE_SHADOW_OBSERVER_RATIONALE =
  * annotation, and answering for it here would have preserved the wrong claim behind a rationale.
  */
 export const STALE_COVER_DISPOSITIONS: readonly StaleCoverDisposition[] = Object.freeze([
-  {
-    event: 'admission.cutover-ready',
-    declaredProvider: 'exarchos_workflow',
-    lifecycle: 'active',
-    classification: 'unmodelled-emitter',
-    appendSite: 'src/workflow/admission/cutover-auto-export.ts (durable-append success hook)',
-    rationale:
-      'UNMODELLED EMITTER. The append runs inside `maybeExportCutoverReadiness`, a durable-append ' +
-      'SUCCESS HOOK configured by `dispatch/core/context.ts::initializeContext` and fired from the ' +
-      "shadow observer's settlement chain. Its trigger is another event landing, not an action " +
-      'being dispatched, and it is single-flight and self-suppressing once it has exported — so ' +
-      'no action invocation reliably produces it and none of them owns it. The sibling actions ' +
-      '`cutover_readiness` and `cutover_decide` are the nearest candidates and neither appends ' +
-      'this type: the first only reads the readiness report, and the second appends the two ' +
-      'rollout events it already declares.',
-  },
-  {
-    event: 'admission.disagreement-disposition',
-    declaredProvider: 'exarchos_workflow',
-    lifecycle: 'active',
-    classification: 'unmodelled-emitter',
-    appendSite:
-      'src/workflow/admission/live-shadow-observer.ts (observer sink drain); ' +
-      'src/events/tools.ts::handleAdmissionDisagreementDisposition (reserved typed handler)',
-    rationale: LIVE_SHADOW_OBSERVER_RATIONALE,
-  },
-  {
-    event: 'admission.shadow-attempt',
-    declaredProvider: 'exarchos_workflow',
-    lifecycle: 'active',
-    classification: 'unmodelled-emitter',
-    appendSite: 'src/workflow/admission/live-shadow-observer.ts (observer sink drain)',
-    rationale: LIVE_SHADOW_OBSERVER_RATIONALE,
-  },
   {
     event: 'eval.judge.calibrated',
     declaredProvider: 'exarchos_view',
@@ -1449,22 +1398,6 @@ export const STALE_COVER_DISPOSITIONS: readonly StaleCoverDisposition[] = Object
       'Both halves belong in the same reviewed change, not in the one that takes the measurement.',
   },
   {
-    event: 'launch.executing_started',
-    declaredProvider: 'exarchos_orchestrate',
-    lifecycle: 'active',
-    classification: 'unmodelled-emitter',
-    appendSite:
-      'src/runtime/launcher/liveness.ts::emitLaunchExecutingStarted, from the launcher ' +
-      'supervisor (src/runtime/launcher/lifecycle-core.ts)',
-    rationale:
-      'UNMODELLED EMITTER, and the honest half of a pair whose terminal is not. The claim is ' +
-      'appended by the launcher supervisor as it starts a session, which is a long-lived process ' +
-      'the runtime spawns — reached from the launcher verb, never from a dispatched action. ' +
-      'Nothing reconciles a START into existence the way the phantom-launch reconciler does for ' +
-      'the terminal, so unlike `launch.executed` there is no action-borne caller to declare it on. ' +
-      'Closing this means modelling the launcher supervisor as a declaring surface.',
-  },
-  {
     event: 'stack.position-filled',
     declaredProvider: 'exarchos_orchestrate',
     lifecycle: 'active',
@@ -1480,46 +1413,6 @@ export const STALE_COVER_DISPOSITIONS: readonly StaleCoverDisposition[] = Object
       'two sides needs deciding in the same change — either the mutation belongs on the ' +
       'orchestrate surface, or the registration names the wrong provider. That is a placement ' +
       'question about a shipped action, not a row in a table.',
-  },
-  {
-    event: 'subagent.tokens_used',
-    declaredProvider: 'exarchos_event',
-    lifecycle: 'active',
-    classification: 'unmodelled-emitter',
-    appendSite: 'src/lifecycle/subagent-stop.ts (the subagent-stop hook handler)',
-    rationale:
-      'UNMODELLED EMITTER. The append is performed by the subagent-stop hook handler, which reads ' +
-      "the finished subagent's transcript, resolves the teammate by matching its working directory " +
-      'against a worktree reservation, and appends the usage atom to the resolved feature stream. ' +
-      'The harness fires the hook when a subagent stops; no action is dispatched, and the append ' +
-      'is fail-open at every step, so a run that resolves no teammate emits nothing at all. The ' +
-      'annotation is already explicit that the hook is the TRIGGER and exarchos code is the ' +
-      'author, which is why the registration derives an automatic source — that reading is ' +
-      'unaffected. What is missing is an action, and there is none to add.',
-  },
-  {
-    event: 'tool.action_errored',
-    declaredProvider: 'exarchos_event',
-    lifecycle: 'active',
-    classification: 'unmodelled-emitter',
-    appendSite: 'src/projections/telemetry/middleware.ts (the dispatch telemetry wrapper)',
-    rationale: TELEMETRY_MIDDLEWARE_RATIONALE,
-  },
-  {
-    event: 'tool.completed',
-    declaredProvider: 'exarchos_event',
-    lifecycle: 'active',
-    classification: 'unmodelled-emitter',
-    appendSite: 'src/projections/telemetry/middleware.ts (the dispatch telemetry wrapper)',
-    rationale: TELEMETRY_MIDDLEWARE_RATIONALE,
-  },
-  {
-    event: 'tool.errored',
-    declaredProvider: 'exarchos_event',
-    lifecycle: 'active',
-    classification: 'unmodelled-emitter',
-    appendSite: 'src/projections/telemetry/middleware.ts (the dispatch telemetry wrapper)',
-    rationale: TELEMETRY_MIDDLEWARE_RATIONALE,
   },
   {
     event: 'worktree.orphan_detected',
@@ -1734,6 +1627,7 @@ export function assertRegistrationWeldsAtStartup(
   lifecyclePolicy: Readonly<
     Record<EventLifecycle, StaleCoverEligibility>
   > = STALE_COVER_LIFECYCLE_POLICY,
+  moduleEmissions: readonly ModuleEmission[] = MODULE_EMISSIONS,
 ): WeldResolutionVerdict {
   const verdict = validateRegistrationWelds(
     annotations,
@@ -1743,6 +1637,7 @@ export function assertRegistrationWeldsAtStartup(
     severityPolicy,
     emissions,
     lifecyclePolicy,
+    moduleEmissions,
   );
   if (!verdict.bootable) throw new RegistrationWeldError(verdict);
   // Survivable, but not silent. An observation nobody is told about is indistinguishable from a

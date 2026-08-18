@@ -77,6 +77,13 @@ export interface AppendSiteCensus {
   readonly modulesByEvent: ReadonlyMap<string, readonly string[]>;
   /** Append sites whose discriminant is a runtime value. */
   readonly unresolved: readonly UnresolvedAppendSite[];
+  /**
+   * Every module the scan read, sorted. Carried in full, not merely counted,
+   * because a consumer needs to distinguish "this module was scanned and does
+   * not append" from "this module was never in scope" — collapsing those turns
+   * an unanswered question into a refutation.
+   */
+  readonly scannedModules: readonly string[];
   /** Modules scanned — the DENOMINATOR, so a shrunken scan cannot read as a clean tree. */
   readonly scannedModuleCount: number;
 }
@@ -127,10 +134,12 @@ export async function scanAppendSites(
   const files = await collectSources(root);
   const byEvent = new Map<string, Set<string>>();
   const unresolved: UnresolvedAppendSite[] = [];
+  const scannedModules: string[] = [];
 
   for (const file of files) {
     const source = await readFile(file, 'utf8');
     const module = relative(root, file).replaceAll('\\', '/');
+    scannedModules.push(module);
     for (const site of scan(source, { fileName: module, knownConstants })) {
       if (site.discriminant === undefined) {
         unresolved.push({ module, line: site.line });
@@ -151,6 +160,7 @@ export async function scanAppendSites(
     unresolved: Object.freeze(
       unresolved.sort((a, b) => a.module.localeCompare(b.module) || a.line - b.line),
     ),
+    scannedModules: Object.freeze(scannedModules.sort()),
     scannedModuleCount: files.length,
   });
 }

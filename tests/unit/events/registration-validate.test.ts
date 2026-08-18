@@ -29,6 +29,7 @@
 // `provider` field each redden `npx tsc --noEmit`.
 
 import { describe, it, expect } from 'vitest';
+import type { ModuleEmission } from '../../../src/events/module-emissions.js';
 import * as fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
@@ -741,6 +742,10 @@ describe('StartupAssertion — the severity axis on the boot refusal', () => {
         observeEverything,
         (message) => reported.push(message),
         seed.emissions,
+        STALE_COVER_LIFECYCLE_POLICY,
+        // Seeded world: no non-action emitters. Inheriting the shipped table
+        // would let an unrelated row cover a seed and silently empty this arm.
+        [],
       );
 
       // Found something, and said so — but did not stop the process.
@@ -979,6 +984,11 @@ describe('ProviderComparison — the declaring tool against the declared provide
       EFFECT_OWNERSHIP,
       WELD_RESOLUTION_POLICY,
       DIAGNOSTIC_SEVERITY_POLICY,
+      [],
+      STALE_COVER_LIFECYCLE_POLICY,
+      // "Nothing emits these" has to be literally true, so the non-action
+      // surface is emptied too — otherwise the premise the assertion rests on
+      // is false and the counts below measure a different scenario.
       [],
     );
     expect(verdict.comparedEmissionEdgeCount).toBe(0);
@@ -1524,6 +1534,12 @@ describe('StaleCover — a capability weld that nothing declares it emits', () =
     lifecyclePolicy: Readonly<
       Record<EventLifecycle, StaleCoverEligibility>
     > = STALE_COVER_LIFECYCLE_POLICY,
+    // The NON-ACTION emitter surface, substituted like every other population
+    // here and defaulted to EMPTY rather than to the live table. A seeded weld
+    // is meant to describe a world the fixture controls; inheriting the shipped
+    // module emitters would let a scenario pass or fail because of an unrelated
+    // row somebody added, which is the opposite of what these fixtures are for.
+    moduleEmissions: readonly ModuleEmission[] = [],
   ): WeldResolutionVerdict {
     return validateRegistrationWelds(
       annotations,
@@ -1533,6 +1549,7 @@ describe('StaleCover — a capability weld that nothing declares it emits', () =
       DIAGNOSTIC_SEVERITY_POLICY,
       emissions,
       lifecyclePolicy,
+      moduleEmissions,
     );
   }
 
@@ -1626,6 +1643,10 @@ describe('StaleCover — a capability weld that nothing declares it emits', () =
       DIAGNOSTIC_SEVERITY_POLICY,
       (message) => reported.push(message),
       CONFORMING_EMISSIONS_MINUS_ONE,
+      STALE_COVER_LIFECYCLE_POLICY,
+      // The conforming population is the fixture's whole world; the shipped
+      // non-action rows are not part of the single variable under test.
+      [],
     );
     expect(returned.bootable).toBe(true);
     expect(reported).toHaveLength(1);

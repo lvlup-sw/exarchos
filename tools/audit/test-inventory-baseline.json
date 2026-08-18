@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1186,
-    "parsedFiles": 1141,
+    "testFiles": 1187,
+    "parsedFiles": 1142,
     "shellFiles": 45,
-    "cases": 13245,
+    "cases": 13251,
     "dynamicTitles": 144,
     "unparseableFiles": 0
   },
@@ -22312,6 +22312,37 @@
         }
       ]
     },
+    "tests/unit/events/emitter-closure.test.ts": {
+      "file": "tests/unit/events/emitter-closure.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "emitter closure",
+          "name": "EmitterClosure_LiveTree_MatchesTheUndeclaredBaseline",
+          "dynamic": false
+        },
+        {
+          "suite": "emitter closure",
+          "name": "EmitterClosure_EveryModuleEmission_IsLiveInTheTree",
+          "dynamic": false
+        },
+        {
+          "suite": "emitter closure",
+          "name": "EmitterClosure_UnclaimedAppend_IsReported",
+          "dynamic": false
+        },
+        {
+          "suite": "emitter closure",
+          "name": "EmitterClosure_ModuleEmissionWithNoAppend_IsAPhantom",
+          "dynamic": false
+        },
+        {
+          "suite": "emitter closure",
+          "name": "EmitterClosure_ModuleOutsideTheScanRoot_IsUnverifiableNotPhantom",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/events/event-annotations.test.ts": {
       "file": "tests/unit/events/event-annotations.test.ts",
       "runner": "vitest:root",
@@ -23018,12 +23049,17 @@
       "cases": [
         {
           "suite": "provider-area audit",
-          "name": "ProviderArea_LiveTree_MatchesTheMeasuredBaseline",
+          "name": "ProviderArea_LiveTree_MatchesTheMeasuredBaselines",
           "dynamic": false
         },
         {
           "suite": "provider-area audit",
-          "name": "ProviderArea_AppendOutsideTheDeclaredArea_IsReported",
+          "name": "ProviderArea_AppendInAnotherProvidersArea_IsAContradiction",
+          "dynamic": false
+        },
+        {
+          "suite": "provider-area audit",
+          "name": "ProviderArea_AppendOutsideEveryArea_IsUngovernedNotAFault",
           "dynamic": false
         },
         {
