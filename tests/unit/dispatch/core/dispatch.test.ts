@@ -7,7 +7,17 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as os from 'node:os';
 import { z } from 'zod';
+import ts from 'typescript';
 import { EventStore } from '../../../../src/events/store.js';
+import {
+  DISPATCH_RETURN_CLASSES,
+  RETURN_CLASS_APPLICABILITY,
+  applicableReturnClasses,
+  runEmissionVerifierInterceptor,
+  verifyDeclaredEmissions,
+  type DispatchReturnClass,
+} from '../../../../src/dispatch/core/interceptors/emission-verifier.js';
+import type { AutoEmission } from '../../../../src/registry.js';
 import type { ToolResult } from '../../../../src/format.js';
 import {
   registerCustomTool,
@@ -1757,5 +1767,453 @@ describe('dispatch', () => {
         restore();
       }
     });
+  });
+});
+
+// ─── Post-dispatch emission verifier ────────────────────────────────────────
+//
+// The verifier can only report on a dispatch it is REACHED by. A branch that
+// returns before it — with a handler already run — is not a weaker check, it is
+// no check at all for that branch, and nothing about the green suite would say
+// so. These assertions are therefore structural: they read the shipped
+// `dispatch()` source, classify every one of its return sites by what has
+// happened to the handler at that point, and demand that the classes DECLARED
+// applicable (`RETURN_CLASS_APPLICABILITY`, in the interceptor module) route
+// through the verifier call.
+//
+// The applicability declaration is the load-bearing half. Without it the
+// assertion has two failure modes and both look reasonable from the outside:
+// assert over every return and it is permanently red on the refusal branches
+// that never reach a handler; narrow it to whatever is green and it has quietly
+// stopped covering anything.
+
+/** One `return` in dispatch()'s own control flow, classified. */
+interface ClassifiedReturn {
+  readonly line: number;
+  readonly start: number;
+  readonly cls: DispatchReturnClass;
+  readonly text: string;
+}
+
+interface DispatchStructure {
+  readonly returns: readonly ClassifiedReturn[];
+  /** End offset of the verifier call — an applicable return must lie beyond it. */
+  readonly verifierCallEnd: number;
+  /** Start offset of the statement wrapping that call (the seeding anchor). */
+  readonly verifierStatementStart: number;
+  /** End offset of the last statement that invokes the raw tool handler. */
+  readonly handlerRegionEnd: number;
+}
+
+const VERIFIER_CALLEE = 'runEmissionVerifierInterceptor';
+const SCOPE_CALLEE = 'runWithDispatchContext';
+const HANDLER_BINDING = 'coreHandler';
+
+/** Nested functions own their returns; only dispatch's own flow is in scope. */
+function isOwnScopeFunction(node: ts.Node): boolean {
+  return (
+    ts.isFunctionDeclaration(node) ||
+    ts.isFunctionExpression(node) ||
+    ts.isArrowFunction(node) ||
+    ts.isMethodDeclaration(node) ||
+    ts.isClassDeclaration(node)
+  );
+}
+
+/**
+ * Classify every return site in `dispatch()`.
+ *
+ * Anchors are resolved, never assumed: a missing one THROWS rather than
+ * resolving to offset 0, because an anchor that silently reads as "position
+ * zero" turns every comparison below into `x > 0` and the whole assertion into
+ * a pass. Deleting the verifier call must make this red, not quiet.
+ */
+function classifyDispatchReturns(source: string): DispatchStructure {
+  const sf = ts.createSourceFile(
+    'dispatch.ts',
+    source,
+    ts.ScriptTarget.Latest,
+    /* setParentNodes */ true,
+    ts.ScriptKind.TS,
+  );
+
+  let dispatchFn: ts.FunctionDeclaration | undefined;
+  for (const statement of sf.statements) {
+    if (ts.isFunctionDeclaration(statement) && statement.name?.text === 'dispatch') {
+      dispatchFn = statement;
+    }
+  }
+  const body = dispatchFn?.body;
+  if (body === undefined) {
+    throw new Error('structural gate: no `dispatch` function declaration found in dispatch.ts');
+  }
+
+  const calleeNameOf = (node: ts.CallExpression): string | undefined =>
+    ts.isIdentifier(node.expression) ? node.expression.text : undefined;
+
+  // The async-local scope callback is dispatch()'s own continuation, not a
+  // separate function: its returns ARE dispatch's returns. Every OTHER nested
+  // function (`attachMeta`, the streamId IIFE, the telemetry wrappers) owns its
+  // returns and must not be walked into.
+  let scopeBody: ts.Node | undefined;
+  const findScope = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && calleeNameOf(node) === SCOPE_CALLEE) {
+      const continuation = node.arguments[1];
+      if (continuation !== undefined && ts.isArrowFunction(continuation)) {
+        scopeBody = continuation.body;
+      }
+    }
+    ts.forEachChild(node, findScope);
+  };
+  findScope(body);
+  if (scopeBody === undefined) {
+    throw new Error(
+      `structural gate: no \`${SCOPE_CALLEE}(ctx, async () => …)\` scope found in dispatch() — ` +
+        'the async-local anchor was renamed or removed. Update this gate to track it.',
+    );
+  }
+
+  // The OUTER try/catch, a direct statement of the scope body. The inner try
+  // blocks (workspace discovery, elicitation) are not it.
+  let outerTry: ts.TryStatement | undefined;
+  if (ts.isBlock(scopeBody)) {
+    for (const statement of scopeBody.statements) {
+      if (ts.isTryStatement(statement)) outerTry = statement;
+    }
+  }
+  if (outerTry === undefined) {
+    throw new Error('structural gate: no outer try/catch inside the dispatch async-local scope');
+  }
+  const catchClause = outerTry.catchClause;
+
+  // The handler region: the LAST direct statement of the try block that mentions
+  // the raw handler binding. Everything after it has a completed handler behind
+  // it. The `const coreHandler = …` declaration NAME is the binding site, not a
+  // use — the region starts once the handler is actually reached for.
+  const mentionsHandler = (node: ts.Node): boolean => {
+    let found = false;
+    const visit = (n: ts.Node): void => {
+      if (found) return;
+      if (ts.isIdentifier(n) && n.text === HANDLER_BINDING) {
+        const parent: ts.Node | undefined = n.parent;
+        if (parent === undefined || !ts.isVariableDeclaration(parent) || parent.name !== n) {
+          found = true;
+          return;
+        }
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(node);
+    return found;
+  };
+  let handlerRegionEnd = -1;
+  for (const statement of outerTry.tryBlock.statements) {
+    if (mentionsHandler(statement)) handlerRegionEnd = statement.end;
+  }
+  if (handlerRegionEnd < 0) {
+    throw new Error(
+      `structural gate: no statement invoking \`${HANDLER_BINDING}\` found in dispatch()'s try ` +
+        'block — the handler anchor was renamed. Update this gate to track it.',
+    );
+  }
+
+  let verifierCall: ts.CallExpression | undefined;
+  const findVerifier = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && calleeNameOf(node) === VERIFIER_CALLEE) {
+      verifierCall = node;
+    }
+    ts.forEachChild(node, findVerifier);
+  };
+  findVerifier(body);
+  if (verifierCall === undefined) {
+    throw new Error(
+      `structural gate: dispatch() never calls \`${VERIFIER_CALLEE}\`. The post-dispatch ` +
+        'emission verifier is not installed in the shipped chain, so every handler-completing ' +
+        'branch bypasses it.',
+    );
+  }
+  // Walk out to the enclosing statement so a seeded bypass can be spliced in
+  // ahead of the whole `await …;` line rather than inside its argument list.
+  let verifierStatement: ts.Node = verifierCall;
+  while (!ts.isStatement(verifierStatement) && verifierStatement.parent !== undefined) {
+    verifierStatement = verifierStatement.parent;
+  }
+
+  const inCatch = (node: ts.Node): boolean =>
+    catchClause !== undefined &&
+    node.getStart(sf) >= catchClause.getStart(sf) &&
+    node.end <= catchClause.end;
+
+  const returns: ClassifiedReturn[] = [];
+  const collect = (node: ts.Node): void => {
+    if (isOwnScopeFunction(node)) return;
+    if (ts.isReturnStatement(node)) {
+      const expression = node.expression;
+      // `return runWithDispatchContext(ctx, async () => …)` is the scope ENTRY,
+      // not a dispatch outcome — its value is whatever the scope returns, and
+      // the scope's own returns are already classified below.
+      const isScopeEntry =
+        expression !== undefined &&
+        ts.isCallExpression(expression) &&
+        calleeNameOf(expression) === SCOPE_CALLEE;
+      if (!isScopeEntry) {
+        const start = node.getStart(sf);
+        returns.push({
+          line: sf.getLineAndCharacterOfPosition(start).line + 1,
+          start,
+          cls: inCatch(node)
+            ? 'handler-threw'
+            : start > handlerRegionEnd
+              ? 'handler-completing'
+              : 'pre-handler',
+          text: (source.slice(start, start + 72).split('\n')[0] ?? '').trim(),
+        });
+      }
+    }
+    ts.forEachChild(node, collect);
+  };
+  ts.forEachChild(body, collect);
+  ts.forEachChild(scopeBody, collect);
+
+  return {
+    returns,
+    verifierCallEnd: verifierCall.end,
+    verifierStatementStart: verifierStatement.getStart(sf),
+    handlerRegionEnd,
+  };
+}
+
+/**
+ * The return sites that bypass the verifier: applicable by the DECLARED policy,
+ * yet positioned so control leaves dispatch() without reaching the call. Driven
+ * off `RETURN_CLASS_APPLICABILITY` rather than a hard-wired class name, so the
+ * declaration is what the assertion consults — flip an entry and the obligation
+ * moves with it.
+ */
+function bypassingReturns(structure: DispatchStructure): readonly ClassifiedReturn[] {
+  const applicable = new Set(applicableReturnClasses());
+  return structure.returns.filter(
+    (site) => applicable.has(site.cls) && site.start < structure.verifierCallEnd,
+  );
+}
+
+describe('emission verifier — structural reachability', () => {
+  const DISPATCH_SOURCE_PATH = resolve(
+    dirname(fileURLToPath(import.meta.url)),
+    '../../../../src/dispatch/core/dispatch.ts',
+  );
+
+  it('EmissionVerifier_EveryHandlerCompletingBranch_ReachesIt', () => {
+    const source = readFileSync(DISPATCH_SOURCE_PATH, 'utf-8');
+    const structure = classifyDispatchReturns(source);
+
+    // ── Denominators, so a broken walk cannot pass by finding nothing ──
+    //
+    // Every one of the three declared classes must be REPRESENTED in the live
+    // function. A classifier that quietly stopped producing `handler-completing`
+    // sites would report an empty bypass set and read exactly like a clean pass.
+    const byClass = new Map<DispatchReturnClass, ClassifiedReturn[]>();
+    for (const cls of DISPATCH_RETURN_CLASSES) byClass.set(cls, []);
+    for (const site of structure.returns) byClass.get(site.cls)?.push(site);
+
+    for (const cls of DISPATCH_RETURN_CLASSES) {
+      expect(
+        byClass.get(cls)?.length ?? 0,
+        `structural gate found no '${cls}' return site in dispatch(). The classification is no ` +
+          'longer total over the live function, so the bypass set below is not trustworthy.',
+      ).toBeGreaterThan(0);
+    }
+    expect(structure.returns.length).toBe(
+      DISPATCH_RETURN_CLASSES.reduce((n, cls) => n + (byClass.get(cls)?.length ?? 0), 0),
+    );
+
+    // The pre-handler branches are the measured bypass set, and they are exempt
+    // by DECLARATION — `handler-did-not-run`, recorded in the interceptor module
+    // — not because the assertion was trimmed to fit them.
+    expect(RETURN_CLASS_APPLICABILITY['pre-handler']).toEqual({
+      applicable: false,
+      reason: 'handler-did-not-run',
+    });
+    expect(RETURN_CLASS_APPLICABILITY['handler-threw']).toEqual({
+      applicable: false,
+      reason: 'handler-threw',
+    });
+    expect(RETURN_CLASS_APPLICABILITY['handler-completing']).toEqual({ applicable: true });
+
+    // ── THE SUBJECT. Nothing applicable leaves dispatch() before the verifier ──
+    const bypassing = bypassingReturns(structure);
+    expect(
+      bypassing.map((site) => `line ${site.line}: ${site.text}`),
+      'A branch returns from dispatch() with a completed handler behind it without reaching ' +
+        `\`${VERIFIER_CALLEE}\`. That branch is unverified: its action's unconditional emission ` +
+        'contract is never read back. Either route it through the verifier, or declare its ' +
+        'return class inapplicable in RETURN_CLASS_APPLICABILITY with a reason.',
+    ).toEqual([]);
+  });
+
+  it('EmissionVerifier_SeededBypassingBranch_FailsTheAssertion', () => {
+    const source = readFileSync(DISPATCH_SOURCE_PATH, 'utf-8');
+
+    // A. The live tree is clean — otherwise B proves nothing about the seed.
+    expect(bypassingReturns(classifyDispatchReturns(source))).toEqual([]);
+
+    // B. Seed one bypassing branch: a return placed after the handler has run
+    // but ahead of the verifier call. This is the exact shape of the regression
+    // the assertion exists to catch — an early-out added to the post-handler
+    // stretch of dispatch(), which reads as an ordinary guard clause.
+    const anchor = classifyDispatchReturns(source).verifierStatementStart;
+    const seeded =
+      source.slice(0, anchor) +
+      'if (result.success === false) { return attachMeta(result); }\n  ' +
+      source.slice(anchor);
+
+    const seededStructure = classifyDispatchReturns(seeded);
+    const caught = bypassingReturns(seededStructure);
+
+    expect(
+      caught.length,
+      'The structural assertion did not redden on a seeded bypassing branch, so it cannot ' +
+        'redden on a real one either.',
+    ).toBe(1);
+    expect(caught[0]?.cls).toBe('handler-completing');
+    expect(caught[0]?.start ?? -1).toBeLessThan(seededStructure.verifierCallEnd);
+    expect(caught[0]?.start ?? -1).toBeGreaterThan(seededStructure.handlerRegionEnd);
+
+    // And the seeded branch is a genuine ADDITION, not a reclassification of an
+    // existing site: the clean tree has N handler-completing returns, the seeded
+    // tree has N+1.
+    const completing = (s: DispatchStructure): number =>
+      s.returns.filter((r) => r.cls === 'handler-completing').length;
+    expect(completing(seededStructure)).toBe(completing(classifyDispatchReturns(source)) + 1);
+  });
+});
+
+describe('emission verifier — contract evaluation', () => {
+  const edge = (event: string, condition: 'always' | 'conditional'): AutoEmission => ({
+    event,
+    condition,
+    role: 'primary',
+    owner: 'test',
+  });
+
+  it('EmissionVerifier_ConditionalOnlyAction_IsNotApplicableRatherThanOk', () => {
+    // Out of subject is NOT a pass. An action whose every edge is conditional
+    // has promised nothing unconditionally, so there is nothing to have kept —
+    // reporting `ok` would be a green tick for a check that never ran, and `ok`
+    // is what a caller reads as "the contract held".
+    const verdict = verifyDeclaredEmissions({
+      declared: [
+        edge('workflow.compensation', 'conditional'),
+        edge('workflow.pruned', 'conditional'),
+      ],
+      streamId: 'feat-x',
+      landed: [],
+    });
+    expect(verdict.status).toBe('not-applicable');
+    expect(verdict.reason).toBe('no-unconditional-contract');
+    expect(verdict.required).toEqual([]);
+
+    // A conditional edge cannot satisfy an unconditional one either: the
+    // conditional event LANDED here and the unconditional one did not, and the
+    // verdict is still a violation naming the unconditional edge.
+    const mixed = verifyDeclaredEmissions({
+      declared: [edge('workflow.started', 'always'), edge('workflow.compensation', 'conditional')],
+      streamId: 'feat-x',
+      landed: ['workflow.compensation'],
+    });
+    expect(mixed.status).toBe('violated');
+    expect(mixed.missingEvents).toEqual(['workflow.started']);
+    expect(mixed.required).toEqual(['workflow.started']);
+  });
+
+  it('EmissionVerifier_MissingUnconditionalEmissions_ReportsTheFullSet', () => {
+    const verdict = verifyDeclaredEmissions({
+      declared: [
+        edge('vcs.requested', 'always'),
+        edge('vcs.executed', 'always'),
+        edge('promotion.executed', 'always'),
+      ],
+      streamId: 'feat-x',
+      landed: ['vcs.requested'],
+    });
+    // Full set, not the first miss — otherwise each repair uncovers the next and
+    // the fault reads smaller every time anyone looks at it.
+    expect(verdict.status).toBe('violated');
+    expect(verdict.missingEvents).toEqual(['promotion.executed', 'vcs.executed']);
+
+    const clean = verifyDeclaredEmissions({
+      declared: [edge('vcs.requested', 'always'), edge('vcs.executed', 'always')],
+      streamId: 'feat-x',
+      landed: ['vcs.executed', 'vcs.requested', 'workflow.transition'],
+    });
+    expect(clean.status).toBe('ok');
+    expect(clean.missingEvents).toEqual([]);
+  });
+
+  it('EmissionVerifier_UnlandedContract_AppendsTheViolationToTheLog', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'emission-verifier-'));
+    const store = new EventStore(tmp);
+    await store.initialize();
+    try {
+      const verdict = await runEmissionVerifierInterceptor(store, {
+        tool: 'exarchos_workflow',
+        action: 'init',
+        operationId: 'op-emission-1',
+        streamId: 'feat-verifier',
+        declared: [edge('workflow.started', 'always')],
+      });
+      expect(verdict.status).toBe('violated');
+      expect(verdict.missingEvents).toEqual(['workflow.started']);
+
+      // The finding has to outlive the run that noticed it.
+      const written = await store.query('feat-verifier', { type: 'emission.violated' });
+      expect(written.length).toBe(1);
+      expect(written[0]?.data).toMatchObject({
+        action: 'exarchos_workflow.init',
+        missingEvents: ['workflow.started'],
+        operationId: 'op-emission-1',
+      });
+    } finally {
+      await store.close();
+      await rmrfAsync(tmp);
+    }
+  });
+
+  it('EmissionVerifier_UnreadableStore_IsNotApplicableAndNeverThrows', async () => {
+    const failingStore = {
+      query: vi.fn().mockRejectedValue(new Error('boom — synthetic store failure')),
+      append: vi.fn(),
+    } as unknown as EventStore;
+
+    // An unread store is an unanswered question, not a clean bill — and a
+    // verifier that threw would turn a working dispatch into a failed one.
+    const verdict = await runEmissionVerifierInterceptor(failingStore, {
+      tool: 'exarchos_workflow',
+      action: 'init',
+      operationId: 'op-emission-2',
+      streamId: 'feat-verifier',
+      declared: [edge('workflow.started', 'always')],
+    });
+    expect(verdict.status).toBe('not-applicable');
+    expect(verdict.reason).toBe('store-unavailable');
+    expect(failingStore.append).not.toHaveBeenCalled();
+  });
+
+  it('EmissionVerifier_NoUnconditionalContract_TouchesTheStoreNotAtAll', async () => {
+    const store = {
+      query: vi.fn(),
+      append: vi.fn(),
+    } as unknown as EventStore;
+
+    const verdict = await runEmissionVerifierInterceptor(store, {
+      tool: 'exarchos_view',
+      action: 'describe',
+      operationId: 'op-emission-3',
+      streamId: 'feat-verifier',
+      declared: undefined,
+    });
+    expect(verdict.status).toBe('not-applicable');
+    expect(verdict.reason).toBe('no-unconditional-contract');
+    expect(store.query).not.toHaveBeenCalled();
   });
 });
