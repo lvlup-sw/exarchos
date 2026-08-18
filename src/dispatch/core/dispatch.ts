@@ -27,6 +27,7 @@ import {
   buildInvalidInput,
 } from '../../adapters/cli/schema-to-flags.js';
 import { runSessionMachineryConsumedInterceptor } from './interceptors/session-machinery.js';
+import { runEmissionVerifierInterceptor } from './interceptors/emission-verifier.js';
 import { evaluateInstallFreshness } from '../../install/freshness-gate.js';
 import {
   mintDispatchContextFromRequest,
@@ -1142,6 +1143,29 @@ export async function dispatch(
       }
     }
   }
+
+  // ─── Post-dispatch emission verification ────────────────────────────────
+  // The handler has completed, which is the only point at which "did the
+  // events this action unconditionally declares actually land?" is a question
+  // with an answer. Every branch above this line returned before a handler
+  // ran, and is declared `not-applicable` rather than exempted quietly —
+  // `interceptors/emission-verifier.ts` holds that declaration and the
+  // structural assertion in the dispatch tests reads it.
+  //
+  // Advisory to the caller: a violation is OUR bug, not the caller's, so it is
+  // recorded to the log and the caller's result is returned unchanged.
+  await runEmissionVerifierInterceptor(ctx.eventStore, {
+    tool,
+    action: typeof args.action === 'string' ? args.action : '',
+    operationId: dispatchCtx.operationId,
+    streamId: typeof args.featureId === 'string' && args.featureId.length > 0
+      ? args.featureId
+      : undefined,
+    declared:
+      typeof args.action === 'string'
+        ? findActionInRegistry(tool, args.action)?.autoEmits
+        : undefined,
+  });
 
   return attachMeta(result);
   } catch (error) {
