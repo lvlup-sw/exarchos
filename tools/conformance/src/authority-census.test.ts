@@ -18,6 +18,8 @@
 // DISAGREEMENT between them: the `action-contract` row claims P05-05 enforces it,
 // and running P05-05 shows it cannot.
 import { describe, it, expect } from 'vitest';
+import { existsSync } from 'node:fs';
+import { fromSubjectPackage } from './subject-root.js';
 import {
   evaluateClosure,
   type ReachabilityInputs,
@@ -44,6 +46,7 @@ import {
   rowEvidence,
   runAuthorityCensus,
   waveIndex,
+  type AnyRowHopEvidence,
   type AuthorityCensusReport,
   type CensusFinding,
   type EnforcementInstrument,
@@ -587,12 +590,17 @@ describe('authority census — vocabulary', () => {
     }
   });
 
-  it('AuthorityCensus_LiveMeasuredRows_AreTwoAndTheOtherSixStayDeclared', () => {
-    // The upgrade task 026 earned and could not record, now recorded — and the
-    // six rows that earned nothing left visibly weaker. Both halves are asserted:
-    // an over-claim (a seventh row acquiring `live-measurement`) and an
-    // under-claim (either of the two silently reverting) fail here.
-    expect([...liveMeasuredBoundaries()].sort()).toEqual(['cli-surface', 'event-catalog']);
+  it('AuthorityCensus_LiveMeasuredRows_AreThreeAndTheOtherFiveStayDeclared', () => {
+    // The rows whose evidence is an executable measurement rather than a
+    // committed reading — and the five that earned nothing left visibly weaker.
+    // Both halves are asserted: an over-claim (a fourth row acquiring
+    // `live-measurement`) and an under-claim (any of the three silently
+    // reverting) fail here.
+    expect([...liveMeasuredBoundaries()].sort()).toEqual([
+      'cli-surface',
+      'effect-event',
+      'event-catalog',
+    ]);
 
     const report = auditRowEvidence();
     expect(report.ok).toBe(true);
@@ -601,10 +609,10 @@ describe('authority census — vocabulary', () => {
     expect(report.rowCount).toBe(CONTRACT_BOUNDARIES.length);
     expect(report.entryCount).toBe(CONTRACT_BOUNDARIES.length * CENSUS_HOPS.length);
     expect(report.checkedRows).toBe(CONTRACT_BOUNDARIES.length);
-    expect(report.liveMeasured).toEqual(['cli-surface', 'event-catalog']);
-    expect(report.declaredOnly).toHaveLength(6);
-    // 2 rows × 2 hops (authority + binding) carry the live class; nothing else.
-    expect(report.byClass['live-measurement']).toBe(4);
+    expect(report.liveMeasured).toEqual(['cli-surface', 'effect-event', 'event-catalog']);
+    expect(report.declaredOnly).toHaveLength(5);
+    // 3 rows × 2 hops (authority + binding) carry the live class; nothing else.
+    expect(report.byClass['live-measurement']).toBe(6);
     // Exactly one row claims `already-enforced`, so exactly one hop resolves
     // against a registered instrument.
     expect(report.byClass['registered-instrument']).toBe(1);
@@ -625,6 +633,40 @@ describe('authority census — vocabulary', () => {
     for (const closure of census.boundaries) {
       expect(closure.evidence).toEqual(rowEvidence(closure.boundary));
     }
+  });
+
+  it('AuthorityCensus_EffectEventRow_NoLongerADeclaredRow', () => {
+    // The row's two substantive hops used to rest on a committed reading — the
+    // weakest evidence class this table has, and the one that cannot tell a true
+    // row from a plausible one. Both now name an oracle a reviewer can run.
+    const evidence = rowEvidence('effect-event');
+    expect(evidence.authority.evidence).toBe('live-measurement');
+    expect(evidence.binding.evidence).toBe('live-measurement');
+
+    // Every subject the row claims to measure is a real path, and the two hops
+    // agree on which paths those are — a hop measuring a different tree from its
+    // neighbour would report two boundaries under one row's name.
+    const subjectsOf = (cell: AnyRowHopEvidence): readonly string[] =>
+      cell.evidence === 'live-measurement' ? cell.oracle.subjects : [];
+    const authoritySubjects = subjectsOf(evidence.authority);
+    expect(authoritySubjects.length).toBeGreaterThan(0);
+    expect(subjectsOf(evidence.binding)).toEqual(authoritySubjects);
+    for (const subject of authoritySubjects) {
+      expect(existsSync(fromSubjectPackage(subject)), `${subject} exists`).toBe(true);
+    }
+
+    // The enforcement hop stays `not-applicable` and that is not an oversight:
+    // the row enforces from a wave rather than claiming to be enforced today, so
+    // the hop resolves nothing and must not borrow evidence from the other two.
+    expect(evidence.enforcement.evidence).toBe('not-applicable');
+
+    // The verdict the upgraded evidence now carries: one authority, and one
+    // representation still unbound. Recording the coupling did not close the
+    // row, and a test that let it would be laundering the finding it exists to
+    // report.
+    const closure = runAuthorityCensus().boundaries.find((b) => b.boundary === 'effect-event');
+    expect(closure?.closed).toBe(false);
+    expect(closure?.findings.map((f) => `${f.hop} | ${f.kind}`)).toEqual(['binding | missing']);
   });
 
   it('AuthorityCensus_EvidenceInheritedFromAnotherRow_FailsTheAudit', () => {
@@ -807,9 +849,7 @@ describe('authority census — the live topology', () => {
       'capability-posture | binding | missing | delegate skill prose',
       'capability-posture | binding | missing | the INV-11 invariants-catalog text',
       'cli-surface | authority | ambiguous | cli-surface',
-      'effect-event | authority | missing | effect-event',
-      'effect-event | binding | missing | EffectPlan (`dispatch/core/effect-carrier.ts`)',
-      'effect-event | binding | missing | the event append site',
+      'effect-event | binding | missing | the promotion record sink (`install/atomic-promotion.ts`)',
       'event-catalog | binding | missing | PHASE_EXPECTED_EVENTS (`verbs/gates/check-event-emissions.ts`)',
       'event-catalog | binding | missing | skill prose naming events to emit',
       'event-catalog | binding | missing | the registry `autoEmits` rows',
@@ -854,7 +894,11 @@ describe('authority census — the live topology', () => {
     // "each row flips at the wave that remediates it" — and it is what stops a
     // future edit from quietly deferring an already-live row.
     const perWave = ENFORCEMENT_WAVES.map((wave) => runAuthorityCensus(undefined, { atWave: wave }));
-    expect(perWave.map((r) => r.blocking.length)).toEqual([5, 8, 11, 13, 16]);
+    // The effect-event row contributes ONE subject from the wave it enforces
+    // from, not three: its authority hop resolves (the plan's `emits` set is the
+    // single authority) and one of its two representations is bound, so the
+    // promotion sink is the only subject left to count.
+    expect(perWave.map((r) => r.blocking.length)).toEqual([5, 6, 9, 11, 14]);
     expect(perWave.map((r) => r.ok)).toEqual([false, false, false, false, false]);
 
     // Wave 1 counts exactly these — no wave-2+ subject leaks in early.

@@ -7,7 +7,7 @@
     "testFiles": 1188,
     "parsedFiles": 1143,
     "shellFiles": 45,
-    "cases": 13256,
+    "cases": 13260,
     "dynamicTitles": 144,
     "unparseableFiles": 0
   },
@@ -4551,16 +4551,6 @@
     }
   ],
   "files": {
-    "content/delivery/skills/delegate/references/fixer-prompt.md.test.sh": {
-      "file": "content/delivery/skills/delegate/references/fixer-prompt.md.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "content/delivery/skills/delegate/references/implementer-prompt.md.test.sh": {
-      "file": "content/delivery/skills/delegate/references/implementer-prompt.md.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
     "tests/acceptance/fresh-install.test.ts": {
       "file": "tests/acceptance/fresh-install.test.ts",
       "runner": "vitest:root",
@@ -9196,11 +9186,6 @@
         }
       ]
     },
-    "tests/scripts/audit/cycle-gate.test.sh": {
-      "file": "tests/scripts/audit/cycle-gate.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
     "tests/scripts/audit/cycle-gate.test.ts": {
       "file": "tests/scripts/audit/cycle-gate.test.ts",
       "runner": "vitest:root",
@@ -9296,11 +9281,6 @@
           "dynamic": false
         }
       ]
-    },
-    "tests/scripts/audit/knip-diff.test.sh": {
-      "file": "tests/scripts/audit/knip-diff.test.sh",
-      "runner": "shell",
-      "cases": []
     },
     "tests/scripts/audit/knip-diff.test.ts": {
       "file": "tests/scripts/audit/knip-diff.test.ts",
@@ -9712,26 +9692,6 @@
         }
       ]
     },
-    "tests/scripts/check-begin-immediate-substrate.test.sh": {
-      "file": "tests/scripts/check-begin-immediate-substrate.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/check-benchmark-regression.test.sh": {
-      "file": "tests/scripts/check-benchmark-regression.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/check-coverage-ratchet.test.sh": {
-      "file": "tests/scripts/check-coverage-ratchet.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/check-enforcer-wiring.test.sh": {
-      "file": "tests/scripts/check-enforcer-wiring.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
     "tests/scripts/check-enforcer-wiring.test.ts": {
       "file": "tests/scripts/check-enforcer-wiring.test.ts",
       "runner": "vitest:root",
@@ -9818,11 +9778,6 @@
         }
       ]
     },
-    "tests/scripts/check-eslint-windows.test.sh": {
-      "file": "tests/scripts/check-eslint-windows.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
     "tests/scripts/check-event-store-composition-root.test.ts": {
       "file": "tests/scripts/check-event-store-composition-root.test.ts",
       "runner": "vitest:root",
@@ -9868,11 +9823,6 @@
           "dynamic": false
         }
       ]
-    },
-    "tests/scripts/check-gate-runner-ownership.test.sh": {
-      "file": "tests/scripts/check-gate-runner-ownership.test.sh",
-      "runner": "shell",
-      "cases": []
     },
     "tests/scripts/check-golden-fixture-note.test.ts": {
       "file": "tests/scripts/check-golden-fixture-note.test.ts",
@@ -9927,6 +9877,11 @@
         {
           "suite": "check-measured-premises (task 054, DR-27)",
           "name": "MeasuredPremises_Rev3Document_ReportsDr4CountsAsDrifted",
+          "dynamic": false
+        },
+        {
+          "suite": "check-measured-premises (task 054, DR-27)",
+          "name": "MeasuredPremises_LiveLiteral_Agrees",
           "dynamic": false
         },
         {
@@ -10030,11 +9985,6 @@
           "dynamic": false
         }
       ]
-    },
-    "tests/scripts/check-module-intent.test.sh": {
-      "file": "tests/scripts/check-module-intent.test.sh",
-      "runner": "shell",
-      "cases": []
     },
     "tests/scripts/check-module-intent.test.ts": {
       "file": "tests/scripts/check-module-intent.test.ts",
@@ -10141,11 +10091,6 @@
           "dynamic": false
         }
       ]
-    },
-    "tests/scripts/check-mutation-gate.test.sh": {
-      "file": "tests/scripts/check-mutation-gate.test.sh",
-      "runner": "shell",
-      "cases": []
     },
     "tests/scripts/check-no-state-json.test.ts": {
       "file": "tests/scripts/check-no-state-json.test.ts",
@@ -10357,26 +10302,6 @@
         }
       ]
     },
-    "tests/scripts/check-type-debt.test.sh": {
-      "file": "tests/scripts/check-type-debt.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/check-windows-portability.test.sh": {
-      "file": "tests/scripts/check-windows-portability.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/check-withsession-idempotency.test.sh": {
-      "file": "tests/scripts/check-withsession-idempotency.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/check-wlm-wiring.test.sh": {
-      "file": "tests/scripts/check-wlm-wiring.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
     "tests/scripts/ci-binary-matrix.test.ts": {
       "file": "tests/scripts/ci-binary-matrix.test.ts",
       "runner": "vitest:root",
@@ -10561,16 +10486,6 @@
         }
       ]
     },
-    "tests/scripts/coderabbit-review-gate-workflow.test.sh": {
-      "file": "tests/scripts/coderabbit-review-gate-workflow.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/coderabbit-review-gate.test.sh": {
-      "file": "tests/scripts/coderabbit-review-gate.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
     "tests/scripts/docs-check.test.ts": {
       "file": "tests/scripts/docs-check.test.ts",
       "runner": "vitest:root",
@@ -10704,11 +10619,6 @@
         }
       ]
     },
-    "tests/scripts/get-exarchos.test.sh": {
-      "file": "tests/scripts/get-exarchos.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
     "tests/scripts/get-exarchos.test.ts": {
       "file": "tests/scripts/get-exarchos.test.ts",
       "runner": "vitest:root",
@@ -10719,11 +10629,6 @@
           "dynamic": false
         }
       ]
-    },
-    "tests/scripts/github-config.test.sh": {
-      "file": "tests/scripts/github-config.test.sh",
-      "runner": "shell",
-      "cases": []
     },
     "tests/scripts/guard-inventory.test.ts": {
       "file": "tests/scripts/guard-inventory.test.ts",
@@ -11627,11 +11532,6 @@
         }
       ]
     },
-    "tests/scripts/lint-envelopes.test.sh": {
-      "file": "tests/scripts/lint-envelopes.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
     "tests/scripts/lint-inv6.test.ts": {
       "file": "tests/scripts/lint-inv6.test.ts",
       "runner": "vitest:root",
@@ -11754,11 +11654,6 @@
           "dynamic": true
         }
       ]
-    },
-    "tests/scripts/npm-ci-retry.test.sh": {
-      "file": "tests/scripts/npm-ci-retry.test.sh",
-      "runner": "shell",
-      "cases": []
     },
     "tests/scripts/release-workflow.test.ts": {
       "file": "tests/scripts/release-workflow.test.ts",
@@ -11932,16 +11827,6 @@
         }
       ]
     },
-    "tests/scripts/schemas/workflow-state.schema.test.sh": {
-      "file": "tests/scripts/schemas/workflow-state.schema.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/sync-versions.test.sh": {
-      "file": "tests/scripts/sync-versions.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
     "tests/scripts/tsconfig-scripts-coverage.test.ts": {
       "file": "tests/scripts/tsconfig-scripts-coverage.test.ts",
       "runner": "vitest:root",
@@ -12063,66 +11948,6 @@
           "dynamic": false
         }
       ]
-    },
-    "tests/scripts/validate-all-skills.test.sh": {
-      "file": "tests/scripts/validate-all-skills.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/validate-debug-skill.test.sh": {
-      "file": "tests/scripts/validate-debug-skill.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/validate-delegation-skill.test.sh": {
-      "file": "tests/scripts/validate-delegation-skill.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/validate-dotnet-standards.test.sh": {
-      "file": "tests/scripts/validate-dotnet-standards.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/validate-frontmatter.test.sh": {
-      "file": "tests/scripts/validate-frontmatter.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/validate-installation.test.sh": {
-      "file": "tests/scripts/validate-installation.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/validate-misc-skills.test.sh": {
-      "file": "tests/scripts/validate-misc-skills.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/validate-no-legacy.test.sh": {
-      "file": "tests/scripts/validate-no-legacy.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/validate-phase-coverage.test.sh": {
-      "file": "tests/scripts/validate-phase-coverage.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/validate-phase-names.test.sh": {
-      "file": "tests/scripts/validate-phase-names.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/validate-planning-skill.test.sh": {
-      "file": "tests/scripts/validate-planning-skill.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/validate-plugin.test.sh": {
-      "file": "tests/scripts/validate-plugin.test.sh",
-      "runner": "shell",
-      "cases": []
     },
     "tests/scripts/validate-plugin.test.ts": {
       "file": "tests/scripts/validate-plugin.test.ts",
@@ -12285,36 +12110,6 @@
         }
       ]
     },
-    "tests/scripts/validate-quality-review-skill.test.sh": {
-      "file": "tests/scripts/validate-quality-review-skill.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/validate-refactor-skill.test.sh": {
-      "file": "tests/scripts/validate-refactor-skill.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/validate-refactor.test.sh": {
-      "file": "tests/scripts/validate-refactor.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/validate-rm.test.sh": {
-      "file": "tests/scripts/validate-rm.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/validate-synthesis-skill.test.sh": {
-      "file": "tests/scripts/validate-synthesis-skill.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/validate-worktree-skill.test.sh": {
-      "file": "tests/scripts/validate-worktree-skill.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
     "tests/smoke/runtime-smoke.test.ts": {
       "file": "tests/smoke/runtime-smoke.test.ts",
       "runner": "vitest:root",
@@ -12365,11 +12160,6 @@
           "dynamic": true
         }
       ]
-    },
-    "tests/support/trigger-tests/pressure-tests.test.sh": {
-      "file": "tests/support/trigger-tests/pressure-tests.test.sh",
-      "runner": "shell",
-      "cases": []
     },
     "tests/unit/adapters/adapter-direction.test.ts": {
       "file": "tests/unit/adapters/adapter-direction.test.ts",
@@ -19558,7 +19348,7 @@
         },
         {
           "suite": "reachability closure — the complete path",
-          "name": "the hop order is authored ActionId → schema → route → handler → owner → output → artifact → fixture",
+          "name": "the hop order is authored ActionId → schema → route → handler → owner → output → artifact → fixture → event",
           "dynamic": false
         },
         {
@@ -19725,6 +19515,16 @@
         {
           "suite": "KILL: artifact — removing a SHIPPED client command drops the census",
           "name": "a DUPLICATED shipped command is an AMBIGUOUS artifact",
+          "dynamic": false
+        },
+        {
+          "suite": "KILL: event — an emission the catalog never registered drops the census",
+          "name": "deleting a declared event from the live catalog breaks the event hop",
+          "dynamic": false
+        },
+        {
+          "suite": "KILL: event — an emission the catalog never registered drops the census",
+          "name": "an action that declares NO emission is not-applicable, not missing",
           "dynamic": false
         },
         {
@@ -23421,7 +23221,7 @@
         },
         {
           "suite": "DR-2 boot gate — initializeContext refuses to start on an unresolvable provider weld",
-          "name": "BootGate_NewDiagnostics_AreReachedThroughTheRealSeam",
+          "name": "EmissionTeeth_BlockingMode_HaltsBootOnAViolation",
           "dynamic": false
         }
       ]
@@ -36300,7 +36100,7 @@
         },
         {
           "suite": "handleView > stack_place",
-          "name": "should delegate to handleStackPlace",
+          "name": "ViewComposite_StackPlace_NoLongerRouted",
           "dynamic": false
         },
         {
@@ -37433,7 +37233,7 @@
         },
         {
           "suite": "verb error envelopes (DR-8)",
-          "name": "Ps_ProbeOutsideWorktreeScope_InvalidInputWithSuggestedFix",
+          "name": "Ps_PipelineOnlyScope_InvalidInputWithSuggestedFix",
           "dynamic": false
         }
       ]
@@ -37672,17 +37472,12 @@
           "dynamic": false
         },
         {
-          "suite": "ps probe gating — worktree-scope-only (DR-3)",
-          "name": "Ps_WorkflowScopeWithProbe_RejectedInvalidInput",
+          "suite": "ps is read-only on every scope",
+          "name": "Ps_EveryScope_AppendsNothing",
           "dynamic": false
         },
         {
-          "suite": "ps probe gating — worktree-scope-only (DR-3)",
-          "name": "Ps_DefaultAllScopeWithProbe_RejectedInvalidInput",
-          "dynamic": false
-        },
-        {
-          "suite": "ps probe gating — worktree-scope-only (DR-3)",
+          "suite": "ps is read-only on every scope",
           "name": "Ps_ScopeRepo_RejectedAsPipelineOnlyAxis",
           "dynamic": false
         },
@@ -37708,7 +37503,7 @@
         },
         {
           "suite": "ps scope:\"worktree\" — WLM-6 capabilities preserved (consumed, not duplicated)",
-          "name": "Ps_WorktreeScope_ProbeAccepted_RunsReclaim",
+          "name": "Ps_WorktreeScope_DeadHolder_StaysInFlightUnhealed",
           "dynamic": false
         }
       ]
@@ -50499,7 +50294,7 @@
         },
         {
           "suite": "mutation-adequacy roster characterization (PIN) > OrchestrateActionRoster_CurrentBuild_PinnedActionSet",
-          "name": "exposes exactly 80 actions (WLM operational-core #1578 added serialize_merge; DR-4 (#1630) added check_exploration_depth; WLM foundation task 008 added acquire_worktree, release_worktree, prune_worktrees; #1587 retired check_tdd_compliance; #1581 task 018 added discover_bridge; #1739 added cutover_readiness + cutover_decide; task 068 added invariants_amend)",
+          "name": "exposes exactly 82 actions (WLM operational-core #1578 added serialize_merge; DR-4 (#1630) added check_exploration_depth; WLM foundation task 008 added acquire_worktree, release_worktree, prune_worktrees; #1587 retired check_tdd_compliance; #1581 task 018 added discover_bridge; #1739 added cutover_readiness + cutover_decide; task 068 added invariants_amend; the effect-ledger remedy added reconcile_worktrees and moved stack_place here from exarchos_view)",
           "dynamic": false
         },
         {
@@ -61112,7 +60907,7 @@
         },
         {
           "suite": "ps — in-flight liveness read (DR-4)",
-          "name": "HandleView_Ps_Probe_PullsOnDemandAndEmits",
+          "name": "ReconcileWorktrees_DeadOwners_ReleasedAndOrphanedEmitted",
           "dynamic": false
         },
         {
@@ -61122,7 +60917,7 @@
         },
         {
           "suite": "ps — in-flight liveness read (DR-4)",
-          "name": "HandleView_Ps_Probe_ReconcilesPhantomLaunch",
+          "name": "ReconcileWorktrees_PhantomLaunch_HealedToTerminal",
           "dynamic": false
         },
         {
@@ -61882,13 +61677,13 @@
           "dynamic": false
         },
         {
-          "suite": "DR-3 — crash-mid-merge reconciled from the ps --probe production entry",
+          "suite": "DR-3 — crash-mid-merge reconciled from the reconcile_worktrees production entry",
           "name": "CrashedMerge_RecoveredFromProductionEntryPoint_ExactlyOneTerminalEvent",
           "dynamic": false
         },
         {
-          "suite": "DR-3 — crash-mid-merge reconciled from the ps --probe production entry",
-          "name": "CrashedMerge_LiveHolder_PsProbeLeavesLeaseInFlight_FailClosed",
+          "suite": "DR-3 — crash-mid-merge reconciled from the reconcile_worktrees production entry",
+          "name": "CrashedMerge_LiveHolder_ReconcileLeavesLeaseInFlight_FailClosed",
           "dynamic": false
         },
         {
@@ -73920,7 +73715,12 @@
         },
         {
           "suite": "authority census — vocabulary",
-          "name": "AuthorityCensus_LiveMeasuredRows_AreTwoAndTheOtherSixStayDeclared",
+          "name": "AuthorityCensus_LiveMeasuredRows_AreThreeAndTheOtherFiveStayDeclared",
+          "dynamic": false
+        },
+        {
+          "suite": "authority census — vocabulary",
+          "name": "AuthorityCensus_EffectEventRow_NoLongerADeclaredRow",
           "dynamic": false
         },
         {
@@ -74001,7 +73801,12 @@
         },
         {
           "suite": "authority census — the live proof fails closed",
-          "name": "AuthorityCensus_LiveProof_UpgradesEvidenceForTwoRowsOnly",
+          "name": "AuthorityCensus_LiveProof_UpgradesEvidenceForTheMeasuredRowsOnly",
+          "dynamic": false
+        },
+        {
+          "suite": "authority census — the live proof fails closed",
+          "name": "AuthorityLiveProof_EffectEventRow_NamesItsOracleModule",
           "dynamic": false
         }
       ]
@@ -74107,7 +73912,7 @@
         },
         {
           "suite": "authority topology — the rows",
-          "name": "AuthorityTopology_EffectEventRow_RecordsNoAuthority",
+          "name": "AuthorityTopology_EffectEventRow_RecordsTheCarrierCoupling",
           "dynamic": false
         },
         {
@@ -77775,16 +77580,6 @@
         }
       ]
     },
-    "tools/renovate-config/renovate.test.sh": {
-      "file": "tools/renovate-config/renovate.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tools/skill-validators/validate-frontmatter.test.sh": {
-      "file": "tools/skill-validators/validate-frontmatter.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
     "tools/test-helpers/comment-prose.test.ts": {
       "file": "tools/test-helpers/comment-prose.test.ts",
       "runner": "vitest:root",
@@ -77907,6 +77702,231 @@
           "dynamic": false
         }
       ]
+    },
+    "content/delivery/skills/delegate/references/fixer-prompt.md.test.sh": {
+      "file": "content/delivery/skills/delegate/references/fixer-prompt.md.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "content/delivery/skills/delegate/references/implementer-prompt.md.test.sh": {
+      "file": "content/delivery/skills/delegate/references/implementer-prompt.md.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/audit/cycle-gate.test.sh": {
+      "file": "tests/scripts/audit/cycle-gate.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/audit/knip-diff.test.sh": {
+      "file": "tests/scripts/audit/knip-diff.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/check-begin-immediate-substrate.test.sh": {
+      "file": "tests/scripts/check-begin-immediate-substrate.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/check-benchmark-regression.test.sh": {
+      "file": "tests/scripts/check-benchmark-regression.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/check-coverage-ratchet.test.sh": {
+      "file": "tests/scripts/check-coverage-ratchet.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/check-enforcer-wiring.test.sh": {
+      "file": "tests/scripts/check-enforcer-wiring.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/check-eslint-windows.test.sh": {
+      "file": "tests/scripts/check-eslint-windows.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/check-gate-runner-ownership.test.sh": {
+      "file": "tests/scripts/check-gate-runner-ownership.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/check-module-intent.test.sh": {
+      "file": "tests/scripts/check-module-intent.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/check-mutation-gate.test.sh": {
+      "file": "tests/scripts/check-mutation-gate.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/check-type-debt.test.sh": {
+      "file": "tests/scripts/check-type-debt.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/check-windows-portability.test.sh": {
+      "file": "tests/scripts/check-windows-portability.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/check-withsession-idempotency.test.sh": {
+      "file": "tests/scripts/check-withsession-idempotency.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/check-wlm-wiring.test.sh": {
+      "file": "tests/scripts/check-wlm-wiring.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/coderabbit-review-gate-workflow.test.sh": {
+      "file": "tests/scripts/coderabbit-review-gate-workflow.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/coderabbit-review-gate.test.sh": {
+      "file": "tests/scripts/coderabbit-review-gate.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/get-exarchos.test.sh": {
+      "file": "tests/scripts/get-exarchos.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/github-config.test.sh": {
+      "file": "tests/scripts/github-config.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/lint-envelopes.test.sh": {
+      "file": "tests/scripts/lint-envelopes.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/npm-ci-retry.test.sh": {
+      "file": "tests/scripts/npm-ci-retry.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/schemas/workflow-state.schema.test.sh": {
+      "file": "tests/scripts/schemas/workflow-state.schema.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/sync-versions.test.sh": {
+      "file": "tests/scripts/sync-versions.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/validate-all-skills.test.sh": {
+      "file": "tests/scripts/validate-all-skills.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/validate-debug-skill.test.sh": {
+      "file": "tests/scripts/validate-debug-skill.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/validate-delegation-skill.test.sh": {
+      "file": "tests/scripts/validate-delegation-skill.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/validate-dotnet-standards.test.sh": {
+      "file": "tests/scripts/validate-dotnet-standards.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/validate-frontmatter.test.sh": {
+      "file": "tests/scripts/validate-frontmatter.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/validate-installation.test.sh": {
+      "file": "tests/scripts/validate-installation.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/validate-misc-skills.test.sh": {
+      "file": "tests/scripts/validate-misc-skills.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/validate-no-legacy.test.sh": {
+      "file": "tests/scripts/validate-no-legacy.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/validate-phase-coverage.test.sh": {
+      "file": "tests/scripts/validate-phase-coverage.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/validate-phase-names.test.sh": {
+      "file": "tests/scripts/validate-phase-names.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/validate-planning-skill.test.sh": {
+      "file": "tests/scripts/validate-planning-skill.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/validate-plugin.test.sh": {
+      "file": "tests/scripts/validate-plugin.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/validate-quality-review-skill.test.sh": {
+      "file": "tests/scripts/validate-quality-review-skill.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/validate-refactor-skill.test.sh": {
+      "file": "tests/scripts/validate-refactor-skill.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/validate-refactor.test.sh": {
+      "file": "tests/scripts/validate-refactor.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/validate-rm.test.sh": {
+      "file": "tests/scripts/validate-rm.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/validate-synthesis-skill.test.sh": {
+      "file": "tests/scripts/validate-synthesis-skill.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/scripts/validate-worktree-skill.test.sh": {
+      "file": "tests/scripts/validate-worktree-skill.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tests/support/trigger-tests/pressure-tests.test.sh": {
+      "file": "tests/support/trigger-tests/pressure-tests.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tools/renovate-config/renovate.test.sh": {
+      "file": "tools/renovate-config/renovate.test.sh",
+      "runner": "shell",
+      "cases": []
+    },
+    "tools/skill-validators/validate-frontmatter.test.sh": {
+      "file": "tools/skill-validators/validate-frontmatter.test.sh",
+      "runner": "shell",
+      "cases": []
     }
   }
 }

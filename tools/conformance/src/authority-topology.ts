@@ -557,37 +557,54 @@ export const AUTHORITY_TOPOLOGY: Readonly<Record<ContractBoundaryId, AuthorityTo
 
     'effect-event': Object.freeze({
       boundary: 'effect-event',
-      authority: Object.freeze({
-        kind: 'none',
-        why:
-          'Neither representation is authoritative and neither derives the other: `EffectPlan` ' +
-          'describes the effect that was planned, the append site writes the event that records it, ' +
-          'and nothing makes the two agree. This is the only row with no authority at all.',
-      }),
+      // The plan’s declared emission set is the authority because the carrier
+      // makes it one: a plan that declares an emission is refused the effect
+      // outright without a sink, and reaches a committed value only on one
+      // minted receipt per declared emission. The field is not a description of
+      // what the owner intends to record — it is the precondition of the effect
+      // happening at all, which is what an authority is.
+      //
+      // The TYPE on `EffectEmission.event` is deliberately NOT the reason. It
+      // guarantees a plan cannot name an unregistered event, and that guarantee
+      // belongs to the catalog and cannot fail here; resting the authority on it
+      // would close the row on something no change to this boundary can falsify.
+      authority: Object.freeze({ kind: 'single', authority: 'EffectPlan.emits' }),
       representations: Object.freeze([
-        unbound(
-          'EffectPlan (`dispatch/core/effect-carrier.ts`)',
-          'a typed description of the intended effect; it names no event and no event names it',
+        authoritative('EffectPlan `emits` (`dispatch/core/effect-carrier.ts`)'),
+        bound(
+          'the VCS ledger append site (`vcs/mutation-owner.ts`)',
+          'EffectPlan.emits',
+          'the sink is handed the plan’s emission and appends `emission.event`, so the name it records is computed from the plan and moves with it',
         ),
         unbound(
-          'the event append site',
-          'writes the event that records the effect, independently of any `EffectPlan` that planned it',
+          'the promotion record sink (`install/atomic-promotion.ts`)',
+          'the promoter owns the PAYLOAD and the caller owns the DESTINATION, so the sink discards ' +
+            'the emission it is handed and passes a typed record to a caller-supplied callback. The ' +
+            'commit gate still holds — a live promotion without a sink is refused — but a gate proves ' +
+            'that some record was taken, never that it is the one the plan named',
         ),
       ]),
       enforceFrom: Object.freeze({
         kind: 'wave',
         wave: 'wave-2',
-        driver: 'DR-7 establishes the EffectPlan ↔ event bijection',
+        driver:
+          'DR-7 landed the EffectPlan ↔ event coupling and closed it for the ledger owner; the row ' +
+          'closes when the promotion sink also names its record from the emission it is handed',
       }),
       provenance: Object.freeze({
         kind: 'declared',
         whyNotDerivable:
-          'The boundary has exactly two representations and no enumerable domain generates them. ' +
-          '`EffectClass` (`dispatch/core/effect-carrier.ts`) is a union, but it enumerates effect KINDS, not ' +
-          'representations of this boundary — deriving the row from it would be a fabricated bridge ' +
-          'that reports a totality it does not have.',
+          'The representations are the carrier plus one sink per declaring owner, and no enumerable ' +
+          'domain generates that set. `EffectClass` (`dispatch/core/effect-carrier.ts`) is a union, but it ' +
+          'enumerates effect KINDS, not representations of this boundary, and `emits` is optional on ' +
+          'a plan — so no type obliges an owner to appear here. Deriving the row from either would be ' +
+          'a fabricated bridge that reports a totality it does not have.',
       }),
-      measured: 'No authority; no binding in either direction. Matches the spec table.',
+      measured:
+        'Single authority, PARTIALLY bound. Of the two owners that declare emissions on a plan, the ' +
+        'ledger owner appends `emission.event` and follows the plan; the promoter hands its record ' +
+        'to a caller-supplied destination and does not. Measured live rather than transcribed — see ' +
+        'the oracle named on this row’s evidence.',
     }),
 
     'capability-posture': Object.freeze({
