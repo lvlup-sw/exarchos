@@ -11,9 +11,15 @@
 // result: `typescript` is a devDependency, so a shipped `src/` module importing
 // it makes the compiler a runtime dependency of a tree whose shipped artifact
 // resolves only `dependencies` — and the effect ledger enforces exactly that
-// against itself. `test-helpers/` is skipped by the ledger's own scan while
-// still inside `tsconfig.json`'s `include`, so this parser is typechecked under
-// the package's strict settings.
+// against itself.
+//
+// This directory now lives under `tools/`, outside the root config's
+// `src/**`-only `include`, so `tests/tsconfig.json` names it explicitly. That
+// entry is load-bearing rather than tidy: while it was missing, this file was
+// in NO typecheck program, and the import below pointed at a directory that had
+// not existed since the census moved. Nothing caught it — the census imports
+// only the TYPE of this scanner, and a type-only import is erased before any
+// runner could observe that it no longer resolved.
 //
 // ── Why resolve rather than match ───────────────────────────────────────────
 // The superseded detector matched a RAW STRING LITERAL — `type:
@@ -38,7 +44,7 @@ import type {
   EvidenceAppendSite,
   EvidenceEmissionScanner,
   EvidenceScanOptions,
-} from '../orchestrate/gate-ownership-census.js';
+} from '../../src/verbs/gates/gate-ownership-census.js';
 
 /**
  * `parseDiagnostics` is off the public `ts.SourceFile` surface but is the only

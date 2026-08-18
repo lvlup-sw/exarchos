@@ -31,7 +31,18 @@
   // module that only resolves under Bun, and the subject tree reaches it
   // transitively. An ambient `.d.ts` outside this `include` is not picked up by
   // being imported, so without this the whole storage layer fails to resolve.
-  "include": ["**/*.ts", "../src/**/*.d.ts"],
+  //
+  // `../tools/test-helpers/**` is here because it was typechecked by NOTHING.
+  // The root config includes only `src/**`, so when these helpers moved out of
+  // the source tree they left every program at once — and the move was silent,
+  // because the one thing they export to `src/` is a PORT: the census imports
+  // the type, the helper implements it, and a type-only import is erased before
+  // any runner could notice it no longer resolved. Its own header still claimed
+  // the file was "typechecked under the package's strict settings" while its
+  // import pointed at a directory that does not exist. A port implementation is
+  // exactly the wrong module to leave unchecked: it is trusted by the gate that
+  // reads it, and it cannot be trusted by the compiler if no compiler reads it.
+  "include": ["**/*.ts", "../src/**/*.d.ts", "../tools/test-helpers/**/*.ts"],
   // `unit/` and `integration/` arrived wholesale in task 030 and are NOT yet
   // checked. The 925 files it moved had never been type-checked anywhere — the
   // root config excludes `**/*.test.ts` — and putting them under this program
