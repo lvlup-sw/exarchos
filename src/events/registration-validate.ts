@@ -1057,24 +1057,6 @@ export interface DisagreementDisposition extends DisagreementIdentity {
 }
 
 
-/**
- * Why the three task lifecycle edges are a GENUINE mismatch: the id space has no value that would
- * be correct, so agreement could only be bought by making one side assert something false.
- */
-const TASK_LIFECYCLE_RATIONALE =
-  'GENUINE MISMATCH. All three task lifecycle events are appended by `tasks/tools.ts`, and ' +
-  '`tasks/` is claimed by no entry in the effect-provider map and by no filesystem rule in the ' +
-  'effect ledger. The id space the comparison ranges over therefore cannot name the truth: ' +
-  '`exarchos_workflow` is area `workflow/`, `exarchos_orchestrate` is area `verbs/`, and the ' +
-  'append is in neither. Each side is honest about a different fact — `verbs/composite.ts` is ' +
-  'genuinely the composite router that reaches the handler, and the annotation genuinely names the ' +
-  'workflow-state authority these events feed and that folds them. Neither is a transcription slip ' +
-  'and there is no third value to repair to. Adopting the declaring tool would buy agreement by ' +
-  'making the annotation assert an append site that does not exist, which is the comparison ' +
-  'agreeing with itself rather than with the tree. Closing this means giving `tasks/` an owner in ' +
-  'the effect ledger and a provider entry, or relocating the append into an area that already has ' +
-  'one — a change to the ownership model, not to a row in a table. Until then, the comparison ' +
-  'naming both sides IS the correct report.';
 
 /**
  * **The measured break set.** Every disagreement the provider comparison reports on the live
@@ -1086,30 +1068,6 @@ const TASK_LIFECYCLE_RATIONALE =
  * cannot drift from what the gate actually reports — in either direction.
  */
 export const PROVIDER_DISAGREEMENT_DISPOSITIONS: readonly DisagreementDisposition[] = Object.freeze([
-  {
-    event: 'task.claimed',
-    action: 'task_claim',
-    declaredProvider: 'exarchos_workflow',
-    declaringTool: 'exarchos_orchestrate',
-    classification: 'genuine-mismatch',
-    rationale: TASK_LIFECYCLE_RATIONALE,
-  },
-  {
-    event: 'task.completed',
-    action: 'task_complete',
-    declaredProvider: 'exarchos_workflow',
-    declaringTool: 'exarchos_orchestrate',
-    classification: 'genuine-mismatch',
-    rationale: TASK_LIFECYCLE_RATIONALE,
-  },
-  {
-    event: 'task.failed',
-    action: 'task_fail',
-    declaredProvider: 'exarchos_workflow',
-    declaringTool: 'exarchos_orchestrate',
-    classification: 'genuine-mismatch',
-    rationale: TASK_LIFECYCLE_RATIONALE,
-  },
 ]);
 
 /** A fault in the reconciliation between the reported break set and the ledger. */

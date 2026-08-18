@@ -468,16 +468,22 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
   // `ProjectionReducer.id` or `BUILTIN_VIEW_NAMES` entry whose arm for this event mutates state.
   // Explicit no-op arms are excluded — listing one would launder "nobody consumes this" into a
   // consumer.
+  // The three task lifecycle events are appended by `verbs/tasks/tools.ts` and declared on
+  // `task_claim` / `task_complete` / `task_fail`, which are registered on `exarchos_orchestrate`.
+  // They were annotated `exarchos_workflow`, naming the workflow-state authority that FOLDS them
+  // rather than the provider that appends them — a job `consumedBy` already does. The append
+  // module was the last of the task family still sitting outside `verbs/`; now that it has joined
+  // its siblings, the area and the declaring tool agree and this row can say so.
   'task.claimed': {
     lifecycle: 'active',
     tier: 'capability',
-    provider: 'exarchos_workflow',
+    provider: 'exarchos_orchestrate',
     consumedBy: ['task-store@v1'],
   },
   'task.completed': {
     lifecycle: 'active',
     tier: 'capability',
-    provider: 'exarchos_workflow',
+    provider: 'exarchos_orchestrate',
     consumedBy: [
       'rehydration@v1',
       'task-store@v1',
@@ -491,7 +497,7 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
   'task.failed': {
     lifecycle: 'active',
     tier: 'capability',
-    provider: 'exarchos_workflow',
+    provider: 'exarchos_orchestrate',
     consumedBy: [
       'rehydration@v1',
       'task-store@v1',

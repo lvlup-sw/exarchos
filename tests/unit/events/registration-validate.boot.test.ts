@@ -262,7 +262,7 @@ describe('DR-2 boot gate — initializeContext refuses to start on an unresolvab
     vi.doUnmock('../../../src/events/event-annotations.js');
 
     const { initializeContext } = await import('../../../src/dispatch/core/context.js');
-    const { EMISSION_PROVIDER_MISMATCH_CODE } = await import(
+    const { STALE_CAPABILITY_COVER_CODE } = await import(
       '../../../src/events/registration-validate.js'
     );
 
@@ -284,10 +284,16 @@ describe('DR-2 boot gate — initializeContext refuses to start on an unresolvab
       expect(stderrSpy).toHaveBeenCalled();
       const report = written.join('');
       // The diagnostic's own exported code, not a hand-typed string, so a rename of the constant
-      // reddens this assertion instead of leaving it quietly matching a stale label. If this
-      // comparison stopped running — or the live catalog stopped disagreeing with itself — stderr
-      // would stay silent and this line is what would catch it.
-      expect(report).toContain(`[${EMISSION_PROVIDER_MISMATCH_CODE}]`);
+      // reddens this assertion instead of leaving it quietly matching a stale label. If the
+      // emission-coupling checks stopped running — or the live catalog stopped reporting at all —
+      // stderr would stay silent and this line is what would catch it.
+      //
+      // The VEHICLE changed and the property did not. This rode the provider comparison, which
+      // reported real disagreements on the shipped tree; every one has since been repaired, so
+      // that code no longer appears and asserting it would pin this test to a defect rather than
+      // to the seam. Stale cover still has live findings and carries the same claim: an
+      // observe-severity finding reaches an operator through the real boot path.
+      expect(report).toContain(`[${STALE_CAPABILITY_COVER_CODE}]`);
     } finally {
       stderrSpy.mockRestore();
     }

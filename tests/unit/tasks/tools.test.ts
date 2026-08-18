@@ -4,7 +4,7 @@ import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { EventStore, SequenceConflictError } from '../../../src/events/store.js';
 import { TaskCompletedData } from '../../../src/events/schemas.js';
-import { handleTaskClaim, handleTaskComplete, handleTaskFail, resetModuleEventStore } from '../../../src/tasks/tools.js';
+import { handleTaskClaim, handleTaskComplete, handleTaskFail, resetModuleEventStore } from '../../../src/verbs/tasks/tools.js';
 import { resetMaterializerCache } from '../../../src/projections/views/tools.js';
 import { initStateFile, readStateFile } from '../../../src/workflow/state-store.js';
 import { guards } from '../../../src/workflow/guards.js';

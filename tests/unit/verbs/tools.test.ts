@@ -27,7 +27,7 @@ import { EventStore } from '../../../src/events/store.js';
 // isolated. Each mock returns a bare `ToolResult` with `success: true`;
 // the composite boundary is the thing under test.
 
-vi.mock('../../../src/tasks/tools.js', () => ({
+vi.mock('../../../src/verbs/tasks/tools.js', () => ({
   handleTaskClaim: vi.fn().mockResolvedValue({
     success: true,
     data: { streamId: 's1', sequence: 1, type: 'task.claimed' },

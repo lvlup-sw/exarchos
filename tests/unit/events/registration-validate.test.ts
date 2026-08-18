@@ -413,11 +413,16 @@ describe('RegistrationValidate — the DR-2 boot-time weld resolution gate', () 
     expect(verdict.ok).toBe(false);
     expect(verdict.observeCount).toBe(verdict.diagnostics.length);
     expect(verdict.observeCount).toBeGreaterThan(0);
-    // Every finding is emission coupling's — the provider comparison's disagreements and the
-    // stale-cover check's unnamed welds. If a REFERENCE-integrity fault ever appears here it is a
-    // real defect, not a flake, and it would arrive as a blocking count above zero.
+    // Every finding is the stale-cover check's — capability welds nothing declares it emits. If a
+    // REFERENCE-integrity fault ever appears here it is a real defect, not a flake, and it would
+    // arrive as a blocking count above zero.
+    //
+    // The provider comparison is ABSENT from this set now, and its absence is a measurement rather
+    // than a relaxation: every disagreement it used to report has been repaired, so it has nothing
+    // left to say about the shipped tree. `ProviderBreakSet_EveryDisagreementIsAnswered` asserts
+    // that emptiness directly, which is why weakening this line does not lose the claim.
     expect([...new Set(verdict.diagnostics.map((d) => d.code))].sort()).toEqual(
-      [EMISSION_PROVIDER_MISMATCH_CODE, STALE_CAPABILITY_COVER_CODE].sort(),
+      [STALE_CAPABILITY_COVER_CODE].sort(),
     );
 
     // NON-VACUOUS DENOMINATORS, all three, and all derived. A gate that resolved zero welds (or
@@ -1238,6 +1243,31 @@ describe('ComparisonDenominator — the size of the set the provider comparison 
   });
 });
 
+/**
+ * A constructed disagreement and the row that answers for it.
+ *
+ * The break set on the live tree is CLOSED, so the shipped ledger is empty and
+ * can no longer supply a fixture. That is the healthy end state, and it must not
+ * be allowed to quietly disarm the mechanism tests: an audit exercised through
+ * whatever the tree happens to contain stops being exercised at all the moment
+ * the tree is clean. These two are hand-built so the four-wide key, the
+ * undispositioned arm and the stale arm keep biting no matter what ships.
+ */
+const FIXTURE_DISAGREEMENT = Object.freeze({
+  event: 'fixture.disagreed',
+  action: 'fixture_action',
+  declaredProvider: 'exarchos_workflow',
+  declaringTool: 'exarchos_orchestrate',
+});
+
+const FIXTURE_DISPOSITION = Object.freeze({
+  ...FIXTURE_DISAGREEMENT,
+  classification: 'genuine-mismatch' as const,
+  rationale:
+    'Constructed fixture. It answers for FIXTURE_DISAGREEMENT so the audit has a covered edge to ' +
+    'compare against, and it describes no registration in the shipped catalog by design.',
+});
+
 describe('ProviderBreakSet — every reported disagreement is answered for', () => {
   /**
    * An emission edge that disagrees and that NO ledger row covers.
@@ -1347,10 +1377,23 @@ describe('ProviderBreakSet — every reported disagreement is answered for', () 
     const classifications = new Set(
       PROVIDER_DISAGREEMENT_DISPOSITIONS.map((row) => row.classification),
     );
-    expect(classifications.size).toBeGreaterThan(0);
     for (const classification of classifications) {
       expect(['genuine-mismatch', 'annotation-error']).toContain(classification);
     }
+
+    // THE BREAK SET IS NOW CLOSED, and that is the assertion rather than a
+    // count of rows. Every annotation error was applied and every genuine
+    // mismatch was resolved by giving its append module a home inside the area
+    // its provider names, so nothing is left to disposition.
+    //
+    // This is a STRONGER live claim than "some rows exist and look well-formed",
+    // not a weaker one: a new disagreement appearing in the tree has no row to
+    // answer for it, so the audit reports UNDISPOSITIONED and this reddens. The
+    // mechanism that does the reporting is proven separately, on constructed
+    // fixtures, precisely so an empty shipped ledger cannot make it vacuous.
+    expect(reportedDisagreements(), 'a provider disagreement is back').toEqual([]);
+    expect(PROVIDER_DISAGREEMENT_DISPOSITIONS).toEqual([]);
+    expect(auditDisagreementDispositions().ok).toBe(true);
   });
 
   it('ProviderBreakSet_UndispositionedEntry_Fails', () => {
@@ -1400,13 +1443,13 @@ describe('ProviderBreakSet — every reported disagreement is answered for', () 
     // The complementary failure, and the one a ledger drifts into rather than arrives at: nothing
     // about the tree changes, a row is simply dropped. Same denominator, same comparison, one fewer
     // answer — and the audit must notice.
-    const dropped = PROVIDER_DISAGREEMENT_DISPOSITIONS[0];
-    expect(dropped).toBeDefined();
-    if (dropped === undefined) return;
-    const thinned = auditDisagreementDispositions(
-      reportedDisagreements(liveVerdictPlus([])),
-      PROVIDER_DISAGREEMENT_DISPOSITIONS.slice(1),
-    );
+    //
+    // Driven by a CONSTRUCTED pair rather than by slicing the shipped ledger.
+    // The shipped ledger is empty now that the break set is closed, so slicing
+    // it would drop nothing and this arm would pass by testing a no-op — the
+    // exact way a guard goes quiet without going red.
+    const dropped = FIXTURE_DISAGREEMENT;
+    const thinned = auditDisagreementDispositions([dropped], []);
     expect(thinned.ok).toBe(false);
     expect(thinned.diagnostics.map((d) => d.code)).toEqual(['UNDISPOSITIONED_DISAGREEMENT']);
     expect(thinned.diagnostics[0]?.identity).toEqual({
@@ -1415,6 +1458,12 @@ describe('ProviderBreakSet — every reported disagreement is answered for', () 
       declaredProvider: dropped.declaredProvider,
       declaringTool: dropped.declaringTool,
     });
+
+    // The control: the SAME reported edge with a row answering for it is clean,
+    // so the arm above is attributable to the missing row and not the fixture.
+    const answered = auditDisagreementDispositions([dropped], [FIXTURE_DISPOSITION]);
+    expect(answered.ok).toBe(true);
+    expect(answered.diagnostics).toEqual([]);
   });
 
   it('ProviderBreakSet_RowCoveringNothing_IsReportedStale', () => {
@@ -1465,9 +1514,7 @@ describe('ProviderBreakSet — every reported disagreement is answered for', () 
     // survivors on three distinct events and took the assertion red — for a property that had not
     // changed at all. A structural claim tested through whatever the tree happens to look like is
     // a claim that expires.
-    const twoEdgesOneEvent = PROVIDER_DISAGREEMENT_DISPOSITIONS[0];
-    expect(twoEdgesOneEvent).toBeDefined();
-    if (twoEdgesOneEvent === undefined) return;
+    const twoEdgesOneEvent = FIXTURE_DISPOSITION;
     const secondEdge = {
       event: twoEdgesOneEvent.event,
       action: `${twoEdgesOneEvent.action}_second_wiring`,
@@ -1482,7 +1529,7 @@ describe('ProviderBreakSet — every reported disagreement is answered for', () 
         declaringTool: twoEdgesOneEvent.declaringTool,
       },
       secondEdge,
-    ]);
+    ], [FIXTURE_DISPOSITION]);
     // The dispositioned edge is covered; its same-event sibling is NOT. Were the key the event
     // alone, both would read as answered for and this would be empty.
     expect(bothEdges.diagnostics.map((d) => d.code)).toContain('UNDISPOSITIONED_DISAGREEMENT');
@@ -1492,9 +1539,7 @@ describe('ProviderBreakSet — every reported disagreement is answered for', () 
 
     // Take a covered row, move ONE side, and the audit refuses to recognise it — proof that the
     // other three sides did not carry the match on their own.
-    const covered = PROVIDER_DISAGREEMENT_DISPOSITIONS[0];
-    expect(covered).toBeDefined();
-    if (covered === undefined) return;
+    const covered = FIXTURE_DISPOSITION;
     const movedAction = auditDisagreementDispositions([
       {
         event: covered.event,

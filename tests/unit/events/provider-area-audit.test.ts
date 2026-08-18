@@ -40,9 +40,10 @@ const MEASURED_CONTRADICTIONS: readonly string[] = Object.freeze([
  * over the current vocabulary could be right.
  *
  * SHRINK-ONLY, and this is the number the emission model has to answer for.
- * Four kinds sit here — the dispatch wrapper (`projections/telemetry/`), the
- * process hooks (`lifecycle/`, `runtime/launcher/`), and two ordinary handler
- * trees that simply have no provider (`tasks/`, `stack/`, `review/`).
+ * Three kinds sit here — the dispatch wrapper (`projections/telemetry/`), the
+ * process hooks (`lifecycle/`, `runtime/launcher/`), and two handler trees with
+ * no provider (`stack/`, `review/`). The `tasks/` entries are gone: that append
+ * module was the last of the task family outside `verbs/` and has joined it.
  */
 const MEASURED_UNGOVERNED: readonly string[] = Object.freeze([
   'gate.executed -> projections/telemetry/middleware.ts',
@@ -51,9 +52,6 @@ const MEASURED_UNGOVERNED: readonly string[] = Object.freeze([
   'review.routed -> review/tools.ts',
   'stack.position-filled -> stack/tools.ts',
   'subagent.tokens_used -> lifecycle/subagent-stop.ts',
-  'task.claimed -> tasks/tools.ts',
-  'task.completed -> tasks/tools.ts',
-  'task.failed -> tasks/tools.ts',
   'tool.action_errored -> projections/telemetry/middleware.ts',
   'tool.completed -> projections/telemetry/middleware.ts',
   'tool.errored -> projections/telemetry/middleware.ts',

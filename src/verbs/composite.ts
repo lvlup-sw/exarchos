@@ -25,7 +25,7 @@ import {
   handleTaskClaim,
   handleTaskComplete,
   handleTaskFail,
-} from '../tasks/tools.js';
+} from './tasks/tools.js';
 import { handleReviewTriage } from '../review/tools.js';
 import { handlePrepareDelegation } from './team/prepare-delegation.js';
 import { handlePrepareSynthesis } from './team/prepare-synthesis.js';

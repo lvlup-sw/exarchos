@@ -495,11 +495,6 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
     'Persistence reaches the event store and the projections it materialises.',
   ),
   allowance(
-    'tasks',
-    [ROOT_LAYER, 'dispatch', 'events', 'projections', 'workflow'],
-    'Task coordination over the dispatch core and the workflow primitives.',
-  ),
-  allowance(
     'config',
     [ROOT_LAYER, 'events', 'projections', 'utils', 'verbs', 'workflow'],
     'Config resolution reaches the verb surface — the narrowest row that is arguably inverted, and now visible.',
