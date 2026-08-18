@@ -56,14 +56,17 @@ import {
   PROVIDER_REGISTRY_DRIFT_CODE,
   RegistrationWeldError,
   STALE_CAPABILITY_COVER_CODE,
+  STALE_COVER_DISPOSITIONS,
   STALE_COVER_LIFECYCLE_POLICY,
   UNRESOLVABLE_PROVIDER_CODE,
   WELD_RESOLUTION_POLICY,
   assertRegistrationWeldsAtStartup,
   auditDisagreementDispositions,
+  auditStaleCoverDispositions,
   bootResolvedWelds,
   declaredEmissionEdges,
   reportedDisagreements,
+  reportedStaleCover,
   resolvableProviderIds,
   staleCoverEligibleWelds,
   validateRegistrationWelds,
@@ -1784,6 +1787,273 @@ describe('StaleCover — a capability weld that nothing declares it emits', () =
     // measured over — an absence with no denominator beside it is the thing this arm exists to
     // stop reading as success.
     expect(verdict.report).toContain(`${verdict.staleCoverEligibleCount} stale-cover eligible`);
+  });
+});
+
+describe('StaleCoverBreakSet — every active unnamed weld is answered for', () => {
+  /**
+   * A `capability` registration that is active, resolvable, and named by NOTHING — the shape of a
+   * brand-new stale cover arriving in the catalog.
+   *
+   * Both ends come off live modules: the provider is one the registry genuinely resolves and the
+   * consumer is a real fold, so what is seeded is a structurally valid registration rather than a
+   * malformed row the gate might reject for some other reason. Only the event type is fabricated,
+   * and that is the point — it is what makes the weld one the ledger has never seen.
+   */
+  function unlistedStaleCover(): { readonly eventType: string; readonly registration: EventRegistration } {
+    const provider = resolvableProviderIds()[0];
+    if (provider === undefined) throw new Error('no resolvable provider to seed a stale weld with');
+    const eventType = 'seeded.stale-cover-unlisted';
+    if (EVENT_ANNOTATIONS[eventType] !== undefined) {
+      throw new Error('the seeded stale-cover event already exists in the live catalog');
+    }
+    if (declaredEmissionEdges().some((edge) => edge.event === eventType)) {
+      throw new Error('the seeded stale-cover event is already named by a declared edge');
+    }
+    if (STALE_COVER_DISPOSITIONS.some((row) => row.event === eventType)) {
+      throw new Error('the seeded stale cover is already in the ledger');
+    }
+    return {
+      eventType,
+      registration: {
+        lifecycle: 'active',
+        tier: 'capability',
+        provider,
+        consumedBy: ['workflow-state@v1'],
+      },
+    };
+  }
+
+  /** The live verdict with `overrides` merged into the annotation table, every other input live. */
+  function liveVerdictWithCatalog(
+    overrides: Readonly<Record<string, EventRegistration>>,
+  ): WeldResolutionVerdict {
+    return validateRegistrationWelds(
+      catalogWith(overrides),
+      EFFECT_PROVIDERS,
+      EFFECT_OWNERSHIP,
+      WELD_RESOLUTION_POLICY,
+      DIAGNOSTIC_SEVERITY_POLICY,
+      declaredEmissionEdges(),
+    );
+  }
+
+  it('StaleCoverBreakSet_EveryActiveUnnamedWeld_IsDispositioned', () => {
+    const live = validateRegistrationWelds();
+
+    // THE DENOMINATOR THIS RESTS ON, asserted before anything is read off it. A ledger reconciled
+    // against a tooth whose eligible population had collapsed would report a clean sweep of
+    // nothing, so the population is pinned non-empty and its vacuity guard shown silent first. The
+    // reconciliation below is only evidence because this held.
+    expect(live.staleCoverEligibleCount).toBeGreaterThan(0);
+    expect(live.diagnostics.map((d) => d.code)).not.toContain('EMPTY_STALE_COVER_DENOMINATOR');
+    expect(live.diagnostics.map((d) => d.code)).not.toContain('EMPTY_CAPABILITY_DENOMINATOR');
+
+    // DERIVED, not typed. The subject is what the gate reports over the shipped catalog and the
+    // shipped registry; nothing in this test writes down an event name, so a weld that becomes or
+    // stops being stale changes the subject rather than leaving a stale literal checked against
+    // itself.
+    const reported = reportedStaleCover(live);
+    const audit = auditStaleCoverDispositions(reported);
+
+    // BOTH DIRECTIONS CLEAN: no reported weld is unanswered, and no row answers for a weld the
+    // tooth no longer reports. `toEqual([])` rather than a length check so a failure prints the
+    // offending identity and its remedy instead of a number.
+    expect(audit.diagnostics).toEqual([]);
+    expect(audit.ok).toBe(true);
+
+    // The two populations are the same size, which is only true because the match is exact on all
+    // three sides in both directions — a ledger that over- or under-covered would trip an arm above
+    // and this equality would follow it.
+    expect(audit.reportedCount).toBe(reported.length);
+    expect(audit.dispositionedCount).toBe(STALE_COVER_DISPOSITIONS.length);
+    expect(audit.reportedCount).toBe(audit.dispositionedCount);
+
+    // The eligible population read a SECOND way, off the exported building blocks rather than
+    // through the verdict — so every row below is checked against the population itself and not
+    // merely against a number the gate publishes alongside it.
+    const eligible = staleCoverEligibleWelds(bootResolvedWelds());
+    expect(eligible.length).toBe(live.staleCoverEligibleCount);
+
+    for (const row of STALE_COVER_DISPOSITIONS) {
+      // A REASON and the EVIDENCE it rests on, not just a verdict. A classification with neither
+      // would let "somebody decided" stand in for "somebody followed the append", which is the
+      // state this ledger exists to end — and a blank string satisfies both types.
+      expect(['unmodelled-emitter', 'undeclared-emission']).toContain(row.classification);
+      expect(row.rationale.trim().length).toBeGreaterThan(0);
+      expect(row.appendSite.trim().length).toBeGreaterThan(0);
+
+      // The row answers for a weld that is genuinely IN the eligible population, checked against
+      // the population directly. A row could otherwise agree with the verdict's finding list while
+      // describing a registration the annotation table has stopped making.
+      const weld = eligible.find((candidate) => candidate.eventType === row.event);
+      expect(weld).toBeDefined();
+      expect(weld?.ref).toBe(row.declaredProvider);
+      expect(weld?.lifecycle).toBe(row.lifecycle);
+
+      // ...and the lifecycle it names is one the policy admits. A row naming an excluded state
+      // would be answering for a weld the tooth can never report.
+      expect(STALE_COVER_LIFECYCLE_POLICY[row.lifecycle].eligible).toBe(true);
+
+      // The registration is what the LIVE catalog holds, read a third way — off the annotation
+      // table rather than off the derived weld — so a re-tiering cannot leave the row behind.
+      const registration = EVENT_ANNOTATIONS[row.event];
+      expect(registration).toBeDefined();
+      expect(registration?.tier).toBe('capability');
+      if (registration?.tier === 'capability') {
+        expect(registration.provider).toBe(row.declaredProvider);
+        expect(registration.lifecycle).toBe(row.lifecycle);
+      }
+
+      // ...and nothing in the registry declares it, which is the fact the row exists to answer for.
+      expect(declaredEmissionEdges().some((edge) => edge.event === row.event)).toBe(false);
+    }
+
+    // BOTH CLASSIFICATIONS ARE IN USE. The distinction is the substance of this ledger — a break
+    // set where every row said the same thing would mean nobody had separated "no action performs
+    // this append" from "an action performs it and does not declare it", which are opposite
+    // conclusions with opposite remedies.
+    const classifications = new Set(STALE_COVER_DISPOSITIONS.map((row) => row.classification));
+    expect([...classifications].sort()).toEqual(['undeclared-emission', 'unmodelled-emitter']);
+  });
+
+  it('StaleCoverBreakSet_UndispositionedEntry_Fails', () => {
+    // THE CONTROL FIRST, so everything below is attributable to the seed rather than to the fixture.
+    const control = auditStaleCoverDispositions(reportedStaleCover());
+    expect(control.diagnostics).toEqual([]);
+    expect(control.ok).toBe(true);
+
+    // ── ARM ONE: a NEW stale weld arrives and nobody has looked at it ───────────────────────────
+    const seed = unlistedStaleCover();
+    const seeded = liveVerdictWithCatalog({ [seed.eventType]: seed.registration });
+
+    // The gate still only OBSERVES it, exactly as before — the seed changes nothing about boot, so
+    // a tree carrying an unanswered stale weld is indistinguishable from a clean one to every check
+    // that existed before this ledger. That is the hole being closed.
+    expect(seeded.bootable).toBe(true);
+    expect(seeded.blockingCount).toBe(0);
+    // The seed widened the eligible population by exactly one, so the extra finding below is the
+    // seeded weld and not a second registration the fixture disturbed.
+    expect(seeded.staleCoverEligibleCount).toBe(
+      validateRegistrationWelds().staleCoverEligibleCount + 1,
+    );
+
+    const seededReport = reportedStaleCover(seeded);
+    expect(seededReport.length).toBe(control.reportedCount + 1);
+
+    const seededAudit = auditStaleCoverDispositions(seededReport);
+
+    // ...and the reconciliation REDDENS. Not "a diagnostic exists somewhere" — exactly one, naming
+    // the seeded weld by all three sides, with every pre-existing entry still answered for.
+    expect(seededAudit.ok).toBe(false);
+    expect(seededAudit.diagnostics).toHaveLength(1);
+    const finding = seededAudit.diagnostics[0];
+    expect(finding).toBeDefined();
+    if (finding === undefined) return;
+    expect(finding.code).toBe('UNDISPOSITIONED_STALE_COVER');
+    expect(finding.identity).toEqual({
+      event: seed.eventType,
+      declaredProvider: seed.registration.tier === 'capability' ? seed.registration.provider : '',
+      lifecycle: seed.registration.lifecycle,
+    });
+    // The message tells the reader what to do, names both classifications, and names the third
+    // outcome that is NOT a row here — a weld nothing appends is a wrong annotation, and a finding
+    // that omitted that would send the next reader to add a rationale for a claim the tree does not
+    // support.
+    expect(finding.message).toContain(seed.eventType);
+    expect(finding.message).toContain('undeclared-emission');
+    expect(finding.message).toContain('unmodelled-emitter');
+    expect(finding.message).toContain('lifecycle');
+
+    // ── ARM TWO: the ledger stops covering an entry that is still reported ──────────────────────
+    // The complementary failure, and the one a ledger drifts into rather than arrives at: nothing
+    // about the tree changes, a row is simply dropped. Same denominator, same tooth, one fewer
+    // answer — and the audit must notice.
+    const dropped = STALE_COVER_DISPOSITIONS[0];
+    expect(dropped).toBeDefined();
+    if (dropped === undefined) return;
+    const thinned = auditStaleCoverDispositions(
+      reportedStaleCover(),
+      STALE_COVER_DISPOSITIONS.slice(1),
+    );
+    expect(thinned.ok).toBe(false);
+    expect(thinned.diagnostics.map((d) => d.code)).toEqual(['UNDISPOSITIONED_STALE_COVER']);
+    expect(thinned.diagnostics[0]?.identity).toEqual({
+      event: dropped.event,
+      declaredProvider: dropped.declaredProvider,
+      lifecycle: dropped.lifecycle,
+    });
+  });
+
+  it('StaleCoverBreakSet_RowCoveringNothing_IsReportedObsolete', () => {
+    // THE OTHER HALF OF THE RATCHET. A row whose subject is gone reads exactly like a healthy one
+    // from inside the table — same shape, same reasoning, still counted in `dispositionedCount` —
+    // so nothing but this arm can tell the two apart. Without it the ledger could be repaired into
+    // permanent agreement by leaving rows behind after the welds they answered for were wired up or
+    // re-annotated, and the coverage check above would keep passing over a table that had stopped
+    // describing the tree.
+    const ghost = {
+      event: 'ghost.event',
+      declaredProvider: 'exarchos_workflow',
+      lifecycle: 'active',
+      classification: 'unmodelled-emitter',
+      appendSite: 'src/ghost/nowhere.ts',
+      rationale: 'seeded row answering for a stale cover the gate does not report',
+    } as const;
+
+    const audit = auditStaleCoverDispositions(reportedStaleCover(), [
+      ...STALE_COVER_DISPOSITIONS,
+      ghost,
+    ]);
+
+    expect(audit.ok).toBe(false);
+    expect(audit.diagnostics.map((d) => d.code)).toEqual(['OBSOLETE_STALE_COVER_DISPOSITION']);
+    expect(audit.diagnostics[0]?.identity).toEqual({
+      event: ghost.event,
+      declaredProvider: ghost.declaredProvider,
+      lifecycle: ghost.lifecycle,
+    });
+    expect(audit.diagnostics[0]?.message).toContain('Delete the row');
+
+    // The count grew, which is the whole reason the arm is needed: a table can grow while covering
+    // less.
+    expect(audit.dispositionedCount).toBe(STALE_COVER_DISPOSITIONS.length + 1);
+    expect(audit.reportedCount).toBe(STALE_COVER_DISPOSITIONS.length);
+  });
+
+  it('StaleCoverBreakSet_MatchIncludesTheLifecycleSide', () => {
+    // WHY THE KEY CARRIES THE LIFECYCLE. Every row names `active` today, because the policy admits
+    // nothing else — which is exactly what makes the side easy to drop as redundant and wrong to.
+    // Take a covered row, move ONLY the lifecycle, and the audit must refuse to recognise it: proof
+    // that the event and the provider did not carry the match on their own, and therefore that a
+    // widening of the eligibility axis reaches this ledger as a new finding rather than as an
+    // answer inherited from reasoning about a different state.
+    const covered = STALE_COVER_DISPOSITIONS[0];
+    expect(covered).toBeDefined();
+    if (covered === undefined) return;
+    const otherLifecycle = EVENT_LIFECYCLES.find((value) => value !== covered.lifecycle);
+    expect(otherLifecycle).toBeDefined();
+    if (otherLifecycle === undefined) return;
+
+    const moved = auditStaleCoverDispositions([
+      {
+        event: covered.event,
+        declaredProvider: covered.declaredProvider,
+        lifecycle: otherLifecycle,
+      },
+    ]);
+    expect(moved.diagnostics.map((d) => d.code)).toContain('UNDISPOSITIONED_STALE_COVER');
+
+    // ...and the same identity with the lifecycle left alone IS recognised, so the refusal above is
+    // caused by that one field and not by the single-element population.
+    const untouched = auditStaleCoverDispositions([
+      {
+        event: covered.event,
+        declaredProvider: covered.declaredProvider,
+        lifecycle: covered.lifecycle,
+      },
+    ]);
+    expect(untouched.diagnostics.map((d) => d.code)).not.toContain('UNDISPOSITIONED_STALE_COVER');
   });
 });
 

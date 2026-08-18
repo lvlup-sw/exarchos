@@ -225,7 +225,7 @@
     },
     {
       "type": "benchmark.completed",
-      "lifecycle": "active",
+      "lifecycle": "planned",
       "tier": "capability"
     },
     {
@@ -770,7 +770,7 @@
     },
     {
       "type": "stack.restacked",
-      "lifecycle": "active",
+      "lifecycle": "planned",
       "tier": "capability"
     },
     {
@@ -913,7 +913,7 @@
     },
     {
       "type": "turn.completed",
-      "lifecycle": "active",
+      "lifecycle": "planned",
       "tier": "capability"
     },
     {

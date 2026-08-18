@@ -102,8 +102,9 @@ describe('EmissionDerivation — source follows the tier, and cannot be authored
 
   it('EmissionDerivation_LiveRegistry_IsTheDerivationOfEveryAnnotation', () => {
     // The registry is rebuilt here from the same inputs `schemas.ts` uses and compared entry by
-    // entry. This is what goes red if the derivation is reverted to hand-written literals: the
-    // old table declared `benchmark.completed` as 'hook' while its tier derives 'auto'.
+    // entry. This is what goes red if the derivation is reverted to hand-written literals: a
+    // hand-written column is authored independently of the tier and lifecycle it is supposed to
+    // follow, so the two drift apart with nothing red anywhere.
     const rebuilt = deriveEmissionRegistry(EventTypes, ANNOTATED_EVENTS.registrationOf);
 
     // NON-EMPTY DENOMINATOR, asserted before the comparison: an empty catalog would make every
@@ -117,14 +118,17 @@ describe('EmissionDerivation — source follows the tier, and cannot be authored
     );
     expect(mismatched).toEqual([]);
 
-    // And nothing in the live catalog contradicts its own tier — the task-010 exception is gone.
+    // And nothing in the live catalog contradicts its own tier — there is no standing exception.
     expect(tierSourceDisagreements(EVENT_EMISSION_REGISTRY)).toEqual([]);
 
-    // The one value the derivation MOVED, named explicitly so the change is a fact this suite
-    // states rather than a silent consequence. `benchmark.completed` is annotated `capability`
-    // (two real consumer folds, appended through the `exarchos_event` seam) and has no emitter
-    // anywhere in the tree; the retired hand-written column called it 'hook'.
-    expect(EVENT_EMISSION_REGISTRY['benchmark.completed']).toBe('auto');
+    // The registration this suite has argued about longest, named explicitly so its source is a
+    // fact stated here rather than a silent consequence. `benchmark.completed` is annotated
+    // `capability` and `planned`: the `code-quality` fold reads it and no module in the tree
+    // appends it, so the LIFECYCLE is what the source resolves to and the capability tier only
+    // records the weld the append will have. Flip that annotation back to `active` on the strength
+    // of the tier alone and this reads 'auto' — a claim that an effect provider appends the event,
+    // which is the one claim the tree does not support.
+    expect(EVENT_EMISSION_REGISTRY['benchmark.completed']).toBe('planned');
   });
 
   it('EmissionDerivation_EmptyPopulation_FailsInsteadOfProducingACleanEmptyRegistry', () => {
