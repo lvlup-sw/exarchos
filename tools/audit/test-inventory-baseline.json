@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, which is why this total sits below the runners' combined count (root 1,731 including skips, nested 11,662). The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1185,
-    "parsedFiles": 1140,
+    "testFiles": 1186,
+    "parsedFiles": 1141,
     "shellFiles": 45,
-    "cases": 13241,
+    "cases": 13245,
     "dynamicTitles": 144,
     "unparseableFiles": 0
   },
@@ -23009,6 +23009,32 @@
           "suite": "Poc_SqliteBackend_AllConsumersUnchangedAndBenchHits1000OpsPerSec",
           "name": "<dynamic-case-1>",
           "dynamic": true
+        }
+      ]
+    },
+    "tests/unit/events/provider-area-audit.test.ts": {
+      "file": "tests/unit/events/provider-area-audit.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "provider-area audit",
+          "name": "ProviderArea_LiveTree_MatchesTheMeasuredBaseline",
+          "dynamic": false
+        },
+        {
+          "suite": "provider-area audit",
+          "name": "ProviderArea_AppendOutsideTheDeclaredArea_IsReported",
+          "dynamic": false
+        },
+        {
+          "suite": "provider-area audit",
+          "name": "ProviderArea_NoMeasuredSite_IsCountedNotReported",
+          "dynamic": false
+        },
+        {
+          "suite": "provider-area audit",
+          "name": "ProviderArea_UnresolvableProviderId_IsLeftToTheWeldGate",
+          "dynamic": false
         }
       ]
     },
