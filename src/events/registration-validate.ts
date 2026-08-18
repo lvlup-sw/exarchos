@@ -1044,31 +1044,6 @@ export interface DisagreementDisposition extends DisagreementIdentity {
   readonly rationale: string;
 }
 
-/**
- * Why the five gate actions' `admission.evidence-recorded` edges are an ANNOTATION ERROR and not a
- * mismatch the vocabulary is unable to express.
- *
- * Shared by all five rows because it is one fact about one event, not five findings: the five
- * actions differ only in which gate they run, and the emission they declare is minted by the same
- * call in the same module for every one of them.
- */
-const EVIDENCE_RECORDED_RATIONALE =
-  'ANNOTATION ERROR. `admission.evidence-recorded` has exactly one permitted emitter and it is a ' +
-  'MODULE, not a tool: `verbs/gates/gate-ownership-census.ts` pins the canonical evidence emitter ' +
-  'to `verbs/gates/gate-runner.ts` and fails closed (ALTERNATE_EVIDENCE_EMITTER) on any other ' +
-  'module that appends the type — and the live census reports no alternate emitter. `verbs/` is ' +
-  'the area of exactly one effect provider, `exarchos_orchestrate` (owner `orchestrate-fs`), so ' +
-  'the declaring tool is right and the declared `exarchos_workflow` (area `workflow/`) is wrong. ' +
-  'Every production caller of that runner sits under `verbs/` too; not one sits under `workflow/`. ' +
-  'The decisive point is internal to the catalog: `gate.executed` is appended by the SAME runGate ' +
-  'body inside the same durable boundary, is declared on these same five actions in the same ' +
-  'autoEmits arrays, and is annotated `exarchos_orchestrate` — where it AGREES. One append site ' +
-  'cannot have two owning composite tools, so the two rows cannot both be right. Sibling ' +
-  'admission rows emitted from `verbs/` (`admission.rollout-decision`, ' +
-  '`admission.enforcement-enabled`) already carry `exarchos_orchestrate` and agree. REMEDY: change ' +
-  "this event's `provider` to `exarchos_orchestrate`. Deliberately NOT applied here — it edits the " +
-  'shipped catalog every annotation consumer reads, and belongs with the change that graduates ' +
-  'these codes out of `observe`.';
 
 /**
  * Why the three task lifecycle edges are a GENUINE mismatch: the id space has no value that would
@@ -1099,46 +1074,6 @@ const TASK_LIFECYCLE_RATIONALE =
  * cannot drift from what the gate actually reports — in either direction.
  */
 export const PROVIDER_DISAGREEMENT_DISPOSITIONS: readonly DisagreementDisposition[] = Object.freeze([
-  {
-    event: 'admission.evidence-recorded',
-    action: 'check_contract_drift',
-    declaredProvider: 'exarchos_workflow',
-    declaringTool: 'exarchos_orchestrate',
-    classification: 'annotation-error',
-    rationale: EVIDENCE_RECORDED_RATIONALE,
-  },
-  {
-    event: 'admission.evidence-recorded',
-    action: 'check_integration_suite',
-    declaredProvider: 'exarchos_workflow',
-    declaringTool: 'exarchos_orchestrate',
-    classification: 'annotation-error',
-    rationale: EVIDENCE_RECORDED_RATIONALE,
-  },
-  {
-    event: 'admission.evidence-recorded',
-    action: 'check_mock_boundary',
-    declaredProvider: 'exarchos_workflow',
-    declaringTool: 'exarchos_orchestrate',
-    classification: 'annotation-error',
-    rationale: EVIDENCE_RECORDED_RATIONALE,
-  },
-  {
-    event: 'admission.evidence-recorded',
-    action: 'check_static_analysis',
-    declaredProvider: 'exarchos_workflow',
-    declaringTool: 'exarchos_orchestrate',
-    classification: 'annotation-error',
-    rationale: EVIDENCE_RECORDED_RATIONALE,
-  },
-  {
-    event: 'admission.evidence-recorded',
-    action: 'check_test_adequacy',
-    declaredProvider: 'exarchos_workflow',
-    declaringTool: 'exarchos_orchestrate',
-    classification: 'annotation-error',
-    rationale: EVIDENCE_RECORDED_RATIONALE,
-  },
   {
     event: 'task.claimed',
     action: 'task_claim',

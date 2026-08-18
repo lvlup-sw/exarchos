@@ -1318,14 +1318,29 @@ describe('ProviderBreakSet — every reported disagreement is answered for', () 
       }
     }
 
-    // BOTH CLASSIFICATIONS ARE IN USE. The distinction is the substance of this ledger — a break set
-    // where every row said the same thing would mean nobody had separated "the vocabulary cannot
-    // name the truth" from "the annotation is wrong", which are opposite conclusions with opposite
-    // remedies.
+    // THE TWO CLASSIFICATIONS ARE OPPOSITE CONCLUSIONS WITH OPPOSITE REMEDIES: "the vocabulary
+    // cannot name the truth" versus "the annotation is wrong". Keeping them separated is the
+    // substance of this ledger.
+    //
+    // What is NOT asserted here is that both are in use at once. An earlier version required
+    // exactly that, and it inverted into a trap: `annotation-error` names a fault with a known
+    // repair, so the correct life of such a row is to be recorded, applied, and DELETED. Requiring
+    // one to be present permanently made the assertion go red the moment the last annotation error
+    // was actually fixed — it punished the repair it exists to prompt, and the only way back to
+    // green would have been to leave a known-wrong annotation in the shipped catalog.
+    //
+    // A ledger holding only `genuine-mismatch` rows is therefore the HEALTHY end state, not a
+    // degenerate one: every repairable row has been repaired, and what remains is the set the
+    // current id space genuinely cannot express. Laziness is caught from the other side instead —
+    // the per-row checks above demand a rationale and a live-catalog match, and the
+    // STALE_DISPOSITION arm fails any row that outlives its subject.
     const classifications = new Set(
       PROVIDER_DISAGREEMENT_DISPOSITIONS.map((row) => row.classification),
     );
-    expect([...classifications].sort()).toEqual(['annotation-error', 'genuine-mismatch']);
+    expect(classifications.size).toBeGreaterThan(0);
+    for (const classification of classifications) {
+      expect(['genuine-mismatch', 'annotation-error']).toContain(classification);
+    }
   });
 
   it('ProviderBreakSet_UndispositionedEntry_Fails', () => {
@@ -1430,14 +1445,40 @@ describe('ProviderBreakSet — every reported disagreement is answered for', () 
   });
 
   it('ProviderBreakSet_MatchIsOnAllFourSides_NotTheEventAlone', () => {
-    // WHY THE KEY IS FOUR-WIDE. The break set has five separate edges on ONE event, so a ledger
-    // keyed on the event would answer for a sixth the moment it appeared — a new action wired to an
-    // already-dispositioned event would arrive pre-approved by a row written before it existed.
-    const byEvent = new Map<string, number>();
-    for (const row of PROVIDER_DISAGREEMENT_DISPOSITIONS) {
-      byEvent.set(row.event, (byEvent.get(row.event) ?? 0) + 1);
-    }
-    expect(Math.max(...byEvent.values())).toBeGreaterThan(1);
+    // WHY THE KEY IS FOUR-WIDE. A ledger keyed on the event alone would answer for a SECOND edge
+    // on that event the moment it appeared — a newly wired action would arrive pre-approved by a
+    // row written before it existed.
+    //
+    // Proven by construction rather than by counting the live ledger. An earlier version asserted
+    // that some event in the shipped break set carried more than one row, which held only while
+    // five edges of `admission.evidence-recorded` were unrepaired. Repairing them left the three
+    // survivors on three distinct events and took the assertion red — for a property that had not
+    // changed at all. A structural claim tested through whatever the tree happens to look like is
+    // a claim that expires.
+    const twoEdgesOneEvent = PROVIDER_DISAGREEMENT_DISPOSITIONS[0];
+    expect(twoEdgesOneEvent).toBeDefined();
+    if (twoEdgesOneEvent === undefined) return;
+    const secondEdge = {
+      event: twoEdgesOneEvent.event,
+      action: `${twoEdgesOneEvent.action}_second_wiring`,
+      declaredProvider: twoEdgesOneEvent.declaredProvider,
+      declaringTool: twoEdgesOneEvent.declaringTool,
+    };
+    const bothEdges = auditDisagreementDispositions([
+      {
+        event: twoEdgesOneEvent.event,
+        action: twoEdgesOneEvent.action,
+        declaredProvider: twoEdgesOneEvent.declaredProvider,
+        declaringTool: twoEdgesOneEvent.declaringTool,
+      },
+      secondEdge,
+    ]);
+    // The dispositioned edge is covered; its same-event sibling is NOT. Were the key the event
+    // alone, both would read as answered for and this would be empty.
+    expect(bothEdges.diagnostics.map((d) => d.code)).toContain('UNDISPOSITIONED_DISAGREEMENT');
+    expect(
+      bothEdges.diagnostics.filter((d) => d.code === 'UNDISPOSITIONED_DISAGREEMENT'),
+    ).toHaveLength(1);
 
     // Take a covered row, move ONE side, and the audit refuses to recognise it — proof that the
     // other three sides did not carry the match on their own.

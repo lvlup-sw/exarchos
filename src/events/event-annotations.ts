@@ -737,10 +737,15 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
   // ── The v2.12 phase-gate proof substrate ──
   // All twelve are folded by `workflow-state@v1` (audit/shadow visibility). The `planned` ones
   // are not exposed as admission actions in v2.12; `lifecycle`, not tier, records that.
+  // The append site is `verbs/gates/gate-runner.ts`, pinned as the sole canonical evidence
+  // emitter by the gate-ownership census, and `verbs/` is the area of exactly one provider.
+  // `gate.executed` is appended by the same `runGate` body, declared on the same five actions,
+  // and already annotated `exarchos_orchestrate` — one append site cannot have two owning tools,
+  // so the two rows could not both be right. Corrected from `exarchos_workflow`.
   'admission.evidence-recorded': {
     lifecycle: 'active',
     tier: 'capability',
-    provider: 'exarchos_workflow',
+    provider: 'exarchos_orchestrate',
     consumedBy: ['workflow-state@v1'],
   },
   'admission.shadow-attempt': {
