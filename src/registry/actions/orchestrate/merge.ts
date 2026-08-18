@@ -46,6 +46,10 @@ export const mergeActions: readonly BuiltinToolAction[] = [
       // path, not the normal one. No expiry: the recovery ladder is a permanent
       // part of the merge contract rather than a stopgap awaiting removal.
       { event: 'merge.recovered', condition: 'conditional', description: 'When execute fails and the INV-14 recovery ladder runs', role: 'recovery', owner: 'orchestrate' },
+      // The terminal marker, appended by `execute-merge.ts` in the same dispatch that already
+      // declares `merge.executed`. A losing concurrent invocation returns STATE_CONFLICT and
+      // defers completion to the winner, so this is conditional rather than always.
+      { event: 'merge.completed', condition: 'conditional', description: 'After the merge lands and the terminal marker is written', role: 'primary', owner: 'orchestrate' },
     ],
     // T9 (#1440 Op 2, preview-4 design §4.3): multi-step git merge
     // orchestration (preflight → execute → optional rollback) is the

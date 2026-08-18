@@ -87,6 +87,8 @@ export const workflowActions: readonly BuiltinToolAction[] = [
     },
     autoEmits: [
       { event: 'workflow.transition', condition: 'always', role: 'primary', owner: 'workflow' },
+      // `hsm-transition-guard.ts` appends this from the same handler, on the re-entry arm only.
+      { event: 'workflow.fix-cycle', condition: 'conditional', description: 'When a phase is re-entered rather than advanced', role: 'primary', owner: 'workflow' },
     ],
     outputSchema: vacuityWaiver('exarchos_workflow.transition', WorkflowTransitionOutputSchema),
     annotations: LOCAL_MUTATION,

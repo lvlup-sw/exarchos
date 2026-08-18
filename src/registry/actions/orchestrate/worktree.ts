@@ -83,6 +83,12 @@ export const worktreeActions: readonly BuiltinToolAction[] = [
     autoEmits: [
       { event: 'worktree.remove.requested', condition: 'conditional', description: 'Per delete-eligible candidate on an apply run', role: 'primary', owner: 'orchestrate' },
       { event: 'worktree.remove.executed', condition: 'conditional', description: 'After each git worktree remove succeeds', role: 'primary', owner: 'orchestrate' },
+      // `WorktreeManager.prune()` appends the pair around the safety ladder — the start before it
+      // runs, the terminal in a `finally` — and this action is that method's only caller. It
+      // already declares the two removal events appended deeper in the same ladder, so the effect
+      // was always this action's and only the declaration was missing.
+      { event: 'prune.executing_started', condition: 'conditional', description: 'Once per prune pass, before the safety ladder', role: 'primary', owner: 'orchestrate' },
+      { event: 'prune.executed', condition: 'conditional', description: 'Closes the pass exactly once, including on a throw', role: 'primary', owner: 'orchestrate' },
     ],
     // prune_worktrees → compensable + destructive (the two-event delete split
     // is the compensating recovery seam) AND idempotent (a re-run re-classifies

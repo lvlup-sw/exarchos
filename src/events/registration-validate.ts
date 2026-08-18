@@ -1361,33 +1361,7 @@ const LIVE_SHADOW_OBSERVER_RATIONALE =
   'the reserved append registry, so `exarchos_event.append` REFUSES a caller-minted one and points ' +
   'at a typed handler that is not registered as an action either.';
 
-/**
- * Why both halves of the prune liveness pair are undeclared rather than unmodelled: one action
- * drives the whole pass, and it declares two other events from the same handler.
- */
-const PRUNE_PAIR_RATIONALE =
-  'UNDECLARED EMISSION. `verbs/worktree/manager.ts` appends the pair from `WorktreeManager.prune()` ' +
-  '— the start before the safety ladder runs and the terminal in a `finally`, so a throw mid-pass ' +
-  'still closes the pair exactly once. That method has exactly one caller, `handlePruneWorktrees`, ' +
-  'which IS the `prune_worktrees` action, and that action already declares the two ' +
-  '`worktree.remove.*` events appended deeper in the same ladder. So the effect is the action’s ' +
-  'and the declaration is simply missing. REMEDY: add both to the `prune_worktrees` autoEmits ' +
-  'array. Deliberately NOT applied here — it widens the emission population every consumer of the ' +
-  'tool registry reads, and belongs with the change that graduates this code out of `observe`.';
 
-/**
- * Why the two unnamed shepherd-loop rows are undeclared: one handler appends all six, and four of
- * them are already declared on its action.
- */
-const ASSESS_STACK_RATIONALE =
-  'UNDECLARED EMISSION. `verbs/vcs/assess-stack.ts` appends this from `handleAssessStack`, which ' +
-  'IS the `assess_stack` action. The decisive point is internal to that one handler: it appends ' +
-  'six event types and the action declares four of them (`shepherd.started`, ' +
-  '`shepherd.approval_requested`, `shepherd.completed`, `gate.executed`), all from the same body ' +
-  'and the same dispatch. One handler cannot be the emitter of four of its appends and not of the ' +
-  'other two, so the autoEmits array is incomplete rather than the emission being unmodelled. ' +
-  'REMEDY: add it to the `assess_stack` autoEmits array. Deliberately NOT applied here, for the ' +
-  'reason every remedy in this ledger is recorded rather than applied.';
 
 /**
  * **The measured break set.** Every stale cover the tooth reports on the live catalog, with a
@@ -1436,14 +1410,6 @@ export const STALE_COVER_DISPOSITIONS: readonly StaleCoverDisposition[] = Object
     classification: 'unmodelled-emitter',
     appendSite: 'src/workflow/admission/live-shadow-observer.ts (observer sink drain)',
     rationale: LIVE_SHADOW_OBSERVER_RATIONALE,
-  },
-  {
-    event: 'ci.status',
-    declaredProvider: 'exarchos_orchestrate',
-    lifecycle: 'active',
-    classification: 'undeclared-emission',
-    appendSite: 'src/verbs/vcs/assess-stack.ts::emitCiStatusEvents, via handleAssessStack (assess_stack)',
-    rationale: ASSESS_STACK_RATIONALE,
   },
   {
     event: 'eval.judge.calibrated',
@@ -1497,66 +1463,6 @@ export const STALE_COVER_DISPOSITIONS: readonly StaleCoverDisposition[] = Object
       'Nothing reconciles a START into existence the way the phantom-launch reconciler does for ' +
       'the terminal, so unlike `launch.executed` there is no action-borne caller to declare it on. ' +
       'Closing this means modelling the launcher supervisor as a declaring surface.',
-  },
-  {
-    event: 'merge.completed',
-    declaredProvider: 'exarchos_orchestrate',
-    lifecycle: 'active',
-    classification: 'undeclared-emission',
-    appendSite: 'src/verbs/merge/execute-merge.ts, via handleMergeOrchestrate (merge_orchestrate)',
-    rationale:
-      'UNDECLARED EMISSION. The executor appends the terminal after it wins the `merge.executed` ' +
-      'compare-and-set, inside a retry that re-reads the advanced tail; the git merge itself is ' +
-      'never re-run. It is driven by `handleMergeOrchestrate`, which IS the `merge_orchestrate` ' +
-      'action, and that action already declares the other three merge events — `merge.preflight`, ' +
-      '`merge.executed` and `merge.recovered` — from the same handler. Three of four declared and ' +
-      'the terminal missing is an incomplete array, not an unmodelled emitter. REMEDY: add ' +
-      '`merge.completed` to the `merge_orchestrate` autoEmits array.',
-  },
-  {
-    event: 'prune.executed',
-    declaredProvider: 'exarchos_orchestrate',
-    lifecycle: 'active',
-    classification: 'undeclared-emission',
-    appendSite:
-      'src/verbs/worktree/manager.ts::appendPruneExecuted (the prune finally), via ' +
-      'handlePruneWorktrees (prune_worktrees)',
-    rationale: PRUNE_PAIR_RATIONALE,
-  },
-  {
-    event: 'prune.executing_started',
-    declaredProvider: 'exarchos_orchestrate',
-    lifecycle: 'active',
-    classification: 'undeclared-emission',
-    appendSite:
-      'src/verbs/worktree/manager.ts::appendPruneStarted (before the safety ladder), via ' +
-      'handlePruneWorktrees (prune_worktrees)',
-    rationale: PRUNE_PAIR_RATIONALE,
-  },
-  {
-    event: 'review.routed',
-    declaredProvider: 'exarchos_orchestrate',
-    lifecycle: 'active',
-    classification: 'undeclared-emission',
-    appendSite: 'src/review/tools.ts::emitRoutedEvents, via handleReviewTriage (review_triage)',
-    rationale:
-      'UNDECLARED EMISSION. `handleReviewTriage` computes a routing decision per pull request and ' +
-      'appends one row apiece, idempotency-keyed on the pull request number — the append is the ' +
-      "action's whole point, and `review_triage` is the action. It declares no emissions at all " +
-      'today, so this is an empty array rather than an incomplete one, which is the easier case: ' +
-      'nothing has to be reconciled with a sibling declaration. The downstream reader confirms the ' +
-      'reading — `verbs/review/verify-review-triage.ts` queries the stream for exactly these rows ' +
-      'to verify that the triage ran. REMEDY: add `review.routed` to the `review_triage` autoEmits ' +
-      'array.',
-  },
-  {
-    event: 'shepherd.escalated',
-    declaredProvider: 'exarchos_orchestrate',
-    lifecycle: 'active',
-    classification: 'undeclared-emission',
-    appendSite:
-      'src/verbs/vcs/assess-stack.ts::emitShepherdEscalated, via handleAssessStack (assess_stack)',
-    rationale: ASSESS_STACK_RATIONALE,
   },
   {
     event: 'stack.position-filled',
@@ -1614,22 +1520,6 @@ export const STALE_COVER_DISPOSITIONS: readonly StaleCoverDisposition[] = Object
     classification: 'unmodelled-emitter',
     appendSite: 'src/projections/telemetry/middleware.ts (the dispatch telemetry wrapper)',
     rationale: TELEMETRY_MIDDLEWARE_RATIONALE,
-  },
-  {
-    event: 'workflow.fix-cycle',
-    declaredProvider: 'exarchos_workflow',
-    lifecycle: 'active',
-    classification: 'undeclared-emission',
-    appendSite:
-      'src/workflow/hsm-transition-guard.ts, via handleTransition (exarchos_workflow.transition)',
-    rationale:
-      'UNDECLARED EMISSION. The transition guard is the authoritative decider for a phase move and ' +
-      'it appends this row when the move re-enters a phase, folding in a one-based ordinal counted ' +
-      'from the prior rows on the stream. Its callers are the transition handler, cancel and ' +
-      'cleanup — and the transition handler IS the `transition` action, which already declares ' +
-      '`workflow.transition` from the same guard invocation. One guard call cannot be the emitter ' +
-      'of the transition row and not of the fix-cycle row it appends beside it. REMEDY: add ' +
-      '`workflow.fix-cycle` to the `transition` autoEmits array, under the re-entry condition.',
   },
   {
     event: 'worktree.orphan_detected',

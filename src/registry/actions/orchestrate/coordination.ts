@@ -103,6 +103,12 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
     }),
     phases: REVIEW_PHASES,
     roles: ROLE_LEAD,
+    // `review/tools.ts::emitRoutedEvents` appends one row per dispatched review, from this
+    // handler. The action declared no emissions at all, which left the registration claiming a
+    // consumer folds an event that nothing in the registry said anyone emits.
+    autoEmits: [
+      { event: 'review.routed', condition: 'conditional', description: 'One per PR routed; none when nothing is dispatched', role: 'primary', owner: 'orchestrate' },
+    ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.review_triage'),
     annotations: LOCAL_MUTATION,
   },
@@ -204,6 +210,10 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
       { event: 'shepherd.approval_requested', condition: 'conditional', description: 'When approval needed', role: 'primary', owner: 'orchestrate' },
       { event: 'shepherd.completed', condition: 'conditional', description: 'When PR merged', role: 'primary', owner: 'orchestrate' },
       { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
+      // The same handler appends these two from the same dispatch. It cannot be the emitter of
+      // four of its appends and not of the other two, so the omission was in the declaration.
+      { event: 'ci.status', condition: 'conditional', description: 'One per PR assessed; none when the stack is empty', role: 'primary', owner: 'orchestrate' },
+      { event: 'shepherd.escalated', condition: 'conditional', description: 'When the auto-fix bound is reached', role: 'primary', owner: 'orchestrate' },
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.assess_stack'),
     // sentry LOW on PR #1369: `assess_stack` reads GitHub PR state but
