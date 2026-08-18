@@ -299,6 +299,61 @@ export function verifyDeclaredEmissions(input: {
     : { status: 'violated', missingEvents, lifecycleViolations: lifecycle, required };
 }
 
+// ─── Run-level summary ──────────────────────────────────────────────────────
+
+/**
+ * What a whole run of verdicts adds up to.
+ *
+ * `determinate` is the count the headline rests on. A `not-applicable` verdict
+ * is not a pass — it is a question that was not asked — so a run made entirely
+ * of them has checked NOTHING, and reporting that as clean is the exact shape
+ * of a guard gone vacuous: green, stable, and covering nothing at all.
+ */
+export interface EmissionRunSummary {
+  /** Every verdict considered. */
+  readonly total: number;
+  /** Verdicts that actually answered the question: `ok` + `violated`. */
+  readonly determinate: number;
+  readonly ok: number;
+  readonly violated: number;
+  /** `not-applicable` — out of subject, unread store, no stream. */
+  readonly indeterminate: number;
+  /**
+   * True only when something was checked AND nothing was wrong. A run with
+   * `determinate === 0` is never clean, however many verdicts it produced.
+   */
+  readonly clean: boolean;
+}
+
+/**
+ * Fold a run's verdicts into a summary. Pure and total.
+ *
+ * The determinate count is REPORTED rather than merely computed, because the
+ * number is the evidence: "0 violations" out of 400 checked and "0 violations"
+ * out of 0 checked print identically, and only one of them is good news.
+ */
+export function summarizeEmissionRun(
+  verdicts: readonly EmissionVerdict[],
+): EmissionRunSummary {
+  let ok = 0;
+  let violated = 0;
+  let indeterminate = 0;
+  for (const verdict of verdicts) {
+    if (verdict.status === 'ok') ok += 1;
+    else if (verdict.status === 'violated') violated += 1;
+    else indeterminate += 1;
+  }
+  const determinate = ok + violated;
+  return {
+    total: verdicts.length,
+    determinate,
+    ok,
+    violated,
+    indeterminate,
+    clean: determinate > 0 && violated === 0,
+  };
+}
+
 /**
  * Whether this verdict should FAIL the run, given the config that was resolved
  * — or the absence of one.
