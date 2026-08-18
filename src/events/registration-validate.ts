@@ -1303,6 +1303,557 @@ export function auditDisagreementDispositions(
   };
 }
 
+// ─── The stale-cover break set, and its disposition ─────────────────────────
+//
+// {@link STALE_CAPABILITY_COVER_CODE} ships at `observe` for the same reason the provider
+// comparison does, and it carries the same obligation: the concession is defensible only while
+// every finding it reports has been looked at and written down. So the stale-cover break set gets
+// its own LEDGER and its own two-way ratchet ({@link auditStaleCoverDispositions}), built to the
+// shape the provider ledger already established rather than to a second one:
+//
+//   • UNDISPOSITIONED_STALE_COVER — the tooth reports an active weld no row answers for. This is
+//     the arm carrying the weight. A newly-stale weld — an action that stops declaring the
+//     emission, an annotation flipped to `active` ahead of its emitter — REDDENS instead of
+//     joining the observed pile.
+//   • OBSOLETE_STALE_COVER_DISPOSITION — a row answers for a weld the tooth no longer reports.
+//     The reasoning was about one measured fact; once an emission edge names the event, or the
+//     lifecycle stops admitting it, the row is a claim the tree does not support.
+//
+// The denominator is the tooth's OWN output, never a list typed here.
+//
+// ## Keyed on three sides, and why the lifecycle is one of them
+//
+// A stale-cover finding names the event, the provider whose cover it claims, and the lifecycle
+// that admitted it — and the row is matched on all three, because all three are what was reasoned
+// about. The lifecycle side is the one worth defending: it is `active` on every row today, since
+// {@link STALE_COVER_LIFECYCLE_POLICY} admits nothing else. That is exactly what makes it
+// load-bearing. Widen the policy so a fourth state is eligible and its welds arrive
+// undispositioned rather than inheriting an answer written about `active` ones; correct an
+// annotation to `planned` and the row goes obsolete rather than silently answering for nothing.
+//
+// ## The two classifications, and why the distinction is not a matter of taste
+//
+// `unmodelled-emitter` is NOT "we decided to live with it". An emission edge is an `autoEmits`
+// entry on a `ToolAction`, so an edge can only exist where an ACTION's own effect includes the
+// append. Several of the welds below are appended by machinery the tool registry does not model
+// as an action at all — the dispatch wrapper that runs around every action, a hook installed at
+// process wiring, a supervisor's teardown path, a write surface reserved to a typed handler, an
+// evaluation harness outside `src/`. There is no action whose effect this is, so there is no edge
+// to declare, and the tooth naming the weld is the intended report rather than a defect awaiting
+// repair. Closing one of these means giving the emission vocabulary a non-action arm — a change
+// to what an emission edge IS, not a row in an array.
+//
+// `undeclared-emission` is the opposite: an action's own handler performs the append and its
+// `autoEmits` array does not list it. A correct declaration exists and the registry does not carry
+// it. Recording it here does NOT apply it, for the reason the provider ledger gives: adding edges
+// changes what every consumer of the tool registry reads, and two of the repairs below would
+// surface a provider disagreement the moment they landed. That belongs in a change reviewable as
+// one, alongside the graduation of these codes out of `observe`. What the row buys is that the
+// repair becomes a decided edit instead of a rediscovery.
+
+/** How an active weld that no emission edge names was answered for. */
+export type StaleCoverClassification = 'unmodelled-emitter' | 'undeclared-emission';
+
+/**
+ * The three sides that identify ONE reported stale cover — the same three
+ * {@link STALE_CAPABILITY_COVER_CODE} reports, renamed only where the diagnostic's field name
+ * (`eventType`, `provider`) would read ambiguously in a ledger row.
+ */
+export interface StaleCoverIdentity {
+  /** The event whose registration claims cover nothing declares it emits. */
+  readonly event: string;
+  /** The provider the event's `capability` registration declares. */
+  readonly declaredProvider: string;
+  /** The lifecycle that admitted the weld to the stale-cover population. */
+  readonly lifecycle: EventLifecycle;
+}
+
+/** The stale-cover arm of the diagnostic union, named so callers can project it without re-`Extract`ing. */
+export type StaleCoverFinding = Extract<
+  WeldResolutionDiagnostic,
+  { code: typeof STALE_CAPABILITY_COVER_CODE }
+>;
+
+/**
+ * One row of the ledger: a measured stale cover, WHERE the event is actually appended, what that
+ * makes it, and why.
+ *
+ * `appendSite` is a required field of its own rather than a sentence inside {@link rationale},
+ * because it is the evidence the classification rests on and the only part of the row a reader can
+ * check against the tree in one step. A row that named a classification without it would record a
+ * verdict with the measurement left out.
+ */
+export interface StaleCoverDisposition extends StaleCoverIdentity {
+  readonly classification: StaleCoverClassification;
+  /**
+   * The module that performs the append, and the action that reaches it where one does. Repo
+   * relative, so it is followable; a move that invalidates it is a documentation defect in this
+   * row rather than a matching failure, since the reconciliation keys on the identity and never on
+   * this field.
+   */
+  readonly appendSite: string;
+  readonly rationale: string;
+}
+
+/**
+ * Why the three per-dispatch telemetry rows have no declaring action: their append is the DISPATCH
+ * WRAPPER's, and it runs around every action rather than inside any one of them.
+ */
+const TELEMETRY_MIDDLEWARE_RATIONALE =
+  'UNMODELLED EMITTER. `projections/telemetry/middleware.ts` wraps the handler for EVERY action ' +
+  'and appends these rows to the singleton telemetry stream from that wrapper — after the handler ' +
+  'returns, keyed by the tool name it was invoked with, and swallowing its own failures so a ' +
+  'telemetry drop can never fail a workflow. The append is therefore the wrapper effect, not any ' +
+  "action's effect: no single action performs it, and declaring it on all of them would assert " +
+  'that every action in the registry independently emits the telemetry row, which is false in ' +
+  'every case and would put a hundred-odd edges into the comparison naming one append site. The ' +
+  'sibling row minted by the same wrapper, `quality.hint.generated`, IS declared on one action, ' +
+  'which is the same defect from the other side and out of scope here. Closing this means giving ' +
+  'the emission vocabulary a way to say "the dispatch layer emits this", which is a change to what ' +
+  'an emission edge is.';
+
+/**
+ * Why the two live-shadow evidence rows have no declaring action: the observer that appends them
+ * is installed at process wiring and drains on its own settlement chain.
+ */
+const LIVE_SHADOW_OBSERVER_RATIONALE =
+  'UNMODELLED EMITTER. `workflow/admission/live-shadow-observer.ts` appends these on the observer ' +
+  'sink drain, from a target installed when the process is wired rather than from a dispatched ' +
+  'action. The events record what the shadow evaluation OBSERVED about a transition somebody else ' +
+  'performed, so there is no action whose effect they are — the action that triggered the ' +
+  'transition did not emit them, and the observer is not an action. The reserved write surface ' +
+  'confirms the same reading from the other side: `registry/gate-metadata.ts` holds both types in ' +
+  'the reserved append registry, so `exarchos_event.append` REFUSES a caller-minted one and points ' +
+  'at a typed handler that is not registered as an action either.';
+
+/**
+ * Why both halves of the prune liveness pair are undeclared rather than unmodelled: one action
+ * drives the whole pass, and it declares two other events from the same handler.
+ */
+const PRUNE_PAIR_RATIONALE =
+  'UNDECLARED EMISSION. `verbs/worktree/manager.ts` appends the pair from `WorktreeManager.prune()` ' +
+  '— the start before the safety ladder runs and the terminal in a `finally`, so a throw mid-pass ' +
+  'still closes the pair exactly once. That method has exactly one caller, `handlePruneWorktrees`, ' +
+  'which IS the `prune_worktrees` action, and that action already declares the two ' +
+  '`worktree.remove.*` events appended deeper in the same ladder. So the effect is the action’s ' +
+  'and the declaration is simply missing. REMEDY: add both to the `prune_worktrees` autoEmits ' +
+  'array. Deliberately NOT applied here — it widens the emission population every consumer of the ' +
+  'tool registry reads, and belongs with the change that graduates this code out of `observe`.';
+
+/**
+ * Why the two unnamed shepherd-loop rows are undeclared: one handler appends all six, and four of
+ * them are already declared on its action.
+ */
+const ASSESS_STACK_RATIONALE =
+  'UNDECLARED EMISSION. `verbs/vcs/assess-stack.ts` appends this from `handleAssessStack`, which ' +
+  'IS the `assess_stack` action. The decisive point is internal to that one handler: it appends ' +
+  'six event types and the action declares four of them (`shepherd.started`, ' +
+  '`shepherd.approval_requested`, `shepherd.completed`, `gate.executed`), all from the same body ' +
+  'and the same dispatch. One handler cannot be the emitter of four of its appends and not of the ' +
+  'other two, so the autoEmits array is incomplete rather than the emission being unmodelled. ' +
+  'REMEDY: add it to the `assess_stack` autoEmits array. Deliberately NOT applied here, for the ' +
+  'reason every remedy in this ledger is recorded rather than applied.';
+
+/**
+ * **The measured break set.** Every stale cover the tooth reports on the live catalog, with a
+ * disposition apiece.
+ *
+ * Measured, not designed: the rows below were read off the tooth's own output over the shipped
+ * annotation table and the shipped tool registry, and every `appendSite` was resolved by following
+ * the append to the handler that reaches it. Three welds the same measurement found are NOT here,
+ * because they were not dispositioned — `stack.restacked`, `turn.completed` and
+ * `benchmark.completed` have no emitter anywhere in the tree, so their annotations were corrected
+ * to `planned` and the lifecycle axis excludes them. A disposition is for a weld that is genuinely
+ * active and genuinely unnamed; an annotation that claimed an append nothing performs is a wrong
+ * annotation, and answering for it here would have preserved the wrong claim behind a rationale.
+ */
+export const STALE_COVER_DISPOSITIONS: readonly StaleCoverDisposition[] = Object.freeze([
+  {
+    event: 'admission.cutover-ready',
+    declaredProvider: 'exarchos_workflow',
+    lifecycle: 'active',
+    classification: 'unmodelled-emitter',
+    appendSite: 'src/workflow/admission/cutover-auto-export.ts (durable-append success hook)',
+    rationale:
+      'UNMODELLED EMITTER. The append runs inside `maybeExportCutoverReadiness`, a durable-append ' +
+      'SUCCESS HOOK configured by `dispatch/core/context.ts::initializeContext` and fired from the ' +
+      "shadow observer's settlement chain. Its trigger is another event landing, not an action " +
+      'being dispatched, and it is single-flight and self-suppressing once it has exported — so ' +
+      'no action invocation reliably produces it and none of them owns it. The sibling actions ' +
+      '`cutover_readiness` and `cutover_decide` are the nearest candidates and neither appends ' +
+      'this type: the first only reads the readiness report, and the second appends the two ' +
+      'rollout events it already declares.',
+  },
+  {
+    event: 'admission.disagreement-disposition',
+    declaredProvider: 'exarchos_workflow',
+    lifecycle: 'active',
+    classification: 'unmodelled-emitter',
+    appendSite:
+      'src/workflow/admission/live-shadow-observer.ts (observer sink drain); ' +
+      'src/events/tools.ts::handleAdmissionDisagreementDisposition (reserved typed handler)',
+    rationale: LIVE_SHADOW_OBSERVER_RATIONALE,
+  },
+  {
+    event: 'admission.shadow-attempt',
+    declaredProvider: 'exarchos_workflow',
+    lifecycle: 'active',
+    classification: 'unmodelled-emitter',
+    appendSite: 'src/workflow/admission/live-shadow-observer.ts (observer sink drain)',
+    rationale: LIVE_SHADOW_OBSERVER_RATIONALE,
+  },
+  {
+    event: 'ci.status',
+    declaredProvider: 'exarchos_orchestrate',
+    lifecycle: 'active',
+    classification: 'undeclared-emission',
+    appendSite: 'src/verbs/vcs/assess-stack.ts::emitCiStatusEvents, via handleAssessStack (assess_stack)',
+    rationale: ASSESS_STACK_RATIONALE,
+  },
+  {
+    event: 'eval.judge.calibrated',
+    declaredProvider: 'exarchos_view',
+    lifecycle: 'active',
+    classification: 'unmodelled-emitter',
+    appendSite: 'tools/evals/evals/harness.ts (the evaluation harness, outside src/)',
+    rationale:
+      'UNMODELLED EMITTER. The only append is in the evaluation harness under `tools/`, which is a ' +
+      'developer entry point run from the command line over a suite of graded cases — not a ' +
+      'composite tool and not reachable through dispatch. Every `exarchos_view` action is a read ' +
+      'of a projection, `eval_results` included, so there is no action on the declared provider ' +
+      'that could carry the edge without asserting that reading the view emits the calibration. ' +
+      'The registration itself is right: the harness genuinely appends the event and ' +
+      '`eval-results` genuinely folds it. Closing this means either modelling the harness as a ' +
+      'declaring surface or moving the append behind an action, and both are larger than a row.',
+  },
+  {
+    event: 'launch.executed',
+    declaredProvider: 'exarchos_orchestrate',
+    lifecycle: 'active',
+    classification: 'undeclared-emission',
+    appendSite:
+      'src/runtime/launcher/liveness.ts::emitLaunchExecuted, reached from the launcher teardown ' +
+      'and signal paths AND from handleViewPs (exarchos_view.ps with probe:true, via ' +
+      'src/runtime/launcher/launch-reconcile.ts::reconcileLaunches)',
+    rationale:
+      'UNDECLARED EMISSION, and the asymmetry with its own START is the finding. Every catchable ' +
+      'launcher exit funnels through one idempotent terminal seam, and the launcher supervisor is ' +
+      'not an action — but that seam has a SECOND caller that is: the phantom-launch reconciler, ' +
+      'which `ps` runs when the caller passes `probe: true` and which heals an in-flight launch ' +
+      'whose supervisor is provably dead by appending exactly this terminal. So an action does ' +
+      'perform the append, on a condition an `AutoEmission` can carry. REMEDY: declare it on ' +
+      '`exarchos_view.ps` under the probe condition. Note what that surfaces and why it is not ' +
+      'applied here: the declaring tool would be `exarchos_view` while this registration declares ' +
+      '`exarchos_orchestrate`, so the edge lands as a provider disagreement the moment it exists. ' +
+      'Both halves belong in the same reviewed change, not in the one that takes the measurement.',
+  },
+  {
+    event: 'launch.executing_started',
+    declaredProvider: 'exarchos_orchestrate',
+    lifecycle: 'active',
+    classification: 'unmodelled-emitter',
+    appendSite:
+      'src/runtime/launcher/liveness.ts::emitLaunchExecutingStarted, from the launcher ' +
+      'supervisor (src/runtime/launcher/lifecycle-core.ts)',
+    rationale:
+      'UNMODELLED EMITTER, and the honest half of a pair whose terminal is not. The claim is ' +
+      'appended by the launcher supervisor as it starts a session, which is a long-lived process ' +
+      'the runtime spawns — reached from the launcher verb, never from a dispatched action. ' +
+      'Nothing reconciles a START into existence the way the phantom-launch reconciler does for ' +
+      'the terminal, so unlike `launch.executed` there is no action-borne caller to declare it on. ' +
+      'Closing this means modelling the launcher supervisor as a declaring surface.',
+  },
+  {
+    event: 'merge.completed',
+    declaredProvider: 'exarchos_orchestrate',
+    lifecycle: 'active',
+    classification: 'undeclared-emission',
+    appendSite: 'src/verbs/merge/execute-merge.ts, via handleMergeOrchestrate (merge_orchestrate)',
+    rationale:
+      'UNDECLARED EMISSION. The executor appends the terminal after it wins the `merge.executed` ' +
+      'compare-and-set, inside a retry that re-reads the advanced tail; the git merge itself is ' +
+      'never re-run. It is driven by `handleMergeOrchestrate`, which IS the `merge_orchestrate` ' +
+      'action, and that action already declares the other three merge events — `merge.preflight`, ' +
+      '`merge.executed` and `merge.recovered` — from the same handler. Three of four declared and ' +
+      'the terminal missing is an incomplete array, not an unmodelled emitter. REMEDY: add ' +
+      '`merge.completed` to the `merge_orchestrate` autoEmits array.',
+  },
+  {
+    event: 'prune.executed',
+    declaredProvider: 'exarchos_orchestrate',
+    lifecycle: 'active',
+    classification: 'undeclared-emission',
+    appendSite:
+      'src/verbs/worktree/manager.ts::appendPruneExecuted (the prune finally), via ' +
+      'handlePruneWorktrees (prune_worktrees)',
+    rationale: PRUNE_PAIR_RATIONALE,
+  },
+  {
+    event: 'prune.executing_started',
+    declaredProvider: 'exarchos_orchestrate',
+    lifecycle: 'active',
+    classification: 'undeclared-emission',
+    appendSite:
+      'src/verbs/worktree/manager.ts::appendPruneStarted (before the safety ladder), via ' +
+      'handlePruneWorktrees (prune_worktrees)',
+    rationale: PRUNE_PAIR_RATIONALE,
+  },
+  {
+    event: 'review.routed',
+    declaredProvider: 'exarchos_orchestrate',
+    lifecycle: 'active',
+    classification: 'undeclared-emission',
+    appendSite: 'src/review/tools.ts::emitRoutedEvents, via handleReviewTriage (review_triage)',
+    rationale:
+      'UNDECLARED EMISSION. `handleReviewTriage` computes a routing decision per pull request and ' +
+      'appends one row apiece, idempotency-keyed on the pull request number — the append is the ' +
+      "action's whole point, and `review_triage` is the action. It declares no emissions at all " +
+      'today, so this is an empty array rather than an incomplete one, which is the easier case: ' +
+      'nothing has to be reconciled with a sibling declaration. The downstream reader confirms the ' +
+      'reading — `verbs/review/verify-review-triage.ts` queries the stream for exactly these rows ' +
+      'to verify that the triage ran. REMEDY: add `review.routed` to the `review_triage` autoEmits ' +
+      'array.',
+  },
+  {
+    event: 'shepherd.escalated',
+    declaredProvider: 'exarchos_orchestrate',
+    lifecycle: 'active',
+    classification: 'undeclared-emission',
+    appendSite:
+      'src/verbs/vcs/assess-stack.ts::emitShepherdEscalated, via handleAssessStack (assess_stack)',
+    rationale: ASSESS_STACK_RATIONALE,
+  },
+  {
+    event: 'stack.position-filled',
+    declaredProvider: 'exarchos_orchestrate',
+    lifecycle: 'active',
+    classification: 'undeclared-emission',
+    appendSite: 'src/stack/tools.ts, via the stack_place action on exarchos_view',
+    rationale:
+      'UNDECLARED EMISSION. The `stack_place` handler validates a position and appends this row; ' +
+      'recording the position IS the action, and it is annotated a local mutation rather than a ' +
+      'read, so nothing about the surface disguises the effect. REMEDY: add it to the ' +
+      '`stack_place` autoEmits array. Note what that surfaces, and why it is recorded rather than ' +
+      'applied: `stack_place` is registered on `exarchos_view` while this registration declares ' +
+      '`exarchos_orchestrate`, so the new edge arrives as a provider disagreement and one of the ' +
+      'two sides needs deciding in the same change — either the mutation belongs on the ' +
+      'orchestrate surface, or the registration names the wrong provider. That is a placement ' +
+      'question about a shipped action, not a row in a table.',
+  },
+  {
+    event: 'subagent.tokens_used',
+    declaredProvider: 'exarchos_event',
+    lifecycle: 'active',
+    classification: 'unmodelled-emitter',
+    appendSite: 'src/lifecycle/subagent-stop.ts (the subagent-stop hook handler)',
+    rationale:
+      'UNMODELLED EMITTER. The append is performed by the subagent-stop hook handler, which reads ' +
+      "the finished subagent's transcript, resolves the teammate by matching its working directory " +
+      'against a worktree reservation, and appends the usage atom to the resolved feature stream. ' +
+      'The harness fires the hook when a subagent stops; no action is dispatched, and the append ' +
+      'is fail-open at every step, so a run that resolves no teammate emits nothing at all. The ' +
+      'annotation is already explicit that the hook is the TRIGGER and exarchos code is the ' +
+      'author, which is why the registration derives an automatic source — that reading is ' +
+      'unaffected. What is missing is an action, and there is none to add.',
+  },
+  {
+    event: 'tool.action_errored',
+    declaredProvider: 'exarchos_event',
+    lifecycle: 'active',
+    classification: 'unmodelled-emitter',
+    appendSite: 'src/projections/telemetry/middleware.ts (the dispatch telemetry wrapper)',
+    rationale: TELEMETRY_MIDDLEWARE_RATIONALE,
+  },
+  {
+    event: 'tool.completed',
+    declaredProvider: 'exarchos_event',
+    lifecycle: 'active',
+    classification: 'unmodelled-emitter',
+    appendSite: 'src/projections/telemetry/middleware.ts (the dispatch telemetry wrapper)',
+    rationale: TELEMETRY_MIDDLEWARE_RATIONALE,
+  },
+  {
+    event: 'tool.errored',
+    declaredProvider: 'exarchos_event',
+    lifecycle: 'active',
+    classification: 'unmodelled-emitter',
+    appendSite: 'src/projections/telemetry/middleware.ts (the dispatch telemetry wrapper)',
+    rationale: TELEMETRY_MIDDLEWARE_RATIONALE,
+  },
+  {
+    event: 'workflow.fix-cycle',
+    declaredProvider: 'exarchos_workflow',
+    lifecycle: 'active',
+    classification: 'undeclared-emission',
+    appendSite:
+      'src/workflow/hsm-transition-guard.ts, via handleTransition (exarchos_workflow.transition)',
+    rationale:
+      'UNDECLARED EMISSION. The transition guard is the authoritative decider for a phase move and ' +
+      'it appends this row when the move re-enters a phase, folding in a one-based ordinal counted ' +
+      'from the prior rows on the stream. Its callers are the transition handler, cancel and ' +
+      'cleanup — and the transition handler IS the `transition` action, which already declares ' +
+      '`workflow.transition` from the same guard invocation. One guard call cannot be the emitter ' +
+      'of the transition row and not of the fix-cycle row it appends beside it. REMEDY: add ' +
+      '`workflow.fix-cycle` to the `transition` autoEmits array, under the re-entry condition.',
+  },
+  {
+    event: 'worktree.orphan_detected',
+    declaredProvider: 'exarchos_orchestrate',
+    lifecycle: 'active',
+    classification: 'undeclared-emission',
+    appendSite:
+      'src/verbs/worktree/manager.ts::appendLifecycle, from probeAndReclaim, via handleViewPs ' +
+      '(exarchos_view.ps with probe:true)',
+    rationale:
+      'UNDECLARED EMISSION. One private method appends both reclaim terminals from the ' +
+      'ground-truth probe: `worktree.released` when the owner is provably dead and the path is ' +
+      'free, this one when the owner is provably dead and a live foreign process still occupies ' +
+      'it. The probe runs on demand from `ps` when the caller passes `probe: true`, so an action ' +
+      'does reach the append, on a condition an `AutoEmission` can carry. Its sibling terminal is ' +
+      'already declared — on `release_worktree`, which reaches the OTHER append site — so the ' +
+      'registry today names one of the two reclaim outcomes and not the other. REMEDY: declare ' +
+      'it on `exarchos_view.ps` under the probe condition, accepting the same provider question ' +
+      '`launch.executed` raises from the same handler.',
+  },
+]);
+
+/** A fault in the reconciliation between the reported stale-cover set and the ledger. */
+export type StaleCoverDispositionDiagnostic =
+  | {
+      readonly code: 'UNDISPOSITIONED_STALE_COVER';
+      readonly identity: StaleCoverIdentity;
+      readonly message: string;
+    }
+  | {
+      readonly code: 'OBSOLETE_STALE_COVER_DISPOSITION';
+      readonly identity: StaleCoverIdentity;
+      readonly message: string;
+    };
+
+/** The reconciliation verdict, carrying both populations so neither count is readable alone. */
+export interface StaleCoverAuditResult {
+  /** Every reported stale cover is answered for, and every row still answers for something. */
+  readonly ok: boolean;
+  /** Stale covers the tooth reported — the denominator, derived from the live gate. */
+  readonly reportedCount: number;
+  /** Rows in the ledger. */
+  readonly dispositionedCount: number;
+  readonly diagnostics: readonly StaleCoverDispositionDiagnostic[];
+}
+
+/**
+ * The ledger key for one stale cover: all THREE sides, encoded as a JSON tuple.
+ *
+ * JSON for the reason the provider ledger uses it — the encoding is injective for free, with no
+ * claim to defend about which characters a field can contain. Keying on fewer than three sides is
+ * the failure this guards: keyed on the event alone, a row written about an `active` weld would go
+ * on answering for the same event after a lifecycle widening put it in the population for an
+ * entirely different reason.
+ */
+const staleCoverKey = (identity: StaleCoverIdentity): string =>
+  JSON.stringify([identity.event, identity.declaredProvider, identity.lifecycle]);
+
+/**
+ * The identity of one reported stale cover.
+ *
+ * This is the ONLY place a diagnostic is turned into a ledger key, which is what keeps the two in
+ * step without a second proof: drop a field from the stale-cover arm and this function stops
+ * compiling, rather than the ledger quietly starting to match on two sides.
+ */
+export function staleCoverIdentityOf(diagnostic: StaleCoverFinding): StaleCoverIdentity {
+  return {
+    event: diagnostic.eventType,
+    declaredProvider: diagnostic.provider,
+    lifecycle: diagnostic.lifecycle,
+  };
+}
+
+/**
+ * The stale covers a verdict reports, as identities. Sorted, so the ledger can be read in the same
+ * order the gate produces.
+ */
+export function reportedStaleCover(
+  verdict: WeldResolutionVerdict = validateRegistrationWelds(),
+): readonly StaleCoverIdentity[] {
+  const identities = verdict.diagnostics
+    .filter((d): d is StaleCoverFinding => d.code === STALE_CAPABILITY_COVER_CODE)
+    .map(staleCoverIdentityOf);
+  return Object.freeze(identities.sort((a, b) => byString(staleCoverKey(a), staleCoverKey(b))));
+}
+
+/**
+ * Reconcile the reported stale-cover set against the ledger, in BOTH directions. Pure and total:
+ * returns a verdict, never throws.
+ *
+ * Both populations are parameters with live defaults, for the reason every population in this
+ * module is one: a reconciliation that could only ever read one hard-wired input could not be
+ * shown to be capable of reporting anything, and the arm that matters here is the one that fires
+ * on an input the shipped tree does not currently produce.
+ */
+export function auditStaleCoverDispositions(
+  reported: readonly StaleCoverIdentity[] = reportedStaleCover(),
+  dispositions: readonly StaleCoverDisposition[] = STALE_COVER_DISPOSITIONS,
+): StaleCoverAuditResult {
+  const diagnostics: StaleCoverDispositionDiagnostic[] = [];
+  const dispositioned = new Set(dispositions.map(staleCoverKey));
+  const reportedKeys = new Set(reported.map(staleCoverKey));
+
+  for (const identity of reported) {
+    if (dispositioned.has(staleCoverKey(identity))) continue;
+    diagnostics.push({
+      code: 'UNDISPOSITIONED_STALE_COVER',
+      identity,
+      message:
+        `event '${identity.event}' is registered tier 'capability' with provider ` +
+        `'${identity.declaredProvider}' and lifecycle '${identity.lifecycle}', no action in the ` +
+        'tool registry declares that it emits it, and no row of the stale-cover ledger answers ' +
+        'for it. Follow the append to the module that performs it and record what you find: ' +
+        "`undeclared-emission` when an action's own handler reaches the append and its autoEmits " +
+        'array does not list it (a correct declaration exists), `unmodelled-emitter` when the ' +
+        'append belongs to machinery the registry does not model as an action at all — the ' +
+        'dispatch wrapper, a hook, a supervisor, a reserved write surface — so there is no edge ' +
+        'to declare. If NEITHER fits because nothing in the tree appends the event, the ' +
+        "annotation is wrong rather than uncovered: correct the registration's lifecycle instead " +
+        'of adding a row here. An observe-severity finding nobody has answered for is the state ' +
+        'this ledger exists to prevent.',
+    });
+  }
+
+  for (const row of dispositions) {
+    if (reportedKeys.has(staleCoverKey(row))) continue;
+    diagnostics.push({
+      code: 'OBSOLETE_STALE_COVER_DISPOSITION',
+      identity: {
+        event: row.event,
+        declaredProvider: row.declaredProvider,
+        lifecycle: row.lifecycle,
+      },
+      message:
+        `the ledger dispositions a stale cover on '${row.event}' (provider ` +
+        `'${row.declaredProvider}', lifecycle '${row.lifecycle}') that the gate no longer ` +
+        'reports. The reasoning was about one measured fact and that fact is gone — an action now ' +
+        'declares the emission, the annotation moved to a lifecycle the check excludes, the ' +
+        'provider changed, or the event left the capability arm. Delete the row: a disposition ' +
+        'that outlives its subject is a claim about the tree the tree does not support.',
+    });
+  }
+
+  // Code first, then identity — the same two-level ordering the provider ledger uses, so a reader
+  // scanning a failure sees the undispositioned entries as one block rather than interleaved with
+  // the obsolete rows.
+  const sorted = [...diagnostics].sort(
+    (a, b) =>
+      byString(a.code, b.code) ||
+      byString(staleCoverKey(a.identity), staleCoverKey(b.identity)),
+  );
+  return {
+    ok: sorted.length === 0,
+    reportedCount: reported.length,
+    dispositionedCount: dispositions.length,
+    diagnostics: Object.freeze(sorted),
+  };
+}
+
 /**
  * Where an observe-severity finding goes when the gate does not throw.
  *
@@ -1566,4 +2117,43 @@ export type _RegistrationValidate_Disposition_IsTheFourSidesPlusTheDecision = Ex
     keyof DisagreementDisposition,
     keyof DisagreementIdentity | 'classification' | 'rationale'
   >
+>;
+
+/**
+ * **The stale-cover disposition-shape proof.** A stale-cover row is the three sides of one measured
+ * finding plus the three fields that ARE the decision — the classification, the append site it
+ * rests on, and the reasoning — and nothing else.
+ *
+ * Both halves matter, for the reasons the provider proof gives. Drop a side and rows start
+ * answering for findings nobody looked at: keyed on the event alone, a row written about an
+ * `active` weld would go on answering after a lifecycle widening admitted the same event for a
+ * different reason. Add a field the identity does not have and the ledger acquires a key the gate
+ * cannot produce, so the row could never match and would report as obsolete forever.
+ *
+ * `appendSite` is inside the decision half deliberately: it is evidence, not identity. It is the
+ * measurement the classification rests on, and keeping it out of the key is what makes a module
+ * move a documentation defect in one row rather than a reconciliation that silently stops matching.
+ *
+ * Falsifier: widen or narrow either side and the key sets stop matching, so the build names it.
+ @proof
+ * */
+export type _RegistrationValidate_StaleCoverDisposition_IsTheThreeSidesPlusTheDecision = Expect<
+  MutuallyAssignable<
+    keyof StaleCoverDisposition,
+    keyof StaleCoverIdentity | 'classification' | 'appendSite' | 'rationale'
+  >
+>;
+
+/**
+ * The ledger keys on the SAME lifecycle vocabulary the eligibility table is total over, so the two
+ * cannot drift into different ideas of what a lifecycle is. A row can only name a state
+ * {@link STALE_COVER_LIFECYCLE_POLICY} has an entry for, and a widening of that axis therefore
+ * reaches this ledger as new undispositioned findings rather than as rows that silently never match.
+ *
+ * Falsifier: retype the row's lifecycle side as `string` and this alias stops holding — the moment
+ * a ledger key could be minted that no diagnostic can produce.
+ @proof
+ * */
+export type _RegistrationValidate_StaleCoverIdentity_KeysOnTheLifecycleAxis = Expect<
+  MutuallyAssignable<StaleCoverIdentity['lifecycle'], keyof typeof STALE_COVER_LIFECYCLE_POLICY>
 >;

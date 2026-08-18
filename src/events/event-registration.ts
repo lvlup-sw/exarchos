@@ -418,7 +418,7 @@ export type EventRegistration = {
  * | tier | members | verdict |
  * |---|---|---|
  * | `substrate` | 95 | `'auto'` VALIDATED — every active one declares `auto` |
- * | `capability` | 50 | `'auto'` VALIDATED for every active one except `benchmark.completed` |
+ * | `capability` | 50 | `'auto'` VALIDATED — every active one is appended by code, not composed |
  * | `observation` | **0** | UNVALIDATABLE — DR-11's reconcilers do not exist yet |
  * | `judgment` | 7 | `'model'` VALIDATED — all seven declare `model` |
  * | `workflow-local` | 18 | `'model'` — CHANGED from `'auto'` by task 010; see below |
@@ -432,15 +432,15 @@ export const EMISSION_SOURCE_BY_TIER: Readonly<Record<EventTier, EmissionSource>
     // Reconcilers fire at boundaries — session start, phase transition, launcher
     // spawn/teardown (DR-12: "boundary hook", no timer and no daemon).
     //
-    // UNCHANGED BY TASK 010, AND DELIBERATELY SO. This tier has ZERO members in the live
-    // catalog: DR-11's `Reconciler<S>` and its `divergence.detected` event are task 032's
-    // work, and the one registration that declares `'hook'` today
-    // (`benchmark.completed`) is measurably NOT a reconciler event — it names none of the
-    // three DR-11 subjects and has no emitter anywhere in the tree. So nothing in the
-    // catalog can validate this value in EITHER direction, and rewriting it to `'auto'`
-    // on the strength of the `subagent.tokens_used` precedent would have substituted one
-    // unvalidated judgment for another. It is left as task 009 wrote it, and named here as
-    // the one entry task 010 could not measure.
+    // UNVALIDATED, AND DELIBERATELY LEFT SO. This tier has ZERO members in the live
+    // catalog: the `Reconciler<S>` port and its `divergence.detected` event are not
+    // written yet, and no registration derives `'hook'`. The nearest candidate,
+    // `benchmark.completed`, names none of the reconciler subjects and has no emitter
+    // anywhere in the tree, so its lifecycle records it as planned rather than as a
+    // boundary-hook append. Nothing in the catalog can validate this value in EITHER
+    // direction, and rewriting it to `'auto'` on the strength of the
+    // `subagent.tokens_used` precedent would substitute one unvalidated judgment for
+    // another. It stays as authored, named here as the one entry no measurement reaches.
     observation: 'hook',
     // The model composes the verdict CONTENT; the gate owns the append.
     //

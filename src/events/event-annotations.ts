@@ -512,8 +512,13 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     provider: 'exarchos_orchestrate',
     consumedBy: ['workflow-state@v1', 'pipeline'],
   },
+  // PLANNED — measured, not inherited. The schema, the type-map entry and the
+  // `synthesis-readiness` fold all exist; nothing in the tree appends the event.
+  // A restack is performed today through the VCS surface without recording a
+  // fact, so the fold is written ahead of its producer. `lifecycle` carries
+  // that, and the tier still records the weld the append will have.
   'stack.restacked': {
-    lifecycle: 'active',
+    lifecycle: 'planned',
     tier: 'capability',
     provider: 'exarchos_orchestrate',
     consumedBy: ['synthesis-readiness'],
@@ -672,8 +677,12 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     provider: 'exarchos_event',
     consumedBy: ['telemetry'],
   },
+  // PLANNED — measured, not inherited. The telemetry middleware appends the
+  // three `tool.*` rows above once per dispatch; a per-TURN aggregate has a
+  // `telemetry` fold (`view.turns`) and no producer anywhere in the tree. The
+  // fold reads a shape nothing writes yet, which is what `planned` states.
   'turn.completed': {
-    lifecycle: 'active',
+    lifecycle: 'planned',
     tier: 'capability',
     provider: 'exarchos_event',
     consumedBy: ['telemetry'],
@@ -787,13 +796,16 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     provider: 'exarchos_workflow',
     consumedBy: ['workflow-state@v1'],
   },
-  // Task 010's ONE unreconciled registration, reconciled by task 011. Annotated on the evidence
-  // (two real consumer folds, appended through the `exarchos_event` seam), which derives `'auto'`
-  // where the hand-written registry column declared `'hook'`. Deriving the registry from this
-  // table is what settled the disagreement in favour of the measurement; nothing was bent to make
-  // a number come out even, and no reconciler id was invented for it.
+  // PLANNED — measured, not inherited, and the registration the catalog has
+  // argued about longest. The `code-quality` fold reads the results array, and
+  // no module in the tree appends the event: the only producer is a benchmark
+  // FIXTURE factory under `tools/evals/`, which mints the shape for a synthetic
+  // stream rather than recording a measurement anything folds. Annotating it
+  // `active` claimed an effect provider appends it, which is the one claim the
+  // tree does not support; `planned` says what is actually true — the schema
+  // and the fold are ready and the emitter is not written.
   'benchmark.completed': {
-    lifecycle: 'active',
+    lifecycle: 'planned',
     tier: 'capability',
     provider: 'exarchos_event',
     consumedBy: ['code-quality'],
