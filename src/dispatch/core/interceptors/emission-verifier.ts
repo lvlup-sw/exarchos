@@ -40,9 +40,44 @@
  * edges are conditional resolves `not-applicable`, never `ok`: reporting `ok`
  * would record a pass that was never earned, which is indistinguishable from
  * not having checked.
+ *
+ * A conditional edge is dropped from the subject set and never re-enters it. It
+ * is not required, and it is equally not AVAILABLE to satisfy something that
+ * is: an event that landed under a conditional declaration cannot be spent
+ * discharging a different unconditional promise.
+ *
+ * ── The lifecycle axis: what landed, not only what is missing ───────────────
+ *
+ * Registration carries two independent axes — the tier an event is welded to,
+ * and whether anything emits it at all. `planned` means the schema and type-map
+ * entry exist but no producer does; `retired` means the producer is gone and the
+ * entry is KEPT so old logs stay replayable.
+ *
+ * Both are claims about runtime, so runtime can falsify them. An event that
+ * lands while its registration says `planned` or `retired` is the same class of
+ * defect as a declared emission that never lands — the declaration and the
+ * implementation have drifted — and it is invisible to a missing-events check,
+ * which only ever looks for absence. Presence is the other half.
+ *
+ * Scope is declared, not discovered: the lifecycle check reads the events
+ * already fetched for the missing-events comparison. It adds no query, and it
+ * therefore inherits that comparison's subject — an action with no unconditional
+ * contract is never fetched for and so is never lifecycle-checked here. That is
+ * a stated boundary rather than a silent one; the boot-time diagnostics in
+ * `events/registration-validate.ts` own the whole-tree sweep.
+ *
+ * An event absent from the annotation table is NOT a lifecycle violation. An
+ * unknown registration is an unanswered question, and it already has its own
+ * diagnostic — treating it as a fault here would double-report it under a name
+ * that does not describe it.
  */
 
 import type { EventStore } from '../../../events/store.js';
+import { EVENT_ANNOTATIONS } from '../../../events/event-annotations.js';
+import type {
+  EventLifecycle,
+  EventRegistration,
+} from '../../../events/event-registration.js';
 // Via the published `registry.js` identity, not `registry/gate-metadata.js`:
 // the dispatch layer reaches the declarations through the barrel every other
 // consumer uses, and the layer-boundary audit holds it to that.
@@ -131,14 +166,55 @@ export function applicableReturnClasses(
 
 export type EmissionVerificationStatus = 'ok' | 'violated' | 'not-applicable';
 
+/**
+ * The lifecycle values that assert nothing emits the event. `active` is absent
+ * because an active registration is exactly the case a runtime emission agrees
+ * with; deriving this by subtraction keeps the two from drifting apart.
+ */
+export type NonEmittingLifecycle = Exclude<EventLifecycle, 'active'>;
+
+/** An event that landed at runtime while its registration said nothing emits it. */
+export interface LifecycleViolation {
+  readonly event: string;
+  readonly lifecycle: NonEmittingLifecycle;
+}
+
 export interface EmissionVerdict {
   readonly status: EmissionVerificationStatus;
   /** Present only when `status === 'not-applicable'`. */
   readonly reason?: EmissionInapplicabilityReason;
   /** The unconditionally declared events that did not land. Empty unless violated. */
   readonly missingEvents: readonly string[];
+  /**
+   * Events that landed although their registration is `planned` or `retired`.
+   * Empty unless violated, and independent of {@link missingEvents} — either
+   * alone is enough to make the verdict `violated`.
+   */
+  readonly lifecycleViolations: readonly LifecycleViolation[];
   /** The unconditional subject set the verdict was reached over. */
   readonly required: readonly string[];
+}
+
+/**
+ * The landed events whose registration claims nothing emits them.
+ *
+ * Total and pure. An unregistered event yields nothing — see the header: absence
+ * from the table is a different question with a different owner.
+ */
+export function lifecycleViolations(
+  landed: readonly string[],
+  annotations: Readonly<Record<string, EventRegistration>> = EVENT_ANNOTATIONS,
+): readonly LifecycleViolation[] {
+  const seen = new Set<string>();
+  const violations: LifecycleViolation[] = [];
+  for (const event of landed) {
+    if (seen.has(event)) continue;
+    seen.add(event);
+    const lifecycle = annotations[event]?.lifecycle;
+    if (lifecycle === undefined || lifecycle === 'active') continue;
+    violations.push({ event, lifecycle });
+  }
+  return violations.sort((a, b) => a.event.localeCompare(b.event));
 }
 
 /**
@@ -171,22 +247,39 @@ export function verifyDeclaredEmissions(input: {
   readonly declared: readonly AutoEmission[] | undefined;
   readonly streamId: string | undefined;
   readonly landed: readonly string[];
+  readonly annotations?: Readonly<Record<string, EventRegistration>>;
 }): EmissionVerdict {
   const required = unconditionalEmissions(input.declared);
 
   // Out of subject — see the header. Not `ok`: there was nothing to earn a pass with.
   if (required.length === 0) {
-    return { status: 'not-applicable', reason: 'no-unconditional-contract', missingEvents: [], required };
+    return {
+      status: 'not-applicable',
+      reason: 'no-unconditional-contract',
+      missingEvents: [],
+      lifecycleViolations: [],
+      required,
+    };
   }
   if (input.streamId === undefined || input.streamId.length === 0) {
-    return { status: 'not-applicable', reason: 'no-stream', missingEvents: [], required };
+    return {
+      status: 'not-applicable',
+      reason: 'no-stream',
+      missingEvents: [],
+      lifecycleViolations: [],
+      required,
+    };
   }
 
   const landed = new Set(input.landed);
   const missingEvents = required.filter((event) => !landed.has(event));
-  return missingEvents.length === 0
-    ? { status: 'ok', missingEvents: [], required }
-    : { status: 'violated', missingEvents, required };
+  const lifecycle = lifecycleViolations(input.landed, input.annotations);
+
+  // Two independent faults, either sufficient. Reported together rather than
+  // short-circuited, so one run names everything that is wrong with the call.
+  return missingEvents.length === 0 && lifecycle.length === 0
+    ? { status: 'ok', missingEvents: [], lifecycleViolations: [], required }
+    : { status: 'violated', missingEvents, lifecycleViolations: lifecycle, required };
 }
 
 // ─── Interceptor entry point ────────────────────────────────────────────────
@@ -202,6 +295,8 @@ export interface EmissionVerifierCall {
   readonly streamId: string | undefined;
   /** The action's declared emission edges, read from the registry. */
   readonly declared: readonly AutoEmission[] | undefined;
+  /** Registration table for the lifecycle axis. Injectable for tests. */
+  readonly annotations?: Readonly<Record<string, EventRegistration>>;
 }
 
 /**
@@ -226,11 +321,23 @@ export async function runEmissionVerifierInterceptor(
 ): Promise<EmissionVerdict> {
   const required = unconditionalEmissions(call.declared);
   if (required.length === 0) {
-    return { status: 'not-applicable', reason: 'no-unconditional-contract', missingEvents: [], required };
+    return {
+      status: 'not-applicable',
+      reason: 'no-unconditional-contract',
+      missingEvents: [],
+      lifecycleViolations: [],
+      required,
+    };
   }
   const streamId = call.streamId;
   if (streamId === undefined || streamId.length === 0) {
-    return { status: 'not-applicable', reason: 'no-stream', missingEvents: [], required };
+    return {
+      status: 'not-applicable',
+      reason: 'no-stream',
+      missingEvents: [],
+      lifecycleViolations: [],
+      required,
+    };
   }
 
   try {
@@ -239,30 +346,41 @@ export async function runEmissionVerifierInterceptor(
       declared: call.declared,
       streamId,
       landed: observed.map((event) => event.type),
+      annotations: call.annotations ?? EVENT_ANNOTATIONS,
     });
     if (verdict.status !== 'violated') return verdict;
 
     // The finding has to outlive the run that noticed it, so it is written to
     // the log rather than only logged. One report per operation: the
     // idempotency key collapses a racing duplicate into a no-op.
-    await eventStore.append(
-      streamId,
-      {
-        type: 'emission.violated',
-        data: {
-          action: `${call.tool}.${call.action}`,
-          missingEvents: verdict.missingEvents,
-          operationId: call.operationId,
+    //
+    // Gated on a non-empty miss set because `EmissionViolatedData.missingEvents`
+    // is `.min(1)` — the report was shaped around absence before the lifecycle
+    // axis existed. A lifecycle-only violation therefore still FAILS the verdict
+    // its caller acts on, but is carried by the log line below rather than a
+    // durable record. Widening the payload is a schema change and belongs to
+    // whoever owns that file, not here.
+    if (verdict.missingEvents.length > 0) {
+      await eventStore.append(
+        streamId,
+        {
+          type: 'emission.violated',
+          data: {
+            action: `${call.tool}.${call.action}`,
+            missingEvents: verdict.missingEvents,
+            operationId: call.operationId,
+          },
         },
-      },
-      { idempotencyKey: `emission.violated:${call.operationId}` },
-    );
+        { idempotencyKey: `emission.violated:${call.operationId}` },
+      );
+    }
     verifierLogger.warn(
       {
         tool: call.tool,
         action: call.action,
         operationId: call.operationId,
         missingEvents: verdict.missingEvents,
+        lifecycleViolations: verdict.lifecycleViolations,
       },
       'declared emissions did not land: the handler and its registration have drifted',
     );
@@ -277,6 +395,12 @@ export async function runEmissionVerifierInterceptor(
       },
       'emission verifier swallowed error; the contract was not assessed',
     );
-    return { status: 'not-applicable', reason: 'store-unavailable', missingEvents: [], required };
+    return {
+      status: 'not-applicable',
+      reason: 'store-unavailable',
+      missingEvents: [],
+      lifecycleViolations: [],
+      required,
+    };
   }
 }
