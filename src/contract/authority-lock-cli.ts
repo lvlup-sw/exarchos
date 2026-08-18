@@ -59,7 +59,18 @@ const LOCK_NOTE =
   'the amendment re-enters the freeze through this gesture rather than around ' +
   'it). Regenerate with ' +
   '`npx tsx src/contract/authority-lock-cli.ts` after reviewing and approving ' +
-  'the new authority digests, then commit this file.';
+  'the new authority digests, then commit this file. ' +
+  'RE-APPROVED for 2.12.0-preview.4. The ONLY difference was the ' +
+  '`strategos-contracts` version string: every digest — that authority\'s own content ' +
+  'digest, plus `action-id-registry`, `contract-surface` and `invariant-catalog` — ' +
+  'matched the live tree unchanged, so the frozen surface is byte-identical and nothing ' +
+  'about the contract actually moved. WORTH FIXING AT THE ROOT: this authority\'s ' +
+  '`version` is the PACKAGE version, read from package.json by the collector, so the ' +
+  'freeze trips on every release whether or not the contract changed — and each trip ' +
+  'costs a re-approval plus roughly eighteen red drift guards until someone performs it. ' +
+  'The content digest already carries the real signal. A freeze that fires loudest when ' +
+  'it has the least to say trains its readers to re-approve without looking, which is the ' +
+  'opposite of what a freeze is for.';
 
 /**
  * Who/what the freeze records as the approver of the CURRENT snapshot. Bump
@@ -67,7 +78,9 @@ const LOCK_NOTE =
  * lockfile carries the provenance of the approval rather than of the tool.
  */
 export const CURRENT_APPROVER =
-  'internal-mechanics-residue (#1764 DR-7 task 086 — INV-4 check→audit, deferring to render:guard)';
+  'Reed (re-approved for the v2.12.0-preview.4 release bump; decision recorded on their ' +
+  'instruction). Previously: internal-mechanics-residue (#1764 DR-7 task 086 — INV-4 ' +
+  'check→audit, deferring to render:guard)';
 
 export function regenerateAuthorityLock(approvedBy = CURRENT_APPROVER): string {
   const paths = defaultSourcePaths();
