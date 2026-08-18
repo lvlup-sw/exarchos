@@ -506,10 +506,16 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
   ),
   allowance(
     'contract',
-    [ROOT_LAYER, 'adapters/cli', 'architecture', 'describe', 'dispatch', 'runtime', 'utils'],
+    [ROOT_LAYER, 'adapters/cli', 'architecture', 'describe', 'dispatch', 'events', 'runtime', 'utils'],
     'The contract layer reaches its own generators and the dispatch core, plus the schema-conversion ' +
       'leaf every compiler stage uses. The adapters edge is the CLI presentation client ' +
-      '(`cli-contract-seam` loads `adapters/cli`), not the IO facade parent.',
+      '(`cli-contract-seam` loads `adapters/cli`), not the IO facade parent. The `events` edge is ' +
+      'the reachability census resolving its `event` hop: that census exists to read AUTHORITIES ' +
+      'across the tree — it already reaches `architecture` for the effect ledger and `runtime` for ' +
+      'the wiring — and the event catalog is one more. It is deliberately NOT resolved from the ' +
+      'compiled contract, because a hop re-derived from the pass that supplies the denominator is ' +
+      'tautological by construction; reaching the independently-authored table is what gives the ' +
+      'hop teeth, and this row is the cost of that independence.',
   ),
   allowance(
     'sync',

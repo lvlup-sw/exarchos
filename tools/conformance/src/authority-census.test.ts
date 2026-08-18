@@ -297,6 +297,10 @@ describe('authority census — the enforcement hop', () => {
       outputs: [{ actionId: 'tool.act', outputKinds: ['data'], errorCodes: ['E_X'] }],
       artifacts: [{ actionId: 'tool.act' }],
       fixtures: [{ actionId: 'tool.act' }],
+      // The probe action declares no emission, so the `event` hop is
+      // not-applicable to it — the same way `owner` is for a non-mutating
+      // action. An empty list is the honest input, not a missing one.
+      emissions: [],
     };
     expect(evaluateClosure(closed).ok).toBe(true);
 
@@ -512,6 +516,10 @@ describe('authority census — vocabulary', () => {
       outputs: [{ actionId: 'tool.act', outputKinds: ['data'], errorCodes: ['E_X'] }],
       artifacts: [{ actionId: 'tool.act' }],
       fixtures: [{ actionId: 'tool.act' }],
+      // The probe action declares no emission, so the `event` hop is
+      // not-applicable to it — the same way `owner` is for a non-mutating
+      // action. An empty list is the honest input, not a missing one.
+      emissions: [],
     };
     const shipped = new Set<string>([
       ...evaluateClosure({ ...base, routes: [] }).diagnostics.map((d) => d.kind),
