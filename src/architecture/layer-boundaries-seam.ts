@@ -610,12 +610,19 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
     [
       ROOT_LAYER, 'architecture', 'config', 'contract', 'describe',
       'dispatch', 'events', 'install', 'lifecycle', 'projections', 'pruner',
-      'review', 'runbooks', 'runtime', 'storage', 'tasks', 'utils', 'vcs',
+      'review', 'runbooks', 'runtime', 'storage', 'utils', 'vcs',
       'workflow',
     ],
-    'The WIDEST row in the table at 19 targets, and the honest reading is that `verbs/` is coupled to ' +
+    // `tasks` left this set when the last task-append module moved under
+    // `verbs/tasks/`: a layer is this census\'s FIRST path segment, so `tasks`
+    // stopped being one and the row could match nothing. The edge did not go
+    // away with the row — it is now INTERNAL to `verbs/`, which no allowance
+    // governs. Dropping a row that can no longer match is the same correction
+    // the `workspace` / `agents` note above records, and the STALE_LAYER_ALLOWANCE
+    // ratchet is what forced it rather than letting the phantom cover sit.
+    'The WIDEST row in the table at 18 targets, and the honest reading is that `verbs/` is coupled to ' +
       'nearly the whole tree. It is recorded rather than narrowed for the same reason `projections` ' +
-      'is: Phase 1 moves code without changing meaning. The row buys the ratchet — target 20 has to ' +
+      'is: Phase 1 moves code without changing meaning. The row buys the ratchet — target 19 has to ' +
       'be argued for — and it makes the number quotable, which is the first step to reducing it.',
   ),
 ]);
