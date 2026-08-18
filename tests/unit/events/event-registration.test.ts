@@ -57,6 +57,12 @@ const FIXTURE_BY_TIER: Readonly<Record<EventTier, EventRegistration>> = {
     tier: 'workflow-local',
     workflow: 'sdlc',
   },
+  harness: {
+    lifecycle: 'active',
+    tier: 'harness',
+    module: 'tools/evals/evals/harness.ts',
+    consumedBy: ['eval-results'],
+  },
 };
 
 /** The weld reference each fixture should yield — hand-written, so it is a second authority. */
@@ -66,6 +72,7 @@ const EXPECTED_WELD_REF: Readonly<Record<EventTier, string>> = {
   observation: 'worktree',
   judgment: 'test-adequacy',
   'workflow-local': 'sdlc',
+  harness: 'tools/evals/evals/harness.ts',
 };
 
 describe('EventRegistration', () => {
@@ -91,6 +98,7 @@ describe('EventRegistration', () => {
       'observation',
       'judgment',
       'workflow-local',
+      'harness',
     ]);
   });
 
@@ -131,15 +139,23 @@ describe('EventRegistration', () => {
       expect(source).not.toBe('retired');
       derived.push(source);
     }
-    // In `EVENT_TIERS` order: substrate, capability, observation, judgment, workflow-local.
+    // In `EVENT_TIERS` order: substrate, capability, observation, judgment, workflow-local,
+    // harness.
     //
-    // The last entry was `'auto'` when task 009 wrote this and is `'model'` since task 010
+    // `workflow-local` was `'auto'` when task 009 wrote this and is `'model'` since task 010
     // MEASURED the record against the 170 live registrations. `'auto'` had zero members and so
     // was never validated; the 18 report-coupled events emitted from a model-walked runbook step
     // are `workflow-local`, and a workflow definition's step composing the emission is exactly
     // what `source: 'model'` records. See `EMISSION_SOURCE_BY_TIER`'s doc block and
     // `event-annotations.ts`.
-    expect(derived).toEqual(['auto', 'auto', 'hook', 'model', 'model']);
+    //
+    // `harness` is `'auto'`, and that was measured too rather than chosen. It was authored
+    // `'model'` on the reasoning that a harness composes its own payload; the catalog refused,
+    // because `'model'` obliges every schema field to carry a `.describe()` for the model filling
+    // it in, and a calibration payload is COUNTED in code with no model anywhere near it. `'auto'`
+    // claims only that the code performing the operation owns the append, which is what a harness
+    // does.
+    expect(derived).toEqual(['auto', 'auto', 'hook', 'model', 'model', 'auto']);
   });
 
   it('FindTierSourceDisagreement_SeededTierSourceMismatch_IsReported', () => {

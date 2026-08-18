@@ -378,7 +378,7 @@
     {
       "type": "eval.judge.calibrated",
       "lifecycle": "active",
-      "tier": "capability"
+      "tier": "harness"
     },
     {
       "type": "eval.run.completed",

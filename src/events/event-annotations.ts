@@ -715,10 +715,16 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     provider: 'exarchos_event',
     consumedBy: ['delegation-timeline', 'team-performance'],
   },
+  // RE-TIERED from `capability` / `exarchos_view`. That annotation asserted an effect provider
+  // appends this, and none does: every `exarchos_view` action is a read of a projection,
+  // `eval_results` included. The only append is in the evaluation harness under `tools/`, a
+  // developer entry point outside the governed source root — the coupling the `harness` tier
+  // was added to name. The event is genuinely active and `eval-results` genuinely folds it, so
+  // neither `planned` nor `retired` was available either.
   'eval.judge.calibrated': {
     lifecycle: 'active',
-    tier: 'capability',
-    provider: 'exarchos_view',
+    tier: 'harness',
+    module: 'tools/evals/evals/harness.ts',
     consumedBy: ['eval-results'],
   },
   // PLANNED — schema and type-map entry exist, nothing emits them yet. `lifecycle` produces the

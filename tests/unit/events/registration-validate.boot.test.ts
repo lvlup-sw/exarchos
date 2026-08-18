@@ -247,22 +247,40 @@ describe('DR-2 boot gate — initializeContext refuses to start on an unresolvab
     expect(clean.comparedEmissionEdgeCount).toBeGreaterThan(0);
   });
 
-  it('BootGate_NewDiagnostics_AreReachedThroughTheRealSeam', async () => {
-    // The two arms above call `initializeContext` too, but only to prove the WELD REFERENCE
-    // half of the gate — the seeded-provider refusal and its positive control. Neither exercises
-    // the emission-provider comparison, and the observe-severity test above calls
-    // `assertRegistrationWeldsAtStartup` directly, which is exactly the "directly-called
-    // validator" this test must NOT be: `initializeContext` calls the gate with every argument
-    // defaulted and discards the verdict it returns, so the only production-observable evidence
-    // that the comparison ran is the report `assertRegistrationWeldsAtStartup` writes to stderr
-    // when `observeCount > 0`. This test spies on that channel over the real, unmocked boot call,
-    // so what it proves is that the comparison (and the guard behind it) executes on the shared
-    // production path, not merely against a function called in isolation.
+  it('EmissionTeeth_BlockingMode_HaltsBootOnAViolation', async () => {
+    // THE TEETH, on the real boot path. Stale cover and the provider comparison shipped at
+    // `observe` for as long as the shipped tree reported findings against them — a check that
+    // refuses startup for a defect nobody has fixed makes the tree unbootable for every entry
+    // point at once. Both break sets are now closed and both diagnostics are `blocking`, and this
+    // is the assertion that says the flip has consequences.
+    //
+    // SEEDED, and it has to be: a conforming tree produces no violation, so the only way to show
+    // that a violation halts boot is to introduce one. `EmissionTeeth_ConformingTree_BootsClean`
+    // (`InitializeContext_LiveCatalog_BootsClean` above) is the other half — without it this test
+    // would pass equally well against a gate that refused every tree.
+    //
+    // The seed is a `capability` weld naming a LIVE provider, so reference integrity resolves and
+    // the pre-existing blocking codes have nothing to say; the ONLY thing wrong with it is that no
+    // action declares the emission. That isolates the refusal to the newly-flipped diagnostic.
     vi.resetModules();
-    vi.doUnmock('../../../src/events/event-annotations.js');
+    vi.doMock('../../../src/events/event-annotations.js', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('../../../src/events/event-annotations.js')>();
+      return {
+        ...actual,
+        EVENT_ANNOTATIONS: Object.freeze({
+          ...actual.EVENT_ANNOTATIONS,
+          'seeded.stale.cover': {
+            lifecycle: 'active',
+            tier: 'capability',
+            provider: 'exarchos_workflow',
+            consumedBy: ['workflow-state@v1'],
+          } satisfies EventRegistration,
+        }),
+      };
+    });
 
     const { initializeContext } = await import('../../../src/dispatch/core/context.js');
-    const { STALE_CAPABILITY_COVER_CODE } = await import(
+    const { STALE_CAPABILITY_COVER_CODE, RegistrationWeldError } = await import(
       '../../../src/events/registration-validate.js'
     );
 
@@ -275,25 +293,35 @@ describe('DR-2 boot gate — initializeContext refuses to start on an unresolvab
       });
 
     try {
-      // Boots clean — no BLOCKING fault, the same property `InitializeContext_LiveCatalog_
-      // BootsClean` holds. What this call adds is what rides along with that clean boot: the
-      // live catalog's real emission-provider disagreements, reported rather than swallowed.
-      const ctx = await initializeContext(tmpDir);
-      ctx.eventStore.close();
+      // BOOT IS REFUSED. Not "a diagnostic was printed somewhere" — the process does not start.
+      let caught: unknown;
+      try {
+        const ctx = await initializeContext(tmpDir);
+        ctx.eventStore.close();
+      } catch (err) {
+        caught = err;
+      }
 
-      expect(stderrSpy).toHaveBeenCalled();
-      const report = written.join('');
-      // The diagnostic's own exported code, not a hand-typed string, so a rename of the constant
-      // reddens this assertion instead of leaving it quietly matching a stale label. If the
-      // emission-coupling checks stopped running — or the live catalog stopped reporting at all —
-      // stderr would stay silent and this line is what would catch it.
-      //
-      // The VEHICLE changed and the property did not. This rode the provider comparison, which
-      // reported real disagreements on the shipped tree; every one has since been repaired, so
-      // that code no longer appears and asserting it would pin this test to a defect rather than
-      // to the seam. Stale cover still has live findings and carries the same claim: an
-      // observe-severity finding reaches an operator through the real boot path.
-      expect(report).toContain(`[${STALE_CAPABILITY_COVER_CODE}]`);
+      expect(caught).toBeInstanceOf(RegistrationWeldError);
+      if (!(caught instanceof RegistrationWeldError)) return;
+
+      // ...and it is refused BY THE FLIPPED DIAGNOSTIC, stamped blocking, naming the seeded weld.
+      // The code comes from its own exported constant so a rename reddens here instead of leaving
+      // this quietly matching a stale label.
+      expect(caught.verdict.bootable).toBe(false);
+      const blocking = caught.verdict.diagnostics.filter((d) => d.severity === 'blocking');
+      expect(blocking.map((d) => d.code)).toContain(STALE_CAPABILITY_COVER_CODE);
+      expect(blocking.map((d) => d.eventType)).toContain('seeded.stale.cover');
+
+      // The seed is the ONLY fault: reference integrity still resolves, so this is attributable to
+      // the emission check and not to a tree that was broken some other way.
+      expect(caught.verdict.blockingCount).toBe(1);
+
+      // Nothing was written to stderr, because nothing SURVIVED to be reported. An observe-only
+      // report and a refusal are different outcomes, and conflating them is how a blocking gate
+      // gets mistaken for a noisy one.
+      expect(stderrSpy).not.toHaveBeenCalled();
+      expect(written.join('')).toBe('');
     } finally {
       stderrSpy.mockRestore();
     }

@@ -278,6 +278,17 @@ export const WELD_RESOLUTION_POLICY: Readonly<Record<EventTier, WeldResolutionPo
         'and not loaded when this gate runs. There is no registry to resolve against at boot, and a ' +
         'check that looks at nothing is not a check.',
     },
+    harness: {
+      resolvedAt: 'never',
+      note:
+        '`HarnessModuleId` is a repo-relative path to a developer entry point OUTSIDE `src/`. There ' +
+        'is no registry of harnesses to resolve against, and reading the filesystem on every process ' +
+        'start to check one path would be a real cost for a developer-tooling concern. Resolved is ' +
+        'not the same as UNCHECKED: `auditHarnessWelds` in this module checks both halves — the ' +
+        'path is outside the governed root, and the module appends the event it claims — against ' +
+        'the tree, and `harness-welds.test.ts` runs it. A `never` here records where the check is ' +
+        'NOT, and the note is what says where it is.',
+    },
   });
 
 /**
@@ -488,10 +499,32 @@ export const DIAGNOSTIC_SEVERITY_POLICY: Readonly<Record<WeldDiagnosticCode, Wel
     [PROVIDER_REGISTRY_DRIFT_CODE]: 'blocking',
     EMPTY_CAPABILITY_DENOMINATOR: 'blocking',
     EMPTY_PROVIDER_REGISTRY: 'blocking',
-    [EMISSION_PROVIDER_MISMATCH_CODE]: 'observe',
+    // ── FLIPPED TO BLOCKING, and the gate on the flip was the break sets, not a schedule ──────
+    //
+    // Both diagnostics shipped `observe` because the shipped tree reported real findings against
+    // them, and a check that refuses startup for a defect nobody has fixed yet makes the tree
+    // unbootable for every entry point at once. That is the whole reason this severity axis
+    // exists as a second table.
+    //
+    // Both populations are now EMPTY, and emptied by repair rather than by narrowing:
+    //   • the provider comparison's eight disagreements were fixed at the append site, and
+    //     `PROVIDER_DISAGREEMENT_DISPOSITIONS` is empty;
+    //   • stale cover fell nineteen -> four -> one -> zero, the last of it when
+    //     `eval.judge.calibrated` was re-tiered onto `harness`, and
+    //     `STALE_COVER_DISPOSITIONS` is empty.
+    //
+    // With nothing left to report, `observe` was buying nothing but the option to regress
+    // silently. Blocking is what makes the closure hold: the NEXT undeclared emission or provider
+    // disagreement refuses the process instead of printing a line nobody reads.
+    [EMISSION_PROVIDER_MISMATCH_CODE]: 'blocking',
+    [STALE_CAPABILITY_COVER_CODE]: 'blocking',
+    // The three EMPTY_*/NARROWED_* denominator diagnostics stay `observe` DELIBERATELY. They fire
+    // when a population this gate measures over has collapsed — which is a defect in the gate's
+    // own reach, not in the catalog — and a tree whose emission census stopped resolving must
+    // still boot so somebody can run the tooling that diagnoses it. Making the instrument's own
+    // failure refuse startup is how a measurement problem becomes an outage.
     EMPTY_EMISSION_DENOMINATOR: 'observe',
     NARROWED_EMISSION_DENOMINATOR: 'observe',
-    [STALE_CAPABILITY_COVER_CODE]: 'observe',
     EMPTY_STALE_COVER_DENOMINATOR: 'observe',
   });
 
@@ -954,10 +987,12 @@ export function validateRegistrationWelds(
     `${welds.length} boot-resolved weld(s), ${eligible.length} stale-cover eligible, ` +
     `${resolvable.length} live provider(s) and ${compared.length} compared emission edge(s)`;
 
+  // Every branch renders the denominators through the SAME `overPopulations` string. The clean
+  // branch used to phrase them itself ("live effect provider(s)" against the others' "live
+  // provider(s)"), which meant a reader — or a test — matching on one report's wording silently
+  // failed to match another's. One phrasing, three branches.
   const report = ok
-    ? `event registration welds OK — ${welds.length} boot-resolved weld(s) ` +
-      `(${eligible.length} stale-cover eligible) against ${resolvable.length} live effect ` +
-      `provider(s) and ${compared.length} compared emission edge(s)`
+    ? `event registration welds OK — ${overPopulations}`
     : bootable
       ? `event registration welds BOOTABLE — 0 blocking fault(s) over ${overPopulations}` +
         observedBlock
@@ -1317,36 +1352,32 @@ export interface StaleCoverDisposition extends StaleCoverIdentity {
  * active and genuinely unnamed; an annotation that claimed an append nothing performs is a wrong
  * annotation, and answering for it here would have preserved the wrong claim behind a rationale.
  *
- * ── Three rows left, and how ────────────────────────────────────────────────────────────────────
- * `launch.executed`, `worktree.orphan_detected` and `stack.position-filled` were dispositioned
+ * ── THE BREAK SET IS CLOSED, and the ledger is EMPTY ────────────────────────────────────────────
+ *
+ * Every row that was here has been REPAIRED, not re-argued. `launch.executed`,
+ * `worktree.orphan_detected` and `stack.position-filled` were dispositioned
  * `undeclared-emission`, and each rationale named the same obstacle: the append was reachable from
  * an `exarchos_view` action while the registration named `exarchos_orchestrate`, so declaring the
- * edge would have traded a stale cover for a provider disagreement. All three appends have since
- * MOVED to the orchestrate surface — the first two to `reconcile_worktrees` (the reclaim and the
- * two reconcilers that rode `ps probe:true`), the third with `stack_place` itself — so each event
- * is now declared by the action that performs it and the tooth reports none of them. A row is
- * deleted when the finding it answers for is gone, never when it becomes inconvenient; the
- * reconciliation below fails an obsolete row in exactly the same way it fails an unanswered
- * finding, which is what makes that distinction enforceable rather than a matter of intent.
+ * edge would have traded a stale cover for a provider disagreement. All three appends MOVED to the
+ * orchestrate surface — the first two to `reconcile_worktrees` (the reclaim and the two
+ * reconcilers that rode `ps probe:true`), the third with `stack_place` itself.
+ *
+ * The last row, `eval.judge.calibrated`, was dispositioned `unmodelled-emitter` and was the one
+ * with no repair available: its only append is in the evaluation harness under `tools/`, and it
+ * was registered `capability` with provider `exarchos_view` while no `exarchos_view` action could
+ * possibly emit it. Its rationale said closing it meant "either modelling the harness as a
+ * declaring surface or moving the append behind an action, and both are larger than a row" — so
+ * the first was done. The `harness` tier (`event-registration.ts`) names an emitter that lives
+ * outside the governed source root, the registration moved onto it, and the weld is checked
+ * against the tree by `auditHarnessWelds` below.
+ *
+ * An empty ledger is NOT a disabled check. The reconciliation below fails in BOTH directions: an
+ * unanswered finding is `UNDISPOSITIONED_STALE_COVER`, and a row answering for a finding that is
+ * gone is `OBSOLETE_STALE_COVER_DISPOSITION`. With the tooth reporting nothing, the only passing
+ * ledger is the empty one — so a new stale cover reddens here immediately rather than finding a
+ * table it can be written into.
  */
-export const STALE_COVER_DISPOSITIONS: readonly StaleCoverDisposition[] = Object.freeze([
-  {
-    event: 'eval.judge.calibrated',
-    declaredProvider: 'exarchos_view',
-    lifecycle: 'active',
-    classification: 'unmodelled-emitter',
-    appendSite: 'tools/evals/evals/harness.ts (the evaluation harness, outside src/)',
-    rationale:
-      'UNMODELLED EMITTER. The only append is in the evaluation harness under `tools/`, which is a ' +
-      'developer entry point run from the command line over a suite of graded cases — not a ' +
-      'composite tool and not reachable through dispatch. Every `exarchos_view` action is a read ' +
-      'of a projection, `eval_results` included, so there is no action on the declared provider ' +
-      'that could carry the edge without asserting that reading the view emits the calibration. ' +
-      'The registration itself is right: the harness genuinely appends the event and ' +
-      '`eval-results` genuinely folds it. Closing this means either modelling the harness as a ' +
-      'declaring surface or moving the append behind an action, and both are larger than a row.',
-  },
-]);
+export const STALE_COVER_DISPOSITIONS: readonly StaleCoverDisposition[] = Object.freeze([]);
 
 /** A fault in the reconciliation between the reported stale-cover set and the ledger. */
 export type StaleCoverDispositionDiagnostic =
@@ -1483,6 +1514,123 @@ export function auditStaleCoverDispositions(
     dispositionedCount: dispositions.length,
     diagnostics: Object.freeze(sorted),
   };
+}
+
+// ─── Harness welds — checked against the tree, not at boot ──────────────────
+//
+// `WELD_RESOLUTION_POLICY.harness` records `resolvedAt: 'never'` because there is no registry of
+// developer harnesses to look a path up in, and reading the filesystem on every process start for
+// one developer-tooling concern would be a real cost paid by every entry point. `never` names
+// where the check is NOT. This is where it is.
+//
+// Both halves of what a `harness` row claims are checkable against the tree:
+//
+//   1. CONTAINMENT — the module is OUTSIDE the governed source root. An emitter under `src/` has
+//      a real weld available (a provider, a gate, the store) and must use it; letting one hide
+//      behind `harness` would turn the tier into the escape hatch every other arm is closed to
+//      prevent. This is the half that keeps the tier honest.
+//   2. SUBJECT — the module exists and actually appends the event it is registered against. A row
+//      whose append is gone is the same stale-cover defect this whole module reports elsewhere,
+//      and it must not be able to survive here just because the surface is newer.
+
+/** The governed source root a `harness` module must sit outside of. */
+const GOVERNED_SOURCE_ROOT = 'src/';
+
+/** A `harness` registration whose declared module does not hold up against the tree. */
+export type HarnessWeldDiagnostic =
+  | {
+      readonly code: 'HARNESS_MODULE_INSIDE_GOVERNED_ROOT';
+      readonly event: string;
+      readonly module: string;
+      readonly message: string;
+    }
+  | {
+      readonly code: 'HARNESS_MODULE_MISSING';
+      readonly event: string;
+      readonly module: string;
+      readonly message: string;
+    }
+  | {
+      readonly code: 'HARNESS_MODULE_DOES_NOT_APPEND';
+      readonly event: string;
+      readonly module: string;
+      readonly message: string;
+    };
+
+/** The verdict, carrying the population so an empty finding list cannot pass for a clean one. */
+export interface HarnessWeldAuditResult {
+  readonly ok: boolean;
+  /** How many `harness` registrations were assessed — the denominator. */
+  readonly assessedCount: number;
+  readonly diagnostics: readonly HarnessWeldDiagnostic[];
+}
+
+/** Reads one repo-relative module, or `undefined` when it is not there. */
+export type HarnessModuleReader = (relativePath: string) => string | undefined;
+
+/**
+ * Audit every `harness` registration against the tree.
+ *
+ * The reader is injected for the reason every population in this module is: a check whose only
+ * input is the real filesystem cannot be shown to FAIL, and a containment rule nobody has watched
+ * reject a path is a rule in name only.
+ */
+export function auditHarnessWelds(
+  annotations: Readonly<Record<string, EventRegistration>>,
+  readModule: HarnessModuleReader,
+): HarnessWeldAuditResult {
+  const diagnostics: HarnessWeldDiagnostic[] = [];
+  let assessedCount = 0;
+
+  for (const [event, registration] of Object.entries(annotations)) {
+    if (registration.tier !== 'harness') continue;
+    assessedCount += 1;
+    const module = registration.module;
+
+    if (module.startsWith(GOVERNED_SOURCE_ROOT)) {
+      diagnostics.push({
+        code: 'HARNESS_MODULE_INSIDE_GOVERNED_ROOT',
+        event,
+        module,
+        message:
+          `event '${event}' is registered tier 'harness' naming '${module}', which is inside the ` +
+          `governed source root '${GOVERNED_SOURCE_ROOT}'. The harness tier names developer ` +
+          'tooling that has no registered surface to weld to; an emitter in the governed root ' +
+          'has one — a provider, a gate, the store, or a workflow definition — and must name it.',
+      });
+      continue;
+    }
+
+    const source = readModule(module);
+    if (source === undefined) {
+      diagnostics.push({
+        code: 'HARNESS_MODULE_MISSING',
+        event,
+        module,
+        message:
+          `event '${event}' is registered tier 'harness' naming '${module}', which does not exist. ` +
+          'A weld pointing at a file that is gone is cover, not coupling.',
+      });
+      continue;
+    }
+
+    if (!source.includes(event)) {
+      diagnostics.push({
+        code: 'HARNESS_MODULE_DOES_NOT_APPEND',
+        event,
+        module,
+        message:
+          `event '${event}' is registered tier 'harness' naming '${module}', but that module never ` +
+          'mentions the event. The row claims an append the tree does not perform.',
+      });
+    }
+  }
+
+  return Object.freeze({
+    ok: diagnostics.length === 0,
+    assessedCount,
+    diagnostics: Object.freeze(diagnostics),
+  });
 }
 
 /**

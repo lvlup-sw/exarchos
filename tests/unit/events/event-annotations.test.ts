@@ -372,6 +372,12 @@ describe('EventAnnotations — the DR-2 tier and lifecycle assignment for the ev
     // non-empty — the correction task 010 measured. Collapsing either half back into the other
     // (all 25 `judgment`, or all 25 `workflow-local`) would leave the count right and the welds
     // wrong, so the count alone is not allowed to be the whole assertion.
+    //
+    // `harness` is deliberately NOT in this set. It derives `'auto'`, not `'model'`: a harness
+    // computes its payload in code, and the catalog proved it — mapping the tier to `'model'`
+    // obliged every field of `eval.judge.calibrated` to carry a `.describe()` for a model that
+    // does not exist. Report-coupling is about who COMPOSES the payload, and a tier that is
+    // machine-composed does not belong here however weak its weld is.
     const tiersInPlay = new Set(
       derivedReportCoupled.map((eventType) => EVENT_ANNOTATIONS[eventType]?.tier),
     );
