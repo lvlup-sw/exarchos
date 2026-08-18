@@ -211,7 +211,6 @@ export const VACUITY_ALLOWLIST = Object.freeze({
   'exarchos_view.quality_hints': { owner: 'views', expires: '2027-01-17' },
   'exarchos_view.session_provenance': { owner: 'views', expires: '2027-01-17' },
   'exarchos_view.shepherd_status': { owner: 'views', expires: '2027-01-17' },
-  'exarchos_view.stack_place': { owner: 'views', expires: '2027-01-17' },
   'exarchos_view.stack_status': { owner: 'views', expires: '2027-01-17' },
   'exarchos_view.synthesis_readiness': { owner: 'views', expires: '2027-01-17' },
   'exarchos_view.tasks': { owner: 'views', expires: '2027-01-17' },
@@ -275,6 +274,20 @@ export const VACUITY_RETIRED: Readonly<Record<string, VacuityRetiredEntry>> = Ob
   'exarchos_orchestrate.cutover_readiness': {
     owner: 'orchestration',
     retiredAt: '2026-08-10',
+  },
+  // THE EFFECT-LEDGER REMEDY — paid down because a rename could not launder it.
+  // `stack_place` moved from `exarchos_view` to `exarchos_orchestrate` so the
+  // action that appends `stack.position-filled` is the one registered to emit
+  // it. Carrying the waiver across would have meant deleting one key and adding
+  // another — the in-place swap tooth 3 exists to catch, and
+  // `VACUITY_SEED_KEY_SET_DIGEST` would have reddened. The only legal move was
+  // to write the real schema, so the action now declares
+  // `withCappedShape(StackPlaceOutputSchema)` over the append acknowledgement
+  // in `stack/schemas.ts`. The row keeps its `views` owner: the debt was theirs,
+  // and the graveyard records who paid, not who happened to be nearby.
+  'exarchos_view.stack_place': {
+    owner: 'views',
+    retiredAt: '2026-08-17',
   },
 });
 

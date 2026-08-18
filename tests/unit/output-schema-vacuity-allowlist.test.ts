@@ -377,21 +377,38 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
     // THE MECHANISM, EXERCISED FOR REAL. Task 069 performed the first paydown
     // and task 083 the next two (the #1739 cutover verbs, which had acquired
     // waivers on arrival — the one thing the shrink-only rule forbids). The
-    // graveyard therefore holds three ids, and the digest above is UNCHANGED
-    // across all three, which is the property the whole design rests on. A
-    // paydown MOVES an id between the two maps; the union, and therefore the
-    // pin, is invariant.
+    // fourth is the most direct demonstration the design has produced: the
+    // effect-ledger remedy re-parented `stack_place` from `exarchos_view` to
+    // `exarchos_orchestrate`, and carrying its waiver across would have deleted
+    // one seeded key and added another. That is an in-place swap, exactly what
+    // the pinned digest exists to redden, so the only legal route was to write
+    // the real schema. The graveyard therefore holds four ids, and the digest
+    // above is UNCHANGED across all four — a paydown MOVES an id between the two
+    // maps, so the union, and therefore the pin, is invariant. Note the id keeps
+    // its ORIGINAL `exarchos_view.` spelling: the graveyard records the key that
+    // was seeded, not where the action ended up.
     const retiredIds: readonly string[] = [
       'exarchos_orchestrate.check_invariant_conformance',
       'exarchos_orchestrate.cutover_decide',
       'exarchos_orchestrate.cutover_readiness',
+      'exarchos_view.stack_place',
     ];
     expect([...Object.keys(VACUITY_RETIRED)].sort()).toEqual([...retiredIds].sort());
+
+    // A retired id names where the debt was SEEDED, and an action can be
+    // re-parented after its waiver is written — `stack_place` was, from
+    // `exarchos_view` to `exarchos_orchestrate`. The live census keys by CURRENT
+    // id, so following the move is what keeps the paydown check meaningful; the
+    // graveyard key stays as seeded, because rewriting it would change the key
+    // set the digest pins and turn a legal paydown into a reddened swap.
+    const currentIdOf = (retiredId: string): string =>
+      retiredId === 'exarchos_view.stack_place' ? 'exarchos_orchestrate.stack_place' : retiredId;
+
     for (const id of retiredIds) {
       expect(VACUITY_ALLOWLIST_IDS).not.toContain(id);
       // …and each retired id is genuinely paid down, not parked: the membership
       // half would report it `UNWAIVED_VACUITY` if its schema were still vacuous.
-      expect(censusLiveOutputSchemas().substantive).toContain(id);
+      expect(censusLiveOutputSchemas().substantive).toContain(currentIdOf(id));
     }
 
     // Retired entries carry the owner + ISO paydown date. The shape predicate is

@@ -1,10 +1,21 @@
+// @oracle-sources: ../../../src/events/append-site-census.ts, ../../../src/events/registration-validate.ts
+// Two INDEPENDENT authorities: the census supplies the appends measured from the
+// tree, registration-validate supplies the declared action edges. `module-emissions`
+// is deliberately absent — it is reachable from registration-validate, so naming it
+// would add a derived authority rather than a second opinion.
 /**
  * Emitter closure: every append in the tree is explained, and every explanation
  * is live.
  *
  * The undeclared baseline is a MEASUREMENT, not a suppression list. The audit
- * reports all 33 on every run; this file pins today's shape so the set cannot
+ * reports all 31 on every run; this file pins today's shape so the set cannot
  * grow unnoticed and shrinks visibly as emitters are declared.
+ *
+ * It has now shrunk once, from 33: `launch.executed` and `stack.position-filled`
+ * left when the effect-ledger remedy gave each an action that declares it —
+ * `reconcile_worktrees` for the first, the re-parented `stack_place` for the
+ * second. Both were undeclared because the append sat on a surface that could
+ * not honestly name it, which is the shape most of the remaining rows share.
  *
  * The phantom arm carries no baseline at all, deliberately. A stale row in the
  * non-action surface is never acceptable, so there is nothing to grandfather —
@@ -52,7 +63,6 @@ const UNDECLARED_BASELINE: readonly string[] = Object.freeze([
   'export.requested <- projections/views/lifecycle/export.ts',
   'issue.create.executed <- verbs/vcs/create-issue.ts',
   'issue.create.requested <- verbs/vcs/create-issue.ts',
-  'launch.executed <- runtime/launcher/liveness.ts',
   'merge.executing_started <- verbs/merge/execute-merge.ts',
   'merge.retry_attempt <- verbs/merge/execute-merge.ts',
   'pr.comment.executed <- verbs/vcs/add-pr-comment.ts',
@@ -64,7 +74,6 @@ const UNDECLARED_BASELINE: readonly string[] = Object.freeze([
   'provider.unknown-tier <- verbs/vcs/assess-stack.ts',
   'prune.diagnostics <- verbs/team/prune-stale-workflows.ts',
   'quality.regression <- projections/quality/regression-detector.ts',
-  'stack.position-filled <- stack/tools.ts',
   'stash.detected <- verbs/team/dispatch-guard.ts',
   'task.assigned <- events/decide-fixtures.ts',
   'task.created <- projections/task-store/event-sourced-task-store.ts',

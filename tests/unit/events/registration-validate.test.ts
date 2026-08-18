@@ -2016,12 +2016,35 @@ describe('StaleCoverBreakSet — every active unnamed weld is answered for', () 
       expect(declaredEmissionEdges().some((edge) => edge.event === row.event)).toBe(false);
     }
 
-    // BOTH CLASSIFICATIONS ARE IN USE. The distinction is the substance of this ledger — a break
-    // set where every row said the same thing would mean nobody had separated "no action performs
-    // this append" from "an action performs it and does not declare it", which are opposite
-    // conclusions with opposite remedies.
+    // EVERY CLASSIFICATION IS DRAWN FROM THE VOCABULARY. The distinction between "no action
+    // performs this append" and "an action performs it and does not declare it" is the substance
+    // of this ledger — they are opposite conclusions with opposite remedies — so a row stamped
+    // with anything outside the two-member type would mean the separation was never made.
     const classifications = new Set(STALE_COVER_DISPOSITIONS.map((row) => row.classification));
-    expect([...classifications].sort()).toEqual(['undeclared-emission', 'unmodelled-emitter']);
+    for (const classification of classifications) {
+      expect(['undeclared-emission', 'unmodelled-emitter']).toContain(classification);
+    }
+
+    // The `undeclared-emission` population is EMPTY, and it emptied by REPAIR. All three of its
+    // rows named the same obstacle — the append sat on an `exarchos_view` action while the
+    // registration named `exarchos_orchestrate` — and all three appends moved to the orchestrate
+    // surface, so each event is now declared by the action that performs it.
+    //
+    // This asserts the SHRINK, not a fixed shape: it would previously have demanded that some row
+    // stay unrepaired to keep both kinds represented, which punishes exactly the work the ledger
+    // exists to provoke. A NEW undeclared emission re-populating this set is a finding, and the
+    // reconciliation below already fails an undispositioned stale cover — that is where it should
+    // land, not here.
+    const undeclared = STALE_COVER_DISPOSITIONS.filter(
+      (row) => row.classification === 'undeclared-emission',
+    );
+    expect(undeclared).toEqual([]);
+
+    // ...and what remains is the single unmodelled emitter, whose append is in `tools/` and so
+    // outside the census scan root. Closing it means modelling the eval harness as a declaring
+    // surface or moving the append behind an action — both larger than a row, and neither this
+    // remedy's scope.
+    expect(STALE_COVER_DISPOSITIONS.map((row) => row.event)).toEqual(['eval.judge.calibrated']);
   });
 
   it('StaleCoverBreakSet_UndispositionedEntry_Fails', () => {

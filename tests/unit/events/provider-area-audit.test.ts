@@ -1,3 +1,9 @@
+// @oracle-sources: ../../../src/events/append-site-census.ts, ../../../src/events/registration-validate.ts
+// Two INDEPENDENT authorities: the census supplies the appends and the areas they
+// sit in, EFFECT_PROVIDERS in registration-validate supplies the provider-to-area
+// vocabulary they are compared against. The audit module itself is NOT named — it
+// is the subject under test, and the census is reachable from it. Neither baseline
+// below is a suppression list.
 /**
  * The provider-area audit, over the real tree.
  *
@@ -40,17 +46,19 @@ const MEASURED_CONTRADICTIONS: readonly string[] = Object.freeze([
  * over the current vocabulary could be right.
  *
  * SHRINK-ONLY, and this is the number the emission model has to answer for.
- * Three kinds sit here — the dispatch wrapper (`projections/telemetry/`), the
- * process hooks (`lifecycle/`, `runtime/launcher/`), and two handler trees with
- * no provider (`stack/`, `review/`). The `tasks/` entries are gone: that append
- * module was the last of the task family outside `verbs/` and has joined it.
+ * Two kinds sit here now — the dispatch wrapper (`projections/telemetry/`) and
+ * the process hooks (`lifecycle/`, `runtime/launcher/`) — plus one handler tree
+ * with no provider (`review/`). The `tasks/` entries went when that append
+ * module joined `verbs/`, and `stack/` followed it there for the same reason:
+ * an area no provider owns is one whose appends no annotation can describe, and
+ * the fix is to move the append under an area that has one, never to widen the
+ * vocabulary until the row happens to typecheck.
  */
 const MEASURED_UNGOVERNED: readonly string[] = Object.freeze([
   'gate.executed -> projections/telemetry/middleware.ts',
   'launch.executed -> runtime/launcher/liveness.ts',
   'launch.executing_started -> runtime/launcher/liveness.ts',
   'review.routed -> review/tools.ts',
-  'stack.position-filled -> stack/tools.ts',
   'subagent.tokens_used -> lifecycle/subagent-stop.ts',
   'tool.action_errored -> projections/telemetry/middleware.ts',
   'tool.completed -> projections/telemetry/middleware.ts',

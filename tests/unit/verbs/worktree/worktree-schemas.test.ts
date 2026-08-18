@@ -80,10 +80,13 @@ async function createArm(): Promise<Arm> {
 describe('worktree surface — typed outputSchema registration (DR-1)', () => {
   it('WorktreeSurface_EveryMarkedAction_RegistersTypedOutputSchema', () => {
     const actions = surfaceActions();
-    // Exactly the seven DR-10 surface actions carry the marker; if the marker
-    // regresses the count assertion goes red (kill-probe robustness).
+    // Exactly the eight surface actions carry the marker; if the marker
+    // regresses the count assertion goes red (kill-probe robustness). The
+    // eighth is `reconcile_worktrees` — the reclaim and the two reconcilers,
+    // moved off `ps probe:true` — and it arrived with a real schema rather than
+    // a waiver, so it belongs in this roster from its first commit.
     expect(actions.map((a) => a.name).sort()).toEqual(
-      ['acquire_worktree', 'prune_worktrees', 'ps', 'release_worktree', 'serialize_merge', 'wait', 'worktrees'],
+      ['acquire_worktree', 'prune_worktrees', 'ps', 'reconcile_worktrees', 'release_worktree', 'serialize_merge', 'wait', 'worktrees'],
     );
     for (const action of actions) {
       expect(

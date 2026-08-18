@@ -1316,6 +1316,18 @@ export interface StaleCoverDisposition extends StaleCoverIdentity {
  * to `planned` and the lifecycle axis excludes them. A disposition is for a weld that is genuinely
  * active and genuinely unnamed; an annotation that claimed an append nothing performs is a wrong
  * annotation, and answering for it here would have preserved the wrong claim behind a rationale.
+ *
+ * ── Three rows left, and how ────────────────────────────────────────────────────────────────────
+ * `launch.executed`, `worktree.orphan_detected` and `stack.position-filled` were dispositioned
+ * `undeclared-emission`, and each rationale named the same obstacle: the append was reachable from
+ * an `exarchos_view` action while the registration named `exarchos_orchestrate`, so declaring the
+ * edge would have traded a stale cover for a provider disagreement. All three appends have since
+ * MOVED to the orchestrate surface — the first two to `reconcile_worktrees` (the reclaim and the
+ * two reconcilers that rode `ps probe:true`), the third with `stack_place` itself — so each event
+ * is now declared by the action that performs it and the tooth reports none of them. A row is
+ * deleted when the finding it answers for is gone, never when it becomes inconvenient; the
+ * reconciliation below fails an obsolete row in exactly the same way it fails an unanswered
+ * finding, which is what makes that distinction enforceable rather than a matter of intent.
  */
 export const STALE_COVER_DISPOSITIONS: readonly StaleCoverDisposition[] = Object.freeze([
   {
@@ -1333,63 +1345,6 @@ export const STALE_COVER_DISPOSITIONS: readonly StaleCoverDisposition[] = Object
       'The registration itself is right: the harness genuinely appends the event and ' +
       '`eval-results` genuinely folds it. Closing this means either modelling the harness as a ' +
       'declaring surface or moving the append behind an action, and both are larger than a row.',
-  },
-  {
-    event: 'launch.executed',
-    declaredProvider: 'exarchos_orchestrate',
-    lifecycle: 'active',
-    classification: 'undeclared-emission',
-    appendSite:
-      'src/runtime/launcher/liveness.ts::emitLaunchExecuted, reached from the launcher teardown ' +
-      'and signal paths AND from handleViewPs (exarchos_view.ps with probe:true, via ' +
-      'src/runtime/launcher/launch-reconcile.ts::reconcileLaunches)',
-    rationale:
-      'UNDECLARED EMISSION, and the asymmetry with its own START is the finding. Every catchable ' +
-      'launcher exit funnels through one idempotent terminal seam, and the launcher supervisor is ' +
-      'not an action — but that seam has a SECOND caller that is: the phantom-launch reconciler, ' +
-      'which `ps` runs when the caller passes `probe: true` and which heals an in-flight launch ' +
-      'whose supervisor is provably dead by appending exactly this terminal. So an action does ' +
-      'perform the append, on a condition an `AutoEmission` can carry. REMEDY: declare it on ' +
-      '`exarchos_view.ps` under the probe condition. Note what that surfaces and why it is not ' +
-      'applied here: the declaring tool would be `exarchos_view` while this registration declares ' +
-      '`exarchos_orchestrate`, so the edge lands as a provider disagreement the moment it exists. ' +
-      'Both halves belong in the same reviewed change, not in the one that takes the measurement.',
-  },
-  {
-    event: 'stack.position-filled',
-    declaredProvider: 'exarchos_orchestrate',
-    lifecycle: 'active',
-    classification: 'undeclared-emission',
-    appendSite: 'src/stack/tools.ts, via the stack_place action on exarchos_view',
-    rationale:
-      'UNDECLARED EMISSION. The `stack_place` handler validates a position and appends this row; ' +
-      'recording the position IS the action, and it is annotated a local mutation rather than a ' +
-      'read, so nothing about the surface disguises the effect. REMEDY: add it to the ' +
-      '`stack_place` autoEmits array. Note what that surfaces, and why it is recorded rather than ' +
-      'applied: `stack_place` is registered on `exarchos_view` while this registration declares ' +
-      '`exarchos_orchestrate`, so the new edge arrives as a provider disagreement and one of the ' +
-      'two sides needs deciding in the same change — either the mutation belongs on the ' +
-      'orchestrate surface, or the registration names the wrong provider. That is a placement ' +
-      'question about a shipped action, not a row in a table.',
-  },
-  {
-    event: 'worktree.orphan_detected',
-    declaredProvider: 'exarchos_orchestrate',
-    lifecycle: 'active',
-    classification: 'undeclared-emission',
-    appendSite:
-      'src/verbs/worktree/manager.ts::appendLifecycle, from probeAndReclaim, via handleViewPs ' +
-      '(exarchos_view.ps with probe:true)',
-    rationale:
-      'UNDECLARED EMISSION. One private method appends both reclaim terminals from the ' +
-      'ground-truth probe: `worktree.released` when the owner is provably dead and the path is ' +
-      'free, this one when the owner is provably dead and a live foreign process still occupies ' +
-      'it. The probe runs on demand from `ps` when the caller passes `probe: true`, so an action ' +
-      'does reach the append, on a condition an `AutoEmission` can carry. Its sibling terminal is ' +
-      'already declared — on `release_worktree`, which reaches the OTHER append site — so the ' +
-      'registry today names one of the two reclaim outcomes and not the other. REMEDY: declare ' +
-      'it on `exarchos_view.ps` under the probe condition, accepting the same provider question ' +
-      '`launch.executed` raises from the same handler.',
   },
 ]);
 

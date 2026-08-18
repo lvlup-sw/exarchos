@@ -1,10 +1,10 @@
 // ─── Stack MCP Tool Handlers ────────────────────────────────────────────────
 
-import type { EventStore } from '../events/store.js';
-import { toEventAck, type ToolResult } from '../format.js';
-import { getOrCreateMaterializer } from '../projections/views/tools.js';
-import { STACK_VIEW } from '../projections/views/stack-view.js';
-import type { StackViewState } from '../projections/views/stack-view.js';
+import type { EventStore } from '../../events/store.js';
+import { toEventAck, type ToolResult } from '../../format.js';
+import { getOrCreateMaterializer } from '../../projections/views/tools.js';
+import { STACK_VIEW } from '../../projections/views/stack-view.js';
+import type { StackViewState } from '../../projections/views/stack-view.js';
 
 // ─── handleStackStatus ─────────────────────────────────────────────────────
 

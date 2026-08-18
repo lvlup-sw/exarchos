@@ -2,13 +2,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { EventStore } from '../../../src/events/store.js';
+import { EventStore } from '../../../../src/events/store.js';
 import {
   handleStackStatus,
   handleStackPlace,
-} from '../../../src/stack/tools.js';
-import { resetMaterializerCache } from '../../../src/projections/views/tools.js';
-import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
+} from '../../../../src/verbs/stack/tools.js';
+import { resetMaterializerCache } from '../../../../src/projections/views/tools.js';
+import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 let tempDir: string;
 let store: EventStore;

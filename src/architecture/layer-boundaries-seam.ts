@@ -415,8 +415,12 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
       // `workflow/`, which projections already reaches. `adapters` is gone for
       // a different reason: the only edge was a pure schema converter filed
       // under the IO facade, now a foundation leaf.
+      // `stack` left this set when `stack/` moved under `verbs/stack/`, so it
+      // is no longer a first path segment and no longer a layer. The read edge
+      // it covered (`views/composite.ts` → the stack status fold) did not go
+      // away; it is counted under `verbs` now, which this row already allows.
       'architecture', 'config', 'contract', 'describe',
-      'dispatch', 'events', 'verbs', 'stack', 'storage', 'utils', 'workflow',
+      'dispatch', 'events', 'verbs', 'storage', 'utils', 'workflow',
       ROOT_LAYER,
     ],
     'The WIDEST allowance in this table, and deliberately so: task 012 folded ' +
@@ -429,11 +433,12 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
       'read side reaches the verb layer at all is the finding; acting on it is separate work, ' +
       'and this row is what keeps it measurable in the meantime.',
   ),
-  allowance(
-    'stack',
-    ['events', 'projections', ROOT_LAYER],
-    'Stack renders event state through the projections layer, plus the shared root surface.',
-  ),
+  // `stack` had a row here until `stack/` moved under `verbs/stack/`. A layer is
+  // this census's FIRST path segment, so `stack` stopped being one and the row
+  // could match nothing. Its outbound edges (events, projections) survive the
+  // move as `verbs` edges, both already allowed by the `verbs` row below. Same
+  // correction as the `workspace` / `agents` note above, forced by the same
+  // STALE_LAYER_ALLOWANCE ratchet.
   allowance(
     'cli',
     ['events', 'ndjson', 'contract', 'projections'],

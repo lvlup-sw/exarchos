@@ -1,8 +1,9 @@
 import { coercedIntArray, coercedNonnegativeInt, coercedPositiveInt, coercedRecord } from '../../../coerce.js';
-import { vacuityWaiver } from '../../../output-schema-declaration.js';
+import { vacuityWaiver, withCappedShape } from '../../../output-schema-declaration.js';
+import { StackPlaceOutputSchema } from '../../../verbs/stack/schemas.js';
 import { z } from 'zod';
 import { LOCAL_MUTATION, REMOTE_MUTATION } from '../../annotations.js';
-import { DELEGATE_PHASES, REVIEW_PHASES, ROLE_LEAD, ROLE_TEAMMATE, SYNTHESIS_REVIEW_PHASES } from '../../phases.js';
+import { DELEGATE_PHASES, REVIEW_PHASES, ROLE_ANY, ROLE_LEAD, ROLE_TEAMMATE, STACK_PHASES, SYNTHESIS_REVIEW_PHASES } from '../../phases.js';
 import type { BuiltinToolAction } from '../../types.js';
 
 export const coordinationActions: readonly BuiltinToolAction[] = [
@@ -184,6 +185,30 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
       { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.prepare_synthesis'),
+    annotations: LOCAL_MUTATION,
+  },
+  // Recording a stack position IS a mutation — the handler validates the
+  // position and appends `stack.position-filled`. It sat on `exarchos_view`,
+  // where its registration named `exarchos_orchestrate` as the effect provider
+  // and the two could never agree. The read half (`stack_status`) stays on the
+  // view tool; only the writer moved.
+  {
+    name: 'stack_place',
+    description:
+      'Record a task\'s position in a PR stack. Validates the position and appends stack.position-filled, which the stack projection folds into the ordered stack view. Use for: registering where a task sits in the stack after its branch or PR exists. Do NOT use for: reading current stack positions (use exarchos_view stack_status); assessing stack CI/review health (use assess_stack).',
+    schema: z.object({
+      streamId: z.string().min(1),
+      position: coercedNonnegativeInt(),
+      taskId: z.string().min(1),
+      branch: z.string().optional(),
+      prUrl: z.string().optional(),
+    }),
+    phases: STACK_PHASES,
+    roles: ROLE_ANY,
+    autoEmits: [
+      { event: 'stack.position-filled', condition: 'always', role: 'primary', owner: 'orchestrate' },
+    ],
+    outputSchema: withCappedShape(StackPlaceOutputSchema),
     annotations: LOCAL_MUTATION,
   },
   {

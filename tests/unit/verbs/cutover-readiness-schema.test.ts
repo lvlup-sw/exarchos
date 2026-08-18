@@ -229,9 +229,12 @@ describe('Task 083 — the waiver rows left the allowlist', () => {
     expect(VACUITY_RETIRED_IDS).toContain(READINESS_ID);
     expect(VACUITY_RETIRED_IDS).toContain(DECIDE_ID);
     // The shrink, stated as a number so a silent re-add is visible. The seed
-    // was 112 ids; three are now retired.
-    expect(VACUITY_ALLOWLIST_IDS.length).toBe(109);
-    expect(VACUITY_RETIRED_IDS.length).toBe(3);
+    // was 112 ids; four are now retired — the fourth is `stack_place`, whose
+    // re-parenting onto `exarchos_orchestrate` could not carry its waiver across
+    // (a waiver is keyed by action id, and swapping one seeded key for another
+    // is what the seed digest reddens), so the debt was paid instead.
+    expect(VACUITY_ALLOWLIST_IDS.length).toBe(108);
+    expect(VACUITY_RETIRED_IDS.length).toBe(4);
   });
 
   it('CutoverVerbs_SeedKeySet_UnchangedBecausePaydownIsAMove', () => {

@@ -1,5 +1,5 @@
 import { withCappedShape } from '../../../output-schema-declaration.js';
-import { AcquireWorktreeOutputSchema, PruneWorktreesOutputSchema, ReleaseWorktreeOutputSchema, SerializeMergeOutputSchema } from '../../../verbs/worktree/schemas.js';
+import { AcquireWorktreeOutputSchema, PruneWorktreesOutputSchema, ReconcileWorktreesOutputSchema, ReleaseWorktreeOutputSchema, SerializeMergeOutputSchema } from '../../../verbs/worktree/schemas.js';
 import { z } from 'zod';
 import { COMPENSABLE_REMOTE, LOCAL_MUTATION_IDEMPOTENT } from '../../annotations.js';
 import { ALL_PHASES, ROLE_LEAD, featureIdSchema } from '../../phases.js';
@@ -50,7 +50,7 @@ export const worktreeActions: readonly BuiltinToolAction[] = [
     name: 'release_worktree',
     surface: 'worktree',
     description:
-      "Release the caller's worktree reservation. Appends worktree.released for worktreeId; a no-op when nothing is held (idempotent). Auto-emits worktree.released. Use for: freeing a worktree the current process reserved once its isolated work is done. Do NOT use for: freeing another live owner's claim (refused — reaping a dead owner is ps probe:true / reconcile's job); deleting the worktree from disk (use prune_worktrees).",
+      "Release the caller's worktree reservation. Appends worktree.released for worktreeId; a no-op when nothing is held (idempotent). Auto-emits worktree.released. Use for: freeing a worktree the current process reserved once its isolated work is done. Do NOT use for: freeing another live owner's claim (refused — reaping a dead owner is reconcile_worktrees's job); deleting the worktree from disk (use prune_worktrees).",
     schema: z.object({
       worktreeId: z.string().min(1),
     }),
@@ -109,6 +109,39 @@ export const worktreeActions: readonly BuiltinToolAction[] = [
       idempotent: true,
       openWorld: false,
     },
+  },
+  // ─── Ground-truth reconcilers (moved off the read side) ───────────────────
+  // These three passes ran under `exarchos_view.ps probe:true`. They append,
+  // and their appends live in `verbs/` — reached from a manager method and two
+  // reconcilers — so no annotation on a read verb could make the effect true.
+  // Giving them their own action is what lets the events they raise be DECLARED
+  // by the surface that performs them: `launch.executed` and
+  // `worktree.orphan_detected` were registered to `exarchos_orchestrate` and
+  // emitted from `exarchos_view`, which is the disagreement this closes.
+  {
+    name: 'reconcile_worktrees',
+    surface: 'worktree',
+    description:
+      'Reconcile governed worktrees and in-flight operations against the ground-truth process table, healing what a dead holder left behind. Three fail-closed passes: reservation reclaim (a worktree whose owner is provably dead is released, or flagged an orphan when a live foreign process still holds the path); phantom-launch heal (an in-flight launch whose supervisor died uncatchably is closed with its terminal); crash-mid-merge heal (a stranded merge lease whose holder is provably dead is freed). A live or unprovable holder is ALWAYS left in flight. Returns each pass\'s findings plus the POST-reconcile in-flight columns. Idempotent: a second pass heals nothing and emits nothing. Auto-emits worktree.released / worktree.orphan_detected / launch.executed / worktree.merge_executed per healed entry. Use for: clearing liveness phantoms ps reports after a crash. Do NOT use for: reading in-flight state (use ps — read-only, heals nothing); releasing your OWN reservation (use release_worktree); deleting worktrees from disk (use prune_worktrees).',
+    // No parameters: the passes are repo-global over the singleton `worktrees`
+    // stream and the process table. Nothing to scope, and nothing to dry-run —
+    // every heal is conditioned on a holder being PROVABLY dead, so there is no
+    // unsafe apply for a dry-run default to protect against.
+    schema: z.object({}),
+    phases: ALL_PHASES,
+    roles: ROLE_LEAD,
+    autoEmits: [
+      { event: 'worktree.released', condition: 'conditional', description: 'Per reservation whose owner is provably dead and whose path is free', role: 'primary', owner: 'orchestrate' },
+      { event: 'worktree.orphan_detected', condition: 'conditional', description: 'Per reservation whose owner is provably dead and whose path a live foreign process still occupies', role: 'primary', owner: 'orchestrate' },
+      { event: 'launch.executed', condition: 'conditional', description: 'Closes an in-flight launch whose supervisor died without running teardown', role: 'primary', owner: 'orchestrate' },
+      { event: 'worktree.merge_executed', condition: 'conditional', description: 'Frees a merge lease whose holder is provably dead', role: 'primary', owner: 'orchestrate' },
+    ],
+    outputSchema: withCappedShape(ReconcileWorktreesOutputSchema),
+    // Heals converge and destroy nothing on disk — the reclaim frees a
+    // RESERVATION, not a worktree. Same tuple `ps` used to carry for the same
+    // write path, which is the point: the effect did not change, only the
+    // surface that owns it.
+    annotations: LOCAL_MUTATION_IDEMPOTENT,
   },
   // ─── Integration-branch merge serializer (WLM operational core, DR-7) ──────
   // INV-5d: an ACTION on exarchos_orchestrate, NOT a fifth visible tool. An

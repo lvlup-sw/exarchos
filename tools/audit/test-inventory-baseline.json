@@ -582,6 +582,10 @@
       "to": "tests/unit/stack/handlers.test.ts"
     },
     {
+      "from": "tests/unit/stack/handlers.test.ts",
+      "to": "tests/unit/verbs/stack/handlers.test.ts"
+    },
+    {
       "from": "src/__tests__/tasks/handlers.test.ts",
       "to": "tests/unit/tasks/handlers.test.ts"
     },
@@ -44188,8 +44192,8 @@
         }
       ]
     },
-    "tests/unit/stack/handlers.test.ts": {
-      "file": "tests/unit/stack/handlers.test.ts",
+    "tests/unit/verbs/stack/handlers.test.ts": {
+      "file": "tests/unit/verbs/stack/handlers.test.ts",
       "runner": "vitest:root",
       "cases": [
         {

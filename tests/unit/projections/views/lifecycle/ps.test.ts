@@ -4,7 +4,10 @@
 //   • scope:'all' (default) → task 005 workflows fold + task 006 operations fold
 //   • scope:'workflow'      → workflows fold only
 //   • scope:'worktree'      → the CONSUMED WLM-6 worktree fold (inFlightMerges /
-//                             launches / prunes + the probe write path)
+//                             launches / prunes)
+//
+// All three are pure reads. The reclaim + reconcile write path that rode
+// `scope:'worktree' probe:true` is now `exarchos_orchestrate.reconcile_worktrees`.
 //
 // BOUNDARY DISCIPLINE (high tier): every test drives the REAL folds — task 005's
 // `foldWorkflowSummaries` over a real `InMemoryBackend`, task 006's
@@ -227,26 +230,37 @@ describe('ps scope:"workflow" — workflows section only', () => {
   });
 });
 
-// ─── DR-3: probe gating — worktree-scope-only ──────────────────────────────────
+// ─── `ps` is READ-ONLY on every scope ─────────────────────────────────────────
+//
+// This block replaces the former "probe gating" tests, and the replacement is
+// the point rather than a deletion. Those tests asserted that `probe` was
+// REJECTED outside worktree scope — a property about a parameter this action no
+// longer declares, so re-asserting it here would have pinned a handler branch
+// that dispatch can never reach. Refusing an undeclared `probe` is now the
+// dispatch boundary's job, guarded generically where every action benefits.
+//
+// What replaces it is the stronger claim the annotation now makes: `ps` appends
+// NOTHING, on any scope, ever. That is checkable against the log itself, and it
+// is what a caller reading `readOnly: true` is entitled to rely on.
 
-describe('ps probe gating — worktree-scope-only (DR-3)', () => {
-  it('Ps_WorkflowScopeWithProbe_RejectedInvalidInput', async () => {
-    const arm = await createArm();
-    // probe only makes sense over the worktree fold (it runs the DR-5 process
-    // probe + reclaim writes). With scope:'workflow' it must be rejected.
-    const result = await handleViewPs({ scope: 'workflow', probe: true }, arm.ctx, FIXED_DEPS);
-    expect(result.success).toBe(false);
-    expect(result.error?.code).toBe('INVALID_INPUT');
-    expect(result.error?.message).toMatch(/probe/i);
-  });
+describe('ps is read-only on every scope', () => {
+  it('Ps_EveryScope_AppendsNothing', async () => {
+    const { ctx } = await createRealArm();
+    // Seed one row so the store is non-empty and a stray append would be
+    // visible as a count change rather than hidden in an empty baseline.
+    await ctx.eventStore.append(
+      WORKTREES_STREAM,
+      { type: 'launch.executing_started', data: { worktreeId: '/wt/x', instanceId: '/wt/x', holderPid: 1, holderStartedAt: null } },
+    );
+    const before = (await ctx.eventStore.query(WORKTREES_STREAM)).length;
 
-  it('Ps_DefaultAllScopeWithProbe_RejectedInvalidInput', async () => {
-    const arm = await createArm();
-    // Same gate on the DEFAULT (all) scope — probe is not a pure-read capability.
-    const result = await handleViewPs({ probe: true }, arm.ctx, FIXED_DEPS);
-    expect(result.success).toBe(false);
-    expect(result.error?.code).toBe('INVALID_INPUT');
-    expect(result.error?.message).toMatch(/probe/i);
+    for (const args of [{}, { scope: 'workflow' }, { scope: 'worktree' }]) {
+      const result = await handleViewPs(args, ctx, FIXED_DEPS);
+      expect(result.success, `scope ${JSON.stringify(args)}`).toBe(true);
+    }
+
+    const after = (await ctx.eventStore.query(WORKTREES_STREAM)).length;
+    expect(after).toBe(before);
   });
 
   it('Ps_ScopeRepo_RejectedAsPipelineOnlyAxis', async () => {
@@ -353,18 +367,33 @@ describe('ps scope:"worktree" — WLM-6 capabilities preserved (consumed, not du
     expect(merges[0]?.featureId).toBe('feat-a');
   });
 
-  it('Ps_WorktreeScope_ProbeAccepted_RunsReclaim', async () => {
+  it('Ps_WorktreeScope_DeadHolder_StaysInFlightUnhealed', async () => {
     const { ctx } = await createRealArm();
-    // probe:true is VALID in worktree scope — it must run the DR-5 process probe
-    // and surface a `probe` block (empty store → nothing to reclaim, but the block
-    // is present, proving the capability is preserved).
+    // The behavioral consequence of read-only, stated as a consequence rather
+    // than as an absence. A merge lease whose holder is provably dead is exactly
+    // what `reconcile_worktrees` heals — so if `ps` still carried the write path,
+    // this entry would clear. It must NOT: `ps` reports what the log says, and
+    // the log still says in-flight until something appends the terminal.
+    await ctx.eventStore.append(
+      WORKTREES_STREAM,
+      {
+        type: 'worktree.merge_requested',
+        data: { integrationRef: 'main', operationId: 'op-dead', sourceBranch: 'feat/x', holderPid: 999_999, holderStartedAt: 'boot-999999' },
+      },
+      { idempotencyKey: 'worktree.merge_requested:op-dead' },
+    );
+
     const result = await handleViewPs(
-      { scope: 'worktree', probe: true },
+      { scope: 'worktree' },
       ctx,
+      // An EMPTY process table — every holder reads as dead, the most favourable
+      // possible conditions for a heal to fire if one were still wired here.
       { processTableSource: { list: () => [] }, realpath: (p) => p, now: () => NOW_MS },
     );
     expect(result.success).toBe(true);
-    const data = result.data as { probe?: { probed: number } };
-    expect(data.probe).toBeDefined();
+    const data = result.data as { count: number; probe?: unknown };
+    expect(data.count).toBe(1);
+    // ...and no reclaim block is reported, because no reclaim ran.
+    expect(data.probe).toBeUndefined();
   });
 });

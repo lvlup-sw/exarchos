@@ -735,7 +735,11 @@ describe('TOOL_REGISTRY', () => {
       // field-scoped amend path the invariant catalog previously lacked
       // entirely (invariants_add is append-only, so entries were effectively
       // immutable once committed). INV-5d, no new visible tool: 79 → 80.
-      expect(composite!.actions).toHaveLength(80);
+      // The effect-ledger remedy added `reconcile_worktrees` (the reservation
+      // reclaim and the launch / merge reconcilers, moved off `exarchos_view.ps
+      // probe:true`) and re-parented `stack_place` from `exarchos_view`, so the
+      // second is a MOVE and not a new capability: 80 → 82.
+      expect(composite!.actions).toHaveLength(82);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -1286,18 +1290,25 @@ describe('TOOL_REGISTRY', () => {
         ).toBe('boolean');
       }
 
-      // Annotation honesty (REV-L1): `ps probe:true` runs the DR-5 orphan
-      // emitter, a conditional idempotent write path — so `ps` is annotated
-      // local-mutation / idempotent (NOT readOnly), even though it rides the
-      // exarchos_view tool. `wait` is genuinely read-only; serialize_merge
-      // mutates shared state.
+      // Annotation honesty (REV-L1). `ps` carried local-mutation / idempotent
+      // while `probe:true` ran the DR-5 orphan emitter from a read verb. That
+      // write path is now `exarchos_orchestrate.reconcile_worktrees`, so `ps`
+      // is genuinely read-only and its annotation says so — an action that
+      // appends nothing must not claim it might. The conditional-write tuple
+      // moved WITH the effect rather than being dropped: `reconcile_worktrees`
+      // asserts it below, which is what keeps this a relocation and not a
+      // quiet downgrade of the surface's declared risk.
       const ps = findAction('exarchos_view', 'ps');
       const wait = findAction('exarchos_view', 'wait');
-      expect(ps!.annotations!.safety).toBe('local-mutation');
-      expect(ps!.annotations!.readOnly).toBe(false); // has a conditional write path.
-      expect(ps!.annotations!.idempotent).toBe(true); // the heals re-converge.
+      expect(ps!.annotations!.safety).toBe('read-only');
+      expect(ps!.annotations!.readOnly).toBe(true); // every scope is a pure fold.
       expect(ps!.annotations!.destructive).toBe(false);
       expect(wait!.annotations!.readOnly).toBe(true);
+      const reconcile = findAction('exarchos_orchestrate', 'reconcile_worktrees');
+      expect(reconcile!.annotations!.safety).toBe('local-mutation');
+      expect(reconcile!.annotations!.readOnly).toBe(false); // the heals append.
+      expect(reconcile!.annotations!.idempotent).toBe(true); // and re-converge.
+      expect(reconcile!.annotations!.destructive).toBe(false);
       const serializeMerge = findAction('exarchos_orchestrate', 'serialize_merge');
       expect(serializeMerge!.annotations!.readOnly).toBe(false);
     });
@@ -2966,6 +2977,10 @@ const EXPECTED_EFFECTIVE_BUDGETS: Readonly<Record<string, number>> = {
   'exarchos_orchestrate.verify_delegation_saga': 2000,
   'exarchos_orchestrate.post_delegation_check': 2000,
   'exarchos_orchestrate.reconcile_state': 2000,
+  'exarchos_orchestrate.reconcile_worktrees': 2000,
+  'exarchos_orchestrate.stack_place': 2000,
+  'exarchos_orchestrate.reconcile_worktrees': 2000,
+  'exarchos_orchestrate.stack_place': 2000,
   'exarchos_orchestrate.pre_synthesis_check': 2000,
   'exarchos_orchestrate.check_coderabbit': 2000,
   'exarchos_orchestrate.check_polish_scope': 2000,
@@ -3003,7 +3018,6 @@ const EXPECTED_EFFECTIVE_BUDGETS: Readonly<Record<string, number>> = {
   'exarchos_view.tasks': 2000,
   'exarchos_view.workflow_status': 2000,
   'exarchos_view.stack_status': 2000,
-  'exarchos_view.stack_place': 2000,
   'exarchos_view.telemetry': 2000,
   'exarchos_view.team_performance': 2000,
   'exarchos_view.delegation_timeline': 2000,
@@ -3251,6 +3265,20 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       inFlight: [], count: 0, launches: [], launchCount: 0, prunes: [], pruneCount: 0,
     },
     'exarchos_view.wait': { resolved: true, waitedMs: 5 },
+    // `reconcile_worktrees` — the reclaim + two reconcilers, moved off
+    // `ps probe:true`. Unlike `ps` this action has ONE shape and every field is
+    // required, so the floor is a pass that healed nothing: three empty
+    // sub-results and the post-reconcile columns.
+    'exarchos_orchestrate.reconcile_worktrees': {
+      probe: {}, reconcile: {}, mergeReconcile: {},
+      inFlight: [], count: 0, launches: [], launchCount: 0, prunes: [], pruneCount: 0,
+    },
+    // `stack_place` — the append acknowledgement `toEventAck` returns verbatim.
+    // All three fields come off the appended event rather than the caller's
+    // arguments, so there is no smaller valid shape.
+    'exarchos_orchestrate.stack_place': {
+      streamId: 'f', sequence: 1, type: 'stack.position-filled',
+    },
     // The `inspect` cold-probe projection is its minimal valid baseline: the
     // exists-branch fields (state/artifacts/taskProgress/correlation) are all
     // optional, so the workflowExists:false shape is the floor.
@@ -3459,7 +3487,15 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       // The 13th and 14th (task 083) are the two #1739 cutover verbs, which took
       // NEITHER route cleanly: they arrived new AND acquired waivers in the same
       // change. Paying them down puts them on the second route retroactively.
-      expect(actions.length).toBe(14);
+      //
+      // The 15th and 16th are the effect-ledger remedy, one per route again.
+      // `reconcile_worktrees` is NEW, so it could not have acquired a waiver and
+      // was declared substantively from the start. `stack_place` LEFT the
+      // allowlist: it moved from `exarchos_view` to `exarchos_orchestrate`, and
+      // carrying its waiver across would have swapped one seeded key for
+      // another — the edit the seed digest exists to redden — so the only legal
+      // move was to write the real schema.
+      expect(actions.length).toBe(16);
       for (const { tool, action } of actions) {
         const parsed = action.outputSchema.safeParse(cappedEnvelope());
         expect(
@@ -3679,12 +3715,23 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       // CONFORMING — neither "one primary per event" nor "one primary per
       // area" holds on this tree. Naming the set keeps the property below from
       // being asserted over nothing.
+      // The last two joined the set with `reconcile_worktrees`, and they are the
+      // clearest case for why multi-declarer is conforming rather than tolerated:
+      // each is a TERMINAL reachable two ways. `worktree.released` closes a
+      // reservation either because its owner released it (`release_worktree`) or
+      // because its owner is provably dead and the reclaim freed it;
+      // `worktree.merge_executed` closes a lease either on the merge finishing
+      // (`serialize_merge`) or on the crash-mid-merge heal. Same event, same
+      // meaning, two routes — so declaring one and hiding the other is what
+      // would be wrong, and both name `orchestrate` as owner.
       expect(multiDeclarer.map(([event]) => event).sort()).toEqual([
         'admission.evidence-recorded',
         'gate.executed',
         'onboard.executed',
         'onboard.requested',
         'state.patched',
+        'worktree.merge_executed',
+        'worktree.released',
       ]);
 
       // Internal consistency: an event's declarers either all name the SAME

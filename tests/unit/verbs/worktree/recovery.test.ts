@@ -7,8 +7,8 @@
 //      crash between CLAIM and RELEASE) whose holder is provably dead is
 //      terminated EXACTLY ONCE (INV-8/13) by FREEING the dead slot, from either
 //      production path: the LIVE inline dead-holder reclaim reached via the
-//      `serialize_merge` action, OR the explicit `reconcileMerges` pass wired into
-//      the `ps --probe` reconcile handler alongside the reservation + launch
+//      `serialize_merge` action, OR the explicit `reconcileMerges` pass in the
+//      `reconcile_worktrees` handler alongside the reservation + launch
 //      reconcilers. There is no standalone resume entry (DR-3, WLM slice 3: the
 //      built-but-unwired `resumeCrashedMerge` export — which re-ran the crashed
 //      merge under the caller's `featureId` — was excised in favor of these two
@@ -41,7 +41,7 @@ import type { ToolResult } from '../../../../src/format.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 import { serializeMerge } from '../../../../src/verbs/worktree/merge-serializer.js';
-import { handleSerializeMerge } from '../../../../src/verbs/worktree/handlers.js';
+import { handleReconcileWorktrees, handleSerializeMerge } from '../../../../src/verbs/worktree/handlers.js';
 import { handleView } from '../../../../src/projections/views/composite.js';
 import {
   WorktreeManager,
@@ -223,17 +223,18 @@ describe('DR-12 — crash-mid-merge recovery via the production serialize_merge 
 
 // ─── Test 1b: crash recovered from the EXPLICIT ps --probe reconcile pass ─────
 
-describe('DR-3 — crash-mid-merge reconciled from the ps --probe production entry', () => {
+describe('DR-3 — crash-mid-merge reconciled from the reconcile_worktrees production entry', () => {
   it('CrashedMerge_RecoveredFromProductionEntryPoint_ExactlyOneTerminalEvent', async () => {
     const arm = await createArm();
     const integrationRef = 'integration/ps-reconcile';
     const crashedOpId = 'crashed-op';
     // A stranded lease whose holder pid (4242) is absent from the SUPPORTED table
     // → provably dead. NO subsequent `serialize_merge` runs on this ref, so the
-    // inline reclaim never fires — the explicit `reconcileMerges` pass wired into
-    // `ps --probe` must free it (the crashed-lease sibling of the reservation +
-    // launch reconcilers). Recovery is proven from the PUBLIC composite view
-    // entry (`handleView` → exarchos_view `ps`), a caller-level path.
+    // inline reclaim never fires — the explicit `reconcileMerges` pass must free
+    // it (the crashed-lease sibling of the reservation + launch reconcilers).
+    // That pass rode `ps --probe` until the read surface stopped carrying writes;
+    // recovery is still proven from a caller-level entry point, now the
+    // `reconcile_worktrees` handler the orchestrate action dispatches.
     await seedHolder(arm, {
       integrationRef,
       operationId: crashedOpId,
@@ -243,8 +244,8 @@ describe('DR-3 — crash-mid-merge reconciled from the ps --probe production ent
       worktreeId: '/wlm/ps-reconcile-wt',
     });
 
-    const result = await handleView(
-      { action: 'ps', scope: 'worktree', probe: true },
+    const result = await handleReconcileWorktrees(
+      {},
       arm.ctx,
       { processTableSource: EMPTY_TABLE, selfPid: 999999, realpath: (p) => p },
     );
@@ -271,7 +272,7 @@ describe('DR-3 — crash-mid-merge reconciled from the ps --probe production ent
     expect((await foldWorktrees(arm)).inFlightMerges[integrationRef]).toBeUndefined();
   });
 
-  it('CrashedMerge_LiveHolder_PsProbeLeavesLeaseInFlight_FailClosed', async () => {
+  it('CrashedMerge_LiveHolder_ReconcileLeavesLeaseInFlight_FailClosed', async () => {
     const arm = await createArm();
     const integrationRef = 'integration/ps-live';
     // A LIVE holder (pid 7777 present in the table) — an ACTIVE merge, not a
@@ -285,8 +286,8 @@ describe('DR-3 — crash-mid-merge reconciled from the ps --probe production ent
       holderStartedAt: 'alive-7777',
     });
 
-    const result = await handleView(
-      { action: 'ps', scope: 'worktree', probe: true },
+    const result = await handleReconcileWorktrees(
+      {},
       arm.ctx,
       {
         processTableSource: liveTable([{ pid: 7777, startTime: 'alive-7777' }]),

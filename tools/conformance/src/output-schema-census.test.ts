@@ -401,13 +401,20 @@ describe('DR-4: outputSchema vacuity census', () => {
     //   seeded INTO the allowlist on arrival — the route task 068 correctly
     //   refused — so paying them down is the repair, and again the sum is flat.
     //
-    // So 111/10/121 became 110/12/122 and then 108/14/122: three sites crossed,
-    // one site arrived.
+    //   THE EFFECT-LEDGER REMEDY moved one more and added one. `stack_place` was
+    //   re-parented from `exarchos_view` to `exarchos_orchestrate`; a waiver is
+    //   keyed by action id, so carrying it across would have swapped one seeded
+    //   key for another — the edit the seed digest reddens — and the only legal
+    //   route was to write the real schema. `reconcile_worktrees` ARRIVED capped,
+    //   the route a new action has to take. So one site crossed and one arrived
+    //   capped, which is why the waiver count falls by one and the sum rises.
+    //
+    // So 111/10/121 became 110/12/122, then 108/14/122, then 107/16/123.
     expect(sites).toHaveLength(waiverSites + cappedSites);
     expect(literalVacuousSites).toBe(0);
-    expect(waiverSites).toBe(108);
-    expect(cappedSites).toBe(14);
-    expect(waiverSites + cappedSites).toBe(122);
+    expect(waiverSites).toBe(107);
+    expect(cappedSites).toBe(16);
+    expect(waiverSites + cappedSites).toBe(123);
     // Two of the waivers carry an explicit named binding — the aliased vacuity
     // this census exists to see through.
     expect(namedBindingSites).toBe(2);
@@ -442,13 +449,13 @@ describe('DR-4: outputSchema vacuity census', () => {
     //
     // A paydown moves the split; an arrival moves the denominator. Reading the
     // three together is what makes the ratchet legible.
-    expect(report.total).toBe(123);
-    expect(report.vacuousCount).toBe(109);
-    expect(report.substantiveCount).toBe(14);
+    expect(report.total).toBe(124);
+    expect(report.vacuousCount).toBe(108);
+    expect(report.substantiveCount).toBe(16);
     expect(countByReason(report)).toEqual({
-      'unknown-data': 108,
+      'unknown-data': 107,
       'wrapped-unknown-data': 1,
-      'typed-data': 14,
+      'typed-data': 16,
       'unreadable-envelope': 0,
     });
 

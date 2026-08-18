@@ -4,7 +4,7 @@
   "counts": {
     "tools": 5,
     "visibleTools": 4,
-    "actions": 123,
+    "actions": 124,
     "eventTypes": 176
   },
   "tools": [
@@ -83,6 +83,7 @@
         "prune_stale_workflows",
         "prune_worktrees",
         "reconcile_state",
+        "reconcile_worktrees",
         "release_worktree",
         "request_synthesize",
         "review_diff",
@@ -92,6 +93,7 @@
         "serialize_merge",
         "setup_worktree",
         "spec_coverage_check",
+        "stack_place",
         "task_claim",
         "task_complete",
         "task_fail",
@@ -133,7 +135,6 @@
         "quality_hints",
         "session_provenance",
         "shepherd_status",
-        "stack_place",
         "stack_status",
         "synthesis_readiness",
         "tasks",

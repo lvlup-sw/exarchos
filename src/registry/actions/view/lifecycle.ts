@@ -34,17 +34,16 @@ export const lifecycleViewActions: readonly BuiltinToolAction[] = [
   // ─── Worktree-lifecycle liveness reads (WLM operational core, DR-4) ────────
   // The `ps` / `wait` leg over the singleton `worktrees` stream: `ps` surfaces
   // the live `inFlightMerges` set, `wait` blocks (caller-bounded) on a serialized
-  // merge reaching its terminal. `ps probe:true` runs the on-demand DR-5 orphan
-  // probe and emits worktree.released / worktree.orphan_detected — a conditional
-  // idempotent heal. Annotation honesty: `wait` is genuinely read-only, but `ps`
-  // has that conditional write path, so it is annotated `local-mutation` /
-  // `idempotent` (NOT readOnly) — re-running converges (the heals are
-  // idempotent), it just is not a zero-append read.
+  // merge reaching its terminal. BOTH are genuinely read-only. `ps` carried a
+  // conditional write path under `probe:true` until the reclaim and the two
+  // reconcilers moved to `exarchos_orchestrate.reconcile_worktrees`: the appends
+  // live in `verbs/`, so a read surface could not honestly declare them, and the
+  // events they raise now have an action that names them.
   {
     name: 'ps',
     surface: 'worktree',
     description:
-      "Scope-parameterized process-plane lister composing three folds (DR-3). scope:'all' (DEFAULT) returns a workflows section (every tracked workflow: featureId, workflowType, phase, status, age) PLUS an operations section (every IN-FLIGHT liveness instance across merge/launch/mutation/prune — a started-without-terminal pair, surface-generic). scope:'workflow' returns the workflows section only; filter it with status/phase/workflowType and all:true to include terminal workflows. scope:'worktree' preserves the WLM-6 worktree capabilities: the worktrees@v1 inFlightMerges/launches/inFlightPrunes fold, and probe:true (valid ONLY in this scope) runs the on-demand DR-5 process probe emitting worktree.released / worktree.orphan_detected + reconciling dead holders. probe on a non-worktree scope is INVALID_INPUT. Idempotent: a pure read except scope:'worktree' probe:true, whose heals re-converge. Use for: a snapshot of what workflows exist and what operations are in flight. Do NOT use for: the governed worktree set (use worktrees); blocking until a condition holds (use wait).",
+      "Scope-parameterized process-plane lister composing three folds (DR-3). scope:'all' (DEFAULT) returns a workflows section (every tracked workflow: featureId, workflowType, phase, status, age) PLUS an operations section (every IN-FLIGHT liveness instance across merge/launch/mutation/prune — a started-without-terminal pair, surface-generic). scope:'workflow' returns the workflows section only; filter it with status/phase/workflowType and all:true to include terminal workflows. scope:'worktree' returns the WLM-6 worktrees@v1 inFlightMerges/launches/inFlightPrunes fold. READ-ONLY on every scope: emits no events and heals nothing, so an in-flight entry whose holder has died still reads as in-flight here. Use for: a snapshot of what workflows exist and what operations are in flight. Do NOT use for: reconciling dead holders or reclaiming orphaned worktrees (use exarchos_orchestrate reconcile_worktrees — the former probe:true path); the governed worktree set (use worktrees); blocking until a condition holds (use wait).",
     schema: z.object({
       // DR-3 (task 007) — the process-plane axis. Imported from the shared
       // schema-fields SoT (widened to the union `['repo','all','workflow',
@@ -52,9 +51,6 @@ export const lifecycleViewActions: readonly BuiltinToolAction[] = [
       // tool). `ps` accepts the `workflow|worktree|all` subset and rejects `repo`
       // at the handler; default `all`.
       scope: lifecycleScopeField.optional(),
-      // Worktree-scope-only: the on-demand DR-5 process probe. Rejected (INVALID_INPUT)
-      // for any non-worktree scope at the handler.
-      probe: z.boolean().optional(),
       // Workflows-section filters (scope workflow|all). Base types imported from
       // the DR-8 schema-fields SoT so the flattened registration cannot drift them:
       // `phase`/`workflowType` collide with invariants_effective (both z.string());
@@ -72,13 +68,11 @@ export const lifecycleViewActions: readonly BuiltinToolAction[] = [
     // `registerActionCommand` path (same Zod schema, no divergent parsing).
     cli: { topLevel: 'ps' },
     outputSchema: withCappedShape(PsOutputSchema),
-    // `ps scope:'worktree' probe:true` can append worktree.released /
-    // worktree.orphan_detected, so the action is NOT readOnly. The heals are
-    // idempotent (re-running a probe over an already-reconciled set emits nothing)
-    // and non-destructive → idempotent local-mutation. Every non-probe scope path
-    // is a pure read; the conservative annotation covers the sole write path.
-    // `wait` / `worktrees` stay genuinely READ_ONLY_LOCAL.
-    annotations: LOCAL_MUTATION_IDEMPOTENT,
+    // Now genuinely READ_ONLY_LOCAL, matching `wait` / `worktrees` / `inspect`.
+    // The sole write path (the `probe:true` reclaim + reconcilers) left with the
+    // `probe` field, so no scope appends and the conservative local-mutation
+    // annotation this action used to carry would now overstate its effect.
+    annotations: READ_ONLY_LOCAL,
   },
   {
     name: 'wait',

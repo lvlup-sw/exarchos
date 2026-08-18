@@ -40,7 +40,7 @@ vi.mock('../../../../src/projections/views/tools.js', async (importOriginal) => 
   };
 });
 
-vi.mock('../../../../src/stack/tools.js', () => ({
+vi.mock('../../../../src/verbs/stack/tools.js', () => ({
   handleStackStatus: vi.fn().mockResolvedValue({ success: true, data: [] }),
   handleStackPlace: vi.fn().mockResolvedValue({ success: true, data: { streamId: 's1', sequence: 1, type: 'stack.position-filled' } }),
 }));

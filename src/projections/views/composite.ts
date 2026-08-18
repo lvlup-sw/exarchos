@@ -35,7 +35,10 @@ import { handleViewExport } from './lifecycle/export.js';
 import { handleViewWait, type WaitDeps } from './lifecycle/wait.js';
 import { handleViewPs } from './lifecycle/ps.js';
 import { handleViewWorktrees } from '../../verbs/worktree/handlers.js';
-import { handleStackStatus, handleStackPlace } from '../../stack/tools.js';
+// Only the stack READ is reachable from here. `handleStackPlace` moved to the
+// orchestrate router with its action: it appends, and a view module importing
+// the writer kept an upward edge that nothing on this surface could declare.
+import { handleStackStatus } from '../../verbs/stack/tools.js';
 import { handleViewTelemetry } from '../telemetry/tools.js';
 import type { QualityHintsConfig } from '../../workflow/capabilities/resolver.js';
 import { deriveRepoKey } from '../../utils/paths.js';
@@ -315,22 +318,6 @@ async function dispatchViewAction(
       return wrapView(
         await handleStackStatus(
           rest as { streamId?: string; limit?: number; offset?: number },
-          stateDir,
-          eventStore,
-        ),
-        startedAt,
-      );
-
-    case 'stack_place':
-      return wrapView(
-        await handleStackPlace(
-          rest as {
-            streamId: string;
-            position: number;
-            taskId: string;
-            branch?: string;
-            prUrl?: string;
-          },
           stateDir,
           eventStore,
         ),
