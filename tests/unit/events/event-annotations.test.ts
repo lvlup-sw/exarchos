@@ -172,7 +172,13 @@ describe('EventAnnotations — the DR-2 tier and lifecycle assignment for the ev
   it('PromotionEvent_SubstrateTier_CarriesOperationRecordRationale', () => {
     // The atomic tree-promotion record. `install/atomic-promotion.ts` swaps a verified staged
     // tree into a live destination with a bounded sequence of renames; that commit rename is
-    // the non-idempotent step, and the promoting code owns the append of the record for it.
+    // the non-idempotent step, and the record for it belongs to the promoting code rather than
+    // to a caller asked to report on its behalf. That is the TIER claim, and it is unchanged.
+    //
+    // The LIFECYCLE claim is separate and weaker: nothing appends this event yet. The
+    // carrier-wrapped promotion path that declares the emission has no caller in the governed
+    // source, so the tier records what the weld WOULD be and the lifecycle records that the
+    // emitter is not wired.
     //
     // The weld claims only that. It names no provider, no consumer and no gate, and every
     // assertion below is scoped to the claim rather than to the fact of registration.
@@ -184,7 +190,7 @@ describe('EventAnnotations — the DR-2 tier and lifecycle assignment for the ev
     const registration = ANNOTATED_EVENTS.registrationOf(PROMOTION);
     expect(registration, `${PROMOTION} carries no annotation`).toBeDefined();
     expect(registration).toEqual({
-      lifecycle: 'active',
+      lifecycle: 'planned',
       tier: 'substrate',
       rationale: 'operation-record',
     });
@@ -193,9 +199,16 @@ describe('EventAnnotations — the DR-2 tier and lifecycle assignment for the ev
     // that named a tier and nothing else.
     expect(weldReferenceOf(registration!).ref.trim().length).toBeGreaterThan(0);
 
-    // The consequence that reaches the rest of the system: the derived registry classifies it
-    // `auto`, which is what "the promoting code owns the append" means on the emission axis.
-    expect(EVENT_EMISSION_REGISTRY[PROMOTION]).toBe('auto');
+    // The consequence that reaches the rest of the system: LIFECYCLE WINS on the emission axis,
+    // so the derived registry classifies it `planned` rather than consulting the tier. That is
+    // the whole point of resolving lifecycle first — "what emits it" is not a question worth
+    // answering until something does.
+    expect(EVENT_EMISSION_REGISTRY[PROMOTION]).toBe('planned');
+
+    // …and the tier is NOT what produced that, which is what stops this pin passing for the
+    // wrong reason. A sibling substrate event that IS emitted resolves `auto` through the same
+    // derivation, so `planned` here is attributable to the lifecycle and to nothing else.
+    expect(EVENT_EMISSION_REGISTRY['workflow.started']).toBe('auto');
 
     // NOT report-coupled. A durable effect record that landed in the model-emitted set would be
     // a record the model could simply forget to make.

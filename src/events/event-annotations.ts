@@ -437,16 +437,28 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
   'vcs.requested': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
   'vcs.executed': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
   'vcs.compensated': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
-  // The atomic tree-promotion record, measured the same way. The promoting code
-  // in `install/atomic-promotion.ts` performs the commit rename and owns the
-  // append; no caller is asked to record it on the promoter's behalf.
+  // The atomic tree-promotion record. `substrate` is the tier it WOULD be welded
+  // to: the promoting code in `install/atomic-promotion.ts` performs the commit
+  // rename, and the record belongs to that operation rather than to a caller
+  // asked to report on the promoter's behalf.
   //
   // `capability` is unavailable for the same structural reason as the ledger
   // above, and it is worth naming which half is missing: there is no fold. No
   // reducer, view or telemetry surface turns a promotion into state anyone reads,
   // and `consumedBy` is a non-empty tuple precisely so that "declared a
   // capability, consumed by nobody" cannot be written down.
-  'promotion.executed': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
+  //
+  // The lifecycle is `planned`, and that is a measurement rather than a plan.
+  // `promoteTree` — the carrier-wrapped path that DECLARES this emission — has
+  // no caller anywhere in the governed source; every call site is a test. The
+  // engine beneath it (`promoteTreeSync`) is what production uses, and it
+  // declares nothing. So the schema exists, the projection already folds this
+  // type, and no reachable code appends it. Annotating it `active` would claim
+  // an append happens on some path, which is the one claim the tree cannot
+  // support; `planned` says what is true — the emitter is not wired. It becomes
+  // `active` when a production caller reaches `promoteTree` with a sink that
+  // lands the record, not before.
+  'promotion.executed': { lifecycle: 'planned', tier: 'substrate', rationale: 'operation-record' },
   // The emission-violation report, measured the same way. The post-dispatch
   // verifier detects the miss and appends the finding in the same pass — the
   // code performing the check owns the record of it, and no handler is asked to

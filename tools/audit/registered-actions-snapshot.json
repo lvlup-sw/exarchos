@@ -648,7 +648,7 @@
     },
     {
       "type": "promotion.executed",
-      "lifecycle": "active",
+      "lifecycle": "planned",
       "tier": "substrate",
       "rationale": "operation-record"
     },

@@ -4412,8 +4412,12 @@ describe('WLM operational-core merge lease schemas', () => {
     expect(isBuiltInEventType(PROMOTION), `${PROMOTION} is not a built-in event type`).toBe(true);
     expect(getValidEventTypes()).toContain(PROMOTION);
     expect(EVENT_DATA_SCHEMAS[PROMOTION], `${PROMOTION} has no data schema`).toBeDefined();
+    // `planned`, not `auto`: the schema, the type-map entry and the projection's fold all exist,
+    // and no reachable code appends the event — the carrier-wrapped path that declares it has no
+    // caller outside these tests. Registration bought the name and the validation; it did not buy
+    // an emitter, and the catalog says which of the two it has.
     expect(serializeEventCatalog().types[PROMOTION]).toEqual({
-      source: 'auto',
+      source: 'planned',
       isBuiltIn: true,
       hasSchema: true,
     });
