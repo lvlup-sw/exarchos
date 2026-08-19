@@ -439,6 +439,17 @@ export class VcsMutationOwner {
     // that a key cannot come into existence without naming the stream it will
     // be claimed against, so there is no stream-less string to thread through
     // the wrong append.
+    //
+    // ONE-RELEASE UPGRADE WINDOW. The text now reads `${stream}:${type}:${key}`
+    // where it previously carried no stream, so a claim row written by the old
+    // code and one minted here for the same logical append no longer collapse at
+    // the storage layer. This weakens a BACKSTOP, not the primary guard: the
+    // ledger fold below returns the recorded terminal before any append runs and
+    // keys on the `idempotencyKey` inside the event data, which did not change.
+    // The claim is the second-line collapse for a crash between that fold and the
+    // append, so the exposure is in-flight operations only and each key closes its
+    // own window as soon as it terminates. This is the only site that builds the
+    // text; nothing else reconstructs it.
     const claim = effectIdempotencyKey(this.stream, `${type}:${request.idempotencyKey}`);
     await this.eventStore.append(
       this.stream,
