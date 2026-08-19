@@ -32,8 +32,35 @@ import type { RunbookDefinition } from '../../../src/runbooks/types.js';
  *
  * Native steps (`native:` tools) and decision steps (`none`) are skipped: they
  * are not MCP calls and emit nothing through the registry.
+ *
+ * ── The two directions do NOT range over the same edges ─────────────────────
+ *
+ * `condition: 'conditional'` means the edge fires on a predicate the registry
+ * cannot evaluate here — `workflow.fix-cycle` lands only when a phase is
+ * re-entered rather than advanced. That asymmetry is the whole reason the
+ * subject is a parameter:
+ *
+ *   `'unconditional'` — what a runbook OWES a declaration. `autoEmits` is read
+ *      by an agent to decide it need not append the record itself, and that
+ *      inference is only safe for an edge that always fires. Demanding a
+ *      conditional edge be declared would force the runbook to promise a record
+ *      the tool may never write.
+ *   `'every'` — what a declaration is ALLOWED to name. Declaring a conditional
+ *      emission is legitimate: it tells the agent the tool covers that event
+ *      when the predicate holds. Only an event no step can emit under any
+ *      condition is a phantom.
+ *
+ * Reading one subject for both directions is what made this check wrong: a
+ * newly declared conditional edge read as an undeclared emission, which is the
+ * same conflation `interceptors/emission-verifier.ts` calls out — a conditional
+ * edge is not required, and its absence is not evidence of anything.
  */
-function stepDerivedAutoEmits(runbook: RunbookDefinition): readonly string[] {
+type EmissionSubject = 'unconditional' | 'every';
+
+function stepDerivedAutoEmits(
+  runbook: RunbookDefinition,
+  subject: EmissionSubject,
+): readonly string[] {
   const events = new Set<string>();
   for (const step of runbook.steps) {
     if (step.tool.startsWith('native:') || step.tool === 'none') continue;
@@ -51,7 +78,10 @@ function stepDerivedAutoEmits(runbook: RunbookDefinition): readonly string[] {
       );
     }
     if (action.autoEmits === undefined) continue;
-    for (const emission of action.autoEmits) events.add(emission.event);
+    for (const emission of action.autoEmits) {
+      if (subject === 'unconditional' && emission.condition !== 'always') continue;
+      events.add(emission.event);
+    }
   }
   return [...events].sort();
 }
@@ -195,7 +225,7 @@ describe('Runbook drift detection', () => {
  * `expect`ing is what makes them executable against a subject expected to fail.
  */
 function assertNothingDeclaredThatNoStepEmits(runbook: RunbookDefinition): void {
-  const derived = new Set(stepDerivedAutoEmits(runbook));
+  const derived = new Set(stepDerivedAutoEmits(runbook, 'every'));
   for (const event of runbook.autoEmits) {
     if (!derived.has(event)) {
       throw new Error(
@@ -209,7 +239,7 @@ function assertNothingDeclaredThatNoStepEmits(runbook: RunbookDefinition): void 
 
 function assertNothingEmittedThatIsNotDeclared(runbook: RunbookDefinition): void {
   const declared = new Set(runbook.autoEmits);
-  for (const event of stepDerivedAutoEmits(runbook)) {
+  for (const event of stepDerivedAutoEmits(runbook, 'unconditional')) {
     if (!declared.has(event)) {
       throw new Error(
         `Runbook '${runbook.id}' steps emit '${event}' which it does not declare in autoEmits.`,
@@ -234,7 +264,9 @@ describe('Runbook autoEmits ⇄ step-derived emissions (bijection)', () => {
       ...TASK_COMPLETION,
       autoEmits: [...TASK_COMPLETION.autoEmits, 'workflow.transition'],
     };
-    expect(new Set(stepDerivedAutoEmits(phantomDeclarer)).has('workflow.transition')).toBe(false);
+    expect(new Set(stepDerivedAutoEmits(phantomDeclarer, 'every')).has('workflow.transition')).toBe(
+      false,
+    );
     expect(() => assertNothingDeclaredThatNoStepEmits(phantomDeclarer)).toThrow(
       /declares autoEmits 'workflow\.transition'/,
     );
@@ -249,10 +281,31 @@ describe('Runbook autoEmits ⇄ step-derived emissions (bijection)', () => {
     }
 
     const underDeclarer: RunbookDefinition = { ...TASK_COMPLETION, autoEmits: [] };
-    expect(stepDerivedAutoEmits(underDeclarer).length).toBeGreaterThan(0);
+    expect(stepDerivedAutoEmits(underDeclarer, 'unconditional').length).toBeGreaterThan(0);
     expect(() => assertNothingEmittedThatIsNotDeclared(underDeclarer)).toThrow(
       /which it does not declare in autoEmits/,
     );
+
+    // The narrowing is load-bearing, so prove it is what carries the pass and
+    // not an empty subject. `agent-teams-saga` steps through
+    // `exarchos_workflow.transition`, which declares `workflow.fix-cycle`
+    // CONDITIONALLY and does not name it in the runbook's `autoEmits`. Under the
+    // `'every'` subject that reads as an undeclared emission; under
+    // `'unconditional'` it is correctly out of subject. Both halves are asserted:
+    // drop the condition filter and the first expectation fails.
+    const conditionalUnderDeclarer = ALL_RUNBOOKS.find((r) => r.id === 'agent-teams-saga');
+    expect(conditionalUnderDeclarer).toBeDefined();
+    if (conditionalUnderDeclarer !== undefined) {
+      const declared = new Set(conditionalUnderDeclarer.autoEmits);
+      expect(
+        stepDerivedAutoEmits(conditionalUnderDeclarer, 'every').filter((e) => !declared.has(e)),
+      ).toContain('workflow.fix-cycle');
+      expect(
+        stepDerivedAutoEmits(conditionalUnderDeclarer, 'unconditional').filter(
+          (e) => !declared.has(e),
+        ),
+      ).toEqual([]);
+    }
   });
 
   it('RunbookAutoEmits_DerivationHasANonEmptySubject', () => {
@@ -260,13 +313,13 @@ describe('Runbook autoEmits ⇄ step-derived emissions (bijection)', () => {
     // resolves nothing — a moved registry, a renamed action, a `findActionInRegistry`
     // that started returning `undefined`. At least one runbook must actually
     // derive emissions, and the whole set must be non-trivial.
-    const emitting = ALL_RUNBOOKS.filter((r) => stepDerivedAutoEmits(r).length > 0);
+    const emitting = ALL_RUNBOOKS.filter((r) => stepDerivedAutoEmits(r, 'unconditional').length > 0);
     expect(emitting.length).toBeGreaterThan(0);
     expect(ALL_RUNBOOKS.length).toBeGreaterThan(emitting.length);
 
     // Cardinality both ways on a concrete runbook, so "every declared entry is
     // derived" cannot be satisfied by a derivation that returns everything.
-    const derived = stepDerivedAutoEmits(TASK_COMPLETION);
+    const derived = stepDerivedAutoEmits(TASK_COMPLETION, 'unconditional');
     expect(derived.length).toBe(TASK_COMPLETION.autoEmits.length);
     expect(derived.length).toBeGreaterThan(1);
   });

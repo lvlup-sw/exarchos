@@ -27,7 +27,11 @@ import {
   buildInvalidInput,
 } from '../../adapters/cli/schema-to-flags.js';
 import { runSessionMachineryConsumedInterceptor } from './interceptors/session-machinery.js';
-import { runEmissionVerifierInterceptor } from './interceptors/emission-verifier.js';
+import {
+  dispatchStreamId,
+  emissionViolationBlocks,
+  runEmissionVerifierInterceptor,
+} from './interceptors/emission-verifier.js';
 import { evaluateInstallFreshness } from '../../install/freshness-gate.js';
 import {
   mintDispatchContextFromRequest,
@@ -456,19 +460,34 @@ export const COMPOSITE_HANDLERS: Record<string, CompositeHandler> = {};
  * Restores whatever was previously there (including `undefined`, i.e. the
  * absent-key case where the real lazy loader would take over).
  */
+/**
+ * Tools whose composite handler is currently a test stub.
+ *
+ * `COMPOSITE_HANDLERS` cannot answer this: the lazy loader writes real handlers
+ * into the same map, so membership means "loaded", not "stubbed". The emission
+ * verifier needs the distinction because the emission contract is a promise made
+ * by the REGISTERED handler — a stub that returns a canned envelope never made
+ * it, and asserting it against one reports drift that exists only in the fixture.
+ */
+const STUBBED_COMPOSITES = new Set<string>();
+
 export function stubCompositeHandler(
   tool: string,
   handler: CompositeHandler,
 ): () => void {
   const hadPrev = tool in COMPOSITE_HANDLERS;
   const prev = COMPOSITE_HANDLERS[tool];
+  const wasStubbed = STUBBED_COMPOSITES.has(tool);
   COMPOSITE_HANDLERS[tool] = handler;
+  STUBBED_COMPOSITES.add(tool);
   return () => {
     if (hadPrev) {
       COMPOSITE_HANDLERS[tool] = prev as CompositeHandler;
     } else {
       delete COMPOSITE_HANDLERS[tool];
     }
+    if (wasStubbed) STUBBED_COMPOSITES.add(tool);
+    else STUBBED_COMPOSITES.delete(tool);
   };
 }
 
@@ -1152,20 +1171,58 @@ export async function dispatch(
   // `interceptors/emission-verifier.ts` holds that declaration and the
   // structural assertion in the dispatch tests reads it.
   //
-  // Advisory to the caller: a violation is OUR bug, not the caller's, so it is
-  // recorded to the log and the caller's result is returned unchanged.
-  await runEmissionVerifierInterceptor(ctx.eventStore, {
+  // How hard this bites is `events.emission-enforcement`, and a mode is only a
+  // mode if something reads it. The verdict was previously awaited and dropped:
+  // `block` — the default, and the value every no-config run gets — chose a log
+  // LEVEL and nothing else, so the config declared an enforcement no code path
+  // could perform and `emissionViolationBlocks` had no caller outside its tests.
+  // The fault is still ours rather than the caller's, which is what the mode is
+  // for: an operator who wants the old behavior sets `advisory` and gets the
+  // finding without the failure.
+  const emissionVerdict = await runEmissionVerifierInterceptor(ctx.eventStore, {
     tool,
     action: typeof args.action === 'string' ? args.action : '',
     operationId: dispatchCtx.operationId,
-    streamId: typeof args.featureId === 'string' && args.featureId.length > 0
-      ? args.featureId
-      : undefined,
+    // Both spellings of the same thing. A stream is named `featureId` on most
+    // actions and `streamId` on those re-parented onto a stream they did not
+    // open — `stack_place` is one, and it declares `stack.position-filled`
+    // unconditionally. Reading only `featureId` resolved every such action to
+    // `not-applicable`, so an action with an unconditional contract was exempt
+    // from the check by the NAME of its parameter. The residue is declared, not
+    // silent: an action carrying neither still resolves `no-stream`.
+    streamId: dispatchStreamId(args),
     declared:
       typeof args.action === 'string'
         ? findActionInRegistry(tool, args.action)?.autoEmits
         : undefined,
+    handlerStubbed: STUBBED_COMPOSITES.has(tool),
+    handlerSucceeded: result.success,
+    // The interceptor resolves the mode again for its own log level. Without
+    // this the record read `enforcement: block` on a run that was configured
+    // advisory and did not fail — the log and the outcome disagreeing about
+    // which mode was in force.
+    ...(ctx.projectConfig !== undefined ? { projectConfig: ctx.projectConfig } : {}),
   });
+
+  if (emissionViolationBlocks(emissionVerdict, ctx.projectConfig)) {
+    const undelivered = [
+      ...emissionVerdict.missingEvents,
+      ...emissionVerdict.lifecycleViolations.map((v) => v.event),
+    ];
+    return attachMeta({
+      success: false,
+      error: {
+        code: 'EMISSION_CONTRACT_VIOLATED',
+        message:
+          `${tool}.${typeof args.action === 'string' ? args.action : ''} declares an ` +
+          `unconditional emission that did not land: ${undelivered.join(', ')}. The ` +
+          'declaration and the handler have drifted — this is an Exarchos defect, not a ' +
+          "malformed call. Reconcile the action's `autoEmits` with what its handler " +
+          'appends; to surface the finding without failing the run, set ' +
+          '`events.emission-enforcement: advisory` in `.exarchos.yml`.',
+      },
+    });
+  }
 
   return attachMeta(result);
   } catch (error) {

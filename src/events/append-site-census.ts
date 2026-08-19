@@ -45,10 +45,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 
-import type {
-  EvidenceAppendSite,
-  EvidenceEmissionScanner,
-} from '../verbs/gates/gate-ownership-census.js';
+import type { EvidenceEmissionScanner } from '../verbs/gates/gate-ownership-census.js';
 
 /**
  * The append-site scanner port, under the name that describes what it does.
@@ -59,9 +56,6 @@ import type {
  * only one of them.
  */
 export type AppendSiteScanner = EvidenceEmissionScanner;
-
-/** One resolved `.append(...)` call site. Re-exported so consumers need one import. */
-export type AppendSite = EvidenceAppendSite;
 
 /** An append whose event type did not reduce to a string. */
 export interface UnresolvedAppendSite {

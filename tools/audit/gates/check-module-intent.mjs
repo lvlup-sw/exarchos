@@ -241,6 +241,17 @@ const ALLOWLIST_CLASSES = [
           'Authority topology as data (DR-6, gate G5): the eight contract-boundary rows — one authority each (or an explicit contested/none), their bound and unbound representations, and the wave from which each is enforced — plus the rows’ own totality check. Its consumer is the task-025 closure census, which is ITSELF test-invoked gate machinery, so it never gains a production importer. Deliberately not a production import target so the shipped server never depends on the governance model.',
       },
 
+      'events/emitter-closure-audit.ts': {
+        owner: 'exarchos',
+        rationale:
+          'Emission-closure audit: compares the measured append-site census against BOTH declaration surfaces (an action\u2019s autoEmits and MODULE_EMISSIONS), reporting an undeclared append site in one direction and a phantom module emission in the other. The undeclared direction is the one a declaration table can never find on its own. Its only consumers are its co-located test and that test\u2019s kill fixtures, both test-invoked gate machinery, so it never gains a production importer.',
+      },
+      'events/provider-area-audit.ts': {
+        owner: 'exarchos',
+        rationale:
+          'Provider-area consistency audit: checks a registration\u2019s `provider` claim against the area the event is actually appended from, separating a contradiction (the append sits inside a DIFFERENT provider\u2019s area, so exactly one claim is false) from an ungoverned area (no provider owns it, so the vocabulary has no right answer yet). Test-invoked structural gate, same class as emitter-closure-audit \u2014 deliberately not a production import target so the shipped server never depends on the audit.',
+      },
+
       // ── the five former `/-seam\.ts$/` members, now named ─────────────────
       'architecture/contract-seam.ts': {
         owner: 'exarchos',

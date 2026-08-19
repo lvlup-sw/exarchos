@@ -12,6 +12,8 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
+
 import { EventStore } from '../../src/events/store.js';
 import {
   runEmissionVerifierInterceptor,
@@ -20,6 +22,10 @@ import {
   type EmissionVerdict,
 } from '../../src/dispatch/core/interceptors/emission-verifier.js';
 import type { EventRegistration } from '../../src/events/event-registration.js';
+import { COMPOSITE_HANDLERS, dispatch } from '../../src/dispatch/core/dispatch.js';
+import { resolveConfig } from '../../src/config/resolve.js';
+import type { DispatchContext } from '../../src/dispatch/core/types.js';
+import type { ToolResult } from '../../src/types.js';
 
 const ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Object.freeze({
   'workflow.started': {
@@ -39,7 +45,11 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await fs.rm(stateDir, { recursive: true, force: true });
+  // The store holds a live SQLite connection rooted in this temp directory,
+  // and `close()` is the documented precondition for removing it. Without the
+  // close the handle survives the test and Windows refuses the removal.
+  store.close();
+  await rmrfAsync(stateDir);
 });
 
 describe('emission verifier policy', () => {
@@ -169,5 +179,70 @@ describe('emission verifier policy', () => {
       indeterminate: 1,
       clean: false,
     });
+  });
+});
+
+// ─── The mode reaches the OUTCOME, not only the log level ───────────────────
+//
+// `events.emission-enforcement` was resolved, documented and defaulted to
+// `block`, and `emissionViolationBlocks` computed the decision — but nothing in
+// `dispatch()` consulted it, so its only observable effect was whether the
+// finding was logged at `error` or `warn`. Every caller of these two functions
+// was a test, which is the shape that makes a control look enforced while it
+// enforces nothing.
+//
+// These cases run the real `dispatch()` and assert on its RETURN VALUE, which
+// is the surface a caller sees. The handler is installed straight into
+// `COMPOSITE_HANDLERS` rather than through `stubCompositeHandler`, because a
+// declared stub is now exempt by design: what is under test is a REGISTERED
+// handler that completed without keeping its own unconditional promise.
+describe('emission enforcement reaches the dispatch result', () => {
+  const TOOL = 'exarchos_workflow';
+  // `cleanup` declares `workflow.cleanup` with `condition: 'always'`.
+  const silentHandler = async (): Promise<ToolResult> => ({ success: true, data: {} });
+
+  const dispatchCleanup = async (
+    featureId: string,
+    projectConfig?: DispatchContext['projectConfig'],
+  ): Promise<ToolResult> => {
+    const had = TOOL in COMPOSITE_HANDLERS;
+    const prev = COMPOSITE_HANDLERS[TOOL];
+    COMPOSITE_HANDLERS[TOOL] = silentHandler;
+    try {
+      return await dispatch(
+        TOOL,
+        { action: 'cleanup', featureId, mergeVerified: true },
+        {
+          stateDir,
+          eventStore: store,
+          enableTelemetry: false,
+          ...(projectConfig !== undefined ? { projectConfig } : {}),
+        } as DispatchContext,
+      );
+    } finally {
+      if (had) COMPOSITE_HANDLERS[TOOL] = prev as typeof silentHandler;
+      else delete COMPOSITE_HANDLERS[TOOL];
+    }
+  };
+
+  it('EmissionEnforcement_BlockMode_UndeliveredEmissionFailsTheDispatch', async () => {
+    const result = await dispatchCleanup('enforce-block');
+
+    expect(result.success).toBe(false);
+    expect((result.error as Record<string, unknown>).code).toBe('EMISSION_CONTRACT_VIOLATED');
+    expect((result.error as Record<string, unknown>).message).toContain('workflow.cleanup');
+  });
+
+  it('EmissionEnforcement_AdvisoryMode_SameViolationReturnsTheHandlerResult', async () => {
+    // The other half. If this also failed, the first case would be satisfied by
+    // a dispatch that rejects every violation regardless of configuration —
+    // which is not the contract the key documents, and would leave an operator
+    // no way back to the recorded-but-not-fatal behavior.
+    const result = await dispatchCleanup(
+      'enforce-advisory',
+      resolveConfig({ events: { 'emission-enforcement': 'advisory' } }),
+    );
+
+    expect(result.success).toBe(true);
   });
 });

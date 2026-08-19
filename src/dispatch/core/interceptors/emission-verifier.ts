@@ -106,16 +106,46 @@ const verifierLogger = logger.child({ subsystem: 'emission-verifier' });
 /** The event type this verifier writes its findings to. */
 export const EMISSION_VIOLATION_EVENT = 'emission.violated';
 
+/**
+ * The dispatch stream for a call, read from whichever parameter names it.
+ *
+ * `featureId` is the usual spelling; `streamId` is the spelling used by actions
+ * re-parented onto a stream they did not open. They denote the same thing — a
+ * stream id is a bare feature id — so a verifier that reads only the first
+ * exempts the second from its own contract on the strength of a parameter name,
+ * which is the shape this layer exists to remove.
+ *
+ * Returns `undefined` when the call names neither. That is a real answer, not a
+ * failure: it resolves `no-stream`, which is a DECLARED inapplicability rather
+ * than a quiet pass, and the actions in that class are counted under it.
+ */
+export function dispatchStreamId(args: Record<string, unknown>): string | undefined {
+  for (const key of ['featureId', 'streamId'] as const) {
+    const value = args[key];
+    if (typeof value === 'string' && value.length > 0) return value;
+  }
+  return undefined;
+}
+
 // ─── Declared applicability ─────────────────────────────────────────────────
 
 /**
  * The classes of `dispatch()` return site, by what has happened to the handler
  * at the moment the function returns.
  *
- * This is the axis applicability is declared over. It is deliberately about the
- * HANDLER and not about success/failure: a handler that ran and returned an
- * error result still owes its unconditional emissions, while a refusal that
- * never reached a handler owes nothing.
+ * This is the axis applicability is declared over. It is about the HANDLER: a
+ * refusal that never reached one owes nothing.
+ *
+ * It used to add that an error RESULT still owes the unconditional emissions,
+ * on the reasoning that a handler refusing the work still emits whatever it
+ * declares unconditionally. Arming the enforcement mode falsified that: the
+ * governance suites drive denied transitions, blocked gates and refused
+ * completions through real handlers, and those paths return an error without
+ * appending the success record — correctly, because the record describes an
+ * operation that did not happen. A refusal reached through a handler is the
+ * same kind of non-event as one caught before it, so it is declared
+ * `handler-refused` rather than counted as drift. `condition: 'always'` means
+ * "whenever this action does its work", not "on every call".
  */
 export const DISPATCH_RETURN_CLASSES = [
   /** Returned before any handler was invoked — a refusal, a gate, a validation. */
@@ -140,6 +170,19 @@ export const EMISSION_INAPPLICABILITY_REASONS = [
   'no-stream',
   /** The store could not be read; the contract was not assessed either way. */
   'store-unavailable',
+  /**
+   * The handler ran and returned an unsuccessful result. Its declared emissions
+   * record work performed; a refusal performed none, so their absence is the
+   * correct outcome rather than a drift between declaration and implementation.
+   */
+  'handler-refused',
+  /**
+   * The registered composite handler was replaced by a test stub, so the party
+   * that made the promise never ran. The contract belongs to the HANDLER — a
+   * stand-in returning a canned envelope did not undertake it, and holding a
+   * stub to it would report drift that exists only in the fixture.
+   */
+  'handler-stubbed',
 ] as const;
 
 export type EmissionInapplicabilityReason =
@@ -383,6 +426,18 @@ export interface EmissionVerifierCall {
   readonly streamId: string | undefined;
   /** The action's declared emission edges, read from the registry. */
   readonly declared: readonly AutoEmission[] | undefined;
+  /**
+   * Whether this tool's composite handler is a test stub rather than the
+   * registered implementation. Declared by the caller instead of sniffed here:
+   * the handler map holds stubs and lazily-loaded real handlers alike, so
+   * membership cannot tell them apart.
+   */
+  readonly handlerStubbed?: boolean;
+  /**
+   * Whether the handler's own result reported success. A handler that refused
+   * the work owes no record of having done it.
+   */
+  readonly handlerSucceeded?: boolean;
   /** Registration table for the lifecycle axis. Injectable for tests. */
   readonly annotations?: Readonly<Record<string, EventRegistration>>;
   /**
@@ -414,6 +469,26 @@ export async function runEmissionVerifierInterceptor(
   call: EmissionVerifierCall,
 ): Promise<EmissionVerdict> {
   const required = unconditionalEmissions(call.declared);
+  if (call.handlerSucceeded === false) {
+    return {
+      status: 'not-applicable',
+      reason: 'handler-refused',
+      missingEvents: [],
+      lifecycleViolations: [],
+      required,
+    };
+  }
+  // Ordered before the contract check: with no real handler there is no
+  // subject, which is a more fundamental absence than having nothing to assess.
+  if (call.handlerStubbed === true) {
+    return {
+      status: 'not-applicable',
+      reason: 'handler-stubbed',
+      missingEvents: [],
+      lifecycleViolations: [],
+      required,
+    };
+  }
   if (required.length === 0) {
     return {
       status: 'not-applicable',
@@ -458,14 +533,14 @@ export async function runEmissionVerifierInterceptor(
       await eventStore.append(
         streamId,
         {
-          type: 'emission.violated',
+          type: EMISSION_VIOLATION_EVENT,
           data: {
             action: `${call.tool}.${call.action}`,
             missingEvents: verdict.missingEvents,
             operationId: call.operationId,
           },
         },
-        { idempotencyKey: `emission.violated:${call.operationId}` },
+        { idempotencyKey: `${EMISSION_VIOLATION_EVENT}:${call.operationId}` },
       );
     }
     // The mode changes how loudly this reads, never whether it was recorded: a

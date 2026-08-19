@@ -133,7 +133,21 @@ export const workflowActions: readonly BuiltinToolAction[] = [
       examples: ['exarchos wf update -f my-feature --updates \'{"artifacts":{"spec":"docs/specs/foo.md"}}\''],
     },
     autoEmits: [
-      { event: 'state.patched', condition: 'always', role: 'primary', owner: 'workflow' },
+      // CONDITIONAL, not unconditional. `handlers/set.ts` guards the append on
+      // `isEventSourced(state) && eventStore && updateKeys.length > 0`, so a
+      // successful `update` over a non-event-sourced document, or one carrying
+      // no update keys, correctly appends nothing. Declaring it `always` claimed
+      // a record every call writes, which the governance suites falsified the
+      // moment the enforcement mode was actually armed — the same shape as the
+      // `promotion.executed` lifecycle correction: a declaration the tree does
+      // not support reads as coverage until something checks it.
+      {
+        event: 'state.patched',
+        condition: 'conditional',
+        description: 'When the target is event-sourced and the call carries at least one update key',
+        role: 'primary',
+        owner: 'workflow',
+      },
     ],
     // Wave 0 (#1340) — register WorkflowUpdateOutputSchema for envelope-
     // version discipline (#1266 prep). The schema mirrors the transition
