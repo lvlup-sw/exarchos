@@ -154,10 +154,18 @@ export const EventTypes = [
   // PREFLIGHT_FAILED, RESERVED_FIELD, etc.) so `view telemetry` can report
   // them instead of silently rolling them up as completions.
   'tool.action_errored',
-  // #1262 — per-turn output-token sample emitted by the telemetry middleware
-  // when an agent turn completes. The `output_tokens_high` quality hint
-  // (catalog: `projections/telemetry/quality-hints.ts`) fires off this stream when a
-  // turn's `outputTokens` crosses the configured threshold.
+  // #1262 — per-turn output-token sample. The schema, the type-map entry and two
+  // folds exist (`telemetry-projection.ts`, `workflow-state-projection.ts`), and
+  // the `output_tokens_high` quality hint (catalog:
+  // `projections/telemetry/quality-hints.ts`) reads the stream when a turn's
+  // `outputTokens` crosses the configured threshold — but NOTHING appends it:
+  // there is no append site in the governed tree. This comment used to name the
+  // telemetry middleware as the producer, which contradicted the `planned`
+  // lifecycle in `event-annotations.ts`. The annotation is the side the tree
+  // supports, so the producer claim is removed rather than the annotation
+  // relaxed. It matters now that the emission verifier is armed: a landed event
+  // whose lifecycle is not `active` is a violation, so promoting this to
+  // `active` on the strength of a stale comment would be a real fault.
   'turn.completed',
   // #1525 W2 Half 1 — per-subagent output-token total emitted by the restored
   // SubagentStop hook (`lifecycle/subagent-stop.ts`). The handler parses the
