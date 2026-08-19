@@ -227,28 +227,36 @@ describe('verb error envelopes (DR-8)', () => {
     expect(await totalEvents(store)).toBe(before); // event-count invariance
   });
 
-  // ─── ps — probe outside the worktree scope → INVALID_INPUT + suggestedFix ────
+  // ─── ps — a pipeline-only scope → INVALID_INPUT + suggestedFix ──────────────
+  //
+  // This slot used to hold the `probe` rejection. `probe` left `ps` with the
+  // write path, so that case could no longer be reached — and an error-envelope
+  // suite needs a REACHABLE rejection to describe. The `repo` scope is the same
+  // shape on the same verb: a value the shared `scopeField` admits but this
+  // action does not, answered with the target list and the action that does
+  // accept it rather than silently defaulting.
 
-  it('Ps_ProbeOutsideWorktreeScope_InvalidInputWithSuggestedFix', async () => {
+  it('Ps_PipelineOnlyScope_InvalidInputWithSuggestedFix', async () => {
     const { store, ctx } = await makeArm();
     const before = await totalEvents(store);
 
-    // `probe` is a worktree-scope-only capability — the workflows/operations
-    // folds are pure reads with no process probe.
-    const workflowScoped = await handleViewPs({ scope: 'workflow', probe: true }, ctx);
-    expect(workflowScoped.success).toBe(false);
-    expect(workflowScoped.error?.code).toBe('INVALID_INPUT');
-    expect(workflowScoped.error?.validTargets).toContain('worktree');
-    expect(workflowScoped.error?.suggestedFix?.tool).toBe('exarchos_view');
-    expect(workflowScoped.error?.suggestedFix?.params).toMatchObject({ scope: 'worktree', probe: true });
+    const repoScoped = await handleViewPs({ scope: 'repo' }, ctx);
+    expect(repoScoped.success).toBe(false);
+    expect(repoScoped.error?.code).toBe('INVALID_INPUT');
+    // The envelope names where the caller CAN go, both as a target list...
+    expect(repoScoped.error?.validTargets).toContain('worktree');
+    expect(repoScoped.error?.validTargets).not.toContain('repo');
+    // ...and as a runnable call, which is the half that makes it self-correcting.
+    expect(repoScoped.error?.suggestedFix?.tool).toBe('exarchos_view');
+    expect(repoScoped.error?.suggestedFix?.params).toMatchObject({ action: 'pipeline', scope: 'repo' });
 
-    // The DEFAULT scope ('all') is likewise not probe-able.
-    const defaultScoped = await handleViewPs({ probe: true }, ctx);
-    expect(defaultScoped.success).toBe(false);
-    expect(defaultScoped.error?.code).toBe('INVALID_INPUT');
-    expect(defaultScoped.error?.suggestedFix?.params).toMatchObject({ scope: 'worktree' });
+    // An unknown scope is rejected too, and carries the same target list.
+    const bogus = await handleViewPs({ scope: 'nonsense' }, ctx);
+    expect(bogus.success).toBe(false);
+    expect(bogus.error?.code).toBe('INVALID_INPUT');
+    expect(bogus.error?.validTargets).toContain('all');
 
-    // Pure read: rejecting probe appends nothing.
+    // Pure read: rejecting a scope appends nothing.
     expect(await totalEvents(store)).toBe(before);
   });
 });

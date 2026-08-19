@@ -7,7 +7,7 @@ import { EventStore } from '../../../src/events/store.js';
 
 // ─── Mock task handler functions ────────────────────────────────────────────
 
-vi.mock('../../../src/tasks/tools.js', () => ({
+vi.mock('../../../src/verbs/tasks/tools.js', () => ({
   handleTaskClaim: vi.fn(),
   handleTaskComplete: vi.fn(),
   handleTaskFail: vi.fn(),
@@ -120,7 +120,7 @@ vi.mock('../../../src/verbs/invariants/add.js', () => ({
   handleAdd: vi.fn(),
 }));
 
-import { handleTaskClaim, handleTaskComplete, handleTaskFail } from '../../../src/tasks/tools.js';
+import { handleTaskClaim, handleTaskComplete, handleTaskFail } from '../../../src/verbs/tasks/tools.js';
 import { handleReviewTriage } from '../../../src/review/tools.js';
 import { handlePrepareDelegation } from '../../../src/verbs/team/prepare-delegation.js';
 import { handlePrepareSynthesis } from '../../../src/verbs/team/prepare-synthesis.js';

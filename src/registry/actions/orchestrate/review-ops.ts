@@ -42,7 +42,7 @@ export const reviewOpsActions: readonly BuiltinToolAction[] = [
     // assessment; routinely seconds-to-minutes on real repos.
     longRunning: true,
     autoEmits: [
-      { event: 'gate.executed', condition: 'always' },
+      { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.pre_synthesis_check'),
     annotations: LOCAL_MUTATION,
@@ -141,7 +141,7 @@ export const reviewOpsActions: readonly BuiltinToolAction[] = [
     // audit-mode rules.
     gate: { blocking: true },
     autoEmits: [
-      { event: 'gate.executed', condition: 'always' },
+      { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
     ],
     // DR-4 / task 069: PAID DOWN. This gate governs conformance to the catalog
     // that contains the anti-vacuity invariant, and it used to advertise
@@ -200,8 +200,21 @@ export const reviewOpsActions: readonly BuiltinToolAction[] = [
     phases: new Set<string>(['plan']),
     roles: ROLE_LEAD,
     gate: { blocking: false },
+    // The `orchestrate` area reaching onto an event the `workflow` area owns:
+    // `wf update` is the canonical `state.patched` emitter, and this action
+    // appends its own row instead of routing through it. Declared as the
+    // NON-primary arm with an expiry so the shortcut has to be re-argued (or
+    // folded onto the canonical surface) rather than quietly becoming a second
+    // permanent writer of the same fact.
     autoEmits: [
-      { event: 'state.patched', condition: 'conditional', description: 'On confirm:true — records the discover-bridge link, stitched by correlationId' },
+      {
+        event: 'state.patched',
+        condition: 'conditional',
+        description: 'On confirm:true — records the discover-bridge link, stitched by correlationId',
+        role: 'recovery',
+        owner: 'orchestrate',
+        recoveryExpiresAt: '2027-12-31T00:00:00.000Z',
+      },
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.discover_bridge'),
     annotations: LOCAL_MUTATION,

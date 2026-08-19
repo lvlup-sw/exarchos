@@ -11,8 +11,7 @@
 //   • scope: 'worktree'  → the WLM-6 worktree liveness fold, CONSUMED not
 //                          duplicated: delegates to `handleWorktreeScopePs`
 //                          (`verbs/worktree/handlers.ts`) so the
-//                          inFlightMerges / launches / inFlightPrunes columns AND
-//                          the `probe: true` reclaim/reconcile write path are
+//                          inFlightMerges / launches / inFlightPrunes columns are
 //                          preserved byte-for-byte.
 //   • scope: 'all'       → DEFAULT. BOTH the workflows section (005) AND an
 //                          OPERATIONS section: task 006's `foldInFlightOperations`
@@ -31,12 +30,13 @@
 // members at its handler. The flattener only requires the value SET to match
 // across the two actions, which the single shared shape guarantees.
 //
-// ## Probe gating (DR-3)
+// ## No write path (was: probe gating)
 //
-// `probe: true` is a WORKTREE-scope-only capability (it runs the DR-5 process
-// probe and emits reclaim/reconcile writes). Passing it with any non-worktree
-// scope is a structured `INVALID_INPUT` — probe has no meaning over a workflows
-// or operations fold, both of which are pure reads.
+// `probe: true` used to be a worktree-scope-only capability here, running the
+// DR-5 process probe and emitting reclaim/reconcile writes. It is gone: those
+// passes are `exarchos_orchestrate.reconcile_worktrees`, because the appends
+// live in `verbs/` and a read surface could not honestly declare them. Every
+// scope of `ps` is now a pure fold, and the action is annotated read-only.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { DispatchContext } from '../../../dispatch/core/dispatch.js';
@@ -286,14 +286,13 @@ async function foldOperationsSection(
 /**
  * `ps` — the scope-parameterized process-plane lister (DR-3). Routes:
  *
- *   - `scope: 'worktree'` → the CONSUMED WLM-6 fold (`handleWorktreeScopePs`),
- *     the only scope where `probe: true` is valid;
+ *   - `scope: 'worktree'` → the CONSUMED WLM-6 fold (`handleWorktreeScopePs`);
  *   - `scope: 'workflow'` → the workflows section only;
  *   - `scope: 'all'` (default) → workflows section + operations section.
  *
- * `probe` on a non-worktree scope is a structured `INVALID_INPUT`. Every path is
- * a pure read except `scope: 'worktree'` + `probe: true` (the reclaim/reconcile
- * write path, unchanged from WLM-6).
+ * Every path is a pure read. The reclaim/reconcile write path that used to ride
+ * `scope: 'worktree'` + `probe: true` is now the `reconcile_worktrees` action on
+ * `exarchos_orchestrate`, so `ps` appends nothing on any scope.
  */
 export async function handleViewPs(
   args: Record<string, unknown>,
@@ -304,22 +303,14 @@ export async function handleViewPs(
   if ('error' in resolved) return resolved.error;
   const { scope } = resolved;
 
-  // Probe is a worktree-scope-only capability (it runs the DR-5 process probe +
-  // emits reclaim/reconcile writes). It has no meaning over the pure-read
-  // workflows / operations folds → reject rather than silently ignore.
-  if (args.probe !== undefined && scope !== 'worktree') {
-    return invalidInput(
-      `ps: probe is only valid for scope: 'worktree' (received scope: '${scope}') — the workflows/operations folds are pure reads with no process probe.`,
-      {
-        expectedShape: { scope: "'worktree'", probe: 'boolean' },
-        validTargets: ['worktree'],
-        suggestedFix: { tool: 'exarchos_view', params: { action: 'ps', scope: 'worktree', probe: true } },
-      },
-    );
-  }
+  // `probe` is NOT rejected here. It left this action's schema with the write
+  // path, so the undeclared-parameter guard at the dispatch boundary already
+  // refuses it — naming the key and the fact no `exarchos_view` action declares
+  // it — rather than ignoring it while reporting success. Re-checking here would
+  // shadow that guard with a hand-written copy that a rename could not update.
 
   // Worktree scope: delegate to the CONSUMED WLM-6 kernel unchanged — it owns the
-  // inFlightMerges / launches / inFlightPrunes fold and the probe write path.
+  // inFlightMerges / launches / inFlightPrunes fold.
   if (scope === 'worktree') {
     return handleWorktreeScopePs(args, ctx, deps);
   }

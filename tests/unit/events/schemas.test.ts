@@ -96,10 +96,25 @@ import {
   MutationExecutedData,
   PruneExecutingStartedData,
   PruneExecutedData,
+  // The VCS mutation ledger — intent, then one of two terminals.
+  VcsRequestedData,
+  VcsExecutedData,
+  VcsCompensatedData,
+  // The atomic tree-promotion record.
+  PromotionExecutedData,
+  // The emission-violation report.
+  EmissionViolatedData,
+  AdmissionCutoverReadyData,
   type WorkflowEvent,
 } from '../../../src/events/schemas.js';
+import * as mutationOwner from '../../../src/vcs/mutation-owner.js';
+import { promoteTree, promotionPlan } from '../../../src/install/atomic-promotion.js';
+import { digestTree } from '../../../src/install/install-identity.js';
+import { DRY_RUN, isDryRun } from '../../../src/dispatch/core/effect-carrier.js';
 import { workflowStateProjection } from '../../../src/projections/views/workflow-state-projection.js';
 import { randomUUID } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import * as nodePath from 'node:path';
 
 // ─── T1: EventEmissionSource + EVENT_EMISSION_REGISTRY ──────────────────────
 
@@ -650,7 +665,22 @@ describe('EventTypes', () => {
     //   into invariant.authored: amending is not authoring, and an audit trail
     //   that recorded a correction as a fresh authoring would be a record that
     //   does not mean what it says.
-    expect(EventTypes).toHaveLength(171);
+    // Bumped 171 → 174: the VCS mutation ledger — vcs.requested, vcs.executed
+    //   and vcs.compensated. Not new events: the mutation owner has always
+    //   appended them, but through the store's runtime registration seam, so
+    //   they carried no data schema, no type-map entry and no coupling tier.
+    //   Declaring them here is what makes them visible to a static reader of
+    //   the catalog.
+    // Bumped 174 → 175: promotion.executed, the atomic tree-promotion record.
+    //   This one genuinely is new — the promoting code names its effect in a
+    //   typed plan and then performs it, and no event recorded that the commit
+    //   rename happened.
+    // Bumped 175 → 176: emission.violated, the report the post-dispatch
+    //   verifier appends when a handler finishes without an emission its own
+    //   registration declares unconditionally. No contract-violation name of any
+    //   kind existed in the catalog, so the check had nowhere to write a finding
+    //   that survived the run.
+    expect(EventTypes).toHaveLength(176);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');
@@ -674,6 +704,10 @@ describe('EventTypes', () => {
     expect(EventTypes).toContain('cancel.ownership-acquired');
     expect(EventTypes).toContain('cancel.compensation-retry-scheduled');
     expect(EventTypes).toContain('cancel.manual-intervention-required');
+    expect(EventTypes).toContain('vcs.requested');
+    expect(EventTypes).toContain('vcs.executed');
+    expect(EventTypes).toContain('vcs.compensated');
+    expect(EventTypes).toContain('promotion.executed');
     // Retirement guard: init.executed removed in DR-5 (task 018).
     expect(EventTypes as readonly string[]).not.toContain('init.executed');
   });
@@ -4250,10 +4284,255 @@ describe('WLM operational-core merge lease schemas', () => {
     // projection.recovered (167 → 169), plus the #1739 cutover promotion path's
     // admission.cutover-ready first-readiness fact (169 → 170 — the 12th
     // admission replay contract), plus task 068's invariant.amended — the
-    // audit record of an invariant-catalog amendment (170 → 171).
-    expect(EventTypes).toHaveLength(171);
+    // audit record of an invariant-catalog amendment (170 → 171), plus the
+    // VCS mutation ledger triad vcs.requested / vcs.executed / vcs.compensated,
+    // lifted out of the runtime registration seam into the catalog (171 → 174),
+    // plus promotion.executed — the atomic tree-promotion record, which no seam
+    // registered anywhere (174 → 175), plus emission.violated — the
+    // post-dispatch verifier's report of a declared emission that did not land
+    // (175 → 176).
+    expect(EventTypes).toHaveLength(176);
     // No duplicate slipped in while bumping the count.
     expect(new Set(EventTypes).size).toBe(EventTypes.length);
+  });
+
+  it('VcsLedgerEvents_RuntimeSeam_IsNoLongerUsed', () => {
+    // The mutation owner used to call `registerEventType` from its constructor for these three
+    // names. That seam buys a valid name and nothing else: a runtime registration lands in the
+    // custom set, so the name has no data schema unless one is passed, no entry in
+    // `EventDataMap`, and no coupling annotation at all — which is why the three busiest effect
+    // records in the tree were invisible to every static reader of the catalog.
+    const LEDGER = [
+      mutationOwner.VCS_REQUESTED,
+      mutationOwner.VCS_EXECUTED,
+      mutationOwner.VCS_COMPENSATED,
+    ];
+    // Read off the owner's own constants rather than re-spelling the strings here, so a rename
+    // on either side is a failure rather than two files quietly disagreeing.
+    expect(LEDGER).toEqual(['vcs.requested', 'vcs.executed', 'vcs.compensated']);
+
+    for (const name of LEDGER) {
+      // BUILT-IN, which is the thing runtime registration structurally cannot produce:
+      // `registerEventType` writes into the custom set, never into the built-in one.
+      expect(isBuiltInEventType(name), `${name} is not a built-in event type`).toBe(true);
+      expect(getValidEventTypes()).toContain(name);
+
+      // And the seam is now closed to them — a built-in name cannot be re-registered, so a
+      // caller that tries to go back to the old path gets an error rather than a silent
+      // duplicate registration.
+      expect(() => registerEventType(name, { source: 'auto' })).toThrow(
+        /collides with built-in event type/,
+      );
+      // The mirror: they cannot be unregistered either, so no test cleanup or config reload can
+      // remove a ledger name from the catalog mid-run.
+      expect(() => unregisterEventType(name)).toThrow(/Cannot unregister built-in/);
+
+      // What the seam never gave them: a parseable payload contract.
+      expect(EVENT_DATA_SCHEMAS[name], `${name} has no data schema`).toBeDefined();
+    }
+
+    // The registration helper is GONE from the owner, not merely unreachable. Left in place it
+    // would read as the live registration path for names the catalog now owns.
+    expect(Object.keys(mutationOwner)).not.toContain('ensureVcsMutationEventTypes');
+
+    // Non-vacuity for the two negative assertions above: the seam still works for a name the
+    // catalog does NOT own, so "throws" is a fact about these three, not about the seam.
+    const custom = `custom.ledger-probe-${randomUUID().slice(0, 8).replace(/[^a-z]/g, 'x')}`;
+    expect(() => registerEventType(custom, { source: 'auto' })).not.toThrow();
+    expect(isBuiltInEventType(custom)).toBe(false);
+    unregisterEventType(custom);
+
+    // The end-to-end consequence a consumer sees.
+    const catalog = serializeEventCatalog();
+    for (const name of LEDGER) {
+      expect(catalog.types[name]).toEqual({ source: 'auto', isBuiltIn: true, hasSchema: true });
+    }
+  });
+
+  it('VcsLedgerData_Payloads_CarryTheFoldedFields', () => {
+    // The ledger fold reads `epoch`, `idempotencyKey` and `kind` off every event in the stream
+    // regardless of which one it is, then the terminal-specific field. A schema that dropped
+    // one of the shared three would leave the fold reading `undefined` and silently reset the
+    // fencing token to zero.
+    const head = { kind: 'branch.create', idempotencyKey: 'key-1', epoch: 3 };
+
+    expect(VcsRequestedData.parse(head)).toEqual(head);
+    expect(VcsExecutedData.parse({ ...head, result: { branch: 'feat/x', created: true } })).toEqual({
+      ...head,
+      result: { branch: 'feat/x', created: true },
+    });
+    expect(VcsCompensatedData.parse({ ...head, error: 'git worktree add failed' })).toEqual({
+      ...head,
+      error: 'git worktree add failed',
+    });
+
+    // The terminal-specific fields are optional — a compensation recorded before the carrier
+    // captured a message is still a valid terminal.
+    expect(VcsExecutedData.parse(head)).toEqual(head);
+    expect(VcsCompensatedData.parse(head)).toEqual(head);
+
+    // A missing fencing epoch is a REJECT, not a defaulted zero: zero is a real epoch, and
+    // coercing an absent one to it would silently un-fence a stale writer.
+    expect(() => VcsRequestedData.parse({ kind: 'branch.create', idempotencyKey: 'k' })).toThrow();
+    expect(() => VcsRequestedData.parse({ ...head, idempotencyKey: '' })).toThrow();
+    expect(() => VcsRequestedData.parse({ ...head, epoch: 1.5 })).toThrow();
+  });
+
+  it('PromotionEvent_AtomicPromotionSite_HasARegisteredName', async () => {
+    // Before this registration the atomic tree-promotion site had NO name in the catalog. It
+    // builds a typed effect plan for the commit rename that makes a whole staged tree visible
+    // at once — the single non-idempotent step of an install — and then performs it, and no
+    // event said so afterwards.
+    //
+    // The binding below is deliberately read OFF THE SITE rather than restated: the plan, the
+    // owner and the digest all come from the production functions, so a rename or a reshape on
+    // the promoter's side fails here instead of leaving the event describing a site that has
+    // moved on.
+    const entries = [
+      { path: 'SKILL.md', content: '# promote me\n' },
+      { path: 'references/one.md', content: 'reference body\n' },
+    ];
+    const target = nodePath.join(tmpdir(), `exarchos-promotion-${randomUUID()}`, 'skills');
+
+    // Dry-run: the engine is structurally unreachable, so this asks the site for its plan
+    // without touching a byte of the filesystem. The owner therefore comes from the site's own
+    // default, not from a literal spelled here.
+    const outcome = await promoteTree({ target, entries }, DRY_RUN);
+    expect(isDryRun(outcome), 'the promotion site did not withhold the effect').toBe(true);
+    if (!isDryRun(outcome)) return;
+    const plan = outcome.plan;
+    expect(plan.effectClass).toBe('install');
+    expect(plan.description).toContain(target);
+    // The same plan the exported constructor builds, so the dry-run arm is reading the real one.
+    expect(plan).toEqual(promotionPlan(plan.owner, target));
+
+    // ── The name is REGISTERED, with everything registration is supposed to buy ──
+    const PROMOTION = 'promotion.executed';
+    expect(EventTypes).toContain(PROMOTION);
+    expect(isBuiltInEventType(PROMOTION), `${PROMOTION} is not a built-in event type`).toBe(true);
+    expect(getValidEventTypes()).toContain(PROMOTION);
+    expect(EVENT_DATA_SCHEMAS[PROMOTION], `${PROMOTION} has no data schema`).toBeDefined();
+    // `planned`, not `auto`: the schema, the type-map entry and the projection's fold all exist,
+    // and no reachable code appends the event — the carrier-wrapped path that declares it has no
+    // caller outside these tests. Registration bought the name and the validation; it did not buy
+    // an emitter, and the catalog says which of the two it has.
+    expect(serializeEventCatalog().types[PROMOTION]).toEqual({
+      source: 'planned',
+      isBuiltIn: true,
+      hasSchema: true,
+    });
+
+    // ── And the payload carries what THAT site produces ──
+    //
+    // `treeDigest` is the same content-addressed value the promoter verifies the stage against
+    // before committing, computed here by the promoter's own digest function — so the record
+    // and the verification cannot describe different trees.
+    const payload = {
+      target,
+      treeDigest: digestTree(entries),
+      owner: plan.owner,
+      recoveredPriorAttempt: false,
+    };
+    expect(PromotionExecutedData.parse(payload)).toEqual(payload);
+
+    // A record naming no destination, no digest or no owner is not a record of anything —
+    // each is required, and an empty string is refused rather than accepted as "unknown".
+    expect(() => PromotionExecutedData.parse({ ...payload, target: '' })).toThrow();
+    expect(() => PromotionExecutedData.parse({ ...payload, treeDigest: '' })).toThrow();
+    expect(() => PromotionExecutedData.parse({ ...payload, owner: '' })).toThrow();
+    // The recovery flag is required rather than defaulted. An absent field is "nobody looked",
+    // and silently reading it as `false` would record a clean first-time promotion for a run
+    // that may well have converged from an interrupted one.
+    const withoutRecovery = { target: payload.target, treeDigest: payload.treeDigest, owner: payload.owner };
+    expect(() => PromotionExecutedData.parse(withoutRecovery)).toThrow();
+
+    // ── Not a rename of the cutover-readiness record ──
+    //
+    // `admission.cutover-ready` is the nearest already-registered neighbour and says a cutover
+    // MAY proceed; this one says a tree WAS promoted. They are separate rows in the catalog,
+    // and their payload contracts do not accept each other's data — which is the concrete form
+    // of "the readiness fact was not a substitute for the effect record".
+    expect(EventTypes).toContain('admission.cutover-ready');
+    expect(EVENT_DATA_SCHEMAS[PROMOTION]).not.toBe(EVENT_DATA_SCHEMAS['admission.cutover-ready']);
+    expect(() => AdmissionCutoverReadyData.parse(payload)).toThrow();
+  });
+
+  it('EmissionViolation_Registered_CarriesActionAndMissingSet', () => {
+    // The catalog held no contract-violation name of any kind before this, so the
+    // post-dispatch verifier had nowhere to write a finding that outlived the run
+    // that produced it. The registration is what turns "a check that logs" into
+    // "a check that leaves evidence".
+    const VIOLATION = 'emission.violated';
+
+    // ── Registered, with everything registration is supposed to buy ──
+    expect(EventTypes).toContain(VIOLATION);
+    expect(isBuiltInEventType(VIOLATION), `${VIOLATION} is not a built-in event type`).toBe(true);
+    expect(getValidEventTypes()).toContain(VIOLATION);
+    expect(EVENT_DATA_SCHEMAS[VIOLATION], `${VIOLATION} has no data schema`).toBeDefined();
+    expect(serializeEventCatalog().types[VIOLATION]).toEqual({
+      source: 'auto',
+      isBuiltIn: true,
+      hasSchema: true,
+    });
+
+    // ── The payload answers WHICH operation, WHAT was missed, and WHICH RUN ──
+    const report = {
+      action: 'exarchos_workflow.transition',
+      missingEvents: ['workflow.transition', 'phase.blocked'],
+      operationId: 'op-8f21c4',
+    };
+    expect(EmissionViolatedData.parse(report)).toEqual(report);
+
+    // THE SUBJECT OF THIS TEST. A report naming only the action is not a report:
+    // one action can declare several emissions, so "this action missed
+    // something" names a suspect and no evidence. Both of the other two fields
+    // are required for the same reason and each is asserted separately, so a
+    // schema that dropped one and kept the other still fails here.
+    expect(() => EmissionViolatedData.parse({ action: report.action })).toThrow();
+    expect(() =>
+      EmissionViolatedData.parse({ action: report.action, operationId: report.operationId }),
+    ).toThrow();
+    expect(() =>
+      EmissionViolatedData.parse({ action: report.action, missingEvents: report.missingEvents }),
+    ).toThrow();
+
+    // The missing set is a SET OF NAMES, and an empty one is refused rather than
+    // accepted as a violation with nothing missing. Accepting `[]` would let the
+    // verifier record a clean run as a violation and a violation as a clean run
+    // with equal validity, which is the one distinction the event exists to make.
+    expect(() => EmissionViolatedData.parse({ ...report, missingEvents: [] })).toThrow();
+    expect(() => EmissionViolatedData.parse({ ...report, missingEvents: [''] })).toThrow();
+
+    // FULL, not first. A handler that dropped three emissions has to read as
+    // three; truncating to the first would make each repair uncover the next and
+    // the fault look smaller every time anyone looked at it.
+    const three = {
+      ...report,
+      missingEvents: ['vcs.requested', 'vcs.executed', 'promotion.executed'],
+    };
+    expect(EmissionViolatedData.parse(three).missingEvents).toEqual(three.missingEvents);
+
+    // Empty strings are refused on the scalars too — "unknown" recorded as ''
+    // reads downstream as a field that was populated.
+    expect(() => EmissionViolatedData.parse({ ...report, action: '' })).toThrow();
+    expect(() => EmissionViolatedData.parse({ ...report, operationId: '' })).toThrow();
+
+    // ── Not a passthrough ──
+    //
+    // The block above is only meaningful if this schema rejects things at all
+    // rather than accepting whatever it is handed. A neighbouring registered
+    // payload from the same section of the catalog is refused, and this one is
+    // refused by it — so the contract is specific to the violation report and the
+    // two rows do not describe each other.
+    const promotionPayload = {
+      target: '/tmp/exarchos-skills',
+      treeDigest: 'sha256-abc',
+      owner: 'install/atomic-promotion',
+      recoveredPriorAttempt: false,
+    };
+    expect(() => EmissionViolatedData.parse(promotionPayload)).toThrow();
+    expect(() => PromotionExecutedData.parse(report)).toThrow();
+    expect(EVENT_DATA_SCHEMAS[VIOLATION]).not.toBe(EVENT_DATA_SCHEMAS['promotion.executed']);
   });
 
   it('WorktreeMergeEvents_ClassificationMaps_Exhaustive', () => {

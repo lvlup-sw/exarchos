@@ -39,6 +39,8 @@ import { dirname, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { LAUNCHER_VERB_CONFORMANCE } from '../../src/runtime/launcher/verb.js';
 import { TIER1_HARNESSES } from '../../src/runtime/launcher/harness-registry.js';
+import { validateAutoEmission } from '../../src/registry/gate-metadata.js';
+import type { AutoEmission } from '../../src/registry/gate-metadata.js';
 
 describe('buildCompositeSchema', () => {
   it('should create a discriminated union from two actions', () => {
@@ -733,7 +735,11 @@ describe('TOOL_REGISTRY', () => {
       // field-scoped amend path the invariant catalog previously lacked
       // entirely (invariants_add is append-only, so entries were effectively
       // immutable once committed). INV-5d, no new visible tool: 79 → 80.
-      expect(composite!.actions).toHaveLength(80);
+      // The effect-ledger remedy added `reconcile_worktrees` (the reservation
+      // reclaim and the launch / merge reconcilers, moved off `exarchos_view.ps
+      // probe:true`) and re-parented `stack_place` from `exarchos_view`, so the
+      // second is a MOVE and not a new capability: 80 → 82.
+      expect(composite!.actions).toHaveLength(82);
 
       const actionNames = composite!.actions.map((a) => a.name);
       expect(actionNames).toEqual(
@@ -1284,18 +1290,25 @@ describe('TOOL_REGISTRY', () => {
         ).toBe('boolean');
       }
 
-      // Annotation honesty (REV-L1): `ps probe:true` runs the DR-5 orphan
-      // emitter, a conditional idempotent write path — so `ps` is annotated
-      // local-mutation / idempotent (NOT readOnly), even though it rides the
-      // exarchos_view tool. `wait` is genuinely read-only; serialize_merge
-      // mutates shared state.
+      // Annotation honesty (REV-L1). `ps` carried local-mutation / idempotent
+      // while `probe:true` ran the DR-5 orphan emitter from a read verb. That
+      // write path is now `exarchos_orchestrate.reconcile_worktrees`, so `ps`
+      // is genuinely read-only and its annotation says so — an action that
+      // appends nothing must not claim it might. The conditional-write tuple
+      // moved WITH the effect rather than being dropped: `reconcile_worktrees`
+      // asserts it below, which is what keeps this a relocation and not a
+      // quiet downgrade of the surface's declared risk.
       const ps = findAction('exarchos_view', 'ps');
       const wait = findAction('exarchos_view', 'wait');
-      expect(ps!.annotations!.safety).toBe('local-mutation');
-      expect(ps!.annotations!.readOnly).toBe(false); // has a conditional write path.
-      expect(ps!.annotations!.idempotent).toBe(true); // the heals re-converge.
+      expect(ps!.annotations!.safety).toBe('read-only');
+      expect(ps!.annotations!.readOnly).toBe(true); // every scope is a pure fold.
       expect(ps!.annotations!.destructive).toBe(false);
       expect(wait!.annotations!.readOnly).toBe(true);
+      const reconcile = findAction('exarchos_orchestrate', 'reconcile_worktrees');
+      expect(reconcile!.annotations!.safety).toBe('local-mutation');
+      expect(reconcile!.annotations!.readOnly).toBe(false); // the heals append.
+      expect(reconcile!.annotations!.idempotent).toBe(true); // and re-converge.
+      expect(reconcile!.annotations!.destructive).toBe(false);
       const serializeMerge = findAction('exarchos_orchestrate', 'serialize_merge');
       expect(serializeMerge!.annotations!.readOnly).toBe(false);
     });
@@ -2964,6 +2977,10 @@ const EXPECTED_EFFECTIVE_BUDGETS: Readonly<Record<string, number>> = {
   'exarchos_orchestrate.verify_delegation_saga': 2000,
   'exarchos_orchestrate.post_delegation_check': 2000,
   'exarchos_orchestrate.reconcile_state': 2000,
+  'exarchos_orchestrate.reconcile_worktrees': 2000,
+  'exarchos_orchestrate.stack_place': 2000,
+  'exarchos_orchestrate.reconcile_worktrees': 2000,
+  'exarchos_orchestrate.stack_place': 2000,
   'exarchos_orchestrate.pre_synthesis_check': 2000,
   'exarchos_orchestrate.check_coderabbit': 2000,
   'exarchos_orchestrate.check_polish_scope': 2000,
@@ -3001,7 +3018,6 @@ const EXPECTED_EFFECTIVE_BUDGETS: Readonly<Record<string, number>> = {
   'exarchos_view.tasks': 2000,
   'exarchos_view.workflow_status': 2000,
   'exarchos_view.stack_status': 2000,
-  'exarchos_view.stack_place': 2000,
   'exarchos_view.telemetry': 2000,
   'exarchos_view.team_performance': 2000,
   'exarchos_view.delegation_timeline': 2000,
@@ -3249,6 +3265,20 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       inFlight: [], count: 0, launches: [], launchCount: 0, prunes: [], pruneCount: 0,
     },
     'exarchos_view.wait': { resolved: true, waitedMs: 5 },
+    // `reconcile_worktrees` — the reclaim + two reconcilers, moved off
+    // `ps probe:true`. Unlike `ps` this action has ONE shape and every field is
+    // required, so the floor is a pass that healed nothing: three empty
+    // sub-results and the post-reconcile columns.
+    'exarchos_orchestrate.reconcile_worktrees': {
+      probe: {}, reconcile: {}, mergeReconcile: {},
+      inFlight: [], count: 0, launches: [], launchCount: 0, prunes: [], pruneCount: 0,
+    },
+    // `stack_place` — the append acknowledgement `toEventAck` returns verbatim.
+    // All three fields come off the appended event rather than the caller's
+    // arguments, so there is no smaller valid shape.
+    'exarchos_orchestrate.stack_place': {
+      streamId: 'f', sequence: 1, type: 'stack.position-filled',
+    },
     // The `inspect` cold-probe projection is its minimal valid baseline: the
     // exists-branch fields (state/artifacts/taskProgress/correlation) are all
     // optional, so the workflowExists:false shape is the floor.
@@ -3457,7 +3487,15 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       // The 13th and 14th (task 083) are the two #1739 cutover verbs, which took
       // NEITHER route cleanly: they arrived new AND acquired waivers in the same
       // change. Paying them down puts them on the second route retroactively.
-      expect(actions.length).toBe(14);
+      //
+      // The 15th and 16th are the effect-ledger remedy, one per route again.
+      // `reconcile_worktrees` is NEW, so it could not have acquired a waiver and
+      // was declared substantively from the start. `stack_place` LEFT the
+      // allowlist: it moved from `exarchos_view` to `exarchos_orchestrate`, and
+      // carrying its waiver across would have swapped one seeded key for
+      // another — the edit the seed digest exists to redden — so the only legal
+      // move was to write the real schema.
+      expect(actions.length).toBe(16);
       for (const { tool, action } of actions) {
         const parsed = action.outputSchema.safeParse(cappedEnvelope());
         expect(
@@ -3496,6 +3534,256 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
           }`,
         ).toBe(true);
       }
+    });
+  });
+
+  describe('AutoEmission role, owner, and recovery expiry', () => {
+    it('AutoEmission_DeclaredRole_IsNotInferred', () => {
+      const farFuture = '2999-01-01T00:00:00.000Z';
+
+      const primary: AutoEmission = {
+        event: 'workflow.updated',
+        condition: 'always',
+        role: 'primary',
+        owner: 'workflow-core',
+      };
+      const recovery: AutoEmission = {
+        event: 'workflow.updated',
+        condition: 'conditional',
+        role: 'recovery',
+        owner: 'workflow-core',
+        recoveryExpiresAt: farFuture,
+      };
+      const undeclared: AutoEmission = {
+        event: 'workflow.updated',
+        condition: 'always',
+      };
+
+      // Each edge's role is exactly what was declared on IT, never a default
+      // and never something computed from another edge.
+      expect(primary.role).toBe('primary');
+      expect(recovery.role).toBe('recovery');
+      expect(undeclared.role).toBeUndefined();
+
+      // Swapping array position must not change which edge is which — a
+      // role read from position rather than the declaration would flip
+      // these when the order is reversed.
+      const forward = [primary, recovery, undeclared];
+      const reversed = [...forward].reverse();
+      expect(reversed.map((edge) => edge.role)).toEqual(
+        [...forward.map((edge) => edge.role)].reverse(),
+      );
+
+      // Validation tracks each edge's OWN declared role/expiry, independent
+      // of where it sits in the list: the primary and the undeclared edge
+      // carry no expiry contract and always pass; the recovery edge passes
+      // here because its own recoveryExpiresAt has not lapsed.
+      for (const edge of forward) {
+        expect(validateAutoEmission(edge).ok).toBe(true);
+      }
+      for (const edge of reversed) {
+        expect(validateAutoEmission(edge).ok).toBe(true);
+      }
+    });
+
+    it('AutoEmission_RecoveryEdgeWithExpiredOwner_Fails', () => {
+      const expiredAt = '2000-01-01T00:00:00.000Z';
+      const recovery: AutoEmission = {
+        event: 'gate.executed',
+        condition: 'conditional',
+        role: 'recovery',
+        owner: 'gate-provider-registry',
+        recoveryExpiresAt: expiredAt,
+      };
+
+      const verdict = validateAutoEmission(recovery, new Date('2026-01-01T00:00:00.000Z'));
+
+      expect(verdict.ok).toBe(false);
+      expect(verdict.reason).toContain('gate.executed');
+      expect(verdict.reason).toContain('gate-provider-registry');
+      expect(verdict.reason).toContain(expiredAt);
+
+      // A recovery edge whose expiry has NOT lapsed yet must still pass —
+      // this pins that the failure above is about the timestamp having
+      // lapsed, not merely about being a recovery edge.
+      const notYetExpired: AutoEmission = {
+        ...recovery,
+        recoveryExpiresAt: '2999-01-01T00:00:00.000Z',
+      };
+      expect(validateAutoEmission(notYetExpired, new Date('2026-01-01T00:00:00.000Z')).ok).toBe(
+        true,
+      );
+    });
+
+    // ─── The LIVE emission edges, not a fixture ──────────────────────────
+    //
+    // Everything below walks TOOL_REGISTRY. The denominator is whatever the
+    // registry currently declares, so a thirteenth declaration file — or a new
+    // action in an existing one — is inside the assertion the moment it is
+    // added, with nothing to remember to update. A hand-written list of edges
+    // would have gone quietly stale instead.
+    //
+    // OWNER CONVENTION. An edge's `owner` is the action-declaration AREA it is
+    // declared in: the module group under `src/registry/actions/` that exports
+    // the declaring action list. `actions/workflow.ts` is the `workflow` area;
+    // everything under `actions/orchestrate/` is the `orchestrate` area. The
+    // area is a fact about WHERE the action is declared, never about WHICH
+    // event it emits — which is what makes the consistency property below
+    // capable of failing at all.
+
+    /** Every `autoEmits` entry the built-in registry declares, with its declaration site. */
+    function liveEmissionEdges(): readonly {
+      tool: string;
+      action: string;
+      emission: AutoEmission;
+    }[] {
+      const edges: { tool: string; action: string; emission: AutoEmission }[] = [];
+      for (const tool of TOOL_REGISTRY) {
+        for (const action of tool.actions) {
+          for (const emission of action.autoEmits ?? []) {
+            edges.push({ tool: tool.name, action: action.name, emission });
+          }
+        }
+      }
+      return edges;
+    }
+
+    it('EmissionRoles_EveryLiveEdge_CarriesRoleAndOwner', () => {
+      const edges = liveEmissionEdges();
+
+      // Anti-vacuity floor. Totality over an empty (or collapsed) edge set is
+      // free, so the denominator is asserted before the property is. 74 edges
+      // across 53 actions were live when this was written; the floor is a
+      // ratchet on the denominator, not a pin on the exact count.
+      expect(
+        edges.length,
+        'the live emission-edge denominator collapsed — totality below would be vacuous',
+      ).toBeGreaterThanOrEqual(70);
+      expect(new Set(edges.map((e) => e.tool)).size).toBeGreaterThanOrEqual(2);
+
+      const unannotated = edges
+        .filter((e) => e.emission.role === undefined || e.emission.owner === undefined)
+        .map(
+          (e) =>
+            `${e.tool}.${e.action} -> ${e.emission.event} (role=${String(
+              e.emission.role,
+            )}, owner=${String(e.emission.owner)})`,
+        );
+      expect(
+        unannotated,
+        `every live emission edge must declare both a role and an owner:\n${unannotated.join('\n')}`,
+      ).toEqual([]);
+
+      // The declared values are substantive, not placeholder strings.
+      for (const { tool, action, emission } of edges) {
+        expect(['primary', 'recovery'], `${tool}.${action} -> ${emission.event}`).toContain(
+          emission.role,
+        );
+        expect((emission.owner ?? '').trim().length, `${tool}.${action} -> ${emission.event}`)
+          .toBeGreaterThan(0);
+      }
+
+      // The owner vocabulary is closed over the declaration areas that carry
+      // emissions today. A third area is a deliberate change and should land
+      // here alongside the declarations that introduce it.
+      expect([...new Set(edges.map((e) => e.emission.owner))].sort()).toEqual([
+        'orchestrate',
+        'workflow',
+      ]);
+
+      // Real seam: the shipped validator, over the shipped declarations. A
+      // recovery edge whose declared expiry has lapsed fails here — which is
+      // the point of time-boxing one, so this is meant to come due rather than
+      // sit green forever.
+      const lapsed = edges
+        .map((e) => ({ e, verdict: validateAutoEmission(e.emission) }))
+        .filter(({ verdict }) => !verdict.ok)
+        .map(({ e, verdict }) => `${e.tool}.${e.action}: ${verdict.reason ?? 'unknown'}`);
+      expect(lapsed, `expired recovery edges:\n${lapsed.join('\n')}`).toEqual([]);
+    });
+
+    it('EmissionRoles_MultiDeclarerEvent_IsConforming', () => {
+      const byEvent = new Map<string, { tool: string; action: string; emission: AutoEmission }[]>();
+      for (const edge of liveEmissionEdges()) {
+        const bucket = byEvent.get(edge.emission.event) ?? [];
+        bucket.push(edge);
+        byEvent.set(edge.emission.event, bucket);
+      }
+      const multiDeclarer = [...byEvent].filter(([, edges]) => edges.length > 1);
+
+      // Several events are declared by more than one action, and that is
+      // CONFORMING — neither "one primary per event" nor "one primary per
+      // area" holds on this tree. Naming the set keeps the property below from
+      // being asserted over nothing.
+      // The last two joined the set with `reconcile_worktrees`, and they are the
+      // clearest case for why multi-declarer is conforming rather than tolerated:
+      // each is a TERMINAL reachable two ways. `worktree.released` closes a
+      // reservation either because its owner released it (`release_worktree`) or
+      // because its owner is provably dead and the reclaim freed it;
+      // `worktree.merge_executed` closes a lease either on the merge finishing
+      // (`serialize_merge`) or on the crash-mid-merge heal. Same event, same
+      // meaning, two routes — so declaring one and hiding the other is what
+      // would be wrong, and both name `orchestrate` as owner.
+      expect(multiDeclarer.map(([event]) => event).sort()).toEqual([
+        'admission.evidence-recorded',
+        'gate.executed',
+        'onboard.executed',
+        'onboard.requested',
+        'state.patched',
+        'worktree.merge_executed',
+        'worktree.released',
+      ]);
+
+      // Internal consistency: an event's declarers either all name the SAME
+      // owner (one area's business), or each names a DISTINCT owner with at
+      // most one `primary` (a cross-area coupling with a single canonical
+      // emitter). A partially-overlapping owner set — two areas, three edges —
+      // is the incoherent shape this rules out.
+      const violations: string[] = [];
+      for (const [event, edges] of multiDeclarer) {
+        const owners = edges.map((e) => e.emission.owner);
+        const distinct = new Set(owners);
+        if (distinct.size === 1) continue;
+        if (distinct.size !== owners.length) {
+          violations.push(
+            `${event}: ${owners.length} edges over ${distinct.size} owners [${[...distinct].join(
+              ', ',
+            )}] — owners must be all-identical or all-distinct`,
+          );
+          continue;
+        }
+        const primaries = edges.filter((e) => e.emission.role === 'primary');
+        if (primaries.length > 1) {
+          violations.push(
+            `${event}: ${primaries.length} primary edges across distinct owners [${primaries
+              .map((e) => `${e.tool}.${e.action}`)
+              .join(', ')}] — at most one may be primary`,
+          );
+        }
+      }
+      expect(violations, `owner-set inconsistency:\n${violations.join('\n')}`).toEqual([]);
+
+      // Canonical conforming shape 1 — a wide fan-in inside ONE area. Every
+      // gate declaration lives under `actions/orchestrate/`, so the 24 edges
+      // share an owner and the primary count is unconstrained.
+      const gateExecuted = byEvent.get('gate.executed') ?? [];
+      expect(gateExecuted).toHaveLength(24);
+      expect([...new Set(gateExecuted.map((e) => e.emission.owner))]).toEqual(['orchestrate']);
+
+      // Canonical conforming shape 2 — a narrow fan-in ACROSS two areas.
+      // `wf update` is the canonical state-patch surface; `discover_bridge`
+      // declares the second, non-primary edge from the other area.
+      const statePatched = byEvent.get('state.patched') ?? [];
+      expect(statePatched).toHaveLength(2);
+      expect([...new Set(statePatched.map((e) => e.emission.owner))].sort()).toEqual([
+        'orchestrate',
+        'workflow',
+      ]);
+      expect(statePatched.filter((e) => e.emission.role === 'primary')).toHaveLength(1);
+      expect(
+        statePatched.find((e) => e.emission.role === 'primary')?.action,
+        'the canonical state-mutation surface must be the primary edge',
+      ).toBe('update');
     });
   });
 });

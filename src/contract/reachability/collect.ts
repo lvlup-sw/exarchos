@@ -62,10 +62,14 @@ import {
   readShippedProofFixtures,
   type ShippedActionFixture,
 } from './shipped-artifacts.js';
+import { EVENT_ANNOTATIONS } from '../../events/event-annotations.js';
+import { TOOL_REGISTRY, type BuiltinCompositeTool } from '../../registry.js';
+import type { EventRegistration } from '../../events/event-registration.js';
 import type {
   ActionNode,
   ArtifactEntry,
   ClosureException,
+  EmissionEntry,
   FixtureEntry,
   OutputEntry,
   OwnerEntry,
@@ -108,6 +112,10 @@ export interface CollectOptions {
   readonly fixturesFile?: string;
   /** Path to the checked-in shipped CLI-surface artifact. */
   readonly cliSurfaceFile?: string;
+  /** The event catalog the `event` / `consumer` hops resolve against. */
+  readonly annotations?: Readonly<Record<string, EventRegistration>>;
+  /** The tool registry supplying each action's declared `autoEmits`. */
+  readonly registry?: readonly BuiltinCompositeTool[];
   readonly exceptions?: readonly ClosureException[];
 }
 
@@ -232,6 +240,28 @@ export function collectReachabilityInputs(opts: CollectOptions = {}): Reachabili
     actionId: c.actionId,
   }));
 
+  // ── event ── the EVENT CATALOG, an independently-authored table.
+  //
+  // The declared side (`autoEmits`) comes off the registry, which feeds the
+  // compile — so reading the ANSWER from the compile would be self-derivation.
+  // The answer comes from `EVENT_ANNOTATIONS` instead, and the two genuinely
+  // disagree: an action can declare an emission the catalog never registered,
+  // which is a break this census could not see until this hop existed.
+  const annotations = opts.annotations ?? EVENT_ANNOTATIONS;
+  const emissions: EmissionEntry[] = [];
+  for (const tool of opts.registry ?? TOOL_REGISTRY) {
+    for (const action of tool.actions) {
+      for (const emission of action.autoEmits ?? []) {
+        const registration = annotations[emission.event];
+        emissions.push({
+          actionId: `${tool.name}.${action.name}`,
+          event: emission.event,
+          registered: registration !== undefined,
+        });
+      }
+    }
+  }
+
   return {
     surfaceVersion: contract.surfaceVersion,
     actions,
@@ -242,6 +272,7 @@ export function collectReachabilityInputs(opts: CollectOptions = {}): Reachabili
     outputs,
     artifacts,
     fixtures,
+    emissions,
     exceptions: opts.exceptions ?? LIVE_CLOSURE_EXCEPTIONS,
   };
 }

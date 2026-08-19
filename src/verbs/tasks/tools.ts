@@ -1,17 +1,17 @@
 // ─── Task MCP Tool Handlers ─────────────────────────────────────────────────
 
 import * as path from 'node:path';
-import { EventStore, SequenceConflictError } from '../events/store.js';
-import { validateAgentEvent } from '../events/schemas.js';
-import { toEventAck, type ToolResult } from '../format.js';
-import { getOrCreateMaterializer, resetMaterializerCache } from '../projections/views/tools.js';
-import { TASK_DETAIL_VIEW } from '../projections/views/task-detail-view.js';
-import type { TaskDetailViewState } from '../projections/views/task-detail-view.js';
-import { readStateFile, writeStateFile, VersionConflictError } from '../workflow/state-store.js';
-import type { WorkflowState } from '../workflow/types.js';
-import { logger } from '../logger.js';
-import { getFullRegistry } from '../registry.js';
-import { getDispatchContext } from '../dispatch/dispatch-context.js';
+import { EventStore, SequenceConflictError } from '../../events/store.js';
+import { validateAgentEvent } from '../../events/schemas.js';
+import { toEventAck, type ToolResult } from '../../format.js';
+import { getOrCreateMaterializer, resetMaterializerCache } from '../../projections/views/tools.js';
+import { TASK_DETAIL_VIEW } from '../../projections/views/task-detail-view.js';
+import type { TaskDetailViewState } from '../../projections/views/task-detail-view.js';
+import { readStateFile, writeStateFile, VersionConflictError } from '../../workflow/state-store.js';
+import type { WorkflowState } from '../../workflow/types.js';
+import { logger } from '../../logger.js';
+import { getFullRegistry } from '../../registry.js';
+import { getDispatchContext } from '../../dispatch/dispatch-context.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 

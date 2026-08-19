@@ -541,19 +541,10 @@ export interface WorktreeViewDeps extends InjectableDeps {
  * in-flight column reflects its liveness pair straight from events — in-flight
  * while started-without-terminal, and cleared the moment the terminal folds.
  *
- * `probe: true` additionally pulls the DR-5 ground-truth process probe on demand
- * and emits `worktree.released` (owner dead, not in use) / `worktree.orphan_detected`
- * (owner dead, still occupied) from the finding — the reservation-reclaim write.
- * It ALSO runs the DR-6 phantom-launch reconciler ({@link reconcileLaunches}):
- * an in-flight `launch.executing_started` whose SUPERVISOR holder is provably
- * dead (SIGKILL / host death — no catchable teardown ever ran) is healed to a
- * `launch.executed` terminal, so a permanent launch phantom cannot survive in
- * `ps` forever. It ALSO runs the DR-3 crash-mid-merge reconciler
- * ({@link reconcileMerges}): a stranded `worktree.merge_requested` whose holder is
- * provably dead is freed to a `worktree.merge_executed` terminal, so a crashed
- * merge lease can never fold as a permanent `ps` phantom either. All three are
- * on-demand, fail-closed (a live/unprovable holder is left in-flight). Without
- * `probe`, no table is enumerated and none of the reconcile writes run.
+ * A PURE READ on every path. The ground-truth process probe and the two
+ * reconcilers that used to ride `probe: true` now answer on their own
+ * orchestrate action — see {@link handleReconcileWorktrees} — so nothing here
+ * appends, and the in-flight columns report exactly what the log says.
  */
 export async function handleViewPs(
   args: Record<string, unknown>,
@@ -568,50 +559,75 @@ export async function handleViewPs(
   const launches = await manager.listInFlightLaunches();
   const prunes = await manager.listInFlightPrunes();
 
-  if (optionalBoolean(args.probe) !== true) {
-    return {
-      success: true,
-      data: {
-        inFlight,
-        count: inFlight.length,
-        launches,
-        launchCount: launches.length,
-        prunes,
-        pruneCount: prunes.length,
-      },
-    };
-  }
-
-  // --probe: pull the DR-5 probe on demand and emit released / orphan_detected,
-  // then reconcile any phantom in-flight launch whose supervisor is provably dead
-  // (DR-6) and any stranded in-flight merge lease whose holder is provably dead
-  // (DR-3, crash-mid-merge). All three read the SAME injected ground-truth process
-  // table (undefined ⇒ the real OS source) and fail closed off it.
-  const reclaim = await manager.probeAndReclaim(deps?.selfPid);
-  const reconcile = await reconcileLaunches(ctx.eventStore, deps?.processTableSource);
-  const mergeReconcile = await reconcileMerges(ctx.eventStore, deps?.processTableSource);
-  // Re-fold BOTH in-flight columns AFTER the reconcile passes so the reported
-  // state is POST-reconcile. Both `launches` and `inFlight` captured above are
-  // PRE-reconcile: a phantom launch just healed by `reconcileLaunches`, or a
-  // crashed merge lease just freed by `reconcileMerges`, would otherwise still
-  // appear in-flight — a single `ps --probe` response reporting the same entry as
-  // BOTH in-flight and reconciled.
-  const freshLaunches = await manager.listInFlightLaunches();
-  const freshInFlight = await manager.listInFlightMerges();
-  // Re-fold the prune column too so all in-flight columns in one `ps --probe`
-  // response are POST-reconcile and mutually consistent (no prune reconciler
-  // runs on this pass today, but re-folding keeps the column symmetric with the
-  // merge / launch columns and correct should a prune reconciler be added).
-  const freshPrunes = await manager.listInFlightPrunes();
   return {
     success: true,
     data: {
-      inFlight: freshInFlight,
-      count: freshInFlight.length,
-      launches: freshLaunches,
-      launchCount: freshLaunches.length,
-      prunes: freshPrunes,
-      pruneCount: freshPrunes.length,
+      inFlight,
+      count: inFlight.length,
+      launches,
+      launchCount: launches.length,
+      prunes,
+      pruneCount: prunes.length,
+    },
+  };
+}
+
+/**
+ * `reconcile_worktrees` — the three ground-truth reconcile passes, as an
+ * `exarchos_orchestrate` action of their own.
+ *
+ * These ran under `ps probe: true` until the read side stopped carrying writes.
+ * The move is not a re-annotation: the appends live in `verbs/` and are reached
+ * from a manager method and two reconcilers, so calling the surface a view made
+ * the effect unreadable from the surface that declared it. `ps` is now a pure
+ * read, and every append below is declared by THIS action.
+ *
+ *   1. **Reservation reclaim** ({@link WorktreeManager.probeAndReclaim}, DR-5) —
+ *      emits `worktree.released` (owner provably dead, path free) or
+ *      `worktree.orphan_detected` (owner provably dead, path still occupied).
+ *   2. **Phantom-launch heal** ({@link reconcileLaunches}, DR-6) — an in-flight
+ *      `launch.executing_started` whose SUPERVISOR is provably dead (SIGKILL /
+ *      host death, so no catchable teardown ever ran) is closed with the
+ *      `launch.executed` terminal, so a launch phantom cannot survive forever.
+ *   3. **Crash-mid-merge heal** ({@link reconcileMerges}, DR-3) — a stranded
+ *      `worktree.merge_requested` whose holder is provably dead is freed with
+ *      `worktree.merge_executed`.
+ *
+ * All three read the SAME injected ground-truth process table (undefined ⇒ the
+ * real OS source) and FAIL CLOSED off it: a live or unprovable holder is left
+ * in-flight. Idempotent — a second pass over an already-reconciled set finds
+ * nothing to heal and appends nothing.
+ */
+export async function handleReconcileWorktrees(
+  _args: Record<string, unknown>,
+  ctx: DispatchContext,
+  deps?: WorktreeViewDeps,
+): Promise<ToolResult> {
+  const manager = buildManager(ctx, deps);
+  const reclaim = await manager.probeAndReclaim(deps?.selfPid);
+  const reconcile = await reconcileLaunches(ctx.eventStore, deps?.processTableSource);
+  const mergeReconcile = await reconcileMerges(ctx.eventStore, deps?.processTableSource);
+  // Fold the in-flight columns AFTER the passes so the reported state is
+  // POST-reconcile. Folding first would let a phantom launch just healed by
+  // `reconcileLaunches`, or a crashed merge lease just freed by
+  // `reconcileMerges`, still read as in-flight — one response reporting the
+  // same entry as BOTH in-flight and reconciled.
+  const launches = await manager.listInFlightLaunches();
+  const inFlight = await manager.listInFlightMerges();
+  // The prune column is folded here too so every column in one response is
+  // POST-reconcile and mutually consistent. No prune reconciler runs on this
+  // pass today; folding it keeps the column symmetric with merge / launch and
+  // correct should one be added.
+  const prunes = await manager.listInFlightPrunes();
+  return {
+    success: true,
+    data: {
+      inFlight,
+      count: inFlight.length,
+      launches,
+      launchCount: launches.length,
+      prunes,
+      pruneCount: prunes.length,
       probe: reclaim,
       reconcile,
       mergeReconcile,
@@ -762,9 +778,9 @@ export const handleWorktreeUntilWait = handleViewWait;
  * WORKTREE SCOPE of the generic `ps` verb (DR-3, task 007). The scope-
  * parameterized router in `projections/views/lifecycle/ps.ts` delegates here whenever
  * `scope: 'worktree'` is selected — so the worktree fold (inFlightMerges /
- * launches / inFlightPrunes + the `probe: true` reclaim/reconcile write path) is
- * CONSUMED, never duplicated in the new module. Re-exported under an intention-
- * revealing name so the frozen WLM-6 characterization/parity/schema suites (which
- * import `handleViewPs`) keep pinning the unchanged worktree behavior directly.
+ * launches / inFlightPrunes) is CONSUMED, never duplicated in the new module.
+ * Re-exported under an intention-revealing name so the frozen WLM-6
+ * characterization/parity/schema suites (which import `handleViewPs`) keep
+ * pinning the unchanged worktree behavior directly.
  */
 export const handleWorktreeScopePs = handleViewPs;

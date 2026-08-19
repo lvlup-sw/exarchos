@@ -1134,6 +1134,25 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       // #1242 — folds into the rehydration projection's handoff slot only; it
       // carries no workflow_state-affecting fields.
       case 'workflow.handoff_summarized':
+      // The VCS mutation ledger rides its own dedicated `vcs-mutations` stream,
+      // never a feature stream. Its only reader is the mutation owner's own
+      // fold, which re-reads the ledger to recover the fencing epoch and the
+      // idempotency replay cache before acting — deliberately NOT a consumer of
+      // projected workflow state, and folding it here would put an effect
+      // record into a view no caller asks for it from.
+      case 'vcs.requested':
+      case 'vcs.executed':
+      case 'vcs.compensated':
+      // The atomic tree-promotion record describes a directory on disk — where a
+      // staged tree landed and what digest now lives there. No field of it is a
+      // fact about a workflow, so there is nothing here for it to fold into.
+      case 'promotion.executed':
+      // The emission-violation report is a finding about the dispatch chain, not
+      // a fact about the work the dispatch was doing. Folding it here would put
+      // "Exarchos has a bug" into a workflow's projected state, where a caller
+      // asking about phase or task progress would read it as something the
+      // workflow did.
+      case 'emission.violated':
         return view;
 
       // ── Exhaustiveness guard (#1554 guard (a)) ─────────────────────────

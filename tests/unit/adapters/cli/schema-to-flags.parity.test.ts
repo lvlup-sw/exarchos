@@ -264,9 +264,13 @@ const TOOL_FIXTURES: ReadonlyArray<ToolFixture> = [
     fieldPattern: /task-?id/i,
   },
   {
-    label: 'exarchos_view/stack_place',
-    tool: 'exarchos_view',
-    cliAlias: 'vw',
+    // Re-parented onto exarchos_orchestrate with the effect-ledger remedy: the
+    // handler appends `stack.position-filled` while its registration named
+    // orchestrate as the provider, so the writer moved to the surface that owns
+    // the effect. The parity property is unchanged — only the carrier is.
+    label: 'exarchos_orchestrate/stack_place',
+    tool: 'exarchos_orchestrate',
+    cliAlias: 'orch',
     action: 'stack_place',
     requiredField: 'streamId',
     wrongTypeField: 'streamId',

@@ -17,6 +17,7 @@ import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { handleView } from '../../../../src/projections/views/composite.js';
 import {
   handleAcquireWorktree,
+  handleReconcileWorktrees,
   handleReleaseWorktree,
   handleViewWorktrees,
 } from '../../../../src/verbs/worktree/handlers.js';
@@ -355,7 +356,9 @@ describe('ps — in-flight liveness read (DR-4)', () => {
     expect(listSpy).not.toHaveBeenCalled();
   });
 
-  it('HandleView_Ps_Probe_PullsOnDemandAndEmits', async () => {
+  // MOVED with its behavior, like the phantom-launch case below: the DR-5
+  // reservation reclaim was `ps probe:true` and is now `reconcile_worktrees`.
+  it('ReconcileWorktrees_DeadOwners_ReleasedAndOrphanedEmitted', async () => {
     const arm = await createArm();
     // released-wt: owner 555 DEAD (absent), not occupied   → worktree.released
     // orphan-wt:   owner 666 DEAD (absent), occupied by 777 → worktree.orphan_detected
@@ -381,7 +384,7 @@ describe('ps — in-flight liveness read (DR-4)', () => {
       list: () => [{ pid: 777, ppid: 1, cwd: '/wlm/orphan-wt/sub', startTime: 'b777' }],
     };
 
-    const result = await handleView({ action: 'ps', scope: 'worktree', probe: true }, arm.ctx, {
+    const result = await handleReconcileWorktrees({}, arm.ctx, {
       processTableSource: table,
       realpath: (p) => p,
       selfPid: 999999,
@@ -453,7 +456,13 @@ describe('ps — in-flight liveness read (DR-4)', () => {
     expect(clearedData.launches).toEqual([]);
   });
 
-  it('HandleView_Ps_Probe_ReconcilesPhantomLaunch', async () => {
+  // MOVED, not retired. This exercised `ps probe:true`; the reclaim and the two
+  // reconcilers now answer on `exarchos_orchestrate.reconcile_worktrees`, so the
+  // test follows the behavior to its new surface with every assertion intact.
+  // The handler is driven directly rather than through the orchestrate composite
+  // because the ground-truth process table is a test-only DI seam the composite
+  // does not thread — the same seam the `ps` kernel tests above use.
+  it('ReconcileWorktrees_PhantomLaunch_HealedToTerminal', async () => {
     const arm = await createArm();
     // The launcher reserved its worktree and its child CLAIM landed, but the
     // SUPERVISOR was SIGKILL'd / the host died — no catchable teardown ever ran,
@@ -475,13 +484,22 @@ describe('ps — in-flight liveness read (DR-4)', () => {
     // Provably dead: a SUPPORTED but empty table (the holder PID is absent).
     const table: ProcessTableSource = { list: () => [], isSupported: () => true };
 
-    // Before the probe: the phantom is in-flight, NO terminal written.
+    // Before the reconcile: the phantom is in-flight, NO terminal written.
     const before = (await arm.ctx.eventStore.query(WORKTREES_STREAM)).filter(
       (e) => e.type === 'launch.executed',
     );
     expect(before).toHaveLength(0);
 
-    const result = await handleView({ action: 'ps', scope: 'worktree', probe: true }, arm.ctx, {
+    // `ps` sees the phantom and leaves it alone — it is a read now, so the heal
+    // has to be ASKED for. Asserting this here keeps the two surfaces' division
+    // of labour in one test rather than split across two files.
+    const psBefore = await handleView({ action: 'ps', scope: 'worktree' }, arm.ctx, {
+      processTableSource: table,
+      realpath: (p) => p,
+    });
+    expect((psBefore.data as { launchCount: number }).launchCount).toBe(1);
+
+    const result = await handleReconcileWorktrees({}, arm.ctx, {
       processTableSource: table,
       realpath: (p) => p,
       selfPid: 999999,
@@ -499,7 +517,7 @@ describe('ps — in-flight liveness read (DR-4)', () => {
     // ...and the phantom launch was reconciled to a terminal on the SAME pass.
     expect(data.reconcile.reconciled).toContain('/wlm/phantom-launch-wt');
 
-    // Regression (CodeRabbit, PR #1632): the SAME probe response must report the
+    // Regression (CodeRabbit, PR #1632): the SAME response must report the
     // POST-reconcile launch column, not the stale pre-reconcile snapshot — else a
     // just-healed phantom is reported as BOTH in-flight and reconciled in one call.
     expect(data.launchCount).toBe(0);

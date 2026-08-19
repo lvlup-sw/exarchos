@@ -833,6 +833,288 @@ export function measureEventCatalog(sources: EventCatalogSources): EventCatalogM
   };
 }
 
+// ─── The effect-event boundary, measured ─────────────────────────────────────
+
+/** Every source the effect-event measurement reads, repo-relative. */
+export const EFFECT_EVENT_SOURCES: {
+  readonly carrier: string;
+  readonly vcsLedger: string;
+  readonly promotion: string;
+} = Object.freeze({
+  // The carrier itself: where `EffectPlan.emits` is declared and where the commit
+  // gate that makes it authoritative is thrown from.
+  carrier: 'src/dispatch/core/effect-carrier.ts',
+  // The two owners that declare emissions on a plan. They are named individually
+  // rather than scanned for, because a directory scan would report a shrinking
+  // denominator as a clean measurement the moment an owner moved — and there are
+  // two, so the population is small enough to name and large enough to disagree.
+  vcsLedger: 'src/vcs/mutation-owner.ts',
+  promotion: 'src/install/atomic-promotion.ts',
+});
+
+/** The representation ids the committed row uses. Matched exactly. */
+export const EFFECT_EVENT_REPRESENTATION_IDS: {
+  readonly plan: string;
+  readonly vcsLedger: string;
+  readonly promotion: string;
+} = Object.freeze({
+  plan: 'EffectPlan `emits` (`dispatch/core/effect-carrier.ts`)',
+  vcsLedger: 'the VCS ledger append site (`vcs/mutation-owner.ts`)',
+  promotion: 'the promotion record sink (`install/atomic-promotion.ts`)',
+});
+
+/**
+ * The authority id the committed row uses, and the `boundTo` a bound
+ * representation must name to resolve.
+ */
+export const EFFECT_PLAN_AUTHORITY = 'EffectPlan.emits';
+
+export interface EffectEventSources {
+  readonly carrier: string;
+  readonly vcsLedger: string;
+  readonly promotion: string;
+}
+
+/** Read every effect-event source off disk. The only IO in the measurement. */
+export function readEffectEventSources(repoRoot: string = REPO_ROOT): EffectEventSources {
+  return {
+    carrier: readOrThrow(repoRoot, EFFECT_EVENT_SOURCES.carrier),
+    vcsLedger: readOrThrow(repoRoot, EFFECT_EVENT_SOURCES.vcsLedger),
+    promotion: readOrThrow(repoRoot, EFFECT_EVENT_SOURCES.promotion),
+  };
+}
+
+/**
+ * The identifier a plan-declared emission is handed to a sink under.
+ *
+ * A sink derives the fact it records IFF it reads the emission it was handed.
+ * The property is named rather than inferred: `emission.when` selects the
+ * CONDITION and `emission.event` selects the IDENTITY, and only the second makes
+ * the recorded fact follow the plan. A sink that reads `when` alone still bakes
+ * the name of whatever it records.
+ */
+const EMISSION_IDENTITY_PROPERTY = 'event';
+
+/** The factory every declaring owner builds its sink with. */
+const EMISSION_SINK_FACTORY = 'emissionRecorder';
+
+/** Does this sink body name `<param>.event`, or destructure `event` off the param? */
+function sinkReadsEmissionIdentity(
+  fn: ts.ArrowFunction | ts.FunctionExpression,
+  sourceFile: ts.SourceFile,
+): { readonly derived: boolean; readonly subject: string } {
+  const param = fn.parameters[0];
+  if (param === undefined) {
+    return { derived: false, subject: 'sink takes no emission parameter' };
+  }
+  // `({ event }) => …` — the identity is bound straight out of the parameter.
+  if (ts.isObjectBindingPattern(param.name)) {
+    const binds = param.name.elements.some((el) =>
+      el.propertyName === undefined
+        ? ts.isIdentifier(el.name) && el.name.text === EMISSION_IDENTITY_PROPERTY
+        : propertyName(el.propertyName) === EMISSION_IDENTITY_PROPERTY,
+    );
+    return binds
+      ? { derived: true, subject: `{ ${EMISSION_IDENTITY_PROPERTY} } destructured from the emission` }
+      : { derived: false, subject: 'sink destructures the emission without binding its identity' };
+  }
+  if (!ts.isIdentifier(param.name)) {
+    return { derived: false, subject: 'sink parameter is not a name this walk can follow' };
+  }
+  const paramName = param.name.text;
+  let found: string | undefined;
+  const visit = (node: ts.Node): void => {
+    if (
+      found === undefined &&
+      ts.isPropertyAccessExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === paramName &&
+      node.name.text === EMISSION_IDENTITY_PROPERTY
+    ) {
+      found = node.getText(sourceFile);
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(fn, visit);
+  return found === undefined
+    ? {
+        derived: false,
+        subject: `sink binds \`${paramName}\` but never reads \`${paramName}.${EMISSION_IDENTITY_PROPERTY}\``,
+      }
+    : { derived: true, subject: found };
+}
+
+/**
+ * Every emission sink an owner builds, classified by whether the fact it
+ * records is NAMED BY THE PLAN.
+ *
+ * This is the module's one discriminating fact — a name is bound iff it is
+ * computed from the authority — applied to the append direction: a
+ * sink that appends `emission.event` records a name COMPUTED from the plan and
+ * follows it; a sink that ignores the emission bakes whatever it records, and no
+ * change to the plan can move it. The two are byte-identical in their effect on
+ * the commit gate — both mint a receipt — so the gate cannot tell them apart and
+ * this measurement is the only thing that can.
+ *
+ * Classified from the SINK rather than from the append call, deliberately. An
+ * owner may append through a private helper (the VCS owner does), so following
+ * the store call would measure the helper's parameter and report `derived` for
+ * any owner that happened to route through one.
+ */
+export function measureEmissionSinks(source: string, file: string): readonly MeasuredSite[] {
+  const sourceFile = parseOrThrow(source, file, LABEL);
+  const sites: MeasuredSite[] = [];
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === EMISSION_SINK_FACTORY
+    ) {
+      const arg = node.arguments[0];
+      const fn =
+        arg !== undefined && (ts.isArrowFunction(arg) || ts.isFunctionExpression(arg))
+          ? arg
+          : undefined;
+      const verdict =
+        fn === undefined
+          ? { derived: false, subject: 'sink is not a function literal this walk can read' }
+          : sinkReadsEmissionIdentity(fn, sourceFile);
+      sites.push({
+        file,
+        line: lineOf(sourceFile, node),
+        kind: verdict.derived ? 'derived' : 'literal',
+        subject: verdict.subject,
+        expression: node.getText(sourceFile).slice(0, 200),
+        start: node.getStart(sourceFile),
+        end: node.getEnd(),
+      });
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(sourceFile, visit);
+  return requireSites(sites, `\`${EMISSION_SINK_FACTORY}(\` sinks in ${file}`);
+}
+
+/**
+ * The commit gate, measured rather than assumed.
+ *
+ * `EffectPlan.emits` is only an AUTHORITY because a plan that declares one
+ * cannot produce a committed value without a receipt for it — that is what
+ * `UnrecordedEmissionError` enforces, and without it the field would be a
+ * comment. Deleting the gate must therefore take the authority claim with it,
+ * so its presence is a fail-closed precondition of the measurement rather than a
+ * sentence in the row's prose.
+ */
+function requireCommitGate(source: string, file: string): number {
+  const sourceFile = parseOrThrow(source, file, LABEL);
+  let throws = 0;
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isThrowStatement(node) &&
+      node.expression !== undefined &&
+      ts.isNewExpression(node.expression) &&
+      ts.isIdentifier(node.expression.expression) &&
+      node.expression.expression.text === 'UnrecordedEmissionError'
+    ) {
+      throws += 1;
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(sourceFile, visit);
+  if (throws === 0) {
+    throw new Error(
+      `${LABEL}: found ZERO \`throw new UnrecordedEmissionError\` sites in ${file}. The commit ` +
+        'gate is what makes a plan\'s declared emission authoritative over the record; with it ' +
+        'gone the field is a comment, and reporting the boundary as authoritative anyway would ' +
+        'be the census certifying a binding that no longer exists.',
+    );
+  }
+  return throws;
+}
+
+/**
+ * Measure the effect-event boundary from source.
+ *
+ * The boundary asks whether the effect that was PLANNED and the event that
+ * RECORDS it agree. Two independent facts answer it, and they are measured
+ * separately because they can fail separately:
+ *
+ *   • the plan's `emits` set is authoritative over WHETHER a record happens —
+ *     `runEffect` refuses the effect up front without a sink and reaches its
+ *     return only on one receipt per declared emission. That is total over every
+ *     declaring owner and has no escape, which is why {@link requireCommitGate}
+ *     is a precondition rather than a representation;
+ *   • whether the record's IDENTITY follows the plan is per-owner, and it is
+ *     where the two owners part company.
+ *
+ * The type on `EffectEmission.event` is deliberately NOT offered as evidence of
+ * either. It guarantees a plan cannot name an unregistered event, which is a
+ * property of the catalog and cannot fail here — a check whose subject is
+ * enforced by a type is not a check, and counting it would close the row on a
+ * tautology.
+ */
+export function measureEffectEvent(sources: EffectEventSources): MeasuredBoundary {
+  const gates = requireCommitGate(sources.carrier, EFFECT_EVENT_SOURCES.carrier);
+
+  const planSites = [
+    ...measurePropertyAssignments(sources.vcsLedger, EFFECT_EVENT_SOURCES.vcsLedger, 'emits'),
+    ...measurePropertyAssignments(sources.promotion, EFFECT_EVENT_SOURCES.promotion, 'emits'),
+  ];
+  const vcsSinks = measureEmissionSinks(sources.vcsLedger, EFFECT_EVENT_SOURCES.vcsLedger);
+  const promotionSinks = measureEmissionSinks(sources.promotion, EFFECT_EVENT_SOURCES.promotion);
+
+  const representations: MeasuredRepresentation[] = [
+    {
+      id: EFFECT_EVENT_REPRESENTATION_IDS.plan,
+      binding: { kind: 'authoritative' },
+      sites: planSites,
+    },
+    {
+      id: EFFECT_EVENT_REPRESENTATION_IDS.vcsLedger,
+      binding: bindingFor(
+        vcsSinks,
+        EFFECT_PLAN_AUTHORITY,
+        'the ledger append is handed the plan\'s emission and names the event it appends from it, so a change to the plan moves the record',
+        'the sink records a fact whose name the plan does not supply, so the ledger cannot follow a change to the plan.',
+      ),
+      sites: vcsSinks,
+    },
+    {
+      id: EFFECT_EVENT_REPRESENTATION_IDS.promotion,
+      binding: bindingFor(
+        promotionSinks,
+        EFFECT_PLAN_AUTHORITY,
+        'the promotion sink names what it records from the emission it was handed',
+        'the promoter owns the payload and the CALLER owns the destination, so the plan\'s declared ' +
+          'emission reaches no append this census can see. The commit gate still holds — the ' +
+          'promotion is refused without a sink — but the gate proves a record was taken, not that ' +
+          'the record is the one the plan named.',
+      ),
+      sites: promotionSinks,
+    },
+  ];
+
+  const siteCount = representations.reduce((total, r) => total + r.sites.length, 0);
+  const subjects = representations.filter((r) => r.binding.kind !== 'authoritative');
+  const unbound = subjects.filter((r) => r.binding.kind === 'unbound');
+
+  return {
+    boundary: 'effect-event',
+    authority: { kind: 'single', authority: EFFECT_PLAN_AUTHORITY },
+    representations,
+    siteCount,
+    measured:
+      `Measured LIVE from source by \`${EFFECT_EVENT_SOURCES.carrier}\` and its two declaring ` +
+      `owners: ${planSites.length} plan(s) declare \`emits\`, and the carrier throws ` +
+      `\`UnrecordedEmissionError\` at ${gates} site(s), so a declared emission is a precondition ` +
+      `of the effect committing rather than a hope. ${unbound.length} of ${subjects.length} ` +
+      'non-authoritative representations are unbound: the VCS ledger appends `emission.event` and ' +
+      'therefore follows the plan, while the promotion sink discards the emission and hands a ' +
+      'typed payload to a caller-supplied destination. The boundary is no longer authority-less — ' +
+      'it is single-authority and PARTIALLY bound, which is not bound.',
+  };
+}
+
 // ─── The CLI-surface boundary, measured ──────────────────────────────────────
 
 /** The registry-side authority id task 024's committed row uses. */

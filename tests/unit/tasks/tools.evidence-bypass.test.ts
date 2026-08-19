@@ -31,7 +31,7 @@ import * as path from 'node:path';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { EventStore } from '../../../src/events/store.js';
-import { handleTaskComplete, isBlockingGate, resetModuleEventStore } from '../../../src/tasks/tools.js';
+import { handleTaskComplete, isBlockingGate, resetModuleEventStore } from '../../../src/verbs/tasks/tools.js';
 import { resetMaterializerCache } from '../../../src/projections/views/tools.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 import { runAsTrustedCaller } from '../../../tools/test-helpers/trusted-context.js';

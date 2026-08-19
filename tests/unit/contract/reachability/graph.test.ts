@@ -21,7 +21,14 @@ import {
 // five breaks seeded on the real tree) lives in `collect.test.ts`; here we pin
 // the mechanics the live proof relies on.
 
-/** A fully-closed two-action tree: one MUTATING (owner applies) + one PURE. */
+/**
+ * A fully-closed two-action tree: one MUTATING (owner applies) + one PURE.
+ *
+ * The mutating action also EMITS, so the `event` hop is applicable on it and
+ * not-applicable on the pure one — the same split `owner` has. A base fixture
+ * where no action emitted would leave the hop permanently not-applicable, and
+ * every assertion below it would pass over nothing.
+ */
 function baseInputs(): ReachabilityInputs {
   return {
     surfaceVersion: '1.0.0',
@@ -42,6 +49,9 @@ function baseInputs(): ReachabilityInputs {
     ],
     artifacts: [{ actionId: 't.mutate' }, { actionId: 't.read' }],
     fixtures: [{ actionId: 't.mutate' }, { actionId: 't.read' }],
+    emissions: [
+      { actionId: 't.mutate', event: 't.happened', registered: true },
+    ],
     exceptions: [],
   };
 }
@@ -68,7 +78,12 @@ describe('reachability closure — the complete path', () => {
     expect(report.actions.every((a) => a.closed)).toBe(true);
   });
 
-  it('the hop order is authored ActionId → schema → route → handler → owner → output → artifact → fixture', () => {
+  it('the hop order is authored ActionId → schema → route → handler → owner → output → artifact → fixture → event', () => {
+    // `event` sits at the END, after the shipped-artifact hops, because it asks
+    // the last question in the chain: given an action that exists, routes, is
+    // handled and ships, is the effect it claims to raise a REGISTERED event?
+    // Ordering it earlier would put a coupling question ahead of the existence
+    // questions it presupposes. The sibling `consumer` hop lands after it.
     expect([...REACHABILITY_HOPS]).toEqual([
       'schema',
       'route',
@@ -77,6 +92,7 @@ describe('reachability closure — the complete path', () => {
       'output',
       'artifact',
       'fixture',
+      'event',
     ]);
   });
 
@@ -243,16 +259,22 @@ describe('reachability graph — deterministic artifact + explicit nodes/edges',
     const nodes = reachabilityNodes(graph);
     const edges = reachabilityEdges(graph);
 
-    // The mutating action carries origin + 7 hop nodes; the pure action skips owner.
+    // The mutating action carries origin + every hop node; the pure action skips
+    // owner AND event, because it neither mutates nor emits.
     expect(nodes.filter((n) => n.actionId === 't.mutate')).toHaveLength(1 + REACHABILITY_HOPS.length);
     expect(nodes.some((n) => n.actionId === 't.read' && n.kind === 'owner')).toBe(false);
+    expect(nodes.some((n) => n.actionId === 't.read' && n.kind === 'event')).toBe(false);
     expect(nodes.some((n) => n.actionId === 't.read' && n.kind === 'handler')).toBe(true);
 
     // Every edge on this fully-closed tree is complete, and the chain is contiguous.
     expect(edges.every((e) => e.complete)).toBe(true);
     const readEdges = edges.filter((e) => e.from.startsWith('t.read::') || e.from === 't.read::origin');
-    // origin→schema→route→handler→output→artifact→fixture = 6 edges (owner skipped).
-    expect(readEdges).toHaveLength(REACHABILITY_HOPS.length - 1);
+    // origin→schema→route→handler→output→artifact→fixture = 6 edges. Two hops are
+    // skipped on a pure non-emitting action (owner, event), so the count is stated
+    // against those exclusions rather than against the hop total — which is what
+    // keeps it meaningful as the hop list grows.
+    const skippedOnPureRead = 2;
+    expect(readEdges).toHaveLength(REACHABILITY_HOPS.length - skippedOnPureRead);
   });
 
   it('a broken hop marks that edge (and the downstream edge) incomplete', () => {

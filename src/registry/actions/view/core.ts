@@ -111,21 +111,11 @@ export const coreViewActions: readonly BuiltinToolAction[] = [
     outputSchema: vacuityWaiver('exarchos_view.stack_status'),
     annotations: READ_ONLY_LOCAL,
   },
-  {
-    name: 'stack_place',
-    description: 'Record a stack position for a task',
-    schema: z.object({
-      streamId: z.string().min(1),
-      position: coercedNonnegativeInt(),
-      taskId: z.string().min(1),
-      branch: z.string().optional(),
-      prUrl: z.string().optional(),
-    }),
-    phases: STACK_PHASES,
-    roles: ROLE_ANY,
-    outputSchema: vacuityWaiver('exarchos_view.stack_place'),
-    annotations: LOCAL_MUTATION,
-  },
+  // `stack_place` was here. It appends `stack.position-filled` while its
+  // registration named `exarchos_orchestrate` as the effect provider, so the
+  // declared provider and the declaring tool could not both be right. The
+  // writer moved to the orchestrate surface; `stack_status` above is the read
+  // half and stays.
   {
     name: 'telemetry',
     description: 'Get telemetry metrics with per-tool performance data and optimization hints',

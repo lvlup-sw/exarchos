@@ -80,13 +80,31 @@ import type { SupportedGateClass } from '../verbs/gates/gate-provider-registry.j
 // coupling foundation should not spend from that budget). Same idiom as `DECLARATION_KINDS`.
 
 /**
- * The five coupling tiers, in weld-strength order: substrate (the store emits it), capability
+ * The six coupling tiers, in weld-strength order: substrate (the store emits it), capability
  * (an effect provider emits it), observation (a reconciler emits it), judgment (a gate emits
- * it), workflow-local (one workflow definition owns it).
+ * it), workflow-local (one workflow definition owns it), harness (developer tooling outside
+ * the governed source root emits it).
  *
- * Adding a tier here is the ONLY way to introduce one — a sixth coupling class cannot be
+ * Adding a tier here is the ONLY way to introduce one — a further coupling class cannot be
  * smuggled in as a parallel arm without failing
  * `_EventRegistration_DeclaredTiers_MatchTheVariantArms` below.
+ *
+ * ── Why `harness` was added (and the precedent it follows) ──────────────────
+ *
+ * The same way {@link SubstrateRationale}'s `operation-record` was added: the CATALOG forced
+ * it. `eval.judge.calibrated` is actively emitted and actively folded by `eval-results`, and
+ * its only append is in the evaluation harness under `tools/` — a developer entry point run
+ * from the command line over graded cases, not a composite tool and not reachable through
+ * dispatch. It was registered `capability` with provider `exarchos_view` because that is the
+ * only arm requiring a consumer, but the claim that arm makes is that AN EFFECT PROVIDER
+ * EMITS IT, and none does: every `exarchos_view` action is a read of a projection,
+ * `eval_results` included, so no action on that provider could carry the edge without
+ * asserting that reading the view emits the calibration.
+ *
+ * The five original tiers all name emitters INSIDE the governed source root. None of them is
+ * true of a harness, so the registration had no honest form and the stale-cover tooth reported
+ * it forever — correctly, and with no repair available that was not a lie. That is the
+ * signature of a missing vocabulary word rather than a missing declaration.
  */
 export const EVENT_TIERS: readonly [
   'substrate',
@@ -94,9 +112,12 @@ export const EVENT_TIERS: readonly [
   'observation',
   'judgment',
   'workflow-local',
-] = ['substrate', 'capability', 'observation', 'judgment', 'workflow-local'];
+  'harness',
+] = ['substrate', 'capability', 'observation', 'judgment', 'workflow-local', 'harness'];
 
-/** `'substrate' | 'capability' | 'observation' | 'judgment' | 'workflow-local'`. */
+/**
+ * `'substrate' | 'capability' | 'observation' | 'judgment' | 'workflow-local' | 'harness'`.
+ */
 export type EventTier = (typeof EVENT_TIERS)[number];
 
 /**
@@ -244,6 +265,20 @@ export type GroundTruthSource = Extract<EffectClass, 'process' | 'network'>;
  */
 export type WorkflowDefinitionId = string;
 
+/**
+ * The module a `harness` event is appended from — repo-relative and forward-slashed, e.g.
+ * `tools/evals/evals/harness.ts`.
+ *
+ * **Explicitly widened to `string`, and it must live OUTSIDE `src/`.** A closed union is not
+ * available: the population is developer entry points, which arrive and leave with the tooling
+ * rather than with the shipped surface. Containment is therefore checked rather than typed —
+ * `assertHarnessModuleIsOutsideGovernedRoot` in `registration-validate.ts` refuses a path under
+ * `src/`, because an emitter inside the governed root has a real weld available and must use it.
+ * That is the same split the header draws for the other open aliases: shape is a type concern,
+ * reference integrity is a boot concern.
+ */
+export type HarnessModuleId = string;
+
 // NOTE ON `GateClass`: DR-2 names the judgment arm's field type `GateClass`. That binds to the
 // SHIPPED `SupportedGateClass` (`verbs/gates/gate-provider-registry.ts`) — the nine classes
 // with exactly one registered provider each, which is precisely what makes a judgment weld
@@ -379,6 +414,26 @@ export interface WorkflowLocalRegistration {
 }
 
 /**
+ * Emitted by developer tooling OUTSIDE the governed source root, and read by named consumers.
+ *
+ * The weld is {@link HarnessModuleId} — the repo-relative path of the module performing the
+ * append. That is a weaker identifier than a provider or a gate class, and deliberately so: it
+ * names a file rather than a registered surface, because a harness has no registered surface to
+ * name. It is still a WELD in the sense this union requires — you cannot fill this arm in by
+ * naming only the event — and it is checkable against the tree, which is what stops it becoming
+ * the escape hatch every other arm is closed to prevent.
+ *
+ * `consumedBy` is non-empty for the same reason `capability`'s is: an event nobody folds is a
+ * report, and a harness that appends a row nothing reads is exactly the report-coupled shape
+ * this union exists to make unwritable. A harness event with no consumer has no form here.
+ */
+export interface HarnessRegistration {
+  readonly tier: 'harness';
+  readonly module: HarnessModuleId;
+  readonly consumedBy: readonly [ConsumerId, ...ConsumerId[]];
+}
+
+/**
  * The coupling arm — a genuine discriminated union on `tier`, kept separate from the lifecycle
  * intersection so quantification over the arms is unambiguous (an intersection of an object
  * with a union does not reliably distribute in a conditional type).
@@ -388,7 +443,8 @@ export type EventTierVariant =
   | CapabilityRegistration
   | ObservationRegistration
   | JudgmentRegistration
-  | WorkflowLocalRegistration;
+  | WorkflowLocalRegistration
+  | HarnessRegistration;
 
 /**
  * One registered event's declaration: WHAT its emission is welded to ({@link EventTierVariant})
@@ -418,7 +474,7 @@ export type EventRegistration = {
  * | tier | members | verdict |
  * |---|---|---|
  * | `substrate` | 95 | `'auto'` VALIDATED — every active one declares `auto` |
- * | `capability` | 50 | `'auto'` VALIDATED for every active one except `benchmark.completed` |
+ * | `capability` | 50 | `'auto'` VALIDATED — every active one is appended by code, not composed |
  * | `observation` | **0** | UNVALIDATABLE — DR-11's reconcilers do not exist yet |
  * | `judgment` | 7 | `'model'` VALIDATED — all seven declare `model` |
  * | `workflow-local` | 18 | `'model'` — CHANGED from `'auto'` by task 010; see below |
@@ -432,15 +488,15 @@ export const EMISSION_SOURCE_BY_TIER: Readonly<Record<EventTier, EmissionSource>
     // Reconcilers fire at boundaries — session start, phase transition, launcher
     // spawn/teardown (DR-12: "boundary hook", no timer and no daemon).
     //
-    // UNCHANGED BY TASK 010, AND DELIBERATELY SO. This tier has ZERO members in the live
-    // catalog: DR-11's `Reconciler<S>` and its `divergence.detected` event are task 032's
-    // work, and the one registration that declares `'hook'` today
-    // (`benchmark.completed`) is measurably NOT a reconciler event — it names none of the
-    // three DR-11 subjects and has no emitter anywhere in the tree. So nothing in the
-    // catalog can validate this value in EITHER direction, and rewriting it to `'auto'`
-    // on the strength of the `subagent.tokens_used` precedent would have substituted one
-    // unvalidated judgment for another. It is left as task 009 wrote it, and named here as
-    // the one entry task 010 could not measure.
+    // UNVALIDATED, AND DELIBERATELY LEFT SO. This tier has ZERO members in the live
+    // catalog: the `Reconciler<S>` port and its `divergence.detected` event are not
+    // written yet, and no registration derives `'hook'`. The nearest candidate,
+    // `benchmark.completed`, names none of the reconciler subjects and has no emitter
+    // anywhere in the tree, so its lifecycle records it as planned rather than as a
+    // boundary-hook append. Nothing in the catalog can validate this value in EITHER
+    // direction, and rewriting it to `'auto'` on the strength of the
+    // `subagent.tokens_used` precedent would substitute one unvalidated judgment for
+    // another. It stays as authored, named here as the one entry no measurement reaches.
     observation: 'hook',
     // The model composes the verdict CONTENT; the gate owns the append.
     //
@@ -462,6 +518,17 @@ export const EMISSION_SOURCE_BY_TIER: Readonly<Record<EventTier, EmissionSource>
     // bracketing a `native:` harness tool". A workflow definition's step composing the emission
     // IS what `source: 'model'` records, so `'model'` is the measured value.
     'workflow-local': 'model',
+    // The harness CODE owns the append — the same claim `operation-record` makes, and the reason
+    // that rationale maps to `'auto'`. A calibration payload is computed (true/false positives and
+    // negatives counted over graded cases), not composed by a model, so `'model'` would be wrong
+    // in a way the catalog immediately proves: `'model'` obliges every schema field to carry a
+    // `.describe()` for the model filling it in, and there is no model here to describe anything
+    // to. `modelEmittedFieldsAreDescribed` in `schemas.test.ts` is what said so.
+    //
+    // This is the tier's honest weakness, stated rather than hidden: `'auto'` claims only that the
+    // code performing the operation owns the append, and it is why the arm demands a consumer —
+    // an append nobody folds is the report-coupled shape this union exists to forbid.
+    harness: 'auto',
   },
 );
 
@@ -628,6 +695,8 @@ export function weldReferenceOf(registration: EventRegistration): WeldReference 
       return { tier: registration.tier, ref: registration.gate };
     case 'workflow-local':
       return { tier: registration.tier, ref: registration.workflow };
+    case 'harness':
+      return { tier: registration.tier, ref: registration.module };
     default: {
       const unhandled: never = registration;
       return unhandled;

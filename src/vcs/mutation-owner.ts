@@ -46,23 +46,41 @@
 
 import {
   LIVE,
+  effectIdempotencyKey,
+  emissionRecorder,
   plannedDryRun,
   runEffect,
   succeeded,
   failed,
+  toEffectError,
   type EffectMode,
   type EffectOutcome,
   type EffectPlan,
+  type EmissionCondition,
+  type EffectEmission,
 } from '../dispatch/core/effect-carrier.js';
-import { getValidEventTypes, registerEventType } from '../events/schemas.js';
 import type { EventStore } from '../events/store.js';
-import type { WorkflowEvent } from '../events/schemas.js';
+import type { EventType, WorkflowEvent } from '../events/schemas.js';
 import { spawnCommandSync } from '../utils/process.js';
 
 // ─── Durable ledger vocabulary ───────────────────────────────────────────────
 
 /** The dedicated stream carrying the VCS mutation intent/terminal ledger. */
 export const VCS_MUTATION_STREAM = 'vcs-mutations';
+
+// The three names below are BUILT-IN event types declared in the event catalog
+// (`events/schemas.ts`), each with a data schema, a type-map entry and a
+// substrate-tier coupling annotation. They are named here as constants so the
+// owner and the callers that fold its ledger share one spelling, not because
+// this module owns them.
+//
+// They were previously registered from this module through the store's runtime
+// registration seam, on the reasoning that a seam is cheaper than editing the
+// catalog. It was cheaper and it was wrong: a runtime registration carries no
+// schema, no type-map entry and no coupling tier, so the three busiest effect
+// records in the tree were invisible to every static reader of the catalog.
+// Registering them through the seam now THROWS — a built-in name cannot be
+// re-registered — which is the intended one-way door.
 
 /** Durable INTENT — appended BEFORE the git/provider effect fires. */
 export const VCS_REQUESTED = 'vcs.requested';
@@ -71,22 +89,27 @@ export const VCS_EXECUTED = 'vcs.executed';
 /** Durable failure TERMINAL — appended after a compensated / failed effect. */
 export const VCS_COMPENSATED = 'vcs.compensated';
 
-const VCS_EVENT_TYPES: readonly string[] = [VCS_REQUESTED, VCS_EXECUTED, VCS_COMPENSATED];
-
 /**
- * Register the three VCS-ledger event types via the event-store's runtime
- * registration seam (idempotent — only registers a name the allowlist does not
- * already carry). Using the seam avoids editing `events/schemas.ts`, the
- * same "registration seam, not source edit" posture P04-01's ledger asks for.
+ * The ledger this owner promises to write around EVERY mutation, declared on the
+ * effect plan itself rather than left implicit in the order of `mutate`'s
+ * statements.
+ *
+ * Declaring it buys two things a hand-rolled sequence could not. The carrier
+ * refuses to run the effect at all unless a real appender was supplied, so the
+ * intent cannot be skipped and a committed value cannot be reached without one
+ * minted receipt per declared emission; and a reader — human or static — can ask
+ * what a VCS mutation records without tracing the control flow that records it.
+ *
+ * The three conditions map exactly onto the intent/terminal split the ledger
+ * fold already reads: an intent that outlives its run is the recoverable state,
+ * and the two terminals are mutually exclusive because one execution either
+ * returns or throws.
  */
-export function ensureVcsMutationEventTypes(): void {
-  const valid = new Set(getValidEventTypes());
-  for (const name of VCS_EVENT_TYPES) {
-    if (!valid.has(name)) {
-      registerEventType(name, { source: 'auto' });
-    }
-  }
-}
+export const VCS_LEDGER_EMISSIONS: readonly EffectEmission[] = [
+  { event: VCS_REQUESTED, when: 'before' },
+  { event: VCS_EXECUTED, when: 'on-success' },
+  { event: VCS_COMPENSATED, when: 'on-failure' },
+];
 
 // ─── Typed fencing error (mirrors P04-02 cancel-saga StaleEpochError) ─────────
 
@@ -354,6 +377,16 @@ export interface VcsMutationOwnerDeps {
   readonly stream?: string;
 }
 
+/**
+ * What the effect thunk produced, recorded on the way past so the terminal
+ * emission can carry it. The carrier hands a sink only the emission and the
+ * plan — deliberately, since it does not know what any owner's payload looks
+ * like — so the outcome has to travel this short way instead.
+ */
+type CapturedEffect =
+  | { readonly kind: 'success'; readonly value: Record<string, unknown> }
+  | { readonly kind: 'failure'; readonly cause: unknown };
+
 /** A serializable failure raised by a git effect thunk (captured into an error carrier). */
 export class VcsEffectError extends Error {
   constructor(
@@ -372,7 +405,6 @@ export class VcsMutationOwner {
   private readonly stream: string;
 
   constructor(deps: VcsMutationOwnerDeps) {
-    ensureVcsMutationEventTypes();
     this.eventStore = deps.eventStore;
     this.git = deps.gitRunner ?? defaultVcsGitRunner;
     this.stream = deps.stream ?? VCS_MUTATION_STREAM;
@@ -384,6 +416,7 @@ export class VcsMutationOwner {
       owner: 'vcs-mutation-owner',
       description: request.description,
       idempotent: true,
+      emits: VCS_LEDGER_EMISSIONS,
     };
     return request.compensation !== undefined
       ? { ...base, compensation: request.compensation }
@@ -396,10 +429,28 @@ export class VcsMutationOwner {
   }
 
   private async append(
-    type: string,
+    type: EventType,
     request: VcsMutationRequest,
     extra: Record<string, unknown>,
   ): Promise<void> {
+    // The claim key is BUILT with its stream rather than composed by hand here.
+    // The claims table is already keyed by (stream, key), so the stream in the
+    // text is redundant for collision purposes — what the constructor buys is
+    // that a key cannot come into existence without naming the stream it will
+    // be claimed against, so there is no stream-less string to thread through
+    // the wrong append.
+    //
+    // ONE-RELEASE UPGRADE WINDOW. The text now reads `${stream}:${type}:${key}`
+    // where it previously carried no stream, so a claim row written by the old
+    // code and one minted here for the same logical append no longer collapse at
+    // the storage layer. This weakens a BACKSTOP, not the primary guard: the
+    // ledger fold below returns the recorded terminal before any append runs and
+    // keys on the `idempotencyKey` inside the event data, which did not change.
+    // The claim is the second-line collapse for a crash between that fold and the
+    // append, so the exposure is in-flight operations only and each key closes its
+    // own window as soon as it terminates. This is the only site that builds the
+    // text; nothing else reconstructs it.
+    const claim = effectIdempotencyKey(this.stream, `${type}:${request.idempotencyKey}`);
     await this.eventStore.append(
       this.stream,
       {
@@ -411,14 +462,40 @@ export class VcsMutationOwner {
           ...extra,
         },
       },
-      { idempotencyKey: `${type}:${request.idempotencyKey}` },
+      { idempotencyKey: claim.value },
     );
   }
 
   /**
+   * The payload a declared emission carries, which is a function of the
+   * OUTCOME — something the sink itself cannot see, since it is handed only the
+   * emission and the plan. The thunk therefore records what it produced into
+   * {@link CapturedEffect} on the way past, and this reads it back.
+   *
+   * The intent carries the common head alone: at the moment it is appended
+   * there is no result and no failure, which is precisely what makes an intent
+   * with no terminal recognisable as an interrupted run.
+   */
+  private emissionPayload(
+    when: EmissionCondition,
+    plan: EffectPlan,
+    captured: CapturedEffect | undefined,
+  ): Record<string, unknown> {
+    if (when === 'on-success' && captured?.kind === 'success') {
+      return { result: captured.value };
+    }
+    if (when === 'on-failure' && captured?.kind === 'failure') {
+      return { error: toEffectError(plan, captured.cause).message };
+    }
+    return {};
+  }
+
+  /**
    * The general mutation primitive. Every named op is a thin wrapper. Enforces
-   * capability fallback → fencing → idempotency replay → intent → effect →
-   * terminal, returning a typed {@link EffectOutcome}.
+   * mode → fencing → idempotency replay → intent → effect → terminal, returning
+   * a typed {@link EffectOutcome}. The last three of those are the plan's
+   * declared emissions, driven by the carrier rather than by this method's
+   * statement order.
    *
    * `effect` MUST be probe-before-mutate (idempotent): a convergence retry after
    * an interrupted run re-invokes it, and it must no-op when the target state
@@ -471,49 +548,75 @@ export class VcsMutationOwner {
       }
     }
 
-    // 4. Durable intent BEFORE the effect. If this append fails no effect ran, so
-    //    there is nothing to converge — surface a clean error.
-    try {
-      await this.append(VCS_REQUESTED, request, {});
-    } catch (cause) {
-      return failed<T>({
-        code: 'VCS_INTENT_APPEND_FAILED',
-        message: cause instanceof Error ? cause.message : 'intent append failed',
-        cause,
-      });
-    }
+    // 4. Intent, effect and terminal are no longer three statements in this
+    //    method's order — they are the plan's DECLARED emissions, and the
+    //    carrier drives them. The ordering guarantee moves with them: the
+    //    carrier appends the intent before it reaches the thunk, and reaches
+    //    its own return only after exactly one terminal has been evidenced.
+    //    Because the plan declares emissions, an owner that failed to supply a
+    //    real appender would be refused BEFORE the thunk rather than mutating a
+    //    repository and discovering afterwards that nothing recorded it.
+    let captured: CapturedEffect | undefined;
+    const observed = async (): Promise<T> => {
+      try {
+        const value = await effect();
+        captured = { kind: 'success', value };
+        return value;
+      } catch (cause) {
+        captured = { kind: 'failure', cause };
+        throw cause;
+      }
+    };
+
+    // Which append failed, so the typed codes below stay distinguishable. A
+    // recorder failure PROPAGATES out of the carrier rather than becoming an
+    // error carrier — recording is the precondition for the effect, not part of
+    // it — so this method is what turns it back into this owner's vocabulary.
+    let failedWhen: EmissionCondition | undefined;
+    const ledger = emissionRecorder(async (emission) => {
+      try {
+        await this.append(
+          emission.event,
+          request,
+          this.emissionPayload(emission.when, plan, captured),
+        );
+      } catch (cause) {
+        failedWhen = emission.when;
+        throw cause;
+      }
+    });
 
     // 5. Run the (idempotent) effect through the carrier — captures throws.
-    const outcome = await runEffect<T>(mode, plan, effect);
-    if (outcome.kind === 'error') {
-      // Best-effort compensation record; failure here still leaves the intent
-      // durable for a later reconcile.
-      try {
-        await this.append(VCS_COMPENSATED, request, { error: outcome.error.message });
-      } catch {
-        /* the durable intent already suffices for convergence */
-      }
-      return outcome;
-    }
-    if (outcome.kind === 'dry-run') {
-      // Unreachable in `live` mode; kept for exhaustiveness.
-      return outcome;
-    }
-
-    // 6. Success terminal. If THIS append fails, the effect already happened and
-    //    the intent is durable — a retry with the same key converges (the effect
-    //    no-ops and records the terminal). Surface the failure typed.
     try {
-      await this.append(VCS_EXECUTED, request, { result: outcome.value });
+      return await runEffect<T>(mode, plan, observed, ledger);
     } catch (cause) {
-      return failed<T>({
-        code: 'VCS_TERMINAL_APPEND_FAILED',
-        message: cause instanceof Error ? cause.message : 'terminal append failed',
-        cause,
-      });
+      // The intent could not be recorded, so no effect ran and there is nothing
+      // to converge — surface a clean error.
+      if (failedWhen === 'before') {
+        return failed<T>({
+          code: 'VCS_INTENT_APPEND_FAILED',
+          message: cause instanceof Error ? cause.message : 'intent append failed',
+          cause,
+        });
+      }
+      // The effect already happened and the intent is durable — a retry with
+      // the same key converges (the effect no-ops and records the terminal).
+      if (failedWhen === 'on-success') {
+        return failed<T>({
+          code: 'VCS_TERMINAL_APPEND_FAILED',
+          message: cause instanceof Error ? cause.message : 'terminal append failed',
+          cause,
+        });
+      }
+      // The compensation record is best-effort: the effect's own failure is
+      // what the caller asked about, and the durable intent already suffices
+      // for a later reconcile.
+      if (failedWhen === 'on-failure' && captured?.kind === 'failure') {
+        return failed<T>(toEffectError(plan, captured.cause));
+      }
+      // Not an emission failure — a wiring fault this owner cannot describe.
+      throw cause;
     }
-
-    return outcome;
   }
 
   // ─── git probes (read-only, idempotency helpers) ────────────────────────────

@@ -8,7 +8,7 @@ import {
   handleTaskComplete,
   handleTaskFail,
   resetModuleEventStore,
-} from '../../../src/tasks/tools.js';
+} from '../../../src/verbs/tasks/tools.js';
 import {
   resetMaterializerCache,
 } from '../../../src/projections/views/tools.js';

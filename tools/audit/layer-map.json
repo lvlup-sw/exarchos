@@ -4,8 +4,8 @@
   "source": "src",
   "authority": "This file maps first-level src/ directories onto the published L1-L9 targets. Nested layer ids (adapters/cli, adapters/mcp) are named by LAYER_ALLOWED_IMPORTS and resolved by longest declared prefix; they are not first-level map keys. docs/system-design.html is orientation prose, not the nameability of those nested ids.",
   "counts": {
-    "directories": 27,
-    "mapped": 25,
+    "directories": 25,
+    "mapped": 23,
     "exceptions": 2,
     "targets": 11,
     "publishedLayers": 9
@@ -185,12 +185,6 @@
       "layer": "L9",
       "reason": "Environment detection and command shims \u2014 L9 itself."
     },
-    "stack": {
-      "disposition": "mapped",
-      "target": "verbs",
-      "layer": "L6",
-      "reason": "Stack tools are composite-tool actions."
-    },
     "storage": {
       "disposition": "mapped",
       "target": "storage",
@@ -202,12 +196,6 @@
       "target": "lifecycle",
       "layer": "L7",
       "reason": "Outbox and sync handler are lifecycle-shaped generic windows, not workflow primitives."
-    },
-    "tasks": {
-      "disposition": "mapped",
-      "target": "verbs",
-      "layer": "L6",
-      "reason": "Task tools are composite-tool actions."
     },
     "utils": {
       "disposition": "exception",

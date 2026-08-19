@@ -196,6 +196,32 @@ const CheckpointConfig = z.object({
   'enforce-on-wave-dispatch': z.boolean().default(true),
 }).strict();
 
+// ─── Events Configuration ──────────────────────────────────────────────────
+//
+// How hard the post-dispatch emission verifier bites when a declared emission
+// does not land, or when an event lands whose registration says nothing emits
+// it.
+//
+// A DEDICATED key rather than a gate's `blocking: false`, following the same
+// call `review.mutation-enforcement` made: with a boolean there is no way to
+// tell an operator who deliberately set `false` from one who never set it, and
+// the safe reading of that ambiguity is the lenient one — which is how an
+// enforcement default quietly becomes advisory.
+//
+// The default is `block` and it does not vary by environment. A default that
+// failed in CI but warned in dev would mean the check most likely to catch the
+// drift early is the one that never fails, and every violation would be found
+// at the least convenient moment.
+
+/** How the emission verifier reports a violation. */
+export const EMISSION_ENFORCEMENT_MODES = ['block', 'advisory'] as const;
+
+const EventsConfig = z
+  .object({
+    'emission-enforcement': z.enum(EMISSION_ENFORCEMENT_MODES).default('block'),
+  })
+  .strict();
+
 // ─── Verification Configuration ────────────────────────────────────────────
 //
 // verification-ladder slice 1, R2 (#1517 / task 001) — the per-cell override
@@ -291,6 +317,7 @@ export const ProjectConfigSchema = z.object({
   plugins: PluginsConfig.optional(),
   prune: PruneConfig.optional(),
   checkpoint: CheckpointConfig.optional(),
+  events: EventsConfig.optional(),
   verification: VerificationConfig.optional(),
   invariants: InvariantsConfigSchema.optional(),
   storage: StorageConfigSchema.optional(),

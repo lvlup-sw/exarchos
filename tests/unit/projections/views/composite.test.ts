@@ -23,7 +23,7 @@ vi.mock('../../../../src/projections/views/tools.js', () => ({
 }));
 
 // Mock the stack tools module
-vi.mock('../../../../src/stack/tools.js', () => ({
+vi.mock('../../../../src/verbs/stack/tools.js', () => ({
   handleStackStatus: vi.fn(),
   handleStackPlace: vi.fn(),
 }));
@@ -51,7 +51,7 @@ import {
   handleViewShepherdStatus,
   handleViewProvenance,
 } from '../../../../src/projections/views/tools.js';
-import { handleStackStatus, handleStackPlace } from '../../../../src/stack/tools.js';
+import { handleStackStatus, handleStackPlace } from '../../../../src/verbs/stack/tools.js';
 import { handleViewTelemetry } from '../../../../src/projections/telemetry/tools.js';
 
 // Real (un-mocked) surfaces for the DR-7 launcher-liveness `ps` test: the
@@ -215,40 +215,29 @@ describe('handleView', () => {
   });
 
   describe('stack_place', () => {
-    it('should delegate to handleStackPlace', async () => {
-      // Arrange
-      const expected = {
-        success: true,
-        data: { streamId: 's1', sequence: 1, type: 'stack.position-filled' },
-      };
-      vi.mocked(handleStackPlace).mockResolvedValue(expected);
+    // This block asserted the view composite DELEGATES `stack_place`. The action
+    // moved to `exarchos_orchestrate` — it appends `stack.position-filled` while
+    // its registration named orchestrate as the effect provider, so the two could
+    // never agree — and the assertion inverts with it.
+    //
+    // Inverting rather than deleting matters: a router that still reached the
+    // writer would leave the same append on the read surface under a different
+    // name, which is precisely what the move was for. That the ORCHESTRATE router
+    // now reaches it is guarded in `registry.test.ts`, whose dispatch-routing
+    // assertion requires every registered action to have a handler entry — so
+    // this file does not restate it.
+    it('ViewComposite_StackPlace_NoLongerRouted', async () => {
       const args = {
         action: 'stack_place',
         streamId: 'stream-1',
         position: 2,
         taskId: 'task-A',
-        branch: 'feat/foo',
-        prUrl: 'https://github.com/org/repo/pull/1',
       };
 
-      // Act
       const result = await handleView(args, CTX);
 
-      // Assert — T039: envelope wrapping
-      expect(result.success).toBe(true);
-      expect(result.data).toEqual({ streamId: 's1', sequence: 1, type: 'stack.position-filled' });
-      expect((result as Record<string, unknown>).next_actions).toEqual([]);
-      expect(handleStackPlace).toHaveBeenCalledWith(
-        {
-          streamId: 'stream-1',
-          position: 2,
-          taskId: 'task-A',
-          branch: 'feat/foo',
-          prUrl: 'https://github.com/org/repo/pull/1',
-        },
-        STATE_DIR,
-        CTX.eventStore,
-      );
+      expect(result.success).toBe(false);
+      expect(handleStackPlace).not.toHaveBeenCalled();
     });
   });
 

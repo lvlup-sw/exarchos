@@ -4,8 +4,8 @@
   "counts": {
     "tools": 5,
     "visibleTools": 4,
-    "actions": 123,
-    "eventTypes": 171
+    "actions": 124,
+    "eventTypes": 176
   },
   "tools": [
     {
@@ -83,6 +83,7 @@
         "prune_stale_workflows",
         "prune_worktrees",
         "reconcile_state",
+        "reconcile_worktrees",
         "release_worktree",
         "request_synthesize",
         "review_diff",
@@ -92,6 +93,7 @@
         "serialize_merge",
         "setup_worktree",
         "spec_coverage_check",
+        "stack_place",
         "task_claim",
         "task_complete",
         "task_fail",
@@ -133,7 +135,6 @@
         "quality_hints",
         "session_provenance",
         "shepherd_status",
-        "stack_place",
         "stack_status",
         "synthesis_readiness",
         "tasks",
@@ -225,7 +226,7 @@
     },
     {
       "type": "benchmark.completed",
-      "lifecycle": "active",
+      "lifecycle": "planned",
       "tier": "capability"
     },
     {
@@ -364,6 +365,12 @@
       "rationale": "append-path"
     },
     {
+      "type": "emission.violated",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
       "type": "eval.case.completed",
       "lifecycle": "planned",
       "tier": "capability"
@@ -371,7 +378,7 @@
     {
       "type": "eval.judge.calibrated",
       "lifecycle": "active",
-      "tier": "capability"
+      "tier": "harness"
     },
     {
       "type": "eval.run.completed",
@@ -640,6 +647,12 @@
       "rationale": "session-lifecycle"
     },
     {
+      "type": "promotion.executed",
+      "lifecycle": "planned",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
       "type": "provider.parse-error",
       "lifecycle": "active",
       "tier": "substrate",
@@ -764,7 +777,7 @@
     },
     {
       "type": "stack.restacked",
-      "lifecycle": "active",
+      "lifecycle": "planned",
       "tier": "capability"
     },
     {
@@ -907,13 +920,31 @@
     },
     {
       "type": "turn.completed",
-      "lifecycle": "active",
+      "lifecycle": "planned",
       "tier": "capability"
     },
     {
       "type": "typecheck.result",
       "lifecycle": "active",
       "tier": "judgment"
+    },
+    {
+      "type": "vcs.compensated",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "vcs.executed",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
+    },
+    {
+      "type": "vcs.requested",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
     },
     {
       "type": "workflow.cancel",

@@ -71,9 +71,9 @@ describe('mutation-adequacy roster characterization (PIN)', () => {
     const orchestrate = TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate');
     const actionNames = (orchestrate?.actions ?? []).map((a) => a.name);
 
-    it('exposes exactly 80 actions (WLM operational-core #1578 added serialize_merge; DR-4 (#1630) added check_exploration_depth; WLM foundation task 008 added acquire_worktree, release_worktree, prune_worktrees; #1587 retired check_tdd_compliance; #1581 task 018 added discover_bridge; #1739 added cutover_readiness + cutover_decide; task 068 added invariants_amend)', () => {
+    it('exposes exactly 82 actions (WLM operational-core #1578 added serialize_merge; DR-4 (#1630) added check_exploration_depth; WLM foundation task 008 added acquire_worktree, release_worktree, prune_worktrees; #1587 retired check_tdd_compliance; #1581 task 018 added discover_bridge; #1739 added cutover_readiness + cutover_decide; task 068 added invariants_amend; the effect-ledger remedy added reconcile_worktrees and moved stack_place here from exarchos_view)', () => {
       expect(orchestrate).toBeDefined();
-      expect(actionNames).toHaveLength(80);
+      expect(actionNames).toHaveLength(82);
     });
 
     it('carries the mutation-adequacy action (R5 / task 003)', () => {
@@ -143,6 +143,7 @@ describe('mutation-adequacy roster characterization (PIN)', () => {
         'prune_stale_workflows',
         'prune_worktrees',
         'reconcile_state',
+        'reconcile_worktrees',
         'release_worktree',
         'request_synthesize',
         'review_diff',
@@ -152,6 +153,7 @@ describe('mutation-adequacy roster characterization (PIN)', () => {
         'serialize_merge',
         'setup_worktree',
         'spec_coverage_check',
+        'stack_place',
         'task_claim',
         'task_complete',
         'task_fail',

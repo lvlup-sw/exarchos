@@ -25,7 +25,11 @@ export const LEGACY_SHAPE_DEBT: readonly string[] = Object.freeze([
   'tests/integration/cli-parity.test.ts',
   'tests/integration/cli-table-tree-regression.test.ts',
   'tests/integration/tools-call.test.ts',
-  'tests/unit/stack/handlers.test.ts',
+  // Moved with `src/stack/` when the stack module joined `verbs/`. The entry is
+  // re-pointed rather than dropped: the file still carries the same unannotated
+  // assertion shape, so removing it would be a silent shrink of a shrink-only
+  // list, which is the one edit this baseline exists to prevent.
+  'tests/unit/verbs/stack/handlers.test.ts',
   'tests/unit/workflow/events.test.ts',
   'tests/unit/workflow/integration.test.ts',
   'tests/unit/adapters/cli/cli.correlation-flags.test.ts',

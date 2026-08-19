@@ -175,13 +175,16 @@ const InFlightOperationSchema = z
 /**
  * `ps` success — the DR-3 scope-parameterized fold. THREE shapes ride ONE
  * `.passthrough()` schema, selected by `scope`:
- *   - scope:'worktree' (WLM-6, unchanged): inFlight/count/launches/launchCount/
- *     prunes/pruneCount, plus probe/reconcile/mergeReconcile on `probe: true`;
+ *   - scope:'worktree' (WLM-6): inFlight/count/launches/launchCount/prunes/pruneCount;
  *   - scope:'workflow': workflows/workflowCount (+ echoed `scope`);
  *   - scope:'all' (default): workflows/workflowCount + operations/operationCount.
  * Every field is therefore optional — no single scope carries all of them — so a
  * response for any scope validates against this one schema (the MCP adapter
  * safeParses real output against it; an over-strict shape would break production).
+ *
+ * The `probe`/`reconcile`/`mergeReconcile` sub-results are NOT here any more:
+ * every `ps` shape is now a pure read, and the reconcile passes answer on
+ * `reconcile_worktrees` under {@link ReconcileWorktreesData}.
  */
 const PsData = z
   .object({
@@ -195,15 +198,39 @@ const PsData = z
     launchCount: z.number().optional(),
     prunes: z.array(InFlightPruneSchema).optional(),
     pruneCount: z.number().optional(),
-    probe: z.record(z.string(), z.unknown()).optional(),
-    reconcile: z.record(z.string(), z.unknown()).optional(),
-    mergeReconcile: z.record(z.string(), z.unknown()).optional(),
     // Workflows section (scope:'workflow'|'all').
     workflows: z.array(WorkflowFoldRowSchema).optional(),
     workflowCount: z.number().optional(),
     // Operations section (scope:'all').
     operations: z.array(InFlightOperationSchema).optional(),
     operationCount: z.number().optional(),
+  })
+  .passthrough();
+
+/**
+ * `reconcile_worktrees` success — the three ground-truth reconcile passes,
+ * each reporting its own findings, followed by the POST-reconcile in-flight
+ * columns. Unlike `PsData` every field is REQUIRED: this action has one shape,
+ * and all three passes run on every invocation.
+ *
+ * The columns are re-folded after the passes so a single response can never
+ * report the same entry as both in-flight and reconciled — the property that
+ * made this path worth keeping intact when it moved off `ps`.
+ */
+const ReconcileWorktreesData = z
+  .object({
+    /** Reservation reclaim: released (owner dead, path free) + orphans (owner dead, path held). */
+    probe: z.record(z.string(), z.unknown()),
+    /** Phantom-launch heal: an in-flight launch whose supervisor is provably dead. */
+    reconcile: z.record(z.string(), z.unknown()),
+    /** Crash-mid-merge heal: a stranded merge lease whose holder is provably dead. */
+    mergeReconcile: z.record(z.string(), z.unknown()),
+    inFlight: z.array(InFlightMergeSchema),
+    count: z.number(),
+    launches: z.array(WorktreeEntrySchema),
+    launchCount: z.number(),
+    prunes: z.array(InFlightPruneSchema),
+    pruneCount: z.number(),
   })
   .passthrough();
 
@@ -259,6 +286,7 @@ export const ReleaseWorktreeOutputSchema = EnvelopeSchema(ReleaseWorktreeData);
 export const PruneWorktreesOutputSchema = EnvelopeSchema(PruneWorktreesData);
 export const SerializeMergeOutputSchema = EnvelopeSchema(SerializeMergeData);
 export const PsOutputSchema = EnvelopeSchema(PsData);
+export const ReconcileWorktreesOutputSchema = EnvelopeSchema(ReconcileWorktreesData);
 export const WaitOutputSchema = EnvelopeSchema(WaitData);
 export const WorktreesOutputSchema = EnvelopeSchema(WorktreesData);
 

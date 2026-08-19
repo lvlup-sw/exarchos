@@ -25,7 +25,7 @@ import {
   handleTaskClaim,
   handleTaskComplete,
   handleTaskFail,
-} from '../tasks/tools.js';
+} from './tasks/tools.js';
 import { handleReviewTriage } from '../review/tools.js';
 import { handlePrepareDelegation } from './team/prepare-delegation.js';
 import { handlePrepareSynthesis } from './team/prepare-synthesis.js';
@@ -94,10 +94,12 @@ import { handleCreateIssue } from './vcs/create-issue.js';
 import type { HandleCreateIssueArgs } from './vcs/create-issue.js';
 import { createVcsProvider } from '../vcs/factory.js';
 import { handleMergeOrchestrate } from './merge/merge-orchestrate.js';
+import { handleStackPlace } from './stack/tools.js';
 import {
   handleAcquireWorktree,
   handleReleaseWorktree,
   handlePruneWorktrees,
+  handleReconcileWorktrees,
   handleSerializeMerge,
 } from './worktree/handlers.js';
 import {
@@ -523,6 +525,14 @@ const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   acquire_worktree: adaptCtx(handleAcquireWorktree),
   release_worktree: adaptCtx(handleReleaseWorktree),
   prune_worktrees: adaptCtx(handlePruneWorktrees),
+  // The three ground-truth reconcile passes, which rode `exarchos_view.ps
+  // probe:true` until a read verb stopped carrying writes. Same handler shape,
+  // and the events it appends are declared by the action that now performs it.
+  reconcile_worktrees: adaptCtx(handleReconcileWorktrees),
+  // Recording a stack position appends `stack.position-filled`. It routed
+  // through the view composite while its registration named this tool as the
+  // effect provider; the handler is unchanged, only its router moved.
+  stack_place: adaptWithEventStore(handleStackPlace),
   // Integration-branch merge serializer (WLM operational core, DR-7) — the
   // optimistic per-`integrationRef` lease that composes `merge_orchestrate`
   // UNCHANGED. Rides exarchos_orchestrate (INV-5d — no new visible tool); the

@@ -40,6 +40,10 @@ import {
 } from '../../../src/events/event-registration.js';
 import { eventDeclarations, isEventRegistration } from '../../../src/events/event-declarations.js';
 import {
+  bootResolvedWelds,
+  staleCoverEligibleWelds,
+} from '../../../src/events/registration-validate.js';
+import {
   ANNOTATED_EVENTS,
   EVENT_ANNOTATIONS,
   reportCoupledEventTypes,
@@ -57,7 +61,13 @@ function registryWith(
 }
 
 describe('EventAnnotations — the DR-2 tier and lifecycle assignment for the event catalog', () => {
-  it('EventAnnotations_All170Types_CarryATierAndLifecycle', () => {
+  it('EventAnnotations_EveryRegisteredType_CarriesATierAndLifecycle', () => {
+    // The name carried a cardinality (`All170Types`) and the catalog outgrew it twice without
+    // anything going red, because every assertion in this test is RELATIVE — the denominator is
+    // read from the registry, never written down. A number in the name of a test that
+    // deliberately holds no number was the only stale part of it, so the number is gone rather
+    // than bumped.
+    //
     // NON-VACUOUS DENOMINATOR, from two independent reads of the storage module. A census over an
     // empty population reports "no gaps" and means nothing; a census over one store cannot notice
     // that the other store grew.
@@ -108,6 +118,196 @@ describe('EventAnnotations — the DR-2 tier and lifecycle assignment for the ev
       .map((declaration) => declaration.id);
     expect(failingTheGuard).toEqual([]);
     expect(declarations.length).toBe(registered.length);
+  });
+
+  it('VcsLedgerEvents_SubstrateTier_CarryOperationRecordRationale', () => {
+    // The three names the git & worktree mutation owner appends around every
+    // non-idempotent git effect: the intent before it and one of two terminals after.
+    //
+    // They are the WEAKEST weld in the union, and the assertions below say exactly that and
+    // no more. `substrate`/`operation-record` claims only that the code performing the
+    // operation owns the append; it does NOT claim a consumer, a provider or a gate.
+    const LEDGER = ['vcs.requested', 'vcs.executed', 'vcs.compensated'] as const;
+
+    for (const eventType of LEDGER) {
+      // Read through the PORT, not the table literal — the port is what `schemas.ts` derives
+      // the emission registry through, so an annotation the port cannot resolve is one the
+      // registry derivation cannot see either.
+      const registration = ANNOTATED_EVENTS.registrationOf(eventType);
+      expect(registration, `${eventType} carries no annotation`).toBeDefined();
+      expect(registration).toEqual({
+        lifecycle: 'active',
+        tier: 'substrate',
+        rationale: 'operation-record',
+      });
+
+      // The weld has to RESOLVE, not merely be spelled. `weldReferenceOf` is the runtime
+      // carrier of the union's exhaustiveness, so an empty ref would mean a registration that
+      // named a tier and nothing else.
+      expect(weldReferenceOf(registration!).ref.trim().length).toBeGreaterThan(0);
+
+      // The consequence that reaches the rest of the system: the derived registry classifies
+      // all three `auto`. This is what "the handler owns the append" means on the emission
+      // axis, and it is the reason no model is ever nagged to hand-emit a ledger record.
+      expect(EVENT_EMISSION_REGISTRY[eventType]).toBe('auto');
+    }
+
+    // NOT report-coupled — the population a shrink ratchet reads. A ledger record that landed
+    // in the model-emitted set would be a durable effect record the model could forget to make.
+    const reportCoupled = reportCoupledEventTypes(EventTypes);
+    expect(reportCoupled.length, 'the report-coupled census is empty — it cannot discriminate')
+      .toBeGreaterThan(0);
+    for (const eventType of LEDGER) expect(reportCoupled).not.toContain(eventType);
+
+    // And the negative direction, so the block above is not passing because every event in the
+    // catalog happens to be an operation record: a sibling in the SAME table is welded
+    // elsewhere, and reading it back gives a different rationale.
+    expect(ANNOTATED_EVENTS.registrationOf('workflow.started')).toEqual({
+      lifecycle: 'active',
+      tier: 'substrate',
+      rationale: 'transition-record',
+    });
+  });
+
+  it('PromotionEvent_SubstrateTier_CarriesOperationRecordRationale', () => {
+    // The atomic tree-promotion record. `install/atomic-promotion.ts` swaps a verified staged
+    // tree into a live destination with a bounded sequence of renames; that commit rename is
+    // the non-idempotent step, and the record for it belongs to the promoting code rather than
+    // to a caller asked to report on its behalf. That is the TIER claim, and it is unchanged.
+    //
+    // The LIFECYCLE claim is separate and weaker: nothing appends this event yet. The
+    // carrier-wrapped promotion path that declares the emission has no caller in the governed
+    // source, so the tier records what the weld WOULD be and the lifecycle records that the
+    // emitter is not wired.
+    //
+    // The weld claims only that. It names no provider, no consumer and no gate, and every
+    // assertion below is scoped to the claim rather than to the fact of registration.
+    const PROMOTION = 'promotion.executed';
+
+    // Read through the PORT, not the table literal — the port is what `schemas.ts` derives the
+    // emission registry through, so an annotation the port cannot resolve is one the derivation
+    // cannot see either.
+    const registration = ANNOTATED_EVENTS.registrationOf(PROMOTION);
+    expect(registration, `${PROMOTION} carries no annotation`).toBeDefined();
+    expect(registration).toEqual({
+      lifecycle: 'planned',
+      tier: 'substrate',
+      rationale: 'operation-record',
+    });
+
+    // The weld has to RESOLVE, not merely be spelled. An empty ref would mean a registration
+    // that named a tier and nothing else.
+    expect(weldReferenceOf(registration!).ref.trim().length).toBeGreaterThan(0);
+
+    // The consequence that reaches the rest of the system: LIFECYCLE WINS on the emission axis,
+    // so the derived registry classifies it `planned` rather than consulting the tier. That is
+    // the whole point of resolving lifecycle first — "what emits it" is not a question worth
+    // answering until something does.
+    expect(EVENT_EMISSION_REGISTRY[PROMOTION]).toBe('planned');
+
+    // …and the tier is NOT what produced that, which is what stops this pin passing for the
+    // wrong reason. A sibling substrate event that IS emitted resolves `auto` through the same
+    // derivation, so `planned` here is attributable to the lifecycle and to nothing else.
+    expect(EVENT_EMISSION_REGISTRY['workflow.started']).toBe('auto');
+
+    // NOT report-coupled. A durable effect record that landed in the model-emitted set would be
+    // a record the model could simply forget to make.
+    const reportCoupled = reportCoupledEventTypes(EventTypes);
+    expect(reportCoupled.length, 'the report-coupled census is empty — it cannot discriminate')
+      .toBeGreaterThan(0);
+    expect(reportCoupled).not.toContain(PROMOTION);
+
+    // ── The rationale is the subject, so it has to be capable of being wrong ──
+    //
+    // Two independent discriminations, because `substrate` alone is the most populated tier in
+    // the table and asserting it proves almost nothing.
+    //
+    // First: a sibling welded `substrate` for a DIFFERENT reason reads back with a different
+    // rationale, so the equality above is not satisfied by every substrate registration.
+    expect(ANNOTATED_EVENTS.registrationOf('workflow.started')).toEqual({
+      lifecycle: 'active',
+      tier: 'substrate',
+      rationale: 'transition-record',
+    });
+
+    // Second, and the one this task exists to keep straight: the cutover-readiness export
+    // record is a neighbouring, already-registered fact about promotion — and it is a
+    // materially different weld, `capability` with a named provider and a real consumer fold.
+    // Reusing it for the promotion effect would have claimed a provider and a consumer that the
+    // promotion has neither of. Reading both back here is what makes the difference an
+    // assertion rather than a note in a commit message.
+    const cutoverReady = ANNOTATED_EVENTS.registrationOf('admission.cutover-ready');
+    expect(cutoverReady).toBeDefined();
+    expect(cutoverReady!.tier).toBe('capability');
+    expect(cutoverReady).not.toEqual(registration);
+  });
+
+  it('EmissionViolation_SubstrateTier_CarriesOperationRecordRationale', () => {
+    // The post-dispatch verifier's report that a handler completed an operation without an
+    // event its own registration declares unconditionally. The code that detects the miss owns
+    // the append of the finding, which is the whole of the claim `substrate`/`operation-record`
+    // makes — no provider, no consumer, no gate.
+    const VIOLATION = 'emission.violated';
+
+    // Read through the PORT, not the table literal — the port is what `schemas.ts` derives the
+    // emission registry through, so an annotation the port cannot resolve is one the derivation
+    // cannot see either.
+    const registration = ANNOTATED_EVENTS.registrationOf(VIOLATION);
+    expect(registration, `${VIOLATION} carries no annotation`).toBeDefined();
+    expect(registration).toEqual({
+      lifecycle: 'active',
+      tier: 'substrate',
+      rationale: 'operation-record',
+    });
+
+    // The weld has to RESOLVE, not merely be spelled. An empty ref would mean a registration
+    // that named a tier and nothing else.
+    expect(weldReferenceOf(registration!).ref.trim().length).toBeGreaterThan(0);
+
+    // The consequence that reaches the rest of the system: the derived registry classifies it
+    // `auto`. The verifier appends its own finding, so no model is ever asked to report that
+    // Exarchos dropped an emission — which is a record the party at fault would be writing.
+    expect(EVENT_EMISSION_REGISTRY[VIOLATION]).toBe('auto');
+
+    // NOT report-coupled. A violation report in the model-emitted set would be a bug report the
+    // model could decline to file, and the one thing a missed-emission check cannot tolerate is
+    // a missed emission of its own.
+    const reportCoupled = reportCoupledEventTypes(EventTypes);
+    expect(reportCoupled.length, 'the report-coupled census is empty — it cannot discriminate')
+      .toBeGreaterThan(0);
+    expect(reportCoupled).not.toContain(VIOLATION);
+
+    // ── The rationale is the subject, so it has to be capable of being wrong ──
+    //
+    // `substrate` is the most populated tier in the table, so asserting it alone proves nearly
+    // nothing. A sibling welded `substrate` for a DIFFERENT reason reads back with a different
+    // rationale, which is what stops the equality above from being satisfied by any substrate
+    // row at all.
+    expect(ANNOTATED_EVENTS.registrationOf('workflow.started')).toEqual({
+      lifecycle: 'active',
+      tier: 'substrate',
+      rationale: 'transition-record',
+    });
+
+    // ── The tier's operative consequence, asserted against a non-empty population ──
+    //
+    // `substrate` keeps this registration OUT of the boot-resolved weld set, and therefore out
+    // of the stale-cover population the boot gate ranges over. That is the honest reading and
+    // not a dodge: the finding is read by whoever investigates the bug, and reading is not
+    // folding — there is no reducer, view or telemetry surface to name as a `ConsumerId`.
+    //
+    // Guarded against vacuity in both directions, because "absent from a set" is the classic
+    // assertion that passes by the set being empty or by the check having stopped running: the
+    // population is asserted non-empty AND asserted to contain a known capability event, so a
+    // resolver that returned nothing would fail here rather than agree.
+    const welds = bootResolvedWelds();
+    const eligible = staleCoverEligibleWelds(welds);
+    const boundTypes = welds.map((w) => w.eventType);
+    expect(boundTypes.length, 'the boot-resolved weld set is empty — it cannot discriminate')
+      .toBeGreaterThan(0);
+    expect(boundTypes).toContain('task.completed');
+    expect(boundTypes).not.toContain(VIOLATION);
+    expect(eligible.map((w) => w.eventType)).not.toContain(VIOLATION);
   });
 
   it('EventAnnotations_SeededTierSourceDisagreement_IsReported', () => {
@@ -185,6 +385,12 @@ describe('EventAnnotations — the DR-2 tier and lifecycle assignment for the ev
     // non-empty — the correction task 010 measured. Collapsing either half back into the other
     // (all 25 `judgment`, or all 25 `workflow-local`) would leave the count right and the welds
     // wrong, so the count alone is not allowed to be the whole assertion.
+    //
+    // `harness` is deliberately NOT in this set. It derives `'auto'`, not `'model'`: a harness
+    // computes its payload in code, and the catalog proved it — mapping the tier to `'model'`
+    // obliged every field of `eval.judge.calibrated` to carry a `.describe()` for a model that
+    // does not exist. Report-coupling is about who COMPOSES the payload, and a tier that is
+    // machine-composed does not belong here however weak its weld is.
     const tiersInPlay = new Set(
       derivedReportCoupled.map((eventType) => EVENT_ANNOTATIONS[eventType]?.tier),
     );

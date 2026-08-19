@@ -46,6 +46,7 @@ import {
   promoteTree,
   promoteTreeSync,
   recoverInterruptedPromotion,
+  type PromotionExecutedRecord,
   type PromotionIo,
 } from '../../../src/install/atomic-promotion.js';
 
@@ -290,9 +291,20 @@ describe('DR-17 — an orphan backup is refused, never destroyed', () => {
 
     // The carrier is the seam callers (onboard install) use: a refusal has to
     // arrive as a structured error outcome, not an unhandled throw.
-    const outcome = await promoteTree({ target, entries: NEW_TREE }, LIVE);
+    const recorded: PromotionExecutedRecord[] = [];
+    const outcome = await promoteTree(
+      { target, entries: NEW_TREE },
+      LIVE,
+      defaultPromotionIo(),
+      (record) => {
+        recorded.push(record);
+      },
+    );
 
     expect(isError(outcome)).toBe(true);
+    // A refused promotion promoted nothing, so it recorded nothing — the
+    // recorder was available throughout and was still never reached.
+    expect(recorded).toEqual([]);
     if (isError(outcome)) {
       expect(outcome.error.code).toBe('INSTALL_EFFECT_FAILED');
       expect(outcome.error.message).toContain(backupDir());

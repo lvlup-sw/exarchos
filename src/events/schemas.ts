@@ -70,6 +70,25 @@ export const INTERNAL_ADMISSION_EVENT_TYPES = [
   'admission.cutover-ready',
 ] as const;
 
+/**
+ * Server-owned VCS ledger facts.
+ *
+ * `foldVcsLedger` treats these as AUTHORITATIVE fencing and idempotency state:
+ * a recorded `vcs.executed` lets a retry skip the git effect, a
+ * `vcs.compensated` sticky-fails a key, and the epoch fences later mutations.
+ * Adding them to the catalog so their schemas are validated also made them
+ * appendable through the generic `exarchos_event.append` surface, which is
+ * `ROLE_ANY` and rejects only RESERVED types. Left off this list, any caller
+ * could mint a fact that suppresses or fences a real git mutation without
+ * passing through `VcsMutationOwner` — the ledger would be authoritative over
+ * input it does not own. Reserving them is what makes the fold's authority true.
+ */
+export const INTERNAL_VCS_LEDGER_EVENT_TYPES: readonly [
+  'vcs.requested',
+  'vcs.executed',
+  'vcs.compensated',
+] = ['vcs.requested', 'vcs.executed', 'vcs.compensated'];
+
 /** Server-owned cancellation process-manager facts (v2.12, DR-7). */
 export const INTERNAL_CANCELLATION_EVENT_TYPES = [
   'cancel.requested',
@@ -154,10 +173,18 @@ export const EventTypes = [
   // PREFLIGHT_FAILED, RESERVED_FIELD, etc.) so `view telemetry` can report
   // them instead of silently rolling them up as completions.
   'tool.action_errored',
-  // #1262 — per-turn output-token sample emitted by the telemetry middleware
-  // when an agent turn completes. The `output_tokens_high` quality hint
-  // (catalog: `projections/telemetry/quality-hints.ts`) fires off this stream when a
-  // turn's `outputTokens` crosses the configured threshold.
+  // #1262 — per-turn output-token sample. The schema, the type-map entry and two
+  // folds exist (`telemetry-projection.ts`, `workflow-state-projection.ts`), and
+  // the `output_tokens_high` quality hint (catalog:
+  // `projections/telemetry/quality-hints.ts`) reads the stream when a turn's
+  // `outputTokens` crosses the configured threshold — but NOTHING appends it:
+  // there is no append site in the governed tree. This comment used to name the
+  // telemetry middleware as the producer, which contradicted the `planned`
+  // lifecycle in `event-annotations.ts`. The annotation is the side the tree
+  // supports, so the producer claim is removed rather than the annotation
+  // relaxed. It matters now that the emission verifier is armed: a landed event
+  // whose lifecycle is not `active` is a violation, so promoting this to
+  // `active` on the strength of a stale comment would be a real fault.
   'turn.completed',
   // #1525 W2 Half 1 — per-subagent output-token total emitted by the restored
   // SubagentStop hook (`lifecycle/subagent-stop.ts`). The handler parses the
@@ -499,6 +526,49 @@ export const EventTypes = [
   // while a fresh export invocation mints a distinct key and a new pair.
   'export.requested',
   'export.executed',
+  // The VCS mutation ledger — the durable intent/terminal record the single git
+  // & worktree mutation owner writes around every non-idempotent git effect.
+  // `vcs.requested` is the INTENT appended BEFORE the effect; `vcs.executed` and
+  // `vcs.compensated` are the two mutually-exclusive TERMINALS appended after it
+  // (success, and failure-with-compensation respectively). Folding the ledger
+  // stream yields the fencing epoch, the idempotency replay cache and the set of
+  // open intents, so an interrupted run converges on retry instead of leaving an
+  // on-disk worktree or branch nothing recorded.
+  //
+  // These three used to be registered through the store's runtime registration
+  // seam from the owner's constructor, which meant they carried no data schema,
+  // no entry in the type map and no coupling tier — invisible to every static
+  // reader of the catalog. They are declared here instead, so the catalog is the
+  // one place a VCS ledger name exists.
+  'vcs.requested',
+  'vcs.executed',
+  'vcs.compensated',
+  // The atomic tree-promotion record — the durable fact that a staged tree was
+  // swapped into a live destination by `install/atomic-promotion.ts`. That site
+  // builds a typed `EffectPlan` and runs it, and until now NOTHING named the
+  // effect: the one non-idempotent step of an install (the commit rename that
+  // makes a whole rendered tree visible at once) left no record anywhere.
+  //
+  // Deliberately NOT `admission.cutover-ready`, which is next to it in spirit
+  // and is a different fact. That event is a readiness EXPORT record — it says a
+  // cutover MAY proceed, is appended by the observer's auto-export hook on the
+  // store-wide admission stream, and is keyed on store identity. This one says a
+  // tree WAS promoted, is appended by the promoting code itself, and is keyed on
+  // the destination and the content digest of what now lives there. Reusing the
+  // readiness fact for the effect would make "allowed to promote" and "promoted"
+  // the same row.
+  'promotion.executed',
+  // The emission-violation report — the durable record that a handler finished
+  // an operation without appending an event its own registration declares
+  // unconditionally. The post-dispatch verifier appends it; a violation is an
+  // Exarchos bug rather than agent misbehavior, which is why it is a recorded
+  // fact and not a thrown error the caller sees.
+  //
+  // It has to exist as a NAME in the catalog before anything can report through
+  // it. A verifier that discovered a missed emission and had nowhere to write
+  // the finding would be an assertion whose only output is a log line, and the
+  // whole point of the check is that the miss survives the run that found it.
+  'emission.violated',
   // Phase-gate v2.12 proof substrate (DR-2 / DR-3). These are additive,
   // internal replay contracts only. They are classified `planned` below:
   // v2.12 does not expose admission actions, authorize generic appends, or
@@ -3066,6 +3136,174 @@ export const ExportExecutedData = z.object({
     .describe('Same key as the paired export.requested intent (INV-8)'),
 });
 
+// ─── VCS mutation ledger contract ───────────────────────────────────────────
+//
+// The intent/terminal record the single git & worktree mutation owner appends
+// around every non-idempotent git effect. The three payloads share a common
+// head — the mutation `kind`, the caller's `idempotencyKey` and the monotonic
+// fencing `epoch` — because the ledger fold reads exactly those three fields off
+// EVERY event in the stream regardless of which one it is: `epoch` maximises
+// into the current owner's fencing token, `idempotencyKey` keys the replay
+// cache, and `kind` discriminates the mutation family for the audit trail.
+//
+// The terminals then diverge on the one field each carries: `vcs.executed` holds
+// the effect's `result` (replayed verbatim to a duplicate request, so a repeated
+// key cannot mint a second worktree, branch, PR or merge) and `vcs.compensated`
+// holds the failure's `error`. Splitting the terminal in two rather than
+// carrying a status flag is what makes "already terminated as compensated"
+// distinguishable from "already executed" without inspecting a payload field.
+
+/** The fields every VCS ledger event carries — the ones the ledger fold reads. */
+const vcsLedgerCommonFields = {
+  kind: z
+    .string()
+    .min(1)
+    .describe('Mutation family for the audit trail (e.g. branch.create, worktree.add)'),
+  idempotencyKey: z
+    .string()
+    .min(1)
+    .describe(
+      'Caller-supplied key; a duplicate replays the recorded terminal and performs no second effect',
+    ),
+  epoch: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe(
+      'Monotonic fencing token of the requesting owner; a writer below the ledger high-water mark has lost ownership and is rejected',
+    ),
+};
+
+/**
+ * `vcs.requested` — the durable INTENT, appended BEFORE the git effect fires.
+ *
+ * An intent with no matching terminal is the recoverable state: the effect is
+ * probe-before-mutate, so re-running the same key either no-ops or completes the
+ * partial mutation, and the missing terminal is then recorded.
+ */
+export const VcsRequestedData = z.object({ ...vcsLedgerCommonFields });
+
+/**
+ * `vcs.executed` — the success TERMINAL, appended AFTER the effect succeeds.
+ *
+ * `result` is the effect's own outcome carrier and is replayed verbatim to a
+ * later request bearing the same key, which is what makes duplicate creates
+ * impossible rather than merely unlikely.
+ */
+export const VcsExecutedData = z.object({
+  ...vcsLedgerCommonFields,
+  result: z
+    .record(z.string(), z.unknown())
+    .optional()
+    .describe('The effect outcome, replayed verbatim to a duplicate request bearing the same key'),
+});
+
+/**
+ * `vcs.compensated` — the failure TERMINAL, appended after a failed effect and
+ * any compensation it triggered (a multi-step create that fails partway undoes
+ * the state it minted, so no orphaned worktree or branch survives).
+ *
+ * Deliberately sticky: unlike an `executed` terminal, this one is never
+ * re-verified against reality and never falls through to a re-run.
+ */
+export const VcsCompensatedData = z.object({
+  ...vcsLedgerCommonFields,
+  error: z.string().optional().describe('Failure message captured from the effect carrier'),
+});
+
+// ─── Atomic tree-promotion contract ─────────────────────────────────────────
+//
+// `install/atomic-promotion.ts` stages a whole tree into a sibling directory,
+// verifies its content-addressed digest, then commits with a bounded sequence of
+// atomic renames. The commit rename is the one non-idempotent moment in an
+// install — before it the destination is fully OLD, after it fully NEW — and it
+// is the moment this event records.
+//
+// ONE event, not the intent/terminal pair the VCS ledger carries, and the
+// difference is a property of the operation rather than a shortcut. The promoter
+// already recovers its own interrupted attempts from an on-disk journal, so an
+// intent record would duplicate a durable structure that exists and is read; and
+// the operation has no compensated terminal to distinguish, because a failed
+// promotion rolls all the way back to the previous complete tree and leaves the
+// destination in the state it started in.
+
+/**
+ * `promotion.executed` — the durable record that a staged tree was promoted.
+ *
+ * The payload is the identity of the promotion, not a copy of the tree: WHERE it
+ * landed, WHAT now lives there (the same content-addressed digest the promoter
+ * verifies the stage against, so the record and the verification read one value),
+ * WHO performed it, and whether it converged from an interrupted prior attempt.
+ *
+ * Deliberately omits the promoter's `directoryDurability`. That field reports
+ * whether the host can fsync a directory handle — a platform capability, not a
+ * fact about this promotion — and its vocabulary is owned by
+ * `utils/atomic-write.ts` as a type with no runtime form. Restating it as an
+ * enum here would be a second authority for a vocabulary that already has one.
+ */
+export const PromotionExecutedData = z.object({
+  target: z
+    .string()
+    .min(1)
+    .describe('Absolute destination directory the staged tree was promoted into'),
+  treeDigest: z
+    .string()
+    .min(1)
+    .describe('Content-addressed digest of the promoted tree, as verified before the commit rename'),
+  owner: z
+    .string()
+    .min(1)
+    .describe('Effect owner recorded in the promotion plan — the code that performed the promotion'),
+  recoveredPriorAttempt: z
+    .boolean()
+    .describe(
+      'True when a journal left by an interrupted earlier attempt was recovered before this promotion ran',
+    ),
+});
+
+// ─── Emission-violation report ──────────────────────────────────────────────
+//
+// The durable finding that a handler completed an operation without appending
+// an event its own registration declares unconditionally. The post-dispatch
+// verifier is the only writer, and the fault it reports is ours: the handler
+// promised an emission the dispatch chain then failed to observe.
+//
+// Registered ahead of the verifier that appends it, because a check with
+// nowhere to write its finding degrades to a log line — the miss has to
+// outlive the run that noticed it or the whole assertion is unfalsifiable
+// after the fact.
+
+/**
+ * `emission.violated` — an operation finished with declared emissions unlanded.
+ *
+ * The payload has to answer all three of WHICH operation, WHAT it was supposed
+ * to emit, and WHICH RUN it happened on, because a report naming only the
+ * action is unactionable: the same action can declare several emissions, and
+ * "this action missed something" does not say which contract broke or let a
+ * reader join the finding back to the surrounding events of that dispatch.
+ *
+ * `missingEvents` is the FULL set rather than the first miss. Reporting one
+ * name per violation would turn a handler that dropped three emissions into a
+ * finding that reads as though it dropped one, and each repair would reveal the
+ * next — the shape that makes a fault look smaller every time it is examined.
+ */
+export const EmissionViolatedData = z.object({
+  action: z
+    .string()
+    .min(1)
+    .describe('The dispatched action whose handler completed without its declared emissions'),
+  missingEvents: z
+    .array(z.string().min(1))
+    .min(1)
+    .describe(
+      'Every unconditionally declared event name that did not land — the full set, not the first miss',
+    ),
+  operationId: z
+    .string()
+    .min(1)
+    .describe('Identifier of the dispatch operation the verifier assessed, joining this finding to that run'),
+});
+
 // ─── Durable projection-health state (DR-4, wiring-closure T-06) ────────────
 //
 // The cursor/tail freshness verdict, made durable. `projections/freshness.ts`
@@ -3657,6 +3895,17 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'export.requested': ExportRequestedData,
   'export.executed': ExportExecutedData,
 
+  // The VCS mutation ledger — intent, then one of two terminals.
+  'vcs.requested': VcsRequestedData,
+  'vcs.executed': VcsExecutedData,
+  'vcs.compensated': VcsCompensatedData,
+
+  // The atomic tree-promotion record.
+  'promotion.executed': PromotionExecutedData,
+
+  // The emission-violation report.
+  'emission.violated': EmissionViolatedData,
+
   // DR-4 (wiring-closure T-06) — durable projection-health state.
   'projection.degraded': ProjectionDegradedData,
   'projection.recovered': ProjectionRecoveredData,
@@ -3834,6 +4083,17 @@ export type PruneExecuted = z.infer<typeof PruneExecutedData>;
 export type ExportRequested = z.infer<typeof ExportRequestedData>;
 export type ExportExecuted = z.infer<typeof ExportExecutedData>;
 
+// The VCS mutation ledger — intent, then one of two terminals.
+export type VcsRequested = z.infer<typeof VcsRequestedData>;
+export type VcsExecuted = z.infer<typeof VcsExecutedData>;
+export type VcsCompensated = z.infer<typeof VcsCompensatedData>;
+
+// The atomic tree-promotion record.
+export type PromotionExecuted = z.infer<typeof PromotionExecutedData>;
+
+// The emission-violation report.
+export type EmissionViolated = z.infer<typeof EmissionViolatedData>;
+
 // DR-4 (wiring-closure T-06) — durable projection-health state.
 export type ProjectionDegraded = z.infer<typeof ProjectionDegradedData>;
 export type ProjectionRecovered = z.infer<typeof ProjectionRecoveredData>;
@@ -3985,6 +4245,14 @@ export type EventDataMap = {
   // DR-6 (lifecycle-verbs task 012) — export two-event contract (INV-13 / INV-8).
   'export.requested': ExportRequested;
   'export.executed': ExportExecuted;
+  // The VCS mutation ledger — intent, then one of two terminals.
+  'vcs.requested': VcsRequested;
+  'vcs.executed': VcsExecuted;
+  'vcs.compensated': VcsCompensated;
+  // The atomic tree-promotion record.
+  'promotion.executed': PromotionExecuted;
+  // The emission-violation report.
+  'emission.violated': EmissionViolated;
 
   // DR-4 (wiring-closure T-06) — durable projection-health state.
   'projection.degraded': ProjectionDegraded;

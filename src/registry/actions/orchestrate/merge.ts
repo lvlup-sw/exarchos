@@ -36,13 +36,20 @@ export const mergeActions: readonly BuiltinToolAction[] = [
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
     autoEmits: [
-      { event: 'merge.preflight', condition: 'always' },
-      { event: 'merge.executed', condition: 'conditional', description: 'When preflight passes and execute succeeds' },
+      { event: 'merge.preflight', condition: 'always', role: 'primary', owner: 'orchestrate' },
+      { event: 'merge.executed', condition: 'conditional', description: 'When preflight passes and execute succeeds', role: 'primary', owner: 'orchestrate' },
       // DR-2 (task 006): recovery emits ONLY the canonical `merge.recovered`.
       // The legacy `merge.rollback` write path is retired (read-tolerant, not
       // emittable) so it is NO LONGER declared here — a `retired` event must not
       // appear in any `autoEmits` (RegistryDrift enforces `autoEmits ⊆ auto`).
-      { event: 'merge.recovered', condition: 'conditional', description: 'When execute fails and the INV-14 recovery ladder runs' },
+      // Fires only once the execute arm has already failed — the compensating
+      // path, not the normal one. No expiry: the recovery ladder is a permanent
+      // part of the merge contract rather than a stopgap awaiting removal.
+      { event: 'merge.recovered', condition: 'conditional', description: 'When execute fails and the INV-14 recovery ladder runs', role: 'recovery', owner: 'orchestrate' },
+      // The terminal marker, appended by `execute-merge.ts` in the same dispatch that already
+      // declares `merge.executed`. A losing concurrent invocation returns STATE_CONFLICT and
+      // defers completion to the winner, so this is conditional rather than always.
+      { event: 'merge.completed', condition: 'conditional', description: 'After the merge lands and the terminal marker is written', role: 'primary', owner: 'orchestrate' },
     ],
     // T9 (#1440 Op 2, preview-4 design §4.3): multi-step git merge
     // orchestration (preflight → execute → optional rollback) is the

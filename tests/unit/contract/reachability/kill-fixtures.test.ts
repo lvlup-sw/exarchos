@@ -11,6 +11,7 @@ import {
   HOP_AUTHORITIES,
   REACHABILITY_HOPS,
   evaluateClosure,
+  resolveHops,
   type ClosureReport,
   type ReachabilityHop,
 } from '../../../../src/contract/reachability/graph.js';
@@ -20,6 +21,8 @@ import { buildBindingTable } from '../../../../src/contract/bindings/binding-tab
 import { COMPOSITE_HANDLER_LOADERS } from '../../../../src/dispatch/core/dispatch.js';
 import { compile, type CompiledContract } from '../../../../src/contract/compiler/compile.js';
 import { deriveMetaModel } from '../../../../src/contract/compiler/meta-model.js';
+import { EVENT_ANNOTATIONS } from '../../../../src/events/event-annotations.js';
+import { TOOL_REGISTRY } from '../../../../src/registry.js';
 import { PROOF_FIXTURES_FILE } from '../../../../src/contract/compiler/generate.js';
 import { CLI_SURFACE_FILE } from '../../../../src/contract/cli/cli-contract-seam.js';
 
@@ -329,6 +332,47 @@ describe('KILL: artifact — removing a SHIPPED client command drops the census'
     const report = censusFor({ compiled: COMPILED, cliSurfaceFile });
     expectKilled(report, BASELINE, 'artifact', target);
     expect(report.diagnostics.find((d) => d.hop === 'artifact')?.kind).toBe('ambiguous');
+  });
+});
+
+describe('KILL: event — an emission the catalog never registered drops the census', () => {
+  it('deleting a declared event from the live catalog breaks the event hop', () => {
+    // The mutation is on the CATALOG, not on the registry that declares the
+    // emission — which is the whole point of the hop. The action still says it
+    // emits; the independently-authored table has simply never heard of the
+    // event, and nothing else in the census can see that disagreement.
+    const target = 'exarchos_orchestrate.task_claim';
+    const declared = 'task.claimed';
+
+    // The seed is real: this action really does declare this event today, so the
+    // kill below is a removal rather than an assertion about a fixture.
+    const declaredHere = (TOOL_REGISTRY.find((t) => t.name === 'exarchos_orchestrate')?.actions ?? [])
+      .find((a) => a.name === 'task_claim')
+      ?.autoEmits?.some((e) => e.event === declared);
+    expect(declaredHere, `${target} no longer declares ${declared}`).toBe(true);
+    expect(EVENT_ANNOTATIONS[declared], `${declared} is not in the catalog`).toBeDefined();
+
+    const { [declared]: _removed, ...withoutEvent } = EVENT_ANNOTATIONS;
+    const report = censusFor({ compiled: COMPILED, annotations: withoutEvent });
+    expectKilled(report, BASELINE, 'event', target);
+  });
+
+  it('an action that declares NO emission is not-applicable, not missing', () => {
+    // The complement, and the reason the kill above is attributable. A read verb
+    // declares nothing, so the hop does not apply to it — reporting those as
+    // `missing` would make every read a closure break and drown the real one.
+    const inputs = collectReachabilityInputs({ compiled: COMPILED });
+    const pure = inputs.actions.find(
+      (a) => !inputs.emissions.some((e) => e.actionId === a.actionId),
+    );
+    expect(pure, 'every action emits — the not-applicable arm has no subject').toBeDefined();
+    if (pure === undefined) return;
+    const hop = resolveHops(pure, inputs).find((h) => h.hop === 'event');
+    expect(hop?.status).toBe('not-applicable');
+
+    // ...and the applicable arm is non-empty too, so neither side is asserted
+    // over nothing.
+    expect(inputs.emissions.length).toBeGreaterThan(0);
   });
 });
 

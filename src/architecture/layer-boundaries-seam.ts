@@ -415,8 +415,12 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
       // `workflow/`, which projections already reaches. `adapters` is gone for
       // a different reason: the only edge was a pure schema converter filed
       // under the IO facade, now a foundation leaf.
+      // `stack` left this set when `stack/` moved under `verbs/stack/`, so it
+      // is no longer a first path segment and no longer a layer. The read edge
+      // it covered (`views/composite.ts` → the stack status fold) did not go
+      // away; it is counted under `verbs` now, which this row already allows.
       'architecture', 'config', 'contract', 'describe',
-      'dispatch', 'events', 'verbs', 'stack', 'storage', 'utils', 'workflow',
+      'dispatch', 'events', 'verbs', 'storage', 'utils', 'workflow',
       ROOT_LAYER,
     ],
     'The WIDEST allowance in this table, and deliberately so: task 012 folded ' +
@@ -429,11 +433,12 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
       'read side reaches the verb layer at all is the finding; acting on it is separate work, ' +
       'and this row is what keeps it measurable in the meantime.',
   ),
-  allowance(
-    'stack',
-    ['events', 'projections', ROOT_LAYER],
-    'Stack renders event state through the projections layer, plus the shared root surface.',
-  ),
+  // `stack` had a row here until `stack/` moved under `verbs/stack/`. A layer is
+  // this census's FIRST path segment, so `stack` stopped being one and the row
+  // could match nothing. Its outbound edges (events, projections) survive the
+  // move as `verbs` edges, both already allowed by the `verbs` row below. Same
+  // correction as the `workspace` / `agents` note above, forced by the same
+  // STALE_LAYER_ALLOWANCE ratchet.
   allowance(
     'cli',
     ['events', 'ndjson', 'contract', 'projections'],
@@ -495,21 +500,22 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
     'Persistence reaches the event store and the projections it materialises.',
   ),
   allowance(
-    'tasks',
-    [ROOT_LAYER, 'dispatch', 'events', 'projections', 'workflow'],
-    'Task coordination over the dispatch core and the workflow primitives.',
-  ),
-  allowance(
     'config',
     [ROOT_LAYER, 'events', 'projections', 'utils', 'verbs', 'workflow'],
     'Config resolution reaches the verb surface — the narrowest row that is arguably inverted, and now visible.',
   ),
   allowance(
     'contract',
-    [ROOT_LAYER, 'adapters/cli', 'architecture', 'describe', 'dispatch', 'runtime', 'utils'],
+    [ROOT_LAYER, 'adapters/cli', 'architecture', 'describe', 'dispatch', 'events', 'runtime', 'utils'],
     'The contract layer reaches its own generators and the dispatch core, plus the schema-conversion ' +
       'leaf every compiler stage uses. The adapters edge is the CLI presentation client ' +
-      '(`cli-contract-seam` loads `adapters/cli`), not the IO facade parent.',
+      '(`cli-contract-seam` loads `adapters/cli`), not the IO facade parent. The `events` edge is ' +
+      'the reachability census resolving its `event` hop: that census exists to read AUTHORITIES ' +
+      'across the tree — it already reaches `architecture` for the effect ledger and `runtime` for ' +
+      'the wiring — and the event catalog is one more. It is deliberately NOT resolved from the ' +
+      'compiled contract, because a hop re-derived from the pass that supplies the denominator is ' +
+      'tautological by construction; reaching the independently-authored table is what gives the ' +
+      'hop teeth, and this row is the cost of that independence.',
   ),
   allowance(
     'sync',
@@ -615,12 +621,19 @@ export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
     [
       ROOT_LAYER, 'architecture', 'config', 'contract', 'describe',
       'dispatch', 'events', 'install', 'lifecycle', 'projections', 'pruner',
-      'review', 'runbooks', 'runtime', 'storage', 'tasks', 'utils', 'vcs',
+      'review', 'runbooks', 'runtime', 'storage', 'utils', 'vcs',
       'workflow',
     ],
-    'The WIDEST row in the table at 19 targets, and the honest reading is that `verbs/` is coupled to ' +
+    // `tasks` left this set when the last task-append module moved under
+    // `verbs/tasks/`: a layer is this census\'s FIRST path segment, so `tasks`
+    // stopped being one and the row could match nothing. The edge did not go
+    // away with the row — it is now INTERNAL to `verbs/`, which no allowance
+    // governs. Dropping a row that can no longer match is the same correction
+    // the `workspace` / `agents` note above records, and the STALE_LAYER_ALLOWANCE
+    // ratchet is what forced it rather than letting the phantom cover sit.
+    'The WIDEST row in the table at 18 targets, and the honest reading is that `verbs/` is coupled to ' +
       'nearly the whole tree. It is recorded rather than narrowed for the same reason `projections` ' +
-      'is: Phase 1 moves code without changing meaning. The row buys the ratchet — target 20 has to ' +
+      'is: Phase 1 moves code without changing meaning. The row buys the ratchet — target 19 has to ' +
       'be argued for — and it makes the number quotable, which is the first step to reducing it.',
   ),
 ]);

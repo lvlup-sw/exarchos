@@ -63,6 +63,7 @@ export const REACHABILITY_HOPS = [
   'output',
   'artifact',
   'fixture',
+  'event',
 ] as const;
 export type ReachabilityHop = (typeof REACHABILITY_HOPS)[number];
 
@@ -97,6 +98,13 @@ export const HOP_AUTHORITIES: Readonly<Record<ReachabilityHop, 'runtime' | 'ship
     output: 'shipped-artifact',
     artifact: 'shipped-artifact',
     fixture: 'shipped-artifact',
+    // Resolves against the EVENT CATALOG, a different authority from the compile
+    // pass this census's denominator comes from. An action's `autoEmits` feed the
+    // compile, so re-reading the ANSWER from the compiled contract would be
+    // tautological — `self`, and forbidden. `EVENT_ANNOTATIONS` is an
+    // independently-authored table, and the two genuinely disagree: the whole
+    // emission-coupling programme exists because they did.
+    event: 'runtime',
   });
 
 /** Resolution status of one hop for one action. */
@@ -136,6 +144,28 @@ export interface HandlerEntry {
 export interface OwnerEntry {
   readonly tool: string;
   readonly owner: string;
+}
+
+/**
+ * One event an action declares it emits, carried with BOTH catalog answers.
+ *
+ * `registered` says the event exists in `EVENT_ANNOTATIONS` at all — an action
+ * declaring an emission the catalog has never heard of is a dangling reference,
+ * and nothing else in the tree reports it.
+ *
+ * There is deliberately NO `consumed` flag here. The far end of the coupling
+ * claim — that something folds the result — is the `consumer` hop, and it is
+ * the SIBLING re-scope spec's DR-6 to add. Writing it here would have shipped a
+ * vacuous check: `consumedBy` is a non-empty tuple by TYPE on every arm that
+ * carries it, so "names at least one consumer" cannot fail. An honest consumer
+ * hop has to resolve those ids against the live projection registry, which is
+ * that spec's work and not this one's.
+ */
+export interface EmissionEntry {
+  readonly actionId: string;
+  readonly event: string;
+  /** The event has a registration in the live catalog. */
+  readonly registered: boolean;
 }
 
 /** The action's output contract: bound output kinds + error families (P03-02). */
@@ -179,6 +209,7 @@ export interface ReachabilityInputs {
   readonly outputs: readonly OutputEntry[];
   readonly artifacts: readonly ArtifactEntry[];
   readonly fixtures: readonly FixtureEntry[];
+  readonly emissions: readonly EmissionEntry[];
   /** Governed known-unclosed exceptions (empty in a fully-closed tree). */
   readonly exceptions?: readonly ClosureException[];
 }
@@ -224,6 +255,17 @@ export function resolveHops(action: ActionNode, inputs: ReachabilityInputs): rea
   const artifactCount = inputs.artifacts.filter((a) => a.actionId === action.actionId).length;
   const fixtureCount = inputs.fixtures.filter((f) => f.actionId === action.actionId).length;
 
+  // The emission pair. `emits` is the action's own declared event set; an action
+  // that declares none is NOT-APPLICABLE on both hops, exactly as a non-mutating
+  // action is on `owner`. Reporting those as `missing` would make every read verb
+  // a closure break and turn the headline number into noise.
+  const emitted = inputs.emissions.filter((e) => e.actionId === action.actionId);
+  const emits = emitted.length > 0;
+  // REGISTERED: every event the action declares is in the catalog. Counted as
+  // "all resolved" rather than per-event, because one hop resolves one action:
+  // a partially-registered action is `missing`, not fractionally ok.
+  const eventCount = emits && emitted.every((e) => e.registered) ? 1 : 0;
+
   const counts: Record<ReachabilityHop, { applicable: boolean; count: number }> = {
     schema: { applicable: true, count: schemaCount },
     route: { applicable: true, count: routeCount },
@@ -232,6 +274,7 @@ export function resolveHops(action: ActionNode, inputs: ReachabilityInputs): rea
     output: { applicable: true, count: outputCount },
     artifact: { applicable: true, count: artifactCount },
     fixture: { applicable: true, count: fixtureCount },
+    event: { applicable: emits, count: eventCount },
   };
 
   return REACHABILITY_HOPS.map((hop): HopResolution => {

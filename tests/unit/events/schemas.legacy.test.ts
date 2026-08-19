@@ -556,7 +556,22 @@ describe('EventTypes', () => {
     //
     // Task 068 (DR-23): bumped 170 → 171 for `invariant.amended`, emitted by
     // the `invariants_amend` composite handler on commit.
-    expect(EventTypes).toHaveLength(171);
+    //
+    // Bumped 171 → 174 for the VCS mutation ledger — `vcs.requested`,
+    // `vcs.executed` and `vcs.compensated`. The mutation owner already appended
+    // all three; they were registered through the store's runtime seam and so
+    // carried no schema, no type-map entry and no coupling tier.
+    //
+    // Bumped 174 → 175 for `promotion.executed`, the atomic tree-promotion
+    // record. Unlike the ledger triad this one was not registered anywhere at
+    // all: the commit rename that makes a whole staged tree visible at once left
+    // no trace in the catalog.
+    //
+    // Bumped 175 → 176 for `emission.violated`, the post-dispatch verifier's
+    // report that a handler completed without an event its own registration
+    // declares unconditionally. Also new: the catalog held no contract-violation
+    // name at all, so a detected miss had nowhere durable to land.
+    expect(EventTypes).toHaveLength(176);
     expect(EventTypes).toContain('merge.recovered');
     expect(EventTypes).toContain('merge.retry_attempt');
     expect(EventTypes).toContain('merge.executing_started');

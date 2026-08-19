@@ -9,6 +9,18 @@ import { ALL_PHASES, ROLE_ANY, ROLE_LEAD, featureIdSchema } from '../phases.js';
 import type { BuiltinToolAction } from '../types.js';
 
 // ─── Composite Tool: exarchos_workflow ───────────────────────────────────────
+//
+// EMISSION OWNERSHIP. Every `autoEmits` edge below names `owner: 'workflow'`.
+// An edge's owner is the action-declaration AREA it is declared in — the module
+// group under `src/registry/actions/` that exports the declaring action list —
+// and this file is the whole of the `workflow` area. Everything under
+// `actions/orchestrate/` names `orchestrate` instead. The area is the honest
+// accountability signal available at declaration time: it is a property of
+// WHERE the action lives, never of WHICH event it emits, so an event declared
+// from both areas is visibly a cross-area coupling rather than a single owner's
+// business. `state.patched` is exactly that case — `update` below is its
+// canonical emitter, and the `orchestrate` area's `discover_bridge` declares a
+// second, time-boxed edge onto the same event.
 
 export const workflowActions: readonly BuiltinToolAction[] = [
   {
@@ -29,7 +41,7 @@ export const workflowActions: readonly BuiltinToolAction[] = [
       ],
     },
     autoEmits: [
-      { event: 'workflow.started', condition: 'always' },
+      { event: 'workflow.started', condition: 'always', role: 'primary', owner: 'workflow' },
     ],
     outputSchema: vacuityWaiver('exarchos_workflow.init'),
     annotations: LOCAL_MUTATION,
@@ -74,7 +86,9 @@ export const workflowActions: readonly BuiltinToolAction[] = [
       examples: ['exarchos wf transition -f my-feature -t plan'],
     },
     autoEmits: [
-      { event: 'workflow.transition', condition: 'always' },
+      { event: 'workflow.transition', condition: 'always', role: 'primary', owner: 'workflow' },
+      // `hsm-transition-guard.ts` appends this from the same handler, on the re-entry arm only.
+      { event: 'workflow.fix-cycle', condition: 'conditional', description: 'When a phase is re-entered rather than advanced', role: 'primary', owner: 'workflow' },
     ],
     outputSchema: vacuityWaiver('exarchos_workflow.transition', WorkflowTransitionOutputSchema),
     annotations: LOCAL_MUTATION,
@@ -119,7 +133,21 @@ export const workflowActions: readonly BuiltinToolAction[] = [
       examples: ['exarchos wf update -f my-feature --updates \'{"artifacts":{"spec":"docs/specs/foo.md"}}\''],
     },
     autoEmits: [
-      { event: 'state.patched', condition: 'always' },
+      // CONDITIONAL, not unconditional. `handlers/set.ts` guards the append on
+      // `isEventSourced(state) && eventStore && updateKeys.length > 0`, so a
+      // successful `update` over a non-event-sourced document, or one carrying
+      // no update keys, correctly appends nothing. Declaring it `always` claimed
+      // a record every call writes, which the governance suites falsified the
+      // moment the enforcement mode was actually armed — the same shape as the
+      // `promotion.executed` lifecycle correction: a declaration the tree does
+      // not support reads as coverage until something checks it.
+      {
+        event: 'state.patched',
+        condition: 'conditional',
+        description: 'When the target is event-sourced and the call carries at least one update key',
+        role: 'primary',
+        owner: 'workflow',
+      },
     ],
     // Wave 0 (#1340) — register WorkflowUpdateOutputSchema for envelope-
     // version discipline (#1266 prep). The schema mirrors the transition
@@ -143,8 +171,11 @@ export const workflowActions: readonly BuiltinToolAction[] = [
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
     autoEmits: [
-      { event: 'workflow.cancel', condition: 'always' },
-      { event: 'workflow.compensation', condition: 'conditional', description: 'Per compensation action' },
+      { event: 'workflow.cancel', condition: 'always', role: 'primary', owner: 'workflow' },
+      // Cancellation IS this action's normal path, so the per-compensation-action
+      // row is `primary` too: it is not a backstop for some other edge that
+      // failed to fire, it is what a successful cancel looks like.
+      { event: 'workflow.compensation', condition: 'conditional', description: 'Per compensation action', role: 'primary', owner: 'workflow' },
     ],
     outputSchema: vacuityWaiver('exarchos_workflow.cancel'),
     annotations: COMPENSABLE_LOCAL,
@@ -162,7 +193,7 @@ export const workflowActions: readonly BuiltinToolAction[] = [
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
     autoEmits: [
-      { event: 'workflow.cleanup', condition: 'always' },
+      { event: 'workflow.cleanup', condition: 'always', role: 'primary', owner: 'workflow' },
     ],
     // T9 (#1440 Op 2, preview-4 design §4.3): post-merge cleanup is a
     // long-running multi-step verb (merge verification, synthesis
@@ -205,6 +236,8 @@ export const workflowActions: readonly BuiltinToolAction[] = [
         event: 'workflow.rehydrated',
         condition: 'conditional',
         description: 'When rehydration succeeds (event-store emission failures are logged but do not fail the call — see rehydrate.ts).',
+        role: 'primary',
+        owner: 'workflow',
       },
     ],
     // T9 (#1440 Op 2, preview-4 design §4.3): full state rebuild is a
@@ -242,7 +275,7 @@ export const workflowActions: readonly BuiltinToolAction[] = [
     phases: ALL_PHASES,
     roles: ROLE_LEAD,
     autoEmits: [
-      { event: 'workflow.checkpoint', condition: 'always' },
+      { event: 'workflow.checkpoint', condition: 'always', role: 'primary', owner: 'workflow' },
     ],
     outputSchema: vacuityWaiver('exarchos_workflow.checkpoint'),
     annotations: LOCAL_MUTATION_IDEMPOTENT,
@@ -284,7 +317,7 @@ export const workflowActions: readonly BuiltinToolAction[] = [
       ],
     },
     autoEmits: [
-      { event: 'feedback.recorded', condition: 'always' },
+      { event: 'feedback.recorded', condition: 'always', role: 'primary', owner: 'workflow' },
     ],
     outputSchema: vacuityWaiver('exarchos_workflow.feedback'),
     annotations: LOCAL_MUTATION,

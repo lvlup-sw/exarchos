@@ -16,7 +16,7 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     roles: ROLE_LEAD,
     gate: { blocking: false, dimension: 'D5' },
     autoEmits: [
-      { event: 'gate.executed', condition: 'always' },
+      { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_task_decomposition'),
     annotations: LOCAL_MUTATION,
@@ -31,7 +31,7 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     phases: ALL_PHASES,
     roles: ROLE_ANY,
     autoEmits: [
-      { event: 'gate.executed', condition: 'always' },
+      { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.check_event_emissions'),
     annotations: LOCAL_MUTATION,
@@ -325,7 +325,7 @@ export const verificationActions: readonly BuiltinToolAction[] = [
     // 120s per-worktree timeout; scales with the number of tasks.
     longRunning: true,
     autoEmits: [
-      { event: 'gate.executed', condition: 'always' },
+      { event: 'gate.executed', condition: 'always', role: 'primary', owner: 'orchestrate' },
     ],
     outputSchema: vacuityWaiver('exarchos_orchestrate.post_delegation_check'),
     annotations: COMPENSABLE_LOCAL,

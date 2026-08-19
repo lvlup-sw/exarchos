@@ -313,14 +313,32 @@ export const BOUNDARY_HOP_EVIDENCE: BoundaryHopEvidence = Object.freeze({
     authority: Object.freeze({
       boundary: 'effect-event',
       hop: 'authority',
-      evidence: 'declared-row',
-      why: 'the `none` authority is a committed judgement that neither representation derives the other; no shipped module measures it.',
+      evidence: 'live-measurement',
+      oracle: Object.freeze({
+        module: 'tools/audit/core/authority-live-proof.ts',
+        entrypoint: 'measureEffectEvent',
+        subjects: Object.freeze([
+          'src/dispatch/core/effect-carrier.ts',
+          'src/vcs/mutation-owner.ts',
+          'src/install/atomic-promotion.ts',
+        ]),
+      }),
+      why: 'the oracle refuses to report at all unless the carrier still throws its unrecorded-emission error, so the single authority rests on the gate being in the tree rather than on the row asserting it.',
     }),
     binding: Object.freeze({
       boundary: 'effect-event',
       hop: 'binding',
-      evidence: 'declared-row',
-      why: 'both representations are declared unbound by the row; DR-7 is what will make the coupling mechanical and measurable.',
+      evidence: 'live-measurement',
+      oracle: Object.freeze({
+        module: 'tools/audit/core/authority-live-proof.ts',
+        entrypoint: 'measureEffectEvent',
+        subjects: Object.freeze([
+          'src/dispatch/core/effect-carrier.ts',
+          'src/vcs/mutation-owner.ts',
+          'src/install/atomic-promotion.ts',
+        ]),
+      }),
+      why: 'each declaring owner’s sink is classified from its own source by whether it names what it records off the emission it was handed — which is the fact that separates the ledger owner from the promoter, and exactly the fact a transcribed row rounds off.',
     }),
     enforcement: Object.freeze({
       boundary: 'effect-event',

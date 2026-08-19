@@ -1054,7 +1054,10 @@ describe('CLI top-level promotion (DR-7)', () => {
     expect(topLevelNames).toContain('ps');
 
     // Assert (same Zod schema) — the hoisted command's flag set is IDENTICAL to
-    // the `vw ps` subcommand's, and carries the schema-derived `--probe` flag.
+    // the `vw ps` subcommand's, and carries a schema-derived flag. `--scope` is
+    // the witness rather than `--probe`: `probe` left the schema when the reclaim
+    // and reconcilers moved to `reconcile_worktrees`, and a flag the schema no
+    // longer declares cannot demonstrate that flags derive FROM the schema.
     const topLevelPs = program.commands.find((c) => c.name() === 'ps');
     const vwPs = program.commands
       .find((c) => c.name() === 'vw')
@@ -1064,7 +1067,11 @@ describe('CLI top-level promotion (DR-7)', () => {
     const topLevelFlags = (topLevelPs?.options ?? []).map((o) => o.flags).sort();
     const subFlags = (vwPs?.options ?? []).map((o) => o.flags).sort();
     expect(topLevelFlags).toEqual(subFlags);
-    expect(topLevelFlags.some((f) => f.includes('--probe'))).toBe(true);
+    expect(topLevelFlags.some((f) => f.includes('--scope'))).toBe(true);
+    // ...and the retired flag is gone from BOTH forms, so the hoist cannot
+    // keep advertising a parameter the action would refuse.
+    expect(topLevelFlags.some((f) => f.includes('--probe'))).toBe(false);
+    expect(subFlags.some((f) => f.includes('--probe'))).toBe(false);
 
     // Assert (same dispatch path) — running `exarchos ps` dispatches the SAME
     // tool + action the subcommand form would, through the shared handler.

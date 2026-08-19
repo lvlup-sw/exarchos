@@ -115,7 +115,7 @@ export type DeclaredEmissionSources = Readonly<Record<string, EventEmissionSourc
 // built-in union by construction.
 //
 // NOT typed `Record<EventType, …>` on purpose. A type-keyed table would make
-// `EventAnnotations_All170Types_CarryATierAndLifecycle` vacuous: the census difference it asserts
+// `EventAnnotations_EveryRegisteredType_CarriesATierAndLifecycle` vacuous: the census difference it asserts
 // is empty would be empty BY CONSTRUCTION, which is the Class-B defect the DR-30 gate exists to
 // catch. Keyed by `string`, forgetting an event is a runtime finding the test can actually make.
 //
@@ -422,6 +422,56 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     tier: 'substrate',
     rationale: 'operation-record',
   },
+  // The VCS mutation ledger, measured the same way as the rest of this section.
+  // The single git & worktree mutation owner appends all three itself — the
+  // intent before the git effect, one of the two terminals after — so the code
+  // performing the operation owns the append and nothing else can be claimed.
+  //
+  // `capability` is structurally unavailable to them and that is the honest
+  // reading, not a downgrade: the only reader of these events is the owner's own
+  // ledger fold, which is the emitter re-reading its own record to decide
+  // whether to replay, not a projection or view turning the emission into state
+  // anyone else depends on. Listing the emitter as its own consumer would
+  // launder "consumed by nobody" into a consumer, which is the move the
+  // non-empty `consumedBy` tuple exists to refuse.
+  'vcs.requested': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
+  'vcs.executed': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
+  'vcs.compensated': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
+  // The atomic tree-promotion record. `substrate` is the tier it WOULD be welded
+  // to: the promoting code in `install/atomic-promotion.ts` performs the commit
+  // rename, and the record belongs to that operation rather than to a caller
+  // asked to report on the promoter's behalf.
+  //
+  // `capability` is unavailable for the same structural reason as the ledger
+  // above, and it is worth naming which half is missing: there is no fold. No
+  // reducer, view or telemetry surface turns a promotion into state anyone reads,
+  // and `consumedBy` is a non-empty tuple precisely so that "declared a
+  // capability, consumed by nobody" cannot be written down.
+  //
+  // The lifecycle is `planned`, and that is a measurement rather than a plan.
+  // `promoteTree` — the carrier-wrapped path that DECLARES this emission — has
+  // no caller anywhere in the governed source; every call site is a test. The
+  // engine beneath it (`promoteTreeSync`) is what production uses, and it
+  // declares nothing. So the schema exists, the projection already folds this
+  // type, and no reachable code appends it. Annotating it `active` would claim
+  // an append happens on some path, which is the one claim the tree cannot
+  // support; `planned` says what is true — the emitter is not wired. It becomes
+  // `active` when a production caller reaches `promoteTree` with a sink that
+  // lands the record, not before.
+  'promotion.executed': { lifecycle: 'planned', tier: 'substrate', rationale: 'operation-record' },
+  // The emission-violation report, measured the same way. The post-dispatch
+  // verifier detects the miss and appends the finding in the same pass — the
+  // code performing the check owns the record of it, and no handler is asked to
+  // report its own broken emission contract.
+  //
+  // `capability` is unavailable for the familiar structural reason, and it is
+  // worth being exact about which half is absent here, because this one is
+  // easily misread as coupled: the finding is READ — by whoever investigates the
+  // bug it reports — but reading is not folding. No reducer, view or telemetry
+  // surface turns a violation into state any code path depends on, so there is
+  // no `ConsumerId` to name, and `consumedBy` is a non-empty tuple precisely so
+  // that "a human will look at it" cannot be written down as a consumer.
+  'emission.violated': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
 
   // ── Capability — an effect provider appends it, and named consumers fold it ──
   //
@@ -430,16 +480,22 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
   // `ProjectionReducer.id` or `BUILTIN_VIEW_NAMES` entry whose arm for this event mutates state.
   // Explicit no-op arms are excluded — listing one would launder "nobody consumes this" into a
   // consumer.
+  // The three task lifecycle events are appended by `verbs/tasks/tools.ts` and declared on
+  // `task_claim` / `task_complete` / `task_fail`, which are registered on `exarchos_orchestrate`.
+  // They were annotated `exarchos_workflow`, naming the workflow-state authority that FOLDS them
+  // rather than the provider that appends them — a job `consumedBy` already does. The append
+  // module was the last of the task family still sitting outside `verbs/`; now that it has joined
+  // its siblings, the area and the declaring tool agree and this row can say so.
   'task.claimed': {
     lifecycle: 'active',
     tier: 'capability',
-    provider: 'exarchos_workflow',
+    provider: 'exarchos_orchestrate',
     consumedBy: ['task-store@v1'],
   },
   'task.completed': {
     lifecycle: 'active',
     tier: 'capability',
-    provider: 'exarchos_workflow',
+    provider: 'exarchos_orchestrate',
     consumedBy: [
       'rehydration@v1',
       'task-store@v1',
@@ -453,7 +509,7 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
   'task.failed': {
     lifecycle: 'active',
     tier: 'capability',
-    provider: 'exarchos_workflow',
+    provider: 'exarchos_orchestrate',
     consumedBy: [
       'rehydration@v1',
       'task-store@v1',
@@ -487,8 +543,13 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     provider: 'exarchos_orchestrate',
     consumedBy: ['workflow-state@v1', 'pipeline'],
   },
+  // PLANNED — measured, not inherited. The schema, the type-map entry and the
+  // `synthesis-readiness` fold all exist; nothing in the tree appends the event.
+  // A restack is performed today through the VCS surface without recording a
+  // fact, so the fold is written ahead of its producer. `lifecycle` carries
+  // that, and the tier still records the weld the append will have.
   'stack.restacked': {
-    lifecycle: 'active',
+    lifecycle: 'planned',
     tier: 'capability',
     provider: 'exarchos_orchestrate',
     consumedBy: ['synthesis-readiness'],
@@ -647,8 +708,12 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     provider: 'exarchos_event',
     consumedBy: ['telemetry'],
   },
+  // PLANNED — measured, not inherited. The telemetry middleware appends the
+  // three `tool.*` rows above once per dispatch; a per-TURN aggregate has a
+  // `telemetry` fold (`view.turns`) and no producer anywhere in the tree. The
+  // fold reads a shape nothing writes yet, which is what `planned` states.
   'turn.completed': {
-    lifecycle: 'active',
+    lifecycle: 'planned',
     tier: 'capability',
     provider: 'exarchos_event',
     consumedBy: ['telemetry'],
@@ -662,10 +727,16 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     provider: 'exarchos_event',
     consumedBy: ['delegation-timeline', 'team-performance'],
   },
+  // RE-TIERED from `capability` / `exarchos_view`. That annotation asserted an effect provider
+  // appends this, and none does: every `exarchos_view` action is a read of a projection,
+  // `eval_results` included. The only append is in the evaluation harness under `tools/`, a
+  // developer entry point outside the governed source root — the coupling the `harness` tier
+  // was added to name. The event is genuinely active and `eval-results` genuinely folds it, so
+  // neither `planned` nor `retired` was available either.
   'eval.judge.calibrated': {
     lifecycle: 'active',
-    tier: 'capability',
-    provider: 'exarchos_view',
+    tier: 'harness',
+    module: 'tools/evals/evals/harness.ts',
     consumedBy: ['eval-results'],
   },
   // PLANNED — schema and type-map entry exist, nothing emits them yet. `lifecycle` produces the
@@ -690,10 +761,15 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
   // ── The v2.12 phase-gate proof substrate ──
   // All twelve are folded by `workflow-state@v1` (audit/shadow visibility). The `planned` ones
   // are not exposed as admission actions in v2.12; `lifecycle`, not tier, records that.
+  // The append site is `verbs/gates/gate-runner.ts`, pinned as the sole canonical evidence
+  // emitter by the gate-ownership census, and `verbs/` is the area of exactly one provider.
+  // `gate.executed` is appended by the same `runGate` body, declared on the same five actions,
+  // and already annotated `exarchos_orchestrate` — one append site cannot have two owning tools,
+  // so the two rows could not both be right. Corrected from `exarchos_workflow`.
   'admission.evidence-recorded': {
     lifecycle: 'active',
     tier: 'capability',
-    provider: 'exarchos_workflow',
+    provider: 'exarchos_orchestrate',
     consumedBy: ['workflow-state@v1'],
   },
   'admission.shadow-attempt': {
@@ -762,13 +838,16 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
     provider: 'exarchos_workflow',
     consumedBy: ['workflow-state@v1'],
   },
-  // Task 010's ONE unreconciled registration, reconciled by task 011. Annotated on the evidence
-  // (two real consumer folds, appended through the `exarchos_event` seam), which derives `'auto'`
-  // where the hand-written registry column declared `'hook'`. Deriving the registry from this
-  // table is what settled the disagreement in favour of the measurement; nothing was bent to make
-  // a number come out even, and no reconciler id was invented for it.
+  // PLANNED — measured, not inherited, and the registration the catalog has
+  // argued about longest. The `code-quality` fold reads the results array, and
+  // no module in the tree appends the event: the only producer is a benchmark
+  // FIXTURE factory under `tools/evals/`, which mints the shape for a synthetic
+  // stream rather than recording a measurement anything folds. Annotating it
+  // `active` claimed an effect provider appends it, which is the one claim the
+  // tree does not support; `planned` says what is actually true — the schema
+  // and the fold are ready and the emitter is not written.
   'benchmark.completed': {
-    lifecycle: 'active',
+    lifecycle: 'planned',
     tier: 'capability',
     provider: 'exarchos_event',
     consumedBy: ['code-quality'],

@@ -28,7 +28,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -190,16 +191,54 @@ describe('check-measured-premises (task 054, DR-27)', () => {
       expect(claim.literal, `${claim.name}@${claim.line}`).not.toBe(claim.derived);
     }
 
-    // 2. NOT BLANKET REJECTION. A checker that fails every claim on a wrong
-    //    document is a checker that is not reading the claims. At least one
-    //    must agree — and if the tree ever drifts so that NONE does, this
-    //    fixture has stopped discriminating and the failure says so rather than
-    //    the fixture quietly becoming a rubber stamp.
-    const agreed = all.filter((c) => c.verdict === 'agree');
-    expect(
-      agreed.length,
-      'the fixture no longer discriminates — every claim drifts, so it cannot show the checker reads claims',
-    ).toBeGreaterThan(0);
+    // 2. NOT BLANKET REJECTION — proved in its own test, not here.
+    //
+    //    This used to assert that at least one of rev 3's claims still AGREES.
+    //    That property was never rev 3's: it held only while the growing tree
+    //    happened to pass through two of rev 3's wrong literals, which the note
+    //    above already called out as meaning nothing. Both coincidences have now
+    //    expired (`output-schema-total` 123 and `output-schema-vacuous` 109 were
+    //    overtaken), so the assertion could only be restored by picking new
+    //    numbers that would expire the same way.
+    //
+    //    A demonstration that the checker READS claims must not depend on a
+    //    wrong document accidentally being right. `MeasuredPremises_LiveLiteral_Agrees`
+    //    below builds a document whose literal IS the derived value, so it agrees
+    //    by construction and cannot rot.
+  }, 120_000);
+
+  it('MeasuredPremises_LiveLiteral_Agrees', () => {
+    // THE NOT-BLANKET-REJECTION HALF. A checker that reported every claim
+    // drifted would fail the rev-3 fixture above for the wrong reason — it
+    // would look like a working checker while actually reading nothing.
+    //
+    // The probe is built from the checker's OWN derivation rather than from a
+    // number written here: run it over rev 3, take a claim whose derivation
+    // resolved, and write a one-claim document carrying that exact value. It
+    // must agree. Any hardcoded literal would be a coincidence waiting to
+    // expire, which is precisely the failure this replaces.
+    const { report: live } = runCli(['--document', path.relative(REPO_ROOT, REV3_FIXTURE)]);
+    const resolved = live.claims.find((c) => typeof c.derived === 'number');
+    expect(resolved, 'no claim in the fixture resolved a derived value').toBeDefined();
+
+    const probeDir = mkdtempSync(path.join(tmpdir(), 'measured-premises-live-'));
+    const probePath = path.join(probeDir, 'live-literal.md');
+    try {
+      writeFileSync(
+        probePath,
+        `# Live-literal probe\n\nThe count is <!-- measured: ${resolved!.name} -->${resolved!.derived}<!-- /measured --> today.\n`,
+        'utf8',
+      );
+      const { report } = runCli(['--document', probePath]);
+      const claims = claimsNamed(report, resolved!.name);
+      expect(claims.length, `the probe declared no ${resolved!.name} claim`).toBeGreaterThan(0);
+      for (const claim of claims) {
+        expect(claim.verdict, `${claim.name}@${claim.line}`).toBe('agree');
+        expect(claim.literal).toBe(claim.derived);
+      }
+    } finally {
+      rmSync(probeDir, { recursive: true, force: true });
+    }
   }, 120_000);
 
   it('MeasuredPremises_ZeroAnnotationsResolved_FailsClosed', () => {

@@ -1,10 +1,38 @@
 import type { ProjectConfig, VerificationPolicyOverlay } from './yaml-schema.js';
+import { EMISSION_ENFORCEMENT_MODES } from './yaml-schema.js';
 import { DEFAULT_ARTIFACT_DIRS, resolveArtifactDirs, type ArtifactDirs } from './artifacts.js';
 import { DEFAULT_MAX_ITERATIONS } from '../verbs/review/escalation-policy.js';
 import type { RiskTier } from '../workflow/verification-policy.js';
 
 /** The model-identity vocabulary shared by every model-selection surface. */
 export type ModelId = 'opus' | 'sonnet' | 'haiku';
+
+/** `'block' | 'advisory'` — derived from the schema vocabulary, never restated. */
+export type EmissionEnforcementMode = (typeof EMISSION_ENFORCEMENT_MODES)[number];
+
+/**
+ * The enforcement mode in force when NO project config was resolved at all.
+ *
+ * `initializeContext` returns without a `projectConfig` whenever no
+ * `projectRoot` is supplied — the CLI cold start and most tests — so the
+ * schema's resolved default is simply never consulted on that path. Leaving it
+ * implicit would mean the documented default and the behavior most runs
+ * actually get were two different things, with nothing stating which.
+ *
+ * It matches the resolved default deliberately: the absence of a config file is
+ * not an opt-out of enforcement.
+ */
+export const EMISSION_ENFORCEMENT_FALLBACK: EmissionEnforcementMode = 'block';
+
+/**
+ * The enforcement mode for a possibly-absent config. Total: every input,
+ * including `undefined`, yields a mode.
+ */
+export function resolveEmissionEnforcement(
+  config: Pick<ResolvedProjectConfig, 'events'> | undefined,
+): EmissionEnforcementMode {
+  return config?.events.emissionEnforcement ?? EMISSION_ENFORCEMENT_FALLBACK;
+}
 
 // ─── Resolved Types ─────────────────────────────────────────────────────────
 
@@ -56,6 +84,16 @@ export interface ResolvedProjectConfig {
       readonly coderabbitThreshold: number;
       readonly riskWeights: Readonly<Record<string, number>>;
     };
+  };
+  readonly events: {
+    /**
+     * How the post-dispatch emission verifier reports a violation. `block`
+     * (default) fails the run; `advisory` records the finding without failing.
+     *
+     * One value, not a per-environment pair. See the schema block for why a
+     * default that only bites in CI is worse than no default at all.
+     */
+    readonly emissionEnforcement: EmissionEnforcementMode;
   };
   readonly vcs: {
     readonly provider: 'github' | 'gitlab' | 'azure-devops';
@@ -210,6 +248,11 @@ export const DEFAULTS: ResolvedProjectConfig = deepFreeze({
       coderabbitThreshold: 0.4,
       riskWeights: { ...DEFAULT_RISK_WEIGHTS },
     },
+  },
+  // The emission verifier blocks by default, in every environment. See
+  // `yaml-schema.ts` for why this is a dedicated key and not a gate boolean.
+  events: {
+    emissionEnforcement: EMISSION_ENFORCEMENT_FALLBACK,
   },
   vcs: {
     provider: 'github',
@@ -502,6 +545,11 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
     ? structuredClone(project.verification.policy)
     : structuredClone(DEFAULTS.verification.policy);
 
+  // ── Events ──
+  // No environment branch on purpose: the same mode resolves in CI and in dev.
+  const emissionEnforcement: EmissionEnforcementMode =
+    project.events?.['emission-enforcement'] ?? DEFAULTS.events.emissionEnforcement;
+
   const resolved: ResolvedProjectConfig = {
     agents: { defaultModel: agentDefaultModel, models: agentModels, tierModels },
     review: {
@@ -510,6 +558,7 @@ export function resolveConfig(project: ProjectConfig): ResolvedProjectConfig {
       mutationEnforcement,
       routing: { coderabbitThreshold, riskWeights },
     },
+    events: { emissionEnforcement },
     vcs: { provider: vcsProvider, settings: vcsSettings },
     workflow: { skipPhases, maxFixCycles, maxPlanRevisions, requiredReviews, phases },
     tools: { defaultBranch, commitStyle, prTemplate, autoMerge, prStrategy },

@@ -375,6 +375,17 @@ export function isEventRegistration(value: unknown): value is EventRegistration 
       );
     case 'workflow-local':
       return 'workflow' in value && isNonEmptyString(value.workflow);
+    case 'harness':
+      // `module` is an OPEN alias, so the guard checks shape only — a non-empty string plus a
+      // non-empty consumer list, exactly as the `capability` arm does for its own open id.
+      // Whether the path resolves to a real emitter outside `src/` is reference integrity, and
+      // reference integrity is a BOOT concern (`registration-validate.ts`), never a guard one.
+      return (
+        'module' in value &&
+        isNonEmptyString(value.module) &&
+        'consumedBy' in value &&
+        isNonEmptyConsumerList(value.consumedBy)
+      );
     default: {
       const unhandled: never = tier;
       return unhandled;

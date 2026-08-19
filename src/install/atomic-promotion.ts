@@ -82,6 +82,14 @@
  * the {@link EffectPlan} without invoking the engine), so a caller can prove a
  * dry-run promoted nothing.
  *
+ * The plan also DECLARES what a completed promotion records — the registered
+ * `promotion.executed` fact, on success only. Declaring it is what makes the
+ * record unskippable: the carrier refuses to run the engine at all unless the
+ * caller supplied a real {@link PromotionRecorder}, and reaches its own return
+ * only after that recorder has been awaited. The commit rename is the single
+ * non-idempotent step of an install, and it used to happen with nothing saying
+ * so afterwards.
+ *
  * This module assumes UTF-8 text trees (skills / command-aliases / onboarding
  * scaffolds are `.md` / `.yaml` / `.json` / `.jsonl` / `.sh`). Byte content is
  * preserved by an exact UTF-8 round-trip; genuinely binary payloads are out of
@@ -105,6 +113,7 @@ import {
 } from './install-identity.js';
 import {
   LIVE,
+  emissionRecorder,
   runEffect,
   type EffectMode,
   type EffectOutcome,
@@ -747,6 +756,49 @@ export function promoteTreeSync(
   };
 }
 
+/** The name the catalog registers for the durable tree-promotion record. */
+export const PROMOTION_EXECUTED = 'promotion.executed';
+
+/**
+ * ONE emission, on success only, and both halves of that are properties of the
+ * operation rather than shortcuts.
+ *
+ * No intent: the promoter already writes an on-disk journal before the commit
+ * rename and reads it back to recover an interrupted attempt, so a `before`
+ * emission would duplicate a durable structure that exists and is used. No
+ * failure terminal: a failed promotion rolls all the way back to the previous
+ * complete tree, leaving the destination in the state it started in — there is
+ * no partial outcome for a terminal to describe.
+ */
+const PROMOTION_EMISSIONS = [{ event: PROMOTION_EXECUTED, when: 'on-success' }] as const;
+
+/**
+ * The durable fact a completed promotion records — WHERE the tree landed, WHAT
+ * now lives there, WHO promoted it, and whether the run converged from an
+ * interrupted earlier attempt.
+ *
+ * Mirrors the catalog's `PromotionExecutedData` field-for-field. It is restated
+ * as an interface rather than inferred from the Zod schema because this module
+ * sits below the event layer: it produces the fact, and the caller it hands the
+ * fact to is the one that owns a store to validate and append it against.
+ */
+export interface PromotionExecutedRecord {
+  readonly target: string;
+  readonly treeDigest: string;
+  readonly owner: string;
+  readonly recoveredPriorAttempt: boolean;
+}
+
+/**
+ * Where a promotion's record lands — the caller's business, not this module's.
+ *
+ * The promoter owns the PAYLOAD (it is the only thing that knows the digest it
+ * verified the stage against) and the caller owns the DESTINATION. Awaited, so
+ * a recorder backed by a durable store gates the promotion's return on the
+ * append actually completing.
+ */
+export type PromotionRecorder = (record: PromotionExecutedRecord) => void | Promise<void>;
+
 /** The typed {@link EffectPlan} a tree promotion executes (or withholds in dry-run). */
 export function promotionPlan(owner: string, target: string): EffectPlan {
   return {
@@ -755,24 +807,66 @@ export function promotionPlan(owner: string, target: string): EffectPlan {
     description: `atomically promote a staged tree into ${target}`,
     idempotent: true,
     compensation: 'roll back to the previous complete tree via the promotion journal',
+    emits: PROMOTION_EMISSIONS,
   };
 }
 
 /**
  * Promote a tree through the typed effect carrier (P04-01). In `dry-run` mode the
  * engine is NEVER invoked — {@link runEffect} returns the {@link EffectPlan}
- * without touching the filesystem — so a dry-run provably promotes nothing. In
- * `live` mode a thrown {@link PromotionError} is captured into an `error`
- * carrier rather than propagating.
+ * without touching the filesystem — so a dry-run provably promotes nothing, and
+ * the `recorder` is not called either: a withheld effect must leave the ledger
+ * as silent as it leaves the disk. In `live` mode a thrown
+ * {@link PromotionError} is captured into an `error` carrier rather than
+ * propagating.
+ *
+ * The `recorder` is not optional in effect, only in signature. The plan declares
+ * an emission, so a live call without one is REFUSED before the engine runs —
+ * the promoter will not perform the one non-idempotent step of an install and
+ * then discover that nothing said so. On success the carrier reaches its return
+ * only after the recorder has been awaited, so a caller holding the success
+ * carrier is holding a promotion whose record is already committed.
  */
 export async function promoteTree(
   request: TreePromotionRequest,
   mode: EffectMode = LIVE,
   io: PromotionIo = defaultPromotionIo(),
+  recorder?: PromotionRecorder,
 ): Promise<EffectOutcome<PromotionReport>> {
   const owner = request.owner ?? 'install/atomic-promotion';
   const plan = promotionPlan(owner, request.target);
-  return runEffect(mode, plan, () => Promise.resolve(promoteTreeSync(request, io)));
+
+  // The record is a function of the REPORT, which the carrier's sink is not
+  // handed, so the engine's own result travels the short way to the sink.
+  let report: PromotionReport | undefined;
+  const promoted = (): Promise<PromotionReport> => {
+    report = promoteTreeSync(request, io);
+    return Promise.resolve(report);
+  };
+
+  const ledger =
+    recorder === undefined
+      ? undefined
+      : emissionRecorder(async () => {
+          // Unreachable: the success terminal fires only after the engine
+          // returned, and the engine sets `report` before it does. Throwing
+          // rather than returning quietly matters anyway — a sink that returns
+          // still mints a receipt, so a silent skip here would buy the commit
+          // gate's approval for a record that was never written.
+          if (report === undefined) {
+            throw new Error(
+              `promotion of ${request.target} reached its success terminal with no report to record`,
+            );
+          }
+          await recorder({
+            target: report.target,
+            treeDigest: report.treeDigest,
+            owner,
+            recoveredPriorAttempt: report.recoveredPriorAttempt,
+          });
+        });
+
+  return runEffect(mode, plan, promoted, ledger);
 }
 
 // ─── Directory-copy adapter (production `copyDir` seam) ───────────────────────

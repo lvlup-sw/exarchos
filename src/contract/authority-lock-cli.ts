@@ -59,7 +59,30 @@ const LOCK_NOTE =
   'the amendment re-enters the freeze through this gesture rather than around ' +
   'it). Regenerate with ' +
   '`npx tsx src/contract/authority-lock-cli.ts` after reviewing and approving ' +
-  'the new authority digests, then commit this file.';
+  'the new authority digests, then commit this file. ' +
+  'RE-APPROVED for 2.12.0-preview.4. The ONLY difference was the ' +
+  '`strategos-contracts` version string: every digest — that authority\'s own content ' +
+  'digest, plus `action-id-registry`, `contract-surface` and `invariant-catalog` — ' +
+  'matched the live tree unchanged, so the frozen surface is byte-identical and nothing ' +
+  'about the contract actually moved. WORTH FIXING AT THE ROOT: this authority\'s ' +
+  '`version` is the PACKAGE version, read from package.json by the collector, so the ' +
+  'freeze trips on every release whether or not the contract changed — and each trip ' +
+  'costs a re-approval plus roughly eighteen red drift guards until someone performs it. ' +
+  'The content digest already carries the real signal. A freeze that fires loudest when ' +
+  'it has the least to say trains its readers to re-approve without looking, which is the ' +
+  'opposite of what a freeze is for. ' +
+  'RE-APPROVED for the effect-ledger remedy that moved two writers off the read surface. ' +
+  'Unlike the preview.4 bump above, this one is a REAL surface change and the ' +
+  '`action-id-registry` digest moves because the action set moved: ' +
+  '`exarchos_orchestrate.reconcile_worktrees` is NEW (the reservation reclaim and the ' +
+  'launch / merge reconcilers that rode `exarchos_view.ps probe:true`), and `stack_place` ' +
+  'is re-parented from `exarchos_view` to `exarchos_orchestrate`. Both moves close a ' +
+  'provider disagreement rather than introducing capability: every event involved — ' +
+  '`worktree.orphan_detected`, `launch.executed`, `stack.position-filled` — was ALREADY ' +
+  'registered to `exarchos_orchestrate` while being appended from a `exarchos_view` ' +
+  'action, so the registry and the tree disagreed about who performs the effect. No event ' +
+  'schema, no invariant and no wire format changed; `ps` loses its `probe` parameter and ' +
+  'becomes genuinely read-only, which is the user-visible half.';
 
 /**
  * Who/what the freeze records as the approver of the CURRENT snapshot. Bump
@@ -67,7 +90,10 @@ const LOCK_NOTE =
  * lockfile carries the provenance of the approval rather than of the tool.
  */
 export const CURRENT_APPROVER =
-  'internal-mechanics-residue (#1764 DR-7 task 086 — INV-4 check→audit, deferring to render:guard)';
+  'Reed (re-approved for the effect-ledger remedy: reconcile_worktrees added and ' +
+  'stack_place re-parented onto exarchos_orchestrate, closing three provider ' +
+  'disagreements; decision recorded on their instruction). Previously: Reed ' +
+  '(v2.12.0-preview.4 release bump)';
 
 export function regenerateAuthorityLock(approvedBy = CURRENT_APPROVER): string {
   const paths = defaultSourcePaths();

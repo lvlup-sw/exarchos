@@ -51,9 +51,15 @@ import {
 // compared against a string another list also restates.
 import * as liveProof from '../../audit/core/authority-live-proof.js';
 import {
+  EFFECT_EVENT_REPRESENTATION_IDS,
+  EFFECT_EVENT_SOURCES,
+  EFFECT_PLAN_AUTHORITY,
   EVENT_CATALOG_REPRESENTATION_IDS,
   EVENT_CATALOG_SOURCES,
   bindingFor,
+  measureEffectEvent,
+  measureEmissionSinks,
+  readEffectEventSources,
   derivedSites,
   literalSites,
   measureCliSurface,
@@ -566,24 +572,27 @@ describe('authority census — the live proof fails closed', () => {
     expect(empty.bindingSubjectCount).toBe(0);
   });
 
-  it('AuthorityCensus_LiveProof_UpgradesEvidenceForTwoRowsOnly', () => {
-    // What this task did and did NOT earn, stated where CI can see it.
+  it('AuthorityCensus_LiveProof_UpgradesEvidenceForTheMeasuredRowsOnly', () => {
+    // What the oracle did and did NOT earn, stated where CI can see it.
     //
-    // Task 025 shipped the evidence field keyed by HOP, so this task could not
-    // record its own result: flipping `authority`/`binding` away from
-    // `declared-row` would have claimed live evidence for all eight rows when
-    // six still had none. Task 066 re-keyed it by (hop, ROW), and the upgrade is
-    // recorded here — these two rows, and only these two, have a measurement
+    // The evidence field is keyed by (hop, ROW) precisely so this cannot be an
+    // all-or-nothing flip: moving `authority`/`binding` away from `declared-row`
+    // wholesale would claim live evidence for all eight rows when only the
+    // measured ones have any. These rows, and only these, have a measurement
     // that reads the tree.
-    expect([...liveMeasuredBoundaries()].sort()).toEqual(['cli-surface', 'event-catalog']);
-    for (const boundary of ['cli-surface', 'event-catalog']) {
-      if (boundary !== 'cli-surface' && boundary !== 'event-catalog') continue;
+    const LIVE = ['cli-surface', 'effect-event', 'event-catalog'];
+    expect([...liveMeasuredBoundaries()].sort()).toEqual(LIVE);
+    for (const boundary of topologyRows().map((r) => r.boundary)) {
+      if (!LIVE.includes(boundary)) continue;
       expect(rowEvidence(boundary).authority.evidence).toBe('live-measurement');
       expect(rowEvidence(boundary).binding.evidence).toBe('live-measurement');
     }
-    // The six that earned nothing stay strictly weaker on both row-resolved hops.
-    for (const boundary of topologyRows().map((r) => r.boundary)) {
-      if (boundary === 'cli-surface' || boundary === 'event-catalog') continue;
+    // The rest earned nothing and stay strictly weaker on both row-resolved hops.
+    const declaredOnly = topologyRows()
+      .map((r) => r.boundary)
+      .filter((b) => !LIVE.includes(b));
+    expect(declaredOnly).toHaveLength(5);
+    for (const boundary of declaredOnly) {
       expect(rowEvidence(boundary).authority.evidence).toBe('declared-row');
       expect(rowEvidence(boundary).binding.evidence).not.toBe('live-measurement');
     }
@@ -614,14 +623,25 @@ describe('authority census — the live proof fails closed', () => {
     // `EVENT_CATALOG_SOURCES`, never restated here. A source added to either
     // list without reaching the evidence table fails this.
     expect([...declaredSubjects].sort()).toEqual(
-      [...new Set([...GOVERNED_SOURCES, ...Object.values(EVENT_CATALOG_SOURCES)])].sort(),
+      [
+        ...new Set([
+          ...GOVERNED_SOURCES,
+          ...Object.values(EVENT_CATALOG_SOURCES),
+          ...Object.values(EFFECT_EVENT_SOURCES),
+        ]),
+      ].sort(),
     );
 
     const measured: readonly MeasuredBoundary[] = [
       measureCliSurfaceLive(),
       measureEventCatalog(readEventCatalogSources()),
+      measureEffectEvent(readEffectEventSources()),
     ];
-    expect(measured.map((m) => m.boundary).sort()).toEqual(['cli-surface', 'event-catalog']);
+    expect(measured.map((m) => m.boundary).sort()).toEqual([
+      'cli-surface',
+      'effect-event',
+      'event-catalog',
+    ]);
 
     // The live report and the committed report agree, finding for finding, over
     // the WHOLE table. That is the corroboration this task exists to produce:
@@ -663,5 +683,64 @@ describe('authority census — the live proof fails closed', () => {
     expect(bindingFor([derived, derived], 'A', 'how', 'why').kind).toBe('bound');
     expect(bindingFor([derived, literal], 'A', 'how', 'why').kind).toBe('unbound');
     expect(bindingFor([literal], 'A', 'how', 'why').kind).toBe('unbound');
+  });
+
+  it('AuthorityLiveProof_EffectEventRow_NamesItsOracleModule', () => {
+    // The witness on the row resolves: the module exists, the entrypoint is a
+    // real exported function of it, and both hops name the same one. A row can
+    // otherwise claim a live measurement by describing one.
+    for (const hop of ['authority', 'binding'] as const) {
+      const cell = rowEvidence('effect-event')[hop];
+      expect(cell.evidence).toBe('live-measurement');
+      if (cell.evidence !== 'live-measurement') continue;
+      expect(cell.oracle.module).toBe('tools/audit/core/authority-live-proof.ts');
+      expect(existsSync(path.join(REPO_ROOT, cell.oracle.module))).toBe(true);
+      expect(typeof Reflect.get(liveProof, cell.oracle.entrypoint)).toBe('function');
+      expect(cell.oracle.entrypoint).toBe('measureEffectEvent');
+    }
+
+    const sources = readEffectEventSources();
+    const measured = measureEffectEvent(sources);
+
+    // What the tree says, stated as the split it actually is. The ledger owner
+    // names the event it appends off the emission it was handed; the promoter
+    // discards the emission and hands a typed record to a destination its caller
+    // owns. Both mint a receipt, so the carrier's commit gate cannot tell them
+    // apart — this measurement is the only thing that can.
+    expect(measured.authority).toEqual({ kind: 'single', authority: EFFECT_PLAN_AUTHORITY });
+    const bindingById = new Map(measured.representations.map((r) => [r.id, r.binding.kind]));
+    expect(bindingById.get(EFFECT_EVENT_REPRESENTATION_IDS.plan)).toBe('authoritative');
+    expect(bindingById.get(EFFECT_EVENT_REPRESENTATION_IDS.vcsLedger)).toBe('bound');
+    expect(bindingById.get(EFFECT_EVENT_REPRESENTATION_IDS.promotion)).toBe('unbound');
+
+    // The COUNTERFACTUAL, applied to the exact span the measurement classified.
+    // Rewrite the ledger owner's sink into one that ignores the emission and the
+    // representation must stop being bound — otherwise `bound` here is a
+    // property of the code being present, not of it deriving anything, and the
+    // row would close on a sink that had quietly stopped following the plan.
+    const vcsSinks = measureEmissionSinks(sources.vcsLedger, EFFECT_EVENT_SOURCES.vcsLedger);
+    expect(vcsSinks.length).toBeGreaterThan(0);
+    expect(literalSites({ id: 'x', binding: { kind: 'authoritative' }, sites: vcsSinks })).toEqual(
+      [],
+    );
+    const blinded = spliceSites(
+      sources.vcsLedger,
+      vcsSinks,
+      () => 'emissionRecorder(async () => { await Promise.resolve(); })',
+    );
+    const blindedSinks = measureEmissionSinks(blinded, EFFECT_EVENT_SOURCES.vcsLedger);
+    expect(blindedSinks.every((s) => s.kind === 'literal')).toBe(true);
+    expect(bindingFor(blindedSinks, EFFECT_PLAN_AUTHORITY, 'how', 'why').kind).toBe('unbound');
+    // CONTROL: the unmutated sinks still bind, so the flip above is attributable
+    // to the splice and not to the re-measurement being broken.
+    expect(bindingFor(vcsSinks, EFFECT_PLAN_AUTHORITY, 'how', 'why').kind).toBe('bound');
+
+    // Deleting the commit gate must take the authority claim with it. Without
+    // this the `single` authority above would survive the field becoming a
+    // comment, which is the whole difference between a declaration and a rule.
+    const gutted = sources.carrier.split('throw new UnrecordedEmissionError').join('void 0; //');
+    expect(() => measureEffectEvent({ ...sources, carrier: gutted })).toThrow(
+      /ZERO .*UnrecordedEmissionError/,
+    );
   });
 });

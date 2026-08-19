@@ -107,6 +107,14 @@ export function buildConfigDescription(config: ResolvedProjectConfig) {
         enabled: annotate(config.plugins.impeccable.enabled, DEFAULTS.plugins.impeccable.enabled),
       },
     },
+    events: {
+      // How hard the post-dispatch emission verifier bites. Default `block`,
+      // in every environment; `advisory` records a violation without failing.
+      emissionEnforcement: annotate(
+        config.events.emissionEnforcement,
+        DEFAULTS.events.emissionEnforcement,
+      ),
+    },
     verification: {
       // The per-cell policy overlay (R2 / task 001). Default is the empty
       // overlay (`{}`) — "override nothing"; any cell present means the consumer

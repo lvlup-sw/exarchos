@@ -1,9 +1,10 @@
 // ─── Worktree-surface conformance: registry-driven parity harness (WLM-6 T003) ─
 //
-// The seven `surface: 'worktree'` actions — acquire_worktree, release_worktree,
-// prune_worktrees, serialize_merge (exarchos_orchestrate) and worktrees, ps,
-// wait (exarchos_view) — ride the existing visible tools (INV-5d, no fifth
-// tool) and delegate to the in-process `WorktreeManager` / merge serializer.
+// The eight `surface: 'worktree'` actions — acquire_worktree, release_worktree,
+// prune_worktrees, serialize_merge, reconcile_worktrees (exarchos_orchestrate)
+// and worktrees, ps, wait (exarchos_view) — ride the existing visible tools
+// (INV-5d, no fifth tool) and delegate to the in-process `WorktreeManager` /
+// merge serializer.
 //
 // This suite pins the DR-1 surface contract by ITERATING `TOOL_REGISTRY`
 // filtered on `surface === 'worktree'` — NOT a hardcoded name list — so a new
@@ -53,6 +54,7 @@ import {
   handleAcquireWorktree,
   handleReleaseWorktree,
   handlePruneWorktrees,
+  handleReconcileWorktrees,
   handleViewWorktrees,
   handleViewPs,
   handleViewWait,
@@ -97,6 +99,10 @@ const FIXTURE_ARGS: Readonly<Record<string, Record<string, unknown>>> = {
   serialize_merge: { featureId: 'F', integrationRef: 'main', sourceBranch: 'feat', strategy: 'squash' },
   worktrees: {},
   ps: {},
+  // No parameters at all. On an empty store every pass finds nothing to heal,
+  // so the run is side-effect-free here despite being a mutation in general —
+  // which is what makes it safe to drive through the parity harness.
+  reconcile_worktrees: {},
   // until:'idle' resolves immediately on an empty store; fixed clock → waitedMs 0.
   wait: { until: 'idle', timeoutMs: 1000 },
 };
@@ -134,6 +140,11 @@ const orchestrateStub: CompositeHandler = async (args, ctx): Promise<ToolResult>
       return handlePruneWorktrees(rest, ctx, DETERMINISTIC_DEPS);
     case 'serialize_merge':
       return handleSerializeMerge(rest, ctx, SERIALIZE_DEPS);
+    // Threaded with VIEW_DEPS, not DETERMINISTIC_DEPS: this handler moved off
+    // `ps` and takes the same `WorktreeViewDeps` seam, so it needs the fixed
+    // clock for a byte-stable envelope across the two carriers.
+    case 'reconcile_worktrees':
+      return handleReconcileWorktrees(rest, ctx, VIEW_DEPS);
     default:
       return {
         success: false,
@@ -239,11 +250,15 @@ describe('worktree surface conformance (registry-driven, DR-1)', () => {
       'exarchos_view',
       'exarchos_workflow',
     ]);
-    // The surface enumerates exactly the seven DR-10 actions across two tools.
+    // The surface enumerates exactly eight actions across two tools —
+    // `reconcile_worktrees` joined when the reclaim and the two reconcilers
+    // moved off `ps probe:true`, which is a re-parenting of existing behavior
+    // and NOT a new visible tool (the count above stays four).
     expect(surfaceActions().map((a) => a.name).sort()).toEqual([
       'acquire_worktree',
       'prune_worktrees',
       'ps',
+      'reconcile_worktrees',
       'release_worktree',
       'serialize_merge',
       'wait',

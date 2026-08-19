@@ -1,7 +1,7 @@
 {
   "capturedAt": "2026-08-13",
   "tree": "03413967a346c78efb548ac3452e382ca681ec7f",
-  "count": 123,
+  "count": 124,
   "actionIds": [
     "exarchos_event.append",
     "exarchos_event.batch_append",
@@ -68,6 +68,7 @@
     "exarchos_orchestrate.prune_stale_workflows",
     "exarchos_orchestrate.prune_worktrees",
     "exarchos_orchestrate.reconcile_state",
+    "exarchos_orchestrate.reconcile_worktrees",
     "exarchos_orchestrate.release_worktree",
     "exarchos_orchestrate.request_synthesize",
     "exarchos_orchestrate.review_diff",
@@ -77,6 +78,7 @@
     "exarchos_orchestrate.serialize_merge",
     "exarchos_orchestrate.setup_worktree",
     "exarchos_orchestrate.spec_coverage_check",
+    "exarchos_orchestrate.stack_place",
     "exarchos_orchestrate.task_claim",
     "exarchos_orchestrate.task_complete",
     "exarchos_orchestrate.task_fail",
@@ -106,7 +108,6 @@
     "exarchos_view.quality_hints",
     "exarchos_view.session_provenance",
     "exarchos_view.shepherd_status",
-    "exarchos_view.stack_place",
     "exarchos_view.stack_status",
     "exarchos_view.synthesis_readiness",
     "exarchos_view.tasks",
