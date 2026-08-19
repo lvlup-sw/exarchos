@@ -70,6 +70,25 @@ export const INTERNAL_ADMISSION_EVENT_TYPES = [
   'admission.cutover-ready',
 ] as const;
 
+/**
+ * Server-owned VCS ledger facts.
+ *
+ * `foldVcsLedger` treats these as AUTHORITATIVE fencing and idempotency state:
+ * a recorded `vcs.executed` lets a retry skip the git effect, a
+ * `vcs.compensated` sticky-fails a key, and the epoch fences later mutations.
+ * Adding them to the catalog so their schemas are validated also made them
+ * appendable through the generic `exarchos_event.append` surface, which is
+ * `ROLE_ANY` and rejects only RESERVED types. Left off this list, any caller
+ * could mint a fact that suppresses or fences a real git mutation without
+ * passing through `VcsMutationOwner` — the ledger would be authoritative over
+ * input it does not own. Reserving them is what makes the fold's authority true.
+ */
+export const INTERNAL_VCS_LEDGER_EVENT_TYPES = [
+  'vcs.requested',
+  'vcs.executed',
+  'vcs.compensated',
+] as const;
+
 /** Server-owned cancellation process-manager facts (v2.12, DR-7). */
 export const INTERNAL_CANCELLATION_EVENT_TYPES = [
   'cancel.requested',

@@ -199,7 +199,10 @@ describe('emission verifier policy', () => {
 describe('emission enforcement reaches the dispatch result', () => {
   const TOOL = 'exarchos_workflow';
   // `cleanup` declares `workflow.cleanup` with `condition: 'always'`.
-  const silentHandler = async (): Promise<ToolResult> => ({ success: true, data: {} });
+  const silentHandler = async (): Promise<ToolResult> => ({
+    success: true,
+    data: { performed: 'the-side-effect' },
+  });
 
   const dispatchCleanup = async (
     featureId: string,
@@ -231,6 +234,15 @@ describe('emission enforcement reaches the dispatch result', () => {
     expect(result.success).toBe(false);
     expect((result.error as Record<string, unknown>).code).toBe('EMISSION_CONTRACT_VIOLATED');
     expect((result.error as Record<string, unknown>).message).toContain('workflow.cleanup');
+
+    // This branch is reachable ONLY when the handler completed and reported
+    // success, so the effects are already performed. Half the actions behind
+    // this dispatch are non-idempotent, and a bare failure envelope reads as
+    // "your call did nothing" — which would invite a retry that repeats a
+    // mutation. The envelope therefore has to say so, and has to hand back what
+    // the operation produced rather than discarding it with the result.
+    expect((result.error as Record<string, unknown>).message).toMatch(/do NOT retry/i);
+    expect(result.data).toEqual({ performed: 'the-side-effect' });
   });
 
   it('EmissionEnforcement_AdvisoryMode_SameViolationReturnsTheHandlerResult', async () => {

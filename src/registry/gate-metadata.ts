@@ -1,4 +1,8 @@
-import { INTERNAL_ADMISSION_EVENT_TYPES, INTERNAL_CANCELLATION_EVENT_TYPES } from '../events/schemas.js';
+import {
+  INTERNAL_ADMISSION_EVENT_TYPES,
+  INTERNAL_CANCELLATION_EVENT_TYPES,
+  INTERNAL_VCS_LEDGER_EVENT_TYPES,
+} from '../events/schemas.js';
 import type { SupportedGateClass } from '../verbs/gates/gate-provider-registry.js';
 
 export interface GateMetadata {
@@ -109,7 +113,11 @@ export const RESERVED_EVENT_APPEND_REGISTRY: ReadonlyMap<
   string,
   ReservedEventAppendRegistration
 > = new Map(
-  [...INTERNAL_ADMISSION_EVENT_TYPES, ...INTERNAL_CANCELLATION_EVENT_TYPES].map((eventType) => [
+  [
+    ...INTERNAL_ADMISSION_EVENT_TYPES,
+    ...INTERNAL_CANCELLATION_EVENT_TYPES,
+    ...INTERNAL_VCS_LEDGER_EVENT_TYPES,
+  ].map((eventType) => [
     eventType,
     {
       eventType,

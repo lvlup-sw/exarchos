@@ -1209,14 +1209,27 @@ export async function dispatch(
       ...emissionVerdict.missingEvents,
       ...emissionVerdict.lifecycleViolations.map((v) => v.event),
     ];
+    // The disposition is the load-bearing half of this envelope. Every
+    // `not-applicable` arm above returns first, so `violated` is reached ONLY
+    // when the handler ran to completion AND reported success — the effects are
+    // already performed. `exarchos_orchestrate` carries `create_pr`, `merge_pr`,
+    // `merge_orchestrate` and `acquire_worktree`, none idempotent under a naive
+    // retry, so a bare failure would invite a caller to repeat a mutation that
+    // already succeeded. The handler's payload rides along for the same reason:
+    // a broken bookkeeping check is not a reason to withhold what the operation
+    // produced.
     return attachMeta({
       success: false,
+      data: result.data,
       error: {
         code: 'EMISSION_CONTRACT_VIOLATED',
         message:
           `${tool}.${typeof args.action === 'string' ? args.action : ''} declares an ` +
-          `unconditional emission that did not land: ${undelivered.join(', ')}. The ` +
-          'declaration and the handler have drifted — this is an Exarchos defect, not a ' +
+          `unconditional emission that did not land: ${undelivered.join(', ')}. ` +
+          'THE OPERATION COMPLETED AND ITS EFFECTS ARE PERFORMED — do NOT retry this ' +
+          'call; retrying repeats a mutation that already succeeded. Its result is ' +
+          'preserved on `data`. What failed is the bookkeeping: the declaration and ' +
+          'the handler have drifted, which is an Exarchos defect rather than a ' +
           "malformed call. Reconcile the action's `autoEmits` with what its handler " +
           'appends; to surface the finding without failing the run, set ' +
           '`events.emission-enforcement: advisory` in `.exarchos.yml`.',
