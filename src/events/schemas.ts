@@ -83,11 +83,11 @@ export const INTERNAL_ADMISSION_EVENT_TYPES = [
  * passing through `VcsMutationOwner` — the ledger would be authoritative over
  * input it does not own. Reserving them is what makes the fold's authority true.
  */
-export const INTERNAL_VCS_LEDGER_EVENT_TYPES = [
+export const INTERNAL_VCS_LEDGER_EVENT_TYPES: readonly [
   'vcs.requested',
   'vcs.executed',
   'vcs.compensated',
-] as const;
+] = ['vcs.requested', 'vcs.executed', 'vcs.compensated'];
 
 /** Server-owned cancellation process-manager facts (v2.12, DR-7). */
 export const INTERNAL_CANCELLATION_EVENT_TYPES = [
